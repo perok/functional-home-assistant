@@ -498,15 +498,15 @@ class UseCaseSuite extends munit.CatsEffectSuite {
     // (a restart re-seeds the cache), so only the entry itself (and any loose
     // imports) is watched. Iterating on `lib/` is a restart or `fh push`.
     val dir = stageWorkspace(withDump = true)
-    // Bootstrap already seeded the starter `dashboard.pkl`; overwrite it with
+    // Bootstrap already seeded the starter `site.pkl`; overwrite it with
     // the entry this test needs.
-    os.write.over(dir / "dashboard.pkl", entryNeedingDump)
+    os.write.over(dir / "site.pkl", entryNeedingDump)
 
     val imports = SourceEval
-      .eval(dir, "dashboard.pkl")
+      .eval(dir, "site.pkl")
       .fold(err => fail(s"eval failed: $err"), _.imports)
 
-    assertEquals(imports, Set(dir / "dashboard.pkl"), clue = imports)
+    assertEquals(imports, Set(dir / "site.pkl"), clue = imports)
   }
 
   // ---------------------------------------------------------------- persona 4

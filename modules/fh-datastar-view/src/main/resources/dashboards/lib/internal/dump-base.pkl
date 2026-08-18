@@ -1,7 +1,7 @@
 /// The house-wide lists every generated dump has — declared here as a CONTRACT
 /// rather than left to what `PklDump` happens to emit.
 ///
-/// Why this module exists at all: `dashboard.pkl`, the starter seeded into every
+/// Why this module exists at all: `site.pkl`, the starter seeded into every
 /// fresh workspace, names no concrete entity — each section is a query over one
 /// of these lists, so it renders on any installation. That makes them the one
 /// part of the dump an entry can rely on WITHOUT having looked at the dump, and

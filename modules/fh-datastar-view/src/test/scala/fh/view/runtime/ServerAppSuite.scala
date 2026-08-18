@@ -86,9 +86,12 @@ class ServerAppSuite extends munit.CatsEffectSuite {
     }
   }
 
-  test("a legacy pre-entrypoint dashboard.pkl says how to migrate") {
-    // No automatic migration (the file is the user's), so the diagnostic IS
-    // the instructions — and it reaches the user as the error page at `/`.
+  test("a site.pkl that is really a dashboard says what it should be") {
+    // Renaming the entrypoint to `site.pkl` means an upgrade rarely hits this
+    // — an old `dashboard.pkl` is simply an unread module beside the seeded
+    // starter. It is still reachable by hand (rename the wrong file, paste the
+    // wrong body), and then the diagnostic IS the instructions: it reaches the
+    // user as the error page at `/`.
     staged(
       """amends "@fh-dashboard/entry.pkl"
         |import "@fh-dashboard/components.pkl" as c

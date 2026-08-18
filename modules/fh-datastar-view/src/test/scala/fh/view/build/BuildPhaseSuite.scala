@@ -441,7 +441,7 @@ class BuildPhaseSuite extends munit.FunSuite {
   test("literalLocator points a transform back at its Pkl source line") {
     val dir = os.temp.dir()
     os.write(
-      dir / "dashboard.pkl",
+      dir / "site.pkl",
       "import \"lib/components.pkl\" as c\n" +
         "card = (c.entityCard(p)) { transform = \"$round($number($state), 1)\" }\n"
     )
@@ -453,11 +453,11 @@ class BuildPhaseSuite extends munit.FunSuite {
     )
 
     val locate = SourceEval.literalLocator(
-      Set(dir / "dashboard.pkl", dir / "lib" / "dump.pkl")
+      Set(dir / "site.pkl", dir / "lib" / "dump.pkl")
     )
     assertEquals(
       locate("$round($number($state), 1)"),
-      Some("dashboard.pkl:2")
+      Some("site.pkl:2")
     )
     assertEquals(locate("$nope($)"), None)
   }

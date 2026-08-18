@@ -22,7 +22,7 @@ file you dropped in the directory became a dashboard — usually a broken one.
 
 ## The decision
 
-**One entrypoint, `dashboard.pkl`, whose value is a map of slug → dashboard.**
+**One entrypoint, `site.pkl`, whose value is a map of slug → dashboard.**
 It amends the new `@fh-dashboard/site.pkl`:
 
 ```pkl
@@ -39,7 +39,10 @@ dashboards {
 
 `entry.pkl` — one dashboard — is unchanged. What changed is where a dashboard is
 NAMED: the mapping key is the slug and the route, and a file is a dashboard only
-because a key points at it. Two authoring forms, one type: amend a key into
+because a key points at it. The FILE is `site.pkl`, matching the library module
+it amends the way a dashboard file matches `entry.pkl`. That is not cosmetic:
+calling it `dashboard.pkl` would name it after one of the things it contains,
+and it is also what makes the upgrade a non-event (see Consequences). Two authoring forms, one type: amend a key into
 existence (the mapping's default is an `entry`), or assign an imported module
 that amends `entry.pkl`. Both were verified against the pinned pkl-core (0.32.1)
 before the design was settled; the second needs the CALL form, `import("x.pkl")`,
@@ -71,7 +74,7 @@ is now three lines and cannot forget to start a recorder.
 **A pushed slug is never reclaimed.** `ServerApp` diffs against its OWN record of
 what the entrypoint owned last time, not against the registry, so a slug installed
 by `POST /system/push/<slug>` (ADR 0010) is never in the removal set. `fh push`
-can also send a whole evaluated site now, since `dashboard.pkl` is the natural
+can also send a whole evaluated site now, since `site.pkl` is the natural
 file to push; that form is all-or-nothing, because a half-installed site is not a
 state anybody asked for.
 
@@ -128,10 +131,18 @@ dashboard's JSON. Deliberately deferred to its own change — repeating them cos
 
 ## Consequences
 
-- A workspace written the old way (a `dashboard.pkl` that amends `entry.pkl`)
-  does not evaluate as a site. There is no automatic migration — the file is the
-  user's — so the decode error IS the migration instructions, and it reaches the
-  user as the error page at `/`. `home-addon/DOCS.md` carries the same wrapper.
+- **Upgrading is a non-event, because of the NAME.** The entrypoint is
+  `site.pkl`, not `dashboard.pkl`: it is the site, and naming it after one of
+  the things it contains was the mistake the first draft made. So an existing
+  workspace keeps its `dashboard.pkl` (and every other entry) as an ordinary
+  module, gets a starter `site.pkl` seeded beside it, and boots. Nothing is
+  moved or rewritten — they are the user's files — and serving one is a key:
+  `dashboards { ["home"] = import("dashboard.pkl") }`. The boot log names the
+  files it found so the user is not left inferring it from an instance that
+  looks empty; `home-addon/DOCS.md` says the same.
+- A `site.pkl` that is really a single dashboard (a rename gone wrong, a pasted
+  body) still gets the decode diagnostic naming what it should be — the error
+  page at `/` is where it lands.
 - `sbt dashboardBuild` takes no argument any more: there is one entrypoint, and
   the artifact is the whole site.
 - `DumpRefresh` validates the entrypoint rather than looping entry files; an

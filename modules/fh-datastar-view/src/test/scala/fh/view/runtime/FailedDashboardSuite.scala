@@ -76,7 +76,7 @@ class FailedDashboardSuite extends ServerHarness {
         )
         assert(body.contains(htmlEscape(boom)), clue = body)
         // The fix path: the editor link to this slug's source.
-        assert(body.contains("edit/file/dashboard.pkl"), clue = body)
+        assert(body.contains("edit/file/site.pkl"), clue = body)
       }
     }
   }

@@ -1,4 +1,4 @@
-// A Pkl-authored If/else dashboard — point a key at it from `dashboard.pkl`
+// A Pkl-authored If/else dashboard — point a key at it from `site.pkl`
 // to serve it (ADR 0021).
 // The demo entry for conditional sections. An `If` is the tabs machinery with
 // a condition: each branch is an inline surface baked into the host's

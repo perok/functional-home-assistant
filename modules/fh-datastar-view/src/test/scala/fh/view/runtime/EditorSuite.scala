@@ -101,7 +101,7 @@ class EditorSuite extends munit.FunSuite {
     val ws = os.temp.dir() / "ws"
     os.makeDir.all(ws / "lib")
     os.makeDir.all(ws / ".fh")
-    os.write(ws / "dashboard.pkl", "// the entrypoint")
+    os.write(ws / "site.pkl", "// the entrypoint")
     os.write(ws / "pkl-tabs.pkl", "// tabs")
     os.write(ws / "PklProject", "amends \"...\"")
     os.write(ws / "PklProject.deps.json", "{}")
@@ -147,8 +147,8 @@ class EditorSuite extends munit.FunSuite {
       assertEquals(
         entries,
         List(
-          "dashboard.pkl" -> "entry",
           "pkl-tabs.pkl" -> "module",
+          "site.pkl" -> "entry",
           "lib/components.pkl" -> "lib",
           "PklProject" -> "manifest"
         )
@@ -194,7 +194,7 @@ class EditorSuite extends munit.FunSuite {
         )
         .unsafeRunSync()
 
-      val (entryStatus, entryBody) = put("dashboard.pkl", "// the entrypoint")
+      val (entryStatus, entryBody) = put("site.pkl", "// the entrypoint")
       assertEquals(entryStatus, Status.Ok)
       assertEquals(
         parse(entryBody).toOption

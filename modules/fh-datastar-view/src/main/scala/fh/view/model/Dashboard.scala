@@ -679,7 +679,7 @@ case class Dashboard(
     * not load (the build/reload fails with the message, and live-reload keeps
     * the previous working renderer) — better than swapping in a dashboard whose
     * values silently blank out. `locateTransform` maps a transform back to a
-    * source location (e.g. `dashboard.pkl:42`) for a friendlier error; the
+    * source location (e.g. `site.pkl:42`) for a friendlier error; the
     * default ignores it (the model stays source-agnostic).
     */
   def validate(

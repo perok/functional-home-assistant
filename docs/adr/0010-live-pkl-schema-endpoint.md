@@ -87,7 +87,7 @@ personas differ only in **where the cache is seeded from** and **who seeds the
 | **Repo developer** | laptop, local server | the repo's `lib/`, seeded on start/`fh push` | `prepareDumps` vs a dev HA | works |
 | **Component developer** | their laptop | repo lib package + their own components | `fh pull` from the instance | works (push for their own cards) |
 
-**End user, `/edit` on the server.** Edits `dashboard.pkl` in the browser;
+**End user, `/edit` on the server.** Edits `site.pkl` in the browser;
 `LspBridge` spawns pkl-lsp as a **server-side subprocess** and the client sends
 absolute on-disk paths in `initialize`, so completion resolves the library (from
 the persistent package cache — `moduleCacheDir` is declared IN the generated
@@ -506,9 +506,10 @@ package cache** under `/data/pkl-cache` that survives image upgrades.
    to a dated `.fh/pins.json.backup.<stamp>`, pruned to the newest 50 — the dump
    refresh rewrites the pin constantly, so the trail is capped rather than
    unbounded.
-4. **Seed a starter entry** (`AddonBootstrap.defaultDashboard`, read straight
+4. **Seed the starter SITE** (`AddonBootstrap.starterSite`, read straight
    off the jar's own classpath resources like the lib — no seed directory)
-   only into a workspace with no top-level `*.pkl`.
+   only into a workspace with no `site.pkl` — other `*.pkl` are modules and
+   do not stand in for one (ADR 0021); the boot log names them.
 
 `PklProject.deps.json` is no longer resolve-once: `PklBuild` re-resolves
 whenever a `PklProject` is newer than the lockfile (and boot deletes it
@@ -632,10 +633,11 @@ one → no-op (no file compare — same content is the same `fh-home@…-g<hash>
 Otherwise the whole workspace is copied to a temp dir (lockfiles dropped so
 dependencies re-resolve; the package cache is not copied — `moduleCacheDir` is an
 absolute path shared with the real workspace), the new dump **seeded there as its
-package** with the staged pin moved to it, and every entry evaluated against it.
-An entry failing under the new dump blocks the swap **only if it builds under the
-current one** — a dashboard the user has mid-edit must not veto registry changes
-forever. On green the real `.fh/pins.json` moves to the new snapshot and the
+package** with the staged pin moved to it, and the ENTRYPOINT evaluated against
+it. A dashboard failing under the new dump blocks the swap **only if it builds
+under the current one** — a dashboard the user has mid-edit must not veto
+registry changes forever — and the same rule applies one level up, to an
+entrypoint that will not evaluate at all (ADR 0021). On green the real `.fh/pins.json` moves to the new snapshot and the
 renderers hot-swap; the **previous immutable package version stays in the cache**
 — the snapshot itself is the trail (still resolvable for any laptop pinned to
 it), so there is no dated backup file. On rejection nothing moves and the server

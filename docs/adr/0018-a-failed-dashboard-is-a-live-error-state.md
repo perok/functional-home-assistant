@@ -30,14 +30,17 @@ places that must behave differently on `Failed` match on it. Everything else
 keeps taking a concrete `Renderer`; a single converter collapses the state at
 the seam.
 
-- **Boot tolerates any failure, including all of them.** `prepareRenderers`
-  keeps only an empty directory fatal; per-entry failures are collected into
-  `Prepared.failed` and seeded as `Failed` refs, so an all-failed workspace
-  still boots — to the editor and each slug's error page.
+- **Boot tolerates any failure, including all of them.** Nothing is fatal:
+  `prepareRenderers` collects per-dashboard failures into `Prepared.failed` and
+  seeds them as `Failed` states, and an entrypoint that will not evaluate at all
+  registers a single failed slug (ADR 0021), so even a workspace that has never
+  built boots — to the editor and an error page at `/`.
 - **The error page is the fix path.** `GET /d/:slug` on a `Failed` slug serves
   a self-contained HTML document: no renderer, no theme, no cursor — it names
-  the slug, the escaped build error, and carries an editor link to
-  `<slug>.pkl`. HTML requests get the page; non-HTML consumers (`nodeDebug`,
+  the slug, the escaped build error, and carries an editor link to the
+  entrypoint (`site.pkl`, since ADR 0021 — a slug is no longer a filename, and
+  the entrypoint is where every fix starts, whether it names the dashboard
+  inline or imports it). HTML requests get the page; non-HTML consumers (`nodeDebug`,
   action POSTs, `publisherFor`) see a failed slug as absent, exactly as they
   see an unknown one. A connected SSE session is told to `reload` across both
   directions of a `Ready`⇄`Failed` transition — the error document has no

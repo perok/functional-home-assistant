@@ -1,5 +1,5 @@
 // The Pkl-authored demo dashboard. A MODULE, not a dashboard by itself: point
-// a key at it from `dashboard.pkl` to serve it (ADR 0021).
+// a key at it from `site.pkl` to serve it (ADR 0021).
 // Exercises the MVP component set: entity
 // cards (default value, live expr override, tap), a domain-checked slider,
 // and cross-dashboard navigation back to the jsonnet default.

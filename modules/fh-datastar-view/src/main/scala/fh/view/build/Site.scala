@@ -18,13 +18,18 @@ import io.circe.Json
   */
 object Site {
 
-  /** The entrypoint's filename. The only `*.pkl` in a workspace with a meaning
-    * fixed by its name — everything else is an ordinary module.
+  /** The entrypoint's filename — named after what it IS (the site), not after
+    * one of the things it names. The only `*.pkl` in a workspace whose meaning
+    * is fixed by its name; everything else is an ordinary module.
+    *
+    * A workspace that predates the entrypoint therefore keeps its files as
+    * ordinary modules and gets a starter `site.pkl` seeded beside them: nothing
+    * breaks, and serving one is a key.
     */
-  val EntryFile: String = "dashboard.pkl"
+  val EntryFile: String = "site.pkl"
 
   /** The entrypoint's map of slug -> dashboard. Public because its presence is
-    * what tells a pushed payload (`fh push dashboard.pkl`) apart from a single
+    * what tells a pushed payload (`fh push site.pkl`) apart from a single
     * pushed dashboard.
     */
   val DashboardsKey: String = "dashboards"
@@ -78,21 +83,21 @@ object Site {
           )
     }
 
-  /** The diagnostic a pre-ADR-0021 workspace gets: its `dashboard.pkl` amends
-    * `entry.pkl` and so evaluates to a bare dashboard with no `dashboards` key.
-    * There is no automatic migration (the file is the user's), so this message
-    * IS the migration instructions — it reaches them as the error page the
-    * instance serves at `/`.
+  /** The diagnostic for an entrypoint that is really a single dashboard — it
+    * amends `entry.pkl`, so it evaluates to a bare dashboard with no
+    * `dashboards` key. Nothing here rewrites the file (it is the user's), so
+    * the message IS the instructions, and it reaches them as the error page
+    * the instance serves at `/`.
     */
   private def missingDashboards: FHError =
     FHError.badCondition(
-      s"$EntryFile has no `$DashboardsKey`, so it names no dashboard. It looks " +
-        "like a dashboard from before the one-entrypoint change. Wrap it: move " +
-        s"its body into `$EntryFile` as\n" +
+      s"$EntryFile has no `$DashboardsKey`, so it names no dashboard. It reads " +
+        "like a single dashboard rather than the site. It should start\n" +
         "  amends \"@fh-dashboard/site.pkl\"\n" +
+        "and name each dashboard as a key — inline,\n" +
         "  dashboards { [\"home\"] { title = ...; card = ... } }\n" +
-        "or keep the dashboard in its own file (starting with `amends " +
-        "\"@fh-dashboard/entry.pkl\"`) and point a key at it:\n" +
+        "or in its own file (one that starts with `amends " +
+        "\"@fh-dashboard/entry.pkl\"`):\n" +
         "  dashboards { [\"home\"] = import(\"my-dashboard.pkl\") }"
     )
 

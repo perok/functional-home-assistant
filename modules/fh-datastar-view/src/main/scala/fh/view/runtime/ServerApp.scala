@@ -28,7 +28,7 @@ import fs2.io.file.{Watcher, Path}
 /** Runtime phase entry point.
   *
   * Connects to Home Assistant, evaluates the workspace's ONE entrypoint
-  * (`dashboard.pkl`) **in memory** into a slug -> dashboard map (ADR 0021),
+  * (`site.pkl`) **in memory** into a slug -> dashboard map (ADR 0021),
   * seeds live state, and serves them all with live Datastar updates. Run via
   * `fh-datastar-view/runMain fh.view.runtime.ServerApp` with `SERVER`/`SECRET`
   * set.
@@ -312,7 +312,7 @@ object ServerApp extends IOApp {
     *
     * Blocks on the feed's first connect + seed (so a live template call has a
     * connection), seeds the `@fh-home` dump ONCE from the live API
-    * ([[DashboardBuild.prepareDumps]]), then evaluates `dashboard.pkl` against
+    * ([[DashboardBuild.prepareDumps]]), then evaluates `site.pkl` against
     * it. Nothing here is fatal: a dashboard that fails to decode or validate
     * becomes a registered `Failed` one, and an entrypoint that will not
     * evaluate at all registers a single failed dashboard under
@@ -744,7 +744,7 @@ object ServerApp extends IOApp {
     * The two path inputs come from `run.sh` on the add-on; a local `sbt
     * dashboardServe` has neither set and falls back to a local scratch dir —
     * the lib AND the starter entry are both read straight off the running jar's
-    * own resources ([[BundledLib]], [[AddonBootstrap.defaultDashboard]]), so a
+    * own resources ([[BundledLib]], [[AddonBootstrap.starterSite]]), so a
     * dev run seeds exactly what the add-on does; iterating on library Pkl is
     * `fh push` against the running instance, never a mutable workspace `lib/`.
     */

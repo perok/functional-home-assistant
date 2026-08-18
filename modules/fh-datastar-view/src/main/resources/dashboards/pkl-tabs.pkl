@@ -1,4 +1,4 @@
-// A Pkl-authored tabs dashboard — point a key at it from `dashboard.pkl`
+// A Pkl-authored tabs dashboard — point a key at it from `site.pkl`
 // to serve it (ADR 0021). The typed counterpart of tabs.jsonnet. Demonstrates the `Tabs` sugar: one bar over
 // a single inline panel, one tab visible at a time.
 //

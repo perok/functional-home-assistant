@@ -48,7 +48,7 @@ extended. Once the hand-port completes they are deleted.
    the `theme.pkl` contract + its `theme-beer.pkl` implementation (the
    default and only shipped theme), `tokens.pkl`, the `site.pkl` entrypoint base
    + the `entry.pkl` dashboard scaffold, and generated `dump.pkl`) live in
-   `dashboards/lib/`. Above it sits ONE authored entrypoint, `dashboard.pkl`,
+   `dashboards/lib/`. Above it sits ONE authored entrypoint, `site.pkl`,
    naming every dashboard the instance serves (ADR 0021) — the slug is its
    mapping key, and any other top-level `*.pkl` is an ordinary module a key may
    import.

@@ -22,7 +22,7 @@ val commonSettings = Seq(
 addCommandAlias("doCodegen", "; fhTaskCodeGen ; home-codegen / scalafmt")
 // Datastar dashboard: build phase (regenerate dashboard.json) and runtime
 // server. There is nothing to name — a workspace has ONE entrypoint,
-// `dashboard.pkl`, holding every dashboard it serves (ADR 0021).
+// `site.pkl`, holding every dashboard it serves (ADR 0021).
 addCommandAlias(
   "dashboardBuild",
   "fh-datastar-view/runMain fh.view.build.BuildApp"

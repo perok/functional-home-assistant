@@ -43,7 +43,7 @@ object BuildApp extends IOApp {
       // bundled lib artifacts are threaded down so that first dump can pin its
       // `@fh-dashboard` dependency before any pins exist. The lib AND the
       // starter entry are both the running jar's own classpath resources
-      // ([[BundledLib]], [[AddonBootstrap.defaultDashboard]]) — no seed path.
+      // ([[BundledLib]], [[AddonBootstrap.starterSite]]) — no seed path.
       cacheDir <- pathFromEnv(
         "FH_PKL_CACHE_DIR",
         AddonBootstrap.defaultCacheDir

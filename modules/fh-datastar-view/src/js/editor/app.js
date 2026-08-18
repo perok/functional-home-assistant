@@ -128,10 +128,10 @@ async function save() {
   if (!res.ok) { setMsg("save failed"); return }
   // Saving a file no dashboard reads is allowed (you may be writing it before
   // the key that names it), but silence would read as "it is live" — which it
-  // is not until dashboard.pkl imports it.
+  // is not until site.pkl imports it.
   const saved = await res.json().catch(() => null)
   setMsg(saved && saved.used === false
-    ? "saved ✓ — but nothing in dashboard.pkl reads this file yet"
+    ? "saved ✓ — but nothing in site.pkl reads this file yet"
     : "saved ✓")
   // The preview iframe repaints itself live via its SSE stream on reload.
 }

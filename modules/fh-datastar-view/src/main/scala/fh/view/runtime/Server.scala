@@ -1368,7 +1368,7 @@ class Server(
     * asked for, and forcing it keeps `/d/<slug>` and the registry key in step
     * (the same `copy(slug = ...)` the eval path applies at decode time).
     *
-    * A whole SITE may be pushed too — an evaluated `dashboard.pkl` carries a
+    * A whole SITE may be pushed too — an evaluated `site.pkl` carries a
     * `dashboards` map, and that is now the natural file to push. Then the keys
     * are the slugs (the URL's is ignored, since a site names its own) and it is
     * all-or-nothing: any dashboard that fails to validate fails the push,
@@ -1664,7 +1664,7 @@ class Server(
          |    <h1>Dashboard $title failed to build</h1>
          |    <pre>${Server.escapeHtml(message)}</pre>
          |    <p>Fix the source in the editor — the dashboard reloads automatically.</p>
-         |    <p><a href="edit/file/$title.pkl">Edit $title.pkl</a></p>
+         |    <p><a href="edit/file/${Site.EntryFile}">Edit ${Site.EntryFile}</a></p>
          |  </div>
          |</body>
          |</html>""".stripMargin

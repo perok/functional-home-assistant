@@ -119,14 +119,14 @@ object FhScriptSuite extends SimpleIOSuite:
 
   test("targets: --slug is a push option, never a --write one") {
     // Since #116 a source file's name is not a slug (the slug is a key inside
-    // dashboard.pkl), so `--slug --write` would rename the FILE while claiming
+    // site.pkl), so `--slug --write` would rename the FILE while claiming
     // to rename the dashboard. Refused, with the fix in the message.
     fh.targets(NonEmptyList.one("a.pkl"), Some("other"), write = true)
       .attempt
       .map {
         case Left(fh.Die(msg)) =>
           expect(clue(msg).contains("--write sends SOURCE")) and
-            expect(clue(msg).contains("dashboard.pkl"))
+            expect(clue(msg).contains("site.pkl"))
         case other => failure(s"expected Die, got: $other")
       }
   }

@@ -815,14 +815,14 @@ class PklBuildSuite extends munit.FunSuite {
   test("the bundled starter dashboard builds against an arbitrary house") {
     val d = PklFixture.buildSiteDashboard(
       "home",
-      fh.view.build.AddonBootstrap.defaultDashboard
+      fh.view.build.AddonBootstrap.starterSite
     )
     assertEquals(d.validate(), Nil)
     // The LAYOUT names no concrete entity — the sections are queries over the
     // dump's house-wide lists, so the candidates come from whatever HA has.
     // (The header comment mentions `dump.entities.` as the way to name one, so
     // only the code after `card =` is checked.)
-    val layout = AddonBootstrap.defaultDashboard.dropWhile(_ != '\n')
+    val layout = AddonBootstrap.starterSite.dropWhile(_ != '\n')
     assert(
       !layout.substring(layout.indexOf("card =")).contains("dump.entities")
     )

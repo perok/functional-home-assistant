@@ -119,7 +119,7 @@ The same thing as §1, in words, because the diagram cannot show ordering and li
 open ONE WebSocket to Home Assistant, subscribe_entities
   the opening frame IS the full entity set, so there is no separate seeding step
 create ONE StateStore              // for every dashboard, not one each
-evaluate the ONE entrypoint        // dashboard.pkl -> slug -> dashboard (ADR 0021);
+evaluate the ONE entrypoint        // site.pkl -> slug -> dashboard (ADR 0021);
                                    // decoded PER SLUG, and neither a broken
                                    // dashboard nor a broken entrypoint crashes
                                    // the boot — both register
@@ -136,17 +136,42 @@ recorders follow the registry     // sharedPatchPublishers reconciles toAdd/
 
 ### Membership moves while it runs
 
-The slug set is not fixed at boot. A source edit re-evaluates the entrypoint
-(`ServerApp.reloadSite`) and writes the registry: keys it names are installed
-(a swap for one already there), keys it dropped are removed, and `POST
-/system/push/<slug>` installs one with no source at all. Because the recorders
-are a reconcile over `LiveSite.changes`, that single write is also what starts
-or stops a recorder — there is no second path that could disagree, and a removed
-slug cannot leave a fiber diffing every state batch forever.
+The slug set is not fixed at boot, and the registry write IS the recorder's
+lifecycle — there is no second path that could disagree:
 
-Removal only ever reclaims a slug the ENTRYPOINT dropped: `ServerApp` diffs
-against its own record of what the site owned last time, so a pushed slug (ADR
-0010) is never in the removal set.
+```mermaid
+flowchart LR
+  EDIT["a *.pkl changed<br/>(the entrypoint, an import,<br/>or a file APPEARING —<br/>the dir is watched too)"] --> RE
+  DUMP["dump swapped in<br/>DumpRefresh"] --> RE
+  RE["ServerApp.reloadSite<br/>re-evaluate the ONE entrypoint"] --> DIFF{"per slug, vs what<br/>was last installed"}
+  DIFF -->|unchanged| NOOP["do nothing<br/>— a write would rotate the log<br/>and repaint every viewer"]
+  DIFF -->|new or changed| INS["LiveSite.install"]
+  DIFF -->|gone from the site| RM["LiveSite.remove"]
+  PUSH["POST /system/push/:slug<br/>no source at all"] --> INS
+  INS --> REG[("LiveSite<br/>SignallingRef of slug -> LiveSlug")]
+  RM --> REG
+  REG -->|discrete| RECON["sharedPatchPublishers<br/>toAdd / toCancel"]
+  RECON -->|toAdd| START["start that slug's recorder"]
+  RECON -->|toCancel| STOP["cancel it"]
+
+  classDef ok fill:#dcfce7,stroke:#15803d,color:#0f172a
+  classDef store fill:#fef3c7,stroke:#b45309,color:#0f172a
+  class NOOP,START,STOP ok
+  class REG store
+```
+
+Three properties worth stating, because each is silent when broken:
+
+- **Installing a slug IS starting its recorder**, and removing one IS stopping
+  it. A removed slug cannot leave a fiber diffing every state batch forever.
+- **Removal only ever reclaims a slug the ENTRYPOINT dropped**: `ServerApp`
+  diffs against its own record of what the site owned last time, so a pushed
+  slug (ADR 0010) is never in the removal set.
+- **An unchanged dashboard is not re-installed.** The watcher fires on anything
+  in the workspace; writing a `Ready` state anyway emits on the slug's
+  `SignallingRef`, which rotates its log identity and repaints every open
+  browser. The comparison is per slug, so one author's edit repaints one
+  dashboard.
 
 ### A browser opens a dashboard
 

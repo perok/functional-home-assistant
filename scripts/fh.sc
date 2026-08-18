@@ -22,7 +22,7 @@
 // @fh-home.
 //
 // `fh push a.pkl b.pkl` evaluates each entry here and installs the RESULT on
-// the instance, live and ephemeral (pushing `dashboard.pkl` installs every
+// the instance, live and ephemeral (pushing `site.pkl` installs every
 // dashboard it names — ADR 0021); `--write` sends the SOURCE instead — the
 // entry AND the local modules it imports — into the instance's own workspace,
 // so it re-evaluates there and survives a restart; and
@@ -429,7 +429,7 @@ case class Target(entry: Path, slug: String)
   *
   * It is a `push` (JSON) option only. `--write` sends SOURCE, and a source
   * file's name is not a slug any more (ADR 0021: the slug is a key inside
-  * `dashboard.pkl`), so combining them would rename the file while claiming to
+  * `site.pkl`), so combining them would rename the file while claiming to
   * rename the dashboard.
   */
 def targets(
@@ -443,8 +443,8 @@ def targets(
     case Some(_) if write =>
       die(
         "--slug renames a pushed dashboard, but --write sends SOURCE — the " +
-          "slug is a key in the instance's dashboard.pkl, not a filename. " +
-          "Drop --slug, or edit the key in dashboard.pkl and write that."
+          "slug is a key in the instance's site.pkl, not a filename. " +
+          "Drop --slug, or edit the key in site.pkl and write that."
       )
     case Some(_) if entries.size > 1 =>
       die(
@@ -528,14 +528,14 @@ def siteSlugs(json: String): Option[List[String]] =
   *
   * '''The whole import set travels, not just the named file.''' A written file
   * whose imports stayed on the laptop does not build on the instance, and since
-  * #116 that is no longer a one-dashboard problem: `dashboard.pkl` importing a
+  * #116 that is no longer a one-dashboard problem: `site.pkl` importing a
   * module the instance lacks fails the site's evaluation, so EVERY dashboard
   * shows that error (ADR 0021). Sending what the entry actually reads is the
   * only way `--write` leaves the instance in a state it can evaluate.
   *
   * Writing the ENTRYPOINT is therefore how a dashboard is added, removed or
   * renamed, and it goes live immediately. Writing a plain module lands a file
-  * nothing serves until a key in `dashboard.pkl` points at it.
+  * nothing serves until a key in `site.pkl` points at it.
   */
 def writeSource(client: Client[IO], url: String, target: Target): IO[Unit] =
   for

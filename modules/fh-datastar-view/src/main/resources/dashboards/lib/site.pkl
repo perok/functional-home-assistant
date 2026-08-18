@@ -1,4 +1,4 @@
-/// The ONE entrypoint a workspace has: `dashboard.pkl` amends this module and
+/// The ONE entrypoint a workspace has: `site.pkl` amends this module and
 /// names every dashboard this instance serves, plus the settings that apply
 /// across them. A dashboard is DATA here, not a file — which is what lets you
 /// generate a hundred of them in a loop, and what makes adding or removing one

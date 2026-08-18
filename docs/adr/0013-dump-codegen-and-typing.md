@@ -124,7 +124,7 @@ a query over one of these, so it renders on any installation.
 
 **They are DECLARED in `@fh-dashboard/dump-base.pkl`, which the generated module
 `extends`, not properties this generator remembers to emit.** The difference
-matters for exactly the entry that depends on them: `dashboard.pkl` queries the
+matters for exactly the entry that depends on them: `site.pkl` queries the
 lists having never seen this home's dump, so a generator that stopped emitting
 one would fail as `Cannot find property` at eval — on somebody's first boot. A
 declaration with a `List()` default cannot fail that way; a home with no

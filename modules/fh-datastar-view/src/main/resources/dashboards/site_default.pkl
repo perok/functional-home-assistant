@@ -1,14 +1,16 @@
-// The starter site, seeded as `dashboard.pkl` into a workspace that has no
+// The starter site, seeded as `site.pkl` into a workspace that has no
 // entrypoint of its own (add-on first boot or a fresh local
 // `dashboard-local-dev`) — from then on it is YOURS to edit; every change
 // hot-reloads, including adding or removing a dashboard. Bundled straight into
 // the jar's own resources ([[AddonBootstrap]]), so there is no seed directory
 // to keep in sync or copy into the image.
 //
-// THIS FILE IS THE ONE ENTRYPOINT (ADR 0021). Every dashboard the instance
-// serves is a key in `dashboards` below, and the key is the route: `["home"]`
-// serves at `/d/home`. Anything else you drop in this directory is an ordinary
-// module — it becomes a dashboard only when a key points at it.
+// THIS FILE IS THE ONE ENTRYPOINT (ADR 0021), which is why it is named after
+// the SITE rather than after a dashboard. Every dashboard the instance serves
+// is a key in `dashboards` below, and the key is the route: `["home"]` serves
+// at `/d/home`. Anything else in this directory is an ordinary module — a file
+// becomes a dashboard only when a key points at it, e.g.
+// `["home"] = import("my-dashboard.pkl")`.
 //
 // It names NO concrete entity: every section is a query over one of the dump's
 // house-wide lists (`dump.lights`, `dump.switches`, `dump.sensors`, `dump.all`),
