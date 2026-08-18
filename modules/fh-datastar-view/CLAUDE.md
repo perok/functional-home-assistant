@@ -27,9 +27,19 @@ same commit; ADRs that change the pipeline update it too.
    `pkl-core` pin** — a different CLI tests different semantics than we ship:
 
    ```bash
-   pkl test modules/fh-datastar-view/src/test/pkl/*.pkl
-   pkl test --overwrite modules/fh-datastar-view/src/test/pkl/*.pkl  # accept new example output
+   pkl test modules/fh-datastar-view/src/test/pkl/*.test.pkl
+   pkl test --overwrite modules/fh-datastar-view/src/test/pkl/*.test.pkl  # accept new example output
    ```
+
+   **`*.test.pkl`, not `*.pkl`** — the same glob CI uses. The directory also holds fixture
+   modules (`site-kitchen.pkl`, `site-attic.dashboard.pkl`) which are not test modules, so the
+   wider glob reports two `–– Pkl Error ––` blocks and **exits 1 on a fully passing suite**
+   ("100.0% tests pass" and a red exit, together). A signal that is already noisy when nothing
+   is wrong cannot tell you when something is.
+
+   **Run this whenever you touch a `.pkl` file**, including a comment-only edit: `lib/` is
+   packaged into the content-versioned `@fh-dashboard`, so any byte moves the package hash.
+   `sbt fh-datastar-view/testFull` does NOT run it.
 
    The tests live outside `lib/` deliberately: `LibPackage` packages that directory into the
    content-versioned `@fh-dashboard` package, so a test module inside it would move the package
