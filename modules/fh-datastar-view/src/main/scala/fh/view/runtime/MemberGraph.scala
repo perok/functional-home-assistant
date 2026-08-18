@@ -90,7 +90,14 @@ private object GroupMembers {
   * happened to be touched.
   */
 private final case class MemberIndex(
-    byGroup: Map[NodeId, GroupMembers],
+    byGroup: Map[SetId, GroupMembers],
+    // NodeId, and NOT MemberId, on purpose: this map IS the parse. Every key
+    // PUT here is a `Member.id`, but the three readers ([[MemberGraph.memberAt]],
+    // `rootOfMember`, `liveEntitiesOf`) are asking "is this arbitrary id — a log
+    // key, a mutation target — a member at all?", and there is no way to know
+    // before looking. Narrowing the key would need a parse that could only be
+    // implemented as this lookup. Same shape and same reason as
+    // [[MemberGraph.sources]], which `setContainer` parses against.
     byId: Map[NodeId, Member],
     byEntity: Map[String, Vector[Member]]
 ) {
@@ -99,7 +106,7 @@ private final case class MemberIndex(
     * members actually moved — `eq` because [[MemberGraph.syncMembers]] returns
     * the value it was given when a frame changed nothing.
     */
-  def install(gid: NodeId, was: GroupMembers, now: GroupMembers): MemberIndex =
+  def install(gid: SetId, was: GroupMembers, now: GroupMembers): MemberIndex =
     if ((now eq was) && byGroup.contains(gid)) this
     else {
       val leaving = byGroup.get(gid).toVector.flatMap(_.members)
