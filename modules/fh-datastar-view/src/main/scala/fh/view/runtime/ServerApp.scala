@@ -19,6 +19,15 @@ import fh.view.build.{
   Site,
   SystemPkl
 }
+import fh.view.auth.{
+  AuthMiddleware,
+  AuthRoutes,
+  AuthSessions,
+  HaOAuth,
+  RefreshOutcome,
+  SessionStore
+}
+import api.homeassistant.ws.domain.HaUser
 import fh.view.model.Dashboard
 import fs2.Stream
 import fs2.concurrent.{Signal, SignallingRef}
@@ -236,6 +245,52 @@ object ServerApp extends IOApp {
               refreshDump
             ).compile.drain.background.void
           else Resource.unit[IO]
+        // Authentication (issue #89). Home Assistant is the identity provider:
+        // this server is an ordinary OAuth client, and the machine token above
+        // is untouched — every service call still runs as the machine, and
+        // nothing here opens a per-user feed.
+        //
+        // `FH_HA_PUBLIC_URL` exists because the URL the BROWSER must reach HA
+        // at is not always the one this server dials: a split-horizon remote
+        // setup dials the LAN address and the browser is on the internet.
+        haPublicUrl <- Env[IO]
+          .get("FH_HA_PUBLIC_URL")
+          .map(_.flatMap(org.http4s.Uri.fromString(_).toOption))
+          .map(_.getOrElse(haEnv.server))
+          .toResource
+        authSessions <- AuthSessions
+          .create(SessionStore.inWorkspace(dashboardsDir))
+          .toResource
+        oauth = new HaOAuth(
+          haPublicUrl,
+          org.http4s.jdkhttpclient.JdkHttpClient[IO](httpClient)
+        )
+        // The ONE use of somebody else's token: a short-lived connection opened
+        // with it, asked who it belongs to, then closed. Deliberately NOT the
+        // shared feed, which stays on the machine token.
+        identify = (token: String) =>
+          FHApi
+            .from(haEnv.server, token, haEnv.serverWs)
+            .use(_.currentUser)
+        authRoutes <- AuthRoutes
+          .create(oauth, authSessions, identify, Server.baseUriOf)
+          .toResource
+        gate = new AuthMiddleware(
+          authSessions,
+          identify,
+          server.accessFor,
+          server.slugForConn,
+          Server.ConnSignal
+        )
+        // One fiber over the whole store rather than one per session: re-check
+        // what is stale, evict what HA says is gone. This is what makes a
+        // revocation in HA reach a dashboard nobody is touching.
+        _ <- revalidateSessions(
+          authSessions,
+          oauth,
+          identify,
+          haPublicUrl
+        ).compile.drain.background
         _ <- EmberServerBuilder
           .default[IO]
           .withHost(config.bindHost)
@@ -243,7 +298,17 @@ object ServerApp extends IOApp {
           .withHttpWebSocketApp(wsb =>
             // Any FHError raised while serving becomes its status + message;
             // anything else falls through to Ember's default 500.
-            FHError.handle((server.routes <+> editor.routes(wsb)).orNotFound)
+            //
+            // The gate wraps the WHOLE app, inside the error boundary so a
+            // raised FHError still becomes a status: it protects every route
+            // including ones nobody remembered to think about (see AuthGate).
+            FHError.handle(
+              gate(
+                (authRoutes.routes <+> server.routes <+> editor.routes(
+                  wsb
+                )).orNotFound
+              )
+            )
           )
           .withShutdownTimeout(0.seconds)
           .build
@@ -360,6 +425,65 @@ object ServerApp extends IOApp {
     * prepare the dump BEFORE any renderer exists — everything that makes a
     * Server a Server lives here.
     */
+  /** How long a session may go unchecked before HA is asked about it again.
+    * Matches HA's own access-token life, so a revocation is visible within one
+    * token generation rather than at some unrelated interval.
+    */
+  private val RevalidateAfter: FiniteDuration = 30.minutes
+
+  /** Ask HA, periodically, whether each logged-in user is still who and what we
+    * recorded — and drop the ones it no longer vouches for.
+    *
+    * The only thing that makes Home Assistant AUTHORITATIVE rather than merely
+    * the thing that once issued a login: without it, revoking this dashboard in
+    * HA would leave its sessions alive here until they aged out.
+    *
+    * A `Dead` answer evicts. A raised error does NOT: an unreachable HA is not
+    * a statement about anybody's account, and treating it as one would log the
+    * whole household out of a working dashboard every time the network hiccups.
+    */
+  private[runtime] def revalidateSessions(
+      sessions: AuthSessions,
+      oauth: HaOAuth,
+      identify: String => IO[HaUser],
+      clientId: org.http4s.Uri,
+      every: FiniteDuration = 5.minutes,
+      after: FiniteDuration = RevalidateAfter
+  ): Stream[IO, Unit] =
+    Stream
+      .awakeEvery[IO](every)
+      .evalMap { _ =>
+        IO.realTimeInstant
+          .map(_.minusSeconds(after.toSeconds))
+          .flatMap(sessions.stale)
+      }
+      .flatMap(due => Stream.emits(due))
+      .evalMap { case (id, session) =>
+        oauth
+          .refresh(session.refresh, clientId)
+          .flatMap {
+            case RefreshOutcome.Dead =>
+              IO.consoleForIO.println(
+                s"[auth] session for ${session.user.name} is no longer valid at HA; signing out"
+              ) *> sessions.remove(id)
+            case RefreshOutcome.Renewed(tokens) =>
+              // Re-read the user too, not just the token: a role change is
+              // exactly the thing a periodic check is here to notice.
+              identify(tokens.accessToken).flatMap(user =>
+                sessions.renew(
+                  id,
+                  user,
+                  tokens.refreshToken.getOrElse(session.refresh)
+                )
+              )
+          }
+          .handleErrorWith(e =>
+            IO.consoleForIO.errorln(
+              s"[auth] could not re-check a session (leaving it alone): ${e.getMessage}"
+            )
+          )
+      }
+
   private[runtime] def liveServer(
       feed: HaFeed,
       site: Server.LiveSite,

@@ -91,7 +91,10 @@ final class AuthSessions(
     * longer satisfies this dashboard's rule — a demoted admin watching an
     * admin-only page.
     */
-  def watch(id: Option[String], permits: Option[HaUser] => Boolean): Stream[IO, Boolean] =
+  def watch(
+      id: Option[String],
+      permits: Option[HaUser] => Boolean
+  ): Stream[IO, Boolean] =
     ref.discrete.map(m => permits(id.flatMap(m.get).map(_.user))).changes
 
   private def persist: IO[Unit] = ref.get.flatMap(store.write)
@@ -197,9 +200,7 @@ final class SessionStore(path: os.Path) {
     "user",
     "refresh",
     "verifiedAt"
-  )((u: HaUser, r: String, v: String) =>
-    AuthSession(u, r, Instant.parse(v))
-  )
+  )((u: HaUser, r: String, v: String) => AuthSession(u, r, Instant.parse(v)))
 
   def write(sessions: Map[String, AuthSession]): IO[Unit] =
     IO.blocking {
@@ -244,14 +245,17 @@ final class SessionStore(path: os.Path) {
 }
 
 object SessionStore {
+
   /** `.fh/sessions.json` under the workspace — beside `machine.json` and
     * `pins.json`, the directory this instance already owns.
     */
   def inWorkspace(dashboardsDir: os.Path): SessionStore =
     new SessionStore(dashboardsDir / ".fh" / "sessions.json")
 
-  /** For tests and for a workspace that has no business persisting (a
-    * throwaway boot): keeps everything in memory.
+  /** For tests and for a workspace that has no business persisting (a throwaway
+    * boot): keeps everything in memory.
     */
-  def ephemeral: SessionStore = new SessionStore(os.temp.dir() / "sessions.json")
+  def ephemeral: SessionStore = new SessionStore(
+    os.temp.dir() / "sessions.json"
+  )
 }

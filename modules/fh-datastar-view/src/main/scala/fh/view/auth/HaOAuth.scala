@@ -61,7 +61,8 @@ final class HaOAuth(haBase: Uri, client: Client[IO]) {
 
   /** Trade the callback's `code` for tokens. A bad or replayed code is the
     * caller's problem and terminal — there is no retry that would help — so it
-    * raises rather than returning a value the login route would only re-inspect.
+    * raises rather than returning a value the login route would only
+    * re-inspect.
     */
   def exchange(code: String, clientId: Uri): IO[Tokens] =
     post(
@@ -112,14 +113,16 @@ final class HaOAuth(haBase: Uri, client: Client[IO]) {
       .void
 
   private def post(form: UrlForm): IO[Either[String, Tokens]] =
-    client.run(
-      Request[IO](Method.POST, haBase / "auth" / "token").withEntity(form)
-    ).use { resp =>
-      resp.bodyText.compile.string.map { body =>
-        if (resp.status === Status.Ok) parseTokens(body)
-        else Left(body.take(200))
+    client
+      .run(
+        Request[IO](Method.POST, haBase / "auth" / "token").withEntity(form)
+      )
+      .use { resp =>
+        resp.bodyText.compile.string.map { body =>
+          if (resp.status === Status.Ok) parseTokens(body)
+          else Left(body.take(200))
+        }
       }
-    }
 
   private def parseTokens(body: String): Either[String, Tokens] =
     parser.parse(body).toOption.flatMap(_.asObject) match {
@@ -134,8 +137,10 @@ final class HaOAuth(haBase: Uri, client: Client[IO]) {
                 refreshToken = js("refresh_token").flatMap(_.asString),
                 // HA sends 1800; the fallback only keeps a malformed response
                 // from reading as "already expired".
-                expiresIn =
-                  js("expires_in").flatMap(_.asNumber).flatMap(_.toInt).getOrElse(1800)
+                expiresIn = js("expires_in")
+                  .flatMap(_.asNumber)
+                  .flatMap(_.toInt)
+                  .getOrElse(1800)
               )
             )
         }

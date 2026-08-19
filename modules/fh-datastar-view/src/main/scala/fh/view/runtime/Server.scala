@@ -16,7 +16,7 @@ import fh.view.build.{
   SystemPkl
 }
 import fh.view.FHError
-import fh.view.model.{Dashboard, DomId, NodeId, SignalId}
+import fh.view.model.{Access, Dashboard, DomId, NodeId, SignalId}
 import fs2.Stream
 import fs2.concurrent.{Signal, SignallingRef}
 import io.circe.{Decoder, Json}
@@ -289,6 +289,39 @@ class Server(
 
   private def liveFor(slug: String): IO[Option[Server.LiveSlug]] =
     site.liveFor(slug)
+
+  /** The access rule for one dashboard (issue #89), or `None` when the slug
+    * names nothing. `None` for the slug itself means `/`, resolved through the
+    * same default the routes use — so `/` is gated by whatever it actually
+    * serves rather than by a rule of its own.
+    *
+    * Read from the live registry on every call, with nothing cached: a reload
+    * that changes a dashboard's access takes effect on the next request, and
+    * there is no second copy to invalidate.
+    *
+    * A FAILED dashboard has no renderer and therefore no authored rule, and
+    * gets the restrictive default. Deliberate: its error page carries build
+    * diagnostics — source paths, evaluation errors — which is not something to
+    * hand out anonymously just because the dashboard is broken.
+    */
+  def accessFor(slug: Option[String]): IO[Option[Access]] =
+    slug
+      .fold(site.defaultSlug)(IO.pure)
+      .flatMap(liveFor)
+      .flatMap {
+        case None       => IO.pure(None)
+        case Some(live) =>
+          live.renderer.get.map {
+            case Server.RendererState.Ready(r)  => Some(r.access)
+            case Server.RendererState.Failed(_) => Some(Access.default)
+          }
+      }
+
+  /** Which dashboard a connection is viewing. The action POSTs name no slug in
+    * their URL but carry `conn`, and the session knows.
+    */
+  def slugForConn(conn: String): IO[Option[String]] =
+    sessions.get(conn).map(_.map(_.slug))
 
   /** One background RECORDING loop per slug: one subscription to the state
     * stream, writing what each frame did to the slug's changelog and then
@@ -2454,6 +2487,37 @@ object Server {
     */
   private val IngressPathPattern: scala.util.matching.Regex =
     "^(/[A-Za-z0-9_-]+)+$".r
+
+  /** This server's own base URL, as the BROWSER reached it — scheme, host, port
+    * and any ingress prefix.
+    *
+    * The OAuth `client_id` and `redirect_uri` (issue #89), and they have to be
+    * what the browser sees rather than what this process was configured with:
+    * behind ingress or a reverse proxy the two differ, and HA validates that
+    * `redirect_uri` shares the `client_id`'s host and port.
+    *
+    * Derived per request from `Host` (plus `X-Forwarded-Proto`), which are
+    * attacker-suppliable on the direct port. That is acceptable here and
+    * nowhere else: the value only ever goes into a redirect back to the SAME
+    * origin the request claimed, so forging it redirects the forger to their
+    * own host with a code HA issued for that host — it grants no access to this
+    * instance. It is deliberately NOT used to decide anything about identity.
+    */
+  def baseUriOf(req: Request[IO]): Uri = {
+    val scheme =
+      req.headers
+        .get(org.typelevel.ci.CIString("X-Forwarded-Proto"))
+        .map(_.head.value)
+        .orElse(req.uri.scheme.map(_.value))
+        .getOrElse("http")
+    val authority = req.headers
+      .get(org.typelevel.ci.CIString("Host"))
+      .map(_.head.value)
+      .orElse(req.uri.authority.map(_.renderString))
+      .getOrElse("localhost")
+    val prefix = ingressPrefixOf(req).getOrElse("")
+    Uri.unsafeFromString(s"$scheme://$authority$prefix")
+  }
 
   /** The Datastar signal name carrying the per-connection `conn` id, echoed
     * back in each action POST body (`connOf`) so a POST correlates to its

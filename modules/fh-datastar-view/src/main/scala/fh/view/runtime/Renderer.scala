@@ -1406,11 +1406,12 @@ object Renderer {
     * transform libraries up front. The single construction point so call sites
     * never wire `Templates`/`Transforms` by hand.
     */
-  def create(dashboard: Dashboard): Renderer =
+  def create(dashboard: Dashboard, access: Access = Access.default): Renderer =
     new Renderer(
       dashboard,
       Templates.from(dashboard),
-      Transforms.from(dashboard)
+      Transforms.from(dashboard),
+      access
     )
 
   /** Build a renderer from a PROVEN dashboard ([[Dashboard.Validated]]) — the

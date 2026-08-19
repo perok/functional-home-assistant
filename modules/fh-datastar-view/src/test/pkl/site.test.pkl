@@ -32,6 +32,18 @@ local importedSite = (siteMod) {
   }
 }
 
+// A site whose dashboards do not all share one access rule (issue #89): the
+// site sets the strict default and individual dashboards step out of it.
+local accessSite = (siteMod) {
+  access = c.access.admin
+  dashboards {
+    ["wall"] { access = c.access.public; card = c.title("hall") }
+    ["secret"] { access = c.access.admin; card = c.title("shh") }
+    ["mine"] { access = c.access.users(List("u1", "u2")); card = c.title("mine") }
+    ["home"] { card = c.title("hi") }
+  }
+}
+
 // Every `*.dashboard.pkl` beside this module, keyed by its filename — the
 // glob-import recipe, which needs no support from the library: an entrypoint
 // can name its dashboards by CONVENTION rather than one line each, and pkl's
@@ -69,5 +81,26 @@ facts {
   ["every dashboard carries the entry scaffold — cards and a theme"] {
     !inlineSite.dashboards["home"].cards.isEmpty
     inlineSite.dashboards["home"].theme != null
+  }
+
+  // Access (issue #89). The two halves that matter are the DEFAULT (a site that
+  // says nothing still demands a login — the rule must not fail open) and the
+  // null-means-inherit shape, which is what lets the backend tell "this
+  // dashboard has no opinion" apart from "this dashboard chose the default".
+  ["a site requires a logged-in user unless it says otherwise"] {
+    inlineSite.access.kind == "authenticated"
+  }
+
+  ["a dashboard that names no rule inherits — it does not pick one"] {
+    inlineSite.dashboards["home"].access == null
+  }
+
+  ["a dashboard can override its site, in both directions"] {
+    accessSite.dashboards["wall"].access.kind == "public"
+    accessSite.dashboards["secret"].access.kind == "admin"
+    accessSite.dashboards["mine"].access.kind == "users"
+    accessSite.dashboards["mine"].access.ids.toList() == List("u1", "u2")
+    // The site's own rule is still the one the others inherit.
+    accessSite.access.kind == "admin"
   }
 }

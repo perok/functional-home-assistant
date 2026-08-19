@@ -51,11 +51,11 @@ object AuthGate {
 
     segments.toList match {
       // Anything the browser needs BEFORE it can possibly be authenticated.
-      case "auth" :: _                => Requirement.Open
-      case "web" :: _                 => Requirement.Open
-      case "assets" :: _              => Requirement.Open
-      case "manifest.webmanifest" :: _ => Requirement.Open
-      case "sw.js" :: Nil             => Requirement.Open
+      case "auth" :: _                             => Requirement.Open
+      case "web" :: _                              => Requirement.Open
+      case "assets" :: _                           => Requirement.Open
+      case "manifest.webmanifest" :: _             => Requirement.Open
+      case "sw.js" :: Nil                          => Requirement.Open
       case name :: Nil if name.startsWith("icon-") => Requirement.Open
 
       // Read-only pkl resolution, consumed by the laptop `fh` script and
@@ -73,8 +73,8 @@ object AuthGate {
       case "edit" :: _   => Requirement.Admin
 
       // The dashboards themselves.
-      case Nil             => Requirement.Dashboard(None, browserGet)
-      case "" :: Nil       => Requirement.Dashboard(None, browserGet)
+      case Nil              => Requirement.Dashboard(None, browserGet)
+      case "" :: Nil        => Requirement.Dashboard(None, browserGet)
       case "d" :: slug :: _ => Requirement.Dashboard(Some(slug), browserGet)
 
       // The live stream for one dashboard. Never redirected: an SSE stream that
@@ -120,7 +120,8 @@ object AuthGate {
       .filter(s => s.startsWith("/") && !s.startsWith("//") && !s.contains(":"))
       .getOrElse("/")
 
-  /** Whether `access` lets this request through, given who (if anyone) it is. */
+  /** Whether `access` lets this request through, given who (if anyone) it is.
+    */
   def permits(access: Access, session: Option[AuthSession]): Boolean =
     access.permits(session.map(_.user))
 }
