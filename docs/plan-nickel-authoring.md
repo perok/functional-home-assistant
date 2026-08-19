@@ -167,20 +167,68 @@ checked", which looks like success.
 | | |
 |---|---|
 | No type alias | Naming a record type makes it a contract. Signatures inline their structure; one module-level annotation block per module plus row polymorphism keeps this bounded. |
-| No recursive type | There is no name to recurse through. A layout tree is recursive, so `children : Array Dyn` is **forced**. `let rec` (nickel#525) gives recursive *contracts* — records and ADTs both — so recursion is expressible, just invisible to the typechecker. |
+| No recursive type | There is no name to recurse through. But a recursive type is not *needed*: Nickel has rank-2 polymorphism, so a recursive structure can be encoded as its own fold, and the type that has to be written is not recursive. See "The fold encoding" below — this removes `Dyn` from the library entirely. |
 | `&` is untyped | Merge is `Dyn -> Dyn -> Dyn`. Rebuilding the record instead typechecks, and forces a better shape: separate placement from the node body, so one polymorphic `fullWidth` covers cards and query set nodes alike. |
 
 ### The sharp edge
 
 There is no implicit upcast to `Dyn`: entering a dynamic position takes the
-CONTRACT application `| Dyn`, which is the documented "typechecker off here".
-Since the layout tree cannot be typed, a dashboard's `children` list is exactly
-such a position — so **every `| Dyn` is a hole where checking and tooling both
-stop** (hover inside one reports `Dyn`).
+CONTRACT application `| Dyn`, which is the documented "typechecker off here",
+and **every `| Dyn` is a hole where checking and tooling both stop** (hover
+inside one reports `Dyn`).
 
-Library internals and each individual call keep their types. The tree that
-assembles them does not. That is the honest ceiling on what static typing buys
-a dashboard author here, and it is the thing to weigh against Pkl.
+`lib/` has 71 of them, and a dashboard written against it has six — one per
+child of the layout tree. That was described here as the ceiling. It is not; see
+below.
+
+### The fold encoding
+
+**Nickel supports rank-2 polymorphism.** A recursive structure can therefore be
+encoded as its own fold (Böhm–Berarducci): `r` marks every recursive position,
+and the type that has to be *written* is not recursive.
+
+```nickel
+# instead of the unwritable  Node = { …, children : Array Node }
+forall r. { node : Body -> r, group : Body -> Array r -> r, set : … -> r } -> r
+```
+
+`spike-rank2/` is the whole library and the demo dashboard rebuilt this way.
+
+| | `lib/` | `lib2/` |
+|---|---|---|
+| `Dyn` in the library | 71 | **0** |
+| `Dyn` in the dashboard | 6 | **0** |
+| lines | 415 | 479 |
+
+A mistake nested two levels inside the tree is now a typecheck error naming both
+the call and the signature that requires the field; hover inside the tree
+reports a real signature instead of `Dyn`.
+
+It is also a *smaller* model, and that part is worth having independently of the
+language question. The recursion was only ever in the tree structure, but `lib/`
+smeared it across every node type — a button carried `children : Array Dyn` that
+is always `[]`. Separating a node's own data (a flat `Body`) from the tree shape
+means components and layout helpers stop mentioning the tree at all:
+`toggle : … -> Body`, `fullWidth : Body -> Body`.
+
+The costs are real and none of them is `Dyn`:
+
+- **The algebra inlines at every occurrence** (types cannot be named): +64 lines,
+  and hover on a tree combinator prints ~40. It falls on the library, not on an
+  author.
+- **The carrier must be non-recursive**, so the emitted JSON is a flat node table
+  with path-derived ids rather than a nested tree. Instantiating `r` at a
+  recursive contract **crashes the typechecker** — a stack overflow, not a
+  diagnostic, and worth reporting upstream.
+- **A query case renders a leaf.** `map` and `@` cannot produce polymorphic
+  elements — only an array literal can — so a query, which accumulates, cannot
+  accumulate trees.
+- **No ADT may carry a tree**: `match` opens the `forall` and nothing
+  re-generalises it. A query's fallback becomes the last case rather than a
+  `[| 'None, 'Render … |]` payload.
+
+That last one cuts against "sum-type the state", and the flat wire format is a
+change to the renderer's contract. Both are judgement calls, not blockers.
 
 ### What a contract-annotated library would cost, for contrast
 
@@ -263,6 +311,7 @@ Everything above is executable, in `modules/fh-datastar-view/src/test/nickel/`:
 nickel test *.test.ncl        # 49 assertions
 ./typecheck-claims.sh         # 17 claims about what `nickel typecheck` catches
 ./lsp-probe.py --claims       # editor completion + hover, asked of nls directly
+./spike-rank2/claims.sh       # 15 claims about the fold encoding and its limits
 ```
 
 The three catch disjoint sets of mistakes — a typecheck-only error evaluates
@@ -271,9 +320,10 @@ suite is split three ways rather than being one command.
 
 ## Next
 
-1. **Decide whether the `| Dyn` holes in the layout tree are acceptable.** That
-   is the one place the static design gives less than Pkl, and it is structural.
-2. If they are: port a second, larger dashboard to see whether the signature
+1. **Decide between the two designs**, since the `Dyn` question is settled: the
+   folded one gives up an ADT, a nested wire format and 64 lines of inlined
+   signatures, and gets complete static checking of a dashboard in return.
+2. Either way: port a second, larger dashboard to see whether the signature
    verbosity stays bounded at realistic size.
 
 Beyond that, the seam: `fh.view.build.SourceEval` is already the
