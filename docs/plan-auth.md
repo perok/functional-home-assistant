@@ -43,66 +43,73 @@ TTLs (HA docs): access token `expires_in: 1800` (30 min); refresh tokens have no
 are deleted after **90 days unused**, and are user-revocable per device under Profile → Security.
 `POST /auth/revoke` always returns `200` with an empty body.
 
-No add-on (`hass-oidc-auth`) and no JWT/crypto dependency is needed — `javax.crypto` from the JDK
-covers the cookie, and the JDK `HttpClient` pattern already used by `FHApi`/`AssetCache` covers the
-token exchange. `http4s-ember-client` is *not* on this module's classpath and does not need to be.
+No add-on (`hass-oidc-auth`) and no JWT/crypto dependency is needed. The JDK `HttpClient` pattern
+already used by `FHApi`/`AssetCache` covers the token exchange; `http4s-ember-client` is *not* on
+this module's classpath and does not need to be.
 
 ## The login flow
 
 ```
 browser → GET /d/kitchen           no cookie
        ← 303 /auth/login?next=/d/kitchen
-       ← 303 <HA>/auth/authorize?client_id=<fh base>&redirect_uri=<fh base>/auth/callback&state=<sealed>
+       ← 303 <HA>/auth/authorize?client_id=<fh base>&redirect_uri=<fh base>/auth/callback&state=<nonce>
    user logs in to HA (HA's own login page, HA's own MFA)
        ← 303 <fh base>/auth/callback?code=…&state=…
 server: POST <HA>/auth/token (authorization_code)  → access_token + refresh_token
 server: one-shot WS with THAT access token → auth/current_user → {id, name, is_admin}
-       ← 303 /d/kitchen  + Set-Cookie: fh_session=<AES-GCM sealed>
+       ← 303 /d/kitchen  + Set-Cookie: fh_session=<opaque id>
 ```
 
-`state` is sealed with the same key and carries `next` + a nonce + a 10-minute deadline, so the
-pending-authorization map that would normally be needed server-side does not exist.
+## Sessions: an opaque cookie over a server-side store
 
-## Sessions: a stateless cookie, plus live interruption
+The frontend is deliberately dumb, so it holds nothing but a handle.
 
-No server-side session store. One cookie carries everything durable.
-
-- **Cookie** `fh_session` — `HttpOnly`, `SameSite=Lax`, `Path=/`, `Secure` when the request arrived
-  over https, `Max-Age` 90 days (HA's own refresh-token inactivity window).
-- **Payload**, sealed with AES-GCM: `{ uid, name, admin, owner, refresh, verifiedAt }`. The
-  *access* token is deliberately **not** kept — after login it has no further use, because all HA
-  traffic runs on the machine token. The refresh token is kept for one purpose: as the
-  periodically re-checked proof that this HA user still exists and still holds that role.
-- **Encrypted, not signed**, because that payload is a full-HA-access credential: sealing means the
-  raw HA refresh token never exists outside this process even if the cookie leaks through a proxy
-  log or a stolen cookie jar.
+- **Cookie** `fh_session` — 256 bits of `SecureRandom`, base64url. Nothing else: no identity, no
+  token, no claims. `HttpOnly`, `SameSite=Lax`, `Path=/`, `Secure` when the request arrived over
+  https, `Max-Age` 90 days (HA's own refresh-token inactivity window).
+- Because the cookie is an opaque bearer id rather than a payload, there is **nothing to sign or
+  encrypt** — the earlier sealed-cookie design and its key file are gone, and with them the whole
+  `javax.crypto` surface. A stolen cookie is a session, not an HA credential.
 - **`SameSite=Lax` is the CSRF control** for the action POSTs — worth stating explicitly, because
-  it is the only thing standing between a cookie-authenticated `POST /sse/action/...` and any other
-  site.
+  it is the only thing standing between a cookie-authenticated `POST /sse/action/...` and any
+  other site.
+
+**`AuthSessions`** — a `SignallingRef[IO, Map[SessionId, AuthSession]]`, structured like the
+existing `Sessions` (`Sessions.scala`) but a *separate* class: a `Session` is a per-tab connection
+handle and an `AuthSession` is a person, and merging two distinct facts into one shape fakes one
+with the other. `AuthSession` holds `{ user: HaUser, refresh: String, verifiedAt: Instant }`.
+
+**Persistence is a write-through file, not a store.** The map in memory is the truth; every
+mutation (create, revalidate, delete) also writes `.fh/sessions.json` (`0600`), and boot loads it
+back. That is all it is for — surviving a restart, which matters because the server restarts on
+every dashboard edit. A corrupt or unreadable file logs and starts empty; being logged out is a
+recoverable inconvenience, and refusing to boot over it is not.
+
+**Pending authorizations** live in the same style: `state` is a random nonce keyed to
+`{ next, deadline }` in an in-memory map with a 10-minute TTL. Not persisted — a login interrupted
+by a restart just starts again.
 
 ### Two mechanisms, because they answer two different questions
 
-**Cookie renewal is lazy, on ordinary requests.** Any gated request whose `verifiedAt` is older
-than `revalidateAfter` (30 min, matching HA's access-token life) re-exchanges the refresh token,
-re-reads `auth/current_user`, and re-issues the cookie with a fresh `verifiedAt` and a freshly-read
-`admin`. Every action POST, navigation and reload carries the cookie and gets a fresh one back. A
-page nobody touches does not need a renewed cookie; the moment it *is* touched, it gets one.
+**Revalidation is one background fiber**, walking entries whose `verifiedAt` is older than
+`revalidateAfter` (30 min, matching HA's access-token life): re-exchange the refresh token,
+re-read `auth/current_user`, write back the fresh `verifiedAt` and the freshly-read `admin`.
+`400 invalid_grant` — revoked in HA, or user deleted — evicts the entry. One fiber over the map,
+not one per session.
 
 **Session death interrupts the open stream, server-side.** An SSE stream cannot receive a
-`Set-Cookie`, but it does not need one — it needs to *stop*. This is entirely a backend concern:
+`Set-Cookie`, but it does not need one — it needs to *stop*, and with the store being a
+`SignallingRef` that falls out for free. `Server.sseStream` already composes several streams; it
+gains an `.interruptWhen` on a predicate over the store:
 
-- The authenticated identity is captured onto the existing per-connection `Session`
-  (`Sessions.scala`) when the SSE stream is adopted, alongside a validity `SignallingRef[IO, Boolean]`.
-- A background fiber revalidates that session's refresh token against HA on an interval; `400
-  invalid_grant` (revoked in HA, user deleted) or a role change that no longer satisfies the
-  dashboard's rule flips the signal.
-- The SSE stream — already a composition of several streams in `Server.sseStream` — gains an
-  `.interruptWhen(session.invalid)`. `POST /auth/logout` flips it immediately, and because the
-  logout knows the user id it can flip *every* live session for that user.
+> this session id is absent from the map, **or** the user it names no longer satisfies this
+> dashboard's rule
 
-There is deliberately **no client-side refresh ping**. It was considered and rejected: it would
-have been a slower, less reliable duplicate of the interruption above, and cookie renewal is
-already covered by ordinary traffic.
+One predicate covers logout (`POST /auth/logout` evicts, and since it knows the user id it can
+evict every session for that user), HA-side revocation (the revalidation fiber evicts), and an
+admin who was demoted while watching an admin-only dashboard (the entry updates and the rule stops
+holding). There is deliberately **no client-side refresh ping**: it would be a slower, less
+reliable duplicate of this.
 
 ## Machines: the same HA identity, a different carrier
 
@@ -114,7 +121,7 @@ carriers — `is_admin` genuinely comes from HA in both cases, which is the poin
 
 `fh` stores its token in **`.fh/user_secret.json`** — separate from `machine.json`, because that
 file is per-machine *configuration* and this is a credential; keeping them apart is what lets the
-security follow-up below move the credential without touching the config.
+security follow-up move the credential without touching the config.
 
 ## Route classification
 
@@ -124,7 +131,7 @@ security follow-up below move the credential without touching the config.
 | `/`, `/d/:slug`, `/sse/dashboard/:slug/{patch,recover}` | The **dashboard's own rule** (`/` resolves via `LiveSite.defaultSlug`). |
 | `POST /sse/action/*`, `/sse/surface/open/:id`, `/sse/popup/close` | The rule of the **session's** dashboard. These carry `conn` in the Datastar POST body (`conn` is one of the two signals deliberately left un-`_`-prefixed), so `Server.connOf(body)` → session → slug → rule. Note `/sse/action/*` does not currently go through `withSession` and will need the same body parse. |
 | `/edit`, `/edit/*`, `/lsp/pkl`, `POST /system/push/:slug`, `POST /system/dump/refresh` | **Admin**, by cookie or Bearer. Closes the three deferred TODOs quoted above. |
-| `GET /system/pkl/*` | **Ungated in this PR** — follow-up issue. The Bearer carrier lands here, so the follow-up is only a matter of applying it. |
+| `GET /system/pkl/*` | **Ungated in this PR** — issue #166. The Bearer carrier lands here, so that follow-up is only a matter of applying it. |
 
 Denial shape matters: an HTML `GET` gets `303` to `/auth/login?next=…`; an SSE stream, a POST or a
 JSON endpoint gets `401`/`403` and never a redirect — a redirected SSE stream fails confusingly. An
@@ -167,8 +174,8 @@ New, under `modules/fh-datastar-view/src/main/scala/fh/view/auth/`:
 
 - `Access.scala` — the ADT and `Access.permits(user: Option[HaUser]): Boolean`. Pure.
 - `HaOAuth.scala` — authorize-URL construction, `/auth/token` exchange and refresh, `/auth/revoke`.
-- `SessionCookie.scala` — AES-GCM seal/open for both the cookie and the OAuth `state`; key
-  load-or-create; cookie build/parse.
+- `AuthSessions.scala` — the `SignallingRef` map, the write-through to `.fh/sessions.json`, the
+  cookie build/parse, and the revalidation fiber.
 - `AuthGate.scala` — `AuthGate.requirementFor(request): Requirement`, a **pure** classifier (the
   table above), plus the `HttpApp[IO] => HttpApp[IO]` middleware.
 - `AuthRoutes.scala` — `/auth/login`, `/auth/callback`, `/auth/logout`.
@@ -180,17 +187,15 @@ Modified:
   ~L246), and thread out the two values the routes now need: `FHApi.Env.server` (resolved at L125
   but never passed to route construction) and a new `FH_HA_PUBLIC_URL` override, since the
   browser-facing HA URL is not always the one the server dials (split-horizon remote access).
-- `fh/view/runtime/Sessions.scala` — carry the authenticated identity and a validity
-  `SignallingRef` on `Session`.
 - `fh/view/runtime/Server.scala` — `.interruptWhen` on the SSE stream; reuse `ingressPrefixOf`
   (L2446) with `Host`/`X-Forwarded-Proto` to derive the browser-facing base for
   `client_id`/`redirect_uri`; parse `conn` on the action routes.
 - `fh/view/model/Dashboard.scala` — the `Access` enum + `access: Option[Access] = None`.
 - `fh/view/build/Site.scala` — resolve the site default into each dashboard.
-- `fh/view/build/AddonBootstrap.scala` — add `.fh/session-key` and `.fh/user_secret.json` to
+- `fh/view/build/AddonBootstrap.scala` — add `.fh/sessions.json` and `.fh/user_secret.json` to
   `GitignoreTemplate` (L329). **Note the write-once seeding at L135**: an existing workspace already
   has a `.gitignore` and will *not* pick up the new lines, so a user who keeps their workspace in
-  git could commit a secret. This is part of the security follow-up below.
+  git could commit a secret. Tracked in issue #165.
 - `modules/ha-api/.../ws/protocol/` + `HomeAssistantApi.scala` — add `auth/current_user` to
   `CommandPhase` and a one-shot `identify(accessToken)` that opens a short-lived WS with a *user's*
   token. The only ha-api change, and it does not touch the shared feed.
@@ -203,6 +208,23 @@ forwarded — no user header is confirmed. The OAuth flow works unchanged under 
 reaches HA at its own origin), so ingress needs no special case; whether `X-Remote-User-Id` is
 actually sent is worth probing later as an optimisation, not assumed.
 
+## Testing: one default in the harness, not a change per suite
+
+`TestServer` already funnels every request through a single `run(req)` (`TestServer.scala:83`) —
+`page`, `post`, `observeLive` and `observePatch` all go through it. So the harness gets a default
+identity in one place:
+
+- `TestServer.resource`/`fromWorkspace`/`served` take `as: Option[HaUser] = Some(TestSession.admin)`;
+  `run` attaches that session's cookie. Every existing suite keeps passing untouched.
+- Per-call override for the suites that care — `page(as = None)` for the redirect, a non-admin for
+  a rule test.
+
+One thing that must change or the gate is invisible here: `TestServer.scala:82` builds
+`server.routes.orNotFound`, i.e. **without** the `ServerApp`-level middleware. The harness has to
+wrap with the same gate, or every auth assertion at this layer passes vacuously. A default that
+makes suites pass while testing nothing is the failure mode to avoid, which is also why the default
+is a real session rather than a bypass flag.
+
 ## Verification
 
 1. `pkl test modules/fh-datastar-view/src/test/pkl/*.test.pkl` — **required**, any `.pkl` byte moves
@@ -210,35 +232,33 @@ actually sent is worth probing later as an optimisation, not assumed.
 2. `sbt fh-datastar-view/testFull` — one sbt command at a time; overlapping runs fake timeouts in
    the pkl suites.
 3. `cd scripts && SCALA_TEST_MODE=true scala-cli test .` — the `fh` script changed.
-4. New suites: `AccessSuite` (the rule table), `SessionCookieSuite` (round-trip, tamper rejection,
-   wrong key, expiry), `AuthGateSuite` (route → requirement, and the 303-vs-401 shape), and an
-   interruption test asserting an open SSE stream terminates when its session's validity signal
-   flips. Add `access` to `WireShapeSuite`, which does not currently cover `Dashboard`/`entry` at
-   all — a field added on one side and forgotten on the other would otherwise decode to its default
-   and be silently ignored, which for an *access rule* fails open.
-5. Existing suites hit `/d/:slug` and will now be gated. The harness gets a
-   `TestSession.cookieFor(user)` helper (it holds the key, so it can mint one) rather than a
-   test-only "auth off" mode — a gate that is disabled in every test is a gate nothing tests. A few
-   suites assert the un-authenticated redirect instead.
-6. Live, in the browser (`sbt dashboardServe`, per ADR 0006 — flow changes cannot be confirmed from
+4. New suites:
+   - `AccessSuite` — the rule table, pure.
+   - `AuthGateSuite` — route → requirement, and the 303-vs-401 shape.
+   - `AuthSessionsSuite` — persistence round-trip, a restart recovering live sessions, a corrupt
+     file starting empty rather than failing, eviction on `invalid_grant`, TTL on pending states.
+   - An interruption test: an open SSE stream terminates when its session is evicted, and when the
+     user's role stops satisfying the dashboard's rule.
+   - Add `access` to `WireShapeSuite`, which does not currently cover `Dashboard`/`entry` at all —
+     a field added on one side and forgotten on the other would decode to its default and be
+     silently ignored, which for an *access rule* fails open.
+5. Live, in the browser (`sbt dashboardServe`, per ADR 0006 — flow changes cannot be confirmed from
    a terminal): log in and land back on the requested dashboard; restart the server and confirm the
-   session survives (the point of the stateless cookie); revoke the session in HA → Profile →
+   session survives (the point of the write-through file); revoke the session in HA → Profile →
    Security and confirm the open dashboard's stream is cut; confirm a `public` dashboard loads in a
    private window with no login.
 
 ## Docs and follow-ups
 
 - `docs/adr/0023-dashboard-access.md` — new decision: HA is the identity provider, the rule is a
-  per-dashboard field with a site default, sessions are stateless encrypted cookies, and liveness
-  is a server-side interruption.
+  per-dashboard field with a site default, the cookie is an opaque handle over a server-side store
+  persisted for restarts, and liveness is a server-side interruption.
 - `docs/architecture-rendering-pipeline.md` — the gate is a new box in front of every route, and
   the SSE interruption is a new edge; update in the same commit (repo rule).
 - ADR 0021's "auth rules next" line becomes "auth rules, see 0023".
-- **Follow-up issue**: gate `/system/pkl/*` behind the Bearer carrier this work introduces.
-- **Follow-up issue (security)**: `.fh/` will hold two secrets at rest — the AES-GCM
-  `session-key` and the `fh` user token in `user_secret.json` — in a directory that lives inside a
-  user's dashboards workspace, which is frequently kept in git. The write-once `.gitignore` seeding
-  means existing workspaces never gain the ignore lines. This needs a better home (OS keychain, an
-  add-on-private path outside the workspace, or supervisor-provided storage).
+- Issue #166 — gate `/system/pkl/*` behind the Bearer carrier this work introduces.
+- Issue #165 (security) — `.fh/` holds two credentials at rest: HA refresh tokens in
+  `sessions.json` and the `fh` user token in `user_secret.json`. This is the **accepted** storage
+  location for now; the issue tracks moving it somewhere a user cannot commit it.
 
 `home-addon/config.yaml` `version:` is untouched — releasing is the maintainer's bump.
