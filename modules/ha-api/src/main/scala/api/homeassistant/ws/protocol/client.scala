@@ -261,6 +261,21 @@ object client {
         extends CommandPhase
         with CommandResponse.AsResult[List[Floor]] derives ConfiguredEncoder
 
+    /** Who the access token that authenticated THIS connection belongs to.
+      *
+      * Unlike every other command here, the answer depends on which token
+      * opened the socket rather than on the home's state — which is exactly
+      * what makes it useful: a short-lived connection opened with a *user's*
+      * OAuth token identifies that user (issue #89). Asked on the shared feed
+      * it reports the machine identity, which is only ever a diagnostic.
+      *
+      * Verified against HA 2026.8.2: `{"id":1,"type":"auth/current_user"}` →
+      * `{"id":…,"name":…,"is_owner":true,"is_admin":true,"credentials":[…]}`
+      */
+    case class `auth/current_user`()
+        extends CommandPhase
+        with CommandResponse.AsResult[HaUser] derives ConfiguredEncoder
+
     //
     // Devices
     //

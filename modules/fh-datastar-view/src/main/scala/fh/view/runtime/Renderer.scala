@@ -3,6 +3,7 @@ package fh.view.runtime
 import com.samskivert.mustache.Template
 import fh.view.build.LibPackage
 import fh.view.model.{
+  Access,
   Cell,
   Dashboard,
   DomId,
@@ -92,7 +93,16 @@ case class RenderInputs(
 class Renderer(
     dashboard: Dashboard,
     templates: Templates,
-    transforms: Transforms
+    transforms: Transforms,
+    // Who may see this dashboard (issue #89), already folded with the site-wide
+    // default by `Site.decode`. It rides here rather than beside the renderer
+    // because the rule changes exactly when the dashboard does — a live reload
+    // swaps one value and the gate cannot be reading last build's rule.
+    //
+    // Defaulted so the test helper `Renderer.create` and any construction that
+    // predates access control still compile; the default is the restrictive
+    // one, so forgetting to resolve demands a login rather than serving to all.
+    val access: Access = Access.default
 ) {
 
   /** An addressable index over one layout tree; generated ids carry `idPrefix`
@@ -1413,7 +1423,8 @@ object Renderer {
     new Renderer(
       v.dashboard,
       Templates.from(v.dashboard),
-      Transforms.fromValidated(v)
+      Transforms.fromValidated(v),
+      v.access
     )
 
   /** 12 hex of SHA-256 over the part of `<head>` only a reload can change — the

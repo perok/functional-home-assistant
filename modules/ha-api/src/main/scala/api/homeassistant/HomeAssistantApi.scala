@@ -53,6 +53,13 @@ trait HomeAssistantApi[F[_]] {
 
   def getConfigWS: F[Json]
 
+  /** Who the token that authenticated this connection belongs to. On the shared
+    * feed that is the machine identity; the useful call is on a short-lived
+    * connection opened with a user's own OAuth token, which is how a browser
+    * login learns its user and role (issue #89).
+    */
+  def currentUser: F[HaUser]
+
   /** HA's compressed state feed: the full entity set, then deltas, over ONE
     * subscription — so live state needs no separate snapshot fetch to race
     * against. See [[api.homeassistant.ws.domain.EntitiesEvent]].
@@ -190,6 +197,9 @@ object HomeAssistantApi {
 
       def getConfigWS: IO[Json] =
         in.sendCommand(`get_config`())
+
+      def currentUser: IO[HaUser] =
+        in.sendCommand(`auth/current_user`())
 
       def getServices: IO[List[ServiceDomain]] =
         in.sendCommand(`get_services`())

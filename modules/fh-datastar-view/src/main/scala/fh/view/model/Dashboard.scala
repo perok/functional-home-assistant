@@ -648,6 +648,9 @@ case class Surface(
   *   - `title`: the page `<title>` — an optional top-level authoring field
   *     (`None` when the key is absent); the Server falls back to the [[slug]]
   *     when it is `None`.
+  *   - `access`: who may see it (issue #89) — the same optional-field shape as
+  *     `title`. `None` means "whatever the site says"; `Site.decode` folds the
+  *     site default in, so nothing downstream sees the `None`.
   */
 case class Dashboard(
     cards: Map[String, CardDef],
@@ -656,7 +659,8 @@ case class Dashboard(
     surfaces: Map[String, Surface] = Map.empty,
     slug: String = "dashboard",
     title: Option[String] = None,
-    css: String = ""
+    css: String = "",
+    access: Option[Access] = None
 ) derives ConfiguredDecoder:
 
   /** Every registered card's own CSS, in card-name order so the emitted
@@ -1018,7 +1022,16 @@ object Dashboard:
     */
   case class Validated(
       dashboard: Dashboard,
-      transforms: Map[String, Transform.Compiled]
+      transforms: Map[String, Transform.Compiled],
+      // The RESOLVED access rule (issue #89) — the dashboard's own if it named
+      // one, else its site's. Resolved once by `Site.decode` via [[withAccess]]
+      // rather than left as the model's `Option`, so no gate has to re-derive
+      // "and what does the site say" on every request.
+      //
+      // The default is deliberately the restrictive one: a construction path
+      // that forgets to resolve demands a login rather than serving the
+      // dashboard to the world.
+      access: Access = Access.default
   ):
     /** Re-slug the proven dashboard (the push/route path forces the slug from
       * the URL). The transforms are unaffected by the slug, so the proof — and
@@ -1026,6 +1039,12 @@ object Dashboard:
       */
     def withSlug(slug: String): Validated =
       copy(dashboard = dashboard.copy(slug = slug))
+
+    /** Fold the site-wide default in: the dashboard's own rule wins, the site's
+      * applies otherwise.
+      */
+    def withAccess(siteDefault: Access): Validated =
+      copy(access = dashboard.access.getOrElse(siteDefault))
 
   /** The theme's popup overlay mount — the `<div id="popups">` a popup's
     * (dialog-wrapped) content is patched into (and cleared from on close). The
