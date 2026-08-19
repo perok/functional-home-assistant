@@ -121,41 +121,53 @@ syntax for free.
 `Fallback` is an ADT (`[| 'None, 'Render … |]`) rather than a nullable field, and
 the emitted member omits `fallback` entirely when there is none.
 
-## The language constraint that shapes all of it
+## The type system, and which half to build on
 
 Nickel has **static types** (`:`) and **contracts** (`|`). They do not compose,
-and naming a record type moves it from the first into the second. The two halves
-of what a typed authoring library needs sit on opposite sides.
+and naming a record type moves it from the first into the second — so the choice
+of which to write a library in is a real fork, not a style preference.
 
-**The static side is a real type system.** `nickel typecheck` catches, before
-evaluation: a wrong argument at a call site, and a **non-exhaustive `match` on
-an enum**. It has ADTs, `forall`, and row polymorphism over records and enums.
-`nls` completion follows function returns inside a static block.
+**Static typing is the stronger side, and it crosses module boundaries.**
+`nickel typecheck` catches, before evaluation: a wrong argument at a call site
+**through two imports** (a statically annotated library called with a value from
+a statically annotated dump), and a **non-exhaustive `match` on an enum**. It has
+ADTs, `forall`, and row polymorphism over records and enums. `nls` completion
+follows function returns, through imports included.
 
-**The static side cannot express a library.** Three independent blockers:
+Row polymorphism is what makes it practical here: a parameter written
+`forall a. { entity_id : String; a }` accepts any entity that has those fields
+whatever else it carries, so per-entity dump types and static component
+signatures compose without inlining each entity's shape.
+
+An import carries its type when the imported **module** is annotated at module
+level. An unannotated module has apparent type `Dyn`, and the documented bridge
+is `exp | Type` where Type is a record **type** — fields with `:`, no values, no
+other metadata. A record *contract* in that position does not work; it stays
+opaque. So even an unannotated dump is reachable, at one ascription per boundary.
+
+**So the library should be static types, and contracts should be kept for what
+they actually are: runtime validation of what the types cannot state** — the
+slidable-domain predicate, and the generated dump's per-entity shape if codegen
+cannot emit static types.
+
+### The real limits
 
 | | |
 |---|---|
-| No type alias | Naming a record type makes it a contract. Every signature inlines its full structure; no two can share one. |
-| An `import` is `Dyn` | A statically-typed function cannot be called with a value from a generated dump. Four escape hatches tried, all fail. |
-| `&` is untyped | Merge is `Dyn -> Dyn -> Dyn`, so the amend idiom the component library is built on cannot appear in static code. |
+| No type alias | Naming a record type makes it a contract. Signatures inline their structure; one module-level annotation block per module plus row polymorphism keeps this bounded. |
+| No recursive type | Follows from the above plus `let` not being recursive. A layout tree is recursive, so `children : Array Dyn` is **forced** — the one `Dyn` the language requires rather than permits. A recursive *contract* works fine as a record field. |
+| `&` is untyped | Merge is `Dyn -> Dyn -> Dyn`. Rebuilding the record instead typechecks, and forces a better shape: separate placement from the node body, so one polymorphic `fullWidth` covers cards and query set nodes alike. |
 
-So the library is contracts, and therefore:
+### What the current contract-annotated `lib/` costs
+
+The spike's `lib/` is still contracts, which is why converting it is the next
+step:
 
 - **`nickel typecheck` says nothing about it.** A file containing two wrong
-  calls typechecks clean. Green means the tool did not look; `nickel test` is
-  the real gate.
-- **Completion does not follow calls**, so the component library's return values
-  are invisible in the editor. Not a missing-annotation problem — everything is
-  annotated and hover reports real signatures at the same positions. Inside a
-  *static* block the same completion works.
-
-**There is no configuration of Nickel 1.17 in which this library gets both a
-typechecker and composition.** That is the central finding, and it is a property
-of the language rather than of how the spike is written.
-
-What contracts do give: module boundaries, merge, recursion (as record fields),
-per-entity dump typing, hover, and eval-time checking with good errors.
+  calls typechecks clean. Green means the tool did not look.
+- **Completion does not follow calls**, so component return values are invisible
+  in the editor. Not a missing-annotation problem — everything is annotated and
+  hover reports real signatures at the same positions.
 
 ### The union problem
 
@@ -226,8 +238,8 @@ handles correctly.
 Everything above is executable, in `modules/fh-datastar-view/src/test/nickel/`:
 
 ```bash
-nickel test *.test.ncl        # 49 assertions
-./typecheck-claims.sh         # 7 claims about what `nickel typecheck` catches
+nickel test *.test.ncl        # 52 assertions
+./typecheck-claims.sh         # 12 claims about what `nickel typecheck` catches
 ./lsp-probe.py --claims       # editor completion + hover, asked of nls directly
 ```
 
@@ -235,10 +247,16 @@ The three catch disjoint sets of mistakes — a typecheck-only error evaluates
 fine, so `nickel test` is green while the claim is false. That gap is why the
 suite is split three ways rather than being one command.
 
-## Next, if this is pursued
+## Next
 
-The spike answers the language question and stops there. The next step is not a
-migration but the seam: `fh.view.build.SourceEval` is already the
+1. **Convert `lib/` from contracts to static types.** That is where the
+   typechecker and editor completion come from, and the spike currently
+   demonstrates the cost of not doing it rather than the benefit of doing it.
+   Contracts stay for genuine runtime validation only.
+2. Re-measure completion and `nickel typecheck` against the converted library —
+   the claims in `typecheck-claims.sh` are written to be re-run.
+
+Beyond that, the seam: `fh.view.build.SourceEval` is already the
 authoring-language boundary, and giving it a second implementation is worth
 doing on its own merits (it makes the renderer testable against a fake),
 independent of whether Nickel is ever the second one.

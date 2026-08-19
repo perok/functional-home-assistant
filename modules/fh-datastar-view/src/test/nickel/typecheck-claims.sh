@@ -4,9 +4,9 @@
 #   ./typecheck-claims.sh
 #
 # These claims cannot be `nickel test` doctests: a typecheck-only error (no type
-# alias, import-is-Dyn) EVALUATES fine, so a doctest would pass while the claim
-# is false. Each fixture in typecheck/ declares its expected outcome in its
-# first line; this script checks the exit code matches.
+# alias, no recursive type) EVALUATES fine, so a doctest would pass while the
+# claim is false. Each fixture in typecheck/ declares its expected outcome in
+# its first line; this script checks the exit code matches.
 set -u
 cd "$(dirname "$0")" || exit 1
 
@@ -21,31 +21,36 @@ expect() { # expect <FAIL|PASS> <file> <substring-of-error>
   [ $rc -ne 0 ] && got=FAIL
 
   if [ "$got" != "$want" ]; then
-    printf '%-28s want %s, got %s\n' "$(basename "$file")" "$want" "$got"
+    printf '%-34s want %s, got %s\n' "$(basename "$file")" "$want" "$got"
     fail=1
     return
   fi
   if [ -n "$needle" ] && ! printf '%s' "$out" | grep -qF "$needle"; then
-    printf '%-28s %s, but message lacked: %s\n' "$(basename "$file")" "$got" "$needle"
+    printf '%-34s %s, but message lacked: %s\n' "$(basename "$file")" "$got" "$needle"
     fail=1
     return
   fi
-  printf '%-28s %s\n' "$(basename "$file")" "$got"
+  printf '%-34s %s\n' "$(basename "$file")" "$got"
 }
 
-echo "== what static typing DOES catch"
-expect FAIL typecheck/adt-exhaustive.ncl  "missing row \`Axis\`"
+echo "== static typing works, and it crosses module boundaries"
+expect PASS typecheck/import-carries-its-type.ncl
+expect FAIL typecheck/import-catches-a-bad-call.ncl "lacks \`entity_id\`"
+expect FAIL typecheck/static-call-site.ncl          "These types are not compatible"
+expect FAIL typecheck/adt-exhaustive.ncl            "missing row \`Axis\`"
 expect PASS typecheck/adt-exhaustive-ok.ncl
-expect FAIL typecheck/static-call-site.ncl "These types are not compatible"
+expect PASS typecheck/dyn-bridge.ncl
 
 echo
-echo "== why lib/ cannot use it"
-expect FAIL typecheck/no-alias.ncl        "Static types and contracts are not compatible"
-expect FAIL typecheck/import-is-dyn.ncl   "Found an expression of type \`Dyn\`"
+echo "== the real limits"
+expect FAIL typecheck/no-alias.ncl            "Static types and contracts are not compatible"
+expect FAIL typecheck/no-recursive-type.ncl   "unbound identifier \`Node\`"
 expect FAIL typecheck/merge-is-untyped.ncl
+expect PASS typecheck/merge-is-untyped-workaround.ncl
+expect FAIL typecheck/unannotated-import-is-dyn.ncl "Found an expression of type \`Dyn\`"
 
 echo
-echo "== and so, on the library we actually have"
+echo "== and what a CONTRACT-annotated library costs (the current lib/)"
 expect PASS typecheck/lib-typechecks-clean.ncl
 
 echo

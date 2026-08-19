@@ -2,12 +2,15 @@
 #
 #   nickel test modules/fh-datastar-view/src/test/nickel/typesystem.test.ncl
 #
-# The short version: Nickel has TWO systems that do not mix — static types (`:`)
-# and contracts (`|`) — and a dashboard library needs features that live on
-# opposite sides. The static side has a real typechecker, ADTs with exhaustive
-# `match`, and polymorphism. The contract side is the only one that survives a
-# module boundary. `lib/` is therefore contracts, and everything the static side
-# offers is unavailable to it.
+# The short version: Nickel has two systems, static types (`:`) and contracts
+# (`|`), and they do not mix — naming a record type moves it into the contract
+# world. Static types are the stronger of the two AND they cross module
+# boundaries (an annotated import carries its type), so a library should be
+# written in them, with contracts kept for what they actually are: runtime
+# validation of data the types cannot describe.
+#
+# `lib/` in this spike is still contract-annotated, which is why several blocks
+# below describe what that costs. Converting it is the next step.
 #
 # Each block below is self-contained so it can be read as evidence on its own.
 {
@@ -110,24 +113,80 @@
     "%
     = null,
 
-  an_import_is_dyn_in_static_code
+  an_UNANNOTATED_import_is_dyn
     | doc m%"
-      The decisive one. A dashboard calls library functions with values from an
-      imported dump, and an `import` is `Dyn` inside a static block — so the
-      call does not typecheck (`typecheck/import-is-dyn.ncl`) and does not
-      evaluate either, because the static type becomes a CLOSED record contract
-      that the dump entity's extra fields violate.
+      An import carries a static type when the imported MODULE is annotated
+      (`typecheck/import-carries-its-type.ncl`), and the typechecker then sees
+      through both the library and the dump. `lib/` here is contract-annotated,
+      so its apparent type is `Dyn` and a static block cannot reach into it —
+      which is a fact about how this spike is written, not about imports.
 
-      Four escape hatches were tried and all four fail: ascribing the value at
-      the call site, ascribing the import binding, laundering it through a
-      contract first, and a `_` wildcard. Static typing in Nickel is
-      single-file, and a library is not a single file.
+      The eval-time symptom of reaching in anyway: the static type becomes a
+      CLOSED record contract, and the dump entity's extra fields violate it.
 
       ```nickel
       let home = import "home.ncl" in
       let f : { entity_id : String } -> String = fun e => e.entity_id in
       ({ out = f home.entities.light_plug } : { out : String }).out
       # => error: contract broken by the caller
+      ```
+    "%
+    = null,
+
+  the_documented_bridge_from_dyn_into_typed_code
+    | doc m%"
+      And the fix, straight from the manual: `exp | Type`, where Type is a
+      record TYPE — fields with `:`, no values, no other metadata. A record
+      CONTRACT in that position does NOT work; it stays opaque to the
+      typechecker. That distinction is what I got wrong first time round.
+
+      So even an unannotated dump is usable from static code, at the cost of one
+      ascription at the boundary (`typecheck/dyn-bridge.ncl` typechecks clean).
+
+      ```nickel
+      let home = import "home.ncl" in
+      let f : { entity_id : String, domain : String, friendly_name : String } -> String
+        = fun e => e.entity_id
+      in
+      f (home.entities.light_plug | { entity_id : String, domain : String, friendly_name : String })
+      # => "light.plug"
+      ```
+    "%
+    = null,
+
+  row_polymorphism_absorbs_an_entity_s_extra_fields
+    | doc m%"
+      The reason a statically typed component library is practical at all: a
+      parameter written `forall a. { entity_id : String; a }` accepts any entity
+      that HAS those fields, whatever else it carries. Per-entity dump types and
+      static component signatures fit together without inlining each entity's
+      shape at every call.
+
+      ```nickel
+      let toggle : forall a. { entity_id : String; a } -> { card : String }
+        = fun e => { card = "toggle" }
+      in
+      (toggle { entity_id = "light.plug", domain = "light", friendly_name = "Plug" }).card
+      # => "toggle"
+      ```
+    "%
+    = null,
+
+  no_recursive_type_so_children_must_be_dyn
+    | doc m%"
+      The one place `Dyn` is genuinely forced rather than chosen. A layout tree
+      is recursive — `children` holds more nodes — and a recursive TYPE cannot
+      be written: there is no type alias, and `let` is not recursive, so the
+      name is unbound (`typecheck/no-recursive-type.ncl`).
+
+      A recursive CONTRACT is fine, as a record field — which is what
+      `lib/core.ncl` does today.
+
+      ```nickel
+      let core = import "lib/core.ncl" in
+      let n | core.Node = { card = "a", children = [{ card = "b" }] } in
+      (std.array.first n.children).card
+      # => "b"
       ```
     "%
     = null,

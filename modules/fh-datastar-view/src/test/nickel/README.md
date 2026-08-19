@@ -14,8 +14,8 @@ two query-builder styles, and a dashboard written against them.
 ```bash
 cd modules/fh-datastar-view/src/test/nickel
 
-nickel test *.test.ncl        # 49 assertions
-./typecheck-claims.sh         # 7 claims about what `nickel typecheck` catches
+nickel test *.test.ncl        # 52 assertions
+./typecheck-claims.sh         # 12 claims about what `nickel typecheck` catches
 ./lsp-probe.py --claims       # editor claims: completion + hover
 nickel export dashboard.ncl   # the pipe-style dashboard as JSON
 ```
@@ -53,49 +53,59 @@ Requires `nickel` and `nls` on PATH (1.17.0 here). The Pkl equivalents live in
 `lib/components/`: without it, `query` would have to name the type `components`
 produces, and the only way to dodge that dependency is to write `Dyn`.
 
-## Types: two systems, and we need both halves
+## Types: the library should be static types, not contracts
 
-This is the finding everything else hangs off.
+Nickel has **static types** (`:`) and **contracts** (`|`). They do not mix —
+naming a record type moves it from the first into the second, and a record
+contract in a type position stays opaque.
 
-Nickel has **static types** (`:`) and **contracts** (`|`). They are not two
-syntaxes for one thing — they do not compose, and naming a record type moves it
-from the first into the second. Each has exactly what the other lacks.
+**Static typing is the stronger side and it crosses module boundaries.**
+`nickel typecheck` catches, before any evaluation:
 
-**The static side is a real type system.** `nickel typecheck` catches, before
-any evaluation:
+- a wrong argument at a call site, **through two imports** — a statically
+  annotated library called with a value from a statically annotated dump
+  (`typecheck/import-carries-its-type.ncl`, `import-catches-a-bad-call.ncl`)
+- **a non-exhaustive `match` on an enum** (`typecheck/adt-exhaustive.ncl`)
 
-- a wrong argument at a call site (`typecheck/static-call-site.ncl`)
-- **a non-exhaustive `match` on an enum** — "missing row `Axis`"
-  (`typecheck/adt-exhaustive.ncl`)
+It has ADTs, `forall`, and row polymorphism over records and enums. **Row
+polymorphism is what makes it practical here**: a parameter written
+`forall a. { entity_id : String; a }` accepts any entity that has those fields,
+whatever else it carries — so per-entity dump types and static component
+signatures fit together without inlining each entity's shape.
 
-It has ADTs (enum variants with payloads), parametric polymorphism (`forall`),
-and row polymorphism over both records and enums. And `nls` completion follows
-function return types inside a static block — which the contract side does not
-do at all.
+An import carries its type when the imported **module** is annotated at module
+level. An unannotated module has apparent type `Dyn`, and the documented bridge
+is `exp | Type` where Type is a record **type** (fields with `:`, no values, no
+other metadata). A record *contract* in that position does not work — that
+distinction cost me a wrong conclusion, and `typecheck/dyn-bridge.ncl` now pins
+it.
 
-**The static side also cannot express a library.** Three independent blockers,
-each measured:
+So: **write `lib/` in static types, and keep contracts for what they actually
+are — runtime validation of things the type system cannot state** (the
+slidable-domain predicate; the generated dump's per-entity shape, if codegen
+cannot emit static types).
+
+`lib/` in this spike is **still contract-annotated** — converting it is the next
+step. That is why the sections below still describe the contract world's costs.
+
+### The real limits
+
+Three, all measured, and none of them fatal:
 
 | | |
 |---|---|
-| **No type alias** | Naming a record type makes it a contract, and "static types and contracts are not compatible". Every signature must inline its full structure and no two can share one. |
-| **An `import` is `Dyn`** | So a statically-typed function cannot be called with a value from a generated dump — the entire use case. Four escape hatches tried (ascribe the value, ascribe the import, launder through a contract, `_` wildcard); all four fail. |
-| **`&` is untyped** | Merge is `Dyn -> Dyn -> Dyn`, so the amend idiom the component library is built on cannot appear in static code. `std.record.update` refuses a row-polymorphic record, so there is no typed way to extend a record of unknown shape either. |
+| **No type alias** | Naming a record type makes it a contract. Signatures inline their structure; a module-level annotation block keeps that to one place per module, and row polymorphism keeps parameters short. |
+| **No recursive type** | Follows from the above plus `let` not being recursive. A layout tree is recursive, so `children : Array Dyn` is **forced** — the one `Dyn` the language requires rather than permits. A recursive *contract* works fine as a record field. |
+| **`&` is untyped** | Merge is `Dyn -> Dyn -> Dyn`, so the amend idiom cannot appear in static code. Rebuilding the record instead does typecheck, and forces a better shape: separate placement from the node body, and one `fullWidth` works on cards and query set nodes alike, polymorphic in the body (`typecheck/merge-is-untyped-workaround.ncl`). |
 
-So `lib/` is contracts. Which means, for the library we can actually write:
+### What a contract-annotated library costs
+
+Which is what `lib/` is today, and the argument for converting it:
 
 - **`nickel typecheck` says nothing about it.** `typecheck/lib-typechecks-clean.ncl`
   passes while containing two wrong calls. Green means the tool did not look.
-- **Completion does not follow calls** — see below.
-
-What contracts do give: they cross module boundaries, they work with merge, they
-can be recursive (as record fields), they carry per-entity dump typing, and they
-reach hover. They are checked at eval, when forced.
-
-**The honest summary: there is no configuration of this language in which the
-library gets both a typechecker and composition.** Not "we picked contracts" —
-the static half is unreachable from a multi-module library, and that is a
-property of Nickel 1.17, not of how this spike is written.
+- **Completion does not follow calls.** With static types it does, through
+  imports included — measured.
 
 ### No `Dyn` in `lib/` — and what that cost
 
@@ -173,17 +183,17 @@ home.entities.light_plug.                 -> [domain, entity_id, friendly_name]
 1. **Per-entity typing works.** `light_plug` has no `colourTemp`, and completion
    does not offer it.
 2. **Completion is empty after any call** — so the component library's return
-   values are invisible. That is not a builder-style problem and not a missing
-   annotation: everything in `lib/` is annotated, and hover reports real
+   values are invisible. Not a builder-style problem and not a missing
+   annotation: everything in `lib/` is annotated and hover reports real
    signatures at the same positions.
 
-   It is the contract/static split again. Inside a **static** block, completion
-   after a call works fine — `(mk "x").` returns `['card', 'entity_id',
-   'readout']`. It is contracts specifically that `nls` will not follow through,
-   and contracts are the only thing a library can be written in.
+   It is the contract/static split. With **static types** completion follows
+   calls, including through an import — `(l.mk "x").` returns
+   `['card', 'entity_id', 'readout']` where `l` is an annotated module. This is
+   the strongest single argument for converting `lib/` to static types.
 
-Given (2), prefer the pipe style: same capability, fewer parens, identical
-(absent) tooling support.
+Given (2) as things stand, prefer the pipe style: same capability, fewer parens,
+identical tooling support.
 
 Hover, asked of `dashboard.ncl` (a file that parses):
 
