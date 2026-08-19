@@ -1,26 +1,35 @@
-# The node vocabulary both the component library and the query builder need.
+# Placement — the layout half of a node, and the layout helpers.
 #
-# It exists as its own module for the reason ADR 0015 splits `lib/core/` from
-# `lib/components/`: without it, `query` would have to name the type components
-# produces, and the only way to avoid the dependency is to write `Dyn` — which
-# is not a design, it is a hole.
+# STATIC TYPES (`:`), annotated at MODULE level. That is what makes the types
+# survive an `import`: an unannotated module has apparent type `Dyn`.
 #
-# Written as ONE RECORD, not a chain of `let`s: `Node.children | Array Node` is
-# recursive, and `let` in Nickel is not. Record fields are.
-{
-  Cell = { classes | Array String | default = [] },
+# Why placement is separated from the node body: `&` (merge) is untyped
+# (`Dyn -> Dyn -> Dyn`), so the amend idiom cannot appear in statically typed
+# code. Rebuilding the record instead does typecheck — but only the concrete
+# half can be rebuilt, so the body has to stay behind a type variable. The
+# result is better than what merge gave us: ONE `fullWidth` covers component
+# cards and query set nodes alike, with no `Dyn` and no open-record contract.
+#
+# `place` wraps a body; every component here returns an already-placed node, so
+# a dashboard writes `c.fullWidth (c.toggle e)` exactly as before.
+({
+  # `body = body` would be self-reference, not the parameter — records are
+  # recursive. Fifth time this trap has fired in this directory.
+  place = fun body => { cell = { classes = [] }, include body },
 
-  # Anything the grid can place. Weaker than `Node` on purpose: a query's `set`
-  # node carries a cell but no `card`, so annotating the layout helpers
-  # `Node -> Node` is wrong — it fails on a real dashboard.
-  Placeable = { cell | Cell | default = {}, .. },
+  fullWidth = fun p => { cell = { classes = p.cell.classes @ ["fh-cols-full"] }, body = p.body },
 
-  Node = {
-    kind | String | default = "component",
-    card | String,
-    slots | { _ : String } | default = {},
-    children | Array Node | default = [],
-    cell | Cell | default = {},
-    ..
+  columns = fun n p => {
+    cell = { classes = p.cell.classes @ ["fh-cols-%{std.string.from_number n}"] },
+    body = p.body,
   },
-}
+} : {
+  place : forall a. a -> { cell : { classes : Array String }, body : a },
+
+  fullWidth : forall a. { cell : { classes : Array String }, body : a }
+    -> { cell : { classes : Array String }, body : a },
+
+  columns : forall a. Number
+    -> { cell : { classes : Array String }, body : a }
+    -> { cell : { classes : Array String }, body : a },
+})

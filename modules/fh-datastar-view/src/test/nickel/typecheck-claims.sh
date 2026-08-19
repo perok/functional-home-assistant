@@ -40,6 +40,8 @@ expect FAIL typecheck/static-call-site.ncl          "These types are not compati
 expect FAIL typecheck/adt-exhaustive.ncl            "missing row \`Axis\`"
 expect PASS typecheck/adt-exhaustive-ok.ncl
 expect PASS typecheck/dyn-bridge.ncl
+expect FAIL typecheck/dashboard-capability.ncl      "lacks \`colourTemp\`"
+expect PASS typecheck/dashboard-capability-ok.ncl
 
 echo
 echo "== the real limits"
@@ -48,9 +50,12 @@ expect FAIL typecheck/no-recursive-type.ncl   "unbound identifier \`Node\`"
 expect FAIL typecheck/merge-is-untyped.ncl
 expect PASS typecheck/merge-is-untyped-workaround.ncl
 expect FAIL typecheck/unannotated-import-is-dyn.ncl "Found an expression of type \`Dyn\`"
+expect FAIL typecheck/module-annotation-must-be-outermost.ncl "Found an expression of type \`Dyn\`"
+expect PASS typecheck/module-annotation-outermost-ok.ncl
+expect FAIL typecheck/dyn-needs-contract-application.ncl
 
 echo
-echo "== and what a CONTRACT-annotated library costs (the current lib/)"
+echo "== and what a CONTRACT-annotated library would cost"
 expect PASS typecheck/lib-typechecks-clean.ncl
 
 echo

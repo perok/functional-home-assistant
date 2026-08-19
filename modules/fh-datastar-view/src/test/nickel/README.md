@@ -14,8 +14,8 @@ two query-builder styles, and a dashboard written against them.
 ```bash
 cd modules/fh-datastar-view/src/test/nickel
 
-nickel test *.test.ncl        # 52 assertions
-./typecheck-claims.sh         # 12 claims about what `nickel typecheck` catches
+nickel test *.test.ncl        # 49 assertions
+./typecheck-claims.sh         # 17 claims about what `nickel typecheck` catches
 ./lsp-probe.py --claims       # editor claims: completion + hover
 nickel export dashboard.ncl   # the pipe-style dashboard as JSON
 ```
@@ -35,8 +35,8 @@ Requires `nickel` and `nls` on PATH (1.17.0 here). The Pkl equivalents live in
 
 | File | |
 |---|---|
-| `lib/hass.ncl` | schema — analogue of `lib/hass.pkl` |
-| `lib/core.ncl` | `Cell` / `Node` / `Placeable` — the shared node vocabulary |
+| `lib/hass.ncl` | the ONE contract left: a runtime domain predicate |
+| `lib/core.ncl` | placement (`{ cell, body }`) and the layout helpers |
 | `lib/components.ncl` | slider / sliderGroup / button / toggle / columns / fullWidth |
 | `lib/query.ncl` | **both** query styles, in separate namespaces |
 | `lib/query/expr.ncl` | predicates (`prop`, `state`, `eq`, `lt`), shared |
@@ -47,70 +47,66 @@ Requires `nickel` and `nls` on PATH (1.17.0 here). The Pkl equivalents live in
 | `dashboard.ncl` / `dashboard-builder.ncl` | the same dashboard in each style |
 | `typesystem.test.ncl` | what the type system can and cannot express |
 | `typecheck/` + `typecheck-claims.sh` | claims that only `nickel typecheck` can check |
-| `probe.ncl` + `lsp-probe.py` | editor evidence; `probe.ncl` does not evaluate |
+| `probe.ncl` / `probe-static.ncl` + `lsp-probe.py` | editor evidence; probe **-static** for anything after a call |
 
-`lib/core.ncl` exists for the reason ADR 0015 splits `lib/core/` from
-`lib/components/`: without it, `query` would have to name the type `components`
-produces, and the only way to dodge that dependency is to write `Dyn`.
+`lib/core.ncl` splits placement from the node body for a reason the type system
+forced — see below. It also plays the role ADR 0015 gives `lib/core/`: the
+vocabulary a component author builds on.
 
-## Types: the library should be static types, not contracts
+## Types: the library is static types; contracts are runtime validation
 
 Nickel has **static types** (`:`) and **contracts** (`|`). They do not mix —
 naming a record type moves it from the first into the second, and a record
-contract in a type position stays opaque.
+contract in a type position stays opaque. `lib/` is written in static types.
+`lib/hass.ncl` holds the one contract left, and it earns its place: "this
+entity's domain is one the slider can drive" is a fact about a value, not a
+shape, so no type can state it.
 
-**Static typing is the stronger side and it crosses module boundaries.**
-`nickel typecheck` catches, before any evaluation:
+**What that buys, measured:**
 
-- a wrong argument at a call site, **through two imports** — a statically
-  annotated library called with a value from a statically annotated dump
-  (`typecheck/import-carries-its-type.ncl`, `import-catches-a-bad-call.ncl`)
-- **a non-exhaustive `match` on an enum** (`typecheck/adt-exhaustive.ncl`)
+- **A capability mistake in a dashboard is a compile error.**
+  `home.entities.light_plug.colourTemp` fails `nickel typecheck` with "this
+  record lacks `colourTemp`", before anything evaluates
+  (`typecheck/dashboard-capability.ncl`). Pkl's per-entity class guarantee,
+  with a compile step behind it.
+- **A non-exhaustive `match`** on the slider's tagged union is a typecheck
+  error (`typecheck/adt-exhaustive.ncl`).
+- **Completion follows function returns, across imports, two levels deep**, and
+  hover prints full signatures, instantiating `forall`s.
 
-It has ADTs, `forall`, and row polymorphism over records and enums. **Row
-polymorphism is what makes it practical here**: a parameter written
-`forall a. { entity_id : String; a }` accepts any entity that has those fields,
-whatever else it carries — so per-entity dump types and static component
-signatures fit together without inlining each entity's shape.
-
-An import carries its type when the imported **module** is annotated at module
-level. An unannotated module has apparent type `Dyn`, and the documented bridge
-is `exp | Type` where Type is a record **type** (fields with `:`, no values, no
-other metadata). A record *contract* in that position does not work — that
-distinction cost me a wrong conclusion, and `typecheck/dyn-bridge.ncl` now pins
-it.
-
-So: **write `lib/` in static types, and keep contracts for what they actually
-are — runtime validation of things the type system cannot state** (the
-slidable-domain predicate; the generated dump's per-entity shape, if codegen
-cannot emit static types).
-
-`lib/` in this spike is **still contract-annotated** — converting it is the next
-step. That is why the sections below still describe the contract world's costs.
-
-### The real limits
-
-Three, all measured, and none of them fatal:
+Three things make it work, and each was a trap first:
 
 | | |
 |---|---|
-| **No type alias** | Naming a record type makes it a contract. Signatures inline their structure; a module-level annotation block keeps that to one place per module, and row polymorphism keeps parameters short. |
-| **No recursive type** | Follows from the above plus `let` not being recursive. A layout tree is recursive, so `children : Array Dyn` is **forced** — the one `Dyn` the language requires rather than permits. A recursive *contract* works fine as a record field. |
-| **`&` is untyped** | Merge is `Dyn -> Dyn -> Dyn`, so the amend idiom cannot appear in static code. Rebuilding the record instead does typecheck, and forces a better shape: separate placement from the node body, and one `fullWidth` works on cards and query set nodes alike, polymorphic in the body (`typecheck/merge-is-untyped-workaround.ncl`). |
+| **Module annotation must be OUTERMOST** | `(let … in {…}) : T`, not `let … in ({…} : T)` — the latter parses as the annotation being inside the `let`, leaving the module's apparent type `Dyn`. Nothing warns; only *importers* degrade, and they degrade to "not checked", which looks like success. |
+| **Row polymorphism on every entity parameter** | `forall a. { entity_id : String; a }` accepts any entity the dump generated, extra fields and all. Without it a component would have to name each entity's shape — impossible, since types cannot be named. |
+| **`\| Dyn` to enter a dynamic position** | There is no implicit upcast. A static `: Dyn` is rejected; the contract application `\| Dyn` is the documented "typechecker off here". |
 
-### What a contract-annotated library costs
+### The limits that survive
 
-Which is what `lib/` is today, and the argument for converting it:
+| | |
+|---|---|
+| **No type alias** | Signatures inline their structure. One module-level annotation block per module plus row polymorphism keeps it bounded, but the library roughly doubled in size. |
+| **No recursive type** | There is no name to recurse through. A layout tree is recursive, so `children : Array Dyn` is **forced**. `let rec` gives recursive *contracts* — records and ADTs both — so the recursion is expressible, just invisible to the typechecker. |
+| **`&` is untyped** | Merge is `Dyn -> Dyn -> Dyn`, and `std.record.update` is a Dictionary op that refuses a concrete record. Every update is an explicit rebuild — the most visible tax, and what makes `lib/query/pipe.ncl` verbose. |
 
-- **`nickel typecheck` says nothing about it.** `typecheck/lib-typechecks-clean.ncl`
-  passes while containing two wrong calls. Green means the tool did not look.
-- **Completion does not follow calls.** With static types it does, through
-  imports included — measured.
+**The sharp edge**: every `| Dyn` is a hole where checking *and* tooling stop —
+hover inside one reports `Dyn`. Because the layout tree cannot be typed, a
+dashboard's `children` list is exactly such a hole. Library internals and each
+individual call keep their types; the tree assembling them does not.
 
-### No `Dyn` in `lib/` — and what that cost
+It is also why the **builder query style now loses outright**: its `Chain` is a
+recursive type, so `lib/query/builder.ncl` cannot be annotated at all and is
+`Dyn` to every importer. The pipe style has no such problem.
 
-`Dyn` is a hole, not a signature, so there is none in `lib/`. Two positions
-needed real work to remove it:
+### Where `Dyn` remains, and why
+
+Only where the language forces it: the recursive `children`, and a comparison's
+right-hand side (a String for a state, a Number for a battery level — static
+types have no untagged scalar union, and the polymorphic workaround dies on
+`Array` needing one element type). Both are noted at their definitions.
+
+One position needed real work to remove it:
 
 **`slider` takes an entity OR a colour-temperature axis.** Nickel has an
 untagged union (`std.contract.any_of`), but it is unusable here: entity
@@ -144,31 +140,27 @@ battery level. That one stays an untagged `any_of`, because it has to serialize
 as a bare JSON scalar and a tagged ADT would put a tag on the wire. Its
 alternatives are closed scalars, which is the case `any_of` handles correctly.
 
-### What the annotations bought
+### Traps found while converting
 
-- **Hover works** — `Dyn` becomes a real signature (`Placeable -> Placeable`).
-- **A wrong argument fails at the call**, naming the annotation, rather than
-  producing a set node the browser would choke on. Eval-time, when forced.
-- **One real bug, immediately**: annotating the layout helpers `Node -> Node`
-  broke `dashboard.ncl`, because a query's `set` node has a cell but no `card`.
-  Hence the weaker `Placeable`.
-
-Two traps found while annotating, both about trusting a hover:
-
-- An annotation on a `let` does **not** survive `include` into the exported
-  record — hover says `Dyn`. Record fields keep theirs. That is why
-  `lib/components.ncl` is one record rather than a chain of `let`s.
-- After the **first parse error** in a file, hover degrades to `Dyn` for
-  everything downstream.
-
-And one about composing contracts: `RecordContract & customContract` looks right
-and fails with "non mergeable terms" the moment anything forces it.
-`std.contract.all_of` is the combinator that composes.
+- The **`field = param` self-reference** fired twice more here (six times total
+  in this directory): `body = body` and `lhs = lhs` inside a record refer to the
+  field, not the parameter. `include` fixes it where the value is unwrapped;
+  where it is not (`lhs = (l | Dyn)`), the parameter has to be renamed.
+- An annotation on a `let` does **not** survive `include` into an exported
+  record — hover says `Dyn`. Record fields keep theirs.
+- After the **first parse error** in a file, nls degrades to `Dyn` for
+  everything downstream. This produced a wrong conclusion twice; it is why
+  `probe-static.ncl` exists alongside the deliberately-unparseable `probe.ncl`.
+- `RecordContract & customContract` looks right and fails with "non mergeable
+  terms" the moment anything forces it. `std.contract.all_of` composes.
+- Annotating the layout helpers `Node -> Node` broke `dashboard.ncl`, because a
+  query's `set` node has a cell but no `card`. That is what drove placement out
+  of the node body.
 
 ## The editor: what to test yourself
 
 `./lsp-probe.py --claims` asks `nls` directly rather than relying on "no popup
-appeared". Completion, at six cursor sites in `probe.ncl`:
+appeared". Completion:
 
 ```
 q.                                        -> [builder, expr, pipe]
@@ -176,33 +168,31 @@ q.pipe.                                   -> [build, case_of, from, otherwise, w
 home.entities.light_hue_bibliotek.        -> [area_id, colourTemp, domain, entity_id,
                                               friendly_name, supported_color_modes]
 home.entities.light_plug.                 -> [domain, entity_id, friendly_name]
-(q.builder.from home.lights).             -> []
-(c.toggle home.entities.light_plug).      -> []
+(c.toggle …).                             -> [body, cell]
+(c.toggle …).body.                        -> [card, children, kind, readout, slots]
+(core.fullWidth …).                       -> [body, cell]
+…colourTemp.                              -> [max_kelvin, min_kelvin, owner]
 ```
 
-1. **Per-entity typing works.** `light_plug` has no `colourTemp`, and completion
-   does not offer it.
-2. **Completion is empty after any call** — so the component library's return
-   values are invisible. Not a builder-style problem and not a missing
-   annotation: everything in `lib/` is annotated and hover reports real
-   signatures at the same positions.
+1. **Per-entity typing works** — `light_plug` has no `colourTemp`, and
+   completion does not offer it.
+2. **Completion follows calls**, across imports and through a `forall`. The
+   library's return values are discoverable.
 
-   It is the contract/static split. With **static types** completion follows
-   calls, including through an import — `(l.mk "x").` returns
-   `['card', 'entity_id', 'readout']` where `l` is an annotated module. This is
-   the strongest single argument for converting `lib/` to static types.
+The call sites are probed in `probe-static.ncl`, which parses. That matters:
+measuring them in `probe.ncl`, which does not, returns `[]` and looks like a
+language limitation. It is not — it is nls's parse-error recovery.
 
-Given (2) as things stand, prefer the pipe style: same capability, fewer parens,
-identical tooling support.
-
-Hover, asked of `dashboard.ncl` (a file that parses):
+Hover prints whole signatures, instantiating the `forall`:
 
 ```
-q.pipe.where   -> expr.Expr -> fold.State -> fold.State
-c.fullWidth    -> Placeable -> Placeable
-c.slider       -> SliderAxis -> core.Node
-c.button       -> String -> String -> core.Node
+c.toggle        -> { entity_id : String, friendly_name : String, domain : String }
+                   -> { cell : {…}, body : { kind : String, card : String, … } }
+core.fullWidth  -> { cell : {…}, body : {…} } -> { cell : {…}, body : {…} }
 ```
+
+…and collapses to `Dyn` in exactly two places, both included as controls: inside
+a `| Dyn` region, and after a parse error.
 
 ## The two query styles
 
@@ -213,19 +203,22 @@ q.pipe.from home.lights
 |> q.pipe.case_of (q.expr.eq q.expr.state "on") (fun e => c.slider ('Entity e))
 |> q.pipe.otherwise c.toggle
 |> q.pipe.build
-|> c.fullWidth
+|> (fun set => core.fullWidth (core.place set))
 
 # builder — `build` is a terminal FIELD, so it needs no ()
-c.fullWidth
-  ((((q.builder.from home.lights).where (q.expr.eq (q.expr.prop "domain") "light"))
+core.fullWidth
+  (core.place
+   ((((q.builder.from home.lights).where (q.expr.eq (q.expr.prop "domain") "light"))
     .case_of (q.expr.eq q.expr.state "on") (fun e => c.slider ('Entity e)))
     .otherwise c.toggle).build
 ```
 
-The builder style works — records are recursive in Nickel, so `mk` can call
-itself as a sibling field, and the function fields never break JSON export
-because only `.build` is ever forced. Its cost is parens: application is `f x`
-with no method syntax, so every step has to be wrapped before the next `.`.
+The builder style works — `let rec` lets `mk` call itself, and the function
+fields never break JSON export because only `.build` is ever forced. It has two
+costs now, and the second is decisive: parens (application is `f x`, so every
+step needs wrapping), and **it cannot be statically typed at all**, because
+`Chain` is a recursive type. `lib/query/builder.ncl` is therefore `Dyn` to every
+importer, and a dashboard written in that style gets no compile-time checking.
 
 Both fold through the same `lib/query/fold.ncl`, so `query.test.ncl :: agree`
 ("both styles build the same node") is a real test rather than a tautology.
@@ -234,20 +227,26 @@ Pkl's `q.from(x).where(…).build()` is neither: it gets method syntax for free.
 
 ## Why `home.ncl` looks the way it does
 
-Codegen emits **one contract per entity**, next to the entity, declaring exactly
-the fields that entity has:
+Codegen gives each entity **its own type**, naming exactly the fields it has:
 
 ```nickel
-E_light_plug | not_exported = { entity_id | String, domain | String, friendly_name | String },
+light_plug : { entity_id : String, domain : String, friendly_name : String },
+light_hue_bibliotek : { …, colourTemp : { min_kelvin : Number, … } },
 ```
 
-Applying a single shared `hass.LightEntity` contract also works, and is the
-obvious thing to write — but completion is driven by the **contract**, not the
-value, so it then offers `colourTemp` and `area_id` on a light that has neither.
-At ~1069 entities that is the per-entity capability typing being deleted.
-Per-entity contracts recover all three properties Pkl's nominal classes give
-(per-entity type, narrowing by presence, omission beats null), without classes
-or subtyping, and upcasting to the wide list stays free.
+That reproduces all three properties Pkl's nominal classes give — per-entity
+type, narrowing by presence, omission beats null — without classes or
+subtyping, and adds the one Pkl has: it is checked at compile time.
+
+An earlier version of this spike used one *contract* per entity, which also
+works at eval. Types are strictly better here, and the two cannot be mixed on
+one value anyway. A single shared `LightEntity` would be worse than either: it
+offers `colourTemp` on a light that has none.
+
+`lights` carries the **common projection**, because an `Array` needs one element
+type. That is the right answer rather than a limitation — a query over every
+light should only see what every light has — and it is the same upcast Pkl gets
+from subtyping, written out because codegen writes it.
 
 ## Traps, pinned
 
@@ -256,18 +255,22 @@ Pkl?". It is not — it has the same class of variable-capture trap, relocated,
 and it fires more often. Each is a passing test:
 
 - `field = param` inside a record is **self-reference**, not the parameter —
-  records are recursive by default. Fix: `include param`. Hit four times in
-  ~150 lines.
+  records are recursive by default. Fix: `include param`, or rename the
+  parameter where the value is wrapped. **Six occurrences** across this
+  directory; comfortably the most repeated mistake here.
 - The punning shorthand `{ toggle }` is worse: it declares an *undefined field*
   rather than referring to the outer binding, and surfaces much later.
-- `let` is **not** recursive, so Pkl's self-referencing `const e_x = new { … owner = e_x }`
-  has no direct translation — the dump has to be one recursive record, and so
-  does `lib/core.ncl`, whose `Node.children | Array Node` refers to a sibling.
+- plain `let` is **not** recursive — but `let rec` is (nickel-lang/nickel#525),
+  and it gives recursive records AND recursive ADTs. So recursion is a solved
+  problem in the *contract* world; it is recursive **types** that cannot be
+  written, because there is no way to name one.
 - `&` is symmetric merge, **not** amend: it requires agreement and does not
   override, so every overridable field needs `| default`.
 - A cyclic field must be `not_exported` (Pkl's `hidden`) or export does not
   terminate. And `not_exported` is honoured by `nickel export` but **not** by
-  `std.serialize` — same value, one terminates and one hangs.
+  `std.serialize` — same value, one terminates and one hangs. (The static dump
+  sidesteps this by giving `colourTemp.owner` a projection rather than a
+  back-pointer.)
 
 One more worth knowing: **laziness is a wash, not an argument.** A contract
 violation on one field does not fail a read of another — and Pkl behaves

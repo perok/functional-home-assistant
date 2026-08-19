@@ -47,9 +47,10 @@
       light swap its own card without touching the others.
 
       ```nickel
+      let c = import "lib/components.ncl" in
       let q = import "lib/query.ncl" in
       let home = import "home.ncl" in
-      let set = q.pipe.from home.lights |> q.pipe.otherwise (fun e => { card = "toggle" }) |> q.pipe.build in
+      let set = q.pipe.from home.lights |> q.pipe.otherwise c.toggle |> q.pipe.build in
       std.record.fields set.members
       # => ["light.hue_bibliotek", "light.plug"]
       ```
@@ -70,7 +71,7 @@
         |> q.pipe.case_of (q.expr.eq q.expr.state "on") c.toggle
         |> q.pipe.build
       in
-      (std.array.at 0 set.members."light.plug".cases).node.slots.entity_id
+      (std.array.at 0 set.members."light.plug".cases).node.body.slots.entity_id
       # => "light.plug"
       ```
     "%

@@ -2,42 +2,18 @@
 # the wire. Keeping it in one place is what makes "the two styles agree" a real
 # test rather than a tautology about two copies of the same code.
 #
-# It also owns the types both styles are annotated against. No `Dyn`: `Render`
-# can name `core.Node` because the node vocabulary lives in its own module.
-let hass = import "../hass.ncl" in
-let core = import "../core.ncl" in
-let expr = import "expr.ncl" in
-{
-  Render = hass.Entity -> core.Node,
-
-  Case = { when | expr.Expr, render | Render },
-
-  # `'None` until `otherwise` is called. An ADT rather than a nullable field,
-  # so "no fallback" is a state rather than a value the fold has to re-test.
-  Fallback = [| 'None, 'Render Render |],
-
-  State = {
-    candidates | Array hass.Entity,
-    filters | Array expr.Expr,
-    cases | Array Case,
-    fallback | Fallback,
-  },
-
-  # One entry per candidate. `fallback` is OMITTED when there is none, rather
-  # than serialized as null.
-  Member = { cases | Array { when | expr.Expr, node | core.Node }, fallback | core.Node | optional },
-
-  Set = {
-    kind | String,
-    cell | core.Cell,
-    candidates | Array String,
-    where | Array expr.Expr,
-    members | { _ : Member },
-  },
-
-  emit | State -> Set = fun st => {
+# Static types, module-annotated. `Render` is a function type written inline:
+# an entity goes in, a placed node comes out. Types cannot be named, so the node
+# shape is spelled out again here — the tax the language charges for a library
+# with more than one module.
+#
+# `fallback` is an ADT rather than a nullable field, so "no fallback" is a state
+# the fold matches on rather than a value it re-tests. The typechecker checks the
+# match is exhaustive.
+({
+  emit = fun st => {
     kind = "set",
-    cell | default = {},
+    cell = { classes = [] },
     candidates = std.array.map (fun e => e.entity_id) st.candidates,
     where = st.filters,
     members =
@@ -46,11 +22,24 @@ let expr = import "expr.ncl" in
           std.record.insert
             e.entity_id
             (
-              { cases = std.array.map (fun c => { when = c.when, node = c.render e }) st.cases }
-              & (st.fallback |> match { 'None => {}, 'Render g => { fallback = g e } })
+              {
+                cases = std.array.map (fun c => { when = c.when, node = (c.render e | Dyn) }) st.cases,
+                fallback = st.fallback |> match { 'None => null, 'Render g => (g e | Dyn) },
+              } | Dyn
             )
             acc)
         {}
         st.candidates,
   },
-}
+} : {
+  emit : forall a.
+    { candidates : Array { entity_id : String; a },
+      filters : Array Dyn,
+      cases : Array { when : Dyn, render : { entity_id : String; a } -> Dyn },
+      fallback : [| 'None, 'Render ({ entity_id : String; a } -> Dyn) |] }
+    -> { kind : String,
+         cell : { classes : Array String },
+         candidates : Array String,
+         where : Array Dyn,
+         members : { _ : Dyn } },
+})

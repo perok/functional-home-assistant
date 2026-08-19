@@ -9,8 +9,9 @@
 # written in them, with contracts kept for what they actually are: runtime
 # validation of data the types cannot describe.
 #
-# `lib/` in this spike is still contract-annotated, which is why several blocks
-# below describe what that costs. Converting it is the next step.
+# `lib/` is now written in static types. `lib/hass.ncl` holds the one contract
+# left, and it earns it: a domain predicate is a fact about a value, not a
+# shape.
 #
 # Each block below is self-contained so it can be read as evidence on its own.
 {
@@ -90,14 +91,15 @@
     "%
     = null,
 
-  # ---- why lib/ cannot use any of it ---------------------------------------
+  # ---- the limits that survive -------------------------------------------
 
   a_static_type_cannot_be_named
     | doc m%"
       There is no type alias. Naming a record type moves it into the CONTRACT
       world, and the two are not compatible — so a static signature has to
       inline its whole structure, every time, and no two signatures can share
-      one. That alone rules out a statically-typed library.
+      one. Survivable — one module-level annotation block per module, plus row
+      polymorphism for parameters — but it roughly doubled the library's size.
 
       This is a TYPECHECK-only error: at eval the alias is just a contract and
       passes, which is why the assertion below is `1` and the real claim lives
@@ -117,12 +119,17 @@
     | doc m%"
       An import carries a static type when the imported MODULE is annotated
       (`typecheck/import-carries-its-type.ncl`), and the typechecker then sees
-      through both the library and the dump. `lib/` here is contract-annotated,
-      so its apparent type is `Dyn` and a static block cannot reach into it —
-      which is a fact about how this spike is written, not about imports.
+      through both the library and the dump.
 
-      The eval-time symptom of reaching in anyway: the static type becomes a
-      CLOSED record contract, and the dump entity's extra fields violate it.
+      The catch is subtler than "annotate the module": the annotation must be
+      the OUTERMOST expression. `let x = … in ({…} : T)` — the natural way to
+      put imports at the top — parses as the annotation being INSIDE the let,
+      and the module's apparent type is `Dyn`. Nothing warns; only importers
+      degrade, and they degrade to "not checked", which looks like success.
+      See typecheck/module-annotation-must-be-outermost.ncl.
+
+      Below, a closed record type meets an entity carrying extra fields — the
+      eval-time face of the same boundary.
 
       ```nickel
       let home = import "home.ncl" in
@@ -138,7 +145,7 @@
       And the fix, straight from the manual: `exp | Type`, where Type is a
       record TYPE — fields with `:`, no values, no other metadata. A record
       CONTRACT in that position does NOT work; it stays opaque to the
-      typechecker. That distinction is what I got wrong first time round.
+      typechecker.
 
       So even an unannotated dump is usable from static code, at the cost of one
       ascription at the boundary (`typecheck/dyn-bridge.ncl` typechecks clean).
@@ -179,12 +186,13 @@
       be written: there is no type alias, and `let` is not recursive, so the
       name is unbound (`typecheck/no-recursive-type.ncl`).
 
-      A recursive CONTRACT is fine, as a record field — which is what
-      `lib/core.ncl` does today.
+      A recursive CONTRACT is fine — as a record field, or with `let rec`, which
+      also gives recursive ADTs. So the recursion is expressible; it is just
+      invisible to the typechecker, which is the half that mattered.
 
       ```nickel
-      let core = import "lib/core.ncl" in
-      let n | core.Node = { card = "a", children = [{ card = "b" }] } in
+      let rec Node = { card | String, children | Array Node | default = [] } in
+      let n | Node = { card = "a", children = [{ card = "b" }] } in
       (std.array.first n.children).card
       # => "b"
       ```
@@ -211,31 +219,20 @@
 
   # ---- what the CONTRACT side gives you instead -----------------------------
 
-  contracts_cross_module_boundaries
+  recursive_adts_work_as_contracts
     | doc m%"
-      The reason `lib/` is contracts: this is the same call that fails above,
-      and it works.
+      `let rec` (shipped in nickel-lang/nickel#525) makes a recursive ADT
+      contract straightforward. Recursive CONTRACTS are not the problem;
+      recursive TYPES are, because there is no name to refer to.
 
       ```nickel
-      let c = import "lib/components.ncl" in
-      let home = import "home.ncl" in
-      (c.toggle home.entities.light_plug).slots.entity_id
-      # => "light.plug"
-      ```
-    "%
-    = null,
-
-  contracts_are_recursive_when_they_are_record_fields
-    | doc m%"
-      `core.Node.children | Array Node` refers to its own sibling. A `let` could
-      not do this — `let` is not recursive — which is why `lib/core.ncl` is one
-      record.
-
-      ```nickel
-      let core = import "lib/core.ncl" in
-      let n | core.Node = { card = "a", children = [{ card = "b" }] } in
-      (std.array.first n.children).card
-      # => "b"
+      let rec Tree = [| 'Leaf String, 'Branch { kids | Array Tree } |] in
+      let t | Tree = 'Branch { kids = ['Leaf "x"] } in
+      t |> match {
+        'Branch b => std.array.first b.kids |> match { 'Leaf s => s, _ => "?" },
+        'Leaf s => s,
+      }
+      # => "x"
       ```
     "%
     = null,

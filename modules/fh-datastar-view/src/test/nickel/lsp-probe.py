@@ -5,9 +5,13 @@
     ./lsp-probe.py --hover <file.ncl> <line> <col>    # hover type
     ./lsp-probe.py --claims                           # re-run the README's claims
 
-Exists because the interesting result in this directory is a NEGATIVE one —
-completion after a function call returns nothing — and "my editor showed no
-popup" is not evidence. This asks the server directly and prints what it said.
+Exists because "my editor showed a popup" (or did not) is not evidence. This
+asks the server directly and prints what it said.
+
+Two confounds it is built to avoid, both of which produced wrong conclusions
+here: nls needs a moment to index after didOpen, and it degrades badly after the
+FIRST parse error in a file. Anything measuring a call site must therefore use a
+file that parses — probe-static.ncl, not probe.ncl.
 """
 import json
 import os
@@ -91,29 +95,34 @@ def hover(path, line, col):
 
 # (description, file, line, col, expectation) — the README's claims, as code.
 COMPLETION_CLAIMS = [
-    ("module record       q.", "probe.ncl", 8, 8,
+    ("module record       q.", "probe.ncl", 11, 8,
      "the namespaces: builder, expr, pipe"),
-    ("nested record       q.pipe.", "probe.ncl", 9, 13,
+    ("nested record       q.pipe.", "probe.ncl", 12, 13,
      "the pipe-style builder steps"),
-    ("dump, light WITH    home.entities.light_hue_bibliotek.", "probe.ncl", 10, 40,
+    ("dump, light WITH    home.entities.light_hue_bibliotek.", "probe.ncl", 13, 40,
      "exactly this light's fields, colourTemp INCLUDED"),
-    ("dump, light WITHOUT home.entities.light_plug.", "probe.ncl", 11, 31,
+    ("dump, light WITHOUT home.entities.light_plug.", "probe.ncl", 14, 31,
      "exactly this light's fields, colourTemp ABSENT"),
-    ("function result     (q.builder.from home.lights).", "probe.ncl", 12, 35,
-     "the builder steps -- this is the claim to check"),
-    ("function result     (c.toggle home.entities.light_plug).", "probe.ncl", 13, 42,
-     "a node's fields -- same claim, component library"),
+    # These MUST be asked of a file that parses -- see the module docstring.
+    ("call result         (c.toggle …).", "probe-static.ncl", 12, 42,
+     "cell + body -- does completion follow a RETURN TYPE across an import?"),
+    ("two levels deep     (c.toggle …).body.", "probe-static.ncl", 13, 47,
+     "the node's own fields"),
+    ("polymorphic result  (core.fullWidth …).", "probe-static.ncl", 14, 59,
+     "cell + body, through a forall"),
+    ("capability          …colourTemp.", "probe-static.ncl", 15, 51,
+     "the axis fields, on a light that HAS one"),
 ]
 
 # Same question, asked of hover: does the annotation reach the editor at all?
 # Asked of dashboard.ncl, which PARSES — nls degrades to `Dyn` after the first
 # parse error in a file, so asking these of probe.ncl gives a false negative.
 HOVER_CLAIMS = [
-    ("q.pipe.where", "dashboard.ncl", 17, 18),
-    ("c.fullWidth", "dashboard.ncl", 21, 12),
-    ("c.slider      (tagged ADT param, no Dyn)", "dashboard.ncl", 25, 10),
-    ("c.button", "dashboard.ncl", 27, 10),
-    ("c.slider      SAME symbol, asked of the unparseable probe.ncl", "probe.ncl", 14, 10),
+    ("c.toggle", "probe-static.ncl", 12, 10),
+    ("core.fullWidth   (forall, instantiated)", "probe-static.ncl", 14, 14),
+    # Controls: the two ways hover collapses to Dyn.
+    ("c.slider         INSIDE a `| Dyn` region (dashboard.ncl)", "dashboard.ncl", 33, 10),
+    ("c.slider         in the unparseable probe.ncl", "probe.ncl", 17, 10),
 ]
 
 

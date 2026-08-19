@@ -17,81 +17,85 @@ inform the language question.
 Five layers, mirroring the Pkl library's split by audience (ADR 0015).
 
 ```
-lib/hass.ncl        schema                     — what an entity is
-lib/core.ncl        Cell / Node / Placeable    — the node vocabulary
+lib/hass.ncl        runtime validation         — the one contract left
+lib/core.ncl        placement + layout helpers — { cell, body }
 lib/components.ncl  slider, toggle, button, …  — what a dashboard author calls
 lib/query.ncl       { expr, pipe, builder }    — the candidate-set surface
 home.ncl            generated dump             — what codegen emits
 dashboard.ncl       the site                   — what a user writes
 ```
 
-`lib/core.ncl` is not a Pkl-shaped habit carried over. Without it the query
-builder would have to name the type the component library produces, and the only
-way to avoid that dependency in Nickel is to write `Dyn` — a hole rather than a
-signature. Splitting the node vocabulary out is what keeps every signature real.
+**The library is written in STATIC TYPES.** Contracts are kept for what they
+are — runtime validation of facts the type system cannot state — and exactly one
+survives (`lib/hass.ncl`: "this domain is one the slider can drive").
 
-### The dump: one contract per entity
+`lib/core.ncl` separates PLACEMENT (`{ cell, body }`) from the node body. That
+is not a Pkl habit carried over; the type system forced it. `&` is untyped, so a
+statically typed layout helper cannot amend a node — it has to rebuild the
+concrete half and leave the body behind a type variable. The result is better
+than the merge version: one `fullWidth` covers component cards and query set
+nodes alike.
 
-Codegen emits, beside each entity, a contract naming exactly the fields that
-entity has:
+### The dump: one type per entity
+
+Codegen gives each entity its own type, naming exactly the fields it has, and
+annotates the module so the type survives `import`:
 
 ```nickel
-E_light_plug | not_exported = {
-  entity_id | String, domain | String, friendly_name | String,
-},
-E_light_hue_bibliotek | not_exported = {
-  entity_id | String, domain | String, friendly_name | String, area_id | String,
-  supported_color_modes | Array hass.ColorMode,
-  colourTemp | hass.ColourTemp,        # PRESENT: declared, not optional
-},
-
-entities = {
-  light_plug = { … } | E_light_plug,
-  light_hue_bibliotek = { … } | E_light_hue_bibliotek,
-},
-lights = [entities.light_hue_bibliotek, entities.light_plug],
+({
+  entities = { light_plug = { … }, light_hue_bibliotek = { … } },
+  lights = [ … ],
+} : {
+  entities : {
+    light_plug : { entity_id : String, domain : String, friendly_name : String },
+    light_hue_bibliotek : { …, colourTemp : { min_kelvin : Number, … } },
+  },
+  lights : Array { entity_id : String, domain : String, friendly_name : String },
+})
 ```
 
-This is ADR 0013's design expressed without classes or nominal subtyping, and it
-reproduces all three properties that matter:
+This is ADR 0013's design, and it reproduces all three properties that matter —
+per-entity type, narrowing by presence, omission beats null — plus one Pkl does
+not have: **it is checked before evaluation**. `home.entities.light_plug.colourTemp`
+in a dashboard is a `nickel typecheck` error reading "this record lacks
+`colourTemp`".
 
-- **per-entity type** — `light_plug.colourTemp` is an error, pointing at the
-  record that lacks it
-- **narrowing by presence** — `light_hue_bibliotek.colourTemp.min_kelvin` needs
-  no guard and no `!!`
-- **omission beats null** — an absent capability is absent, not `null`
-- and **upcast stays free**: `home.lights | Array hass.LightEntity` passes, so
-  generic code over the wide list still works
+`lights` carries the COMMON projection, because an `Array` needs one element
+type. That is the right answer rather than a limitation: a query over every
+light should only see what every light has, and per-entity capabilities stay
+reachable through `entities.<name>`. Same upcast Pkl gets from subtyping, spelled
+out because codegen writes it.
 
-The alternative — one shared `hass.LightEntity` contract — also evaluates, and
-is the obvious thing to write. It must not be used: editor completion is driven
-by the **contract**, not the value, so it offers `colourTemp` on a light that
-has none. At ~1069 entities that deletes the capability typing.
+Mechanical constraints codegen must respect:
 
-Two mechanical constraints codegen has to respect:
-
-- Entity contracts must be **open** (`..`), or an entity carrying one extra
-  attribute is rejected.
-- The `owner` back-pointer must be `not_exported` (Pkl's `hidden`), or export
-  does not terminate. `not_exported` is honoured by `nickel export` but **not**
-  by `std.serialize`, so nothing downstream may serialize the dump from inside
-  Nickel.
+- **The module annotation must be the OUTERMOST expression.** `(let … in {…}) : T`,
+  not `let … in ({…} : T)` — the latter parses as the annotation being inside the
+  `let`, leaving the module's apparent type `Dyn`. Nothing warns, and only
+  importers degrade, silently, to unchecked.
+- Emit types, not contracts. They cannot be mixed on one value, and a contract
+  is invisible to the typechecker.
 
 ### Components
 
+Every entity parameter is **row-polymorphic**, which is what makes a statically
+typed component library practical at all:
+
 ```nickel
-slider     | SliderAxis -> core.Node
-sliderGroup| SliderAxis -> Array SliderAxis -> core.Node
-button     | String -> String -> core.Node
-toggle     | hass.Entity -> core.Node
-columns    | Number -> core.Placeable -> core.Placeable
-fullWidth  | core.Placeable -> core.Placeable
+toggle : forall a. { entity_id : String, friendly_name : String; a } -> <placed node>
+fullWidth : forall a. { cell : { classes : Array String }, body : a }
+         -> { cell : { classes : Array String }, body : a }
 ```
 
-`Placeable` is weaker than `Node` deliberately: a query's `set` node carries a
-cell but no `card`, so `Node -> Node` is wrong and fails on a real dashboard.
+`forall a. { entity_id : String; a }` accepts any entity the dump generated,
+extra fields and all. Without it a component would have to name each entity's
+shape — impossible, since Nickel types cannot be named.
 
-`SliderAxis` is a **tagged ADT** — see "The union problem" below.
+Types being unnameable is the main tax: each signature spells its structure out,
+and the module-level annotation block keeps that to one place per module. The
+library roughly doubled in size against the contract version.
+
+The slider's parameter is a **tagged ADT** — see "The union problem" below —
+whose `match` the typechecker checks for exhaustiveness.
 
 ### Query: two styles, one fold
 
@@ -106,16 +110,18 @@ q.pipe.from home.lights
 |> q.pipe.case_of (q.expr.eq q.expr.state "on") (fun e => c.slider ('Entity e))
 |> q.pipe.otherwise c.toggle
 |> q.pipe.build
-|> c.fullWidth
+|> (fun set => core.fullWidth (core.place set))
 
 # builder — `build` is a terminal FIELD, so no ()
 ((( q.builder.from home.lights).where pred).otherwise c.toggle).build
 ```
 
-The builder style works (records are recursive, so `mk` calls itself as a
-sibling field) but costs nested parens, because application is `f x` with no
-method syntax. It buys no discoverability — see below — so the pipe style is the
-recommended form. Pkl's `q.from(x).where(…).build()` is neither: it gets method
+The builder style works (`let rec` lets `mk` call itself) but **cannot be
+statically typed**: its `Chain` is a recursive type, and Nickel has no way to
+name a type, so there is no recursive type to write. `lib/query/builder.ncl` is
+therefore `Dyn` to every importer, and a dashboard in that style gets no
+compile-time checking at all. That, not the nested parens, is what settles the
+choice. Pkl's `q.from(x).where(…).build()` pays neither price: it gets method
 syntax for free.
 
 `Fallback` is an ADT (`[| 'None, 'Render … |]`) rather than a nullable field, and
@@ -145,29 +151,45 @@ is `exp | Type` where Type is a record **type** — fields with `:`, no values, 
 other metadata. A record *contract* in that position does not work; it stays
 opaque. So even an unannotated dump is reachable, at one ascription per boundary.
 
-**So the library should be static types, and contracts should be kept for what
-they actually are: runtime validation of what the types cannot state** — the
-slidable-domain predicate, and the generated dump's per-entity shape if codegen
-cannot emit static types.
+**So the library is static types, and contracts are kept for what they actually
+are: runtime validation of what the types cannot state.** Exactly one survives —
+the slidable-domain predicate. The dump emits types, not contracts; the two
+cannot be mixed on one value, and a contract is invisible to the typechecker.
+
+One subtlety that cost real time: the module annotation must be the OUTERMOST
+expression. `let x = … in ({…} : T)` — the natural way to put imports at the
+top — parses as the annotation being inside the `let`, so the module's apparent
+type is `Dyn`. Nothing warns; only importers degrade, and they degrade to "not
+checked", which looks like success.
 
 ### The real limits
 
 | | |
 |---|---|
 | No type alias | Naming a record type makes it a contract. Signatures inline their structure; one module-level annotation block per module plus row polymorphism keeps this bounded. |
-| No recursive type | Follows from the above plus `let` not being recursive. A layout tree is recursive, so `children : Array Dyn` is **forced** — the one `Dyn` the language requires rather than permits. A recursive *contract* works fine as a record field. |
+| No recursive type | There is no name to recurse through. A layout tree is recursive, so `children : Array Dyn` is **forced**. `let rec` (nickel#525) gives recursive *contracts* — records and ADTs both — so recursion is expressible, just invisible to the typechecker. |
 | `&` is untyped | Merge is `Dyn -> Dyn -> Dyn`. Rebuilding the record instead typechecks, and forces a better shape: separate placement from the node body, so one polymorphic `fullWidth` covers cards and query set nodes alike. |
 
-### What the current contract-annotated `lib/` costs
+### The sharp edge
 
-The spike's `lib/` is still contracts, which is why converting it is the next
-step:
+There is no implicit upcast to `Dyn`: entering a dynamic position takes the
+CONTRACT application `| Dyn`, which is the documented "typechecker off here".
+Since the layout tree cannot be typed, a dashboard's `children` list is exactly
+such a position — so **every `| Dyn` is a hole where checking and tooling both
+stop** (hover inside one reports `Dyn`).
+
+Library internals and each individual call keep their types. The tree that
+assembles them does not. That is the honest ceiling on what static typing buys
+a dashboard author here, and it is the thing to weigh against Pkl.
+
+### What a contract-annotated library would cost, for contrast
+
+The first version of this spike was written that way:
 
 - **`nickel typecheck` says nothing about it.** A file containing two wrong
   calls typechecks clean. Green means the tool did not look.
 - **Completion does not follow calls**, so component return values are invisible
-  in the editor. Not a missing-annotation problem — everything is annotated and
-  hover reports real signatures at the same positions.
+  in the editor.
 
 ### The union problem
 
@@ -238,8 +260,8 @@ handles correctly.
 Everything above is executable, in `modules/fh-datastar-view/src/test/nickel/`:
 
 ```bash
-nickel test *.test.ncl        # 52 assertions
-./typecheck-claims.sh         # 12 claims about what `nickel typecheck` catches
+nickel test *.test.ncl        # 49 assertions
+./typecheck-claims.sh         # 17 claims about what `nickel typecheck` catches
 ./lsp-probe.py --claims       # editor completion + hover, asked of nls directly
 ```
 
@@ -249,12 +271,10 @@ suite is split three ways rather than being one command.
 
 ## Next
 
-1. **Convert `lib/` from contracts to static types.** That is where the
-   typechecker and editor completion come from, and the spike currently
-   demonstrates the cost of not doing it rather than the benefit of doing it.
-   Contracts stay for genuine runtime validation only.
-2. Re-measure completion and `nickel typecheck` against the converted library —
-   the claims in `typecheck-claims.sh` are written to be re-run.
+1. **Decide whether the `| Dyn` holes in the layout tree are acceptable.** That
+   is the one place the static design gives less than Pkl, and it is structural.
+2. If they are: port a second, larger dashboard to see whether the signature
+   verbosity stays bounded at realistic size.
 
 Beyond that, the seam: `fh.view.build.SourceEval` is already the
 authoring-language boundary, and giving it a second implementation is worth

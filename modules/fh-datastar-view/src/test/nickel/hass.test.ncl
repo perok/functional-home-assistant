@@ -1,12 +1,12 @@
 # The typing question this whole spike exists to answer: does Nickel give the
-# per-entity capability typing Pkl gives, where the type is optional but the
-# value is PROVEN, so an author can just use it?
+# per-entity capability typing Pkl gives, where the capability is optional but
+# the value is PROVEN, so an author can just use it?
 #
 #   nickel test modules/fh-datastar-view/src/test/nickel/hass.test.ncl
 #
-# The answer is yes, but only via the shape in home.ncl: codegen emits one
-# contract PER ENTITY next to the entity, declaring exactly the fields that
-# entity has. A single shared `LightEntity` contract does not do it.
+# Yes — and better than the contract version, because a static per-entity TYPE
+# is checked by `nickel typecheck` BEFORE evaluation. The compile-time half is
+# in typecheck/dashboard-capability.ncl; this file pins the eval-time half.
 {
   capability_needs_no_guard
     | doc m%"
@@ -23,35 +23,25 @@
 
   absent_capability_is_an_error
     | doc m%"
-      A light that does NOT: reading it fails, and the message points at the
-      record that lacks the field rather than at some nullable downstream.
+      A light that does NOT. `nickel typecheck` rejects this before evaluation
+      (`typecheck/dashboard-capability.ncl`), and eval rejects it too.
 
       ```nickel
       let home = import "home.ncl" in
       home.entities.light_plug.colourTemp
-      # => error: missing field
+      # => error
       ```
     "%
     = null,
 
-  upcast_is_free
+  the_house_wide_list_carries_the_common_projection
     | doc m%"
-      Both lights still satisfy the shared, wide contract, so generic code over
-      the whole list keeps working. This is the half a nominal class system
-      would normally charge for.
+      An `Array` needs ONE element type, so `lights` holds what every light has.
+      That is the right answer rather than a limitation: a query over every
+      light should only see the common fields, and per-entity capabilities stay
+      reachable through `entities.<name>`. It is the upcast Pkl gets from
+      subtyping, written out because codegen writes it.
 
-      ```nickel
-      let hass = import "lib/hass.ncl" in
-      let home = import "home.ncl" in
-      let wide | Array hass.LightEntity = home.lights in
-      std.array.length wide
-      # => 2
-      ```
-    "%
-    = null,
-
-  generic_code_over_the_wide_list
-    | doc m%"
       ```nickel
       let home = import "home.ncl" in
       std.array.map (fun e => e.friendly_name) home.lights
@@ -60,64 +50,56 @@
     "%
     = null,
 
-  contract_rejects_a_missing_required_field
+  generic_code_over_the_wide_list
     | doc m%"
-      Caught only once the record is FORCED (here by serializing it).
-
       ```nickel
-      let hass = import "lib/hass.ncl" in
-      let e | hass.Entity = { entity_id = "light.x", domain = "light" } in
-      std.serialize 'Json e
-      # => error: missing definition for `friendly_name`
+      let c = import "lib/components.ncl" in
+      let home = import "home.ncl" in
+      std.array.map (fun e => (c.toggle e).body.slots.entity_id) home.lights
+      # => ["light.hue_bibliotek", "light.plug"]
       ```
     "%
     = null,
 
-  a_missing_required_field_is_invisible_until_forced
+  row_polymorphism_is_what_makes_this_compose
     | doc m%"
-      The same broken record, read field-wise, is FINE — laziness means a
-      contract violation on one field does not fail a read of another. So "it
-      evaluated" is not "it is valid"; only a full force (export, serialize) is.
+      Components take `forall a. { entity_id : String, …; a }`, so one signature
+      accepts every entity type the dump generates, extra fields and all. Without
+      it a component would have to name each entity's shape, which is impossible
+      — Nickel has no type alias.
 
       ```nickel
-      let hass = import "lib/hass.ncl" in
-      let e | hass.Entity = { entity_id = "light.x", domain = "light" } in
-      e.entity_id
-      # => "light.x"
+      let c = import "lib/components.ncl" in
+      let home = import "home.ncl" in
+      [(c.toggle home.entities.light_hue_bibliotek).body.slots.label,
+       (c.toggle home.entities.light_plug).body.slots.label]
+      # => ["Bibliotek", "Plug"]
       ```
     "%
     = null,
 
-  entity_contracts_are_open
+  the_runtime_validation_that_is_left
     | doc m%"
-      Record contracts are CLOSED by default in Nickel, so every entity contract
-      needs a trailing `..` or a generated entity carrying one extra attribute
-      is rejected. This is a real codegen constraint, not a style note.
+      `lib/hass.ncl` is the only contract left in the library, and it earns its
+      place: "this domain is one the slider can drive" is a fact about a value,
+      not a shape, so no type can state it.
 
       ```nickel
       let hass = import "lib/hass.ncl" in
-      let e | hass.Entity = {
-        entity_id = "light.x", domain = "light", friendly_name = "X",
-        some_attribute_codegen_added_later = 1,
-      } in
-      e.some_attribute_codegen_added_later
-      # => 1
+      let ok | hass.Slidable = { entity_id = "light.x", domain = "light" } in
+      ok.domain
+      # => "light"
       ```
     "%
     = null,
 
-  typecheck_does_not_catch_any_of_this
+  the_runtime_validation_rejects
     | doc m%"
-      Worth knowing before reading too much into a green `nickel typecheck`:
-      contracts are checked at EVAL, not by the typechecker. `nickel typecheck`
-      returned 0 on every error in this directory. Run `nickel test` / `nickel
-      export`, never typecheck alone, if you want these caught.
-
       ```nickel
       let hass = import "lib/hass.ncl" in
-      let unused | hass.Entity = { entity_id = 5 } in
-      "the broken binding above is never forced"
-      # => "the broken binding above is never forced"
+      let bad | hass.Slidable = { entity_id = "sensor.x", domain = "sensor" } in
+      bad.domain
+      # => error
       ```
     "%
     = null,

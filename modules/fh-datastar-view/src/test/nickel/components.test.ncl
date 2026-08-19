@@ -2,6 +2,11 @@
 # Analogue of src/test/pkl/components.test.pkl.
 #
 #   nickel test modules/fh-datastar-view/src/test/nickel/components.test.ncl
+#
+# Every component returns a PLACED node, `{ cell, body }`. That split is not
+# decoration: `&` is untyped, so a statically typed layout helper cannot amend a
+# node — it has to rebuild the concrete half and leave the body behind a type
+# variable. See lib/core.ncl.
 {
   slider_on_an_entity
     | doc m%"
@@ -11,7 +16,7 @@
       ```nickel
       let c = import "lib/components.ncl" in
       let home = import "home.ncl" in
-      (c.slider ('Entity home.entities.light_plug)).slots
+      (c.slider ('Entity home.entities.light_plug)).body.slots
       # => { action = "light/turn_on", entity_id = "light.plug", key = "brightness", max = "255", min = "1", value = "$attr.brightness" }
       ```
     "%
@@ -21,13 +26,13 @@
     | doc m%"
       Handing the slider a colourTemp AXIS instead of the entity swaps the whole
       wire contract — different key, different range, range taken from the
-      device. Pkl does this with `on is hass.ColourTemp`; here the union is a
-      tagged ADT and the dispatch is a `match`.
+      device. The union is a tagged ADT and the dispatch is a `match`, which the
+      typechecker checks exhaustively.
 
       ```nickel
       let c = import "lib/components.ncl" in
       let home = import "home.ncl" in
-      let s = c.slider ('Axis home.entities.light_hue_bibliotek.colourTemp) in
+      let s = (c.slider ('Axis home.entities.light_hue_bibliotek.colourTemp)).body in
       [s.slots.key, s.slots.min, s.slots.max]
       # => ["color_temp_kelvin", "2000", "6535"]
       ```
@@ -40,8 +45,8 @@
       let c = import "lib/components.ncl" in
       let home = import "home.ncl" in
       let g = c.sliderGroup ('Entity home.entities.light_plug) ['Entity home.entities.light_hue_bibliotek] in
-      [std.array.length g.children, (std.array.at 0 g.children).readout]
-      # => [1, 'percent]
+      std.array.length g.body.children
+      # => 1
       ```
     "%
     = null,
@@ -51,39 +56,41 @@
       ```nickel
       let c = import "lib/components.ncl" in
       let home = import "home.ncl" in
-      [(c.button "Close" "closePopup()").slots.label, (c.toggle home.entities.light_plug).slots.label]
+      [(c.button "Close" "closePopup()").body.slots.label,
+       (c.toggle home.entities.light_plug).body.slots.label]
       # => ["Close", "Plug"]
       ```
     "%
     = null,
 
-  layout_helpers_return_a_new_node
+  layout_helpers_rebuild_the_placement
     | doc m%"
-      `fullWidth`/`columns` add a cell class and hand back a node, so they
-      compose at the end of a pipe.
+      `fullWidth`/`columns` return a new placement and leave the body alone.
 
       ```nickel
       let c = import "lib/components.ncl" in
+      let core = import "lib/core.ncl" in
       let home = import "home.ncl" in
-      [(c.fullWidth (c.toggle home.entities.light_plug)).cell.classes,
-       (c.columns 6 (c.toggle home.entities.light_plug)).cell.classes]
+      [(core.fullWidth (c.toggle home.entities.light_plug)).cell.classes,
+       (core.columns 6 (c.toggle home.entities.light_plug)).cell.classes]
       # => [["fh-cols-full"], ["fh-cols-6"]]
       ```
     "%
     = null,
 
-  layout_helpers_also_take_a_query_set
+  one_layout_helper_covers_cards_and_query_sets
     | doc m%"
-      A query's `set` node carries a cell but NO `card`, so the layout helpers
-      are annotated `Placeable -> Placeable`, not `Node -> Node`. Annotating
-      them the obvious way broke `dashboard.ncl` — the one place in this
-      directory where adding a type annotation paid for itself immediately.
+      The payoff of separating placement from body: `fullWidth` is polymorphic
+      in the body, so the SAME function takes a component card and a query set
+      node. The merge-based version needed a weaker open-record contract to do
+      this, and could not be statically typed at all.
 
       ```nickel
-      let c = import "lib/components.ncl" in
+      let core = import "lib/core.ncl" in
       let q = import "lib/query.ncl" in
       let home = import "home.ncl" in
-      (c.fullWidth (q.pipe.from home.lights |> q.pipe.build)).cell.classes
+      let set = q.pipe.from home.lights |> q.pipe.build in
+      (core.fullWidth (core.place set)).cell.classes
       # => ["fh-cols-full"]
       ```
     "%
@@ -91,10 +98,10 @@
 
   a_non_slidable_domain_is_an_error
     | doc m%"
-      Pkl expresses this as a constrained type
-      (`hass.Entity(sliderSpec.containsKey(domain))`); here it is
-      `SlidableEntity`, a record contract composed with a predicate via
-      `std.contract.all_of`.
+      The runtime validation the type system cannot state: the domain has to be
+      one the slider knows how to drive. Here it is the `sliderSpec` lookup that
+      fails; `lib/hass.ncl` has the same check as an explicit contract, for use
+      at a boundary. Pkl states it as a constrained type.
 
       ```nickel
       let c = import "lib/components.ncl" in
@@ -107,15 +114,11 @@
 
   an_untagged_argument_is_rejected_at_the_call
     | doc m%"
-      The payoff for tagging: an argument of the wrong SHAPE fails immediately
-      with "expected an enum", instead of being sniffed for a field deep inside
-      the body and failing somewhere less obvious.
-
       ```nickel
       let c = import "lib/components.ncl" in
       let home = import "home.ncl" in
       c.slider home.entities.light_plug
-      # => error: expected an enum
+      # => error
       ```
     "%
     = null,

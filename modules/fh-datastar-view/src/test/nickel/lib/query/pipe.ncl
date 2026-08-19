@@ -5,30 +5,86 @@
 #   |> q.pipe.build
 #
 # The state argument comes LAST in every step, so partial application makes each
-# step a `|>`-able function. That is also what the annotations say out loud:
-# every step is `... -> State -> State`.
-let hass = import "../hass.ncl" in
-let expr = import "expr.ncl" in
-let fold = import "fold.ncl" in
-{
-  from | Array hass.Entity -> fold.State = fun entities => {
-    candidates = entities,
-    filters = [],
-    cases = [],
-    fallback = 'None,
+# step a `|>`-able function — which the signatures say out loud: every step is
+# `… -> State -> State`.
+#
+# Every step REBUILDS the state record field by field. Neither shortcut is
+# available in statically typed code: `&` (merge) is untyped, and
+# `std.record.update` is a Dictionary operation that refuses a concrete record
+# type. This is the most visible tax the static side charges.
+((
+  let fold = import "fold.ncl" in
+  {
+  from = fun entities => { candidates = entities, filters = [], cases = [], fallback = 'None },
+
+  where = fun pred q => {
+    candidates = q.candidates,
+    filters = q.filters @ [pred],
+    cases = q.cases,
+    fallback = q.fallback,
   },
 
-  # `q & { filters = ... }` would CONFLICT: Nickel merge is symmetric and refuses
-  # two definitions of one field. Pkl's amend would just override.
-  where | expr.Expr -> fold.State -> fold.State =
-    fun pred q => std.record.update "filters" (q.filters @ [pred]) q,
+  case_of = fun pred render q => {
+    candidates = q.candidates,
+    filters = q.filters,
+    cases = q.cases @ [{ when = pred, include render }],
+    fallback = q.fallback,
+  },
 
-  case_of | expr.Expr -> fold.Render -> fold.State -> fold.State =
-    fun pred render q =>
-      std.record.update "cases" (q.cases @ [{ when = pred, include render }]) q,
+  otherwise = fun render q => {
+    candidates = q.candidates,
+    filters = q.filters,
+    cases = q.cases,
+    fallback = 'Render render,
+  },
 
-  otherwise | fold.Render -> fold.State -> fold.State =
-    fun render q => std.record.update "fallback" ('Render render) q,
+  build = fun q => fold.emit q,
+}) : {
+  from : forall a. Array { entity_id : String; a }
+    -> { candidates : Array { entity_id : String; a },
+         filters : Array Dyn,
+         cases : Array { when : Dyn, render : { entity_id : String; a } -> Dyn },
+         fallback : [| 'None, 'Render ({ entity_id : String; a } -> Dyn) |] },
 
-  build | fold.State -> fold.Set = fun q => fold.emit q,
-}
+  where : forall a. Dyn
+    -> { candidates : Array { entity_id : String; a },
+         filters : Array Dyn,
+         cases : Array { when : Dyn, render : { entity_id : String; a } -> Dyn },
+         fallback : [| 'None, 'Render ({ entity_id : String; a } -> Dyn) |] }
+    -> { candidates : Array { entity_id : String; a },
+         filters : Array Dyn,
+         cases : Array { when : Dyn, render : { entity_id : String; a } -> Dyn },
+         fallback : [| 'None, 'Render ({ entity_id : String; a } -> Dyn) |] },
+
+  case_of : forall a. Dyn
+    -> ({ entity_id : String; a } -> Dyn)
+    -> { candidates : Array { entity_id : String; a },
+         filters : Array Dyn,
+         cases : Array { when : Dyn, render : { entity_id : String; a } -> Dyn },
+         fallback : [| 'None, 'Render ({ entity_id : String; a } -> Dyn) |] }
+    -> { candidates : Array { entity_id : String; a },
+         filters : Array Dyn,
+         cases : Array { when : Dyn, render : { entity_id : String; a } -> Dyn },
+         fallback : [| 'None, 'Render ({ entity_id : String; a } -> Dyn) |] },
+
+  otherwise : forall a. ({ entity_id : String; a } -> Dyn)
+    -> { candidates : Array { entity_id : String; a },
+         filters : Array Dyn,
+         cases : Array { when : Dyn, render : { entity_id : String; a } -> Dyn },
+         fallback : [| 'None, 'Render ({ entity_id : String; a } -> Dyn) |] }
+    -> { candidates : Array { entity_id : String; a },
+         filters : Array Dyn,
+         cases : Array { when : Dyn, render : { entity_id : String; a } -> Dyn },
+         fallback : [| 'None, 'Render ({ entity_id : String; a } -> Dyn) |] },
+
+  build : forall a.
+    { candidates : Array { entity_id : String; a },
+      filters : Array Dyn,
+      cases : Array { when : Dyn, render : { entity_id : String; a } -> Dyn },
+      fallback : [| 'None, 'Render ({ entity_id : String; a } -> Dyn) |] }
+    -> { kind : String,
+         cell : { classes : Array String },
+         candidates : Array String,
+         where : Array Dyn,
+         members : { _ : Dyn } },
+})
