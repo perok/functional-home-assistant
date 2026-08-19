@@ -34,9 +34,8 @@ let home = import "../home.ncl" in
     core.leaf (c.button "Close" "closePopup()"),
   ])
   "root")
-  : { root : String,
-      nodes : Array { id : String, kind : String, card : String, readout : String,
-                      classes : Array String, slots : { _ : String },
-                      children : Array String, candidates : Array String,
-                      where : Array String,
-                      members : { _ : Array { when : String, node : String } } } }
+  # The gate, not a claim about the shape. Typing is opt-in per expression:
+  # DELETE this and the file typechecks green while checking nothing, with no
+  # warning (gate-none.ncl). `_` is enough to open the typed block -- the
+  # renderer's output type is pinned once, in lib2/render.ncl, where it belongs.
+  : _

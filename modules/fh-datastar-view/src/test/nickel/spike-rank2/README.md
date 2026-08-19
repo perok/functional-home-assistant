@@ -45,6 +45,24 @@ toggle : forall a. { entity_id : String, friendly_name : String; a } -> Body
 fullWidth : Body -> Body     # was  forall a. { cell, body : a } -> { cell, body : a }
 ```
 
+## The gate: typing is opt-in, and forgetting it fails open
+
+`dash2.ncl` ends in `: _`. That is not a claim about the result's shape — the
+renderer's output type is pinned once in `lib2/render.ncl`, where it belongs —
+it is what switches the typechecker on. Delete it and the file typechecks green
+while checking nothing, with no warning (`gate-none.ncl`, asserted as an exit-0
+claim). A wildcard is enough; the full node-table type buys nothing here.
+
+Two annotation forms that look like they would help do not:
+
+- `let { render : _ } = import …` does not force checking, it **removes** it.
+  `_` is a unification variable solved by the call site, so `render tree 99` and
+  `.nosuchfield` are both accepted. A closed pattern also fails at eval the
+  moment the module gains a second field.
+- a per-field annotation inside the module (`render : … = fun t => …`) is
+  checked inward but does not propagate outward: the record literal is `Dyn` to
+  every importer. The module annotation has to be the outermost one.
+
 ## What it costs
 
 - **The algebra is inlined at every occurrence**, because types cannot be named.
@@ -95,4 +113,9 @@ typechecker looked.
 | `use2.ncl` / `bad2.ncl` | a deep tree typechecks / a deep mistake is caught |
 | `enum-rank2.ncl`, `produce-polymorphic*.ncl` | the limits, as fixtures |
 | `renderB.ncl` | the typechecker crash |
+| `gate-none.ncl` | the same mistake, ungated: green and unchecked |
 | `probe2.ncl` | cursor sites for `../lsp-probe.py` |
+
+The third design — the same library in contracts, where none of this encoding is
+needed and none of the checking happens before eval — is `../spike-contracts/`.
+`../README.md` compares all three.

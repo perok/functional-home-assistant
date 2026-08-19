@@ -1,7 +1,9 @@
 # Plan: Nickel as the dashboard authoring language
 
 **Status: exploration. Nothing here is implemented, and no decision has been
-taken.** ADR 0006 (Pkl) still stands. This document describes the dashboard
+taken.** ADR 0006 (Pkl) still stands, and the spike now recommends leaving it
+that way — see "Where it landed" at the end, which is the section to read first
+if you are picking this up cold. This document describes the dashboard
 structure as it exists in Nickel in the runnable spike at
 `modules/fh-datastar-view/src/test/nickel/`, and the language constraints that
 forced its shape. It is a current-state design sketch, not a migration plan —
@@ -230,9 +232,10 @@ The costs are real and none of them is `Dyn`:
 That last one cuts against "sum-type the state", and the flat wire format is a
 change to the renderer's contract. Both are judgement calls, not blockers.
 
-### What a contract-annotated library would cost, for contrast
+### What a contract-annotated library costs, for contrast
 
-The first version of this spike was written that way:
+This is now built rather than imagined — `spike-contracts/`, with its own README
+and claims — and it is what "Where it landed" below turns on. The two costs:
 
 - **`nickel typecheck` says nothing about it.** A file containing two wrong
   calls typechecks clean. Green means the tool did not look.
@@ -312,19 +315,47 @@ nickel test *.test.ncl        # 49 assertions
 ./typecheck-claims.sh         # 17 claims about what `nickel typecheck` catches
 ./lsp-probe.py --claims       # editor completion + hover, asked of nls directly
 ./spike-rank2/claims.sh       # 15 claims about the fold encoding and its limits
+./spike-contracts/claims.sh   # 15 claims about the contract design, editor included
 ```
 
 The three catch disjoint sets of mistakes — a typecheck-only error evaluates
 fine, so `nickel test` is green while the claim is false. That gap is why the
 suite is split three ways rather than being one command.
 
-## Next
+## Where it landed — recommendation: stay on Pkl (2026-08-19)
 
-1. **Decide between the two designs**, since the `Dyn` question is settled: the
-   folded one gives up an ADT, a nested wire format and 64 lines of inlined
-   signatures, and gets complete static checking of a dashboard in return.
-2. Either way: port a second, larger dashboard to see whether the signature
+A third design closed the question: `spike-contracts/lib3/`, written in
+contracts the way the manual advises and the way nickel-kubernetes does it. A
+contract may refer to itself, so the recursive tree is three lines, the library
+drops to 176 lines, and every limit the fold imposed (no ADT payload, no
+polymorphic `map`, leaf-only query cases, a non-recursive carrier) is gone.
+
+What it does not do is check anything before evaluation — and, measured with
+`lsp-probe.py --diagnostics`, **`nls` publishes nothing at all** for a contract
+error that it underlines in the folded design. There is no middle: a static
+signature may not mention a tree contract, and typing the tree `Dyn` instead
+restores the per-child `| Dyn`.
+
+So the fold is the only design that delivers what this project is shopping for,
+and it delivers **parity with Pkl** rather than an advantage — Pkl's classes
+express the same tree with no encoding — while living in a corner of Nickel the
+ecosystem is moving away from. Set against in-process JVM evaluation and
+`import*` (load-bearing: `ServerApp.scala` watches a directory precisely because
+dropping a file adds a dashboard), that is not a trade worth making.
+
+**Keep Pkl. Spend the effort on what the Pkl library's types expose instead.**
+
+### What would reopen it
+
+1. **pkl-lsp's live diagnostics, unmeasured.** If pkl-lsp does *not* underline
+   the deep entity error the way `nls` does for `spike-rank2/bad2.ncl`, then
+   Pkl's parity claim weakens to "same errors, later", and the fold's advantage
+   becomes real rather than a tie.
+2. A second, larger dashboard, to see whether the folded design's signature
    verbosity stays bounded at realistic size.
+3. A browser-side editor becoming a priority — Nickel compiles to WASM and Pkl
+   (Truffle/GraalVM) does not. That is the one axis where Nickel is not merely
+   at parity.
 
 Beyond that, the seam: `fh.view.build.SourceEval` is already the
 authoring-language boundary, and giving it a second implementation is worth

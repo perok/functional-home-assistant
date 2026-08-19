@@ -5,6 +5,48 @@ wired into the build, the server, or CI. It exists so the "should the dashboard
 authoring language be Nickel instead of Pkl?" question can be answered by
 running things rather than by argument.
 
+## Current conclusion — stay on Pkl (2026-08-19)
+
+Not a decision, a recommendation with the evidence attached; ADR 0006 stands
+either way. Three designs now exist here and they are the three available
+points, not three tastes. Pick one by picking a row:
+
+| | `lib/` | `spike-rank2/lib2/` | `spike-contracts/lib3/` |
+|---|---|---|---|
+| the tree is | static, `children : Array Dyn` | a rank-2 fold | a recursive contract |
+| library lines | 415 | 479 | **176** |
+| `Dyn` (library / dashboard) | 71 / 6 | **0 / 0** | **0 / 0** |
+| a deep mistake is caught | at eval | **at typecheck** | at eval |
+| **the editor underlines it** | no | **yes** | no |
+| author writes | `\| Dyn` per child | `: _` once, or loses all checking | nothing |
+
+The static designs and the contract design cannot be mixed: a static signature
+mentioning a tree contract is rejected outright, and typing the tree `Dyn`
+instead brings the per-child `| Dyn` back (`spike-contracts/hybrid-*.ncl`).
+
+So the honest reading of "are we fighting the language?" is **yes, in `lib2/`,
+deliberately.** Nickel's own guidance is types for functions and contracts for
+data, and the ecosystem follows it — nickel-kubernetes generates contracts and
+never types a manifest. `lib2/` is the only one of the three that gives what
+this project is shopping for (an error in the editor, before eval), and it buys
+it by staying in a corner of the language upstream is not optimising for, with a
+typechecker that stack-overflows rather than diagnoses when the fold's `r` is
+instantiated wrong.
+
+What that corner buys is **parity with Pkl**, not an advantage over it: Pkl's
+classes express the recursive tree with no encoding at all. Nickel's genuine
+wins are error-message quality, `nls` breadth (rename, live diagnostics on
+unparseable files) and the WASM story for a browser editor. Against them sit
+in-process JVM evaluation and `import*` — and `import*` is load-bearing, since
+dropping a `kitchen.dashboard.pkl` into a directory is a documented workflow
+that `ServerApp.scala` watches for.
+
+**Recommendation: keep Pkl, and spend the effort on what the Pkl library's types
+expose instead.** One measurement would change this: whether pkl-lsp publishes
+the deep entity error live, the way `./lsp-probe.py --diagnostics` shows `nls`
+does for `spike-rank2/bad2.ncl`. That has not been measured and is the obvious
+next step if the question is reopened.
+
 It is a deliberately small subset of a real `pkl home`: the schema, a component
 library (slider, subsliders, button, toggle, layout), a generated-dump analogue,
 two query-builder styles, and a dashboard written against them.
@@ -18,6 +60,10 @@ nickel test *.test.ncl        # 49 assertions
 ./typecheck-claims.sh         # 17 claims about what `nickel typecheck` catches
 ./lsp-probe.py --claims       # editor claims: completion + hover
 nickel export dashboard.ncl   # the pipe-style dashboard as JSON
+
+spike-rank2/claims.sh         # the folded design (README there)
+spike-contracts/claims.sh     # the contract design (README there)
+./lsp-probe.py --diagnostics spike-contracts/bad3.ncl   # what the editor shows
 ```
 
 `nickel test` runs the fenced ```nickel blocks inside `| doc` metadata. `# => x`
@@ -48,6 +94,8 @@ Requires `nickel` and `nls` on PATH (1.17.0 here). The Pkl equivalents live in
 | `typesystem.test.ncl` | what the type system can and cannot express |
 | `typecheck/` + `typecheck-claims.sh` | claims that only `nickel typecheck` can check |
 | `probe.ncl` / `probe-static.ncl` + `lsp-probe.py` | editor evidence; probe **-static** for anything after a call |
+| `spike-rank2/` | the same library with the tree folded away — no `Dyn` at all |
+| `spike-contracts/` | the same library in contracts — no `Dyn`, no fold, no compile-time check |
 
 `lib/core.ncl` splits placement from the node body for a reason the type system
 forced — see below. It also plays the role ADR 0015 gives `lib/core/`: the

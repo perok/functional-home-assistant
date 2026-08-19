@@ -39,6 +39,9 @@ check 0 "the ported dashboard exports"                      nickel export dash2.
 echo "== it catches what the old design could not =="
 check 1 "a wrong entity TWO levels down inside the tree"    nickel typecheck bad2.ncl
 
+echo "== but only where the typechecker was invited in =="
+check 0 "an UNGATED dashboard is green while checking nothing" nickel typecheck gate-none.ncl
+
 echo "== the limits that shaped the design =="
 check 1 "an enum variant cannot carry a rank-2 payload"     nickel typecheck enum-rank2.ncl
 check 1 "\`@\` cannot produce polymorphic elements"           nickel typecheck produce-polymorphic-append.ncl

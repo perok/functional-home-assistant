@@ -3,6 +3,7 @@
 
     ./lsp-probe.py <file.ncl> <line> <col>            # completions (1-based line, 0-based col)
     ./lsp-probe.py --hover <file.ncl> <line> <col>    # hover type
+    ./lsp-probe.py --diagnostics <file.ncl>           # what the editor underlines
     ./lsp-probe.py --claims                           # re-run the README's claims
 
 Exists because "my editor showed a popup" (or did not) is not evidence. This
@@ -15,6 +16,7 @@ file that parses — probe-static.ncl, not probe.ncl.
 """
 import json
 import os
+import select
 import subprocess
 import sys
 import time
@@ -83,6 +85,52 @@ def completions(path, line, col):
     return sorted(i.get("label") for i in items)
 
 
+def diagnostics(path, wait=10.0):
+    """What nls PUBLISHES for a file — i.e. what the editor underlines.
+
+    Separate from ask() because diagnostics are unsolicited notifications, and
+    the interesting answer is "none ever arrived": a blocking read would hang
+    on exactly the result worth measuring, so this polls to a deadline.
+    """
+    p = subprocess.Popen(
+        ["nls"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+    )
+
+    def send(m):
+        b = json.dumps(m).encode()
+        p.stdin.write(b"Content-Length: %d\r\n\r\n" % len(b) + b)
+        p.stdin.flush()
+
+    full = os.path.join(ROOT, path)
+    out = []
+    try:
+        send({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
+            "processId": os.getpid(), "rootUri": "file://" + ROOT, "capabilities": {}}})
+        send({"jsonrpc": "2.0", "method": "initialized", "params": {}})
+        send({"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {
+            "textDocument": {"uri": "file://" + full, "languageId": "nickel",
+                             "text": open(full).read(), "version": 1}}})
+
+        buf, deadline = b"", time.time() + wait
+        while time.time() < deadline:
+            if select.select([p.stdout], [], [], 0.5)[0]:
+                buf += os.read(p.stdout.fileno(), 65536)
+            while b"\r\n\r\n" in buf:
+                head, rest = buf.split(b"\r\n\r\n", 1)
+                n = int([l for l in head.decode().split("\r\n")
+                         if l.lower().startswith("content-length")][0].split(":")[1])
+                if len(rest) < n:
+                    break
+                m, buf = json.loads(rest[:n]), rest[n:]
+                if m.get("method") == "textDocument/publishDiagnostics":
+                    out += [d.get("message", "").split("\n")[0]
+                            for d in m["params"]["diagnostics"]]
+        return out
+    finally:
+        p.kill()
+
+
 def hover(path, line, col):
     r = ask("hover", path, line, col)
     if not r:
@@ -136,6 +184,12 @@ def main():
         for desc, f, line, col in HOVER_CLAIMS:
             print(f"{desc}\n    got:    {hover(f, line, col)}\n")
         return
+    if len(args) == 2 and args[0] == "--diagnostics":
+        ds = diagnostics(args[1])
+        for d in ds:
+            print(d)
+        # Exit code so a claims script can assert "the editor is silent here".
+        sys.exit(1 if ds else 0)
     if len(args) == 4 and args[0] == "--hover":
         print(hover(args[1], int(args[2]), int(args[3])))
         return
