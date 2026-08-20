@@ -79,12 +79,27 @@ class Popup extends nodes.Node {
   cardDef = new nodes.ContainerCard {
     mount = #"<dialog open class="popup"><button class="popup-close" data-on:click="@post('sse/popup/close'); $ui_popups = ''">✕</button>{{#children}}{{{html}}}{{/children}}</dialog>"#
     // The frame itself (fixed, centred, elevated) is the theme's `<dialog>`
-    // styling; ours is the width cap and un-filling the ✕, which a framework
-    // that styles bare buttons would otherwise render as a primary pill.
+    // styling; ours is the width cap and the shape of the ✕.
+    //
+    // The ✕ is a PILL, 2.75rem square — 44px, the platform touch-target
+    // minimum. It used to be a bare glyph with .25rem of padding, which on a
+    // phone is a ~16px target in the very corner of the screen, the hardest
+    // place on a handset to hit accurately. It carries its own surface for the
+    // same reason: over a dialog whose content reaches the corner, a
+    // transparent ✕ had nothing to say where it ended.
+    //
+    // `z-index` is not decoration — the ✕ sat UNDER the body all along and only
+    // got away with it while it was small enough to overlap nothing. At 44px it
+    // overlaps a popup's title, and `elementFromPoint` at its own centre
+    // returned the `<h2>`: the button was there, visible, and un-clickable.
     css = """
       dialog.popup{max-inline-size:min(90vw,32rem)}
-      .popup-close{position:absolute;top:.5rem;right:.5rem;background:transparent;
-      color:var(--fh-text-dim);padding:.25rem .5rem;font-size:1rem}
+      .popup-close{position:absolute;inset-block-start:.5rem;inset-inline-end:.5rem;
+      display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;
+      inline-size:2.75rem;block-size:2.75rem;padding:0;border:0;border-radius:999px;z-index:1;
+      background:var(--fh-surface-alt);color:var(--fh-text-dim);
+      font-size:1.25rem;line-height:1;cursor:pointer}
+      .popup-close:is(:hover,:focus-visible){color:var(--fh-text)}
       """
   }
 }
