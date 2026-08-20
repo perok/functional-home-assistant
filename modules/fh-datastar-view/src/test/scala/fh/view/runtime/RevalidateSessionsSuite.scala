@@ -42,7 +42,11 @@ class RevalidateSessionsSuite extends munit.CatsEffectSuite {
     """{"access_token":"fresh","refresh_token":"r2","expires_in":1800}"""
   )
   private val revoked =
-    IO.pure(Response[IO](Status.BadRequest).withEntity("""{"error":"invalid_grant"}"""))
+    IO.pure(
+      Response[IO](Status.BadRequest).withEntity(
+        """{"error":"invalid_grant"}"""
+      )
+    )
 
   private def run(
       oauth: HaOAuth,
@@ -107,7 +111,9 @@ class RevalidateSessionsSuite extends munit.CatsEffectSuite {
     val demoted = user.copy(is_admin = false, is_owner = false)
     run(haStub(renewed), identify = _ => IO.pure(demoted)).flatMap {
       case (sessions, id) =>
-        sessions.get(id).map(s => assertEquals(s.map(_.user.is_admin), Some(false)))
+        sessions
+          .get(id)
+          .map(s => assertEquals(s.map(_.user.is_admin), Some(false)))
     }
   }
 
