@@ -227,7 +227,8 @@ unreachable HA makes ingress users anonymous rather than making them admins.
 sends an HA long-lived access token as `Authorization: Bearer`; the server
 resolves it exactly as it resolves a login. One identity source, two carriers —
 so `fh` needs no shared secret of its own and its `is_admin` genuinely comes
-from HA. Stored in `.fh/user_secret.json` (`{"token": "..."}`), gitignored —
+from HA. `fh login` writes it to `.fh/user_secret.json` at `0600`, reading it
+from stdin so a token does not land in shell history; gitignored —
 deliberately separate from `machine.json`, because that file is per-machine
 CONFIGURATION and this is a CREDENTIAL, and keeping them apart is what lets the
 security follow-up move the credential without touching the config.

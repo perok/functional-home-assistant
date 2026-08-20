@@ -129,9 +129,8 @@ class IngressSuite extends munit.CatsEffectSuite {
           1.hour
         )
         .flatMap(users =>
-          users("u1").flatMap(first =>
-            users("u1").map(second => (first, second))
-          )
+          users("u1")
+            .flatMap(first => users("u1").map(second => (first, second)))
         )
         .map { case (first, second) =>
           assertEquals(first, None)

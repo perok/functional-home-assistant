@@ -99,18 +99,23 @@ object IngressUsers {
     IO.ref(Option.empty[(FiniteDuration, Map[String, HaUser])])
       .map { cache => (id: String) =>
         IO.monotonic.flatMap { now =>
-          cache.get.flatMap {
-            case Some((at, users)) if now - at < ttl => IO.pure(users)
-            case _                                   =>
-              fetch.attempt.flatMap {
-                case Left(_) => IO.pure(Map.empty[String, HaUser])
-                case Right(accounts) =>
-                  val users = accounts.filter(_.isPerson).map { a =>
-                    a.id -> HaUser(a.id, a.name, a.isAdmin, a.is_owner)
-                  }.toMap
-                  cache.set(Some(now -> users)).as(users)
-              }
-          }.map(_.get(id))
+          cache.get
+            .flatMap {
+              case Some((at, users)) if now - at < ttl => IO.pure(users)
+              case _                                   =>
+                fetch.attempt.flatMap {
+                  case Left(_)         => IO.pure(Map.empty[String, HaUser])
+                  case Right(accounts) =>
+                    val users = accounts
+                      .filter(_.isPerson)
+                      .map { a =>
+                        a.id -> HaUser(a.id, a.name, a.isAdmin, a.is_owner)
+                      }
+                      .toMap
+                    cache.set(Some(now -> users)).as(users)
+                }
+            }
+            .map(_.get(id))
         }
       }
 }

@@ -714,6 +714,47 @@ def post(
       }
   yield ()
 
+/** Write this laptop's instance credential.
+  *
+  * Writing it by hand was the alternative, and it is a bad one: the file holds
+  * a Home Assistant token, so "make a JSON file with this shape" invites both a
+  * typo and a token left somewhere world-readable.
+  *
+  * Read from stdin when no argument is given, because a token on a command line
+  * lands in the shell history of every machine it is typed on.
+  */
+def cmdLogin(token: Option[String]): IO[Unit] =
+  for
+    raw <- token.fold(
+      IO.println("Paste a Home Assistant long-lived access token:") *>
+        IO.readLine
+    )(IO.pure)
+    trimmed = raw.trim
+    _ <- IO.raiseWhen(trimmed.isEmpty)(Die("no token given"))
+    _ <- IO
+      .blocking {
+        Files.createDirectories(userSecret.toAbsolutePath.getParent)
+        Files.writeString(userSecret, s"""{"token": ${quoteJson(trimmed)}}\n""")
+        // Owner-only, and set AFTER the write rather than only at creation: this
+        // overwrites an existing file too, whose permissions we did not choose.
+        Files.setPosixFilePermissions(
+          userSecret,
+          java.nio.file.attribute.PosixFilePermissions.fromString("rw-------")
+        )
+      }
+      .handleErrorWith {
+        // A filesystem with no POSIX permissions is not a reason to fail: the
+        // token is written either way, and saying so beats pretending.
+        case _: UnsupportedOperationException =>
+          IO.println(s"note: could not restrict permissions on $userSecret")
+        case e => IO.raiseError(e)
+      }
+    _ <- IO.println(s"wrote $userSecret (owner-only)")
+  yield ()
+
+/** A JSON string literal — the token is opaque and could contain anything. */
+def quoteJson(s: String): String = io.circe.Json.fromString(s).noSpaces
+
 def cmdPush(
     entries: NonEmptyList[String],
     slugOpt: Option[String],
@@ -1055,6 +1096,19 @@ val opts: Opts[IO[ExitCode]] = Opts
       )
         .mapN(cmdPush)
         .map(_.as(ExitCode.Success))
+    )
+  )
+  .orElse(
+    Opts.subcommand(
+      "login",
+      "Save a Home Assistant long-lived access token so `push` can write to " +
+        "the instance (Profile -> Security in HA creates one). Reads it from " +
+        "stdin if not given as an argument."
+    )(
+      Opts
+        .argument[String]("token")
+        .orNone
+        .map(cmdLogin(_).as(ExitCode.Success))
     )
   )
   .orElse(
