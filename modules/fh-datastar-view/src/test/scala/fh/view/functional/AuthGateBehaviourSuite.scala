@@ -24,7 +24,9 @@ class AuthGateBehaviourSuite extends FunctionalSuite {
   private val kitchen = HouseFixture.kitchenLight
   private def house = scene.card(FixtureDashboard.light("Kitchen", kitchen))
 
-  test("an anonymous page request is sent to login, carrying where it was going") {
+  test(
+    "an anonymous page request is sent to login, carrying where it was going"
+  ) {
     withServer(house) { ts =>
       ts.pageResponse(as = None).map { resp =>
         assertEquals(resp.status, Status.SeeOther)
@@ -53,7 +55,9 @@ class AuthGateBehaviourSuite extends FunctionalSuite {
     }
   }
 
-  test("a logged-in user who simply lacks the role gets 403, not a redirect loop") {
+  test(
+    "a logged-in user who simply lacks the role gets 403, not a redirect loop"
+  ) {
     withServer(house, Access.Admin) { ts =>
       for {
         guest <- ts.auth.sessionFor(TestAuth.guest)
@@ -68,7 +72,9 @@ class AuthGateBehaviourSuite extends FunctionalSuite {
     }
   }
 
-  test("a users rule admits the named user and refuses the admin who is not named") {
+  test(
+    "a users rule admits the named user and refuses the admin who is not named"
+  ) {
     withServer(house, Access.Users(List(TestAuth.guest.id))) { ts =>
       for {
         guest <- ts.auth.sessionFor(TestAuth.guest)

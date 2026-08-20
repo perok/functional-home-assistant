@@ -34,7 +34,9 @@ class SiteAccessSuite extends munit.CatsEffectSuite {
       .fold(e => fail(s"site eval failed: $e"), identity)
     Site
       .decode(result.value, result.imports)
-      .map(_.dashboards.collect { case (slug, Right(v)) => slug -> v.access }.toMap)
+      .map(
+        _.dashboards.collect { case (slug, Right(v)) => slug -> v.access }.toMap
+      )
   }
 
   // Parens around the parent: amending anything that is not a `new` expression

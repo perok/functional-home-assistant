@@ -7,11 +7,11 @@ import fh.view.testkit.TestAuth
 /** The access rule as a truth table (issue #89).
   *
   * Every other auth test rides on `Access.permits` being right, and it is the
-  * one piece with no `IO`, no HA and no request — so it is checked
-  * exhaustively here rather than sampled through a route. The cases that earn
-  * their line are the ones where a plausible implementation differs: whether
-  * an admin passes a `Users` list they are not on, and whether an anonymous
-  * visitor passes anything but `Public`.
+  * one piece with no `IO`, no HA and no request — so it is checked exhaustively
+  * here rather than sampled through a route. The cases that earn their line are
+  * the ones where a plausible implementation differs: whether an admin passes a
+  * `Users` list they are not on, and whether an anonymous visitor passes
+  * anything but `Public`.
   */
 class AccessSuite extends munit.FunSuite {
 

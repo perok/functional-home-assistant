@@ -250,13 +250,24 @@ object ServerApp extends IOApp {
         // is untouched — every service call still runs as the machine, and
         // nothing here opens a per-user feed.
         //
-        // `FH_HA_PUBLIC_URL` exists because the URL the BROWSER must reach HA
-        // at is not always the one this server dials: a split-horizon remote
-        // setup dials the LAN address and the browser is on the internet.
+        // The URL the BROWSER must reach HA at is not always the one this
+        // server dials — under the add-on it is `http://supervisor/core`, which
+        // resolves for this process and for nothing a browser runs in. So ask
+        // HA where it thinks it lives; `HaOAuth.browserBase` ranks that against
+        // the override and the dialled address.
+        //
+        // An unreachable or malformed answer is not fatal: it is one more
+        // absent source, and the chain has three others.
+        haInternalUrl <- feed.api.getConfigWS.attempt
+          .map(_.toOption.flatMap(HaOAuth.internalUrlOf))
+          .toResource
         haPublicUrl <- Env[IO]
           .get("FH_HA_PUBLIC_URL")
           .map(_.flatMap(org.http4s.Uri.fromString(_).toOption))
-          .map(_.getOrElse(haEnv.server))
+          .map(HaOAuth.browserBase(_, haInternalUrl, haEnv.server))
+          .toResource
+        _ <- IO
+          .println(s"Home Assistant login redirects go to $haPublicUrl")
           .toResource
         authSessions <- AuthSessions
           .create(SessionStore.inWorkspace(dashboardsDir))

@@ -138,11 +138,19 @@ probing later as an optimisation, not assumed.
 - `.fh/sessions.json` and `.fh/user_secret.json` hold HA refresh tokens inside a
   workspace users keep in git. Both are gitignored and `0600`, and that they
   live there at all is tracked as issue #165.
-- The browser-facing HA URL is `FH_HA_PUBLIC_URL`, falling back to the address
-  this server dials (`SERVER`). Those are two different URLs for two different
-  clients and a split-horizon setup needs both; HA's own `get_config` carries
-  `external_url` and an often-null `internal_url`, which would make this
-  discoverable rather than configured. Not done here.
+- **The browser-facing HA URL is not the one this server dials**, and under the
+  add-on the difference is fatal rather than cosmetic: `home-addon/run.sh` dials
+  `http://supervisor/core`, which resolves for this process and for nothing a
+  browser runs in. `HaOAuth.browserBase` ranks four sources by how much each
+  actually knows — `FH_HA_PUBLIC_URL`, then HA's own `internal_url` from
+  `get_config`, then `SERVER` (a *verified* address, since this process holds a
+  socket to it) unless it is the supervisor host, then
+  `http://homeassistant.local:8123`. The mDNS name is last because it is a
+  guess: the host is renameable and `.local` needs the client to do mDNS.
+- That is resolved **once at startup**, so every visitor gets one answer — which
+  is wrong for a remote browser, whose correct target is HA's `external_url`.
+  Deferred with the PWA's local-vs-internet work, which is where the per-request
+  local/remote distinction already lives.
 - `Access.Users` holds raw HA id strings. HA's WS `config/auth/list` returns the
   real user list (admin-only, and admin is `group_ids` containing
   `system-admin`, not an `is_admin` field), so typing these off codegen is

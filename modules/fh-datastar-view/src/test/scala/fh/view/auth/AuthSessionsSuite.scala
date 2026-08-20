@@ -78,7 +78,9 @@ class AuthSessionsSuite extends munit.CatsEffectSuite {
   /** What makes a logout reach a dashboard that is already open: the same
     * predicate the door used, re-evaluated whenever the map moves.
     */
-  test("watch reports the session dying, under the rule the stream was admitted by") {
+  test(
+    "watch reports the session dying, under the rule the stream was admitted by"
+  ) {
     for {
       s <- sessions
       id <- s.create(admin, "r1")
@@ -103,7 +105,8 @@ class AuthSessionsSuite extends munit.CatsEffectSuite {
         .take(2)
         .concurrently(
           fs2.Stream.eval(
-            IO.sleep(50.millis) *> s.renew(id, admin.copy(is_admin = false, is_owner = false), "r2")
+            IO.sleep(50.millis) *> s
+              .renew(id, admin.copy(is_admin = false, is_owner = false), "r2")
           )
         )
         .compile
@@ -112,14 +115,18 @@ class AuthSessionsSuite extends munit.CatsEffectSuite {
     } yield assertEquals(seen, List(true, false))
   }
 
-  test("a public dashboard's stream is never cut, even with no session at all") {
+  test(
+    "a public dashboard's stream is never cut, even with no session at all"
+  ) {
     for {
       s <- sessions
       first <- s.watch(None, Access.Public.permits).head.compile.lastOrError
     } yield assert(first)
   }
 
-  test("sessions survive a restart, and the file that carries them is not world-readable") {
+  test(
+    "sessions survive a restart, and the file that carries them is not world-readable"
+  ) {
     val dir = os.temp.dir(prefix = "fh-sessions")
     val path = dir / "sessions.json"
     val store = new SessionStore(path)
@@ -147,7 +154,9 @@ class AuthSessionsSuite extends munit.CatsEffectSuite {
     } yield assertEquals(found.map(_.user), Some(admin))
   }
 
-  test("verifiedAt round-trips through the file as an instant, not a string that reparses to now") {
+  test(
+    "verifiedAt round-trips through the file as an instant, not a string that reparses to now"
+  ) {
     val dir = os.temp.dir(prefix = "fh-sessions")
     val store = new SessionStore(dir / "sessions.json")
     for {

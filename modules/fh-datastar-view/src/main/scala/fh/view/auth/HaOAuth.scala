@@ -3,7 +3,7 @@ package fh.view.auth
 import cats.effect.IO
 import cats.syntax.all.*
 import fh.view.FHError
-import io.circe.parser
+import io.circe.{Json, parser}
 import org.http4s.client.Client
 import org.http4s.{Method, Request, Status, UrlForm, Uri}
 
@@ -31,6 +31,66 @@ enum RefreshOutcome derives CanEqual:
   case Renewed(tokens: Tokens)
   case Dead
 
+object HaOAuth {
+
+  /** Home Assistant's default mDNS address — what HA's own documentation tells
+    * a first-time user to open, and the last resort in [[browserBase]].
+    *
+    * A guess, and ranked below anything else for that reason: the host is
+    * renameable, the port is only the default, and `.local` needs the client to
+    * do mDNS at all.
+    */
+  val MdnsFallback: Uri =
+    Uri.unsafeFromString("http://homeassistant.local:8123")
+
+  /** The host `home-addon/run.sh` dials HA at under the supervisor. It is a
+    * container-internal name, so it resolves for this process and for nothing a
+    * browser runs in — the one case where the address we are talking to HA on
+    * is useless as a redirect target.
+    */
+  private val SupervisorHost = "supervisor"
+
+  /** Where to send the BROWSER to log in, which is not always where this server
+    * dials HA.
+    *
+    * Ranked by how much each source actually knows:
+    *
+    *   1. `explicit` (`FH_HA_PUBLIC_URL`) — somebody said so.
+    *   2. `internal` — HA's own `internal_url` from `get_config`. Optional in
+    *      HA and frequently unset, hence the rest of the chain.
+    *   3. `dialed` (`SERVER`) — a VERIFIED working address: this process has a
+    *      live socket to it. Skipped only for the supervisor address, which no
+    *      browser can resolve.
+    *   4. [[MdnsFallback]] — a guess, and better than an address known to fail.
+    *
+    * Resolved once at startup, so it is one answer for every visitor. That is
+    * wrong for a remote browser, whose correct target is HA's `external_url` —
+    * deferred with the PWA's local-vs-internet work, which is where the
+    * per-request local/remote distinction already lives.
+    */
+  def browserBase(
+      explicit: Option[Uri],
+      internal: Option[Uri],
+      dialed: Uri
+  ): Uri =
+    explicit
+      .orElse(internal)
+      .orElse(
+        Option.unless(dialed.host.exists(_.value == SupervisorHost))(dialed)
+      )
+      .getOrElse(MdnsFallback)
+
+  /** `internal_url` out of a `get_config` reply. Absent, null or unparseable
+    * are the same answer here — "HA does not know" — and the chain moves on.
+    */
+  def internalUrlOf(config: Json): Option[Uri] =
+    config.hcursor
+      .get[Option[String]]("internal_url")
+      .toOption
+      .flatten
+      .flatMap(Uri.fromString(_).toOption)
+}
+
 /** Home Assistant as an OAuth2 provider (issue #89).
   *
   * HA implements OAuth2 plus the IndieAuth extension, so this server is an
@@ -43,7 +103,7 @@ enum RefreshOutcome derives CanEqual:
   * answers 200 with the login page.
   *
   * `haBase` is the browser-facing HA URL, which is not always the one this
-  * server dials (see `FH_HA_PUBLIC_URL` in `ServerApp`).
+  * server dials — see [[HaOAuth.browserBase]] for how it is chosen.
   */
 final class HaOAuth(haBase: Uri, client: Client[IO]) {
 
