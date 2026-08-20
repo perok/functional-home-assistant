@@ -51,13 +51,26 @@ a one-shot WS with the user's freshly-exchanged token and closes it
 (`ServerApp`'s `identify`). It is the only use of somebody else's token, and the
 shared feed never sees one.
 
-**The cookie is an opaque handle; the state lives server-side.** 256 random bits,
-`HttpOnly`, `SameSite=Lax`, `Secure` only over https. `AuthSessions` holds
-`id -> {user, refresh, verifiedAt}` and write-throughs to `.fh/sessions.json`
-(`0600`) so a restart — which happens on every dashboard edit — does not log
-everyone out. The HA refresh token is kept for exactly one purpose: the periodic
-re-check that this user still exists and still holds this role. It never reaches
-the browser, so a stolen cookie is a session rather than an HA credential.
+**The cookie is an opaque handle; the state lives server-side.** A v4 UUID —
+no identity, no token, no claims — `HttpOnly`, `SameSite=Lax`, `Path=/`,
+`Secure` only over https, `Max-Age` 90 days (HA's own refresh-token inactivity
+window). Because it is a bearer id rather than a payload there is nothing to
+sign or encrypt, which is what removed an earlier sealed-cookie design, its key
+file, and the whole `javax.crypto` surface with it.
+
+`AuthSessions` holds `id -> {user, refresh, verifiedAt}` in a `SignallingRef`,
+deliberately a SEPARATE registry from the runtime's `Sessions`: that one is
+keyed by `conn` and is a TAB, this one is keyed by a cookie and is a PERSON,
+and merging two distinct facts into one shape fakes one with the other. The HA
+refresh token is kept for exactly one purpose — the periodic re-check that this
+user still exists and still holds this role. It never reaches the browser, so a
+stolen cookie is a session rather than an HA credential.
+
+**Persistence is a write-through file, not a store.** Memory is the truth;
+every mutation also writes `.fh/sessions.json` (`0600`), and boot reads it
+back. That is all it is for — surviving a restart, which happens on every
+dashboard edit. A corrupt or unreadable file logs and starts empty: being
+logged out is a recoverable inconvenience, and refusing to boot over it is not.
 
 `SameSite=Lax` is the CSRF control for the action POSTs — it is the only thing
 between a cookie-authenticated `POST /sse/action/...` and any other site. `Lax`
@@ -78,6 +91,22 @@ table's own `PartialFunction` rather than a finished `HttpRoutes`, because
 whether a request MATCHES has to be answerable without running the handler:
 otherwise an unauthorised `PUT /edit/file` would write the file and then be told
 no.
+
+**Two background mechanisms, because they answer different questions.**
+Revalidation is ONE fiber over the whole store (not one per session): entries
+whose `verifiedAt` is older than 30 minutes — HA's access-token life — are
+re-exchanged against their refresh token and re-read through
+`auth/current_user`, writing back a fresh clock and a freshly-read role. A
+`400 invalid_grant` is HA ANSWERING that the grant is gone, so the entry is
+evicted; a timeout is not an answer and leaves it alone, because an unreachable
+HA must not empty the session store. That is what makes revoking fh in HA reach
+a dashboard nobody is touching.
+
+Pending authorizations live in the same style and nowhere else: the OAuth
+`state` is a random nonce keyed to `{next, deadline}` in memory with a
+10-minute TTL, swept on the next login rather than by a fiber, since a login is
+the only moment the map can have grown. Not persisted — a login interrupted by
+a restart simply starts again.
 
 **Admission is not a one-time event.** An SSE stream is admitted once and then
 runs for hours. `AuthSessions` is a `SignallingRef`, so the stream is wrapped in
@@ -173,7 +202,10 @@ gate re-derives.
 sends an HA long-lived access token as `Authorization: Bearer`; the server
 resolves it exactly as it resolves a login. One identity source, two carriers —
 so `fh` needs no shared secret of its own and its `is_admin` genuinely comes
-from HA. Stored in `.fh/user_secret.json` (`{"token": "..."}`), gitignored.
+from HA. Stored in `.fh/user_secret.json` (`{"token": "..."}`), gitignored —
+deliberately separate from `machine.json`, because that file is per-machine
+CONFIGURATION and this is a CREDENTIAL, and keeping them apart is what lets the
+security follow-up move the credential without touching the config.
 
 ## Alternatives rejected
 
@@ -186,6 +218,15 @@ server-side store removes the poll entirely: the map IS the liveness signal.
 
 **A client-triggered refresh ping.** Follows from the above. Interrupting the
 stream server-side is the same fact expressed once, on the side that knows it.
+
+**A central classifier over the whole app.** The first version was a pure,
+total `requirementFor(request)` deciding for every path, with a vault-stamp
+backstop refusing anything a matched route served without one. It was replaced
+because the thing it optimised for — nobody forgets — is better served by
+declaring at the route and wrapping a whole surface at once, and the thing it
+cost was real: a route that knew its own slug had to be guessed at instead. The
+guess was wrong in practice, which is how it was caught (see the action POSTs
+above).
 
 **A test-only "auth off" mode.** The harness runs the real gate with a real
 minted session (`TestAuth`). A gate disabled in every test is a gate nothing

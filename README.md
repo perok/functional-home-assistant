@@ -15,7 +15,13 @@ A dashboard builder built for composition, simplicity, performance, and shareabi
 TODO small example
 ```
 
-- 
+- Build your dashboard with reusable functions. No more YAML ctrl c ctrl v.
+- Share your dashboard functions or new components by just putting it on Github. Ready for consumption by others immediately.
+- Speed and efficiency ready for all old devices that can run html with some javascript
+  - Everything is serverside rendered. Changes are morped from an SSE session as values or as new html blocks
+  - Even for dynamic blocks
+- Catch errors in your dashboard immediately; fully typed overview of all your entities, devices, and users
+- Secure by design; Can only do actions on entities that are in dashboards you can view
 
 ---
 
