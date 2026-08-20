@@ -1,25 +1,25 @@
 package fh.view.runtime
 
+import fh.view.build.DashboardBuild
 import fh.view.model.{CardDef, Dashboard, LayoutNode, SlotSource}
 import io.circe.Json
 
-/** Where the dashboard's slug enters a transform (ADR 0023).
+/** How a dashboard's slug reaches the action URL a tap builds (ADR 0023).
   *
-  * A tap builds its action URL as a JSONata expression, and the URL carries the
-  * slug so the server can bound what the tap may touch. The slug is not
-  * authorable — a module does not know its own — so the renderer supplies it,
-  * and [[Transforms]] is where a transform's copy of the token is filled.
+  * A tap's URL is a JSONata expression, and it carries the slug so the server
+  * can bound what the tap may touch. The slug is not authorable — a module does
+  * not know its own — so the renderer binds it as `$dashboardSlug`, the one
+  * binding that is not about the entity.
   *
-  * The trap this suite exists for is WHEN. Filling at validate time would be
-  * cheaper and wrong: `Validated.withSlug` re-slugs a pushed dashboard AFTER
-  * validation (`fh push --slug`), so a baked-in slug would be the old one and
-  * every tap on a renamed dashboard would post to a dashboard it is not on —
-  * refused, with nothing in the URL to suggest why.
+  * The property worth pinning is not the binding itself but WHEN the slug is
+  * settled: before validation, so a `Validated` is final. It used to be applied
+  * afterwards (`withSlug`), which was harmless only while nothing derived from
+  * the slug — and a compiled tap URL derives from it.
   */
-class TransformsSuite extends munit.FunSuite {
+class TransformsSuite extends munit.CatsEffectSuite {
 
   private val tapUrl =
-    "\"@post('sse/action/{{fhSlug}}/\" & (\"light/toggle\") & \"/\" & $entity_id & \"')\""
+    "\"@post('sse/action/\" & $dashboardSlug & \"/light/toggle/\" & $entity_id & \"')\""
 
   private def dashboard(slug: String) =
     Dashboard(
@@ -35,48 +35,72 @@ class TransformsSuite extends munit.FunSuite {
       slug = slug
     )
 
-  private def state = EntityState("light.kitchen", "on", Map.empty[String, Json])
+  private def state =
+    EntityState("light.kitchen", "on", Map.empty[String, Json])
 
-  test("a transform's slug token is filled with the dashboard's own slug") {
-    val out = Transforms
-      .from(dashboard("kitchen"))
-      .run(tapUrl, state)
+  /** The same dashboard as wire JSON — `Dashboard` decodes but does not encode,
+    * and `DashboardBuild.decode` is the path under test.
+    */
+  private def wire(slug: String): Json =
+    Json.obj(
+      "slug" -> Json.fromString(slug),
+      "cards" -> Json.obj(
+        "c" -> Json.obj(
+          "template" -> Json.fromString("<b>{{onclick}}</b>"),
+          "slots" -> Json.arr(Json.fromString("onclick"))
+        )
+      ),
+      "card" -> Json.obj(
+        "kind" -> Json.fromString("component"),
+        "card" -> Json.fromString("c"),
+        "slots" -> Json.obj(
+          "onclick" -> Json.obj(
+            "transform" -> Json.fromString(tapUrl),
+            "reactive" -> Json.False
+          )
+        )
+      )
+    )
+
+  test("a tap's URL carries the dashboard it was rendered for") {
     assertEquals(
-      out,
+      Transforms.from(dashboard("kitchen")).run(tapUrl, state, "kitchen"),
       "@post('sse/action/kitchen/light/toggle/light.kitchen')"
     )
   }
 
-  /** The push path: validate, then rename, then build the renderer. */
-  test("a dashboard renamed after validation posts to its NEW slug") {
-    val validated = dashboard("as-authored")
-      .validated()
-      .fold(errs => fail(s"fixture did not validate: $errs"), identity)
-      .withSlug("renamed")
-
-    val out = Transforms.fromValidated(validated).run(tapUrl, state)
-    assert(
-      clue(out).contains("sse/action/renamed/"),
-      "the transform kept the slug it was validated under"
-    )
+  /** `fh push --slug` renames a dashboard on the way in. The rename has to land
+    * BEFORE validation, or the compiled tap URL is proven against a name the
+    * dashboard no longer has and every tap posts to a dashboard it is not on —
+    * refused, with nothing in the URL to say why.
+    */
+  test("a pushed dashboard is validated under the slug it will be served as") {
+    DashboardBuild
+      .decode(wire("as-authored"), slug = Some("renamed"))
+      .map { validated =>
+        assertEquals(validated.dashboard.slug, "renamed")
+        assertEquals(
+          Transforms
+            .fromValidated(validated)
+            .run(tapUrl, state, validated.dashboard.slug),
+          "@post('sse/action/renamed/light/toggle/light.kitchen')"
+        )
+      }
   }
 
-  test("the lookup key stays the ORIGINAL expression the slot names") {
-    // Filling rewrites the compiled expression, not the slot — a slot still
-    // asks for the transform it declared, and a miss here is a crash rather
-    // than a blank value.
-    val transforms = Transforms.from(dashboard("kitchen"))
-    assert(transforms.run(tapUrl, state).nonEmpty)
+  test("decoding without a slug leaves the authored one alone") {
+    DashboardBuild
+      .decode(wire("as-authored"))
+      .map(v => assertEquals(v.dashboard.slug, "as-authored"))
   }
 
-  test("a transform with no token is left exactly alone") {
-    val plain = "$state"
-    val d = dashboard("kitchen").copy(
+  test("a transform that reads no slug is unaffected by it") {
+    val plain = dashboard("kitchen").copy(
       card = LayoutNode.Component(
         card = "c",
-        slots = Map("onclick" -> SlotSource(transform = plain))
+        slots = Map("onclick" -> SlotSource(transform = "$state"))
       )
     )
-    assertEquals(Transforms.from(d).run(plain, state), "on")
+    assertEquals(Transforms.from(plain).run("$state", state, "x"), "on")
   }
 }

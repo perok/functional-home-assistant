@@ -108,7 +108,7 @@
           "onclick" : {
             "bypassUnavailable" : false,
             "reactive" : false,
-            "transform" : "\"@post('sse/action/{{fhSlug}}/\" & (\"homeassistant/toggle\") & \"/\" & $entity_id & \"', {filterSignals:{exclude:'.*'}})\""
+            "transform" : "\"@post('sse/action/\" & $dashboardSlug & \"/\" & (\"homeassistant/toggle\") & \"/\" & $entity_id & \"', {filterSignals:{exclude:'.*'}})\""
           },
           "tappable" : "1",
           "value" : {
@@ -145,7 +145,7 @@
                         "onclick" : {
                           "bypassUnavailable" : false,
                           "reactive" : false,
-                          "transform" : "\"@post('sse/action/{{fhSlug}}/\" & (\"light/toggle\") & \"/\" & $entity_id & \"', {filterSignals:{exclude:'.*'}})\""
+                          "transform" : "\"@post('sse/action/\" & $dashboardSlug & \"/\" & (\"light/toggle\") & \"/\" & $entity_id & \"', {filterSignals:{exclude:'.*'}})\""
                         },
                         "tappable" : "1",
                         "value" : {
@@ -173,7 +173,7 @@
                             "onclick" : {
                               "bypassUnavailable" : false,
                               "reactive" : false,
-                              "transform" : "\"@post('sse/action/{{fhSlug}}/\" & (\"homeassistant/toggle\") & \"/\" & $entity_id & \"', {filterSignals:{exclude:'.*'}})\""
+                              "transform" : "\"@post('sse/action/\" & $dashboardSlug & \"/\" & (\"homeassistant/toggle\") & \"/\" & $entity_id & \"', {filterSignals:{exclude:'.*'}})\""
                             },
                             "tappable" : "1",
                             "value" : {
@@ -311,7 +311,7 @@
                     "onclick" : {
                       "bypassUnavailable" : false,
                       "reactive" : false,
-                      "transform" : "\"@post('sse/action/{{fhSlug}}/\" & (\"light/toggle\") & \"/\" & $entity_id & \"', {filterSignals:{exclude:'.*'}})\""
+                      "transform" : "\"@post('sse/action/\" & $dashboardSlug & \"/\" & (\"light/toggle\") & \"/\" & $entity_id & \"', {filterSignals:{exclude:'.*'}})\""
                     },
                     "tappable" : "1",
                     "value" : {
@@ -348,7 +348,7 @@
                     "onclick" : {
                       "bypassUnavailable" : false,
                       "reactive" : false,
-                      "transform" : "\"@post('sse/action/{{fhSlug}}/\" & (\"light/toggle\") & \"/\" & $entity_id & \"', {filterSignals:{exclude:'.*'}})\""
+                      "transform" : "\"@post('sse/action/\" & $dashboardSlug & \"/\" & (\"light/toggle\") & \"/\" & $entity_id & \"', {filterSignals:{exclude:'.*'}})\""
                     },
                     "tappable" : "1",
                     "value" : {
@@ -505,7 +505,7 @@
     },
     "slider" : {
       "mount" : "<div class=\"slider-members\">{{#children}}{{{html}}}{{/children}}</div>",
-      "self" : "<div id=\"{{selfId}}\" class=\"slider-body\">\n  <div class=\"slider-head\">\n    {{#icon}}<div class=\"slider-icon\"{{#busyVisual}} data-class:fh-disabled=\"$_{{id}}__busy_change\" data-class:fh-loading=\"$_{{id}}__busy_change\" data-signals__ifmissing=\"{_{{id}}__busy_change_slow:false}\" data-on-signal-patch-filter=\"{include:/^_{{id}}__busy_change$/}\" data-on-signal-patch__delay.300ms=\"$_{{id}}__busy_change_slow = $_{{id}}__busy_change\" data-class:fh-busy-spin=\"$_{{id}}__busy_change_slow\"{{/busyVisual}}><i class=\"mdi {{icon}}\"></i></div>{{/icon}}\n    <strong>{{label}}</strong>\n    {{#secondary}}<span class=\"slider-sub\">{{secondary}}</span>{{/secondary}}\n    {{#state}}<span class=\"state\" {{{state__bind}}}>{{state}}</span>{{/state}}\n    {{#onclick}}<button class=\"circle small slider-action {{lit}}\" {{{lit__bind}}} data-on:click=\"{{#busy}}$_{{id}}__busy ? '' : {{/busy}}{{{onclick}}}\"{{#busy}} data-indicator=\"_{{id}}__busy\"{{/busy}}{{#busyTapVisual}} data-class:fh-disabled=\"$_{{id}}__busy\" data-class:fh-loading=\"$_{{id}}__busy\" data-signals__ifmissing=\"{_{{id}}__busy_slow:false}\" data-on-signal-patch-filter=\"{include:/^_{{id}}__busy$/}\" data-on-signal-patch__delay.300ms=\"$_{{id}}__busy_slow = $_{{id}}__busy\" data-class:fh-busy-spin=\"$_{{id}}__busy_slow\"{{/busyTapVisual}}><i class=\"mdi mdi-power\"></i></button>{{/onclick}}\n  </div>\n  <div class=\"slider max\" style=\"--_start: 0%;--_end: {{fill}}\" {{{fill__bind}}}{{#busyVisual}} data-class:fh-disabled=\"$_{{id}}__busy_change\" data-class:fh-loading=\"$_{{id}}__busy_change\"{{/busyVisual}}>\n    <input type=\"range\" min=\"{{min}}\" max=\"{{max}}\" value=\"{{value}}\"\n      {{{value__bind}}}\n      data-indicator=\"_{{id}}__busy_change\" data-attr:disabled=\"$_{{id}}__busy_change\"\n      data-on:input=\"${{fill__signal}} = (100 - ((evt.target.value - {{min}}) * 100 / ({{max}} - {{min}}))) + '%'{{#dragPercent}}; ${{state__signal}} = Math.round(((evt.target.value - {{min}}) * 100 / ({{max}} - {{min}}))) + ' %'{{/dragPercent}}\"\n      data-on:change=\"$_{{id}}__busy_change ? '' : @post('sse/action/{{fhSlug}}/{{{action}}}/{{{entity_id}}}/{{key}}/' + ${{value__signal}}, {filterSignals:{exclude:'.*'}})\" />\n    <span style=\"background:{{fillColor}}\" {{{fillColor__bind}}}></span>\n  </div>\n</div>",
+      "self" : "<div id=\"{{selfId}}\" class=\"slider-body\">\n  <div class=\"slider-head\">\n    {{#icon}}<div class=\"slider-icon\"{{#busyVisual}} data-class:fh-disabled=\"$_{{id}}__busy_change\" data-class:fh-loading=\"$_{{id}}__busy_change\" data-signals__ifmissing=\"{_{{id}}__busy_change_slow:false}\" data-on-signal-patch-filter=\"{include:/^_{{id}}__busy_change$/}\" data-on-signal-patch__delay.300ms=\"$_{{id}}__busy_change_slow = $_{{id}}__busy_change\" data-class:fh-busy-spin=\"$_{{id}}__busy_change_slow\"{{/busyVisual}}><i class=\"mdi {{icon}}\"></i></div>{{/icon}}\n    <strong>{{label}}</strong>\n    {{#secondary}}<span class=\"slider-sub\">{{secondary}}</span>{{/secondary}}\n    {{#state}}<span class=\"state\" {{{state__bind}}}>{{state}}</span>{{/state}}\n    {{#onclick}}<button class=\"circle small slider-action {{lit}}\" {{{lit__bind}}} data-on:click=\"{{#busy}}$_{{id}}__busy ? '' : {{/busy}}{{{onclick}}}\"{{#busy}} data-indicator=\"_{{id}}__busy\"{{/busy}}{{#busyTapVisual}} data-class:fh-disabled=\"$_{{id}}__busy\" data-class:fh-loading=\"$_{{id}}__busy\" data-signals__ifmissing=\"{_{{id}}__busy_slow:false}\" data-on-signal-patch-filter=\"{include:/^_{{id}}__busy$/}\" data-on-signal-patch__delay.300ms=\"$_{{id}}__busy_slow = $_{{id}}__busy\" data-class:fh-busy-spin=\"$_{{id}}__busy_slow\"{{/busyTapVisual}}><i class=\"mdi mdi-power\"></i></button>{{/onclick}}\n  </div>\n  <div class=\"slider max\" style=\"--_start: 0%;--_end: {{fill}}\" {{{fill__bind}}}{{#busyVisual}} data-class:fh-disabled=\"$_{{id}}__busy_change\" data-class:fh-loading=\"$_{{id}}__busy_change\"{{/busyVisual}}>\n    <input type=\"range\" min=\"{{min}}\" max=\"{{max}}\" value=\"{{value}}\"\n      {{{value__bind}}}\n      data-indicator=\"_{{id}}__busy_change\" data-attr:disabled=\"$_{{id}}__busy_change\"\n      data-on:input=\"${{fill__signal}} = (100 - ((evt.target.value - {{min}}) * 100 / ({{max}} - {{min}}))) + '%'{{#dragPercent}}; ${{state__signal}} = Math.round(((evt.target.value - {{min}}) * 100 / ({{max}} - {{min}}))) + ' %'{{/dragPercent}}\"\n      data-on:change=\"$_{{id}}__busy_change ? '' : @post('sse/action/{{dashboardSlug}}/{{{action}}}/{{{entity_id}}}/{{key}}/' + ${{value__signal}}, {filterSignals:{exclude:'.*'}})\" />\n    <span style=\"background:{{fillColor}}\" {{{fillColor__bind}}}></span>\n  </div>\n</div>",
       "slots" : [
         "label",
         "value",

@@ -23,57 +23,19 @@ class Transforms private (
     * is total over the layout's transforms), so a miss is a bug, not a runtime
     * condition.
     */
-  def run(expr: String, entity: EntityState): String =
-    Transform.run(compiled(expr), entity)
+  def run(expr: String, entity: EntityState, dashboardSlug: String): String =
+    Transform.run(compiled(expr), entity, dashboardSlug)
 }
 
 object Transforms {
-
-  /** The renderer-filled dashboard slug, as it appears in a transform.
-    *
-    * The SAME token a card writes in its own template (`core/tap.pkl`,
-    * `components/slider.pkl`) — one name for one fact. What differs is only who
-    * fills it, and that is forced by where the text ends up: Mustache renders a
-    * template per node, but a transform's OUTPUT is inserted raw
-    * (`{{{onclick}}}`) and Mustache never sees it, so a transform's copy is
-    * filled here instead.
-    *
-    * Filled ONCE per dashboard, at renderer construction — not per render, and
-    * not at validate time: `Validated.withSlug` re-slugs a pushed dashboard
-    * after validation, so anything baked earlier would carry the old slug.
-    */
-  val SlugToken: String = "{{fhSlug}}"
 
   /** From a [[Dashboard.Validated]]: the transforms are ALREADY compiled (the
     * proof carries them), so this is a total lookup table — no parse, no
     * defensive throw. The production construction point
     * ([[Renderer.fromValidated]]).
-    *
-    * The exception is a transform carrying [[SlugToken]], which is recompiled
-    * with the slug in place. Keyed by the ORIGINAL expression, because that is
-    * what the slot still names.
     */
   def fromValidated(v: Dashboard.Validated): Transforms =
-    new Transforms(withSlug(v.transforms, v.dashboard.slug))
-
-  private def withSlug(
-      compiled: Map[String, Transform.Compiled],
-      slug: String
-  ): Map[String, Transform.Compiled] =
-    compiled.map {
-      case (expr, c) if expr.contains(SlugToken) =>
-        expr -> parseOrThrow(expr.replace(SlugToken, slug))
-      case entry => entry
-    }
-
-  private def parseOrThrow(expr: String): Transform.Compiled =
-    Transform.parse(expr) match {
-      case Right(c)  => c
-      case Left(err) =>
-        throw new IllegalStateException(
-          s"unvalidated transform reached transform setup: $expr ($err)"
-        )
-    }
+    new Transforms(v.transforms)
 
   /** From a raw (unproven) dashboard — the convenience path for tests and
     * [[Renderer.create]]. Compiles every [[Dashboard.transformStrings]]; a
@@ -83,7 +45,13 @@ object Transforms {
     */
   def from(dashboard: Dashboard): Transforms = {
     val compiled = dashboard.transformStrings.map { t =>
-      t -> parseOrThrow(t.replace(SlugToken, dashboard.slug))
+      Transform.parse(t) match {
+        case Right(c)  => t -> c
+        case Left(err) =>
+          throw new IllegalStateException(
+            s"unvalidated transform reached transform setup: $t ($err)"
+          )
+      }
     }.toMap
     new Transforms(compiled)
   }

@@ -1502,8 +1502,7 @@ class Server(
           pushSite(json)
         case Right(json) =>
           DashboardBuild
-            .decode(json)
-            .map(_.withSlug(slug))
+            .decode(json, slug = Some(slug))
             .flatMap(v => push(v).as(v))
             .flatMap(v =>
               Ok(

@@ -1066,13 +1066,6 @@ object Dashboard:
       // dashboard to the world.
       access: Access = Access.default
   ):
-    /** Re-slug the proven dashboard (the push/route path forces the slug from
-      * the URL). The transforms are unaffected by the slug, so the proof — and
-      * its compiled map — carries over unchanged.
-      */
-    def withSlug(slug: String): Validated =
-      copy(dashboard = dashboard.copy(slug = slug))
-
     /** Fold the site-wide default in: the dashboard's own rule wins, the site's
       * applies otherwise.
       */

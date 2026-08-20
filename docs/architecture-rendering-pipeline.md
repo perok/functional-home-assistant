@@ -753,7 +753,7 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 | a route's own auth rule | `auth/AuthGate.scala` · `Requirement` (+`page`/`data`), `AuthGate.handleRequirement`, `keepLive`, `loginRedirect`, `safeNext`; declared at each route in `runtime/Server.scala`, `runtime/EditorRoutes.scala`, `auth/AuthRoutes.scala` |
 | nothing serves without one | `auth/AuthGate.scala` · `assertGated`, `stampKey`; composed in `runtime/ServerApp.scala` |
 | what an action may touch | `model/Dashboard.scala` · `referencedEntities`; `runtime/Renderer.scala` · `references`; `runtime/Server.scala` · `actionResponse` |
-| the slug inside an action URL | `runtime/Transforms.scala` · `SlugToken`, `fromValidated` (transform copy); `runtime/Renderer.scala` · `structuralVars` (template copy) |
+| the slug inside an action URL | `model/Transform.scala` · the `$dashboardSlug` binding; `runtime/Renderer.scala` · `structuralVars` (`{{dashboardSlug}}`, the template copy); `build/DashboardBuild.scala` · `decode`'s `slug`, applied before validation |
 | who a request is | `auth/AuthGate.scala` · `Identity`, `of`, `bearerUser`; `auth/AuthSessions.scala` · `cookieOf` |
 | logged-in people, and cutting a live stream | `auth/AuthSessions.scala` · `AuthSessions` (a `SignallingRef`), `watch`, `SessionStore` (`.fh/sessions.json`) |
 | the login flow | `auth/HaOAuth.scala` · `authorizeUri`, `exchange`, `refresh`, `revoke`; `auth/AuthRoutes.scala` |

@@ -590,10 +590,10 @@ class Renderer(
       "selfId" -> Renderer.selfElementId(id),
       "mountId" -> mountId(id),
       // The dashboard's slug, for the action URL a card builds in its own
-      // template (the slider's commit). `Transforms` fills the same token in a
-      // transform — see [[Transforms.SlugToken]] for why the filling differs
-      // even though the token does not.
-      "fhSlug" -> dashboard.slug
+      // TEMPLATE (the slider's commit). A tap builds its URL in a transform
+      // instead and reads the same value as `$dashboardSlug` — one fact, and
+      // each spelling names the mechanism that actually fills it.
+      "dashboardSlug" -> dashboard.slug
     )
 
   /** Whether this node HAS a rendering of its own — the thing that decides
@@ -1409,7 +1409,7 @@ class Renderer(
     // resolves.
     if (source.bypassUnavailable && st.unavailable) st.state
     else {
-      val out = transforms.run(source.transform, st)
+      val out = transforms.run(source.transform, st, dashboard.slug)
       if (out.nonEmpty) out else source.default.getOrElse("")
     }
   }

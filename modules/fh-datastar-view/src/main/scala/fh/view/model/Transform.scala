@@ -57,13 +57,20 @@ object Transform {
     * template. Binds the entity's full context — `$state`/`$attr` (its live
     * value) and `$domain`/`$entity_id` (its identity, from the id) — so the
     * same mechanism serves value slots and identity-derived slots (e.g. a tap
-    * action). On evaluation
-    * failure, returns the JSONata error message so the card shows it (contained
-    * — never throws into the render).
+    * action) — plus `$dashboardSlug`, the only binding that is not about the
+    * entity. On evaluation failure, returns the JSONata error message so the
+    * card shows it (contained — never throws into the render).
     */
-  def run(expr: Compiled, entity: EntityState): String =
+  def run(expr: Compiled, entity: EntityState, dashboardSlug: String): String =
     evalBound(
       expr,
+      // The dashboard being rendered. A tap builds an action URL the server can
+      // bound (ADR 0023) and only the renderer knows the slug, since a module
+      // does not know its own. A real BINDING rather than a token substituted
+      // into the expression text: `$dashboardSlug` then says what it is, where
+      // a `{{…}}` in a transform would read as Mustache and never be one — a
+      // transform's output is inserted raw, so Mustache never sees it.
+      "dashboardSlug" -> dashboardSlug,
       "state" -> entity.state,
       // Cached on the EntityState (converted once per state version — see
       // EntityState.javaAttributes), so repeated evals on the same entity (a card

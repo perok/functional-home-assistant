@@ -81,8 +81,8 @@ object Site {
           .sortBy(_._1)
           .traverse { case (slug, value) =>
             DashboardBuild
-              .decode(value, sources)
-              .map(_.withSlug(slug).withAccess(siteAccess))
+              .decode(value, sources, Some(slug))
+              .map(_.withAccess(siteAccess))
               .attempt
               .map(r => slug -> r.leftMap(messageOf))
           }

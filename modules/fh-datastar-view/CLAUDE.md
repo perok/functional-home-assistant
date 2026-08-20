@@ -153,11 +153,11 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   the persistent SSE stream.
   The `:slug` is what BOUNDS the call (ADR 0023): the action is refused unless that dashboard
   NAMES the entity, so admission to one dashboard is not admission to the whole house. A module
-  does not know its own slug, so the renderer fills it: ONE token, `{{fhSlug}}`, in a card's
-  template AND in a tap's transform. Mustache fills the template copy per node; `Transforms`
-  fills the transform copy once at renderer construction (a transform's output is inserted raw,
-  so Mustache never sees it) — and at construction rather than validate time, because
-  `Validated.withSlug` renames a pushed dashboard afterwards.
+  does not know its own slug, so the renderer supplies it: `$dashboardSlug` (a JSONata binding)
+  in a tap's transform, `{{dashboardSlug}}` (a Mustache var) in a card's own template — two
+  spellings because there are genuinely two phases, each named after the one that fills it. The
+  slug is applied in `DashboardBuild.decode` BEFORE validation, so a `Validated` is final and a
+  `fh push --slug` rename cannot leave a compiled tap URL naming the old dashboard.
 - Cards (`lib/components/`, re-exported by `lib/components.pkl` — ADR 0015): `fhgrid`/`fhrow`/`fhcol` containers, `sectionTitle`, `entityCard`,
   `button`, `pill`, `slider` — each is a typed card class carrying its own `cardDef` (Mustache template +
   declared slots), and the emitted `cards` registry is derived by `pkl:reflect`; slots are checked

@@ -103,19 +103,25 @@ because a failed dashboard's page is a diagnostics dump.
 
 The slug cannot be authored: a dashboard module does not know its own (the
 entrypoint supplies it as a key, and `fh push --slug` can rename it), so the
-renderer fills it. **One token, `{{fhSlug}}`**, wherever the slug appears —
-what differs is only who fills it, and that is forced rather than chosen:
-Mustache renders a card's TEMPLATE per node, but a transform's OUTPUT is
-inserted raw (`{{{onclick}}}`) and Mustache never sees it, so `Transforms`
-fills a transform's copy once at renderer construction.
+renderer supplies it. Two spellings, one fact, and each names the mechanism
+that actually fills it: `$dashboardSlug` is a JSONata binding for a tap, whose
+URL is a transform; `{{dashboardSlug}}` is a Mustache var for a card that
+builds its URL in its own template (the slider's commit). Spelling both
+`{{…}}` was tried and reverted — in a transform it reads as Mustache and never
+is one, because a transform's OUTPUT is inserted raw at `{{{onclick}}}` and
+Mustache never sees it.
 
-Once, and at *construction* — not at validate time, which would be cheaper and
-wrong: `Validated.withSlug` re-slugs a pushed dashboard after validation, so a
-slug baked earlier would be the old one and every tap on a `--slug`-renamed
-dashboard would post to a dashboard it is not on. Rejected too: making the
-slider's URL a transform so `$fh_slug` could be the single mechanism — its
-`action`/`key` are deliberately baked LITERALS, and a whole `$lookup($domain)`
-tier was removed to stop computing build-time facts at runtime.
+Rejected in the other direction too: making the slider's URL a transform so one
+spelling would do. Its `action`/`key` are deliberately baked LITERALS — a whole
+`$lookup($domain)` tier was removed to stop computing build-time facts at
+runtime — and six tests pin that.
+
+**A dashboard is validated under the slug it will be served as.** The slug is
+applied in `DashboardBuild.decode`, before `validated`, rather than to the
+proof afterwards; `Validated.withSlug` is gone. That was harmless only while
+nothing derived from the slug, and a compiled tap URL derives from it — a
+`--slug` rename would otherwise leave every tap posting to a dashboard it is
+not on.
 
 **Denial shape is part of the classification, not a guess at the denial site.**
 An HTML `GET` gets `303` to `/auth/login?next=…`; a stream, a POST or a JSON
