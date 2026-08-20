@@ -108,7 +108,7 @@
           "onclick" : {
             "bypassUnavailable" : false,
             "reactive" : false,
-            "transform" : "\"@post('sse/action/\" & $fh_slug & \"/\" & (\"homeassistant/toggle\") & \"/\" & $entity_id & \"', {filterSignals:{exclude:'.*'}})\""
+            "transform" : "\"@post('sse/action/{{fhSlug}}/\" & (\"homeassistant/toggle\") & \"/\" & $entity_id & \"', {filterSignals:{exclude:'.*'}})\""
           },
           "tappable" : "1",
           "value" : {
@@ -145,7 +145,7 @@
                         "onclick" : {
                           "bypassUnavailable" : false,
                           "reactive" : false,
-                          "transform" : "\"@post('sse/action/\" & $fh_slug & \"/\" & (\"light/toggle\") & \"/\" & $entity_id & \"', {filterSignals:{exclude:'.*'}})\""
+                          "transform" : "\"@post('sse/action/{{fhSlug}}/\" & (\"light/toggle\") & \"/\" & $entity_id & \"', {filterSignals:{exclude:'.*'}})\""
                         },
                         "tappable" : "1",
                         "value" : {
@@ -173,7 +173,7 @@
                             "onclick" : {
                               "bypassUnavailable" : false,
                               "reactive" : false,
-                              "transform" : "\"@post('sse/action/\" & $fh_slug & \"/\" & (\"homeassistant/toggle\") & \"/\" & $entity_id & \"', {filterSignals:{exclude:'.*'}})\""
+                              "transform" : "\"@post('sse/action/{{fhSlug}}/\" & (\"homeassistant/toggle\") & \"/\" & $entity_id & \"', {filterSignals:{exclude:'.*'}})\""
                             },
                             "tappable" : "1",
                             "value" : {
@@ -311,7 +311,7 @@
                     "onclick" : {
                       "bypassUnavailable" : false,
                       "reactive" : false,
-                      "transform" : "\"@post('sse/action/\" & $fh_slug & \"/\" & (\"light/toggle\") & \"/\" & $entity_id & \"', {filterSignals:{exclude:'.*'}})\""
+                      "transform" : "\"@post('sse/action/{{fhSlug}}/\" & (\"light/toggle\") & \"/\" & $entity_id & \"', {filterSignals:{exclude:'.*'}})\""
                     },
                     "tappable" : "1",
                     "value" : {
@@ -348,7 +348,7 @@
                     "onclick" : {
                       "bypassUnavailable" : false,
                       "reactive" : false,
-                      "transform" : "\"@post('sse/action/\" & $fh_slug & \"/\" & (\"light/toggle\") & \"/\" & $entity_id & \"', {filterSignals:{exclude:'.*'}})\""
+                      "transform" : "\"@post('sse/action/{{fhSlug}}/\" & (\"light/toggle\") & \"/\" & $entity_id & \"', {filterSignals:{exclude:'.*'}})\""
                     },
                     "tappable" : "1",
                     "value" : {

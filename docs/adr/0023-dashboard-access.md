@@ -103,9 +103,19 @@ because a failed dashboard's page is a diagnostics dump.
 
 The slug cannot be authored: a dashboard module does not know its own (the
 entrypoint supplies it as a key, and `fh push --slug` can rename it), so the
-renderer fills it — as the JSONata binding `$fh_slug` for taps built by a
-transform, and as the Mustache token `{{fhSlug}}` for a card that builds its URL
-in its own template (the slider's commit).
+renderer fills it. **One token, `{{fhSlug}}`**, wherever the slug appears —
+what differs is only who fills it, and that is forced rather than chosen:
+Mustache renders a card's TEMPLATE per node, but a transform's OUTPUT is
+inserted raw (`{{{onclick}}}`) and Mustache never sees it, so `Transforms`
+fills a transform's copy once at renderer construction.
+
+Once, and at *construction* — not at validate time, which would be cheaper and
+wrong: `Validated.withSlug` re-slugs a pushed dashboard after validation, so a
+slug baked earlier would be the old one and every tap on a `--slug`-renamed
+dashboard would post to a dashboard it is not on. Rejected too: making the
+slider's URL a transform so `$fh_slug` could be the single mechanism — its
+`action`/`key` are deliberately baked LITERALS, and a whole `$lookup($domain)`
+tier was removed to stop computing build-time facts at runtime.
 
 **Denial shape is part of the classification, not a guess at the denial site.**
 An HTML `GET` gets `303` to `/auth/login?next=…`; a stream, a POST or a JSON

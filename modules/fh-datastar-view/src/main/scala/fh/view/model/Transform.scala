@@ -57,17 +57,13 @@ object Transform {
     * template. Binds the entity's full context — `$state`/`$attr` (its live
     * value) and `$domain`/`$entity_id` (its identity, from the id) — so the
     * same mechanism serves value slots and identity-derived slots (e.g. a tap
-    * action), plus `$fh_slug` for the dashboard being rendered. On evaluation
+    * action). On evaluation
     * failure, returns the JSONata error message so the card shows it (contained
     * — never throws into the render).
     */
-  def run(expr: Compiled, entity: EntityState, slug: String): String =
+  def run(expr: Compiled, entity: EntityState): String =
     evalBound(
       expr,
-      // The dashboard this is being rendered for. A tap needs it to build an
-      // action URL the server can bound (ADR 0023) — and only the renderer
-      // knows it, because a dashboard module does not know its own slug.
-      "fh_slug" -> slug,
       "state" -> entity.state,
       // Cached on the EntityState (converted once per state version — see
       // EntityState.javaAttributes), so repeated evals on the same entity (a card

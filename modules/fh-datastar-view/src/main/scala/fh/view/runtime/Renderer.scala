@@ -589,12 +589,10 @@ class Renderer(
       "id" -> id,
       "selfId" -> Renderer.selfElementId(id),
       "mountId" -> mountId(id),
-      // The slug, for the action URLs a card builds in its own TEMPLATE (the
-      // slider's commit). A tap built by a JSONata TRANSFORM reads the same
-      // value as `$fh_slug` instead — two sites, two substitution mechanisms,
-      // one fact. Filled by the renderer either way because a dashboard module
-      // does not know its own slug: `site.pkl` supplies it as a key, and
-      // `fh push --slug` can rename it (ADR 0023).
+      // The dashboard's slug, for the action URL a card builds in its own
+      // template (the slider's commit). `Transforms` fills the same token in a
+      // transform — see [[Transforms.SlugToken]] for why the filling differs
+      // even though the token does not.
       "fhSlug" -> dashboard.slug
     )
 
@@ -1411,7 +1409,7 @@ class Renderer(
     // resolves.
     if (source.bypassUnavailable && st.unavailable) st.state
     else {
-      val out = transforms.run(source.transform, st, dashboard.slug)
+      val out = transforms.run(source.transform, st)
       if (out.nonEmpty) out else source.default.getOrElse("")
     }
   }
