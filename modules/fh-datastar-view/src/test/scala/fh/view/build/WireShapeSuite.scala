@@ -43,6 +43,7 @@ class WireShapeSuite extends munit.FunSuite {
       """module probe
         |import "pkl:reflect"
         |import "@fh-dashboard/components.pkl" as c
+        |import "@fh-dashboard/hass.pkl"
         |import "@fh-dashboard/core/node.pkl" as nodes
         |import "@fh-dashboard/core/slot.pkl" as slotMod
         |import "@fh-dashboard/core/surface.pkl" as surfaceMod
@@ -169,13 +170,17 @@ class WireShapeSuite extends munit.FunSuite {
       tmp / "access-probe.pkl",
       """module accessProbe
         |import "@fh-dashboard/components.pkl" as c
+        |import "@fh-dashboard/hass.pkl"
         |
         |// Reached through the FACADE, so this also pins that the re-export
         |// stays wired — an author writes `c.access.admin`, not an import.
         |publicRule = c.access.public
         |authenticatedRule = c.access.authenticated
         |adminRule = c.access.admin
-        |usersRule = c.access.users(List("abc123", "def456"))
+        |usersRule = c.access.users(List(
+        |  new hass.User { user_id = "abc123"; user_name = "a"; is_admin = false; is_owner = false },
+        |  new hass.User { user_id = "def456"; user_name = "b"; is_admin = false; is_owner = false }
+        |))
         |""".stripMargin
     )
     val res = SourceEval

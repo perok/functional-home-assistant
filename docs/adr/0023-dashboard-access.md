@@ -221,7 +221,11 @@ probing later as an optimisation, not assumed.
   is wrong for a remote browser, whose correct target is HA's `external_url`.
   Deferred with the PWA's local-vs-internet work, which is where the per-request
   local/remote distinction already lives.
-- `Access.Users` holds raw HA id strings. HA's WS `config/auth/list` returns the
-  real user list (admin-only, and admin is `group_ids` containing
-  `system-admin`, not an `is_admin` field), so typing these off codegen is
-  available and deferred.
+- `Access.Users` still carries raw HA ids ON THE WIRE, but an author never
+  writes one: `@fh-home`'s dump now has a `users` map, so a rule is
+  `c.access.users(List(dump.users.peri))` and a misspelled name is a build
+  error rather than a dashboard nobody can open. The dump keeps only real
+  PEOPLE — HA's `config/auth/list` also returns Supervisor, Cast and the
+  content user, and two of those three are admins. A role there is membership
+  of the `system-admin` group, not an `is_admin` field, so `HaAccount.isAdmin`
+  derives it.

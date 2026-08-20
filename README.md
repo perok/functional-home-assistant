@@ -1,9 +1,23 @@
 ## Status: pre-v1 alpha
 
-This project is **pre-v1 alpha**. Nothing here is stable: APIs, the dashboard
+> [!CAUTION]
+> This project is **pre-v1 alpha**. Nothing here is stable: APIs, the dashboard
 card model, the jsonnet authoring surface, generated code, and on-disk formats
 can all change without notice. **Breaking changes are expected and allowed** —
 favour the cleanest design over backward compatibility until v1.
+
+
+# Functional Home Assistant - Your home on functions
+
+A dashboard builder built for composition, simplicity, performance, and shareability.
+
+```pkl
+TODO small example
+```
+
+- 
+
+---
 
 TODO just do template query? https://community.home-assistant.io/t/get-api-areas-rest-endpoint/271440/12?u=perok
 jsonnetfmt input.json > output.libsonnet

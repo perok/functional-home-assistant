@@ -12,6 +12,16 @@ amends "pkl:test"
 
 import "../../main/resources/dashboards/lib/site.pkl" as siteMod
 import "../../main/resources/dashboards/lib/components.pkl" as c
+import "../../main/resources/dashboards/lib/hass.pkl"
+
+// A stand-in for a dump user: this suite has no `@fh-home`, and what it pins is
+// the SHAPE an access rule takes, not where the users came from.
+local const function u(id: String): hass.User = new {
+  user_id = id
+  user_name = id
+  is_admin = false
+  is_owner = false
+}
 
 // An inline dashboard: no `new`, just a key amended into existence.
 local inlineSite = (siteMod) {
@@ -39,7 +49,7 @@ local accessSite = (siteMod) {
   dashboards {
     ["wall"] { access = c.access.public; card = c.title("hall") }
     ["secret"] { access = c.access.admin; card = c.title("shh") }
-    ["mine"] { access = c.access.users(List("u1", "u2")); card = c.title("mine") }
+    ["mine"] { access = c.access.users(List(u("u1"), u("u2"))); card = c.title("mine") }
     ["home"] { card = c.title("hi") }
   }
 }

@@ -91,7 +91,7 @@ surfaces: Mapping<String, c.SurfaceDef> = new { default = (_) -> new c.PopupSurf
 ///
 ///     access = c.access.public                       // a hallway tablet
 ///     access = c.access.admin                        // the admin-only one
-///     access = c.access.users(List("<ha-user-id>"))  // just these people
+///     access = c.access.users(List(dump.users.peri))  // just these people
 ///
 /// Home Assistant is the identity provider — these are HA's users and HA's
 /// admin role, not a second account system (see `core/access.pkl`).

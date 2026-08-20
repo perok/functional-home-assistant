@@ -110,6 +110,22 @@ typealias ColorMode = hassLight.ColorMode
 /// The colour-temperature range, present only on lights supporting `color_temp`.
 /// Both bounds are set whenever this is non-null; `PklDump` omits the whole
 /// group rather than emitting a half of it (and warns when HA reports a half).
+/// One Home Assistant account that can log in — what `@fh-home`'s `dump.users`
+/// is made of, and what an access rule names (ADR 0023).
+///
+/// Only real PEOPLE reach the dump: HA's own listing also carries Supervisor,
+/// Cast and the content user, two of which are admins, and none of which is
+/// somebody a dashboard could belong to.
+///
+/// `user_id` is the opaque HA id the backend compares against; the rest is here
+/// so a dashboard can read a name or branch on a role without a second lookup.
+class User {
+  user_id: String
+  user_name: String
+  is_admin: Boolean
+  is_owner: Boolean
+}
+
 class ColourTemp {
   owner: LightEntity
   min_kelvin: Int

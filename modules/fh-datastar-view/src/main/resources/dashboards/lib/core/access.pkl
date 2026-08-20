@@ -18,6 +18,8 @@
 /// dashboard needs no extra import.
 module core.access
 
+import "../hass.pkl"
+
 /// One rule. `kind` is the circe discriminator; the backend's `Access` enum
 /// lowercases its constructor names, which is why these literals are lowercase.
 ///
@@ -43,11 +45,12 @@ class Authenticated extends Access { kind = "authenticated" }
 /// without naming anybody.
 class Admin extends Access { kind = "admin" }
 
-/// Exactly these Home Assistant user ids.
+/// Exactly these Home Assistant users.
 ///
-/// The ids are untyped strings today; typing them off the dump is codegen's job
-/// later, and until then a typo is a dashboard nobody can open rather than a
-/// build error.
+/// `ids` is what goes on the wire — the opaque HA ids the backend compares
+/// against — but an author never writes one: [[users]] takes the typed
+/// [[hass.User]]s from `@fh-home`'s `dump.users`, so a name that does not exist
+/// is a BUILD error rather than a dashboard nobody can open.
 ///
 /// Note this is LITERAL: an admin who is not listed is refused. The list is your
 /// configuration, and an implicit admin override would make "only these two
@@ -66,12 +69,16 @@ const authenticated: Authenticated = new Authenticated {}
 /// HA admins only.
 const admin: Admin = new Admin {}
 
-/// Only the named HA users: `c.access.users(List("abc123", "def456"))`.
+/// Only these people: `c.access.users(List(dump.users.peri, dump.users.heidi))`.
+///
+/// Takes the dump's typed users, not ids — completion offers the household, and
+/// a misspelled name fails the build instead of producing a dashboard nobody
+/// can open. The id is read off each one for the wire.
 ///
 /// A `List` rather than repeated arguments because Pkl has no varargs (verified:
-/// `rest: String...` is a parse error). The parameter is `idList`, not `ids` —
-/// naming it after the property it initialises would bind the right-hand side to
-/// the object's own member and recurse.
-const function users(idList: List<String>): Users = new Users {
-  ids { for (i in idList) { i } }
+/// `rest: String...` is a parse error). The parameter is `people`, not `ids` —
+/// naming a parameter after the property it initialises binds the right-hand
+/// side to the object's own member and recurses.
+const function users(people: List<hass.User>): Users = new Users {
+  ids { for (p in people) { p.user_id } }
 }

@@ -53,7 +53,7 @@ hidden light: lightMod = lightMod
 hidden recipes: recipesMod = recipesMod
 
 /// Who may see a dashboard: `c.access.admin`, `c.access.public`,
-/// `c.access.users(List("<ha-user-id>"))`. Set on an entry's `access`, or on
+/// `c.access.users(List(dump.users.peri))`. Set on an entry's `access`, or on
 /// `site.pkl`'s to change the default for every dashboard (issue #89).
 hidden access: accessMod = accessMod
 
