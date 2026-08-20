@@ -3,7 +3,7 @@ package fh.view.auth
 import api.homeassistant.ws.domain.HaUser
 import cats.effect.IO
 import cats.syntax.all.*
-import fh.view.model.Access
+import fh.view.model.Permission
 import fs2.Stream
 import org.http4s.headers.{Authorization, Location}
 import org.http4s.{
@@ -84,11 +84,11 @@ trait Identity {
   * `EditorRoutes` is admin by construction rather than by every route
   * remembering to say so.
   *
-  * `accessFor` asks the live registry for one slug's rule, so a reload that
-  * changes a dashboard's access takes effect on the next request with nothing
-  * to invalidate. `None` means the slug does not exist — treated as the
-  * restrictive default rather than as "open", so a probe for dashboards that
-  * are not there cannot be done anonymously.
+  * `permissionFor` asks the live registry what may be done on one slug, so a
+  * reload that changes a dashboard's access takes effect on the next request
+  * with nothing to invalidate. A slug that names nothing answers
+  * `Permission.none` rather than an absence, so a probe for dashboards that are
+  * not there cannot be done anonymously.
   *
   * Not `final` only so a test fixture can override [[of]] and hand over a fixed
   * identity — the seam [[Identity]] exists for. Nothing in production
@@ -97,7 +97,7 @@ trait Identity {
 open class AuthGate(
     sessions: AuthSessions,
     identifyToken: String => IO[HaUser],
-    accessFor: Option[String] => IO[Access]
+    permissionFor: Option[String] => IO[Permission]
 ) extends Identity {
 
   override def sessionOf(req: Request[IO]): IO[Option[String]] =
@@ -174,12 +174,12 @@ open class AuthGate(
   def handleStream(req: Request[IO], slug: Option[String])(
       handler: Stream[IO, Boolean] => IO[Response[IO]]
   ): IO[Response[IO]] =
-    (accessFor(slug), of(req)).flatMapN { (access, user) =>
-      if (!access.permits(user))
+    (permissionFor(slug), of(req)).flatMapN { (permission, user) =>
+      if (!permission.mayView(user))
         IO.pure(AuthGate.saySo.tupled(denial(user)))
       else
         sessionOf(req).flatMap(id =>
-          handler(sessions.watch(id, access.permits))
+          handler(sessions.watch(id, permission.mayView))
         )
     }
 
@@ -190,8 +190,8 @@ open class AuthGate(
       req: Request[IO],
       slug: Option[String]
   ): IO[Option[Option[HaUser]]] =
-    (accessFor(slug), of(req)).mapN { (access, user) =>
-      Option.unless(access.permits(user))(user)
+    (permissionFor(slug), of(req)).mapN { (permission, user) =>
+      Option.unless(permission.mayView(user))(user)
     }
 
   private def session(req: Request[IO]): IO[Option[AuthSession]] =

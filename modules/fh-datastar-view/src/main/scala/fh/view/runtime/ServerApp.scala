@@ -249,8 +249,8 @@ object ServerApp extends IOApp {
             .use(_.currentUser)
         // Built from the SITE, not from the server: the server routes with it,
         // so it has to exist first. `LiveSite` owns the registry the rule is
-        // read from, which is where `accessFor` lives.
-        gate = new AuthGate(authSessions, identify, site.accessFor)
+        // read from, which is where `permissionFor` lives.
+        gate = new AuthGate(authSessions, identify, site.permissionFor)
         authRoutes <- AuthRoutes
           .create(oauth, authSessions, identify, gate, Server.baseUriOf)
           .toResource

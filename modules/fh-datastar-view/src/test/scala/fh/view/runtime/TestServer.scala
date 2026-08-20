@@ -325,7 +325,7 @@ object TestServer {
           dashboard.slug
         )
         .toResource
-      auth <- TestAuth.create(site.accessFor).toResource
+      auth <- TestAuth.create(site.permissionFor).toResource
       server <- ServerApp.liveServer(
         feed,
         site,
@@ -393,7 +393,7 @@ object TestServer {
       site <- Server.LiveSite
         .of(rendererRefs, prepared.content, slug)
         .toResource
-      auth <- TestAuth.create(site.accessFor).toResource
+      auth <- TestAuth.create(site.permissionFor).toResource
       server <- ServerApp.liveServer(
         feed,
         site,
@@ -444,7 +444,7 @@ object TestServer {
           dashboard.slug
         )
         .toResource
-      auth <- TestAuth.create(site.accessFor).toResource
+      auth <- TestAuth.create(site.permissionFor).toResource
       server <- ServerApp.liveServer(feed, site, auth.gate, assets)
       bound <- EmberServerBuilder
         .default[IO]

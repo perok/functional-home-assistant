@@ -6,7 +6,7 @@ import api.homeassistant.ws.domain.HaUser
 import cats.effect.IO
 import cats.effect.unsafe.implicits.global
 import fh.view.auth.{AuthGate, AuthSessions, SessionStore}
-import fh.view.model.Access
+import fh.view.model.{Access, Permission}
 
 /** The auth fixture every harness request rides on (issue #89).
   *
@@ -61,17 +61,23 @@ object TestAuth {
 
   /** A gate that admits everyone, for the suites that are not about auth.
     *
-    * NOT a bypass: the routes still declare their requirements and still stamp
-    * their responses, so a route that forgot one still fails these suites. What
-    * is relaxed is only WHO — every dashboard reads as `Public`, so a harness
-    * request needs no cookie. The suites that are about auth use [[create]],
-    * which mints real sessions and reads the dashboard's real rule.
+    * NOT a bypass: the routes still declare their requirements, so a route that
+    * forgot one still fails these suites. What is relaxed is only WHO — every
+    * dashboard reads as `Public`, so a harness request needs no cookie. The
+    * suites that are about auth use [[create]], which mints real sessions and
+    * reads the dashboard's real rule.
+    *
+    * A `def`, so each server gets its OWN `AuthSessions`. As a `val` it was one
+    * `SignallingRef` shared by every suite in a parallel run, and every live
+    * stream now subscribes to it ([[fh.view.runtime.Server.untilRevoked]]) — a
+    * concurrency primitive shared across otherwise independent suites, which is
+    * the wrong default whether or not it explains any particular flake.
     */
-  val openGate: AuthGate =
+  def openGate: AuthGate =
     new AuthGate(
       AuthSessions.create(SessionStore.ephemeral).unsafeRunSync(),
       _ => IO.raiseError(new Exception("no HA in the harness")),
-      _ => IO.pure(Access.Public)
+      _ => IO.pure(Permission(Access.Public, _ => true))
     ) {
       // Everyone is the harness admin, so the admin routes answer without a
       // cookie these suites have no way to attach.
@@ -84,7 +90,7 @@ object TestAuth {
     * the site because `Server.LiveSite` is `private[runtime]` and this fixture
     * is not.
     */
-  def create(accessFor: Option[String] => IO[Access]): IO[TestAuth] =
+  def create(permissionFor: Option[String] => IO[Permission]): IO[TestAuth] =
     for {
       sessions <- AuthSessions.create(SessionStore.ephemeral)
       id <- sessions.create(admin, "test-refresh-token")
@@ -95,7 +101,7 @@ object TestAuth {
         // treat an unresolvable token as "not an identity", and this proves it
         // does rather than assuming it.
         _ => IO.raiseError(new Exception("no HA in the harness")),
-        accessFor
+        permissionFor
       )
     } yield new TestAuth(sessions, gate, id)
 }

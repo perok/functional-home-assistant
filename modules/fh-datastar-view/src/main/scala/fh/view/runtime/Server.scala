@@ -17,7 +17,7 @@ import fh.view.build.{
 }
 import fh.view.FHError
 import fh.view.auth.{AuthGate, Requirement}
-import fh.view.model.{Access, Dashboard, DomId, NodeId, SignalId}
+import fh.view.model.{Dashboard, DomId, NodeId, Permission, SignalId}
 import fs2.Stream
 import fs2.concurrent.{Signal, SignallingRef}
 import io.circe.{Decoder, Json}
@@ -281,7 +281,7 @@ class Server(
     // (e.g. `homeassistant.toggle` on a `light.*`), so it's passed explicitly.
     case req @ POST -> Root / "sse" / "action" / slug / domain / service / entityId =>
       gate.handleRequirement(req, Requirement.FromDashboard(Some(slug)))(
-        actionResponse(slug, entityId)(
+        actionResponse(req, slug, entityId)(
           callService(domain, service, entityId, Json.obj())
         )
       )
@@ -289,7 +289,7 @@ class Server(
     // Single-value action (brightness, cover position, target temperature...).
     case req @ POST -> Root / "sse" / "action" / slug / domain / service / entityId / dataKey / dataValue =>
       gate.handleRequirement(req, Requirement.FromDashboard(Some(slug)))(
-        actionResponse(slug, entityId)(
+        actionResponse(req, slug, entityId)(
           callService(
             domain,
             service,
@@ -352,15 +352,16 @@ class Server(
     * A dashboard that does not exist, or is failed and has no renderer, names
     * no entities and therefore permits no action.
     */
-  private def actionResponse(slug: String, entityId: String)(
+  private def actionResponse(req: Request[IO], slug: String, entityId: String)(
       handler: IO[Response[IO]]
   ): IO[Response[IO]] =
-    rendererFor(slug).flatMap {
-      case Some(r) if r.references(entityId) => handler
-      case _                                 =>
-        Forbidden(
-          s"""{"success":false,"error":"$entityId is not on this dashboard"}"""
-        )
+    (site.permissionFor(Some(slug)), gate.of(req)).flatMapN {
+      (permission, user) =>
+        if (permission.mayAct(user, entityId)) handler
+        else
+          Forbidden(
+            s"""{"success":false,"error":"$entityId is not on this dashboard"}"""
+          )
     }
 
   private def guardSystemPkl(io: IO[Response[IO]]): IO[Response[IO]] =
@@ -2148,10 +2149,10 @@ object Server {
     def liveFor(slug: String): IO[Option[LiveSlug]] =
       entries.get.map(_.get(slug).map(_.live))
 
-    /** The access rule that applies to one dashboard (issue #89) — always an
-      * answer, never an absence for the gate to re-derive. A `None` SLUG means
-      * `/`, resolved through the same default the routes use, so `/` is gated
-      * by whatever it actually serves rather than by a rule of its own.
+    /** What anyone may do on one dashboard (issue #89) — always an answer,
+      * never an absence for a caller to re-interpret. A `None` SLUG means `/`,
+      * resolved through the same default the routes use, so `/` is gated by
+      * whatever it actually serves rather than by a rule of its own.
       *
       * On `LiveSite` rather than on `Server` because the registry is the only
       * thing it reads, and because the gate is built from the site BEFORE the
@@ -2161,22 +2162,23 @@ object Server {
       * that changes a dashboard's access takes effect on the next request, and
       * there is no second copy to invalidate.
       */
-    def accessFor(slug: Option[String]): IO[Access] =
+    def permissionFor(slug: Option[String]): IO[Permission] =
       slug
         .fold(defaultSlug)(IO.pure)
         .flatMap(liveFor)
         .flatMap {
           // A slug that names nothing, and a dashboard that failed to build,
-          // both answer with the restrictive default rather than with an
-          // absence the gate would have to re-interpret. The second is the one
-          // worth stating: a failed dashboard's page carries build diagnostics
-          // — source paths, evaluation errors — which is not something to hand
-          // out anonymously just because the dashboard is broken.
-          case None       => IO.pure(Access.default)
+          // both answer with `Permission.none`. The second is the one worth
+          // stating: a failed dashboard's page carries build diagnostics —
+          // source paths, evaluation errors — which is not something to hand
+          // out anonymously just because the dashboard is broken, and its
+          // actions should reach no entity at all.
+          case None       => IO.pure(Permission.none)
           case Some(live) =>
             live.renderer.get.map {
-              case RendererState.Ready(r)  => r.access
-              case RendererState.Failed(_) => Access.default
+              case RendererState.Ready(r) =>
+                Permission(r.access, r.references)
+              case RendererState.Failed(_) => Permission.none
             }
         }
 

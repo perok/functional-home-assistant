@@ -1,7 +1,7 @@
 package fh.view.auth
 
 import cats.effect.IO
-import fh.view.model.Access
+import fh.view.model.{Access, Permission}
 import fh.view.testkit.TestAuth
 import org.http4s.dsl.io.*
 import org.http4s.implicits.*
@@ -23,7 +23,7 @@ class AuthGateSuite extends munit.CatsEffectSuite {
         new AuthGate(
           sessions,
           _ => IO.raiseError(new Exception("no HA here")),
-          _ => IO.pure(access)
+          _ => IO.pure(Permission(access, _ => true))
         )
       )
 
