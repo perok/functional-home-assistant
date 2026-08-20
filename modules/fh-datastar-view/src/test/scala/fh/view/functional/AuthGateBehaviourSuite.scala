@@ -5,7 +5,6 @@ import fh.view.model.Access
 import fh.view.testkit.{FixtureDashboard, HouseFixture, TestAuth}
 import org.http4s.Status
 import org.http4s.headers.Location
-import org.typelevel.ci.CIString
 
 import scala.concurrent.duration.*
 
@@ -40,18 +39,14 @@ class AuthGateBehaviourSuite extends FunctionalSuite {
     }
   }
 
-  /** A 303 on a stream reports as a broken connection, not as "log in" — so the
-    * page shell needs a status it can act on instead.
+  /** A stream is opened by a page that was already admitted, so a refusal here
+    * is a genuine error — the session died — not a "you should log in". The
+    * redirect belongs on the page load, where a human is waiting.
     */
   test("an anonymous SSE request is refused, never redirected") {
     withServer(house) { ts =>
-      ts.sse(as = None).map { resp =>
-        assertEquals(resp.status, Status.Unauthorized)
-        assertEquals(
-          resp.headers.get(CIString("X-FH-Login")).map(_.head.value),
-          Some("/auth/login")
-        )
-      }
+      ts.sse(as = None)
+        .map(resp => assertEquals(resp.status, Status.Unauthorized))
     }
   }
 

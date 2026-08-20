@@ -250,13 +250,7 @@ object ServerApp extends IOApp {
         // Built from the SITE, not from the server: the server routes with it,
         // so it has to exist first. `LiveSite` owns the registry the rule is
         // read from, which is where `accessFor` lives.
-        gateStamp <- AuthGate.stampKey.toResource
-        gate = new AuthGate(
-          authSessions,
-          identify,
-          site.accessFor,
-          gateStamp
-        )
+        gate = new AuthGate(authSessions, identify, site.accessFor)
         authRoutes <- AuthRoutes
           .create(oauth, authSessions, identify, gate, Server.baseUriOf)
           .toResource
@@ -315,14 +309,13 @@ object ServerApp extends IOApp {
             // Any FHError raised while serving becomes its status + message;
             // anything else falls through to Ember's default 500.
             //
-            // Each route declares its own requirement (see AuthGate);
-            // `assertGated` is the backstop that refuses anything served
-            // without one. Inside the error boundary, so a raised FHError still
-            // becomes a status.
+            // Each route (or route GROUP — see `AuthGate.require`) declares
+            // its own requirement. Inside the error boundary, so a raised
+            // FHError still becomes a status.
             FHError.handle(
-              AuthGate.assertGated(gateStamp)(
-                authRoutes.routes <+> server.routes <+> editor.routes(wsb)
-              )
+              (authRoutes.routes <+> server.routes <+> editor.routes(
+                wsb
+              )).orNotFound
             )
           )
           .withShutdownTimeout(0.seconds)

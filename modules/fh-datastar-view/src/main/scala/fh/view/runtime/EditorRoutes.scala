@@ -59,16 +59,20 @@ final class EditorRoutes(
     liveSlugs: IO[List[String]]
 ) {
 
+  /** Admin, for every route here — declared ONCE over the whole group rather
+    * than on each, so a route added later inherits it instead of having to
+    * remember it (ADR 0023).
+    */
   def routes(wsb: WebSocketBuilder2[IO]): HttpRoutes[IO] =
-    HttpRoutes.of[IO] {
+    AuthGate.require(gate, Requirement.Admin) {
       case req @ GET -> Root / "edit" =>
-        admin(req)(serveAsset(req, "index.html"))
+        (serveAsset(req, "index.html"))
 
       case req @ GET -> Root / "edit" / asset if staticAssets(asset) =>
-        admin(req)(serveAsset(req, asset))
+        (serveAsset(req, asset))
 
-      case req @ GET -> Root / "edit" / "files" =>
-        admin(req)(
+      case GET -> Root / "edit" / "files" =>
+        (
           listFiles.flatMap(
             Ok(_).map(
               _.withContentType(`Content-Type`(MediaType.application.json))
@@ -79,8 +83,8 @@ final class EditorRoutes(
       // The dashboards the instance is SERVING. Not derivable from the file
       // list any more: a slug is a key in the entrypoint, so only the runtime
       // knows what the sources currently evaluate to (ADR 0021).
-      case req @ GET -> Root / "edit" / "dashboards" =>
-        admin(req)(
+      case GET -> Root / "edit" / "dashboards" =>
+        (
           liveSlugs
             .map(slugs => Json.arr(slugs.map(Json.fromString)*).noSpaces)
             .flatMap(
@@ -91,7 +95,7 @@ final class EditorRoutes(
         )
 
       case req @ GET -> "edit" /: "file" /: rest =>
-        admin(req)(resolveEditable(rest) match {
+        (resolveEditable(rest) match {
           case None => NotFound()
           case _    =>
             fileService[IO](
@@ -100,7 +104,7 @@ final class EditorRoutes(
         })
 
       case req @ PUT -> "edit" /: "file" /: rest =>
-        admin(req)(resolveEditable(rest) match {
+        (resolveEditable(rest) match {
           case None =>
             Forbidden("""{"error":"not an editable dashboard source"}""")
           case Some(p) =>
@@ -109,22 +113,13 @@ final class EditorRoutes(
             }
         })
 
-      case req @ GET -> Root / "lsp" / "pkl" =>
-        admin(req)(pklLspJar match {
+      case GET -> Root / "lsp" / "pkl" =>
+        (pklLspJar match {
           case Some(jar) => LspBridge.wsResponse(wsb, jar)
           case None      =>
             ServiceUnavailable("""{"error":"pkl-lsp jar not available"}""")
         })
     }
-
-  /** Admin, for every route above. Named once rather than repeated verbatim:
-    * the whole surface has one rule, and a new route that forgets it is caught
-    * by `AuthGate.assertGated` rather than served.
-    */
-  private def admin(req: Request[IO])(
-      handler: IO[Response[IO]]
-  ): IO[Response[IO]] =
-    gate.handleRequirement(req, Requirement.Admin)(handler)
 
   /** The static editor assets (served verbatim); everything else under `/edit`
     * is an API route. `index.html` is NOT here — it needs placeholder injection

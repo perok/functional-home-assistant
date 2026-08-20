@@ -191,18 +191,23 @@ function showToast(text: string): void {
 /**
  * Logged out while the page was open (issue #89).
  *
- * The gate answers a stream or an action POST with `401` and never a redirect —
- * a `303` on an SSE stream reports as a broken connection, not as "log in". So
- * the browser has to make that trip itself: a reload is an ordinary top-level
- * GET, which the gate DOES redirect, landing on HA's login page with `next`
- * pointing back here.
+ * This is what finishes a revocation. Cutting the stream server-side stops the
+ * dashboard UPDATING, but the tab still SHOWS everything it last received — so
+ * a user who was signed out on another device would go on reading the house
+ * from a frozen page. The reload is what takes it away: an ordinary top-level
+ * GET, which the gate answers with a redirect to the login page (a stream gets
+ * a 401 instead, correctly — by then the human is no longer the one asking).
  *
- * Unfiltered by element on purpose, unlike the action toast below: the case
- * this exists for is the persistent stream being cut when a session ends
- * server-side, and that error arrives with `el` = `<body>`.
+ * Datastar has no built-in for this and says so deliberately: it follows 3xx
+ * and merges 2xx, and treats 4xx as "a bug to fix" rather than a flow. Nor can
+ * the gate redirect the stream itself — `fetch` would follow the 303 to an HTML
+ * login page that is not an event stream, then cross-origin to HA.
  *
- * `replace` rather than `reload` so a logged-out tab does not leave a history
- * entry that goes back to a page it can no longer load.
+ * Unfiltered by element, unlike the action toast below: the error this exists
+ * for arrives on the persistent stream, whose `el` is `<body>`.
+ *
+ * `replace` rather than `reload` so a logged-out tab leaves no history entry
+ * pointing back at a page it can no longer load.
  */
 document.addEventListener("datastar-fetch", (e: Event) => {
   const detail = (e as CustomEvent<{ type: string; argsRaw: { status: string } }>).detail

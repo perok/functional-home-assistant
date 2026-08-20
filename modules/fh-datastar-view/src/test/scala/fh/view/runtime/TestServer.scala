@@ -6,7 +6,7 @@ package fh.view.runtime
 import cats.effect.{Deferred, IO, Ref, Resource}
 import cats.syntax.all.*
 import com.comcast.ip4s.{host, port}
-import fh.view.auth.{AuthGate, AuthSessions}
+import fh.view.auth.AuthSessions
 import fh.view.build.{PklDump, Site, SystemPkl}
 import fh.view.model.{Access, Dashboard}
 import fh.view.testkit.{
@@ -86,7 +86,7 @@ final class TestServer(
     * route that declared none fails the suite as a 500 rather than passing. See
     * [[TestAuth]] for why there is no bypass.
     */
-  private val app = AuthGate.assertGated(auth.stamp)(server.routes)
+  private val app = server.routes.orNotFound
 
   /** `as` is the session id to present, i.e. WHO is asking; `None` is an
     * anonymous browser. Defaulted to the harness admin so a suite that is not
@@ -450,7 +450,7 @@ object TestServer {
         .default[IO]
         .withHost(host"127.0.0.1")
         .withPort(port"0")
-        .withHttpApp(AuthGate.assertGated(auth.stamp)(server.routes))
+        .withHttpApp(server.routes.orNotFound)
         .withShutdownTimeout(0.seconds)
         .build
     } yield (

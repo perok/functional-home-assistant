@@ -28,9 +28,8 @@ final class AuthRoutes(
     sessions: AuthSessions,
     identify: String => IO[HaUser],
     // Every route here is `Requirement.Open` and has to be: a login page that
-    // needs a login cannot load. Declared through the gate anyway rather than
-    // simply left unwrapped, so `AuthGate.assertGated` can treat an unstamped
-    // response as the bug it is (ADR 0023).
+    // needs a login cannot load. Said out loud rather than left unwrapped, so
+    // the exemption is visible where it is granted (ADR 0023).
     gate: AuthGate,
     pending: Ref[IO, Map[String, Pending]],
     baseUriOf: Request[IO] => Uri

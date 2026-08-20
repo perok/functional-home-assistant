@@ -64,20 +64,20 @@ between a cookie-authenticated `POST /sse/action/...` and any other site. `Lax`
 and not `Strict` because the OAuth callback is a cross-site top-level GET that
 must arrive with the cookie.
 
-**Each route declares its own requirement, and forgetting fails closed.** A
-route wraps its handler in `gate.handleRequirement(req, requirement)`, so the
-rule is written where the route is instead of in a table elsewhere that has to
-be kept in step with it. Two things that gets right which a central classifier
-could not: a route that knows its own slug says so rather than being guessed at,
-and `Requirement.Open` is an annotation beside the thing it exempts, visible in
-review at the point the exemption is granted.
+**The requirement is declared where the route is.** A route wraps its handler
+in `gate.handleRequirement(req, requirement)`, instead of a table elsewhere that
+has to be kept in step with the route list. Two things that gets right which a
+central classifier could not: a route that knows its own slug says so rather
+than being guessed at, and `Requirement.Open` is an annotation beside the thing
+it exempts, visible in review at the point the exemption is granted.
 
-What per-route declaration does not fix by itself is forgetting — an unwrapped
-route would serve unauthenticated, silently. `AuthGate.assertGated` closes that:
-every response from the gate is stamped with a process-unique vault key, and a
-response from a route that MATCHED but carries no stamp is refused as a 500. A
-path that matched NO route is an ordinary 404, not a gap. So the failure mode of
-forgetting is loud and closed rather than quiet and open.
+**A route GROUP with one rule declares it once.** `AuthGate.require` wraps a
+whole surface — the editor is admin, all of it — so a route added there later
+inherits the rule instead of having to remember it. It is built from the route
+table's own `PartialFunction` rather than a finished `HttpRoutes`, because
+whether a request MATCHES has to be answerable without running the handler:
+otherwise an unauthorised `PUT /edit/file` would write the file and then be told
+no.
 
 **Admission is not a one-time event.** An SSE stream is admitted once and then
 runs for hours. `AuthSessions` is a `SignallingRef`, so the stream is wrapped in
@@ -85,6 +85,10 @@ one `interruptWhen` over *the same* `Access.permits` the door used — logging
 out, being revoked in HA, or losing the admin role reaches a dashboard that is
 already open, and admission and continued admission cannot drift because they
 are the same predicate.
+
+That lives on `handleStream`, which the two SSE routes call instead of
+`handleRequirement`. The route knows it is returning a stream; the gate would
+have had to guess from the path, and did.
 
 **An action may only touch an entity its own dashboard names.** The access rule
 says WHO may use a dashboard; this says WHAT that lets them do, and without it
@@ -123,11 +127,25 @@ nothing derived from the slug, and a compiled tap URL derives from it — a
 `--slug` rename would otherwise leave every tap posting to a dashboard it is
 not on.
 
-**Denial shape is part of the classification, not a guess at the denial site.**
-An HTML `GET` gets `303` to `/auth/login?next=…`; a stream, a POST or a JSON
-endpoint gets `401`/`403` and never a redirect — a redirected SSE stream reports
-as a broken connection, which is unreadable. An authenticated user who merely
-lacks the role gets `403`, so there is no login loop.
+**Only the page load redirects, and that is a case rather than a flag.**
+`Requirement.Page` and `Requirement.Data` are the same rule with different
+answers when it is not met: `303` to `/auth/login?next=…` for the first, `401`
+for the second. The asymmetry is not about what a client can parse — it is
+about who is asking. A page load is where a human is waiting, so it is where a
+login can be sent for; everything that page then opens was already admitted, so
+a later refusal on one of those means the session DIED, which is an error and
+should read as one. An authenticated user who merely lacks the role gets `403`
+either way, so there is no login loop.
+
+Two consequences worth stating. A 401 on an SSE stream carries no "log in here"
+hint, because nothing would act on it — the browser learns that from the page.
+And what a tab does when its session dies mid-stream is a client concern: the
+stream is cut server-side, which stops the dashboard UPDATING but leaves it
+SHOWING what it last received, so the page shell reloads on a 401 and lands on
+the redirect. Datastar has no built-in for this by design (it follows 3xx, and
+treats 4xx as a bug rather than a flow), and the gate cannot redirect the stream
+itself — `fetch` would follow the 303 to an HTML login page that is not an
+event stream.
 
 **The rule itself is authored data.** `lib/core/access.pkl` declares four cases
 (`public`, `authenticated`, `admin`, `users(ids)`), written per dashboard on

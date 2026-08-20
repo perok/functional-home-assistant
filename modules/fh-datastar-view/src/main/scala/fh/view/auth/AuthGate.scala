@@ -8,16 +8,12 @@ import org.http4s.headers.{Authorization, Location}
 import org.http4s.{
   AuthScheme,
   Credentials,
-  Header,
-  HttpApp,
   HttpRoutes,
   Request,
   Response,
   Status,
   Uri
 }
-import org.typelevel.ci.CIString
-import org.typelevel.vault.Key
 
 /** What a request has to satisfy before it is served (issue #89).
   *
@@ -35,31 +31,28 @@ enum Requirement derives CanEqual:
     */
   case Open
 
-  /** Whatever this dashboard's own rule says. `None` is `/`, which resolves
-    * through the site's default dashboard, so it is gated by whatever it
-    * actually serves.
+  /** A browser NAVIGATION to a dashboard, held to that dashboard's own rule.
+    * `None` is `/`, which resolves through the site's default dashboard, so it
+    * is gated by whatever it actually serves.
+    *
+    * The only requirement that REDIRECTS, and that is the whole difference from
+    * [[Data]]: there is a human here, and the page load is where a login can be
+    * sent for. Everything the page then opens is already known to be permitted,
+    * so a later refusal on one of those is a genuine error rather than a "you
+    * should log in".
     */
-  case Dashboard(slug: Option[String], redirectOnFailure: Boolean)
+  case Page(slug: Option[String])
+
+  /** Anything a script asked for against a dashboard: its SSE stream, an action
+    * POST, a JSON endpoint. Same rule as [[Page]], different answer when it is
+    * not met — a 401, never a redirect.
+    */
+  case Data(slug: Option[String])
 
   /** An HA admin, by cookie or by bearer token. The authoring surface: it
     * writes `.pkl` source to disk and drives the instance.
     */
   case Admin
-
-object Requirement {
-
-  /** A browser NAVIGATION — a failure is worth a redirect to the login page,
-    * because there is a human there to see it.
-    */
-  def page(slug: Option[String]): Requirement =
-    Requirement.Dashboard(slug, redirectOnFailure = true)
-
-  /** Anything a script called: an SSE stream, an action POST, a JSON endpoint.
-    * Never redirected — a 303 on a stream reports as a broken connection.
-    */
-  def data(slug: Option[String]): Requirement =
-    Requirement.Dashboard(slug, redirectOnFailure = false)
-}
 
 /** What the rest of the server needs from the gate: who this request is.
   *
@@ -94,10 +87,9 @@ trait Identity {
   *   - `Open` is an annotation beside the thing it exempts, so an exemption is
   *     visible in review at the point it is granted.
   *
-  * What it does NOT get right on its own is forgetting: a route added later
-  * with no wrapper would serve unauthenticated, silently. [[assertGated]]
-  * closes that — every response from here is stamped, and an unstamped one from
-  * a route that MATCHED is refused. So forgetting fails closed and loudly.
+  * A whole route GROUP with one rule wraps once — [[AuthGate.require]] — so
+  * `EditorRoutes` is admin by construction rather than by every route
+  * remembering to say so.
   *
   * `accessFor` asks the live registry for one slug's rule, so a reload that
   * changes a dashboard's access takes effect on the next request with nothing
@@ -112,8 +104,7 @@ trait Identity {
 open class AuthGate(
     sessions: AuthSessions,
     identifyToken: String => IO[HaUser],
-    accessFor: Option[String] => IO[Option[Access]],
-    stamp: Key[Unit]
+    accessFor: Option[String] => IO[Access]
 ) extends Identity {
 
   override def sessionOf(req: Request[IO]): IO[Option[String]] =
@@ -136,13 +127,6 @@ open class AuthGate(
   def handleRequirement(req: Request[IO], requirement: Requirement)(
       handler: IO[Response[IO]]
   ): IO[Response[IO]] =
-    decide(req, requirement, handler).map(_.withAttribute(stamp, ()))
-
-  private def decide(
-      req: Request[IO],
-      requirement: Requirement,
-      handler: IO[Response[IO]]
-  ): IO[Response[IO]] =
     requirement match {
       case Requirement.Open => handler
 
@@ -156,21 +140,66 @@ open class AuthGate(
           case None => IO.pure(unauthorized)
         }
 
-      case Requirement.Dashboard(slug, redirectOnFailure) =>
-        (accessFor(slug), of(req)).flatMapN { (access, user) =>
-          val required = access.getOrElse(Access.default)
-          if (required.permits(user))
-            handler.flatMap(keepLive(req, required, _))
-          else if (user.isDefined)
-            IO.pure(forbidden("You do not have access to this dashboard."))
-          else if (redirectOnFailure)
-            IO.pure(
-              Response[IO](Status.SeeOther)
-                .putHeaders(Location(AuthGate.loginRedirect(req.uri)))
-            )
-          else IO.pure(unauthorized)
+      case Requirement.Page(slug) =>
+        permitted(req, slug).flatMap {
+          case Right(_)   => handler
+          case Left(user) =>
+            IO.pure(user.fold(loginRedirectResponse(req))(_ => noAccess))
+        }
+
+      case Requirement.Data(slug) =>
+        permitted(req, slug).flatMap {
+          case Right(_)   => handler
+          case Left(user) =>
+            IO.pure(user.fold(unauthorized)(_ => noAccess))
         }
     }
+
+  /** [[handleRequirement]] for a route whose response is a LIVE STREAM.
+    *
+    * Separate rather than sniffed from the path, because the route knows what
+    * it is returning and the gate does not. It is the same check plus one thing
+    * only a stream needs: admission is not a one-time event when the response
+    * lasts for hours, so the body is cut if the rule stops holding
+    * ([[AuthSessions.watch]]) — over the SAME `permits` the door used, so the
+    * two cannot drift.
+    */
+  def handleStream(req: Request[IO], slug: Option[String])(
+      handler: IO[Response[IO]]
+  ): IO[Response[IO]] =
+    (accessFor(slug), of(req)).flatMapN { (access, user) =>
+      if (!access.permits(user))
+        IO.pure(user.fold(unauthorized)(_ => noAccess))
+      else
+        (handler, sessionOf(req)).flatMapN { (resp, session) =>
+          IO.pure(
+            resp.withBodyStream(
+              resp.body.interruptWhen(
+                sessions.watch(session, access.permits).map(ok => !ok)
+              )
+            )
+          )
+        }
+    }
+
+  /** `Right` when this request may have the dashboard, `Left(who)` when not —
+    * carrying who was asking, since that is what decides between "log in" and
+    * "not yours".
+    */
+  private def permitted(
+      req: Request[IO],
+      slug: Option[String]
+  ): IO[Either[Option[HaUser], Unit]] =
+    (accessFor(slug), of(req)).mapN { (access, user) =>
+      if (access.permits(user)) Right(()) else Left(user)
+    }
+
+  private def loginRedirectResponse(req: Request[IO]): Response[IO] =
+    Response[IO](Status.SeeOther)
+      .putHeaders(Location(AuthGate.loginRedirect(req.uri)))
+
+  private def noAccess: Response[IO] =
+    forbidden("You do not have access to this dashboard.")
 
   private def session(req: Request[IO]): IO[Option[AuthSession]] =
     AuthSessions.cookieOf(req).flatTraverse(sessions.get)
@@ -191,81 +220,35 @@ open class AuthGate(
       case _ => IO.pure(None)
     }
 
-  /** Keep checking for as long as the response lasts.
-    *
-    * An SSE stream is admitted once and then runs for hours, so the check at
-    * the door is not enough on its own: logging out, being revoked in HA, or
-    * losing the admin role has to reach a dashboard that is already open. The
-    * session store is a `SignallingRef`, so that is one `interruptWhen` over
-    * the same predicate the door used — admission and continued admission
-    * cannot drift, because they are the same `required.permits`.
-    *
-    * Only streams are wrapped. An ordinary page has finished long before any of
-    * this could change, and wrapping it would add a subscription per request.
-    */
-  private def keepLive(
-      req: Request[IO],
-      required: Access,
-      resp: Response[IO]
-  ): IO[Response[IO]] =
-    if (!isEventStream(req)) IO.pure(resp)
-    else
-      sessionOf(req).map { id =>
-        resp.withBodyStream(
-          resp.body.interruptWhen(
-            sessions.watch(id, required.permits).map(allowed => !allowed)
-          )
-        )
-      }
-
-  private def isEventStream(req: Request[IO]): Boolean =
-    req.uri.path.segments.headOption.exists(_.decoded() == "sse")
-
   private def forbidden(message: String): Response[IO] =
     Response[IO](Status.Forbidden).withEntity(message)
 
-  /** 401 with the hint a fetch/SSE client needs to know a login would help —
-    * the page shell turns this into a reload, which then redirects.
+  /** A plain 401. No "where to log in" hint: the browser gets that from the
+    * page load, which is the request a human is actually waiting on, and
+    * nothing reads a hint off this one.
     */
   private def unauthorized: Response[IO] =
-    Response[IO](Status.Unauthorized)
-      .putHeaders(Header.Raw(CIString("X-FH-Login"), "/auth/login"))
-      .withEntity("Not logged in.")
+    Response[IO](Status.Unauthorized).withEntity("Not logged in.")
 }
 
 object AuthGate {
 
-  /** The stamp [[AuthGate.handleRequirement]] leaves on everything it serves.
-    * One per process, created at boot and handed to both the gate and
-    * [[assertGated]] — a `Key` is identity-compared, so a second one would not
-    * match.
-    */
-  def stampKey: IO[Key[Unit]] = Key.newKey[IO, Unit]
-
-  /** The backstop: nothing reaches a client from a route that did not declare a
-    * requirement.
+  /** Hold an entire route group to one requirement.
     *
-    * `HttpRoutes` answers `None` when NO route matched, which is an ordinary
-    * 404 and not a gap. A route that matched, ran, and produced an unstamped
-    * response is a route somebody wrote without wrapping it — served as a 500,
-    * because the alternative is serving it to anyone. That is the one failure a
-    * per-route rule cannot catch by itself, and it is silent without this.
+    * For a surface where every route has the same rule — the editor is all
+    * admin — this is better than annotating each: a route added to the group
+    * later inherits it instead of needing to remember it.
     */
-  def assertGated(stamp: Key[Unit])(routes: HttpRoutes[IO]): HttpApp[IO] =
-    HttpApp[IO] { req =>
-      routes.run(req).value.flatMap {
-        case None => IO.pure(Response[IO](Status.NotFound))
-        case Some(resp) if resp.attributes.lookup(stamp).isDefined =>
-          IO.pure(resp)
-        case Some(_) =>
-          IO.consoleForIO
-            .errorln(
-              s"[BUG] ${req.method} ${req.uri.path} was served by a route that " +
-                "declares no Requirement — refusing it. Wrap the handler in " +
-                "AuthGate.handleRequirement."
-            )
-            .as(Response[IO](Status.InternalServerError))
-      }
+  def require(gate: AuthGate, requirement: Requirement)(
+      pf: PartialFunction[Request[IO], IO[Response[IO]]]
+  ): HttpRoutes[IO] =
+    // Off the route table's own PartialFunction rather than a built
+    // `HttpRoutes`: whether a request MATCHES has to be answerable without
+    // running the handler, or an unauthorised `PUT /edit/file` would write the
+    // file and then be told no. `pf(req)` only BUILDS the `IO`.
+    HttpRoutes.of[IO] {
+      case req if pf.isDefinedAt(req) =>
+        gate.handleRequirement(req, requirement)(pf(req))
     }
 
   /** Where to send a browser that has to log in, preserving what it asked for

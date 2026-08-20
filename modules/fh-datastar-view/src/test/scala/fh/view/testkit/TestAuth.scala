@@ -22,7 +22,6 @@ import fh.view.model.Access
 final class TestAuth(
     val sessions: AuthSessions,
     val gate: AuthGate,
-    val stamp: org.typelevel.vault.Key[Unit],
     val defaultSession: String
 ) {
 
@@ -72,8 +71,7 @@ object TestAuth {
     new AuthGate(
       AuthSessions.create(SessionStore.ephemeral).unsafeRunSync(),
       _ => IO.raiseError(new Exception("no HA in the harness")),
-      _ => IO.pure(Some(Access.Public)),
-      AuthGate.stampKey.unsafeRunSync()
+      _ => IO.pure(Access.Public)
     ) {
       // Everyone is the harness admin, so the admin routes answer without a
       // cookie these suites have no way to attach.
@@ -86,11 +84,10 @@ object TestAuth {
     * the site because `Server.LiveSite` is `private[runtime]` and this fixture
     * is not.
     */
-  def create(accessFor: Option[String] => IO[Option[Access]]): IO[TestAuth] =
+  def create(accessFor: Option[String] => IO[Access]): IO[TestAuth] =
     for {
       sessions <- AuthSessions.create(SessionStore.ephemeral)
       id <- sessions.create(admin, "test-refresh-token")
-      stamp <- AuthGate.stampKey
       gate = new AuthGate(
         sessions,
         // No HA to resolve a bearer token against. Raising (rather than
@@ -98,8 +95,7 @@ object TestAuth {
         // treat an unresolvable token as "not an identity", and this proves it
         // does rather than assuming it.
         _ => IO.raiseError(new Exception("no HA in the harness")),
-        accessFor,
-        stamp
+        accessFor
       )
-    } yield new TestAuth(sessions, gate, stamp, id)
+    } yield new TestAuth(sessions, gate, id)
 }

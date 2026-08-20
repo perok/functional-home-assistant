@@ -66,8 +66,8 @@ class Server(
     sessions: Sessions,
     // The auth gate (ADR 0023). Every route below declares its own
     // `Requirement` and wraps its handler in `gate.handleRequirement`, so the
-    // rule is written where the route is; `AuthGate.assertGated` refuses
-    // anything that came back from here without one.
+    // rule is written where the route is, and a whole surface with one rule
+    // wraps once instead (`AuthGate.require`, used by EditorRoutes).
     gate: AuthGate,
     // Starts the per-slug recorder for a slug that enters the registry after
     // startup. Scoped to `Server.resource`, so those fibers die with the server.
@@ -103,11 +103,11 @@ class Server(
     // Resolved per REQUEST, not at construction: the entrypoint can rename or
     // delete the dashboard `/` used to serve, and `/` must still answer.
     case req @ GET -> Root =>
-      gate.handleRequirement(req, Requirement.page(None))(
+      gate.handleRequirement(req, Requirement.Page(None))(
         site.defaultSlug.flatMap(pageResponse(_, req))
       )
     case req @ GET -> Root / "d" / slug =>
-      gate.handleRequirement(req, Requirement.page(Some(slug)))(
+      gate.handleRequirement(req, Requirement.Page(Some(slug)))(
         pageResponse(slug, req)
       )
 
@@ -259,24 +259,20 @@ class Server(
     case req @ GET -> Root / "sse" / "dashboard" / slug / "patch" =>
       // The 404 gate lives INSIDE the stream ([[sseStream]]), on its own single
       // lookup, not here — see that method.
-      gate.handleRequirement(req, Requirement.data(Some(slug)))(
-        sseStream(slug, req)
-      )
+      gate.handleStream(req, Some(slug))(sseStream(slug, req))
 
     // The error page's recovery stream ([[recoverStream]]): unlike `patch`, a
     // dedicated stream with no session/conn/cursor — the error page opens it and
     // reloads on the first `_reload` signal ([[errorPage]]). The slug lookup
     // happens INSIDE the stream ([[recoverStream]]) so it cannot race it.
     case req @ GET -> Root / "sse" / "dashboard" / slug / "recover" =>
-      gate.handleRequirement(req, Requirement.data(Some(slug)))(
-        recoverStream(slug)
-      )
+      gate.handleStream(req, Some(slug))(recoverStream(slug))
 
     // No-data action (toggle, open/close, lock, play/pause, scene activate...).
     // `domain` is the SERVICE's domain, which is not always the entity's domain
     // (e.g. `homeassistant.toggle` on a `light.*`), so it's passed explicitly.
     case req @ POST -> Root / "sse" / "action" / slug / domain / service / entityId =>
-      gate.handleRequirement(req, Requirement.data(Some(slug)))(
+      gate.handleRequirement(req, Requirement.Data(Some(slug)))(
         actionResponse(slug, entityId)(
           callService(domain, service, entityId, Json.obj())
         )
@@ -284,7 +280,7 @@ class Server(
 
     // Single-value action (brightness, cover position, target temperature...).
     case req @ POST -> Root / "sse" / "action" / slug / domain / service / entityId / dataKey / dataValue =>
-      gate.handleRequirement(req, Requirement.data(Some(slug)))(
+      gate.handleRequirement(req, Requirement.Data(Some(slug)))(
         actionResponse(slug, entityId)(
           callService(
             domain,
@@ -1329,7 +1325,7 @@ class Server(
               // does not say, the session does.
               gate.handleRequirement(
                 req,
-                Requirement.data(Some(session.slug))
+                Requirement.Data(Some(session.slug))
               )(
                 rendererFor(session.slug)
                   .flatMap(_.traverse_(f(session, _, uiState))) *> NoContent()
@@ -2107,10 +2103,10 @@ object Server {
     def liveFor(slug: String): IO[Option[LiveSlug]] =
       entries.get.map(_.get(slug).map(_.live))
 
-    /** The access rule for one dashboard (issue #89), or `None` when the slug
-      * names nothing. `None` for the slug itself means `/`, resolved through
-      * the same default the routes use — so `/` is gated by whatever it
-      * actually serves rather than by a rule of its own.
+    /** The access rule that applies to one dashboard (issue #89) — always an
+      * answer, never an absence for the gate to re-derive. A `None` SLUG means
+      * `/`, resolved through the same default the routes use, so `/` is gated
+      * by whatever it actually serves rather than by a rule of its own.
       *
       * On `LiveSite` rather than on `Server` because the registry is the only
       * thing it reads, and because the gate is built from the site BEFORE the
@@ -2119,22 +2115,23 @@ object Server {
       * Read from the live registry on every call, with nothing cached: a reload
       * that changes a dashboard's access takes effect on the next request, and
       * there is no second copy to invalidate.
-      *
-      * A FAILED dashboard has no renderer and therefore no authored rule, and
-      * gets the restrictive default. Deliberate: its error page carries build
-      * diagnostics — source paths, evaluation errors — which is not something
-      * to hand out anonymously just because the dashboard is broken.
       */
-    def accessFor(slug: Option[String]): IO[Option[Access]] =
+    def accessFor(slug: Option[String]): IO[Access] =
       slug
         .fold(defaultSlug)(IO.pure)
         .flatMap(liveFor)
         .flatMap {
-          case None       => IO.pure(None)
+          // A slug that names nothing, and a dashboard that failed to build,
+          // both answer with the restrictive default rather than with an
+          // absence the gate would have to re-interpret. The second is the one
+          // worth stating: a failed dashboard's page carries build diagnostics
+          // — source paths, evaluation errors — which is not something to hand
+          // out anonymously just because the dashboard is broken.
+          case None       => IO.pure(Access.default)
           case Some(live) =>
             live.renderer.get.map {
-              case RendererState.Ready(r)  => Some(r.access)
-              case RendererState.Failed(_) => Some(Access.default)
+              case RendererState.Ready(r)  => r.access
+              case RendererState.Failed(_) => Access.default
             }
         }
 
