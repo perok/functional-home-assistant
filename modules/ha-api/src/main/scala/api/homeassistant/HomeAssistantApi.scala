@@ -37,6 +37,11 @@ trait HomeAssistantApi[F[_]] {
 
   def configFloorRegistryList: F[List[Floor]]
 
+  /** Every account that can log in (`config/auth/list`) — admin-only, and asked
+    * on the machine connection, which is an admin.
+    */
+  def configAuthList: F[List[HaAccount]]
+
   // Not interesting
   def manifestList(): F[List[Manifest]]
 
@@ -131,6 +136,9 @@ object HomeAssistantApi {
 
       def configFloorRegistryList: IO[List[Floor]] =
         in.sendCommand(`config/floor_registry/list`())
+
+      def configAuthList: IO[List[HaAccount]] =
+        in.sendCommand(`config/auth/list`())
 
       def manifestList(): IO[List[Manifest]] =
         in.sendCommand(`manifest/list`())

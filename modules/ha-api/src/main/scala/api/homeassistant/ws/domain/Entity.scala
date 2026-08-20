@@ -159,6 +159,38 @@ case class HaUser(
       Encoder.AsObject,
       CanEqual
 
+/** One Home Assistant account, from `config/auth/list` — the admin-only listing
+  * of everybody who can log in.
+  *
+  * Deliberately NOT [[HaUser]], which answers "who is this connection" and
+  * carries `is_admin` directly. This listing does not: a user's role is their
+  * membership of the `system-admin` GROUP, so [[isAdmin]] derives it rather
+  * than expecting a field that is not there (verified against HA 2026.8.2).
+  *
+  * `system_generated` marks the accounts that are not people — Supervisor,
+  * Cast, the content user. One of them IS an admin, so anything offering users
+  * to choose between has to drop them or offer nonsense.
+  */
+case class HaAccount(
+    id: String,
+    name: String,
+    group_ids: List[String],
+    system_generated: Boolean,
+    is_active: Boolean,
+    is_owner: Boolean
+) derives Decoder,
+      CanEqual {
+
+  def isAdmin: Boolean = group_ids.contains(HaAccount.AdminGroup)
+
+  /** A real person's account, and one that can still log in. */
+  def isPerson: Boolean = !system_generated && is_active
+}
+
+object HaAccount {
+  val AdminGroup: String = "system-admin"
+}
+
 case class DeviceTrigger(
     platform: "device",
     `type`: String,

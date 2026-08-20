@@ -261,6 +261,16 @@ object client {
         extends CommandPhase
         with CommandResponse.AsResult[List[Floor]] derives ConfiguredEncoder
 
+    /** Every account that can log in — HA's own user list.
+      *
+      * Admin-only, which is fine for the one caller: the dump generator runs on
+      * the machine token. Verified against HA 2026.8.2, where it answered six
+      * accounts, three of them `system_generated`.
+      */
+    case class `config/auth/list`()
+        extends CommandPhase
+        with CommandResponse.AsResult[List[HaAccount]] derives ConfiguredEncoder
+
     /** Who the access token that authenticated THIS connection belongs to.
       *
       * Unlike every other command here, the answer depends on which token
