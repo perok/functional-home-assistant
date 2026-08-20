@@ -162,6 +162,29 @@ window.fhRegisterSw = (url) => {
   sw.register(url).catch(() => {})
 }
 
+/**
+ * Stop the connection banners painting on a page that is already leaving.
+ *
+ * Navigating away aborts the SSE stream, which fires `error` on the OUTGOING
+ * document — so the page the user is walking away from spends the rest of its
+ * life claiming the dashboard is unreachable. The 600ms debounce on the banner's
+ * own handler was meant to cover this and does not: it only buys 600ms, and a
+ * cross-dashboard navigate on a phone routinely takes longer, so the flash the
+ * debounce was supposed to hide is exactly what shows.
+ *
+ * A CSS class rather than a signal, because the fact is "this document is
+ * done", not "the connection is fine" — the banner state stays truthful, it
+ * just stops being painted. It also covers the case the signal cannot: a banner
+ * that was ALREADY up when the user navigated away.
+ *
+ * `pagehide` (not `beforeunload`) because it is the event that fires for every
+ * way out, bfcache included, and does not ask to be the one that blocks the
+ * navigation.
+ */
+addEventListener("pagehide", () => {
+  document.documentElement.classList.add("fh-leaving")
+})
+
 let toastTimer: ReturnType<typeof setTimeout> | undefined
 
 /**

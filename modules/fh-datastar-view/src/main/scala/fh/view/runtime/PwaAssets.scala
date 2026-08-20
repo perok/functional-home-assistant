@@ -25,6 +25,13 @@ import org.typelevel.ci.CIString
   * manifest and the SW, `no-cache` is also the *mechanism*: the browser
   * re-fetches both on every load/register to learn about updates.
   *
+  * Its `theme_color`/`background_color` are the DEFAULT theme's light
+  * background (`tokens.pkl`'s `primary-background-color`), not its accent: they
+  * paint an installed app's chrome and its splash, which sit directly above the
+  * page. A cold launch is all they cover — once a document is up,
+  * [[Renderer.themeColorTags]] overrides `theme_color` with the live theme's
+  * own value, per scheme. A manifest takes no comments, hence the note here.
+  *
   * Everything is read ONCE at class-init, and missing files are a HARD failure
   * like [[FrontendAssets]] — a pwa/ without its files is a broken build.
   *

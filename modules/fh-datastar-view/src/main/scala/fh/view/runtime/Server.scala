@@ -1616,6 +1616,7 @@ class Server(
         page(
           slug,
           painted.html,
+          renderer.themeColorTags,
           renderer.stylesheets.map(assets.rewrite),
           renderer.scripts.map(assets.rewrite),
           renderer.inlineScripts,
@@ -1691,6 +1692,7 @@ class Server(
   private def page(
       slug: String,
       body: String,
+      themeColorTags: String,
       stylesheets: List[String],
       scripts: List[String],
       inlineScripts: List[String],
@@ -1830,6 +1832,7 @@ class Server(
        |<head>
        |  <meta charset="utf-8">
        |  <meta name="viewport" content="width=device-width, initial-scale=1">
+       |  $themeColorTags
        |  <base href="$baseHref">
        |  <link rel="manifest" href="${PwaAssets.manifestUrl}">
        |  $pageTitle
