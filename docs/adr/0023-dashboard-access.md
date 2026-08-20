@@ -2,10 +2,11 @@
 
 - **Status:** Accepted
 - **Date:** 2026-08-20
-- **Scope:** `fh/view/auth/` (new: `AuthGate`, `AuthMiddleware`, `AuthRoutes`,
-  `AuthSessions`, `HaOAuth`), `fh/view/model/Access.scala` (new),
-  `model/Dashboard.scala`, `build/Site.scala`, `runtime/Server.scala`,
-  `runtime/ServerApp.scala`, `runtime/Renderer.scala`,
+- **Scope:** `fh/view/auth/` (new: `AuthGate`, `AuthRoutes`, `AuthSessions`,
+  `HaOAuth`), `fh/view/model/Access.scala` (new),
+  `model/Dashboard.scala`, `model/Transform.scala`, `build/Site.scala`,
+  `runtime/Server.scala`, `runtime/ServerApp.scala`, `runtime/Renderer.scala`,
+  `runtime/EditorRoutes.scala`, `lib/core/tap.pkl`, `lib/components/slider.pkl`,
   `ha-api` (`auth/current_user`), `lib/core/access.pkl` (new), `lib/entry.pkl`,
   `lib/site.pkl`, `lib/components.pkl`, `src/js/shell.ts`, `scripts/fh.sc`
 - **Closes:** issue #89, and the three "unauthenticated, deliberately" TODOs it
@@ -63,12 +64,20 @@ between a cookie-authenticated `POST /sse/action/...` and any other site. `Lax`
 and not `Strict` because the OAuth callback is a cross-site top-level GET that
 must arrive with the cookie.
 
-**The gate wraps the whole app, and classification is pure and total.**
-`AuthGate.requirementFor(request)` decides for *every* path, including ones that
-do not exist — an unknown path is a dashboard request, never `Open`. The
-alternative, annotating routes inside the route table, protects only what
-somebody remembered to annotate and fails silently; that is not a property a
-review catches twice.
+**Each route declares its own requirement, and forgetting fails closed.** A
+route wraps its handler in `gate.handleRequirement(req, requirement)`, so the
+rule is written where the route is instead of in a table elsewhere that has to
+be kept in step with it. Two things that gets right which a central classifier
+could not: a route that knows its own slug says so rather than being guessed at,
+and `Requirement.Open` is an annotation beside the thing it exempts, visible in
+review at the point the exemption is granted.
+
+What per-route declaration does not fix by itself is forgetting — an unwrapped
+route would serve unauthenticated, silently. `AuthGate.assertGated` closes that:
+every response from the gate is stamped with a process-unique vault key, and a
+response from a route that MATCHED but carries no stamp is refused as a 500. A
+path that matched NO route is an ordinary 404, not a gap. So the failure mode of
+forgetting is loud and closed rather than quiet and open.
 
 **Admission is not a one-time event.** An SSE stream is admitted once and then
 runs for hours. `AuthSessions` is a `SignallingRef`, so the stream is wrapped in
@@ -76,6 +85,27 @@ one `interruptWhen` over *the same* `Access.permits` the door used — logging
 out, being revoked in HA, or losing the admin role reaches a dashboard that is
 already open, and admission and continued admission cannot drift because they
 are the same predicate.
+
+**An action may only touch an entity its own dashboard names.** The access rule
+says WHO may use a dashboard; this says WHAT that lets them do, and without it
+the two come apart badly — the action route forwards whatever `entity_id` is in
+its URL, so admission to the most permissive dashboard in the house would be
+admission to every entity in it. `Public` makes that sharp: no login, and the
+front door lock one URL edit away from the street. So `POST /sse/action/:slug/…`
+carries its dashboard, and `Server` refuses an entity that dashboard does not
+reference.
+
+It is decidable statically because a candidate set's membership is live but its
+candidate LIST is not (ADR 0003) — `Dashboard.referencedEntities` walks the
+layout and every surface once and cannot grow at runtime. A failed dashboard has
+no renderer, names nothing, and therefore permits no action; that matters
+because a failed dashboard's page is a diagnostics dump.
+
+The slug cannot be authored: a dashboard module does not know its own (the
+entrypoint supplies it as a key, and `fh push --slug` can rename it), so the
+renderer fills it — as the JSONata binding `$fh_slug` for taps built by a
+transform, and as the Mustache token `{{fhSlug}}` for a card that builds its URL
+in its own template (the slider's commit).
 
 **Denial shape is part of the classification, not a guess at the denial site.**
 An HTML `GET` gets `303` to `/auth/login?next=…`; a stream, a POST or a JSON

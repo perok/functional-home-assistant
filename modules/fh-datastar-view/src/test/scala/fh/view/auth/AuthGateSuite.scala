@@ -1,109 +1,104 @@
 package fh.view.auth
 
 import cats.effect.IO
+import cats.effect.unsafe.implicits.global
+import fh.view.model.Access
 import org.http4s.implicits.*
-import org.http4s.{Method, Request, Uri}
+import org.http4s.{HttpRoutes, Method, Request, Response, Status, Uri}
+import org.http4s.dsl.io.*
 
-/** Which requirement each route falls under, and the two open-redirect guards
-  * around `next` (issue #89).
+/** The gate's own machinery: the backstop that makes a per-route rule safe, and
+  * the two open-redirect guards around `next`.
   *
-  * `requirementFor` is pure and total, which is the whole reason the gate is
-  * shaped this way — so the classification can be checked directly instead of
-  * inferred from status codes through a booted server. The failure this suite
-  * is really aimed at is the silent one: a path that should be gated reading as
-  * `Open`, which no assertion about a gated path would ever notice.
+  * What each route REQUIRES is declared at the route and checked end to end in
+  * `AuthGateBehaviourSuite`. What is checked here is the thing no route can
+  * check about itself — that forgetting to declare anything fails closed.
   */
-class AuthGateSuite extends munit.FunSuite {
+class AuthGateSuite extends munit.CatsEffectSuite {
+
+  private def gateFor(access: Access) =
+    for {
+      sessions <- AuthSessions.create(SessionStore.ephemeral)
+      stamp <- AuthGate.stampKey
+    } yield (
+      new AuthGate(
+        sessions,
+        _ => IO.raiseError(new Exception("no HA here")),
+        _ => IO.pure(Some(access)),
+        stamp
+      ),
+      stamp
+    )
 
   private def get(path: String) =
-    AuthGate.requirementFor(Request[IO](Method.GET, Uri.unsafeFromString(path)))
+    Request[IO](Method.GET, Uri.unsafeFromString(path))
 
-  private def post(path: String) =
-    AuthGate.requirementFor(
-      Request[IO](Method.POST, Uri.unsafeFromString(path))
-    )
-
-  test(
-    "the pre-auth surface is open — a login page that needs a login cannot load"
-  ) {
-    List(
-      "/auth/login",
-      "/auth/callback?code=x&state=y",
-      "/web/shell.js",
-      "/assets/beer.min.css",
-      "/manifest.webmanifest",
-      "/sw.js",
-      "/icon-192.png"
-    ).foreach(p => assertEquals(get(p), Requirement.Open, p))
-  }
-
-  test("pkl resolution stays open in this PR (issue #166)") {
-    assertEquals(get("/system/pkl/packages"), Requirement.Open)
-    assertEquals(get("/system/pkl/base.pkl"), Requirement.Open)
-  }
-
-  test("the authoring surface is admin, and never redirected") {
-    List(
-      get("/edit"),
-      get("/edit/file/site.pkl"),
-      get("/lsp/pkl"),
-      post("/system/push/kitchen"),
-      post("/system/dump/refresh")
-    ).foreach(r => assertEquals(r, Requirement.Admin))
-  }
-
-  test("dashboards carry their own rule; a browser GET may be redirected") {
-    assertEquals(get("/"), Requirement.Dashboard(None, true))
-    assertEquals(
-      get("/d/kitchen"),
-      Requirement.Dashboard(Some("kitchen"), true)
-    )
-  }
-
-  test(
-    "an SSE stream is never redirected — a 303 there reads as a broken connection"
-  ) {
-    assertEquals(
-      get("/sse/dashboard/kitchen/patch"),
-      Requirement.Dashboard(Some("kitchen"), redirectOnFailure = false)
-    )
-    assertEquals(
-      get("/sse/dashboard/kitchen/recover"),
-      Requirement.Dashboard(Some("kitchen"), redirectOnFailure = false)
-    )
-  }
-
-  test(
-    "action POSTs name no slug, so they follow their connection's dashboard"
-  ) {
-    assertEquals(
-      post("/sse/action/light/toggle/light.kitchen"),
-      Requirement.SessionDashboard
-    )
-    assertEquals(post("/sse/popup/close"), Requirement.SessionDashboard)
-  }
-
-  /** The property, not the line: a route added later and never classified here
-    * must fail CLOSED. Sampling paths that merely resemble the open ones is
-    * what would have caught a prefix match written as `startsWith`.
+  /** The property the whole per-route design rests on. A route that declares no
+    * requirement is a route somebody wrote without thinking about auth, and the
+    * only safe reading of it is "not served" — the alternative is serving it to
+    * anyone, silently, which is exactly the failure a central classifier was
+    * there to prevent.
     */
-  test("nothing outside the listed pre-auth surface is open") {
-    List(
-      "/d/kitchen",
-      "/nope",
-      "/webhook/secret",
-      "/assetsx/thing",
-      "/authorize",
-      "/system/push/kitchen",
-      "/icon.png",
-      "/sw.js.map"
-    ).foreach(p => assert(get(p) != Requirement.Open, s"$p read as Open"))
+  test("a route that declares no requirement is refused, not served") {
+    gateFor(Access.Public).flatMap { case (_, stamp) =>
+      val ungated = HttpRoutes.of[IO] { case GET -> Root / "oops" =>
+        Ok("secret")
+      }
+      AuthGate
+        .assertGated(stamp)(ungated)
+        .run(get("/oops"))
+        .map(r => assertEquals(r.status, Status.InternalServerError))
+    }
   }
 
-  test("a login redirect carries the whole request back, query included") {
-    val to = AuthGate.loginRedirect(uri"/d/kitchen?tab=lights")
-    assertEquals(to.path.renderString, "/auth/login")
-    assertEquals(to.query.params.get("next"), Some("/d/kitchen?tab=lights"))
+  test("a declared route is served normally") {
+    gateFor(Access.Public).flatMap { case (gate, stamp) =>
+      val gated = HttpRoutes.of[IO] { case req @ GET -> Root / "fine" =>
+        gate.handleRequirement(req, Requirement.Open)(Ok("hello"))
+      }
+      AuthGate
+        .assertGated(stamp)(gated)
+        .run(get("/fine"))
+        .map(r => assertEquals(r.status, Status.Ok))
+    }
+  }
+
+  /** No route MATCHED is an ordinary 404, not a gap — otherwise every typo'd
+    * URL would report as a server bug.
+    */
+  test("an unmatched path is a 404, not a missing-requirement bug") {
+    gateFor(Access.Public).flatMap { case (_, stamp) =>
+      AuthGate
+        .assertGated(stamp)(HttpRoutes.empty[IO])
+        .run(get("/nothing/here"))
+        .map(r => assertEquals(r.status, Status.NotFound))
+    }
+  }
+
+  /** A `Key` is compared by identity, so a second one never matches — which is
+    * what would happen if the gate and the backstop were built from separate
+    * calls. Worth pinning: the symptom is every route 500ing at once, and the
+    * cause looks nothing like the effect.
+    */
+  test("the backstop only accepts the stamp its own gate leaves") {
+    for {
+      (gate, _) <- gateFor(Access.Public)
+      other <- AuthGate.stampKey
+      routes = HttpRoutes.of[IO] { case req @ GET -> Root / "fine" =>
+        gate.handleRequirement(req, Requirement.Open)(Ok("hello"))
+      }
+      resp <- AuthGate.assertGated(other)(routes).run(get("/fine"))
+    } yield assertEquals(resp.status, Status.InternalServerError)
+  }
+
+  test("a denial is stamped too — a 401 must not read as a missing rule") {
+    for {
+      (gate, stamp) <- gateFor(Access.Authenticated)
+      routes = HttpRoutes.of[IO] { case req @ GET -> Root / "d" / slug =>
+        gate.handleRequirement(req, Requirement.data(Some(slug)))(Ok("hi"))
+      }
+      resp <- AuthGate.assertGated(stamp)(routes).run(get("/d/kitchen"))
+    } yield assertEquals(resp.status, Status.Unauthorized)
   }
 
   test(
@@ -159,6 +154,12 @@ class AuthGateSuite extends munit.FunSuite {
     assertEquals(internalUrlOf("""{"internal_url": null}"""), None)
     assertEquals(internalUrlOf("""{}"""), None)
     assertEquals(internalUrlOf("""{"internal_url": "not a url"}"""), None)
+  }
+
+  test("a login redirect carries the whole request back, query included") {
+    val to = AuthGate.loginRedirect(uri"/d/kitchen?tab=lights")
+    assertEquals(to.path.renderString, "/auth/login")
+    assertEquals(to.query.params.get("next"), Some("/d/kitchen?tab=lights"))
   }
 
   test("next only ever comes back as a local path") {

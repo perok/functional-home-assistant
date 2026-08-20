@@ -20,7 +20,7 @@ import fh.view.build.{
   SystemPkl
 }
 import fh.view.auth.{
-  AuthMiddleware,
+  AuthGate,
   AuthRoutes,
   AuthSessions,
   HaOAuth,
@@ -209,42 +209,6 @@ object ServerApp extends IOApp {
           refreshOnce(feed.api, dashboardsDir, reload)
         )
 
-        // The live Server, assembled through the SHARED kernel `liveServer` (the
-        // same one the test harness funnels through, so the wiring can't drift).
-        // Also runs the per-slug shared patch publishers in the background — the
-        // render-once fan-out every SSE connection subscribes to.
-        server <- liveServer(
-          feed,
-          site,
-          assets,
-          systemPkl,
-          dumpRefresh = Some(refreshDump)
-        )
-        // The editor surface (/edit + /lsp/pkl). The pkl-lsp jar backs the LSP
-        // subprocess; None just disables completion/diagnostics (the editor and
-        // local highlighting still work).
-        pklLspJar <- resolvePklLspJar(httpClient, config.pklLspJar).toResource
-        editor = new EditorRoutes(
-          dashboardsDir,
-          pklLspJar,
-          site.defaultSlug,
-          site.names
-        )
-
-        _ <- watchSources(reload, importsRef).compile.drain.background
-
-        // Registry-driven dump refresh: HA's `*_registry_updated` events say
-        // the HOME changed (device/entity/area/floor added, renamed, removed)
-        // — exactly what the dump snapshots. Toggleable via the add-on's
-        // `watch_registry` option (FH_WATCH_REGISTRY); on by default.
-        _ <-
-          if (config.watchRegistry)
-            watchRegistryEvents(
-              feed.api,
-              feed.healthy,
-              refreshDump
-            ).compile.drain.background.void
-          else Resource.unit[IO]
         // Authentication (issue #89). Home Assistant is the identity provider:
         // this server is an ordinary OAuth client, and the machine token above
         // is untouched — every service call still runs as the machine, and
@@ -283,16 +247,57 @@ object ServerApp extends IOApp {
           FHApi
             .from(haEnv.server, token, haEnv.serverWs)
             .use(_.currentUser)
-        authRoutes <- AuthRoutes
-          .create(oauth, authSessions, identify, Server.baseUriOf)
-          .toResource
-        gate = new AuthMiddleware(
+        // Built from the SITE, not from the server: the server routes with it,
+        // so it has to exist first. `LiveSite` owns the registry the rule is
+        // read from, which is where `accessFor` lives.
+        gateStamp <- AuthGate.stampKey.toResource
+        gate = new AuthGate(
           authSessions,
           identify,
-          server.accessFor,
-          server.slugForConn,
-          Server.ConnSignal
+          site.accessFor,
+          gateStamp
         )
+        authRoutes <- AuthRoutes
+          .create(oauth, authSessions, identify, gate, Server.baseUriOf)
+          .toResource
+        // The live Server, assembled through the SHARED kernel `liveServer` (the
+        // same one the test harness funnels through, so the wiring can't drift).
+        // Also runs the per-slug shared patch publishers in the background — the
+        // render-once fan-out every SSE connection subscribes to.
+        server <- liveServer(
+          feed,
+          site,
+          gate,
+          assets,
+          systemPkl,
+          dumpRefresh = Some(refreshDump)
+        )
+        // The editor surface (/edit + /lsp/pkl). The pkl-lsp jar backs the LSP
+        // subprocess; None just disables completion/diagnostics (the editor and
+        // local highlighting still work).
+        pklLspJar <- resolvePklLspJar(httpClient, config.pklLspJar).toResource
+        editor = new EditorRoutes(
+          dashboardsDir,
+          gate,
+          pklLspJar,
+          site.defaultSlug,
+          site.names
+        )
+
+        _ <- watchSources(reload, importsRef).compile.drain.background
+
+        // Registry-driven dump refresh: HA's `*_registry_updated` events say
+        // the HOME changed (device/entity/area/floor added, renamed, removed)
+        // — exactly what the dump snapshots. Toggleable via the add-on's
+        // `watch_registry` option (FH_WATCH_REGISTRY); on by default.
+        _ <-
+          if (config.watchRegistry)
+            watchRegistryEvents(
+              feed.api,
+              feed.healthy,
+              refreshDump
+            ).compile.drain.background.void
+          else Resource.unit[IO]
         // One fiber over the whole store rather than one per session: re-check
         // what is stale, evict what HA says is gone. This is what makes a
         // revocation in HA reach a dashboard nobody is touching.
@@ -310,14 +315,13 @@ object ServerApp extends IOApp {
             // Any FHError raised while serving becomes its status + message;
             // anything else falls through to Ember's default 500.
             //
-            // The gate wraps the WHOLE app, inside the error boundary so a
-            // raised FHError still becomes a status: it protects every route
-            // including ones nobody remembered to think about (see AuthGate).
+            // Each route declares its own requirement (see AuthGate);
+            // `assertGated` is the backstop that refuses anything served
+            // without one. Inside the error boundary, so a raised FHError still
+            // becomes a status.
             FHError.handle(
-              gate(
-                (authRoutes.routes <+> server.routes <+> editor.routes(
-                  wsb
-                )).orNotFound
+              AuthGate.assertGated(gateStamp)(
+                authRoutes.routes <+> server.routes <+> editor.routes(wsb)
               )
             )
           )
@@ -498,6 +502,7 @@ object ServerApp extends IOApp {
   private[runtime] def liveServer(
       feed: HaFeed,
       site: Server.LiveSite,
+      gate: AuthGate,
       assets: AssetCache = AssetCache.empty,
       systemPkl: SystemPkl = SystemPkl.empty,
       dumpRefresh: Option[IO[DumpRefresh.Result]] = None
@@ -508,6 +513,7 @@ object ServerApp extends IOApp {
         feed,
         site,
         sessions,
+        gate,
         assets,
         systemPkl,
         dumpRefresh

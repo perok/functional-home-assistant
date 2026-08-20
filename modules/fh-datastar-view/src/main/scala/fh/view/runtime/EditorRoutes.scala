@@ -1,6 +1,7 @@
 package fh.view.runtime
 
 import cats.effect.IO
+import fh.view.auth.{AuthGate, Requirement}
 import fh.view.build.{PklBuild, Site}
 import io.circe.Json
 import org.http4s.*
@@ -38,18 +39,19 @@ import org.http4s.server.staticcontent.*
   *     open preview — no coupling here.
   *   - `GET  /lsp/pkl` the language-server WebSocket ([[LspBridge]]).
   *
-  * Every route here is **admin-only**, enforced by the gate in front of the
-  * whole app (ADR 0023) rather than by anything in this file — including the
-  * `/lsp/pkl` WebSocket. The write path is clamped independently of that: only
-  * `<name>.pkl` and `lib/<name>.pkl` under the dashboards dir, each segment
-  * matching [[AssetCache.SafeName]] (which rejects `..` and slashes) — no
-  * traversal.
+  * Every route here is **admin-only** — the `/lsp/pkl` WebSocket included —
+  * declared per route through [[admin]] (ADR 0023). The write path is clamped
+  * independently of that: only `<name>.pkl` and `lib/<name>.pkl` under the
+  * dashboards dir, each segment matching [[AssetCache.SafeName]] (which rejects
+  * `..` and slashes) — no traversal.
   *
   * `dump.pkl` is excluded everywhere: it's the generated, gitignored dump, not
   * an author source.
   */
 final class EditorRoutes(
     dashboardsDir: os.Path,
+    // Every route here declares `Requirement.Admin` through this (ADR 0023).
+    gate: AuthGate,
     pklLspJar: Option[os.Path],
     // Read per request from the live site, never captured: both change while
     // the editor is open — that is the point of editing the entrypoint.
@@ -60,56 +62,69 @@ final class EditorRoutes(
   def routes(wsb: WebSocketBuilder2[IO]): HttpRoutes[IO] =
     HttpRoutes.of[IO] {
       case req @ GET -> Root / "edit" =>
-        serveAsset(req, "index.html")
+        admin(req)(serveAsset(req, "index.html"))
 
       case req @ GET -> Root / "edit" / asset if staticAssets(asset) =>
-        serveAsset(req, asset)
+        admin(req)(serveAsset(req, asset))
 
-      case GET -> Root / "edit" / "files" =>
-        listFiles.flatMap(
-          Ok(_).map(
-            _.withContentType(`Content-Type`(MediaType.application.json))
+      case req @ GET -> Root / "edit" / "files" =>
+        admin(req)(
+          listFiles.flatMap(
+            Ok(_).map(
+              _.withContentType(`Content-Type`(MediaType.application.json))
+            )
           )
         )
 
       // The dashboards the instance is SERVING. Not derivable from the file
       // list any more: a slug is a key in the entrypoint, so only the runtime
       // knows what the sources currently evaluate to (ADR 0021).
-      case GET -> Root / "edit" / "dashboards" =>
-        liveSlugs
-          .map(slugs => Json.arr(slugs.map(Json.fromString)*).noSpaces)
-          .flatMap(
-            Ok(_).map(
-              _.withContentType(`Content-Type`(MediaType.application.json))
+      case req @ GET -> Root / "edit" / "dashboards" =>
+        admin(req)(
+          liveSlugs
+            .map(slugs => Json.arr(slugs.map(Json.fromString)*).noSpaces)
+            .flatMap(
+              Ok(_).map(
+                _.withContentType(`Content-Type`(MediaType.application.json))
+              )
             )
-          )
+        )
 
       case req @ GET -> "edit" /: "file" /: rest =>
-        resolveEditable(rest) match {
+        admin(req)(resolveEditable(rest) match {
           case None => NotFound()
           case _    =>
             fileService[IO](
               FileService.Config(dashboardsDir.toString, "edit/file")
             ).apply(req).getOrElseF(NotFound())
-        }
+        })
 
       case req @ PUT -> "edit" /: "file" /: rest =>
-        resolveEditable(rest) match {
+        admin(req)(resolveEditable(rest) match {
           case None =>
             Forbidden("""{"error":"not an editable dashboard source"}""")
           case Some(p) =>
             req.bodyText.compile.string.flatMap { body =>
               IO.blocking(os.write.over(p, body)) *> saved(p)
             }
-        }
+        })
 
-      case GET -> Root / "lsp" / "pkl" =>
-        pklLspJar match {
+      case req @ GET -> Root / "lsp" / "pkl" =>
+        admin(req)(pklLspJar match {
           case Some(jar) => LspBridge.wsResponse(wsb, jar)
           case None      =>
             ServiceUnavailable("""{"error":"pkl-lsp jar not available"}""")
-        }
+        })
     }
+
+  /** Admin, for every route above. Named once rather than repeated verbatim:
+    * the whole surface has one rule, and a new route that forgets it is caught
+    * by `AuthGate.assertGated` rather than served.
+    */
+  private def admin(req: Request[IO])(
+      handler: IO[Response[IO]]
+  ): IO[Response[IO]] =
+    gate.handleRequirement(req, Requirement.Admin)(handler)
 
   /** The static editor assets (served verbatim); everything else under `/edit`
     * is an API route. `index.html` is NOT here — it needs placeholder injection

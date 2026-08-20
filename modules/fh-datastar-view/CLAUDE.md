@@ -146,11 +146,15 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   (the five real dashboards are being hand-ported to Pkl) — the backend never evaluates them and
   they must not be extended.
 - Interactivity uses the WS `call_service` command (added to `ha-api`'s `CommandPhase` +
-  `HomeAssistantApi.callService`). `POST /sse/action/:domain/:service/:entityId` triggers a no-data
+  `HomeAssistantApi.callService`). `POST /sse/action/:slug/:domain/:service/:entityId` triggers a no-data
   service; the value-carrying variant `.../:entityId/:key/:value` builds `service_data` (the value
   rides in the URL path, since Datastar template-literal URL interpolation isn't confirmed in v1 —
   use `'.../key/' + $signal` concatenation client-side). The resulting state change flows back over
   the persistent SSE stream.
+  The `:slug` is what BOUNDS the call (ADR 0023): the action is refused unless that dashboard
+  NAMES the entity, so admission to one dashboard is not admission to the whole house. A module
+  does not know its own slug, so the renderer fills it — `$fh_slug` in a JSONata tap transform,
+  `{{fhSlug}}` in a card's own template.
 - Cards (`lib/components/`, re-exported by `lib/components.pkl` — ADR 0015): `fhgrid`/`fhrow`/`fhcol` containers, `sectionTitle`, `entityCard`,
   `button`, `pill`, `slider` — each is a typed card class carrying its own `cardDef` (Mustache template +
   declared slots), and the emitted `cards` registry is derived by `pkl:reflect`; slots are checked

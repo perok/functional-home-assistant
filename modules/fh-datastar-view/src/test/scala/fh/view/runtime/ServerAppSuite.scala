@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.TestAuth
+
 import cats.effect.{IO, Resource}
 import cats.syntax.all.*
 import fh.view.build.{Site, SystemPkl}
@@ -146,9 +148,16 @@ class ServerAppSuite extends munit.CatsEffectSuite {
       server <- ServerApp.liveServer(
         feed,
         site,
+        TestAuth.openGate,
         systemPkl = SystemPkl.fromDisk(tmp)
       )
-      editor = new EditorRoutes(tmp, None, site.defaultSlug, site.names)
+      editor = new EditorRoutes(
+        tmp,
+        TestAuth.openGate,
+        None,
+        site.defaultSlug,
+        site.names
+      )
         .routes(null)
     } yield (prepared, (server.routes <+> editor).orNotFound)
 

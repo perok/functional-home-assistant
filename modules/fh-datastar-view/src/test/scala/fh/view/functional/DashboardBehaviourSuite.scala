@@ -96,17 +96,24 @@ class DashboardBehaviourSuite extends FunctionalSuite {
     }.assertEquals("13.1")
   }
 
+  // The card is not decoration here: an action may only reach an entity its
+  // dashboard NAMES (ADR 0023), so a seeded-but-unrendered entity is refused —
+  // correctly. The smallest world that records a call is one that shows it.
   test("a control click calls the service back into HA") {
-    withServer(scene.entity(kitchen)) { ts =>
-      ts.post("sse/action/light/toggle/light.kitchen") *> ts.fake.recordedCalls
+    withServer(scene.card(FixtureDashboard.light("Kitchen", kitchen))) { ts =>
+      ts.post(
+        s"sse/action/${ts.slug}/light/toggle/light.kitchen"
+      ) *> ts.fake.recordedCalls
     }.assertEquals(
       Vector(ServiceCall("light", "toggle", "light.kitchen", Json.obj()))
     )
   }
 
   test("a value-carrying control passes its data through to HA") {
-    withServer(scene.entity(kitchen)) { ts =>
-      ts.post("sse/action/light/turn_on/light.kitchen/brightness/200") *>
+    withServer(scene.card(FixtureDashboard.light("Kitchen", kitchen))) { ts =>
+      ts.post(
+        s"sse/action/${ts.slug}/light/turn_on/light.kitchen/brightness/200"
+      ) *>
         ts.fake.recordedCalls
     }.assertEquals(
       Vector(
@@ -123,7 +130,7 @@ class DashboardBehaviourSuite extends FunctionalSuite {
   test("round-trip: act on HA, then the consequent state reaches the browser") {
     withServer(scene.card(FixtureDashboard.light("Kitchen", kitchen))) { ts =>
       for {
-        _ <- ts.post("sse/action/light/turn_off/light.kitchen")
+        _ <- ts.post(s"sse/action/${ts.slug}/light/turn_off/light.kitchen")
         _ <- ts.observePatch(
           marker = "Kitchen: <span>off</span>",
           // The fake records the call; HA's resulting state change is emitted

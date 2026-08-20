@@ -1,9 +1,12 @@
 package fh.view.testkit
 
+import fh.view.testkit.TestAuth
+
 import api.homeassistant.ws.domain.HaUser
 import cats.effect.IO
-import fh.view.auth.{AuthMiddleware, AuthSessions, SessionStore}
-import fh.view.runtime.Server
+import cats.effect.unsafe.implicits.global
+import fh.view.auth.{AuthGate, AuthSessions, SessionStore}
+import fh.view.model.Access
 
 /** The auth fixture every harness request rides on (issue #89).
   *
@@ -18,7 +21,8 @@ import fh.view.runtime.Server
   */
 final class TestAuth(
     val sessions: AuthSessions,
-    val gate: AuthMiddleware,
+    val gate: AuthGate,
+    val stamp: org.typelevel.vault.Key[Unit],
     val defaultSession: String
 ) {
 
@@ -56,20 +60,46 @@ object TestAuth {
       is_owner = false
     )
 
-  def create(server: Server): IO[TestAuth] =
+  /** A gate that admits everyone, for the suites that are not about auth.
+    *
+    * NOT a bypass: the routes still declare their requirements and still stamp
+    * their responses, so a route that forgot one still fails these suites. What
+    * is relaxed is only WHO — every dashboard reads as `Public`, so a harness
+    * request needs no cookie. The suites that are about auth use [[create]],
+    * which mints real sessions and reads the dashboard's real rule.
+    */
+  val openGate: AuthGate =
+    new AuthGate(
+      AuthSessions.create(SessionStore.ephemeral).unsafeRunSync(),
+      _ => IO.raiseError(new Exception("no HA in the harness")),
+      _ => IO.pure(Some(Access.Public)),
+      AuthGate.stampKey.unsafeRunSync()
+    ) {
+      // Everyone is the harness admin, so the admin routes answer without a
+      // cookie these suites have no way to attach.
+      override def of(req: org.http4s.Request[IO]): IO[Option[HaUser]] =
+        IO.pure(Some(admin))
+    }
+
+  /** Built from the site's OWN rule lookup, like production: the gate has to
+    * exist before the server that routes with it. Takes `accessFor` rather than
+    * the site because `Server.LiveSite` is `private[runtime]` and this fixture
+    * is not.
+    */
+  def create(accessFor: Option[String] => IO[Option[Access]]): IO[TestAuth] =
     for {
       sessions <- AuthSessions.create(SessionStore.ephemeral)
       id <- sessions.create(admin, "test-refresh-token")
-      gate = new AuthMiddleware(
+      stamp <- AuthGate.stampKey
+      gate = new AuthGate(
         sessions,
         // No HA to resolve a bearer token against. Raising (rather than
         // returning None) keeps the harness honest: `bearerUser` is supposed to
         // treat an unresolvable token as "not an identity", and this proves it
         // does rather than assuming it.
         _ => IO.raiseError(new Exception("no HA in the harness")),
-        server.accessFor,
-        server.slugForConn,
-        Server.ConnSignal
+        accessFor,
+        stamp
       )
-    } yield new TestAuth(sessions, gate, id)
+    } yield new TestAuth(sessions, gate, stamp, id)
 }

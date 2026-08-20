@@ -88,15 +88,55 @@ class AuthGateBehaviourSuite extends FunctionalSuite {
     }
   }
 
-  test("an action POST follows its connection's dashboard, not its own URL") {
+  test("an action POST is held to the rule of the dashboard it names") {
     withServer(house, Access.Admin) { ts =>
       for {
         guest <- ts.auth.sessionFor(TestAuth.guest)
         status <- ts.post(
-          s"sse/action/light/toggle/${kitchen.entityId}",
+          s"sse/action/${ts.slug}/light/toggle/${kitchen.entityId}",
           as = Some(guest)
         )
       } yield assertEquals(status, Status.Forbidden)
+    }
+  }
+
+  /** The escalation `Public` would otherwise open: no login, and an action
+    * route that forwards any `entity_id` straight to `call_service`. A wall
+    * tablet would put the front door one URL edit away from the street.
+    */
+  test("an action may not touch an entity its dashboard does not name") {
+    withServer(house, Access.Public) { ts =>
+      for {
+        onDashboard <- ts.post(
+          s"sse/action/${ts.slug}/light/toggle/${kitchen.entityId}",
+          as = None
+        )
+        elsewhere <- ts.post(
+          s"sse/action/${ts.slug}/lock/unlock/lock.front_door",
+          as = None
+        )
+        calls <- ts.fake.recordedCalls
+      } yield {
+        assertEquals(onDashboard, Status.NoContent)
+        assertEquals(elsewhere, Status.Forbidden)
+        // Refused BEFORE Home Assistant hears about it, not merely reported as
+        // an error afterwards.
+        assert(
+          !calls.exists(_.toString.contains("front_door")),
+          s"the refused action still reached HA: $calls"
+        )
+      }
+    }
+  }
+
+  /** A slug that names nothing gets the RESTRICTIVE default rather than the
+    * rule of whatever dashboard happens to be public — so inventing a slug is
+    * not a way around the check.
+    */
+  test("an action naming a dashboard that does not exist is refused") {
+    withServer(house, Access.Public) { ts =>
+      ts.post(s"sse/action/nosuch/light/toggle/${kitchen.entityId}", as = None)
+        .map(assertEquals(_, Status.Unauthorized))
     }
   }
 

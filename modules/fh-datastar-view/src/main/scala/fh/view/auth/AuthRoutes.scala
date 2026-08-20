@@ -27,6 +27,11 @@ final class AuthRoutes(
     oauth: HaOAuth,
     sessions: AuthSessions,
     identify: String => IO[HaUser],
+    // Every route here is `Requirement.Open` and has to be: a login page that
+    // needs a login cannot load. Declared through the gate anyway rather than
+    // simply left unwrapped, so `AuthGate.assertGated` can treat an unstamped
+    // response as the bug it is (ADR 0023).
+    gate: AuthGate,
     pending: Ref[IO, Map[String, Pending]],
     baseUriOf: Request[IO] => Uri
 ) {
@@ -37,59 +42,66 @@ final class AuthRoutes(
     // local path is dropped (see AuthGate.safeNext) so this cannot be used as
     // an open redirect.
     case req @ GET -> Root / "auth" / "login" =>
-      val next = AuthGate.safeNext(req.uri.query.params.get("next"))
-      for {
-        state <- IO(java.util.UUID.randomUUID().toString)
-        now <- IO.realTimeInstant
-        _ <- pending.update(
-          // Expired entries are dropped on the way past rather than by a
-          // sweeper fiber: this map is only ever touched by a login, so a
-          // login is the only moment it can have grown.
-          _.filter(_._2.deadline.isAfter(now)) +
-            (state -> Pending(next, now.plusSeconds(PendingTtlSeconds)))
-        )
-        base = baseUriOf(req)
-        resp <- SeeOther(
-          Location(
-            oauth.authorizeUri(
-              clientId = base,
-              redirect = redirectUri(base),
-              state = state
+      gate.handleRequirement(req, Requirement.Open) {
+        val next = AuthGate.safeNext(req.uri.query.params.get("next"))
+        for {
+          state <- IO(java.util.UUID.randomUUID().toString)
+          now <- IO.realTimeInstant
+          _ <- pending.update(
+            // Expired entries are dropped on the way past rather than by a
+            // sweeper fiber: this map is only ever touched by a login, so a
+            // login is the only moment it can have grown.
+            _.filter(_._2.deadline.isAfter(now)) +
+              (state -> Pending(next, now.plusSeconds(PendingTtlSeconds)))
+          )
+          base = baseUriOf(req)
+          resp <- SeeOther(
+            Location(
+              oauth.authorizeUri(
+                clientId = base,
+                redirect = redirectUri(base),
+                state = state
+              )
             )
           )
-        )
-      } yield resp
+        } yield resp
+      }
 
     // HA sends the browser back here with a one-time code.
     case req @ GET -> Root / "auth" / "callback" =>
-      val params = req.uri.query.params
-      (params.get("code"), params.get("state")) match {
-        case (Some(code), Some(state)) => complete(req, code, state)
-        case _                         =>
-          // Also the shape of a user-cancelled login, which arrives as
-          // `?error=access_denied` with no code.
-          FHError
-            .badCondition(
-              params
-                .get("error")
-                .fold("The login response carried no code.")(e =>
-                  s"Home Assistant refused the login: $e"
-                )
-            )
-            .raiseError[IO, Response[IO]]
+      gate.handleRequirement(req, Requirement.Open) {
+        val params = req.uri.query.params
+        (params.get("code"), params.get("state")) match {
+          case (Some(code), Some(state)) => complete(req, code, state)
+          case _                         =>
+            // Also the shape of a user-cancelled login, which arrives as
+            // `?error=access_denied` with no code.
+            FHError
+              .badCondition(
+                params
+                  .get("error")
+                  .fold("The login response carried no code.")(e =>
+                    s"Home Assistant refused the login: $e"
+                  )
+              )
+              .raiseError[IO, Response[IO]]
+        }
       }
 
     // End it here AND at HA, so the entry disappears from the user's own
     // Profile -> Security list rather than lingering as a device they cannot
     // account for.
     case req @ POST -> Root / "auth" / "logout" =>
-      AuthSessions.cookieOf(req).flatTraverse(sessions.get).flatMap { current =>
-        val revoked = current.traverse_(s => oauth.revoke(s.refresh))
-        // Every session for this user, not just this cookie: signing out on the
-        // phone is meant to end the tablet too.
-        val dropped = current.traverse_(s => sessions.removeUser(s.user.id))
-        revoked *> dropped *> SeeOther(Location(Uri(path = Uri.Path.Root)))
-          .map(_.addCookie(AuthSessions.clearCookie(isSecure(req))))
+      gate.handleRequirement(req, Requirement.Open) {
+        AuthSessions.cookieOf(req).flatTraverse(sessions.get).flatMap {
+          current =>
+            val revoked = current.traverse_(s => oauth.revoke(s.refresh))
+            // Every session for this user, not just this cookie: signing out on the
+            // phone is meant to end the tablet too.
+            val dropped = current.traverse_(s => sessions.removeUser(s.user.id))
+            revoked *> dropped *> SeeOther(Location(Uri(path = Uri.Path.Root)))
+              .map(_.addCookie(AuthSessions.clearCookie(isSecure(req))))
+        }
       }
   }
 
@@ -144,9 +156,10 @@ object AuthRoutes {
       oauth: HaOAuth,
       sessions: AuthSessions,
       identify: String => IO[HaUser],
+      gate: AuthGate,
       baseUriOf: Request[IO] => Uri
   ): IO[AuthRoutes] =
     Ref[IO]
       .of(Map.empty[String, Pending])
-      .map(new AuthRoutes(oauth, sessions, identify, _, baseUriOf))
+      .map(new AuthRoutes(oauth, sessions, identify, gate, _, baseUriOf))
 }

@@ -6,7 +6,7 @@ package fh.view.runtime
 import cats.effect.{Deferred, IO, Ref, Resource}
 import cats.syntax.all.*
 import com.comcast.ip4s.{host, port}
-import fh.view.auth.AuthSessions
+import fh.view.auth.{AuthGate, AuthSessions}
 import fh.view.build.{PklDump, Site, SystemPkl}
 import fh.view.model.{Access, Dashboard}
 import fh.view.testkit.{
@@ -81,11 +81,12 @@ final class TestServer(
   def awaitLive(subscribers: Int = 1): IO[Unit] =
     awaitChangeSubscribers(subscribers) *> awaitSharedSubscribers(1)
 
-  /** The gate is ON here, wrapping the same app `ServerApp` wraps. Every
-    * harness request below therefore goes through the real classification and
-    * the real check — see [[TestAuth]] for why there is no bypass.
+  /** The gate is ON here, behind the same backstop `ServerApp` uses — so a
+    * harness request goes through the route's own declared requirement, and a
+    * route that declared none fails the suite as a 500 rather than passing. See
+    * [[TestAuth]] for why there is no bypass.
     */
-  private val app = auth.gate(server.routes.orNotFound)
+  private val app = AuthGate.assertGated(auth.stamp)(server.routes)
 
   /** `as` is the session id to present, i.e. WHO is asking; `None` is an
     * anonymous browser. Defaulted to the harness admin so a suite that is not
@@ -96,6 +97,13 @@ final class TestServer(
       as: Option[String] = Some(auth.defaultSession)
   ): IO[Response[IO]] =
     app.run(as.fold(req)(id => req.addCookie(AuthSessions.CookieName, id)))
+
+  /** The whole app — backstop included — with the harness admin's cookie added
+    * to every request, for the suites that drive routes directly instead of
+    * through [[page]] / [[post]]. Without the cookie every gated route answers
+    * 303/401, which is correct and unhelpful.
+    */
+  val gatedApp: HttpApp[IO] = HttpApp[IO](req => run(req))
 
   private def bodyOf(resp: Response[IO]): IO[String] =
     resp.body.through(fs2.text.utf8.decode).compile.string
@@ -122,9 +130,9 @@ final class TestServer(
       as
     )
 
-  /** POST an action route (e.g. `sse/action/light/toggle/light.kitchen`) and
-    * return its status. The body is a fire-and-forget SSE ack the test ignores;
-    * the observable effect is the recorded [[ServiceCall]].
+  /** POST an action route (e.g. `sse/action/<slug>/light/toggle/light.kitchen`)
+    * and return its status. The body is a fire-and-forget SSE ack the test
+    * ignores; the observable effect is the recorded [[ServiceCall]].
     */
   def post(
       path: String,
@@ -317,12 +325,13 @@ object TestServer {
           dashboard.slug
         )
         .toResource
+      auth <- TestAuth.create(site.accessFor).toResource
       server <- ServerApp.liveServer(
         feed,
         site,
+        auth.gate,
         systemPkl = systemPkl
       )
-      auth <- TestAuth.create(server).toResource
     } yield new TestServer(fake, feed.store, server, dashboard.slug, auth)
 
   /** Wire a [[TestServer]] the way [[resource]] does — real feed, store, and
@@ -384,12 +393,13 @@ object TestServer {
       site <- Server.LiveSite
         .of(rendererRefs, prepared.content, slug)
         .toResource
+      auth <- TestAuth.create(site.accessFor).toResource
       server <- ServerApp.liveServer(
         feed,
         site,
+        auth.gate,
         systemPkl = SystemPkl.fromDisk(tmp)
       )
-      auth <- TestAuth.create(server).toResource
     } yield new TestServer(fake, feed.store, server, slug, auth)
 
   /** Same wiring as [[resource]], plus a real [[AssetCache]] built exactly as
@@ -434,13 +444,13 @@ object TestServer {
           dashboard.slug
         )
         .toResource
-      server <- ServerApp.liveServer(feed, site, assets)
-      auth <- TestAuth.create(server).toResource
+      auth <- TestAuth.create(site.accessFor).toResource
+      server <- ServerApp.liveServer(feed, site, auth.gate, assets)
       bound <- EmberServerBuilder
         .default[IO]
         .withHost(host"127.0.0.1")
         .withPort(port"0")
-        .withHttpApp(auth.gate(server.routes.orNotFound))
+        .withHttpApp(AuthGate.assertGated(auth.stamp)(server.routes))
         .withShutdownTimeout(0.seconds)
         .build
     } yield (

@@ -675,6 +675,39 @@ case class Dashboard(
   lazy val cardCss: String =
     cards.toList.sortBy(_._1).map(_._2.css).filter(_.nonEmpty).mkString("\n")
 
+  /** Every entity this dashboard can EVER address — the main layout and every
+    * surface, candidate sets included.
+    *
+    * Static, and soundly so: a candidate set's membership is decided live but
+    * its candidate LIST is fixed at build time (ADR 0003), so this does not
+    * depend on the current state and cannot grow while the dashboard runs.
+    *
+    * That is what makes it usable as an authorisation bound (issue #89, ADR
+    * 0023): an action POST may only touch an entity its own dashboard names, so
+    * admission to a dashboard is not admission to the whole house.
+    */
+  lazy val referencedEntities: Set[String] = {
+    def fromSlots(
+        slots: Map[String, SlotSource],
+        subject: Option[String]
+    ): List[String] =
+      slots.values.toList.flatMap(_.entityId) ++ subject.toList
+
+    def walk(n: LayoutNode): List[String] = n match {
+      case c: LayoutNode.Component =>
+        fromSlots(c.slots, c.subjectEntity) ++ c.children.flatMap(walk)
+      case set: LayoutNode.SetNode =>
+        // A clause node is an ordinary component, so its own slots and children
+        // are reached by the same walk — and its candidate is named in a
+        // literal `entity_id` slot rather than injected per match.
+        set.candidates ++ set.members.values.toList
+          .flatMap(_.clauses)
+          .flatMap(cl => walk(cl.node))
+    }
+
+    (walk(card) ++ surfaces.values.toList.flatMap(s => walk(s.content))).toSet
+  }
+
   /** Validate that every card reference resolves, supplies the params/slots the
     * card's template declares, and that each slot's `transform` is compilable
     * JSONata. Returns human-readable errors (empty = valid).

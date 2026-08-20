@@ -16,6 +16,7 @@ import fh.view.build.{
   SystemPkl
 }
 import fh.view.FHError
+import fh.view.auth.{AuthGate, Requirement}
 import fh.view.model.{Access, Dashboard, DomId, NodeId, SignalId}
 import fs2.Stream
 import fs2.concurrent.{Signal, SignallingRef}
@@ -63,6 +64,11 @@ class Server(
     // `push` mints one at runtime.
     site: Server.LiveSite,
     sessions: Sessions,
+    // The auth gate (ADR 0023). Every route below declares its own
+    // `Requirement` and wraps its handler in `gate.handleRequirement`, so the
+    // rule is written where the route is; `AuthGate.assertGated` refuses
+    // anything that came back from here without one.
+    gate: AuthGate,
     // Starts the per-slug recorder for a slug that enters the registry after
     // startup. Scoped to `Server.resource`, so those fibers die with the server.
     supervisor: Supervisor[IO],
@@ -96,39 +102,58 @@ class Server(
   val routes: HttpRoutes[IO] = HttpRoutes.of[IO] {
     // Resolved per REQUEST, not at construction: the entrypoint can rename or
     // delete the dashboard `/` used to serve, and `/` must still answer.
-    case req @ GET -> Root => site.defaultSlug.flatMap(pageResponse(_, req))
-    case req @ GET -> Root / "d" / slug => pageResponse(slug, req)
+    case req @ GET -> Root =>
+      gate.handleRequirement(req, Requirement.page(None))(
+        site.defaultSlug.flatMap(pageResponse(_, req))
+      )
+    case req @ GET -> Root / "d" / slug =>
+      gate.handleRequirement(req, Requirement.page(Some(slug)))(
+        pageResponse(slug, req)
+      )
 
     // Locally cached theme assets (stylesheets/scripts/fonts); a name that
     // isn't cached is a 404 — the page then references the original URL.
-    case GET -> Root / "assets" / name => assets.serve(name)
+    // Open: the shell has to paint before anyone can be logged in.
+    case req @ GET -> Root / "assets" / name =>
+      gate.handleRequirement(req, Requirement.Open)(assets.serve(name))
 
     // The PWA files — the manifest + service worker (the install mechanism,
     // see [[PwaAssets]]) and the icons. Fixed names, so `PwaAssets` serves them
     // no-cache, never immutable — the browser must revalidate them to learn
     // about updates (see the object doc).
-    case GET -> Root / "manifest.webmanifest" =>
-      PwaAssets.serve("manifest.webmanifest")
-    case GET -> Root / "sw.js"        => PwaAssets.serve("sw.js")
-    case GET -> Root / "icon-192.png" => PwaAssets.serve("icon-192.png")
-    case GET -> Root / "icon-512.png" => PwaAssets.serve("icon-512.png")
+    case req @ GET -> Root / "manifest.webmanifest" =>
+      gate.handleRequirement(req, Requirement.Open)(
+        PwaAssets.serve("manifest.webmanifest")
+      )
+    case req @ GET -> Root / "sw.js" =>
+      gate.handleRequirement(req, Requirement.Open)(PwaAssets.serve("sw.js"))
+    case req @ GET -> Root / "icon-192.png" =>
+      gate.handleRequirement(req, Requirement.Open)(
+        PwaAssets.serve("icon-192.png")
+      )
+    case req @ GET -> Root / "icon-512.png" =>
+      gate.handleRequirement(req, Requirement.Open)(
+        PwaAssets.serve("icon-512.png")
+      )
 
     // The bundled frontend (src/js -> vite). The name carries a content hash
     // and `FrontendAssets` only answers for names the manifest lists, so this
     // needs no path sanitising and the response can be `immutable`: a rebuilt
     // bundle is a different URL, never a stale hit.
     case req @ GET -> Root / "web" / file if FrontendAssets.serves(file) =>
-      StaticFile
-        .fromResource(s"/web/$file", Some(req))
-        .map(
-          _.putHeaders(
-            Header.Raw(
-              CIString("Cache-Control"),
-              "public, max-age=31536000, immutable"
+      gate.handleRequirement(req, Requirement.Open)(
+        StaticFile
+          .fromResource(s"/web/$file", Some(req))
+          .map(
+            _.putHeaders(
+              Header.Raw(
+                CIString("Cache-Control"),
+                "public, max-age=31536000, immutable"
+              )
             )
           )
-        )
-        .getOrElseF(NotFound())
+          .getOrElseF(NotFound())
+      )
 
     // The live home's Pkl artifacts — the domain schema + the freshly-rendered
     // per-home dump — as source text for pkl-lsp (behind the `/edit` editor)
@@ -142,10 +167,14 @@ class Server(
     // otherwise swallow the 3-segment path as `name = "packages"`): current
     // versions + metadata sha256 of the packages this home serves — what
     // `fh pull` reads before rewriting the laptop's pins.
-    case GET -> Root / "system" / "pkl" / "packages" =>
-      guardSystemPkl(
-        systemPkl.packagesIndex.flatMap(json =>
-          Ok(json).map(_.putHeaders(`Content-Type`(MediaType.application.json)))
+    case req @ GET -> Root / "system" / "pkl" / "packages" =>
+      openPkl(req)(
+        guardSystemPkl(
+          systemPkl.packagesIndex.flatMap(json =>
+            Ok(json).map(
+              _.putHeaders(`Content-Type`(MediaType.application.json))
+            )
+          )
         )
       )
 
@@ -153,18 +182,28 @@ class Server(
     // the machine-AGNOSTIC, byte-identical files (ADR 0010). The per-machine
     // `.fh/machine.json` is NOT served — `fh` writes its own (its cache dir + the
     // instance URL). Before the `:name` catch-all so these exact names win.
-    case GET -> Root / "system" / "pkl" / "base.pkl" =>
-      Ok(AddonBootstrap.BaseManifest)
-        .map(_.putHeaders(`Content-Type`(MediaType.text.plain)))
-    case GET -> Root / "system" / "pkl" / "PklProject" =>
-      Ok(AddonBootstrap.ConsumerManifest)
-        .map(_.putHeaders(`Content-Type`(MediaType.text.plain)))
-    case GET -> Root / "system" / "pkl" / "gitignore" =>
-      Ok(AddonBootstrap.GitignoreTemplate)
-        .map(_.putHeaders(`Content-Type`(MediaType.text.plain)))
+    case req @ GET -> Root / "system" / "pkl" / "base.pkl" =>
+      openPkl(req)(
+        Ok(AddonBootstrap.BaseManifest)
+          .map(_.putHeaders(`Content-Type`(MediaType.text.plain)))
+      )
+    case req @ GET -> Root / "system" / "pkl" / "PklProject" =>
+      openPkl(req)(
+        Ok(AddonBootstrap.ConsumerManifest)
+          .map(_.putHeaders(`Content-Type`(MediaType.text.plain)))
+      )
+    case req @ GET -> Root / "system" / "pkl" / "gitignore" =>
+      openPkl(req)(
+        Ok(AddonBootstrap.GitignoreTemplate)
+          .map(_.putHeaders(`Content-Type`(MediaType.text.plain)))
+      )
 
     case req @ GET -> Root / "system" / "pkl" / name =>
-      guardSystemPkl(systemPkl.module(name).flatMap(systemPklResponse(_, req)))
+      openPkl(req)(
+        guardSystemPkl(
+          systemPkl.module(name).flatMap(systemPklResponse(_, req))
+        )
+      )
 
     // The instance's resolved lib packages (ADR 0010): the metadata JSON at
     // `<name>@<version>`, the module zip at `<name>@<version>.zip` — exactly
@@ -175,29 +214,30 @@ class Server(
     // itself evaluates. No cache headers: pkl fetches per resolve, and a
     // proxy-cached zip would turn the dev-image drift case (lib bytes changed
     // under an unchanged version) into a confusing stale-checksum failure.
-    case GET -> Root / "system" / "pkl" / "packages" / file =>
-      guardSystemPkl(systemPkl.packageArtifact(file).flatMap { bytes =>
-        val mediaType =
-          if (file.endsWith(".zip")) MediaType.application.zip
-          else MediaType.application.json
-        Ok(bytes).map(_.putHeaders(`Content-Type`(mediaType)))
-      })
+    case req @ GET -> Root / "system" / "pkl" / "packages" / file =>
+      openPkl(req)(
+        guardSystemPkl(systemPkl.packageArtifact(file).flatMap { bytes =>
+          val mediaType =
+            if (file.endsWith(".zip")) MediaType.application.zip
+            else MediaType.application.json
+          Ok(bytes).map(_.putHeaders(`Content-Type`(mediaType)))
+        })
+      )
 
     // Edit-mode node inspection ("debug this node"): the live entity state of
     // every entity a rendered node binds. Read-only; used by the overlay the
     // dashboard injects when embedded in the editor preview (`?edit=1`).
-    case GET -> Root / "edit" / "node" / slug / id / "debug" =>
-      nodeDebug(slug, id)
+    case req @ GET -> Root / "edit" / "node" / slug / id / "debug" =>
+      gate.handleRequirement(req, Requirement.Admin)(nodeDebug(slug, id))
 
     // Install a pre-evaluated dashboard under `slug`, live (ADR 0010, persona
     // 4). The body is the SAME `{cards, card}` wire JSON the Pkl layer emits —
     // pushing simply skips that layer, which is why a component developer can
     // ship cards this server has no source for.
     //
-    // Admin-only, via the gate in front of every route (ADR 0023) rather than
-    // a check here — `fh push` carries an HA long-lived token as a bearer.
+    // Admin (ADR 0023) — `fh push` carries an HA long-lived token as a bearer.
     case req @ POST -> Root / "system" / "push" / slug =>
-      pushResponse(slug, req)
+      gate.handleRequirement(req, Requirement.Admin)(pushResponse(slug, req))
 
     // Recreate the entity dump on demand (the /edit editor's "refresh dump"
     // button): re-fetch from HA, validate every dashboard against the new dump
@@ -205,8 +245,8 @@ class Server(
     // builds today breaks — the previous immutable package version stays in the
     // cache as the trail (no dated backup file). Admin-only, like
     // /system/push above.
-    case POST -> Root / "system" / "dump" / "refresh" =>
-      dumpRefresh match {
+    case req @ POST -> Root / "system" / "dump" / "refresh" =>
+      gate.handleRequirement(req, Requirement.Admin)(dumpRefresh match {
         case None         => NotFound()
         case Some(action) =>
           action.flatMap(result =>
@@ -214,35 +254,51 @@ class Server(
               _.putHeaders(`Content-Type`(MediaType.application.json))
             )
           )
-      }
+      })
 
     case req @ GET -> Root / "sse" / "dashboard" / slug / "patch" =>
       // The 404 gate lives INSIDE the stream ([[sseStream]]), on its own single
       // lookup, not here — see that method.
-      sseStream(slug, req)
+      gate.handleRequirement(req, Requirement.data(Some(slug)))(
+        sseStream(slug, req)
+      )
 
     // The error page's recovery stream ([[recoverStream]]): unlike `patch`, a
     // dedicated stream with no session/conn/cursor — the error page opens it and
     // reloads on the first `_reload` signal ([[errorPage]]). The slug lookup
     // happens INSIDE the stream ([[recoverStream]]) so it cannot race it.
-    case GET -> Root / "sse" / "dashboard" / slug / "recover" =>
-      recoverStream(slug)
+    case req @ GET -> Root / "sse" / "dashboard" / slug / "recover" =>
+      gate.handleRequirement(req, Requirement.data(Some(slug)))(
+        recoverStream(slug)
+      )
 
     // No-data action (toggle, open/close, lock, play/pause, scene activate...).
     // `domain` is the SERVICE's domain, which is not always the entity's domain
     // (e.g. `homeassistant.toggle` on a `light.*`), so it's passed explicitly.
-    case POST -> Root / "sse" / "action" / domain / service / entityId =>
-      callService(domain, service, entityId, Json.obj())
-
-    // Single-value action (brightness, cover position, target temperature...).
-    case POST -> Root / "sse" / "action" / domain / service / entityId / dataKey / dataValue =>
-      callService(
-        domain,
-        service,
-        entityId,
-        Json.obj(dataKey -> Server.parseValue(dataValue))
+    case req @ POST -> Root / "sse" / "action" / slug / domain / service / entityId =>
+      gate.handleRequirement(req, Requirement.data(Some(slug)))(
+        actionResponse(slug, entityId)(
+          callService(domain, service, entityId, Json.obj())
+        )
       )
 
+    // Single-value action (brightness, cover position, target temperature...).
+    case req @ POST -> Root / "sse" / "action" / slug / domain / service / entityId / dataKey / dataValue =>
+      gate.handleRequirement(req, Requirement.data(Some(slug)))(
+        actionResponse(slug, entityId)(
+          callService(
+            domain,
+            service,
+            entityId,
+            Json.obj(dataKey -> Server.parseValue(dataValue))
+          )
+        )
+      )
+
+    // These two name no dashboard in their URL, but unlike an action POST they
+    // DO carry signals — `conn` among them — so the session names it. The
+    // requirement is therefore declared inside `withSession`, where the slug is
+    // known, rather than guessed from the path.
     case req @ POST -> Root / "sse" / "surface" / "open" / id =>
       withSession(req)((session, renderer, uiState) =>
         openSurface(session, renderer, id, uiState)
@@ -261,6 +317,48 @@ class Server(
     * [[FHError.handle]] or directly in a test; a non-`FHError` is an unnamed
     * bug and becomes a 500, same as there.
     */
+  /** The `/system/pkl/` read-only endpoints, which stay ungated in this change
+    * (issue #166).
+    *
+    * Its own named helper rather than a bare `Requirement.Open` at five call
+    * sites: this exemption is temporary and has a tracking issue, and a reader
+    * asking "why is source served to anyone" should land on the reason, not on
+    * five identical annotations that look deliberate. pkl-lsp and `fh init`
+    * consume these and it is not confirmed that pkl-lsp can send a header.
+    */
+  private def openPkl(req: Request[IO])(
+      handler: IO[Response[IO]]
+  ): IO[Response[IO]] =
+    gate.handleRequirement(req, Requirement.Open)(handler)
+
+  /** An action may only touch an entity its OWN dashboard names (issue #89).
+    *
+    * The access rule says WHO may use a dashboard; this says WHAT that lets
+    * them do. Without it the two come apart badly: the action route forwards
+    * whatever `entity_id` is in the URL, so anyone admitted to the most
+    * permissive dashboard in the house could drive every entity in it — and a
+    * `Public` dashboard admits nobody in particular, which would put the front
+    * door lock one URL edit away from the street.
+    *
+    * "Names" is decided from the STATIC index, which is sound because a
+    * candidate set's membership is live but its candidate LIST is not (ADR
+    * 0003) — so the set of entities a dashboard can ever address is known at
+    * build time and does not depend on the current state.
+    *
+    * A dashboard that does not exist, or is failed and has no renderer, names
+    * no entities and therefore permits no action.
+    */
+  private def actionResponse(slug: String, entityId: String)(
+      handler: IO[Response[IO]]
+  ): IO[Response[IO]] =
+    rendererFor(slug).flatMap {
+      case Some(r) if r.references(entityId) => handler
+      case _                                 =>
+        Forbidden(
+          s"""{"success":false,"error":"$entityId is not on this dashboard"}"""
+        )
+    }
+
   private def guardSystemPkl(io: IO[Response[IO]]): IO[Response[IO]] =
     io.handleErrorWith {
       case e: FHError => FHError.logged(e)
@@ -285,39 +383,6 @@ class Server(
 
   private def liveFor(slug: String): IO[Option[Server.LiveSlug]] =
     site.liveFor(slug)
-
-  /** The access rule for one dashboard (issue #89), or `None` when the slug
-    * names nothing. `None` for the slug itself means `/`, resolved through the
-    * same default the routes use — so `/` is gated by whatever it actually
-    * serves rather than by a rule of its own.
-    *
-    * Read from the live registry on every call, with nothing cached: a reload
-    * that changes a dashboard's access takes effect on the next request, and
-    * there is no second copy to invalidate.
-    *
-    * A FAILED dashboard has no renderer and therefore no authored rule, and
-    * gets the restrictive default. Deliberate: its error page carries build
-    * diagnostics — source paths, evaluation errors — which is not something to
-    * hand out anonymously just because the dashboard is broken.
-    */
-  def accessFor(slug: Option[String]): IO[Option[Access]] =
-    slug
-      .fold(site.defaultSlug)(IO.pure)
-      .flatMap(liveFor)
-      .flatMap {
-        case None       => IO.pure(None)
-        case Some(live) =>
-          live.renderer.get.map {
-            case Server.RendererState.Ready(r)  => Some(r.access)
-            case Server.RendererState.Failed(_) => Some(Access.default)
-          }
-      }
-
-  /** Which dashboard a connection is viewing. The action POSTs name no slug in
-    * their URL but carry `conn`, and the session knows.
-    */
-  def slugForConn(conn: String): IO[Option[String]] =
-    sessions.get(conn).map(_.map(_.slug))
 
   /** One background RECORDING loop per slug: one subscription to the state
     * stream, writing what each frame did to the slug's changelog and then
@@ -1243,13 +1308,32 @@ class Server(
         connOf(body).map(_ -> Server.uiFromSignals(body.hcursor))
       })
       .flatMap {
-        case None => BadRequest("""{"success":false,"error":"missing conn"}""")
+        // Neither of these two has a dashboard to be checked against, and
+        // neither says anything a caller did not already send us: the request
+        // was malformed, or it named a connection this process does not have.
+        // Declared `Open` rather than checked against some other dashboard's
+        // rule — that guess is what this change removed.
+        case None =>
+          gate.handleRequirement(req, Requirement.Open)(
+            BadRequest("""{"success":false,"error":"missing conn"}""")
+          )
         case Some((conn, uiState)) =>
           sessions.get(conn).flatMap {
-            case None          => NoContent() // stale/unknown connection
+            case None =>
+              gate.handleRequirement(req, Requirement.Open)(
+                NoContent() // stale/unknown connection
+              )
             case Some(session) =>
-              rendererFor(session.slug)
-                .flatMap(_.traverse_(f(session, _, uiState))) *> NoContent()
+              // The requirement is declared HERE because this is the first
+              // point that knows which dashboard the request is for: the URL
+              // does not say, the session does.
+              gate.handleRequirement(
+                req,
+                Requirement.data(Some(session.slug))
+              )(
+                rendererFor(session.slug)
+                  .flatMap(_.traverse_(f(session, _, uiState))) *> NoContent()
+              )
           }
       }
   }
@@ -2024,6 +2108,37 @@ object Server {
     def liveFor(slug: String): IO[Option[LiveSlug]] =
       entries.get.map(_.get(slug).map(_.live))
 
+    /** The access rule for one dashboard (issue #89), or `None` when the slug
+      * names nothing. `None` for the slug itself means `/`, resolved through
+      * the same default the routes use — so `/` is gated by whatever it
+      * actually serves rather than by a rule of its own.
+      *
+      * On `LiveSite` rather than on `Server` because the registry is the only
+      * thing it reads, and because the gate is built from the site BEFORE the
+      * server that routes with it.
+      *
+      * Read from the live registry on every call, with nothing cached: a reload
+      * that changes a dashboard's access takes effect on the next request, and
+      * there is no second copy to invalidate.
+      *
+      * A FAILED dashboard has no renderer and therefore no authored rule, and
+      * gets the restrictive default. Deliberate: its error page carries build
+      * diagnostics — source paths, evaluation errors — which is not something
+      * to hand out anonymously just because the dashboard is broken.
+      */
+    def accessFor(slug: Option[String]): IO[Option[Access]] =
+      slug
+        .fold(defaultSlug)(IO.pure)
+        .flatMap(liveFor)
+        .flatMap {
+          case None       => IO.pure(None)
+          case Some(live) =>
+            live.renderer.get.map {
+              case RendererState.Ready(r)  => Some(r.access)
+              case RendererState.Failed(_) => Some(Access.default)
+            }
+        }
+
     def names: IO[List[String]] = entries.get.map(_.keys.toList.sorted)
 
     def changes: Stream[IO, Map[String, LiveSlug]] =
@@ -2256,6 +2371,7 @@ object Server {
       renderers: Map[String, SignallingRef[IO, RendererState]],
       defaultSlug: String,
       sessions: Sessions,
+      gate: AuthGate,
       assets: AssetCache = AssetCache.empty,
       healthy: Signal[IO, Boolean] = Signal.constant(true),
       systemPkl: SystemPkl = SystemPkl.empty,
@@ -2274,6 +2390,7 @@ object Server {
           stateStore,
           _,
           sessions,
+          gate,
           assets,
           healthy,
           systemPkl,
@@ -2291,6 +2408,7 @@ object Server {
       stateStore: StateStore,
       site: LiveSite,
       sessions: Sessions,
+      gate: AuthGate,
       assets: AssetCache,
       healthy: Signal[IO, Boolean],
       systemPkl: SystemPkl,
@@ -2305,6 +2423,7 @@ object Server {
         stateStore,
         site,
         sessions,
+        gate,
         supervisor,
         assets,
         healthy,
@@ -2328,6 +2447,7 @@ object Server {
       feed: HaFeed,
       site: LiveSite,
       sessions: Sessions,
+      gate: AuthGate,
       assets: AssetCache = AssetCache.empty,
       systemPkl: SystemPkl = SystemPkl.empty,
       dumpRefresh: Option[IO[DumpRefresh.Result]] = None
@@ -2337,6 +2457,7 @@ object Server {
       feed.store,
       site,
       sessions,
+      gate,
       assets,
       feed.healthy,
       systemPkl,

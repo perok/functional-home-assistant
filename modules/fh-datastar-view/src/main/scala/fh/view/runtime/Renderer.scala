@@ -263,6 +263,16 @@ class Renderer(
       case _                                     => members.liveEntitiesOf(id)
     }
 
+  /** Whether this dashboard names `entityId` at all — the bound an action POST
+    * is held to (ADR 0023). Delegates to the model's static walk rather than
+    * reading [[Index.byEntity]], which stops at a candidate set: a set's
+    * members are reached through the member graph at RUN time, and this
+    * question has to be answerable about entities nothing is currently
+    * rendering.
+    */
+  def references(entityId: String): Boolean =
+    dashboard.referencedEntities.contains(entityId)
+
   def surfaceComponentsFor(surfaceId: String, entityId: String): Set[NodeId] =
     surfaceIndexes
       .get(surfaceId)
@@ -578,7 +588,14 @@ class Renderer(
     Map(
       "id" -> id,
       "selfId" -> Renderer.selfElementId(id),
-      "mountId" -> mountId(id)
+      "mountId" -> mountId(id),
+      // The slug, for the action URLs a card builds in its own TEMPLATE (the
+      // slider's commit). A tap built by a JSONata TRANSFORM reads the same
+      // value as `$fh_slug` instead — two sites, two substitution mechanisms,
+      // one fact. Filled by the renderer either way because a dashboard module
+      // does not know its own slug: `site.pkl` supplies it as a key, and
+      // `fh push --slug` can rename it (ADR 0023).
+      "fhSlug" -> dashboard.slug
     )
 
   /** Whether this node HAS a rendering of its own — the thing that decides
@@ -1394,7 +1411,7 @@ class Renderer(
     // resolves.
     if (source.bypassUnavailable && st.unavailable) st.state
     else {
-      val out = transforms.run(source.transform, st)
+      val out = transforms.run(source.transform, st, dashboard.slug)
       if (out.nonEmpty) out else source.default.getOrElse("")
     }
   }
