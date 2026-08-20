@@ -265,6 +265,9 @@ class Renderer(
   /** `<link>`-ed by the page, e.g. BeerCSS. */
   def stylesheets: List[String] = dashboard.theme.stylesheets
 
+  /** `<link>`-ed off the critical path — see [[fh.view.model.Theme]]. */
+  def deferredStylesheets: List[String] = dashboard.theme.deferredStylesheets
+
   /** Injected as `<script type="module">`, e.g. beer.min.js. */
   def scripts: List[String] = dashboard.theme.scripts
 
@@ -1434,6 +1437,7 @@ object Renderer {
     fingerprint(
       (
         dashboard.theme.stylesheets,
+        dashboard.theme.deferredStylesheets,
         dashboard.theme.scripts,
         dashboard.theme.inlineScripts,
         dashboard.theme.chrome

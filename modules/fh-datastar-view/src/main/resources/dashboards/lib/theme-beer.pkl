@@ -189,8 +189,17 @@ class BeerTheme extends themeMod.Theme {
 
   stylesheets {
     "\(beerCdn)/beer.min.css"
-    mdiCdn
     interCdn
+  }
+
+  // MDI is ~100 KB of CSS for ~7 500 icons of which a dashboard uses a few
+  // dozen, and nothing about the page's LAYOUT depends on it — a glyph that
+  // arrives a beat late lands in a box the framework already sized. It is the
+  // one sheet here that should not hold up the first paint. (The end state is
+  // still to inline the used icons as SVG and drop the sheet entirely — see
+  // [[mdiCdn]].)
+  deferredStylesheets {
+    mdiCdn
   }
 
   // Required by this theme's CSS, not for behavior (which stays Datastar's):

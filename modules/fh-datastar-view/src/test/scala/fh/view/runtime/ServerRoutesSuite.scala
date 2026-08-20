@@ -678,6 +678,48 @@ class ServerRoutesSuite extends ServerHarness {
     }
   }
 
+  test("a deferred stylesheet does not block the first paint") {
+    val themed = titleDash("home", None).copy(theme =
+      Theme(
+        stylesheets = List("https://example.test/frame.css"),
+        deferredStylesheets = List("https://example.test/icons.css")
+      )
+    )
+    pageHtml(themed).map { html =>
+      // The critical one still blocks; the deferred one is preloaded and
+      // swapped to a stylesheet on load.
+      assert(
+        html.contains(
+          """<link rel="stylesheet" href="https://example.test/frame.css">"""
+        ),
+        clue = html
+      )
+      assert(
+        html.contains(
+          """<link rel="preload" as="style" href="https://example.test/icons.css" onload="this.onload=null;this.rel='stylesheet'">"""
+        ),
+        clue = html
+      )
+      // ...and without JS the preload never becomes a stylesheet, so the
+      // fallback is not optional.
+      assert(
+        html.contains(
+          """<noscript><link rel="stylesheet" href="https://example.test/icons.css"></noscript>"""
+        ),
+        clue = html
+      )
+      // The deferred one must NOT also be linked normally — that would restore
+      // exactly the blocking fetch this avoids. (The `<noscript>` copy is
+      // inert: nothing inside it is fetched when scripting is on.)
+      val blocking = html.linesIterator
+        .filter(l =>
+          l.contains("rel=\"stylesheet\"") && !l.contains("noscript")
+        )
+        .toList
+      assertEquals(blocking.length, 1, clue = blocking.toString)
+    }
+  }
+
   test("a theme's inline scripts are inlined in the head, verbatim") {
     // The gesture half of a CSS interaction (the slider's press-and-hold gate)
     // is AUTHORED — a theme property, not a constant in this server. Emitted

@@ -489,6 +489,12 @@ class ResumeSuite extends ServerHarness {
       Theme(stylesheets = List("https://example.test/other.css"))
     )
     assertNotEquals(Renderer.create(editedTheme).headHash, base)
+    // A DEFERRED one is no different — it is still a `<link>` in the head that
+    // no patch can take back, only one that does not block the paint.
+    val editedDeferred = liveLeafDash.copy(theme =
+      Theme(deferredStylesheets = List("https://example.test/icons.css"))
+    )
+    assertNotEquals(Renderer.create(editedDeferred).headHash, base)
     // Same for an inline script: nothing can un-run one either.
     val editedScript =
       liveLeafDash.copy(theme = Theme(inlineScripts = List("void 0;")))

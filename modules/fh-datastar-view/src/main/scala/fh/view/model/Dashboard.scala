@@ -551,6 +551,13 @@ object LayoutNode:
   *     `prefers-color-scheme: dark`, so the dashboard follows the browser's
   *     light/dark setting.
   *   - `stylesheets`: external CSS URLs to `<link>` (e.g. the BeerCSS CDN).
+  *     RENDER-BLOCKING — the page waits for every one of them.
+  *   - `deferredStylesheets`: the same thing for a sheet the first paint does
+  *     not need, loaded without blocking it (`rel=preload` swapped to
+  *     `stylesheet` on load, with a `<noscript>` fallback —
+  *     https://web.dev/articles/defer-non-critical-css). The trade is that what
+  *     it styles arrives a beat late, so this is for a sheet whose absence
+  *     leaves the layout intact: an icon font, not a grid system.
   *   - `scripts`: external JS URLs, `<script type="module" src>`-injected in
   *     the document head after the stylesheets (ES modules — deferred, run
   *     after first paint). For framework helpers the theme's CSS needs (e.g.
@@ -578,6 +585,7 @@ case class Theme(
     tokens: Map[String, String] = Map.empty,
     tokensDark: Map[String, String] = Map.empty,
     stylesheets: List[String] = Nil,
+    deferredStylesheets: List[String] = Nil,
     scripts: List[String] = Nil,
     inlineScripts: List[String] = Nil,
     styles: String = "",
