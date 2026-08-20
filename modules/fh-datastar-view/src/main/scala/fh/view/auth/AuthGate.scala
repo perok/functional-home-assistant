@@ -4,6 +4,7 @@ import api.homeassistant.ws.domain.HaUser
 import cats.effect.IO
 import cats.syntax.all.*
 import fh.view.model.Permission
+import com.comcast.ip4s.Ipv4Address
 import fs2.Stream
 import org.http4s.headers.{Authorization, Location}
 import org.http4s.{
@@ -97,7 +98,13 @@ trait Identity {
 open class AuthGate(
     sessions: AuthSessions,
     identifyToken: String => IO[HaUser],
-    permissionFor: Option[String] => IO[Permission]
+    permissionFor: Option[String] => IO[Permission],
+    // Who HA says is behind an ingress request, and from where a request has
+    // to arrive for that to be believed. See [[Ingress]] — the default trusts
+    // nobody, so a construction that says nothing about ingress gets none of
+    // it rather than a hole.
+    ingressUsers: IngressUsers = _ => IO.pure(None),
+    trustedProxy: Option[Ipv4Address] = None
 ) extends Identity {
 
   override def sessionOf(req: Request[IO]): IO[Option[String]] =
@@ -105,11 +112,27 @@ open class AuthGate(
       .cookieOf(req)
       .flatTraverse(id => sessions.get(id).map(_.as(id)))
 
+  /** Who this request is, by whichever carrier it used.
+    *
+    * Ingress comes FIRST and needs no cookie: behind the add-on proxy HA has
+    * already logged the user in, so making them log in again here would be
+    * asking twice. The cookie is the direct port's answer, and the bearer is a
+    * machine's.
+    */
   override def of(req: Request[IO]): IO[Option[HaUser]] =
-    session(req).flatMap {
-      case Some(s) => IO.pure(Some(s.user))
-      case None    => bearerUser(req)
+    ingressUser(req).flatMap {
+      case some @ Some(_) => IO.pure(some)
+      case None           =>
+        session(req).flatMap {
+          case Some(s) => IO.pure(Some(s.user))
+          case None    => bearerUser(req)
+        }
     }
+
+  private def ingressUser(req: Request[IO]): IO[Option[HaUser]] =
+    trustedProxy
+      .flatMap(Ingress.userIdOf(req, _))
+      .fold(IO.pure(None))(ingressUsers)
 
   /** Serve `handler` if `requirement` is met, and say no in the shape this
     * caller can read if it is not.

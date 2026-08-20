@@ -19,8 +19,11 @@ import fh.view.build.{
   Site,
   SystemPkl
 }
+import com.comcast.ip4s.Ipv4Address
 import fh.view.auth.{
   AuthGate,
+  Ingress,
+  IngressUsers,
   AuthRoutes,
   AuthSessions,
   HaOAuth,
@@ -250,7 +253,30 @@ object ServerApp extends IOApp {
         // Built from the SITE, not from the server: the server routes with it,
         // so it has to exist first. `LiveSite` owns the registry the rule is
         // read from, which is where `permissionFor` lives.
-        gate = new AuthGate(authSessions, identify, site.permissionFor)
+        // Under the add-on's ingress, HA has already authenticated the user
+        // and the Supervisor forwards who they are — so nobody logs in twice.
+        // The headers carry no ROLE, so the id is resolved against HA's own
+        // account list; `Ingress` explains why the SOURCE ADDRESS is what makes
+        // the headers trustworthy, and why the port cannot be.
+        //
+        // `FH_TRUSTED_PROXY` overrides the Supervisor's fixed address for a
+        // deployment that proxies differently; unset is the add-on default, and
+        // an explicit empty value turns ingress trust off entirely.
+        trustedProxy <- Env[IO]
+          .get("FH_TRUSTED_PROXY")
+          .map {
+            case None      => Some(Ingress.SupervisorIp)
+            case Some(raw) => Ipv4Address.fromString(raw.trim)
+          }
+          .toResource
+        ingressUsers <- IngressUsers.cached(feed.api.configAuthList).toResource
+        gate = new AuthGate(
+          authSessions,
+          identify,
+          site.permissionFor,
+          ingressUsers,
+          trustedProxy
+        )
         authRoutes <- AuthRoutes
           .create(oauth, authSessions, identify, gate, Server.baseUriOf)
           .toResource

@@ -791,7 +791,7 @@ class Server(
       // session `adoptOrMint` created is unreferenced garbage.
       resp <- liveOpt match
         case None    => NotFound()
-        case Some(_) => Ok(untilRevoked(allowed)(stream))
+        case Some(_) => Ok(Server.untilRevoked(allowed)(stream))
     } yield resp
 
   /** The error page's recovery stream ([[errorPage]]): the slug's
@@ -811,36 +811,11 @@ class Server(
       case None       => NotFound()
       case Some(live) =>
         Ok(
-          untilRevoked(allowed)(
+          Server.untilRevoked(allowed)(
             recoverTransitions(live).merge(keepAliveComments)
           )
         )
     }
-
-  /** End a live stream when its dashboard's rule stops holding — and tell the
-    * client why, as the last thing it sends (issue #89).
-    *
-    * Cutting the stream stops the dashboard UPDATING, but the tab goes on
-    * SHOWING everything it last received: somebody signed out on another device
-    * would keep reading the house off a frozen page. The reload is what takes
-    * it away, and it rides the signal that already exists for exactly that —
-    * every page declares `_reload` with a `window.location.reload()` effect
-    * ([[Server.reloadPatch]]), so the client needs nothing new.
-    *
-    * A merge rather than `interruptWhen` is the whole point: the right side
-    * stays silent until the rule breaks, then emits the reload and ENDS — so
-    * the goodbye is delivered before the stream closes rather than being cut
-    * off with it.
-    *
-    * `mergeHaltBoth`, not `mergeHaltR`: a rule that never breaks leaves the
-    * right side running forever, and halting only on IT would keep a stream
-    * alive after its own events had finished — a displaced session's stream
-    * would never close, which is a hang rather than a leak.
-    */
-  private def untilRevoked(allowed: Stream[IO, Boolean])(
-      events: Stream[IO, ServerSentEvent]
-  ): Stream[IO, ServerSentEvent] =
-    events.mergeHaltBoth(allowed.find(!_).as(Server.reloadPatch))
 
   /** The recover stream's state changes ([[recoverStream]]), as the error page
     * must react to them. Its FIRST element doubles as the connection marker: a
@@ -2856,6 +2831,31 @@ object Server {
     * page declares the effect once where every other client behaviour lives.
     */
   val ReloadSignal: String = "_reload"
+
+  /** End a live stream when its dashboard's rule stops holding — and tell the
+    * client why, as the last thing it sends (issue #89).
+    *
+    * Cutting the stream stops the dashboard UPDATING, but the tab goes on
+    * SHOWING everything it last received: somebody signed out on another device
+    * would keep reading the house off a frozen page. The reload is what takes
+    * it away, and it rides the signal that already exists for exactly that —
+    * every page declares `_reload` with a `window.location.reload()` effect
+    * ([[reloadPatch]]), so the client needs nothing new.
+    *
+    * A merge rather than `interruptWhen` is the whole point: the right side
+    * stays silent until the rule breaks, then emits the reload and ENDS — so
+    * the goodbye is delivered before the stream closes rather than being cut
+    * off with it.
+    *
+    * `mergeHaltBoth`, not `mergeHaltR`: a rule that never breaks leaves the
+    * right side running forever, and halting only on IT would keep a stream
+    * alive after its own events had finished — a displaced session's stream
+    * would never close, which is a hang rather than a leak.
+    */
+  private[runtime] def untilRevoked(allowed: Stream[IO, Boolean])(
+      events: Stream[IO, ServerSentEvent]
+  ): Stream[IO, ServerSentEvent] =
+    events.mergeHaltBoth(allowed.find(!_).as(reloadPatch))
 
   private[runtime] val reloadPatch: ServerSentEvent =
     Datastar.patchSignals(s"""{"$ReloadSignal":true}""")

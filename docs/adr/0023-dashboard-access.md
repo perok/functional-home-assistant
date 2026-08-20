@@ -198,6 +198,31 @@ non-optional `access`. Parse, don't validate — by the time the registry holds 
 dashboard, "which rule applies" is a fact in the type rather than a lookup every
 gate re-derives.
 
+**Behind ingress there is nobody left to log in.** When the add-on is reached
+through HA's own ingress, HA has already authenticated the user and the
+Supervisor forwards who they are — `X-Remote-User-Id`, `X-Remote-User-Name`,
+`X-Remote-User-Display-Name` (verified in `supervisor/api/ingress.py` and
+`supervisor/const.py`, not assumed). It strips those three from the incoming
+request before re-adding them, in its own words "to prevent client spoofing".
+So the OAuth flow above is for one case only: somebody reaching the direct
+port.
+
+The header is worth nothing on its own — anyone can send it to that direct
+port, which `home-addon/config.yaml` gives the SAME 8080 as ingress, so the
+socket cannot tell them apart. The boundary is where the connection came from:
+ingress arrives from the Supervisor at a fixed address, and the add-on
+documentation makes that a requirement rather than an observation ("Only
+connections from `172.30.32.2` must be allowed"). A source address cannot be
+forged on an established TCP connection. `FH_TRUSTED_PROXY` overrides it; set
+empty, ingress trust is off.
+
+What the headers do NOT carry is a ROLE, so the id is resolved against HA's own
+account list — the one this server already fetches for the dump — cached for
+five minutes. Two consequences worth stating: an id this instance cannot place
+is NOT an identity (treating it as a logged-in nobody would let
+`Access.Authenticated` admit it), and a failed lookup is not cached, so an
+unreachable HA makes ingress users anonymous rather than making them admins.
+
 **Machines carry the same HA identity in a different carrier.** The `fh` script
 sends an HA long-lived access token as `Authorization: Bearer`; the server
 resolves it exactly as it resolves a login. One identity source, two carriers —
@@ -241,6 +266,9 @@ probing later as an optimisation, not assumed.
 
 ## Consequences
 
+- Under the add-on's ingress — the default way to reach it — nobody logs in
+  twice; the login flow is what the direct port needs. Both end at the same
+  `HaUser` with the same role, so a rule cannot mean different things by route.
 - Dashboards require a login by default. A workspace that wants otherwise says
   so, per dashboard or site-wide.
 - `/system/pkl/*` stays ungated in this change (issue #166): pkl-lsp consumes
