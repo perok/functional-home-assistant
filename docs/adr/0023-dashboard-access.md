@@ -127,15 +127,19 @@ nothing derived from the slug, and a compiled tap URL derives from it — a
 `--slug` rename would otherwise leave every tap posting to a dashboard it is
 not on.
 
-**Only the page load redirects, and that is a case rather than a flag.**
-`Requirement.Page` and `Requirement.Data` are the same rule with different
-answers when it is not met: `303` to `/auth/login?next=…` for the first, `401`
-for the second. The asymmetry is not about what a client can parse — it is
-about who is asking. A page load is where a human is waiting, so it is where a
-login can be sent for; everything that page then opens was already admitted, so
-a later refusal on one of those means the session DIED, which is an error and
-should read as one. An authenticated user who merely lacks the role gets `403`
-either way, so there is no login loop.
+**Only the page load redirects — and that is the CALLER's choice, not a second
+requirement.** There is one `Requirement.FromDashboard(slug)`: the rule is the
+same for a dashboard's page, its stream and its action POSTs. What differs is
+only the shape of a refusal, so `handleRequirement` takes an `onInvalid`
+`(Status, String) => Response`, defaulting to "say so". The page routes pass
+`AuthGate.orLogIn`, which turns a `401` — and only a `401` — into a `303` to
+`/auth/login?next=…`; a `403` means the wrong person, and bouncing them to a
+login they are already past would loop.
+
+The asymmetry is about who is asking, not what a client can parse. A page load
+is where a human is waiting, so it is where a login can be sent for; everything
+that page then opens was already admitted, so a later refusal on one of those
+means the session DIED, which is an error and should read as one.
 
 A 401 on an SSE stream carries no "log in here" hint, because nothing would act
 on it: the browser learns that from the page.

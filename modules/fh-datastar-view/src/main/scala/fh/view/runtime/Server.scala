@@ -103,11 +103,19 @@ class Server(
     // Resolved per REQUEST, not at construction: the entrypoint can rename or
     // delete the dashboard `/` used to serve, and `/` must still answer.
     case req @ GET -> Root =>
-      gate.handleRequirement(req, Requirement.Page(None))(
+      gate.handleRequirement(
+        req,
+        Requirement.FromDashboard(None),
+        AuthGate.orLogIn(req)
+      )(
         site.defaultSlug.flatMap(pageResponse(_, req))
       )
     case req @ GET -> Root / "d" / slug =>
-      gate.handleRequirement(req, Requirement.Page(Some(slug)))(
+      gate.handleRequirement(
+        req,
+        Requirement.FromDashboard(Some(slug)),
+        AuthGate.orLogIn(req)
+      )(
         pageResponse(slug, req)
       )
 
@@ -272,7 +280,7 @@ class Server(
     // `domain` is the SERVICE's domain, which is not always the entity's domain
     // (e.g. `homeassistant.toggle` on a `light.*`), so it's passed explicitly.
     case req @ POST -> Root / "sse" / "action" / slug / domain / service / entityId =>
-      gate.handleRequirement(req, Requirement.Data(Some(slug)))(
+      gate.handleRequirement(req, Requirement.FromDashboard(Some(slug)))(
         actionResponse(slug, entityId)(
           callService(domain, service, entityId, Json.obj())
         )
@@ -280,7 +288,7 @@ class Server(
 
     // Single-value action (brightness, cover position, target temperature...).
     case req @ POST -> Root / "sse" / "action" / slug / domain / service / entityId / dataKey / dataValue =>
-      gate.handleRequirement(req, Requirement.Data(Some(slug)))(
+      gate.handleRequirement(req, Requirement.FromDashboard(Some(slug)))(
         actionResponse(slug, entityId)(
           callService(
             domain,
@@ -1362,7 +1370,7 @@ class Server(
               // does not say, the session does.
               gate.handleRequirement(
                 req,
-                Requirement.Data(Some(session.slug))
+                Requirement.FromDashboard(Some(session.slug))
               )(
                 rendererFor(session.slug)
                   .flatMap(_.traverse_(f(session, _, uiState))) *> NoContent()

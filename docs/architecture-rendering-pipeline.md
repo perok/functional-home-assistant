@@ -56,7 +56,7 @@ flowchart TB
     SSE["SSE bytes to the browser<br/>Datastar morphs the DOM<br/>…and re-evaluates the bound elements"]
   end
 
-  GATE["AuthGate — a route (or route GROUP) declares its Requirement (ADR 0023)<br/>Page redirects to login · Data answers 401<br/>handleStream also cuts a running stream when the rule stops holding<br/>an action is bounded by its dashboard's OWN entities"]
+  GATE["AuthGate — a route (or route GROUP) declares its Requirement (ADR 0023)<br/>one rule per dashboard; the CALLER picks the refusal (orLogIn on a page, plain elsewhere)<br/>handleStream also cuts a running stream when the rule stops holding<br/>an action is bounded by its dashboard's OWN entities"]
   ACT["action POST<br/>surface/open · popup/close<br/>carries conn + ui-state"]
   SESS["Sessions registry<br/>conn maps to slug, open set, control queue,<br/>holds (what this DOM has: digest + signals)<br/>+ position"]
   LOG[("FragmentLog per slug — the CHANGELOG<br/>node -&gt; version · Gone/Placed · horizon<br/>absence means: unknown, send it")]
@@ -93,7 +93,8 @@ flowchart TB
 
 **A route declares its own requirement; a route group declares one for all of it.** Only a PAGE
 load redirects to login — a human is waiting there — and everything that page then opens answers
-401 instead, because a refusal on one of those means the session died. Admission is not one-time:
+401 instead, because a refusal on one of those means the session died. That is one requirement
+with a caller-chosen `onInvalid`, not two. Admission is not one-time:
 a page has finished long before anything could change, but an SSE stream runs for hours, so the
 two SSE routes go through `handleStream`, which wraps the body in one `interruptWhen` over the
 same `Access.permits` the door used. An action POST names its dashboard in the URL and may only
@@ -751,7 +752,7 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 
 | Box | Code |
 |---|---|
-| a route's own auth rule | `auth/AuthGate.scala` · `Requirement` (`Open`/`Page`/`Data`/`Admin`), `handleRequirement`, `loginRedirect`, `safeNext`; declared at each route in `runtime/Server.scala` and `auth/AuthRoutes.scala` |
+| a route's own auth rule | `auth/AuthGate.scala` · `Requirement` (`Open`/`FromDashboard`/`Admin`), `saySo`/`orLogIn`, `handleRequirement`, `loginRedirect`, `safeNext`; declared at each route in `runtime/Server.scala` and `auth/AuthRoutes.scala` |
 | one rule over a whole surface | `auth/AuthGate.scala` · `require`; used by `runtime/EditorRoutes.scala` (all admin) |
 | a stream that stops being allowed | `auth/AuthGate.scala` · `handleStream`; `auth/AuthSessions.scala` · `watch` |
 | what an action may touch | `model/Dashboard.scala` · `referencedEntities`; `runtime/Renderer.scala` · `references`; `runtime/Server.scala` · `actionResponse` |

@@ -32,23 +32,15 @@ enum Requirement derives CanEqual:
     */
   case Open
 
-  /** A browser NAVIGATION to a dashboard, held to that dashboard's own rule.
-    * `None` is `/`, which resolves through the site's default dashboard, so it
-    * is gated by whatever it actually serves.
+  /** Whatever this dashboard's own rule says — its page, its stream, its action
+    * POSTs alike. `None` is `/`, which resolves through the site's default
+    * dashboard, so it is gated by whatever it actually serves.
     *
-    * The only requirement that REDIRECTS, and that is the whole difference from
-    * [[Data]]: there is a human here, and the page load is where a login can be
-    * sent for. Everything the page then opens is already known to be permitted,
-    * so a later refusal on one of those is a genuine error rather than a "you
-    * should log in".
+    * ONE case, not a page/data pair: the RULE is the same either way, and only
+    * the shape of a refusal differs. That is the caller's to choose, through
+    * `onInvalid` — see [[AuthGate.handleRequirement]].
     */
-  case Page(slug: Option[String])
-
-  /** Anything a script asked for against a dashboard: its SSE stream, an action
-    * POST, a JSON endpoint. Same rule as [[Page]], different answer when it is
-    * not met — a 401, never a redirect.
-    */
-  case Data(slug: Option[String])
+  case FromDashboard(slug: Option[String])
 
   /** An HA admin, by cookie or by bearer token. The authoring surface: it
     * writes `.pkl` source to disk and drives the instance.
@@ -125,36 +117,48 @@ open class AuthGate(
     * `handler` is an ordinary `IO` value, so naming it here does not run it —
     * nothing is served before the check.
     */
-  def handleRequirement(req: Request[IO], requirement: Requirement)(
+  def handleRequirement(
+      req: Request[IO],
+      requirement: Requirement,
+      onInvalid: (Status, String) => Response[IO] = AuthGate.saySo
+  )(
       handler: IO[Response[IO]]
   ): IO[Response[IO]] =
     requirement match {
       case Requirement.Open => handler
 
       case Requirement.Admin =>
-        of(req).flatMap {
-          case Some(u) if u.is_admin => handler
-          // Never a redirect: every admin route is an API call, a PUT or a
-          // websocket, and a 303 to a login page reads as a broken endpoint.
-          case Some(_) =>
-            IO.pure(forbidden("This needs a Home Assistant admin."))
-          case None => IO.pure(unauthorized)
-        }
+        of(req)
+          .map {
+            case Some(u) if u.is_admin => None
+            case Some(_)               =>
+              Some(Status.Forbidden -> "This needs a Home Assistant admin.")
+            case None => Some(Status.Unauthorized -> "Not logged in.")
+          }
+          .flatMap(refuse(handler, onInvalid))
 
-      case Requirement.Page(slug) =>
-        permitted(req, slug).flatMap {
-          case Right(_)   => handler
-          case Left(user) =>
-            IO.pure(user.fold(loginRedirectResponse(req))(_ => noAccess))
-        }
-
-      case Requirement.Data(slug) =>
-        permitted(req, slug).flatMap {
-          case Right(_)   => handler
-          case Left(user) =>
-            IO.pure(user.fold(unauthorized)(_ => noAccess))
-        }
+      case Requirement.FromDashboard(slug) =>
+        permitted(req, slug).flatMap(who =>
+          refuse(handler, onInvalid)(who.map(denial))
+        )
     }
+
+  private def refuse(
+      handler: IO[Response[IO]],
+      onInvalid: (Status, String) => Response[IO]
+  )(problem: Option[(Status, String)]): IO[Response[IO]] =
+    problem.fold(handler)((status, message) =>
+      IO.pure(onInvalid(status, message))
+    )
+
+  /** What is wrong, when a dashboard turns somebody away. Not logged in and
+    * logged in as the wrong person are different answers, and the caller needs
+    * to be able to tell them apart — only the first is worth a login page.
+    */
+  private def denial(user: Option[HaUser]): (Status, String) =
+    user.fold(Status.Unauthorized -> "Not logged in.")(_ =>
+      Status.Forbidden -> "You do not have access to this dashboard."
+    )
 
   /** [[handleRequirement]] for a route whose response is a LIVE STREAM.
     *
@@ -172,31 +176,23 @@ open class AuthGate(
   ): IO[Response[IO]] =
     (accessFor(slug), of(req)).flatMapN { (access, user) =>
       if (!access.permits(user))
-        IO.pure(user.fold(unauthorized)(_ => noAccess))
+        IO.pure(AuthGate.saySo.tupled(denial(user)))
       else
         sessionOf(req).flatMap(id =>
           handler(sessions.watch(id, access.permits))
         )
     }
 
-  /** `Right` when this request may have the dashboard, `Left(who)` when not —
-    * carrying who was asking, since that is what decides between "log in" and
-    * "not yours".
+  /** `None` when this request may have the dashboard, otherwise who was asking
+    * — which is what decides between "log in" and "not yours".
     */
   private def permitted(
       req: Request[IO],
       slug: Option[String]
-  ): IO[Either[Option[HaUser], Unit]] =
+  ): IO[Option[Option[HaUser]]] =
     (accessFor(slug), of(req)).mapN { (access, user) =>
-      if (access.permits(user)) Right(()) else Left(user)
+      Option.unless(access.permits(user))(user)
     }
-
-  private def loginRedirectResponse(req: Request[IO]): Response[IO] =
-    Response[IO](Status.SeeOther)
-      .putHeaders(Location(AuthGate.loginRedirect(req.uri)))
-
-  private def noAccess: Response[IO] =
-    forbidden("You do not have access to this dashboard.")
 
   private def session(req: Request[IO]): IO[Option[AuthSession]] =
     AuthSessions.cookieOf(req).flatTraverse(sessions.get)
@@ -217,18 +213,28 @@ open class AuthGate(
       case _ => IO.pure(None)
     }
 
-  private def forbidden(message: String): Response[IO] =
-    Response[IO](Status.Forbidden).withEntity(message)
-
-  /** A plain 401. No "where to log in" hint: the browser gets that from the
-    * page load, which is the request a human is actually waiting on, and
-    * nothing reads a hint off this one.
-    */
-  private def unauthorized: Response[IO] =
-    Response[IO](Status.Unauthorized).withEntity("Not logged in.")
 }
 
 object AuthGate {
+
+  /** The default refusal: the status, and the reason in the body. What a script
+    * gets, and what a human gets on anything except a page load.
+    */
+  val saySo: (Status, String) => Response[IO] =
+    (status, message) => Response[IO](status).withEntity(message)
+
+  /** The refusal a PAGE load gets: an anonymous visitor is sent to log in,
+    * because a page load is the one request with a human waiting on it.
+    *
+    * Only when nobody is logged in — a `403` means the wrong person, and
+    * bouncing them to a login they are already past would loop.
+    */
+  def orLogIn(req: Request[IO]): (Status, String) => Response[IO] =
+    (status, message) =>
+      if (status == Status.Unauthorized)
+        Response[IO](Status.SeeOther)
+          .putHeaders(Location(loginRedirect(req.uri)))
+      else saySo(status, message)
 
   /** Hold an entire route group to one requirement.
     *
