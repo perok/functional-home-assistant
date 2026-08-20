@@ -239,6 +239,10 @@ facts {
     // The classes the RUNTIME emits, which no card owns.
     cssMod.baseCss.contains(".fh-toast{")
     cssMod.baseCss.contains(".fh-disabled{opacity:.5}")
+    // The half of the leaving-page rule that lives here; `src/js/shell.ts` sets
+    // the class, and ServerRoutesSuite pins that side. `!important` is the rule,
+    // not a detail: `data-show` reveals a banner by clearing its inline display.
+    cssMod.baseCss.contains(".fh-leaving .fh-offline{display:none!important}")
   }
 
   ["a card's structure travels with the card"] {
