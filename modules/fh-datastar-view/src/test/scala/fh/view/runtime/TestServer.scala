@@ -6,13 +6,15 @@ package fh.view.runtime
 import cats.effect.{Deferred, IO, Ref, Resource}
 import cats.syntax.all.*
 import com.comcast.ip4s.{host, port}
+import fh.view.auth.AuthSessions
 import fh.view.build.{PklDump, Site, SystemPkl}
-import fh.view.model.Dashboard
+import fh.view.model.{Access, Dashboard}
 import fh.view.testkit.{
   FakeConfig,
   FakeHomeAssistant,
   FixtureEntity,
-  PklWorkspace
+  PklWorkspace,
+  TestAuth
 }
 import fs2.concurrent.SignallingRef
 import io.circe.Json
@@ -40,7 +42,8 @@ final class TestServer(
     val fake: FakeHomeAssistant,
     val store: StateStore,
     val server: Server,
-    val slug: String
+    val slug: String,
+    val auth: TestAuth
 ) {
 
   /** Await `n` subscribers on the store's change topic — a readiness gate for
@@ -78,9 +81,21 @@ final class TestServer(
   def awaitLive(subscribers: Int = 1): IO[Unit] =
     awaitChangeSubscribers(subscribers) *> awaitSharedSubscribers(1)
 
-  private val app = server.routes.orNotFound
+  /** The gate is ON here, wrapping the same app `ServerApp` wraps. Every
+    * harness request below therefore goes through the real classification and
+    * the real check — see [[TestAuth]] for why there is no bypass.
+    */
+  private val app = auth.gate(server.routes.orNotFound)
 
-  private def run(req: Request[IO]): IO[Response[IO]] = app.run(req)
+  /** `as` is the session id to present, i.e. WHO is asking; `None` is an
+    * anonymous browser. Defaulted to the harness admin so a suite that is not
+    * about auth reads exactly as it did before the gate existed.
+    */
+  private def run(
+      req: Request[IO],
+      as: Option[String] = Some(auth.defaultSession)
+  ): IO[Response[IO]] =
+    app.run(as.fold(req)(id => req.addCookie(AuthSessions.CookieName, id)))
 
   private def bodyOf(resp: Response[IO]): IO[String] =
     resp.body.through(fs2.text.utf8.decode).compile.string
@@ -89,25 +104,50 @@ final class TestServer(
     * bytes a browser gets BEFORE any script runs, which is where first-paint
     * claims (a baked tab panel, a restored popup) have to be checked.
     */
-  def page(query: String = ""): IO[String] =
-    run(Request[IO](Method.GET, Uri.unsafeFromString(s"/d/$slug$query")))
-      .flatMap(bodyOf)
+  def page(
+      query: String = "",
+      as: Option[String] = Some(auth.defaultSession)
+  ): IO[String] =
+    pageResponse(query, as).flatMap(bodyOf)
+
+  /** [[page]] without reading the body — for the auth suites, which assert on
+    * the status and the `Location` of a denial rather than on rendered HTML.
+    */
+  def pageResponse(
+      query: String = "",
+      as: Option[String] = Some(auth.defaultSession)
+  ): IO[Response[IO]] =
+    run(
+      Request[IO](Method.GET, Uri.unsafeFromString(s"/d/$slug$query")),
+      as
+    )
 
   /** POST an action route (e.g. `sse/action/light/toggle/light.kitchen`) and
     * return its status. The body is a fire-and-forget SSE ack the test ignores;
     * the observable effect is the recorded [[ServiceCall]].
     */
-  def post(path: String): IO[Status] =
+  def post(
+      path: String,
+      as: Option[String] = Some(auth.defaultSession)
+  ): IO[Status] =
     run(
       Request[IO](
         Method.POST,
         Uri.unsafeFromString("/" + path.stripPrefix("/"))
-      )
+      ),
+      as
     )
       .map(_.status)
 
   private val patchUri: Uri =
     Uri.unsafeFromString(s"/sse/dashboard/$slug/patch")
+
+  /** The live patch stream, unread — for the auth suites, which assert on the
+    * status of a refusal and on WHEN an admitted body ends, not on what it
+    * carries.
+    */
+  def sse(as: Option[String] = Some(auth.defaultSession)): IO[Response[IO]] =
+    run(Request[IO](Method.GET, patchUri), as)
 
   /** Open one live SSE connection, wait until the store's change publishers are
     * attached, run `trigger` (typically a `fake.emit`), and succeed once a
@@ -254,13 +294,17 @@ object TestServer {
       // The instance's Pkl artifacts, served over `/system/pkl/` — what a CLI
       // pull fetches (ADR 0010). Empty (serving nothing) for every test that
       // isn't about that endpoint.
-      systemPkl: SystemPkl = SystemPkl.empty
+      systemPkl: SystemPkl = SystemPkl.empty,
+      // The dashboard's own access rule, which is what the gate reads
+      // (`Server.accessFor` asks the renderer). Defaulted, so every suite that
+      // is not about auth gets the production default.
+      access: Access = Access.default
   ): Resource[IO, TestServer] =
     for {
       fake <- FakeHomeAssistant.create(entities).toResource
       feed <- HaFeed.resource(fakeConnect(fake))
       rendererRef <- SignallingRef[IO]
-        .of(Server.RendererState.Ready(Renderer.create(dashboard)))
+        .of(Server.RendererState.Ready(Renderer.create(dashboard, access)))
         .toResource
       // Delegate the whole live-Server assembly (health gate, sessions,
       // Server.fromFeed) to the SAME kernel production uses, so the harness
@@ -278,7 +322,8 @@ object TestServer {
         site,
         systemPkl = systemPkl
       )
-    } yield new TestServer(fake, feed.store, server, dashboard.slug)
+      auth <- TestAuth.create(server).toResource
+    } yield new TestServer(fake, feed.store, server, dashboard.slug, auth)
 
   /** Wire a [[TestServer]] the way [[resource]] does — real feed, store, and
     * Server — but from a Pkl ENTRY SOURCE evaluated through the genuine build
@@ -344,7 +389,8 @@ object TestServer {
         site,
         systemPkl = SystemPkl.fromDisk(tmp)
       )
-    } yield new TestServer(fake, feed.store, server, slug)
+      auth <- TestAuth.create(server).toResource
+    } yield new TestServer(fake, feed.store, server, slug, auth)
 
   /** Same wiring as [[resource]], plus a real [[AssetCache]] built exactly as
     * `ServerApp` builds it — a JDK http client fetching the theme's CDN assets
@@ -361,7 +407,12 @@ object TestServer {
     for {
       fake <- FakeHomeAssistant.create(entities, config).toResource
       feed <- HaFeed.resource(fakeConnect(fake))
-      renderer = Renderer.create(dashboard)
+      // Public, so the browser needs no cookie: a real Playwright session
+      // cannot be handed one before its first navigation, and driving the OAuth
+      // flow against a fake HA would test the fake. The gate still runs on
+      // every one of these requests — it is a `Public` dashboard passing, which
+      // is the wall-tablet case and worth covering end to end.
+      renderer = Renderer.create(dashboard, Access.Public)
       rendererRef <- SignallingRef[IO]
         .of(Server.RendererState.Ready(renderer))
         .toResource
@@ -384,15 +435,16 @@ object TestServer {
         )
         .toResource
       server <- ServerApp.liveServer(feed, site, assets)
+      auth <- TestAuth.create(server).toResource
       bound <- EmberServerBuilder
         .default[IO]
         .withHost(host"127.0.0.1")
         .withPort(port"0")
-        .withHttpApp(server.routes.orNotFound)
+        .withHttpApp(auth.gate(server.routes.orNotFound))
         .withShutdownTimeout(0.seconds)
         .build
     } yield (
-      new TestServer(fake, feed.store, server, dashboard.slug),
+      new TestServer(fake, feed.store, server, dashboard.slug, auth),
       bound.baseUri
     )
 

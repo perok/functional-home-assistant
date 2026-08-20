@@ -189,6 +189,29 @@ function showToast(text: string): void {
 }
 
 /**
+ * Logged out while the page was open (issue #89).
+ *
+ * The gate answers a stream or an action POST with `401` and never a redirect —
+ * a `303` on an SSE stream reports as a broken connection, not as "log in". So
+ * the browser has to make that trip itself: a reload is an ordinary top-level
+ * GET, which the gate DOES redirect, landing on HA's login page with `next`
+ * pointing back here.
+ *
+ * Unfiltered by element on purpose, unlike the action toast below: the case
+ * this exists for is the persistent stream being cut when a session ends
+ * server-side, and that error arrives with `el` = `<body>`.
+ *
+ * `replace` rather than `reload` so a logged-out tab does not leave a history
+ * entry that goes back to a page it can no longer load.
+ */
+document.addEventListener("datastar-fetch", (e: Event) => {
+  const detail = (e as CustomEvent<{ type: string; argsRaw: { status: string } }>).detail
+  if (!detail || detail.type !== "error") return
+  if (String(detail.argsRaw?.status) !== "401") return
+  window.location.replace(window.location.href)
+})
+
+/**
  * The action-failure half of this page's Datastar fetch events. Datastar
  * dispatches a `datastar-fetch` CustomEvent on `document` for every fetch its
  * attributes make, `detail = {type, el, argsRaw}` (verified against the pinned

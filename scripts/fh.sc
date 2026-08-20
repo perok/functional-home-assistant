@@ -58,11 +58,20 @@ import cats.syntax.all.*
 import com.monovore.decline.Opts
 import com.monovore.decline.effect.CommandIOApp
 import io.circe.{Decoder, Json}
-import org.http4s.{EntityDecoder, MediaType, Method, Request, Uri}
+import org.http4s.{
+  AuthScheme,
+  Credentials,
+  EntityDecoder,
+  MediaType,
+  Method,
+  Request,
+  Status,
+  Uri
+}
 import org.http4s.circe.jsonOf
 import org.http4s.client.Client
 import org.http4s.ember.client.EmberClientBuilder
-import org.http4s.headers.`Content-Type`
+import org.http4s.headers.{Authorization, `Content-Type`}
 
 import java.nio.charset.StandardCharsets.UTF_8
 import java.nio.file.{Files, Path, Paths}
@@ -103,6 +112,16 @@ def errorMessage(e: Throwable): String = e match
 val basePkl = Paths.get(".fh/base.pkl")
 val machineJson = Paths.get(".fh/machine.json")
 val pinsJson = Paths.get(".fh/pins.json")
+
+/** This laptop's credential for the instance (issue #89): `{"token": "..."}`, a
+  * Home Assistant LONG-LIVED ACCESS TOKEN from Profile -> Security.
+  *
+  * The instance resolves it against HA exactly as it resolves a browser login,
+  * so `fh` needs no shared secret of its own and gets its admin role from HA.
+  * Gitignored, and — like the instance's own session file — living in `.fh` is
+  * a known wart, tracked in issue #165.
+  */
+val userSecret = Paths.get(".fh/user_secret.json")
 
 /** The workspace's one entrypoint (`Site.EntryFile` on the instance, ADR 0021):
   * the file that names every dashboard served. Everything else is a module.
@@ -271,6 +290,13 @@ def instanceUrl: IO[String] = IO.blocking {
     )
   )
 }
+
+/** This laptop's bearer credential, if it has one. Absent is normal and not an
+  * error here: the read-only endpoints `init`/`pull` use are ungated, so only
+  * `push` needs it — and `push` says so itself when the instance refuses.
+  */
+def userToken(file: Path = userSecret): IO[Option[String]] =
+  IO.blocking(jsonField(file, "token").filter(_.nonEmpty))
 
 /** The @fh-home version currently pinned, if any (for the pull message) — read
   * from `.fh/pins.json`'s `homeUri`.
@@ -492,13 +518,15 @@ def installJson(
     json: String
 ): IO[Unit] =
   for
+    token <- userToken()
     _ <- post(
       client,
       s"$url/system/push/${target.slug}",
       Method.POST,
       json,
       MediaType.application.json,
-      "push"
+      "push",
+      token
     )
     // An entrypoint names its OWN slugs (ADR 0021), so the instance installs
     // its keys and the URL's slug is inert — say what actually landed rather
@@ -546,6 +574,7 @@ def siteSlugs(json: String): Option[List[String]] =
 def writeSource(client: Client[IO], url: String, target: Target): IO[Unit] =
   for
     files <- writeSet(target.entry)
+    token <- userToken()
     _ <- files.traverse_ { case (rel, path) =>
       IO.blocking(new String(Files.readAllBytes(path), UTF_8))
         .flatMap(
@@ -555,7 +584,8 @@ def writeSource(client: Client[IO], url: String, target: Target): IO[Unit] =
             Method.PUT,
             _,
             MediaType.text.plain,
-            "write"
+            "write",
+            token
           )
         )
     }
@@ -613,6 +643,22 @@ def writeSet(
       .traverse(relative)
   }
 
+/** What to do about a refused push. Writing pkl to the instance is admin-only
+  * (issue #89), and the two failures need different advice: no token at all is
+  * a setup step, while a token HA does not accept as an admin is a different
+  * account — and the second reads as "it worked yesterday", so it has to say
+  * which of the two happened.
+  */
+def unauthorizedHelp(what: String, status: Status, hadToken: Boolean): String =
+  if !hadToken then
+    s"""$what failed — the instance requires a Home Assistant admin ($status).
+       |Create a long-lived access token in Home Assistant (Profile -> Security)
+       |and save it as:
+       |  $userSecret   {"token": "<the token>"}""".stripMargin
+  else s"""$what failed — the instance did not accept this token ($status).
+       |The token in $userSecret must belong to a Home Assistant ADMIN, and must
+       |not have been revoked (Profile -> Security).""".stripMargin
+
 /** Send one body to the instance, failing with the response status (and its
   * body, which is where the server puts the validation message a pushing author
   * has no log to read).
@@ -623,26 +669,37 @@ def post(
     method: Method,
     body: String,
     mediaType: MediaType,
-    what: String
+    what: String,
+    // Passed in rather than read here: `post` then has no hidden dependency on
+    // the working directory, and both halves — the header it sends and the
+    // advice it gives when refused — are testable without one.
+    token: Option[String]
 ): IO[Unit] =
   for
     uri <- Uri
       .fromString(rawUri)
       .fold(_ => die(s"not a valid url: $rawUri"), IO.pure)
     _ <- client
-      .run(
-        Request[IO](method, uri)
+      .run {
+        val req = Request[IO](method, uri)
           .withEntity(body)
           .withContentType(`Content-Type`(mediaType))
-      )
+        token.fold(req)(t =>
+          req.putHeaders(Authorization(Credentials.Token(AuthScheme.Bearer, t)))
+        )
+      }
       .use(response =>
         IO.unlessA(response.status.isSuccess)(
           response.bodyText.compile.string.flatMap(text =>
             IO.raiseError(
               Die(
-                s"$what failed — the instance rejected it (${response.status})${
-                    if text.trim.nonEmpty then s": ${text.trim}" else ""
-                  }"
+                if response.status == Status.Unauthorized ||
+                  response.status == Status.Forbidden
+                then unauthorizedHelp(what, response.status, token.isDefined)
+                else
+                  s"$what failed — the instance rejected it (${response.status})${
+                      if text.trim.nonEmpty then s": ${text.trim}" else ""
+                    }"
               )
             )
           )

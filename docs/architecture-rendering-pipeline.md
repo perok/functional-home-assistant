@@ -56,6 +56,7 @@ flowchart TB
     SSE["SSE bytes to the browser<br/>Datastar morphs the DOM<br/>…and re-evaluates the bound elements"]
   end
 
+  GATE["AuthMiddleware — in front of EVERY route (ADR 0023)<br/>requirementFor(request) is pure and total<br/>asks the live registry for that slug's Access rule<br/>303 for a page · 401 for a stream or a POST"]
   ACT["action POST<br/>surface/open · popup/close<br/>carries conn + ui-state"]
   SESS["Sessions registry<br/>conn maps to slug, open set, control queue,<br/>holds (what this DOM has: digest + signals)<br/>+ position"]
   LOG[("FragmentLog per slug — the CHANGELOG<br/>node -&gt; version · Gone/Placed · horizon<br/>absence means: unknown, send it")]
@@ -68,6 +69,9 @@ flowchart TB
   PULL <-.->|since position| LOG
   OPEN <-.->|since cursor| LOG
   APPL <-.->|holds| SESS
+  GATE --> OPEN
+  GATE --> ACT
+  GATE -.->|interruptWhen: a logout or an HA revocation<br/>cuts a stream already running| SSE
   ACT --> SESS
   SESS -->|per-connection control queue| MERGE
   ACT -.->|hostFill claims into holds| SESS
@@ -83,7 +87,15 @@ flowchart TB
   class OPEN,PULL,SIGS,APPL,MERGE,SSE,BEAT client
   class LOG,SESS store
   class HA,ACT ext
+  classDef gate fill:#fee2e2,stroke:#b91c1c,color:#0f172a
+  class GATE gate
 ```
+
+**The gate is in front of everything, and stays in front of a stream.** It wraps the whole app
+rather than annotating routes, because a gate assembled from the route table protects only what
+somebody remembered to annotate. Admission is not one-time: a page has finished long before
+anything could change, but an SSE stream runs for hours, so its body is wrapped in one
+`interruptWhen` over the same `Access.permits` the door used. See ADR 0023.
 
 **Nothing is pushed.** A frame is recorded once per slug; every byte is produced by the session that
 will receive it, from the same `Patches.resume` a reconnect runs. A live tick is a resume from
@@ -99,7 +111,7 @@ old renderer cannot be resumed.
 
 | Scope | One per | What lives there |
 |---|---|---|
-| Global | process | the HA WebSocket, `HaFeed`, **the `StateStore`**, the `changes` topic, the `Sessions` registry |
+| Global | process | the HA WebSocket, `HaFeed`, **the `StateStore`**, the `changes` topic, the `Sessions` registry, the `AuthSessions` registry (a different fact — `Sessions` is keyed by `conn` and is a TAB, `AuthSessions` is keyed by a cookie and is a PERSON) |
 | Per slug | dashboard | the recorder fiber, the `RendererState` (in a `SignallingRef`: `Ready(renderer)` or `Failed(message)`, hot-swapped on edit) **and, when ready, the renderer and the member graph inside it**, the `FragmentLog`, the doorbell, the `RenderCache` |
 | Per connection | browser tab | the `Session` — created by the DOCUMENT, adopted by the stream (slug, open surfaces, control queue, plus `holds`/`position`/`told` — what THIS client's DOM has, how far it has been served, and the newest version it was ANNOUNCED, which is the most it can echo back), the SSE stream, that viewer's selections |
 
@@ -736,6 +748,11 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 
 | Box | Code |
 |---|---|
+| the gate in front of every route | `auth/AuthGate.scala` · `requirementFor` (pure), `loginRedirect`, `safeNext`; `auth/AuthMiddleware.scala` · `apply`, `check`, `keepLive` |
+| who a request is | `auth/AuthMiddleware.scala` · `Identity`, `bearerUser`; `auth/AuthSessions.scala` · `cookieOf` |
+| logged-in people, and cutting a live stream | `auth/AuthSessions.scala` · `AuthSessions` (a `SignallingRef`), `watch`, `SessionStore` (`.fh/sessions.json`) |
+| the login flow | `auth/HaOAuth.scala` · `authorizeUri`, `exchange`, `refresh`, `revoke`; `auth/AuthRoutes.scala` |
+| which rule a dashboard carries | `model/Access.scala` · `Access.permits`; `build/Site.scala` · `decode` folds the site default; `model/Dashboard.scala` · `Validated.access`; `runtime/Server.scala` · `accessFor`, `slugForConn` |
 | feed → store | `runtime/HaFeed.scala` · `pump`, `runConnection` |
 | store + changes topic | `runtime/StateStore.scala` · `update`, `changes` |
 | per-slug recorder | `runtime/Server.scala` · `publisherFor`, `recordFrame`, `sharedPatchPublishers` |

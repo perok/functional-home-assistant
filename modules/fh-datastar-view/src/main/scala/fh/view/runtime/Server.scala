@@ -194,11 +194,8 @@ class Server(
     // pushing simply skips that layer, which is why a component developer can
     // ship cards this server has no source for.
     //
-    // NOTE — unauthenticated, deliberately, matching the port it rides: the
-    // direct port is documented as unauthenticated and the server already
-    // drives Home Assistant with its own token, so anyone who can reach this
-    // can already control every device. It is nonetheless a WRITE: when auth
-    // lands for the direct port it must cover this route.
+    // Admin-only, via the gate in front of every route (ADR 0023) rather than
+    // a check here — `fh push` carries an HA long-lived token as a bearer.
     case req @ POST -> Root / "system" / "push" / slug =>
       pushResponse(slug, req)
 
@@ -206,9 +203,8 @@ class Server(
     // button): re-fetch from HA, validate every dashboard against the new dump
     // package in a staged copy, and swap the `@fh-home` pin only if nothing that
     // builds today breaks — the previous immutable package version stays in the
-    // cache as the trail (no dated backup file). Same auth story as /system/push
-    // above: unauthenticated on a port documented as such; when auth lands for
-    // the direct port it must cover this route.
+    // cache as the trail (no dated backup file). Admin-only, like
+    // /system/push above.
     case POST -> Root / "system" / "dump" / "refresh" =>
       dumpRefresh match {
         case None         => NotFound()

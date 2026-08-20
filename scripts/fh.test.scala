@@ -283,7 +283,8 @@ object FhScriptSuite extends SimpleIOSuite:
               Method.POST,
               "{}",
               MediaType.application.json,
-              "push"
+              "push",
+              None
             )
           )
           .attempt
@@ -305,6 +306,93 @@ object FhScriptSuite extends SimpleIOSuite:
     ref.get.flatMap(current =>
       IO.unlessA(current >= n)(IO.sleep(fh.pollInterval) *> awaitCount(ref, n))
     )
+
+  test(
+    "post: the instance is told who is asking, when this laptop has a token"
+  ) {
+    // Writing pkl to the instance is admin-only (issue #89) and `fh` carries no
+    // secret of its own: it forwards an HA long-lived token and lets the
+    // instance resolve it, exactly as it resolves a browser login. What this
+    // pins is the CARRIER — that the header is actually on the request — which
+    // no assertion about the response could show.
+    IO(java.util.Collections.synchronizedList(new java.util.ArrayList[String]))
+      .flatMap { seen =>
+        recordingServer(seen).use { url =>
+          for
+            _ <- fh
+              .withClient(
+                fh.post(
+                  _,
+                  url,
+                  Method.POST,
+                  "{}",
+                  MediaType.application.json,
+                  "push",
+                  Some("ha-long-lived-token")
+                )
+              )
+              .attempt
+            _ <- fh
+              .withClient(
+                fh.post(
+                  _,
+                  url,
+                  Method.POST,
+                  "{}",
+                  MediaType.application.json,
+                  "push",
+                  None
+                )
+              )
+              .attempt
+            headers <- IO.blocking(seen.asScala.toList)
+          yield expect.same(
+            List("Bearer ha-long-lived-token", "<none>"),
+            headers
+          )
+        }
+      }
+  }
+
+  pureTest("a refused push says which of the two things went wrong") {
+    // "It worked yesterday" and "I never set this up" need different advice,
+    // and the only way to tell them apart is whether a token was sent at all.
+    val noToken =
+      fh.unauthorizedHelp("push", org.http4s.Status.Unauthorized, false)
+    val wrongUser =
+      fh.unauthorizedHelp("push", org.http4s.Status.Forbidden, true)
+    expect.all(
+      clue(noToken).contains(".fh/user_secret.json"),
+      noToken.contains("Profile -> Security"),
+      clue(wrongUser).contains("did not accept this token"),
+      wrongUser.contains("ADMIN")
+    )
+  }
+
+  /** Records each request's `Authorization` header (or `<none>`) and answers
+    * 401, so a test can see what went out as well as what came back.
+    */
+  private def recordingServer(
+      seen: java.util.List[String]
+  ): Resource[IO, String] =
+    Resource
+      .make(IO.blocking {
+        val server = com.sun.net.httpserver.HttpServer
+          .create(new java.net.InetSocketAddress("127.0.0.1", 0), 0)
+        server.createContext(
+          "/",
+          exchange =>
+            val auth =
+              Option(exchange.getRequestHeaders.getFirst("Authorization"))
+                .getOrElse("<none>")
+            val _ = seen.add(auth)
+            exchange.sendResponseHeaders(401, -1L)
+            exchange.close()
+        )
+        server.start()
+        server
+      })(server => IO.blocking(server.stop(0)))
+      .map(server => s"http://127.0.0.1:${server.getAddress.getPort}/")
 
   /** A one-response HTTP stub (the JDK's own server — no extra dependency),
     * yielding its URL.

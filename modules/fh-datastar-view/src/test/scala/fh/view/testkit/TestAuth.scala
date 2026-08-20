@@ -20,7 +20,20 @@ final class TestAuth(
     val sessions: AuthSessions,
     val gate: AuthMiddleware,
     val defaultSession: String
-)
+) {
+
+  /** A session for somebody other than the harness admin — the guest, or a user
+    * an `Access.Users` rule names. Pass the result as `as` on `page` / `post`.
+    */
+  def sessionFor(user: HaUser): IO[String] =
+    sessions.create(user, s"test-refresh-${user.id}")
+
+  /** End the default session, the way a logout or an HA-side revocation does.
+    * The gate's `interruptWhen` watches the same map, so an SSE stream opened
+    * with it stops.
+    */
+  def revokeDefault: IO[Unit] = sessions.remove(defaultSession)
+}
 
 object TestAuth {
 
@@ -28,10 +41,20 @@ object TestAuth {
     * so the suites that exercise admin-only routes need no special setup.
     */
   val admin: HaUser =
-    HaUser(id = "test-admin", name = "Test Admin", is_admin = true, is_owner = true)
+    HaUser(
+      id = "test-admin",
+      name = "Test Admin",
+      is_admin = true,
+      is_owner = true
+    )
 
   val guest: HaUser =
-    HaUser(id = "test-guest", name = "Test Guest", is_admin = false, is_owner = false)
+    HaUser(
+      id = "test-guest",
+      name = "Test Guest",
+      is_admin = false,
+      is_owner = false
+    )
 
   def create(server: Server): IO[TestAuth] =
     for {

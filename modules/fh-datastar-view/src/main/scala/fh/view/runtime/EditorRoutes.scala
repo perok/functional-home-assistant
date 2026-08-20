@@ -38,11 +38,12 @@ import org.http4s.server.staticcontent.*
   *     open preview — no coupling here.
   *   - `GET  /lsp/pkl` the language-server WebSocket ([[LspBridge]]).
   *
-  * Editing is **deliberately ungated** for now, safe only because the server
-  * binds loopback by default (see the plan's "Deferred: feature gate +
-  * security" section). The write path is still clamped: only `<name>.pkl` and
-  * `lib/<name>.pkl` under the dashboards dir, each segment matching
-  * [[AssetCache.SafeName]] (which rejects `..` and slashes) — no traversal.
+  * Every route here is **admin-only**, enforced by the gate in front of the
+  * whole app (ADR 0023) rather than by anything in this file — including the
+  * `/lsp/pkl` WebSocket. The write path is clamped independently of that: only
+  * `<name>.pkl` and `lib/<name>.pkl` under the dashboards dir, each segment
+  * matching [[AssetCache.SafeName]] (which rejects `..` and slashes) — no
+  * traversal.
   *
   * `dump.pkl` is excluded everywhere: it's the generated, gitignored dump, not
   * an author source.
