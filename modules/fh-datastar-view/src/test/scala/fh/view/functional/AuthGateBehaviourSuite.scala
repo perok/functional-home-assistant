@@ -139,20 +139,29 @@ class AuthGateBehaviourSuite extends FunctionalSuite {
     * admitted once and then runs for hours, so a check only at the door would
     * leave a revoked user watching a live dashboard until they reloaded.
     */
-  test("logging out cuts an SSE stream that is already open") {
+  /** Cutting the stream stops the dashboard UPDATING; the tab still SHOWS what
+    * it last received. So the last thing the stream sends is the `_reload`
+    * signal every page already declares an effect for — that is what actually
+    * takes the house off a signed-out screen.
+    */
+  test("logging out ends the stream, and says so on the way out") {
     withServer(house) { ts =>
       ts.sse().flatMap { resp =>
         for {
           // Wait until the stream is genuinely live before revoking, so the
           // test cannot pass on a connection that never started.
-          fiber <- resp.body.compile.drain.start
+          seen <- resp.body
+            .through(fs2.text.utf8.decode)
+            .compile
+            .string
+            .start
           _ <- ts.awaitLive()
           _ <- ts.auth.revokeDefault
-          // It ENDS rather than erroring: `interruptWhen` completes the stream,
-          // which the browser sees as a closed connection and retries — landing
-          // on the 401 above.
-          _ <- fiber.joinWithNever.timeout(10.seconds)
-        } yield ()
+          text <- seen.joinWithNever.timeout(10.seconds)
+        } yield assert(
+          clue(text).contains("_reload"),
+          "the stream closed without telling the client to reload"
+        )
       }
     }
   }

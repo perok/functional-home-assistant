@@ -4,6 +4,7 @@ import api.homeassistant.ws.domain.HaUser
 import cats.effect.IO
 import cats.syntax.all.*
 import fh.view.model.Access
+import fs2.Stream
 import org.http4s.headers.{Authorization, Location}
 import org.http4s.{
   AuthScheme,
@@ -157,29 +158,25 @@ open class AuthGate(
 
   /** [[handleRequirement]] for a route whose response is a LIVE STREAM.
     *
-    * Separate rather than sniffed from the path, because the route knows what
-    * it is returning and the gate does not. It is the same check plus one thing
-    * only a stream needs: admission is not a one-time event when the response
-    * lasts for hours, so the body is cut if the rule stops holding
-    * ([[AuthSessions.watch]]) — over the SAME `permits` the door used, so the
-    * two cannot drift.
+    * Admission is not a one-time event when the response lasts for hours, so
+    * the handler is given a `Stream[IO, Boolean]` — "does the rule still hold"
+    * — over the SAME `permits` the door used, so the two cannot drift.
+    *
+    * The gate hands that signal over rather than applying it. What to DO on
+    * revocation is a stream concern, and at this level a response body is only
+    * bytes; the route builds its stream out of `ServerSentEvent`s and can
+    * therefore say goodbye properly on the way out (`Server.untilRevoked`).
     */
   def handleStream(req: Request[IO], slug: Option[String])(
-      handler: IO[Response[IO]]
+      handler: Stream[IO, Boolean] => IO[Response[IO]]
   ): IO[Response[IO]] =
     (accessFor(slug), of(req)).flatMapN { (access, user) =>
       if (!access.permits(user))
         IO.pure(user.fold(unauthorized)(_ => noAccess))
       else
-        (handler, sessionOf(req)).flatMapN { (resp, session) =>
-          IO.pure(
-            resp.withBodyStream(
-              resp.body.interruptWhen(
-                sessions.watch(session, access.permits).map(ok => !ok)
-              )
-            )
-          )
-        }
+        sessionOf(req).flatMap(id =>
+          handler(sessions.watch(id, access.permits))
+        )
     }
 
   /** `Right` when this request may have the dashboard, `Left(who)` when not —

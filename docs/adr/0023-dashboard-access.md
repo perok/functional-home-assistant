@@ -137,15 +137,17 @@ a later refusal on one of those means the session DIED, which is an error and
 should read as one. An authenticated user who merely lacks the role gets `403`
 either way, so there is no login loop.
 
-Two consequences worth stating. A 401 on an SSE stream carries no "log in here"
-hint, because nothing would act on it — the browser learns that from the page.
-And what a tab does when its session dies mid-stream is a client concern: the
-stream is cut server-side, which stops the dashboard UPDATING but leaves it
-SHOWING what it last received, so the page shell reloads on a 401 and lands on
-the redirect. Datastar has no built-in for this by design (it follows 3xx, and
-treats 4xx as a bug rather than a flow), and the gate cannot redirect the stream
-itself — `fetch` would follow the 303 to an HTML login page that is not an
-event stream.
+A 401 on an SSE stream carries no "log in here" hint, because nothing would act
+on it: the browser learns that from the page.
+
+**A revoked stream says goodbye before it closes.** Ending it stops the
+dashboard UPDATING but leaves the tab SHOWING what it last received, so
+somebody signed out on another device would go on reading the house off a
+frozen page. The last thing the stream sends is the `_reload` signal every page
+already declares a `window.location.reload()` effect for — the reload then hits
+the page route, which redirects to login. Server-driven, over a channel that
+already existed; the client needs nothing, and an earlier client-side listener
+for this is gone.
 
 **The rule itself is authored data.** `lib/core/access.pkl` declares four cases
 (`public`, `authenticated`, `admin`, `users(ids)`), written per dashboard on

@@ -259,14 +259,14 @@ class Server(
     case req @ GET -> Root / "sse" / "dashboard" / slug / "patch" =>
       // The 404 gate lives INSIDE the stream ([[sseStream]]), on its own single
       // lookup, not here — see that method.
-      gate.handleStream(req, Some(slug))(sseStream(slug, req))
+      gate.handleStream(req, Some(slug))(sseStream(slug, req, _))
 
     // The error page's recovery stream ([[recoverStream]]): unlike `patch`, a
     // dedicated stream with no session/conn/cursor — the error page opens it and
     // reloads on the first `_reload` signal ([[errorPage]]). The slug lookup
     // happens INSIDE the stream ([[recoverStream]]) so it cannot race it.
     case req @ GET -> Root / "sse" / "dashboard" / slug / "recover" =>
-      gate.handleStream(req, Some(slug))(recoverStream(slug))
+      gate.handleStream(req, Some(slug))(recoverStream(slug, _))
 
     // No-data action (toggle, open/close, lock, play/pause, scene activate...).
     // `domain` is the SERVICE's domain, which is not always the entity's domain
@@ -604,7 +604,11 @@ class Server(
     * body repaints, and a heartbeat. An unknown slug is a 404 — the gate lives
     * at the tail, on the stream's own single lookup ([[liveFor]]).
     */
-  private def sseStream(slug: String, req: Request[IO]): IO[Response[IO]] =
+  private def sseStream(
+      slug: String,
+      req: Request[IO],
+      allowed: Stream[IO, Boolean]
+  ): IO[Response[IO]] =
     val uiState = Server.uiStateOf(req)
     for {
       // The session was established by the document this stream belongs to,
@@ -778,7 +782,7 @@ class Server(
       // session `adoptOrMint` created is unreferenced garbage.
       resp <- liveOpt match
         case None    => NotFound()
-        case Some(_) => Ok(stream)
+        case Some(_) => Ok(untilRevoked(allowed)(stream))
     } yield resp
 
   /** The error page's recovery stream ([[errorPage]]): the slug's
@@ -790,11 +794,44 @@ class Server(
     * route-side lookup and the stream would have answered a 200 empty-body SSE
     * instead of a 404.
     */
-  private def recoverStream(slug: String): IO[Response[IO]] =
+  private def recoverStream(
+      slug: String,
+      allowed: Stream[IO, Boolean]
+  ): IO[Response[IO]] =
     liveFor(slug).flatMap {
       case None       => NotFound()
-      case Some(live) => Ok(recoverTransitions(live).merge(keepAliveComments))
+      case Some(live) =>
+        Ok(
+          untilRevoked(allowed)(
+            recoverTransitions(live).merge(keepAliveComments)
+          )
+        )
     }
+
+  /** End a live stream when its dashboard's rule stops holding — and tell the
+    * client why, as the last thing it sends (issue #89).
+    *
+    * Cutting the stream stops the dashboard UPDATING, but the tab goes on
+    * SHOWING everything it last received: somebody signed out on another device
+    * would keep reading the house off a frozen page. The reload is what takes
+    * it away, and it rides the signal that already exists for exactly that —
+    * every page declares `_reload` with a `window.location.reload()` effect
+    * ([[Server.reloadPatch]]), so the client needs nothing new.
+    *
+    * A merge rather than `interruptWhen` is the whole point: the right side
+    * stays silent until the rule breaks, then emits the reload and ENDS — so
+    * the goodbye is delivered before the stream closes rather than being cut
+    * off with it.
+    *
+    * `mergeHaltBoth`, not `mergeHaltR`: a rule that never breaks leaves the
+    * right side running forever, and halting only on IT would keep a stream
+    * alive after its own events had finished — a displaced session's stream
+    * would never close, which is a hang rather than a leak.
+    */
+  private def untilRevoked(allowed: Stream[IO, Boolean])(
+      events: Stream[IO, ServerSentEvent]
+  ): Stream[IO, ServerSentEvent] =
+    events.mergeHaltBoth(allowed.find(!_).as(Server.reloadPatch))
 
   /** The recover stream's state changes ([[recoverStream]]), as the error page
     * must react to them. Its FIRST element doubles as the connection marker: a

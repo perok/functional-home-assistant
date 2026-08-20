@@ -27,9 +27,9 @@ class HaOAuthSuite extends munit.FunSuite {
     assertEquals(HaOAuth.browserBase(None, None, dialed), dialed)
   }
 
-  /** The case that is broken rather than merely suboptimal:
-    * `home-addon/run.sh` dials `http://supervisor/core`, so under the add-on
-    * an unguarded fallback points a browser at a container-internal host.
+  /** The case that is broken rather than merely suboptimal: `home-addon/run.sh`
+    * dials `http://supervisor/core`, so under the add-on an unguarded fallback
+    * points a browser at a container-internal host.
     */
   test("the supervisor address is never handed to a browser") {
     val supervisor = uri"http://supervisor/core"

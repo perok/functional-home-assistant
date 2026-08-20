@@ -189,34 +189,6 @@ function showToast(text: string): void {
 }
 
 /**
- * Logged out while the page was open (issue #89).
- *
- * This is what finishes a revocation. Cutting the stream server-side stops the
- * dashboard UPDATING, but the tab still SHOWS everything it last received — so
- * a user who was signed out on another device would go on reading the house
- * from a frozen page. The reload is what takes it away: an ordinary top-level
- * GET, which the gate answers with a redirect to the login page (a stream gets
- * a 401 instead, correctly — by then the human is no longer the one asking).
- *
- * Datastar has no built-in for this and says so deliberately: it follows 3xx
- * and merges 2xx, and treats 4xx as "a bug to fix" rather than a flow. Nor can
- * the gate redirect the stream itself — `fetch` would follow the 303 to an HTML
- * login page that is not an event stream, then cross-origin to HA.
- *
- * Unfiltered by element, unlike the action toast below: the error this exists
- * for arrives on the persistent stream, whose `el` is `<body>`.
- *
- * `replace` rather than `reload` so a logged-out tab leaves no history entry
- * pointing back at a page it can no longer load.
- */
-document.addEventListener("datastar-fetch", (e: Event) => {
-  const detail = (e as CustomEvent<{ type: string; argsRaw: { status: string } }>).detail
-  if (!detail || detail.type !== "error") return
-  if (String(detail.argsRaw?.status) !== "401") return
-  window.location.replace(window.location.href)
-})
-
-/**
  * The action-failure half of this page's Datastar fetch events. Datastar
  * dispatches a `datastar-fetch` CustomEvent on `document` for every fetch its
  * attributes make, `detail = {type, el, argsRaw}` (verified against the pinned

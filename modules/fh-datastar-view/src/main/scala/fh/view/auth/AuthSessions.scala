@@ -2,7 +2,6 @@ package fh.view.auth
 
 import api.homeassistant.ws.domain.HaUser
 import cats.effect.IO
-import cats.syntax.all.*
 import fs2.Stream
 import fs2.concurrent.SignallingRef
 import fs2.io.file.{Files, Path, PosixPermissions}
@@ -11,9 +10,7 @@ import io.circe.{Decoder, Encoder, parser}
 import org.http4s.{Request, RequestCookie, ResponseCookie, SameSite}
 
 import java.nio.file.FileAlreadyExistsException
-import java.security.SecureRandom
 import java.time.Instant
-import java.util.Base64
 
 /** One logged-in person, as the server knows them.
   *
@@ -58,7 +55,7 @@ final class AuthSessions(
   /** Mint a session for a freshly-authenticated user; returns its cookie id. */
   def create(user: HaUser, refresh: String): IO[String] =
     for {
-      id <- IO(AuthSessions.randomId)
+      id <- AuthSessions.randomId
       now <- IO.realTimeInstant
       _ <- ref.update(_.updated(id, AuthSession(user, refresh, now)))
       _ <- persist
@@ -105,19 +102,15 @@ final class AuthSessions(
 
 object AuthSessions {
 
-  // One shared instance, and NOT `getInstanceStrong`: on Linux that resolves to
-  // a blocking entropy source, so a login could stall waiting for the pool.
-  // `new SecureRandom()` is the non-blocking, properly seeded one.
-  private val random = new SecureRandom()
-
-  /** 256 bits from `SecureRandom`. The cookie's whole content, so it has to be
-    * unguessable; it carries no meaning, so it needs nothing else.
+  /** The cookie's whole content, so it has to be unguessable; it carries no
+    * meaning, so it needs nothing else.
+    *
+    * A v4 UUID: 122 random bits from `UUID.randomUUID`, which the JDK documents
+    * as using a cryptographically strong PRNG. Plenty for a session id, and it
+    * keeps the hand-rolled `SecureRandom` plumbing out of here — this already
+    * ran inside `IO`.
     */
-  private def randomId: String = {
-    val bytes = new Array[Byte](32)
-    random.nextBytes(bytes)
-    Base64.getUrlEncoder.withoutPadding.encodeToString(bytes)
-  }
+  private def randomId: IO[String] = IO.randomUUID.map(_.toString)
 
   val CookieName: String = "fh_session"
 
