@@ -156,6 +156,7 @@ case class HaUser(
     is_admin: Boolean,
     is_owner: Boolean
 ) derives Decoder,
+      Encoder.AsObject,
       CanEqual
 
 case class DeviceTrigger(

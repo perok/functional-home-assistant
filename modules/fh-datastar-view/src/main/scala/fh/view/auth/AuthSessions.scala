@@ -5,10 +5,12 @@ import cats.effect.IO
 import cats.syntax.all.*
 import fs2.Stream
 import fs2.concurrent.SignallingRef
+import fs2.io.file.{Files, Path, PosixPermissions}
 import io.circe.syntax.*
 import io.circe.{Decoder, Encoder, parser}
 import org.http4s.{Request, RequestCookie, ResponseCookie, SameSite}
 
+import java.nio.file.FileAlreadyExistsException
 import java.security.SecureRandom
 import java.time.Instant
 import java.util.Base64
@@ -28,7 +30,8 @@ final case class AuthSession(
     user: HaUser,
     refresh: String,
     verifiedAt: Instant
-)
+) derives Encoder.AsObject,
+      Decoder
 
 /** Live auth sessions, keyed by the opaque id their cookie carries.
   *
@@ -176,41 +179,24 @@ object AuthSessions {
   */
 final class SessionStore(path: os.Path) {
 
-  private given Encoder[HaUser] = Encoder.forProduct4(
-    "id",
-    "name",
-    "is_admin",
-    "is_owner"
-  )(u => (u.id, u.name, u.is_admin, u.is_owner))
-
-  private given Decoder[HaUser] = Decoder.forProduct4(
-    "id",
-    "name",
-    "is_admin",
-    "is_owner"
-  )(HaUser.apply)
-
-  private given Encoder[AuthSession] = Encoder.forProduct3(
-    "user",
-    "refresh",
-    "verifiedAt"
-  )(s => (s.user, s.refresh, s.verifiedAt.toString))
-
-  private given Decoder[AuthSession] = Decoder.forProduct3(
-    "user",
-    "refresh",
-    "verifiedAt"
-  )((u: HaUser, r: String, v: String) => AuthSession(u, r, Instant.parse(v)))
+  private val file = Path.fromNioPath(path.toNIO)
 
   def write(sessions: Map[String, AuthSession]): IO[Unit] =
-    IO.blocking {
-      os.write.over(
-        path,
-        sessions.asJson.noSpaces,
-        createFolders = true,
-        perms = os.PermSet.fromString("rw-------")
-      )
-    }.handleErrorWith { e =>
+    (
+      Files[IO].createDirectories(file.parent.getOrElse(file)) *>
+        // Created with the permissions already on it rather than fixed up
+        // afterwards: a chmod after the write leaves a window where the
+        // refresh tokens are world-readable. Existing is the ordinary case —
+        // this rewrites the whole map on every change.
+        Files[IO]
+          .createFile(file, Some(SessionStore.OwnerOnly))
+          .recover { case _: FileAlreadyExistsException => () } *>
+        Stream
+          .emit(sessions.asJson.noSpaces)
+          .through(Files[IO].writeUtf8(file))
+          .compile
+          .drain
+    ).handleErrorWith { e =>
       // A workspace we cannot write to must not take the server down: the
       // sessions still work, they just will not survive a restart.
       IO.consoleForIO.errorln(
@@ -225,26 +211,39 @@ final class SessionStore(path: os.Path) {
     * not, and this file is a convenience by construction.
     */
   def read: IO[Map[String, AuthSession]] =
-    IO.blocking(Option.when(os.exists(path))(os.read(path)))
-      .map(_.flatMap(decode))
-      .handleErrorWith(_ => IO.pure(None))
+    Files[IO]
+      .exists(file)
       .flatMap {
-        case Some(m) => IO.pure(m)
-        case None    =>
-          IO.blocking(os.exists(path)).flatMap { existed =>
-            IO.whenA(existed)(
-              IO.consoleForIO.errorln(
-                s"[warn] $path was unreadable; starting with no sessions"
+        case false => IO.pure(None)
+        case true  =>
+          Files[IO]
+            .readUtf8(file)
+            .compile
+            .string
+            .map(decode)
+            .handleError(_ => None)
+            .flatTap(decoded =>
+              IO.whenA(decoded.isEmpty)(
+                IO.consoleForIO.errorln(
+                  s"[warn] $path was unreadable; starting with no sessions"
+                )
               )
-            ).as(Map.empty)
-          }
+            )
       }
+      .map(_.getOrElse(Map.empty))
 
   private def decode(raw: String): Option[Map[String, AuthSession]] =
     parser.parse(raw).toOption.flatMap(_.as[Map[String, AuthSession]].toOption)
 }
 
 object SessionStore {
+
+  /** `rw-------`. This file holds Home Assistant refresh tokens. */
+  val OwnerOnly: PosixPermissions = PosixPermissions
+    .fromString("rw-------")
+    .getOrElse(
+      throw new IllegalStateException("rw------- is not a permission string")
+    )
 
   /** `.fh/sessions.json` under the workspace — beside `machine.json` and
     * `pins.json`, the directory this instance already owns.

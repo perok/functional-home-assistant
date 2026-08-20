@@ -1,6 +1,7 @@
 package fh.view.auth
 
 import cats.effect.IO
+import api.homeassistant.ws.domain.HaUser
 import fh.view.model.Access
 import fh.view.testkit.TestAuth
 
@@ -140,6 +141,44 @@ class AuthSessionsSuite extends munit.CatsEffectSuite {
       assertEquals(found.map(_.user), Some(admin))
       assertEquals(found.map(_.refresh), Some("r1"))
       assertEquals(perms, "rw-------")
+    }
+  }
+
+  /** The round-trip tests pass even if BOTH sides change together, so the shape
+    * is pinned against a literal. The file is written by the previous run — and
+    * a restart happens on every dashboard edit — so a silent codec change logs
+    * the whole household out.
+    */
+  test("the on-disk shape is fixed, not whatever the codecs currently derive") {
+    val dir = os.temp.dir(prefix = "fh-sessions")
+    val path = dir / "sessions.json"
+    os.write.over(
+      path,
+      """{"abc":{"user":{"id":"u1","name":"Peri","is_admin":true,""" +
+        """"is_owner":false},"refresh":"r1",""" +
+        """"verifiedAt":"2026-08-20T10:00:00Z"}}"""
+    )
+    for {
+      restored <- AuthSessions.create(new SessionStore(path))
+      found <- restored.get("abc")
+      // ...and written back the same way.
+      _ <- restored.renew("abc", found.get.user, "r1")
+      onDisk <- IO.blocking(os.read(path))
+    } yield {
+      assertEquals(
+        found.map(_.user),
+        Some(HaUser("u1", "Peri", is_admin = true, is_owner = false))
+      )
+      assertEquals(
+        found.map(_.verifiedAt),
+        Some(Instant.parse("2026-08-20T10:00:00Z"))
+      )
+      assert(
+        clue(onDisk).contains(""""user":{"id":"u1","name":"Peri""""),
+        "the user object's field names moved"
+      )
+      assert(onDisk.contains(""""is_admin":true"""))
+      assert(onDisk.contains(""""refresh":"r1""""))
     }
   }
 
