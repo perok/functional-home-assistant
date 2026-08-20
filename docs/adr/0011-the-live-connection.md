@@ -463,9 +463,12 @@ must not refresh every browser when the theme is byte-identical.
   what `Renderer.themeStyleTag` + the `<title>` render, so a mismatch is repaired by
   `Server.headPatches` — two element patches, no reload.
 - **`headHash`** — `<link>`ed stylesheets, the theme's scripts (module `src`s and
-  inline bodies), `theme.chrome`. None can be patched honestly: a `<link>` can be
-  added but not un-applied, a script cannot be un-run, and the chrome is the frame
-  the body patch lands INSIDE.
+  inline bodies), `theme.chrome`, and the `<meta name="theme-color">` pair. None can
+  be patched honestly: a `<link>` can be
+  added but not un-applied, a script cannot be un-run, the chrome is the frame
+  the body patch lands INSIDE, and a `<meta>` is markup rather than CSS — which is
+  why exactly those two token VALUES sit here while every other token patches with
+  `styleHash`.
 
 `headPatches` is orthogonal to the resume/repaint decision, prepended to whichever
 outcome applies, so a re-themed dashboard costs a client its stylesheet rather than
