@@ -64,10 +64,11 @@ class Server(
     // `push` mints one at runtime.
     site: Server.LiveSite,
     sessions: Sessions,
-    // The auth gate (ADR 0023). Every route below declares its own
-    // `Requirement` and wraps its handler in `gate.handleRequirement`, so the
-    // rule is written where the route is, and a whole surface with one rule
-    // wraps once instead (`AuthGate.require`, used by EditorRoutes).
+    // The auth gate (ADR 0023). A route that has a rule declares it and wraps
+    // its handler in `gate.handleRequirement`, so the rule is written where the
+    // route is; a public one — the shell, the PWA files — is simply not
+    // wrapped, and a whole surface with one rule wraps once instead
+    // (`AuthGate.require`, used by EditorRoutes).
     gate: AuthGate,
     // Starts the per-slug recorder for a slug that enters the registry after
     // startup. Scoped to `Server.resource`, so those fibers die with the server.
@@ -121,47 +122,40 @@ class Server(
 
     // Locally cached theme assets (stylesheets/scripts/fonts); a name that
     // isn't cached is a 404 — the page then references the original URL.
-    // Open: the shell has to paint before anyone can be logged in.
-    case req @ GET -> Root / "assets" / name =>
-      gate.handleRequirement(req, Requirement.Open)(assets.serve(name))
+    // Ungated, like everything else the shell needs: it has to paint before
+    // anyone can be logged in.
+    case GET -> Root / "assets" / name =>
+      assets.serve(name)
 
     // The PWA files — the manifest + service worker (the install mechanism,
     // see [[PwaAssets]]) and the icons. Fixed names, so `PwaAssets` serves them
     // no-cache, never immutable — the browser must revalidate them to learn
     // about updates (see the object doc).
-    case req @ GET -> Root / "manifest.webmanifest" =>
-      gate.handleRequirement(req, Requirement.Open)(
-        PwaAssets.serve("manifest.webmanifest")
-      )
-    case req @ GET -> Root / "sw.js" =>
-      gate.handleRequirement(req, Requirement.Open)(PwaAssets.serve("sw.js"))
-    case req @ GET -> Root / "icon-192.png" =>
-      gate.handleRequirement(req, Requirement.Open)(
-        PwaAssets.serve("icon-192.png")
-      )
-    case req @ GET -> Root / "icon-512.png" =>
-      gate.handleRequirement(req, Requirement.Open)(
-        PwaAssets.serve("icon-512.png")
-      )
+    case GET -> Root / "manifest.webmanifest" =>
+      PwaAssets.serve("manifest.webmanifest")
+    case GET -> Root / "sw.js" =>
+      PwaAssets.serve("sw.js")
+    case GET -> Root / "icon-192.png" =>
+      PwaAssets.serve("icon-192.png")
+    case GET -> Root / "icon-512.png" =>
+      PwaAssets.serve("icon-512.png")
 
     // The bundled frontend (src/js -> vite). The name carries a content hash
     // and `FrontendAssets` only answers for names the manifest lists, so this
     // needs no path sanitising and the response can be `immutable`: a rebuilt
     // bundle is a different URL, never a stale hit.
     case req @ GET -> Root / "web" / file if FrontendAssets.serves(file) =>
-      gate.handleRequirement(req, Requirement.Open)(
-        StaticFile
-          .fromResource(s"/web/$file", Some(req))
-          .map(
-            _.putHeaders(
-              Header.Raw(
-                CIString("Cache-Control"),
-                "public, max-age=31536000, immutable"
-              )
+      StaticFile
+        .fromResource(s"/web/$file", Some(req))
+        .map(
+          _.putHeaders(
+            Header.Raw(
+              CIString("Cache-Control"),
+              "public, max-age=31536000, immutable"
             )
           )
-          .getOrElseF(NotFound())
-      )
+        )
+        .getOrElseF(NotFound())
 
     // The live home's Pkl artifacts — the domain schema + the freshly-rendered
     // per-home dump — as source text for pkl-lsp (behind the `/edit` editor)
@@ -170,18 +164,20 @@ class Server(
     // `moduleCacheDir`). The laptop companion (the `fh` scala-cli script) is
     // distributed from the GitHub repo (`scripts/fh.sc`), not from the
     // instance; it drives the routes below.
+    //
+    // All of them are UNGATED, unlike everything else that is not the shell —
+    // a temporary hole tracked by issue #166. pkl-lsp and `fh init` consume
+    // them and it is not confirmed that pkl-lsp can send a header.
 
     // The package-discovery index (before the `:name` route, which would
     // otherwise swallow the 3-segment path as `name = "packages"`): current
     // versions + metadata sha256 of the packages this home serves — what
     // `fh pull` reads before rewriting the laptop's pins.
-    case req @ GET -> Root / "system" / "pkl" / "packages" =>
-      openPkl(req)(
-        guardSystemPkl(
-          systemPkl.packagesIndex.flatMap(json =>
-            Ok(json).map(
-              _.putHeaders(`Content-Type`(MediaType.application.json))
-            )
+    case GET -> Root / "system" / "pkl" / "packages" =>
+      guardSystemPkl(
+        systemPkl.packagesIndex.flatMap(json =>
+          Ok(json).map(
+            _.putHeaders(`Content-Type`(MediaType.application.json))
           )
         )
       )
@@ -190,27 +186,19 @@ class Server(
     // the machine-AGNOSTIC, byte-identical files (ADR 0010). The per-machine
     // `.fh/machine.json` is NOT served — `fh` writes its own (its cache dir + the
     // instance URL). Before the `:name` catch-all so these exact names win.
-    case req @ GET -> Root / "system" / "pkl" / "base.pkl" =>
-      openPkl(req)(
-        Ok(AddonBootstrap.BaseManifest)
-          .map(_.putHeaders(`Content-Type`(MediaType.text.plain)))
-      )
-    case req @ GET -> Root / "system" / "pkl" / "PklProject" =>
-      openPkl(req)(
-        Ok(AddonBootstrap.ConsumerManifest)
-          .map(_.putHeaders(`Content-Type`(MediaType.text.plain)))
-      )
-    case req @ GET -> Root / "system" / "pkl" / "gitignore" =>
-      openPkl(req)(
-        Ok(AddonBootstrap.GitignoreTemplate)
-          .map(_.putHeaders(`Content-Type`(MediaType.text.plain)))
-      )
+    case GET -> Root / "system" / "pkl" / "base.pkl" =>
+      Ok(AddonBootstrap.BaseManifest)
+        .map(_.putHeaders(`Content-Type`(MediaType.text.plain)))
+    case GET -> Root / "system" / "pkl" / "PklProject" =>
+      Ok(AddonBootstrap.ConsumerManifest)
+        .map(_.putHeaders(`Content-Type`(MediaType.text.plain)))
+    case GET -> Root / "system" / "pkl" / "gitignore" =>
+      Ok(AddonBootstrap.GitignoreTemplate)
+        .map(_.putHeaders(`Content-Type`(MediaType.text.plain)))
 
     case req @ GET -> Root / "system" / "pkl" / name =>
-      openPkl(req)(
-        guardSystemPkl(
-          systemPkl.module(name).flatMap(systemPklResponse(_, req))
-        )
+      guardSystemPkl(
+        systemPkl.module(name).flatMap(systemPklResponse(_, req))
       )
 
     // The instance's resolved lib packages (ADR 0010): the metadata JSON at
@@ -222,15 +210,13 @@ class Server(
     // itself evaluates. No cache headers: pkl fetches per resolve, and a
     // proxy-cached zip would turn the dev-image drift case (lib bytes changed
     // under an unchanged version) into a confusing stale-checksum failure.
-    case req @ GET -> Root / "system" / "pkl" / "packages" / file =>
-      openPkl(req)(
-        guardSystemPkl(systemPkl.packageArtifact(file).flatMap { bytes =>
-          val mediaType =
-            if (file.endsWith(".zip")) MediaType.application.zip
-            else MediaType.application.json
-          Ok(bytes).map(_.putHeaders(`Content-Type`(mediaType)))
-        })
-      )
+    case GET -> Root / "system" / "pkl" / "packages" / file =>
+      guardSystemPkl(systemPkl.packageArtifact(file).flatMap { bytes =>
+        val mediaType =
+          if (file.endsWith(".zip")) MediaType.application.zip
+          else MediaType.application.json
+        Ok(bytes).map(_.putHeaders(`Content-Type`(mediaType)))
+      })
 
     // Edit-mode node inspection ("debug this node"): the live entity state of
     // every entity a rendered node binds. Read-only; used by the overlay the
@@ -314,27 +300,6 @@ class Server(
       )
   }
 
-  /** The shared shape of the `/system/pkl/` routes: their `SystemPkl` calls
-    * raise [[FHError]] for anything a home does not serve, mapped here to its
-    * `status + message` — locally, the same as [[pushResponse]], so these
-    * routes behave identically whether exercised through the app-level
-    * [[FHError.handle]] or directly in a test; a non-`FHError` is an unnamed
-    * bug and becomes a 500, same as there.
-    */
-  /** The `/system/pkl/` read-only endpoints, which stay ungated in this change
-    * (issue #166).
-    *
-    * Its own named helper rather than a bare `Requirement.Open` at five call
-    * sites: this exemption is temporary and has a tracking issue, and a reader
-    * asking "why is source served to anyone" should land on the reason, not on
-    * five identical annotations that look deliberate. pkl-lsp and `fh init`
-    * consume these and it is not confirmed that pkl-lsp can send a header.
-    */
-  private def openPkl(req: Request[IO])(
-      handler: IO[Response[IO]]
-  ): IO[Response[IO]] =
-    gate.handleRequirement(req, Requirement.Open)(handler)
-
   /** An action may only touch an entity its OWN dashboard names (issue #89).
     *
     * The access rule says WHO may use a dashboard; this says WHAT that lets
@@ -364,6 +329,13 @@ class Server(
           )
     }
 
+  /** The shared shape of the `/system/pkl/` routes: their `SystemPkl` calls
+    * raise [[FHError]] for anything a home does not serve, mapped here to its
+    * `status + message` — locally, the same as [[pushResponse]], so these
+    * routes behave identically whether exercised through the app-level
+    * [[FHError.handle]] or directly in a test; a non-`FHError` is an unnamed
+    * bug and becomes a 500, same as there.
+    */
   private def guardSystemPkl(io: IO[Response[IO]]): IO[Response[IO]] =
     io.handleErrorWith {
       case e: FHError => FHError.logged(e)
@@ -1328,18 +1300,14 @@ class Server(
         // Neither of these two has a dashboard to be checked against, and
         // neither says anything a caller did not already send us: the request
         // was malformed, or it named a connection this process does not have.
-        // Declared `Open` rather than checked against some other dashboard's
-        // rule — that guess is what this change removed.
+        // So they answer un-gated rather than being checked against some other
+        // dashboard's rule — that guess is what this change removed.
         case None =>
-          gate.handleRequirement(req, Requirement.Open)(
-            BadRequest("""{"success":false,"error":"missing conn"}""")
-          )
+          BadRequest("""{"success":false,"error":"missing conn"}""")
         case Some((conn, uiState)) =>
           sessions.get(conn).flatMap {
             case None =>
-              gate.handleRequirement(req, Requirement.Open)(
-                NoContent() // stale/unknown connection
-              )
+              NoContent() // stale/unknown connection
             case Some(session) =>
               // The requirement is declared HERE because this is the first
               // point that knows which dashboard the request is for: the URL

@@ -278,7 +278,7 @@ object ServerApp extends IOApp {
           trustedProxy
         )
         authRoutes <- AuthRoutes
-          .create(oauth, authSessions, identify, gate, Server.baseUriOf)
+          .create(oauth, authSessions, identify, Server.baseUriOf)
           .toResource
         // The live Server, assembled through the SHARED kernel `liveServer` (the
         // same one the test harness funnels through, so the wiring can't drift).

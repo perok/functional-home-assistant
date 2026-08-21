@@ -25,13 +25,13 @@ import org.http4s.{
   * script that should be told no. A redirected SSE stream or action POST fails
   * in a way nobody can read, so the distinction is declared at the route rather
   * than guessed at the denial site.
+  *
+  * There is no `Open` case. A public route — the PWA shell, the bundled assets,
+  * the auth routes themselves — simply does not go through the gate: a case
+  * that returned the handler untouched was a comment with a lambda around it,
+  * indistinguishable to the compiler from not wrapping at all.
   */
 enum Requirement derives CanEqual:
-
-  /** Served to anyone. The PWA shell, the bundled assets and the auth routes
-    * themselves: a login page that needs a login cannot load.
-    */
-  case Open
 
   /** Whatever this dashboard's own rule says — its page, its stream, its action
     * POSTs alike. `None` is `/`, which resolves through the site's default
@@ -71,15 +71,12 @@ trait Identity {
   *
   * Each route declares its own requirement and wraps its handler in
   * [[handleRequirement]], so the rule is written where the route is rather than
-  * in a table somewhere else that has to be kept in step with it. Two things
-  * that arrangement gets right, and which a central classifier could not:
-  *
-  *   - A route that knows its own slug says so, and the ones that did not were
-  *     changed until they do: an action POST now carries its dashboard in the
-  *     URL, and `Server.withSession` declares its requirement once the session
-  *     names one. Neither has to re-parse a request body to guess.
-  *   - `Open` is an annotation beside the thing it exempts, so an exemption is
-  *     visible in review at the point it is granted.
+  * in a table somewhere else that has to be kept in step with it. What that
+  * arrangement gets right, and which a central classifier could not: a route
+  * that knows its own slug says so, and the ones that did not were changed
+  * until they do — an action POST now carries its dashboard in the URL, and
+  * `Server.withSession` declares its requirement once the session names one.
+  * Neither has to re-parse a request body to guess.
   *
   * A whole route GROUP with one rule wraps once — [[AuthGate.require]] — so
   * `EditorRoutes` is admin by construction rather than by every route
@@ -148,8 +145,6 @@ open class AuthGate(
       handler: IO[Response[IO]]
   ): IO[Response[IO]] =
     requirement match {
-      case Requirement.Open => handler
-
       case Requirement.Admin =>
         of(req)
           .map {

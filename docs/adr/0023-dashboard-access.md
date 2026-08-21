@@ -79,10 +79,17 @@ must arrive with the cookie.
 
 **The requirement is declared where the route is.** A route wraps its handler
 in `gate.handleRequirement(req, requirement)`, instead of a table elsewhere that
-has to be kept in step with the route list. Two things that gets right which a
-central classifier could not: a route that knows its own slug says so rather
-than being guessed at, and `Requirement.Open` is an annotation beside the thing
-it exempts, visible in review at the point the exemption is granted.
+has to be kept in step with the route list. What that gets right which a central
+classifier could not: a route that knows its own slug says so rather than being
+guessed at.
+
+There is no `Open` requirement. A public route — the PWA shell, the bundled
+assets, the auth routes themselves — does not go through the gate at all. An
+`Open` case was tried and removed: it returned the handler untouched, so it was
+indistinguishable to the compiler from not wrapping, and it could not be the
+inventory of public routes it looked like, because nothing obliges a route to
+declare anything. The exemptions that are not self-evident say so in a comment
+where they are granted — `/system/pkl/*` names issue #166.
 
 **A route GROUP with one rule declares it once.** `AuthGate.require` wraps a
 whole surface — the editor is admin, all of it — so a route added there later
