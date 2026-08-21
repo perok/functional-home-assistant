@@ -87,6 +87,11 @@ object IngressUsers {
 
   /** Resolve ids against `fetch`, re-asking at most once per [[Ttl]].
     *
+    * `IO[IngressUsers]`, not `IngressUsers`, because the `Ref` is built ONCE:
+    * `ServerApp` runs this at boot and the function it returns closes over that
+    * one cache for the life of the process. Building it inside the returned
+    * function instead would give every request its own empty cache.
+    *
     * A failed fetch is not cached and not fatal: it answers "unknown" for that
     * request, so an unreachable HA makes ingress users anonymous rather than
     * making every one of them an admin. Erring toward less access is the whole

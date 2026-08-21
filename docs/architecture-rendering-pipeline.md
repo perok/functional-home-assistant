@@ -752,7 +752,7 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 
 | Box | Code |
 |---|---|
-| a route's own auth rule | `auth/AuthGate.scala` · `Requirement` (`FromDashboard`/`Admin` — a public route is simply not wrapped), `saySo`/`orLogIn`, `handleRequirement`, `loginRedirect`, `safeNext`; declared at each route in `runtime/Server.scala` |
+| a route's own auth rule | `auth/AuthGate.scala` · `Requirement` (`FromDashboard`/`FromAccess`, with `Requirement.Admin = FromAccess(Access.Admin)` — a public route is simply not wrapped), `accessFor`, `saySo`/`orLogIn`, `handleRequirement`, `loginRedirect`, `safeNext`; declared at each route in `runtime/Server.scala` |
 | one rule over a whole surface | `auth/AuthGate.scala` · `require`; used by `runtime/EditorRoutes.scala` (all admin) |
 | a stream that stops being allowed | `auth/AuthGate.scala` · `handleStream`; `auth/AuthSessions.scala` · `watch` |
 | what an action may touch | `model/Dashboard.scala` · `referencedEntities`; `runtime/Renderer.scala` · `references`; `runtime/Server.scala` · `actionResponse` |

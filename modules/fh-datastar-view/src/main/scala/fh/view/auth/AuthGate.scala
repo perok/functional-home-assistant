@@ -3,7 +3,7 @@ package fh.view.auth
 import api.homeassistant.ws.domain.HaUser
 import cats.effect.IO
 import cats.syntax.all.*
-import fh.view.model.Permission
+import fh.view.model.{Access, Permission}
 import com.comcast.ip4s.Ipv4Address
 import fs2.Stream
 import org.http4s.headers.{Authorization, Location}
@@ -43,10 +43,21 @@ enum Requirement derives CanEqual:
     */
   case FromDashboard(slug: Option[String])
 
+  /** A rule this route carries itself, for a surface no dashboard owns.
+    *
+    * The same [[Access]] a dashboard is authored with, so a route and a
+    * dashboard are admitted by ONE predicate (`Access.permits`) rather than by
+    * two that can drift. Both cases end there; they differ only in where the
+    * rule comes from — the live registry, or the route.
+    */
+  case FromAccess(access: Access)
+
+object Requirement:
+
   /** An HA admin, by cookie or by bearer token. The authoring surface: it
     * writes `.pkl` source to disk and drives the instance.
     */
-  case Admin
+  val Admin: Requirement = Requirement.FromAccess(Access.Admin)
 
 /** What the rest of the server needs from the gate: who this request is.
   *
@@ -144,39 +155,34 @@ open class AuthGate(
   )(
       handler: IO[Response[IO]]
   ): IO[Response[IO]] =
-    requirement match {
-      case Requirement.Admin =>
-        of(req)
-          .map {
-            case Some(u) if u.is_admin => None
-            case Some(_)               =>
-              Some(Status.Forbidden -> "This needs a Home Assistant admin.")
-            case None => Some(Status.Unauthorized -> "Not logged in.")
-          }
-          .flatMap(refuse(handler, onInvalid))
-
-      case Requirement.FromDashboard(slug) =>
-        permitted(req, slug).flatMap(who =>
-          refuse(handler, onInvalid)(who.map(denial))
-        )
+    (accessFor(requirement), of(req)).flatMapN { (access, user) =>
+      if (access.permits(user)) handler
+      else IO.pure(onInvalid.tupled(denial(access, user)))
     }
 
-  private def refuse(
-      handler: IO[Response[IO]],
-      onInvalid: (Status, String) => Response[IO]
-  )(problem: Option[(Status, String)]): IO[Response[IO]] =
-    problem.fold(handler)((status, message) =>
-      IO.pure(onInvalid(status, message))
-    )
-
-  /** What is wrong, when a dashboard turns somebody away. Not logged in and
-    * logged in as the wrong person are different answers, and the caller needs
-    * to be able to tell them apart — only the first is worth a login page.
+  /** The rule this requirement resolves to: the route's own, or the live
+    * registry's answer for a slug.
     */
-  private def denial(user: Option[HaUser]): (Status, String) =
-    user.fold(Status.Unauthorized -> "Not logged in.")(_ =>
-      Status.Forbidden -> "You do not have access to this dashboard."
-    )
+  private def accessFor(requirement: Requirement): IO[Access] =
+    requirement match {
+      case Requirement.FromAccess(access)  => IO.pure(access)
+      case Requirement.FromDashboard(slug) => permissionFor(slug).map(_.access)
+    }
+
+  /** What is wrong, when a rule turns somebody away. Not logged in and logged
+    * in as the wrong person are different answers, and the caller needs to be
+    * able to tell them apart — only the first is worth a login page.
+    */
+  private def denial(
+      access: Access,
+      user: Option[HaUser]
+  ): (Status, String) =
+    user.fold(Status.Unauthorized -> "Not logged in.") { _ =>
+      Status.Forbidden -> (access match {
+        case Access.Admin => "This needs a Home Assistant admin."
+        case _            => "You do not have access to this dashboard."
+      })
+    }
 
   /** [[handleRequirement]] for a route whose response is a LIVE STREAM.
     *
@@ -194,22 +200,11 @@ open class AuthGate(
   ): IO[Response[IO]] =
     (permissionFor(slug), of(req)).flatMapN { (permission, user) =>
       if (!permission.mayView(user))
-        IO.pure(AuthGate.saySo.tupled(denial(user)))
+        IO.pure(AuthGate.saySo.tupled(denial(permission.access, user)))
       else
         sessionOf(req).flatMap(id =>
           handler(sessions.watch(id, permission.mayView))
         )
-    }
-
-  /** `None` when this request may have the dashboard, otherwise who was asking
-    * — which is what decides between "log in" and "not yours".
-    */
-  private def permitted(
-      req: Request[IO],
-      slug: Option[String]
-  ): IO[Option[Option[HaUser]]] =
-    (permissionFor(slug), of(req)).mapN { (permission, user) =>
-      Option.unless(permission.mayView(user))(user)
     }
 
   private def session(req: Request[IO]): IO[Option[AuthSession]] =

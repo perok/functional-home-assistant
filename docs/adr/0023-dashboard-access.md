@@ -91,6 +91,15 @@ inventory of public routes it looked like, because nothing obliges a route to
 declare anything. The exemptions that are not self-evident say so in a comment
 where they are granted — `/system/pkl/*` names issue #166.
 
+**One predicate admits both a route and a dashboard.** The two remaining cases
+are `FromDashboard(slug)` and `FromAccess(access)`, and both resolve to an
+`Access` that `Access.permits` then answers — the registry's for a slug, the
+route's own for everything else, with `Requirement.Admin` a name for
+`FromAccess(Access.Admin)`. The editor being admin-only and a dashboard authored
+`access = c.access.admin` are then the SAME rule evaluated the same way, rather
+than a route-side `is_admin` check written a second time next to the one the
+model already has.
+
 **A route GROUP with one rule declares it once.** `AuthGate.require` wraps a
 whole surface — the editor is admin, all of it — so a route added there later
 inherits the rule instead of having to remember it. It is built from the route

@@ -206,27 +206,23 @@ final class SessionStore(path: os.Path) {
   def read: IO[Map[String, AuthSession]] =
     Files[IO]
       .exists(file)
-      .flatMap {
-        case false => IO.pure(None)
-        case true  =>
-          Files[IO]
-            .readUtf8(file)
-            .compile
-            .string
-            .map(decode)
-            .handleError(_ => None)
-            .flatTap(decoded =>
-              IO.whenA(decoded.isEmpty)(
-                IO.consoleForIO.errorln(
-                  s"[warn] $path was unreadable; starting with no sessions"
-                )
+      .ifM(
+        Files[IO]
+          .readUtf8(file)
+          .compile
+          .string
+          .flatMap(raw =>
+            IO.fromEither(parser.decode[Map[String, AuthSession]](raw))
+          )
+          .handleErrorWith(e =>
+            IO.consoleForIO
+              .errorln(
+                s"[warn] $path was unreadable; starting with no sessions: ${e.getMessage}"
               )
-            )
-      }
-      .map(_.getOrElse(Map.empty))
-
-  private def decode(raw: String): Option[Map[String, AuthSession]] =
-    parser.parse(raw).toOption.flatMap(_.as[Map[String, AuthSession]].toOption)
+              .as(Map.empty)
+          ),
+        IO.pure(Map.empty)
+      )
 }
 
 object SessionStore {
