@@ -107,7 +107,18 @@ re-exchanged against their refresh token and re-read through
 `400 invalid_grant` is HA ANSWERING that the grant is gone, so the entry is
 evicted; a timeout is not an answer and leaves it alone, because an unreachable
 HA must not empty the session store. That is what makes revoking fh in HA reach
-a dashboard nobody is touching.
+a dashboard nobody is touching, within 30 minutes plus one 5-minute tick.
+
+The sweep runs once immediately and then on the interval, which is the whole of
+what a RESTART needs. `verifiedAt` is persisted and absolute, so every session
+that outlived downtime is already past the staleness bound on boot and is swept
+before it can be used — no separate first-access check, no re-verification on
+the request path. The alternative, checking lazily when a stale session is next
+used, was rejected: it puts a network round trip inside `AuthGate.of` (which
+every gated route calls), needs single-flight de-duplication because one page
+load races several requests against the same session, and turns an unreachable
+HA into a stall on every request rather than a background error. It would buy
+only the difference between "the next request" and "within one tick".
 
 Pending authorizations live in the same style and nowhere else: the OAuth
 `state` is a random nonce keyed to `{next, deadline}` in memory with a

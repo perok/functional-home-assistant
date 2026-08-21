@@ -14,15 +14,19 @@ import scala.concurrent.duration.*
 /** The thing that makes Home Assistant AUTHORITATIVE rather than merely the
   * thing that once issued a login (issue #89, ADR 0023).
   *
-  * Without this fiber, revoking fh in HA → Profile → Security leaves its
-  * sessions alive here until they age out on their own. It is also the worst
-  * shape to leave untested: background work with no visible failure mode, where
-  * "it silently stopped on the first tick" and "everything is fine" look
-  * identical from outside.
+  * Without this, revoking fh in HA → Profile → Security leaves its sessions
+  * alive here until they age out on their own. It is also the worst shape to
+  * leave untested: background work with no visible failure mode, where "it
+  * silently stopped on the first tick" and "everything is fine" look identical
+  * from outside.
   *
   * Driven through the REAL `HaOAuth` over a stub HTTP backend rather than a
   * hand-written double, so the `/auth/token` contract it depends on — a `400`
   * meaning the grant is gone — is exercised rather than assumed.
+  *
+  * Almost everything here drives ONE sweep (`revalidateOnce`) rather than the
+  * schedule, so no assertion waits on a clock. The schedule gets exactly one
+  * test, for the only thing it decides: when the first sweep happens.
   */
 class RevalidateSessionsSuite extends munit.CatsEffectSuite {
 
@@ -48,32 +52,28 @@ class RevalidateSessionsSuite extends munit.CatsEffectSuite {
       )
     )
 
-  private def run(
+  /** One session, one sweep. `after = 0` makes it due now, so the test does not
+    * have to wait out a 30-minute staleness window to observe a check.
+    */
+  private def sweep(
       oauth: HaOAuth,
-      identify: String => IO[HaUser] = _ => IO.pure(user)
+      identify: String => IO[HaUser] = _ => IO.pure(user),
+      after: FiniteDuration = 0.seconds
   ): IO[(AuthSessions, String)] =
     for {
       sessions <- AuthSessions.create(SessionStore.ephemeral)
       id <- sessions.create(user, "r1")
-      // `after = 0` makes every session due now, so the test does not have to
-      // wait out a 30-minute staleness window to observe one tick.
-      _ <- ServerApp
-        .revalidateSessions(
-          sessions,
-          oauth,
-          identify,
-          uri"http://fh.test",
-          every = 10.millis,
-          after = 0.seconds
-        )
-        .take(1)
-        .compile
-        .drain
-        .timeout(5.seconds)
+      _ <- ServerApp.revalidateOnce(
+        sessions,
+        oauth,
+        identify,
+        uri"http://fh.test",
+        after = after
+      )
     } yield (sessions, id)
 
   test("HA saying the grant is gone signs the session out") {
-    run(haStub(revoked)).flatMap { case (sessions, id) =>
+    sweep(haStub(revoked)).flatMap { case (sessions, id) =>
       sessions.get(id).map(assertEquals(_, None))
     }
   }
@@ -89,13 +89,13 @@ class RevalidateSessionsSuite extends munit.CatsEffectSuite {
         HttpApp[IO](_ => IO.raiseError(new java.net.ConnectException("nope")))
       )
     )
-    run(dead).flatMap { case (sessions, id) =>
+    sweep(dead).flatMap { case (sessions, id) =>
       sessions.get(id).map(s => assertEquals(s.map(_.user), Some(user)))
     }
   }
 
   test("a renewed session keeps its place and takes the fresh token") {
-    run(haStub(renewed)).flatMap { case (sessions, id) =>
+    sweep(haStub(renewed)).flatMap { case (sessions, id) =>
       sessions.get(id).map { s =>
         assertEquals(s.map(_.user), Some(user))
         assertEquals(s.map(_.refresh), Some("r2"))
@@ -109,7 +109,7 @@ class RevalidateSessionsSuite extends munit.CatsEffectSuite {
     */
   test("a demoted admin is demoted here too") {
     val demoted = user.copy(is_admin = false, is_owner = false)
-    run(haStub(renewed), identify = _ => IO.pure(demoted)).flatMap {
+    sweep(haStub(renewed), identify = _ => IO.pure(demoted)).flatMap {
       case (sessions, id) =>
         sessions
           .get(id)
@@ -118,9 +118,22 @@ class RevalidateSessionsSuite extends munit.CatsEffectSuite {
   }
 
   /** A session that has not gone stale yet is not re-checked — otherwise every
-    * tick would be a round trip per logged-in person.
+    * sweep would be a round trip per logged-in person.
     */
   test("a fresh session is left untouched") {
+    sweep(haStub(revoked), after = 1.hour).flatMap { case (sessions, id) =>
+      sessions.get(id).map(s => assertEquals(s.map(_.refresh), Some("r1")))
+    }
+  }
+
+  /** What covers a RESTART. `verifiedAt` is persisted and absolute, so a
+    * session that survived downtime is already stale on boot — but `awakeEvery`
+    * sleeps before its first element, so a schedule without a leading sweep
+    * would serve a revoked session for a whole interval.
+    *
+    * `every = 1.hour` is the assertion: nothing here can pass by waiting.
+    */
+  test("the first sweep does not wait for the interval") {
     for {
       sessions <- AuthSessions.create(SessionStore.ephemeral)
       id <- sessions.create(user, "r1")
@@ -130,13 +143,14 @@ class RevalidateSessionsSuite extends munit.CatsEffectSuite {
           haStub(revoked),
           _ => IO.pure(user),
           uri"http://fh.test",
-          every = 10.millis,
-          after = 1.hour
+          every = 1.hour,
+          after = 0.seconds
         )
-        .interruptAfter(300.millis)
+        .head
         .compile
         .drain
-      still <- sessions.get(id)
-    } yield assertEquals(still.map(_.refresh), Some("r1"))
+        .timeout(5.seconds)
+      gone <- sessions.get(id)
+    } yield assertEquals(gone, None)
   }
 }

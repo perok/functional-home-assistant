@@ -445,20 +445,6 @@ object ServerApp extends IOApp {
             }
         }
 
-  /** The runtime KERNEL both [[run]] (production) and the test harness
-    * (`TestServer`) funnel through, so the live-Server wiring cannot silently
-    * diverge: wait for the feed's first connect + seed (so the store is
-    * populated before anything serves), then build the Server from it via the
-    * single [[Server.fromFeed]] constructor.
-    *
-    * What stays with the caller is deliberate, not drift: the renderer SOURCE
-    * (production evaluates Pkl against the live dump; a test uses a fixed
-    * `Dashboard`) and the serving SHELL (asset cache, editor + Ember in
-    * production; in-memory routes or a bare Ember bind in tests). The feed
-    * itself is built by the caller because production needs `feed.api` to
-    * prepare the dump BEFORE any renderer exists — everything that makes a
-    * Server a Server lives here.
-    */
   /** How long a session may go unchecked before HA is asked about it again.
     * Matches HA's own access-token life, so a revocation is visible within one
     * token generation rather than at some unrelated interval.
@@ -475,6 +461,13 @@ object ServerApp extends IOApp {
     * A `Dead` answer evicts. A raised error does NOT: an unreachable HA is not
     * a statement about anybody's account, and treating it as one would log the
     * whole household out of a working dashboard every time the network hiccups.
+    *
+    * The FIRST pass runs immediately rather than one `every` later, which is
+    * what covers a restart: `verifiedAt` is persisted and absolute, so every
+    * session that survived downtime is already past `after` on boot and needs
+    * no special case — but `awakeEvery` sleeps before its first element, so
+    * without the leading pass a session revoked during a week of downtime would
+    * still be served for the first five minutes.
     */
   private[runtime] def revalidateSessions(
       sessions: AuthSessions,
@@ -483,16 +476,26 @@ object ServerApp extends IOApp {
       clientId: org.http4s.Uri,
       every: FiniteDuration = 5.minutes,
       after: FiniteDuration = RevalidateAfter
-  ): Stream[IO, Unit] =
-    Stream
-      .awakeEvery[IO](every)
-      .evalMap { _ =>
-        IO.realTimeInstant
-          .map(_.minusSeconds(after.toSeconds))
-          .flatMap(sessions.stale)
-      }
-      .flatMap(due => Stream.emits(due))
-      .evalMap { case (id, session) =>
+  ): Stream[IO, Unit] = {
+    val pass = revalidateOnce(sessions, oauth, identify, clientId, after)
+    Stream.eval(pass) ++ Stream.awakeEvery[IO](every).evalMap(_ => pass)
+  }
+
+  /** One sweep: re-check everything currently past `after`, and evict what HA
+    * disowns. Separate from the schedule above so a test can run exactly one
+    * and assert on the result, with no clock in the assertion.
+    */
+  private[runtime] def revalidateOnce(
+      sessions: AuthSessions,
+      oauth: HaOAuth,
+      identify: String => IO[HaUser],
+      clientId: org.http4s.Uri,
+      after: FiniteDuration = RevalidateAfter
+  ): IO[Unit] =
+    IO.realTimeInstant
+      .map(_.minusSeconds(after.toSeconds))
+      .flatMap(sessions.stale)
+      .flatMap(_.traverse_ { case (id, session) =>
         oauth
           .refresh(session.refresh, clientId)
           .flatMap {
@@ -516,8 +519,22 @@ object ServerApp extends IOApp {
               s"[auth] could not re-check a session (leaving it alone): ${e.getMessage}"
             )
           )
-      }
+      })
 
+  /** The runtime KERNEL both [[run]] (production) and the test harness
+    * (`TestServer`) funnel through, so the live-Server wiring cannot silently
+    * diverge: wait for the feed's first connect + seed (so the store is
+    * populated before anything serves), then build the Server from it via the
+    * single [[Server.fromFeed]] constructor.
+    *
+    * What stays with the caller is deliberate, not drift: the renderer SOURCE
+    * (production evaluates Pkl against the live dump; a test uses a fixed
+    * `Dashboard`) and the serving SHELL (asset cache, editor + Ember in
+    * production; in-memory routes or a bare Ember bind in tests). The feed
+    * itself is built by the caller because production needs `feed.api` to
+    * prepare the dump BEFORE any renderer exists — everything that makes a
+    * Server a Server lives here.
+    */
   private[runtime] def liveServer(
       feed: HaFeed,
       site: Server.LiveSite,
