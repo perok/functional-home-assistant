@@ -5,6 +5,7 @@ import cats.effect.IO
 import cats.syntax.all.*
 import fh.view.testkit.FakeHomeAssistant
 import fh.view.testkit.TestIds.given
+import fh.view.testkit.TestAuth
 import fs2.concurrent.SignallingRef
 import org.http4s.*
 import org.http4s.implicits.*
@@ -122,7 +123,8 @@ class AckedResumeSuite extends ServerHarness {
           store,
           Map("dashboard" -> ref),
           "dashboard",
-          sessions
+          sessions,
+          TestAuth.openGate
         )
         .use { server =>
           val routes = server.routes.orNotFound

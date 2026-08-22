@@ -3,6 +3,7 @@ package fh.view.runtime
 import com.samskivert.mustache.Template
 import fh.view.build.LibPackage
 import fh.view.model.{
+  Access,
   Cell,
   Dashboard,
   DomId,
@@ -92,7 +93,16 @@ case class RenderInputs(
 class Renderer(
     dashboard: Dashboard,
     templates: Templates,
-    transforms: Transforms
+    transforms: Transforms,
+    // Who may see this dashboard (issue #89), already folded with the site-wide
+    // default by `Site.decode`. It rides here rather than beside the renderer
+    // because the rule changes exactly when the dashboard does — a live reload
+    // swaps one value and the gate cannot be reading last build's rule.
+    //
+    // Defaulted so the test helper `Renderer.create` and any construction that
+    // predates access control still compile; the default is the restrictive
+    // one, so forgetting to resolve demands a login rather than serving to all.
+    val access: Access = Access.default
 ) {
 
   /** An addressable index over one layout tree; generated ids carry `idPrefix`
@@ -252,6 +262,16 @@ class Renderer(
       case Some((c: LayoutNode.Component, _, _)) => c.liveEntities
       case _                                     => members.liveEntitiesOf(id)
     }
+
+  /** Whether this dashboard names `entityId` at all — the bound an action POST
+    * is held to (ADR 0023). Delegates to the model's static walk rather than
+    * reading [[Index.byEntity]], which stops at a candidate set: a set's
+    * members are reached through the member graph at RUN time, and this
+    * question has to be answerable about entities nothing is currently
+    * rendering.
+    */
+  def references(entityId: String): Boolean =
+    dashboard.referencedEntities.contains(entityId)
 
   def surfaceComponentsFor(surfaceId: String, entityId: String): Set[NodeId] =
     surfaceIndexes
@@ -568,7 +588,12 @@ class Renderer(
     Map(
       "id" -> id,
       "selfId" -> Renderer.selfElementId(id),
-      "mountId" -> mountId(id)
+      "mountId" -> mountId(id),
+      // The dashboard's slug, for the action URL a card builds in its own
+      // TEMPLATE (the slider's commit). A tap builds its URL in a transform
+      // instead and reads the same value as `$dashboardSlug` — one fact, and
+      // each spelling names the mechanism that actually fills it.
+      "dashboardSlug" -> dashboard.slug
     )
 
   /** Whether this node HAS a rendering of its own — the thing that decides
@@ -1384,7 +1409,7 @@ class Renderer(
     // resolves.
     if (source.bypassUnavailable && st.unavailable) st.state
     else {
-      val out = transforms.run(source.transform, st)
+      val out = transforms.run(source.transform, st, dashboard.slug)
       if (out.nonEmpty) out else source.default.getOrElse("")
     }
   }
@@ -1396,11 +1421,12 @@ object Renderer {
     * transform libraries up front. The single construction point so call sites
     * never wire `Templates`/`Transforms` by hand.
     */
-  def create(dashboard: Dashboard): Renderer =
+  def create(dashboard: Dashboard, access: Access = Access.default): Renderer =
     new Renderer(
       dashboard,
       Templates.from(dashboard),
-      Transforms.from(dashboard)
+      Transforms.from(dashboard),
+      access
     )
 
   /** Build a renderer from a PROVEN dashboard ([[Dashboard.Validated]]) — the
@@ -1413,7 +1439,8 @@ object Renderer {
     new Renderer(
       v.dashboard,
       Templates.from(v.dashboard),
-      Transforms.fromValidated(v)
+      Transforms.fromValidated(v),
+      v.access
     )
 
   /** 12 hex of SHA-256 over the part of `<head>` only a reload can change — the

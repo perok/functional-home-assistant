@@ -1,0 +1,84 @@
+/// Who may see a dashboard — the access-rule wire type (issue #89).
+///
+/// Home Assistant is the identity provider: an fh dashboard has no users of its
+/// own, it reuses HA's and HA's admin role. So this module says which HA users a
+/// dashboard admits and nothing about who anyone is.
+///
+/// Written on `entry.pkl`'s `access`, with a site-wide default on `site.pkl`.
+/// Leave a dashboard's own unset to inherit the site's:
+///
+///     // site.pkl
+///     access = a.admin                       // everything is admin-only...
+///     dashboards {
+///       ["wall"] { access = a.public; ... }  // ...except the hallway tablet
+///       ["home"] { ... }                     // inherits: admin
+///     }
+///
+/// Reached through the components facade as `c.access`, so an ordinary
+/// dashboard needs no extra import.
+module core.access
+
+import "../hass.pkl"
+
+/// One rule. `kind` is the circe discriminator; the backend's `Access` enum
+/// lowercases its constructor names, which is why these literals are lowercase.
+///
+/// A closed set on purpose: every case is something HA can actually answer
+/// (`is_admin`, a user id) except [[Public]], which is the one thing HA has no
+/// notion of and therefore the one this project has to define.
+abstract class Access {
+  kind: String
+}
+
+/// No login at all — served to anyone who can reach the instance.
+///
+/// This is the "guest" dashboard: a wall tablet, a shared kitchen screen,
+/// anything that must paint without somebody signing in first. It is the only
+/// rule that lets an un-authenticated request through, so it is worth being
+/// deliberate: taps on it still work, and they still act on the home.
+class Public extends Access { kind = "public" }
+
+/// Any Home Assistant user. The default, and almost always the right one.
+class Authenticated extends Access { kind = "authenticated" }
+
+/// Home Assistant admins only. HA's owner is an admin too, so this covers them
+/// without naming anybody.
+class Admin extends Access { kind = "admin" }
+
+/// Exactly these Home Assistant users.
+///
+/// `ids` is what goes on the wire — the opaque HA ids the backend compares
+/// against — but an author never writes one: [[users]] takes the typed
+/// [[hass.User]]s from `@fh-home`'s `dump.users`, so a name that does not exist
+/// is a BUILD error rather than a dashboard nobody can open.
+///
+/// Note this is LITERAL: an admin who is not listed is refused. The list is your
+/// configuration, and an implicit admin override would make "only these two
+/// people" quietly untrue.
+class Users extends Access {
+  kind = "users"
+  ids: Listing<String>(!isEmpty)
+}
+
+/// No login required.
+const public: Public = new Public {}
+
+/// Any logged-in HA user.
+const authenticated: Authenticated = new Authenticated {}
+
+/// HA admins only.
+const admin: Admin = new Admin {}
+
+/// Only these people: `c.access.users(List(dump.users.peri, dump.users.heidi))`.
+///
+/// Takes the dump's typed users, not ids — completion offers the household, and
+/// a misspelled name fails the build instead of producing a dashboard nobody
+/// can open. The id is read off each one for the wire.
+///
+/// A `List` rather than repeated arguments because Pkl has no varargs (verified:
+/// `rest: String...` is a parse error). The parameter is `people`, not `ids` —
+/// naming a parameter after the property it initialises binds the right-hand
+/// side to the object's own member and recurses.
+const function users(people: List<hass.User>): Users = new Users {
+  ids { for (p in people) { p.user_id } }
+}

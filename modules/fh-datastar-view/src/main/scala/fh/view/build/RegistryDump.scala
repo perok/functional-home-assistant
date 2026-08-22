@@ -6,7 +6,8 @@ import api.homeassistant.ws.domain.{
   Device,
   EntitiesEvent,
   Entity as RegistryEntity,
-  Floor
+  Floor,
+  HaAccount
 }
 import cats.effect.IO
 import cats.effect.std.Env
@@ -128,8 +129,9 @@ object RegistryDump {
       api.configEntityRegistryList.map(_.values.toList),
       api.configDeviceRegistryList.map(_.values.toList),
       api.configAreaRegistryList,
-      api.configFloorRegistryList
-    ).mapN(build(_, _, _, _, _, carried)).map(transform)
+      api.configFloorRegistryList,
+      api.configAuthList
+    ).mapN(build(_, _, _, _, _, _, carried)).map(transform)
 
   /** `subscribe_entities`' FIRST frame is a full snapshot of every entity with
     * every attribute (see [[EntitiesEvent]]) — one command, no size cap, and no
@@ -157,6 +159,9 @@ object RegistryDump {
       devices: List[Device],
       areas: List[Area],
       floors: List[Floor],
+      // Defaulted: a dump with no users is a valid dump (and every fixture
+      // that is not about users says nothing about them).
+      accounts: List[HaAccount] = Nil,
       carried: Set[String] = CapabilityAttributes
   ): Json = {
     val byEntityId: Map[String, RegistryEntity] =
@@ -242,7 +247,20 @@ object RegistryDump {
         )
       }),
       "devices" -> deviceJson,
-      "entities" -> Json.fromValues(entityJson)
+      "entities" -> Json.fromValues(entityJson),
+      // Only real people. HA's own listing includes Supervisor, Cast and the
+      // content user, and two of those three are admins — offering them as
+      // somebody a dashboard could belong to is offering nonsense.
+      "users" -> Json.fromValues(
+        accounts.filter(_.isPerson).sortBy(_.id).map { a =>
+          Json.obj(
+            "user_id" -> Json.fromString(a.id),
+            "user_name" -> Json.fromString(a.name),
+            "is_admin" -> Json.fromBoolean(a.isAdmin),
+            "is_owner" -> Json.fromBoolean(a.is_owner)
+          )
+        }
+      )
     )
   }
 
@@ -327,6 +345,10 @@ object RegistryDump {
                 "entity_id",
                 entityKey
               )
+            )
+            .add(
+              "users",
+              keyBy(obj("users").getOrElse(Json.arr()), "user_name", slug)
             )
         )
     }

@@ -18,6 +18,7 @@ import fh.view.model.{
 }
 import fh.view.testkit.FakeHomeAssistant
 import fh.view.testkit.TestIds.given
+import fh.view.testkit.TestAuth
 import fs2.concurrent.SignallingRef
 import io.circe.Json
 import org.http4s.*
@@ -156,7 +157,8 @@ class ServerRoutesSuite extends ServerHarness {
           store,
           Map(dash.slug -> ref),
           dash.slug,
-          sessions
+          sessions,
+          TestAuth.openGate
         )
         .use { server =>
           server.routes.orNotFound
@@ -187,7 +189,8 @@ class ServerRoutesSuite extends ServerHarness {
           store,
           Map("home" -> ref),
           "home",
-          sessions
+          sessions,
+          TestAuth.openGate
         )
         .use(
           _.routes.orNotFound
@@ -509,6 +512,7 @@ class ServerRoutesSuite extends ServerHarness {
           Map("home" -> ref),
           "home",
           sessions,
+          TestAuth.openGate,
           assets = AssetCache.empty,
           systemPkl = system
         )
@@ -552,7 +556,8 @@ class ServerRoutesSuite extends ServerHarness {
           store,
           Map("home" -> ref),
           "home",
-          sessions
+          sessions,
+          TestAuth.openGate
         )
         .use { server =>
           val routes = server.routes.orNotFound
@@ -609,6 +614,7 @@ class ServerRoutesSuite extends ServerHarness {
           Map("home" -> ref),
           "home",
           sessions,
+          TestAuth.openGate,
           assets = AssetCache.empty,
           systemPkl = system
         )

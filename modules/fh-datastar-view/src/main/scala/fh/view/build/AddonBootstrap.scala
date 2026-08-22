@@ -334,6 +334,11 @@ object AddonBootstrap {
       |.fh/cache/
       |.fh/pins.json.backup.*
       |PklProject.deps.json
+      |
+      |# Credentials (issue #89). Both hold Home Assistant tokens and are
+      |# written 0600; that they live here at all is issue #165.
+      |.fh/sessions.json
+      |.fh/user_secret.json
       |""".stripMargin
 
   val ConsumerManifest: String =

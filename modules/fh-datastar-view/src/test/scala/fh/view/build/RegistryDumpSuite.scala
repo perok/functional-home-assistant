@@ -1,6 +1,7 @@
 package fh.view.build
 
 import api.homeassistant.ws.domain.{
+  HaAccount,
   Area,
   Device,
   EntitiesEvent,
@@ -249,7 +250,7 @@ class RegistryDumpSuite extends munit.FunSuite {
     )
     def attrsOf(carried: Set[String]) =
       entityOf(
-        RegistryDump.build(states, Nil, Nil, Nil, Nil, carried),
+        RegistryDump.build(states, Nil, Nil, Nil, Nil, Nil, carried),
         "sensor_a"
       ).hcursor
         .downField("attributes")
@@ -265,6 +266,66 @@ class RegistryDumpSuite extends munit.FunSuite {
     assertEquals(
       attrsOf(RegistryDump.CapabilityAttributes + "house_specific"),
       Set("device_class", "house_specific")
+    )
+  }
+
+  /** The dump is what an access rule names its people from (ADR 0023), so who
+    * reaches it matters. HA's listing is not a list of people: it also carries
+    * Supervisor, Cast and the content user — and TWO of those three are admins,
+    * verified against the live instance. Offering them as somebody a dashboard
+    * could belong to would be offering nonsense.
+    */
+  test("only real people reach the dump's users") {
+    def account(
+        id: String,
+        name: String,
+        groups: List[String] = Nil,
+        generated: Boolean = false,
+        active: Boolean = true
+    ) = HaAccount(id, name, groups, generated, active, is_owner = false)
+
+    // Through `transform` too: the slug keying is what an author reads
+    // (`dump.users.peri`), and it lives there.
+    val dump = RegistryDump.transform(
+      RegistryDump.build(
+        Map.empty,
+        Nil,
+        Nil,
+        Nil,
+        Nil,
+        List(
+          account("u1", "Peri", List(HaAccount.AdminGroup)),
+          account("u2", "Heidi"),
+          // An admin, and still not a person.
+          account(
+            "sup",
+            "Supervisor",
+            List(HaAccount.AdminGroup),
+            generated = true
+          ),
+          // Deactivated: cannot log in, so cannot be who a dashboard is for.
+          account("old", "Former", active = false)
+        )
+      )
+    )
+    val users = dump.hcursor.downField("users")
+    assertEquals(
+      users.keys.map(_.toList),
+      Some(List("peri", "heidi")),
+      clue = dump
+    )
+    assertEquals(
+      users.downField("peri").get[String]("user_id").toOption,
+      Some("u1")
+    )
+    // The role is derived from the group, since the listing carries no flag.
+    assertEquals(
+      users.downField("peri").get[Boolean]("is_admin").toOption,
+      Some(true)
+    )
+    assertEquals(
+      users.downField("heidi").get[Boolean]("is_admin").toOption,
+      Some(false)
     )
   }
 

@@ -3,7 +3,7 @@ package fh.view.build
 import cats.effect.IO
 import cats.syntax.all.*
 import fh.view.FHError
-import fh.view.model.Dashboard
+import fh.view.model.{Access, Dashboard}
 import io.circe.Json
 
 /** The workspace's ONE entrypoint: a slug -> dashboard map plus the settings
@@ -36,6 +36,8 @@ object Site {
 
   private val DefaultKey = "default"
 
+  private val AccessKey = "access"
+
   /** One evaluated site: every slug it names — each either a proven dashboard
     * or the message its own build failed with — and the slug it wants served at
     * `/`. Slug-sorted, so logs and the default-slug fallback are stable.
@@ -63,12 +65,24 @@ object Site {
     json.asObject.flatMap(_(DashboardsKey)).flatMap(_.asObject) match {
       case None     => missingDashboards.raiseError[IO, Decoded]
       case Some(ds) =>
+        // The site-wide access rule (issue #89), read once and folded into
+        // every dashboard that did not name its own. A site whose `access` is
+        // absent or unreadable gets the restrictive default rather than an
+        // error: the entrypoint still names real dashboards, and refusing to
+        // serve the whole instance over one malformed setting is worse than
+        // demanding a login for it.
+        val siteAccess: Access =
+          json.asObject
+            .flatMap(_(AccessKey))
+            .flatMap(_.as[Access].toOption)
+            .getOrElse(Access.default)
+
         ds.toList
           .sortBy(_._1)
           .traverse { case (slug, value) =>
             DashboardBuild
-              .decode(value, sources)
-              .map(_.withSlug(slug))
+              .decode(value, sources, Some(slug))
+              .map(_.withAccess(siteAccess))
               .attempt
               .map(r => slug -> r.leftMap(messageOf))
           }

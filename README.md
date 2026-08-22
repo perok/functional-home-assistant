@@ -1,9 +1,29 @@
 ## Status: pre-v1 alpha
 
-This project is **pre-v1 alpha**. Nothing here is stable: APIs, the dashboard
+> [!CAUTION]
+> This project is **pre-v1 alpha**. Nothing here is stable: APIs, the dashboard
 card model, the jsonnet authoring surface, generated code, and on-disk formats
 can all change without notice. **Breaking changes are expected and allowed** —
 favour the cleanest design over backward compatibility until v1.
+
+
+# Functional Home Assistant - Your home on functions
+
+A dashboard builder built for composition, simplicity, performance, and shareability.
+
+```pkl
+TODO small example
+```
+
+- Build your dashboard with reusable functions. No more YAML ctrl c ctrl v.
+- Share your dashboard functions or new components by just putting it on Github. Ready for consumption by others immediately.
+- Speed and efficiency ready for all old devices that can run html with some javascript
+  - Everything is serverside rendered. Changes are morped from an SSE session as values or as new html blocks
+  - Even for dynamic blocks
+- Catch errors in your dashboard immediately; fully typed overview of all your entities, devices, and users
+- Secure by design; Can only do actions on entities that are in dashboards you can view
+
+---
 
 TODO just do template query? https://community.home-assistant.io/t/get-api-areas-rest-endpoint/271440/12?u=perok
 jsonnetfmt input.json > output.libsonnet

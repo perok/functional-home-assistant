@@ -18,6 +18,7 @@ import fh.view.model.{
 }
 import fh.view.testkit.FakeHomeAssistant
 import fh.view.testkit.TestIds.given
+import fh.view.testkit.TestAuth
 import fs2.concurrent.SignallingRef
 import org.http4s.*
 import org.http4s.headers.{`Cache-Control`, `If-None-Match`, ETag}
@@ -85,7 +86,8 @@ class SharedPassSuite extends ServerHarness {
           store,
           Map("dashboard" -> ref),
           "dashboard",
-          sessions
+          sessions,
+          TestAuth.openGate
         )
         .use { server =>
           server.routes.orNotFound
@@ -182,7 +184,8 @@ class SharedPassSuite extends ServerHarness {
           store,
           Map("dashboard" -> ref),
           "dashboard",
-          sessions
+          sessions,
+          TestAuth.openGate
         )
         .use { server =>
           for {
@@ -239,7 +242,8 @@ class SharedPassSuite extends ServerHarness {
           store,
           Map("dashboard" -> ref),
           "dashboard",
-          sessions
+          sessions,
+          TestAuth.openGate
         )
         .use { server =>
           server.routes.orNotFound
@@ -324,7 +328,8 @@ class SharedPassSuite extends ServerHarness {
           store,
           Map("dashboard" -> ref),
           "dashboard",
-          sessions
+          sessions,
+          TestAuth.openGate
         )
         .use { server =>
           val connect = server.routes.orNotFound

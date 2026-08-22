@@ -21,6 +21,7 @@ import fh.view.model.{
 import fh.view.testkit.FakeHomeAssistant
 import fh.view.testkit.DashboardBuilders.st
 import fh.view.testkit.TestIds.given
+import fh.view.testkit.TestAuth
 import fs2.concurrent.SignallingRef
 import io.circe.Json
 import org.http4s.*
@@ -496,6 +497,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
           store,
           site,
           sessions,
+          TestAuth.openGate,
           suiteSupervisor
         )
         renderer <- ref.get.map(_.rendererOf.get)
@@ -769,7 +771,8 @@ trait ServerHarness extends munit.CatsEffectSuite {
           store,
           Map("dashboard" -> ref),
           "dashboard",
-          sessions
+          sessions,
+          TestAuth.openGate
         )
         .use(server =>
           // Scoped to `use`, not to the whole resource: the connect fibers it

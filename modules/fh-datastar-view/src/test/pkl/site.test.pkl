@@ -12,6 +12,16 @@ amends "pkl:test"
 
 import "../../main/resources/dashboards/lib/site.pkl" as siteMod
 import "../../main/resources/dashboards/lib/components.pkl" as c
+import "../../main/resources/dashboards/lib/hass.pkl"
+
+// A stand-in for a dump user: this suite has no `@fh-home`, and what it pins is
+// the SHAPE an access rule takes, not where the users came from.
+local const function u(id: String): hass.User = new {
+  user_id = id
+  user_name = id
+  is_admin = false
+  is_owner = false
+}
 
 // An inline dashboard: no `new`, just a key amended into existence.
 local inlineSite = (siteMod) {
@@ -29,6 +39,18 @@ local inlineSite = (siteMod) {
 local importedSite = (siteMod) {
   dashboards {
     ["kitchen"] = import("site-kitchen.pkl")
+  }
+}
+
+// A site whose dashboards do not all share one access rule (issue #89): the
+// site sets the strict default and individual dashboards step out of it.
+local accessSite = (siteMod) {
+  access = c.access.admin
+  dashboards {
+    ["wall"] { access = c.access.public; card = c.title("hall") }
+    ["secret"] { access = c.access.admin; card = c.title("shh") }
+    ["mine"] { access = c.access.users(List(u("u1"), u("u2"))); card = c.title("mine") }
+    ["home"] { card = c.title("hi") }
   }
 }
 
@@ -69,5 +91,26 @@ facts {
   ["every dashboard carries the entry scaffold — cards and a theme"] {
     !inlineSite.dashboards["home"].cards.isEmpty
     inlineSite.dashboards["home"].theme != null
+  }
+
+  // Access (issue #89). The two halves that matter are the DEFAULT (a site that
+  // says nothing still demands a login — the rule must not fail open) and the
+  // null-means-inherit shape, which is what lets the backend tell "this
+  // dashboard has no opinion" apart from "this dashboard chose the default".
+  ["a site requires a logged-in user unless it says otherwise"] {
+    inlineSite.access.kind == "authenticated"
+  }
+
+  ["a dashboard that names no rule inherits — it does not pick one"] {
+    inlineSite.dashboards["home"].access == null
+  }
+
+  ["a dashboard can override its site, in both directions"] {
+    accessSite.dashboards["wall"].access.kind == "public"
+    accessSite.dashboards["secret"].access.kind == "admin"
+    accessSite.dashboards["mine"].access.kind == "users"
+    accessSite.dashboards["mine"].access.ids.toList() == List("u1", "u2")
+    // The site's own rule is still the one the others inherit.
+    accessSite.access.kind == "admin"
   }
 }

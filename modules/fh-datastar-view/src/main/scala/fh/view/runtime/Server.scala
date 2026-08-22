@@ -16,7 +16,8 @@ import fh.view.build.{
   SystemPkl
 }
 import fh.view.FHError
-import fh.view.model.{Dashboard, DomId, NodeId, SignalId}
+import fh.view.auth.{AuthGate, Requirement}
+import fh.view.model.{Dashboard, DomId, NodeId, Permission, SignalId}
 import fs2.Stream
 import fs2.concurrent.{Signal, SignallingRef}
 import io.circe.{Decoder, Json}
@@ -63,6 +64,12 @@ class Server(
     // `push` mints one at runtime.
     site: Server.LiveSite,
     sessions: Sessions,
+    // The auth gate (ADR 0023). A route that has a rule declares it and wraps
+    // its handler in `gate.handleRequirement`, so the rule is written where the
+    // route is; a public one — the shell, the PWA files — is simply not
+    // wrapped, and a whole surface with one rule wraps once instead
+    // (`AuthGate.require`, used by EditorRoutes).
+    gate: AuthGate,
     // Starts the per-slug recorder for a slug that enters the registry after
     // startup. Scoped to `Server.resource`, so those fibers die with the server.
     supervisor: Supervisor[IO],
@@ -96,12 +103,29 @@ class Server(
   val routes: HttpRoutes[IO] = HttpRoutes.of[IO] {
     // Resolved per REQUEST, not at construction: the entrypoint can rename or
     // delete the dashboard `/` used to serve, and `/` must still answer.
-    case req @ GET -> Root => site.defaultSlug.flatMap(pageResponse(_, req))
-    case req @ GET -> Root / "d" / slug => pageResponse(slug, req)
+    case req @ GET -> Root =>
+      gate.handleRequirement(
+        req,
+        Requirement.FromDashboard(None),
+        AuthGate.orLogIn(req)
+      )(
+        site.defaultSlug.flatMap(pageResponse(_, req))
+      )
+    case req @ GET -> Root / "d" / slug =>
+      gate.handleRequirement(
+        req,
+        Requirement.FromDashboard(Some(slug)),
+        AuthGate.orLogIn(req)
+      )(
+        pageResponse(slug, req)
+      )
 
     // Locally cached theme assets (stylesheets/scripts/fonts); a name that
     // isn't cached is a 404 — the page then references the original URL.
-    case GET -> Root / "assets" / name => assets.serve(name)
+    // Ungated, like everything else the shell needs: it has to paint before
+    // anyone can be logged in.
+    case GET -> Root / "assets" / name =>
+      assets.serve(name)
 
     // The PWA files — the manifest + service worker (the install mechanism,
     // see [[PwaAssets]]) and the icons. Fixed names, so `PwaAssets` serves them
@@ -109,9 +133,12 @@ class Server(
     // about updates (see the object doc).
     case GET -> Root / "manifest.webmanifest" =>
       PwaAssets.serve("manifest.webmanifest")
-    case GET -> Root / "sw.js"        => PwaAssets.serve("sw.js")
-    case GET -> Root / "icon-192.png" => PwaAssets.serve("icon-192.png")
-    case GET -> Root / "icon-512.png" => PwaAssets.serve("icon-512.png")
+    case GET -> Root / "sw.js" =>
+      PwaAssets.serve("sw.js")
+    case GET -> Root / "icon-192.png" =>
+      PwaAssets.serve("icon-192.png")
+    case GET -> Root / "icon-512.png" =>
+      PwaAssets.serve("icon-512.png")
 
     // The bundled frontend (src/js -> vite). The name carries a content hash
     // and `FrontendAssets` only answers for names the manifest lists, so this
@@ -137,6 +164,10 @@ class Server(
     // `moduleCacheDir`). The laptop companion (the `fh` scala-cli script) is
     // distributed from the GitHub repo (`scripts/fh.sc`), not from the
     // instance; it drives the routes below.
+    //
+    // All of them are UNGATED, unlike everything else that is not the shell —
+    // a temporary hole tracked by issue #166. pkl-lsp and `fh init` consume
+    // them and it is not confirmed that pkl-lsp can send a header.
 
     // The package-discovery index (before the `:name` route, which would
     // otherwise swallow the 3-segment path as `name = "packages"`): current
@@ -145,7 +176,9 @@ class Server(
     case GET -> Root / "system" / "pkl" / "packages" =>
       guardSystemPkl(
         systemPkl.packagesIndex.flatMap(json =>
-          Ok(json).map(_.putHeaders(`Content-Type`(MediaType.application.json)))
+          Ok(json).map(
+            _.putHeaders(`Content-Type`(MediaType.application.json))
+          )
         )
       )
 
@@ -164,7 +197,9 @@ class Server(
         .map(_.putHeaders(`Content-Type`(MediaType.text.plain)))
 
     case req @ GET -> Root / "system" / "pkl" / name =>
-      guardSystemPkl(systemPkl.module(name).flatMap(systemPklResponse(_, req)))
+      guardSystemPkl(
+        systemPkl.module(name).flatMap(systemPklResponse(_, req))
+      )
 
     // The instance's resolved lib packages (ADR 0010): the metadata JSON at
     // `<name>@<version>`, the module zip at `<name>@<version>.zip` — exactly
@@ -186,31 +221,26 @@ class Server(
     // Edit-mode node inspection ("debug this node"): the live entity state of
     // every entity a rendered node binds. Read-only; used by the overlay the
     // dashboard injects when embedded in the editor preview (`?edit=1`).
-    case GET -> Root / "edit" / "node" / slug / id / "debug" =>
-      nodeDebug(slug, id)
+    case req @ GET -> Root / "edit" / "node" / slug / id / "debug" =>
+      gate.handleRequirement(req, Requirement.Admin)(nodeDebug(slug, id))
 
     // Install a pre-evaluated dashboard under `slug`, live (ADR 0010, persona
     // 4). The body is the SAME `{cards, card}` wire JSON the Pkl layer emits —
     // pushing simply skips that layer, which is why a component developer can
     // ship cards this server has no source for.
     //
-    // NOTE — unauthenticated, deliberately, matching the port it rides: the
-    // direct port is documented as unauthenticated and the server already
-    // drives Home Assistant with its own token, so anyone who can reach this
-    // can already control every device. It is nonetheless a WRITE: when auth
-    // lands for the direct port it must cover this route.
+    // Admin (ADR 0023) — `fh push` carries an HA long-lived token as a bearer.
     case req @ POST -> Root / "system" / "push" / slug =>
-      pushResponse(slug, req)
+      gate.handleRequirement(req, Requirement.Admin)(pushResponse(slug, req))
 
     // Recreate the entity dump on demand (the /edit editor's "refresh dump"
     // button): re-fetch from HA, validate every dashboard against the new dump
     // package in a staged copy, and swap the `@fh-home` pin only if nothing that
     // builds today breaks — the previous immutable package version stays in the
-    // cache as the trail (no dated backup file). Same auth story as /system/push
-    // above: unauthenticated on a port documented as such; when auth lands for
-    // the direct port it must cover this route.
-    case POST -> Root / "system" / "dump" / "refresh" =>
-      dumpRefresh match {
+    // cache as the trail (no dated backup file). Admin-only, like
+    // /system/push above.
+    case req @ POST -> Root / "system" / "dump" / "refresh" =>
+      gate.handleRequirement(req, Requirement.Admin)(dumpRefresh match {
         case None         => NotFound()
         case Some(action) =>
           action.flatMap(result =>
@@ -218,35 +248,47 @@ class Server(
               _.putHeaders(`Content-Type`(MediaType.application.json))
             )
           )
-      }
+      })
 
     case req @ GET -> Root / "sse" / "dashboard" / slug / "patch" =>
       // The 404 gate lives INSIDE the stream ([[sseStream]]), on its own single
       // lookup, not here — see that method.
-      sseStream(slug, req)
+      gate.handleStream(req, Some(slug))(sseStream(slug, req, _))
 
     // The error page's recovery stream ([[recoverStream]]): unlike `patch`, a
     // dedicated stream with no session/conn/cursor — the error page opens it and
     // reloads on the first `_reload` signal ([[errorPage]]). The slug lookup
     // happens INSIDE the stream ([[recoverStream]]) so it cannot race it.
-    case GET -> Root / "sse" / "dashboard" / slug / "recover" =>
-      recoverStream(slug)
+    case req @ GET -> Root / "sse" / "dashboard" / slug / "recover" =>
+      gate.handleStream(req, Some(slug))(recoverStream(slug, _))
 
     // No-data action (toggle, open/close, lock, play/pause, scene activate...).
     // `domain` is the SERVICE's domain, which is not always the entity's domain
     // (e.g. `homeassistant.toggle` on a `light.*`), so it's passed explicitly.
-    case POST -> Root / "sse" / "action" / domain / service / entityId =>
-      callService(domain, service, entityId, Json.obj())
-
-    // Single-value action (brightness, cover position, target temperature...).
-    case POST -> Root / "sse" / "action" / domain / service / entityId / dataKey / dataValue =>
-      callService(
-        domain,
-        service,
-        entityId,
-        Json.obj(dataKey -> Server.parseValue(dataValue))
+    case req @ POST -> Root / "sse" / "action" / slug / domain / service / entityId =>
+      gate.handleRequirement(req, Requirement.FromDashboard(Some(slug)))(
+        actionResponse(req, slug, entityId)(
+          callService(domain, service, entityId, Json.obj())
+        )
       )
 
+    // Single-value action (brightness, cover position, target temperature...).
+    case req @ POST -> Root / "sse" / "action" / slug / domain / service / entityId / dataKey / dataValue =>
+      gate.handleRequirement(req, Requirement.FromDashboard(Some(slug)))(
+        actionResponse(req, slug, entityId)(
+          callService(
+            domain,
+            service,
+            entityId,
+            Json.obj(dataKey -> Server.parseValue(dataValue))
+          )
+        )
+      )
+
+    // These two name no dashboard in their URL, but unlike an action POST they
+    // DO carry signals — `conn` among them — so the session names it. The
+    // requirement is therefore declared inside `withSession`, where the slug is
+    // known, rather than guessed from the path.
     case req @ POST -> Root / "sse" / "surface" / "open" / id =>
       withSession(req)((session, renderer, uiState) =>
         openSurface(session, renderer, id, uiState)
@@ -257,6 +299,35 @@ class Server(
         swapHost(session, renderer, Dashboard.PopupHostId, None, uiState)
       )
   }
+
+  /** An action may only touch an entity its OWN dashboard names (issue #89).
+    *
+    * The access rule says WHO may use a dashboard; this says WHAT that lets
+    * them do. Without it the two come apart badly: the action route forwards
+    * whatever `entity_id` is in the URL, so anyone admitted to the most
+    * permissive dashboard in the house could drive every entity in it — and a
+    * `Public` dashboard admits nobody in particular, which would put the front
+    * door lock one URL edit away from the street.
+    *
+    * "Names" is decided from the STATIC index, which is sound because a
+    * candidate set's membership is live but its candidate LIST is not (ADR
+    * 0003) — so the set of entities a dashboard can ever address is known at
+    * build time and does not depend on the current state.
+    *
+    * A dashboard that does not exist, or is failed and has no renderer, names
+    * no entities and therefore permits no action.
+    */
+  private def actionResponse(req: Request[IO], slug: String, entityId: String)(
+      handler: IO[Response[IO]]
+  ): IO[Response[IO]] =
+    (site.permissionFor(Some(slug)), gate.of(req)).flatMapN {
+      (permission, user) =>
+        if (permission.mayAct(user, entityId)) handler
+        else
+          Forbidden(
+            s"""{"success":false,"error":"$entityId is not on this dashboard"}"""
+          )
+    }
 
   /** The shared shape of the `/system/pkl/` routes: their `SystemPkl` calls
     * raise [[FHError]] for anything a home does not serve, mapped here to its
@@ -514,7 +585,11 @@ class Server(
     * body repaints, and a heartbeat. An unknown slug is a 404 — the gate lives
     * at the tail, on the stream's own single lookup ([[liveFor]]).
     */
-  private def sseStream(slug: String, req: Request[IO]): IO[Response[IO]] =
+  private def sseStream(
+      slug: String,
+      req: Request[IO],
+      allowed: Stream[IO, Boolean]
+  ): IO[Response[IO]] =
     val uiState = Server.uiStateOf(req)
     for {
       // The session was established by the document this stream belongs to,
@@ -688,7 +763,7 @@ class Server(
       // session `adoptOrMint` created is unreferenced garbage.
       resp <- liveOpt match
         case None    => NotFound()
-        case Some(_) => Ok(stream)
+        case Some(_) => Ok(Server.untilRevoked(allowed)(stream))
     } yield resp
 
   /** The error page's recovery stream ([[errorPage]]): the slug's
@@ -700,10 +775,18 @@ class Server(
     * route-side lookup and the stream would have answered a 200 empty-body SSE
     * instead of a 404.
     */
-  private def recoverStream(slug: String): IO[Response[IO]] =
+  private def recoverStream(
+      slug: String,
+      allowed: Stream[IO, Boolean]
+  ): IO[Response[IO]] =
     liveFor(slug).flatMap {
       case None       => NotFound()
-      case Some(live) => Ok(recoverTransitions(live).merge(keepAliveComments))
+      case Some(live) =>
+        Ok(
+          Server.untilRevoked(allowed)(
+            recoverTransitions(live).merge(keepAliveComments)
+          )
+        )
     }
 
   /** The recover stream's state changes ([[recoverStream]]), as the error page
@@ -1214,13 +1297,28 @@ class Server(
         connOf(body).map(_ -> Server.uiFromSignals(body.hcursor))
       })
       .flatMap {
-        case None => BadRequest("""{"success":false,"error":"missing conn"}""")
+        // Neither of these two has a dashboard to be checked against, and
+        // neither says anything a caller did not already send us: the request
+        // was malformed, or it named a connection this process does not have.
+        // So they answer un-gated rather than being checked against some other
+        // dashboard's rule — that guess is what this change removed.
+        case None =>
+          BadRequest("""{"success":false,"error":"missing conn"}""")
         case Some((conn, uiState)) =>
           sessions.get(conn).flatMap {
-            case None          => NoContent() // stale/unknown connection
+            case None =>
+              NoContent() // stale/unknown connection
             case Some(session) =>
-              rendererFor(session.slug)
-                .flatMap(_.traverse_(f(session, _, uiState))) *> NoContent()
+              // The requirement is declared HERE because this is the first
+              // point that knows which dashboard the request is for: the URL
+              // does not say, the session does.
+              gate.handleRequirement(
+                req,
+                Requirement.FromDashboard(Some(session.slug))
+              )(
+                rendererFor(session.slug)
+                  .flatMap(_.traverse_(f(session, _, uiState))) *> NoContent()
+              )
           }
       }
   }
@@ -1389,8 +1487,7 @@ class Server(
           pushSite(json)
         case Right(json) =>
           DashboardBuild
-            .decode(json)
-            .map(_.withSlug(slug))
+            .decode(json, slug = Some(slug))
             .flatMap(v => push(v).as(v))
             .flatMap(v =>
               Ok(
@@ -1995,6 +2092,39 @@ object Server {
     def liveFor(slug: String): IO[Option[LiveSlug]] =
       entries.get.map(_.get(slug).map(_.live))
 
+    /** What anyone may do on one dashboard (issue #89) — always an answer,
+      * never an absence for a caller to re-interpret. A `None` SLUG means `/`,
+      * resolved through the same default the routes use, so `/` is gated by
+      * whatever it actually serves rather than by a rule of its own.
+      *
+      * On `LiveSite` rather than on `Server` because the registry is the only
+      * thing it reads, and because the gate is built from the site BEFORE the
+      * server that routes with it.
+      *
+      * Read from the live registry on every call, with nothing cached: a reload
+      * that changes a dashboard's access takes effect on the next request, and
+      * there is no second copy to invalidate.
+      */
+    def permissionFor(slug: Option[String]): IO[Permission] =
+      slug
+        .fold(defaultSlug)(IO.pure)
+        .flatMap(liveFor)
+        .flatMap {
+          // A slug that names nothing, and a dashboard that failed to build,
+          // both answer with `Permission.none`. The second is the one worth
+          // stating: a failed dashboard's page carries build diagnostics —
+          // source paths, evaluation errors — which is not something to hand
+          // out anonymously just because the dashboard is broken, and its
+          // actions should reach no entity at all.
+          case None       => IO.pure(Permission.none)
+          case Some(live) =>
+            live.renderer.get.map {
+              case RendererState.Ready(r) =>
+                Permission(r.access, r.references)
+              case RendererState.Failed(_) => Permission.none
+            }
+        }
+
     def names: IO[List[String]] = entries.get.map(_.keys.toList.sorted)
 
     def changes: Stream[IO, Map[String, LiveSlug]] =
@@ -2227,6 +2357,7 @@ object Server {
       renderers: Map[String, SignallingRef[IO, RendererState]],
       defaultSlug: String,
       sessions: Sessions,
+      gate: AuthGate,
       assets: AssetCache = AssetCache.empty,
       healthy: Signal[IO, Boolean] = Signal.constant(true),
       systemPkl: SystemPkl = SystemPkl.empty,
@@ -2245,6 +2376,7 @@ object Server {
           stateStore,
           _,
           sessions,
+          gate,
           assets,
           healthy,
           systemPkl,
@@ -2262,6 +2394,7 @@ object Server {
       stateStore: StateStore,
       site: LiveSite,
       sessions: Sessions,
+      gate: AuthGate,
       assets: AssetCache,
       healthy: Signal[IO, Boolean],
       systemPkl: SystemPkl,
@@ -2276,6 +2409,7 @@ object Server {
         stateStore,
         site,
         sessions,
+        gate,
         supervisor,
         assets,
         healthy,
@@ -2299,6 +2433,7 @@ object Server {
       feed: HaFeed,
       site: LiveSite,
       sessions: Sessions,
+      gate: AuthGate,
       assets: AssetCache = AssetCache.empty,
       systemPkl: SystemPkl = SystemPkl.empty,
       dumpRefresh: Option[IO[DumpRefresh.Result]] = None
@@ -2308,6 +2443,7 @@ object Server {
       feed.store,
       site,
       sessions,
+      gate,
       assets,
       feed.healthy,
       systemPkl,
@@ -2454,6 +2590,37 @@ object Server {
     */
   private val IngressPathPattern: scala.util.matching.Regex =
     "^(/[A-Za-z0-9_-]+)+$".r
+
+  /** This server's own base URL, as the BROWSER reached it — scheme, host, port
+    * and any ingress prefix.
+    *
+    * The OAuth `client_id` and `redirect_uri` (issue #89), and they have to be
+    * what the browser sees rather than what this process was configured with:
+    * behind ingress or a reverse proxy the two differ, and HA validates that
+    * `redirect_uri` shares the `client_id`'s host and port.
+    *
+    * Derived per request from `Host` (plus `X-Forwarded-Proto`), which are
+    * attacker-suppliable on the direct port. That is acceptable here and
+    * nowhere else: the value only ever goes into a redirect back to the SAME
+    * origin the request claimed, so forging it redirects the forger to their
+    * own host with a code HA issued for that host — it grants no access to this
+    * instance. It is deliberately NOT used to decide anything about identity.
+    */
+  def baseUriOf(req: Request[IO]): Uri = {
+    val scheme =
+      req.headers
+        .get(org.typelevel.ci.CIString("X-Forwarded-Proto"))
+        .map(_.head.value)
+        .orElse(req.uri.scheme.map(_.value))
+        .getOrElse("http")
+    val authority = req.headers
+      .get(org.typelevel.ci.CIString("Host"))
+      .map(_.head.value)
+      .orElse(req.uri.authority.map(_.renderString))
+      .getOrElse("localhost")
+    val prefix = ingressPrefixOf(req).getOrElse("")
+    Uri.unsafeFromString(s"$scheme://$authority$prefix")
+  }
 
   /** The Datastar signal name carrying the per-connection `conn` id, echoed
     * back in each action POST body (`connOf`) so a POST correlates to its
@@ -2632,6 +2799,31 @@ object Server {
     * page declares the effect once where every other client behaviour lives.
     */
   val ReloadSignal: String = "_reload"
+
+  /** End a live stream when its dashboard's rule stops holding — and tell the
+    * client why, as the last thing it sends (issue #89).
+    *
+    * Cutting the stream stops the dashboard UPDATING, but the tab goes on
+    * SHOWING everything it last received: somebody signed out on another device
+    * would keep reading the house off a frozen page. The reload is what takes
+    * it away, and it rides the signal that already exists for exactly that —
+    * every page declares `_reload` with a `window.location.reload()` effect
+    * ([[reloadPatch]]), so the client needs nothing new.
+    *
+    * A merge rather than `interruptWhen` is the whole point: the right side
+    * stays silent until the rule breaks, then emits the reload and ENDS — so
+    * the goodbye is delivered before the stream closes rather than being cut
+    * off with it.
+    *
+    * `mergeHaltBoth`, not `mergeHaltR`: a rule that never breaks leaves the
+    * right side running forever, and halting only on IT would keep a stream
+    * alive after its own events had finished — a displaced session's stream
+    * would never close, which is a hang rather than a leak.
+    */
+  private[runtime] def untilRevoked(allowed: Stream[IO, Boolean])(
+      events: Stream[IO, ServerSentEvent]
+  ): Stream[IO, ServerSentEvent] =
+    events.mergeHaltBoth(allowed.find(!_).as(reloadPatch))
 
   private[runtime] val reloadPatch: ServerSentEvent =
     Datastar.patchSignals(s"""{"$ReloadSignal":true}""")
