@@ -193,8 +193,13 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   `bind` (`data-bind`, two-way on a form control). Every kind reads the signal bare — the VALUE
   carries its own unit (`39.37%`, `#ffb46b`), so the transform decides its shape in one place.
   Customers: `entityCard`'s `value` (text), and all four of the slider's moving slots — `state`
-  (text), `value` (bind, replacing its hand-rolled `_val_<id>`), `fill` (`style:--_end`) and
-  `fillColor` (`style:background`). A DRAG paints the fill (and a percent readout) itself, from
+  (text), `value` (`attr:value`), `fill` (`style:--_end`) and
+  `fillColor` (`style:background`). The slider's `value` is SERVER-ONLY (ADR 0025): the input is
+  `data-bind`-ed to a separate client-owned `_<id>__slide`, because `data-on-signal-patch` fires on
+  local writes too, so one signal cannot tell the server's write from the drag's — and while the
+  drag wrote the server's slot, a FAILED commit left the thumb where the finger was, with `holds`
+  stale so no correcting frame ever came. Two handlers reconcile: adopt on a server write, and the
+  same restore on a refusal or a dead stream. A DRAG paints the fill (and a percent readout) itself, from
   `data-on:input` — the style plugin re-applies its property whenever anything else writes the
   `style` attribute, which `beer.min.js` does on every move, so without that the whole gesture
   showed nothing until release (ADR 0017). The contract is a NEGATIVE one — a broken

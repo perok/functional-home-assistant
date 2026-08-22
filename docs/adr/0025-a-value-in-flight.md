@@ -4,7 +4,9 @@
 - **Date:** 2026-08-22
 - **Scope:** `runtime/SurfaceGraph.scala` (`committedSelection`,
   `committedSelections`), `runtime/Server.scala` (`swapHost`,
-  `openingSignals`), `lib/core/tap.pkl`, `lib/components/surface.pkl`
+  `openingSignals`), `runtime/Datastar.scala` (the no-null rule),
+  `lib/core/tap.pkl`, `lib/components/surface.pkl`,
+  `lib/components/slider.pkl`
 - **Closes:** ADR 0024's open question. **Uses:** ADR 0005's `ui_<id>` signal
   and URL mirror, which this makes honest.
 
@@ -203,21 +205,16 @@ connection whose future diffs are all wrong.
 
 It is also why the slider below is not optional cleanup.
 
-## And the slider is a third case, not "the same shape at a different scale"
+## The slider: two values, not three
 
-The plan named the slider drag as the mechanism's next customer. Reading it says
-otherwise, and for a reason worth recording before anyone tries.
+The plan named the slider drag as "the same shape at a different scale". It is
+not: a selection's pending state has no counterpart here, because for a
+CONTINUOUS value "what I asked for" and "what I am showing" are the same number
+— the finger's. Direct manipulation means the finger is the truth while it is
+down, and there is no ask until release.
 
-A slider's value is `data-bind`-ed two-way, so the DRAG writes the committed
-signal directly — and that is correct, not a bug. Direct manipulation means the
-finger IS the truth while it is down; there is no "asked for" until release.
-Inverting the binding does not help either: `data-bind` is two-way to ONE
-signal, so a display of `pending || committed` would need the server's value
-copied into pending whenever pending is clear — at which point pending means
-"currently displayed" and is the bound signal again, with extra steps.
-
-But that is an argument about the BINDING, not about the model, and the model
-does fit — with a third state a selection does not have:
+What the slider needed instead was the split this ADR is about, with the third
+state left out:
 
 | signal | written by | means |
 |---|---|---|
@@ -225,32 +222,45 @@ does fit — with a third state a selection does not have:
 | `_<id>__slide` (+ twins) | the client, during the gesture | what the control is showing |
 | — | | there is no third: for a continuous value, "asked for" IS "showing" |
 
-The drag writes only the client-owned half, so `holds` stays true and the
-server's diff keeps working — which is the point above, and the reason today's
-slider is actually broken rather than merely optimistic: its drag writes the
-server's own `value`/`fill`/`state` slots.
+The drag now writes only the client-owned half. **Two signals are forced, not
+preferred**, and the reason is sharper than tidiness: `data-on-signal-patch`
+fires on every write to a name, local ones included, so a card cannot tell the
+server's write from its own drag on ONE signal. "Where the device is" and
+"where the control is" need two names to be distinguishable at all.
 
-Reconciliation is then two imperative handlers rather than an effect, so no
+The consequence is that the old slider was broken rather than merely
+optimistic. Its drag wrote the server's own `value`/`fill`/`state` slots, so the
+session's `holds` — what the server believes that DOM has — went stale. A commit
+that FAILED then produced no correcting frame, because the device never moved
+and the server's diff therefore said "nothing owed". The thumb stayed where the
+finger left it, indefinitely.
+
+Reconciliation is two imperative handlers rather than effects, so no
 dependency-tracking subtleties arise:
 
 - **the server speaks** (`data-on-signal-patch` filtered to `_<id>__value`) —
   adopt it. Confirmation and CORRECTION are the same line; HA clamping a
-  brightness is not a failure and needs no special case.
-- **refused, or `_sse` down** — adopt it too. That is the rollback, and it is
-  the same line again: "show what the device last said".
+  brightness is not a failure and needs no case of its own.
+- **refused, or `_sse` down** — adopt it again. That is the rollback, and it is
+  the same statement: "show what the device last said". `fill` and `state` are
+  RECOMPUTED from the restored position rather than shadowed, because they are
+  functions of it — and the formula is the one the drag already uses.
 
-`busy_change` stays exactly as it is. Its job is the re-click guard, it is
-fetch-scoped, and a pending signal would duplicate it — for a continuous value
-the guard is the only thing "in flight" needs to mean.
+`busy_change` is untouched. Its job is the re-commit guard, it is fetch-scoped,
+and a pending signal would duplicate it: for a continuous value the guard is all
+"in flight" needs to mean.
 
-The one wrinkle is the input itself: `data-bind` is two-way to ONE signal, so
-`_slide` cannot fall through to `_value` the way a tab's highlight does. It
-holds the display value and the handlers COPY into it, where a selection's
-pending merely clears. The fallback shape still works for `fill`/`state`, which
-are read through ordinary bindings.
+Two wrinkles worth knowing. The input cannot fall through the way a tab's
+highlight does — `data-bind` is two-way to ONE signal — so `_slide` holds the
+display value and the handlers COPY into it, where a selection's pending merely
+clears. And `value` moved from `asBind` to `data-attr:value`, which is not a
+downgrade: the content attribute IS the input's default value, which is exactly
+"where the device is" for a control nobody has touched, and the browser's
+dirty-value flag makes it inert afterwards — which is the right answer too.
 
-Not built here — it is the largest card in the library and it has visual
-baselines — but it is a decided shape, not an open question.
+`UiSmokeSuite` pins it with a REFUSED commit: the thumb moves (so the assertion
+cannot pass vacuously), then returns, and the fill returns with it. Removing the
+restore makes it fail.
 
 ## Consequences
 

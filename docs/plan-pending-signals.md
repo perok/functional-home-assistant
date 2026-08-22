@@ -10,10 +10,10 @@ kept for the reasoning it records (the 4xx spike, the channel table, the
 - **Buttons were the wrong first step**, not the smallest one. A service tap has
   no committed value to catch up to, so pending cannot clear there and does NOT
   subsume `busy`. ADR 0019 stands.
-- **The slider needs two values, not three.** For a continuous value "asked
-  for" IS "showing", so pending collapses into the existing fetch-scoped guard;
-  what it needs is a client-owned `slide` half so the drag stops writing the
-  server's own slots. ADR 0025 has the shape.
+- **The slider needed two values, not three** — LANDED. For a continuous value
+  "asked for" IS "showing", so pending collapses into the existing fetch-scoped
+  guard; what it needed was a client-owned `slide` half, because the drag was
+  writing the server's own slots. ADR 0025 has it.
 - **Failure ends an ask two ways, and neither is a timeout.** The
   `datastar-fetch` error event is dispatched from `onopen`, so it covers a
   refusal (a status the server sent) and never a request that got no response.

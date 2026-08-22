@@ -315,6 +315,51 @@ class UiSmokeSuite extends SmokeSuite {
     }
   }
 
+  test("slider: a REFUSED commit puts the thumb back where the device is") {
+    // The bug the client/server split exists to fix (ADR 0025). While the drag
+    // wrote the server's own `value` slot, a commit that failed produced no
+    // correcting frame — the device never moved, so the server's diff said
+    // "nothing owed" — and the slider kept showing a brightness the light
+    // never took, indefinitely.
+    withPage(scene) { (page, ts) =>
+      val slider = page.locator("input[type=range]")
+      for {
+        _ <- ts.awaitLive()
+        before <- IO.blocking(slider.inputValue())
+        _ <- IO.blocking(
+          page.route(
+            "**/sse/action/**",
+            route =>
+              route.fulfill(
+                new com.microsoft.playwright.Route.FulfillOptions()
+                  .setStatus(404)
+                  .setBody("no")
+              )
+          )
+        )
+        _ <- IO.blocking(slider.focus())
+        _ <- IO.blocking(slider.press("End"))
+        // It moved — otherwise the assertion below would pass vacuously.
+        moved <- IO.blocking(slider.inputValue())
+        _ <- IO(assert(moved != before, clue = s"$before -> $moved"))
+        // …and comes back, because the refusal says nothing is coming.
+        back <- eventually(IO.blocking(slider.inputValue()))(_ == before)
+        // The fill is a function of the position, so it is restored with it
+        // rather than shadowed separately.
+        fill <- IO.blocking(
+          page
+            .locator("div.slider")
+            .first()
+            .evaluate("e => e.style.getPropertyValue('--_end')")
+            .toString
+        )
+      } yield {
+        assertEquals(back, before)
+        assert(fill.nonEmpty && fill != "0%", clue = fill)
+      }
+    }
+  }
+
   test("slider: a keyboard commit posts the value-carrying action") {
     withPage(scene) { (page, ts) =>
       val slider = page.locator("input[type=range]")
