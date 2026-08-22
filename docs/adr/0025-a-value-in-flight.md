@@ -330,6 +330,15 @@ phone loses signal mid-drag. Two cards, two ways an ask can end, three of the
 four covered. The gap exists because the mechanism "was already tested" on the
 other card, which is the way this kind of hole always opens.
 
+**The drag GESTURE has never been looked at in a browser.** Every assertion
+about the slider here is functional — a value commits, a refusal rolls back —
+and the `ComponentVisualSuite` baselines render the card AT REST, so they passed
+untouched and say nothing about the thing that changed. What is unconfirmed is
+that dragging still paints smoothly now that the input is bound to a different
+signal (`_slide`) from the one the server writes, and that a server correction
+mid-gesture does not fight the finger. ADR 0006 asks for browser sign-off on
+visual changes; this one has not had it (`sbt dashboardServe`).
+
 **`fill` and `state` are still drag-written server slots.** See the slider
 section: `value` moved to a client-owned half and they did not, so `holds` still
 goes stale for them mid-gesture and it is `rollbackToCommitted`'s recomputation
