@@ -90,16 +90,36 @@ const noSignals = #"{filterSignals:{exclude:'.*'}}"#
 /// One guarded element per node, so the name is never shared — a sibling's
 /// `finished` would otherwise clear an in-flight busy (see
 /// `docs/adr/0019-an-action-in-flight.md`).
-const busyGuard: String = #"$_{{id}}__busy ? '' : "#
+/// The IN-FLIGHT LOOK, for any signal that is truthy while something is
+/// outstanding. Parameterised because the look is one fact and the state is
+/// not: an ADR 0019 `busy` boolean and an ADR 0025 pending VALUE both wear it,
+/// and so does the slider's separate commit signal. The signals must keep their
+/// own names (they are keyed differently and written by different things — see
+/// [[pendingSignal]]); only the classes are shared.
+const function inFlightClass(sig: String): String =
+  #"data-class:fh-disabled="$\#(sig)" data-class:fh-loading="$\#(sig)""#
+
+/// The re-click guard, as the prefix that makes a click expression a no-op
+/// while `sig` is truthy.
+const local function guardOn(sig: String): String = "$" + sig + " ? '' : "
+
 // The indicator names the signal via the VALUE form (`data-indicator="<name>"`),
 // NOT the keyed form: the pinned v1.0.2 bundle splits a namespaced attribute's
 // KEY on `__` (its mod separator), so `data-indicator:_{{id}}__busy` would arm a
 // signal named `_<id>` and the `__busy` suffix would silently become a mod —
 // the busy class and guard read `_<id>__busy`, so nothing ever showed or gated.
 // The value string is not split (verified against the pinned bundle's `hn`).
-const busyAttrs: String = #"data-indicator="_{{id}}__busy""#
-const busyClass: String =
-  #"data-class:fh-disabled="$_{{id}}__busy" data-class:fh-loading="$_{{id}}__busy""#
+const local function indicatorOn(sig: String): String =
+  #"data-indicator="\#(sig)""#
+
+/// The two busy signal names. A tap's own, and the slider's separate
+/// value-commit one — see [[busyGuardChange]] for why that must not be shared.
+const busySig: String = "_{{id}}__busy"
+const busyChangeSig: String = "_{{id}}__busy_change"
+
+const busyGuard: String = guardOn(busySig)
+const busyAttrs: String = indicatorOn(busySig)
+const busyClass: String = inFlightClass(busySig)
 
 /// How long an action may take before it is worth SAYING it is taking a
 /// while. Below this, the spinner never appears at all.
@@ -170,11 +190,10 @@ const busyShapeClass: String = busySpinner("_{{id}}__busy")
 /// `input`/`change` at all — the guard is the belt for a programmatic
 /// dispatch. The boolean comes from the indicator plugin, so the attr plugin's
 /// `true`→`setAttribute`/`false`→`removeAttribute` toggle works exactly.
-const busyGuardChange: String = #"$_{{id}}__busy_change ? '' : "#
+const busyGuardChange: String = guardOn(busyChangeSig)
 const busyAttrsChange: String =
-  #"data-indicator="_{{id}}__busy_change" data-attr:disabled="$_{{id}}__busy_change""#
-const busyClassChange: String =
-  #"data-class:fh-disabled="$_{{id}}__busy_change" data-class:fh-loading="$_{{id}}__busy_change""#
+  indicatorOn(busyChangeSig) + #" data-attr:disabled="$\#(busyChangeSig)""#
+const busyClassChange: String = inFlightClass(busyChangeSig)
 /// [[busyShapeClass]]'s commit-signal twin, for the slider's head badge —
 /// the track carries no icon of its own, so the badge is what spins for the
 /// whole commit window.

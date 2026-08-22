@@ -114,6 +114,45 @@ concurrent fetches, which is the right primitive when a boolean is all you have,
 but it cannot say WHICH tap is outstanding, and that is the thing the display
 needs.
 
+## Why pending and `busy` share a LOOK but never a name
+
+They wear the same classes — `fh-disabled`, `fh-loading`, and the theme's
+`busySpin` bind key — because "this control is mid-something" is one fact.
+`tap.pkl`'s `inFlightClass(sig)` / `guardOn(sig)` / `busySpinner(sig)` are
+parameterised on the signal for exactly that, which also collapsed the six
+hardcoded `busy*` / `busy*Change` constants into three functions.
+
+The SIGNALS stay separate, for three reasons and any one would do:
+
+- **They are keyed differently.** A group's pending is shared by every anchor in
+  its bar, which is what makes one selection one value. ADR 0019's invariant is
+  the opposite: a busy signal must never be shared, or a sibling's `finished`
+  clears an in-flight guard.
+- **They have different writers.** `data-indicator` writes booleans; a pending
+  value is written by the click expression. Both on one name is two writers
+  fighting over one slot.
+- **`''` is not "unset" to `data-attr`.** Measured, not read: the bundle treats
+  the empty string as HTML's boolean-attribute spelling and SETS the attribute.
+  A slider whose `data-attr:disabled` read a pending signal resting at `''`
+  would sit permanently disabled with nothing in flight. Any such binding must
+  spell the predicate (`$sig !== ''`).
+
+### `null` is not the way out, and is worth its own warning
+
+The obvious escape from that last point is to rest pending at `null`, which
+`data-attr` does treat as absent. **It is not available: a signal set to null is
+dead.** Every later write to that name is ignored — no exception, no console
+error, nothing in `onPageError`. The page just stops responding, and it presents
+as "Datastar broke" rather than "we wrote a null".
+
+`DatastarMorphContractSuite` measures it from both directions, because a
+server-sent `{"s": null}` does the same thing as a client-side `$s = null`. The
+consequence is wider than this ADR: **no signals frame may ever carry a JSON
+null.** `Datastar.signalsJson` carries the rule. It is a rule and not a type
+because `Patch.Signals` is deliberately `Json`-valued — the cursor rides in it
+as a nested object — and every producer today builds values with
+`Json.fromString`.
+
 ## What this does NOT do: buttons
 
 `docs/plan-pending-signals.md` put buttons first, on the reasoning that
@@ -138,6 +177,27 @@ The honest consequence: `busy` is NOT superseded. It remains the in-flight
 mechanism for service taps, `pending` is the mechanism for selections, and they
 are two mechanisms because the two taps differ in a way that matters — one has a
 committed value to catch up to and the other does not.
+
+## And the slider is a third case, not "the same shape at a different scale"
+
+The plan named the slider drag as the mechanism's next customer. Reading it says
+otherwise, and for a reason worth recording before anyone tries.
+
+A slider's value is `data-bind`-ed two-way, so the DRAG writes the committed
+signal directly — and that is correct, not a bug. Direct manipulation means the
+finger IS the truth while it is down; there is no "asked for" until release.
+Inverting the binding does not help either: `data-bind` is two-way to ONE
+signal, so a display of `pending || committed` would need the server's value
+copied into pending whenever pending is clear — at which point pending means
+"currently displayed" and is the bound signal again, with extra steps.
+
+So the slider is the TOGGLE pattern this ADR already exempts: optimistic, and
+corrected by the server's own write. What it genuinely lacks is the failure
+case — a commit that is refused or never answered leaves the slider showing a
+value the device never took, with nothing to restore. Fixing that needs a
+shadow of the last committed value and a deliberate ROLLBACK onto it, which is
+the one thing this ADR's design never does. Right for direct manipulation,
+wrong for a selection; a different decision, and not made here.
 
 ## Consequences
 

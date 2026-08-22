@@ -99,6 +99,16 @@ object Datastar {
 
   /** Signal-slot values as the [[patchSignals]] payload. Sorted, so one frame's
     * bytes are a function of its contents and a test can name them.
+    *
+    * '''Never put a `Json.Null` in here.''' A signal set to null is DEAD in the
+    * pinned bundle: every later write to that name is ignored, with no
+    * exception, no console error and nothing in `onPageError` — the page simply
+    * stops responding, and it looks like Datastar broke rather than like we
+    * sent a null. `Map[SignalId, Json]` is wider than that on purpose (the
+    * cursor is a nested object — see `Server.versionPatch`), so this is a rule
+    * rather than a type. Measured on both directions in
+    * `DatastarMorphContractSuite`; every producer today builds values with
+    * `Json.fromString`.
     */
   def signalsJson(values: Map[SignalId, Json]): String =
     Json

@@ -419,6 +419,89 @@ class DatastarMorphContractSuite extends munit.CatsEffectSuite with SlowSuite {
     }
   }
 
+  test("a signal set to null is DEAD, and '' is a present attribute") {
+    // Two bundle facts that together decide whether a pending signal may share
+    // a name with an ADR 0019 `busy` one (ADR 0025).
+    //
+    //   1. `data-attr` treats `''` as PRESENT — HTML's canonical
+    //      boolean-attribute spelling (`disabled=""`), not a no-op. So a
+    //      pending signal resting at `''` would leave a slider bound to
+    //      `data-attr:disabled` permanently disabled with nothing in flight.
+    //   2. `null`, the rest value that would have avoided (1), is not usable
+    //      at all: writing it SILENTLY kills the store. Every later write to
+    //      that signal is ignored — no exception, no console error, nothing
+    //      in `onPageError`. A page just stops responding.
+    //
+    // (2) is why this test exists rather than a note. It cannot be read off
+    // the source, it is invisible in devtools, and it would be diagnosed as
+    // "Datastar broke" rather than "we wrote a null". It also means the SERVER
+    // must never send one: a signals frame carrying `null` does the same thing
+    // from the other side, which the last third measures on a fresh store.
+    def page(nullBtn: String) =
+      s"""<div data-signals="{ s: 'v' }"></div>
+         |<input id="i" data-attr:disabled="$$s" />
+         |<div id="r" data-text="JSON.stringify($$s)"></div>
+         |<button id="empty" data-on:click="$$s = ''">e</button>
+         |<button id="val" data-on:click="$$s = 'v'">v</button>
+         |$nullBtn""".stripMargin
+
+    val clientNull = """<button id="nul" data-on:click="$s = null">n</button>"""
+    val serverNull =
+      """<button id="nul" data-on:click="@post('/nullify')">n</button>"""
+
+    val routes = HttpRoutes.of[IO] { case POST -> Root / "nullify" =>
+      Ok(
+        fs2.Stream.emit(Datastar.patchSignals("""{"s": null}""")).covary[IO]
+      ).map(_.withContentType(`Content-Type`(MediaType.`text/event-stream`)))
+    }
+
+    def attr(p: Page) =
+      IO.blocking(Option(p.locator("#i").getAttribute("disabled")))
+    def click(p: Page, id: String) = IO.blocking(p.locator(id).click())
+
+    /** Drive one page: prove writes work, null it, then prove they do not. */
+    def run(body: String) =
+      servedWith(body, Nil, routes).use { case (p, uri) =>
+        val settle = IO.sleep(300.millis)
+        for {
+          errs <- IO(scala.collection.mutable.ListBuffer.empty[String])
+          _ <- IO.blocking(
+            p.onConsoleMessage(m =>
+              if (m.`type`() == "error") { val _ = errs += m.text() }
+            )
+          )
+          _ <- IO.blocking(p.onPageError(e => { val _ = errs += e }))
+          _ <- IO.blocking(p.navigate(uri.renderString))
+          _ <- eventually(text(p, "#done"))(_ == "yes")
+          start <- attr(p)
+          // The control: writes work, repeatedly, before any null.
+          blank <- click(p, "#empty") *> settle *> attr(p)
+          restored <- click(p, "#val") *> settle *> attr(p)
+          // Then the null, and the SAME write again.
+          _ <- click(p, "#nul") *> settle
+          after <- click(p, "#empty") *> settle *> attr(p)
+        } yield (start, blank, restored, after, errs.toList)
+      }
+
+    for {
+      fromClient <- run(page(clientNull))
+      fromServer <- run(page(serverNull))
+    } yield {
+      List(("client", fromClient), ("server", fromServer)).foreach {
+        case (who, (start, blank, restored, after, errs)) =>
+          assertEquals(start, Some("v"), s"$who: a plain string is the value")
+          assertEquals(blank, Some(""), s"$who: '' PRESENTS the attribute")
+          assertEquals(restored, Some("v"), s"$who: and writes keep working")
+          assertEquals(
+            after,
+            Some("v"),
+            s"$who: after a null the signal is DEAD — this write is ignored"
+          )
+          assertEquals(errs, Nil, s"$who: and nothing is reported anywhere")
+      }
+    }
+  }
+
   private def served(
       body: String,
       patches: List[ServerSentEvent]

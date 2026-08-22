@@ -10,6 +10,10 @@ kept for the reasoning it records (the 4xx spike, the channel table, the
 - **Buttons were the wrong first step**, not the smallest one. A service tap has
   no committed value to catch up to, so pending cannot clear there and does NOT
   subsume `busy`. ADR 0019 stands.
+- **The slider is not "the same shape at a different scale" either.** Its value
+  is two-way bound, so the drag writes the committed signal and should — direct
+  manipulation has no "asked for" until release. It is the toggle case, and what
+  it actually lacks is a rollback on a failed commit.
 - **Failure ends an ask two ways, and neither is a timeout.** The
   `datastar-fetch` error event is dispatched from `onopen`, so it covers a
   refusal (a status the server sent) and never a request that got no response.
