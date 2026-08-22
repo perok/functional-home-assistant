@@ -604,6 +604,33 @@ class PklBuildSuite extends munit.FunSuite {
         .exists(_.exists(_.contains("beercss"))),
       clue = result
     )
+    // The icon font is the one sheet the first paint does not need — a glyph
+    // arriving late lands in a box the framework already sized. It must be in
+    // the deferred list and NOWHERE in the blocking one, or the whole point is
+    // lost to a second, render-blocking `<link>` for the same URL.
+    assert(
+      theme
+        .get[List[String]]("deferredStylesheets")
+        .toOption
+        .exists(_.exists(_.contains("materialdesignicons"))),
+      clue = result
+    )
+    assert(
+      !theme
+        .get[List[String]]("stylesheets")
+        .toOption
+        .exists(_.exists(_.contains("materialdesignicons"))),
+      clue = result
+    )
+    // The TEXT font stays blocking on purpose: swapping it mid-paint moves
+    // every line of text on the page (see `interCdn`).
+    assert(
+      theme
+        .get[List[String]]("stylesheets")
+        .toOption
+        .exists(_.exists(_.contains("inter"))),
+      clue = result
+    )
     // A theme's `styles` is the PAINT layer now (ADR 0020): the layout contract
     // lives in `core/css.pkl` and each card's structure in its own `cardDef.css`,
     // so what a theme must still carry is its palette — including the `--fh-*`

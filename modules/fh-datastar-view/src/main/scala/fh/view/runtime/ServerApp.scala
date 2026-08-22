@@ -172,7 +172,8 @@ object ServerApp extends IOApp {
           .build(
             config.assetsDir,
             Server.DatastarCdn :: built.flatMap { case (_, renderer) =>
-              renderer.stylesheets ++ renderer.scripts
+              renderer.stylesheets ++ renderer.deferredStylesheets ++
+                renderer.scripts
             },
             org.http4s.jdkhttpclient.JdkHttpClient[IO](httpClient)
           )

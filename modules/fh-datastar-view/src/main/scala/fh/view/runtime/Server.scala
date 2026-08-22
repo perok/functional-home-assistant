@@ -1800,6 +1800,7 @@ class Server(
           slug,
           painted.html,
           renderer.stylesheets.map(assets.rewrite),
+          renderer.deferredStylesheets.map(assets.rewrite),
           renderer.scripts.map(assets.rewrite),
           renderer.inlineScripts,
           renderer.title,
@@ -1875,6 +1876,7 @@ class Server(
       slug: String,
       body: String,
       stylesheets: List[String],
+      deferredStylesheets: List[String],
       scripts: List[String],
       inlineScripts: List[String],
       title: Option[String],
@@ -1894,9 +1896,20 @@ class Server(
     // what they are for (a document-level listener the first paint already
     // needs). Emitted verbatim, like `styles` and `chrome`: a theme is authored
     // source, not user input.
+    // A deferred sheet is fetched at `as=style` priority but not APPLIED until
+    // it arrives, so it never blocks the first paint; the `onload` swap is what
+    // applies it (https://web.dev/articles/defer-non-critical-css). `onload=null`
+    // first, because some browsers fire `onload` again after the swap and would
+    // otherwise loop. The `<noscript>` copy is the whole point of the pattern —
+    // without JS the preload never becomes a stylesheet at all, and the icons
+    // would simply never arrive.
     val links = (
       stylesheets
         .map(href => s"""  <link rel="stylesheet" href="$href">""") ++
+        deferredStylesheets.map(href =>
+          s"""  <link rel="preload" as="style" href="$href" onload="this.onload=null;this.rel='stylesheet'">
+             |  <noscript><link rel="stylesheet" href="$href"></noscript>""".stripMargin
+        ) ++
         scripts
           .map(src => s"""  <script type="module" src="$src"></script>""") ++
         inlineScripts.map(js => s"""  <script>$js</script>""")

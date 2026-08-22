@@ -172,6 +172,17 @@ open class Theme {
   tokens: Mapping<String, String>
   tokensDark: Mapping<String, String>
   stylesheets: Listing<String>
+  /// Stylesheets the FIRST PAINT does not need. Loaded off the critical path
+  /// (`rel=preload` swapped to `stylesheet` on load, `<noscript>` fallback —
+  /// https://web.dev/articles/defer-non-critical-css) instead of blocking the
+  /// render on them.
+  ///
+  /// The trade is real: what a deferred sheet styles arrives a beat after the
+  /// page does. So this is for a sheet whose absence leaves the LAYOUT intact —
+  /// an icon font, where a glyph appears a moment late — and never for the one
+  /// that decides where things go. It is also why the TEXT font stays above:
+  /// swapping that mid-paint moves every line of text on the page.
+  deferredStylesheets: Listing<String> = new {}
   /// External JS URLs, `<script type="module" src>`-injected in the document
   /// head (after the stylesheets, before Datastar). ES modules — deferred, so
   /// they run after the first paint. For framework helpers a theme's CSS needs
