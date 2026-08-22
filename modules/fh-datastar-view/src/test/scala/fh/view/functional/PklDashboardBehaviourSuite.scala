@@ -460,11 +460,13 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
         trigger = ts.fake.emit(light.entityId, "off") *>
           ts.fake.emit(light.entityId, "on", light.attributes)
       ).map { live =>
-        // Never a signal expression with an absent value.
-        assert(!live.contains(s"ui_$tabsHost:  }"), clue = live)
+        // Never a signal expression with an absent value. The committed signal
+        // is no longer last in the seed object (the pending one follows it), so
+        // the delimiter that pins "a value is present" is the comma.
+        assert(!live.contains(s"ui_$tabsHost: ,"), clue = live)
         // The fill replaces the mount ELEMENT, so the index that lands is this
         // client's tab, not the group's default.
-        assert(live.contains(s"ui_$tabsHost: 1 }"), clue = live)
+        assert(live.contains(s"ui_$tabsHost: 1,"), clue = live)
       }
     }
   }

@@ -1307,6 +1307,23 @@ class Server(
             )
           )
       }
+      // The selection is COMMITTED here and only here. The tap wrote a pending
+      // signal, not `ui_<id>`, so this frame is what moves the highlight's
+      // fallback and the URL mirror — and what clears the pending value, by
+      // agreeing with it (`docs/plan-pending-signals.md`). A tap that never
+      // reached this line therefore cannot leave the URL claiming a panel this
+      // DOM does not have, which is the disagreement it replaces.
+      _ <- renderer.surfaces
+        .committedSelection(host, newSurface)
+        .traverse_ { case (id, value) =>
+          session.control.offer(
+            Datastar.patchSignals(
+              io.circe.Json
+                .obj(Server.UiSignalPrefix + id -> io.circe.Json.fromString(value))
+                .noSpaces
+            )
+          )
+        }
     } yield ()
 
   /** Resolve the connection (`conn` rides in the POST body among Datastar

@@ -331,6 +331,88 @@ class DatastarMorphContractSuite extends munit.CatsEffectSuite with SlowSuite {
     }
   }
 
+  test("a data-effect that clears the signal it reads settles, and survives a race") {
+    // The clearing rule pending signals rest on
+    // (docs/plan-pending-signals.md): the client writes `_g__pending` on tap,
+    // the SERVER writes `ui_g`, and pending clears itself once the committed
+    // value catches up. The effect READS and WRITES the same signal, which is
+    // the shape that loops — so this measures that it settles, and counts the
+    // runs rather than trusting that it does.
+    //
+    // The second half is why the clear is derived from the committed value
+    // instead of sent in the frame: with two taps in flight, a commit for the
+    // FIRST must leave the second's pending alone. A server-sent clear could
+    // not tell them apart.
+    val clear =
+      "window.__runs = (window.__runs || 0) + 1; " +
+        "$_g__pending !== '' && $ui_g == $_g__pending && ($_g__pending = '')"
+
+    val page =
+      s"""<div data-signals="{ui_g: '', _g__pending: ''}"></div>
+         |<div data-effect="$clear"></div>
+         |<div id="shown" data-text="$$_g__pending || $$ui_g"></div>
+         |<div id="pending" data-text="$$_g__pending"></div>
+         |<button id="tapA" data-on:click="$$_g__pending = 'a'">a</button>
+         |<button id="tapB" data-on:click="$$_g__pending = 'b'">b</button>
+         |<button id="commitA" data-on:click="@post('/commit/a')">ca</button>
+         |<button id="commitB" data-on:click="@post('/commit/b')">cb</button>""".stripMargin
+
+    val routes = HttpRoutes.of[IO] { case POST -> Root / "commit" / which =>
+      Ok(
+        fs2.Stream
+          .emit(Datastar.patchSignals(s"{ui_g: '$which'}"))
+          .covary[IO]
+      ).map(_.withContentType(`Content-Type`(MediaType.`text/event-stream`)))
+    }
+
+    def click(p: Page, id: String) = IO.blocking(p.locator(id).click())
+
+    servedWith(page, Nil, routes).use { case (p, uri) =>
+      for {
+        _ <- IO.blocking(p.navigate(uri.renderString))
+        _ <- eventually(text(p, "#done"))(_ == "yes")
+
+        // (1) The tap shows instantly, from pending alone.
+        _ <- click(p, "#tapA")
+        _ <- eventually(text(p, "#shown"))(_ == "a")
+
+        // (2) A SECOND tap while the first is unresolved. Pending is now 'b'.
+        _ <- click(p, "#tapB")
+        _ <- eventually(text(p, "#shown"))(_ == "b")
+
+        // (3) The FIRST tap's commit lands. Pending must survive it — this is
+        // the race a server-sent clear gets wrong.
+        _ <- click(p, "#commitA")
+        _ <- eventually(text(p, "#pending"), 2.seconds)(_ == "b")
+        shown <- text(p, "#shown")
+        _ <- IO(
+          assertEquals(
+            shown,
+            "b",
+            "a commit for an OVERTAKEN tap must not clear the pending one"
+          )
+        )
+
+        // (4) The second tap's commit lands: pending clears itself, and the
+        // display is unchanged because the committed value now says the same.
+        _ <- click(p, "#commitB")
+        _ <- eventually(text(p, "#pending"))(_ == "")
+        settled <- text(p, "#shown")
+        _ <- IO(assertEquals(settled, "b", "the committed value takes over"))
+
+        // (5) It SETTLED. A self-referential effect that looped would still be
+        // running; the count is small and stops growing.
+        runs <- IO.blocking(p.evaluate("window.__runs").asInstanceOf[Int])
+        _ <- IO.sleep(300.millis)
+        later <- IO.blocking(p.evaluate("window.__runs").asInstanceOf[Int])
+        _ <- IO {
+          assertEquals(later, runs, s"the effect must stop re-running (ran $runs)")
+          assert(runs < 20, s"the effect settled but ran $runs times")
+        }
+      } yield ()
+    }
+  }
+
   private def served(
       body: String,
       patches: List[ServerSentEvent]

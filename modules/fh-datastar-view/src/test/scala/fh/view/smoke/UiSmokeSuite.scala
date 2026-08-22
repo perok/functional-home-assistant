@@ -59,6 +59,41 @@ class UiSmokeSuite extends SmokeSuite {
     }
   }
 
+  test("tabs: a tap the server never answers commits nothing") {
+    // What pending signals are for (`docs/plan-pending-signals.md`). The tap
+    // used to set `ui_<gid>` itself, so a POST that failed still moved the
+    // highlight AND the URL — a deep link to a panel this page never showed.
+    // Now the press only says what it ASKED for: the highlight follows it, the
+    // URL does not, and when the answer never comes both fall back.
+    withPage(scene) { (page, ts) =>
+      val panel = page.locator(".tab-panel")
+      val climateTab =
+        page.locator(".tabs a", new Page.LocatorOptions().setHasText("Climate"))
+      for {
+        _ <- ts.awaitLive()
+        before = page.url()
+        _ <- IO.blocking(
+          page.route("**/sse/surface/**", route => route.abort())
+        )
+        _ <- IO.blocking(climateTab.click())
+        // The panel cannot have moved — nothing served the swap.
+        _ <- IO.blocking(assertThat(panel).containsText("Living Room"))
+        // …and the URL still names the tab that is actually on screen. This is
+        // the assertion the old design failed.
+        _ <- IO(assertEquals(page.url(), before))
+        // The press is not left asserting a tab it never got: the failure
+        // clears the pending value, so the bar highlights what it shows.
+        _ <- IO.blocking(
+          assertThat(climateTab).not().hasClass(java.util.regex.Pattern.compile("active"))
+        )
+        // Control: unblocked, the same tap does everything.
+        _ <- IO.blocking(page.unroute("**/sse/surface/**"))
+        _ <- IO.blocking(climateTab.click())
+        _ <- IO.blocking(assertThat(panel).containsText("Hallway"))
+      } yield assert(page.url() != before, clue = page.url())
+    }
+  }
+
   test("popup: a tap opens it, the close button dismisses it") {
     withPage(scene) { (page, _) =>
       val kitchenCard = page

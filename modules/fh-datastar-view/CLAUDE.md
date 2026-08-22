@@ -165,6 +165,13 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   signal assignment still moved the URL. Standing principle from the same ADR, aspirational and
   not enforced: **the DOM we send should be as usable as possible without JS** — signals for
   liveness and effects, not for the core meaning of a tap.
+  A surface tap also does NOT set `ui_<group>` itself any more (ADR 0025): it writes a pending
+  signal `_<group>__pending` — what it ASKED for — and `swapHost` commits `ui_<group>` for what it
+  actually did, which is what the URL mirror follows. A selection display reads
+  `$_<group>__pending || $ui_<group>`, so the press is still instant while the committed value can
+  never claim a panel this DOM does not have. Pending clears by the commit catching up, or on a 2s
+  deadline when none is coming. This does NOT replace ADR 0019's `busy` for service taps — a
+  service call has no committed selection to catch up to; the two mechanisms coexist deliberately.
 - Cards (`lib/components/`, re-exported by `lib/components.pkl` — ADR 0015): `fhgrid`/`fhrow`/`fhcol` containers, `sectionTitle`, `entityCard`,
   `button`, `pill`, `slider` — each is a typed card class carrying its own `cardDef` (Mustache template +
   declared slots), and the emitted `cards` registry is derived by `pkl:reflect`; slots are checked

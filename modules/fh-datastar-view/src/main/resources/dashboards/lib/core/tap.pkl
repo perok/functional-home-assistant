@@ -206,22 +206,99 @@ const local function clickSlot(transformExpr: String, live: Boolean): slotMod.Sl
 // is bound independently of it. That is what lets a pill with no entity of its
 // own open a popup.
 //
-// `tail` is the client-side half — the signal assignment that records the
-// choice — spliced inside the produced expression rather than after it, since
-// the whole click expression is one string.
-const local function openSurfaceOnclick(surfaceId: String, tail: String): slotMod.Slot =
+// `head` is the client-side half — the PENDING assignment that records what
+// this click asked for — spliced inside the produced expression rather than
+// before it, since the whole click expression is one string. It runs FIRST so
+// the display moves on the press rather than on the response.
+const local function openSurfaceOnclick(surfaceId: String, head: String): slotMod.Slot =
   clickSlot(
     // The closing quote is `"\""`, not `#"""#` — the latter opens a MULTI-LINE
     // raw string and swallows the rest of the module.
-    #""@post('sse/surface/" & $dashboardSlug & "/open/"# + surfaceId + #"')"# + tail + "\"",
+    "\"" + head + #"@post('sse/surface/" & $dashboardSlug & "/open/"# + surfaceId + #"')"# +
+      "\"",
     false
   )
 
-/// The tab bar's own open-a-member click: [[openSurfaceOnclick]] with the
-/// active-tab signal assignment as its tail. Public only because the bar is
-/// built in `components/surface.pkl`, which cannot reach a `const local`.
-const function selectSurface(surfaceId: String, signal: String, value: String): slotMod.Slot =
-  openSurfaceOnclick(surfaceId, "; $" + signal + " = " + value)
+/// The PENDING signal for a selection group — what this client has ASKED to
+/// show, where `ui_<groupId>` is what the server says it IS showing. Only the
+/// client ever writes it, and it CLEARS ITSELF once the committed value agrees
+/// ([[pendingClear]]), so a tap that never landed cannot leave a selection
+/// asserted. See `docs/plan-pending-signals.md`.
+///
+/// `_`-prefixed, so it never rides a request: the server learns what was asked
+/// for from the URL path, not the signal store.
+const function pendingSignal(groupId: String): String = "_\(groupId)__pending"
+
+/// The pending signal's seed ENTRY, for splicing into a host's existing
+/// `data-signals__ifmissing` object — a second attribute of that name on the
+/// same element would simply be dropped by the parser.
+///
+/// `__ifmissing` for the same reason the `ui_` seed uses it: a plain seed would
+/// wipe an in-flight pending on every re-render of the host.
+const function pendingSeedEntry(groupId: String): String =
+  "\(pendingSignal(groupId)): ''"
+
+/// What empties a group's pending signal: the committed value catching up.
+///
+/// The clear is DERIVED from `ui_<groupId>` rather than sent with it, and that
+/// is what makes concurrent taps correct: tap A then tap B, and A's response
+/// must leave B's pending alone. A clear in the frame could not tell them
+/// apart; comparing to the committed value can. `==` is loose on purpose — the
+/// seed is a number and a committed index arrives as a string.
+///
+/// This effect READS AND WRITES the same signal, which is the shape that loops.
+/// It settles because the assignment falsifies its own guard, and
+/// `DatastarMorphContractSuite` MEASURES that rather than assuming it.
+const function pendingClear(groupId: String): String =
+  let (sig = pendingSignal(groupId))
+    #"data-effect="$\#(sig) !== '' && $ui_\#(groupId) == $\#(sig) && ($\#(sig) = '')""#
+
+/// How long a pending value may outlive the request that would have committed
+/// it. Not a competitor to [[pendingClear]] — a commit that is coming has long
+/// since arrived by here — but the DEADLINE after which nothing is coming.
+const pendingFailMs: Int = 2000
+
+/// The OTHER way a pending value ends: no commit is coming. Without this a
+/// refused tap leaves the highlight standing on a panel that never arrived —
+/// the same lie, moved.
+///
+/// It is a DEADLINE, not a status check, and the pinned bundle is why: an
+/// `error` type is dispatched from `onopen`, so it fires for an HTTP 4xx and
+/// NOT for a request that never got a response at all (an aborted or dropped
+/// POST rethrows before then, leaving only the `finished` its `finally` emits).
+/// Keying on `error` alone therefore covers exactly the failures a working
+/// network produces, and leaves a dead one stuck forever.
+///
+/// So this fires on anything that is not the START of a fetch, [[pendingFailMs]]
+/// later, and clears only if the commit still has not landed. The delay is what
+/// makes it safe to be that blunt: a 204 routinely beats the SSE frame carrying
+/// its own patch, so an undelayed clear would snap the highlight back on the
+/// HAPPY path (the reason `finished` was rejected as the primary clear).
+///
+/// `datastar-fetch` is dispatched on `document` and does not bubble, hence
+/// `__document` — a `data-on` modifier verified in the pinned bundle
+/// (`n.has("window") ? s = window : n.has("document") && (s = document)`),
+/// which also names the event argument `evt` and applies `__delay` to the
+/// handler rather than to the listener.
+const function pendingFail(groupId: String): String =
+  let (sig = pendingSignal(groupId))
+    #"data-on:datastar-fetch__document__delay.\#(pendingFailMs)ms="evt.detail.type !== 'started' && $\#(sig) !== '' && ($\#(sig) = '')""#
+
+/// What a control reads to show a selection: the pending value while one is
+/// outstanding, the committed one otherwise. `''` is falsy, so no pending means
+/// the server's answer shows — and nothing is ever rolled back, because nothing
+/// wrong was ever committed.
+const function pendingOrCommitted(groupId: String): String =
+  "($" + pendingSignal(groupId) + " || $ui_" + groupId + ")"
+
+/// The tab bar's own open-a-member click: [[openSurfaceOnclick]] preceded by
+/// the group's PENDING assignment. The committed `ui_<groupId>` is the SERVER's
+/// to write, on the swap this POST asks for — before, the click set it here and
+/// a POST that never landed left the URL claiming a panel the DOM did not have
+/// (ADR 0024's open half). Public only because the bar is built in
+/// `components/surface.pkl`, which cannot reach a `const local`.
+const function selectSurface(surfaceId: String, groupId: String, value: String): slotMod.Slot =
+  openSurfaceOnclick(surfaceId, "$" + pendingSignal(groupId) + " = '" + value + "'; ")
 
 /// Explicit "<domain>/<service>" override, e.g. service("lock/lock").
 const function service(action: String): TapAction =
@@ -293,19 +370,24 @@ function navigate(slug: String): TapAction = new {
 
 /// Dismiss the (single, at-a-time) open popup — `POST
 /// /sse/popup/<slug>/close`. Drop a button carrying this inside a popup's
-/// content. Clears `ui_popups` client-side, the same way a tab button sets
-/// `ui_<id>`: the signal is what a refresh and a reconnect restore from.
+/// content. `ui_popups` — what a refresh and a reconnect restore the dialog
+/// from — is cleared by the SWAP, not here: the dialog leaves the DOM and the
+/// signal stops claiming it in the same frame, so the two cannot disagree.
 function closePopup(): TapAction =
   new {
-    onclick = clickSlot(#""@post('sse/popup/" & $dashboardSlug & "/close'); $ui_popups = ''""#, false)
+    onclick = clickSlot(#""@post('sse/popup/" & $dashboardSlug & "/close')""#, false)
   }
 
 /// Open the surface REGISTERED under `surfaceId` (a top-level `surfaces` entry).
 /// A registered popup surface is [[Popup]]-wrapped (the `<dialog>`); the backend
 /// renders it bare into the `#popups` mount.
+// No client-side `$ui_popups` assignment, unlike a tab's PENDING one: nothing
+// on the page displays a popup selection — the dialog itself is what the swap
+// patches in — so a pending value here would be a signal nobody reads. The
+// committed `ui_popups` still arrives, which is what a refresh restores from.
 function openPopup(surfaceId: String): TapAction =
   new {
-    onclick = openSurfaceOnclick(surfaceId, "; $ui_popups = '" + surfaceId + "'")
+    onclick = openSurfaceOnclick(surfaceId, "")
   }
 
 /// Open an INLINE popup: `content` is wrapped in a [[Popup]] dialog and stashed
@@ -325,10 +407,7 @@ function openPopup(surfaceId: String): TapAction =
 // the same widened type or it rejects exactly the case `children` was widened
 // for.
 function openPopupInline(body: nodes.LayoutNode): TapAction = new {
-  onclick = openSurfaceOnclick(
-    "\(nodes.NODE_ID)_self",
-    "; $ui_popups = '\(nodes.NODE_ID)_self'"
-  )
+  onclick = openSurfaceOnclick("\(nodes.NODE_ID)_self", "")
   inlineSurfaces = new Mapping {
     ["self"] = new surfaceMod.SurfaceDef { content = new surfaceMod.Popup { children { body } } }
   }

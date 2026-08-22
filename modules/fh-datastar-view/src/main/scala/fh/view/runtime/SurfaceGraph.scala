@@ -483,6 +483,41 @@ private[runtime] final class SurfaceGraph(
       case (sid, s) if s.hostId == host => sid
     }.toSet
 
+  /** What a swap of `host` makes TRUE about this client's selection, as the
+    * `ui_*` ui-state entry (id -> raw value) the server is now entitled to
+    * assert. `None` when there is no client selection to assert: a
+    * state-activated group (server truth, no client choice) or a host whose
+    * arriving surface is not one of its members.
+    *
+    * The two value shapes are [[resolveActive]]'s and [[openPopup]]'s, from the
+    * other end — a bake group's is a member INDEX, the popup host's a surface
+    * id (or `""` for a close), because the popup host is not a bake group.
+    *
+    * This exists because the client used to assert it: a tap set `ui_<id>`
+    * itself, so a POST that never landed left the URL claiming a panel the DOM
+    * did not have. Only the swap knows what actually happened, so only the swap
+    * may say (`docs/plan-pending-signals.md`).
+    */
+  def committedSelection(
+      host: DomId,
+      newSurface: Option[String]
+  ): Option[(String, String)] =
+    if (host == Dashboard.PopupHostId)
+      Some(Dashboard.PopupHostId -> newSurface.getOrElse(""))
+    else
+      surfacesAt(host).toList
+        .flatMap(surfaces.get)
+        .flatMap(_.bakeInto)
+        .headOption
+        .filterNot(isStateGroup)
+        .zip(newSurface)
+        .flatMap { case (gid, sid) =>
+          bakeGroup(gid).indexOf(sid) match {
+            case -1 => None
+            case i  => Some(gid -> i.toString)
+          }
+        }
+
   /** The inverse of [[selectedSurfaces]]. `open` is LIVE truth — a tab click
     * moves it mid-connection — where a connection's captured `uiState` is only
     * what it arrived with. Anything rendering for a client after connect must

@@ -98,6 +98,69 @@ class SurfaceTapSuite extends ServerHarness {
     }
   }
 
+  test("a swap COMMITS the selection, and only a swap does") {
+    // The client no longer sets `ui_popups` itself
+    // (`docs/plan-pending-signals.md`), so if this frame is missing the URL
+    // mirror and every reconnect restore go blind — a dialog on screen that a
+    // refresh does not bring back. The request body deliberately carries no
+    // ui-state at all: the selection here can only have come from the swap.
+    (for {
+      store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "warm")))
+      ref <- SignallingRef[IO].of(
+        Server.RendererState.Ready(Renderer.create(popupDash))
+      )
+      sessions <- Sessions.create
+      fake <- FakeHomeAssistant.create(Nil)
+      out <- Server
+        .resource(
+          HomeAssistantApi.fromWs(fake),
+          store,
+          Map("dashboard" -> ref),
+          "dashboard",
+          sessions,
+          TestAuth.openGate
+        )
+        .use { server =>
+          val routes = server.routes.orNotFound
+          def tap(path: Uri) =
+            routes
+              .run(
+                Request[IO](Method.POST, path)
+                  .withEntity(s"""{"${Server.ConnSignal}":"c"}""")
+              )
+              .map(_.status)
+          for {
+            opened <- tap(uri"/sse/surface/dashboard/open/det")
+            session <- sessions.get("c")
+            afterOpen <- session.traverse(drain)
+            closed <- tap(uri"/sse/popup/dashboard/close")
+            afterClose <- session.traverse(drain)
+          } yield (opened, closed, afterOpen, afterClose)
+        }
+    } yield out).timeout(30.seconds).map {
+      case (opened, closed, afterOpen, afterClose) =>
+        assertEquals(opened, Status.NoContent)
+        assertEquals(closed, Status.NoContent)
+        val sig = Server.UiSignalPrefix + Dashboard.PopupHostId
+        assert(
+          afterOpen.exists(_.contains(s""""$sig":"det"""")),
+          clue = afterOpen
+        )
+        // A close is a commit too — the emptied value is what stops the URL
+        // claiming a dialog this DOM no longer holds.
+        assert(afterClose.exists(_.contains(s""""$sig":""""")), clue = afterClose)
+    }
+  }
+
+  /** Everything queued for a session's own stream, as one string. */
+  private def drain(session: Session): IO[String] =
+    fs2.Stream
+      .repeatEval(session.control.tryTake)
+      .unNoneTerminate
+      .compile
+      .toList
+      .map(_.flatMap(_.data).mkString("\n"))
+
   test("a tap on a surface this build no longer has says so") {
     // Ids are location-derived, so editing a dashboard renames the surfaces
     // below the edit. A page open across that rebuild taps a name the server

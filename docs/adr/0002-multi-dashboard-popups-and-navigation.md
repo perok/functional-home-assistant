@@ -74,11 +74,10 @@ whatever surface(s) occupy a host, set the new occupant, inner-patch the host �
 or patch it to an empty `<div>` for a close (`POST /sse/popup/<slug>/close`; the
 transient dialog simply disappears). A tab switch and a popup open are
 `swapHost(host, Some(id))`; no server state tracks "is a popup open" beyond the
-session's open set, and no signal is pushed back for it — the tap that asked for
-the swap sets `ui_<hostId>` itself, exactly as a tab button sets its own. (That
-split is what lets the URL mirror claim a selection the DOM does not have; ADR
-0024 narrows the window it can happen in and carries the question of closing it
-for good.) The
+session's open set. The swap also COMMITS the selection — it pushes back
+`ui_<hostId>` for what it actually put there (ADR 0025), which is the only thing
+entitled to say so; a tap records what it asked for in a pending signal and
+nothing else. The
 popup host is a selection like any other; only its VALUE is unusual, naming a
 surface id rather than a member index, because any registered surface can appear
 there and only one at a time. Crossing to ANOTHER dashboard is not one of these — it is a

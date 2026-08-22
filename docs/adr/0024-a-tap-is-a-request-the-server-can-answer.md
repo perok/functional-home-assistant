@@ -13,7 +13,8 @@
 
 Opening a popup or switching a tab is two independent things: a POST that asks
 the server for the fragment, and a client-side signal assignment that records
-the choice (`$ui_popups = '…'`, mirrored into the URL by `fhUrl`).
+the choice (`$ui_popups = '…'`, mirrored into the URL by `fhUrl`; that half is
+now the server's, see ADR 0025).
 
 Only the first can fail, and it did so silently. The surface routes named no
 dashboard, so the only thing that could say which dashboard a tap was for was
@@ -141,13 +142,11 @@ It is a direction to hold while designing:
   inline and seeds its signals (ADR 0017), so a JS-less browser gets a correct,
   static page — that property is worth protecting when adding slots.
 
-The obvious next instalment is the optimistic half of a surface tap: the server
-patches the DOM but never sends the matching `ui_*` signal, so the client sets
-it in parallel and the URL can disagree with the screen. It is designed in
-`docs/plan-pending-signals.md` — a pending signal the client writes and a
-committed one only the server writes, which also resolves a race two taps in
-flight have today. Not done here: it changes what every tap does, and it
-supersedes ADR 0019's `busy` rather than sitting beside it.
+The next instalment was the optimistic half of a surface tap: the server patched
+the DOM but never sent the matching `ui_*` signal, so the client set it in
+parallel and the URL could disagree with the screen. **ADR 0025 landed it** — a
+pending signal the client writes and a committed one only the server writes,
+which also resolves the race two taps in flight had.
 
 ## Consequences
 

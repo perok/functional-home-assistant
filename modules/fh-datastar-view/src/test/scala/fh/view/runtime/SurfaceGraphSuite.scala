@@ -422,4 +422,60 @@ class SurfaceGraphSuite extends munit.FunSuite {
   }
 
   private def nestedSet = LayoutNode.SetNode(candidates = List("light.b"))
+
+  // ---- what a swap is entitled to assert -----------------------------------
+
+  test("a committed selection round-trips through the state that reads it") {
+    // The property, not the spelling: whatever `committedSelection` says after
+    // a swap must be exactly what `resolveActive`/`openPopup` read back out of
+    // ui-state. The two ends were written apart — a value shape that only one
+    // of them understood would put the URL and the DOM back into the
+    // disagreement pending signals exist to remove.
+    val g = graphOf(
+      Map(
+        "t0" -> user("c", "panel", 0, defaultOpen = true),
+        "t1" -> user("c", "panel", 1),
+        "det" -> Surface(col())
+      )
+    )
+    val tabHost = DomId.derived("c_panel")
+
+    val tab = g.committedSelection(tabHost, Some("t1"))
+    assertEquals(tab, Some("c" -> "1"))
+    assertEquals(
+      g.resolveActive(NodeId.derived("c"), tab.toMap)._1,
+      1,
+      "the committed index must read back as the member it named"
+    )
+
+    val popup = g.committedSelection(Dashboard.PopupHostId, Some("det"))
+    assertEquals(popup, Some(Dashboard.PopupHostId -> "det"))
+    assertEquals(g.openPopup(popup.toMap), Some("det"))
+
+    val closed = g.committedSelection(Dashboard.PopupHostId, None)
+    assertEquals(closed, Some(Dashboard.PopupHostId -> ""))
+    assertEquals(
+      g.openPopup(closed.toMap),
+      None,
+      "a close must commit a value that reads back as no popup"
+    )
+  }
+
+  test("nothing is committed where the client has no say") {
+    // A state group's branch is server truth every viewer shares, so there is
+    // no per-client selection to assert — asserting one would put a `ui_*` on
+    // the wire that `resolveActive` is never consulted about.
+    val g = graphOf(
+      Map(
+        "then" -> state("c", "branch", 0, isOn("light.a")),
+        "else" -> state("c", "branch", 1, Predicate.And(Nil))
+      )
+    )
+    val host = DomId.derived("c_branch")
+    assertEquals(g.committedSelection(host, Some("else")), None)
+    // And a surface that is not a member of the host it arrived at names no
+    // index, so there is nothing truthful to say.
+    assertEquals(g.committedSelection(host, Some("stranger")), None)
+    assertEquals(g.committedSelection(DomId.derived("nobody"), Some("t0")), None)
+  }
 }

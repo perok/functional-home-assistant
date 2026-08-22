@@ -1,8 +1,18 @@
 # Plan — a value in flight: pending signals instead of optimistic writes
 
-**Status: designed, not implemented.** Nothing described here exists in the
-sources. It graduates to an ADR when it lands, superseding ADR 0019's `busy`
-half and closing ADR 0024's open question.
+**Status: LANDED for selections, as [ADR 0025](adr/0025-a-value-in-flight.md).**
+Read the ADR for what the code does; this is the derivation that produced it,
+kept for the reasoning it records (the 4xx spike, the channel table, the
+"selections are the anomaly" framing).
+
+**Two things here are now known wrong**, and the ADR says so:
+
+- **Buttons were the wrong first step**, not the smallest one. A service tap has
+  no committed value to catch up to, so pending cannot clear there and does NOT
+  subsume `busy`. ADR 0019 stands.
+- **Failure clears on a deadline, not the `datastar-fetch` error event.** That
+  event is dispatched from `onopen`, so it fires for a 4xx and not for a request
+  that never got a response — keying on it alone leaves a dead network stuck.
 
 ## The problem
 
