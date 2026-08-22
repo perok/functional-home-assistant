@@ -43,22 +43,23 @@ string has to be the one login sent.
 `HaOAuth.browserBase` to answer "where do I send the browser to log in", which is a different
 question from "what is this client called".
 
-## The second half: any non-200 is read as "the grant is gone"
+## The second half: any non-`200` evicts — and stays that way
 
 `HaOAuth.refresh` maps every non-`200` to `RefreshOutcome.Dead`, and `revalidateOnce` evicts on
-`Dead`. So a *malformed request of ours* is indistinguishable from *HA disowning the user*, and
-the failure mode of a bad `client_id` is "log the whole household out" rather than "log an
-error". ADR 0023 already says the narrower thing — "a `400 invalid_grant` is HA ANSWERING that
-the grant is gone" — the code is wider than the decision.
+`Dead`. While the `client_id` is wrong this turns our own bug into "the whole household is signed
+out" — but that is the *correct* reading, not a defect to soften. If HA answers at all and the
+answer is not a refreshed token, we cannot tell a revoked grant from a request bug, and a session
+we cannot vouch for has no business staying logged in. Signing out is loud; silently carrying a
+possibly-dead session is not.
 
-HA's answers here are distinct and worth keeping distinct:
+The only lenient case is **no answer at all** — a network error or timeout. Then everything else
+is down too, so there is nothing to decide: leave the session alone and let the next sweep try.
+That distinction already exists (`RefreshOutcome.Dead` vs the transport failure path) and is the
+whole of the classification we need. No parsing of error bodies, no third outcome.
 
-| HA answer | Meaning | What we should do |
-|---|---|---|
-| `400 invalid_grant` | The refresh token is unknown/revoked | Evict |
-| `403 access_denied` | The user exists but may not authenticate (deactivated) | Evict |
-| `400 invalid_request` | *Our* request was wrong (bad/mismatched `client_id`, no token) | Log loudly, keep the session |
-| network error | Not an answer at all | Leave it alone (already correct) |
+ADR 0023's sentence — "a `400 invalid_grant` is HA ANSWERING that the grant is gone" — is
+narrower than this rule; §5 widens the wording to match: *any* answer other than a `200` is HA
+answering, and an answer ends the session.
 
 ## Why the tests are green
 
@@ -93,41 +94,52 @@ making HA's Profile → Security list a pile of opaque URLs the user cannot attr
 That list is the revocation UI this whole loop exists to honour. Stability comes from *storing*
 the value, not from what the value is.
 
-### 2. Decode old `sessions.json` files without a scary failure
+### 2. An old `sessions.json` refuses to boot, loudly
 
-`AuthSession` derives its `Decoder`, so an existing file (no `clientId` field) fails to decode,
-which today takes the *whole map* with it and prints "was unreadable; starting with no
-sessions". Decode the field as absent-allowed and treat a session without one as un-refreshable:
-it cannot be re-checked, so evict it on the first sweep with a message that says a re-login is
-needed. One re-login, once, and stated plainly — rather than a warning that reads like
-corruption.
+`AuthSession` derives its `Decoder`, so an existing file written before this change (no
+`clientId` field) fails to decode — which today takes the *whole map* with it and prints "was
+unreadable; starting with no sessions", quietly logging everyone out on every restart. Do not
+soften the decoder to tolerate the missing field: a session without a `clientId` cannot be
+refreshed, and pretending otherwise just moves the failure to the first sweep.
 
-### 3. Narrow `RefreshOutcome`
+Instead make the failure honest and fatal: if `.fh/sessions.json` exists and does not decode,
+boot stops with a message that says the file predates the stored-`client_id` format and that
+deleting it (one re-login per person) fixes it. The ADR's current "a corrupt or unreadable file
+logs and starts empty" sentence is rewritten along with this — a file that is *there* and wrong
+is a broken workspace state we refuse to guess around, not a recoverable inconvenience.
 
-Give the enum the third case the table above needs — the answers that mean "our request was
-wrong" must not evict. Parse the error body's `"error"` field (`invalid_grant` vs
-`invalid_request`) plus the status on the `Left` branch of `HaOAuth.post`, so the classification
-lives next to the wire format and `revalidateOnce` just matches on a value. Keep `Dead` meaning
-exactly "HA says this grant is gone", so ADR 0023's sentence stays true of the code.
+### 3. Leave `RefreshOutcome` two-valued
+
+No third case. `Dead` keeps meaning "HA answered, and the answer was not a refreshed token" —
+exactly what eviction should act on — and transport failures
+keep meaning "try again next sweep". The classification work lives in fixing the `client_id`,
+not in second-guessing HA's error codes.
 
 ### 4. Make the stub check the field that broke
 
 - `RevalidateSessionsSuite.haStub` should read the submitted `UrlForm` and reply
   `400 invalid_request` when `client_id` does not match what the session was created with —
-  the same rule HA applies. With that in place, today's wiring fails the suite.
+  the same rule HA applies. With that in place, today's wiring fails the suite (the sweep evicts,
+  because any non-`200` is an answer).
 - Add a round-trip test through `AuthRoutes`: complete a login against a fake HA that records
   the `client_id` from the `authorization_code` exchange, then run one sweep and assert the
   refresh carried the *same* string. That is the property, not the line: it stays true if
   `baseUriOf` changes, if ingress is involved, or if a second base URL appears.
-- Add a test that `400 invalid_request` (as opposed to `invalid_grant`) leaves the session in
-  place — the regression guard for §3.
 
 ### 5. Update ADR 0023
 
-The "Two background mechanisms" section describes the eviction rule; extend it with the
-`client_id` round-trip requirement (a session stores the client it was minted for, because the
-browser-facing base is per-request) and with the fuller answer table. Rewrite in place — no
-dated update section.
+Rewrite in place — no dated update section. Three passages change:
+
+- **The revalidation paragraph** ("Two background mechanisms"): the eviction rule widens from
+  "a `400 invalid_grant` is HA answering" to "any answer other than a `200` is HA answering";
+  a timeout remains not-an-answer. Add the `client_id` round-trip requirement: a session stores
+  the client it was minted for, because the browser-facing base is per-request and only HA's
+  stored copy decides.
+- **The persistence paragraph**: "logs and starts empty" becomes "refuses to boot" for a file
+  that exists and does not decode, with the delete-and-re-login recovery stated.
+- **The verified-endpoints table** gains no rows; but the `invalid_grant` row's claim that a
+  revoked session is distinguishable from an unreachable HA stays true under the widened rule —
+  that distinction is exactly the one we keep.
 
 ## Verification
 
