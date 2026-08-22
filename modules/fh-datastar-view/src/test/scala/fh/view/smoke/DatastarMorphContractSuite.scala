@@ -331,7 +331,9 @@ class DatastarMorphContractSuite extends munit.CatsEffectSuite with SlowSuite {
     }
   }
 
-  test("a data-effect that clears the signal it reads settles, and survives a race") {
+  test(
+    "a data-effect that clears the signal it reads settles, and survives a race"
+  ) {
     // The clearing rule pending signals rest on
     // (docs/plan-pending-signals.md): the client writes `_g__pending` on tap,
     // the SERVER writes `ui_g`, and pending clears itself once the committed
@@ -406,7 +408,11 @@ class DatastarMorphContractSuite extends munit.CatsEffectSuite with SlowSuite {
         _ <- IO.sleep(300.millis)
         later <- IO.blocking(p.evaluate("window.__runs").asInstanceOf[Int])
         _ <- IO {
-          assertEquals(later, runs, s"the effect must stop re-running (ran $runs)")
+          assertEquals(
+            later,
+            runs,
+            s"the effect must stop re-running (ran $runs)"
+          )
           assert(runs < 20, s"the effect settled but ran $runs times")
         }
       } yield ()

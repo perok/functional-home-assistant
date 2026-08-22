@@ -476,6 +476,9 @@ class SurfaceGraphSuite extends munit.FunSuite {
     // And a surface that is not a member of the host it arrived at names no
     // index, so there is nothing truthful to say.
     assertEquals(g.committedSelection(host, Some("stranger")), None)
-    assertEquals(g.committedSelection(DomId.derived("nobody"), Some("t0")), None)
+    assertEquals(
+      g.committedSelection(DomId.derived("nobody"), Some("t0")),
+      None
+    )
   }
 }

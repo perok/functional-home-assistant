@@ -2,9 +2,9 @@
 
 - **Status:** Accepted
 - **Date:** 2026-08-22
-- **Scope:** `runtime/SurfaceGraph.scala` (`committedSelection`),
-  `runtime/Server.scala` (`swapHost`), `lib/core/tap.pkl`,
-  `lib/components/surface.pkl`
+- **Scope:** `runtime/SurfaceGraph.scala` (`committedSelection`,
+  `committedSelections`), `runtime/Server.scala` (`swapHost`,
+  `openingSignals`), `lib/core/tap.pkl`, `lib/components/surface.pkl`
 - **Closes:** ADR 0024's open question. **Uses:** ADR 0005's `ui_<id>` signal
   and URL mirror, which this makes honest.
 
@@ -75,27 +75,41 @@ It settles because the assignment falsifies its own guard, and
 the runs, drives the overtaken-tap race through a real browser, and asserts the
 count stops growing.
 
-**Failure clears it on a DEADLINE, not a status.** This is the part the pinned
-bundle decided rather than the design. Datastar dispatches its `error` type
-from `onopen`, so it fires for an HTTP 4xx and *not* for a request that never
-got a response at all — an aborted or dropped POST rethrows before then, leaving
-only the `finished` its `finally` emits. Keying on `error` alone would cover
-exactly the failures a working network produces and leave a dead one stuck
-forever.
+**Failure ends it two ways, and neither is a timeout.** A pending value dies
+when it is *refused*, or when *nothing can answer it*:
 
-So `tap.pkl`'s `pendingFail` fires on anything that is not the START of a fetch,
-`pendingFailMs` (2s) later, and clears only if the commit still has not landed.
-The delay is what makes it safe to be that blunt: a 204 routinely beats the SSE
-frame carrying its own patch, so an undelayed clear on `finished` would snap the
-highlight back on the HAPPY path.
+- **Refused** — the server sent a status, and it was 4xx (ADR 0024). Datastar
+  dispatches its `error` type from `onopen`, so that event fires precisely when
+  a response with a status arrived. `tap.pkl`'s `pendingFail` keys on it and
+  nothing else.
+- **Unanswerable** — the commit rides the SSE stream, so a stream that is DOWN
+  is the exact statement that no commit is coming. `pendingClear`'s second
+  disjunct is the shell's own `_sse` counter, already maintained for the
+  offline banner.
 
-### Why not clear on `finished` outright
+Between them they are total, because the two are not independent: a POST that
+gets no response at all failed because the transport did, and that is the same
+transport the answer would have come on. There is no third case where a request
+vanishes while its stream stays healthy — and a deadline, which is what an
+earlier draft used, would only have been a worse-informed guess at exactly this.
 
-The obvious move — let the fetch's end clear pending — is the flicker above. The
-action POST returns as soon as `swapHost` has QUEUED the patch, so the 204 can
-beat the frame carrying it: the highlight would snap back to the old tab and
-jump forward when the patch landed. A flicker on the happy path is worse than
-the bug being fixed. `data-indicator` cannot rescue it either — it counts
+**So a connect restates the selections.** `SurfaceGraph.committedSelections`
+gives the whole `ui_*` picture from a session's open set, and `openingSignals`
+carries it with the cursor on every connect. Without it, `_sse` clearing pending
+would drop the display back on whatever the last frame it received said — and a
+swap is two writes (the patch, then the signal), so a stream dying between them
+leaves a DOM holding one panel and a signal naming another. It rides *inside*
+the cursor's frame rather than beside it: `SessionLifecycleSuite` states the
+opening block as one event, on purpose, because an opening block that grows is
+how re-sending creeps back in.
+
+### Why not clear on the fetch simply ending
+
+The obvious move — let the fetch's END clear pending, success or not — is worse
+than either. The action POST returns as soon as `swapHost` has QUEUED the patch,
+so the 204 can beat the frame carrying it: the highlight would snap back to the
+old tab and jump forward when the patch landed. A flicker on the HAPPY path is
+worse than the bug being fixed. `data-indicator` cannot rescue it either — it counts
 concurrent fetches, which is the right primitive when a boolean is all you have,
 but it cannot say WHICH tap is outstanding, and that is the thing the display
 needs.
@@ -138,10 +152,12 @@ committed value to catch up to and the other does not.
 - `SurfaceTapSuite` owns the server half: a swap emits the commit, on open AND
   on close, with the request body carrying no ui-state at all, so the selection
   can only have come from the swap.
-- `UiSmokeSuite` owns the property in a browser: a tap the server never answers
-  leaves the URL where it was and does not leave the bar highlighting a panel
-  that never arrived. The same tap unblocked does everything, so it cannot pass
-  vacuously.
+- `UiSmokeSuite` owns the property in a browser, once per way an ask can end: a
+  tap the server REFUSES (a real 404, the status ADR 0024 created) leaves the
+  URL where it was and does not leave the bar highlighting a panel that never
+  arrived — with the same tap unblocked doing everything, so it cannot pass
+  vacuously; and a tap whose transport dies highlights while the question is
+  open and stops when the banner says the connection is gone.
 - The popup host gained a committed signal it did not have. Before, the client
   set `ui_popups` and a close cleared it; now the swap does both, which is why
   the close path commits `""` rather than simply sending no frame.

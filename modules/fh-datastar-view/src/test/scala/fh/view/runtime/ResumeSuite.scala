@@ -418,7 +418,18 @@ class ResumeSuite extends ServerHarness {
       // serves. That dialog belongs to nothing and is in nobody's open set, so
       // without this it would sit on screen forever.
       assert(orphan.contains(hostReset), clue = orphan)
-      assert(!quiet.contains(Dashboard.PopupHostId), clue = quiet)
+      // Nothing is done TO the host. The connect does still say what the host
+      // holds — `ui_popups: ""` — which is the point of committing selections
+      // (ADR 0025), so this asserts the absence of a PATCH plus the presence of
+      // the honest claim, rather than the absence of the id anywhere.
+      assert(!quiet.contains(hostSelector), clue = quiet)
+      assert(!quiet.contains(hostReset), clue = quiet)
+      assert(
+        quiet.contains(
+          s""""${Server.UiSignalPrefix}${Dashboard.PopupHostId}":""""
+        ),
+        clue = quiet
+      )
     }
   }
 

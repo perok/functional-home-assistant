@@ -148,7 +148,10 @@ class SurfaceTapSuite extends ServerHarness {
         )
         // A close is a commit too — the emptied value is what stops the URL
         // claiming a dialog this DOM no longer holds.
-        assert(afterClose.exists(_.contains(s""""$sig":""""")), clue = afterClose)
+        assert(
+          afterClose.exists(_.contains(s""""$sig":""""")),
+          clue = afterClose
+        )
     }
   }
 

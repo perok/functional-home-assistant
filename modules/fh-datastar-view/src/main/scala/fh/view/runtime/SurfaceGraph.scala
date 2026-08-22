@@ -518,6 +518,23 @@ private[runtime] final class SurfaceGraph(
           }
         }
 
+  /** Every selection this session's open set makes true, as [[uiStateFrom]]
+    * plus the popup host — the whole `ui_*` picture rather than the one entry a
+    * swap moves.
+    *
+    * A stream states this when it connects. The per-swap frame is enough while
+    * a stream is up, but the two halves of a swap (the patch, then the signal)
+    * are separate writes, so a stream dying between them leaves a DOM holding
+    * one panel and a signal naming another. Restating it on connect costs one
+    * small frame and makes the returning client's selection the server's answer
+    * rather than whatever the last frame it received happened to say.
+    */
+  def committedSelections(open: Set[String]): Map[String, String] =
+    uiStateFrom(open) +
+      (Dashboard.PopupHostId -> surfacesAt(Dashboard.PopupHostId)
+        .find(open)
+        .getOrElse(""))
+
   /** The inverse of [[selectedSurfaces]]. `open` is LIVE truth — a tab click
     * moves it mid-connection — where a connection's captured `uiState` is only
     * what it arrived with. Anything rendering for a client after connect must

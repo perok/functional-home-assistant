@@ -59,12 +59,18 @@ class UiSmokeSuite extends SmokeSuite {
     }
   }
 
-  test("tabs: a tap the server never answers commits nothing") {
-    // What pending signals are for (`docs/plan-pending-signals.md`). The tap
-    // used to set `ui_<gid>` itself, so a POST that failed still moved the
-    // highlight AND the URL — a deep link to a panel this page never showed.
-    // Now the press only says what it ASKED for: the highlight follows it, the
-    // URL does not, and when the answer never comes both fall back.
+  private val active = java.util.regex.Pattern.compile("active")
+
+  test("tabs: a tap the server REFUSES commits nothing") {
+    // What pending signals are for (ADR 0025). The tap used to set `ui_<gid>`
+    // itself, so a POST that failed still moved the highlight AND the URL — a
+    // deep link to a panel this page never showed. Now the press only says what
+    // it ASKED for, and a refusal ends the ask.
+    //
+    // The failure is a STATUS, not a dropped connection, because that is what
+    // this route can actually produce (ADR 0024's 4xx) and it is the case
+    // Datastar reports as `error` — dispatched from `onopen`, so a response is
+    // what makes it fire.
     withPage(scene) { (page, ts) =>
       val panel = page.locator(".tab-panel")
       val climateTab =
@@ -73,7 +79,15 @@ class UiSmokeSuite extends SmokeSuite {
         _ <- ts.awaitLive()
         before = page.url()
         _ <- IO.blocking(
-          page.route("**/sse/surface/**", route => route.abort())
+          page.route(
+            "**/sse/surface/**",
+            route =>
+              route.fulfill(
+                new com.microsoft.playwright.Route.FulfillOptions()
+                  .setStatus(404)
+                  .setBody("no such surface")
+              )
+          )
         )
         _ <- IO.blocking(climateTab.click())
         // The panel cannot have moved — nothing served the swap.
@@ -81,16 +95,39 @@ class UiSmokeSuite extends SmokeSuite {
         // …and the URL still names the tab that is actually on screen. This is
         // the assertion the old design failed.
         _ <- IO(assertEquals(page.url(), before))
-        // The press is not left asserting a tab it never got: the failure
-        // clears the pending value, so the bar highlights what it shows.
-        _ <- IO.blocking(
-          assertThat(climateTab).not().hasClass(java.util.regex.Pattern.compile("active"))
-        )
+        // The press is not left asserting a tab it never got.
+        _ <- IO.blocking(assertThat(climateTab).not().hasClass(active))
         // Control: unblocked, the same tap does everything.
         _ <- IO.blocking(page.unroute("**/sse/surface/**"))
         _ <- IO.blocking(climateTab.click())
         _ <- IO.blocking(assertThat(panel).containsText("Hallway"))
       } yield assert(page.url() != before, clue = page.url())
+    }
+  }
+
+  test("tabs: a tap with nothing left to answer it ends when the stream does") {
+    // The other way an ask ends, and the reason it is not a timeout: the commit
+    // rides the SSE stream, so a stream that is DOWN is the exact statement
+    // that no commit is coming. Here the POST is aborted outright — no status,
+    // so no `error` event — which is only reachable at all because the
+    // transport failed. The banner's `_sse` is what says so.
+    withPage(scene) { (page, ts) =>
+      val panel = page.locator(".tab-panel")
+      val climateTab =
+        page.locator(".tabs a", new Page.LocatorOptions().setHasText("Climate"))
+      for {
+        _ <- ts.awaitLive()
+        _ <- IO.blocking(page.route("**/sse/**", route => route.abort()))
+        _ <- IO.blocking(climateTab.click())
+        // It highlights while it is still an open question…
+        _ <- IO.blocking(assertThat(climateTab).hasClass(active))
+        // …and stops when the connection that would have answered is gone.
+        _ <- IO.blocking(
+          assertThat(page.locator(".fh-offline-sse")).isVisible()
+        )
+        _ <- IO.blocking(assertThat(climateTab).not().hasClass(active))
+        _ <- IO.blocking(assertThat(panel).containsText("Living Room"))
+      } yield ()
     }
   }
 

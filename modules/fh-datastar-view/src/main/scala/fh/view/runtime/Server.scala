@@ -1114,7 +1114,13 @@ class Server(
             ) *> session.position.set(claim) *> session.told.set(claim)
             record.as(
               head ++ resumed.fold(List(repaint))(_.map(_.patch.toSse)) ++
-                orphan :+ Server.cursorSignals(renderer, log.id, claim)
+                orphan :+
+                // The cursor, carrying this connection's selections with it. A
+                // swap commits its own entry, but the patch and the signal are
+                // two writes, so a stream that died between them left a DOM
+                // holding one panel and a signal naming another — and a pending
+                // value with nothing to catch up to.
+                Server.openingSignals(renderer, open, log.id, claim)
             )
           }
 
@@ -1319,7 +1325,9 @@ class Server(
           session.control.offer(
             Datastar.patchSignals(
               io.circe.Json
-                .obj(Server.UiSignalPrefix + id -> io.circe.Json.fromString(value))
+                .obj(
+                  Server.UiSignalPrefix + id -> io.circe.Json.fromString(value)
+                )
                 .noSpaces
             )
           )
@@ -3045,16 +3053,64 @@ object Server {
     * Sent only where the first three can actually change — on connect, and on a
     * renderer swap. Every live batch sends [[versionSignal]] alone.
     */
+  /** What this connection's DOM is showing, as the `ui_*` signals (ADR 0025).
+    * Only the server writes these; a tap says what it ASKED for in a pending
+    * signal, and a pending value ends when one of these agrees with it.
+    */
+  private[runtime] def selectionJson(
+      renderer: Renderer,
+      open: Set[String]
+  ): io.circe.Json =
+    io.circe.Json.obj(
+      renderer.surfaces
+        .committedSelections(open)
+        .toList
+        .map { case (id, v) =>
+          UiSignalPrefix + id -> io.circe.Json.fromString(v)
+        }*
+    )
+
+  private[runtime] def cursorJson(
+      renderer: Renderer,
+      logId: String,
+      version: Long
+  ): io.circe.Json =
+    io.circe.parser
+      .parse(
+        s"""{"$CursorSignal":{"$HeadHashSignal":"${renderer.headHash}",""" +
+          s""""$StyleHashSignal":"${renderer.styleHash}",""" +
+          s""""$LogIdSignal":"$logId",""" +
+          s""""$StoreVersionSignal":$version}}"""
+      )
+      .getOrElse(io.circe.Json.obj())
+
   private[runtime] def cursorSignals(
       renderer: Renderer,
       logId: String,
       version: Long
   ): ServerSentEvent =
+    Datastar.patchSignals(cursorJson(renderer, logId, version).noSpaces)
+
+  /** A connect's last event: the cursor, PLUS what this connection's DOM is
+    * showing as the `ui_*` signals (ADR 0025). Only the server writes those; a
+    * tap says what it ASKED for in a pending signal, and the ask ends when one
+    * of these agrees with it.
+    *
+    * Merged into the cursor's frame rather than sent beside it, for the reason
+    * `SessionLifecycleSuite` states as one event: an opening block that grows
+    * is how re-sending creeps back in. The cursor still rides last, because
+    * this IS last.
+    */
+  private[runtime] def openingSignals(
+      renderer: Renderer,
+      open: Set[String],
+      logId: String,
+      version: Long
+  ): ServerSentEvent =
     Datastar.patchSignals(
-      s"""{"$CursorSignal":{"$HeadHashSignal":"${renderer.headHash}",""" +
-        s""""$StyleHashSignal":"${renderer.styleHash}",""" +
-        s""""$LogIdSignal":"$logId",""" +
-        s""""$StoreVersionSignal":$version}}"""
+      cursorJson(renderer, logId, version)
+        .deepMerge(selectionJson(renderer, open))
+        .noSpaces
     )
 
   /** Just how far this client has got — the only part of the cursor a live

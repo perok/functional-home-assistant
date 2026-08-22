@@ -238,51 +238,49 @@ const function pendingSignal(groupId: String): String = "_\(groupId)__pending"
 const function pendingSeedEntry(groupId: String): String =
   "\(pendingSignal(groupId)): ''"
 
-/// What empties a group's pending signal: the committed value catching up.
+/// What empties a group's pending signal: **it was answered, or nothing can
+/// answer it.** One rule, one attribute — a second `data-effect` on the same
+/// element would simply be dropped by the parser.
 ///
-/// The clear is DERIVED from `ui_<groupId>` rather than sent with it, and that
-/// is what makes concurrent taps correct: tap A then tap B, and A's response
-/// must leave B's pending alone. A clear in the frame could not tell them
-/// apart; comparing to the committed value can. `==` is loose on purpose — the
-/// seed is a number and a committed index arrives as a string.
+/// The answered half is DERIVED from `ui_<groupId>` rather than sent with it,
+/// and that is what makes concurrent taps correct: tap A then tap B, and A's
+/// response must leave B's pending alone. A clear in the frame could not tell
+/// them apart; comparing to the committed value can. `==` is loose on purpose —
+/// the seed is a number and a committed index arrives as a string.
+///
+/// The other half is `_sse`, the shell's connection-health counter: the commit
+/// travels on the SSE stream, so a stream that is DOWN is the exact statement
+/// that no commit is coming. This is not a timeout and there is no deadline —
+/// a POST that fails outright fails because the transport did, and the same
+/// transport is what would have carried the answer. When the stream returns,
+/// the connect states the committed selections again ([[SurfaceGraph]]
+/// `committedSelections`), so the display lands on truth rather than on a
+/// guess. A REFUSAL — a status the server actually sent, on a working stream —
+/// is the remaining case, and [[pendingFail]] has it.
 ///
 /// This effect READS AND WRITES the same signal, which is the shape that loops.
 /// It settles because the assignment falsifies its own guard, and
 /// `DatastarMorphContractSuite` MEASURES that rather than assuming it.
 const function pendingClear(groupId: String): String =
   let (sig = pendingSignal(groupId))
-    #"data-effect="$\#(sig) !== '' && $ui_\#(groupId) == $\#(sig) && ($\#(sig) = '')""#
+    #"data-effect="$\#(sig) !== '' && ($ui_\#(groupId) == $\#(sig) || $_sse > 0) && ($\#(sig) = '')""#
 
-/// How long a pending value may outlive the request that would have committed
-/// it. Not a competitor to [[pendingClear]] — a commit that is coming has long
-/// since arrived by here — but the DEADLINE after which nothing is coming.
-const pendingFailMs: Int = 2000
-
-/// The OTHER way a pending value ends: no commit is coming. Without this a
-/// refused tap leaves the highlight standing on a panel that never arrived —
-/// the same lie, moved.
+/// The refusal case: the server answered, and the answer was no (ADR 0024's
+/// 4xx statuses). Nothing will commit, so the ask ends here.
 ///
-/// It is a DEADLINE, not a status check, and the pinned bundle is why: an
-/// `error` type is dispatched from `onopen`, so it fires for an HTTP 4xx and
-/// NOT for a request that never got a response at all (an aborted or dropped
-/// POST rethrows before then, leaving only the `finished` its `finally` emits).
-/// Keying on `error` alone therefore covers exactly the failures a working
-/// network produces, and leaves a dead one stuck forever.
-///
-/// So this fires on anything that is not the START of a fetch, [[pendingFailMs]]
-/// later, and clears only if the commit still has not landed. The delay is what
-/// makes it safe to be that blunt: a 204 routinely beats the SSE frame carrying
-/// its own patch, so an undelayed clear would snap the highlight back on the
-/// HAPPY path (the reason `finished` was rejected as the primary clear).
+/// Keyed on the `error` type and nothing else, which the pinned bundle makes
+/// exact rather than approximate: that type is dispatched from `onopen`, so it
+/// fires precisely when a RESPONSE with a status arrived. A request that got no
+/// response at all is not this case — it is a dead transport, which
+/// [[pendingClear]]'s `_sse` half owns.
 ///
 /// `datastar-fetch` is dispatched on `document` and does not bubble, hence
 /// `__document` — a `data-on` modifier verified in the pinned bundle
 /// (`n.has("window") ? s = window : n.has("document") && (s = document)`),
-/// which also names the event argument `evt` and applies `__delay` to the
-/// handler rather than to the listener.
+/// which also names the event argument `evt`.
 const function pendingFail(groupId: String): String =
   let (sig = pendingSignal(groupId))
-    #"data-on:datastar-fetch__document__delay.\#(pendingFailMs)ms="evt.detail.type !== 'started' && $\#(sig) !== '' && ($\#(sig) = '')""#
+    #"data-on:datastar-fetch__document="evt.detail.type === 'error' && ($\#(sig) = '')""#
 
 /// What a control reads to show a selection: the pending value while one is
 /// outstanding, the committed one otherwise. `''` is falsy, so no pending means

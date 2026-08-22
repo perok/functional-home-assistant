@@ -469,7 +469,7 @@
     },
     "tabs" : {
       "mount" : "<div id=\"{{mountId}}\" class=\"tab-panel\" data-effect=\"fhUrl('ui.{{id}}', $ui_{{id}})\">{{{panel}}}</div>",
-      "self" : "<div id=\"{{selfId}}\" class=\"tabs\" data-signals__ifmissing=\"{ ui_{{id}}: {{bakeIndex}}, _{{id}}__pending: '' }\" data-effect=\"$_{{id}}__pending !== '' && $ui_{{id}} == $_{{id}}__pending && ($_{{id}}__pending = '')\" data-on:datastar-fetch__document__delay.2000ms=\"evt.detail.type !== 'started' && $_{{id}}__pending !== '' && ($_{{id}}__pending = '')\">{{#children}}{{{html}}}{{/children}}</div>",
+      "self" : "<div id=\"{{selfId}}\" class=\"tabs\" data-signals__ifmissing=\"{ ui_{{id}}: {{bakeIndex}}, _{{id}}__pending: '' }\" data-effect=\"$_{{id}}__pending !== '' && ($ui_{{id}} == $_{{id}}__pending || $_sse > 0) && ($_{{id}}__pending = '')\" data-on:datastar-fetch__document=\"evt.detail.type === 'error' && ($_{{id}}__pending = '')\">{{#children}}{{{html}}}{{/children}}</div>",
       "slots" : [
       ],
       "template" : "<div class=\"fh-col\">{{{self}}}{{{mount}}}</div>"
