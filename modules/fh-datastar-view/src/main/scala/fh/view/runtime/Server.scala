@@ -1292,7 +1292,13 @@ class Server(
     } yield ()
 
   /** Resolve the connection (`conn` rides in the POST body among Datastar
-    * signals) to its session + current renderer, run `f`, and return NoContent.
+    * signals) to its session + current renderer, and run `f`.
+    *
+    * Every way this can fail now carries a status, which is the point (ADR
+    * 0024): no `conn` at all is a 400, a slug nobody serves a 404 (the same
+    * answer `rendererFor` gives every other consumer — ADR 0018), a `conn`
+    * belonging to another dashboard a 409, and a surface this build does not
+    * have a 404 from [[openSurface]]. Only success is NoContent.
     */
   private def withSession(
       req: Request[IO],

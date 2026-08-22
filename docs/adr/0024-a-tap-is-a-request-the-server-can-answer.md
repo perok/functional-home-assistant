@@ -2,8 +2,10 @@
 
 - **Status:** Accepted
 - **Date:** 2026-08-22
-- **Scope:** `runtime/Server.scala` (the surface routes + `withSession`),
-  `lib/core/tap.pkl`, `lib/core/surface.pkl`, `lib/components/surface.pkl`
+- **Scope:** `runtime/Server.scala` (the surface routes, `withSession`,
+  `sessionFor`, `openSurface`), `runtime/Sessions.scala` (doc only),
+  `model/Dashboard.scala` (doc only), `lib/core/tap.pkl`, `lib/core/surface.pkl`,
+  `lib/components/surface.pkl`
 - **Uses:** ADR 0023's `$dashboardSlug` / `{{dashboardSlug}}` pair, for the same
   reason and by the same mechanism.
 
@@ -58,9 +60,36 @@ A `conn` held by a session viewing a *different* dashboard is refused (409), not
 resolved: re-registering would unroute that live page, and no honest client can
 produce it, since a `conn` is minted per document and a document is one slug.
 
+**This is not a new resource vector, and the comparison is worth writing down**
+because "an unauthenticated POST now allocates server state" is the first thing
+to ask. `Access.Public` does permit an anonymous caller, so on a public
+dashboard anyone can mint by tapping with a fresh `conn`. But that same caller
+can already `GET /d/<slug>` in a loop, and a document render creates and
+registers a session too — after doing a full page render, so it is strictly the
+more expensive of the two. Both are bounded by the same `AdoptionWindow`, which
+is what `reapAfter` is for. The tap adds no capability, only a cheaper way to
+use one that was always there.
+
+**What it costs when the stream does not come back.** The mint is reaped after
+the adoption window and the queued patch dies with it, so a page whose stream
+is gone for good lands back on "tap again" — the behaviour before this change,
+reached after 10 seconds instead of immediately. The fix therefore has no worse
+case than the bug it replaces, which is why it needs no retry of its own.
+
 **3. A tap that cannot be served says so.** 204 was indistinguishable from
 success. Anything left that a tap cannot do answers 4xx, which the shell already
 turns into a toast (ADR 0019).
+
+This makes `withSession` obey a rule it used to be the exception to: ADR 0018's
+seam table already says `rendererFor` answers `None -> 404 for non-HTML
+consumers`, and this route was the one that answered 204 instead.
+
+An unknown surface id is therefore LOUD on a tap and SILENT on a restore, which
+is deliberate rather than inconsistent. `Renderer.openPopup` clamps an unknown
+id out of a URL (ADR 0005) because nobody asked for it just now — it is a stale
+bookmark, and the right answer is the page without it. A tap is a request a
+person made a moment ago, so leaving it unanswered is the failure this ADR
+exists to remove.
 
 ### Why the slug rides in a transform
 
@@ -109,9 +138,17 @@ rare rather than routine.
 - The wire format changed: every surface-open/close `onclick` is a transform
   rather than a constant, and the popup card's template names the slug. The
   `PklBuildSuite` snapshots record it.
-- `SurfaceTapSuite` owns the two properties: a tap on a forgotten connection
-  still opens the popup, and a tap naming another dashboard's connection is
-  refused without disturbing the page that owns it.
+- `SurfaceTapSuite` owns the three properties: a tap on a forgotten connection
+  still opens the popup (driven through the real reap, not a synthetic unknown
+  id), a tap on a surface this build no longer has says so, and a tap naming
+  another dashboard's connection is refused without disturbing the page that
+  owns it.
+- A `Session` now has three creators rather than one. `Sessions.scala`'s own doc
+  used to say the document is the only one; it already had two (a stream mints
+  on a bookmarked SSE URL), and this adds the third. What the doc was really
+  protecting — that `holds` only ever records bytes THIS client was sent — is
+  untouched: a minted session starts empty, so the resume that follows re-sends
+  rather than under-sends.
 - A dashboard renamed by `fh push --slug` keeps working, because the slug is
   bound at render time rather than baked at build time — the same reason ADR
   0023 gives.
