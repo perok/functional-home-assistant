@@ -276,7 +276,7 @@ class DatastarMorphContractSuite extends munit.CatsEffectSuite with SlowSuite {
   }
 
   test("an action's datastar frames are applied on 2xx and DROPPED on 4xx") {
-    // Settles where a failure may be reported (docs/plan-pending-signals.md).
+    // Settles where a failure may be reported (docs/adr/0025-a-value-in-flight.md).
     // Reading the pinned bundle suggests a 4xx body is still parsed — `onopen`
     // dispatches the error event on `status >= 400` and then neither throws nor
     // returns, so `onmessage` looks reachable. Running it says otherwise, which
@@ -335,7 +335,7 @@ class DatastarMorphContractSuite extends munit.CatsEffectSuite with SlowSuite {
     "a data-effect that clears the signal it reads settles, and survives a race"
   ) {
     // The clearing rule pending signals rest on
-    // (docs/plan-pending-signals.md): the client writes `_g__pending` on tap,
+    // (docs/adr/0025-a-value-in-flight.md): the client writes `_g__pending` on tap,
     // the SERVER writes `ui_g`, and pending clears itself once the committed
     // value catches up. The effect READS and WRITES the same signal, which is
     // the shape that loops — so this measures that it settles, and counts the
@@ -557,6 +557,91 @@ class DatastarMorphContractSuite extends munit.CatsEffectSuite with SlowSuite {
           control.nonEmpty,
           s"$who: CONTROL — a throwing expression IS reported, so that silence is real"
         )
+    }
+  }
+
+  test("data-bind makes a co-located data-attr:value inert from the start") {
+    // What a range input's position actually obeys, measured rather than
+    // reasoned from the HTML spec — which is how the claim this replaces got
+    // into ADR 0025.
+    //
+    // The spec half is real: `value` is a CONTENT attribute, so it sets the
+    // default and the browser's dirty-value flag makes it inert once the value
+    // has been set through the IDL. The part that reasoning missed is WHO sets
+    // it — `data-bind` writes `.value` on its first pass, before any user
+    // touches anything, so on an input carrying both bindings the attribute
+    // never moves the thumb at all. Not "inert after a drag": inert at t=0.
+    //
+    // The slider carries both (`data-attr:value` for the committed signal,
+    // `data-bind` for `_slide`), so this is that element, reduced.
+    val page =
+      """<div data-signals="{ a: '20', b: '80' }"></div>
+        |<input id="both" type="range" min="0" max="100" data-attr:value="$a" data-bind="b" />
+        |<input id="attr" type="range" min="0" max="100" data-attr:value="$a" />
+        |<button id="bumpA" data-on:click="$a = '55'">a</button>""".stripMargin
+
+    def prop(p: Page, id: String) =
+      IO.blocking(p.locator(id).evaluate("el => el.value").toString)
+    def attrOf(p: Page, id: String) =
+      IO.blocking(Option(p.locator(id).getAttribute("value")))
+    val settle = IO.sleep(300.millis)
+
+    served(page, Nil).use { case (p, uri) =>
+      for {
+        _ <- IO.blocking(p.navigate(uri.renderString))
+        _ <- eventually(text(p, "#done"))(_ == "yes")
+
+        bothStart <- prop(p, "#both")
+        attrStart <- prop(p, "#attr")
+        // The attribute IS written on both — it simply loses on the bound one.
+        bothAttr <- attrOf(p, "#both")
+        // A later server write to the committed signal: still no movement.
+        bothAfter <- IO.blocking(p.locator("#bumpA").click()) *> settle *> prop(
+          p,
+          "#both"
+        )
+        // On the UNBOUND input the same write does move it, so the assertions
+        // above cannot pass because `data-attr:value` is broken in general.
+        attrAfter <- prop(p, "#attr")
+        // ...until the value has been set through the IDL, which is the dirty
+        // flag doing what the spec says.
+        _ <- IO.blocking(p.locator("#attr").fill("10"))
+        attrDirty <- IO.blocking(p.locator("#bumpA").click()) *> settle *> prop(
+          p,
+          "#attr"
+        )
+      } yield {
+        assertEquals(
+          bothStart,
+          "80",
+          "data-bind wins on first paint — the attribute never positions a bound input"
+        )
+        assertEquals(
+          bothAttr,
+          Some("20"),
+          "and data-attr DID write it; the attribute is present and simply ignored"
+        )
+        assertEquals(
+          bothAfter,
+          "80",
+          "a later write to the attr-bound signal still moves nothing"
+        )
+        assertEquals(
+          attrStart,
+          "20",
+          "CONTROL: unbound, the attribute does position the thumb"
+        )
+        assertEquals(
+          attrAfter,
+          "55",
+          "CONTROL: and keeps positioning it while the input stays clean"
+        )
+        assertEquals(
+          attrDirty,
+          "10",
+          "CONTROL: once the value is set through the IDL, the dirty flag makes it inert"
+        )
+      }
     }
   }
 

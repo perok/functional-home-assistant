@@ -306,11 +306,18 @@ class Slider extends nodes.Node {
     // so a FAILED commit produced no correcting frame and the thumb stayed
     // where the finger left it.
     //
-    // `data-attr:value` rather than `data-bind`: the content attribute is the
-    // input's DEFAULT value, which is exactly what "where the device is" means
-    // for a control the user has not touched — and once the user has, the
-    // browser's dirty-value flag makes it inert, which is the correct answer
-    // too. The live position is [[slideSig]] on `data-bind`.
+    // `data-attr:value` is a PLACEMENT, not a binding that does anything: this
+    // signal is read by [[adoptCommitted]] and [[rollbackToCommitted]], and it
+    // has no DOM home of its own. ADR 0017 requires every signal slot to place
+    // its bind somewhere, so it lands on the attribute the value would
+    // naturally have had — where `data-bind` beats it from the first pass and
+    // it is inert for the life of the page.
+    //
+    // Measured, and contradicting what the spec alone suggested (the dirty-value
+    // flag is real, but `data-bind` sets `.value` through the IDL before any
+    // user touches it, so the attribute never positions the thumb even once):
+    // `DatastarMorphContractSuite`, "data-bind makes a co-located
+    // data-attr:value inert from the start". The live position is [[slideSig]].
     ["value"] = new slotMod.Slot {
       transform = valueExpr
       default = "0"
