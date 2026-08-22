@@ -33,7 +33,12 @@ every request succeeding.
 |---|---|---|
 | `ui_<group>` | the SERVER only | what this client's DOM *is* showing |
 | `_<group>__pending` | the client, on tap | what it has *asked* to show |
-| `_<group>__busy` | `data-indicator` | whether a request is in flight |
+
+**Two signals, not three.** An earlier draft added a `_<group>__busy` from
+`data-indicator`, which is redundant: "a request is in flight" is just
+`pending != ''`. `busy` is what you need when the only thing you know is
+whether a fetch is open; once you know WHAT was asked for, the boolean is
+derivable and the extra signal is a second copy of the same fact.
 
 Anything that displays a selection reads `$_<group>__pending || $ui_<group>`, so
 the tap still feels instant — the pending value drives the highlight from the
@@ -48,13 +53,27 @@ data-on:click="$_g__pending = '<id>'; @post('sse/surface/<slug>/open/<id>')"
 
 Clearing is where the design earns its keep:
 
-- **Success clears it from the server**, in the same frame that commits:
-  `{ui_g: 1, _g__pending: ''}`. One write, so the commit and the clear cannot
-  separate — and because it rides the patch, the two-taps race resolves: the
-  last patch applied is the last signal set, whatever order the POSTs took.
+- **Success clears it by CATCHING UP.** The server sends only `ui_g`; pending
+  clears itself once the truth equals it:
+
+  ```
+  data-effect="$_g__pending !== '' && $ui_g == $_g__pending && ($_g__pending = '')"
+  ```
+
+  No coordination, no clear in the frame — and it is what makes CONCURRENT taps
+  correct. A server-sent clear would wipe pending on whichever response landed
+  first, briefly showing tab A while tab B is still in flight. Comparing to the
+  committed value instead means pending survives until the tap it names is the
+  one that won.
 - **Failure clears it on the client**, off the `datastar-fetch` error event the
   shell already listens to. No bytes, and no flicker, because nothing was
   committed to flicker back from.
+
+**Spike this before building on it.** A `data-effect` that reads and writes the
+same signal is self-referential, which is exactly the shape that loops. It
+should settle (the assignment falsifies the guard), but "should" is not what
+this repo accepts about Datastar semantics — `DatastarMorphContractSuite` is
+where the answer belongs, next to the 4xx one.
 
 ### Why not clear on `finished`
 
@@ -65,9 +84,9 @@ QUEUED the patch. The 204 can therefore beat the SSE frame carrying it: the
 highlight would snap back to the old tab and jump forward when the patch lands.
 A flicker on the happy path is worse than the bug being fixed.
 
-The indicator is still worth having for the *look* (it counts concurrent
-fetches, so it stays true until the last one lands) — it just must not own the
-pending VALUE's lifetime.
+`data-indicator` is not needed for this at all, then. It counts concurrent
+fetches, which is the right primitive when a boolean is all you have — but it
+cannot say WHICH tap is outstanding, and that is the thing the display needs.
 
 ## What a spike settled, against expectation
 
@@ -173,6 +192,13 @@ They are not a separate customer with a separate design:
   is what I asked for", so a control can show the target rather than just
   dimming. For a toggle that is redundant with the two-way binding; for a
   button whose outcome is a state it is not.
+
+One nuance the migration must not flatten: `busy` also GUARDS (`$_id__busy ? ''
+: <onclick>` swallows a re-click). That is right for a service button, where a
+double tap means two service calls, and wrong for a tab, where a second tap is
+a change of mind that should win. So the guard stays a per-tap policy — the
+existing `busy` flag on `TapAction` — rather than becoming implied by pending
+being set.
 
 So buttons are not a cleanup at the end — migrating `busy` to pending is what
 PROVES pending subsumes it, and it is the smallest place to prove it.
