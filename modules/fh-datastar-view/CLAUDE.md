@@ -158,6 +158,13 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   spellings because there are genuinely two phases, each named after the one that fills it. The
   slug is applied in `DashboardBuild.decode` BEFORE validation, so a `Validated` is final and a
   `fh push --slug` rename cannot leave a compiled tap URL naming the old dashboard.
+  The surface taps carry it too — `POST /sse/surface/:slug/open/:id`, `POST /sse/popup/:slug/close`
+  — for a second reason (ADR 0024): a `conn` this process has forgotten (an idle page outliving
+  its session's linger) can then be RE-MINTED rather than dropped, the same thing the stream route
+  already does. Before that, such a tap answered 204 and did nothing at all, while the client's own
+  signal assignment still moved the URL. Standing principle from the same ADR, aspirational and
+  not enforced: **the DOM we send should be as usable as possible without JS** — signals for
+  liveness and effects, not for the core meaning of a tap.
 - Cards (`lib/components/`, re-exported by `lib/components.pkl` — ADR 0015): `fhgrid`/`fhrow`/`fhcol` containers, `sectionTitle`, `entityCard`,
   `button`, `pill`, `slider` — each is a typed card class carrying its own `cardDef` (Mustache template +
   declared slots), and the emitted `cards` registry is derived by `pkl:reflect`; slots are checked

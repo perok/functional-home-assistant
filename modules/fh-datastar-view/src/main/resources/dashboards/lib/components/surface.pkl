@@ -10,6 +10,7 @@ import "../core/node.pkl" as nodes
 import "../core/slot.pkl" as slotMod
 import "../core/surface.pkl" as surfaceMod
 import "../core/predicate.pkl" as pred
+import "../core/tap.pkl" as tapMod
 import "../layout.pkl" as layout
 
 /// One tab in the [[Tabs]] bar — BeerCSS's NATIVE tab markup (`.tabs > a`
@@ -30,7 +31,7 @@ class TabButton extends nodes.Node {
     wrapAsCell = false
   }
   hidden label: String
-  hidden onclick: String
+  hidden onclick: slotMod.Slot|String
   hidden active: String
   slots {
     ["label"] = label
@@ -139,7 +140,11 @@ class Tabs extends nodes.Node {
       new TabButton {
         label = l
         active = "$ui_\(nodes.NODE_ID) == \(i)"
-        onclick = "@post('sse/surface/open/\(nodes.NODE_ID)_t\(i)'); $ui_\(nodes.NODE_ID) = \(i)"
+        onclick = tapMod.selectSurface(
+          "\(nodes.NODE_ID)_t\(i)",
+          "ui_\(nodes.NODE_ID)",
+          i.toString()
+        )
       }
     }
   }

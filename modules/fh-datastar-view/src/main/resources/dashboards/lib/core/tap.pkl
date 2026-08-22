@@ -196,6 +196,33 @@ const local function clickSlot(transformExpr: String, live: Boolean): slotMod.Sl
   bypassUnavailable = false
 }
 
+// The click expression for a surface OPEN. A TRANSFORM, not a constant string,
+// for one reason: only a transform can read `$dashboardSlug`, and the route
+// needs the slug. A literal slot is used verbatim — no Mustache pass, no
+// binding — so a constant could never carry it.
+//
+// It reads no entity, and does not need one: a slot with no entity resolves
+// against an empty `EntityState` (`Renderer.resolveSlot`), and `$dashboardSlug`
+// is bound independently of it. That is what lets a pill with no entity of its
+// own open a popup.
+//
+// `tail` is the client-side half — the signal assignment that records the
+// choice — spliced inside the produced expression rather than after it, since
+// the whole click expression is one string.
+const local function openSurfaceOnclick(surfaceId: String, tail: String): slotMod.Slot =
+  clickSlot(
+    // The closing quote is `"\""`, not `#"""#` — the latter opens a MULTI-LINE
+    // raw string and swallows the rest of the module.
+    #""@post('sse/surface/" & $dashboardSlug & "/open/"# + surfaceId + #"')"# + tail + "\"",
+    false
+  )
+
+/// The tab bar's own open-a-member click: [[openSurfaceOnclick]] with the
+/// active-tab signal assignment as its tail. Public only because the bar is
+/// built in `components/surface.pkl`, which cannot reach a `const local`.
+const function selectSurface(surfaceId: String, signal: String, value: String): slotMod.Slot =
+  openSurfaceOnclick(surfaceId, "; $" + signal + " = " + value)
+
 /// Explicit "<domain>/<service>" override, e.g. service("lock/lock").
 const function service(action: String): TapAction =
   new { onclick = clickSlot(serviceOnclick("\"" + action + "\""), false); busy = true }
@@ -264,17 +291,22 @@ function navigate(slug: String): TapAction = new {
   onclick = "window.location.assign(new URL('d/\(slug)',document.baseURI))"
 }
 
-/// Dismiss the (single, at-a-time) open popup — the id-less `POST
-/// /sse/popup/close`. Drop a button carrying this inside a popup's content.
-/// Clears `ui_popups` client-side, the same way a tab button sets `ui_<id>`:
-/// the signal is what a refresh and a reconnect restore from.
-function closePopup(): TapAction = new { onclick = "@post('sse/popup/close'); $ui_popups = ''" }
+/// Dismiss the (single, at-a-time) open popup — `POST
+/// /sse/popup/<slug>/close`. Drop a button carrying this inside a popup's
+/// content. Clears `ui_popups` client-side, the same way a tab button sets
+/// `ui_<id>`: the signal is what a refresh and a reconnect restore from.
+function closePopup(): TapAction =
+  new {
+    onclick = clickSlot(#""@post('sse/popup/" & $dashboardSlug & "/close'); $ui_popups = ''""#, false)
+  }
 
 /// Open the surface REGISTERED under `surfaceId` (a top-level `surfaces` entry).
 /// A registered popup surface is [[Popup]]-wrapped (the `<dialog>`); the backend
 /// renders it bare into the `#popups` mount.
 function openPopup(surfaceId: String): TapAction =
-  new { onclick = "@post('sse/surface/open/\(surfaceId)'); $ui_popups = '\(surfaceId)'" }
+  new {
+    onclick = openSurfaceOnclick(surfaceId, "; $ui_popups = '" + surfaceId + "'")
+  }
 
 /// Open an INLINE popup: `content` is wrapped in a [[Popup]] dialog and stashed
 /// under this node's `inlineSurfaces["self"]`; the onclick references the future
@@ -293,7 +325,10 @@ function openPopup(surfaceId: String): TapAction =
 // the same widened type or it rejects exactly the case `children` was widened
 // for.
 function openPopupInline(body: nodes.LayoutNode): TapAction = new {
-  onclick = "@post('sse/surface/open/\(nodes.NODE_ID)_self'); $ui_popups = '\(nodes.NODE_ID)_self'"
+  onclick = openSurfaceOnclick(
+    "\(nodes.NODE_ID)_self",
+    "; $ui_popups = '\(nodes.NODE_ID)_self'"
+  )
   inlineSurfaces = new Mapping {
     ["self"] = new surfaceMod.SurfaceDef { content = new surfaceMod.Popup { children { body } } }
   }

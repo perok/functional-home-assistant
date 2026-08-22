@@ -355,7 +355,7 @@ class LiveStreamSuite extends ServerHarness {
             beforeFill <- session.holds.get.map(_.get(node).contains(painted))
             // Open the popup the way a tap does.
             _ <- server.routes.orNotFound.run(
-              Request[IO](Method.POST, uri"/sse/surface/open/det")
+              Request[IO](Method.POST, uri"/sse/surface/dashboard/open/det")
                 .withEntity(s"""{"${Server.ConnSignal}":"$conn"}""")
             )
             // The fill told the SESSION what it painted...

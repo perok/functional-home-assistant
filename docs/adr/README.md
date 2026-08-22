@@ -40,3 +40,4 @@ to move it; 0003 and 0007 own two of the three node kinds it draws.
 - [0021 — One entrypoint: dashboards are data](0021-one-entrypoint-dashboards-are-data.md)
 - [0022 — An id carries what kind of thing it names](0022-ids-carry-what-they-name.md)
 - [0023 — Home Assistant is the identity provider; access is a per-dashboard rule](0023-dashboard-access.md)
+- [0024 — A tap is a request the server can answer; the DOM should stand on its own](0024-a-tap-is-a-request-the-server-can-answer.md)

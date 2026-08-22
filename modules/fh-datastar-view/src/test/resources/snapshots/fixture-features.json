@@ -62,7 +62,11 @@
                       "kind" : "component",
                       "slots" : {
                         "label" : "Close",
-                        "onclick" : "@post('sse/popup/close'); $ui_popups = ''"
+                        "onclick" : {
+                          "bypassUnavailable" : false,
+                          "reactive" : false,
+                          "transform" : "\"@post('sse/popup/\" & $dashboardSlug & \"/close'); $ui_popups = ''\""
+                        }
                       }
                     }
                   ],
@@ -84,7 +88,11 @@
           "entity_id" : "sensor.outside_temp",
           "icon" : "mdi-thermometer",
           "label" : "Outside Temperature",
-          "onclick" : "@post('sse/surface/open/@@NODE_ID@@_self'); $ui_popups = '@@NODE_ID@@_self'",
+          "onclick" : {
+            "bypassUnavailable" : false,
+            "reactive" : false,
+            "transform" : "\"@post('sse/surface/\" & $dashboardSlug & \"/open/@@NODE_ID@@_self'); $ui_popups = '@@NODE_ID@@_self'\""
+          },
           "tappable" : "1",
           "value" : {
             "bypassUnavailable" : true,
@@ -212,7 +220,11 @@
                       "kind" : "component",
                       "slots" : {
                         "label" : "Close",
-                        "onclick" : "@post('sse/popup/close'); $ui_popups = ''"
+                        "onclick" : {
+                          "bypassUnavailable" : false,
+                          "reactive" : false,
+                          "transform" : "\"@post('sse/popup/\" & $dashboardSlug & \"/close'); $ui_popups = ''\""
+                        }
                       }
                     }
                   ],
@@ -234,7 +246,11 @@
           "entity_id" : "light.kitchen",
           "icon" : "mdi-lightbulb",
           "label" : "Kitchen",
-          "onclick" : "@post('sse/surface/open/@@NODE_ID@@_self'); $ui_popups = '@@NODE_ID@@_self'",
+          "onclick" : {
+            "bypassUnavailable" : false,
+            "reactive" : false,
+            "transform" : "\"@post('sse/surface/\" & $dashboardSlug & \"/open/@@NODE_ID@@_self'); $ui_popups = '@@NODE_ID@@_self'\""
+          },
           "tappable" : "1",
           "value" : {
             "bypassUnavailable" : true,
@@ -379,7 +395,11 @@
         "kind" : "component",
         "slots" : {
           "label" : "Detail…",
-          "onclick" : "@post('sse/surface/open/detail'); $ui_popups = 'detail'"
+          "onclick" : {
+            "bypassUnavailable" : false,
+            "reactive" : false,
+            "transform" : "\"@post('sse/surface/\" & $dashboardSlug & \"/open/detail'); $ui_popups = 'detail'\""
+          }
         }
       },
       {
@@ -410,7 +430,11 @@
                       "kind" : "component",
                       "slots" : {
                         "label" : "Close",
-                        "onclick" : "@post('sse/popup/close'); $ui_popups = ''"
+                        "onclick" : {
+                          "bypassUnavailable" : false,
+                          "reactive" : false,
+                          "transform" : "\"@post('sse/popup/\" & $dashboardSlug & \"/close'); $ui_popups = ''\""
+                        }
                       }
                     }
                   ],
@@ -430,7 +454,11 @@
         "kind" : "component",
         "slots" : {
           "label" : "Inline…",
-          "onclick" : "@post('sse/surface/open/@@NODE_ID@@_self'); $ui_popups = '@@NODE_ID@@_self'"
+          "onclick" : {
+            "bypassUnavailable" : false,
+            "reactive" : false,
+            "transform" : "\"@post('sse/surface/\" & $dashboardSlug & \"/open/@@NODE_ID@@_self'); $ui_popups = '@@NODE_ID@@_self'\""
+          }
         }
       }
     ],
@@ -492,7 +520,7 @@
       "template" : "{{#href}}<a class=\"chip\" href=\"{{{href}}}\">{{label}}</a>{{/href}}{{^href}}<button class=\"chip\" data-on:click=\"{{#busy}}$_{{id}}__busy ? '' : {{/busy}}{{{onclick}}}\"{{#busy}} data-indicator=\"_{{id}}__busy\"{{/busy}}{{#busyVisual}} data-class:fh-disabled=\"$_{{id}}__busy\" data-class:fh-loading=\"$_{{id}}__busy\"{{/busyVisual}}>{{label}}</button>{{/href}}"
     },
     "popup" : {
-      "mount" : "<dialog open class=\"popup\"><button class=\"popup-close\" data-on:click=\"@post('sse/popup/close'); $ui_popups = ''\">✕</button>{{#children}}{{{html}}}{{/children}}</dialog>",
+      "mount" : "<dialog open class=\"popup\"><button class=\"popup-close\" data-on:click=\"@post('sse/popup/{{dashboardSlug}}/close'); $ui_popups = ''\">✕</button>{{#children}}{{{html}}}{{/children}}</dialog>",
       "slots" : [
       ],
       "template" : "{{{self}}}{{{mount}}}"
@@ -605,7 +633,11 @@
                           "kind" : "component",
                           "slots" : {
                             "label" : "Close",
-                            "onclick" : "@post('sse/popup/close'); $ui_popups = ''"
+                            "onclick" : {
+                              "bypassUnavailable" : false,
+                              "reactive" : false,
+                              "transform" : "\"@post('sse/popup/\" & $dashboardSlug & \"/close'); $ui_popups = ''\""
+                            }
                           }
                         }
                       ],
@@ -627,7 +659,11 @@
               "entity_id" : "sensor.outside_temp",
               "icon" : "mdi-thermometer",
               "label" : "Outside Temperature",
-              "onclick" : "@post('sse/surface/open/@@NODE_ID@@_self'); $ui_popups = '@@NODE_ID@@_self'",
+              "onclick" : {
+                "bypassUnavailable" : false,
+                "reactive" : false,
+                "transform" : "\"@post('sse/surface/\" & $dashboardSlug & \"/open/@@NODE_ID@@_self'); $ui_popups = '@@NODE_ID@@_self'\""
+              },
               "tappable" : "1",
               "value" : {
                 "bypassUnavailable" : true,
@@ -644,7 +680,11 @@
             "kind" : "component",
             "slots" : {
               "label" : "Close",
-              "onclick" : "@post('sse/popup/close'); $ui_popups = ''"
+              "onclick" : {
+                "bypassUnavailable" : false,
+                "reactive" : false,
+                "transform" : "\"@post('sse/popup/\" & $dashboardSlug & \"/close'); $ui_popups = ''\""
+              }
             }
           }
         ],

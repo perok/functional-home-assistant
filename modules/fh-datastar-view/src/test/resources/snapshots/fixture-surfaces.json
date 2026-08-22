@@ -18,7 +18,11 @@
             "slots" : {
               "active" : "$ui_@@NODE_ID@@ == 0",
               "label" : "Temp",
-              "onclick" : "@post('sse/surface/open/@@NODE_ID@@_t0'); $ui_@@NODE_ID@@ = 0"
+              "onclick" : {
+                "bypassUnavailable" : false,
+                "reactive" : false,
+                "transform" : "\"@post('sse/surface/\" & $dashboardSlug & \"/open/@@NODE_ID@@_t0'); $ui_@@NODE_ID@@ = 0\""
+              }
             }
           },
           {
@@ -29,7 +33,11 @@
             "slots" : {
               "active" : "$ui_@@NODE_ID@@ == 1",
               "label" : "Light",
-              "onclick" : "@post('sse/surface/open/@@NODE_ID@@_t1'); $ui_@@NODE_ID@@ = 1"
+              "onclick" : {
+                "bypassUnavailable" : false,
+                "reactive" : false,
+                "transform" : "\"@post('sse/surface/\" & $dashboardSlug & \"/open/@@NODE_ID@@_t1'); $ui_@@NODE_ID@@ = 1\""
+              }
             }
           }
         ],
@@ -96,7 +104,11 @@
                                 "kind" : "component",
                                 "slots" : {
                                   "label" : "Close",
-                                  "onclick" : "@post('sse/popup/close'); $ui_popups = ''"
+                                  "onclick" : {
+                                    "bypassUnavailable" : false,
+                                    "reactive" : false,
+                                    "transform" : "\"@post('sse/popup/\" & $dashboardSlug & \"/close'); $ui_popups = ''\""
+                                  }
                                 }
                               }
                             ],
@@ -118,7 +130,11 @@
                     "entity_id" : "sensor.outside_temp",
                     "icon" : "mdi-thermometer",
                     "label" : "Outside Temperature",
-                    "onclick" : "@post('sse/surface/open/@@NODE_ID@@_self'); $ui_popups = '@@NODE_ID@@_self'",
+                    "onclick" : {
+                      "bypassUnavailable" : false,
+                      "reactive" : false,
+                      "transform" : "\"@post('sse/surface/\" & $dashboardSlug & \"/open/@@NODE_ID@@_self'); $ui_popups = '@@NODE_ID@@_self'\""
+                    },
                     "tappable" : "1",
                     "value" : {
                       "bypassUnavailable" : true,
@@ -256,7 +272,11 @@
                                 "kind" : "component",
                                 "slots" : {
                                   "label" : "Close",
-                                  "onclick" : "@post('sse/popup/close'); $ui_popups = ''"
+                                  "onclick" : {
+                                    "bypassUnavailable" : false,
+                                    "reactive" : false,
+                                    "transform" : "\"@post('sse/popup/\" & $dashboardSlug & \"/close'); $ui_popups = ''\""
+                                  }
                                 }
                               }
                             ],
@@ -278,7 +298,11 @@
                     "entity_id" : "sensor.outside_temp",
                     "icon" : "mdi-thermometer",
                     "label" : "Outside Temperature",
-                    "onclick" : "@post('sse/surface/open/@@NODE_ID@@_self'); $ui_popups = '@@NODE_ID@@_self'",
+                    "onclick" : {
+                      "bypassUnavailable" : false,
+                      "reactive" : false,
+                      "transform" : "\"@post('sse/surface/\" & $dashboardSlug & \"/open/@@NODE_ID@@_self'); $ui_popups = '@@NODE_ID@@_self'\""
+                    },
                     "tappable" : "1",
                     "value" : {
                       "bypassUnavailable" : true,
@@ -409,7 +433,7 @@
       "template" : "{{#href}}<a class=\"chip\" href=\"{{{href}}}\">{{label}}</a>{{/href}}{{^href}}<button class=\"chip\" data-on:click=\"{{#busy}}$_{{id}}__busy ? '' : {{/busy}}{{{onclick}}}\"{{#busy}} data-indicator=\"_{{id}}__busy\"{{/busy}}{{#busyVisual}} data-class:fh-disabled=\"$_{{id}}__busy\" data-class:fh-loading=\"$_{{id}}__busy\"{{/busyVisual}}>{{label}}</button>{{/href}}"
     },
     "popup" : {
-      "mount" : "<dialog open class=\"popup\"><button class=\"popup-close\" data-on:click=\"@post('sse/popup/close'); $ui_popups = ''\">✕</button>{{#children}}{{{html}}}{{/children}}</dialog>",
+      "mount" : "<dialog open class=\"popup\"><button class=\"popup-close\" data-on:click=\"@post('sse/popup/{{dashboardSlug}}/close'); $ui_popups = ''\">✕</button>{{#children}}{{{html}}}{{/children}}</dialog>",
       "slots" : [
       ],
       "template" : "{{{self}}}{{{mount}}}"

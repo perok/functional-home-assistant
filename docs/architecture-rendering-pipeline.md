@@ -57,7 +57,7 @@ flowchart TB
   end
 
   GATE["AuthGate — a route (or route GROUP) declares its Requirement (ADR 0023)<br/>one rule per dashboard; the CALLER picks the refusal (orLogIn on a page, plain elsewhere)<br/>handleStream also cuts a running stream when the rule stops holding<br/>an action is bounded by its dashboard's OWN entities"]
-  ACT["action POST<br/>surface/open · popup/close<br/>carries conn + ui-state"]
+  ACT["action POST<br/>surface/&lt;slug&gt;/open · popup/&lt;slug&gt;/close<br/>carries conn + ui-state<br/>a conn this process has forgotten is MINTED, not dropped (ADR 0024)"]
   SESS["Sessions registry<br/>conn maps to slug, open set, control queue,<br/>holds (what this DOM has: digest + signals)<br/>+ position"]
   LOG[("FragmentLog per slug — the CHANGELOG<br/>node -&gt; version · Gone/Placed · horizon<br/>absence means: unknown, send it")]
 
@@ -779,7 +779,7 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 | the signals frame | `runtime/Patches.scala` · `signalFrame`, `Patch.Signals`; `runtime/Datastar.scala` · `signalsJson`, `signalsAttr`, `textBinding` |
 | SSE stream | `runtime/Server.scala` · `sseStream` |
 | opening paint | `runtime/Server.scala` · `openingPatches` |
-| sessions + surface actions | `runtime/Sessions.scala`; `runtime/Server.scala` · `withSession`, `openSurface`, `swapHost`; `runtime/Patches.scala` · `hostFill`, `hostEvicts` |
+| sessions + surface actions | `runtime/Sessions.scala`; `runtime/Server.scala` · `withSession`, `sessionFor`, `openSurface`, `swapHost`; `runtime/Patches.scala` · `hostFill`, `hostEvicts` |
 | a document establishes a session | `runtime/Server.scala` · `pageResponse`, `adoptOrMint`; `runtime/Sessions.scala` · `Session.adopt` |
 | a session's lifetime | `runtime/Sessions.scala` · `Tenure`, `Session.release`/`relinquish`/`supersede`; `runtime/Server.scala` · `reapAfter`, `retire`, `AdoptionWindow`, `LingerWindow` |
 | a tab handing over its session | `src/js/shell.ts` · `fhConn` (`sessionStorage`); `runtime/Server.scala` · `PrevConnParam`, `prevConnOf`, `retire` |
@@ -814,6 +814,13 @@ Live list — delete an entry when it is answered, and say where the answer land
   sit at different positions. Nothing in the design depends on them agreeing — each pull is computed
   against the current snapshot from that session's own cursor — but that is an invariant worth
   writing down and testing rather than relying on.
+- **A surface tap's signal is set by the client, not confirmed by the server.** `swapHost` sends
+  the patch; the tap's own expression sets `ui_popups` / `ui_<tabs>` in parallel, so the URL
+  mirror can claim a selection the DOM does not have. Since ADR 0024 a tap can no longer be
+  silently dropped, so the window is narrow — but making the server's frame carry the signal
+  alongside the patch would close it by construction ("what is showing wins"). Costs a round trip
+  before the URL updates, which is why it was not taken with the drop fix.
+
 - **Carrying the converted attribute map across a tick.** See TODO2.md — `EntityState.javaAttributes`
   is rebuilt per state change even when attributes did not move.
 

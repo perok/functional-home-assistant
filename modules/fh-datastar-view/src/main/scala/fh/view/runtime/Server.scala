@@ -285,17 +285,17 @@ class Server(
         )
       )
 
-    // These two name no dashboard in their URL, but unlike an action POST they
-    // DO carry signals — `conn` among them — so the session names it. The
-    // requirement is therefore declared inside `withSession`, where the slug is
-    // known, rather than guessed from the path.
-    case req @ POST -> Root / "sse" / "surface" / "open" / id =>
-      withSession(req)((session, renderer, uiState) =>
+    // These two carry the slug for the same reason an action does (ADR 0023) —
+    // it is what the rule is checked against — plus one this route needs on its
+    // own: a `conn` this process has forgotten can be re-established only for a
+    // dashboard somebody names. See [[withSession]].
+    case req @ POST -> Root / "sse" / "surface" / slug / "open" / id =>
+      withSession(req, slug)((session, renderer, uiState) =>
         openSurface(session, renderer, id, uiState)
       )
 
-    case req @ POST -> Root / "sse" / "popup" / "close" =>
-      withSession(req)((session, renderer, uiState) =>
+    case req @ POST -> Root / "sse" / "popup" / slug / "close" =>
+      withSession(req, slug)((session, renderer, uiState) =>
         swapHost(session, renderer, Dashboard.PopupHostId, None, uiState)
       )
   }
@@ -1201,6 +1201,13 @@ class Server(
     * [[fh.view.model.Surface.hostId]] — and hand off to [[swapHost]], the
     * single open/switch/close primitive.
     */
+  /** A surface this renderer does not have is a STALE DOCUMENT, not a bad
+    * request: ids are location-derived, so an edit that adds a card above one
+    * renames it, and a page open across that rebuild taps the old name. Raised
+    * rather than ignored — it is the last way a tap could still do nothing and
+    * say nothing (ADR 0024), and a status is what reaches the user, as the
+    * shell's toast.
+    */
   private def openSurface(
       session: Session,
       renderer: Renderer,
@@ -1208,7 +1215,10 @@ class Server(
       uiState: Map[String, String]
   ): IO[Unit] =
     renderer.surface(id) match {
-      case None       => IO.unit
+      case None =>
+        IO.raiseError(
+          FHError.notFound(s"no surface '$id' on this dashboard — reload")
+        )
       case Some(surf) =>
         swapHost(session, renderer, surf.hostId, Some(id), uiState)
     }
@@ -1285,7 +1295,8 @@ class Server(
     * signals) to its session + current renderer, run `f`, and return NoContent.
     */
   private def withSession(
-      req: Request[IO]
+      req: Request[IO],
+      slug: String
   )(
       f: (Session, Renderer, Map[String, String]) => IO[Unit]
   ): IO[Response[IO]] = {
@@ -1297,31 +1308,71 @@ class Server(
         connOf(body).map(_ -> Server.uiFromSignals(body.hcursor))
       })
       .flatMap {
-        // Neither of these two has a dashboard to be checked against, and
-        // neither says anything a caller did not already send us: the request
-        // was malformed, or it named a connection this process does not have.
-        // So they answer un-gated rather than being checked against some other
-        // dashboard's rule — that guess is what this change removed.
+        // A malformed request says nothing a caller did not already send us.
         case None =>
           BadRequest("""{"success":false,"error":"missing conn"}""")
         case Some((conn, uiState)) =>
-          sessions.get(conn).flatMap {
-            case None =>
-              NoContent() // stale/unknown connection
-            case Some(session) =>
-              // The requirement is declared HERE because this is the first
-              // point that knows which dashboard the request is for: the URL
-              // does not say, the session does.
-              gate.handleRequirement(
-                req,
-                Requirement.FromDashboard(Some(session.slug))
-              )(
-                rendererFor(session.slug)
-                  .flatMap(_.traverse_(f(session, _, uiState))) *> NoContent()
-              )
-          }
+          gate.handleRequirement(req, Requirement.FromDashboard(Some(slug)))(
+            rendererFor(slug)
+              .flatMap {
+                case None =>
+                  IO.raiseError(
+                    FHError.notFound(s"no dashboard '$slug' is being served")
+                  )
+                case Some(renderer) =>
+                  sessionFor(slug, conn, renderer, uiState).flatMap {
+                    case None          => Conflict(Server.WrongSlugBody)
+                    case Some(session) =>
+                      f(session, renderer, uiState) *> NoContent()
+                  }
+              }
+              // Recovered HERE rather than left to the app-level
+              // [[FHError.handle]], so this route answers the same status when
+              // a suite exercises it directly — the shape [[pushResponse]] and
+              // [[guardSystemPkl]] already use.
+              .handleErrorWith { case e: FHError => FHError.logged(e) }
+          )
       }
   }
+
+  /** The session this tap belongs to, MINTING one when `conn` names nothing.
+    *
+    * The mint is the whole point. A session outlives its stream by
+    * [[Server.LingerWindow]] and is then reaped, so a page left idle — a phone
+    * with its screen off, a laptop asleep — sits there looking perfectly alive
+    * while the server has forgotten it. Every tap on it used to answer
+    * `NoContent`: no patch, no error, and a client that had already set its own
+    * `ui_*` signal, so the URL claimed a popup the DOM did not have. It took a
+    * second tap (after Datastar's stream had quietly reconnected) or a reload.
+    *
+    * Minting is what the STREAM already does with an unknown `conn`
+    * ([[adoptOrMint]]) — one mechanism, not two. The patch queues in the fresh
+    * session's `control` and is delivered the moment the reconnecting stream
+    * adopts it, which is why the tap now lands on the first press. An abandoned
+    * mint is reaped on the same adoption window a document's is: this is a page
+    * whose stream is on its way back, or a page that is gone.
+    *
+    * `None` means `conn` is held by a session viewing a DIFFERENT dashboard.
+    * Re-registering would unroute that live page, and no honest client can
+    * produce it (a `conn` is minted per document, and a document is one slug),
+    * so it is refused rather than resolved.
+    */
+  private def sessionFor(
+      slug: String,
+      conn: String,
+      renderer: Renderer,
+      uiState: Map[String, String]
+  ): IO[Option[Session]] =
+    sessions.get(conn).flatMap {
+      case Some(session) => IO.pure(Option.when(session.slug == slug)(session))
+      case None          =>
+        Session
+          .create(slug)
+          .flatTap(_.open.set(renderer.surfaces.selectedSurfaces(uiState)))
+          .flatTap(sessions.register(conn, _))
+          .flatTap(reapAfter(conn, _, Tenure.Fresh, adoptionWindow))
+          .map(Some(_))
+    }
 
   private def connOf(body: Json): Option[String] =
     body.hcursor.get[String](Server.ConnSignal).toOption
@@ -2633,6 +2684,14 @@ object Server {
     * once per connect and every reconnect is a connect.
     */
   val ConnSignal: String = "conn"
+
+  /** A tap whose `conn` belongs to another dashboard — see [[sessionFor]]. A
+    * 4xx rather than a silent no-op so the shell's `datastar-fetch` listener
+    * toasts it: a tap that does nothing and says nothing is the failure this
+    * whole route was fixed for.
+    */
+  private[runtime] val WrongSlugBody: String =
+    """{"success":false,"error":"connection belongs to another dashboard"}"""
 
   /** The namespace the resume cursor lives under, and the reason it is
     * `_`-prefixed: Datastar's default request filter is `exclude: /(^|\.)_/`,

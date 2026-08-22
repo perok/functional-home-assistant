@@ -9,6 +9,7 @@ amends "pkl:test"
 import "../../main/resources/dashboards/lib/components.pkl" as c
 import "../../main/resources/dashboards/lib/core/node.pkl" as nodes
 import "../../main/resources/dashboards/lib/core/css.pkl" as cssMod
+import "../../main/resources/dashboards/lib/core/slot.pkl" as slotMod
 import "../../main/resources/dashboards/lib/query.pkl" as q
 import "../../main/resources/dashboards/lib/hass.pkl" as hass
 
@@ -141,7 +142,11 @@ facts {
   ["more-info is an inline popup, so every entity's body is its own surface"] {
     local t = c.moreInfo(kitchen)
     t.inlineSurfaces.containsKey("self")
-    t.onclick.contains("sse/surface/open/\(nodes.NODE_ID)_self")
+    // A transform, not a constant: the route carries `$dashboardSlug`, which
+    // only a transform can read.
+    (t.onclick as slotMod.Slot).transform.contains("sse/surface/")
+    (t.onclick as slotMod.Slot).transform.contains("/open/\(nodes.NODE_ID)_self")
+    (t.onclick as slotMod.Slot).transform.contains("$dashboardSlug")
   }
 
   ["the body is the entity, then the controls its domain has, then its facts"] {
@@ -199,7 +204,8 @@ facts {
     // call HA would reject. This is the flip the more-info work gated.
     card.slots["tappable"] == "1"
     card.inlineSurfaces.containsKey("self")
-    !card.slots["onclick"].contains("sse/action")
+    !(card.slots["onclick"] as slotMod.Slot).transform.contains("sse/action")
+    (card.slots["onclick"] as slotMod.Slot).transform.contains("/open/")
   }
 
   ["the more-info body's own card does NOT default to more-info"] {
