@@ -358,6 +358,22 @@ class Server(
   private[runtime] def liveSlug(slug: String): IO[Server.LiveSlug] =
     liveFor(slug).map(_.getOrElse(sys.error(s"no live slug '$slug'")))
 
+  /** Test seam: put every live connection into the state a reap leaves it in,
+    * and answer how many there were. `Reaped` is what a running stream's
+    * `interruptWhen` watches, so the browser really does lose its connection
+    * and reconnect — which is how a smoke test reaches a reconnect at all
+    * without waiting out [[Server.LingerWindow]] (ADR 0009's known gap).
+    */
+  private[runtime] def forgetSessions: IO[Int] =
+    sessions.all.flatMap { live =>
+      live.toList
+        .traverse { case (conn, session) =>
+          session.tenure.set(Tenure.Reaped) *>
+            sessions.deregisterIf(conn, session)
+        }
+        .as(live.size)
+    }
+
   private def liveFor(slug: String): IO[Option[Server.LiveSlug]] =
     site.liveFor(slug)
 
@@ -1273,9 +1289,11 @@ class Server(
             session.control.offer(
               Datastar.patch(html, PatchMode.Inner, Some("#" + host))
             )
-        // Nothing holds the host now: the popup closed, or the surface would
-        // not render. Its contents leave this client's DOM, so its claims go
-        // with them.
+        // Nothing holds the host now, which means the popup closed: an
+        // arriving surface can only fill `None` when `dashboard.surfaces` lacks
+        // it, and [[openSurface]] asks that same map first and 404s. So the
+        // `whenA` is the close path, not a guard against a second cause.
+        // The contents leave this client's DOM, so its claims go with them.
         case None =>
           session.holds.update(
             _ -- Patches.hostEvicts(renderer, host)
@@ -1341,27 +1359,13 @@ class Server(
       }
   }
 
-  /** The session this tap belongs to, MINTING one when `conn` names nothing.
+  /** The session this tap belongs to, MINTING one when `conn` names nothing —
+    * an idle page whose session was reaped is the case, and why (ADR 0024). The
+    * patch then queues in the fresh session's `control` until the reconnecting
+    * stream adopts it, which is what the reap window bounds.
     *
-    * The mint is the whole point. A session outlives its stream by
-    * [[Server.LingerWindow]] and is then reaped, so a page left idle — a phone
-    * with its screen off, a laptop asleep — sits there looking perfectly alive
-    * while the server has forgotten it. Every tap on it used to answer
-    * `NoContent`: no patch, no error, and a client that had already set its own
-    * `ui_*` signal, so the URL claimed a popup the DOM did not have. It took a
-    * second tap (after Datastar's stream had quietly reconnected) or a reload.
-    *
-    * Minting is what the STREAM already does with an unknown `conn`
-    * ([[adoptOrMint]]) — one mechanism, not two. The patch queues in the fresh
-    * session's `control` and is delivered the moment the reconnecting stream
-    * adopts it, which is why the tap now lands on the first press. An abandoned
-    * mint is reaped on the same adoption window a document's is: this is a page
-    * whose stream is on its way back, or a page that is gone.
-    *
-    * `None` means `conn` is held by a session viewing a DIFFERENT dashboard.
-    * Re-registering would unroute that live page, and no honest client can
-    * produce it (a `conn` is minted per document, and a document is one slug),
-    * so it is refused rather than resolved.
+    * `None` means `conn` belongs to a session on a DIFFERENT dashboard, which
+    * is refused rather than resolved: re-registering would unroute that page.
     */
   private def sessionFor(
       slug: String,

@@ -77,6 +77,43 @@ class UiSmokeSuite extends SmokeSuite {
     }
   }
 
+  test("popup: a tap lands on a connection the server has forgotten") {
+    // ADR 0009's known gap, closed: no smoke test could reach a RECONNECT, and
+    // the bug ADR 0024 fixes lives only there — an idle page whose session was
+    // reaped taps into a `conn` the server does not have. It used to answer 204
+    // and do nothing, so the popup arrived on the SECOND tap or after a reload.
+    //
+    // The reconnect is BLOCKED across the tap on purpose. Without that this
+    // races: Datastar may reconnect first, the tap finds a live session, and
+    // the test passes while exercising nothing. With it, the dialog can only
+    // appear if the tap's patch was queued for a session that did not exist
+    // when the tap was made, and drained by the stream that came back after.
+    withPage(scene) { (page, ts) =>
+      val kitchenCard = page
+        .locator(
+          "article.entity",
+          new Page.LocatorOptions().setHasText("Kitchen")
+        )
+      val popup = page.locator(".popup")
+      for {
+        _ <- ts.awaitLive()
+        _ <- IO.blocking(
+          page.route(
+            "**/sse/dashboard/**",
+            route => route.abort()
+          )
+        )
+        forgotten <- ts.forgetConnections
+        _ <- ts.awaitNoConnections
+        _ <- IO.blocking(kitchenCard.click())
+        // Nothing can have arrived yet: there is no stream to carry it.
+        _ <- IO.blocking(assertThat(popup).hasCount(0))
+        _ <- IO.blocking(page.unroute("**/sse/dashboard/**"))
+        _ <- IO.blocking(assertThat(popup).containsText("Kitchen Detail"))
+      } yield assertEquals(forgotten, 1)
+    }
+  }
+
   test("popup: it survives a refresh, and is there in the first paint") {
     withPage(scene) { (page, ts) =>
       val kitchenCard = page

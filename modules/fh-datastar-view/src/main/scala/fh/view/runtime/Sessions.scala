@@ -244,6 +244,11 @@ final class Sessions(ref: SignallingRef[IO, Map[String, Session]]) {
 
   def get(conn: String): IO[Option[Session]] = ref.get.map(_.get(conn))
 
+  /** Every registered connection, by `conn` — for [[Server.forgetSessions]],
+    * which needs the keys as well as the sessions.
+    */
+  def all: IO[Map[String, Session]] = ref.get
+
   /** Every live session viewing `slug` — their open sets are the recording
     * pass's render gate.
     */
