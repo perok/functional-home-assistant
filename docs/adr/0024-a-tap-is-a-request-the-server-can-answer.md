@@ -80,6 +80,21 @@ case than the bug it replaces, which is why it needs no retry of its own.
 success. Anything left that a tap cannot do answers 4xx, which the shell already
 turns into a toast (ADR 0019).
 
+Datastar's own guidance argues against this shape — *"if you get a client error
+or server error when you control both sides then it's a bug"*, answer 200 and
+render the error ([I'm a teapot](https://data-star.dev/essays/im_a_teapot)) —
+and it is right about the case that matters most here: a tap naming a surface
+this build renamed is a stale DOCUMENT, and a toast saying "failed" is not
+something the user can act on. A 200 carrying a reload would land them on the
+popup they asked for, since the URL already names it.
+
+That is a better answer and it is not this ADR's, because it is a behaviour
+change rather than the removal of a silence; `docs/plan-pending-signals.md`
+carries it. What is decided here is only that a tap must not be able to fail
+without saying anything, which 4xx achieves today. Note the same essay is why an
+error BODY cannot carry the correction — non-2xx frames are dropped, pinned by
+`DatastarMorphContractSuite`.
+
 This makes `withSession` obey a rule it used to be the exception to: ADR 0018's
 seam table already says `rendererFor` answers `None -> 404 for non-HTML
 consumers`, and this route was the one that answered 204 instead.

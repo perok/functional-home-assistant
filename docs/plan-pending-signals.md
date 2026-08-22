@@ -79,9 +79,15 @@ returns, so `onmessage` looks reachable.
 
 **It does not work.** `DatastarMorphContractSuite`'s "an action's datastar
 frames are applied on 2xx and DROPPED on 4xx" runs both halves through the same
-route with the same body, and the 4xx frames never reach the signal store. The
-mechanism was not chased further; the behaviour is what the design has to live
-with.
+route with the same body, and the 4xx frames never reach the signal store.
+
+It is not an accident of the bundle either. Datastar's own essay
+[I'm a teapot](https://data-star.dev/essays/im_a_teapot) states the rule —
+*"If it's a 3xx we redirect, 2xx we merge the HTML fragment, and anything else
+throws an error"* — and goes further, arguing that a status is the wrong place
+to put anything a user should see: answer 200 and render the error, because
+*"if you get a client error or server error when you control both sides then
+it's a bug, and you should be fixing it."*
 
 So an error's body is not a channel, and the three that remain are:
 
@@ -96,6 +102,25 @@ that motivated the spike: clearing a pending signal needs no server bytes at
 all. The one thing still out of reach is the server's error TEXT — ADR 0019
 already records that as unreachable via `argsRaw`, and this confirms the body
 does not rescue it.
+
+### The status decision this reopens
+
+ADR 0024 turned two silent 204s into 4xx statuses, so the shell's toast fires
+instead of a tap vanishing. Against the essay's advice that is arguably the
+wrong shape, and the case worth revisiting is the STALE DOCUMENT — a tap naming
+a surface id this build renamed. Today it is a 404 and a "Command failed (404)"
+toast, which tells the user nothing they can act on.
+
+Answered as 200 plus a `_reload` frame, the same mechanism the error page's
+recovery stream already uses (ADR 0018), that tap would instead RELOAD the page
+— and land on the popup it asked for, because the URL already carries the
+selection (ADR 0005). The failure becomes a self-heal rather than a toast.
+
+That is a behaviour change with its own trade (a reload is heavy, and a tap
+that reloads the page on a transient bug is worse than one that says "failed"),
+so it belongs here rather than as an amendment to 0024. The other two 4xx cases
+are less clear-cut: a `conn` on another dashboard and a slug nobody serves are
+genuinely "this is a bug", which is the one thing the essay says a 4xx IS for.
 
 ## Why this is one mechanism, not a popup fix
 
