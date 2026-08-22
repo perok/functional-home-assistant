@@ -116,11 +116,66 @@ recovery stream already uses (ADR 0018), that tap would instead RELOAD the page
 — and land on the popup it asked for, because the URL already carries the
 selection (ADR 0005). The failure becomes a self-heal rather than a toast.
 
-That is a behaviour change with its own trade (a reload is heavy, and a tap
-that reloads the page on a transient bug is worse than one that says "failed"),
-so it belongs here rather than as an amendment to 0024. The other two 4xx cases
-are less clear-cut: a `conn` on another dashboard and a slug nobody serves are
-genuinely "this is a bug", which is the one thing the essay says a 4xx IS for.
+**How often does any of this happen? Rarely, and two of the three correct
+themselves** — which is the honest reason this sits at the BOTTOM of the list
+rather than reading as the essay demanding a rewrite:
+
+| case | what it is | how often |
+|---|---|---|
+| unknown surface id | the document predates a rebuild that renamed ids | rare and transient: a live page is REPAINTED with the new ids on the swap (verified — a pushed dashboard updated a pill's `onclick` before it could be clicked), and a page that missed the repaint reloads on reconnect via the head hash. The window is the milliseconds between rebuild and repaint |
+| slug nobody serves | the dashboard was deleted, or failed to build, while a page was open | rare, and already owned by ADR 0018: a failed slug gets the error page and a reload repaint |
+| `conn` on another dashboard | no honest client produces it | effectively never — this one really is "a bug", the one use the essay grants a 4xx |
+
+So the reload is POLISH on the rarest path, not a correction. Worth doing when
+the machinery is already in hand (`Server.reloadPatch` exists and every page
+carries the `_reload` effect, so it is a one-line answer); not worth doing on
+its own. A tap that reloads the whole page on a transient condition is a worse
+failure than one that says "failed".
+
+One wart to note either way: the `FHError` messages those routes return are
+**unreachable by the browser**. The status arrives and the toast fires, but the
+body is dropped with every other non-2xx frame — so those messages serve tests,
+logs and `curl`, not users. Not a reason to remove them; a reason not to invest
+in their wording.
+
+## Selections are the anomaly — the rest of the app already works this way
+
+Worth stating before any of the above is built, because it makes the plan
+smaller than it looks. A signal slot (ADR 0017) is ALREADY server-written on
+every frame, so a card bound to one self-corrects for free. The toggle is the
+clearest case, and its own note in `control.pkl` says so:
+
+> "a click now moves the signal immediately, so the switch flips optimistically
+> and the frame that follows either confirms it or puts it back."
+
+That is this plan's model, shipped: the client may write optimistically because
+the server writes the same signal authoritatively straight after. It holds for
+every entity-bound slot — a toggle's `checked`, a slider's position, a value
+readout.
+
+`ui_*` selections are the ONE family where the server never writes back, which
+is exactly why they are the family with the bug. So the work is not "invent a
+mechanism"; it is "let selections join the one the rest of the app already
+follows", plus a pending VALUE for the case a two-way binding cannot express —
+a tab index or a surface id has no input element to bind to.
+
+## What buttons and toggles actually need
+
+They are not a separate customer with a separate design:
+
+- **A toggle** already flips optimistically and is already corrected by the
+  server, via its two-way `checked` slot. Nothing here changes that.
+- **A service button** already has ADR 0019's `busy` — the re-click guard plus
+  the dim. What it lacks is the SPINNER when it has no icon to spin, which is
+  what the earlier "add a wave or a spinner" question was really about (BeerCSS
+  already gives every `.chip`/`.button` its press wave, so that half is done).
+- What pending ADDS for both is a value where `busy` has only a boolean: "this
+  is what I asked for", so a control can show the target rather than just
+  dimming. For a toggle that is redundant with the two-way binding; for a
+  button whose outcome is a state it is not.
+
+So buttons are not a cleanup at the end — migrating `busy` to pending is what
+PROVES pending subsumes it, and it is the smallest place to prove it.
 
 ## Why this is one mechanism, not a popup fix
 
@@ -146,11 +201,16 @@ signal-cost convention.
 
 ## Order of work
 
-1. **Tabs**, which have the visible race and the simplest display rule.
-2. **Popups**, which share the machinery once tabs prove it.
-3. Delete ADR 0019's `busy`/`busyVisual` flags in favour of pending, and rewrite
-   0019 in place.
+1. **Buttons** — migrate ADR 0019's `busy`/`busyVisual` to pending and rewrite
+   0019 in place. Smallest change, no new display rule, and it is what proves
+   pending subsumes busy before anything else depends on that claim. Picks up
+   the missing spinner for a control with no icon.
+2. **Tabs**, which have the visible race and the simplest selection display.
+3. **Popups**, which share the machinery once tabs prove it.
 4. **The slider drag**, which is the reason this is a mechanism and not a fix.
+
+Toggles need no step of their own: their two-way `checked` slot already has the
+property, and pending would only duplicate it.
 
 Steps 1–2 are what would close ADR 0024's open question and the matching entry
 in `docs/architecture-rendering-pipeline.md`.
