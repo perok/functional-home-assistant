@@ -84,6 +84,15 @@ be right for all of them.
 - `ServerApp.scala:328` loses its `haPublicUrl` argument. `haPublicUrl` stays what it is:
   the browser's login destination, and only that.
 
+**Rejected: a minted per-session id instead of the base URL.** A bare UUID is not a legal
+`client_id` at all — HA runs it through `indieauth._parse_client_id`, which requires an
+`http`/`https` scheme, so login itself would fail with `400 "Invalid client id"`. A UUID *path*
+under our own origin (`http://192.168.1.50:8080/<uuid>`) would pass, since `verify_redirect_uri`
+compares only scheme and netloc — but it stores the same field with the same plumbing while
+making HA's Profile → Security list a pile of opaque URLs the user cannot attribute to anything.
+That list is the revocation UI this whole loop exists to honour. Stability comes from *storing*
+the value, not from what the value is.
+
 ### 2. Decode old `sessions.json` files without a scary failure
 
 `AuthSession` derives its `Decoder`, so an existing file (no `clientId` field) fails to decode,
