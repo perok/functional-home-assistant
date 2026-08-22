@@ -67,10 +67,12 @@ final class AuthSessions(
     for {
       id <- AuthSessions.randomId
       now <- IO.realTimeInstant
-      _ <- ref.update(_.updated(
-        id,
-        AuthSession(user, refresh, now, clientId.renderString)
-      ))
+      _ <- ref.update(
+        _.updated(
+          id,
+          AuthSession(user, refresh, now, clientId.renderString)
+        )
+      )
       _ <- persist
     } yield id
 
@@ -82,9 +84,13 @@ final class AuthSessions(
       ref.update { m =>
         // Only if it is still there — a session evicted while its renewal was
         // in flight must not be resurrected by the reply arriving late.
-        m.get(id).fold(m)(s =>
-          m.updated(id, s.copy(user = user, refresh = refresh, verifiedAt = now))
-        )
+        m.get(id)
+          .fold(m)(s =>
+            m.updated(
+              id,
+              s.copy(user = user, refresh = refresh, verifiedAt = now)
+            )
+          )
       }
     } *> persist
 
@@ -219,9 +225,9 @@ final class SessionStore(path: os.Path) {
     * A missing file starts empty — there is nothing to be wrong. A file that IS
     * there and does not decode stops the boot: quietly starting empty instead
     * would sign the whole household out on every restart while reading as a
-    * mere warning, and a session from an unreadable file is one we cannot
-    * vouch for. The message names the recovery, which is real: delete the file,
-    * log in again once.
+    * mere warning, and a session from an unreadable file is one we cannot vouch
+    * for. The message names the recovery, which is real: delete the file, log
+    * in again once.
     */
   def read: IO[Map[String, AuthSession]] =
     Files[IO]

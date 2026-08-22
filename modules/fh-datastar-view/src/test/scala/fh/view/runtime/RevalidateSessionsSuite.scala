@@ -37,7 +37,8 @@ class RevalidateSessionsSuite extends munit.CatsEffectSuite {
 
   private val user = TestAuth.admin
 
-  /** What every session in this suite was minted as, and what the stub accepts. */
+  /** What every session in this suite was minted as, and what the stub accepts.
+    */
   private val MintedClient = "http://fh.test"
 
   /** HA's token endpoint, as far as this suite is concerned. */
@@ -71,10 +72,10 @@ class RevalidateSessionsSuite extends munit.CatsEffectSuite {
       )
     )
 
-  /** One session, one sweep. `after = -1.second` puts the cutoff a second
-    * AHEAD of now, so a session minted this instant is already due — an
-    * `after = 0` cutoff races the session's own `verifiedAt` and skips the
-    * check whenever both land in the same tick.
+  /** One session, one sweep. `after = -1.second` puts the cutoff a second AHEAD
+    * of now, so a session minted this instant is already due — an `after = 0`
+    * cutoff races the session's own `verifiedAt` and skips the check whenever
+    * both land in the same tick.
     */
   private def sweep(
       oauth: HaOAuth,
@@ -101,9 +102,9 @@ class RevalidateSessionsSuite extends munit.CatsEffectSuite {
   }
 
   /** A refresh naming a `client_id` HA never stored is HA ANSWERING
-    * `invalid_request` — and per the strict rule, an answer that is not a
-    * fresh token ends the session. Signing out on our own bug beats keeping a
-    * session nobody can vouch for.
+    * `invalid_request` — and per the strict rule, an answer that is not a fresh
+    * token ends the session. Signing out on our own bug beats keeping a session
+    * nobody can vouch for.
     */
   test("a refresh under a client_id HA does not know signs the session out") {
     sweep(
@@ -217,11 +218,11 @@ class RevalidateSessionsSuite extends munit.CatsEffectSuite {
       grants <- seen.get
       kept <- sessions.get(sid)
     } yield {
-      val exchanged = grants.collectFirst {
-        case ("authorization_code", cid) => cid
+      val exchanged = grants.collectFirst { case ("authorization_code", cid) =>
+        cid
       }
-      val refreshed = grants.collectFirst {
-        case ("refresh_token", cid) => cid
+      val refreshed = grants.collectFirst { case ("refresh_token", cid) =>
+        cid
       }
       assertEquals(exchanged, Some(Some(MintedClient)))
       assertEquals(refreshed, exchanged)
