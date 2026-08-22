@@ -7,6 +7,7 @@ import cats.effect.IO
 import cats.effect.unsafe.implicits.global
 import fh.view.auth.{AuthGate, AuthSessions, SessionStore}
 import fh.view.model.{Access, Permission}
+import org.http4s.implicits.*
 
 /** The auth fixture every harness request rides on (issue #89).
   *
@@ -29,7 +30,7 @@ final class TestAuth(
     * an `Access.Users` rule names. Pass the result as `as` on `page` / `post`.
     */
   def sessionFor(user: HaUser): IO[String] =
-    sessions.create(user, s"test-refresh-${user.id}")
+    sessions.create(user, s"test-refresh-${user.id}", TestAuth.TestClientId)
 
   /** End the default session, the way a logout or an HA-side revocation does.
     * The gate's `interruptWhen` watches the same map, so an SSE stream opened
@@ -39,6 +40,12 @@ final class TestAuth(
 }
 
 object TestAuth {
+
+  /** The client every harness session claims to have been minted by. No HA
+    * exists in the harness to disagree, so any legal URL will do — but a
+    * session needs one, since the sweep would send it back.
+    */
+  val TestClientId: org.http4s.Uri = uri"http://fh.test"
 
   /** The user every harness request is, unless a test says otherwise. An admin,
     * so the suites that exercise admin-only routes need no special setup.
@@ -93,7 +100,7 @@ object TestAuth {
   def create(permissionFor: Option[String] => IO[Permission]): IO[TestAuth] =
     for {
       sessions <- AuthSessions.create(SessionStore.ephemeral)
-      id <- sessions.create(admin, "test-refresh-token")
+      id <- sessions.create(admin, "test-refresh-token", TestClientId)
       gate = new AuthGate(
         sessions,
         // No HA to resolve a bearer token against. Raising (rather than

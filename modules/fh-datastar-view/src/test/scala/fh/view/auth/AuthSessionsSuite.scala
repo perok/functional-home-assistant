@@ -19,18 +19,20 @@ class AuthSessionsSuite extends munit.CatsEffectSuite {
 
   private val admin = TestAuth.admin
   private val guest = TestAuth.guest
+  private val clientId = TestAuth.TestClientId
 
   private def sessions = AuthSessions.create(SessionStore.ephemeral)
 
   test("a created session resolves by its id and by nothing else") {
     for {
       s <- sessions
-      id <- s.create(admin, "refresh-1")
+      id <- s.create(admin, "refresh-1", clientId)
       found <- s.get(id)
       missing <- s.get(id.reverse + "x")
     } yield {
       assertEquals(found.map(_.user), Some(admin))
       assertEquals(found.map(_.refresh), Some("refresh-1"))
+      assertEquals(found.map(_.clientId), Some(clientId.renderString))
       assertEquals(missing, None)
     }
   }
@@ -38,9 +40,9 @@ class AuthSessionsSuite extends munit.CatsEffectSuite {
   test("logging out ends every session of that user, not just this device") {
     for {
       s <- sessions
-      phone <- s.create(admin, "r1")
-      tablet <- s.create(admin, "r2")
-      other <- s.create(guest, "r3")
+      phone <- s.create(admin, "r1", clientId)
+      tablet <- s.create(admin, "r2", clientId)
+      other <- s.create(guest, "r3", clientId)
       _ <- s.removeUser(admin.id)
       a <- s.get(phone)
       b <- s.get(tablet)
@@ -56,17 +58,30 @@ class AuthSessionsSuite extends munit.CatsEffectSuite {
   test("renewing an evicted session does not resurrect it") {
     for {
       s <- sessions
-      id <- s.create(admin, "r1")
+      id <- s.create(admin, "r1", clientId)
       _ <- s.remove(id)
       _ <- s.renew(id, admin, "r2")
       found <- s.get(id)
     } yield assertEquals(found, None)
   }
 
+  /** A renewal replaces user/refresh/clock and nothing else: HA accepts only
+    * the client_id the login was minted with, so a renewal that lost it would
+    * make the NEXT sweep sign the session out.
+    */
+  test("renewing keeps the client the session was minted for") {
+    for {
+      s <- sessions
+      id <- s.create(admin, "r1", clientId)
+      _ <- s.renew(id, admin, "r2")
+      found <- s.get(id)
+    } yield assertEquals(found.map(_.clientId), Some(clientId.renderString))
+  }
+
   test("stale selects by verifiedAt, and renew resets it") {
     for {
       s <- sessions
-      id <- s.create(admin, "r1")
+      id <- s.create(admin, "r1", clientId)
       now <- IO.realTimeInstant
       due <- s.stale(now.plusSeconds(60))
       notDue <- s.stale(now.minusSeconds(60))
@@ -84,7 +99,7 @@ class AuthSessionsSuite extends munit.CatsEffectSuite {
   ) {
     for {
       s <- sessions
-      id <- s.create(admin, "r1")
+      id <- s.create(admin, "r1", clientId)
       seen <- s
         .watch(Some(id), Access.Authenticated.permits)
         .take(2)
@@ -100,7 +115,7 @@ class AuthSessionsSuite extends munit.CatsEffectSuite {
   test("watch also reports a role that no longer satisfies the rule") {
     for {
       s <- sessions
-      id <- s.create(admin, "r1")
+      id <- s.create(admin, "r1", clientId)
       seen <- s
         .watch(Some(id), Access.Admin.permits)
         .take(2)
@@ -133,7 +148,7 @@ class AuthSessionsSuite extends munit.CatsEffectSuite {
     val store = new SessionStore(path)
     for {
       before <- AuthSessions.create(store)
-      id <- before.create(admin, "r1")
+      id <- before.create(admin, "r1", clientId)
       perms <- IO.blocking(os.perms(path).toString)
       after <- AuthSessions.create(store)
       found <- after.get(id)
@@ -156,7 +171,8 @@ class AuthSessionsSuite extends munit.CatsEffectSuite {
       path,
       """{"abc":{"user":{"id":"u1","name":"Peri","is_admin":true,""" +
         """"is_owner":false},"refresh":"r1",""" +
-        """"verifiedAt":"2026-08-20T10:00:00Z"}}"""
+        """"verifiedAt":"2026-08-20T10:00:00Z",""" +
+        """"clientId":"http://192.168.1.50:8080"}}"""
     )
     for {
       restored <- AuthSessions.create(new SessionStore(path))
@@ -173,24 +189,41 @@ class AuthSessionsSuite extends munit.CatsEffectSuite {
         found.map(_.verifiedAt),
         Some(Instant.parse("2026-08-20T10:00:00Z"))
       )
+      assertEquals(found.map(_.clientId), Some("http://192.168.1.50:8080"))
       assert(
         clue(onDisk).contains(""""user":{"id":"u1","name":"Peri""""),
         "the user object's field names moved"
       )
       assert(onDisk.contains(""""is_admin":true"""))
       assert(onDisk.contains(""""refresh":"r1""""))
+      assert(onDisk.contains(""""clientId":"http://192.168.1.50:8080""""))
     }
   }
 
-  test("a corrupt file is an empty start, not a failed boot") {
+  /** A file that EXISTS but cannot be decoded — corrupt JSON, or a session from
+    * before sessions carried their client_id — stops the boot rather than
+    * quietly starting empty: starting empty would sign the household out on
+    * every restart while reading as a warning about somebody else's problem.
+    */
+  test("an undecodable sessions file refuses to boot") {
     val dir = os.temp.dir(prefix = "fh-sessions")
-    val path = dir / "sessions.json"
-    os.write.over(path, "{not json")
     for {
-      s <- AuthSessions.create(new SessionStore(path))
-      id <- s.create(admin, "r1")
-      found <- s.get(id)
-    } yield assertEquals(found.map(_.user), Some(admin))
+      _ <- IO.blocking(
+        os.write(dir / "sessions.json", "{not json")
+      )
+      corrupt = AuthSessions.create(new SessionStore(dir / "sessions.json"))
+      _ <- interceptIO[io.circe.Error](corrupt)
+      _ <- IO.blocking(
+        os.write.over(
+          dir / "sessions.json",
+          """{"abc":{"user":{"id":"u1","name":"Peri","is_admin":true,""" +
+            """"is_owner":false},"refresh":"r1",""" +
+            """"verifiedAt":"2026-08-20T10:00:00Z"}}"""
+        )
+      )
+      preClientId = AuthSessions.create(new SessionStore(dir / "sessions.json"))
+      _ <- interceptIO[io.circe.Error](preClientId)
+    } yield ()
   }
 
   test(
@@ -200,7 +233,7 @@ class AuthSessionsSuite extends munit.CatsEffectSuite {
     val store = new SessionStore(dir / "sessions.json")
     for {
       before <- AuthSessions.create(store)
-      id <- before.create(admin, "r1")
+      id <- before.create(admin, "r1", clientId)
       original <- before.get(id).map(_.map(_.verifiedAt))
       after <- AuthSessions.create(store)
       restored <- after.get(id).map(_.map(_.verifiedAt))

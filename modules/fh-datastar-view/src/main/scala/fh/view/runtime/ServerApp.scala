@@ -324,8 +324,7 @@ object ServerApp extends IOApp {
         _ <- revalidateSessions(
           authSessions,
           oauth,
-          identify,
-          haPublicUrl
+          identify
         ).compile.drain.background
         _ <- EmberServerBuilder
           .default[IO]
@@ -473,11 +472,10 @@ object ServerApp extends IOApp {
       sessions: AuthSessions,
       oauth: HaOAuth,
       identify: String => IO[HaUser],
-      clientId: org.http4s.Uri,
       every: FiniteDuration = 5.minutes,
       after: FiniteDuration = RevalidateAfter
   ): Stream[IO, Unit] = {
-    val pass = revalidateOnce(sessions, oauth, identify, clientId, after)
+    val pass = revalidateOnce(sessions, oauth, identify, after)
     Stream.eval(pass) ++ Stream.awakeEvery[IO](every).evalMap(_ => pass)
   }
 
@@ -489,15 +487,19 @@ object ServerApp extends IOApp {
       sessions: AuthSessions,
       oauth: HaOAuth,
       identify: String => IO[HaUser],
-      clientId: org.http4s.Uri,
       after: FiniteDuration = RevalidateAfter
   ): IO[Unit] =
     IO.realTimeInstant
       .map(_.minusSeconds(after.toSeconds))
       .flatMap(sessions.stale)
       .flatMap(_.traverse_ { case (id, session) =>
+        // The client_id HA stored at login is the only one it accepts back,
+        // so the session carries its own rather than the caller guessing one.
         oauth
-          .refresh(session.refresh, clientId)
+          .refresh(
+            session.refresh,
+            org.http4s.Uri.unsafeFromString(session.clientId)
+          )
           .flatMap {
             case RefreshOutcome.Dead =>
               IO.consoleForIO.println(

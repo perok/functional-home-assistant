@@ -1,7 +1,9 @@
 # Plan: the periodic re-check signs everyone out (`client_id` mismatch on refresh)
 
-**Status: not implemented.** This file describes a defect and the fix; nothing here exists in
-the sources yet.
+**Status: implemented.** Sessions carry their mint-time `client_id`
+(`AuthSession.clientId`), the sweep sends it back, and an undecodable
+`sessions.json` refuses to boot. The decision lives in ADR 0023; this file
+records what was wrong and why the fix looks as it does.
 
 ## The symptom
 
