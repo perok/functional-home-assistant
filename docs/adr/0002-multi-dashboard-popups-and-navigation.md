@@ -71,11 +71,13 @@ into one primitive.
 
 Open, switch, and close are the same operation (`Server.swapHost`): evict
 whatever surface(s) occupy a host, set the new occupant, inner-patch the host —
-or patch it to an empty `<div>` for a close (`POST /sse/popup/close`; the
+or patch it to an empty `<div>` for a close (`POST /sse/popup/<slug>/close`; the
 transient dialog simply disappears). A tab switch and a popup open are
 `swapHost(host, Some(id))`; no server state tracks "is a popup open" beyond the
-session's open set, and no signal is pushed back for it — the tap that asked for
-the swap sets `ui_<hostId>` itself, exactly as a tab button sets its own. The
+session's open set. The swap also COMMITS the selection — it pushes back
+`ui_<hostId>` for what it actually put there (ADR 0025), which is the only thing
+entitled to say so; a tap records what it asked for in a pending signal and
+nothing else. The
 popup host is a selection like any other; only its VALUE is unusual, naming a
 surface id rather than a member index, because any registered surface can appear
 there and only one at a time. Crossing to ANOTHER dashboard is not one of these — it is a
@@ -138,8 +140,14 @@ A component's click target is a single `onclick` slot holding the **entire**
 Datastar expression (spliced as literal text into
 `data-on:click="{{{onclick}}}"`):
 
-- service call → `@post('/sse/action/<domain>/<service>/<entity_id>')`
-- popup → `@post('/sse/surface/open/<id>')` / `@post('/sse/popup/close')`
+- service call → `@post('/sse/action/<slug>/<domain>/<service>/<entity_id>')`
+- popup → `@post('/sse/surface/<slug>/open/<id>')` / `@post('/sse/popup/<slug>/close')`
+
+Every one of them names its dashboard: an action so the call can be bounded by
+what that dashboard references (ADR 0023), a surface tap for that AND so a
+connection the server has forgotten can be re-established rather than dropped
+(ADR 0024). Which means these are transforms, not constant strings — only a
+transform reads `$dashboardSlug`.
 
 This is why reuse "just works": `c.button(eo, action=c.tap.openPopup('x'))` needs
 no new template.

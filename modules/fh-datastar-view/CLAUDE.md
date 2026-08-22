@@ -158,6 +158,20 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   spellings because there are genuinely two phases, each named after the one that fills it. The
   slug is applied in `DashboardBuild.decode` BEFORE validation, so a `Validated` is final and a
   `fh push --slug` rename cannot leave a compiled tap URL naming the old dashboard.
+  The surface taps carry it too — `POST /sse/surface/:slug/open/:id`, `POST /sse/popup/:slug/close`
+  — for a second reason (ADR 0024): a `conn` this process has forgotten (an idle page outliving
+  its session's linger) can then be RE-MINTED rather than dropped, the same thing the stream route
+  already does. Before that, such a tap answered 204 and did nothing at all, while the client's own
+  signal assignment still moved the URL. Standing principle from the same ADR, aspirational and
+  not enforced: **the DOM we send should be as usable as possible without JS** — signals for
+  liveness and effects, not for the core meaning of a tap.
+  A surface tap also does NOT set `ui_<group>` itself any more (ADR 0025): it writes a pending
+  signal `_<group>__pending` — what it ASKED for — and `swapHost` commits `ui_<group>` for what it
+  actually did, which is what the URL mirror follows. A selection display reads
+  `$_<group>__pending || $ui_<group>`, so the press is still instant while the committed value can
+  never claim a panel this DOM does not have. Pending clears by the commit catching up, or on a 2s
+  deadline when none is coming. This does NOT replace ADR 0019's `busy` for service taps — a
+  service call has no committed selection to catch up to; the two mechanisms coexist deliberately.
 - Cards (`lib/components/`, re-exported by `lib/components.pkl` — ADR 0015): `fhgrid`/`fhrow`/`fhcol` containers, `sectionTitle`, `entityCard`,
   `button`, `pill`, `slider` — each is a typed card class carrying its own `cardDef` (Mustache template +
   declared slots), and the emitted `cards` registry is derived by `pkl:reflect`; slots are checked
@@ -179,8 +193,13 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   `bind` (`data-bind`, two-way on a form control). Every kind reads the signal bare — the VALUE
   carries its own unit (`39.37%`, `#ffb46b`), so the transform decides its shape in one place.
   Customers: `entityCard`'s `value` (text), and all four of the slider's moving slots — `state`
-  (text), `value` (bind, replacing its hand-rolled `_val_<id>`), `fill` (`style:--_end`) and
-  `fillColor` (`style:background`). A DRAG paints the fill (and a percent readout) itself, from
+  (text), `value` (`attr:value`), `fill` (`style:--_end`) and
+  `fillColor` (`style:background`). The slider's `value` is SERVER-ONLY (ADR 0025): the input is
+  `data-bind`-ed to a separate client-owned `_<id>__slide`, because `data-on-signal-patch` fires on
+  local writes too, so one signal cannot tell the server's write from the drag's — and while the
+  drag wrote the server's slot, a FAILED commit left the thumb where the finger was, with `holds`
+  stale so no correcting frame ever came. Two handlers reconcile: adopt on a server write, and the
+  same restore on a refusal or a dead stream. A DRAG paints the fill (and a percent readout) itself, from
   `data-on:input` — the style plugin re-applies its property whenever anything else writes the
   `style` attribute, which `beer.min.js` does on every move, so without that the whole gesture
   showed nothing until release (ADR 0017). The contract is a NEGATIVE one — a broken

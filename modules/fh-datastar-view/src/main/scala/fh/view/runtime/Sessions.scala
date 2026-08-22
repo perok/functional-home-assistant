@@ -43,10 +43,18 @@ enum Tenure derives CanEqual {
   case Reaped
 }
 
-/** One dashboard client. Created by the DOCUMENT it loaded, not by the SSE
-  * stream that follows: the page render is the first thing that puts fragments
-  * in this client's DOM, so it is the only place that can say what they were. A
-  * stream adopts the session its `conn` names ([[adopt]]).
+/** One dashboard client. Normally created by the DOCUMENT it loaded, and that
+  * is the case worth understanding: the page render is the first thing that
+  * puts fragments in this client's DOM, so it is the only place that can say
+  * what they were. A stream adopts the session its `conn` names ([[adopt]]).
+  *
+  * Two other paths mint one, both for a `conn` this process does not have — a
+  * stream on a bookmarked SSE URL or after a restart ([[Server.adoptOrMint]]),
+  * and a surface tap on a page whose session was reaped while it sat idle
+  * ([[Server.sessionFor]], ADR 0024). Neither weakens what `holds` means: they
+  * start EMPTY, which says "nothing was sent to this DOM that we know of", and
+  * the resume that follows re-sends rather than under-sends. The invariant is
+  * about what may be WRITTEN there, not about who allocated the record.
   *
   *   - `slug`: which dashboard this connection views — fixed for its lifetime,
   *     because going to another dashboard is an ordinary document load (ADR
@@ -235,6 +243,11 @@ final class Sessions(ref: SignallingRef[IO, Map[String, Session]]) {
     ref.update(_.filterNot { case (k, v) => k == conn && (v eq session) })
 
   def get(conn: String): IO[Option[Session]] = ref.get.map(_.get(conn))
+
+  /** Every registered connection, by `conn` — for [[Server.forgetSessions]],
+    * which needs the keys as well as the sessions.
+    */
+  def all: IO[Map[String, Session]] = ref.get
 
   /** Every live session viewing `slug` — their open sets are the recording
     * pass's render gate.

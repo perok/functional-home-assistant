@@ -16,9 +16,13 @@
             ],
             "kind" : "component",
             "slots" : {
-              "active" : "$ui_@@NODE_ID@@ == 0",
+              "active" : "($_@@NODE_ID@@__pending || $ui_@@NODE_ID@@) == 0",
               "label" : "Temp",
-              "onclick" : "@post('sse/surface/open/@@NODE_ID@@_t0'); $ui_@@NODE_ID@@ = 0"
+              "onclick" : {
+                "bypassUnavailable" : false,
+                "reactive" : false,
+                "transform" : "\"$_@@NODE_ID@@__pending = '0'; @post('sse/surface/\" & $dashboardSlug & \"/open/@@NODE_ID@@_t0')\""
+              }
             }
           },
           {
@@ -27,9 +31,13 @@
             ],
             "kind" : "component",
             "slots" : {
-              "active" : "$ui_@@NODE_ID@@ == 1",
+              "active" : "($_@@NODE_ID@@__pending || $ui_@@NODE_ID@@) == 1",
               "label" : "Light",
-              "onclick" : "@post('sse/surface/open/@@NODE_ID@@_t1'); $ui_@@NODE_ID@@ = 1"
+              "onclick" : {
+                "bypassUnavailable" : false,
+                "reactive" : false,
+                "transform" : "\"$_@@NODE_ID@@__pending = '1'; @post('sse/surface/\" & $dashboardSlug & \"/open/@@NODE_ID@@_t1')\""
+              }
             }
           }
         ],
@@ -96,7 +104,11 @@
                                 "kind" : "component",
                                 "slots" : {
                                   "label" : "Close",
-                                  "onclick" : "@post('sse/popup/close'); $ui_popups = ''"
+                                  "onclick" : {
+                                    "bypassUnavailable" : false,
+                                    "reactive" : false,
+                                    "transform" : "\"@post('sse/popup/\" & $dashboardSlug & \"/close')\""
+                                  }
                                 }
                               }
                             ],
@@ -118,7 +130,11 @@
                     "entity_id" : "sensor.outside_temp",
                     "icon" : "mdi-thermometer",
                     "label" : "Outside Temperature",
-                    "onclick" : "@post('sse/surface/open/@@NODE_ID@@_self'); $ui_popups = '@@NODE_ID@@_self'",
+                    "onclick" : {
+                      "bypassUnavailable" : false,
+                      "reactive" : false,
+                      "transform" : "\"@post('sse/surface/\" & $dashboardSlug & \"/open/@@NODE_ID@@_self')\""
+                    },
                     "tappable" : "1",
                     "value" : {
                       "bypassUnavailable" : true,
@@ -256,7 +272,11 @@
                                 "kind" : "component",
                                 "slots" : {
                                   "label" : "Close",
-                                  "onclick" : "@post('sse/popup/close'); $ui_popups = ''"
+                                  "onclick" : {
+                                    "bypassUnavailable" : false,
+                                    "reactive" : false,
+                                    "transform" : "\"@post('sse/popup/\" & $dashboardSlug & \"/close')\""
+                                  }
                                 }
                               }
                             ],
@@ -278,7 +298,11 @@
                     "entity_id" : "sensor.outside_temp",
                     "icon" : "mdi-thermometer",
                     "label" : "Outside Temperature",
-                    "onclick" : "@post('sse/surface/open/@@NODE_ID@@_self'); $ui_popups = '@@NODE_ID@@_self'",
+                    "onclick" : {
+                      "bypassUnavailable" : false,
+                      "reactive" : false,
+                      "transform" : "\"@post('sse/surface/\" & $dashboardSlug & \"/open/@@NODE_ID@@_self')\""
+                    },
                     "tappable" : "1",
                     "value" : {
                       "bypassUnavailable" : true,
@@ -409,7 +433,7 @@
       "template" : "{{#href}}<a class=\"chip\" href=\"{{{href}}}\">{{label}}</a>{{/href}}{{^href}}<button class=\"chip\" data-on:click=\"{{#busy}}$_{{id}}__busy ? '' : {{/busy}}{{{onclick}}}\"{{#busy}} data-indicator=\"_{{id}}__busy\"{{/busy}}{{#busyVisual}} data-class:fh-disabled=\"$_{{id}}__busy\" data-class:fh-loading=\"$_{{id}}__busy\"{{/busyVisual}}>{{label}}</button>{{/href}}"
     },
     "popup" : {
-      "mount" : "<dialog open class=\"popup\"><button class=\"popup-close\" data-on:click=\"@post('sse/popup/close'); $ui_popups = ''\">✕</button>{{#children}}{{{html}}}{{/children}}</dialog>",
+      "mount" : "<dialog open class=\"popup\"><button class=\"popup-close\" data-on:click=\"@post('sse/popup/{{dashboardSlug}}/close'); $ui_popups = ''\">✕</button>{{#children}}{{{html}}}{{/children}}</dialog>",
       "slots" : [
       ],
       "template" : "{{{self}}}{{{mount}}}"
@@ -422,7 +446,7 @@
     },
     "slider" : {
       "mount" : "<div class=\"slider-members\">{{#children}}{{{html}}}{{/children}}</div>",
-      "self" : "<div id=\"{{selfId}}\" class=\"slider-body\">\n  <div class=\"slider-head\">\n    {{#icon}}<div class=\"slider-icon\"{{#busyVisual}} data-class:fh-disabled=\"$_{{id}}__busy_change\" data-class:fh-loading=\"$_{{id}}__busy_change\" data-signals__ifmissing=\"{_{{id}}__busy_change_slow:false}\" data-on-signal-patch-filter=\"{include:/^_{{id}}__busy_change$/}\" data-on-signal-patch__delay.300ms=\"$_{{id}}__busy_change_slow = $_{{id}}__busy_change\" data-class:fh-busy-spin=\"$_{{id}}__busy_change_slow\"{{/busyVisual}}><i class=\"mdi {{icon}}\"></i></div>{{/icon}}\n    <strong>{{label}}</strong>\n    {{#secondary}}<span class=\"slider-sub\">{{secondary}}</span>{{/secondary}}\n    {{#state}}<span class=\"state\" {{{state__bind}}}>{{state}}</span>{{/state}}\n    {{#onclick}}<button class=\"circle small slider-action {{lit}}\" {{{lit__bind}}} data-on:click=\"{{#busy}}$_{{id}}__busy ? '' : {{/busy}}{{{onclick}}}\"{{#busy}} data-indicator=\"_{{id}}__busy\"{{/busy}}{{#busyTapVisual}} data-class:fh-disabled=\"$_{{id}}__busy\" data-class:fh-loading=\"$_{{id}}__busy\" data-signals__ifmissing=\"{_{{id}}__busy_slow:false}\" data-on-signal-patch-filter=\"{include:/^_{{id}}__busy$/}\" data-on-signal-patch__delay.300ms=\"$_{{id}}__busy_slow = $_{{id}}__busy\" data-class:fh-busy-spin=\"$_{{id}}__busy_slow\"{{/busyTapVisual}}><i class=\"mdi mdi-power\"></i></button>{{/onclick}}\n  </div>\n  <div class=\"slider max\" style=\"--_start: 0%;--_end: {{fill}}\" {{{fill__bind}}}{{#busyVisual}} data-class:fh-disabled=\"$_{{id}}__busy_change\" data-class:fh-loading=\"$_{{id}}__busy_change\"{{/busyVisual}}>\n    <input type=\"range\" min=\"{{min}}\" max=\"{{max}}\" value=\"{{value}}\"\n      {{{value__bind}}}\n      data-indicator=\"_{{id}}__busy_change\" data-attr:disabled=\"$_{{id}}__busy_change\"\n      data-on:input=\"${{fill__signal}} = (100 - ((evt.target.value - {{min}}) * 100 / ({{max}} - {{min}}))) + '%'{{#dragPercent}}; ${{state__signal}} = Math.round(((evt.target.value - {{min}}) * 100 / ({{max}} - {{min}}))) + ' %'{{/dragPercent}}\"\n      data-on:change=\"$_{{id}}__busy_change ? '' : @post('sse/action/{{dashboardSlug}}/{{{action}}}/{{{entity_id}}}/{{key}}/' + ${{value__signal}}, {filterSignals:{exclude:'.*'}})\" />\n    <span style=\"background:{{fillColor}}\" {{{fillColor__bind}}}></span>\n  </div>\n</div>",
+      "self" : "<div id=\"{{selfId}}\" class=\"slider-body\">\n  <div class=\"slider-head\">\n    {{#icon}}<div class=\"slider-icon\"{{#busyVisual}} data-class:fh-disabled=\"$_{{id}}__busy_change\" data-class:fh-loading=\"$_{{id}}__busy_change\" data-signals__ifmissing=\"{_{{id}}__busy_change_slow:false}\" data-on-signal-patch-filter=\"{include:/^_{{id}}__busy_change$/}\" data-on-signal-patch__delay.300ms=\"$_{{id}}__busy_change_slow = $_{{id}}__busy_change\" data-class:fh-busy-spin=\"$_{{id}}__busy_change_slow\"{{/busyVisual}}><i class=\"mdi {{icon}}\"></i></div>{{/icon}}\n    <strong>{{label}}</strong>\n    {{#secondary}}<span class=\"slider-sub\">{{secondary}}</span>{{/secondary}}\n    {{#state}}<span class=\"state\" {{{state__bind}}}>{{state}}</span>{{/state}}\n    {{#onclick}}<button class=\"circle small slider-action {{lit}}\" {{{lit__bind}}} data-on:click=\"{{#busy}}$_{{id}}__busy ? '' : {{/busy}}{{{onclick}}}\"{{#busy}} data-indicator=\"_{{id}}__busy\"{{/busy}}{{#busyTapVisual}} data-class:fh-disabled=\"$_{{id}}__busy\" data-class:fh-loading=\"$_{{id}}__busy\" data-signals__ifmissing=\"{_{{id}}__busy_slow:false}\" data-on-signal-patch-filter=\"{include:/^_{{id}}__busy$/}\" data-on-signal-patch__delay.300ms=\"$_{{id}}__busy_slow = $_{{id}}__busy\" data-class:fh-busy-spin=\"$_{{id}}__busy_slow\"{{/busyTapVisual}}><i class=\"mdi mdi-power\"></i></button>{{/onclick}}\n  </div>\n  <div class=\"slider max\" style=\"--_start: 0%;--_end: {{fill}}\" {{{fill__bind}}}{{#busyVisual}} data-class:fh-disabled=\"$_{{id}}__busy_change\" data-class:fh-loading=\"$_{{id}}__busy_change\"{{/busyVisual}}>\n    <input type=\"range\" min=\"{{min}}\" max=\"{{max}}\" value=\"{{value}}\"\n      {{{value__bind}}}\n      data-signals__ifmissing=\"{ _{{id}}__slide: '{{value}}' }\"\n      data-bind=\"_{{id}}__slide\"\n      data-on-signal-patch-filter=\"{include:/^{{value__signal}}$/}\" data-on-signal-patch=\"$_{{id}}__slide = ${{value__signal}}\"\n      data-on:datastar-fetch__document=\"evt.detail.type === 'error' && ($_{{id}}__slide = ${{value__signal}}, ${{fill__signal}} = (100 - ((${{value__signal}} - {{min}}) * 100 / ({{max}} - {{min}}))) + '%'{{#dragPercent}}, ${{state__signal}} = Math.round(((${{value__signal}} - {{min}}) * 100 / ({{max}} - {{min}}))) + ' %'{{/dragPercent}})\" data-effect=\"$_sse > 0 && ($_{{id}}__slide = ${{value__signal}}, ${{fill__signal}} = (100 - ((${{value__signal}} - {{min}}) * 100 / ({{max}} - {{min}}))) + '%'{{#dragPercent}}, ${{state__signal}} = Math.round(((${{value__signal}} - {{min}}) * 100 / ({{max}} - {{min}}))) + ' %'{{/dragPercent}})\"\n      data-indicator=\"_{{id}}__busy_change\" data-attr:disabled=\"$_{{id}}__busy_change\"\n      data-on:input=\"${{fill__signal}} = (100 - ((evt.target.value - {{min}}) * 100 / ({{max}} - {{min}}))) + '%'{{#dragPercent}}; ${{state__signal}} = Math.round(((evt.target.value - {{min}}) * 100 / ({{max}} - {{min}}))) + ' %'{{/dragPercent}}\"\n      data-on:change=\"$_{{id}}__busy_change ? '' : @post('sse/action/{{dashboardSlug}}/{{{action}}}/{{{entity_id}}}/{{key}}/' + $_{{id}}__slide, {filterSignals:{exclude:'.*'}})\" />\n    <span style=\"background:{{fillColor}}\" {{{fillColor__bind}}}></span>\n  </div>\n</div>",
       "slots" : [
         "label",
         "value",
@@ -445,7 +469,7 @@
     },
     "tabs" : {
       "mount" : "<div id=\"{{mountId}}\" class=\"tab-panel\" data-effect=\"fhUrl('ui.{{id}}', $ui_{{id}})\">{{{panel}}}</div>",
-      "self" : "<div id=\"{{selfId}}\" class=\"tabs\" data-signals__ifmissing=\"{ ui_{{id}}: {{bakeIndex}} }\">{{#children}}{{{html}}}{{/children}}</div>",
+      "self" : "<div id=\"{{selfId}}\" class=\"tabs\" data-signals__ifmissing=\"{ ui_{{id}}: {{bakeIndex}}, _{{id}}__pending: '' }\" data-effect=\"$_{{id}}__pending !== '' && ($ui_{{id}} == $_{{id}}__pending || $_sse > 0) && ($_{{id}}__pending = '')\" data-on:datastar-fetch__document=\"evt.detail.type === 'error' && ($_{{id}}__pending = '')\">{{#children}}{{{html}}}{{/children}}</div>",
       "slots" : [
       ],
       "template" : "<div class=\"fh-col\">{{{self}}}{{{mount}}}</div>"

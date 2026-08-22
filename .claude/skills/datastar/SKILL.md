@@ -39,6 +39,44 @@ filterSignals: { include: /.*/, exclude: /(^|\.)_/ }
   needs to ask for it, and `exclude: '_*'` is actively harmful: as a regex that is "zero or
   more underscores", which matches everywhere and strips EVERY signal from the request.
 
+**`null` DELETES a signal — it does not set one to null.** The store proxy is
+explicit (`if (a == null) delete r[o]`), and every binding already subscribed to
+that name is orphaned: reading the name afterwards re-creates it as `""`, which
+nothing is watching, so those elements never update again. **Nothing is reported
+anywhere and the rest of the page keeps working** — one dead signal, not a dead
+page, which is what makes it hard to spot. A server-sent `{"s": null}` does the
+same thing as a client-side `$s = null`.
+
+Consequence: **no signals frame may ever carry a JSON null.**
+`Datastar.signalsJson` carries the rule (a rule and not a type, because
+`Patch.Signals` is deliberately `Json`-valued — the cursor rides in it as a
+nested object).
+
+**`''` is a PRESENT attribute to `data-attr`, and a falsy one to `data-style`.**
+Two plugins, two readings of the same value, and only one of them is documented:
+
+- `data-attr` treats `''` as HTML's boolean-attribute spelling and SETS the
+  attribute. A `data-attr:disabled` reading a signal that rests at `''` sits
+  permanently disabled. Spell the predicate — which is what Datastar's own docs
+  do: `data-attr="{disabled: $foo == ''}"`.
+- `data-style` treats `''` as falsy and restores the original inline style.
+- `data-attr` handles **null** correctly: an expression evaluating to null
+  removes the attribute, so `data-attr:aria-label="$foo"` is exactly as it looks.
+  The trap is in assigning null to the signal, not in the plugin.
+
+**`data-bind` beats a co-located `data-attr:value` from the first pass.**
+`data-bind` sets `.value` through the IDL before any user interaction, which
+raises the browser's dirty-value flag, so the content attribute never positions
+the control even once. Reasoning from the HTML spec alone gets this wrong (it
+predicts "inert only after a drag"); the answer is inert at t=0.
+
+All four measured in `DatastarMorphContractSuite`, which carries a CONTROL for
+the silent ones — a deliberately throwing expression IS reported — because an
+earlier version of that test concluded far too much from a silence it had not
+shown was meaningful. **Do that:** when a spike's result is a surprise, add the
+control that separates "the thing I think happened" from "my harness is lying"
+before writing the conclusion down.
+
 ## Project-specific conventions (fh-datastar-view)
 
 - Attributes use **colon** syntax: `data-on:click`, `data-bind`, `data-signals`

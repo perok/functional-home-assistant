@@ -1079,8 +1079,8 @@ object Dashboard:
     * `openPopup`/`c.popup` (see lib/components.pkl), so the backend renders
     * every surface bare. `Surface.hostId` derives to this for an unbaked
     * surface (a popup); `Server.swapHost` uses it as both the eviction group
-    * and the patch target for `POST /sse/surface/open/:id` and
-    * `POST /sse/popup/close`.
+    * and the patch target for `POST /sse/surface/:slug/open/:id` and
+    * `POST /sse/popup/:slug/close`.
     */
   val PopupHostId: DomId = DomId.derived("popups")
 

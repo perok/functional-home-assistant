@@ -81,6 +81,22 @@ final class TestServer(
   def awaitLive(subscribers: Int = 1): IO[Unit] =
     awaitChangeSubscribers(subscribers) *> awaitSharedSubscribers(1)
 
+  /** Make the server forget every open connection — the state an idle page is
+    * in once its stream has dropped and [[Server.LingerWindow]] has passed.
+    *
+    * The half of ADR 0009's "known gap" that hid this bug three times: no smoke
+    * test could reach a reconnect, so nothing that only goes wrong on one was
+    * visible. Reaping is what cuts the browser's stream (the stream watches its
+    * own tenure), so Datastar reconnects for real afterwards.
+    */
+  def forgetConnections: IO[Int] = server.forgetSessions
+
+  /** Wait until no connection is adopted — after [[forgetConnections]], that
+    * the browser has actually noticed.
+    */
+  def awaitNoConnections: IO[Unit] =
+    server.connectedSessions.filter(_ == 0).head.compile.drain
+
   /** The gate is ON here, behind the same backstop `ServerApp` uses — so a
     * harness request goes through the route's own declared requirement, and a
     * route that declared none fails the suite as a 500 rather than passing. See

@@ -74,10 +74,14 @@ class PopupSurface extends SurfaceDef {
 class Popup extends nodes.Node {
   card = "popup"
   // `open` is static markup (a `<dialog>` without it is display:none); the
-  // dialog is transient — present only while open. The ✕ posts the id-less
-  // close. Ported verbatim from components.libsonnet:511.
+  // dialog is transient — present only while open.
+  //
+  // The ✕ builds its close URL in the TEMPLATE, so the slug is the Mustache
+  // spelling `{{dashboardSlug}}` rather than the transform's `$dashboardSlug`
+  // ([[closePopup]] is the same route reached from a tap). Two spellings, one
+  // fact — see ADR 0023.
   cardDef = new nodes.ContainerCard {
-    mount = #"<dialog open class="popup"><button class="popup-close" data-on:click="@post('sse/popup/close'); $ui_popups = ''">✕</button>{{#children}}{{{html}}}{{/children}}</dialog>"#
+    mount = #"<dialog open class="popup"><button class="popup-close" data-on:click="@post('sse/popup/{{dashboardSlug}}/close'); $ui_popups = ''">✕</button>{{#children}}{{{html}}}{{/children}}</dialog>"#
     // The frame itself (fixed, centred, elevated) is the theme's `<dialog>`
     // styling; ours is the width cap and the shape of the ✕.
     //

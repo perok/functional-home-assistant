@@ -59,6 +59,78 @@ class UiSmokeSuite extends SmokeSuite {
     }
   }
 
+  private val active = java.util.regex.Pattern.compile("active")
+
+  test("tabs: a tap the server REFUSES commits nothing") {
+    // What pending signals are for (ADR 0025). The tap used to set `ui_<gid>`
+    // itself, so a POST that failed still moved the highlight AND the URL — a
+    // deep link to a panel this page never showed. Now the press only says what
+    // it ASKED for, and a refusal ends the ask.
+    //
+    // The failure is a STATUS, not a dropped connection, because that is what
+    // this route can actually produce (ADR 0024's 4xx) and it is the case
+    // Datastar reports as `error` — dispatched from `onopen`, so a response is
+    // what makes it fire.
+    withPage(scene) { (page, ts) =>
+      val panel = page.locator(".tab-panel")
+      val climateTab =
+        page.locator(".tabs a", new Page.LocatorOptions().setHasText("Climate"))
+      for {
+        _ <- ts.awaitLive()
+        before = page.url()
+        _ <- IO.blocking(
+          page.route(
+            "**/sse/surface/**",
+            route =>
+              route.fulfill(
+                new com.microsoft.playwright.Route.FulfillOptions()
+                  .setStatus(404)
+                  .setBody("no such surface")
+              )
+          )
+        )
+        _ <- IO.blocking(climateTab.click())
+        // The panel cannot have moved — nothing served the swap.
+        _ <- IO.blocking(assertThat(panel).containsText("Living Room"))
+        // …and the URL still names the tab that is actually on screen. This is
+        // the assertion the old design failed.
+        _ <- IO(assertEquals(page.url(), before))
+        // The press is not left asserting a tab it never got.
+        _ <- IO.blocking(assertThat(climateTab).not().hasClass(active))
+        // Control: unblocked, the same tap does everything.
+        _ <- IO.blocking(page.unroute("**/sse/surface/**"))
+        _ <- IO.blocking(climateTab.click())
+        _ <- IO.blocking(assertThat(panel).containsText("Hallway"))
+      } yield assert(page.url() != before, clue = page.url())
+    }
+  }
+
+  test("tabs: a tap with nothing left to answer it ends when the stream does") {
+    // The other way an ask ends, and the reason it is not a timeout: the commit
+    // rides the SSE stream, so a stream that is DOWN is the exact statement
+    // that no commit is coming. Here the POST is aborted outright — no status,
+    // so no `error` event — which is only reachable at all because the
+    // transport failed. The banner's `_sse` is what says so.
+    withPage(scene) { (page, ts) =>
+      val panel = page.locator(".tab-panel")
+      val climateTab =
+        page.locator(".tabs a", new Page.LocatorOptions().setHasText("Climate"))
+      for {
+        _ <- ts.awaitLive()
+        _ <- IO.blocking(page.route("**/sse/**", route => route.abort()))
+        _ <- IO.blocking(climateTab.click())
+        // It highlights while it is still an open question…
+        _ <- IO.blocking(assertThat(climateTab).hasClass(active))
+        // …and stops when the connection that would have answered is gone.
+        _ <- IO.blocking(
+          assertThat(page.locator(".fh-offline-sse")).isVisible()
+        )
+        _ <- IO.blocking(assertThat(climateTab).not().hasClass(active))
+        _ <- IO.blocking(assertThat(panel).containsText("Living Room"))
+      } yield ()
+    }
+  }
+
   test("popup: a tap opens it, the close button dismisses it") {
     withPage(scene) { (page, _) =>
       val kitchenCard = page
@@ -74,6 +146,43 @@ class UiSmokeSuite extends SmokeSuite {
         _ <- IO.blocking(page.locator(".popup-close").click())
         _ <- IO.blocking(assertThat(popup).hasCount(0))
       } yield ()
+    }
+  }
+
+  test("popup: a tap lands on a connection the server has forgotten") {
+    // ADR 0009's known gap, closed: no smoke test could reach a RECONNECT, and
+    // the bug ADR 0024 fixes lives only there — an idle page whose session was
+    // reaped taps into a `conn` the server does not have. It used to answer 204
+    // and do nothing, so the popup arrived on the SECOND tap or after a reload.
+    //
+    // The reconnect is BLOCKED across the tap on purpose. Without that this
+    // races: Datastar may reconnect first, the tap finds a live session, and
+    // the test passes while exercising nothing. With it, the dialog can only
+    // appear if the tap's patch was queued for a session that did not exist
+    // when the tap was made, and drained by the stream that came back after.
+    withPage(scene) { (page, ts) =>
+      val kitchenCard = page
+        .locator(
+          "article.entity",
+          new Page.LocatorOptions().setHasText("Kitchen")
+        )
+      val popup = page.locator(".popup")
+      for {
+        _ <- ts.awaitLive()
+        _ <- IO.blocking(
+          page.route(
+            "**/sse/dashboard/**",
+            route => route.abort()
+          )
+        )
+        forgotten <- ts.forgetConnections
+        _ <- ts.awaitNoConnections
+        _ <- IO.blocking(kitchenCard.click())
+        // Nothing can have arrived yet: there is no stream to carry it.
+        _ <- IO.blocking(assertThat(popup).hasCount(0))
+        _ <- IO.blocking(page.unroute("**/sse/dashboard/**"))
+        _ <- IO.blocking(assertThat(popup).containsText("Kitchen Detail"))
+      } yield assertEquals(forgotten, 1)
     }
   }
 
@@ -203,6 +312,51 @@ class UiSmokeSuite extends SmokeSuite {
         _ <- IO.blocking(assertThat(readout).not().hasText(before))
         _ <- IO.blocking(page.mouse().up())
       } yield ()
+    }
+  }
+
+  test("slider: a REFUSED commit puts the thumb back where the device is") {
+    // The bug the client/server split exists to fix (ADR 0025). While the drag
+    // wrote the server's own `value` slot, a commit that failed produced no
+    // correcting frame — the device never moved, so the server's diff said
+    // "nothing owed" — and the slider kept showing a brightness the light
+    // never took, indefinitely.
+    withPage(scene) { (page, ts) =>
+      val slider = page.locator("input[type=range]")
+      for {
+        _ <- ts.awaitLive()
+        before <- IO.blocking(slider.inputValue())
+        _ <- IO.blocking(
+          page.route(
+            "**/sse/action/**",
+            route =>
+              route.fulfill(
+                new com.microsoft.playwright.Route.FulfillOptions()
+                  .setStatus(404)
+                  .setBody("no")
+              )
+          )
+        )
+        _ <- IO.blocking(slider.focus())
+        _ <- IO.blocking(slider.press("End"))
+        // It moved — otherwise the assertion below would pass vacuously.
+        moved <- IO.blocking(slider.inputValue())
+        _ <- IO(assert(moved != before, clue = s"$before -> $moved"))
+        // …and comes back, because the refusal says nothing is coming.
+        back <- eventually(IO.blocking(slider.inputValue()))(_ == before)
+        // The fill is a function of the position, so it is restored with it
+        // rather than shadowed separately.
+        fill <- IO.blocking(
+          page
+            .locator("div.slider")
+            .first()
+            .evaluate("e => e.style.getPropertyValue('--_end')")
+            .toString
+        )
+      } yield {
+        assertEquals(back, before)
+        assert(fill.nonEmpty && fill != "0%", clue = fill)
+      }
     }
   }
 

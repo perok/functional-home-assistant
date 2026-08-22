@@ -57,7 +57,7 @@ flowchart TB
   end
 
   GATE["AuthGate — a route (or route GROUP) declares its Requirement (ADR 0023)<br/>one rule per dashboard; the CALLER picks the refusal (orLogIn on a page, plain elsewhere)<br/>handleStream also cuts a running stream when the rule stops holding<br/>an action is bounded by its dashboard's OWN entities"]
-  ACT["action POST<br/>surface/open · popup/close<br/>carries conn + ui-state"]
+  ACT["action POST<br/>surface/&lt;slug&gt;/open · popup/&lt;slug&gt;/close<br/>carries conn + ui-state<br/>a conn this process has forgotten is MINTED, not dropped (ADR 0024)<br/>the swap COMMITS ui_&lt;group&gt;; the tap only says what it asked for (ADR 0025)"]
   SESS["Sessions registry<br/>conn maps to slug, open set, control queue,<br/>holds (what this DOM has: digest + signals)<br/>+ position"]
   LOG[("FragmentLog per slug — the CHANGELOG<br/>node -&gt; version · Gone/Placed · horizon<br/>absence means: unknown, send it")]
 
@@ -117,7 +117,7 @@ old renderer cannot be resumed.
 |---|---|---|
 | Global | process | the HA WebSocket, `HaFeed`, **the `StateStore`**, the `changes` topic, the `Sessions` registry, the `AuthSessions` registry (a different fact — `Sessions` is keyed by `conn` and is a TAB, `AuthSessions` is keyed by a cookie and is a PERSON) |
 | Per slug | dashboard | the recorder fiber, the `RendererState` (in a `SignallingRef`: `Ready(renderer)` or `Failed(message)`, hot-swapped on edit) **and, when ready, the renderer and the member graph inside it**, the `FragmentLog`, the doorbell, the `RenderCache` |
-| Per connection | browser tab | the `Session` — created by the DOCUMENT, adopted by the stream (slug, open surfaces, control queue, plus `holds`/`position`/`told` — what THIS client's DOM has, how far it has been served, and the newest version it was ANNOUNCED, which is the most it can echo back), the SSE stream, that viewer's selections |
+| Per connection | browser tab | the `Session` — normally created by the DOCUMENT and adopted by the stream, but MINTED by a stream or a surface tap that names a `conn` this process does not have, empty (slug, open surfaces, control queue, plus `holds`/`position`/`told` — what THIS client's DOM has, how far it has been served, and the newest version it was ANNOUNCED, which is the most it can echo back), the SSE stream, that viewer's selections |
 
 There is exactly ONE store and ONE upstream subscription for every dashboard — `HaFeed.resource`
 creates the store, `Server.fromFeed` takes `feed.store`. Dashboards are views over one shared state,
@@ -779,7 +779,7 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 | the signals frame | `runtime/Patches.scala` · `signalFrame`, `Patch.Signals`; `runtime/Datastar.scala` · `signalsJson`, `signalsAttr`, `textBinding` |
 | SSE stream | `runtime/Server.scala` · `sseStream` |
 | opening paint | `runtime/Server.scala` · `openingPatches` |
-| sessions + surface actions | `runtime/Sessions.scala`; `runtime/Server.scala` · `withSession`, `openSurface`, `swapHost`; `runtime/Patches.scala` · `hostFill`, `hostEvicts` |
+| sessions + surface actions | `runtime/Sessions.scala`; `runtime/Server.scala` · `withSession`, `sessionFor`, `openSurface`, `swapHost`; `runtime/Patches.scala` · `hostFill`, `hostEvicts`; `runtime/SurfaceGraph.scala` · `committedSelection` |
 | a document establishes a session | `runtime/Server.scala` · `pageResponse`, `adoptOrMint`; `runtime/Sessions.scala` · `Session.adopt` |
 | a session's lifetime | `runtime/Sessions.scala` · `Tenure`, `Session.release`/`relinquish`/`supersede`; `runtime/Server.scala` · `reapAfter`, `retire`, `AdoptionWindow`, `LingerWindow` |
 | a tab handing over its session | `src/js/shell.ts` · `fhConn` (`sessionStorage`); `runtime/Server.scala` · `PrevConnParam`, `prevConnOf`, `retire` |
@@ -814,6 +814,7 @@ Live list — delete an entry when it is answered, and say where the answer land
   sit at different positions. Nothing in the design depends on them agreeing — each pull is computed
   against the current snapshot from that session's own cursor — but that is an invariant worth
   writing down and testing rather than relying on.
+
 - **Carrying the converted attribute map across a tick.** See TODO2.md — `EntityState.javaAttributes`
   is rebuilt per state change even when attributes did not move.
 
