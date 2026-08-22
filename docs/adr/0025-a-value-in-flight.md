@@ -135,19 +135,32 @@ The SIGNALS stay separate, for three reasons and any one would do:
   the empty string as HTML's boolean-attribute spelling and SETS the attribute.
   A slider whose `data-attr:disabled` read a pending signal resting at `''`
   would sit permanently disabled with nothing in flight. Any such binding must
-  spell the predicate (`$sig !== ''`).
+  spell the predicate (`$sig !== ''`) — which is what Datastar's own docs do,
+  `data-attr="{disabled: $foo == ''}"`. Note `data-style` DIFFERS: there `''` is
+  falsy and restores the original inline style. Two plugins, two readings of the
+  same value, and only one of them is documented.
+
+`data-attr` itself handles null correctly — an expression evaluating to null
+removes the attribute, so `data-attr:aria-label="$foo"` is exactly as it looks.
+The trap is not in the plugin.
 
 ### `null` is not the way out, and is worth its own warning
 
 The obvious escape from that last point is to rest pending at `null`, which
-`data-attr` does treat as absent. **It is not available: a signal set to null is
-dead.** Every later write to that name is ignored — no exception, no console
-error, nothing in `onPageError`. The page just stops responding, and it presents
-as "Datastar broke" rather than "we wrote a null".
+`data-attr` does treat as absent. **It is not available: assigning null DELETES
+the signal** (`if (a == null) delete r[o]` in the store proxy), and every binding
+already subscribed to that name is orphaned. Reading the name afterwards
+re-creates it as `""` — which nothing is watching — so the elements bound to it
+never update again. Nothing is reported anywhere, and the rest of the page keeps
+working, which is what makes it hard to spot: one dead signal, not a dead page.
 
 `DatastarMorphContractSuite` measures it from both directions, because a
-server-sent `{"s": null}` does the same thing as a client-side `$s = null`. The
-consequence is wider than this ADR: **no signals frame may ever carry a JSON
+server-sent `{"s": null}` does the same thing as a client-side `$s = null`, and
+it carries a CONTROL — a deliberately throwing expression, which IS reported —
+because an earlier version of that test concluded far too much from a silence it
+had not shown was meaningful.
+
+The consequence is wider than this ADR: **no signals frame may ever carry a JSON
 null.** `Datastar.signalsJson` carries the rule. It is a rule and not a type
 because `Patch.Signals` is deliberately `Json`-valued — the cursor rides in it
 as a nested object — and every producer today builds values with
@@ -178,6 +191,18 @@ mechanism for service taps, `pending` is the mechanism for selections, and they
 are two mechanisms because the two taps differ in a way that matters — one has a
 committed value to catch up to and the other does not.
 
+## The deeper reason only the server may write a committed signal
+
+The URL is the visible half, but not the load-bearing one. A session's `holds`
+records what THIS client's DOM has — digest and signal values — and every later
+diff is computed against it. **A client that writes a server-owned signal makes
+`holds` false**, and the server then computes "nothing owed" and never corrects
+it. That is why the rule is "only the server writes", not "the client should
+avoid writing": the alternative is not a cosmetic disagreement, it is a
+connection whose future diffs are all wrong.
+
+It is also why the slider below is not optional cleanup.
+
 ## And the slider is a third case, not "the same shape at a different scale"
 
 The plan named the slider drag as the mechanism's next customer. Reading it says
@@ -191,13 +216,41 @@ signal, so a display of `pending || committed` would need the server's value
 copied into pending whenever pending is clear — at which point pending means
 "currently displayed" and is the bound signal again, with extra steps.
 
-So the slider is the TOGGLE pattern this ADR already exempts: optimistic, and
-corrected by the server's own write. What it genuinely lacks is the failure
-case — a commit that is refused or never answered leaves the slider showing a
-value the device never took, with nothing to restore. Fixing that needs a
-shadow of the last committed value and a deliberate ROLLBACK onto it, which is
-the one thing this ADR's design never does. Right for direct manipulation,
-wrong for a selection; a different decision, and not made here.
+But that is an argument about the BINDING, not about the model, and the model
+does fit — with a third state a selection does not have:
+
+| signal | written by | means |
+|---|---|---|
+| `_<id>__value` (+ `__fill`, `__state`) | the SERVER only | last-correct: where the device actually is |
+| `_<id>__slide` (+ twins) | the client, during the gesture | what the control is showing |
+| — | | there is no third: for a continuous value, "asked for" IS "showing" |
+
+The drag writes only the client-owned half, so `holds` stays true and the
+server's diff keeps working — which is the point above, and the reason today's
+slider is actually broken rather than merely optimistic: its drag writes the
+server's own `value`/`fill`/`state` slots.
+
+Reconciliation is then two imperative handlers rather than an effect, so no
+dependency-tracking subtleties arise:
+
+- **the server speaks** (`data-on-signal-patch` filtered to `_<id>__value`) —
+  adopt it. Confirmation and CORRECTION are the same line; HA clamping a
+  brightness is not a failure and needs no special case.
+- **refused, or `_sse` down** — adopt it too. That is the rollback, and it is
+  the same line again: "show what the device last said".
+
+`busy_change` stays exactly as it is. Its job is the re-click guard, it is
+fetch-scoped, and a pending signal would duplicate it — for a continuous value
+the guard is the only thing "in flight" needs to mean.
+
+The one wrinkle is the input itself: `data-bind` is two-way to ONE signal, so
+`_slide` cannot fall through to `_value` the way a tab's highlight does. It
+holds the display value and the handlers COPY into it, where a selection's
+pending merely clears. The fallback shape still works for `fill`/`state`, which
+are read through ordinary bindings.
+
+Not built here — it is the largest card in the library and it has visual
+baselines — but it is a decided shape, not an open question.
 
 ## Consequences
 

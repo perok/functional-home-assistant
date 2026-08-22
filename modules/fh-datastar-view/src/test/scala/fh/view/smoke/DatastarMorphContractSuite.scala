@@ -419,30 +419,45 @@ class DatastarMorphContractSuite extends munit.CatsEffectSuite with SlowSuite {
     }
   }
 
-  test("a signal set to null is DEAD, and '' is a present attribute") {
-    // Two bundle facts that together decide whether a pending signal may share
-    // a name with an ADR 0019 `busy` one (ADR 0025).
+  test(
+    "null DELETES a signal and orphans its bindings; '' is a present attribute"
+  ) {
+    // Three facts about the pinned bundle, and a control. Together they decide
+    // whether a pending signal may share a name with an ADR 0019 `busy` one
+    // (ADR 0025), and none of them is what the docs suggest.
     //
-    //   1. `data-attr` treats `''` as PRESENT — HTML's canonical
-    //      boolean-attribute spelling (`disabled=""`), not a no-op. So a
-    //      pending signal resting at `''` would leave a slider bound to
-    //      `data-attr:disabled` permanently disabled with nothing in flight.
-    //   2. `null`, the rest value that would have avoided (1), is not usable
-    //      at all: writing it SILENTLY kills the store. Every later write to
-    //      that signal is ignored — no exception, no console error, nothing
-    //      in `onPageError`. A page just stops responding.
+    //   1. `data-attr` handles null CORRECTLY: an expression evaluating to null
+    //      removes the attribute. `data-attr:aria-label="$foo"` is fine, and
+    //      nothing here says otherwise.
+    //   2. But `''` is PRESENT, not absent — HTML's boolean-attribute spelling
+    //      (`disabled=""`). Datastar's own docs spell the predicate for exactly
+    //      this (`data-attr="{disabled: $foo == ''}"`), and `data-style`
+    //      DIFFERS: there `''` is falsy and restores the original inline style.
+    //      Two plugins, two readings of the same value.
+    //   3. ASSIGNING null does not set a signal to null — it DELETES it, and
+    //      every binding already subscribed is orphaned. The store's proxy is
+    //      explicit (`if (a == null) delete r[o]`); reading the name afterwards
+    //      re-creates it as `''`, which is why this has to check the VALUE and
+    //      drive the check from a SECOND signal. A server-sent `{"s": null}`
+    //      does the same thing from the other side.
     //
-    // (2) is why this test exists rather than a note. It cannot be read off
-    // the source, it is invisible in devtools, and it would be diagnosed as
-    // "Datastar broke" rather than "we wrote a null". It also means the SERVER
-    // must never send one: a signals frame carrying `null` does the same thing
-    // from the other side, which the last third measures on a fresh store.
+    // The rest of the page keeps working — this is not a poisoned store, it is
+    // one dead signal — which is precisely what makes it hard to spot.
+    //
+    // The CONTROL runs LAST and is not optional: a throwing expression DOES
+    // break this page, which contaminated the first version of this test. It
+    // is here so "nothing was reported" above is a measurement rather than a
+    // claim about the harness.
     def page(nullBtn: String) =
-      s"""<div data-signals="{ s: 'v' }"></div>
+      s"""<div data-signals="{ s: 'v', probe: 0 }"></div>
          |<input id="i" data-attr:disabled="$$s" />
-         |<div id="r" data-text="JSON.stringify($$s)"></div>
+         |<input id="j" data-attr:disabled="$$s === 'HIDE' ? null : $$s" />
+         |<div id="r" data-text="$$probe + ':' + JSON.stringify($$s)"></div>
          |<button id="empty" data-on:click="$$s = ''">e</button>
          |<button id="val" data-on:click="$$s = 'v'">v</button>
+         |<button id="hide" data-on:click="$$s = 'HIDE'">h</button>
+         |<button id="probe" data-on:click="$$probe = $$probe + 1">p</button>
+         |<button id="boom" data-on:click="$$s = JSON.parse('{')">b</button>
          |$nullBtn""".stripMargin
 
     val clientNull = """<button id="nul" data-on:click="$s = null">n</button>"""
@@ -455,14 +470,13 @@ class DatastarMorphContractSuite extends munit.CatsEffectSuite with SlowSuite {
       ).map(_.withContentType(`Content-Type`(MediaType.`text/event-stream`)))
     }
 
-    def attr(p: Page) =
-      IO.blocking(Option(p.locator("#i").getAttribute("disabled")))
+    def attr(p: Page, id: String) =
+      IO.blocking(Option(p.locator(id).getAttribute("disabled")))
     def click(p: Page, id: String) = IO.blocking(p.locator(id).click())
+    val settle = IO.sleep(300.millis)
 
-    /** Drive one page: prove writes work, null it, then prove they do not. */
     def run(body: String) =
       servedWith(body, Nil, routes).use { case (p, uri) =>
-        val settle = IO.sleep(300.millis)
         for {
           errs <- IO(scala.collection.mutable.ListBuffer.empty[String])
           _ <- IO.blocking(
@@ -473,32 +487,76 @@ class DatastarMorphContractSuite extends munit.CatsEffectSuite with SlowSuite {
           _ <- IO.blocking(p.onPageError(e => { val _ = errs += e }))
           _ <- IO.blocking(p.navigate(uri.renderString))
           _ <- eventually(text(p, "#done"))(_ == "yes")
-          start <- attr(p)
-          // The control: writes work, repeatedly, before any null.
-          blank <- click(p, "#empty") *> settle *> attr(p)
-          restored <- click(p, "#val") *> settle *> attr(p)
-          // Then the null, and the SAME write again.
+
+          start <- attr(p, "#i")
+          blank <- click(p, "#empty") *> settle *> attr(p, "#i")
+          _ <- click(p, "#val") *> settle
+          // (1) An expression EVALUATING to null, signal untouched.
+          byExpr <- click(p, "#hide") *> settle *> attr(p, "#j")
+          untouched <- attr(p, "#i")
+          _ <- click(p, "#val") *> settle
+          // (3) Assign/patch null, then read `s` through an effect driven by a
+          // DIFFERENT signal — anything bound to `s` is orphaned by the delete.
           _ <- click(p, "#nul") *> settle
-          after <- click(p, "#empty") *> settle *> attr(p)
-        } yield (start, blank, restored, after, errs.toList)
+          readBack <- click(p, "#probe") *> settle *> text(p, "#r")
+          orphaned <- click(p, "#empty") *> settle *> attr(p, "#i")
+          quiet <- IO(errs.toList)
+          _ <- click(p, "#boom") *> settle
+          control <- IO(errs.toList)
+        } yield (
+          start,
+          blank,
+          byExpr,
+          untouched,
+          readBack,
+          orphaned,
+          quiet,
+          control
+        )
       }
 
     for {
       fromClient <- run(page(clientNull))
       fromServer <- run(page(serverNull))
-    } yield {
-      List(("client", fromClient), ("server", fromServer)).foreach {
-        case (who, (start, blank, restored, after, errs)) =>
-          assertEquals(start, Some("v"), s"$who: a plain string is the value")
-          assertEquals(blank, Some(""), s"$who: '' PRESENTS the attribute")
-          assertEquals(restored, Some("v"), s"$who: and writes keep working")
-          assertEquals(
-            after,
-            Some("v"),
-            s"$who: after a null the signal is DEAD — this write is ignored"
-          )
-          assertEquals(errs, Nil, s"$who: and nothing is reported anywhere")
-      }
+    } yield List(("client", fromClient), ("server", fromServer)).foreach {
+      case (
+            who,
+            (
+              start,
+              blank,
+              byExpr,
+              untouched,
+              readBack,
+              orphaned,
+              quiet,
+              control
+            )
+          ) =>
+        assertEquals(start, Some("v"), s"$who: a plain string is the value")
+        assertEquals(blank, Some(""), s"$who: '' PRESENTS the attribute")
+        assertEquals(
+          byExpr,
+          None,
+          s"$who: an expression yielding null removes it"
+        )
+        assertEquals(
+          untouched,
+          Some("HIDE"),
+          s"$who: and never touched the signal"
+        )
+        // probe moved, so the page is ALIVE; `s` came back as "" rather than
+        // the "v" it held, so the key itself was removed and re-created.
+        assertEquals(readBack, """1:""""", s"$who: null DELETED the signal")
+        assertEquals(
+          orphaned,
+          Some("v"),
+          s"$who: and every binding on it is orphaned — this rewrite never lands"
+        )
+        assertEquals(quiet, Nil, s"$who: all of it with nothing reported")
+        assert(
+          control.nonEmpty,
+          s"$who: CONTROL — a throwing expression IS reported, so that silence is real"
+        )
     }
   }
 
