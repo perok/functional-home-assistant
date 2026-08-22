@@ -3164,10 +3164,20 @@ object Server {
     * patience. Collapsing them into one idle timer would make the common
     * accident wait for the rare one.
     *
-    * Too short costs only the client its `holds` seed — bytes on its first
-    * patch, never staleness. Too long is a session per abandoned load, read by
-    * every state batch and holding the changelog floor down until it expires.
-    * So this errs short.
+    * Too long is a session per abandoned load, read by every state batch and
+    * holding the changelog floor down until it expires. So this errs short.
+    *
+    * '''What too short costs depends on which kind of `Fresh` session it
+    * catches''', and there are two since ADR 0024. A DOCUMENT's loses only its
+    * `holds` seed — bytes on its first patch, never staleness. A session minted
+    * by a surface TAP is holding a queued patch in its `control`, and reaping
+    * it throws that away (the reconnecting stream then finds nothing under
+    * `conn` and mints its own), so the popup the user asked for does not open.
+    *
+    * That degrades to tapping again, never to wrong content — but it is the
+    * reason this number is no longer only a bytes trade, and the reason to
+    * measure a real reconnect before shortening it. 10s is sized for a stream
+    * that is already on its way back, which is the case a tap-mint is in.
     */
   val AdoptionWindow: FiniteDuration = 10.seconds
 
@@ -3186,6 +3196,12 @@ object Server {
     * batch and keeping its slug recording. The cost of too short is a fatter
     * first patch. Neither is a correctness edge, which is why this is a plain
     * constant and not a policy.
+    *
+    * That last sentence is TRUE ONLY BECAUSE A TAP MINTS (ADR 0024), and it was
+    * false before that: expiring this window is precisely what left an idle
+    * page tapping into a `conn` the server had dropped, which did nothing at
+    * all. If the mint ever goes, this stops being a plain constant and starts
+    * deciding whether a tap works.
     */
   val LingerWindow: FiniteDuration = 2.minutes
 
