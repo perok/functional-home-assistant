@@ -74,7 +74,7 @@ class Tabs extends nodes.Node {
   //
   // The PENDING signal is the one the click writes; `ui_<id>` is written only
   // by the swap, which is also what empties pending
-  // (`tapMod.pendingClear`) — see `docs/plan-pending-signals.md`.
+  // (`tapMod.pendingClear`) — see `docs/adr/0025-a-value-in-flight.md`.
   //
   // `{{bakeIndex}}` in a `self` makes this node variant-bearing (ADR 0012): one
   // rendering per member, its own log entry per variant, and every path that

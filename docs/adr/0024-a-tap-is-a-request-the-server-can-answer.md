@@ -90,7 +90,7 @@ something the user can act on. A 200 carrying a reload would land them on the
 popup they asked for, since the URL already names it.
 
 That is a better answer and it is not this ADR's, because it is a behaviour
-change rather than the removal of a silence; `docs/plan-pending-signals.md`
+change rather than the removal of a silence; `docs/adr/0025-a-value-in-flight.md`
 carries it. What is decided here is only that a tap must not be able to fail
 without saying anything, which 4xx achieves today. Note the same essay is why an
 error BODY cannot carry the correction — non-2xx frames are dropped, pinned by

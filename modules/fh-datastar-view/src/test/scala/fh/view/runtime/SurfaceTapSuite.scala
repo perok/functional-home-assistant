@@ -100,7 +100,7 @@ class SurfaceTapSuite extends ServerHarness {
 
   test("a swap COMMITS the selection, and only a swap does") {
     // The client no longer sets `ui_popups` itself
-    // (`docs/plan-pending-signals.md`), so if this frame is missing the URL
+    // (`docs/adr/0025-a-value-in-flight.md`), so if this frame is missing the URL
     // mirror and every reconnect restore go blind — a dialog on screen that a
     // refresh does not bring back. The request body deliberately carries no
     // ui-state at all: the selection here can only have come from the swap.

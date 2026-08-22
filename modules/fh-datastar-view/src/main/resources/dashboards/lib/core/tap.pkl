@@ -242,7 +242,7 @@ const local function openSurfaceOnclick(surfaceId: String, head: String): slotMo
 /// show, where `ui_<groupId>` is what the server says it IS showing. Only the
 /// client ever writes it, and it CLEARS ITSELF once the committed value agrees
 /// ([[pendingClear]]), so a tap that never landed cannot leave a selection
-/// asserted. See `docs/plan-pending-signals.md`.
+/// asserted. See `docs/adr/0025-a-value-in-flight.md`.
 ///
 /// `_`-prefixed, so it never rides a request: the server learns what was asked
 /// for from the URL path, not the signal store.

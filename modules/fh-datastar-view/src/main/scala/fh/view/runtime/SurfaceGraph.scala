@@ -496,7 +496,7 @@ private[runtime] final class SurfaceGraph(
     * This exists because the client used to assert it: a tap set `ui_<id>`
     * itself, so a POST that never landed left the URL claiming a panel the DOM
     * did not have. Only the swap knows what actually happened, so only the swap
-    * may say (`docs/plan-pending-signals.md`).
+    * may say (`docs/adr/0025-a-value-in-flight.md`).
     */
   def committedSelection(
       host: DomId,
