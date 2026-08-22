@@ -15,6 +15,7 @@ import fh.view.testkit.DashboardBuilders.st
 import fh.view.testkit.FakeHomeAssistant
 import fs2.concurrent.SignallingRef
 import fh.view.testkit.TestIds.given
+import fh.view.testkit.TestAuth
 
 /** Signal slots (ADR 0017): a value that changes without re-rendering its card.
   *
@@ -460,7 +461,8 @@ class SignalSlotSuite extends ServerHarness {
           store,
           Map("dashboard" -> ref),
           "dashboard",
-          sessions
+          sessions,
+          TestAuth.openGate
         )
         .use { server =>
           for {

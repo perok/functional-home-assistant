@@ -1,6 +1,6 @@
 package fh.view.build
 
-import fh.view.model.{Cell, LayoutNode, Predicate, SlotSource}
+import fh.view.model.{Access, Cell, LayoutNode, Predicate, SlotSource}
 import fh.view.testkit.PklWorkspace
 import io.circe.Json
 
@@ -43,11 +43,13 @@ class WireShapeSuite extends munit.FunSuite {
       """module probe
         |import "pkl:reflect"
         |import "@fh-dashboard/components.pkl" as c
+        |import "@fh-dashboard/hass.pkl"
         |import "@fh-dashboard/core/node.pkl" as nodes
         |import "@fh-dashboard/core/slot.pkl" as slotMod
         |import "@fh-dashboard/core/surface.pkl" as surfaceMod
         |import "@fh-dashboard/core/tap.pkl" as tapMod
         |import "@fh-dashboard/core/predicate.pkl" as pred
+        |import "@fh-dashboard/core/access.pkl" as accessMod
         |
         |// The wire shape is spread across the library's modules, and reflection
         |// sees only what a module DECLARES — the facade declares no classes at
@@ -55,7 +57,7 @@ class WireShapeSuite extends munit.FunSuite {
         |// "does this module own the ancestor" true across a module boundary
         |// (`SetNode extends LayoutNode` now spans two files).
         |local mods: List<Module> =
-        |  List(nodes, slotMod, surfaceMod, tapMod, pred) + c.modules
+        |  List(nodes, slotMod, surfaceMod, tapMod, pred, accessMod) + c.modules
         |local own: Map<String, reflect.Class> =
         |  mods.fold(Map(), (acc, m) -> acc + reflect.Module(m).classes)
         |
@@ -148,5 +150,52 @@ class WireShapeSuite extends munit.FunSuite {
     // not drift — which is exactly the kind of thing this test should force
     // somebody to write down rather than discover.
     check("Slot", SlotSource(), scalaOnly = Set("literal"))
+  }
+
+  test("the access rule agrees on both sides") {
+    check("Users", Access.Users(Nil))
+  }
+
+  /** Structure is not enough for this one. The field NAMES can agree while
+    * every `kind` literal disagrees — `check` compares names, and `kind` is the
+    * one property it subtracts. A renamed constructor on either side then makes
+    * `access` undecodable or absent, and an absent rule takes the site default,
+    * which is the direction that fails OPEN for an ACCESS rule. So the literals
+    * are pinned by decoding what Pkl actually emits.
+    */
+  test("every access constructor decodes to the rule the author wrote") {
+    val tmp = os.temp.dir()
+    val _ = PklWorkspace.bootstrap(tmp)
+    os.write(
+      tmp / "access-probe.pkl",
+      """module accessProbe
+        |import "@fh-dashboard/components.pkl" as c
+        |import "@fh-dashboard/hass.pkl"
+        |
+        |// Reached through the FACADE, so this also pins that the re-export
+        |// stays wired — an author writes `c.access.admin`, not an import.
+        |publicRule = c.access.public
+        |authenticatedRule = c.access.authenticated
+        |adminRule = c.access.admin
+        |usersRule = c.access.users(List(
+        |  new hass.User { user_id = "abc123"; user_name = "a"; is_admin = false; is_owner = false },
+        |  new hass.User { user_id = "def456"; user_name = "b"; is_admin = false; is_owner = false }
+        |))
+        |""".stripMargin
+    )
+    val res = SourceEval
+      .eval(tmp, "access-probe.pkl")
+      .fold(e => fail(s"access probe failed: $e"), identity)
+
+    def decode(field: String): Access =
+      res.value.hcursor
+        .downField(field)
+        .as[Access]
+        .fold(e => fail(s"$field did not decode as an Access: $e"), identity)
+
+    assertEquals(decode("publicRule"), Access.Public)
+    assertEquals(decode("authenticatedRule"), Access.Authenticated)
+    assertEquals(decode("adminRule"), Access.Admin)
+    assertEquals(decode("usersRule"), Access.Users(List("abc123", "def456")))
   }
 }

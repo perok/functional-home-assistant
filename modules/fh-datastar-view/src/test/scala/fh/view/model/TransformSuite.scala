@@ -14,7 +14,11 @@ class TransformSuite extends munit.FunSuite {
       attributes: Map[String, Json] = Map.empty,
       entity: String = "sensor.x"
   ): String =
-    Transform.run(compile(src), EntityState(entity, state, attributes))
+    Transform.run(
+      compile(src),
+      EntityState(entity, state, attributes),
+      "dashboard"
+    )
 
   test("round to n decimals") {
     assertEquals(run("$round($number($state), 1)", "21.44"), "21.4")

@@ -27,6 +27,7 @@ import "core/slot.pkl" as slotMod
 import "core/tap.pkl" as tapMod
 import "core/surface.pkl" as surfaceMod
 import "core/predicate.pkl" as pred
+import "core/access.pkl" as accessMod
 import "layout.pkl" as layoutMod
 import "components/text.pkl" as textMod
 import "components/entity.pkl" as entityMod
@@ -50,6 +51,11 @@ hidden light: lightMod = lightMod
 
 /// Opinionated whole sections: `c.recipes.floorView(floor)`.
 hidden recipes: recipesMod = recipesMod
+
+/// Who may see a dashboard: `c.access.admin`, `c.access.public`,
+/// `c.access.users(List(dump.users.peri))`. Set on an entry's `access`, or on
+/// `site.pkl`'s to change the default for every dashboard (issue #89).
+hidden access: accessMod = accessMod
 
 // ---- classes an author names ----
 // `new c.Column { … }` in a surface body, `c.Node` as an entry's `card` type,

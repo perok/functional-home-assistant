@@ -19,6 +19,18 @@ import fh.view.build.{
   Site,
   SystemPkl
 }
+import com.comcast.ip4s.Ipv4Address
+import fh.view.auth.{
+  AuthGate,
+  Ingress,
+  IngressUsers,
+  AuthRoutes,
+  AuthSessions,
+  HaOAuth,
+  RefreshOutcome,
+  SessionStore
+}
+import api.homeassistant.ws.domain.HaUser
 import fh.view.model.Dashboard
 import fs2.Stream
 import fs2.concurrent.{Signal, SignallingRef}
@@ -200,6 +212,74 @@ object ServerApp extends IOApp {
           refreshOnce(feed.api, dashboardsDir, reload)
         )
 
+        // Authentication (issue #89). Home Assistant is the identity provider:
+        // this server is an ordinary OAuth client, and the machine token above
+        // is untouched — every service call still runs as the machine, and
+        // nothing here opens a per-user feed.
+        //
+        // The URL the BROWSER must reach HA at is not always the one this
+        // server dials — under the add-on it is `http://supervisor/core`, which
+        // resolves for this process and for nothing a browser runs in. So ask
+        // HA where it thinks it lives; `HaOAuth.browserBase` ranks that against
+        // the override and the dialled address.
+        //
+        // An unreachable or malformed answer is not fatal: it is one more
+        // absent source, and the chain has three others.
+        haInternalUrl <- feed.api.getConfigWS.attempt
+          .map(_.toOption.flatMap(HaOAuth.internalUrlOf))
+          .toResource
+        haPublicUrl <- Env[IO]
+          .get("FH_HA_PUBLIC_URL")
+          .map(_.flatMap(org.http4s.Uri.fromString(_).toOption))
+          .map(HaOAuth.browserBase(_, haInternalUrl, haEnv.server))
+          .toResource
+        _ <- IO
+          .println(s"Home Assistant login redirects go to $haPublicUrl")
+          .toResource
+        authSessions <- AuthSessions
+          .create(SessionStore.inWorkspace(dashboardsDir))
+          .toResource
+        oauth = new HaOAuth(
+          haPublicUrl,
+          org.http4s.jdkhttpclient.JdkHttpClient[IO](httpClient)
+        )
+        // The ONE use of somebody else's token: a short-lived connection opened
+        // with it, asked who it belongs to, then closed. Deliberately NOT the
+        // shared feed, which stays on the machine token.
+        identify = (token: String) =>
+          FHApi
+            .from(haEnv.server, token, haEnv.serverWs)
+            .use(_.currentUser)
+        // Built from the SITE, not from the server: the server routes with it,
+        // so it has to exist first. `LiveSite` owns the registry the rule is
+        // read from, which is where `permissionFor` lives.
+        // Under the add-on's ingress, HA has already authenticated the user
+        // and the Supervisor forwards who they are — so nobody logs in twice.
+        // The headers carry no ROLE, so the id is resolved against HA's own
+        // account list; `Ingress` explains why the SOURCE ADDRESS is what makes
+        // the headers trustworthy, and why the port cannot be.
+        //
+        // `FH_TRUSTED_PROXY` overrides the Supervisor's fixed address for a
+        // deployment that proxies differently; unset is the add-on default, and
+        // an explicit empty value turns ingress trust off entirely.
+        trustedProxy <- Env[IO]
+          .get("FH_TRUSTED_PROXY")
+          .map {
+            case None      => Some(Ingress.SupervisorIp)
+            case Some(raw) => Ipv4Address.fromString(raw.trim)
+          }
+          .toResource
+        ingressUsers <- IngressUsers.cached(feed.api.configAuthList).toResource
+        gate = new AuthGate(
+          authSessions,
+          identify,
+          site.permissionFor,
+          ingressUsers,
+          trustedProxy
+        )
+        authRoutes <- AuthRoutes
+          .create(oauth, authSessions, identify, Server.baseUriOf)
+          .toResource
         // The live Server, assembled through the SHARED kernel `liveServer` (the
         // same one the test harness funnels through, so the wiring can't drift).
         // Also runs the per-slug shared patch publishers in the background — the
@@ -207,6 +287,7 @@ object ServerApp extends IOApp {
         server <- liveServer(
           feed,
           site,
+          gate,
           assets,
           systemPkl,
           dumpRefresh = Some(refreshDump)
@@ -217,6 +298,7 @@ object ServerApp extends IOApp {
         pklLspJar <- resolvePklLspJar(httpClient, config.pklLspJar).toResource
         editor = new EditorRoutes(
           dashboardsDir,
+          gate,
           pklLspJar,
           site.defaultSlug,
           site.names
@@ -236,6 +318,15 @@ object ServerApp extends IOApp {
               refreshDump
             ).compile.drain.background.void
           else Resource.unit[IO]
+        // One fiber over the whole store rather than one per session: re-check
+        // what is stale, evict what HA says is gone. This is what makes a
+        // revocation in HA reach a dashboard nobody is touching.
+        _ <- revalidateSessions(
+          authSessions,
+          oauth,
+          identify,
+          haPublicUrl
+        ).compile.drain.background
         _ <- EmberServerBuilder
           .default[IO]
           .withHost(config.bindHost)
@@ -243,7 +334,15 @@ object ServerApp extends IOApp {
           .withHttpWebSocketApp(wsb =>
             // Any FHError raised while serving becomes its status + message;
             // anything else falls through to Ember's default 500.
-            FHError.handle((server.routes <+> editor.routes(wsb)).orNotFound)
+            //
+            // Each route (or route GROUP — see `AuthGate.require`) declares
+            // its own requirement. Inside the error boundary, so a raised
+            // FHError still becomes a status.
+            FHError.handle(
+              (authRoutes.routes <+> server.routes <+> editor.routes(
+                wsb
+              )).orNotFound
+            )
           )
           .withShutdownTimeout(0.seconds)
           .build
@@ -346,6 +445,82 @@ object ServerApp extends IOApp {
             }
         }
 
+  /** How long a session may go unchecked before HA is asked about it again.
+    * Matches HA's own access-token life, so a revocation is visible within one
+    * token generation rather than at some unrelated interval.
+    */
+  private val RevalidateAfter: FiniteDuration = 30.minutes
+
+  /** Ask HA, periodically, whether each logged-in user is still who and what we
+    * recorded — and drop the ones it no longer vouches for.
+    *
+    * The only thing that makes Home Assistant AUTHORITATIVE rather than merely
+    * the thing that once issued a login: without it, revoking this dashboard in
+    * HA would leave its sessions alive here until they aged out.
+    *
+    * A `Dead` answer evicts. A raised error does NOT: an unreachable HA is not
+    * a statement about anybody's account, and treating it as one would log the
+    * whole household out of a working dashboard every time the network hiccups.
+    *
+    * The FIRST pass runs immediately rather than one `every` later, which is
+    * what covers a restart: `verifiedAt` is persisted and absolute, so every
+    * session that survived downtime is already past `after` on boot and needs
+    * no special case — but `awakeEvery` sleeps before its first element, so
+    * without the leading pass a session revoked during a week of downtime would
+    * still be served for the first five minutes.
+    */
+  private[runtime] def revalidateSessions(
+      sessions: AuthSessions,
+      oauth: HaOAuth,
+      identify: String => IO[HaUser],
+      clientId: org.http4s.Uri,
+      every: FiniteDuration = 5.minutes,
+      after: FiniteDuration = RevalidateAfter
+  ): Stream[IO, Unit] = {
+    val pass = revalidateOnce(sessions, oauth, identify, clientId, after)
+    Stream.eval(pass) ++ Stream.awakeEvery[IO](every).evalMap(_ => pass)
+  }
+
+  /** One sweep: re-check everything currently past `after`, and evict what HA
+    * disowns. Separate from the schedule above so a test can run exactly one
+    * and assert on the result, with no clock in the assertion.
+    */
+  private[runtime] def revalidateOnce(
+      sessions: AuthSessions,
+      oauth: HaOAuth,
+      identify: String => IO[HaUser],
+      clientId: org.http4s.Uri,
+      after: FiniteDuration = RevalidateAfter
+  ): IO[Unit] =
+    IO.realTimeInstant
+      .map(_.minusSeconds(after.toSeconds))
+      .flatMap(sessions.stale)
+      .flatMap(_.traverse_ { case (id, session) =>
+        oauth
+          .refresh(session.refresh, clientId)
+          .flatMap {
+            case RefreshOutcome.Dead =>
+              IO.consoleForIO.println(
+                s"[auth] session for ${session.user.name} is no longer valid at HA; signing out"
+              ) *> sessions.remove(id)
+            case RefreshOutcome.Renewed(tokens) =>
+              // Re-read the user too, not just the token: a role change is
+              // exactly the thing a periodic check is here to notice.
+              identify(tokens.accessToken).flatMap(user =>
+                sessions.renew(
+                  id,
+                  user,
+                  tokens.refreshToken.getOrElse(session.refresh)
+                )
+              )
+          }
+          .handleErrorWith(e =>
+            IO.consoleForIO.errorln(
+              s"[auth] could not re-check a session (leaving it alone): ${e.getMessage}"
+            )
+          )
+      })
+
   /** The runtime KERNEL both [[run]] (production) and the test harness
     * (`TestServer`) funnel through, so the live-Server wiring cannot silently
     * diverge: wait for the feed's first connect + seed (so the store is
@@ -363,6 +538,7 @@ object ServerApp extends IOApp {
   private[runtime] def liveServer(
       feed: HaFeed,
       site: Server.LiveSite,
+      gate: AuthGate,
       assets: AssetCache = AssetCache.empty,
       systemPkl: SystemPkl = SystemPkl.empty,
       dumpRefresh: Option[IO[DumpRefresh.Result]] = None
@@ -373,6 +549,7 @@ object ServerApp extends IOApp {
         feed,
         site,
         sessions,
+        gate,
         assets,
         systemPkl,
         dumpRefresh

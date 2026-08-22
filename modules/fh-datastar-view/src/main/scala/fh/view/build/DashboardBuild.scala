@@ -284,15 +284,22 @@ object DashboardBuild {
     */
   def decode(
       json: Json,
-      sources: Set[os.Path] = Set.empty
+      sources: Set[os.Path] = Set.empty,
+      // The slug this dashboard is being installed under — the entrypoint key
+      // (ADR 0021), or the URL/`--slug` on a push. Applied BEFORE validation so
+      // a `Validated` is final: anything derived from the dashboard during
+      // validation (the compiled transforms, which carry the slug into a tap's
+      // action URL) would otherwise be proven against a name it no longer has.
+      slug: Option[String] = None
   ): IO[Dashboard.Validated] =
     for {
-      dashboard <- hoistInlineSurfaces(json)
+      decoded <- hoistInlineSurfaces(json)
         .as[Dashboard]
         .leftMap(err =>
           FHError.badCondition(s"dashboard is not a valid Dashboard: $err")
         )
         .liftTo[IO]
+      dashboard = slug.fold(decoded)(s => decoded.copy(slug = s))
       validated <- dashboard.validated(
         SourceEval.literalLocator(sources)
       ) match {

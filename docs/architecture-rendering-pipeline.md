@@ -56,6 +56,7 @@ flowchart TB
     SSE["SSE bytes to the browser<br/>Datastar morphs the DOM<br/>…and re-evaluates the bound elements"]
   end
 
+  GATE["AuthGate — a route (or route GROUP) declares its Requirement (ADR 0023)<br/>one rule per dashboard; the CALLER picks the refusal (orLogIn on a page, plain elsewhere)<br/>handleStream also cuts a running stream when the rule stops holding<br/>an action is bounded by its dashboard's OWN entities"]
   ACT["action POST<br/>surface/open · popup/close<br/>carries conn + ui-state"]
   SESS["Sessions registry<br/>conn maps to slug, open set, control queue,<br/>holds (what this DOM has: digest + signals)<br/>+ position"]
   LOG[("FragmentLog per slug — the CHANGELOG<br/>node -&gt; version · Gone/Placed · horizon<br/>absence means: unknown, send it")]
@@ -68,6 +69,9 @@ flowchart TB
   PULL <-.->|since position| LOG
   OPEN <-.->|since cursor| LOG
   APPL <-.->|holds| SESS
+  GATE --> OPEN
+  GATE --> ACT
+  GATE -.->|interruptWhen: a logout or an HA revocation<br/>cuts a stream already running| SSE
   ACT --> SESS
   SESS -->|per-connection control queue| MERGE
   ACT -.->|hostFill claims into holds| SESS
@@ -83,7 +87,19 @@ flowchart TB
   class OPEN,PULL,SIGS,APPL,MERGE,SSE,BEAT client
   class LOG,SESS store
   class HA,ACT ext
+  classDef gate fill:#fee2e2,stroke:#b91c1c,color:#0f172a
+  class GATE gate
 ```
+
+**A route declares its own requirement; a route group declares one for all of it.** Only a PAGE
+load redirects to login — a human is waiting there — and everything that page then opens answers
+401 instead, because a refusal on one of those means the session died. That is one requirement
+with a caller-chosen `onInvalid`, not two. Admission is not one-time:
+a page has finished long before anything could change, but an SSE stream runs for hours, so the
+two SSE routes go through `handleStream`, which wraps the body in one `interruptWhen` over the
+same `Access.permits` the door used. An action POST names its dashboard in the URL and may only
+reach an entity that dashboard references — live membership varies, the candidate LIST does not.
+See ADR 0023.
 
 **Nothing is pushed.** A frame is recorded once per slug; every byte is produced by the session that
 will receive it, from the same `Patches.resume` a reconnect runs. A live tick is a resume from
@@ -99,7 +115,7 @@ old renderer cannot be resumed.
 
 | Scope | One per | What lives there |
 |---|---|---|
-| Global | process | the HA WebSocket, `HaFeed`, **the `StateStore`**, the `changes` topic, the `Sessions` registry |
+| Global | process | the HA WebSocket, `HaFeed`, **the `StateStore`**, the `changes` topic, the `Sessions` registry, the `AuthSessions` registry (a different fact — `Sessions` is keyed by `conn` and is a TAB, `AuthSessions` is keyed by a cookie and is a PERSON) |
 | Per slug | dashboard | the recorder fiber, the `RendererState` (in a `SignallingRef`: `Ready(renderer)` or `Failed(message)`, hot-swapped on edit) **and, when ready, the renderer and the member graph inside it**, the `FragmentLog`, the doorbell, the `RenderCache` |
 | Per connection | browser tab | the `Session` — created by the DOCUMENT, adopted by the stream (slug, open surfaces, control queue, plus `holds`/`position`/`told` — what THIS client's DOM has, how far it has been served, and the newest version it was ANNOUNCED, which is the most it can echo back), the SSE stream, that viewer's selections |
 
@@ -736,6 +752,16 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 
 | Box | Code |
 |---|---|
+| a route's own auth rule | `auth/AuthGate.scala` · `Requirement` (`FromDashboard`/`FromAccess`, with `Requirement.Admin = FromAccess(Access.Admin)` — a public route is simply not wrapped), `accessFor`, `saySo`/`orLogIn`, `handleRequirement`, `loginRedirect`, `safeNext`; declared at each route in `runtime/Server.scala` |
+| one rule over a whole surface | `auth/AuthGate.scala` · `require`; used by `runtime/EditorRoutes.scala` (all admin) |
+| a stream that stops being allowed | `auth/AuthGate.scala` · `handleStream`; `auth/AuthSessions.scala` · `watch` |
+| what an action may touch | `model/Dashboard.scala` · `referencedEntities`; `runtime/Renderer.scala` · `references`; `runtime/Server.scala` · `actionResponse` |
+| the slug inside an action URL | `model/Transform.scala` · the `$dashboardSlug` binding; `runtime/Renderer.scala` · `structuralVars` (`{{dashboardSlug}}`, the template copy); `build/DashboardBuild.scala` · `decode`'s `slug`, applied before validation |
+| who a request is | `auth/AuthGate.scala` · `Identity`, `of` (ingress ▸ cookie ▸ bearer), `bearerUser`; `auth/Ingress.scala` · `userIdOf`, `IngressUsers.cached`; `auth/AuthSessions.scala` · `cookieOf` |
+| logged-in people, and cutting a live stream | `auth/AuthSessions.scala` · `AuthSessions` (a `SignallingRef`), `watch`, `SessionStore` (`.fh/sessions.json`) |
+| the login flow | `auth/HaOAuth.scala` · `authorizeUri`, `exchange`, `refresh`, `revoke`; `auth/AuthRoutes.scala` |
+| HA disowning a session | `runtime/ServerApp.scala` · `revalidateOnce` (one sweep) and `revalidateSessions` (immediate, then every 5 min); `auth/AuthSessions.scala` · `stale`, `renew`, `remove` |
+| which rule a dashboard carries | `model/Access.scala` · `Access.permits`; `build/Site.scala` · `decode` folds the site default; `model/Dashboard.scala` · `Validated.access`; `runtime/Server.scala` · `LiveSite.permissionFor` |
 | feed → store | `runtime/HaFeed.scala` · `pump`, `runConnection` |
 | store + changes topic | `runtime/StateStore.scala` · `update`, `changes` |
 | per-slug recorder | `runtime/Server.scala` · `publisherFor`, `recordFrame`, `sharedPatchPublishers` |

@@ -48,9 +48,20 @@ class TapAction {
   busyVisual: Boolean = true
 }
 // Wrap a JSONata route expression into the full Datastar click expression
-//   @post('sse/action/<domain>/<service>/<entity_id>', <no signals>)
+//   @post('sse/action/<slug>/<domain>/<service>/<entity_id>', <no signals>)
 // All app URLs are RELATIVE: they resolve against the page's <base href>
 // (`/` served directly, the ingress prefix behind the HA supervisor proxy).
+//
+// `$dashboardSlug` is bound by the renderer, like `$entity_id`: a dashboard
+// module does not know its own slug (`site.pkl` supplies it as a key, and
+// `fh push --slug` renames it). The server needs it to bound what a tap may
+// touch — an action may only reach an entity its own dashboard names, so
+// admission to one dashboard is not admission to the whole house (ADR 0023).
+//
+// A card that builds an action URL in its own TEMPLATE writes `{{dashboardSlug}}`
+// for the same value (the slider's commit). Two spellings, one fact, and each
+// names the mechanism that actually fills it: Mustache renders a template, but a
+// transform's OUTPUT is inserted raw, so Mustache never sees it.
 //
 // SENDS NO SIGNALS. This route reads nothing from the request body — the
 // domain, service and entity are all in the path — but Datastar's default is to
@@ -170,7 +181,7 @@ const busyClassChange: String =
 const busyShapeClassChange: String = busySpinner("_{{id}}__busy_change")
 
 const local function serviceOnclick(route: String): String =
-  #""@post('sse/action/" & ("# + route + #") & "/" & $entity_id & "', "# +
+  #""@post('sse/action/" & $dashboardSlug & "/" & ("# + route + #") & "/" & $entity_id & "', "# +
     noSignals + #")""#
 
 // A click expression inherits the card's entity to resolve $entity_id, and must
@@ -234,7 +245,7 @@ const function byDomain(e: hass.Entity): TapAction? =
 // one character that actually shows up in HA's own vocabularies (effect names
 // like "Color loop", preset modes).
 const local function serviceValueOnclick(action: String, key: String, value: String): String =
-  #""@post('sse/action/"# + action + #"/" & $entity_id & "/"# + key + "/"
+  #""@post('sse/action/" & $dashboardSlug & "/"# + action + #"/" & $entity_id & "/"# + key + "/"
     + value.replaceAll(" ", "%20") + #"', "# + noSignals + #")""#
 
 /// A service call carrying ONE static value: `serviceValue("light/turn_on",

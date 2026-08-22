@@ -548,3 +548,22 @@ Nothing else moves. Every other domain keeps its per-entity class untouched.
   connection the app already holds — one mechanism instead of two.
 - **A build-time snapshot of live values.** Measured at +7% file size and
   rejected on the content-hash rule above, not on size.
+
+## Users
+
+The dump also carries `users`: one entry per Home Assistant account that a
+person can actually log in with, keyed by slugged name (`dump.users.peri`),
+typed as `hass.User`. It exists so a dashboard's access rule (ADR 0023) can
+name a person the way the rest of a dashboard names an entity — completion
+offers the household, and a wrong name fails the build.
+
+Two things about the source, both verified against a live instance rather than
+assumed. `config/auth/list` returns SERVICE accounts alongside people
+(Supervisor, Cast, the content user) and two of those three are admins, so the
+dump filters to `system_generated == false && is_active`. And the listing
+carries no `is_admin`: a role there is membership of the `system-admin` group,
+so `HaAccount.isAdmin` derives it.
+
+Adding or renaming a user re-hashes the dump package, exactly as adding an
+entity does — which is correct, since a rule naming that user has to be
+re-evaluated.

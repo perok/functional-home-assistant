@@ -161,7 +161,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
           )
           assert(
             html.contains(
-              "data-on:change=\"$_c_0__busy_change ? '' : @post('sse/action/light/turn_on/"
+              "data-on:change=\"$_c_0__busy_change ? '' : @post('sse/action/fixture-slider/light/turn_on/"
             ),
             clue = html
           )
@@ -275,7 +275,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
             )
             assert(
               html.contains(
-                "data-on:change=\"$_c_0__busy_change ? '' : @post('sse/action/light/turn_on/"
+                "data-on:change=\"$_c_0__busy_change ? '' : @post('sse/action/fixture-quiet-slider/light/turn_on/"
               ),
               clue = html
             )

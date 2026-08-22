@@ -11,7 +11,7 @@ followed from that.
 serves had to be an add-on option (`default_dashboard`), read from the
 environment — a setting about the dashboards, kept somewhere the dashboards
 could not see. Guest/ACL rules (issue #89) would have needed the same treatment,
-and so would the next such setting.
+and so would the next such setting. (They landed here instead — ADR 0023.)
 
 **Membership was frozen at boot.** A new file was not discovered until a restart,
 and a deleted one kept serving from memory forever. The reload path indexed a
@@ -49,7 +49,8 @@ before the design was settled; the second needs the CALL form, `import("x.pkl")`
 since the declaration form does not parse in a value position.
 
 The three costs above are paid at once. Site-wide settings have a home (`default`
-today, auth rules next). Membership is ordinary data that the reload re-reads.
+and the `access` rule of ADR 0023). Membership is ordinary data that the reload
+re-reads.
 And an ordinary module beside the entrypoint is just a module.
 
 Dashboards being data also makes them generable — a `for` over the dump's floors

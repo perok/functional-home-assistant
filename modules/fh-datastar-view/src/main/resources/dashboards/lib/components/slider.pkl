@@ -373,7 +373,7 @@ class Slider extends nodes.Node {
             \(slotMod.signalBind("value"))
             \(tapMod.busyAttrsChange)
             data-on:input="$\(slotMod.signalRef("fill")) = (100 - \(dragPos)) + '%'{{#dragPercent}}; $\(slotMod.signalRef("state")) = Math.round(\(dragPos)) + ' %'{{/dragPercent}}"
-            data-on:change="\(tapMod.busyGuardChange)@post('sse/action/{{{action}}}/{{{entity_id}}}/{{key}}/' + $\(slotMod.signalRef("value")), \(tapMod.noSignals))" />
+            data-on:change="\(tapMod.busyGuardChange)@post('sse/action/{{dashboardSlug}}/{{{action}}}/{{{entity_id}}}/{{key}}/' + $\(slotMod.signalRef("value")), \(tapMod.noSignals))" />
           <span style="background:{{fillColor}}" \(slotMod.signalBind("fillColor"))></span>
         </div>
       </div>

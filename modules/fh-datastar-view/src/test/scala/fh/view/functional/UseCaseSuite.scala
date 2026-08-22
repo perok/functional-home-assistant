@@ -173,7 +173,7 @@ class UseCaseSuite extends munit.CatsEffectSuite {
         SystemPkl.fromDisk(instance)
       )
       .use { ts =>
-        val app = ts.server.routes.orNotFound
+        val app = ts.gatedApp
         for {
           pulled <- app.run(Request[IO](Method.GET, uri))
           body <- pulled.body.through(fs2.text.utf8.decode).compile.string
@@ -261,13 +261,13 @@ class UseCaseSuite extends munit.CatsEffectSuite {
           .default[IO]
           .withHost(host"127.0.0.1")
           .withPort(port"0")
-          .withHttpApp(ts.server.routes.orNotFound)
+          .withHttpApp(ts.gatedApp)
           .withShutdownTimeout(0.seconds)
           .build
           .map(bound => (ts, bound.baseUri))
       }
       .use { case (ts, base) =>
-        val app = ts.server.routes.orNotFound
+        val app = ts.gatedApp
         val get = (file: String) =>
           app.run(
             Request[IO](
@@ -348,7 +348,7 @@ class UseCaseSuite extends munit.CatsEffectSuite {
         SystemPkl.fromDisk(instance)
       )
       .use { ts =>
-        val app = ts.server.routes.orNotFound
+        val app = ts.gatedApp
         for {
           json <- app.run(Request[IO](Method.GET, uri"/system/pkl/packages"))
           jsonBody <- json.body.through(fs2.text.utf8.decode).compile.string
@@ -401,7 +401,7 @@ class UseCaseSuite extends munit.CatsEffectSuite {
         SystemPkl.fromDisk(instance)
       )
       .use { ts =>
-        val app = ts.server.routes.orNotFound
+        val app = ts.gatedApp
         val get = (path: String) =>
           app.run(Request[IO](Method.GET, Uri.unsafeFromString(path)))
 
@@ -615,7 +615,7 @@ class UseCaseSuite extends munit.CatsEffectSuite {
     TestServer
       .resource(PklFixture.buildDashboard("home", entryNeedingDump), Nil)
       .use { ts =>
-        val app = ts.server.routes.orNotFound
+        val app = ts.gatedApp
         val push = (slug: String, body: String) =>
           app.run(
             Request[IO](
@@ -702,7 +702,7 @@ class UseCaseSuite extends munit.CatsEffectSuite {
     TestServer
       .resource(PklFixture.buildDashboard("home", entryNeedingDump), Nil)
       .use { ts =>
-        val app = ts.server.routes.orNotFound
+        val app = ts.gatedApp
         val push = (slug: String, body: String) =>
           app.run(
             Request[IO](

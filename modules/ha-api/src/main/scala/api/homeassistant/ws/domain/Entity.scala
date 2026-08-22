@@ -138,6 +138,59 @@ object Floor {
   given Decoder[Floor] = DecoderWithWarnMissing.derived
 }
 
+/** `auth/current_user` — who the access token used for THIS connection belongs
+  * to. HA's only answer to "who is this", and the whole identity + role source
+  * for dashboard access rules (issue #89): there is no REST equivalent.
+  *
+  * The response also carries `credentials` and `mfa_modules`; neither is
+  * modelled, because extra JSON fields decode away and nothing here needs them.
+  *
+  * Plain `derives Decoder` rather than the registry types'
+  * [[DecoderWithWarnMissing]] on purpose: that one WARNS on a missing field and
+  * carries on, which for `is_admin` would mean silently defaulting a role — an
+  * access check that fails open. A malformed user must fail the decode.
+  */
+case class HaUser(
+    id: String,
+    name: String,
+    is_admin: Boolean,
+    is_owner: Boolean
+) derives Decoder,
+      Encoder.AsObject,
+      CanEqual
+
+/** One Home Assistant account, from `config/auth/list` — the admin-only listing
+  * of everybody who can log in.
+  *
+  * Deliberately NOT [[HaUser]], which answers "who is this connection" and
+  * carries `is_admin` directly. This listing does not: a user's role is their
+  * membership of the `system-admin` GROUP, so [[isAdmin]] derives it rather
+  * than expecting a field that is not there (verified against HA 2026.8.2).
+  *
+  * `system_generated` marks the accounts that are not people — Supervisor,
+  * Cast, the content user. One of them IS an admin, so anything offering users
+  * to choose between has to drop them or offer nonsense.
+  */
+case class HaAccount(
+    id: String,
+    name: String,
+    group_ids: List[String],
+    system_generated: Boolean,
+    is_active: Boolean,
+    is_owner: Boolean
+) derives Decoder,
+      CanEqual {
+
+  def isAdmin: Boolean = group_ids.contains(HaAccount.AdminGroup)
+
+  /** A real person's account, and one that can still log in. */
+  def isPerson: Boolean = !system_generated && is_active
+}
+
+object HaAccount {
+  val AdminGroup: String = "system-admin"
+}
+
 case class DeviceTrigger(
     platform: "device",
     `type`: String,
