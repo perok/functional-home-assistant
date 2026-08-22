@@ -260,6 +260,7 @@ class BeerTheme extends themeMod.Theme {
       --fh-text-dim:var(--on-surface-variant);
       --fh-surface-alt:var(--surface-container-highest);
       --fh-surface-sunken:var(--surface-container);
+      --fh-border:var(--outline-variant);
       --fh-error:var(--error);
       --fh-on-error:var(--on-error);
     }
@@ -311,9 +312,6 @@ class BeerTheme extends themeMod.Theme {
     /* A member row's card, on the same BeerCSS knob: the row is sized by its own
        `min-block-size`, so the card's padding would only make it taller. */
     .slider-members .card{--_padding:0}
-    /* The ✕ is a bare `<button>`, which BeerCSS sizes as a filled pill; the rest
-       of un-filling it is the popup card's own CSS. */
-    .popup-close{block-size:auto}
     /* Tabs: the bar is BeerCSS's native `.tabs > a` element — even tab
        distribution, underline active indicator, hover/press states, all
        framework CSS (an inline-size override to make tabs hug their labels

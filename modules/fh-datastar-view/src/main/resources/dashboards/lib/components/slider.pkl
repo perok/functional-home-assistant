@@ -512,9 +512,15 @@ const local sliderCss: String = """
   /* A member is an ordinary slider card collapsed onto its own track: card and
      track share one grid cell, so the label and the live value ride ON the fill
      instead of sitting in a line above it. Members carry their own surface and no
-     elevation — a shadow over the master's coloured fill reads as grime. */
+     elevation — a shadow over the master's coloured fill reads as grime.
+     The hairline is what a DARK palette needs to see the row at all: a sunken
+     surface and a card surface are a couple of percent apart there, so an OFF
+     member (no fill, nothing but its own background) all but vanished into the
+     group. An inset shadow rather than a border, so it follows the radius and
+     costs the row no layout. */
   .slider-members .card{display:grid;min-block-size:3rem;margin:0;
-  background:var(--fh-surface-sunken);box-shadow:none;border-radius:1.5rem;overflow:hidden}
+  background:var(--fh-surface-sunken);box-shadow:inset 0 0 0 .0625rem var(--fh-border);
+  border-radius:1.5rem;overflow:hidden}
   .slider-members :is(.slider-head,.slider.max){grid-area:1/1}
   /* Block padding off: a row is sized by `min-block-size`, so its own padding
      would only make it taller than the pill it is. */

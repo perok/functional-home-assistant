@@ -454,7 +454,7 @@
       "slots" : [
         "label"
       ],
-      "template" : "<article class=\"card row\">\n  <span class=\"max\">{{label}}</span>\n  <label class=\"switch\">\n    <input type=\"checkbox\" value=\"on\" {{#checked}}checked{{/checked}} {{{checked__bind}}} data-on:click=\"{{#busy}}$_{{id}}__busy ? '' : {{/busy}}{{{onclick}}}\"{{#busy}} data-indicator=\"_{{id}}__busy\"{{/busy}}{{#busyVisual}} data-class:fh-disabled=\"$_{{id}}__busy\" data-class:fh-loading=\"$_{{id}}__busy\"{{/busyVisual}} />\n    <span></span>\n  </label>\n</article>"
+      "template" : "<article class=\"card row toggle\">\n  <span class=\"max\">{{label}}</span>\n  <label class=\"switch\">\n    <input type=\"checkbox\" value=\"on\" {{#checked}}checked{{/checked}} {{{checked__bind}}} data-on:click=\"{{#busy}}$_{{id}}__busy ? '' : {{/busy}}{{{onclick}}}\"{{#busy}} data-indicator=\"_{{id}}__busy\"{{/busy}}{{#busyVisual}} data-class:fh-disabled=\"$_{{id}}__busy\" data-class:fh-loading=\"$_{{id}}__busy\"{{/busyVisual}} />\n    <span></span>\n  </label>\n</article>"
     }
   },
   "surfaces" : {

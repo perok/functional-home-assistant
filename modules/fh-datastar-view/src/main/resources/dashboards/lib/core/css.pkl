@@ -38,6 +38,7 @@ const local paletteVars: String = """
   --fh-text-dim:var(--secondary-text-color);
   --fh-surface-alt:var(--secondary-background-color);
   --fh-surface-sunken:var(--secondary-background-color);
+  --fh-border:var(--divider-color);
   --fh-error:var(--error-color);
   --fh-on-error:var(--text-primary-color);
   --fh-warning:var(--warning-color);
