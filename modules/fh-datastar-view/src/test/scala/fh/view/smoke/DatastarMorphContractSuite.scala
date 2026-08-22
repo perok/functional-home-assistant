@@ -1,6 +1,7 @@
 package fh.view.smoke
 
 import cats.effect.{IO, Resource}
+import cats.syntax.all.*
 import com.comcast.ip4s.{host, port}
 import com.microsoft.playwright.{Browser, BrowserType, Page, Playwright}
 import fh.view.runtime.{AssetCache, Datastar, Server}
@@ -274,9 +275,72 @@ class DatastarMorphContractSuite extends munit.CatsEffectSuite with SlowSuite {
     os.read(file)
   }
 
+  test("an action's datastar frames are applied on 2xx and DROPPED on 4xx") {
+    // Settles where a failure may be reported (docs/plan-pending-signals.md).
+    // Reading the pinned bundle suggests a 4xx body is still parsed — `onopen`
+    // dispatches the error event on `status >= 400` and then neither throws nor
+    // returns, so `onmessage` looks reachable. Running it says otherwise, which
+    // is the whole reason this suite exists.
+    //
+    // The 2xx half is the control, and it is what makes the 4xx half mean
+    // something: the SAME body, the same route, the same assertion — so a
+    // failure here is about the STATUS and cannot be a malformed frame.
+    //
+    // Consequence: an error's own body is not a channel. A tap that fails has
+    // to be recovered from by the client (clearing its pending signal off the
+    // `datastar-fetch` error event), not by bytes the server sends back. It
+    // also confirms ADR 0019's "the response body is unreachable here" for the
+    // error path, by a second route.
+    val page =
+      """<button id="ok" data-on:click="@post('/allow')">ok</button>
+        |<button id="no" data-on:click="@post('/refuse')">no</button>
+        |<div id="allowed" data-text="$allowed"></div>
+        |<div id="refused" data-text="$refused"></div>""".stripMargin
+
+    def frame(name: String) =
+      fs2.Stream
+        .emit(Datastar.patchSignals(s"{$name: 'applied'}"))
+        .covary[IO]
+
+    val routes = HttpRoutes.of[IO] {
+      case POST -> Root / "allow" =>
+        Ok(frame("allowed")).map(
+          _.withContentType(`Content-Type`(MediaType.`text/event-stream`))
+        )
+      case POST -> Root / "refuse" =>
+        BadRequest(frame("refused")).map(
+          _.withContentType(`Content-Type`(MediaType.`text/event-stream`))
+        )
+    }
+
+    servedWith(page, Nil, routes).use { case (p, uri) =>
+      for {
+        _ <- IO.blocking(p.navigate(uri.renderString))
+        _ <- eventually(text(p, "#done"))(_ == "yes")
+        _ <- IO.blocking(p.locator("#no").click())
+        _ <- IO.blocking(p.locator("#ok").click())
+        // The 2xx frame is the ORDERING GATE as well as the control: it was
+        // sent second, so once it has landed the 4xx one has had its chance.
+        _ <- eventually(text(p, "#allowed"))(_ == "applied")
+        refused <- text(p, "#refused")
+      } yield assertEquals(
+        refused,
+        "",
+        "a 4xx body's datastar frames must NOT reach the store"
+      )
+    }
+  }
+
   private def served(
       body: String,
       patches: List[ServerSentEvent]
+  ): Resource[IO, (Page, Uri)] =
+    servedWith(body, patches, HttpRoutes.empty[IO])
+
+  private def servedWith(
+      body: String,
+      patches: List[ServerSentEvent],
+      extra: HttpRoutes[IO]
   ): Resource[IO, (Page, Uri)] =
     for {
       js <- bundle.toResource
@@ -305,7 +369,7 @@ class DatastarMorphContractSuite extends munit.CatsEffectSuite with SlowSuite {
         .default[IO]
         .withHost(host"127.0.0.1")
         .withPort(port"0")
-        .withHttpApp(routes.orNotFound)
+        .withHttpApp((extra <+> routes).orNotFound)
         .withShutdownTimeout(0.seconds)
         .build
       context <- Resource.make(IO.blocking(browser.newContext()))(c =>

@@ -818,8 +818,9 @@ Live list — delete an entry when it is answered, and say where the answer land
   the patch; the tap's own expression sets `ui_popups` / `ui_<tabs>` in parallel, so the URL
   mirror can claim a selection the DOM does not have. Since ADR 0024 a tap can no longer be
   silently dropped, so the window is narrow — but making the server's frame carry the signal
-  alongside the patch would close it by construction ("what is showing wins"). Costs a round trip
-  before the URL updates, which is why it was not taken with the drop fix.
+  alongside the patch would close it by construction ("what is showing wins"). Designed in
+  `docs/plan-pending-signals.md`, which also covers the race two taps in flight have today; not
+  implemented.
 
 - **Carrying the converted attribute map across a tick.** See TODO2.md — `EntityState.javaAttributes`
   is rebuilt per state change even when attributes did not move.

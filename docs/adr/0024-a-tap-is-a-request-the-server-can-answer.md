@@ -128,10 +128,11 @@ It is a direction to hold while designing:
 
 The obvious next instalment is the optimistic half of a surface tap: the server
 patches the DOM but never sends the matching `ui_*` signal, so the client sets
-it in parallel and the URL can disagree with the screen. Making the server's
-frame carry both would make "what is showing wins" true by construction. Not
-done here — it changes what every tap costs, and the failure it guards is now
-rare rather than routine.
+it in parallel and the URL can disagree with the screen. It is designed in
+`docs/plan-pending-signals.md` — a pending signal the client writes and a
+committed one only the server writes, which also resolves a race two taps in
+flight have today. Not done here: it changes what every tap does, and it
+supersedes ADR 0019's `busy` rather than sitting beside it.
 
 ## Consequences
 
