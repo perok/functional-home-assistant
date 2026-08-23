@@ -50,8 +50,8 @@ trait ServerHarness extends munit.CatsEffectSuite {
   // munit's transform machinery, so a reader sees the wrapping at the same
   // place every test is declared. Every background fiber this harness starts
   // MUST be supervised (a bare `.start` outlives the test under simulated
-  // time — see [[LiveWorld]] — and `TestControl.executeEmbed`'s `tickAll`
-  // then never reaches quiescence, which OOMs rather than hangs). Checked
+  // time — see [[LiveWorld]] — and the driver below then never reaches
+  // quiescence, which OOMs rather than hangs). Checked
   // against Server/Sessions/StateStore/Patches/Renderer/FragmentLog: no
   // IO.blocking, IO.realTime/monotonic, Dispatcher or evalOn on the live
   // path, so nothing there can misreport a real external wait as the
@@ -61,7 +61,52 @@ trait ServerHarness extends munit.CatsEffectSuite {
   protected def test(
       name: String
   )(body: => IO[Unit])(using loc: munit.Location): Unit =
-    super.test(name)(TestControl.executeEmbed(body))
+    super.test(name)(
+      TestControl.execute(body, seed = sys.env.get("FH_TEST_SEED")).flatMap {
+        c =>
+          import cats.effect.kernel.Outcome
+          def embed: IO[Unit] = c.results.flatMap {
+            case Some(Outcome.Succeeded(())) => IO.unit
+            case Some(Outcome.Errored(e))    => IO.raiseError(e)
+            case Some(Outcome.Canceled())    =>
+              IO.raiseError(new java.util.concurrent.CancellationException())
+            case None =>
+              IO.raiseError(new TestControl.NonTerminationException())
+          }
+          // Drive to the PROGRAM's completion, not to timer exhaustion:
+          // `tickAll` only returns once NO timer remains armed, so one
+          // recurring timer that outlives the program (a still-connected
+          // stream's keepalive) spins the driver forever after the outcome
+          // is already decided — the munit wall-clock guard then kills a
+          // test whose result has been sitting there for seconds. Once
+          // `results` is set, the remaining timers are nobody's business.
+          // The iteration cap turns a genuine livelock into a fast failure
+          // naming the seed; FH_TEST_SEED replays any failure exactly.
+          def drive(iterations: Long): IO[Unit] =
+            if iterations > 1000000L then
+              IO.raiseError(
+                new RuntimeException(
+                  s"simulated runtime did not settle (iterations=$iterations, seed=${c.seed})"
+                )
+              )
+            else
+              c.results.flatMap {
+                case Some(_) => IO.unit
+                case None    =>
+                  c.tickOne.flatMap { more =>
+                    if more then drive(iterations + 1)
+                    else
+                      c.nextInterval.flatMap { n =>
+                        // Nothing runnable and no timers: deadlocked. Fall
+                        // through — [[embed]] raises NonTermination for it.
+                        if n == Duration.Zero then IO.unit
+                        else c.advanceAndTick(n) *> drive(iterations + 1)
+                      }
+                  }
+              }
+          drive(0L).flatMap(_ => embed)
+      }
+    )
 
   // A handful of tests in these suites are plain synchronous assertions with
   // no IO in them at all — nothing for TestControl to simulate time over, so
