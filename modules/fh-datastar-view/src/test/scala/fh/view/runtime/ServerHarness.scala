@@ -58,6 +58,20 @@ trait ServerHarness extends munit.CatsEffectSuite {
   // path, so nothing there can misreport a real external wait as the
   // NonTerminationException deadlock TestControl raises for those (issue
   // #109 item 3).
+  //
+  // Tests that exercise SERVER TOPOLOGY — several live fibers coordinating
+  // through refs and streams — are what TestControl's authors scope OUT
+  // ("really only useful for testing Temporal-based code"; typelevel/
+  // cats-effect#4104): under the randomized single-threaded scheduler such
+  // an interleaving can park on a completion that production scheduling
+  // delivers in microseconds, and no amount of probing perturbs it back.
+  // [[testReal]] runs those on the production runtime instead — real wall
+  // clock applies, so keep their bodies sub-second.
+  @targetName("testRealIO")
+  protected def testReal(
+      name: String
+  )(body: => IO[Unit])(using loc: munit.Location): Unit =
+    super.test(name)(body)
   @targetName("testIO")
   protected def test(
       name: String
