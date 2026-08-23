@@ -70,7 +70,9 @@ EXACT client_id string the login sent (`_async_handle_refresh_token` compares
 it raw), and that string is derived per request — direct IP, hostname and the
 ingress prefix are three different clients as far as HA is concerned — so it
 cannot be re-derived at refresh time. A session stores the client it was minted
-for; stability comes from storing the value, not from what the value is.
+for; stability comes from storing the value, not from what the value is
+(`browserBase`/`haPublicUrl` answers where the browser goes to log in — a
+different question from what this client is called).
 
 **Persistence is a write-through file, not a store.** Memory is the truth;
 every mutation also writes `.fh/sessions.json` (`0600`), and boot reads it
@@ -81,7 +83,9 @@ sessions carried their `clientId` — refuses to boot with a message naming the
 recovery: delete the file, log in again once. Starting empty instead would sign
 the whole household out on every restart while reading as somebody else's
 warning; a session we cannot even decode is one nobody can vouch for, and loud
-beats sorry.
+beats sorry. Softening the decoder to tolerate a missing `clientId` is mercy
+that buys nothing: such a session cannot be refreshed anyway, so the failure
+would merely move to its first sweep.
 
 `SameSite=Lax` is the CSRF control for the action POSTs — it is the only thing
 between a cookie-authenticated `POST /sse/action/...` and any other site. `Lax`
@@ -132,6 +136,9 @@ from where we sit, and a session nobody can vouch for has no business staying
 logged in; signing out is loud, silently carrying a possibly-dead session is
 not. A timeout or a refused connection is NOT an answer: an unreachable HA says
 nothing about anybody's account, so the entry stays and the next sweep tries.
+`HaOAuth.refresh` therefore stays TWO-valued — renewed or dead, no third case
+and no parsing of HA's error bodies: the classification work belongs to sending
+the right request, not to second-guessing the answer.
 That is what makes revoking fh in HA reach a dashboard nobody is touching,
 within 30 minutes plus one 5-minute tick.
 
@@ -278,6 +285,14 @@ CONFIGURATION and this is a CREDENTIAL, and keeping them apart is what lets the
 security follow-up move the credential without touching the config.
 
 ## Alternatives rejected
+
+**A minted per-session id instead of the stored base URL.** A bare UUID is not
+a legal `client_id` at all — HA runs it through IndieAuth's parser, which
+requires an `http(s)` scheme, so login itself fails with `400 "Invalid client
+id"`. A UUID *path* under our own origin passes (redirect verification compares
+only scheme and netloc) and would store fine — but HA's Profile → Security then
+lists a pile of opaque URLs nobody can attribute to anything, and that list is
+the revocation UI this whole loop exists to honour.
 
 **A stateless encrypted cookie carrying the user and refresh token.** Designed
 and then dropped: it puts a full-HA-access credential in the browser (sealed,
