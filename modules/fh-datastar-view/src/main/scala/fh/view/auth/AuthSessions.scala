@@ -240,11 +240,11 @@ final class SessionStore(path: os.Path) {
           .flatMap(raw =>
             IO.fromEither(parser.decode[Map[String, AuthSession]](raw))
           )
-          .handleErrorWith { e =>
+          .onError { e =>
             IO.consoleForIO.errorln(
               s"""[fatal] $path exists but cannot be read as sessions: ${e.getMessage}
                  |[fatal] it may predate the stored-client_id format. Delete $path and log in again.""".stripMargin
-            ) *> IO.raiseError(e)
+            )
           },
         IO.pure(Map.empty)
       )
