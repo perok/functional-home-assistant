@@ -77,7 +77,11 @@ class UiSmokeSuite extends SmokeSuite {
         page.locator(".tabs a", new Page.LocatorOptions().setHasText("Climate"))
       for {
         _ <- ts.awaitLive()
-        before = page.url()
+        // The URL mirror is a data-effect: it applies the SEEDED selection
+        // shortly after connect, independent of any tap. Read `before` only
+        // once that first paint has landed, or this assertion races the
+        // page's own initialization rather than the refused commit.
+        before <- eventually(IO.blocking(page.url()))(_.contains("ui."))
         _ <- IO.blocking(
           page.route(
             "**/sse/surface/**",
