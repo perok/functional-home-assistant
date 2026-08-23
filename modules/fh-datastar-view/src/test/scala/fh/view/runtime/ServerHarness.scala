@@ -2,7 +2,6 @@ package fh.view.runtime
 
 import api.homeassistant.HomeAssistantApi
 import cats.effect.IO
-import cats.effect.unsafe.{IORuntime, IORuntimeConfig, Scheduler}
 import cats.effect.kernel.{Deferred, Ref}
 import cats.effect.std.Supervisor
 import cats.effect.testkit.TestControl
@@ -72,88 +71,18 @@ trait ServerHarness extends munit.CatsEffectSuite {
       name: String
   )(body: => IO[Unit])(using loc: munit.Location): Unit =
     super.test(name)(body)
+
   @targetName("testIO")
   protected def test(
       name: String
   )(body: => IO[Unit])(using loc: munit.Location): Unit = {
-    import cats.Id
     import cats.effect.kernel.Outcome
-    import cats.effect.kernel.testkit.TestContext
-    import java.util.concurrent.atomic.AtomicReference
 
-    // The context is held directly — a faithful copy of `TestControl.execute`'s
-    // start sequence — for two things TestControl keeps private: the seed was
-    // already ours to thread through, and on failure [[TestContext.state]]
-    // reports how far simulated time got and what work is still queued (the
-    // only window into a stalled interleaving; parked fibers are invisible to
-    // every public runtime snapshot).
-    val results =
-      new AtomicReference[Option[Outcome[Id, Throwable, Unit]]](None)
     super.test(name)(
-      IO {
-        val ctx =
-          sys.env.get("FH_TEST_SEED").fold(TestContext())(TestContext(_))
-        // A REAL monitor (TestControl installs a no-op) is what makes parked
-        // fibers visible: under the test context they are foreign to any
-        // worker pool, and the monitor's weak bags hold each one together
-        // with its await trace. Both the monitor object and the IORuntime
-        // overload taking it are private[effect], so both go through
-        // reflection — bytecode-level they are ordinary public members.
-        val (runtime, monitor) = {
-          val ctxEC: scala.concurrent.ExecutionContext = ctx
-          val module =
-            Class
-              .forName("cats.effect.unsafe.FiberMonitor$")
-              .getField("MODULE$")
-              .get(null)
-          val monitor = module.getClass
-            .getMethod("apply", classOf[scala.concurrent.ExecutionContext])
-            .invoke(module, ctxEC)
-          val rtModule =
-            Class
-              .forName("cats.effect.unsafe.IORuntime$")
-              .getField("MODULE$")
-              .get(null)
-          val rt = rtModule.getClass
-            .getMethod(
-              "apply",
-              classOf[scala.concurrent.ExecutionContext],
-              classOf[scala.concurrent.ExecutionContext],
-              classOf[Scheduler],
-              monitor.getClass,
-              classOf[() => Unit],
-              classOf[IORuntimeConfig]
-            )
-          val scheduler = new Scheduler {
-            def sleep(delay: FiniteDuration, task: Runnable): Runnable = {
-              val cancel = ctx.schedule(delay, task)
-              () => cancel()
-            }
-            def nowMillis() = ctx.now().toMillis
-            override def nowMicros() = ctx.now().toMicros
-            def monotonicNanos() = ctx.now().toNanos
-          }
-          val shutdown: () => Unit = () => ()
-          (
-            rt.invoke(
-              rtModule,
-              ctxEC,
-              ctx.deriveBlocking(),
-              scheduler,
-              monitor,
-              shutdown,
-              IORuntimeConfig()
-            ),
-            monitor
-          )
-        }
-        body.unsafeRunAsyncOutcome(oc => results.set(Some(oc)))(using
-          runtime.asInstanceOf[IORuntime]
-        )
-        (ctx, runtime.asInstanceOf[IORuntime], monitor)
-      }.flatMap { case (ctx, runtime, monitor) =>
-        def embed: IO[Unit] =
-          IO(results.get()).flatMap {
+      TestControl
+        .execute(body, seed = sys.env.get("FH_TEST_SEED"))
+        .flatMap { c =>
+          def embed: IO[Unit] = c.results.flatMap {
             case Some(Outcome.Succeeded(())) => IO.unit
             case Some(Outcome.Errored(e))    => IO.raiseError(e)
             case Some(Outcome.Canceled())    =>
@@ -161,77 +90,45 @@ trait ServerHarness extends munit.CatsEffectSuite {
             case None =>
               IO.raiseError(new TestControl.NonTerminationException())
           }
-        // Drive to the PROGRAM's completion, not to timer exhaustion:
-        // `tickAll` only returns once NO timer remains armed, so one
-        // recurring timer that outlives the program (a still-connected
-        // stream's keepalive) spins the driver forever after the outcome
-        // is already decided — the munit wall-clock guard then kills a
-        // test whose result has been sitting there for seconds. Once the
-        // outcome is in, the remaining timers are nobody's business. The
-        // iteration cap turns a genuine livelock into a fast failure;
-        // FH_TEST_SEED replays a failure against identical harness code.
-        def drive(iterations: Long): IO[Unit] =
-          if iterations > 1000000L then
-            IO.raiseError(
-              new RuntimeException(
-                s"simulated runtime did not settle (iterations=$iterations)"
+          // Drive to the PROGRAM's completion, not to timer exhaustion:
+          // `tickAll` only returns once NO timer remains armed, so a single
+          // recurring timer that outlives the program (a stream keepalive is
+          // enough) spins it forever after the outcome is decided — and the
+          // suite's wall-clock guard kills a test whose result has been
+          // sitting there for seconds. Once the outcome is in, remaining
+          // timers are nobody's business; the cap turns a livelock into a
+          // fast failure, and a failed run prints its seed so FH_TEST_SEED
+          // can replay it exactly.
+          def drive(iterations: Int): IO[Unit] =
+            if iterations > 100000 then
+              IO.raiseError(
+                new RuntimeException(
+                  s"simulated runtime did not settle (iterations=$iterations, seed=${c.seed})"
+                )
+              )
+            else
+              c.results.flatMap {
+                case Some(_) => IO.unit
+                case None    =>
+                  c.tickOne.flatMap { more =>
+                    if more then drive(iterations + 1)
+                    else
+                      c.nextInterval.flatMap { n =>
+                        // Nothing runnable and no timers: deadlocked. Fall
+                        // through — [[embed]] raises NonTermination for it.
+                        if n == Duration.Zero then IO.unit
+                        else c.advanceAndTick(n) *> drive(iterations + 1)
+                      }
+                  }
+              }
+          drive(0)
+            .flatMap(_ => embed)
+            .onError(_ =>
+              IO.println(
+                s"[fh-test] '$name' failed; replay with FH_TEST_SEED=${c.seed}"
               )
             )
-          else
-            IO(results.get()).flatMap {
-              case Some(_) => IO.unit
-              case None    =>
-                IO(ctx.tickOne()).flatMap { more =>
-                  if more then drive(iterations + 1)
-                  else
-                    IO(ctx.nextInterval()).flatMap { n =>
-                      // Nothing runnable and no timers: deadlocked. Fall
-                      // through — [[embed]] raises NonTermination for it.
-                      if n == Duration.Zero then IO.unit
-                      else IO(ctx.advanceAndTick(n)) *> drive(iterations + 1)
-                    }
-                }
-            }
-        drive(0L).flatMap { _ =>
-          IO.whenA(sys.env.contains("FH_TEST_DUMP"))(
-            IO.println(s"[seed] ${ctx.seed}")
-          ) *>
-            IO(results.get()).flatMap {
-              // At settle time whatever stalled the interleaving is frozen:
-              // state says how far simulated time got and what work remains
-              // queued. Off by default — only useful mid-investigation.
-              case Some(Outcome.Errored(_))
-                  if sys.env.contains("FH_TEST_DUMP") =>
-                val s = ctx.state
-                IO.println(
-                  s"[state] clock=${s.clock.toSeconds}s pending=${s.tasks.size} " +
-                    s.tasks
-                      .map(t =>
-                        s"[${t.runsAt.toSeconds}s ${t.task.getClass.getSimpleName}]"
-                      )
-                      .mkString(" ")
-                ) *>
-                  // The monitor sees the fibers a worker-pool snapshot
-                  // cannot: under the test context every parked fiber is
-                  // foreign to it, and each carries its await trace.
-                  // printLiveFiberSnapshot is invoked reflectively for the
-                  // same reason the monitor was built that way.
-                  IO {
-                    if monitor != null then {
-                      val buf = new StringBuilder
-                      monitor.getClass
-                        .getMethod(
-                          "printLiveFiberSnapshot",
-                          classOf[String => Unit]
-                        )
-                        .invoke(monitor, (s: String) => buf.append(s))
-                      println(buf.toString)
-                    }
-                  } *> embed
-              case _ => embed
-            }
         }
-      }
     )
   }
 
