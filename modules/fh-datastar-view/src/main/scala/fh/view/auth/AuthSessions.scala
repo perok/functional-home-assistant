@@ -7,7 +7,7 @@ import fs2.concurrent.SignallingRef
 import fs2.io.file.{Files, Path, PosixPermissions}
 import io.circe.syntax.*
 import io.circe.{Decoder, Encoder, parser}
-import org.http4s.{Request, RequestCookie, ResponseCookie, SameSite}
+import org.http4s.{Request, RequestCookie, ResponseCookie, SameSite, Uri}
 
 import java.nio.file.FileAlreadyExistsException
 import java.time.Instant
@@ -22,11 +22,18 @@ import java.time.Instant
   *
   * `verifiedAt` is when HA last confirmed the above, not when the user logged
   * in.
+  *
+  * `clientId` is the exact `client_id` string the login that minted this
+  * session sent to HA. HA compares it RAW against what it stored on the refresh
+  * token (`_async_handle_refresh_token`), so only the value login actually sent
+  * can renew — and since the browser-facing base is derived per request, it
+  * cannot be re-derived at refresh time. Stored, not guessed.
   */
 final case class AuthSession(
     user: HaUser,
     refresh: String,
-    verifiedAt: Instant
+    verifiedAt: Instant,
+    clientId: String
 ) derives Encoder.AsObject,
       Decoder
 
@@ -52,22 +59,38 @@ final class AuthSessions(
 
   def get(id: String): IO[Option[AuthSession]] = ref.get.map(_.get(id))
 
-  /** Mint a session for a freshly-authenticated user; returns its cookie id. */
-  def create(user: HaUser, refresh: String): IO[String] =
+  /** Mint a session for a freshly-authenticated user; returns its cookie id.
+    * `clientId` is the base the login itself went out under — see
+    * [[AuthSession.clientId]] for why it is stored rather than re-derived.
+    */
+  def create(user: HaUser, refresh: String, clientId: Uri): IO[String] =
     for {
       id <- AuthSessions.randomId
       now <- IO.realTimeInstant
-      _ <- ref.update(_.updated(id, AuthSession(user, refresh, now)))
+      _ <- ref.update(
+        _.updated(
+          id,
+          AuthSession(user, refresh, now, clientId.renderString)
+        )
+      )
       _ <- persist
     } yield id
 
-  /** Record a completed re-check: same session, fresh role, fresh clock. */
+  /** Record a completed re-check: same session, fresh role, fresh clock — and
+    * the client it was minted for, unchanged.
+    */
   def renew(id: String, user: HaUser, refresh: String): IO[Unit] =
     IO.realTimeInstant.flatMap { now =>
       ref.update { m =>
         // Only if it is still there — a session evicted while its renewal was
         // in flight must not be resurrected by the reply arriving late.
-        m.get(id).fold(m)(_ => m.updated(id, AuthSession(user, refresh, now)))
+        m.get(id)
+          .fold(m)(s =>
+            m.updated(
+              id,
+              s.copy(user = user, refresh = refresh, verifiedAt = now)
+            )
+          )
       }
     } *> persist
 
@@ -197,11 +220,14 @@ final class SessionStore(path: os.Path) {
       )
     }
 
-  /** What the last run left, or nothing.
+  /** What the last run left.
     *
-    * A missing, unreadable or corrupt file starts empty and says so. Being
-    * logged out is a recoverable inconvenience; refusing to boot over it is
-    * not, and this file is a convenience by construction.
+    * A missing file starts empty — there is nothing to be wrong. A file that IS
+    * there and does not decode stops the boot: quietly starting empty instead
+    * would sign the whole household out on every restart while reading as a
+    * mere warning, and a session from an unreadable file is one we cannot vouch
+    * for. The message names the recovery, which is real: delete the file, log
+    * in again once.
     */
   def read: IO[Map[String, AuthSession]] =
     Files[IO]
@@ -214,13 +240,12 @@ final class SessionStore(path: os.Path) {
           .flatMap(raw =>
             IO.fromEither(parser.decode[Map[String, AuthSession]](raw))
           )
-          .handleErrorWith(e =>
-            IO.consoleForIO
-              .errorln(
-                s"[warn] $path was unreadable; starting with no sessions: ${e.getMessage}"
-              )
-              .as(Map.empty)
-          ),
+          .onError { e =>
+            IO.consoleForIO.errorln(
+              s"""[fatal] $path exists but cannot be read as sessions: ${e.getMessage}
+                 |[fatal] it may predate the stored-client_id format. Delete $path and log in again.""".stripMargin
+            )
+          },
         IO.pure(Map.empty)
       )
 }

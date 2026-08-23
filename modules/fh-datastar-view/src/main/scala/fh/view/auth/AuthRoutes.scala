@@ -125,7 +125,7 @@ final class AuthRoutes(
       // The ONE thing the user's own token is used for: asking HA who it
       // belongs to. Nothing afterwards acts on HA as this user.
       user <- identify(tokens.accessToken)
-      id <- sessions.create(user, refresh)
+      id <- sessions.create(user, refresh, base)
       resp <- SeeOther(Location(Uri.unsafeFromString(next)))
     } yield resp.addCookie(AuthSessions.cookie(id, isSecure(req)))
 

@@ -58,19 +58,34 @@ window). Because it is a bearer id rather than a payload there is nothing to
 sign or encrypt, which is what removed an earlier sealed-cookie design, its key
 file, and the whole `javax.crypto` surface with it.
 
-`AuthSessions` holds `id -> {user, refresh, verifiedAt}` in a `SignallingRef`,
-deliberately a SEPARATE registry from the runtime's `Sessions`: that one is
-keyed by `conn` and is a TAB, this one is keyed by a cookie and is a PERSON,
-and merging two distinct facts into one shape fakes one with the other. The HA
-refresh token is kept for exactly one purpose — the periodic re-check that this
-user still exists and still holds this role. It never reaches the browser, so a
-stolen cookie is a session rather than an HA credential.
+`AuthSessions` holds `id -> {user, refresh, verifiedAt, clientId}` in a
+`SignallingRef`, deliberately a SEPARATE registry from the runtime's
+`Sessions`: that one is keyed by `conn` and is a TAB, this one is keyed by a
+cookie and is a PERSON, and merging two distinct facts into one shape fakes one
+with the other. The HA refresh token is kept for exactly one purpose — the
+periodic re-check that this user still exists and still holds this role. It
+never reaches the browser, so a stolen cookie is a session rather than an HA
+credential. `clientId` rides along because HA accepts a refresh only under the
+EXACT client_id string the login sent (`_async_handle_refresh_token` compares
+it raw), and that string is derived per request — direct IP, hostname and the
+ingress prefix are three different clients as far as HA is concerned — so it
+cannot be re-derived at refresh time. A session stores the client it was minted
+for; stability comes from storing the value, not from what the value is
+(`browserBase`/`haPublicUrl` answers where the browser goes to log in — a
+different question from what this client is called).
 
 **Persistence is a write-through file, not a store.** Memory is the truth;
 every mutation also writes `.fh/sessions.json` (`0600`), and boot reads it
 back. That is all it is for — surviving a restart, which happens on every
-dashboard edit. A corrupt or unreadable file logs and starts empty: being
-logged out is a recoverable inconvenience, and refusing to boot over it is not.
+dashboard edit. A missing file starts empty, which is the ordinary first boot.
+A file that EXISTS but does not decode — corrupt, or a session from before
+sessions carried their `clientId` — refuses to boot with a message naming the
+recovery: delete the file, log in again once. Starting empty instead would sign
+the whole household out on every restart while reading as somebody else's
+warning; a session we cannot even decode is one nobody can vouch for, and loud
+beats sorry. Softening the decoder to tolerate a missing `clientId` is mercy
+that buys nothing: such a session cannot be refreshed anyway, so the failure
+would merely move to its first sweep.
 
 `SameSite=Lax` is the CSRF control for the action POSTs — it is the only thing
 between a cookie-authenticated `POST /sse/action/...` and any other site. `Lax`
@@ -111,12 +126,21 @@ no.
 **Two background mechanisms, because they answer different questions.**
 Revalidation is ONE fiber over the whole store (not one per session): entries
 whose `verifiedAt` is older than 30 minutes — HA's access-token life — are
-re-exchanged against their refresh token and re-read through
-`auth/current_user`, writing back a fresh clock and a freshly-read role. A
-`400 invalid_grant` is HA ANSWERING that the grant is gone, so the entry is
-evicted; a timeout is not an answer and leaves it alone, because an unreachable
-HA must not empty the session store. That is what makes revoking fh in HA reach
-a dashboard nobody is touching, within 30 minutes plus one 5-minute tick.
+re-exchanged against their refresh token, under the `clientId` the session was
+minted with, and re-read through `auth/current_user`, writing back a fresh
+clock and a freshly-read role. The eviction rule is strict on purpose: ANY
+answer other than a refreshed token — `invalid_grant`, `invalid_request`,
+whatever the words — is HA ANSWERING, and an answer ends the session. A bug of
+ours (say a mismatched client_id) is indistinguishable from a revoked grant
+from where we sit, and a session nobody can vouch for has no business staying
+logged in; signing out is loud, silently carrying a possibly-dead session is
+not. A timeout or a refused connection is NOT an answer: an unreachable HA says
+nothing about anybody's account, so the entry stays and the next sweep tries.
+`HaOAuth.refresh` therefore stays TWO-valued — renewed or dead, no third case
+and no parsing of HA's error bodies: the classification work belongs to sending
+the right request, not to second-guessing the answer.
+That is what makes revoking fh in HA reach a dashboard nobody is touching,
+within 30 minutes plus one 5-minute tick.
 
 The sweep runs once immediately and then on the interval, which is the whole of
 what a RESTART needs. `verifiedAt` is persisted and absolute, so every session
@@ -261,6 +285,14 @@ CONFIGURATION and this is a CREDENTIAL, and keeping them apart is what lets the
 security follow-up move the credential without touching the config.
 
 ## Alternatives rejected
+
+**A minted per-session id instead of the stored base URL.** A bare UUID is not
+a legal `client_id` at all — HA runs it through IndieAuth's parser, which
+requires an `http(s)` scheme, so login itself fails with `400 "Invalid client
+id"`. A UUID *path* under our own origin passes (redirect verification compares
+only scheme and netloc) and would store fine — but HA's Profile → Security then
+lists a pile of opaque URLs nobody can attribute to anything, and that list is
+the revocation UI this whole loop exists to honour.
 
 **A stateless encrypted cookie carrying the user and refresh token.** Designed
 and then dropped: it puts a full-HA-access credential in the browser (sealed,
