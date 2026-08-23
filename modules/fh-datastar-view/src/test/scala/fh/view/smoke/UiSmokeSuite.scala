@@ -77,7 +77,11 @@ class UiSmokeSuite extends SmokeSuite {
         page.locator(".tabs a", new Page.LocatorOptions().setHasText("Climate"))
       for {
         _ <- ts.awaitLive()
-        before = page.url()
+        // The URL mirror is a data-effect: it applies the SEEDED selection
+        // shortly after connect, independent of any tap. Read `before` only
+        // once that first paint has landed, or this assertion races the
+        // page's own initialization rather than the refused commit.
+        before <- eventually(IO.blocking(page.url()))(_.contains("ui."))
         _ <- IO.blocking(
           page.route(
             "**/sse/surface/**",
@@ -323,19 +327,25 @@ class UiSmokeSuite extends SmokeSuite {
     // never took, indefinitely.
     withPage(scene) { (page, ts) =>
       val slider = page.locator("input[type=range]")
+      // The refusal must not land before the gesture has been observed: the
+      // rollback it triggers races this test's own read of the thumb, and on
+      // the wrong interleaving the read sees the restored 180 and the
+      // vacuity-guard below fires. The route is captured, not answered —
+      // answering it later must not happen on Playwright's dispatch thread,
+      // which a blocked callback would stall along with every other call.
+      val held =
+        new java.util.concurrent.LinkedTransferQueue[
+          com.microsoft.playwright.Route
+        ]
+      val refusal =
+        new com.microsoft.playwright.Route.FulfillOptions()
+          .setStatus(404)
+          .setBody("no")
       for {
         _ <- ts.awaitLive()
         before <- IO.blocking(slider.inputValue())
         _ <- IO.blocking(
-          page.route(
-            "**/sse/action/**",
-            route =>
-              route.fulfill(
-                new com.microsoft.playwright.Route.FulfillOptions()
-                  .setStatus(404)
-                  .setBody("no")
-              )
-          )
+          page.route("**/sse/action/**", route => held.add(route))
         )
         _ <- IO.blocking(slider.focus())
         _ <- IO.blocking(slider.press("End"))
@@ -343,6 +353,10 @@ class UiSmokeSuite extends SmokeSuite {
         moved <- IO.blocking(slider.inputValue())
         _ <- IO(assert(moved != before, clue = s"$before -> $moved"))
         // …and comes back, because the refusal says nothing is coming.
+        _ <- IO.blocking {
+          val route = held.poll()
+          if route != null then route.fulfill(refusal)
+        }
         back <- eventually(IO.blocking(slider.inputValue()))(_ == before)
         // The fill is a function of the position, so it is restored with it
         // rather than shadowed separately.
