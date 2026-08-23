@@ -138,22 +138,26 @@ trait ServerHarness extends munit.CatsEffectSuite {
                 }
             }
         drive(0L).flatMap { _ =>
-          IO(results.get()).flatMap {
-            // At settle time whatever stalled the interleaving is frozen:
-            // state says how far simulated time got and what work remains
-            // queued. Off by default — only useful mid-investigation.
-            case Some(Outcome.Errored(_)) if sys.env.contains("FH_TEST_DUMP") =>
-              val s = ctx.state
-              IO.println(
-                s"[state] clock=${s.clock.toSeconds}s pending=${s.tasks.size} " +
-                  s.tasks
-                    .map(t =>
-                      s"[${t.runsAt.toSeconds}s ${t.task.getClass.getSimpleName}]"
-                    )
-                    .mkString(" ")
-              ) *> embed
-            case _ => embed
-          }
+          IO.whenA(sys.env.contains("FH_TEST_DUMP"))(
+            IO.println(s"[seed] ${ctx.seed}")
+          ) *>
+            IO(results.get()).flatMap {
+              // At settle time whatever stalled the interleaving is frozen:
+              // state says how far simulated time got and what work remains
+              // queued. Off by default — only useful mid-investigation.
+              case Some(Outcome.Errored(_))
+                  if sys.env.contains("FH_TEST_DUMP") =>
+                val s = ctx.state
+                IO.println(
+                  s"[state] clock=${s.clock.toSeconds}s pending=${s.tasks.size} " +
+                    s.tasks
+                      .map(t =>
+                        s"[${t.runsAt.toSeconds}s ${t.task.getClass.getSimpleName}]"
+                      )
+                      .mkString(" ")
+                ) *> embed
+              case _ => embed
+            }
         }
       }
     )
