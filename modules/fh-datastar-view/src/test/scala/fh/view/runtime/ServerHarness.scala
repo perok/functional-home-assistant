@@ -79,10 +79,38 @@ trait ServerHarness extends munit.CatsEffectSuite {
       IO {
         val ctx =
           sys.env.get("FH_TEST_SEED").fold(TestContext())(TestContext(_))
-        val runtime = IORuntime(
-          ctx,
-          ctx.deriveBlocking(),
-          new Scheduler {
+        // A REAL monitor (TestControl installs a no-op) is what makes parked
+        // fibers visible: under the test context they are foreign to any
+        // worker pool, and the monitor's weak bags hold each one together
+        // with its await trace. Both the monitor object and the IORuntime
+        // overload taking it are private[effect], so both go through
+        // reflection — bytecode-level they are ordinary public members.
+        val (runtime, monitor) = {
+          val ctxEC: scala.concurrent.ExecutionContext = ctx
+          val module =
+            Class
+              .forName("cats.effect.unsafe.FiberMonitor$")
+              .getField("MODULE$")
+              .get(null)
+          val monitor = module.getClass
+            .getMethod("apply", classOf[scala.concurrent.ExecutionContext])
+            .invoke(module, ctxEC)
+          val rtModule =
+            Class
+              .forName("cats.effect.unsafe.IORuntime$")
+              .getField("MODULE$")
+              .get(null)
+          val rt = rtModule.getClass
+            .getMethod(
+              "apply",
+              classOf[scala.concurrent.ExecutionContext],
+              classOf[scala.concurrent.ExecutionContext],
+              classOf[Scheduler],
+              monitor.getClass,
+              classOf[() => Unit],
+              classOf[IORuntimeConfig]
+            )
+          val scheduler = new Scheduler {
             def sleep(delay: FiniteDuration, task: Runnable): Runnable = {
               val cancel = ctx.schedule(delay, task)
               () => cancel()
@@ -90,13 +118,26 @@ trait ServerHarness extends munit.CatsEffectSuite {
             def nowMillis() = ctx.now().toMillis
             override def nowMicros() = ctx.now().toMicros
             def monotonicNanos() = ctx.now().toNanos
-          },
-          () => (),
-          IORuntimeConfig()
+          }
+          val shutdown: () => Unit = () => ()
+          (
+            rt.invoke(
+              rtModule,
+              ctxEC,
+              ctx.deriveBlocking(),
+              scheduler,
+              monitor,
+              shutdown,
+              IORuntimeConfig()
+            ),
+            monitor
+          )
+        }
+        body.unsafeRunAsyncOutcome(oc => results.set(Some(oc)))(using
+          runtime.asInstanceOf[IORuntime]
         )
-        body.unsafeRunAsyncOutcome(oc => results.set(Some(oc)))(runtime)
-        ctx
-      }.flatMap { ctx =>
+        (ctx, runtime.asInstanceOf[IORuntime], monitor)
+      }.flatMap { case (ctx, runtime, monitor) =>
         def embed: IO[Unit] =
           IO(results.get()).flatMap {
             case Some(Outcome.Succeeded(())) => IO.unit
@@ -155,7 +196,24 @@ trait ServerHarness extends munit.CatsEffectSuite {
                         s"[${t.runsAt.toSeconds}s ${t.task.getClass.getSimpleName}]"
                       )
                       .mkString(" ")
-                ) *> embed
+                ) *>
+                  // The monitor sees the fibers a worker-pool snapshot
+                  // cannot: under the test context every parked fiber is
+                  // foreign to it, and each carries its await trace.
+                  // printLiveFiberSnapshot is invoked reflectively for the
+                  // same reason the monitor was built that way.
+                  IO {
+                    if monitor != null then {
+                      val buf = new StringBuilder
+                      monitor.getClass
+                        .getMethod(
+                          "printLiveFiberSnapshot",
+                          classOf[String => Unit]
+                        )
+                        .invoke(monitor, (s: String) => buf.append(s))
+                      println(buf.toString)
+                    }
+                  } *> embed
               case _ => embed
             }
         }
