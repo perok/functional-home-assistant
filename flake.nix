@@ -259,6 +259,11 @@
             # self-update. Belt and braces: nixpkgs' own wrapper --sets this
             # too, so it stays right even if this line is lost.
             "DISABLE_AUTOUPDATER=1"
+            # nixpkgs' wrapper --set-defaults this to 1, which would have the
+            # box fetch and install plugin updates into your HOST
+            # ~/.claude/plugins on every start. Only 1/true/yes/on read as true,
+            # so 0 turns it off and our value wins over a --set-default.
+            "FORCE_AUTOUPDATE_PLUGINS=0"
             # NOT CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC / DISABLE_TELEMETRY /
             # DO_NOT_TRACK: any of the three turns off feature-flag evaluation,
             # which takes Remote Control and the /usage panel down with it
@@ -366,16 +371,59 @@
         ## Permissions
 
         Nothing in the box ever runs as root. The wrapper passes
-        `--user $(id -u):$(id -g)` plus `--security-opt no-new-privileges`, and
-        mounts a generated `/etc/passwd` naming that uid `dev` (docker's
-        `--user` adds no NSS entry of its own, and a uid without one makes
-        Node's `os.userInfo()` throw). Files created in `/work` and in the
-        mounts are owned by you on the host — no root-owned strays.
+        `--user $(id -u):$(id -g)`, `--security-opt no-new-privileges` and
+        `--cap-drop=ALL`, and mounts a generated `/etc/passwd` naming that uid
+        `dev` (docker's `--user` adds no NSS entry of its own, and a uid without
+        one makes Node's `os.userInfo()` throw). Files created in `/work` and in
+        the mounts are owned by you on the host — no root-owned strays.
 
         Claude Code's own allow/deny rules are a separate, softer layer that it
         enforces itself; put them in the repo's `.claude/settings.json`, not
         `settings.local.json`, which "don't ask again" rewrites. The mount list
         above is the real boundary — nothing else on the host is reachable.
+
+        ## What the box can reach, and what we accept
+
+        Verified from inside: uid is yours and non-root, `CapEff` and `CapBnd`
+        are both empty, `NoNewPrivs` is 1, there is no docker socket, the PID
+        namespace is its own, and `/nix/store` and `/bin` are not writable. The
+        container cannot see any host path that is not in the mount list.
+
+        Read-only on purpose, because your host Claude Code EXECUTES or injects
+        them on its next run and a writable copy would be a container-to-host
+        escape: `~/.claude/settings.json` (hooks are shell commands) and
+        `~/.claude/CLAUDE.md` (global instructions for every project). Plugin
+        auto-update is off for the same reason — otherwise the box would install
+        plugin updates into your host `~/.claude/plugins` on every start.
+
+        Accepted, in rough order of how much they would cost an attacker:
+
+        - **Anything in the mounts can be read and sent anywhere.** Egress is
+          unrestricted: the public internet and your LAN, including the Home
+          Assistant instance, are both reachable. That covers the repo's
+          gitignored `.env`, your Claude OAuth token in
+          `~/.claude/.credentials.json`, and every past session transcript under
+          `~/.claude/projects`. A container is not an exfiltration boundary.
+        - **`~/.claude.json` and `~/.claude/skills` stay writable.** The first
+          can define MCP servers, the second is instructions your host agent
+          loads. They cannot be locked: Claude Code rewrites `~/.claude.json`
+          constantly, and `skills add -g` targets the skills dir by design.
+        - **`/work` is writable, including `.claude/settings.json` and
+          `.mcp.json` in the repo.** Project hooks and MCP servers land in your
+          diff, so review before running the repo's tooling on the host.
+        - **The bootstrap installs unpinned code on first run.** `cs`, `uv` and
+          `npm` all resolve latest, and `skills add VirtusLab/cellar -y` writes
+          an unpinned third-party skill into your real `~/.claude/skills`.
+        - **`AGENTBOX_PORT` binds `0.0.0.0`**, so a published dashboard is on the
+          LAN, not just localhost. That is deliberate (phone access); prefix the
+          value with `127.0.0.1:` if you would rather it were not.
+        - **`AGENTBOX_GH=1` puts a token in the container environment**, visible
+          to `docker inspect` — i.e. to anything that can reach the docker
+          daemon, which is already root-equivalent on the host.
+
+        The box is a boundary against *accidents and reach*, not against a
+        determined attacker who already has code running inside it. Trusted
+        repos only.
 
         ## Git & GitHub
 
@@ -530,6 +578,20 @@
             -v "$STATE/home-agents:/home/dev/.agents"
             -v "$PWD:/work"
           )
+
+          # ~/.claude has to be writable — sessions, transcripts and the OAuth
+          # refresh all land in it. But two files in there are EXECUTED or
+          # injected by your host Claude Code on its next run: settings.json
+          # defines hooks (shell commands), and CLAUDE.md is the global
+          # instruction file for every project. Writable, they are a
+          # container-to-host escape: the box edits one, you run claude on the
+          # host, the host runs what the box wrote. Neither is written during
+          # normal use, so both go back read-only on top of the rw mount.
+          # (Nested binds resolve by depth, so mount order does not matter.)
+          for f in settings.json CLAUDE.md; do
+            [ -e "$HOME/.claude/$f" ] && MOUNTS+=(-v "$HOME/.claude/$f:/home/dev/.claude/$f:ro")
+          done
+
           # .gitconfig carries no secret and authorship would be wrong without
           # it, so it is the one identity file mounted unconditionally.
           if [ -f "$HOME/.gitconfig" ]; then MOUNTS+=(-v "$HOME/.gitconfig:/home/dev/.gitconfig:ro"); fi
@@ -600,6 +662,7 @@
             "''${TTY_ARGS[@]}" \
             --user "$(id -u):$(id -g)" \
             --security-opt no-new-privileges \
+            --cap-drop=ALL \
             "''${PORT_ARGS[@]}" \
             "''${MOUNTS[@]}" \
             -w /work \
