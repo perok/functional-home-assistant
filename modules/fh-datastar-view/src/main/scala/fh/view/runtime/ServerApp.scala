@@ -241,10 +241,19 @@ object ServerApp extends IOApp {
           .map(_.flatMap(org.http4s.Uri.fromString(_).toOption))
           .map(HaOAuth.browserBase(_, haInternalUrl, haEnv.server))
           .toResource
+        // ...and the address the TOKEN exchange is dialled at is a third
+        // answer, not `SERVER`: the supervisor proxy carries `/core/api/*` and
+        // the websocket, and HA's `/auth/*` lives outside `/api/`, so under the
+        // add-on it 401s there. `HaOAuth.tokenBase` has the ranking.
+        haTokenUrl <- Env[IO]
+          .get("FH_HA_TOKEN_URL")
+          .map(_.flatMap(org.http4s.Uri.fromString(_).toOption))
+          .map(HaOAuth.tokenBase(_, haInternalUrl, haEnv.server))
+          .toResource
         _ <- IO
           .println(
             s"Home Assistant login redirects go to $haPublicUrl; " +
-              s"token requests dial ${haEnv.server}"
+              s"token requests dial $haTokenUrl"
           )
           .toResource
         authSessions <- AuthSessions
@@ -252,7 +261,7 @@ object ServerApp extends IOApp {
           .toResource
         oauth = new HaOAuth(
           haPublicUrl,
-          haEnv.server,
+          haTokenUrl,
           org.http4s.jdkhttpclient.JdkHttpClient[IO](httpClient)
         )
         // The ONE use of somebody else's token: a short-lived connection opened

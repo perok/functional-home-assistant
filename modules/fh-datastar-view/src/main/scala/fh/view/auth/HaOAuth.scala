@@ -50,6 +50,50 @@ object HaOAuth {
     */
   private val SupervisorHost = "supervisor"
 
+  private def isSupervisor(uri: Uri): Boolean =
+    uri.host.exists(_.value == SupervisorHost)
+
+  /** HA core's own address on the add-on's internal network — the direct route
+    * HA's add-on docs name ("the Home Assistant instance, which is named
+    * `homeassistant`, over the internal network"), on the default port. Used
+    * only when the dialled address is the supervisor proxy, which cannot carry
+    * `/auth/…` (see [[tokenBase]]), and nothing better is known.
+    */
+  val AddonCoreFallback: Uri =
+    Uri.unsafeFromString("http://homeassistant:8123")
+
+  /** Where THIS process dials `/auth/token` and `/auth/revoke`.
+    *
+    * NOT `SERVER` unconditionally, which is what #178 assumed: under the add-on
+    * `SERVER` is `http://supervisor/core`, and the supervisor proxies only
+    * `/core/api/…` plus the websocket. HA's OAuth endpoints live OUTSIDE
+    * `/api/`, so no path under the proxy reaches them — the supervisor's own
+    * security middleware answers our header-less POST with a plain
+    * `401: Unauthorized` (verified against supervisor `api/middleware/
+    * security.py`: "No API token provided"), and adding the token would only
+    * turn that into a 404. Every add-on login died on it with "Home Assistant
+    * rejected the login code: 401: Unauthorized".
+    *
+    * Ranked like [[browserBase]], with the rungs reordered for who is dialling:
+    *
+    *   1. `explicit` (`FH_HA_TOKEN_URL`) — somebody said so.
+    *   2. `dialed` (`SERVER`) — a VERIFIED working address, unless it is the
+    *      supervisor proxy, which is verified for the feed and useless here.
+    *   3. `internal` — HA's `internal_url`. Reachable from a container far more
+    *      often than not, and the only thing left under the add-on.
+    *   4. [[AddonCoreFallback]] — a guess, and better than an address known to
+    *      fail.
+    */
+  def tokenBase(
+      explicit: Option[Uri],
+      internal: Option[Uri],
+      dialed: Uri
+  ): Uri =
+    explicit
+      .orElse(Option.unless(isSupervisor(dialed))(dialed))
+      .orElse(internal)
+      .getOrElse(AddonCoreFallback)
+
   /** Where to send the BROWSER to log in, which is not always where this server
     * dials HA.
     *
@@ -75,9 +119,7 @@ object HaOAuth {
   ): Uri =
     explicit
       .orElse(internal)
-      .orElse(
-        Option.unless(dialed.host.exists(_.value == SupervisorHost))(dialed)
-      )
+      .orElse(Option.unless(isSupervisor(dialed))(dialed))
       .getOrElse(MdnsFallback)
 
   /** `internal_url` out of a `get_config` reply. Absent, null or unparseable
@@ -105,11 +147,12 @@ object HaOAuth {
   * TWO addresses, because one URL cannot serve both halves of the flow:
   * `authorizeBase` is where the BROWSER is sent to log in
   * ([[HaOAuth.browserBase]] picks it); `tokenBase` is where THIS process dials
-  * `/auth/token` and `/auth/revoke` — the same address as the machine feed
-  * (`SERVER`), which boot has already proven reachable. Sending the exchange to
-  * the browser-facing address instead is what once failed every production
-  * login with a bare 500: the browser resolved HA's mDNS name and the server
-  * could not.
+  * `/auth/token` and `/auth/revoke` ([[HaOAuth.tokenBase]] picks it). Sending
+  * the exchange to the browser-facing address failed every production login
+  * with a bare 500 — the browser resolved HA's mDNS name and the server could
+  * not — and then dialling `SERVER` unconditionally failed every ADD-ON login
+  * with a 401, because that address is the supervisor proxy and `/auth/…` is
+  * not behind it. Neither address is derivable from the other.
   */
 final class HaOAuth(authorizeBase: Uri, tokenBase: Uri, client: Client[IO]) {
 

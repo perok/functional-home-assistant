@@ -44,6 +44,43 @@ class HaOAuthSuite extends munit.FunSuite {
     )
   }
 
+  /** The mirror failure of the one above, and the reason `SERVER` is not simply
+    * the token address: the supervisor proxies `/core/api/…` and the websocket,
+    * and HA's `/auth/…` is not under `/api/`, so the exchange 401s there.
+    */
+  test("the token exchange is never dialled at the supervisor proxy") {
+    val supervisor = uri"http://supervisor/core"
+    assertEquals(
+      HaOAuth.tokenBase(None, None, supervisor),
+      HaOAuth.AddonCoreFallback
+    )
+    // HA's own `internal_url` outranks the guess — it names the real port.
+    assertEquals(
+      HaOAuth.tokenBase(None, Some(uri"http://192.168.1.174:8123"), supervisor),
+      uri"http://192.168.1.174:8123"
+    )
+    // And an explicit override outranks both.
+    assertEquals(
+      HaOAuth.tokenBase(
+        Some(uri"http://ha.lan:8123"),
+        Some(uri"http://192.168.1.174:8123"),
+        supervisor
+      ),
+      uri"http://ha.lan:8123"
+    )
+  }
+
+  test("a dialled address that is not the proxy IS the token address") {
+    val dialed = uri"http://192.168.1.174:8123"
+    // Outranking `internal_url`, unlike the browser chain: this one has to be
+    // reachable from THIS process, and the dialled address provably is.
+    assertEquals(
+      HaOAuth.tokenBase(None, Some(uri"http://ha.lan:8123"), dialed),
+      dialed
+    )
+    assertEquals(HaOAuth.tokenBase(None, None, dialed), dialed)
+  }
+
   test("get_config's internal_url is read, and its absence is just absence") {
     def internalUrlOf(raw: String) =
       HaOAuth.internalUrlOf(

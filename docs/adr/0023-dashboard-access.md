@@ -75,10 +75,12 @@ for; stability comes from storing the value, not from what the value is.
 **The flow has TWO addresses, because one cannot serve both halves.** The
 authorize redirect is built from the BROWSER-facing HA URL
 (`browserBase`/`haPublicUrl` — where the user must reach HA to log in), while
-`/auth/token`, `/auth/revoke` and every session refresh are DIALLED at `SERVER`
-— the same verified address the machine feed uses. Sending the exchange to the
-browser-facing address instead failed every production login with a bare 500:
-a laptop resolves HA's mDNS name, the container running this server does not.
+`/auth/token`, `/auth/revoke` and every session refresh are DIALLED at whatever
+`HaOAuth.tokenBase` picks — `SERVER` when that is HA itself, and something else
+when it is the supervisor proxy, which cannot carry `/auth/…` at all (see
+Consequences). Sending the exchange to the browser-facing address instead failed
+every production login with a bare 500: a laptop resolves HA's mDNS name, the
+container running this server does not.
 The `client_id` STRING stays the browser-facing base either way — it is what HA
 compares raw at exchange and refresh time, not a routing instruction.
 
@@ -360,10 +362,24 @@ probing later as an optimisation, not assumed.
   `http://homeassistant.local:8123`. The mDNS name is last because it is a
   guess: the host is renameable and `.local` needs the client to do mDNS.
   That difference is exactly why the flow keeps two addresses (see above):
-  redirects are built from this one, token requests dial `SERVER`. When they
-  shared one base, a deployment whose browser-facing address was an mDNS name
-  failed EVERY login with a bare 500 — the exchange went where only browsers
-  could follow.
+  redirects are built from this one, the exchange is dialled at the other. When
+  they shared one base, a deployment whose browser-facing address was an mDNS
+  name failed EVERY login with a bare 500 — the exchange went where only
+  browsers could follow.
+- **Nor is the dialled address the token one.** `SERVER` under the add-on is the
+  supervisor proxy, and the supervisor routes only `/core/api/…` and the
+  websocket to core — HA's `/auth/…` endpoints are not under `/api/`, so no path
+  through the proxy reaches them. An unauthenticated POST there is answered by
+  the supervisor's own security middleware with a plain `401: Unauthorized`
+  ("No API token provided"), which surfaced as *"Home Assistant rejected the
+  login code: 401: Unauthorized"* and killed every add-on login; sending the
+  SUPERVISOR_TOKEN with it would only have turned that into a 404. So
+  `HaOAuth.tokenBase` ranks its own four sources, by who is dialling:
+  `FH_HA_TOKEN_URL`, then `SERVER` unless it is the supervisor host, then
+  `internal_url`, then `http://homeassistant:8123` — the direct name HA's add-on
+  docs give core on the internal network, on the default port. The two chains
+  share their sources and rank them differently on purpose: a browser prefers
+  what HA calls itself, a container prefers the socket it already holds.
 - That is resolved **once at startup**, so every visitor gets one answer — which
   is wrong for a remote browser, whose correct target is HA's `external_url`.
   Deferred with the PWA's local-vs-internet work, which is where the per-request
