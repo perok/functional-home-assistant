@@ -241,19 +241,20 @@ object ServerApp extends IOApp {
           .map(_.flatMap(org.http4s.Uri.fromString(_).toOption))
           .map(HaOAuth.browserBase(_, haInternalUrl, haEnv.server))
           .toResource
-        // ...and the address the TOKEN exchange is dialled at is a third
-        // answer, not `SERVER`: the supervisor proxy carries `/core/api/*` and
-        // the websocket, and HA's `/auth/*` lives outside `/api/`, so under the
-        // add-on it 401s there. `HaOAuth.tokenBase` has the ranking.
-        haTokenUrl <- Env[IO]
+        // ...and the address the LOGIN dials is a third answer, not `SERVER`:
+        // under the add-on that is the supervisor proxy, which serves the feed
+        // and nothing a per-USER credential can use — HA's `/auth/…` is not
+        // behind it at all, and its websocket authenticates add-ons, not
+        // people. `HaOAuth.coreBase` has the ranking.
+        haCoreUrl <- Env[IO]
           .get("FH_HA_TOKEN_URL")
           .map(_.flatMap(org.http4s.Uri.fromString(_).toOption))
-          .map(HaOAuth.tokenBase(_, haInternalUrl, haEnv.server))
+          .map(HaOAuth.coreBase(_, haInternalUrl, haEnv.server))
           .toResource
         _ <- IO
           .println(
             s"Home Assistant login redirects go to $haPublicUrl; " +
-              s"token requests dial $haTokenUrl"
+              s"logins dial $haCoreUrl"
           )
           .toResource
         authSessions <- AuthSessions
@@ -261,15 +262,21 @@ object ServerApp extends IOApp {
           .toResource
         oauth = new HaOAuth(
           haPublicUrl,
-          haTokenUrl,
+          haCoreUrl,
           org.http4s.jdkhttpclient.JdkHttpClient[IO](httpClient)
         )
         // The ONE use of somebody else's token: a short-lived connection opened
         // with it, asked who it belongs to, then closed. Deliberately NOT the
-        // shared feed, which stays on the machine token.
+        // shared feed, which stays on the machine token — and for the same
+        // reason not the feed's ADDRESS either: the supervisor proxy takes only
+        // the add-on's own token (see `HaOAuth.coreWs`).
         identify = (token: String) =>
           FHApi
-            .from(haEnv.server, token, haEnv.serverWs)
+            .from(
+              haCoreUrl,
+              token,
+              HaOAuth.coreWs(haCoreUrl, haEnv.server, haEnv.serverWs)
+            )
             .use(_.currentUser)
             .handleErrorWith(e =>
               FHError

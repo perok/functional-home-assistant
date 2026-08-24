@@ -56,13 +56,16 @@ object HaOAuth {
   /** HA core's own address on the add-on's internal network — the direct route
     * HA's add-on docs name ("the Home Assistant instance, which is named
     * `homeassistant`, over the internal network"), on the default port. Used
-    * only when the dialled address is the supervisor proxy, which cannot carry
-    * `/auth/…` (see [[tokenBase]]), and nothing better is known.
+    * only when the dialled address is the supervisor proxy, which carries
+    * neither `/auth/…` nor anybody else's websocket token (see [[coreBase]]),
+    * and nothing better is known.
     */
   val AddonCoreFallback: Uri =
     Uri.unsafeFromString("http://homeassistant:8123")
 
-  /** Where THIS process dials `/auth/token` and `/auth/revoke`.
+  /** Where THIS process reaches HA core DIRECTLY — `/auth/token`,
+    * `/auth/revoke`, and the short-lived websocket that asks HA who a freshly
+    * issued user token belongs to.
     *
     * NOT `SERVER` unconditionally, which is what #178 assumed: under the add-on
     * `SERVER` is `http://supervisor/core`, and the supervisor proxies only
@@ -74,6 +77,16 @@ object HaOAuth {
     * turn that into a 404. Every add-on login died on it with "Home Assistant
     * rejected the login code: 401: Unauthorized".
     *
+    * The websocket the proxy DOES carry is no better for this, for the mirror
+    * reason: it authenticates its client as an ADD-ON, so the auth frame it
+    * accepts is `SUPERVISOR_TOKEN` and the token it forwards to core is its
+    * own. A USER's access token is not an add-on token, so the supervisor
+    * answers `auth_invalid` with "Invalid access" — its own wording, not core's
+    * ("Invalid access token or password"), which is how the second add-on login
+    * failure was placed: "could not ask Home Assistant who this login belongs
+    * to: Wrong msg: auth_invalid(Invalid access)". Hence [[coreWs]]: the
+    * identity connection has to bypass the proxy exactly as the exchange does.
+    *
     * Ranked like [[browserBase]], with the rungs reordered for who is dialling:
     *
     *   1. `explicit` (`FH_HA_TOKEN_URL`) — somebody said so.
@@ -84,7 +97,7 @@ object HaOAuth {
     *   4. [[AddonCoreFallback]] — a guess, and better than an address known to
     *      fail.
     */
-  def tokenBase(
+  def coreBase(
       explicit: Option[Uri],
       internal: Option[Uri],
       dialed: Uri
@@ -93,6 +106,19 @@ object HaOAuth {
       .orElse(Option.unless(isSupervisor(dialed))(dialed))
       .orElse(internal)
       .getOrElse(AddonCoreFallback)
+
+  /** Whether the `SERVER_WS` override still applies once [[coreBase]] has had
+    * its say.
+    *
+    * `SERVER_WS` describes ONE address — the dialled one, whose websocket does
+    * not sit at the `/api/websocket` path derived from `SERVER` (the supervisor
+    * publishes it at `/core/websocket`). So it survives only while `core` still
+    * IS the dialled address; when [[coreBase]] has routed around that address,
+    * its override describes a socket we are deliberately not opening, and the
+    * standard path derived from `core` is the right one.
+    */
+  def coreWs(core: Uri, dialed: Uri, dialedWs: Option[Uri]): Option[Uri] =
+    dialedWs.filter(_ => core.renderString == dialed.renderString)
 
   /** Where to send the BROWSER to log in, which is not always where this server
     * dials HA.
@@ -147,7 +173,7 @@ object HaOAuth {
   * TWO addresses, because one URL cannot serve both halves of the flow:
   * `authorizeBase` is where the BROWSER is sent to log in
   * ([[HaOAuth.browserBase]] picks it); `tokenBase` is where THIS process dials
-  * `/auth/token` and `/auth/revoke` ([[HaOAuth.tokenBase]] picks it). Sending
+  * `/auth/token` and `/auth/revoke` ([[HaOAuth.coreBase]] picks it). Sending
   * the exchange to the browser-facing address failed every production login
   * with a bare 500 — the browser resolved HA's mDNS name and the server could
   * not — and then dialling `SERVER` unconditionally failed every ADD-ON login
