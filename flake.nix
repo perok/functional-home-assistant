@@ -307,6 +307,24 @@
         x86_64-linux builder; on macOS/aarch64 add a linux builder or change
         `system` and confirm `pkgs.opencode` / `pkgs.claude-code` build there.
 
+        ## Two halves
+
+        The **host half** is one shell script, `agentbox` — it loads the image
+        when the build changed, writes the passwd file, decides the mounts and
+        the port, and calls `docker run`. That script is the only thing that
+        runs outside the container, so anything that must be arranged *before*
+        the box starts belongs there: an egress proxy to CONNECT through, a
+        docker network to attach to, a seccomp profile.
+
+        The **container half** is the image plus its `bootstrap` entrypoint,
+        which installs the Coursier/uv/npm tools into `/opt/agent` on first run
+        and then execs your command.
+
+        There is deliberately no devShell. This flake builds a box to work in;
+        it does not put a toolchain on your host, and a shell you enter first
+        could not do the host-side setup above anyway — it only adds binaries
+        to your PATH.
+
         ## Shared with the host
 
         | Host                          | Container                 |
@@ -471,7 +489,6 @@
         ## Escape hatches
 
             nix build .#image       # just the tarball
-            nix develop             # same toolchain on the host, no container
             AGENTBOX_RELOAD=1 nix run .#   # re-load the image into Docker
 
         If sbt/zinc throws `NoSuchFileException` on `.semanticdb` files, the
@@ -624,20 +641,6 @@
       apps.${system}.default = {
         type = "app";
         program = "${self.packages.${system}.default}/bin/${name}";
-      };
-
-      devShells.${system}.default = pkgs.mkShell {
-        packages = with pkgs; [
-          opencode
-          claude-code
-          coursier
-          sbt
-          jdk
-          uv
-          nodejs_24
-          python3
-          git
-        ];
       };
     };
 }
