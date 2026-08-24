@@ -98,7 +98,15 @@ object ServerApp extends IOApp {
         assetsDir <- pathFromEnv("FH_ASSETS_DIR", "assets-cache")
         bindHost <- Env[IO]
           .get("HOST")
-          .map(_.flatMap(Host.fromString).getOrElse(host"127.0.0.1"))
+          .map(host =>
+            host
+              .map(
+                Host
+                  .fromString(_)
+                  .getOrElse(throw Exception(s"Could not parse $host"))
+              )
+              .getOrElse(host"127.0.0.1")
+          )
         loopbackPort <- envOr("PORT", "8080")
         bindPort = loopbackPort.toIntOption
           .flatMap(Port.fromInt)
