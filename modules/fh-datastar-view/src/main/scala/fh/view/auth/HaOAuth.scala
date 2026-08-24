@@ -192,12 +192,11 @@ final class HaOAuth(authorizeBase: Uri, tokenBase: Uri, client: Client[IO]) {
       // A refused connection is not HA ANSWERING — it never got there — so it
       // must not read as a dead grant ([[RefreshOutcome]]) or escape as a bare
       // 500. It is one more absent dependency: retryable, and named.
-      .handleErrorWith { e =>
+      .adaptError { e =>
         FHError
           .unavailable(
             s"could not reach Home Assistant at ${tokenBase.renderString}: ${e.getMessage}"
           )
-          .raiseError[IO, Either[String, Tokens]]
       }
 
   private def parseTokens(body: String): Either[String, Tokens] =
