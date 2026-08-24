@@ -234,13 +234,17 @@ object ServerApp extends IOApp {
           .map(HaOAuth.browserBase(_, haInternalUrl, haEnv.server))
           .toResource
         _ <- IO
-          .println(s"Home Assistant login redirects go to $haPublicUrl")
+          .println(
+            s"Home Assistant login redirects go to $haPublicUrl; " +
+              s"token requests dial ${haEnv.server}"
+          )
           .toResource
         authSessions <- AuthSessions
           .create(SessionStore.inWorkspace(dashboardsDir))
           .toResource
         oauth = new HaOAuth(
           haPublicUrl,
+          haEnv.server,
           org.http4s.jdkhttpclient.JdkHttpClient[IO](httpClient)
         )
         // The ONE use of somebody else's token: a short-lived connection opened
@@ -250,6 +254,13 @@ object ServerApp extends IOApp {
           FHApi
             .from(haEnv.server, token, haEnv.serverWs)
             .use(_.currentUser)
+            .handleErrorWith(e =>
+              FHError
+                .unavailable(
+                  s"could not ask Home Assistant who this login belongs to: ${e.getMessage}"
+                )
+                .raiseError[IO, HaUser]
+            )
         // Built from the SITE, not from the server: the server routes with it,
         // so it has to exist first. `LiveSite` owns the registry the rule is
         // read from, which is where `permissionFor` lives.

@@ -111,8 +111,10 @@ final class AuthRoutes(
       next <- claimed
         .map(_.next)
         .liftTo[IO](
+          // Reloading can never help: the state above is gone AND the code is
+          // single-use at HA. Only a fresh login from the site root works.
           FHError.badCondition(
-            "This login has expired or was already used. Try again."
+            "This login has expired or was already used. Open the site root (/) to start a new login."
           )
         )
       base = baseUriOf(req)

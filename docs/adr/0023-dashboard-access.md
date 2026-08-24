@@ -70,9 +70,17 @@ EXACT client_id string the login sent (`_async_handle_refresh_token` compares
 it raw), and that string is derived per request — direct IP, hostname and the
 ingress prefix are three different clients as far as HA is concerned — so it
 cannot be re-derived at refresh time. A session stores the client it was minted
-for; stability comes from storing the value, not from what the value is
-(`browserBase`/`haPublicUrl` answers where the browser goes to log in — a
-different question from what this client is called).
+for; stability comes from storing the value, not from what the value is.
+
+**The flow has TWO addresses, because one cannot serve both halves.** The
+authorize redirect is built from the BROWSER-facing HA URL
+(`browserBase`/`haPublicUrl` — where the user must reach HA to log in), while
+`/auth/token`, `/auth/revoke` and every session refresh are DIALLED at `SERVER`
+— the same verified address the machine feed uses. Sending the exchange to the
+browser-facing address instead failed every production login with a bare 500:
+a laptop resolves HA's mDNS name, the container running this server does not.
+The `client_id` STRING stays the browser-facing base either way — it is what HA
+compares raw at exchange and refresh time, not a routing instruction.
 
 **Persistence is a write-through file, not a store.** Memory is the truth;
 every mutation also writes `.fh/sessions.json` (`0600`), and boot reads it
@@ -157,7 +165,12 @@ Pending authorizations live in the same style and nowhere else: the OAuth
 `state` is a random nonce keyed to `{next, deadline}` in memory with a
 10-minute TTL, swept on the next login rather than by a fiber, since a login is
 the only moment the map can have grown. Not persisted — a login interrupted by
-a restart simply starts again.
+a restart simply starts again. The state is consumed before the exchange so a
+captured callback cannot be replayed; the cost is that any failure after the
+claim burns the login, which is why everything after it maps onto a named
+`FHError` (an unreachable HA answers 503, naming the address it could not
+reach) rather than escaping as a raw exception — a failure a user can read is
+one they can recover from by starting a fresh login.
 
 **Admission is not a one-time event.** An SSE stream is admitted once and then
 runs for hours. `AuthSessions` is a `SignallingRef`, so the stream is wrapped in
@@ -346,6 +359,11 @@ probing later as an optimisation, not assumed.
   socket to it) unless it is the supervisor host, then
   `http://homeassistant.local:8123`. The mDNS name is last because it is a
   guess: the host is renameable and `.local` needs the client to do mDNS.
+  That difference is exactly why the flow keeps two addresses (see above):
+  redirects are built from this one, token requests dial `SERVER`. When they
+  shared one base, a deployment whose browser-facing address was an mDNS name
+  failed EVERY login with a bare 500 — the exchange went where only browsers
+  could follow.
 - That is resolved **once at startup**, so every visitor gets one answer — which
   is wrong for a remote browser, whose correct target is HA's `external_url`.
   Deferred with the PWA's local-vs-internet work, which is where the per-request
