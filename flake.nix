@@ -182,6 +182,17 @@
         '';
       };
 
+      # nixpkgs builds bash with SYS_BASHRC, so every interactive shell reads
+      # this. `histappend` is the load-bearing line: HISTFILE lives on the
+      # shared /opt/agent volume, and without it the last box to exit
+      # overwrites what any concurrently running box recorded.
+      bashrc = pkgs.writeTextDir "etc/bashrc" ''
+        shopt -s histappend
+        HISTSIZE=100000
+        HISTFILESIZE=200000
+        HISTCONTROL=ignoredups
+      '';
+
       image = pkgs.dockerTools.buildLayeredImage {
         inherit name tag;
 
@@ -214,6 +225,7 @@
           glibc
           devbox
           readme
+          bashrc
           dockerTools.fakeNss
           dockerTools.caCertificates
           context7-mcp
@@ -255,6 +267,9 @@
             # in the container's throwaway home
             "XDG_STATE_HOME=${state}/state"
             "XDG_CACHE_HOME=${state}/cache"
+            # default is ~/.bash_history, and the container home is thrown away
+            # on exit — see /etc/bashrc for the append behaviour this needs
+            "HISTFILE=${state}/state/bash_history"
             # claude-code comes from the read-only store — never let it
             # self-update. Belt and braces: nixpkgs' own wrapper --sets this
             # too, so it stays right even if this line is lost.
