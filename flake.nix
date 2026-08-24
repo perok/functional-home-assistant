@@ -42,8 +42,40 @@
               echo "==> npm update -g" >&2
               npm update -g
               ;;
+            mcp)
+              shift
+              if [ $# -eq 0 ]; then
+                echo "usage: devbox mcp <server>...   jcodemunch | metals | context7" >&2
+                exit 1
+              fi
+              for srv in "$@"; do
+                case "$srv" in
+                  jcodemunch) argv='["jcodemunch-mcp"]' ;;
+                  context7)   argv='["context7-mcp"]' ;;
+                  # stdio, not the --client mode: that starts a long-lived HTTP
+                  # server on a random port and writes a URL the agent can only
+                  # use while it is up. --workspace is required and absolute so
+                  # the config does not depend on the agent's cwd.
+                  metals)     argv=$(jq -nc --arg w "$PWD" '["metals-mcp","--workspace",$w,"--transport","stdio"]') ;;
+                  *) echo "devbox mcp: unknown server '$srv'" >&2; exit 1 ;;
+                esac
+
+                [ -f .mcp.json ] || echo '{}' > .mcp.json
+                jq --arg n "$srv" --argjson a "$argv" \
+                  '.mcpServers[$n] = {command: $a[0], args: $a[1:]}' \
+                  .mcp.json > .mcp.json.new && mv .mcp.json.new .mcp.json
+
+                [ -f opencode.json ] || echo '{}' > opencode.json
+                jq --arg n "$srv" --argjson a "$argv" \
+                  '.mcp[$n] = {type: "local", command: $a, enabled: true}' \
+                  opencode.json > opencode.json.new && mv opencode.json.new opencode.json
+
+                echo "wired $srv into ./.mcp.json and ./opencode.json" >&2
+              done
+              ;;
             *)
               echo "usage: devbox readme" >&2
+              echo "       devbox mcp <server>...             # jcodemunch | metals | context7" >&2
               echo "       devbox skills-update [skills...]   # skills CLI" >&2
               echo "       devbox tools-update                # cs + uv + npm" >&2
               exit 1
@@ -258,6 +290,7 @@
             nix run .# -- claude
             # inside the box:
             devbox readme              # this document
+            devbox mcp jcodemunch      # wire an MCP server into both agents
             devbox skills-update       # update installed agent skills
             devbox tools-update        # update the cs / uv / npm tools
 
@@ -321,20 +354,10 @@
         Node's `os.userInfo()` throw). Files created in `/work` and in the
         mounts are owned by you on the host — no root-owned strays.
 
-        Claude Code's own allow/deny rules go in `.claude/settings.json` in the
-        repo (not `settings.local.json`, which "don't ask again" rewrites).
-        Rules evaluate deny → ask → allow, with `defaultMode` as fallback:
-
-            {
-              "permissions": {
-                "defaultMode": "acceptEdits",
-                "allow": ["Bash(sbt test:*)", "Bash(git diff:*)", "Bash(rg:*)"],
-                "deny":  ["Read(**/.env)"]
-              }
-            }
-
-        That layer is enforced by Claude Code. The image contents are the real
-        boundary — nothing on the host is reachable except the mounts above.
+        Claude Code's own allow/deny rules are a separate, softer layer that it
+        enforces itself; put them in the repo's `.claude/settings.json`, not
+        `settings.local.json`, which "don't ask again" rewrites. The mount list
+        above is the real boundary — nothing else on the host is reachable.
 
         ## Git & GitHub
 
@@ -380,26 +403,33 @@
         Cellar's skill is preinstalled for both agents, so they know when to
         reach for it.
 
+        ## MCP servers
+
+        `devbox mcp` writes both agents' config in the current workspace —
+        `.mcp.json` for Claude Code, `opencode.json` for opencode — merging into
+        whatever is already there:
+
+            devbox mcp jcodemunch metals context7
+
+        - **jcodemunch** — index a repo once, then the agent retrieves by symbol
+          instead of reading whole files. Free for personal use, paid for
+          commercial.
+        - **metals** — Metals' standalone MCP server, wired over stdio so it
+          starts on demand.
+        - **context7** — up-to-date library documentation.
+
+        `opkg` can emit both agents' config too, from one `mcp.jsonc` in a
+        package, if you would rather version it than run a command.
+
         ## Scala API lookups
 
-        Two complements are installed:
+        **cellar** gives type signatures, members and docs for any Maven
+        artifact from the terminal, with no server and no MCP wiring:
 
-        - **cellar** — type signatures, members and docs for any Maven
-          artifact straight from the terminal (no server needed):
+            cellar get-external org.typelevel:cats-core_3:latest cats.Monad
 
-              cellar get-external org.typelevel:cats-core_3:latest cats.Monad
-
-          Telemetry is opted out during bootstrap — its consent prompt would
-          otherwise withhold output from piped/agent invocations.
-        - **metals-mcp** — Metals' standalone MCP server. Enable per project:
-
-              metals-mcp --workspace . --client claude   # writes .mcp.json
-
-          or wire stdio into opencode's config:
-
-              { "mcp": { "metals": { "type": "local",
-                  "command": ["metals-mcp", "--transport", "stdio"],
-                  "enabled": true } } }
+        Telemetry is opted out during bootstrap — its consent prompt would
+        otherwise withhold output from piped/agent invocations.
 
         ## OpenPackage
 
@@ -409,27 +439,10 @@
             opkg install essentials
             opkg install gh@anthropics/claude-code --plugins code-review
             opkg install <resource> --platforms claudecode opencode
-            opkg list -f
 
         `-g` installs to `~/` instead of the workspace. Overrides live in
         `<cwd>/.openpackage/platforms.jsonc` and `~/.openpackage/platforms.jsonc`,
         deep-merged local > global > built-in.
-
-        ## jCodeMunch
-
-        For opencode, `~/.config/opencode/opencode.json`:
-
-            { "mcp": { "jcodemunch": { "type": "local",
-                "command": ["jcodemunch-mcp"], "enabled": true } } }
-
-        For Claude Code, `.mcp.json` at the repo root:
-
-            { "mcpServers": { "jcodemunch": { "command": "jcodemunch-mcp" } } }
-
-        Or write it once as an `mcp.jsonc` in an opkg package and let `opkg`
-        emit both. Index a repo once from `/work` and the agent retrieves by
-        symbol rather than reading whole files. Free for personal use, paid for
-        commercial.
 
         ## Pinning
 
