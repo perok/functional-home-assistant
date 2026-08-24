@@ -26,6 +26,10 @@
             readme)
               exec cat /share/doc/${name}/README.md
               ;;
+            jcodemunch-setup)
+              shift
+              exec jcodemunch-mcp init --hooks "$@"
+              ;;
             skills-update)
               shift
               exec skills update "$@"
@@ -54,9 +58,11 @@
                   context7)   argv='["context7-mcp"]' ;;
                   # stdio, not the --client mode: that starts a long-lived HTTP
                   # server on a random port and writes a URL the agent can only
-                  # use while it is up. --workspace is required and absolute so
-                  # the config does not depend on the agent's cwd.
-                  metals)     argv=$(jq -nc --arg w "$PWD" '["metals-mcp","--workspace",$w,"--transport","stdio"]') ;;
+                  # use while it is up. --workspace is required but must stay
+                  # RELATIVE: these files get committed, and the same repo is
+                  # /work in the box and something else on the host — an
+                  # absolute path is only ever right on one side.
+                  metals)     argv='["metals-mcp","--workspace",".","--transport","stdio"]' ;;
                   *) echo "devbox mcp: unknown server '$srv'" >&2; exit 1 ;;
                 esac
 
@@ -78,6 +84,7 @@
               echo "       devbox mcp <server>...             # jcodemunch | metals | context7" >&2
               echo "       devbox skills-update [skills...]   # skills CLI" >&2
               echo "       devbox tools-update                # cs + uv + npm" >&2
+              echo "       devbox jcodemunch-setup [args...]  # jcodemunch-mcp init --hooks" >&2
               exit 1
               ;;
           esac
