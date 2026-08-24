@@ -2,18 +2,15 @@
   description = "agentbox: opencode + claude-code + opkg + jCodeMunch + Coursier/sbt on JDK 25";
 
   inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
-  # TODO add impure and allowUnfree
-  # TODO output readme information on startup, or atleast what script to run to
-  # view it
-  # TODO set in port to access the dasboardApp
-  # TODO sbt not working
-  # TODO install gh and will commit sign?
 
   outputs =
     { self, nixpkgs }:
     let
       system = "x86_64-linux";
-      pkgs = import nixpkgs { inherit system; };
+      pkgs = import nixpkgs {
+        inherit system;
+        config.allowUnfree = true;
+      };
 
       name = "agentbox";
       tag = "latest";
@@ -36,12 +33,20 @@
         ];
         text = ''
           run_as_user() {
+            if [ $# -eq 0 ] || [ "''${1##*/}" = "bash" ]; then
+              echo "agentbox — docs: cat /share/doc/${name}/README.md" >&2
+              echo "dashboard:   http://localhost:8080  (sbt dashboardServe in /work)" >&2
+            fi
+
             mkdir -p "${state}"/{bin,cache,state,uv,npm,npm-cache} \
                      "$HOME"/.config "$HOME"/.local/share "$HOME"/.openpackage "$HOME"/.claude
 
-            if [ ! -x "${state}/bin/sbt" ]; then
-              echo "==> cs install sbt scala scalac scalafmt" >&2
-              cs install --quiet sbt scala scalac scalafmt
+            # sbt itself comes from nixpkgs — the cs-installed one was a shim
+            # into ~/.cache that died with the container; clear stale copies
+            rm -f "${state}/bin/sbt"
+            if [ ! -x "${state}/bin/scalafmt" ]; then
+              echo "==> cs install scala scalac scalafmt" >&2
+              cs install --quiet scala scalac scalafmt
             fi
 
             if [ ! -x "${state}/bin/jcodemunch-mcp" ]; then
@@ -100,14 +105,17 @@
           ripgrep
           fd
           jq
+          gh
           opencode
           claude-code
           nodejs_22 # runtime for opkg
           coursier
+          sbt
           jdk
           uv
           python3 # runtime for jcodemunch-mcp
           su-exec
+          readme
           dockerTools.fakeNss
           dockerTools.caCertificates
         ];
@@ -122,6 +130,10 @@
           touch home/dev/.claude.json
           chmod 1777 tmp
           chmod -R 0777 home/dev work opt/agent
+          # cs/uv/npm-installed launchers use #!/usr/bin/env; the image only
+          # populates /bin
+          mkdir -p usr
+          ln -s /bin usr/bin
         '';
 
         config = {
@@ -166,6 +178,10 @@
             nix run .# -- opencode
             nix run .# -- claude
 
+        Unfree packages (claude-code) are allowed in the flake itself — no env
+        vars or `--impure` needed. The dashboard port 8080 is published;
+        override with `AGENTBOX_PORT=8081`, disable with `AGENTBOX_PORT=`.
+
         The wrapper loads the image into Docker on first use. Requires an
         x86_64-linux builder; on macOS/aarch64 add a linux builder or change
         `system` and confirm `pkgs.opencode` / `pkgs.claude-code` build there.
@@ -181,6 +197,9 @@
         | `~/.openpackage`              | `~/.openpackage`          |
         | `~/.agentbox`                 | `/opt/agent`              |
         | `$PWD`                        | `/work`                   |
+        | `~/.gitconfig`                | `~/.gitconfig` (ro)       |
+        | `~/.ssh`                      | `~/.ssh` (ro)             |
+        | `~/.config/gh`                | `~/.config/gh`            |
 
         Claude Code, opencode and opkg all live in the Nix store or `/opt/agent`
         and are pinned; only their state is shared. Sessions, project history
@@ -220,6 +239,13 @@
         That layer is enforced by Claude Code. The image contents are the real
         boundary — nothing on the host is reachable except the mounts above.
 
+        ## Git & GitHub
+
+        `gh` is in the image; your `~/.config/gh` (auth), `.gitconfig` and
+        `~/.ssh` are mounted, so commits authored inside carry your identity
+        and SSH commit signing works. GPG signing is not wired up — it would
+        need the gpg-agent socket forwarded.
+
         ## OpenPackage
 
         `opkg` manages rules, commands, agents, skills and MCP configs across
@@ -252,11 +278,11 @@
 
         ## Pinning
 
-        nixpkgs is locked, so opencode, claude-code, JDK, Node and Coursier are
-        reproducible — `nix flake update` is the only way they move. The three
-        bootstrapped tools resolve latest; pin by hand if it matters:
+        nixpkgs is locked, so opencode, claude-code, sbt, JDK, Node and
+        Coursier are reproducible — `nix flake update` is the only way they
+        move. The two bootstrapped tool sets resolve latest; pin by hand if it
+        matters:
 
-            cs install sbt:1.11.0
             uv tool install jcodemunch-mcp==1.20.0
             npm install -g opkg@0.11.3
 
@@ -265,6 +291,10 @@
             nix build .#image       # just the tarball
             nix develop             # same toolchain on the host, no container
             AGENTBOX_RELOAD=1 nix run .#   # re-load the image into Docker
+
+        If sbt/zinc throws `NoSuchFileException` on `.semanticdb` files, the
+        shared `target/` holds partial state from an interrupted run —
+        `rm -rf target` and recompile.
       '';
 
       agentbox = pkgs.writeShellApplication {
@@ -282,25 +312,46 @@
           fi
 
           CFG="''${XDG_CONFIG_HOME:-$HOME/.config}/opencode"
+          GH="''${XDG_CONFIG_HOME:-$HOME/.config}/gh"
           DATA="''${XDG_DATA_HOME:-$HOME/.local/share}/opencode"
           OPKG="$HOME/.openpackage"
           STATE="$HOME/.agentbox"
-          mkdir -p "$CFG" "$DATA" "$OPKG" "$STATE" "$HOME/.claude"
+          mkdir -p "$CFG" "$GH" "$DATA" "$OPKG" "$STATE"/{home-cache,home-sbt} "$HOME/.claude"
+
+          MOUNTS=(
+            -v "$HOME/.claude:/home/dev/.claude"
+            -v "$HOME/.claude.json:/home/dev/.claude.json"
+            -v "$CFG:/home/dev/.config/opencode"
+            -v "$DATA:/home/dev/.local/share/opencode"
+            -v "$OPKG:/home/dev/.openpackage"
+            -v "$STATE:/opt/agent"
+            -v "$STATE/home-cache:/home/dev/.cache"
+            -v "$STATE/home-sbt:/home/dev/.sbt"
+            -v "$PWD:/work"
+          )
+          # identity, when present: gh auth persists; git config and ssh keys
+          # read-only so the box can sign/author but not destroy
+          if [ -d "$GH" ]; then MOUNTS+=(-v "$GH:/home/dev/.config/gh"); fi
+          if [ -f "$HOME/.gitconfig" ]; then MOUNTS+=(-v "$HOME/.gitconfig:/home/dev/.gitconfig:ro"); fi
+          if [ -d "$HOME/.ssh" ]; then MOUNTS+=(-v "$HOME/.ssh:/home/dev/.ssh:ro"); fi
 
           # must exist as a file, or docker creates a directory in its place
           [ -f "$HOME/.claude.json" ] || echo '{}' > "$HOME/.claude.json"
+
+          # publish 8080 for the Datastar dashboard; AGENTBOX_PORT remaps it,
+          # AGENTBOX_PORT= (empty) disables publishing
+          case "''${AGENTBOX_PORT-8080}" in
+            "") PORT_ARGS=() ;;
+            *) PORT_ARGS=(-p "''${AGENTBOX_PORT}:8080") ;;
+          esac
 
           exec docker run --rm -it \
             -e HOST_UID="$(id -u)" \
             -e HOST_GID="$(id -g)" \
             -e HOME=/home/dev \
-            -v "$HOME/.claude:/home/dev/.claude" \
-            -v "$HOME/.claude.json:/home/dev/.claude.json" \
-            -v "$CFG:/home/dev/.config/opencode" \
-            -v "$DATA:/home/dev/.local/share/opencode" \
-            -v "$OPKG:/home/dev/.openpackage" \
-            -v "$STATE:/opt/agent" \
-            -v "$PWD:/work" -w /work \
+            "''${PORT_ARGS[@]}" \
+            "''${MOUNTS[@]}" \
+            -w /work \
             "$IMG" "$@"
         '';
       };
