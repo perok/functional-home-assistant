@@ -19,12 +19,25 @@
 
       jdk = pkgs.jdk25_headless;
 
+      devbox = pkgs.writeShellApplication {
+        name = "devbox";
+        text = ''
+          case "''${1:-}" in
+            readme) exec cat /share/doc/${name}/README.md ;;
+            *)
+              echo "usage: devbox readme" >&2
+              exit 1
+              ;;
+          esac
+        '';
+      };
+
       bootstrap = pkgs.writeShellApplication {
         name = "bootstrap";
         text = ''
           run_as_user() {
             if [ $# -eq 0 ] || [ "''${1##*/}" = "bash" ]; then
-              echo "agentbox — docs: cat /share/doc/${name}/README.md" >&2
+              echo "agentbox — docs: devbox readme" >&2
               echo "dashboard:   http://localhost:8080  (sbt dashboardServe in /work)" >&2
             fi
 
@@ -67,7 +80,9 @@
           fi
 
           if [ "$(id -u)" = "0" ]; then
-            echo "warning: running as root — pass HOST_UID/HOST_GID to drop privileges" >&2
+            echo "error: would run as root — start via the agentbox wrapper" >&2
+            echo "(it passes HOST_UID/HOST_GID to map your host identity)" >&2
+            exit 1
           fi
 
           run_as_user "$@"
@@ -103,6 +118,7 @@
           uv
           python3 # runtime for jcodemunch-mcp
           su-exec
+          devbox
           readme
           dockerTools.fakeNss
           dockerTools.caCertificates
@@ -171,7 +187,8 @@
         vars or `--impure` needed. The dashboard port 8080 is published;
         override with `AGENTBOX_PORT=8081`, disable with `AGENTBOX_PORT=`.
 
-        The wrapper loads the image into Docker on first use. Requires an
+        The wrapper loads the image into Docker when the build changes. Inside
+        the box, `devbox readme` shows this document. Requires an
         x86_64-linux builder; on macOS/aarch64 add a linux builder or change
         `system` and confirm `pkgs.opencode` / `pkgs.claude-code` build there.
 
