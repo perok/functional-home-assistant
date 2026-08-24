@@ -340,10 +340,8 @@
 
           # publish 8080 for the Datastar dashboard; AGENTBOX_PORT remaps it,
           # AGENTBOX_PORT= (empty) disables publishing
-          case "''${AGENTBOX_PORT-8080}" in
-            "") PORT_ARGS=() ;;
-            *) PORT_ARGS=(-p "''${AGENTBOX_PORT}:8080") ;;
-          esac
+          PORT="''${AGENTBOX_PORT-8080}"
+          if [ -n "$PORT" ]; then PORT_ARGS=(-p "''${PORT}:8080"); else PORT_ARGS=(); fi
 
           exec docker run --rm -it \
             -e HOST_UID="$(id -u)" \
