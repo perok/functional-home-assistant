@@ -75,10 +75,10 @@ for; stability comes from storing the value, not from what the value is.
 **The flow has TWO addresses, because one cannot serve both halves.** The
 authorize redirect is built from the BROWSER-facing HA URL
 (`browserBase`/`haPublicUrl` — where the user must reach HA to log in), while
-`/auth/token`, `/auth/revoke` and every session refresh are DIALLED at whatever
-`HaOAuth.tokenBase` picks — `SERVER` when that is HA itself, and something else
-when it is the supervisor proxy, which cannot carry `/auth/…` at all (see
-Consequences). Sending the exchange to the browser-facing address instead failed
+`/auth/token`, `/auth/revoke`, every session refresh and the socket that asks HA
+who a token belongs to are DIALLED at whatever `HaOAuth.coreBase` picks —
+`SERVER` when that is HA itself, and something else when it is the supervisor
+proxy, which serves nothing a per-USER credential can use (see Consequences). Sending the exchange to the browser-facing address instead failed
 every production login with a bare 500: a laptop resolves HA's mDNS name, the
 container running this server does not.
 The `client_id` STRING stays the browser-facing base either way — it is what HA
@@ -366,7 +366,7 @@ probing later as an optimisation, not assumed.
   they shared one base, a deployment whose browser-facing address was an mDNS
   name failed EVERY login with a bare 500 — the exchange went where only
   browsers could follow.
-- **Nor is the dialled address the token one.** `SERVER` under the add-on is the
+- **Nor is the dialled address the one a USER's credential goes to.** `SERVER` under the add-on is the
   supervisor proxy, and the supervisor routes only `/core/api/…` and the
   websocket to core — HA's `/auth/…` endpoints are not under `/api/`, so no path
   through the proxy reaches them. An unauthenticated POST there is answered by
@@ -374,12 +374,27 @@ probing later as an optimisation, not assumed.
   ("No API token provided"), which surfaced as *"Home Assistant rejected the
   login code: 401: Unauthorized"* and killed every add-on login; sending the
   SUPERVISOR_TOKEN with it would only have turned that into a 404. So
-  `HaOAuth.tokenBase` ranks its own four sources, by who is dialling:
+  `HaOAuth.coreBase` ranks its own four sources, by who is dialling:
   `FH_HA_TOKEN_URL`, then `SERVER` unless it is the supervisor host, then
   `internal_url`, then `http://homeassistant:8123` — the direct name HA's add-on
   docs give core on the internal network, on the default port. The two chains
   share their sources and rank them differently on purpose: a browser prefers
   what HA calls itself, a container prefers the socket it already holds.
+- **The websocket the proxy DOES carry is no exception**, which cost a second
+  add-on login: fixing the exchange only moved the failure one step on, to
+  *"could not ask Home Assistant who this login belongs to: Wrong msg:
+  auth_invalid(Invalid access)"*. The supervisor's websocket authenticates its
+  client as an ADD-ON — the auth frame it accepts carries `SUPERVISOR_TOKEN`,
+  and the token it forwards to core is its own — so a USER's access token is
+  rejected before core ever sees it. "Invalid access" is the supervisor's
+  wording, not core's ("Invalid access token or password"), which is what
+  placed the failure. The identity socket therefore dials `coreBase` too, and
+  `HaOAuth.coreWs` drops the `SERVER_WS` override when it does: that setting
+  exists to name the proxy's `/core/websocket` path, so carrying it along would
+  send the user token back to the address the chain just routed around. The
+  general rule, and the one to check the next such wiring against: **anything
+  holding somebody else's credential bypasses the supervisor; only the
+  machine-token feed goes through it.**
 - That is resolved **once at startup**, so every visitor gets one answer — which
   is wrong for a remote browser, whose correct target is HA's `external_url`.
   Deferred with the PWA's local-vs-internet work, which is where the per-request
