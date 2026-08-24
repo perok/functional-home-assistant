@@ -301,14 +301,16 @@
         name = name;
         text = ''
           IMG="${name}:${tag}"
+          # the store path identifies the exact build; tagging it lets a plain
+          # inspect decide freshness without touching the 1.5G tarball
+          BUILD_TAG="${name}:build-$(basename "${image}")"
 
           command -v docker >/dev/null || { echo "docker not found on PATH" >&2; exit 1; }
 
-          # AGENTBOX_RELOAD=1 re-loads after the image changed; the tag alone
-          # cannot tell staleness apart
-          if [ "''${AGENTBOX_RELOAD:-0}" = "1" ] || ! docker image inspect "$IMG" >/dev/null 2>&1; then
+          if [ "''${AGENTBOX_RELOAD:-0}" = "1" ] || ! docker image inspect "$BUILD_TAG" >/dev/null 2>&1; then
             echo "==> loading $IMG" >&2
             docker load --input ${image} >&2
+            docker tag "$IMG" "$BUILD_TAG"
           fi
 
           CFG="''${XDG_CONFIG_HOME:-$HOME/.config}/opencode"
