@@ -308,6 +308,11 @@
 
             AGENTBOX_PORT=8081 nix run .#   # dashboard on localhost:8081
 
+        The server inside the box must bind `0.0.0.0`, not `127.0.0.1` —
+        docker forwards a published port to the container's eth0, so a
+        loopback-bound server is unreachable and `-p` looks silently broken.
+        For this repo's dashboard that is `HOST=0.0.0.0` in `.env`.
+
         The wrapper loads the image into Docker when the build changes. Inside
         the box, `devbox readme` shows this document. Requires an
         x86_64-linux builder; on macOS/aarch64 add a linux builder or change
@@ -647,7 +652,12 @@
           # on the host.
           PORT="''${AGENTBOX_PORT:-}"
           if [ -n "$PORT" ]; then
-            PORT_ARGS=(-p "''${PORT}:8080" -e "AGENTBOX_DASHBOARD_URL=http://localhost:''${PORT}")
+            # AGENTBOX_PORT may carry a host-interface prefix
+            # (127.0.0.1:8080), which is not part of the URL.
+            PORT_ARGS=(
+              -p "''${PORT}:8080"
+              -e "AGENTBOX_DASHBOARD_URL=http://localhost:''${PORT##*:}"
+            )
           else
             PORT_ARGS=()
           fi
