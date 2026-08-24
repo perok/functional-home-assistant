@@ -7,8 +7,7 @@
   # view it
   # TODO set in port to access the dasboardApp
   # TODO sbt not working
-  # TODO permissions inside container to run opencode not correct
-  # TODO commit signing?
+  # TODO install gh and will commit sign?
 
   outputs =
     { self, nixpkgs }:
@@ -32,27 +31,52 @@
           git
           cacert
           jdk
+          gnugrep
+          su-exec
         ];
         text = ''
-          mkdir -p "${state}"/{bin,cache,uv,npm,npm-cache} \
-                   "$HOME"/.config "$HOME"/.local/share "$HOME"/.openpackage "$HOME"/.claude
+          run_as_user() {
+            mkdir -p "${state}"/{bin,cache,state,uv,npm,npm-cache} \
+                     "$HOME"/.config "$HOME"/.local/share "$HOME"/.openpackage "$HOME"/.claude
 
-          if [ ! -x "${state}/bin/sbt" ]; then
-            echo "==> cs install sbt scala scalac scalafmt" >&2
-            cs install --quiet sbt scala scalac scalafmt
+            if [ ! -x "${state}/bin/sbt" ]; then
+              echo "==> cs install sbt scala scalac scalafmt" >&2
+              cs install --quiet sbt scala scalac scalafmt
+            fi
+
+            if [ ! -x "${state}/bin/jcodemunch-mcp" ]; then
+              echo "==> uv tool install jcodemunch-mcp" >&2
+              uv tool install jcodemunch-mcp
+            fi
+
+            if [ ! -x "${state}/bin/opkg" ]; then
+              echo "==> npm install -g opkg" >&2
+              npm install -g --silent opkg
+            fi
+
+            exec "$@"
+          }
+
+          # Entrypoint starts as root: register the host uid/gid so tools get a
+          # passwd entry (Node's os.userInfo needs one), take ownership of the
+          # writable state dir, then drop to the host user for everything else.
+          if [ "$(id -u)" = "0" ] && [ -n "''${HOST_UID:-}" ]; then
+            HOST_GID="''${HOST_GID:-$HOST_UID}"
+            grep -qs "^[^:]*:[^:]*:''${HOST_UID}:" /etc/passwd || \
+              echo "dev:x:''${HOST_UID}:''${HOST_GID}::${home}:/bin/bash" >> /etc/passwd
+            grep -qs "^[^:]*:[^:]*:''${HOST_GID}:" /etc/group || \
+              echo "dev:x:''${HOST_GID}:" >> /etc/group
+            mkdir -p "${state}"
+            chown -R "''${HOST_UID}:''${HOST_GID}" "${state}"
+            chown "''${HOST_UID}:''${HOST_GID}" "$HOME"
+            exec su-exec "''${HOST_UID}:''${HOST_GID}" "$0" "$@"
           fi
 
-          if [ ! -x "${state}/bin/jcodemunch-mcp" ]; then
-            echo "==> uv tool install jcodemunch-mcp" >&2
-            uv tool install jcodemunch-mcp
+          if [ "$(id -u)" = "0" ]; then
+            echo "warning: running as root — pass HOST_UID/HOST_GID to drop privileges" >&2
           fi
 
-          if [ ! -x "${state}/bin/opkg" ]; then
-            echo "==> npm install -g opkg" >&2
-            npm install -g --silent opkg
-          fi
-
-          exec "$@"
+          run_as_user "$@"
         '';
       };
 
@@ -83,14 +107,21 @@
           jdk
           uv
           python3 # runtime for jcodemunch-mcp
+          su-exec
           dockerTools.fakeNss
           dockerTools.caCertificates
         ];
 
         extraCommands = ''
-          mkdir -p tmp home/dev work opt/agent
+          mkdir -p tmp work opt/agent \
+                   home/dev/.config/opencode \
+                   home/dev/.local/share/opencode \
+                   home/dev/.local/state \
+                   home/dev/.openpackage \
+                   home/dev/.claude
+          touch home/dev/.claude.json
           chmod 1777 tmp
-          chmod 0777 home/dev work opt/agent
+          chmod -R 0777 home/dev work opt/agent
         '';
 
         config = {
@@ -107,6 +138,10 @@
             "UV_TOOL_BIN_DIR=${state}/bin"
             "NPM_CONFIG_PREFIX=${state}"
             "NPM_CONFIG_CACHE=${state}/npm-cache"
+            # keep tool state/caches in the persistent /opt/agent volume, not
+            # in the container's throwaway home
+            "XDG_STATE_HOME=${state}/state"
+            "XDG_CACHE_HOME=${state}/cache"
             # claude-code comes from the read-only store — never let it self-update
             "DISABLE_AUTOUPDATER=1"
             "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1"
@@ -160,9 +195,15 @@
 
         `sbt`, `scala`, `scalafmt` (Coursier), `jcodemunch-mcp` (uv/PyPI) and
         `opkg` (npm) install into `/opt/agent` on first run — network needed
-        once, then cached.
+        once, then cached. Tool caches and XDG state/cache also live there, so
+        they survive container restarts.
 
         ## Permissions
+
+        Processes run as your host uid/gid: the entrypoint starts as root,
+        registers you in the container's `/etc/passwd`, takes ownership of
+        `/opt/agent`, then drops back via `su-exec`. Files created in `/work`
+        and in the mounts are owned by you on the host — no root-owned strays.
 
         Claude Code's own allow/deny rules go in `.claude/settings.json` in the
         repo (not `settings.local.json`, which "don't ask again" rewrites).
@@ -223,6 +264,7 @@
 
             nix build .#image       # just the tarball
             nix develop             # same toolchain on the host, no container
+            AGENTBOX_RELOAD=1 nix run .#   # re-load the image into Docker
       '';
 
       agentbox = pkgs.writeShellApplication {
@@ -232,7 +274,9 @@
 
           command -v docker >/dev/null || { echo "docker not found on PATH" >&2; exit 1; }
 
-          if ! docker image inspect "$IMG" >/dev/null 2>&1; then
+          # AGENTBOX_RELOAD=1 re-loads after the image changed; the tag alone
+          # cannot tell staleness apart
+          if [ "''${AGENTBOX_RELOAD:-0}" = "1" ] || ! docker image inspect "$IMG" >/dev/null 2>&1; then
             echo "==> loading $IMG" >&2
             docker load --input ${image} >&2
           fi
@@ -247,7 +291,8 @@
           [ -f "$HOME/.claude.json" ] || echo '{}' > "$HOME/.claude.json"
 
           exec docker run --rm -it \
-            --user "$(id -u):$(id -g)" \
+            -e HOST_UID="$(id -u)" \
+            -e HOST_GID="$(id -g)" \
             -e HOME=/home/dev \
             -v "$HOME/.claude:/home/dev/.claude" \
             -v "$HOME/.claude.json:/home/dev/.claude.json" \
