@@ -180,6 +180,7 @@ lazy val `fh-datastar-view` = project
     // run — whose cwd is the module base — always lands on ONE stable,
     // gitignored location regardless of cwd. The add-on sets this itself;
     // ServerApp's optional CLI arg still overrides it.
+    run / envVars ++= (Test / envFromFile).value,
     run / envVars += "DASHBOARDS_DIR" ->
       ((ThisBuild / baseDirectory).value / "dashboard-local-dev-server").toString,
     // Fat jar for the HA add-on image (home-addon/Dockerfile COPYs it from

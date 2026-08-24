@@ -1,8 +1,8 @@
 # scala3-syntax
 
-Authoritative reference for writing valid **modern Scala 3** code under a strict
-compiler profile. The skill is the source of truth for syntax that is current as
-of Scala 3.8.x under `-source:future`, and flags the deprecated / warned forms
+Reference for writing valid **modern Scala 3** code under a strict
+compiler profile. Covers syntax current as of Scala 3.8.x under
+`-source:future`, and flags the deprecated / warned forms
 that older training data still emits.
 
 ## What it covers

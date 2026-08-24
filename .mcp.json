@@ -8,7 +8,20 @@
         "--transport",
         "stdio"
       ],
-      "description": "repowise: codebase intelligence \u2014 docs, graph, git signals, dead code, decisions"
+      "description": "repowise: codebase intelligence — docs, graph, git signals, dead code, decisions"
+    },
+    "jcodemunch": {
+      "command": "jcodemunch-mcp",
+      "args": []
+    },
+    "metals": {
+      "command": "metals-mcp",
+      "args": [
+        "--workspace",
+        ".",
+        "--transport",
+        "stdio"
+      ]
     }
   }
 }
