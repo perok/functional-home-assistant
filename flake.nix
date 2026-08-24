@@ -67,18 +67,40 @@
 
             mkdir -p "${state}"/{bin,cache,state,uv,npm,npm-cache}
 
-            # sbt itself comes from nixpkgs — the cs-installed one was a shim
-            # into ~/.cache that died with the container; clear stale copies
-            rm -f "${state}/bin/sbt"
-            if [ ! -x "${state}/bin/scalafmt" ]; then
-              echo "==> cs install scala scalac scalafmt" >&2
-              cs install --quiet scala scalac scalafmt metals-mcp
-            elif [ ! -x "${state}/bin/metals-mcp" ]; then
-              echo "==> cs install metals-mcp" >&2
-              cs install --quiet metals-mcp
+            # An app that ships a prebuilt binary (sbt, scala, cellar) is
+            # installed as a two-line shim whose line 2 is
+            #   exec "<abs path in the archive cache>" "$@"
+            # That cache is XDG_CACHE_HOME-derived, so a shim written under a
+            # different XDG_CACHE_HOME — or one whose entry got evicted — still
+            # passes -x and fails only when you run it:
+            #   /opt/agent/bin/scala: .../bin/scala: No such file or directory
+            # Both caches live in /opt/agent now, but check the target anyway:
+            # -x alone is not evidence the tool works.
+            # The JVM apps (scalac, scalafmt, metals-mcp) are full bootstrap
+            # scripts instead, hence anchoring to line 2 and to a leading `/` —
+            # matching `exec "$JAVA"` deeper in those would refetch every boot.
+            needs_cs_install() {
+              local bin target
+              bin="${state}/bin/$1"
+              [ -x "$bin" ] || return 0
+              target=$(LC_ALL=C sed -n '2s|^exec "\(/[^"]*\)".*|\1|p' "$bin" 2>/dev/null)
+              [ -n "$target" ] && [ ! -e "$target" ]
+            }
+
+            missing=()
+            for app in sbt scala scalac scalafmt metals-mcp; do
+              if needs_cs_install "$app"; then
+                rm -f "${state}/bin/$app"
+                missing+=("$app")
+              fi
+            done
+            if [ ''${#missing[@]} -gt 0 ]; then
+              echo "==> cs install ''${missing[*]}" >&2
+              cs install --quiet "''${missing[@]}"
             fi
 
-            if [ ! -x "${state}/bin/cellar" ]; then
+            if needs_cs_install cellar; then
+              rm -f "${state}/bin/cellar"
               echo "==> cs install --contrib cellar" >&2
               cs install --quiet --contrib cellar
               # cellar withholds command output behind an unanswered telemetry
@@ -149,8 +171,7 @@
           opencode
           claude-code
           nodejs_24 # runtime for opkg + the skills CLI
-          coursier
-          sbt
+          coursier # installs sbt + the Scala tools into /opt/agent on first run
           jdk
           uv
           python3 # runtime for jcodemunch-mcp
@@ -186,7 +207,10 @@
           WorkingDir = "/work";
           Env = [
             "HOME=${home}"
-            "PATH=${state}/bin:/bin:/usr/bin"
+            # ${jdk}/bin explicitly: the jdk in `contents` does not land a
+            # /bin/java, and sbt's launcher script looks for `java` on PATH
+            # (cs's own launchers would settle for JAVA_HOME)
+            "PATH=${state}/bin:${jdk}/bin:/bin:/usr/bin"
             "JAVA_HOME=${jdk}"
             "COURSIER_BIN_DIR=${state}/bin"
             "COURSIER_CACHE=${state}/cache"
@@ -282,10 +306,11 @@
         readable by anything running in there. Trusted repos only; a container
         is not an exfiltration boundary.
 
-        `scala` and `scalafmt` (Coursier) install into `/opt/agent` on first
-        run — network needed once, then cached; `sbt`, the agents and all
-        other tools come pinned from nixpkgs. Tool caches and XDG state/cache
-        also live in `/opt/agent`, so they survive container restarts.
+        The Scala toolchain — `sbt`, `scala`, `scalac`, `scalafmt` — is
+        Coursier-installed into `/opt/agent` on first run; network needed once,
+        then cached. The agents, the JDK and everything else come pinned from
+        nixpkgs. Tool caches and XDG state/cache also live in `/opt/agent`, so
+        they survive container restarts.
 
         ## Permissions
 
@@ -410,19 +435,20 @@
 
         Two populations, two update paths.
 
-        **Pinned by the flake lock** — opencode, claude-code, **sbt**, the JDK,
-        Node and the Coursier launcher. `nix flake update` is the only way they
-        move. (sbt comes from nixpkgs, currently matching the `sbt.version` in
-        `project/build.properties`; the bootstrap deletes any `cs`-installed
-        `sbt`, because that one is a shim into `~/.cache` that dies with the
-        container.)
+        **Pinned by the flake lock** — opencode, claude-code, the JDK, Node and
+        the Coursier launcher itself. `nix flake update` is the only way they
+        move.
 
-        **Installed once into `/opt/agent`, resolving latest** — `scala`,
+        **Installed once into `/opt/agent`, resolving latest** — `sbt`, `scala`,
         `scalac`, `scalafmt`, `metals-mcp`, `cellar` (Coursier);
         `jcodemunch-mcp` (uv); `opkg`, `skills` (npm). The bootstrap guards on
         the binary existing, so they never move on their own:
 
             devbox tools-update        # cs update + uv tool upgrade + npm update -g
+
+        The `sbt` here is only the launcher; which sbt actually builds your
+        project is `sbt.version` in `project/build.properties`, so the launcher
+        drifting ahead is harmless.
 
         Pin one by hand if it matters:
 
