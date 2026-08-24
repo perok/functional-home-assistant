@@ -21,16 +21,6 @@
 
       bootstrap = pkgs.writeShellApplication {
         name = "bootstrap";
-        runtimeInputs = with pkgs; [
-          coursier
-          uv
-          nodejs_22
-          git
-          cacert
-          jdk
-          gnugrep
-          su-exec
-        ];
         text = ''
           run_as_user() {
             if [ $# -eq 0 ] || [ "''${1##*/}" = "bash" ]; then
@@ -38,8 +28,7 @@
               echo "dashboard:   http://localhost:8080  (sbt dashboardServe in /work)" >&2
             fi
 
-            mkdir -p "${state}"/{bin,cache,state,uv,npm,npm-cache} \
-                     "$HOME"/.config "$HOME"/.local/share "$HOME"/.openpackage "$HOME"/.claude
+            mkdir -p "${state}"/{bin,cache,state,uv,npm,npm-cache}
 
             # sbt itself comes from nixpkgs — the cs-installed one was a shim
             # into ~/.cache that died with the container; clear stale copies
@@ -98,7 +87,6 @@
           findutils
           which
           less
-          cacert
           curl
           git
           openssh
@@ -118,6 +106,7 @@
           readme
           dockerTools.fakeNss
           dockerTools.caCertificates
+          context7-mcp
         ];
 
         extraCommands = ''
@@ -212,10 +201,10 @@
         readable by anything running in there. Trusted repos only; a container
         is not an exfiltration boundary.
 
-        `sbt`, `scala`, `scalafmt` (Coursier), `jcodemunch-mcp` (uv/PyPI) and
-        `opkg` (npm) install into `/opt/agent` on first run — network needed
-        once, then cached. Tool caches and XDG state/cache also live there, so
-        they survive container restarts.
+        `scala` and `scalafmt` (Coursier) install into `/opt/agent` on first
+        run — network needed once, then cached; `sbt`, the agents and all
+        other tools come pinned from nixpkgs. Tool caches and XDG state/cache
+        also live in `/opt/agent`, so they survive container restarts.
 
         ## Permissions
 
@@ -318,7 +307,7 @@
           DATA="''${XDG_DATA_HOME:-$HOME/.local/share}/opencode"
           OPKG="$HOME/.openpackage"
           STATE="$HOME/.agentbox"
-          mkdir -p "$CFG" "$GH" "$DATA" "$OPKG" "$STATE"/{home-cache,home-sbt} "$HOME/.claude"
+          mkdir -p "$CFG" "$DATA" "$OPKG" "$STATE"/{home-cache,home-sbt} "$HOME/.claude"
 
           MOUNTS=(
             -v "$HOME/.claude:/home/dev/.claude"
