@@ -23,9 +23,29 @@
         name = "devbox";
         text = ''
           case "''${1:-}" in
-            readme) exec cat /share/doc/${name}/README.md ;;
+            readme)
+              exec cat /share/doc/${name}/README.md
+              ;;
+            skills-update)
+              shift
+              exec skills update "$@"
+              ;;
+            tools-update)
+              # the bootstrap installs these once and then guards on the binary
+              # existing, so this is the only way they ever move. Everything
+              # else in the box (sbt, the JDK, node, the agents) is pinned by
+              # the flake and moves with `nix flake update`.
+              echo "==> cs update" >&2
+              cs update
+              echo "==> uv tool upgrade --all" >&2
+              uv tool upgrade --all
+              echo "==> npm update -g" >&2
+              npm update -g
+              ;;
             *)
               echo "usage: devbox readme" >&2
+              echo "       devbox skills-update [skills...]   # skills CLI" >&2
+              echo "       devbox tools-update                # cs + uv + npm" >&2
               exit 1
               ;;
           esac
@@ -38,7 +58,11 @@
           run_as_user() {
             if [ $# -eq 0 ] || [ "''${1##*/}" = "bash" ]; then
               echo "agentbox — docs: devbox readme" >&2
-              echo "dashboard:   http://localhost:8080  (sbt dashboardServe in /work)" >&2
+              if [ -n "''${AGENTBOX_DASHBOARD_URL:-}" ]; then
+                echo "dashboard:   ''${AGENTBOX_DASHBOARD_URL}  (sbt dashboardServe in /work)" >&2
+              else
+                echo "dashboard:   no port published — restart with AGENTBOX_PORT=8080" >&2
+              fi
             fi
 
             mkdir -p "${state}"/{bin,cache,state,uv,npm,npm-cache}
@@ -48,7 +72,19 @@
             rm -f "${state}/bin/sbt"
             if [ ! -x "${state}/bin/scalafmt" ]; then
               echo "==> cs install scala scalac scalafmt" >&2
-              cs install --quiet scala scalac scalafmt
+              cs install --quiet scala scalac scalafmt metals-mcp
+            elif [ ! -x "${state}/bin/metals-mcp" ]; then
+              echo "==> cs install metals-mcp" >&2
+              cs install --quiet metals-mcp
+            fi
+
+            if [ ! -x "${state}/bin/cellar" ]; then
+              echo "==> cs install --contrib cellar" >&2
+              cs install --quiet --contrib cellar
+              # cellar withholds command output behind an unanswered telemetry
+              # consent prompt whenever stdout is piped — i.e. under every
+              # agent. Opt out before first use.
+              cellar telemetry disable --global >/dev/null 2>&1 || true
             fi
 
             if [ ! -x "${state}/bin/jcodemunch-mcp" ]; then
@@ -61,27 +97,28 @@
               npm install -g --silent opkg
             fi
 
+            if [ ! -x "${state}/bin/skills" ]; then
+              echo "==> npm install -g skills" >&2
+              npm install -g --silent skills
+            fi
+
+            # --copy, not symlink: canonical store must survive restarts, and
+            # the skills CLI's own agent paths move around between versions —
+            # guard on the stable claude-code one
+            if [ ! -e "$HOME/.claude/skills/cellar" ]; then
+              echo "==> skills add VirtusLab/cellar (claude-code + opencode)" >&2
+              skills add VirtusLab/cellar --skill cellar --copy -g -a claude-code -a opencode -y
+            fi
+
             exec "$@"
           }
 
-          # Entrypoint starts as root: register the host uid/gid so tools get a
-          # passwd entry (Node's os.userInfo needs one), take ownership of the
-          # writable state dir, then drop to the host user for everything else.
-          if [ "$(id -u)" = "0" ] && [ -n "''${HOST_UID:-}" ]; then
-            HOST_GID="''${HOST_GID:-$HOST_UID}"
-            grep -qs "^[^:]*:[^:]*:''${HOST_UID}:" /etc/passwd || \
-              echo "dev:x:''${HOST_UID}:''${HOST_GID}::${home}:/bin/bash" >> /etc/passwd
-            grep -qs "^[^:]*:[^:]*:''${HOST_GID}:" /etc/group || \
-              echo "dev:x:''${HOST_GID}:" >> /etc/group
-            mkdir -p "${state}"
-            chown -R "''${HOST_UID}:''${HOST_GID}" "${state}"
-            chown "''${HOST_UID}:''${HOST_GID}" "$HOME"
-            exec su-exec "''${HOST_UID}:''${HOST_GID}" "$0" "$@"
-          fi
-
+          # The wrapper starts us with --user, so there is no root phase to drop
+          # out of. A bare `docker run` would land here as root and litter the
+          # mounts with root-owned files.
           if [ "$(id -u)" = "0" ]; then
             echo "error: would run as root — start via the agentbox wrapper" >&2
-            echo "(it passes HOST_UID/HOST_GID to map your host identity)" >&2
+            echo "(it passes --user and the matching /etc/passwd entry)" >&2
             exit 1
           fi
 
@@ -111,13 +148,15 @@
           gh
           opencode
           claude-code
-          nodejs_22 # runtime for opkg
+          nodejs_24 # runtime for opkg + the skills CLI
           coursier
           sbt
           jdk
           uv
           python3 # runtime for jcodemunch-mcp
-          su-exec
+          # /lib64 loader for non-nix binaries (cs-installed native tools like
+          # cellar expect /lib64/ld-linux-x86-64.so.2)
+          glibc
           devbox
           readme
           dockerTools.fakeNss
@@ -159,9 +198,20 @@
             # in the container's throwaway home
             "XDG_STATE_HOME=${state}/state"
             "XDG_CACHE_HOME=${state}/cache"
-            # claude-code comes from the read-only store — never let it self-update
+            # claude-code comes from the read-only store — never let it
+            # self-update. Belt and braces: nixpkgs' own wrapper --sets this
+            # too, so it stays right even if this line is lost.
             "DISABLE_AUTOUPDATER=1"
-            "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1"
+            # NOT CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC / DISABLE_TELEMETRY /
+            # DO_NOT_TRACK: any of the three turns off feature-flag evaluation,
+            # which takes Remote Control and the /usage panel down with it
+            # ("Failed to load usage data"). These two are the narrow knobs that
+            # don't touch it.
+            "DISABLE_ERROR_REPORTING=1"
+            "DISABLE_BUG_COMMAND=1"
+            # nix glibc's loader only searches the store by default; cs-installed
+            # native binaries (cellar) need this to find their extra libs
+            "LD_LIBRARY_PATH=${pkgs.zlib}/lib"
             "SSL_CERT_FILE=/etc/ssl/certs/ca-bundle.crt"
             "TERM=xterm-256color"
             "LANG=C.UTF-8"
@@ -182,10 +232,18 @@
             nix run .#                 # bash in the container, cwd as /work
             nix run .# -- opencode
             nix run .# -- claude
+            # inside the box:
+            devbox readme              # this document
+            devbox skills-update       # update installed agent skills
+            devbox tools-update        # update the cs / uv / npm tools
 
         Unfree packages (claude-code) are allowed in the flake itself — no env
-        vars or `--impure` needed. The dashboard port 8080 is published;
-        override with `AGENTBOX_PORT=8081`, disable with `AGENTBOX_PORT=`.
+        vars or `--impure` needed.
+
+        Nothing is published to the host by default. `AGENTBOX_PORT=8080`
+        exposes the Datastar dashboard, any other value remaps it:
+
+            AGENTBOX_PORT=8081 nix run .#   # dashboard on localhost:8081
 
         The wrapper loads the image into Docker when the build changes. Inside
         the box, `devbox readme` shows this document. Requires an
@@ -204,8 +262,14 @@
         | `~/.agentbox`                 | `/opt/agent`              |
         | `$PWD`                        | `/work`                   |
         | `~/.gitconfig`                | `~/.gitconfig` (ro)       |
-        | `~/.ssh`                      | `~/.ssh` (ro)             |
-        | `~/.config/gh`                | `~/.config/gh`            |
+
+        Opt-in only (see Git & GitHub):
+
+        | Host                          | Container                 | Enabled by         |
+        |-------------------------------|---------------------------|--------------------|
+        | `$SSH_AUTH_SOCK`              | `/run/ssh-agent.sock`     | `AGENTBOX_SSH=agent` |
+        | `~/.ssh`                      | `~/.ssh` (ro)             | `AGENTBOX_SSH=keys`  |
+        | `gh auth token`               | `$GH_TOKEN` (env, no mount) | `AGENTBOX_GH=1`    |
 
         Claude Code, opencode and opkg all live in the Nix store or `/opt/agent`
         and are pinned; only their state is shared. Sessions, project history
@@ -225,10 +289,12 @@
 
         ## Permissions
 
-        Processes run as your host uid/gid: the entrypoint starts as root,
-        registers you in the container's `/etc/passwd`, takes ownership of
-        `/opt/agent`, then drops back via `su-exec`. Files created in `/work`
-        and in the mounts are owned by you on the host — no root-owned strays.
+        Nothing in the box ever runs as root. The wrapper passes
+        `--user $(id -u):$(id -g)` plus `--security-opt no-new-privileges`, and
+        mounts a generated `/etc/passwd` naming that uid `dev` (docker's
+        `--user` adds no NSS entry of its own, and a uid without one makes
+        Node's `os.userInfo()` throw). Files created in `/work` and in the
+        mounts are owned by you on the host — no root-owned strays.
 
         Claude Code's own allow/deny rules go in `.claude/settings.json` in the
         repo (not `settings.local.json`, which "don't ask again" rewrites).
@@ -247,10 +313,68 @@
 
         ## Git & GitHub
 
-        `gh` is in the image; your `~/.config/gh` (auth), `.gitconfig` and
-        `~/.ssh` are mounted, so commits authored inside carry your identity
-        and SSH commit signing works. GPG signing is not wired up — it would
-        need the gpg-agent socket forwarded.
+        `git` and `gh` are in the image and `.gitconfig` is mounted read-only,
+        so commits authored inside carry your identity. **Credentials are not
+        mounted unless you ask for them** — by default the box can commit but
+        cannot push, clone a private repo, or touch the GitHub API.
+
+            AGENTBOX_SSH=agent nix run .#    # forward the host ssh-agent socket
+            AGENTBOX_SSH=keys  nix run .#    # bind-mount ~/.ssh read-only
+            AGENTBOX_GH=1      nix run .#    # pass `gh auth token` as GH_TOKEN
+
+        Prefer `agent`. The socket lets the box ASK your agent to sign, so the
+        private keys themselves never enter it — a compromised box can use the
+        key while it runs, but cannot keep it afterwards. `keys` puts the key
+        material inside, and is only needed for a passphrase-less key with no
+        agent running, or when something reads `~/.ssh/config`.
+
+        `AGENTBOX_GH=1` passes a token rather than mounting `~/.config/gh`, for
+        two reasons: a mounted config dir is the box's to rewrite (it can change
+        which account your *host* `gh` authenticates as), and on a home-manager
+        host `config.yml` is a `/nix/store` symlink that dangles inside the
+        container, so `gh` fails outright with *"failed to write config after
+        migration"*. The token still carries every scope your `gh` login has —
+        for narrow, separately revocable access, export `GH_TOKEN` yourself from
+        a fine-grained PAT and leave `AGENTBOX_GH` unset:
+
+            GH_TOKEN=github_pat_… nix run .#
+
+        GPG signing is not wired up. With gpg-agent providing ssh (a common
+        setup), `AGENTBOX_SSH=agent` already forwards that socket, so SSH
+        commit signing works; `gpg.format = openpgp` does not.
+
+        ## Agent skills
+
+        The [skills CLI](https://skills.sh) manages agent skills for both
+        claude-code and opencode; installs land in your real `~/.claude/skills`
+        and `~/.config/opencode/skills`:
+
+            skills add <owner/repo> -a claude-code -a opencode
+            devbox skills-update       # = skills update
+
+        Cellar's skill is preinstalled for both agents, so they know when to
+        reach for it.
+
+        ## Scala API lookups
+
+        Two complements are installed:
+
+        - **cellar** — type signatures, members and docs for any Maven
+          artifact straight from the terminal (no server needed):
+
+              cellar get-external org.typelevel:cats-core_3:latest cats.Monad
+
+          Telemetry is opted out during bootstrap — its consent prompt would
+          otherwise withhold output from piped/agent invocations.
+        - **metals-mcp** — Metals' standalone MCP server. Enable per project:
+
+              metals-mcp --workspace . --client claude   # writes .mcp.json
+
+          or wire stdio into opencode's config:
+
+              { "mcp": { "metals": { "type": "local",
+                  "command": ["metals-mcp", "--transport", "stdio"],
+                  "enabled": true } } }
 
         ## OpenPackage
 
@@ -284,10 +408,23 @@
 
         ## Pinning
 
-        nixpkgs is locked, so opencode, claude-code, sbt, JDK, Node and
-        Coursier are reproducible — `nix flake update` is the only way they
-        move. The two bootstrapped tool sets resolve latest; pin by hand if it
-        matters:
+        Two populations, two update paths.
+
+        **Pinned by the flake lock** — opencode, claude-code, **sbt**, the JDK,
+        Node and the Coursier launcher. `nix flake update` is the only way they
+        move. (sbt comes from nixpkgs, currently matching the `sbt.version` in
+        `project/build.properties`; the bootstrap deletes any `cs`-installed
+        `sbt`, because that one is a shim into `~/.cache` that dies with the
+        container.)
+
+        **Installed once into `/opt/agent`, resolving latest** — `scala`,
+        `scalac`, `scalafmt`, `metals-mcp`, `cellar` (Coursier);
+        `jcodemunch-mcp` (uv); `opkg`, `skills` (npm). The bootstrap guards on
+        the binary existing, so they never move on their own:
+
+            devbox tools-update        # cs update + uv tool upgrade + npm update -g
+
+        Pin one by hand if it matters:
 
             uv tool install jcodemunch-mcp==1.20.0
             npm install -g opkg@0.11.3
@@ -320,13 +457,30 @@
           fi
 
           CFG="''${XDG_CONFIG_HOME:-$HOME/.config}/opencode"
-          GH="''${XDG_CONFIG_HOME:-$HOME/.config}/gh"
           DATA="''${XDG_DATA_HOME:-$HOME/.local/share}/opencode"
           OPKG="$HOME/.openpackage"
           STATE="$HOME/.agentbox"
-          mkdir -p "$CFG" "$DATA" "$OPKG" "$STATE"/{home-cache,home-sbt} "$HOME/.claude"
+          mkdir -p "$CFG" "$DATA" "$OPKG" "$STATE"/{home-cache,home-sbt,home-agents,nss} "$HOME/.claude"
+
+          # Everything runs as your host uid via --user, which docker maps
+          # without adding an NSS entry for it — and a uid with no passwd entry
+          # makes Node's os.userInfo() throw ENOENT. Supply the entry from here
+          # (superset of the image's fakeNss files) rather than having an
+          # entrypoint mutate /etc/passwd as root.
+          {
+            echo "root:x:0:0:root user:/var/empty:/bin/sh"
+            echo "nobody:x:65534:65534:nobody:/var/empty:/bin/sh"
+            echo "dev:x:$(id -u):$(id -g)::${home}:/bin/bash"
+          } > "$STATE/nss/passwd"
+          {
+            echo "root:x:0:"
+            echo "nobody:x:65534:"
+            echo "dev:x:$(id -g):"
+          } > "$STATE/nss/group"
 
           MOUNTS=(
+            -v "$STATE/nss/passwd:/etc/passwd:ro"
+            -v "$STATE/nss/group:/etc/group:ro"
             -v "$HOME/.claude:/home/dev/.claude"
             -v "$HOME/.claude.json:/home/dev/.claude.json"
             -v "$CFG:/home/dev/.config/opencode"
@@ -335,26 +489,79 @@
             -v "$STATE:/opt/agent"
             -v "$STATE/home-cache:/home/dev/.cache"
             -v "$STATE/home-sbt:/home/dev/.sbt"
+            -v "$STATE/home-agents:/home/dev/.agents"
             -v "$PWD:/work"
           )
-          # identity, when present: gh auth persists; git config and ssh keys
-          # read-only so the box can sign/author but not destroy
-          if [ -d "$GH" ]; then MOUNTS+=(-v "$GH:/home/dev/.config/gh"); fi
+          # .gitconfig carries no secret and authorship would be wrong without
+          # it, so it is the one identity file mounted unconditionally.
           if [ -f "$HOME/.gitconfig" ]; then MOUNTS+=(-v "$HOME/.gitconfig:/home/dev/.gitconfig:ro"); fi
-          if [ -d "$HOME/.ssh" ]; then MOUNTS+=(-v "$HOME/.ssh:/home/dev/.ssh:ro"); fi
+
+          # Git/GitHub credentials are OPT-IN — the box is a containment
+          # boundary, and anything running in it can read every mount.
+          #   AGENTBOX_SSH=agent  forward the host ssh-agent socket. Preferred:
+          #                       the box can ASK the agent to sign, but the
+          #                       private keys never enter it.
+          #   AGENTBOX_SSH=keys   bind-mount ~/.ssh read-only (keys ARE in the
+          #                       box; only needed for a passphrase-less key
+          #                       with no agent, or for ~/.ssh/config).
+          #   AGENTBOX_GH=1       pass `gh auth token` in as GH_TOKEN. Not a
+          #                       mount: ~/.config/gh is the box's to REWRITE if
+          #                       mounted, and on a home-manager host its
+          #                       config.yml is a /nix/store symlink that dangles
+          #                       inside the container ("failed to write config
+          #                       after migration"). The token still carries your
+          #                       full scopes — see the README for the narrower
+          #                       fine-grained-PAT route.
+          case "''${AGENTBOX_SSH:-}" in
+            agent)
+              if [ -z "''${SSH_AUTH_SOCK:-}" ] || [ ! -S "$SSH_AUTH_SOCK" ]; then
+                echo "AGENTBOX_SSH=agent but no usable SSH_AUTH_SOCK on the host" >&2
+                exit 1
+              fi
+              MOUNTS+=(-v "$SSH_AUTH_SOCK:/run/ssh-agent.sock" -e SSH_AUTH_SOCK=/run/ssh-agent.sock)
+              ;;
+            keys)
+              if [ ! -d "$HOME/.ssh" ]; then echo "AGENTBOX_SSH=keys but ~/.ssh does not exist" >&2; exit 1; fi
+              MOUNTS+=(-v "$HOME/.ssh:/home/dev/.ssh:ro")
+              ;;
+            "") ;;
+            *) echo "AGENTBOX_SSH must be 'agent', 'keys' or unset" >&2; exit 1 ;;
+          esac
+
+          if [ "''${AGENTBOX_GH:-0}" = "1" ]; then
+            if ! GH_TOKEN="$(gh auth token 2>/dev/null)" || [ -z "$GH_TOKEN" ]; then
+              echo "AGENTBOX_GH=1 but 'gh auth token' returned nothing — run 'gh auth login' first" >&2
+              exit 1
+            fi
+          fi
+          # also forwards a GH_TOKEN you exported yourself (e.g. a fine-grained
+          # PAT), which is the narrower way in
+          if [ -n "''${GH_TOKEN:-}" ]; then MOUNTS+=(-e "GH_TOKEN=$GH_TOKEN"); fi
 
           # must exist as a file, or docker creates a directory in its place
           [ -f "$HOME/.claude.json" ] || echo '{}' > "$HOME/.claude.json"
 
-          # publish 8080 for the Datastar dashboard; AGENTBOX_PORT remaps it,
-          # AGENTBOX_PORT= (empty) disables publishing
-          PORT="''${AGENTBOX_PORT-8080}"
-          if [ -n "$PORT" ]; then PORT_ARGS=(-p "''${PORT}:8080"); else PORT_ARGS=(); fi
+          # Publishing is OPT-IN: AGENTBOX_PORT=8080 exposes the Datastar
+          # dashboard, any other value remaps it. Nothing is published by
+          # default, so a box never collides with a dashboard already running
+          # on the host.
+          PORT="''${AGENTBOX_PORT:-}"
+          if [ -n "$PORT" ]; then
+            PORT_ARGS=(-p "''${PORT}:8080" -e "AGENTBOX_DASHBOARD_URL=http://localhost:''${PORT}")
+          else
+            PORT_ARGS=()
+          fi
 
-          exec docker run --rm -it \
-            -e HOST_UID="$(id -u)" \
-            -e HOST_GID="$(id -g)" \
-            -e HOME=/home/dev \
+          # -t only with a real tty, so `agentbox claude -p …` still works in a
+          # pipe or from CI ("the input device is not a TTY")
+          if [ -t 0 ] && [ -t 1 ]; then TTY_ARGS=(-it); else TTY_ARGS=(-i); fi
+
+          # --init so orphaned MCP/ripgrep children get reaped when the command
+          # is `claude` (i.e. PID 1) rather than an interactive bash
+          exec docker run --rm --init \
+            "''${TTY_ARGS[@]}" \
+            --user "$(id -u):$(id -g)" \
+            --security-opt no-new-privileges \
             "''${PORT_ARGS[@]}" \
             "''${MOUNTS[@]}" \
             -w /work \
@@ -385,9 +592,11 @@
           opencode
           claude-code
           coursier
+          sbt
           jdk
           uv
-          nodejs_22
+          nodejs_24
+          python3
           git
         ];
       };
