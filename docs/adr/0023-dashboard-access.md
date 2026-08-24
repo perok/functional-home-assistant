@@ -185,6 +185,27 @@ That lives on `handleStream`, which the two SSE routes call instead of
 `handleRequirement`. The route knows it is returning a stream; the gate would
 have had to guess from the path, and did.
 
+**What is watched follows the carrier that admitted the request.** The session
+store is what a logout empties, so a COOKIE session is the only admission this
+server can withdraw. Ingress and bearer requests hold their own credential and
+are re-authenticated from scratch on every request; they are in no session, and
+watching the store for one asks a map that will never hold them. That is not a
+harmless extra check — `permits(None)` is false on the very FIRST element
+(`SignallingRef.discrete` emits the current value), so the stream said goodbye
+with `_reload` the moment it opened and the page came back to be told the same
+thing. Behind ingress that was an endless reload loop on a dashboard the user
+could see perfectly well.
+
+So a non-cookie stream watches nothing. Nothing, specifically, means a stream
+that never speaks and never ENDS: `Server.untilRevoked` halts on either side,
+so an empty stream would cut the connection exactly like a revocation. Ingress
+is asked first, for the same reason `AuthGate.of` prefers it — it is what
+admitted the request, so a stale cookie beside it has no say in whether the
+stream lives.
+
+Withdrawing an ingress user's access is therefore HA's job, which is where it
+belongs: remove them there and the next request resolves to nobody.
+
 **An action may only touch an entity its own dashboard names.** The access rule
 says WHO may use a dashboard; this says WHAT that lets them do, and without it
 the two come apart badly — the action route forwards whatever `entity_id` is in
