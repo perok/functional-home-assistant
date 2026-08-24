@@ -209,6 +209,7 @@
           curl
           git
           openssh
+          gnupg # gpg + gpgconf for signed commits (AGENTBOX_GPG=agent)
           ripgrep
           fd
           jq
@@ -360,6 +361,9 @@
         | `~/.config/opencode`          | `~/.config/opencode`      |
         | `~/.local/share/opencode`     | `~/.local/share/opencode` |
         | `~/.agentbox`                 | `/opt/agent`              |
+        | `~/.agentbox/home-cache`      | `~/.cache`                |
+        | `~/.agentbox/home-sbt`        | `~/.sbt`                  |
+        | `~/.agentbox/home-agents`     | `~/.agents`               |
         | `$PWD`                        | `/work`                   |
         | `~/.gitconfig`                | `~/.gitconfig` (ro)       |
 
@@ -370,6 +374,14 @@
         | `$SSH_AUTH_SOCK`              | `/run/ssh-agent.sock`     | `AGENTBOX_SSH=agent` |
         | `~/.ssh`                      | `~/.ssh` (ro)             | `AGENTBOX_SSH=keys`  |
         | `gh auth token`               | `$GH_TOKEN` (env, no mount) | `AGENTBOX_GH=1`    |
+
+        Signing is the exception to opt-in — if your git config asks for it, the
+        gpg mounts are on by default and the box will not start without them:
+
+        | Host                          | Container                 | Enabled by         |
+        |-------------------------------|---------------------------|--------------------|
+        | gpg-agent's *extra* socket    | `~/.gnupg/S.gpg-agent`    | `commit.gpgsign`   |
+        | `pubring.kbx`, `trustdb.gpg`  | `~/.gnupg` (copy, public half) | `commit.gpgsign` |
 
         Claude Code and opencode both live in the Nix store or `/opt/agent`
         and are pinned; only their state is shared. Sessions, project history
@@ -440,6 +452,13 @@
         - **`AGENTBOX_GH=1` puts a token in the container environment**, visible
           to `docker inspect` — i.e. to anything that can reach the docker
           daemon, which is already root-equivalent on the host.
+        - **The forwarded gpg socket lets the box sign anything, for as long as
+          it runs** — a commit you did not write, a mail, a release tarball.
+          Accepted deliberately, and unlike the other rows it is on by default,
+          because unsigned commits were judged the worse outcome. It is the
+          *extra* socket precisely to bound it: use ends when the container
+          does, because the key itself never went in. `AGENTBOX_GPG=off` opts
+          out.
 
         The box is a boundary against *accidents and reach*, not against a
         determined attacker who already has code running inside it. Trusted
@@ -473,9 +492,34 @@
 
             GH_TOKEN=github_pat_… nix run .#
 
-        GPG signing is not wired up. With gpg-agent providing ssh (a common
-        setup), `AGENTBOX_SSH=agent` already forwards that socket, so SSH
-        commit signing works; `gpg.format = openpgp` does not.
+        ### Signed commits
+
+        **This one is not opt-in.** If `git config commit.gpgsign` is true, the
+        box signs — and if it cannot, it refuses to start. The alternative was a
+        box that quietly produces unsigned commits, and an unsigned commit that
+        looks fine in the log is a worse outcome than a startup error.
+
+            nix run .#                      # signs, because your git config says so
+            AGENTBOX_GPG=agent nix run .#   # force it on regardless of git config
+            AGENTBOX_GPG=off   nix run .#   # deliberately unsigned; warns on the way in
+
+        Signing is a different subsystem from ssh auth, and the difference bites
+        if gpg-agent is also your ssh agent: `AGENTBOX_SSH=agent` forwards
+        `S.gpg-agent.ssh`, which speaks only the ssh-agent protocol. It
+        authenticates `git push`; it cannot produce an OpenPGP signature.
+
+        What gets forwarded is `S.gpg-agent.extra` — the socket gnupg provides
+        for handing an agent to a machine you trust less. It serves a restricted
+        command set, so the box can ask for a signature but
+        `gpg --export-secret-keys` is refused by the agent. Only the public half
+        of your keyring (`pubring.kbx`, `trustdb.gpg`) goes in, as a *copy* under
+        `~/.agentbox/gnupg`, so the box cannot alter your real `~/.gnupg` either.
+        A copy rather than a read-only mount because gpg needs a writable home
+        for its lockfiles and random seed.
+
+        One surprise worth knowing: `gpg -K` may list nothing over a restricted
+        socket while signing works fine. The agent refuses the key *listing*,
+        not the signing — so test with `gpg --clearsign`, not `gpg -K`.
 
         ## Agent skills
 
@@ -567,7 +611,7 @@
           CFG="''${XDG_CONFIG_HOME:-$HOME/.config}/opencode"
           DATA="''${XDG_DATA_HOME:-$HOME/.local/share}/opencode"
           STATE="$HOME/.agentbox"
-          mkdir -p "$CFG" "$DATA" "$STATE"/{home-cache,home-sbt,home-agents,nss} "$HOME/.claude"
+          mkdir -p "$CFG" "$DATA" "$STATE"/{home-cache,home-sbt,home-agents,nss,gnupg} "$HOME/.claude"
 
           # Everything runs as your host uid via --user, which docker maps
           # without adding an NSS entry for it — and a uid with no passwd entry
@@ -632,6 +676,9 @@
           #                       after migration"). The token still carries your
           #                       full scopes — see the README for the narrower
           #                       fine-grained-PAT route.
+          #   AGENTBOX_GPG=agent  forward gpg-agent's EXTRA socket for signed
+          #                       commits. Same trade as SSH=agent: the box can
+          #                       ask for a signature, never holds the key.
           case "''${AGENTBOX_SSH:-}" in
             agent)
               if [ -z "''${SSH_AUTH_SOCK:-}" ] || [ ! -S "$SSH_AUTH_SOCK" ]; then
@@ -646,6 +693,93 @@
               ;;
             "") ;;
             *) echo "AGENTBOX_SSH must be 'agent', 'keys' or unset" >&2; exit 1 ;;
+          esac
+
+          # Commit SIGNING is a different subsystem from ssh auth: with
+          # gpg.format unset git shells out to gpg, which needs an agent socket
+          # — AGENTBOX_SSH=agent forwards S.gpg-agent.ssh, which speaks only the
+          # ssh-agent protocol and cannot produce an OpenPGP signature.
+          # The EXTRA socket is the one gnupg documents for handing an agent to
+          # a less-trusted machine: restricted command set, cannot export secret
+          # keys. That is the whole reason it is this socket and not S.gpg-agent.
+          # NOT opt-in, unlike the credential mounts above. A box that cannot
+          # sign is not a usable box here: `commit.gpgsign` is on, so the choice
+          # is between signing and a silent downgrade to unsigned commits, and
+          # an unsigned commit that LOOKS fine is the worse failure. So the
+          # default follows your git config, and a box that is asked to sign but
+          # cannot refuses to start rather than discovering it at commit time.
+          #   unset / auto  sign iff `git config commit.gpgsign` is true
+          #   agent         always forward; error if the socket is unusable
+          #   off           explicit, loud opt-out — unsigned commits
+          GPG_MODE="''${AGENTBOX_GPG:-auto}"
+          if [ "$GPG_MODE" = "auto" ]; then
+            if [ "$(git config --get commit.gpgsign 2>/dev/null || true)" = "true" ]; then
+              GPG_MODE=agent
+            else
+              GPG_MODE=off
+            fi
+          fi
+
+          case "$GPG_MODE" in
+            agent)
+              GPG_SOCK="$(gpgconf --list-dirs agent-extra-socket 2>/dev/null || true)"
+              if [ -z "$GPG_SOCK" ] || [ ! -S "$GPG_SOCK" ]; then
+                echo "agentbox: commits must be signed, but the host gpg-agent extra socket is not available." >&2
+                echo "  expected: ''${GPG_SOCK:-<gpgconf returned nothing>}" >&2
+                echo "  fix:      gpgconf --launch gpg-agent" >&2
+                echo "  or:       AGENTBOX_GPG=off nix run .#   (unsigned commits, deliberately)" >&2
+                exit 1
+              fi
+              if [ ! -f "$HOME/.gnupg/pubring.kbx" ]; then
+                echo "agentbox: commits must be signed, but ~/.gnupg/pubring.kbx does not exist —" >&2
+                echo "there is no public keyring to give the box. Check 'gpg --list-keys'." >&2
+                exit 1
+              fi
+              # The public half is COPIED, not mounted read-only: gpg wants a
+              # writable GNUPGHOME for its lockfiles and random seed, and the
+              # host dir is not up for that — it holds private-keys-v1.d.
+              # Refreshed every start so a newly created key shows up.
+              for f in pubring.kbx trustdb.gpg; do
+                if [ -f "$HOME/.gnupg/$f" ]; then
+                  install -m 600 "$HOME/.gnupg/$f" "$STATE/gnupg/$f"
+                fi
+              done
+              chmod 700 "$STATE/gnupg"
+              # With the socket mounted gpg just connects. Without it, gpg would
+              # START a local agent that has no keys and no pinentry and then
+              # hang; no-autostart turns that into an immediate, readable error.
+              echo "no-autostart" > "$STATE/gnupg/gpg.conf"
+              # gpg picks /run/user/$UID/gnupg for its socket dir only when that
+              # exists; it does not in the container, so the socket goes at
+              # $GNUPGHOME/S.gpg-agent and no /run/user needs creating.
+              MOUNTS+=(
+                -v "$STATE/gnupg:/home/dev/.gnupg"
+                -v "$GPG_SOCK:/home/dev/.gnupg/S.gpg-agent"
+                -e GNUPGHOME=/home/dev/.gnupg
+              )
+              # A restricted connection cannot tell the agent which tty to
+              # prompt on, so a pinentry would surface wherever the agent last
+              # learned. Point it at this terminal while we still have one.
+              gpg-connect-agent updatestartuptty /bye >/dev/null 2>&1 || true
+              ;;
+            off)
+              # Only reachable by asking for it, or by a git config that does
+              # not want signing in the first place. Say so on the way in: an
+              # unsigned commit is not something to discover later from the log.
+              if [ -n "''${AGENTBOX_GPG:-}" ]; then
+                echo "agentbox: AGENTBOX_GPG=off — commits from this box will be UNSIGNED" >&2
+              fi
+              # git's config ENVIRONMENT outranks every config file, so this
+              # settles signing without the box being able to rewrite the
+              # read-only ~/.gitconfig mount. Claims GIT_CONFIG_COUNT wholesale:
+              # a GIT_CONFIG_* you exported yourself is overridden here.
+              MOUNTS+=(
+                -e GIT_CONFIG_COUNT=1
+                -e GIT_CONFIG_KEY_0=commit.gpgsign
+                -e GIT_CONFIG_VALUE_0=false
+              )
+              ;;
+            *) echo "AGENTBOX_GPG must be 'agent', 'off', 'auto' or unset" >&2; exit 1 ;;
           esac
 
           if [ "''${AGENTBOX_GH:-0}" = "1" ]; then
