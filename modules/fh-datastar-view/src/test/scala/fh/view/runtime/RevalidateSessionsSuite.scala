@@ -3,6 +3,7 @@ package fh.view.runtime
 import api.homeassistant.ws.domain.HaUser
 import cats.effect.IO
 import cats.effect.Ref
+import fh.view.FHError
 import fh.view.auth.{AuthRoutes, AuthSessions, HaOAuth, SessionStore}
 import fh.view.testkit.TestAuth
 import org.http4s.client.Client
@@ -41,12 +42,16 @@ class RevalidateSessionsSuite extends munit.CatsEffectSuite {
     */
   private val MintedClient = "http://fh.test"
 
-  /** HA's token endpoint, as far as this suite is concerned. */
+  /** HA's token endpoint, as far as this suite is concerned. The authorize and
+    * token bases coincide here — production splits them ([[HaOAuth]]), and the
+    * split itself gets its own test below.
+    */
   private def haStub(
       reply: IO[Response[IO]],
       expectedClientId: String = MintedClient
   ): HaOAuth =
     new HaOAuth(
+      uri"http://ha.test",
       uri"http://ha.test",
       Client.fromHttpApp(HttpApp[IO] { req =>
         if !req.uri.path.renderString.endsWith("/auth/token") then NotFound()
@@ -121,6 +126,7 @@ class RevalidateSessionsSuite extends munit.CatsEffectSuite {
   test("an unreachable HA leaves the session alone") {
     val dead = new HaOAuth(
       uri"http://ha.test",
+      uri"http://ha.test",
       Client.fromHttpApp(
         HttpApp[IO](_ => IO.raiseError(new java.net.ConnectException("nope")))
       )
@@ -182,7 +188,7 @@ class RevalidateSessionsSuite extends munit.CatsEffectSuite {
           )
         }
       })
-      oauth = new HaOAuth(uri"http://ha.test", ha)
+      oauth = new HaOAuth(uri"http://ha.test", uri"http://ha.test", ha)
       sessions <- AuthSessions.create(SessionStore.ephemeral)
       routes <- AuthRoutes.create(
         oauth,
@@ -228,6 +234,54 @@ class RevalidateSessionsSuite extends munit.CatsEffectSuite {
       assertEquals(refreshed, exchanged)
       assertEquals(kept.map(_.clientId), Some(MintedClient))
     }
+  }
+
+  /** The two addresses a login touches are NOT one address, and the failure
+    * this pins was every production login dying with a bare 500: the browser
+    * followed the authorize link to HA's mDNS name (which it resolves) and the
+    * server then dialled that same name for the exchange (which it cannot).
+    * Redirects are built for the BROWSER; token requests dial the SERVER base.
+    */
+  test("the authorize link is built for the browser; tokens are dialled") {
+    for {
+      seen <- Ref.of[IO, List[Uri]](Nil)
+      ha = Client.fromHttpApp(HttpApp[IO] { req =>
+        seen.update(_ :+ req.uri) *> Ok(
+          """{"access_token":"at","refresh_token":"r2","expires_in":1800}"""
+        )
+      })
+      oauth = new HaOAuth(uri"http://login.test", uri"http://tokens.test", ha)
+      link = oauth.authorizeUri(
+        Uri.unsafeFromString(MintedClient),
+        Uri.unsafeFromString(s"$MintedClient/auth/callback"),
+        "s"
+      )
+      _ <- oauth.exchange("one-time", Uri.unsafeFromString(MintedClient))
+      dialled <- seen.get
+    } yield {
+      assertEquals(link.host.map(_.renderString), Some("login.test"))
+      assertEquals(
+        dialled.map(_.host.map(_.renderString)).distinct,
+        List(Some("tokens.test"))
+      )
+    }
+  }
+
+  /** The production 500. An unreachable token endpoint used to escape as a raw
+    * exception past `FHError.handle`; now it is a named, retryable condition.
+    */
+  test("an unreachable token endpoint raises unavailable, not a bare error") {
+    val dead = new HaOAuth(
+      uri"http://ha.test",
+      uri"http://ha.test",
+      Client.fromHttpApp(
+        HttpApp[IO](_ => IO.raiseError(new java.net.ConnectException("nope")))
+      )
+    )
+    interceptIO[FHError](
+      dead.exchange("code", Uri.unsafeFromString(MintedClient))
+    )
+      .flatMap(e => IO(assertEquals(e.status, 503)))
   }
 
   /** What covers a RESTART. `verifiedAt` is persisted and absolute, so a

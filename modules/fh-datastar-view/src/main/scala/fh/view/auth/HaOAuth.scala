@@ -102,16 +102,22 @@ object HaOAuth {
   * Verified against HA 2026.8.2: `/auth/authorize` with a `192.168.x` client_id
   * answers 200 with the login page.
   *
-  * `haBase` is the browser-facing HA URL, which is not always the one this
-  * server dials — see [[HaOAuth.browserBase]] for how it is chosen.
+  * TWO addresses, because one URL cannot serve both halves of the flow:
+  * `authorizeBase` is where the BROWSER is sent to log in
+  * ([[HaOAuth.browserBase]] picks it); `tokenBase` is where THIS process dials
+  * `/auth/token` and `/auth/revoke` — the same address as the machine feed
+  * (`SERVER`), which boot has already proven reachable. Sending the exchange to
+  * the browser-facing address instead is what once failed every production
+  * login with a bare 500: the browser resolved HA's mDNS name and the server
+  * could not.
   */
-final class HaOAuth(haBase: Uri, client: Client[IO]) {
+final class HaOAuth(authorizeBase: Uri, tokenBase: Uri, client: Client[IO]) {
 
   /** Where to send the browser to log in. `state` is round-tripped by HA
     * untouched; we use it to name the pending authorization.
     */
   def authorizeUri(clientId: Uri, redirect: Uri, state: String): Uri =
-    (haBase / "auth" / "authorize").withQueryParams(
+    (authorizeBase / "auth" / "authorize").withQueryParams(
       Map(
         "client_id" -> clientId.renderString,
         "redirect_uri" -> redirect.renderString,
@@ -166,7 +172,7 @@ final class HaOAuth(haBase: Uri, client: Client[IO]) {
   def revoke(token: String): IO[Unit] =
     client
       .status(
-        Request[IO](Method.POST, haBase / "auth" / "revoke")
+        Request[IO](Method.POST, tokenBase / "auth" / "revoke")
           .withEntity(UrlForm("token" -> token))
       )
       .attempt
@@ -175,13 +181,23 @@ final class HaOAuth(haBase: Uri, client: Client[IO]) {
   private def post(form: UrlForm): IO[Either[String, Tokens]] =
     client
       .run(
-        Request[IO](Method.POST, haBase / "auth" / "token").withEntity(form)
+        Request[IO](Method.POST, tokenBase / "auth" / "token").withEntity(form)
       )
       .use { resp =>
         resp.bodyText.compile.string.map { body =>
           if (resp.status === Status.Ok) parseTokens(body)
           else Left(body.take(200))
         }
+      }
+      // A refused connection is not HA ANSWERING — it never got there — so it
+      // must not read as a dead grant ([[RefreshOutcome]]) or escape as a bare
+      // 500. It is one more absent dependency: retryable, and named.
+      .handleErrorWith { e =>
+        FHError
+          .unavailable(
+            s"could not reach Home Assistant at ${tokenBase.renderString}: ${e.getMessage}"
+          )
+          .raiseError[IO, Either[String, Tokens]]
       }
 
   private def parseTokens(body: String): Either[String, Tokens] =
