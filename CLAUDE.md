@@ -42,6 +42,11 @@ picked.
 sbt compile                         # compile everything
 sbt test                            # INCREMENTAL in sbt 2.0 (only changed suites)
 sbt testFull                        # run ALL tests regardless of change (e.g. fh-datastar-view/testFull)
+sbt 'fh-datastar-view/testOnly * -- --exclude-tags=Slow'   # same coverage MINUS the Playwright
+                                    # `smoke` suites — the variant to use in an environment with
+                                    # no browser driver, where they die in beforeAll with
+                                    # "Failed to read message from driver, pipe closed". `testFull`
+                                    # takes no `--` arguments, hence testOnly with a `*` selector.
 sbt 'testOnly *SomeSuite'           # run a single test suite
 sbt 'testOnly *SomeSuite -- *name*' # run a single test by name (munit)
 scalafmt                            # format (standalone CLI, version pinned by .scalafmt.conf,
@@ -171,7 +176,8 @@ else's. Every check below has caught a real defect that a passing suite said not
   command covers them: `sbt fh-datastar-view/testFull`, the pure-Pkl suite (see the module's
   `CLAUDE.md` — any `.pkl` edit, comments included, moves the `@fh-dashboard` package hash),
   and `scripts/fh.test.scala`. Touching a `.pkl` file silently opts you into a runner `sbt`
-  does not invoke.
+  does not invoke. Where no browser driver is installed, run the `--exclude-tags=Slow` variant
+  above instead and say so — six red `smoke` suites are the environment, not the diff.
 - **Check every claim you wrote against the code you wrote.** A scaladoc saying "the only way
   to X", "cannot happen" or "is not possible" is an assertion about the codebase, and the
   commit that adds the second way is usually the same one that wrote the sentence. If a claim
