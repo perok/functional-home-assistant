@@ -1,5 +1,5 @@
 {
-  description = "agentbox: opencode + claude-code + opkg + jCodeMunch + Coursier/sbt on JDK 25";
+  description = "agentbox: opencode + claude-code + skills + jCodeMunch + Coursier/sbt on JDK 25";
 
   inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
 
@@ -146,11 +146,6 @@
               uv tool install jcodemunch-mcp
             fi
 
-            if [ ! -x "${state}/bin/opkg" ]; then
-              echo "==> npm install -g opkg" >&2
-              npm install -g --silent opkg
-            fi
-
             if [ ! -x "${state}/bin/skills" ]; then
               echo "==> npm install -g skills" >&2
               npm install -g --silent skills
@@ -202,7 +197,7 @@
           gh
           opencode
           claude-code
-          nodejs_24 # runtime for opkg + the skills CLI
+          nodejs_24 # runtime for the skills CLI
           coursier # installs sbt + the Scala tools into /opt/agent on first run
           jdk
           uv
@@ -222,7 +217,6 @@
                    home/dev/.config/opencode \
                    home/dev/.local/share/opencode \
                    home/dev/.local/state \
-                   home/dev/.openpackage \
                    home/dev/.claude
           touch home/dev/.claude.json
           chmod 1777 tmp
@@ -279,7 +273,7 @@
         # agentbox
 
         Single Nix flake producing an OCI image with opencode, Claude Code,
-        OpenPackage (`opkg`), the jCodeMunch MCP server, and a Coursier-managed
+        the jCodeMunch MCP server, and a Coursier-managed
         Scala toolchain on JDK 25. Agent configs and auth are bind-mounted from
         the host, so the container shares your existing setup.
 
@@ -333,7 +327,6 @@
         | `~/.claude.json`              | `~/.claude.json`          |
         | `~/.config/opencode`          | `~/.config/opencode`      |
         | `~/.local/share/opencode`     | `~/.local/share/opencode` |
-        | `~/.openpackage`              | `~/.openpackage`          |
         | `~/.agentbox`                 | `/opt/agent`              |
         | `$PWD`                        | `/work`                   |
         | `~/.gitconfig`                | `~/.gitconfig` (ro)       |
@@ -346,7 +339,7 @@
         | `~/.ssh`                      | `~/.ssh` (ro)             | `AGENTBOX_SSH=keys`  |
         | `gh auth token`               | `$GH_TOKEN` (env, no mount) | `AGENTBOX_GH=1`    |
 
-        Claude Code, opencode and opkg all live in the Nix store or `/opt/agent`
+        Claude Code and opencode both live in the Nix store or `/opt/agent`
         and are pinned; only their state is shared. Sessions, project history
         and settings written inside the container land in your real `~/.claude`.
 
@@ -436,9 +429,6 @@
           starts on demand.
         - **context7** — up-to-date library documentation.
 
-        `opkg` can emit both agents' config too, from one `mcp.jsonc` in a
-        package, if you would rather version it than run a command.
-
         ## Scala API lookups
 
         **cellar** gives type signatures, members and docs for any Maven
@@ -448,19 +438,6 @@
 
         Telemetry is opted out during bootstrap — its consent prompt would
         otherwise withhold output from piped/agent invocations.
-
-        ## OpenPackage
-
-        `opkg` manages rules, commands, agents, skills and MCP configs across
-        platforms, including both agents in this image:
-
-            opkg install essentials
-            opkg install gh@anthropics/claude-code --plugins code-review
-            opkg install <resource> --platforms claudecode opencode
-
-        `-g` installs to `~/` instead of the workspace. Overrides live in
-        `<cwd>/.openpackage/platforms.jsonc` and `~/.openpackage/platforms.jsonc`,
-        deep-merged local > global > built-in.
 
         ## Pinning
 
@@ -472,7 +449,7 @@
 
         **Installed once into `/opt/agent`, resolving latest** — `sbt`, `scala`,
         `scalac`, `scalafmt`, `metals-mcp`, `cellar` (Coursier);
-        `jcodemunch-mcp` (uv); `opkg`, `skills` (npm). The bootstrap guards on
+        `jcodemunch-mcp` (uv); `skills` (npm). The bootstrap guards on
         the binary existing, so they never move on their own:
 
             devbox tools-update        # cs update + uv tool upgrade + npm update -g
@@ -484,7 +461,7 @@
         Pin one by hand if it matters:
 
             uv tool install jcodemunch-mcp==1.20.0
-            npm install -g opkg@0.11.3
+            npm install -g skills@1.5.23
 
         ## Escape hatches
 
@@ -514,9 +491,8 @@
 
           CFG="''${XDG_CONFIG_HOME:-$HOME/.config}/opencode"
           DATA="''${XDG_DATA_HOME:-$HOME/.local/share}/opencode"
-          OPKG="$HOME/.openpackage"
           STATE="$HOME/.agentbox"
-          mkdir -p "$CFG" "$DATA" "$OPKG" "$STATE"/{home-cache,home-sbt,home-agents,nss} "$HOME/.claude"
+          mkdir -p "$CFG" "$DATA" "$STATE"/{home-cache,home-sbt,home-agents,nss} "$HOME/.claude"
 
           # Everything runs as your host uid via --user, which docker maps
           # without adding an NSS entry for it — and a uid with no passwd entry
@@ -541,7 +517,6 @@
             -v "$HOME/.claude.json:/home/dev/.claude.json"
             -v "$CFG:/home/dev/.config/opencode"
             -v "$DATA:/home/dev/.local/share/opencode"
-            -v "$OPKG:/home/dev/.openpackage"
             -v "$STATE:/opt/agent"
             -v "$STATE/home-cache:/home/dev/.cache"
             -v "$STATE/home-sbt:/home/dev/.sbt"
