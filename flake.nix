@@ -166,6 +166,17 @@
               skills add VirtusLab/cellar --skill cellar --copy -g -a claude-code -a opencode -y
             fi
 
+            # AGENTBOX_GH=1 hands the token in as a FILE, not `-e`, so it never
+            # appears in the host's `docker run` argv (world-readable via
+            # /proc/<pid>/cmdline unless the host sets hidepid) nor in the
+            # container config that `docker inspect` prints. Exported here so
+            # every command gets it, interactive or not — /etc/bashrc would miss
+            # `agentbox claude -p …`.
+            if [ -r /run/gh-token ]; then
+              GH_TOKEN="$(cat /run/gh-token)"
+              export GH_TOKEN
+            fi
+
             exec "$@"
           }
 
@@ -470,7 +481,7 @@
         |-------------------------------|---------------------------|--------------------|
         | `$SSH_AUTH_SOCK`              | `/run/ssh-agent.sock`     | `AGENTBOX_SSH=agent` |
         | `~/.ssh`                      | `~/.ssh` (ro)             | `AGENTBOX_SSH=keys`  |
-        | `gh auth token`               | `$GH_TOKEN` (env, no mount) | `AGENTBOX_GH=1`    |
+        | `gh auth token`               | `/run/gh-token` (ro, tmpfs) | `AGENTBOX_GH=1`    |
         | `~/.agentbox/playwright`      | `/pw` (in the sidecar, not the box) | `AGENTBOX_BROWSER=1` |
 
         Signing is the exception to opt-in — if your git config asks for it, the
@@ -547,9 +558,23 @@
         - **`AGENTBOX_PORT` binds `0.0.0.0`**, so a published dashboard is on the
           LAN, not just localhost. That is deliberate (phone access); prefix the
           value with `127.0.0.1:` if you would rather it were not.
-        - **`AGENTBOX_GH=1` puts a token in the container environment**, visible
-          to `docker inspect` — i.e. to anything that can reach the docker
-          daemon, which is already root-equivalent on the host.
+        - **`AGENTBOX_GH=1` puts a token inside the box**, where anything
+          running there can read it. Unlike SSH and gpg there is no narrower
+          option: those forward an AGENT, so the box can ask for an operation
+          without holding the key, and GitHub has no such thing — a token IS the
+          credential.
+
+          It is handed over as a bind-mounted file rather than `-e`, so it is in
+          neither the host's `docker run` argv (readable by ANY local user via
+          /proc/<pid>/cmdline, unless the host sets `hidepid` — wider than root)
+          nor the container config `docker inspect` prints. The file is made
+          with `mktemp` in `/dev/shm`, which is tmpfs, and unlinked when the box
+          exits; `/tmp` is ordinary disk on a default install, so it is not the
+          place for it. Swap means tmpfs is not an absolute guarantee.
+
+          The narrower way in remains a fine-grained PAT (below): it limits what
+          the token can DO, which beats limiting who can see one that carries
+          your full scopes.
         - **The forwarded gpg socket lets the box sign anything, for as long as
           it runs** — a commit you did not write, a mail, a release tarball.
           Accepted deliberately, and unlike the other rows it is on by default,
@@ -714,6 +739,24 @@
           BUILD_TAG="${name}:build-$(basename "${image}")"
 
           command -v docker >/dev/null || { echo "docker not found on PATH" >&2; exit 1; }
+
+          # ONE trap for everything that must not outlive this script — a second
+          # `trap ... EXIT` would silently replace the first, so the sidecar and
+          # the credential file cannot each own one. Both are declared here so
+          # the handler is safe under `set -u` even if it fires before either is
+          # set.
+          CLEANUP_FILES=()
+          BROWSER_NAME=""
+          # shellcheck disable=SC2329  # invoked by the trap below, not directly
+          cleanup() {
+            if [ -n "$BROWSER_NAME" ]; then
+              docker rm -f "$BROWSER_NAME" >/dev/null 2>&1 || true
+            fi
+            if [ ''${#CLEANUP_FILES[@]} -gt 0 ]; then
+              rm -f "''${CLEANUP_FILES[@]}"
+            fi
+          }
+          trap cleanup EXIT INT TERM
 
           if [ "''${AGENTBOX_RELOAD:-0}" = "1" ] || ! docker image inspect "$BUILD_TAG" >/dev/null 2>&1; then
             echo "==> loading $IMG" >&2
@@ -903,7 +946,29 @@
           fi
           # also forwards a GH_TOKEN you exported yourself (e.g. a fine-grained
           # PAT), which is the narrower way in
-          if [ -n "''${GH_TOKEN:-}" ]; then MOUNTS+=(-e "GH_TOKEN=$GH_TOKEN"); fi
+          #
+          # Handed over as a FILE rather than `-e`: an `-e` lands in the host's
+          # `docker run` argv, which any local user can read out of
+          # /proc/<pid>/cmdline, and in the container config `docker inspect`
+          # prints. A bind-mounted file is in neither. `bootstrap` exports it
+          # inside the box.
+          #
+          # /dev/shm because it is tmpfs: unlike /tmp, which is ordinary disk on
+          # a default install, the token never lands in the filesystem. Not an
+          # absolute guarantee — tmpfs pages can be swapped — but a swapped page
+          # is not a file anyone can open, and this one is unlinked on exit.
+          if [ -n "''${GH_TOKEN:-}" ]; then
+            if [ -d /dev/shm ] && [ -w /dev/shm ]; then
+              GH_TOKEN_FILE="$(mktemp --tmpdir=/dev/shm agentbox-gh.XXXXXXXX)"
+            else
+              GH_TOKEN_FILE="$(mktemp)"
+            fi
+            CLEANUP_FILES+=("$GH_TOKEN_FILE")
+            # Written after creation, which mktemp already made 0600, so the
+            # token is never briefly world-readable.
+            printf '%s' "$GH_TOKEN" > "$GH_TOKEN_FILE"
+            MOUNTS+=(-v "$GH_TOKEN_FILE:/run/gh-token:ro")
+          fi
 
           # must exist as a file, or docker creates a directory in its place
           [ -f "$HOME/.claude.json" ] || echo '{}' > "$HOME/.claude.json"
@@ -912,16 +977,21 @@
           # dashboard, any other value remaps it. Nothing is published by
           # default, so a box never collides with a dashboard already running
           # on the host.
+          # Kept as TWO arrays because they belong to different containers when
+          # a browser sidecar is running: the publish flag follows whoever owns
+          # the network namespace, while the banner URL is always the box's.
+          # Bundling them meant clearing the publish flag also silently took the
+          # URL away, and the box then announced "no port published" about a
+          # port that was published and working.
           PORT="''${AGENTBOX_PORT:-}"
           if [ -n "$PORT" ]; then
+            PUBLISH_ARGS=(-p "''${PORT}:8080")
             # AGENTBOX_PORT may carry a host-interface prefix
             # (127.0.0.1:8080), which is not part of the URL.
-            PORT_ARGS=(
-              -p "''${PORT}:8080"
-              -e "AGENTBOX_DASHBOARD_URL=http://localhost:''${PORT##*:}"
-            )
+            DASHBOARD_ARGS=(-e "AGENTBOX_DASHBOARD_URL=http://localhost:''${PORT##*:}")
           else
-            PORT_ARGS=()
+            PUBLISH_ARGS=()
+            DASHBOARD_ARGS=()
           fi
 
           # -t only with a real tty, so `agentbox claude -p …` still works in a
@@ -943,7 +1013,6 @@
           # 127.0.0.1 on an OS-assigned port, so a browser anywhere else has no
           # route to the page under test and no port to publish.
           NET_ARGS=()
-          BROWSER_NAME=""
           if [ "''${AGENTBOX_BROWSER:-0}" = "1" ]; then
             # One pin for both halves: the Java client in build.sbt decides the
             # image tag, so they cannot drift into a protocol mismatch.
@@ -955,7 +1024,6 @@
               exit 1
             fi
 
-            BROWSER_NAME="agentbox-browser-$$"
             mkdir -p "$STATE/playwright"
 
             # The trap below covers every ordinary exit, Ctrl-C included, but a
@@ -971,17 +1039,18 @@
               fi
             done
 
-            # The sidecar is detached, so it is not in the terminal's process
-            # group and never sees your Ctrl-C; `--rm` only fires once a
-            # container stops. Without this trap it would outlive the box.
-            trap 'docker rm -f "$BROWSER_NAME" >/dev/null 2>&1 || true' EXIT INT TERM
+            # Naming it ARMS the shared trap above: the sidecar is detached, so
+            # it is not in the terminal's process group and never sees your
+            # Ctrl-C, and `--rm` only fires once a container stops. Without that
+            # it would outlive the box.
+            BROWSER_NAME="agentbox-browser-$$"
 
             echo "==> starting browser sidecar (playwright $PW_VER)" >&2
             docker run -d --rm --name "$BROWSER_NAME" \
               --user "$(id -u):$(id -g)" \
               --security-opt no-new-privileges \
               --cap-drop=ALL \
-              "''${PORT_ARGS[@]}" \
+              "''${PUBLISH_ARGS[@]}" \
               -v "$STATE/playwright:/pw" \
               -v "${browserServer}:/srv/server.cjs:ro" \
               -e HOME=/pw \
@@ -1026,8 +1095,10 @@
               --network "container:$BROWSER_NAME"
               -e "FH_PLAYWRIGHT_WS=ws://127.0.0.1:${browserPort}/agentbox"
             )
-            # Ports belong to the sidecar now — see above.
-            PORT_ARGS=()
+            # The sidecar published it; the box must not ask for it again.
+            # DASHBOARD_ARGS deliberately survives — the URL is still correct,
+            # and it is what the box prints on the way in.
+            PUBLISH_ARGS=()
           fi
 
           # --init so orphaned MCP/ripgrep children get reaped when the command
@@ -1041,9 +1112,11 @@
             --user "$(id -u):$(id -g)" \
             --security-opt no-new-privileges \
             --cap-drop=ALL \
-            "''${PORT_ARGS[@]}" \
+            "''${PUBLISH_ARGS[@]}" \
+            "''${DASHBOARD_ARGS[@]}" \
             "''${NET_ARGS[@]}" \
             "''${MOUNTS[@]}" \
+            -e CLAUDE_CODE_SUBAGENT_MODEL=claude-sonnet-5 \
             -w /work \
             "$IMG" "$@"
           exit $?
