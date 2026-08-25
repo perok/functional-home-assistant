@@ -78,7 +78,9 @@ set that can render the icon an author actually chose. The theme loads
 BeerCSS styles a bare `<i>` as Material Symbols and would otherwise win the
 cascade. Its cost (~394 KB of woff2 for a few dozen used glyphs) and the
 build-time SVG-inlining path that should replace it are on the `mdiCdn` doc
-comment in `theme-beer.pkl`.
+comment in `theme-beer.pkl`. Until then it is the theme's one
+`deferredStylesheets` entry — nothing about the page's layout depends on a
+glyph, so it must not hold up the first paint.
 
 ## Consequences
 
