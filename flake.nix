@@ -303,6 +303,12 @@
           WorkingDir = "/work";
           Env = [
             "HOME=${home}"
+            # What `.claude/statusline.sh` keys the containment badge off. In
+            # the IMAGE rather than the wrapper's `-e` flags on purpose: it is
+            # then a property of the filesystem you are executing on, so a host
+            # shell that happens to have exported it cannot make a host session
+            # claim to be contained.
+            "AGENTBOX=1"
             # ${jdk}/bin explicitly: the jdk in `contents` does not land a
             # /bin/java, and sbt's launcher script looks for `java` on PATH
             # (cs's own launchers would settle for JAVA_HOME)
@@ -384,6 +390,30 @@
         docker forwards a published port to the container's eth0, so a
         loopback-bound server is unreachable and `-p` looks silently broken.
         For this repo's dashboard that is `HOST=0.0.0.0` in `.env`.
+
+        ### Telling the box from the host
+
+        A box and a host terminal look identical once you are a few commands
+        in, and the two are not the same thing to be wrong about — one has your
+        real keys, your real gh account and your whole home directory. So the
+        repo ships a Claude Code status line (`.claude/statusline.sh`, wired
+        from `.claude/settings.json`) whose first row answers that question
+        before anything else:
+
+            ▣ agentbox · ssh gh gpg :8080 │ ⑂ my-branch ●3 ↑2 │ ⌂ a-worktree
+            Opus │ ▓▓▓░░░░░░░ 31% │ $1.23 │ 14m
+
+        against a red `△ host  not contained` when it is not in a box. The
+        badge keys off `AGENTBOX=1`, which is baked into the image rather than
+        passed by the wrapper — so it describes the filesystem the script is
+        running on, and a host shell that happens to have exported the variable
+        cannot borrow the badge.
+
+        The chips after it are the point, not decoration: they are what was
+        actually handed in, each detected from inside the box (a socket, a
+        mounted file) rather than from the `AGENTBOX_*` variable that asked for
+        it. `unsigned` appears when no gpg socket arrived, which is the one
+        state worth noticing before you commit rather than after.
 
         ### Browser tests
 
