@@ -30,9 +30,24 @@ owns the shape). It is also where a proposal should point: say which box moves. 
 questions" section is a live list, not a backlog — delete an entry when it is answered.
 
 A `docs/plan-*.md` is a design for work **in flight**, not a description of the sources — do not
-assume an API written there exists. There are none right now: the genre was retired (#109) once
-every landed plan's decisions were in the ADRs, and a plan is deleted the same way from here on,
-rather than being left behind as a third category that is neither current state nor history.
+assume an API written there exists.
+
+**The lifecycle is fixed, and every step is the maintainer's call to start, not yours:**
+
+1. **Create** the plan as `docs/plan-<topic>.md` and **commit it**, normally as the first commit
+   on the branch and the opening of its PR.
+2. **Keep it as the work moves.** When a decision changes mid-flight, rewrite the plan in place in
+   the same commit as the code — the plan's own git history is the record of how the design
+   moved, so do not append dated "update" sections and do not leave a superseded paragraph
+   standing next to the one that replaced it.
+3. **On completion, fold it into the ADRs and delete the plan file** — a new ADR for a genuinely
+   new decision, an in-place rewrite of an existing one otherwise. Deleting the plan is part of
+   finishing the work, in the same PR, not a follow-up.
+
+A plan that has landed but is still sitting in `docs/` is unfinished work, not documentation: it
+becomes a third category that is neither current state nor history, which is exactly what step 3
+exists to prevent. Never delete one on your own initiative, though — ask, and scope the deletion
+to the changeset's own plan.
 
 When the user questions a decision in a plan or ADR, **discuss alternatives in chat first** (with
 spikes as evidence, inline code examples) — do not rewrite the document until a direction is

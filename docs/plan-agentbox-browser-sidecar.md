@@ -1,8 +1,6 @@
 # agentbox: browser tests via a Playwright sidecar sharing the box's netns
 
-> Work in flight. Delete this file when the work lands — its decisions belong in the code and
-> the README inside `flake.nix`, not in a third document that is neither current state nor
-> history.
+> Work in flight. On completion its decisions move into `docs/adr/` and this file is deleted.
 >
 > Supersedes an earlier unimplemented design (in-image Chromium: nixpkgs runtime libraries +
 > fontconfig + a `devbox browser-install` subcommand). That approach is dropped — see
@@ -39,9 +37,9 @@ CI reads.
 
 ## Why not a browser on the host
 
-Considered and rejected. A Playwright server has no ACL or restricted mode (unlike gpg's extra
-socket, which agentbox already forwards), so a host-side one lets the box drive a browser running
-as your user — `file:///home/<you>/.ssh/...` included. The box's own LAN egress is already open
+Considered and rejected. A Playwright server has no ACL or restricted mode, so a host-side one
+lets the box drive a browser running as your user — `file:///home/<you>/.ssh/...` included,
+i.e. everything the box deliberately has no mount for. The box's own LAN egress is already open
 (the wrapper passes no `--network`), so LAN reach was NOT the differentiator; **host filesystem
 access** is, and that is precisely what the box exists to prevent. In a container the browser is
 confined by the same tool that confines the box.
@@ -87,10 +85,21 @@ Accepted, with eyes open: **the box exercises a path CI never runs.** That is th
 this approach. Mitigation is that the branch is one `if` in `beforeAll` and CI keeps the `launch`
 side, so a regression in shared code still fails CI; only the connect path itself is box-only.
 
-**Open question for the spike:** whether the curated launch args (`--disable-lcd-text`,
-`--force-color-profile=srgb`, ...) apply at all under `connect()` — the server owns browser
-startup. If they do not, `ComponentVisualSuite` will differ in the box. That is acceptable under
-the stated priority, but it must be **measured and written down**, not assumed.
+**The curated launch args do not survive `connect()`.** Settled by the API surface, not a guess:
+`ConnectOptions` carries only `headers`, `slowMo`, `timeout` and `exposeNetwork` — there is no
+args list, because the server owns browser startup. So `npx playwright run-server` would silently
+drop `--disable-lcd-text`, `--force-color-profile=srgb` and the rest.
+
+The sidecar therefore starts the browser with **`chromium.launchServer({ args: [...] })`** from a
+small Node script rather than `run-server`, so the same arg list the tests use is applied
+server-side. Keeping that list in two places is a drift risk and is the main thing to watch in
+review.
+
+**Open question for the spike:** `launchServer` yields ONE browser shared by every connection,
+where `run-server` launches per connection. Suites run in parallel, so this must be checked:
+`browser.close()` on a connected browser is documented to clear that client's contexts and
+disconnect rather than kill the server — verify that empirically with two concurrent connections
+before relying on it, since `SmokeSuite.afterAll` calls `browser.close()`.
 
 ### 2. Wrapper: `AGENTBOX_BROWSER=1`, opt-in
 
