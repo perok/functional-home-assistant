@@ -201,10 +201,40 @@ open class AuthGate(
     (permissionFor(slug), of(req)).flatMapN { (permission, user) =>
       if (!permission.mayView(user))
         IO.pure(AuthGate.saySo.tupled(denial(permission.access, user)))
-      else
-        sessionOf(req).flatMap(id =>
-          handler(sessions.watch(id, permission.mayView))
-        )
+      else revocationOf(req, permission).flatMap(handler)
+    }
+
+  /** "Does the rule still hold" — asked of whatever actually admitted this
+    * request.
+    *
+    * Only a COOKIE session can be revoked here, because the store this watches
+    * is the one logging out empties. Ingress and bearer requests are
+    * re-authenticated from scratch on every request and are in no session, so
+    * watching the store for them asks a map that will never hold them:
+    * `permits(None)` answers false on the FIRST element (`ref.discrete` emits
+    * the current value), the stream says goodbye with `_reload` and the page
+    * comes back to be told the same thing. Behind HA's ingress that is an
+    * endless reload loop on a dashboard the user can see perfectly well.
+    *
+    * Ingress is asked first for the same reason [[of]] prefers it: it is what
+    * admitted the request, so a stale cookie session lying around next to it
+    * has no say in whether the stream lives.
+    *
+    * `Stream.never` rather than `Stream.emit(true)`: `Server.untilRevoked`
+    * halts on either side, so what is wanted is a side that never speaks and
+    * never ENDS — an empty or finite stream would cut the connection instead.
+    */
+  private def revocationOf(
+      req: Request[IO],
+      permission: Permission
+  ): IO[Stream[IO, Boolean]] =
+    ingressUser(req).flatMap {
+      case Some(_) => IO.pure(Stream.never[IO])
+      case None    =>
+        sessionOf(req).map {
+          case Some(id) => sessions.watch(Some(id), permission.mayView)
+          case None     => Stream.never[IO]
+        }
     }
 
   private def session(req: Request[IO]): IO[Option[AuthSession]] =

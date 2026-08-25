@@ -5,8 +5,18 @@ import cats.effect.IO
 import cats.syntax.all.*
 import com.comcast.ip4s.{ipv4, port, Ipv4Address, SocketAddress}
 import fh.view.model.{Access, Permission}
-import org.http4s.{Header, Method, Request, Uri}
-import org.typelevel.ci.CIString
+import fs2.Stream
+import org.http4s.headers.Authorization
+import org.http4s.implicits.*
+import org.http4s.{
+  AuthScheme,
+  Credentials,
+  Header,
+  Method,
+  Request,
+  Response,
+  Uri
+}
 
 import scala.concurrent.duration.*
 
@@ -39,21 +49,26 @@ class IngressSuite extends munit.CatsEffectSuite {
         )
       )
 
-  private def gate(trusted: Option[Ipv4Address]) =
+  private def gateWithSessions(
+      trusted: Option[Ipv4Address],
+      identify: String => IO[HaUser] = _ =>
+        IO.raiseError(new Exception("no HA here"))
+  ): IO[(AuthGate, AuthSessions)] =
     (
       AuthSessions.create(SessionStore.ephemeral),
       IngressUsers.cached(IO.pure(List(peri, guest)))
-    ).flatMapN { (sessions, users) =>
-      IO.pure(
-        new AuthGate(
-          sessions,
-          _ => IO.raiseError(new Exception("no HA here")),
-          _ => IO.pure(Permission(Access.Authenticated, _ => true)),
-          users,
-          trusted
-        )
-      )
+    ).mapN { (sessions, users) =>
+      new AuthGate(
+        sessions,
+        identify,
+        _ => IO.pure(Permission(Access.Authenticated, _ => true)),
+        users,
+        trusted
+      ) -> sessions
     }
+
+  private def gate(trusted: Option[Ipv4Address]) =
+    gateWithSessions(trusted).map(_._1)
 
   test("HA's word is taken when HA is the one asking") {
     gate(Some(Ingress.SupervisorIp)).flatMap { g =>
@@ -136,6 +151,89 @@ class IngressSuite extends munit.CatsEffectSuite {
           assertEquals(first, None)
           assertEquals(second.map(_.name), Some("Peri"))
         }
+    }
+  }
+
+  /** The revocation stream `AuthGate.handleStream` hands a live SSE route:
+    * "does the rule still hold". Held onto rather than consumed inside the
+    * handler, which returns a throwaway response.
+    */
+  private def revocationFor(
+      g: AuthGate,
+      request: Request[IO]
+  ): IO[Stream[IO, Boolean]] =
+    IO.deferred[Stream[IO, Boolean]].flatMap { slot =>
+      g.handleStream(request, Some("kitchen"))(s =>
+        slot.complete(s).as(Response[IO]())
+      ) *> slot.get
+    }
+
+  /** A stream that neither speaks nor ENDS. `Server.untilRevoked` halts on
+    * either side, so an empty stream cuts the connection exactly like a `false`
+    * does — hence the timeout is the pass condition and a returned `Nil` is a
+    * failure.
+    */
+  private def assertNeverRevoked(revocation: Stream[IO, Boolean]): IO[Unit] =
+    revocation.take(1).compile.toList.timeout(200.millis).attempt.map {
+      outcome =>
+        assert(
+          outcome.isLeft,
+          s"the stream was revoked or ended instead of staying silent: $outcome"
+        )
+    }
+
+  /** What a live stream's admission is re-asked of: whatever ADMITTED it.
+    *
+    * Only a cookie session can be withdrawn here, because the store being
+    * watched is the one logging out empties. An ingress request is in no
+    * session — HA re-authenticates it on every request — so watching the store
+    * for one asks a map that will never hold it: the watch answers false on its
+    * FIRST element, the stream says goodbye with `_reload`, and the page comes
+    * back to be told the same thing. Behind the add-on's ingress that was an
+    * endless reload loop on a dashboard the user could see perfectly well.
+    */
+  test("an ingress stream is never revoked — it is in no session to lose") {
+    gate(Some(Ingress.SupervisorIp)).flatMap { g =>
+      revocationFor(g, req(Ingress.SupervisorIp, Some("u1")))
+        .flatMap(assertNeverRevoked)
+    }
+  }
+
+  /** The same hole, on the other carrier that carries its own credential. */
+  test("a bearer stream is never revoked either") {
+    gateWithSessions(
+      Some(Ingress.SupervisorIp),
+      _ => IO.pure(HaUser("u1", "Peri", true, true))
+    ).flatMap { case (g, _) =>
+      revocationFor(
+        g,
+        req(ipv4"192.168.1.50", None).putHeaders(
+          Authorization(Credentials.Token(AuthScheme.Bearer, "long-lived"))
+        )
+      ).flatMap(assertNeverRevoked)
+    }
+  }
+
+  /** And the half that must NOT be lost to the fix: a cookie session IS
+    * revocable, so ending it still cuts the stream that rode on it.
+    */
+  test("a cookie stream still stops when its session ends") {
+    gateWithSessions(Some(Ingress.SupervisorIp)).flatMap { case (g, sessions) =>
+      for {
+        id <- sessions.create(
+          HaUser("u2", "Heidi", false, false),
+          "refresh",
+          uri"http://fh.test"
+        )
+        revocation <- revocationFor(
+          g,
+          req(ipv4"192.168.1.50", None)
+            .addCookie(AuthSessions.CookieName, id)
+        )
+        watching <- revocation.find(!_).compile.lastOrError.start
+        _ <- sessions.remove(id)
+        revoked <- watching.joinWithNever.timeout(5.seconds)
+      } yield assertEquals(revoked, false)
     }
   }
 }
