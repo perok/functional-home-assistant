@@ -1,6 +1,7 @@
 # agentbox: browser tests via a Playwright sidecar sharing the box's netns
 
-> Work in flight. On completion its decisions move into `docs/adr/` and this file is deleted.
+> Work in flight. Deleted on completion — `flake.nix` carries its own README, so the decisions
+> live where anyone changing them is already reading; no ADR. Git history keeps the rest.
 >
 > Supersedes an earlier unimplemented design (in-image Chromium: nixpkgs runtime libraries +
 > fontconfig + a `devbox browser-install` subcommand). That approach is dropped — see
@@ -145,9 +146,10 @@ to be started after it, and the wrapper `exec`s.
 5. Reject or reap a stale sidecar from a crashed run (name collision) with a clear message.
 
 Sidecar flags: `--cap-drop=ALL` and `--security-opt no-new-privileges` to match the box if
-Chromium tolerates it; Playwright's docs recommend `--ipc=host` for Chromium memory stability —
-evaluate whether it is needed, and if it is, say so in the accepted-risks section rather than
-adding it quietly.
+Chromium tolerates it. `--ipc=host`, which Playwright's docs recommend, is **rejected**: it hands
+the container the host IPC namespace, which is a real weakening of the boundary the box exists to
+draw. Nothing here has needed it. If `/dev/shm` exhaustion ever shows up — as a browser CRASH
+mid-suite, not a test failure — raise `--shm-size` first. Recorded in the README.
 
 ### 4. Image
 
@@ -167,7 +169,7 @@ the browser is not in this image.
   `AGENTBOX_PORT` publishes from the sidecar.
 - `## What the box can reach, and what we accept`: the sidecar is third-party
   (`mcr.microsoft.com`) and shares the box's network namespace, so it reaches whatever the box
-  reaches. It has no host mounts. Record the `--ipc=host` decision here if it is needed.
+  reaches. It has no host mounts. The `--ipc=host` rejection is recorded there too.
 
 ## Files to modify
 

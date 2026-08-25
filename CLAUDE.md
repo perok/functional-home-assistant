@@ -40,9 +40,14 @@ assume an API written there exists.
    the same commit as the code — the plan's own git history is the record of how the design
    moved, so do not append dated "update" sections and do not leave a superseded paragraph
    standing next to the one that replaced it.
-3. **On completion, fold it into the ADRs and delete the plan file** — a new ADR for a genuinely
-   new decision, an in-place rewrite of an existing one otherwise. Deleting the plan is part of
-   finishing the work, in the same PR, not a follow-up.
+3. **On completion, delete the plan file.** Deleting it is part of finishing the work, in the same
+   PR, not a follow-up — git history keeps the archaeology, so nothing is lost by removing it.
+
+   An ADR is **not** automatic. Write one only when a decision needs a home that readers will
+   find later and that the code cannot state itself. When the artifact is already self-contained
+   and self-documenting — `flake.nix` carries its own README, so the agentbox decisions live
+   where anyone changing them is already reading — that IS the record, and a separate ADR would
+   be a second copy to keep in sync. Ask before adding one.
 
 A plan that has landed but is still sitting in `docs/` is unfinished work, not documentation: it
 becomes a third category that is neither current state nor history, which is exactly what step 3

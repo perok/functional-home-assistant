@@ -399,6 +399,19 @@
         CI's runner. **CI stays authoritative for the visual baselines** — do
         not regenerate them from inside the box.
 
+        The sidecar deliberately does **not** get `--ipc=host`, which
+        Playwright's own docs recommend for Chromium. That flag hands the
+        container the host's IPC namespace — host shared memory and SysV IPC
+        objects, shared with every other process on the machine — which is a
+        real weakening of the boundary this box exists to draw, and it would be
+        the only place we punched a hole in it for convenience. The flag exists
+        to stop Chromium exhausting `/dev/shm` under load; nothing here has hit
+        that (28 tests, three suites in parallel). If it ever does, the symptom
+        is a browser CRASH partway through a suite rather than a test failure —
+        raise the sidecar's `--shm-size` first, which costs nothing in
+        isolation, and treat `--ipc=host` as a last resort to argue for
+        explicitly.
+
         `/work` is your working tree, `target/` included, so the box and the
         host share one set of build outputs. Alternating `sbt` between them can
         leave incremental state the other does not recognise, which surfaces as
