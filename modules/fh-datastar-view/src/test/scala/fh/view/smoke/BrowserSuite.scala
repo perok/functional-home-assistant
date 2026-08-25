@@ -7,13 +7,13 @@ import scala.jdk.CollectionConverters.*
 
 /** Tags every test in a mixing-in suite `Slow`, so `build.sbt`'s
   * `--exclude-tags=Slow` default selects them by what a suite IS rather than by
-  * a suite-name string it would have to be kept in sync with. `test` routes both
-  * the `String` and `TestOptions` forms through this single munit overload (the
-  * `String` overload converts to `TestOptions` and calls this one).
+  * a suite-name string it would have to be kept in sync with. `test` routes
+  * both the `String` and `TestOptions` forms through this single munit overload
+  * (the `String` overload converts to `TestOptions` and calls this one).
   *
   * Kept separate from [[BrowserSuite]], which mixes it in: driving a browser
-  * implies slow, but slow does not imply a browser, and a future slow suite that
-  * needs no browser should be able to say so.
+  * implies slow, but slow does not imply a browser, and a future slow suite
+  * that needs no browser should be able to say so.
   */
 trait SlowSuite extends munit.FunSuite {
   val Slow: munit.Tag = new munit.Tag("Slow")
@@ -72,9 +72,9 @@ object BrowserSuite {
   /** Chromium flags for deterministic rendering, so [[ComponentVisualSuite]]
     * compares like with like.
     *
-    * Mirrored by the sidecar's `launchServer` call in `flake.nix`: a client that
-    * connects cannot send launch arguments, so in the agentbox these apply only
-    * because the server was started with them. Change both or neither.
+    * Mirrored by the sidecar's `launchServer` call in `flake.nix`: a client
+    * that connects cannot send launch arguments, so in the agentbox these apply
+    * only because the server was started with them. Change both or neither.
     *
     * https://github.com/microsoft/playwright/issues/8161#issuecomment-3643962063
     */
@@ -92,9 +92,10 @@ object BrowserSuite {
   /** Connect to the agentbox sidecar when [[WsEndpointVar]] is set, else launch
     * a browser locally — which is what CI and a plain checkout do.
     *
-    * Every suite gets the same browser configuration on purpose. In the agentbox
-    * they share one browser and could not differ anyway, so a per-suite arg list
-    * would only mean a suite behaved differently there than on the host.
+    * Every suite gets the same browser configuration on purpose. In the
+    * agentbox they share one browser and could not differ anyway, so a
+    * per-suite arg list would only mean a suite behaved differently there than
+    * on the host.
     */
   def connectOrLaunch(playwright: Playwright): Browser =
     sys.env.get(WsEndpointVar) match {

@@ -565,6 +565,14 @@
           shared namespace, so nothing outside the pair can drive it. Off by
           default.
 
+          The obvious simplification — point the box at a Playwright server
+          running on the HOST, which already has the browsers — is rejected on
+          purpose. A Playwright server has no ACL or restricted mode, so it
+          would let the box drive a browser running as you, `file:///` reads of
+          `~/.ssh` included, i.e. everything the box deliberately has no mount
+          for. Putting the browser in a container keeps it inside the same
+          boundary as the box; that is the whole point of the sidecar.
+
         The box is a boundary against *accidents and reach*, not against a
         determined attacker who already has code running inside it. Trusted
         repos only.
