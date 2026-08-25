@@ -34,7 +34,7 @@ Three stages, each owning one thing:
 |---|---|---|
 | fetch + join | `RegistryDump` | WHERE the data comes from, and WHAT is carried |
 | render | `PklDump` | HOW it is typed, and generation-time validation |
-| schema | `lib/hass.pkl` (+ `lib/hass-light.pkl`) | what the types MEAN — the rules |
+| schema | `lib/hass.pkl` (+ `lib/hass/light.pkl`) | what the types MEAN — the rules |
 
 The division that matters: **the generator emits data, the schema draws
 conclusions.** `PklDump` writes `colourModes` and `supported_features`;
@@ -360,7 +360,7 @@ capabilities to cross API boundaries as arguments rather than be dotted into.)
 #### The HA domain model is vendored, not guessed
 
 Predicates are derived from HA's own light model, copied into
-`lib/hass-light.pkl` (author-facing) and `HaLight.scala` (generator-facing): the
+`lib/hass/light.pkl` (author-facing) and `HaLight.scala` (generator-facing): the
 `ColorMode` string enum and the `LightEntityFeature` bits (`EFFECT=4`,
 `FLASH=8`, `TRANSITION=32`).
 
