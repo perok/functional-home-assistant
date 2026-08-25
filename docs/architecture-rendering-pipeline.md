@@ -56,7 +56,8 @@ flowchart TB
     SSE["SSE bytes to the browser<br/>Datastar morphs the DOM<br/>…and re-evaluates the bound elements"]
   end
 
-  ACT["action POST<br/>surface/open · popup/close<br/>carries conn + ui-state"]
+  GATE["AuthGate — a route (or route GROUP) declares its Requirement (ADR 0023)<br/>one rule per dashboard; the CALLER picks the refusal (orLogIn on a page, plain elsewhere)<br/>handleStream also cuts a running stream when the rule stops holding<br/>an action is bounded by its dashboard's OWN entities"]
+  ACT["action POST<br/>surface/&lt;slug&gt;/open · popup/&lt;slug&gt;/close<br/>carries conn + ui-state<br/>a conn this process has forgotten is MINTED, not dropped (ADR 0024)<br/>the swap COMMITS ui_&lt;group&gt;; the tap only says what it asked for (ADR 0025)"]
   SESS["Sessions registry<br/>conn maps to slug, open set, control queue,<br/>holds (what this DOM has: digest + signals)<br/>+ position"]
   LOG[("FragmentLog per slug — the CHANGELOG<br/>node -&gt; version · Gone/Placed · horizon<br/>absence means: unknown, send it")]
 
@@ -68,6 +69,9 @@ flowchart TB
   PULL <-.->|since position| LOG
   OPEN <-.->|since cursor| LOG
   APPL <-.->|holds| SESS
+  GATE --> OPEN
+  GATE --> ACT
+  GATE -.->|interruptWhen: a logout or an HA revocation<br/>cuts a stream already running| SSE
   ACT --> SESS
   SESS -->|per-connection control queue| MERGE
   ACT -.->|hostFill claims into holds| SESS
@@ -83,7 +87,19 @@ flowchart TB
   class OPEN,PULL,SIGS,APPL,MERGE,SSE,BEAT client
   class LOG,SESS store
   class HA,ACT ext
+  classDef gate fill:#fee2e2,stroke:#b91c1c,color:#0f172a
+  class GATE gate
 ```
+
+**A route declares its own requirement; a route group declares one for all of it.** Only a PAGE
+load redirects to login — a human is waiting there — and everything that page then opens answers
+401 instead, because a refusal on one of those means the session died. That is one requirement
+with a caller-chosen `onInvalid`, not two. Admission is not one-time:
+a page has finished long before anything could change, but an SSE stream runs for hours, so the
+two SSE routes go through `handleStream`, which wraps the body in one `interruptWhen` over the
+same `Access.permits` the door used. An action POST names its dashboard in the URL and may only
+reach an entity that dashboard references — live membership varies, the candidate LIST does not.
+See ADR 0023.
 
 **Nothing is pushed.** A frame is recorded once per slug; every byte is produced by the session that
 will receive it, from the same `Patches.resume` a reconnect runs. A live tick is a resume from
@@ -99,9 +115,9 @@ old renderer cannot be resumed.
 
 | Scope | One per | What lives there |
 |---|---|---|
-| Global | process | the HA WebSocket, `HaFeed`, **the `StateStore`**, the `changes` topic, the `Sessions` registry |
+| Global | process | the HA WebSocket, `HaFeed`, **the `StateStore`**, the `changes` topic, the `Sessions` registry, the `AuthSessions` registry (a different fact — `Sessions` is keyed by `conn` and is a TAB, `AuthSessions` is keyed by a cookie and is a PERSON) |
 | Per slug | dashboard | the recorder fiber, the `RendererState` (in a `SignallingRef`: `Ready(renderer)` or `Failed(message)`, hot-swapped on edit) **and, when ready, the renderer and the member graph inside it**, the `FragmentLog`, the doorbell, the `RenderCache` |
-| Per connection | browser tab | the `Session` — created by the DOCUMENT, adopted by the stream (slug, open surfaces, control queue, plus `holds`/`position`/`told` — what THIS client's DOM has, how far it has been served, and the newest version it was ANNOUNCED, which is the most it can echo back), the SSE stream, that viewer's selections |
+| Per connection | browser tab | the `Session` — normally created by the DOCUMENT and adopted by the stream, but MINTED by a stream or a surface tap that names a `conn` this process does not have, empty (slug, open surfaces, control queue, plus `holds`/`position`/`told` — what THIS client's DOM has, how far it has been served, and the newest version it was ANNOUNCED, which is the most it can echo back), the SSE stream, that viewer's selections |
 
 There is exactly ONE store and ONE upstream subscription for every dashboard — `HaFeed.resource`
 creates the store, `Server.fromFeed` takes `feed.store`. Dashboards are views over one shared state,
@@ -736,6 +752,16 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 
 | Box | Code |
 |---|---|
+| a route's own auth rule | `auth/AuthGate.scala` · `Requirement` (`FromDashboard`/`FromAccess`, with `Requirement.Admin = FromAccess(Access.Admin)` — a public route is simply not wrapped), `accessFor`, `saySo`/`orLogIn`, `handleRequirement`, `loginRedirect`, `safeNext`; declared at each route in `runtime/Server.scala` |
+| one rule over a whole surface | `auth/AuthGate.scala` · `require`; used by `runtime/EditorRoutes.scala` (all admin) |
+| a stream that stops being allowed | `auth/AuthGate.scala` · `handleStream`; `auth/AuthSessions.scala` · `watch` |
+| what an action may touch | `model/Dashboard.scala` · `referencedEntities`; `runtime/Renderer.scala` · `references`; `runtime/Server.scala` · `actionResponse` |
+| the slug inside an action URL | `model/Transform.scala` · the `$dashboardSlug` binding; `runtime/Renderer.scala` · `structuralVars` (`{{dashboardSlug}}`, the template copy); `build/DashboardBuild.scala` · `decode`'s `slug`, applied before validation |
+| who a request is | `auth/AuthGate.scala` · `Identity`, `of` (ingress ▸ cookie ▸ bearer), `bearerUser`; `auth/Ingress.scala` · `userIdOf`, `IngressUsers.cached`; `auth/AuthSessions.scala` · `cookieOf` |
+| logged-in people, and cutting a live stream | `auth/AuthSessions.scala` · `AuthSessions` (a `SignallingRef`), `watch`, `SessionStore` (`.fh/sessions.json`) |
+| the login flow | `auth/HaOAuth.scala` · `authorizeUri`, `exchange`, `refresh`, `revoke`; `auth/AuthRoutes.scala` |
+| HA disowning a session | `runtime/ServerApp.scala` · `revalidateOnce` (one sweep) and `revalidateSessions` (immediate, then every 5 min); `auth/AuthSessions.scala` · `stale`, `renew`, `remove` |
+| which rule a dashboard carries | `model/Access.scala` · `Access.permits`; `build/Site.scala` · `decode` folds the site default; `model/Dashboard.scala` · `Validated.access`; `runtime/Server.scala` · `LiveSite.permissionFor` |
 | feed → store | `runtime/HaFeed.scala` · `pump`, `runConnection` |
 | store + changes topic | `runtime/StateStore.scala` · `update`, `changes` |
 | per-slug recorder | `runtime/Server.scala` · `publisherFor`, `recordFrame`, `sharedPatchPublishers` |
@@ -753,13 +779,14 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 | the signals frame | `runtime/Patches.scala` · `signalFrame`, `Patch.Signals`; `runtime/Datastar.scala` · `signalsJson`, `signalsAttr`, `textBinding` |
 | SSE stream | `runtime/Server.scala` · `sseStream` |
 | opening paint | `runtime/Server.scala` · `openingPatches` |
-| sessions + surface actions | `runtime/Sessions.scala`; `runtime/Server.scala` · `withSession`, `openSurface`, `swapHost`; `runtime/Patches.scala` · `hostFill`, `hostEvicts` |
+| sessions + surface actions | `runtime/Sessions.scala`; `runtime/Server.scala` · `withSession`, `sessionFor`, `openSurface`, `swapHost`; `runtime/Patches.scala` · `hostFill`, `hostEvicts`; `runtime/SurfaceGraph.scala` · `committedSelection` |
 | a document establishes a session | `runtime/Server.scala` · `pageResponse`, `adoptOrMint`; `runtime/Sessions.scala` · `Session.adopt` |
 | a session's lifetime | `runtime/Sessions.scala` · `Tenure`, `Session.release`/`relinquish`/`supersede`; `runtime/Server.scala` · `reapAfter`, `retire`, `AdoptionWindow`, `LingerWindow` |
 | a tab handing over its session | `src/js/shell.ts` · `fhConn` (`sessionStorage`); `runtime/Server.scala` · `PrevConnParam`, `prevConnOf`, `retire` |
 | scroll across a document load | `src/js/shell.ts` · `fhScroll` (`sessionStorage`, keyed by slug), inlined via `runtime/Server.scala` · `UrlSyncScript` |
 | the colour a phone paints its own chrome | `runtime/Renderer.scala` · `themeColorTags` (the theme's background token, one `<meta>` per scheme, folded into `headFingerprint` because a style patch cannot rewrite a meta); `resources/pwa/manifest.webmanifest` for a cold launch |
 | a document on its way out | `src/js/shell.ts` · the `pagehide` listener → `fh-leaving`; `lib/core/css.pkl` hides `.fh-offline` under it, so an aborted stream cannot paint an outage on the page being left |
+| a stylesheet the first paint does not need | `model/Dashboard.scala` · `Theme.deferredStylesheets` (the icon font); `runtime/Server.scala` · `page`'s `rel=preload` + `<noscript>` pair. In `headFingerprint` like any other `<link>`, and prefetched by `AssetCache` like any other theme URL |
 | the actual rendering | `runtime/Renderer.scala` · `renderNodeById`, `renderMount` |
 | what keys a render | `runtime/Renderer.scala` · `renderInputs`, `activeBakeIndex` |
 | the member graph | `runtime/MemberGraph.scala` · `Member`, `MemberIndex`, `syncMembers`, `membersOf`, `innerSetId` |
@@ -790,6 +817,7 @@ Live list — delete an entry when it is answered, and say where the answer land
   sit at different positions. Nothing in the design depends on them agreeing — each pull is computed
   against the current snapshot from that session's own cursor — but that is an invariant worth
   writing down and testing rather than relying on.
+
 - **Carrying the converted attribute map across a tick.** See TODO2.md — `EntityState.javaAttributes`
   is rebuilt per state change even when attributes did not move.
 

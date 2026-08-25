@@ -38,7 +38,18 @@ class Button extends nodes.Node {
     // because a content-box button would add its padding on top of the 100% and
     // overflow. Only a cell's own root: the popup ✕ and the offline-banner
     // button live outside the layout and keep hugging their labels.
-    css = ".fh-cell>:is(.button,button){inline-size:100%;box-sizing:border-box}"
+    // A label longer than the button is a LABEL, not an overflow: frameworks
+    // size a button to one line of text (BeerCSS pins `block-size` to its
+    // `--_size`), so a two-word entity name spilled out of the pill sideways
+    // instead of taking a second line. The button grows down instead, and
+    // `min-block-size` keeps the resting height it had, so a one-line button is
+    // pixel-identical. `overflow-wrap:anywhere` is for the label with no space
+    // in it at all (an entity id), which `normal` alone still overflows.
+    css = """
+      .fh-cell>:is(.button,button){inline-size:100%;box-sizing:border-box;
+      white-space:normal;overflow-wrap:anywhere;
+      block-size:auto;min-block-size:2.5rem;padding-block:.5rem}
+      """
   }
   hidden entity: hass.Entity? = null
   hidden label: (String|slotMod.Expr)? = null
@@ -98,7 +109,7 @@ class Toggle extends nodes.Node {
   card = "toggle"
   cardDef = new nodes.LeafCard {
     template = """
-      <article class="card row">
+      <article class="card row toggle">
         <span class="max">{{label}}</span>
         <label class="switch">
           <input type="checkbox" value="on" {{#checked}}checked{{/checked}} \(slotMod.signalBind("checked")) data-on:click="{{#busy}}\(tapMod.busyGuard){{/busy}}{{{onclick}}}"{{#busy}} \(tapMod.busyAttrs){{/busy}}{{#busyVisual}} \(tapMod.busyClass){{/busyVisual}} />
@@ -107,6 +118,20 @@ class Toggle extends nodes.Node {
       </article>
       """
     slots { "label" }
+    // The `toggle` class exists only so these three rules have something to
+    // name — a framework's `.row` is a shared class and must not be retuned
+    // through it.
+    //
+    // A row is `white-space:nowrap` (BeerCSS's is), and a flex item's automatic
+    // minimum size is its CONTENT, so a long label did not wrap and pushed the
+    // switch off the card's right edge instead — the control the card exists
+    // for, gone. `min-inline-size:0` is what lets the label shrink at all;
+    // `flex:0 0 auto` is what stops the switch being the thing that gives way.
+    css = """
+      .card.row.toggle{white-space:normal}
+      .card.row.toggle>.max{min-inline-size:0;overflow-wrap:anywhere}
+      .card.row.toggle>.switch{flex:0 0 auto}
+      """
   }
   hidden entity: hass.Entity
   hidden label: (String|slotMod.Expr)? = null

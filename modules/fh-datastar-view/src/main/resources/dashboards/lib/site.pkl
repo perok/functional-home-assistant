@@ -18,6 +18,7 @@
 module site
 
 import "entry.pkl"
+import "core/access.pkl" as accessMod
 
 /// Every dashboard this instance serves, keyed by SLUG — the key IS the route
 /// (`/d/<slug>`), so renaming a key moves the dashboard.
@@ -37,3 +38,22 @@ dashboards: Mapping<String, entry> = new { default = (_) -> (entry) {} }
 /// `dashboard`, else the first key. Naming a slug that isn't in [[dashboards]]
 /// is ignored the same way.
 default: String? = null
+
+/// Who may see the dashboards this instance serves, unless one of them says
+/// otherwise on its own `access` (issue #89).
+///
+/// Requiring a logged-in Home Assistant user is the default, and the safe place
+/// to leave it: every dashboard shows the state of somebody's home. Set it here
+/// once rather than per dashboard, and override only where a screen genuinely
+/// differs:
+///
+///     access = c.access.admin
+///     dashboards {
+///       ["wall"] { access = c.access.public; ... }
+///     }
+///
+/// Note `c.access.public` turns a dashboard into a genuinely public page —
+/// anyone who can reach this server can open it, and its buttons still act on
+/// the home. That is the point for a wall tablet, and worth being sure about
+/// for anything reachable from the internet.
+access: accessMod.Access = accessMod.authenticated

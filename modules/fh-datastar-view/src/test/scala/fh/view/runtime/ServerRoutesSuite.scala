@@ -18,6 +18,7 @@ import fh.view.model.{
 }
 import fh.view.testkit.FakeHomeAssistant
 import fh.view.testkit.TestIds.given
+import fh.view.testkit.TestAuth
 import fs2.concurrent.SignallingRef
 import io.circe.Json
 import org.http4s.*
@@ -156,7 +157,8 @@ class ServerRoutesSuite extends ServerHarness {
           store,
           Map(dash.slug -> ref),
           dash.slug,
-          sessions
+          sessions,
+          TestAuth.openGate
         )
         .use { server =>
           server.routes.orNotFound
@@ -187,7 +189,8 @@ class ServerRoutesSuite extends ServerHarness {
           store,
           Map("home" -> ref),
           "home",
-          sessions
+          sessions,
+          TestAuth.openGate
         )
         .use(
           _.routes.orNotFound
@@ -566,6 +569,7 @@ class ServerRoutesSuite extends ServerHarness {
           Map("home" -> ref),
           "home",
           sessions,
+          TestAuth.openGate,
           assets = AssetCache.empty,
           systemPkl = system
         )
@@ -609,7 +613,8 @@ class ServerRoutesSuite extends ServerHarness {
           store,
           Map("home" -> ref),
           "home",
-          sessions
+          sessions,
+          TestAuth.openGate
         )
         .use { server =>
           val routes = server.routes.orNotFound
@@ -666,6 +671,7 @@ class ServerRoutesSuite extends ServerHarness {
           Map("home" -> ref),
           "home",
           sessions,
+          TestAuth.openGate,
           assets = AssetCache.empty,
           systemPkl = system
         )
@@ -732,6 +738,48 @@ class ServerRoutesSuite extends ServerHarness {
       // Styled by theme-owned classes, not inline styles.
       assert(html.contains("fh-offline-sse"), html)
       assert(html.contains("fh-offline-ha"), html)
+    }
+  }
+
+  test("a deferred stylesheet does not block the first paint") {
+    val themed = titleDash("home", None).copy(theme =
+      Theme(
+        stylesheets = List("https://example.test/frame.css"),
+        deferredStylesheets = List("https://example.test/icons.css")
+      )
+    )
+    pageHtml(themed).map { html =>
+      // The critical one still blocks; the deferred one is preloaded and
+      // swapped to a stylesheet on load.
+      assert(
+        html.contains(
+          """<link rel="stylesheet" href="https://example.test/frame.css">"""
+        ),
+        clue = html
+      )
+      assert(
+        html.contains(
+          """<link rel="preload" as="style" href="https://example.test/icons.css" onload="this.onload=null;this.rel='stylesheet'">"""
+        ),
+        clue = html
+      )
+      // ...and without JS the preload never becomes a stylesheet, so the
+      // fallback is not optional.
+      assert(
+        html.contains(
+          """<noscript><link rel="stylesheet" href="https://example.test/icons.css"></noscript>"""
+        ),
+        clue = html
+      )
+      // The deferred one must NOT also be linked normally — that would restore
+      // exactly the blocking fetch this avoids. (The `<noscript>` copy is
+      // inert: nothing inside it is fetched when scripting is on.)
+      val blocking = html.linesIterator
+        .filter(l =>
+          l.contains("rel=\"stylesheet\"") && !l.contains("noscript")
+        )
+        .toList
+      assertEquals(blocking.length, 1, clue = blocking.toString)
     }
   }
 

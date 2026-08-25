@@ -159,6 +159,10 @@ final class FakeHomeAssistant private (
         IO.pure(List.empty).asInstanceOf[IO[Response]]
       case _: `config/floor_registry/list` =>
         IO.pure(List.empty).asInstanceOf[IO[Response]]
+      // A house with no accounts. Suites that care about users seed them
+      // through the dump they build, not through the fake.
+      case _: `config/auth/list` =>
+        IO.pure(List.empty).asInstanceOf[IO[Response]]
 
       case _ => na
     }

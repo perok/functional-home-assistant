@@ -7,6 +7,7 @@ import cats.syntax.all.*
 import fh.view.build.{PklDump, Site, SystemPkl}
 import fh.view.model.Dashboard
 import fh.view.testkit.{FakeHomeAssistant, HouseFixture, PklWorkspace}
+import fh.view.testkit.TestAuth
 import fs2.concurrent.SignallingRef
 import org.http4s.*
 import org.http4s.headers.`Content-Type`
@@ -51,7 +52,8 @@ class FailedDashboardSuite extends ServerHarness {
         store,
         Map("dashboard" -> ref),
         "dashboard",
-        sessions
+        sessions,
+        TestAuth.openGate
       )
     } yield (server, store, ref, fake)).use { case (server, store, ref, fake) =>
       use(server, store, ref, fake)
@@ -89,19 +91,23 @@ class FailedDashboardSuite extends ServerHarness {
     }
   }
 
-  test("action POSTs on a failed slug behave exactly as on an unknown one") {
+  test("a failed slug names no entities, so no action from it reaches HA") {
     withLiveServer(failed) { (server, _, _, fake) =>
       for {
         resp <- server.routes.orNotFound.run(
-          Request[IO](Method.POST, uri"/sse/action/light/toggle/light.kitchen")
+          Request[IO](
+            Method.POST,
+            uri"/sse/action/dashboard/light/toggle/light.kitchen"
+          )
         )
         calls <- fake.recordedCalls
       } yield {
-        // The action route is not slug-scoped today: it drives HA directly, and
-        // a failed slug is handled exactly like an unknown one — the service is
-        // still called and NoContent returned. No Failed-specific seam.
-        assertEquals(resp.status, Status.NoContent)
-        assertEquals(calls.map(_.service), Vector("toggle"), clue = calls)
+        // An action is bounded by the entities its dashboard names (ADR 0023),
+        // and a failed dashboard has no renderer and therefore names none. It
+        // is refused rather than forwarded — which matters because a failed
+        // dashboard is exactly the one whose page is a diagnostics dump.
+        assertEquals(resp.status, Status.Forbidden)
+        assertEquals(calls.map(_.service), Vector.empty, clue = calls)
       }
     }
   }
@@ -452,6 +458,7 @@ class FailedDashboardSuite extends ServerHarness {
             store,
             site,
             sessions,
+            TestAuth.openGate,
             AssetCache.empty,
             fs2.concurrent.Signal.constant(true),
             SystemPkl.empty,
@@ -781,7 +788,8 @@ class FailedDashboardSuite extends ServerHarness {
         store,
         refs,
         "dash",
-        sessions
+        sessions,
+        TestAuth.openGate
       )
     } yield server).use { server =>
       server.routes.orNotFound

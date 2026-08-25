@@ -39,6 +39,7 @@ object PklDump {
     val areas = keyed("areas")
     val floors = keyed("floors")
     val devices = keyed("devices")
+    val users = keyed("users")
 
     // Member/sibling edges are emitted as references to the `e_*` consts, so a
     // group's members ARE the dump entities (same object, live `.members`
@@ -130,6 +131,28 @@ object PklDump {
          |${(areaFields(ao) ++ memberProps ++ lists).mkString("\n")}
          |}""".stripMargin
     }
+
+    // One property per PERSON who can log in, so a dashboard's access rule
+    // names a user the way it names an entity — `dump.users.peri` rather than
+    // a raw HA id nobody can check (ADR 0023). No per-user CLASS: a user has
+    // no members and nothing hangs off it, so the instance is the whole thing.
+    val usersClass = Option.when(users.nonEmpty)(
+      s"""class Users {
+         |${users
+          .map { case (slug, uo) =>
+            val fields = List(
+              "user_id" -> str(uo, "user_id").map(pklString),
+              "user_name" -> str(uo, "user_name").map(pklString),
+              "is_admin" -> uo("is_admin").flatMap(_.asBoolean).map(_.toString),
+              "is_owner" -> uo("is_owner").flatMap(_.asBoolean).map(_.toString)
+            ).collect { case (k, Some(v)) => s"$k = $v" }
+            s"  ${tick(slug)}: hass.User = new { ${fields.mkString("; ")} }"
+          }
+          .mkString("\n")}
+         |}
+         |
+         |users: Users = new {}""".stripMargin
+    )
 
     val areasClass =
       s"""class Areas {
@@ -247,6 +270,7 @@ object PklDump {
        |${areaClasses.mkString("\n\n")}
        |
        |$areasClass
+       |${usersClass.getOrElse("")}
        |
        |${floorDecls.mkString("\n\n")}
        |${deviceSection(deviceClasses, devicesClass)}

@@ -37,6 +37,11 @@ trait HomeAssistantApi[F[_]] {
 
   def configFloorRegistryList: F[List[Floor]]
 
+  /** Every account that can log in (`config/auth/list`) — admin-only, and asked
+    * on the machine connection, which is an admin.
+    */
+  def configAuthList: F[List[HaAccount]]
+
   // Not interesting
   def manifestList(): F[List[Manifest]]
 
@@ -52,6 +57,13 @@ trait HomeAssistantApi[F[_]] {
   def deviceAutomationActionCapabilities(action: Json): F[Json]
 
   def getConfigWS: F[Json]
+
+  /** Who the token that authenticated this connection belongs to. On the shared
+    * feed that is the machine identity; the useful call is on a short-lived
+    * connection opened with a user's own OAuth token, which is how a browser
+    * login learns its user and role (issue #89).
+    */
+  def currentUser: F[HaUser]
 
   /** HA's compressed state feed: the full entity set, then deltas, over ONE
     * subscription — so live state needs no separate snapshot fetch to race
@@ -125,6 +137,9 @@ object HomeAssistantApi {
       def configFloorRegistryList: IO[List[Floor]] =
         in.sendCommand(`config/floor_registry/list`())
 
+      def configAuthList: IO[List[HaAccount]] =
+        in.sendCommand(`config/auth/list`())
+
       def manifestList(): IO[List[Manifest]] =
         in.sendCommand(`manifest/list`())
 
@@ -190,6 +205,9 @@ object HomeAssistantApi {
 
       def getConfigWS: IO[Json] =
         in.sendCommand(`get_config`())
+
+      def currentUser: IO[HaUser] =
+        in.sendCommand(`auth/current_user`())
 
       def getServices: IO[List[ServiceDomain]] =
         in.sendCommand(`get_services`())

@@ -551,6 +551,13 @@ object LayoutNode:
   *     `prefers-color-scheme: dark`, so the dashboard follows the browser's
   *     light/dark setting.
   *   - `stylesheets`: external CSS URLs to `<link>` (e.g. the BeerCSS CDN).
+  *     RENDER-BLOCKING — the page waits for every one of them.
+  *   - `deferredStylesheets`: the same thing for a sheet the first paint does
+  *     not need, loaded without blocking it (`rel=preload` swapped to
+  *     `stylesheet` on load, with a `<noscript>` fallback —
+  *     https://web.dev/articles/defer-non-critical-css). The trade is that what
+  *     it styles arrives a beat late, so this is for a sheet whose absence
+  *     leaves the layout intact: an icon font, not a grid system.
   *   - `scripts`: external JS URLs, `<script type="module" src>`-injected in
   *     the document head after the stylesheets (ES modules — deferred, run
   *     after first paint). For framework helpers the theme's CSS needs (e.g.
@@ -578,6 +585,7 @@ case class Theme(
     tokens: Map[String, String] = Map.empty,
     tokensDark: Map[String, String] = Map.empty,
     stylesheets: List[String] = Nil,
+    deferredStylesheets: List[String] = Nil,
     scripts: List[String] = Nil,
     inlineScripts: List[String] = Nil,
     styles: String = "",
@@ -648,6 +656,9 @@ case class Surface(
   *   - `title`: the page `<title>` — an optional top-level authoring field
   *     (`None` when the key is absent); the Server falls back to the [[slug]]
   *     when it is `None`.
+  *   - `access`: who may see it (issue #89) — the same optional-field shape as
+  *     `title`. `None` means "whatever the site says"; `Site.decode` folds the
+  *     site default in, so nothing downstream sees the `None`.
   */
 case class Dashboard(
     cards: Map[String, CardDef],
@@ -656,7 +667,8 @@ case class Dashboard(
     surfaces: Map[String, Surface] = Map.empty,
     slug: String = "dashboard",
     title: Option[String] = None,
-    css: String = ""
+    css: String = "",
+    access: Option[Access] = None
 ) derives ConfiguredDecoder:
 
   /** Every registered card's own CSS, in card-name order so the emitted
@@ -670,6 +682,39 @@ case class Dashboard(
     */
   lazy val cardCss: String =
     cards.toList.sortBy(_._1).map(_._2.css).filter(_.nonEmpty).mkString("\n")
+
+  /** Every entity this dashboard can EVER address — the main layout and every
+    * surface, candidate sets included.
+    *
+    * Static, and soundly so: a candidate set's membership is decided live but
+    * its candidate LIST is fixed at build time (ADR 0003), so this does not
+    * depend on the current state and cannot grow while the dashboard runs.
+    *
+    * That is what makes it usable as an authorisation bound (issue #89, ADR
+    * 0023): an action POST may only touch an entity its own dashboard names, so
+    * admission to a dashboard is not admission to the whole house.
+    */
+  lazy val referencedEntities: Set[String] = {
+    def fromSlots(
+        slots: Map[String, SlotSource],
+        subject: Option[String]
+    ): List[String] =
+      slots.values.toList.flatMap(_.entityId) ++ subject.toList
+
+    def walk(n: LayoutNode): List[String] = n match {
+      case c: LayoutNode.Component =>
+        fromSlots(c.slots, c.subjectEntity) ++ c.children.flatMap(walk)
+      case set: LayoutNode.SetNode =>
+        // A clause node is an ordinary component, so its own slots and children
+        // are reached by the same walk — and its candidate is named in a
+        // literal `entity_id` slot rather than injected per match.
+        set.candidates ++ set.members.values.toList
+          .flatMap(_.clauses)
+          .flatMap(cl => walk(cl.node))
+    }
+
+    (walk(card) ++ surfaces.values.toList.flatMap(s => walk(s.content))).toSet
+  }
 
   /** Validate that every card reference resolves, supplies the params/slots the
     * card's template declares, and that each slot's `transform` is compilable
@@ -1018,14 +1063,22 @@ object Dashboard:
     */
   case class Validated(
       dashboard: Dashboard,
-      transforms: Map[String, Transform.Compiled]
+      transforms: Map[String, Transform.Compiled],
+      // The RESOLVED access rule (issue #89) — the dashboard's own if it named
+      // one, else its site's. Resolved once by `Site.decode` via [[withAccess]]
+      // rather than left as the model's `Option`, so no gate has to re-derive
+      // "and what does the site say" on every request.
+      //
+      // The default is deliberately the restrictive one: a construction path
+      // that forgets to resolve demands a login rather than serving the
+      // dashboard to the world.
+      access: Access = Access.default
   ):
-    /** Re-slug the proven dashboard (the push/route path forces the slug from
-      * the URL). The transforms are unaffected by the slug, so the proof — and
-      * its compiled map — carries over unchanged.
+    /** Fold the site-wide default in: the dashboard's own rule wins, the site's
+      * applies otherwise.
       */
-    def withSlug(slug: String): Validated =
-      copy(dashboard = dashboard.copy(slug = slug))
+    def withAccess(siteDefault: Access): Validated =
+      copy(access = dashboard.access.getOrElse(siteDefault))
 
   /** The theme's popup overlay mount — the `<div id="popups">` a popup's
     * (dialog-wrapped) content is patched into (and cleared from on close). The
@@ -1034,8 +1087,8 @@ object Dashboard:
     * `openPopup`/`c.popup` (see lib/components.pkl), so the backend renders
     * every surface bare. `Surface.hostId` derives to this for an unbaked
     * surface (a popup); `Server.swapHost` uses it as both the eviction group
-    * and the patch target for `POST /sse/surface/open/:id` and
-    * `POST /sse/popup/close`.
+    * and the patch target for `POST /sse/surface/:slug/open/:id` and
+    * `POST /sse/popup/:slug/close`.
     */
   val PopupHostId: DomId = DomId.derived("popups")
 

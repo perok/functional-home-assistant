@@ -29,8 +29,10 @@ connection, and the three node kinds. Read it before changing anything in `fh/vi
 owns the shape). It is also where a proposal should point: say which box moves. Its "Known open
 questions" section is a live list, not a backlog — delete an entry when it is answered.
 
-`docs/plan-*.md` are **deferred design plans, not implemented code** unless they say otherwise —
-do not assume an API described there exists in the sources.
+A `docs/plan-*.md` is a design for work **in flight**, not a description of the sources — do not
+assume an API written there exists. There are none right now: the genre was retired (#109) once
+every landed plan's decisions were in the ADRs, and a plan is deleted the same way from here on,
+rather than being left behind as a third category that is neither current state nor history.
 
 When the user questions a decision in a plan or ADR, **discuss alternatives in chat first** (with
 spikes as evidence, inline code examples) — do not rewrite the document until a direction is
@@ -42,6 +44,11 @@ picked.
 sbt compile                         # compile everything
 sbt test                            # INCREMENTAL in sbt 2.0 (only changed suites)
 sbt testFull                        # run ALL tests regardless of change (e.g. fh-datastar-view/testFull)
+sbt 'fh-datastar-view/testOnly * -- --exclude-tags=Slow'   # same coverage MINUS the Playwright
+                                    # `smoke` suites — the variant to use in an environment with
+                                    # no browser driver, where they die in beforeAll with
+                                    # "Failed to read message from driver, pipe closed". `testFull`
+                                    # takes no `--` arguments, hence testOnly with a `*` selector.
 sbt 'testOnly *SomeSuite'           # run a single test suite
 sbt 'testOnly *SomeSuite -- *name*' # run a single test by name (munit)
 scalafmt                            # format (standalone CLI, version pinned by .scalafmt.conf,
@@ -171,7 +178,8 @@ else's. Every check below has caught a real defect that a passing suite said not
   command covers them: `sbt fh-datastar-view/testFull`, the pure-Pkl suite (see the module's
   `CLAUDE.md` — any `.pkl` edit, comments included, moves the `@fh-dashboard` package hash),
   and `scripts/fh.test.scala`. Touching a `.pkl` file silently opts you into a runner `sbt`
-  does not invoke.
+  does not invoke. Where no browser driver is installed, run the `--exclude-tags=Slow` variant
+  above instead and say so — six red `smoke` suites are the environment, not the diff.
 - **Check every claim you wrote against the code you wrote.** A scaladoc saying "the only way
   to X", "cannot happen" or "is not possible" is an assertion about the codebase, and the
   commit that adds the second way is usually the same one that wrote the sentence. If a claim
@@ -302,3 +310,33 @@ objects) that plain text search misses or over-matches. It only indexes git-trac
 `.java` files. **Do not invoke it unprompted** — use it when it's the right tool for a task already
 in progress (e.g. mid-refactor, checking call sites), not proactively at the start of unrelated
 work.
+
+
+## Code Exploration Policy
+
+Always use jCodeMunch-MCP for code navigation. Never fall back to Read, Grep, Glob, or Bash for code exploration.
+**Exception:** use `Read` when you are about to edit a file — the harness requires a `Read` before `Edit`/`Write`. Use jCodeMunch to *find and understand* code, then `Read` only the file you are changing.
+
+This server runs the **front door** surface: three tools reach every jCodeMunch capability, so the tool list stays small and the catalogue is fetched only when you need it.
+
+**Start any session:**
+1. `order { "action": "resolve_repo", "args": { "path": "." } }` — confirm the project is indexed. If it is not: `order { "action": "index_folder", "args": { "path": "." } }`
+
+**Then, for any task:**
+- Know what you want → `order { "action": "<name>", "args": { ... } }`
+- Know the goal, not the tool → `route { "query": "your task in a sentence" }` picks the action and shapes the arguments
+- Want to see what exists → `menu { "query": "what you are trying to do" }` returns matching actions with example arguments
+- Want the whole catalogue and the usage rules → `jcodemunch_guide`
+
+`menu` and `jcodemunch_guide` list every action this server can run, including ones absent from your tool list. That is expected: the front door is the way to call them.
+
+**Interpreting results:**
+- A `verdict` of `no_implementation_found` is evidence of absence. Report the gap; do not re-search with different wording.
+- A `verdict` of `degraded` means a channel was unavailable, so absence is NOT proven. Read the note before relying on the result.
+- `source: ""` alongside `source_status` means the body could not be read, not that the symbol is empty.
+
+**After editing files:**
+- With PostToolUse hooks installed (Claude Code), edited files are reindexed automatically.
+- Otherwise `order { "action": "register_edit", "args": { "paths": [...] } }` after an edit, batched for bulk changes.
+
+**Announce your model once per session** so the server can size its answers: `announce_model { "model": "<your-model-id>" }`.

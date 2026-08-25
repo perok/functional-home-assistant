@@ -99,6 +99,19 @@ object Datastar {
 
   /** Signal-slot values as the [[patchSignals]] payload. Sorted, so one frame's
     * bytes are a function of its contents and a test can name them.
+    *
+    * '''Never put a `Json.Null` in here.''' Null DELETES a signal in the pinned
+    * bundle (`if (a == null) delete r[o]` in the store proxy), and every
+    * binding already subscribed to that name is then orphaned: reading it
+    * afterwards re-creates it as `""`, which nothing is watching, so the
+    * elements bound to it never update again. Nothing is reported — no
+    * exception, no console error, nothing in `onPageError` — and the rest of
+    * the page keeps working, which is what makes it hard to spot.
+    *
+    * `Map[SignalId, Json]` is wider than that on purpose (the cursor is a
+    * nested object — see `Server.versionPatch`), so this is a rule rather than
+    * a type. Measured from both directions in `DatastarMorphContractSuite`;
+    * every producer today builds values with `Json.fromString`.
     */
   def signalsJson(values: Map[SignalId, Json]): String =
     Json

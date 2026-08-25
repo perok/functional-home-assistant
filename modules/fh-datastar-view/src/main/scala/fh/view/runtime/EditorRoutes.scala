@@ -1,6 +1,7 @@
 package fh.view.runtime
 
 import cats.effect.IO
+import fh.view.auth.{AuthGate, Requirement}
 import fh.view.build.{PklBuild, Site}
 import io.circe.Json
 import org.http4s.*
@@ -38,17 +39,19 @@ import org.http4s.server.staticcontent.*
   *     open preview — no coupling here.
   *   - `GET  /lsp/pkl` the language-server WebSocket ([[LspBridge]]).
   *
-  * Editing is **deliberately ungated** for now, safe only because the server
-  * binds loopback by default (see the plan's "Deferred: feature gate +
-  * security" section). The write path is still clamped: only `<name>.pkl` and
-  * `lib/<name>.pkl` under the dashboards dir, each segment matching
-  * [[AssetCache.SafeName]] (which rejects `..` and slashes) — no traversal.
+  * Every route here is **admin-only** — the `/lsp/pkl` WebSocket included —
+  * declared per route through [[admin]] (ADR 0023). The write path is clamped
+  * independently of that: only `<name>.pkl` and `lib/<name>.pkl` under the
+  * dashboards dir, each segment matching [[AssetCache.SafeName]] (which rejects
+  * `..` and slashes) — no traversal.
   *
   * `dump.pkl` is excluded everywhere: it's the generated, gitignored dump, not
   * an author source.
   */
 final class EditorRoutes(
     dashboardsDir: os.Path,
+    // Every route here declares `Requirement.Admin` through this (ADR 0023).
+    gate: AuthGate,
     pklLspJar: Option[os.Path],
     // Read per request from the live site, never captured: both change while
     // the editor is open — that is the point of editing the entrypoint.
@@ -56,18 +59,24 @@ final class EditorRoutes(
     liveSlugs: IO[List[String]]
 ) {
 
+  /** Admin, for every route here — declared ONCE over the whole group rather
+    * than on each, so a route added later inherits it instead of having to
+    * remember it (ADR 0023).
+    */
   def routes(wsb: WebSocketBuilder2[IO]): HttpRoutes[IO] =
-    HttpRoutes.of[IO] {
+    AuthGate.require(gate, Requirement.Admin) {
       case req @ GET -> Root / "edit" =>
-        serveAsset(req, "index.html")
+        (serveAsset(req, "index.html"))
 
       case req @ GET -> Root / "edit" / asset if staticAssets(asset) =>
-        serveAsset(req, asset)
+        (serveAsset(req, asset))
 
       case GET -> Root / "edit" / "files" =>
-        listFiles.flatMap(
-          Ok(_).map(
-            _.withContentType(`Content-Type`(MediaType.application.json))
+        (
+          listFiles.flatMap(
+            Ok(_).map(
+              _.withContentType(`Content-Type`(MediaType.application.json))
+            )
           )
         )
 
@@ -75,39 +84,41 @@ final class EditorRoutes(
       // list any more: a slug is a key in the entrypoint, so only the runtime
       // knows what the sources currently evaluate to (ADR 0021).
       case GET -> Root / "edit" / "dashboards" =>
-        liveSlugs
-          .map(slugs => Json.arr(slugs.map(Json.fromString)*).noSpaces)
-          .flatMap(
-            Ok(_).map(
-              _.withContentType(`Content-Type`(MediaType.application.json))
+        (
+          liveSlugs
+            .map(slugs => Json.arr(slugs.map(Json.fromString)*).noSpaces)
+            .flatMap(
+              Ok(_).map(
+                _.withContentType(`Content-Type`(MediaType.application.json))
+              )
             )
-          )
+        )
 
       case req @ GET -> "edit" /: "file" /: rest =>
-        resolveEditable(rest) match {
+        (resolveEditable(rest) match {
           case None => NotFound()
           case _    =>
             fileService[IO](
               FileService.Config(dashboardsDir.toString, "edit/file")
             ).apply(req).getOrElseF(NotFound())
-        }
+        })
 
       case req @ PUT -> "edit" /: "file" /: rest =>
-        resolveEditable(rest) match {
+        (resolveEditable(rest) match {
           case None =>
             Forbidden("""{"error":"not an editable dashboard source"}""")
           case Some(p) =>
             req.bodyText.compile.string.flatMap { body =>
               IO.blocking(os.write.over(p, body)) *> saved(p)
             }
-        }
+        })
 
       case GET -> Root / "lsp" / "pkl" =>
-        pklLspJar match {
+        (pklLspJar match {
           case Some(jar) => LspBridge.wsResponse(wsb, jar)
           case None      =>
             ServiceUnavailable("""{"error":"pkl-lsp jar not available"}""")
-        }
+        })
     }
 
   /** The static editor assets (served verbatim); everything else under `/edit`

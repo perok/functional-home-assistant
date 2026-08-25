@@ -9,6 +9,7 @@ amends "pkl:test"
 import "../../main/resources/dashboards/lib/components.pkl" as c
 import "../../main/resources/dashboards/lib/core/node.pkl" as nodes
 import "../../main/resources/dashboards/lib/core/css.pkl" as cssMod
+import "../../main/resources/dashboards/lib/core/slot.pkl" as slotMod
 import "../../main/resources/dashboards/lib/query.pkl" as q
 import "../../main/resources/dashboards/lib/hass.pkl" as hass
 
@@ -141,7 +142,11 @@ facts {
   ["more-info is an inline popup, so every entity's body is its own surface"] {
     local t = c.moreInfo(kitchen)
     t.inlineSurfaces.containsKey("self")
-    t.onclick.contains("sse/surface/open/\(nodes.NODE_ID)_self")
+    // A transform, not a constant: the route carries `$dashboardSlug`, which
+    // only a transform can read.
+    (t.onclick as slotMod.Slot).transform.contains("sse/surface/")
+    (t.onclick as slotMod.Slot).transform.contains("/open/\(nodes.NODE_ID)_self")
+    (t.onclick as slotMod.Slot).transform.contains("$dashboardSlug")
   }
 
   ["the body is the entity, then the controls its domain has, then its facts"] {
@@ -199,7 +204,8 @@ facts {
     // call HA would reject. This is the flip the more-info work gated.
     card.slots["tappable"] == "1"
     card.inlineSurfaces.containsKey("self")
-    !card.slots["onclick"].contains("sse/action")
+    !(card.slots["onclick"] as slotMod.Slot).transform.contains("sse/action")
+    (card.slots["onclick"] as slotMod.Slot).transform.contains("/open/")
   }
 
   ["the more-info body's own card does NOT default to more-info"] {
@@ -243,6 +249,36 @@ facts {
     // the class, and ServerRoutesSuite pins that side. `!important` is the rule,
     // not a detail: `data-show` reveals a banner by clearing its inline display.
     cssMod.baseCss.contains(".fh-leaving .fh-offline{display:none!important}")
+    // A hairline edge is a colour ROLE, so it is a contract name rather than a
+    // literal in whichever card first needed one.
+    cssMod.baseCss.contains("--fh-border:var(--divider-color)")
+  }
+
+  ["a control still holds its own label, however long"] {
+    local cards = c.cards
+    // A framework sizes a button to one line and a row to nowrap; a label
+    // longer than either used to spill sideways — the button out of its pill,
+    // the toggle's switch off the card. Both now wrap instead.
+    cards["button"].css.contains("white-space:normal")
+    cards["button"].css.contains("min-block-size:2.5rem")
+    cards["toggle"].css.contains(".card.row.toggle{white-space:normal}")
+    // The switch is the thing that must NOT give way — it is what the card is
+    // for — so the label is the flex item allowed to shrink.
+    cards["toggle"].css.contains(".card.row.toggle>.max{min-inline-size:0")
+    cards["toggle"].css.contains(".card.row.toggle>.switch{flex:0 0 auto}")
+    // ...and the class those rules name is really in the markup.
+    cards["toggle"].template.contains(#"<article class="card row toggle">"#)
+  }
+
+  ["the popup's ✕ is a touch target, and a member row has an edge"] {
+    local cards = c.cards
+    // 2.75rem = 44px, the platform touch-target minimum; it was a bare glyph
+    // with .25rem of padding, in the corner of the screen.
+    cards["popup"].css.contains(".popup-close{position:absolute")
+    cards["popup"].css.contains("inline-size:2.75rem;block-size:2.75rem")
+    // The hairline that makes an OFF member row visible on a dark palette,
+    // through the contract rather than as a literal.
+    cards["slider"].css.contains("box-shadow:inset 0 0 0 .0625rem var(--fh-border)")
   }
 
   ["a card's structure travels with the card"] {

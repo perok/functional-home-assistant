@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.TestAuth
+
 import cats.effect.IO
 import cats.effect.unsafe.implicits.global
 import cats.syntax.all.*
@@ -113,6 +115,7 @@ class EditorSuite extends munit.FunSuite {
   private def routes(ws: os.Path) =
     new EditorRoutes(
       ws,
+      TestAuth.openGate,
       None,
       IO.pure("home"),
       IO.pure(List("home", "kitchen"))

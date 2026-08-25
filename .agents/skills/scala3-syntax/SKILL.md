@@ -2,20 +2,11 @@
 name: scala3-syntax
 author: sanssushi
 description: >
-  Authoritative reference for writing valid Scala 3 code under a strict language
+  Reference for writing valid Scala 3 code under a strict language
   profile (Scala 3.8, -source:future, -preview, -language:strictEquality,
-  -Yexplicit-nulls). Use whenever writing or reviewing new Scala 3 source: enums
-  and ADTs, given/using/context bounds (SIP-64 new syntax), opaque/match/union
-  types, named tuples (SIP-58), strict (multiversal) equality and CanEqual,
-  explicit nulls, extension methods, export clauses, control/indentation
-  syntax, fewer braces (SIP-44), clause interleaving (SIP-47), `into`
-  conversions (SIP-71), inline/compiletime metaprogramming, and compiler-flag
-  pitfalls. Trigger on: "Scala 3 syntax", enum vs sealed trait, given/using,
-  context bound, CanEqual / strictEquality, SIP-64, SIP-58, SIP-44, SIP-47,
-  SIP-71, opaque type, match type, type lambda, explicit null, boundary/break,
-  -source:future, -Wvalue-discard. Use ONLY for the Scala 3 *language itself*,
-  NOT for 3rd party libraries. Always consult this skill before
-  emitting Scala 3 code — older training data routinely produces syntax that is
+  -Yexplicit-nulls). Use whenever writing or reviewing new Scala 3 source.
+  Use ONLY for the Scala 3 *language itself*, NOT for 3rd party libraries.
+  Consult this skill before emitting Scala 3 code — older training data routinely produces syntax that is
   deprecated or warned off under -source:future.
 tags: ["scala"]
 license: MIT
@@ -23,8 +14,8 @@ license: MIT
 
 # Scala 3 Syntax Skill (3.8.x, strict profile)
 
-This skill is the source of truth for **modern Scala 3 syntax**. It assumes the
-strict compiler profile documented in
+Covers **modern Scala 3 syntax**, assuming the strict compiler profile
+documented in
 [references/compiler-flags.md](references/compiler-flags.md):
 
 - Scala **3.8.4**
@@ -39,10 +30,10 @@ strict compiler profile documented in
 - A battery of `-W*` warnings surfaced by default (warnings, not hard errors —
   no `-Xfatal-warnings` — but treat each as a real issue to fix).
 
-**Frame of reference:** this document describes Scala 3 *as it is today*. It
-does not teach "Scala 2 → Scala 3" diffs. If you remember `sealed trait` +
-`case` ADTs, `given T with`, `implicit def`, `_` wildcard types, or
-`import x._`, those are **wrong now** — use what is documented here instead.
+**Frame of reference:** Scala 3 as it is today — not a "Scala 2 → Scala 3"
+diff guide. Familiar older forms — `sealed trait` + `case` ADTs,
+`given T with`, `implicit def`, `_` wildcard types, `import x._` — no longer
+hold.
 
 ## Quick reference
 
@@ -60,7 +51,7 @@ does not teach "Scala 2 → Scala 3" diffs. If you remember `sealed trait` +
 | **Clause interleaving** (SIP-47) | [references/context-bounds-and-using.md](references/context-bounds-and-using.md#clause-interleaving-sip-47-standard-since-36) |
 | The strict flag profile & warning → fix table | [references/compiler-flags.md](references/compiler-flags.md) |
 
-## High-impact mistakes (fix these first)
+## Common mistakes
 
 | Wrong (deprecated / warned / won't compile) | Right (Scala 3.8, `-source:future`) |
 |---|---|
@@ -102,7 +93,7 @@ does not teach "Scala 2 → Scala 3" diffs. If you remember `sealed trait` +
 - **A `-Wunused` / `-Wvalue-discard` / `-Wnonunit-statement` warning** →
   [compiler-flags.md](references/compiler-flags.md).
 
-## Authoritative references
+## References
 
 - Scala 3 Language Reference: <https://docs.scala-lang.org/scala3/reference/>
 - All SIPs (status index): <https://docs.scala-lang.org/sips/all.html>

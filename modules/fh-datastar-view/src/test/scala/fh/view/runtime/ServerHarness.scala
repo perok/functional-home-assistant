@@ -21,6 +21,7 @@ import fh.view.model.{
 import fh.view.testkit.FakeHomeAssistant
 import fh.view.testkit.DashboardBuilders.st
 import fh.view.testkit.TestIds.given
+import fh.view.testkit.TestAuth
 import fs2.concurrent.SignallingRef
 import io.circe.Json
 import org.http4s.*
@@ -49,18 +50,87 @@ trait ServerHarness extends munit.CatsEffectSuite {
   // munit's transform machinery, so a reader sees the wrapping at the same
   // place every test is declared. Every background fiber this harness starts
   // MUST be supervised (a bare `.start` outlives the test under simulated
-  // time — see [[LiveWorld]] — and `TestControl.executeEmbed`'s `tickAll`
-  // then never reaches quiescence, which OOMs rather than hangs). Checked
+  // time — see [[LiveWorld]] — and the driver below then never reaches
+  // quiescence, which OOMs rather than hangs). Checked
   // against Server/Sessions/StateStore/Patches/Renderer/FragmentLog: no
   // IO.blocking, IO.realTime/monotonic, Dispatcher or evalOn on the live
   // path, so nothing there can misreport a real external wait as the
   // NonTerminationException deadlock TestControl raises for those (issue
   // #109 item 3).
+  //
+  // Tests that exercise SERVER TOPOLOGY — several live fibers coordinating
+  // through refs and streams — are what TestControl's authors scope OUT
+  // ("really only useful for testing Temporal-based code"; typelevel/
+  // cats-effect#4104): under the randomized single-threaded scheduler such
+  // an interleaving can park on a completion that production scheduling
+  // delivers in microseconds, and no amount of probing perturbs it back.
+  // [[testReal]] runs those on the production runtime instead — real wall
+  // clock applies, so keep their bodies sub-second.
+  @targetName("testRealIO")
+  protected def testReal(
+      name: String
+  )(body: => IO[Unit])(using loc: munit.Location): Unit =
+    super.test(name)(body)
+
   @targetName("testIO")
   protected def test(
       name: String
-  )(body: => IO[Unit])(using loc: munit.Location): Unit =
-    super.test(name)(TestControl.executeEmbed(body))
+  )(body: => IO[Unit])(using loc: munit.Location): Unit = {
+    import cats.effect.kernel.Outcome
+
+    super.test(name)(
+      TestControl
+        .execute(body, seed = sys.env.get("FH_TEST_SEED"))
+        .flatMap { c =>
+          def embed: IO[Unit] = c.results.flatMap {
+            case Some(Outcome.Succeeded(())) => IO.unit
+            case Some(Outcome.Errored(e))    => IO.raiseError(e)
+            case Some(Outcome.Canceled())    =>
+              IO.raiseError(new java.util.concurrent.CancellationException())
+            case None =>
+              IO.raiseError(new TestControl.NonTerminationException())
+          }
+          // Drive to the PROGRAM's completion, not to timer exhaustion:
+          // `tickAll` only returns once NO timer remains armed, so a single
+          // recurring timer that outlives the program (a stream keepalive is
+          // enough) spins it forever after the outcome is decided — and the
+          // suite's wall-clock guard kills a test whose result has been
+          // sitting there for seconds. Once the outcome is in, remaining
+          // timers are nobody's business; the cap turns a livelock into a
+          // fast failure, and a failed run prints its seed so FH_TEST_SEED
+          // can replay it exactly.
+          def drive(iterations: Int): IO[Unit] =
+            if iterations > 100000 then
+              IO.raiseError(
+                new RuntimeException(
+                  s"simulated runtime did not settle (iterations=$iterations, seed=${c.seed})"
+                )
+              )
+            else
+              c.results.flatMap {
+                case Some(_) => IO.unit
+                case None    =>
+                  c.tickOne.flatMap { more =>
+                    if more then drive(iterations + 1)
+                    else
+                      c.nextInterval.flatMap { n =>
+                        // Nothing runnable and no timers: deadlocked. Fall
+                        // through — [[embed]] raises NonTermination for it.
+                        if n == Duration.Zero then IO.unit
+                        else c.advanceAndTick(n) *> drive(iterations + 1)
+                      }
+                  }
+              }
+          drive(0)
+            .flatMap(_ => embed)
+            .onError(_ =>
+              IO.println(
+                s"[fh-test] '$name' failed; replay with FH_TEST_SEED=${c.seed}"
+              )
+            )
+        }
+    )
+  }
 
   // A handful of tests in these suites are plain synchronous assertions with
   // no IO in them at all — nothing for TestControl to simulate time over, so
@@ -496,6 +566,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
           store,
           site,
           sessions,
+          TestAuth.openGate,
           suiteSupervisor
         )
         renderer <- ref.get.map(_.rendererOf.get)
@@ -769,7 +840,8 @@ trait ServerHarness extends munit.CatsEffectSuite {
           store,
           Map("dashboard" -> ref),
           "dashboard",
-          sessions
+          sessions,
+          TestAuth.openGate
         )
         .use(server =>
           // Scoped to `use`, not to the whole resource: the connect fibers it

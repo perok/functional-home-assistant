@@ -48,9 +48,20 @@ class TapAction {
   busyVisual: Boolean = true
 }
 // Wrap a JSONata route expression into the full Datastar click expression
-//   @post('sse/action/<domain>/<service>/<entity_id>', <no signals>)
+//   @post('sse/action/<slug>/<domain>/<service>/<entity_id>', <no signals>)
 // All app URLs are RELATIVE: they resolve against the page's <base href>
 // (`/` served directly, the ingress prefix behind the HA supervisor proxy).
+//
+// `$dashboardSlug` is bound by the renderer, like `$entity_id`: a dashboard
+// module does not know its own slug (`site.pkl` supplies it as a key, and
+// `fh push --slug` renames it). The server needs it to bound what a tap may
+// touch — an action may only reach an entity its own dashboard names, so
+// admission to one dashboard is not admission to the whole house (ADR 0023).
+//
+// A card that builds an action URL in its own TEMPLATE writes `{{dashboardSlug}}`
+// for the same value (the slider's commit). Two spellings, one fact, and each
+// names the mechanism that actually fills it: Mustache renders a template, but a
+// transform's OUTPUT is inserted raw, so Mustache never sees it.
 //
 // SENDS NO SIGNALS. This route reads nothing from the request body — the
 // domain, service and entity are all in the path — but Datastar's default is to
@@ -79,16 +90,36 @@ const noSignals = #"{filterSignals:{exclude:'.*'}}"#
 /// One guarded element per node, so the name is never shared — a sibling's
 /// `finished` would otherwise clear an in-flight busy (see
 /// `docs/adr/0019-an-action-in-flight.md`).
-const busyGuard: String = #"$_{{id}}__busy ? '' : "#
+/// The IN-FLIGHT LOOK, for any signal that is truthy while something is
+/// outstanding. Parameterised because the look is one fact and the state is
+/// not: an ADR 0019 `busy` boolean and an ADR 0025 pending VALUE both wear it,
+/// and so does the slider's separate commit signal. The signals must keep their
+/// own names (they are keyed differently and written by different things — see
+/// [[pendingSignal]]); only the classes are shared.
+const function inFlightClass(sig: String): String =
+  #"data-class:fh-disabled="$\#(sig)" data-class:fh-loading="$\#(sig)""#
+
+/// The re-click guard, as the prefix that makes a click expression a no-op
+/// while `sig` is truthy.
+const local function guardOn(sig: String): String = "$" + sig + " ? '' : "
+
 // The indicator names the signal via the VALUE form (`data-indicator="<name>"`),
 // NOT the keyed form: the pinned v1.0.2 bundle splits a namespaced attribute's
 // KEY on `__` (its mod separator), so `data-indicator:_{{id}}__busy` would arm a
 // signal named `_<id>` and the `__busy` suffix would silently become a mod —
 // the busy class and guard read `_<id>__busy`, so nothing ever showed or gated.
 // The value string is not split (verified against the pinned bundle's `hn`).
-const busyAttrs: String = #"data-indicator="_{{id}}__busy""#
-const busyClass: String =
-  #"data-class:fh-disabled="$_{{id}}__busy" data-class:fh-loading="$_{{id}}__busy""#
+const local function indicatorOn(sig: String): String =
+  #"data-indicator="\#(sig)""#
+
+/// The two busy signal names. A tap's own, and the slider's separate
+/// value-commit one — see [[busyGuardChange]] for why that must not be shared.
+const busySig: String = "_{{id}}__busy"
+const busyChangeSig: String = "_{{id}}__busy_change"
+
+const busyGuard: String = guardOn(busySig)
+const busyAttrs: String = indicatorOn(busySig)
+const busyClass: String = inFlightClass(busySig)
 
 /// How long an action may take before it is worth SAYING it is taking a
 /// while. Below this, the spinner never appears at all.
@@ -159,18 +190,17 @@ const busyShapeClass: String = busySpinner("_{{id}}__busy")
 /// `input`/`change` at all — the guard is the belt for a programmatic
 /// dispatch. The boolean comes from the indicator plugin, so the attr plugin's
 /// `true`→`setAttribute`/`false`→`removeAttribute` toggle works exactly.
-const busyGuardChange: String = #"$_{{id}}__busy_change ? '' : "#
+const busyGuardChange: String = guardOn(busyChangeSig)
 const busyAttrsChange: String =
-  #"data-indicator="_{{id}}__busy_change" data-attr:disabled="$_{{id}}__busy_change""#
-const busyClassChange: String =
-  #"data-class:fh-disabled="$_{{id}}__busy_change" data-class:fh-loading="$_{{id}}__busy_change""#
+  indicatorOn(busyChangeSig) + #" data-attr:disabled="$\#(busyChangeSig)""#
+const busyClassChange: String = inFlightClass(busyChangeSig)
 /// [[busyShapeClass]]'s commit-signal twin, for the slider's head badge —
 /// the track carries no icon of its own, so the badge is what spins for the
 /// whole commit window.
 const busyShapeClassChange: String = busySpinner("_{{id}}__busy_change")
 
 const local function serviceOnclick(route: String): String =
-  #""@post('sse/action/" & ("# + route + #") & "/" & $entity_id & "', "# +
+  #""@post('sse/action/" & $dashboardSlug & "/" & ("# + route + #") & "/" & $entity_id & "', "# +
     noSignals + #")""#
 
 // A click expression inherits the card's entity to resolve $entity_id, and must
@@ -184,6 +214,108 @@ const local function clickSlot(transformExpr: String, live: Boolean): slotMod.Sl
   reactive = live
   bypassUnavailable = false
 }
+
+// The click expression for a surface OPEN. A TRANSFORM, not a constant string,
+// for one reason: only a transform can read `$dashboardSlug`, and the route
+// needs the slug. A literal slot is used verbatim — no Mustache pass, no
+// binding — so a constant could never carry it.
+//
+// It reads no entity, and does not need one: a slot with no entity resolves
+// against an empty `EntityState` (`Renderer.resolveSlot`), and `$dashboardSlug`
+// is bound independently of it. That is what lets a pill with no entity of its
+// own open a popup.
+//
+// `head` is the client-side half — the PENDING assignment that records what
+// this click asked for — spliced inside the produced expression rather than
+// before it, since the whole click expression is one string. It runs FIRST so
+// the display moves on the press rather than on the response.
+const local function openSurfaceOnclick(surfaceId: String, head: String): slotMod.Slot =
+  clickSlot(
+    // The closing quote is `"\""`, not `#"""#` — the latter opens a MULTI-LINE
+    // raw string and swallows the rest of the module.
+    "\"" + head + #"@post('sse/surface/" & $dashboardSlug & "/open/"# + surfaceId + #"')"# +
+      "\"",
+    false
+  )
+
+/// The PENDING signal for a selection group — what this client has ASKED to
+/// show, where `ui_<groupId>` is what the server says it IS showing. Only the
+/// client ever writes it, and it CLEARS ITSELF once the committed value agrees
+/// ([[pendingClear]]), so a tap that never landed cannot leave a selection
+/// asserted. See `docs/adr/0025-a-value-in-flight.md`.
+///
+/// `_`-prefixed, so it never rides a request: the server learns what was asked
+/// for from the URL path, not the signal store.
+const function pendingSignal(groupId: String): String = "_\(groupId)__pending"
+
+/// The pending signal's seed ENTRY, for splicing into a host's existing
+/// `data-signals__ifmissing` object — a second attribute of that name on the
+/// same element would simply be dropped by the parser.
+///
+/// `__ifmissing` for the same reason the `ui_` seed uses it: a plain seed would
+/// wipe an in-flight pending on every re-render of the host.
+const function pendingSeedEntry(groupId: String): String =
+  "\(pendingSignal(groupId)): ''"
+
+/// What empties a group's pending signal: **it was answered, or nothing can
+/// answer it.** One rule, one attribute — a second `data-effect` on the same
+/// element would simply be dropped by the parser.
+///
+/// The answered half is DERIVED from `ui_<groupId>` rather than sent with it,
+/// and that is what makes concurrent taps correct: tap A then tap B, and A's
+/// response must leave B's pending alone. A clear in the frame could not tell
+/// them apart; comparing to the committed value can. `==` is loose on purpose —
+/// the seed is a number and a committed index arrives as a string.
+///
+/// The other half is `_sse`, the shell's connection-health counter: the commit
+/// travels on the SSE stream, so a stream that is DOWN is the exact statement
+/// that no commit is coming. This is not a timeout and there is no deadline —
+/// a POST that fails outright fails because the transport did, and the same
+/// transport is what would have carried the answer. When the stream returns,
+/// the connect states the committed selections again ([[SurfaceGraph]]
+/// `committedSelections`), so the display lands on truth rather than on a
+/// guess. A REFUSAL — a status the server actually sent, on a working stream —
+/// is the remaining case, and [[pendingFail]] has it.
+///
+/// This effect READS AND WRITES the same signal, which is the shape that loops.
+/// It settles because the assignment falsifies its own guard, and
+/// `DatastarMorphContractSuite` MEASURES that rather than assuming it.
+const function pendingClear(groupId: String): String =
+  let (sig = pendingSignal(groupId))
+    #"data-effect="$\#(sig) !== '' && ($ui_\#(groupId) == $\#(sig) || $_sse > 0) && ($\#(sig) = '')""#
+
+/// The refusal case: the server answered, and the answer was no (ADR 0024's
+/// 4xx statuses). Nothing will commit, so the ask ends here.
+///
+/// Keyed on the `error` type and nothing else, which the pinned bundle makes
+/// exact rather than approximate: that type is dispatched from `onopen`, so it
+/// fires precisely when a RESPONSE with a status arrived. A request that got no
+/// response at all is not this case — it is a dead transport, which
+/// [[pendingClear]]'s `_sse` half owns.
+///
+/// `datastar-fetch` is dispatched on `document` and does not bubble, hence
+/// `__document` — a `data-on` modifier verified in the pinned bundle
+/// (`n.has("window") ? s = window : n.has("document") && (s = document)`),
+/// which also names the event argument `evt`.
+const function pendingFail(groupId: String): String =
+  let (sig = pendingSignal(groupId))
+    #"data-on:datastar-fetch__document="evt.detail.type === 'error' && ($\#(sig) = '')""#
+
+/// What a control reads to show a selection: the pending value while one is
+/// outstanding, the committed one otherwise. `''` is falsy, so no pending means
+/// the server's answer shows — and nothing is ever rolled back, because nothing
+/// wrong was ever committed.
+const function pendingOrCommitted(groupId: String): String =
+  "($" + pendingSignal(groupId) + " || $ui_" + groupId + ")"
+
+/// The tab bar's own open-a-member click: [[openSurfaceOnclick]] preceded by
+/// the group's PENDING assignment. The committed `ui_<groupId>` is the SERVER's
+/// to write, on the swap this POST asks for — before, the click set it here and
+/// a POST that never landed left the URL claiming a panel the DOM did not have
+/// (ADR 0024's open half). Public only because the bar is built in
+/// `components/surface.pkl`, which cannot reach a `const local`.
+const function selectSurface(surfaceId: String, groupId: String, value: String): slotMod.Slot =
+  openSurfaceOnclick(surfaceId, "$" + pendingSignal(groupId) + " = '" + value + "'; ")
 
 /// Explicit "<domain>/<service>" override, e.g. service("lock/lock").
 const function service(action: String): TapAction =
@@ -234,7 +366,7 @@ const function byDomain(e: hass.Entity): TapAction? =
 // one character that actually shows up in HA's own vocabularies (effect names
 // like "Color loop", preset modes).
 const local function serviceValueOnclick(action: String, key: String, value: String): String =
-  #""@post('sse/action/"# + action + #"/" & $entity_id & "/"# + key + "/"
+  #""@post('sse/action/" & $dashboardSlug & "/"# + action + #"/" & $entity_id & "/"# + key + "/"
     + value.replaceAll(" ", "%20") + #"', "# + noSignals + #")""#
 
 /// A service call carrying ONE static value: `serviceValue("light/turn_on",
@@ -253,17 +385,27 @@ function navigate(slug: String): TapAction = new {
   onclick = "window.location.assign(new URL('d/\(slug)',document.baseURI))"
 }
 
-/// Dismiss the (single, at-a-time) open popup — the id-less `POST
-/// /sse/popup/close`. Drop a button carrying this inside a popup's content.
-/// Clears `ui_popups` client-side, the same way a tab button sets `ui_<id>`:
-/// the signal is what a refresh and a reconnect restore from.
-function closePopup(): TapAction = new { onclick = "@post('sse/popup/close'); $ui_popups = ''" }
+/// Dismiss the (single, at-a-time) open popup — `POST
+/// /sse/popup/<slug>/close`. Drop a button carrying this inside a popup's
+/// content. `ui_popups` — what a refresh and a reconnect restore the dialog
+/// from — is cleared by the SWAP, not here: the dialog leaves the DOM and the
+/// signal stops claiming it in the same frame, so the two cannot disagree.
+function closePopup(): TapAction =
+  new {
+    onclick = clickSlot(#""@post('sse/popup/" & $dashboardSlug & "/close')""#, false)
+  }
 
 /// Open the surface REGISTERED under `surfaceId` (a top-level `surfaces` entry).
 /// A registered popup surface is [[Popup]]-wrapped (the `<dialog>`); the backend
 /// renders it bare into the `#popups` mount.
+// No client-side `$ui_popups` assignment, unlike a tab's PENDING one: nothing
+// on the page displays a popup selection — the dialog itself is what the swap
+// patches in — so a pending value here would be a signal nobody reads. The
+// committed `ui_popups` still arrives, which is what a refresh restores from.
 function openPopup(surfaceId: String): TapAction =
-  new { onclick = "@post('sse/surface/open/\(surfaceId)'); $ui_popups = '\(surfaceId)'" }
+  new {
+    onclick = openSurfaceOnclick(surfaceId, "")
+  }
 
 /// Open an INLINE popup: `content` is wrapped in a [[Popup]] dialog and stashed
 /// under this node's `inlineSurfaces["self"]`; the onclick references the future
@@ -282,7 +424,7 @@ function openPopup(surfaceId: String): TapAction =
 // the same widened type or it rejects exactly the case `children` was widened
 // for.
 function openPopupInline(body: nodes.LayoutNode): TapAction = new {
-  onclick = "@post('sse/surface/open/\(nodes.NODE_ID)_self'); $ui_popups = '\(nodes.NODE_ID)_self'"
+  onclick = openSurfaceOnclick("\(nodes.NODE_ID)_self", "")
   inlineSurfaces = new Mapping {
     ["self"] = new surfaceMod.SurfaceDef { content = new surfaceMod.Popup { children { body } } }
   }

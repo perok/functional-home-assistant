@@ -18,6 +18,7 @@ import fh.view.model.{
 }
 import fh.view.testkit.FakeHomeAssistant
 import fh.view.testkit.TestIds.given
+import fh.view.testkit.TestAuth
 import fs2.concurrent.SignallingRef
 import io.circe.Json
 import org.http4s.headers.{`Cache-Control`, `If-None-Match`, ETag}
@@ -353,7 +354,8 @@ class StateSurfaceSuite extends ServerHarness {
           store,
           Map("dashboard" -> ref),
           "dashboard",
-          sessions
+          sessions,
+          TestAuth.openGate
         )
         .use { server =>
           for {

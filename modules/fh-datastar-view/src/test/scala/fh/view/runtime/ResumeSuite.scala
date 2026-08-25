@@ -14,6 +14,7 @@ import fh.view.model.{
 }
 import fh.view.testkit.FakeHomeAssistant
 import fh.view.testkit.TestIds.given
+import fh.view.testkit.TestAuth
 import fs2.concurrent.SignallingRef
 import org.http4s.*
 import org.http4s.headers.{`Cache-Control`, `If-None-Match`, ETag}
@@ -209,7 +210,8 @@ class ResumeSuite extends ServerHarness {
           store,
           Map("dashboard" -> ref),
           "dashboard",
-          sessions
+          sessions,
+          TestAuth.openGate
         )
         .use { server =>
           for {
@@ -416,7 +418,18 @@ class ResumeSuite extends ServerHarness {
       // serves. That dialog belongs to nothing and is in nobody's open set, so
       // without this it would sit on screen forever.
       assert(orphan.contains(hostReset), clue = orphan)
-      assert(!quiet.contains(Dashboard.PopupHostId), clue = quiet)
+      // Nothing is done TO the host. The connect does still say what the host
+      // holds — `ui_popups: ""` — which is the point of committing selections
+      // (ADR 0025), so this asserts the absence of a PATCH plus the presence of
+      // the honest claim, rather than the absence of the id anywhere.
+      assert(!quiet.contains(hostSelector), clue = quiet)
+      assert(!quiet.contains(hostReset), clue = quiet)
+      assert(
+        quiet.contains(
+          s""""${Server.UiSignalPrefix}${Dashboard.PopupHostId}":""""
+        ),
+        clue = quiet
+      )
     }
   }
 
@@ -440,7 +453,8 @@ class ResumeSuite extends ServerHarness {
           store,
           Map("dashboard" -> ref),
           "dashboard",
-          sessions
+          sessions,
+          TestAuth.openGate
         )
         .use { server =>
           val conn = "c1"
@@ -489,6 +503,12 @@ class ResumeSuite extends ServerHarness {
       Theme(stylesheets = List("https://example.test/other.css"))
     )
     assertNotEquals(Renderer.create(editedTheme).headHash, base)
+    // A DEFERRED one is no different — it is still a `<link>` in the head that
+    // no patch can take back, only one that does not block the paint.
+    val editedDeferred = liveLeafDash.copy(theme =
+      Theme(deferredStylesheets = List("https://example.test/icons.css"))
+    )
+    assertNotEquals(Renderer.create(editedDeferred).headHash, base)
     // Same for an inline script: nothing can un-run one either.
     val editedScript =
       liveLeafDash.copy(theme = Theme(inlineScripts = List("void 0;")))

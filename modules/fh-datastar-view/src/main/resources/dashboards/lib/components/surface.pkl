@@ -10,6 +10,7 @@ import "../core/node.pkl" as nodes
 import "../core/slot.pkl" as slotMod
 import "../core/surface.pkl" as surfaceMod
 import "../core/predicate.pkl" as pred
+import "../core/tap.pkl" as tapMod
 import "../layout.pkl" as layout
 
 /// One tab in the [[Tabs]] bar — BeerCSS's NATIVE tab markup (`.tabs > a`
@@ -17,8 +18,8 @@ import "../layout.pkl" as layout
 /// states, even distribution) comes from the framework, not hand-rolled CSS.
 /// Built by [[Tabs]] internally; not an authoring surface. `active` is the
 /// Datastar boolean expression driving the `.active` class client-side
-/// (`data-class`); `onclick` opens the tab's hoisted surface, seeds the
-/// signal.
+/// (`data-class`); `onclick` opens the tab's hoisted surface and records the
+/// choice as PENDING — the committed `ui_<id>` is the server's to write.
 class TabButton extends nodes.Node {
   card = "tab"
   cardDef = new nodes.LeafCard {
@@ -30,7 +31,7 @@ class TabButton extends nodes.Node {
     wrapAsCell = false
   }
   hidden label: String
-  hidden onclick: String
+  hidden onclick: slotMod.Slot|String
   hidden active: String
   slots {
     ["label"] = label
@@ -43,7 +44,7 @@ class TabButton extends nodes.Node {
 /// composition (mirror jsonnet `tabs`, components.libsonnet:467-499): each tab's
 /// cards become an inline surface baked into this component's panel host
 /// (`bakeInto = NODE_ID`, `bakeAs = "panel"`), sharing one exclusivity group;
-/// the bar buttons open them and set the active-tab signal `ui_<id>` — which
+/// the bar buttons open them and the SWAP sets the active-tab signal `ui_<id>` — which
 /// the backend reads (it rides every request) and the panel host mirrors into
 /// the `ui.<id>` URL param, so reconnect / navigate / refresh all restore the
 /// tab flash-free. The first tab is default-open (baked on
@@ -59,16 +60,21 @@ class Tabs extends nodes.Node {
   // `ui.<id>`, which is how the seed round-trips). `data-effect` mirrors every
   // later change back into the URL via the page shell's `fhUrl` helper.
   //
-  // The active-tab signal is SEEDED on the bar with `__ifmissing`, and mirrored
-  // to the URL from the panel below. Seeding initialises rather than asserts, so
-  // a re-render can never overwrite the tab this client actually chose — which
-  // a tab click racing a patch already in flight otherwise does.
+  // Both selection signals are SEEDED on the bar with `__ifmissing`, and the
+  // committed one is mirrored to the URL from the panel below. Seeding
+  // initialises rather than asserts, so a re-render can never overwrite the tab
+  // this client actually chose — which a tab click racing a patch already in
+  // flight otherwise does.
   //
   // It has to be the BAR, not the panel: `__ifmissing` declines for a signal
-  // something has already READ, and this bar's buttons read `$ui_<id>` for
-  // their highlight. A parent's seed reaches its children's readers; a later
+  // something has already READ, and this bar's buttons read both for their
+  // highlight. A parent's seed reaches its children's readers; a later
   // sibling's does not, and the signal would stay "" forever (pinned by
   // `DatastarMorphContractSuite`).
+  //
+  // The PENDING signal is the one the click writes; `ui_<id>` is written only
+  // by the swap, which is also what empties pending
+  // (`tapMod.pendingClear`) — see `docs/adr/0025-a-value-in-flight.md`.
   //
   // `{{bakeIndex}}` in a `self` makes this node variant-bearing (ADR 0012): one
   // rendering per member, its own log entry per variant, and every path that
@@ -81,7 +87,7 @@ class Tabs extends nodes.Node {
   // structural selector `.tabs > a`.
   //
   // The bar carries no live value today (the active highlight is client-side,
-  // `data-class` off `ui_<id>`), so the `self` machinery is not yet exercised —
+  // `data-class` off the two selection signals), so the `self` machinery is not yet exercised —
   // but this is the card a live header ("the tab bar with the current
   // temperature") would be authored on.
   //
@@ -93,7 +99,7 @@ class Tabs extends nodes.Node {
       <div class="fh-col">{{{self}}}{{{mount}}}</div>
       """
     self = """
-      <div id="{{selfId}}" class="tabs" data-signals__ifmissing="{ ui_{{id}}: {{bakeIndex}} }">{{#children}}{{{html}}}{{/children}}</div>
+      <div id="{{selfId}}" class="tabs" data-signals__ifmissing="{ ui_{{id}}: {{bakeIndex}}, \(tapMod.pendingSeedEntry("{{id}}")) }" \(tapMod.pendingClear("{{id}}")) \(tapMod.pendingFail("{{id}}"))>{{#children}}{{{html}}}{{/children}}</div>
       """
     mount = """
       <div id="{{mountId}}" class="tab-panel" data-effect="fhUrl('ui.{{id}}', $ui_{{id}})">{{{panel}}}</div>
@@ -131,15 +137,25 @@ class Tabs extends nodes.Node {
     }
   }
   // The `.tabs` bar anchors: each opens its tab's surface (`<id>_t<i>`) and
-  // sets the active-tab signal; the URL mirror follows from the panel host's
-  // effect. `$` is a literal Datastar signal sigil (Pkl only interpolates
+  // records the choice as pending; the committed signal, and with it the URL
+  // mirror on the panel host, follow from the swap the POST asks for.
+  // `$` is a literal Datastar signal sigil (Pkl only interpolates
   // `\(...)`); the exact onclick text is asserted in the tests.
   children = new Listing {
     for (i, l in labels) {
       new TabButton {
         label = l
-        active = "$ui_\(nodes.NODE_ID) == \(i)"
-        onclick = "@post('sse/surface/open/\(nodes.NODE_ID)_t\(i)'); $ui_\(nodes.NODE_ID) = \(i)"
+        // The highlight follows the PENDING value while a tap is outstanding
+        // and the committed one otherwise, so the press still feels instant
+        // without the client ever asserting a selection the server has not
+        // made. `==` is loose: pending is a string, committed a number until
+        // the first swap.
+        active = "\(tapMod.pendingOrCommitted(nodes.NODE_ID)) == \(i)"
+        onclick = tapMod.selectSurface(
+          "\(nodes.NODE_ID)_t\(i)",
+          nodes.NODE_ID,
+          i.toString()
+        )
       }
     }
   }

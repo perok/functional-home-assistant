@@ -18,6 +18,7 @@ import fh.view.model.{
 }
 import fh.view.testkit.FakeHomeAssistant
 import fh.view.testkit.TestIds.given
+import fh.view.testkit.TestAuth
 import fs2.concurrent.SignallingRef
 import org.http4s.*
 import org.http4s.headers.{`Cache-Control`, `If-None-Match`, ETag}
@@ -55,7 +56,8 @@ class SessionLifecycleSuite extends ServerHarness {
           store,
           Map("dashboard" -> ref),
           "dashboard",
-          sessions
+          sessions,
+          TestAuth.openGate
         )
         .use { server =>
           val routes = server.routes.orNotFound
@@ -126,7 +128,8 @@ class SessionLifecycleSuite extends ServerHarness {
           store,
           Map("dashboard" -> ref),
           "dashboard",
-          sessions
+          sessions,
+          TestAuth.openGate
         )
         .use { server =>
           val routes = server.routes.orNotFound
@@ -182,7 +185,12 @@ class SessionLifecycleSuite extends ServerHarness {
     * So the second stream displaces the first.
     */
 
-  test("a second stream for one session displaces the first") {
+  // Two live streams racing through one session is server topology, not
+  // Temporal logic — under the mocked scheduler a rare interleaving parked
+  // join(A) forever on a completion single-threaded execution never
+  // delivers (typelevel/cats-effect#4104's exact scope warning). On the
+  // production runtime the same coordination resolves in microseconds.
+  testReal("a second stream for one session displaces the first") {
     (for {
       store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "warm")))
       ref <- SignallingRef[IO].of(
@@ -196,7 +204,8 @@ class SessionLifecycleSuite extends ServerHarness {
           store,
           Map("dashboard" -> ref),
           "dashboard",
-          sessions
+          sessions,
+          TestAuth.openGate
         )
         .use { server =>
           val routes = server.routes.orNotFound
@@ -251,6 +260,7 @@ class SessionLifecycleSuite extends ServerHarness {
             Map("dashboard" -> ref),
             "dashboard",
             sessions,
+            TestAuth.openGate,
             healthy = fs2.concurrent.Signal.constant(healthy)
           )
           .use(
@@ -306,7 +316,8 @@ class SessionLifecycleSuite extends ServerHarness {
           store,
           Map("dashboard" -> ref),
           "dashboard",
-          sessions
+          sessions,
+          TestAuth.openGate
         )
         .use { server =>
           val routes = server.routes.orNotFound
@@ -381,6 +392,7 @@ class SessionLifecycleSuite extends ServerHarness {
             Map("dashboard" -> ref),
             "dashboard",
             sessions,
+            TestAuth.openGate,
             healthy = fs2.concurrent.Signal.constant(healthy)
           )
           .use { server =>
@@ -456,7 +468,8 @@ class SessionLifecycleSuite extends ServerHarness {
           store,
           Map("dashboard" -> ref),
           "dashboard",
-          sessions
+          sessions,
+          TestAuth.openGate
         )
         .use { server =>
           val routes = server.routes.orNotFound
@@ -517,7 +530,8 @@ class SessionLifecycleSuite extends ServerHarness {
           store,
           Map("dashboard" -> ref),
           "dashboard",
-          sessions
+          sessions,
+          TestAuth.openGate
         )
         .use { server =>
           val routes = server.routes.orNotFound
@@ -566,7 +580,8 @@ class SessionLifecycleSuite extends ServerHarness {
           store,
           Map("dashboard" -> ref),
           "dashboard",
-          sessions
+          sessions,
+          TestAuth.openGate
         )
         .use { server =>
           val routes = server.routes.orNotFound
@@ -655,7 +670,8 @@ class SessionLifecycleSuite extends ServerHarness {
           store,
           Map("dashboard" -> ref),
           "dashboard",
-          sessions
+          sessions,
+          TestAuth.openGate
         )
         .use { server =>
           val routes = server.routes.orNotFound
@@ -726,6 +742,7 @@ class SessionLifecycleSuite extends ServerHarness {
           Map("dashboard" -> ref),
           "dashboard",
           sessions,
+          TestAuth.openGate,
           lingerWindow = 50.millis
         )
         .use { server =>
@@ -772,6 +789,7 @@ class SessionLifecycleSuite extends ServerHarness {
           Map("dashboard" -> ref),
           "dashboard",
           sessions,
+          TestAuth.openGate,
           adoptionWindow = 50.millis
         )
         .use { server =>

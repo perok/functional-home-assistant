@@ -2,8 +2,21 @@
   "$schema": "https://opencode.ai/config.json",
   "mcp": {
     "metals": {
-      "type": "remote",
-      "url": "http://localhost:45649/mcp",
+      "type": "local",
+      "command": [
+        "metals-mcp",
+        "--workspace",
+        ".",
+        "--transport",
+        "stdio"
+      ],
+      "enabled": true
+    },
+    "jcodemunch": {
+      "type": "local",
+      "command": [
+        "jcodemunch-mcp"
+      ],
       "enabled": true
     }
   }

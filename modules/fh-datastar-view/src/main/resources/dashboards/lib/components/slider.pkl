@@ -53,7 +53,55 @@ const local sliderFillColor: String =
 // `evt.target.value` rather than the bound signal, because `data-bind` listens
 // for `input` on this same element and the earlier-registered listener wins —
 // off the event there is no ordering to get wrong.
-const local dragPos: String = "((evt.target.value - {{min}}) * 100 / ({{max}} - {{min}}))"
+const local function posFrom(v: String): String =
+  "((\(v) - {{min}}) * 100 / ({{max}} - {{min}}))"
+
+const local dragPos: String = posFrom("evt.target.value")
+
+/// The client-owned position: what the control is SHOWING, which during a
+/// gesture is the finger and at rest is whatever the server last said.
+///
+/// It has to be a second signal rather than the value slot itself, and the
+/// reason is not tidiness: `data-on-signal-patch` fires on every write to a
+/// name, local ones included, so a card cannot tell the SERVER's write from
+/// its own drag on one signal. "Where the device is" and "where the control
+/// is" therefore need two names to be distinguishable at all (ADR 0025).
+///
+/// The corollary is what makes this a fix rather than a refactor: while the
+/// drag wrote the server's own slot, the session's `holds` — what the server
+/// believes this DOM has — was false, so a commit that FAILED produced no
+/// correcting frame (the server's value never moved) and the slider kept
+/// showing a position the device never took.
+const local slideSig: String = "_{{id}}__slide"
+
+/// Adopt what the device says: confirmation and CORRECTION are the same line,
+/// so HA clamping a brightness needs no case of its own. Filtered to the value
+/// signal, which only the server writes now.
+const local adoptCommitted: String =
+  #"data-on-signal-patch-filter="{include:/^\#(slotMod.signalRef("value"))$/}" data-on-signal-patch="$\#(slideSig) = $\#(slotMod.signalRef("value"))""#
+
+// The same statement as [[adoptCommitted]] — "show what the device last said"
+// — reached when nothing is coming. `fill` and `state` are RECOMPUTED rather
+// than shadowed, because they are functions of the position: restoring the
+// position restores them, and the formula is the one the drag already uses.
+//
+// Sourced from the committed signal, not from the just-assigned `slideSig`, so
+// the three writes have no ordering between them. Comma-separated because this
+// splices inside a `&&`, where a `;` would not parse.
+const local rollbackToCommitted: String =
+  let (committed = "$" + slotMod.signalRef("value"))
+    "$\(slideSig) = \(committed), " +
+      "$\(slotMod.signalRef("fill")) = (100 - \(posFrom(committed))) + '%'" +
+      "{{#dragPercent}}, $\(slotMod.signalRef("state")) = " +
+      "Math.round(\(posFrom(committed))) + ' %'{{/dragPercent}}"
+
+/// The two ways an ask ends with no commit coming (ADR 0025), both answered by
+/// [[rollbackToCommitted]]: a REFUSAL is a status the server actually sent
+/// (Datastar dispatches `error` from `onopen`, so it fires only when a response
+/// arrived), and `_sse` is the shell's own counter for the stream the commit
+/// would have ridden. Neither is a timeout.
+const local restoreOnFailure: String =
+  #"data-on:datastar-fetch__document="evt.detail.type === 'error' && (\#(rollbackToCommitted))" data-effect="$_sse > 0 && (\#(rollbackToCommitted))""#
 
 // A slider config slot (action/key/min/max): author override, else the spec
 // literal (stringified — the backend slot decoder rejects numbers).
@@ -252,17 +300,29 @@ class Slider extends nodes.Node {
     // entity falls back to `default` ("0") rather than "unavailable". Static:
     // read the domain's position attr; dynamic: $lookup it per match.
     //
-    // A TWO-WAY signal slot: `data-bind` on the range input, so the backend
-    // writes the position and a drag writes it back. This REPLACES the
-    // hand-rolled `data-signals="{ _val_<id>: <value> }"` the template used to
-    // bake — one signal instead of two, and a brightness change elsewhere now
-    // moves the thumb with a frame rather than by re-rendering the card to
-    // re-run its seed.
+    // WHERE THE DEVICE IS — server-written, and never touched by this card.
+    // It used to be the input's `data-bind`, which made the drag write it, and
+    // that is the bug [[slideSig]] describes: the session's `holds` went stale,
+    // so a FAILED commit produced no correcting frame and the thumb stayed
+    // where the finger left it.
+    //
+    // `data-attr:value` is a PLACEMENT, not a binding that does anything: this
+    // signal is read by [[adoptCommitted]] and [[rollbackToCommitted]], and it
+    // has no DOM home of its own. ADR 0017 requires every signal slot to place
+    // its bind somewhere, so it lands on the attribute the value would
+    // naturally have had — where `data-bind` beats it from the first pass and
+    // it is inert for the life of the page.
+    //
+    // Measured, and contradicting what the spec alone suggested (the dirty-value
+    // flag is real, but `data-bind` sets `.value` through the IDL before any
+    // user touches it, so the attribute never positions the thumb even once):
+    // `DatastarMorphContractSuite`, "data-bind makes a co-located
+    // data-attr:value inert from the start". The live position is [[slideSig]].
     ["value"] = new slotMod.Slot {
       transform = valueExpr
       default = "0"
       bypassUnavailable = false
-      signal = slotMod.asBind
+      signal = slotMod.asAttr("value")
     }
     // The track fill, as the `--_end` percentage (distance from the RIGHT
     // edge, per BeerCSS's span/clip-path convention): 100 - value% of the
@@ -371,9 +431,13 @@ class Slider extends nodes.Node {
         <div class="slider max" style="--_start: 0%;--_end: {{fill}}" \(slotMod.signalBind("fill")){{#busyVisual}} \(tapMod.busyClassChange){{/busyVisual}}>
           <input type="range" min="{{min}}" max="{{max}}" value="{{value}}"
             \(slotMod.signalBind("value"))
+            data-signals__ifmissing="{ \(slideSig): '{{value}}' }"
+            data-bind="\(slideSig)"
+            \(adoptCommitted)
+            \(restoreOnFailure)
             \(tapMod.busyAttrsChange)
             data-on:input="$\(slotMod.signalRef("fill")) = (100 - \(dragPos)) + '%'{{#dragPercent}}; $\(slotMod.signalRef("state")) = Math.round(\(dragPos)) + ' %'{{/dragPercent}}"
-            data-on:change="\(tapMod.busyGuardChange)@post('sse/action/{{{action}}}/{{{entity_id}}}/{{key}}/' + $\(slotMod.signalRef("value")), \(tapMod.noSignals))" />
+            data-on:change="\(tapMod.busyGuardChange)@post('sse/action/{{dashboardSlug}}/{{{action}}}/{{{entity_id}}}/{{key}}/' + $\(slideSig), \(tapMod.noSignals))" />
           <span style="background:{{fillColor}}" \(slotMod.signalBind("fillColor"))></span>
         </div>
       </div>
@@ -512,9 +576,15 @@ const local sliderCss: String = """
   /* A member is an ordinary slider card collapsed onto its own track: card and
      track share one grid cell, so the label and the live value ride ON the fill
      instead of sitting in a line above it. Members carry their own surface and no
-     elevation — a shadow over the master's coloured fill reads as grime. */
+     elevation — a shadow over the master's coloured fill reads as grime.
+     The hairline is what a DARK palette needs to see the row at all: a sunken
+     surface and a card surface are a couple of percent apart there, so an OFF
+     member (no fill, nothing but its own background) all but vanished into the
+     group. An inset shadow rather than a border, so it follows the radius and
+     costs the row no layout. */
   .slider-members .card{display:grid;min-block-size:3rem;margin:0;
-  background:var(--fh-surface-sunken);box-shadow:none;border-radius:1.5rem;overflow:hidden}
+  background:var(--fh-surface-sunken);box-shadow:inset 0 0 0 .0625rem var(--fh-border);
+  border-radius:1.5rem;overflow:hidden}
   .slider-members :is(.slider-head,.slider.max){grid-area:1/1}
   /* Block padding off: a row is sized by `min-block-size`, so its own padding
      would only make it taller than the pill it is. */
