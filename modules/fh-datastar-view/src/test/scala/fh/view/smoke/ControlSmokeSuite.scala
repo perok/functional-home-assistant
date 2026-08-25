@@ -266,4 +266,37 @@ class ControlSmokeSuite extends SmokeSuite {
       } yield ()
     }
   }
+
+  test("a light that only switches is pressable anywhere on its row") {
+    // The property is REACH: that card has nothing to drag, so the whole row IS
+    // the button and a press near its bottom edge must be a press. The click is
+    // aimed by PAGE coordinates rather than at the locator, whose own click
+    // aims at the centre — the centre stayed live throughout the bug this
+    // covers (BeerCSS gives every `button` a fixed height, which
+    // over-constrained the overlay's `inset:0` and left the target a strip
+    // across the top of a taller card), so a centre click proves nothing.
+    val switchScene =
+      Scene.of(SmokeDashboard.switchSlider).entity(SmokeDashboard.switchLight)
+    withPage(switchScene) { (page, ts) =>
+      for {
+        card <- IO.blocking(
+          page.locator("article.slider-card").boundingBox()
+        )
+        _ <- IO.blocking(
+          page.mouse().click(card.x + card.width / 2, card.y + card.height - 4)
+        )
+        calls <- eventually(ts.fake.recordedCalls)(_.nonEmpty)
+      } yield assertEquals(
+        calls,
+        Vector(
+          ServiceCall(
+            "light",
+            "toggle",
+            SmokeDashboard.switchLight.entityId,
+            Json.obj()
+          )
+        )
+      )
+    }
+  }
 }

@@ -585,8 +585,15 @@ const local sliderCss: String = """
      framework's button paints has to be undone, `all:unset` being unavailable
      here because it would also drop the box the click needs. `cursor:pointer`
      rather than the `ew-resize` above, which is the point: this row is pressed,
-     not dragged. */
-  .slider-toggle{position:absolute;inset:0;z-index:1;margin:0;padding:0;border:0;
+     not dragged.
+     `block-size:auto` is load-bearing, not tidiness: BeerCSS gives every
+     `button` a fixed `2.5rem` height, which OVER-CONSTRAINS `inset:0` — the
+     browser keeps the top and the height and throws the bottom away, so the
+     button was a 40 px strip at the top of a 64 px card. Invisible in itself,
+     except that a hover paints the framework's overlay across exactly that box:
+     the press target sat above the middle of the row it belongs to. */
+  .slider-toggle{position:absolute;inset:0;block-size:auto;inline-size:auto;
+  z-index:1;margin:0;padding:0;border:0;
   background:none;box-shadow:none;color:inherit;font:inherit;border-radius:inherit;
   appearance:none;-webkit-appearance:none;cursor:pointer}
   /* The card's two structural wrappers. `display:contents` on the self wrapper is
