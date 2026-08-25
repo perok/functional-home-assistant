@@ -299,4 +299,38 @@ class ControlSmokeSuite extends SmokeSuite {
       )
     }
   }
+
+  test("touch: a tap on a slider sets the value where the finger landed") {
+    // A phone has no click to fall back on: the range input is
+    // `pointer-events:none` on a coarse pointer (the CSS half of the
+    // axis-intent gate), so the tap is the script's to interpret or nobody's.
+    withPage(scene, touch = true) { (page, ts) =>
+      for {
+        // Both halves or neither — the CSS half is behind `(pointer:coarse)`,
+        // and a touch event on a page still styled for a mouse would exercise a
+        // combination no device has.
+        coarse <- IO.blocking(
+          page.evaluate("matchMedia('(pointer:coarse)').matches")
+        )
+        _ = assertEquals(coarse, true: Any)
+        box <- IO.blocking(page.locator(".slider.max").boundingBox())
+        _ <- IO.blocking(
+          page
+            .touchscreen()
+            .tap(box.x + box.width * 0.25, box.y + box.height / 2)
+        )
+        calls <- eventually(ts.fake.recordedCalls)(_.nonEmpty)
+      } yield {
+        assertEquals(calls.size, 1)
+        assertEquals(calls.head.domain, "light")
+        assertEquals(calls.head.service, "turn_on")
+        val brightness =
+          calls.head.serviceData.hcursor.get[Int]("brightness").toOption
+        // A quarter across a 1..255 axis is ~64. A WINDOW, not a number: the
+        // value is a function of real pixels, so pinning it would fail on a
+        // viewport change that broke nothing.
+        assert(brightness.exists(b => b > 50 && b < 80), clue = calls)
+      }
+    }
+  }
 }
