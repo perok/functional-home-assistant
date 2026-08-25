@@ -1116,6 +1116,7 @@
             "''${DASHBOARD_ARGS[@]}" \
             "''${NET_ARGS[@]}" \
             "''${MOUNTS[@]}" \
+            -e CLAUDE_CODE_SUBAGENT_MODEL=claude-sonnet-5 \
             -w /work \
             "$IMG" "$@"
           exit $?
