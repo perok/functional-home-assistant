@@ -85,3 +85,6 @@ modules/fh-datastar-view/target/frontend/
 # Local state for the repowise tool (knowledge graph, caches, lancedb).
 # Never tracked: 25 MB of machine-local artifacts.
 .repowise/
+
+# `nix build` drops this symlink to the store path in the repo root.
+/result

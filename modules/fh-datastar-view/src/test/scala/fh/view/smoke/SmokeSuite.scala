@@ -1,89 +1,25 @@
 package fh.view.smoke
 
 import cats.effect.{IO, Resource}
-import com.microsoft.playwright.{Browser, BrowserType, Page, Playwright}
+import com.microsoft.playwright.{Browser, Page}
 import com.microsoft.playwright.options.ViewportSize
 import fh.view.runtime.TestServer
 import fh.view.testkit.{FakeConfig, Scene}
 
-import scala.compiletime.uninitialized
 import scala.concurrent.duration.*
-import scala.jdk.CollectionConverters.*
 
-/** Every browser-driven smoke suite is Playwright-driven — the slowest part of
-  * the test suite (issue #109 item 3). Mixed into [[SmokeSuite]] AND standalone
-  * suites like `DatastarMorphContractSuite` that don't extend it, so tagging is
-  * a property of what a suite IS rather than a suite-name string `build.sbt`
-  * has to be kept in sync with. `test` routes both the `String` and
-  * `TestOptions` forms through this single munit overload (the `String`
-  * overload converts to `TestOptions` and calls this one), so every test
-  * declared in a mixing-in suite picks up the tag without the suite doing
-  * anything.
+/** Base for the browser smoke suites (ADR 0009): a dashboard served by a
+  * freshly bound [[TestServer]] and driven through a fresh
+  * `BrowserContext`/[[Page]] per test — so recorded calls, seeded state, and ui
+  * state (the tabs selection) never bleeds between tests.
+  *
+  * The browser itself belongs to [[BrowserSuite]]; what this adds is the served
+  * dashboard. Every [[withPage]] call fails the test on any browser console
+  * `error`: a silent JS exception (a wrong `data-on:click` selector, a dropped
+  * SSE continuation line) is exactly the class of bug a wire-level test can't
+  * see — that's the whole reason this suite exists.
   */
-trait SlowSuite extends munit.FunSuite {
-  val Slow: munit.Tag = new munit.Tag("Slow")
-
-  override def test(options: munit.TestOptions)(
-      body: => Any
-  )(using loc: munit.Location): Unit =
-    super.test(options.tag(Slow))(body)
-}
-
-/** Base for the browser smoke suites (ADR 0009): one Playwright + headless
-  * Chromium per suite (cheap page creation off the shared browser), a fresh
-  * bound [[TestServer]] + `BrowserContext`/[[Page]] per test — so recorded
-  * calls, seeded state, and ui state (the tabs selection) never bleeds between
-  * tests — navigated to the dashboard under test. Every [[withPage]] call fails
-  * the test on any browser console `error`: a silent JS exception (a wrong
-  * `data-on:click` selector, a dropped SSE continuation line) is exactly the
-  * class of bug a wire-level test can't see — that's the whole reason this
-  * suite exists.
-  */
-abstract class SmokeSuite extends munit.CatsEffectSuite with SlowSuite {
-
-  private var playwright: Playwright = uninitialized
-  private var browser: Browser = uninitialized
-
-  override def beforeAll(): Unit = {
-    // The sbt server's own env predates this session's `PLAYWRIGHT_*` vars
-    // (sbt 2.0's persistent server keeps its start-time env), and the Java
-    // driver only skips its own browser install when it sees
-    // `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD` — so it's passed explicitly here
-    // rather than relied on from the process environment. The browser is
-    // preinstalled at this Playwright version's pinned revision (see the GHA
-    // `playwright install` step / `PLAYWRIGHT_BROWSERS_PATH`), so the driver
-    // resolves its own executable under that path — no explicit
-    // `executablePath` needed (ADR 0009).
-    playwright = Playwright.create(
-      new Playwright.CreateOptions().setEnv(
-        (sys.env ++ Map("PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD" -> "1")).asJava
-      )
-    )
-    browser = playwright
-      .chromium()
-      .launch(
-        new BrowserType.LaunchOptions()
-          .setHeadless(true)
-          .setArgs(
-            List(
-              // https://github.com/microsoft/playwright/issues/8161#issuecomment-3643962063
-              "--disable-gpu",
-              "--disable-font-subpixel-positioning",
-              "--disable-lcd-text",
-              "--disable-threaded-animation",
-              "--disable-threaded-scrolling",
-              "--disable-in-process-stack-traces",
-              "--disable-checker-imaging",
-              "--force-color-profile=srgb"
-            ).asJava
-          )
-      )
-  }
-
-  override def afterAll(): Unit = {
-    if (browser != null) browser.close()
-    if (playwright != null) playwright.close()
-  }
+abstract class SmokeSuite extends BrowserSuite {
 
   /** ONE page, held open for the test — see ADR 0009 §4 "Known gap": no smoke
     * suite has two browsers on a dashboard at once, and none drops and reopens
