@@ -161,6 +161,11 @@ const local shellCss: String = """
   .fh-offline-ha{background:var(--fh-warning);color:#000}
   .fh-offline-action{background:transparent;border:1px solid currentColor;color:inherit;
   border-radius:.25rem;padding:.1rem .5rem;margin-left:.5rem;cursor:pointer;font:inherit}
+  /* A document being unloaded is not a connection problem — `fh-leaving`
+     (src/js/shell.ts, set on `pagehide`) says so. `!important` because
+     `data-show` reveals a banner by clearing its INLINE display, and only an
+     important rule outranks that. */
+  .fh-leaving .fh-offline{display:none!important}
   .fh-toast{position:fixed;bottom:1rem;left:50%;transform:translateX(-50%);
   z-index:1100;background:var(--fh-error);color:var(--fh-on-error);padding:.75rem 1rem;
   border-radius:999px;font-weight:600;box-shadow:0 4px 12px rgba(0,0,0,.3)}

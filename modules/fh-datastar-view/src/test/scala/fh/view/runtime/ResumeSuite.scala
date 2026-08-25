@@ -513,6 +513,12 @@ class ResumeSuite extends ServerHarness {
     val editedScript =
       liveLeafDash.copy(theme = Theme(inlineScripts = List("void 0;")))
     assertNotEquals(Renderer.create(editedScript).headHash, base)
+    // And the one TOKEN that reaches the head as markup rather than as CSS: the
+    // `<meta name="theme-color">` pair, which no style patch can rewrite.
+    val editedChrome = liveLeafDash.copy(theme =
+      Theme(tokens = Map("primary-background-color" -> "#fafafa"))
+    )
+    assertNotEquals(Renderer.create(editedChrome).headHash, base)
   }
 
   test("styleHash tracks the patchable head, and headHash ignores it") {
@@ -523,7 +529,11 @@ class ResumeSuite extends ServerHarness {
     val restyled =
       liveLeafDash.copy(theme = Theme(styles = ".card{color:red}"))
     val renamed = liveLeafDash.copy(title = Some("Renamed"))
-    List(restyled, renamed).foreach { d =>
+    // Every token EXCEPT the chrome background is in this half too — only the
+    // one the `<meta name="theme-color">` pair is built from reloads.
+    val retoned =
+      liveLeafDash.copy(theme = Theme(tokens = Map("primary-color" -> "#0af")))
+    List(restyled, renamed, retoned).foreach { d =>
       assertNotEquals(Renderer.create(d).styleHash, base.styleHash)
       assertEquals(Renderer.create(d).headHash, base.headHash)
     }

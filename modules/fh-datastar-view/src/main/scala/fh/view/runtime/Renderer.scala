@@ -288,6 +288,9 @@ class Renderer(
   /** `<link>`-ed off the critical path — see [[fh.view.model.Theme]]. */
   def deferredStylesheets: List[String] = dashboard.theme.deferredStylesheets
 
+  /** The `<meta name="theme-color">` pair — see [[Renderer.themeColorTags]]. */
+  val themeColorTags: String = Renderer.themeColorTags(dashboard)
+
   /** Injected as `<script type="module">`, e.g. beer.min.js. */
   def scripts: List[String] = dashboard.theme.scripts
 
@@ -1467,9 +1470,39 @@ object Renderer {
         dashboard.theme.deferredStylesheets,
         dashboard.theme.scripts,
         dashboard.theme.inlineScripts,
-        dashboard.theme.chrome
+        dashboard.theme.chrome,
+        // The theme-colour metas are the one piece of the head derived from
+        // TOKENS that a style patch cannot repair, so they belong in the hash
+        // that reloads rather than the one that patches. Only these two values,
+        // not the whole token map: every other token still patches.
+        themeColorTags(dashboard)
       ).toString
     )
+
+  /** The colour a phone paints its own chrome with — the browser's URL bar, and
+    * an installed PWA's status bar — as one `<meta name="theme-color">` per
+    * scheme.
+    *
+    * It is the dashboard's BACKGROUND, not its accent: the bar sits directly
+    * above the page, and any other colour reads as a stripe of unrelated UI
+    * rather than as the top of the dashboard. The manifest's own `theme_color`
+    * (a single value, and all a cold launch has) says the same thing; these
+    * metas are what let it follow the device's light/dark scheme, since they
+    * override the manifest once the document is up.
+    *
+    * Emitted from [[fh.view.model.Theme.tokens]]/`tokensDark`, so a theme that
+    * retunes its background moves the phone's chrome with it.
+    */
+  private[runtime] def themeColorTags(dashboard: Dashboard): String =
+    List(
+      "light" -> dashboard.theme.tokens.get(ChromeToken),
+      "dark" -> dashboard.theme.tokensDark.get(ChromeToken)
+    ).collect { case (scheme, Some(color)) =>
+      s"""<meta name="theme-color" media="(prefers-color-scheme: $scheme)" content="$color">"""
+    }.mkString("\n  ")
+
+  /** The HA-named token [[themeColorTags]] reads the chrome colour from. */
+  private val ChromeToken = "primary-background-color"
 
   /** 12 hex over the patchable part of `<head>`. See [[Renderer.styleHash]].
     */

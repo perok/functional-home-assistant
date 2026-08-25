@@ -277,6 +277,63 @@ class ServerRoutesSuite extends ServerHarness {
     }
   }
 
+  test("a page on its way out stops painting connection banners") {
+    // Navigating away aborts the SSE stream, so the OUTGOING document spends
+    // its last moments reporting an outage. The class the shell sets on
+    // `pagehide` is what the base CSS hides the banners by; the Pkl suite
+    // (`components.test.pkl`) pins the other half of the pair.
+    IO {
+      val shell = FrontendAssets.content("shell")
+      // Substrings only, no quote character: the bundle is minified, and this
+      // build's minifier rewrites every string literal to a backtick one.
+      assert(shell.contains("fh-leaving"), clue = shell)
+      // Two `pagehide` listeners: `fhScroll`'s offset save, and this one.
+      assertEquals(
+        shell.sliding("pagehide".length).count(_ == "pagehide"),
+        2,
+        clue = shell
+      )
+    }
+  }
+
+  test("the phone's chrome follows the theme's background, per scheme") {
+    val themed = titleDash("home", None).copy(theme =
+      Theme(
+        tokens = Map("primary-background-color" -> "#fafafa"),
+        tokensDark = Map("primary-background-color" -> "#111111")
+      )
+    )
+    pageHtml(themed).map { html =>
+      assert(
+        html.contains(
+          """<meta name="theme-color" media="(prefers-color-scheme: light)" content="#fafafa">"""
+        ),
+        clue = html
+      )
+      assert(
+        html.contains(
+          """<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#111111">"""
+        ),
+        clue = html
+      )
+      // Both are scheme-qualified: an unqualified theme-color would win over
+      // whichever of the two matched, and pin the chrome to one scheme.
+      assertEquals(
+        html.sliding("theme-color".length).count(_ == "theme-color"),
+        2,
+        clue = html
+      )
+    }
+  }
+
+  test("a theme that names no background emits no theme-color at all") {
+    // Better nothing than a wrong colour: with no meta the browser keeps its
+    // own chrome, which at least matches the rest of the device.
+    pageHtml(titleDash("home", None)).map { html =>
+      assert(!html.contains("theme-color"), clue = html)
+    }
+  }
+
   test("the connection-lost banner LATCHES once the retries are exhausted") {
     // Every fetch type other than retrying/error/retries-failed classifies as
     // "fine", so without a latch any event after the failure cleared the banner

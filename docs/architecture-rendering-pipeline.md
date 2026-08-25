@@ -784,6 +784,8 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 | a session's lifetime | `runtime/Sessions.scala` · `Tenure`, `Session.release`/`relinquish`/`supersede`; `runtime/Server.scala` · `reapAfter`, `retire`, `AdoptionWindow`, `LingerWindow` |
 | a tab handing over its session | `src/js/shell.ts` · `fhConn` (`sessionStorage`); `runtime/Server.scala` · `PrevConnParam`, `prevConnOf`, `retire` |
 | scroll across a document load | `src/js/shell.ts` · `fhScroll` (`sessionStorage`, keyed by slug), inlined via `runtime/Server.scala` · `UrlSyncScript` |
+| the colour a phone paints its own chrome | `runtime/Renderer.scala` · `themeColorTags` (the theme's background token, one `<meta>` per scheme, folded into `headFingerprint` because a style patch cannot rewrite a meta); `resources/pwa/manifest.webmanifest` for a cold launch |
+| a document on its way out | `src/js/shell.ts` · the `pagehide` listener → `fh-leaving`; `lib/core/css.pkl` hides `.fh-offline` under it, so an aborted stream cannot paint an outage on the page being left |
 | a stylesheet the first paint does not need | `model/Dashboard.scala` · `Theme.deferredStylesheets` (the icon font); `runtime/Server.scala` · `page`'s `rel=preload` + `<noscript>` pair. In `headFingerprint` like any other `<link>`, and prefetched by `AssetCache` like any other theme URL |
 | the actual rendering | `runtime/Renderer.scala` · `renderNodeById`, `renderMount` |
 | what keys a render | `runtime/Renderer.scala` · `renderInputs`, `activeBakeIndex` |
