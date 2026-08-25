@@ -271,10 +271,24 @@ slot key remains `"class"`.
   self-contained (an instance-property reference has no instance to resolve
   against). The reflect stdlib needs Paguro at runtime; it is a declared
   pkl-core dependency, so nothing extra to ship.
-- Amending a **method-call result** requires outer parens —
-  `(c.entityCard(e)) { … }`; the parens-free `c.entityCard(e) { … }` is a parse
-  error (Pkl's own message suggests the parenthesized form). `|>` binds looser
+- Amending **any parent that is not a `new` expression** requires outer parens —
+  a method-call result (`(c.entityCard(e)) { … }`), a qualified read
+  (`(c.row) { … }`), even a bare in-scope name; the parens-free form is a parse
+  error (Pkl's own message suggests the parenthesized one). `|>` binds looser
   than call/amend, so a mixin chains after construction, including after an amend.
+- A **typed-object amend body accepts only properties**: a bare element is
+  "Object of type `Row` cannot have an element" and `["key"]` entries are
+  Mapping/Dynamic-only. So there is no trailing-block call form (`row { a b }`
+  is unreachable) — comma-free children always go through a Listing-typed
+  property (`children { … }`).
+- A **Mapping `default` enables amend-into-existence**: with
+  `default = (_) -> new PopupSurface {}`, `surfaces { ["detail"] { … } }`
+  instantiates the default and amends it, across an `amends` boundary and with
+  no `new`. A `Listing`-valued default goes one further — the amended-into-
+  existence value is a Listing, so the body adds elements directly (how a tab
+  lists its cards with no `children` key). `Mapping.keys.toList()` preserves
+  insertion order, which is what makes a Mapping-keyed class able to derive an
+  index (`Tabs`' per-tab surface keys and `bakeIndex`).
 - **Methods aren't first-class values.** To pass a factory *as a value* (a
   `Mapping` branch's render fn) you need either an explicit `.apply` at the call
   site or the dual-name **method + function-value delegate** pattern
@@ -290,6 +304,12 @@ slot key remains `"class"`.
   method** (`function tapAction(t) = let (self = this) (self) { tapAction = t }`): capture the
   receiver before the amend body, and name the parameter differently from the
   property it sets (a same-named param self-references in the amend).
+- **Pkl has no default method parameters**, and a bare `new { … }` cannot infer
+  its parent from a method's parameter type ("Cannot tell which parent to
+  amend") — so a `Listing`-typed argument is passed as `new Listing { … }`, one
+  element at a time, or via the amend form. `then` is a legal identifier;
+  `else` is reserved and needs backticks at the declaration, in an amend body,
+  and at every call site (ADR 0007's `iff` builder is the case that proved it).
 - **`const` is transitive**: a `const` property (or any reference from a class
   body) may only call `const` functions — so helpers reached that way are
   `const`/`const local` all the way down (why `cmp`, and thus `always`, are

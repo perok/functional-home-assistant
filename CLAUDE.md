@@ -29,8 +29,10 @@ connection, and the three node kinds. Read it before changing anything in `fh/vi
 owns the shape). It is also where a proposal should point: say which box moves. Its "Known open
 questions" section is a live list, not a backlog — delete an entry when it is answered.
 
-`docs/plan-*.md` are **deferred design plans, not implemented code** unless they say otherwise —
-do not assume an API described there exists in the sources.
+A `docs/plan-*.md` is a design for work **in flight**, not a description of the sources — do not
+assume an API written there exists. There are none right now: the genre was retired (#109) once
+every landed plan's decisions were in the ADRs, and a plan is deleted the same way from here on,
+rather than being left behind as a third category that is neither current state nor history.
 
 When the user questions a decision in a plan or ADR, **discuss alternatives in chat first** (with
 spikes as evidence, inline code examples) — do not rewrite the document until a direction is

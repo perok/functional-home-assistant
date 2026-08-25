@@ -92,8 +92,8 @@ swap + `data-class` active toggling, theming is our token system. Nothing uses
 ## Project conventions (fh-datastar-view)
 
 - `lib/theme-beer.pkl` is the DEFAULT (and only shipped) theme — wired in
-  `entry.pkl`; contract class + theme-author guide in `theme.pkl`, see
-  `docs/plan-beercss-theme.md`. Contract classes (`.card`, `.popup`,
+  `entry.pkl`; contract class + theme-author guide in `theme.pkl`, and the
+  choice itself is ADR 0026. Contract classes (`.card`, `.popup`,
   `.tabbar`, `.fh-row`…) stay on the markup — BeerCSS element styling applies
   *underneath* them.
 - LAYOUT does not use BeerCSS's `grid`/`s* m* l*` classes: the dashboard's

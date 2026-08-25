@@ -8,8 +8,8 @@ query-scoped dynamic re-renders, column layout — were removed; git history has
 
 - [x] Wire-format snapshot test: snapshot the evaluated `{cards, card}` JSON of the Pkl demo
       entries in PklBuildSuite so authoring-layer refactors are byte-identity-checked by
-      `sbt test`, not manual diffing. Land this BEFORE implementing
-      docs/plan-pkl-authoring-ergonomics.md — it is that plan's safety net.
+      `sbt test`, not manual diffing. Landed first, as the safety net for the authoring-
+      ergonomics refactor (ADR 0006).
 - [ ] `pkl-spike` skill (`.claude/skills/pkl-spike/`): package the scala-cli + pkl-core
       spike harness (lib.pkl + entry.pkl + runner, see the template in CLAUDE.md) so
       "verify Pkl semantics empirically" is a one-command habit.
@@ -18,8 +18,7 @@ query-scoped dynamic re-renders, column layout — were removed; git history has
       into new files during refactors.
 - [x] Page title: replace the hardcoded `<title>Home Assistant</title>` (Server.scala) with a
       per-dashboard title — new optional top-level `title` in the dashboard model, falling
-      back to the slug. (Backend half of plan-jsonnet-removal Phase 2; `lib/entry.pkl`'s
-      `title` field is the authoring half.)
+      back to the slug. (`lib/entry.pkl`'s `title` field is the authoring half.)
 - [ ] Area/floor membership in queries: today authors write
       `eo.area_id == dump.floors.overetasje.areas.kjokken.area_id` by hand. Add `inArea(...)` /
       `onFloor(...)` helpers to `lib/components.pkl` (build-time — the dump knows membership; no
@@ -70,9 +69,9 @@ query-scoped dynamic re-renders, column layout — were removed; git history has
       literal-vs-transform, JSONata context, dynamic groups, surfaces/tabs, theming) — the ADRs
       record decisions but nothing teaches usage. Include what is static, backend-rendered, or
       client-signal scriptable.
-- [ ] CSS/class pass-through on components — ties into the Tailwind `.ha-*` theme plan
-      (docs/plan-tw-theme.md): standard class API on templates, `class` slot on containers in
-      both languages, and make the backend-emitted `.fh-cell` wrapper class theme-owned.
+- [ ] CSS/class pass-through on components: a standard class API on every template, not just
+      the `cssClass` slot the containers have. The `.fh-cell` half of this is settled — the
+      wrapper class is the base layer's, not a theme's (ADR 0020).
 
 - [ ] Make the runtime suites connect like a BROWSER does. The in-process harness talks to
       `routes.run` directly, and the ways it differs from a real client have each hidden a

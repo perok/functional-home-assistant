@@ -1,5 +1,5 @@
-/// The BeerCSS Material Design 3 theme (`docs/plan-beercss-theme.md`) — the
-/// DEFAULT theme (wired in `entry.pkl`; contract + roster in `theme.pkl`).
+/// The BeerCSS Material Design 3 theme (ADR 0026) — the DEFAULT theme
+/// (wired in `entry.pkl`; contract + roster in `theme.pkl`).
 /// An entry retunes it by amending (`theme { md3Light { ... } }`) or swaps to
 /// another theme entirely (any sibling module exporting a `theme.pkl` Theme).
 ///
@@ -43,8 +43,8 @@ import "theme.pkl" as themeMod
 
 /// Pinned — never `@latest` (visual stability; the dist bundles the Material
 /// Symbols fonts with absolute CDN fallback URLs, so icons need no extra
-/// `<link>`). Bump deliberately and re-verify the spikes in
-/// `docs/plan-beercss-theme.md`.
+/// `<link>`). Bump deliberately and re-verify the framework facts ADR 0026
+/// rests on.
 const local beerVersion: String = "4.0.23"
 const local beerCdn: String = "https://cdn.jsdelivr.net/npm/beercss@\(beerVersion)/dist/cdn"
 

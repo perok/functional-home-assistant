@@ -182,7 +182,10 @@ the author never names the seam: a registry term selects candidates and
 disappears, a live term becomes a per-member guard. `q.prop(name)` resolves
 against the candidates — a registry fact if all of them carry it, a live
 attribute if none do, a build error if only some (unless wrapped in
-`q.optional`, which reads missing as null).
+`q.optional`, which reads missing as null). `q.attr(name)` overrides that
+resolution in the one direction it can be wrong: a name that IS a registry fact
+but should be read live anyway, because the author wants the value as it is now
+rather than as the registry recorded it.
 
 A load-bearing consequence, silent when broken: **the fold drops a branch whose
 guard cannot hold BEFORE applying its render lambda.** That is what makes
