@@ -193,6 +193,28 @@ class Slider extends nodes.Node {
     else "$attr." + spec.value
   hidden minExpr: String = if (min != null) "\(min!!)" else "\(spec.min)"
   hidden maxExpr: String = if (max != null) "\(max!!)" else "\(spec.max)"
+  /// Whether the axis this card drives EXISTS on its entity. A light whose only
+  /// colour mode is `onoff` has no brightness to set, so a slider on it would
+  /// be a track that never fills posting a `brightness` HA discards.
+  ///
+  /// The card carries the variant rather than the caller choosing a different
+  /// card, so a member of `sliderGroup` still reads as one of the rows around
+  /// it: same pill, same head, but filled all-or-nothing and tapped rather than
+  /// dragged. Only a light can report this — every other axis is settable by
+  /// construction (a `colourTemp` group exists only where the range does).
+  ///
+  /// Positive test, NOT `!supportsBrightness`: colour modes come from the state
+  /// snapshot, and an entity that was unavailable when the dump was taken
+  /// reports almost none of its attributes — so "says nothing" has to keep the
+  /// slider it has always had. `onoff` is HA's own statement that this light
+  /// switches and nothing more (their rule: it is the SOLE mode when present).
+  hidden toggleOnly: Boolean =
+    if (on is hass.LightEntity) on.colourModes.toList() == List("onoff") else false
+  /// What a tap on a [[toggleOnly]] row does — the domain's own toggle service
+  /// (`hass/actions.pkl`), which every domain with a `sliderSpec` row has. It is
+  /// a property so an author can point the row at something else without
+  /// reaching for a different card.
+  hidden toggleTap: tapMod.TapAction = tapMod.byDomain(entity) ?? tapMod.toggle
   /// The badge left of the label, defaulting to the entity's OWN icon in Home
   /// Assistant's resolution order (see [[iconFor]]) — so a slider looks like
   /// what it drives without being told. An MDI name (`mdi:lightbulb-group`)
@@ -232,6 +254,17 @@ class Slider extends nodes.Node {
   // reads 0 %, which is what the row shows: an empty track.
   hidden percentExpr: String =
     "($v := \(valueExpr); $v != null ? $string($round(($v - \(minExpr)) * 100 / (\(maxExpr) - \(minExpr)))) & \" %\" : \"0 %\")"
+  // A percentage of an axis the entity does not have is a permanent "0 %", so a
+  // toggle-only row reads out its STATE instead — `sliderGroup` gives every
+  // member `percent` without knowing which of them can dim. An author's own
+  // [[Expr]] is left alone: it may well be about something else entirely.
+  hidden shownReadout: (Readout|slotMod.Expr) =
+    if (toggleOnly && readout == "percent") "state" else readout
+  // The track fill, as the `--_end` percentage — see the `fill` slot. A
+  // toggle-only row has no position to express, so it fills all or nothing.
+  hidden fillExpr: String =
+    if (toggleOnly) #"$state = "on" ? "0%" : "100%""#
+    else "$string(($v := \(valueExpr); $v != null ? 100 - (($v - \(minExpr)) * 100 / (\(maxExpr) - \(minExpr))) : 100)) & \"%\""
   // Copy the tap's inline surfaces onto the node so the hoist lifts them
   // (see [[EntityCard.inlineSurfaces]]).
   inlineSurfaces = if (tapAction != null) tapAction!!.inlineSurfaces else null
@@ -288,11 +321,11 @@ class Slider extends nodes.Node {
     // this card that move when brightness does, and all four are signals — see
     // `value`/`fill`/`fillColor` below. Between them they are the whole reason a
     // slider used to re-render on every tick.
-    when (readout != "none") {
+    when (shownReadout != "none") {
       ["state"] =
-        if (readout is slotMod.Expr)
-          new slotMod.Slot { entityId = readout.entityId; transform = readout.transform; signal = slotMod.asText }
-        else if (readout == "percent")
+        if (shownReadout is slotMod.Expr)
+          new slotMod.Slot { entityId = shownReadout.entityId; transform = shownReadout.transform; signal = slotMod.asText }
+        else if (shownReadout == "percent")
           new slotMod.Slot { transform = percentExpr; default = "0 %"; bypassUnavailable = false; signal = slotMod.asText }
         else new slotMod.Slot { signal = slotMod.asText }
     }
@@ -339,7 +372,7 @@ class Slider extends nodes.Node {
     // — the binding reads the signal bare, so the unit is decided in the
     // transform and nowhere else.
     ["fill"] = new slotMod.Slot {
-      transform = "$string(($v := \(valueExpr); $v != null ? 100 - (($v - \(minExpr)) * 100 / (\(maxExpr) - \(minExpr))) : 100)) & \"%\""
+      transform = fillExpr
       default = "100%"
       bypassUnavailable = false
       signal = slotMod.asStyle("--_end")
@@ -352,7 +385,11 @@ class Slider extends nodes.Node {
     // yields null and the slot default hands the paint back to the theme.
     ["fillColor"] = new slotMod.Slot {
       transform = sliderFillColor
-      default = "currentcolor"
+      // A toggle-only row has no colour of its own to report (HA allows `onoff`
+      // only as a light's SOLE colour mode), and `currentcolor` on a full-width
+      // fill reads as text, not as "this is on" — so it takes the dashboard's
+      // accent, the same paint every other control uses to say the same thing.
+      default = if (toggleOnly) "var(--fh-accent)" else "currentcolor"
       bypassUnavailable = false
       // Bound to the span's OWN `background`, which is also why this one has to
       // be a signal: it moves with a light's colour, and leaving it as bytes
@@ -363,8 +400,15 @@ class Slider extends nodes.Node {
     // function of the position; `"state"` is on/off and any [[Expr]] is the
     // author's own. A section flag, not the expression itself: the expression
     // names signals, and a signal's name is a template var the renderer fills.
-    when (readout == "percent") {
+    when (shownReadout == "percent") {
       ["dragPercent"] = "1"
+    }
+    // The toggle variant: no range input, the track itself is the button. A
+    // section flag plus the click expression, because `cardDef` is one template
+    // shared by every slider on the page — the shape has to travel as a slot.
+    when (toggleOnly) {
+      ["toggle"] = "1"
+      ["toggleClick"] = toggleTap.onclick
     }
     ["action"] = sliderConfig(action, spec, (s) -> s.action)
     ["key"] = sliderConfig(key, spec, (s) -> s.key)
@@ -410,6 +454,13 @@ class Slider extends nodes.Node {
   // `_<id>__busy_change` signal — see `tap.pkl` for why the name is separate
   // and why disabling is safe.
   //
+  // A [[toggleOnly]] row drops the range input and puts a full-bleed button in
+  // its place, LAST so it sits over the painted fill without either of them
+  // needing a stacking rule. It reuses the input's own `_<id>__busy_change`
+  // signal rather than a tap's `_<id>__busy`: it stands exactly where the commit
+  // did, and the power button may still be holding the other name (the
+  // one-guarded-element-per-node rule in ADR 0019).
+  //
   // The head is the `self` and the members the `mount`, so the group's rows are
   // never carried by the master's patch (ADR 0012). A childless slider still
   // renders the mount — an empty `<div>` the theme hides — because a card is
@@ -429,7 +480,7 @@ class Slider extends nodes.Node {
           {{#onclick}}<button class="circle small slider-action {{lit}}" \(slotMod.signalBind("lit")) data-on:click="{{#busy}}\(tapMod.busyGuard){{/busy}}{{{onclick}}}"{{#busy}} \(tapMod.busyAttrs){{/busy}}{{#busyTapVisual}} \(tapMod.busyClass) \(tapMod.busyShapeClass){{/busyTapVisual}}><i class="mdi mdi-power"></i></button>{{/onclick}}
         </div>
         <div class="slider max" style="--_start: 0%;--_end: {{fill}}" \(slotMod.signalBind("fill")){{#busyVisual}} \(tapMod.busyClassChange){{/busyVisual}}>
-          <input type="range" min="{{min}}" max="{{max}}" value="{{value}}"
+          {{^toggle}}<input type="range" min="{{min}}" max="{{max}}" value="{{value}}"
             \(slotMod.signalBind("value"))
             data-signals__ifmissing="{ \(slideSig): '{{value}}' }"
             data-bind="\(slideSig)"
@@ -437,8 +488,12 @@ class Slider extends nodes.Node {
             \(restoreOnFailure)
             \(tapMod.busyAttrsChange)
             data-on:input="$\(slotMod.signalRef("fill")) = (100 - \(dragPos)) + '%'{{#dragPercent}}; $\(slotMod.signalRef("state")) = Math.round(\(dragPos)) + ' %'{{/dragPercent}}"
-            data-on:change="\(tapMod.busyGuardChange)@post('sse/action/{{dashboardSlug}}/{{{action}}}/{{{entity_id}}}/{{key}}/' + $\(slideSig), \(tapMod.noSignals))" />
+            data-on:change="\(tapMod.busyGuardChange)@post('sse/action/{{dashboardSlug}}/{{{action}}}/{{{entity_id}}}/{{key}}/' + $\(slideSig), \(tapMod.noSignals))" />{{/toggle}}
           <span style="background:{{fillColor}}" \(slotMod.signalBind("fillColor"))></span>
+          {{#toggle}}<button type="button" class="slider-toggle" aria-label="{{label}}"
+            \(slotMod.signalBind("value"))
+            data-on:click="\(tapMod.busyGuardChange){{{toggleClick}}}"
+            \(tapMod.busyAttrsChange)></button>{{/toggle}}
         </div>
       </div>
       """
@@ -476,6 +531,19 @@ const local sliderCss: String = """
      stack already computed, so this pins today's rhythm rather than changing it. */
   .slider-head{display:flex;gap:.75rem;align-items:center;padding:.5rem;line-height:1.5;z-index:3;pointer-events:none}
   .slider-head>.state{margin-inline-start:auto}
+  /* The edge of the control, drawn OVER the fill and never under it. Without it
+     a nearly-full slider has no visible end: the fill runs to the card's own
+     boundary and, on a bright light against a light palette, the last few
+     percent are the same brightness as the page behind them — so the row reads
+     as "some colour ending somewhere". The ring is what says where.
+     A pseudo-element rather than the card's own `box-shadow:inset`, which is
+     painted BEHIND the descendants and therefore behind the fill — that is the
+     rule this replaces, and it was invisible on exactly the rows (a member near
+     100 %) it was added for. `border-radius:inherit` takes the card's, since
+     that is the box it traces. */
+  .slider-card{position:relative}
+  .slider-card:after{content:"";position:absolute;inset:0;border-radius:inherit;
+  box-shadow:inset 0 0 0 .0625rem var(--fh-border);pointer-events:none;z-index:4}
   /* A slider is dragged sideways, so say so: the grab hand reads as "pick this
      up and move it anywhere". */
   .slider.max,.slider.max>input{cursor:ew-resize}
@@ -507,6 +575,15 @@ const local sliderCss: String = """
   .slider.max>input{pointer-events:none}
   .slider.max.fh-armed{box-shadow:inset 0 0 0 .125rem var(--fh-accent)}
   }
+  /* The toggle variant's whole-track button (a light that only switches). It is
+     invisible on purpose — the fill IS the feedback — so every one of a
+     framework's button paints has to be undone, `all:unset` being unavailable
+     here because it would also drop the box the click needs. `cursor:pointer`
+     rather than the `ew-resize` above, which is the point: this row is pressed,
+     not dragged. */
+  .slider-toggle{position:absolute;inset:0;z-index:1;margin:0;padding:0;border:0;
+  background:none;box-shadow:none;color:inherit;font:inherit;border-radius:inherit;
+  appearance:none;-webkit-appearance:none;cursor:pointer}
   /* The card's two structural wrappers. `display:contents` on the self wrapper is
      deliberate: it is the patch target (`{{selfId}}`), and a boxless one leaves
      the head and the track laid out by the CARD exactly as they were before the
@@ -577,13 +654,12 @@ const local sliderCss: String = """
      track share one grid cell, so the label and the live value ride ON the fill
      instead of sitting in a line above it. Members carry their own surface and no
      elevation — a shadow over the master's coloured fill reads as grime.
-     The hairline is what a DARK palette needs to see the row at all: a sunken
-     surface and a card surface are a couple of percent apart there, so an OFF
-     member (no fill, nothing but its own background) all but vanished into the
-     group. An inset shadow rather than a border, so it follows the radius and
-     costs the row no layout. */
+     Its edge is the shared `.slider-card:after` ring above, which is also what a
+     DARK palette needs to see the row at all: a sunken surface and a card
+     surface are a couple of percent apart there, so an OFF member (no fill,
+     nothing but its own background) all but vanished into the group. */
   .slider-members .card{display:grid;min-block-size:3rem;margin:0;
-  background:var(--fh-surface-sunken);box-shadow:inset 0 0 0 .0625rem var(--fh-border);
+  background:var(--fh-surface-sunken);
   border-radius:1.5rem;overflow:hidden}
   .slider-members :is(.slider-head,.slider.max){grid-area:1/1}
   /* Block padding off: a row is sized by `min-block-size`, so its own padding

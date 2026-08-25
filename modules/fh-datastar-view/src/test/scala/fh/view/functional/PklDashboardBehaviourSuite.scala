@@ -2,6 +2,7 @@ package fh.view.functional
 
 import cats.effect.IO
 import fh.view.runtime.TestServer
+import io.circe.Json
 import fh.view.testkit.{FixtureEntity, HouseFixture}
 
 import scala.concurrent.duration.*
@@ -469,5 +470,59 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
         assert(live.contains(s"ui_$tabsHost: 1,"), clue = live)
       }
     }
+  }
+
+  test("a slider on a light that only switches renders a button, not a range") {
+    // The card carries the variant (issue #128), so the ONE shared template has
+    // to render two shapes — which is the half a Pkl test cannot prove: the
+    // sections are jmustache's to evaluate, and an inverted section over an
+    // absent slot is exactly the mechanism in question.
+    val plug = FixtureEntity(
+      "light.plug",
+      "on",
+      Map(
+        "friendly_name" -> Json.fromString("Plug"),
+        "supported_color_modes" -> Json.arr(Json.fromString("onoff"))
+      )
+    )
+    val plugEntry =
+      s"""amends "@fh-dashboard/entry.pkl"
+         |
+         |import "@fh-dashboard/components.pkl" as c
+         |import "@fh-home/dump.pkl" as dump
+         |
+         |card = (c.column) {
+         |  children {
+         |    c.slider(dump.entities.${plug.dumpKey}).readout("percent")
+         |  }
+         |}
+         |""".stripMargin
+    TestServer
+      .fromWorkspace("fixture-plug", plugEntry, List(plug))
+      .use { ts =>
+        ts.page().map { html =>
+          assert(html.contains("class=\"slider-toggle\""), clue = html)
+          assert(!html.contains("type=\"range\""), clue = html)
+          // The whole track posts the light's own toggle, under the same
+          // commit signal the drag would have used.
+          assert(
+            html.contains(
+              "data-on:click=\"$_c_0__busy_change ? '' : @post('sse/action/fixture-plug/light/toggle/light.plug'"
+            ),
+            clue = html
+          )
+          // Filled, because it is on — and in the accent, since a light that
+          // only switches reports no colour of its own.
+          assert(html.contains("--_end: 0%"), clue = html)
+          assert(
+            html.contains("background:var(--fh-accent)"),
+            clue = html
+          )
+          // A percentage of an axis it does not have would read 0 % forever.
+          assert(html.contains(">on<"), clue = html)
+          assert(!html.contains(">0 %<"), clue = html)
+        }
+      }
+      .timeout(60.seconds)
   }
 }

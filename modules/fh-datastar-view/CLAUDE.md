@@ -239,7 +239,10 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   (`c.sliderGroup(master, members)` is the shorthand; `.readout(…)` picks what a line reads out —
   `"percent"`/`"state"`/`"none"`, or any `expr`/`exprOf`, the names being shorthands for the two
   readings that need the card's resolved axis config, which `percentExpr`/`valueExpr`/`minExpr`/
-  `maxExpr` expose for splicing — and defaults by shape: a head with rows under it reads out nothing),
+  `maxExpr` expose for splicing — and defaults by shape: a head with rows under it reads out nothing;
+  a light whose only colour mode is `onoff` renders the same row as a TOGGLE — full-bleed fill in the
+  accent, the track itself a button, no range input — so a `sliderGroup` member that cannot dim still
+  looks like the rows beside it),
   expr/exprOf,
   the `c.tap` namespace (`service`/`serviceValue`/`stateService`/`byDomain`/`toggle`/`navigate`/the popup ones — no `Tap` suffix, the namespace carries it), **the default tap** (ADR 0016 — an entity card is clickable
   by a default derived from its OWN entity: its domain's service where it has one, more-info where
