@@ -354,11 +354,15 @@ facts {
     row.slots["toggle"] == "1"
     // The whole track posts the domain's own toggle.
     row.slots["toggleClick"].transform.contains("light/toggle")
-    // All or nothing, in the accent rather than in the text colour — a light
-    // with no brightness reports no colour either (`onoff` is a light's SOLE
-    // mode when present), so the default is the only paint it can get.
+    // All or nothing, in the theme's switch-fill rather than in the text colour
+    // — a light with no brightness reports no colour either (`onoff` is a
+    // light's SOLE mode when present), so the default is the only paint it can
+    // get. A TOKEN, not the literal behind it: the value is the theme's to move.
     row.slots["fill"].transform == #"$state = "on" ? "0%" : "100%""#
-    row.slots["fillColor"].default == "var(--fh-accent)"
+    row.slots["fillColor"].default == "var(--fh-default-color)"
+    // ...and the token is one the contract actually defines. A `var()` naming
+    // nothing paints TRANSPARENT, and only a browser would ever say so.
+    cssMod.baseCss.contains("--fh-default-color:rgb(189, 189, 176)")
     // A percentage of an axis it does not have reads 0 % forever, so the row
     // reads out its state instead — and nothing drags the readout.
     row.slots["state"].transform == "$state"

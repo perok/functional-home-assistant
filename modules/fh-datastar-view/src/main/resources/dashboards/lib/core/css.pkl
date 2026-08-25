@@ -32,6 +32,13 @@ import "text.pkl" as textMod
 /// colourless: a card says `var(--fh-text-dim)`, not `var(--on-surface-variant)`
 /// (a Material role that only exists because BeerCSS is loaded) and not a
 /// literal.
+///
+/// `--fh-default-color` is the odd one out, and deliberately: it is the paint
+/// for anywhere a card has to ASSUME a colour, because the device reported
+/// none — a light whose only mode is `onoff` is on, but has no colour of its
+/// own to be. Neither HA nor a framework names a role for that, so this one
+/// carries a literal. It is still a token, so a theme retunes it like the rest
+/// and every such place moves together.
 const local paletteVars: String = """
   :root{
   --fh-accent:var(--primary-color);
@@ -44,6 +51,7 @@ const local paletteVars: String = """
   --fh-error:var(--error-color);
   --fh-on-error:var(--text-primary-color);
   --fh-warning:var(--warning-color);
+  --fh-default-color:rgb(189, 189, 176);
   }
   """
 

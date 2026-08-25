@@ -512,11 +512,11 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
             ),
             clue = html
           )
-          // Filled, because it is on — and in the accent, since a light that
-          // only switches reports no colour of its own.
+          // Filled, because it is on — and in the switch-fill token, since a
+          // light that only switches reports no colour of its own.
           assert(html.contains("--_end: 0%"), clue = html)
           assert(
-            html.contains("background:var(--fh-accent)"),
+            html.contains("background:var(--fh-default-color)"),
             clue = html
           )
           // A percentage of an axis it does not have would read 0 % forever.

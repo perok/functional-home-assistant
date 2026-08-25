@@ -388,9 +388,10 @@ class Slider extends nodes.Node {
       transform = sliderFillColor
       // A toggle-only row has no colour of its own to report (HA allows `onoff`
       // only as a light's SOLE colour mode), and `currentcolor` on a full-width
-      // fill reads as text, not as "this is on" — so it takes the dashboard's
-      // accent, the same paint every other control uses to say the same thing.
-      default = if (toggleOnly) "var(--fh-accent)" else "currentcolor"
+      // fill reads as text, not as "this is on" — so it takes
+      // `--fh-default-color`, the contract's paint for exactly this case: a
+      // colour a card had to assume because the device named none.
+      default = if (toggleOnly) "var(--fh-default-color)" else "currentcolor"
       bypassUnavailable = false
       // Bound to the span's OWN `background`, which is also why this one has to
       // be a signal: it moves with a light's colour, and leaving it as bytes
@@ -531,11 +532,18 @@ const local sliderCss: String = """
      same markup ends up looking different per engine. 1.5 is what the current
      stack already computed, so this pins today's rhythm rather than changing it.
      The label and its second line are text BOXES (`core/text.pkl`); the readout
-     deliberately is not. It is a level or an on/off, sized to its content and
-     pushed to the end — a box that measures itself would have nothing to
-     measure against in the `auto` grid track a group's head puts it in. */
+     deliberately is not — it is a level or an on/off, not prose to clip.
+     It does RESERVE its width, though, and that is the point of
+     `--fh-readout-size`: shrink-wrapped, the box was as wide as whatever it
+     currently reads, so a drag from `9 %` to `100 %` widened it and slid its
+     left edge — and the label, which caps against that edge, re-clipped on
+     every frame. Reserving the widest ordinary reading and aligning to the END
+     pins the edge, so the number changes and nothing moves. A LONGER reading
+     (`unavailable`) still gets its room; the floor only stops the box from
+     collapsing below it. */
   .slider-head{display:flex;gap:.75rem;align-items:center;padding:.5rem;line-height:1.5;z-index:3;pointer-events:none}
-  .slider-head>.state{margin-inline-start:auto;flex:0 0 auto}
+  .slider-head>.state{margin-inline-start:auto;flex:0 0 auto;
+  min-inline-size:var(--fh-readout-size,3.25rem);text-align:end}
   /* The edge of the control, drawn OVER the fill and never under it. Without it
      a nearly-full slider has no visible end: the fill runs to the card's own
      boundary and, on a bright light against a light palette, the last few
@@ -574,7 +582,8 @@ const local sliderCss: String = """
   /* Touch: the CSS half of the axis-intent gate (theme.pkl's sliderHoldScript
      owns the timing). The range input is inert so a swipe that starts on a card
      scrolls the list instead of setting a value, and `pan-y` keeps that scroll
-     native; the script drives the value itself once armed. */
+     native; the script drives the value itself — on a drag once armed, and on a
+     TAP, which an inert input would otherwise swallow entirely. */
   @media (pointer:coarse){
   .slider.max{touch-action:pan-y}
   .slider.max>input{pointer-events:none}
