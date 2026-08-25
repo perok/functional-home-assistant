@@ -912,16 +912,21 @@
           # dashboard, any other value remaps it. Nothing is published by
           # default, so a box never collides with a dashboard already running
           # on the host.
+          # Kept as TWO arrays because they belong to different containers when
+          # a browser sidecar is running: the publish flag follows whoever owns
+          # the network namespace, while the banner URL is always the box's.
+          # Bundling them meant clearing the publish flag also silently took the
+          # URL away, and the box then announced "no port published" about a
+          # port that was published and working.
           PORT="''${AGENTBOX_PORT:-}"
           if [ -n "$PORT" ]; then
+            PUBLISH_ARGS=(-p "''${PORT}:8080")
             # AGENTBOX_PORT may carry a host-interface prefix
             # (127.0.0.1:8080), which is not part of the URL.
-            PORT_ARGS=(
-              -p "''${PORT}:8080"
-              -e "AGENTBOX_DASHBOARD_URL=http://localhost:''${PORT##*:}"
-            )
+            DASHBOARD_ARGS=(-e "AGENTBOX_DASHBOARD_URL=http://localhost:''${PORT##*:}")
           else
-            PORT_ARGS=()
+            PUBLISH_ARGS=()
+            DASHBOARD_ARGS=()
           fi
 
           # -t only with a real tty, so `agentbox claude -p …` still works in a
@@ -981,7 +986,7 @@
               --user "$(id -u):$(id -g)" \
               --security-opt no-new-privileges \
               --cap-drop=ALL \
-              "''${PORT_ARGS[@]}" \
+              "''${PUBLISH_ARGS[@]}" \
               -v "$STATE/playwright:/pw" \
               -v "${browserServer}:/srv/server.cjs:ro" \
               -e HOME=/pw \
@@ -1026,8 +1031,10 @@
               --network "container:$BROWSER_NAME"
               -e "FH_PLAYWRIGHT_WS=ws://127.0.0.1:${browserPort}/agentbox"
             )
-            # Ports belong to the sidecar now — see above.
-            PORT_ARGS=()
+            # The sidecar published it; the box must not ask for it again.
+            # DASHBOARD_ARGS deliberately survives — the URL is still correct,
+            # and it is what the box prints on the way in.
+            PUBLISH_ARGS=()
           fi
 
           # --init so orphaned MCP/ripgrep children get reaped when the command
@@ -1041,7 +1048,8 @@
             --user "$(id -u):$(id -g)" \
             --security-opt no-new-privileges \
             --cap-drop=ALL \
-            "''${PORT_ARGS[@]}" \
+            "''${PUBLISH_ARGS[@]}" \
+            "''${DASHBOARD_ARGS[@]}" \
             "''${NET_ARGS[@]}" \
             "''${MOUNTS[@]}" \
             -w /work \
