@@ -154,8 +154,7 @@ always/never condition rather than a type error the author has to route around.
 say the same thing about the set the author named.
 
 `else` is a Pkl reserved word — backticks at the property, the method, and
-every call site (verified; see the then/else spike in
-`docs/plan-pkl-authoring-ergonomics.md`). `.then(..)`/`` .`else`(..) `` take
+every call site (spike-verified; ADR 0006's gotchas). `.then(..)`/`` .`else`(..) `` take
 `LayoutNode|Listing<LayoutNode>` (Pkl has no default method parameters; a bare
 `new {…}` cannot infer `Listing` from the parameter type, so multi-child
 branches pass `new Listing {…}` or use the amend form). Both members emit

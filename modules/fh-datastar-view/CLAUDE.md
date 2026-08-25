@@ -14,8 +14,8 @@ same commit; ADRs that change the pipeline update it too.
 
 #### Workflow for changes here
 
-1. Read the relevant ADR(s) first; for Pkl work also read ADR 0006 and the "Spike results"
-   section of `docs/plan-pkl-authoring-ergonomics.md` before writing any Pkl. For anything in
+1. Read the relevant ADR(s) first; for Pkl work also read ADR 0006, whose gotchas list is the
+   spike-verified record of what the language actually does, before writing any Pkl. For anything in
    `fh/view/runtime` read `docs/architecture-rendering-pipeline.md` — and update it alongside the change.
 2. Verify with `sbt 'fh-datastar-view/testFull'` — the suites build **fake dumps** in temp
    dirs and run the real library modules through the full pipeline, so **no live HA is
@@ -99,7 +99,7 @@ same commit; ADRs that change the pipeline update it too.
 | `resources/dashboards/lib/hass/light.pkl` | HA's `light` domain model VENDORED — the `ColorMode` union + `LightEntityFeature` bits (EFFECT 4, FLASH 8, TRANSITION 32). Safe to copy: HA's `*EntityFeature` IntFlags are APPEND-ONLY, never renumbered (vacant 1/2 are removed flags). `HaLight.scala` is the generator's copy and `HaLightSuite` asserts the two agree. Imported by `hass.pkl` **with an `as` alias** — Pkl binds an import to its FILE name, so the alias keeps `light` from reading as a light ENTITY; a `///` doc comment on an import is also a parse error. Other domains follow this pattern, not yet copied |
 | `resources/dashboards/lib/core/css.pkl` | The base stylesheet EVERY dashboard gets whatever its theme (ADR 0020): the `fh-` layout contract, the `--fh-*` colour variables a card's CSS is written against, and the classes the runtime itself emits or binds (busy states, offline banners, toast). `entry.pkl` puts it on `Dashboard.css`, and the renderer emits it FIRST — so a theme can override it but never drop it |
 | `resources/dashboards/lib/theme.pkl` | The theme CONTRACT (`open class Theme`, the `sliderHoldScript` gesture, and the `hidden classes` a theme uses to get its OWN class names spliced into card markup) and the theme-author guide; implementations are the `theme-*.pkl` siblings. A theme is now the PAINT layer only — the layout contract is `core/css.pkl`'s and each card's structure is its own `cardDef.css` |
-| `resources/dashboards/lib/theme-beer.pkl` | BeerCSS MD3 theme, the DEFAULT (via entry.pkl) and only shipped implementation — read `docs/plan-beercss-theme.md` + the `beercss` skill first; its module doc explains the body-specificity color bridge + the amendable `md3Light`/`md3Dark` palettes. Also loads **MDI** (`@mdi/font`, pinned) because HA's own entity `icon` attribute is an MDI name — its doc carries the ~394 KB cost and the build-time SVG-inlining plan that should replace it |
+| `resources/dashboards/lib/theme-beer.pkl` | BeerCSS MD3 theme, the DEFAULT (via entry.pkl) and only shipped implementation — read ADR 0026 + the `beercss` skill first; its module doc explains the body-specificity color bridge + the amendable `md3Light`/`md3Dark` palettes. Also loads **MDI** (`@mdi/font`, pinned) because HA's own entity `icon` attribute is an MDI name — its doc carries the ~394 KB cost and the build-time SVG-inlining plan that should replace it |
 | `resources/dashboards/lib/site.pkl` | The ENTRYPOINT base (ADR 0021) — the workspace's one `site.pkl` amends it and names every dashboard in `dashboards` (key = slug), plus site-wide settings (`default` today, auth next). Its mapping default is an `entry`, so a key amends into existence; a key may also be assigned an imported module (`import("x.pkl")` — the CALL form, the declaration form does not parse in a value position) |
 | `resources/dashboards/lib/entry.pkl` | ONE dashboard — a `dashboards` value `amends` it, setting only `card` (+ optional `title`/`surfaces`/`theme`) |
 | `resources/dashboards/lib/PklProject` | The `@fh-dashboard` package manifest — the shared lib, packaged into the cache by `LibPackage`. (The top-level consumer `PklProject` + `home/` are gone: workspaces are bootstrapped package-form; the repo `lib/` is bundled-lib SOURCE, not a path-form checkout.) |
@@ -283,8 +283,8 @@ import org.pkl.core.*
 ```
 
 Gotchas spiked on 0.31.1 and carried forward to the 0.32.1 pin — 0.32.x changed no evaluator
-semantics, and the suite still pins the ones it covers (full list with evidence:
-`docs/plan-pkl-authoring-ergonomics.md`, "Spike results"):
+semantics, and the suite still pins the ones it covers (full list: ADR 0006, "Pkl authoring
+gotchas"):
 
 - Amending ANY parent that isn't a `new` expression **requires outer parens** — method-call
   results (`(c.entityCard(e)) { ... }`), qualified reads (`(c.row) { ... }`), even bare
@@ -350,9 +350,7 @@ semantics, and the suite still pins the ones it covers (full list with evidence:
 #### Design docs and plans
 
 The repo-wide rule (plans are deferred, ADRs are rewritten in place, discuss before rewriting)
-is in the root `CLAUDE.md`. Module-specific:
-
-- `plan-pkl-authoring-ergonomics.md` (call-style factories, Mapping-branch dynamic groups,
-  fluent predicates) is fully designed and spike-verified but **not yet applied** to
-  `components.pkl` — do not assume its API exists in the sources.
+is in the root `CLAUDE.md`. This module currently has no plan documents: every decision that
+was in one lives in `docs/adr/`, and `docs/architecture-rendering-pipeline.md` is the shape of
+the running system.
 
