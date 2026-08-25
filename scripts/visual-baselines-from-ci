@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+# visual-baselines-from-ci — adopt CI's rendering as the visual snapshot baselines.
+#
+#   scripts/visual-baselines-from-ci            # latest CI run for the current branch
+#   scripts/visual-baselines-from-ci 1234567890 # a specific run id
+#   scripts/visual-baselines-from-ci --branch main
+#
+# WHY a script and not `sbt dashboardVisualSnapshotsUpdate`: that regenerates
+# from THIS machine, which bakes in local font rasterization the baselines then
+# carry forever (see VisualSnapshot's scaladoc). CI's `ubuntu-latest` is the one
+# environment every run shares, so its PNGs are the ones worth checking in.
+#
+# It only ever copies files CI already produced: on a mismatch the suite drops
+# `<name>.expected.png` (the current baseline) next to `<name>.actual.png` (what
+# CI rendered), and the workflow uploads that pair as `visual-snapshot-failures`.
+# This takes the `.actual` half. Nothing is committed — look at the diff first,
+# because "CI disagrees" and "the change is wrong" produce the same artifact.
+set -euo pipefail
+
+repo_root=$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)
+baselines="$repo_root/modules/fh-datastar-view/src/test/resources/visual-snapshots"
+artifact=visual-snapshot-failures
+
+run_id=""
+branch=""
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --branch) branch=${2:?--branch needs a name}; shift 2 ;;
+    -h|--help) sed -n '2,17p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
+    *) run_id=$1; shift ;;
+  esac
+done
+
+command -v gh >/dev/null || { echo "gh CLI not found" >&2; exit 1; }
+
+if [[ -z $run_id ]]; then
+  branch=${branch:-$(git -C "$repo_root" rev-parse --abbrev-ref HEAD)}
+  # The most recent run that could have uploaded the artifact — it is attached
+  # on failure only, so a green run legitimately has none and the download
+  # below says so.
+  run_id=$(gh run list --branch "$branch" --workflow cicd.yml --limit 1 \
+    --json databaseId --jq '.[0].databaseId')
+  [[ -n $run_id ]] || { echo "no cicd.yml run found for branch $branch" >&2; exit 1; }
+  echo "branch $branch -> run $run_id"
+fi
+
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+
+if ! gh run download "$run_id" --name "$artifact" --dir "$tmp" 2>"$tmp/err"; then
+  cat "$tmp/err" >&2
+  echo "run $run_id has no '$artifact' artifact — it either passed, failed" >&2
+  echo "elsewhere (fmt, a behavioural suite), or is older than the 1-day" >&2
+  echo "retention the workflow sets." >&2
+  exit 1
+fi
+
+shopt -s nullglob
+adopted=0
+for actual in "$tmp"/*.actual.png; do
+  name=$(basename "$actual" .actual.png)
+  target="$baselines/$name.png"
+  [[ -f $target ]] || { echo "skipping $name — no baseline at $target" >&2; continue; }
+  cp "$actual" "$target"
+  echo "  adopted $name.png"
+  adopted=$((adopted + 1))
+done
+
+[[ $adopted -gt 0 ]] || { echo "artifact held no *.actual.png" >&2; exit 1; }
+
+echo
+echo "$adopted baseline(s) updated from run $run_id. Review before committing:"
+echo "  git -C $repo_root diff --stat -- ${baselines#"$repo_root"/}"
