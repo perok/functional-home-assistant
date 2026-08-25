@@ -3,7 +3,7 @@ package fh.view.smoke
 import cats.effect.{IO, Resource}
 import cats.syntax.all.*
 import com.comcast.ip4s.{host, port}
-import com.microsoft.playwright.{Browser, Page, Playwright}
+import com.microsoft.playwright.Page
 import fh.view.runtime.{AssetCache, Datastar, Server}
 import fs2.Stream
 import org.http4s.*
@@ -12,7 +12,6 @@ import org.http4s.ember.server.EmberServerBuilder
 import org.http4s.headers.`Content-Type`
 import org.http4s.implicits.*
 
-import scala.compiletime.uninitialized
 import scala.concurrent.duration.*
 import scala.jdk.CollectionConverters.*
 
@@ -40,24 +39,7 @@ import scala.jdk.CollectionConverters.*
   * Deliberately standalone: a bare page and an SSE stream this test fully
   * controls, so it measures Datastar and nothing of ours.
   */
-class DatastarMorphContractSuite extends munit.CatsEffectSuite with SlowSuite {
-
-  private var playwright: Playwright = uninitialized
-  private var browser: Browser = uninitialized
-
-  override def beforeAll(): Unit = {
-    playwright = Playwright.create(
-      new Playwright.CreateOptions().setEnv(
-        (sys.env ++ Map("PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD" -> "1")).asJava
-      )
-    )
-    browser = SmokeSuite.connectOrLaunch(playwright, Nil)
-  }
-
-  override def afterAll(): Unit = {
-    if (browser != null) browser.close()
-    if (playwright != null) playwright.close()
-  }
+class DatastarMorphContractSuite extends BrowserSuite {
 
   test("a patch at the self element leaves its sibling mount untouched") {
     val page =

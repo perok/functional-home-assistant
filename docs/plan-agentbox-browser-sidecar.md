@@ -191,9 +191,29 @@ Things the plan did not anticipate, found while building it:
 - **The box and the host share `target/`** through the `/work` mount, so alternating `sbt` runs
   between them corrupts incremental state, surfacing as a compiler crash that names nothing
   relevant. `sbt <module>/clean` fixes it; documented in the README.
-- **`DatastarMorphContractSuite` launches its own browser** and does not extend `SmokeSuite`, so
-  the branch had to be a shared helper (`SmokeSuite.connectOrLaunch`) rather than an edit to one
-  `beforeAll`.
+- **The shared base was misnamed.** `DatastarMorphContractSuite` launches its own browser and
+  deliberately does NOT extend `SmokeSuite` — it serves a bare page so it measures Datastar and
+  nothing of ours — yet the first cut had it calling `SmokeSuite.connectOrLaunch`, i.e. depending
+  on the very base it opts out of. The two suites also carried a verbatim copy of the same
+  `beforeAll`/`afterAll`.
+
+  Extracted **`BrowserSuite`** (`BrowserSuite.scala`): it owns the Playwright/browser lifetime and
+  the connect-or-launch decision, and nothing about what the browser is pointed at. `SmokeSuite`
+  extends it and adds the served dashboard; `DatastarMorphContractSuite` extends it and adds its
+  own page. `SlowSuite` moved there too and is mixed in by `BrowserSuite`, so "drives a browser"
+  implies "tagged Slow" by construction — it stays a separate trait because slow does not imply a
+  browser.
+
+  Dropped the per-suite launch-args parameter while doing it: in the box every suite shares one
+  browser and could not differ anyway, so a per-suite list only meant a suite behaved differently
+  in the box than on the host.
+- **The trap needed a partner.** `trap ... EXIT INT TERM` covers Ctrl-C (verified with a real
+  process-group SIGINT — signalling only the `nix` pid does NOT exercise it, and misleadingly
+  looks like the trap failing). But SIGKILL or a host crash skips it, and the orphaned sidecar
+  keeps its published port. The reap-at-startup was also useless as first written: it removed
+  `$BROWSER_NAME`, which is derived from the *current* pid and so cannot name a previous run's
+  orphan. Now it sweeps `agentbox-browser-*` and removes only those whose encoded pid is gone —
+  which is also what keeps it from killing a concurrent box's sidecar.
 
 ## Results
 

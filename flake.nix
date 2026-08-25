@@ -937,9 +937,22 @@
             BROWSER_NAME="agentbox-browser-$$"
             mkdir -p "$STATE/playwright"
 
-            # A crashed run can leave the name taken; reap rather than refuse,
-            # since the container is disposable and the name is derived.
-            docker rm -f "$BROWSER_NAME" >/dev/null 2>&1 || true
+            # The trap below covers every ordinary exit, Ctrl-C included, but a
+            # SIGKILL or a host crash skips it — and the orphan keeps holding
+            # the published port. So reap first.
+            #
+            # Only genuine orphans: the name carries the wrapper's pid, so a
+            # sidecar whose pid is gone is abandoned, while one whose pid is
+            # alive belongs to a CONCURRENT box and must not be touched.
+            for stale in $(docker ps -a --filter "name=^agentbox-browser-" --format '{{.Names}}'); do
+              if ! kill -0 "''${stale##*-}" 2>/dev/null; then
+                docker rm -f "$stale" >/dev/null 2>&1 || true
+              fi
+            done
+
+            # The sidecar is detached, so it is not in the terminal's process
+            # group and never sees your Ctrl-C; `--rm` only fires once a
+            # container stops. Without this trap it would outlive the box.
             trap 'docker rm -f "$BROWSER_NAME" >/dev/null 2>&1 || true' EXIT INT TERM
 
             echo "==> starting browser sidecar (playwright $PW_VER)" >&2
