@@ -462,7 +462,9 @@ must not refresh every browser when the theme is byte-identical.
 - **`styleHash`** — theme tokens, `tokensDark`, inline `styles`, `title`: exactly
   what `Renderer.themeStyleTag` + the `<title>` render, so a mismatch is repaired by
   `Server.headPatches` — two element patches, no reload.
-- **`headHash`** — `<link>`ed stylesheets, the theme's scripts (module `src`s and
+- **`headHash`** — `<link>`ed stylesheets (the deferred ones too — deferring changes
+  when a sheet applies, not that the head names it), the theme's scripts (module
+  `src`s and
   inline bodies), `theme.chrome`. None can be patched honestly: a `<link>` can be
   added but not un-applied, a script cannot be un-run, and the chrome is the frame
   the body patch lands INSIDE.
