@@ -24,6 +24,10 @@ Run the official `mcr.microsoft.com/playwright:v1.62.0` image as a **sidecar**, 
 **share one network namespace**, so the sidecar's browser reaches `TestServer`'s ephemeral
 loopback port with no tunnel and no published port.
 
+The sidecar runs `chromium.launchServer({ args })` from a small Node script rather than
+`npx playwright run-server`, because only the former can apply the tests' curated launch flags —
+see step 1.
+
 ## Why not in-image
 
 The superseded design added ~20 nixpkgs library attrs, four font packages, a `makeFontsConf`, a
@@ -67,6 +71,26 @@ it. `connect()` is the supported path.
 - `flake.nix`'s README records a deliberate "no devShell" decision. Unchanged by this plan: the
   sidecar is started by the existing wrapper, not by a shell the user enters first.
 
+### From the spike (2026-08-25)
+
+Run against `mcr.microsoft.com/playwright:v1.62.0` with `chromium.launchServer`, from a JVM inside
+the agentbox image joined with `--network=container:`:
+
+- **It works.** `connect()` from inside the box reaches the sidecar over the shared namespace, and
+  pages render. Browser is `151.0.7922.34` from `chromium-1234` — the revision the Java client
+  wants, with no version negotiation needed.
+- **`launchServer` accepts the curated args**, so the determinism flags survive.
+- **A shared browser is safe for parallel suites.** Two independent `Playwright` clients connected
+  at once; closing one left the other working (`isConnected() == true`), and a third client
+  connected afterwards. `close()` disconnects, it does not kill the server. This was the open
+  question and it is now settled.
+- **The box needs `PLAYWRIGHT_NODEJS_PATH`.** This is the one real image change. The Java driver
+  ships its own `node`, which cannot execute under nix; without the override
+  `Playwright.create()` dies with *"Failed to read message from driver, pipe closed"* — the exact
+  symptom `CLAUDE.md` currently attributes to "an environment with no browser driver". The image
+  already carries `nodejs_24`, and pointing the driver at it fixes it outright.
+  `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` alone does NOT fix it.
+
 ## Plan
 
 ### 1. The test-side branch — one env var carrying the endpoint
@@ -95,11 +119,10 @@ small Node script rather than `run-server`, so the same arg list the tests use i
 server-side. Keeping that list in two places is a drift risk and is the main thing to watch in
 review.
 
-**Open question for the spike:** `launchServer` yields ONE browser shared by every connection,
-where `run-server` launches per connection. Suites run in parallel, so this must be checked:
-`browser.close()` on a connected browser is documented to clear that client's contexts and
-disconnect rather than kill the server — verify that empirically with two concurrent connections
-before relying on it, since `SmokeSuite.afterAll` calls `browser.close()`.
+`launchServer` yields ONE browser shared by every connection, where `run-server` launches per
+connection. Since suites run in parallel and `SmokeSuite.afterAll` calls `browser.close()`, that
+had to be checked rather than assumed — the spike confirms `close()` disconnects the client
+without killing the server, so parallel suites are safe.
 
 ### 2. Wrapper: `AGENTBOX_BROWSER=1`, opt-in
 
@@ -128,8 +151,13 @@ adding it quietly.
 
 ### 4. Image
 
-Nothing to add. No `contents` change, no fonts, no `LD_LIBRARY_PATH`, no
-`PLAYWRIGHT_BROWSERS_PATH` — the browser is not in this image.
+One `Env` entry: `PLAYWRIGHT_NODEJS_PATH` pointing at `${pkgs.nodejs_24}/bin/node`, so the Java
+driver uses the image's node instead of the one it ships, which cannot execute under nix. Use the
+store path rather than `/bin/node` — `contents` already provides `nodejs_24`, and the store path
+is the honest dependency.
+
+Nothing else. No new `contents`, no fonts, no `LD_LIBRARY_PATH`, no `PLAYWRIGHT_BROWSERS_PATH` —
+the browser is not in this image.
 
 ### 5. `flake.nix` README
 
