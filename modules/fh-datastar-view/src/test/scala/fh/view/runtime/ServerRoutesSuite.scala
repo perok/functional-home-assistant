@@ -342,8 +342,8 @@ class ServerRoutesSuite extends ServerHarness {
     // page went back to looking connected while it was not.
     pageHtml(titleDash("home", None)).map { html =>
       val handler = html.linesIterator
-        .find(_.contains("data-on:datastar-fetch"))
-        .getOrElse(fail(s"no fetch handler in the shell: $html"))
+        .find(_.contains(s"data-on:${Server.StreamEvent}"))
+        .getOrElse(fail(s"no stream handler in the shell: $html"))
       // 2 is absorbing: the assignment can only ever read 2 back out.
       assert(handler.contains("$_sse >= 2 ? 2 :"), clue = handler)
       // ...and the classification it guards is unchanged.
@@ -355,6 +355,34 @@ class ServerRoutesSuite extends ServerHarness {
       // Recovery from a mere blip is NOT latched — 1 must still fall back to 0,
       // or an ordinary refetch would pin "Reconnecting…" forever.
       assert(!handler.contains("$_sse >= 1"), clue = handler)
+    }
+  }
+
+  test("only the STREAM's own fetch moves the connection banner") {
+    // `datastar-fetch` fires for every fetch on the page, and the stream is one
+    // of many. Bound to it directly, an action decided the stream's state in
+    // both directions: a rejected click raised "Reconnecting…" on a live
+    // connection, and a stream frame landing while a tap's POST failed put the
+    // banner away again. The split is made in `shell.ts`, per event, because a
+    // debounced handler only ever sees the last event of its window — so the
+    // shell must bind the FILTERED event, and never the raw one.
+    pageHtml(titleDash("home", None)).map { html =>
+      val handler = html.linesIterator
+        .find(_.contains(s"data-on:${Server.StreamEvent}"))
+        .getOrElse(fail(s"no stream handler in the shell: $html"))
+      assert(handler.contains("debounce"), clue = handler)
+      assert(!html.contains("data-on:datastar-fetch__debounce"), clue = html)
+      // The shell's own JS is what narrows it, and it is inlined into this very
+      // page — so both halves of the protocol are checked here rather than one
+      // of them alone. Matched loosely (a name, a property) because the bundle
+      // is minified: anything shaped like source would be asserting on esbuild.
+      val emitters =
+        html.sliding(Server.StreamEvent.length).count(_ == Server.StreamEvent)
+      assert(emitters >= 2, clue = s"only $emitters mention(s) of the event")
+      assert(
+        html.contains("document.body"),
+        clue = "shell.ts no longer filters the stream event to the <body> fetch"
+      )
     }
   }
 
@@ -717,13 +745,14 @@ class ServerRoutesSuite extends ServerHarness {
     pageHtml(titleDash("home", None)).map { html =>
       // Concept 1: the server-pushed HA-down signal drives the HA banner.
       assert(html.contains(Server.HaDownSignal), html)
-      // Concept 2: transport-down is derived client-side, bound straight to
-      // Datastar's connection lifecycle — no bridge script, no polling. The
-      // event name is load-bearing (`datastar-sse` does not exist in this
-      // build), and `data-on` only reaches it because the plugin special-cases
-      // this name onto `document`; a `__window` modifier would silently never
-      // fire.
-      assert(html.contains("data-on:datastar-fetch"), html)
+      // Concept 2: transport-down is derived client-side from Datastar's
+      // connection lifecycle — no polling. It binds the shell's own
+      // [[Server.StreamEvent]] rather than `datastar-fetch` itself, because
+      // that fires for every fetch on the page and this banner is about one of
+      // them (see "only the STREAM's own fetch…" below). Both are dispatched on
+      // `document` without bubbling, so `__document` is load-bearing — a
+      // `__window` modifier would silently never fire.
+      assert(html.contains(s"data-on:${Server.StreamEvent}__document"), html)
       assert(html.contains("retries-failed"), html)
       assert(!html.contains("data-on-interval"), html)
       // Every `data-show` element must ALSO ship inline-hidden, or it paints

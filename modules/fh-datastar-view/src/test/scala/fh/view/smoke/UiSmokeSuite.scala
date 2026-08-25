@@ -115,6 +115,13 @@ class UiSmokeSuite extends SmokeSuite {
     // that no commit is coming. Here the POST is aborted outright — no status,
     // so no `error` event — which is only reachable at all because the
     // transport failed. The banner's `_sse` is what says so.
+    //
+    // The stream is cut SERVER-SIDE (`forgetConnections` reaps the session,
+    // which ends the response) as well as blocked client-side, because a
+    // `page.route` only ever meets a NEW request: the stream this page already
+    // has open would survive it, and the banner would then be asserting the
+    // health of a connection that is fine. Reaping makes the transport really
+    // fail, and the blocked reconnect is what keeps it failed.
     withPage(scene) { (page, ts) =>
       val panel = page.locator(".tab-panel")
       val climateTab =
@@ -125,6 +132,8 @@ class UiSmokeSuite extends SmokeSuite {
         _ <- IO.blocking(climateTab.click())
         // It highlights while it is still an open question…
         _ <- IO.blocking(assertThat(climateTab).hasClass(active))
+        _ <- ts.forgetConnections
+        _ <- ts.awaitNoConnections
         // …and stops when the connection that would have answered is gone.
         _ <- IO.blocking(
           assertThat(page.locator(".fh-offline-sse")).isVisible()
