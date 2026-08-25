@@ -59,25 +59,7 @@ abstract class SmokeSuite extends munit.CatsEffectSuite with SlowSuite {
         (sys.env ++ Map("PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD" -> "1")).asJava
       )
     )
-    browser = playwright
-      .chromium()
-      .launch(
-        new BrowserType.LaunchOptions()
-          .setHeadless(true)
-          .setArgs(
-            List(
-              // https://github.com/microsoft/playwright/issues/8161#issuecomment-3643962063
-              "--disable-gpu",
-              "--disable-font-subpixel-positioning",
-              "--disable-lcd-text",
-              "--disable-threaded-animation",
-              "--disable-threaded-scrolling",
-              "--disable-in-process-stack-traces",
-              "--disable-checker-imaging",
-              "--force-color-profile=srgb"
-            ).asJava
-          )
-      )
+    browser = SmokeSuite.connectOrLaunch(playwright, SmokeSuite.browserArgs)
   }
 
   override def afterAll(): Unit = {
@@ -177,4 +159,56 @@ abstract class SmokeSuite extends munit.CatsEffectSuite with SlowSuite {
     )
     ()
   }
+}
+
+object SmokeSuite {
+
+  /** Set by the agentbox wrapper to the sidecar's Playwright server. Its
+    * PRESENCE selects `connect` over `launch` — there is no second "am I in a
+    * box" flag to keep consistent with it.
+    */
+  val WsEndpointVar = "FH_PLAYWRIGHT_WS"
+
+  /** Chromium flags for deterministic rendering, so `ComponentVisualSuite`
+    * compares like with like.
+    *
+    * Mirrored by the sidecar's `launchServer` call in `flake.nix`: `connect`
+    * has no way to send launch arguments, so the box gets these only because
+    * the server was started with them. Change both or neither.
+    *
+    * https://github.com/microsoft/playwright/issues/8161#issuecomment-3643962063
+    */
+  val browserArgs: List[String] = List(
+    "--disable-gpu",
+    "--disable-font-subpixel-positioning",
+    "--disable-lcd-text",
+    "--disable-threaded-animation",
+    "--disable-threaded-scrolling",
+    "--disable-in-process-stack-traces",
+    "--disable-checker-imaging",
+    "--force-color-profile=srgb"
+  )
+
+  /** Connect to the agentbox sidecar when [[WsEndpointVar]] is set, else launch
+    * a browser locally — which is what CI and a plain checkout do.
+    *
+    * `launchArgs` reach only the launch path. On the connect path the server
+    * already started the browser, so every suite in the box shares one that was
+    * launched with [[browserArgs]] regardless of what it asks for here.
+    */
+  def connectOrLaunch(
+      playwright: Playwright,
+      launchArgs: List[String]
+  ): Browser =
+    sys.env.get(WsEndpointVar) match {
+      case Some(ws) => playwright.chromium().connect(ws)
+      case None     =>
+        playwright
+          .chromium()
+          .launch(
+            new BrowserType.LaunchOptions()
+              .setHeadless(true)
+              .setArgs(launchArgs.asJava)
+          )
+    }
 }

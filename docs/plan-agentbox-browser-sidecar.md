@@ -176,6 +176,34 @@ the browser is not in this image.
   branch.
 - `build.sbt` — untouched. The version pin stays where CI reads it.
 
+## Implementation notes (landed)
+
+Things the plan did not anticipate, found while building it:
+
+- **The sidecar image has no `playwright` npm package** — only the browsers under
+  `/ms-playwright`. The server script needs `playwright-core` installed at start (~14 MB),
+  cached in `~/.agentbox/playwright` so only the first start pays for it.
+- **`docker logs -f | grep -m1` is the wrong readiness check.** `grep` leaves at the first match,
+  but `docker logs -f` only learns the pipe is closed when it next writes — and a server that has
+  announced itself writes nothing more. The pipeline then blocks for the entire timeout *on
+  success*, which reads as a slow start rather than a bug. Replaced with a bounded poll that also
+  gives up early if the sidecar has died. Measured: 4s to a usable box, against ~5 minutes before.
+- **The box and the host share `target/`** through the `/work` mount, so alternating `sbt` runs
+  between them corrupts incremental state, surfacing as a compiler crash that names nothing
+  relevant. `sbt <module>/clean` fixes it; documented in the README.
+- **`DatastarMorphContractSuite` launches its own browser** and does not extend `SmokeSuite`, so
+  the branch had to be a shared helper (`SmokeSuite.connectOrLaunch`) rather than an edit to one
+  `beforeAll`.
+
+## Results
+
+- `RenderSmokeSuite`, `UiSmokeSuite`, `ControlSmokeSuite`, `DatastarMorphContractSuite`: **28/28
+  pass in the box**, three of them in parallel against the one shared browser.
+- `ComponentVisualSuite`: **6/7**. `entity-card-off` differs by 0.308% of pixels against a 0.3%
+  budget — font rasterization, exactly the anticipated case. The baseline is NOT regenerated and
+  the budget is NOT widened: doing either would spend CI's sensitivity to buy a green box.
+- The `launch` path still passes on the host, so CI is unaffected.
+
 ## Verification
 
 Spike first; it answers the two unknowns (launch args, sandbox) before any wrapper work:

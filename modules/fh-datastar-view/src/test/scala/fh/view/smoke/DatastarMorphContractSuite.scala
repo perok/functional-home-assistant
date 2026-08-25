@@ -3,7 +3,7 @@ package fh.view.smoke
 import cats.effect.{IO, Resource}
 import cats.syntax.all.*
 import com.comcast.ip4s.{host, port}
-import com.microsoft.playwright.{Browser, BrowserType, Page, Playwright}
+import com.microsoft.playwright.{Browser, Page, Playwright}
 import fh.view.runtime.{AssetCache, Datastar, Server}
 import fs2.Stream
 import org.http4s.*
@@ -51,9 +51,7 @@ class DatastarMorphContractSuite extends munit.CatsEffectSuite with SlowSuite {
         (sys.env ++ Map("PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD" -> "1")).asJava
       )
     )
-    browser = playwright
-      .chromium()
-      .launch(new BrowserType.LaunchOptions().setHeadless(true))
+    browser = SmokeSuite.connectOrLaunch(playwright, Nil)
   }
 
   override def afterAll(): Unit = {

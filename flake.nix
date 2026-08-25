@@ -193,6 +193,45 @@
         HISTCONTROL=ignoredups
       '';
 
+      # Runs INSIDE the Playwright sidecar (AGENTBOX_BROWSER=1), not in the box.
+      #
+      # `npx playwright run-server` would be the obvious thing, but a client
+      # that connects cannot send launch arguments — the server owns browser
+      # startup — so the flags that make rendering deterministic have to be
+      # applied here. They mirror `SmokeSuite.browserArgs`; change both or
+      # neither.
+      #
+      # Bound to loopback on purpose: the box shares this container's network
+      # namespace, so loopback IS the channel, and a browser-automation
+      # endpoint is never exposed further than that.
+      browserPort = "39222";
+      browserServer = pkgs.writeText "agentbox-browser-server.cjs" ''
+        const { chromium } = require('/pw/node_modules/playwright-core');
+
+        chromium
+          .launchServer({
+            headless: true,
+            host: '127.0.0.1',
+            port: ${browserPort},
+            wsPath: '/agentbox',
+            args: [
+              '--disable-gpu',
+              '--disable-font-subpixel-positioning',
+              '--disable-lcd-text',
+              '--disable-threaded-animation',
+              '--disable-threaded-scrolling',
+              '--disable-in-process-stack-traces',
+              '--disable-checker-imaging',
+              '--force-color-profile=srgb'
+            ]
+          })
+          .then((s) => console.log('READY ' + s.wsEndpoint()))
+          .catch((e) => {
+            console.error(e);
+            process.exit(1);
+          });
+      '';
+
       image = pkgs.dockerTools.buildLayeredImage {
         inherit name tag;
 
@@ -271,6 +310,12 @@
             # default is ~/.bash_history, and the container home is thrown away
             # on exit — see /etc/bashrc for the append behaviour this needs
             "HISTFILE=${state}/state/bash_history"
+            # The Java Playwright driver ships its own node, which cannot
+            # execute under nix; without this `Playwright.create()` dies with
+            # "Failed to read message from driver, pipe closed" — which reads
+            # like a missing browser and is not one. Unconditional: it costs
+            # nothing when no browser tests run.
+            "PLAYWRIGHT_NODEJS_PATH=${pkgs.nodejs_24}/bin/node"
             # claude-code comes from the read-only store — never let it
             # self-update. Belt and braces: nixpkgs' own wrapper --sets this
             # too, so it stays right even if this line is lost.
@@ -329,6 +374,45 @@
         loopback-bound server is unreachable and `-p` looks silently broken.
         For this repo's dashboard that is `HOST=0.0.0.0` in `.env`.
 
+        ### Browser tests
+
+        There is no browser in this image. `AGENTBOX_BROWSER=1` starts a
+        Playwright sidecar next to the box instead, and the smoke suites
+        connect to it:
+
+            AGENTBOX_BROWSER=1 nix run .#
+            # inside: sbt 'fh-datastar-view/testFull'
+
+        Without it the box has no browser at all and those suites die in
+        `beforeAll`, so run them as `sbt 'fh-datastar-view/testOnly * --
+        --exclude-tags=Slow'`.
+
+        The sidecar image is `mcr.microsoft.com/playwright:v<version>`, with the
+        version read out of `build.sbt` — the Java client pin decides it, so the
+        two halves cannot drift apart. The first start installs
+        `playwright-core` into `~/.agentbox/playwright` and takes a minute;
+        later starts reuse it.
+
+        `ComponentVisualSuite` is expected to differ here: six of its seven
+        snapshots match, and `entity-card-off` lands at 0.308% changed pixels
+        against a 0.3% budget, because font rasterization is not identical to
+        CI's runner. **CI stays authoritative for the visual baselines** — do
+        not regenerate them from inside the box.
+
+        `/work` is your working tree, `target/` included, so the box and the
+        host share one set of build outputs. Alternating `sbt` between them can
+        leave incremental state the other does not recognise, which surfaces as
+        a compiler crash rather than anything that names the cause —
+        `NoSuchFileException ...semanticdb` or *"Cannot invoke
+        AbstractFile.jpath() because clsFile is null"*. `sbt <module>/clean`
+        fixes it. Not specific to browser tests; it is just easiest to hit when
+        you run the same suite both ways.
+
+        Under `AGENTBOX_BROWSER=1` the sidecar owns the network namespace and
+        the box joins it, so `AGENTBOX_PORT` is published by the sidecar. The
+        two compose normally; it is only worth knowing if you go looking for the
+        published port on the wrong container.
+
         The wrapper loads the image into Docker when the build changes. Inside
         the box, `devbox readme` shows this document. Requires an
         x86_64-linux builder; on macOS/aarch64 add a linux builder or change
@@ -374,6 +458,7 @@
         | `$SSH_AUTH_SOCK`              | `/run/ssh-agent.sock`     | `AGENTBOX_SSH=agent` |
         | `~/.ssh`                      | `~/.ssh` (ro)             | `AGENTBOX_SSH=keys`  |
         | `gh auth token`               | `$GH_TOKEN` (env, no mount) | `AGENTBOX_GH=1`    |
+        | `~/.agentbox/playwright`      | `/pw` (in the sidecar, not the box) | `AGENTBOX_BROWSER=1` |
 
         Signing is the exception to opt-in — if your git config asks for it, the
         gpg mounts are on by default and the box will not start without them:
@@ -459,6 +544,13 @@
           *extra* socket precisely to bound it: use ends when the container
           does, because the key itself never went in. `AGENTBOX_GPG=off` opts
           out.
+        - **`AGENTBOX_BROWSER=1` runs a third-party image alongside the box**
+          (`mcr.microsoft.com/playwright`), sharing its network namespace — so
+          it reaches whatever the box reaches, and a browser is a general
+          fetcher. It gets no host mounts beyond its own `playwright-core`
+          directory, and its automation port is bound to loopback inside that
+          shared namespace, so nothing outside the pair can drive it. Off by
+          default.
 
         The box is a boundary against *accidents and reach*, not against a
         determined attacker who already has code running inside it. Trusted
@@ -815,17 +907,112 @@
           # pipe or from CI ("the input device is not a TTY")
           if [ -t 0 ] && [ -t 1 ]; then TTY_ARGS=(-it); else TTY_ARGS=(-i); fi
 
+          # AGENTBOX_BROWSER=1 starts a Playwright sidecar so the browser smoke
+          # tests can run in the box, which otherwise has no browser at all.
+          #
+          # The sidecar OWNS the network namespace and the box joins it, rather
+          # than the other way round, for two reasons. Docker refuses to publish
+          # a port on a container using another's namespace ("conflicting
+          # options: port publishing and the container type network mode"), so
+          # whoever owns the namespace must carry AGENTBOX_PORT. And the box is
+          # started last because it is the foreground process — there is no
+          # moment after it starts at which this script could bring anything up.
+          #
+          # Sharing the namespace is the whole trick: the test server binds
+          # 127.0.0.1 on an OS-assigned port, so a browser anywhere else has no
+          # route to the page under test and no port to publish.
+          NET_ARGS=()
+          BROWSER_NAME=""
+          if [ "''${AGENTBOX_BROWSER:-0}" = "1" ]; then
+            # One pin for both halves: the Java client in build.sbt decides the
+            # image tag, so they cannot drift into a protocol mismatch.
+            PW_VER="$(sed -n 's/.*"com\.microsoft\.playwright" % "playwright" % "\([0-9.]*\)".*/\1/p' "$PWD/build.sbt" 2>/dev/null | head -1)"
+            if [ -z "$PW_VER" ]; then
+              echo "agentbox: AGENTBOX_BROWSER=1 needs the Playwright version, but no" >&2
+              echo "  com.microsoft.playwright dependency was found in $PWD/build.sbt." >&2
+              echo "  Run this from the repo root." >&2
+              exit 1
+            fi
+
+            BROWSER_NAME="agentbox-browser-$$"
+            mkdir -p "$STATE/playwright"
+
+            # A crashed run can leave the name taken; reap rather than refuse,
+            # since the container is disposable and the name is derived.
+            docker rm -f "$BROWSER_NAME" >/dev/null 2>&1 || true
+            trap 'docker rm -f "$BROWSER_NAME" >/dev/null 2>&1 || true' EXIT INT TERM
+
+            echo "==> starting browser sidecar (playwright $PW_VER)" >&2
+            docker run -d --rm --name "$BROWSER_NAME" \
+              --user "$(id -u):$(id -g)" \
+              --security-opt no-new-privileges \
+              --cap-drop=ALL \
+              "''${PORT_ARGS[@]}" \
+              -v "$STATE/playwright:/pw" \
+              -v "${browserServer}:/srv/server.cjs:ro" \
+              -e HOME=/pw \
+              "mcr.microsoft.com/playwright:v$PW_VER" \
+              bash -c '
+                set -e
+                if [ ! -d /pw/node_modules/playwright-core ]; then
+                  npm i --prefix /pw --no-save --no-audit --no-fund \
+                    "playwright-core@'"$PW_VER"'" >/dev/null
+                fi
+                exec node /srv/server.cjs
+              ' >/dev/null
+
+            # Wait for the server to actually accept, rather than sleeping: the
+            # first start installs playwright-core and takes far longer than any
+            # fixed delay would allow for.
+            #
+            # Polled, NOT `docker logs -f | grep -m1`: grep leaves at the first
+            # match, but `docker logs -f` only learns the pipe is gone when it
+            # next writes, and a server that has said READY says nothing more —
+            # so that pipeline blocks for the whole timeout on success. It looks
+            # like a slow start rather than a bug, which is how it survived a
+            # first round of testing here.
+            READY=""
+            for _ in $(seq 1 300); do
+              if docker logs "$BROWSER_NAME" 2>&1 | grep -q '^READY '; then
+                READY=1
+                break
+              fi
+              # Stop waiting on a sidecar that has already died, so the error
+              # below reports its output instead of the full timeout.
+              [ "$(docker inspect -f '{{.State.Running}}' "$BROWSER_NAME" 2>/dev/null)" = "true" ] || break
+              sleep 1
+            done
+            if [ -z "$READY" ]; then
+              echo "agentbox: the browser sidecar never became ready. Its output:" >&2
+              docker logs "$BROWSER_NAME" 2>&1 | tail -20 >&2
+              exit 1
+            fi
+
+            NET_ARGS=(
+              --network "container:$BROWSER_NAME"
+              -e "FH_PLAYWRIGHT_WS=ws://127.0.0.1:${browserPort}/agentbox"
+            )
+            # Ports belong to the sidecar now — see above.
+            PORT_ARGS=()
+          fi
+
           # --init so orphaned MCP/ripgrep children get reaped when the command
           # is `claude` (i.e. PID 1) rather than an interactive bash
-          exec docker run --rm --init \
+          #
+          # Not `exec`: with a sidecar running, this script has to outlive the
+          # box to tear it down. The status is forwarded so `agentbox claude -p`
+          # still reports the command's own exit code.
+          docker run --rm --init \
             "''${TTY_ARGS[@]}" \
             --user "$(id -u):$(id -g)" \
             --security-opt no-new-privileges \
             --cap-drop=ALL \
             "''${PORT_ARGS[@]}" \
+            "''${NET_ARGS[@]}" \
             "''${MOUNTS[@]}" \
             -w /work \
             "$IMG" "$@"
+          exit $?
         '';
       };
     in
