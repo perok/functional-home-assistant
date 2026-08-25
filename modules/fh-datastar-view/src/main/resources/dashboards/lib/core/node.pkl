@@ -12,6 +12,7 @@ module core.node
 
 import "slot.pkl" as slotMod
 import "surface.pkl" as surfaceMod
+import "text.pkl" as textMod
 import "pkl:reflect"
 
 /// Per-node layout-cell parameters (mirrors fh.view.model.Cell): extra CSS
@@ -49,22 +50,32 @@ abstract class LayoutNode {
   /// from the default every other card wants — see [[Pill]], which is this plus
   /// chip styling.
   function hug(): LayoutNode = addCellClass("fh-hug")
+  /// What this card does with a label too long for its box — wrap it, clip it
+  /// with an ellipsis, or scroll it (`core/text.pkl`). Applies to this node AND
+  /// everything under it, so a group sets it once and a single member inside
+  /// still overrides it.
+  ///
+  /// The dashboard's own default is `entry.pkl`'s `textOverflow`; reach for this
+  /// where ONE card differs — a card whose label must be readable in full, a
+  /// tile that must not change height.
+  function textOverflow(o: textMod.Overflow): LayoutNode = addCellClass(textMod.cls(o))
   /// Escape hatch: put an arbitrary class on the wrapper (a theme helper, a
   /// custom rule). Must be a plain class token — validated at build time.
   function cellClass(cls: String): LayoutNode = addCellClass(cls)
   // Shared appender: replace `cell` with a copy carrying one more class (the
   // null default is never amended — amending a null Listing is an error).
   //
-  // ONE SPAN PER NODE: adding an `fh-cols-*` class DROPS any it already had.
-  // Both `columns(n)` and `fullWidth()` emit a `flex-basis` rule, so with two
-  // present which one applies would be decided by the order of the rules in the
-  // stylesheet, not by the author's last word — a silently-losing override. It
-  // is also what lets a card DEFAULT its span ([[Tabs]], [[If]]) and still be
-  // overridden per node.
+  // ONE PER NODE, per FAMILY: adding an `fh-cols-*` class DROPS any it already
+  // had, and the same for `fh-text-*`. Both `columns(n)` and `fullWidth()` emit
+  // a `flex-basis` rule, so with two present which one applies would be decided
+  // by the order of the rules in the stylesheet, not by the author's last word —
+  // a silently-losing override. It is also what lets a card DEFAULT its span
+  // ([[Tabs]], [[If]]) and still be overridden per node.
   function addCellClass(cls: String): LayoutNode =
     let (self = this)
+    let (family = List("fh-cols-", "fh-text-").findOrNull((p) -> cls.startsWith(p)))
     let (had = if (self.cell != null) self.cell!!.classes.toList() else List())
-    let (kept = if (cls.startsWith("fh-cols-")) had.filter((c) -> !c.startsWith("fh-cols-")) else had)
+    let (kept = if (family != null) had.filter((c) -> !c.startsWith(family)) else had)
       (self) {
         cell = new Cell {
           classes = new Listing<String> {

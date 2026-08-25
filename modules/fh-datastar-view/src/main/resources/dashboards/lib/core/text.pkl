@@ -1,0 +1,122 @@
+/// What a card does with a label that is longer than the box holding it.
+///
+/// One choice, three answers, and every card asks it the same way: a card marks
+/// its label boxes with [[hole]] / [[run]], and a dashboard or a single node
+/// picks the mode. Nothing here is per-card — a component author places the
+/// markup and is done.
+///
+/// The mode travels as INHERITED CUSTOM PROPERTIES, not as one selector per
+/// card, for the reason `core/css.pkl`'s cell contract gives: inheritance is
+/// resolved by ANCESTOR PROXIMITY, so a node inside a `scroll` group can say
+/// `clip` and win. The same thing written as `.fh-text-clip .fh-text` would tie
+/// two equally-specific rules and let stylesheet ORDER decide, which is not
+/// something an author can see.
+module core.text
+
+import "slot.pkl" as slotMod
+
+/// How over-long text behaves:
+///
+///   - `wrap` — take another line, and break inside a word with nowhere else to
+///     break (an entity id). The card grows.
+///   - `clip` — one line, cut with an ellipsis. The default: a card keeps the
+///     height it was drawn at, so a grid of them stays a grid.
+///   - `scroll` — one line that slides to show its end, and back. It moves by
+///     exactly the amount that does not fit, so a label that fits sits still.
+typealias Overflow = "wrap"|"clip"|"scroll"
+
+/// The default when nothing says otherwise — also the fallback baked into every
+/// `var()` below, so a card renders sanely even with none of this emitted.
+const defaultOverflow: Overflow = "clip"
+
+/// The class that puts ONE node (and its subtree) in a mode — see
+/// `LayoutNode.textOverflow`, which is how an author reaches it.
+const function cls(o: Overflow): String = "fh-text-" + o
+
+/// The mode as declarations, for whoever owns the scope: [[rootCss]] for a
+/// dashboard, [[modeCss]] for the per-node classes.
+const function vars(o: Overflow): String =
+  new Listing {
+    "--fh-text-lines:\(if (o == "wrap") "normal" else "nowrap")"
+    "--fh-text-break:\(if (o == "wrap") "anywhere" else "normal")"
+    "--fh-text-clip:\(if (o == "wrap") "visible" else "hidden")"
+    "--fh-text-ellipsis:\(if (o == "clip") "ellipsis" else "clip")"
+    // Only a scrolling box measures itself, and only a scrolling box has to be
+    // sized from OUTSIDE to do it: `container-type` contains the inline axis, so
+    // the box no longer sizes to its text and a flex item must grow into its
+    // line instead. In the other two modes both are inert and the box keeps the
+    // content sizing every card was laid out with.
+    "--fh-text-track:\(if (o == "scroll") "inline-size" else "normal")"
+    "--fh-text-flex:\(if (o == "scroll") "1 1 auto" else "0 1 auto")"
+    "--fh-text-run:\(if (o == "scroll") "inline-block" else "inline")"
+    "--fh-text-motion:\(if (o == "scroll") "fh-text-scroll 12s linear infinite" else "none")"
+  }.toList().join(";")
+
+/// The dashboard-wide default (`entry.pkl` emits this) — at `:root`, so any
+/// node carrying a [[cls]] class overrides it by being nearer.
+const function rootCss(o: Overflow): String = ":root{\(vars(o))}"
+
+/// A card's label box: the element the mode acts on. It is the box the CARD's
+/// own layout sizes — a flex item, a grid cell, a block — because that is what
+/// decides how much room the text has. Where a card already has such an element
+/// (`<strong>`, `<h2>`, BeerCSS's `.max`), add [[BOX]] to it and place [[run]]
+/// inside; where it has none, [[hole]] is both.
+const BOX: String = "fh-text"
+
+/// The text itself, inside a label box. A separate element because a marquee
+/// TRANSLATES the text past its box, and a bare text node has nothing to
+/// translate — the two boxes are the mechanism, not decoration.
+const function run(name: String): String =
+  #"<span class="fh-text-run">{{\#(name)}}</span>"#
+
+/// [[run]] for a value carried as a SIGNAL — the binding lands on the run,
+/// which is the element whose text it is. On the box instead, a `data-text`
+/// patch would replace the run itself and the label would stop scrolling after
+/// the first tick.
+const function liveRun(name: String): String =
+  #"<span class="fh-text-run" \#(slotMod.signalBind(name))>{{\#(name)}}</span>"#
+
+/// Box + run in one, for a card with no element of its own to mark.
+const function hole(name: String): String =
+  #"<span class="\#(BOX)">\#(run(name))</span>"#
+
+/// The whole contract, emitted once with the rest of the base CSS.
+///
+/// `text-overflow` needs a BLOCK container to have anything to cut, so the box
+/// is always one; in a flex or grid parent that is what it already was.
+const css: String = """
+  .fh-text{display:block;min-inline-size:0;
+  flex:var(--fh-text-flex,0 1 auto);
+  white-space:var(--fh-text-lines,nowrap);
+  overflow-wrap:var(--fh-text-break,normal);
+  overflow:var(--fh-text-clip,hidden);
+  text-overflow:var(--fh-text-ellipsis,ellipsis);
+  container-type:var(--fh-text-track,normal)}
+  .fh-text>.fh-text-run{display:var(--fh-text-run,inline);animation:var(--fh-text-motion,none)}
+  \(modeCss)
+  /* Slide by the overflow and no further: `100cqw` is the BOX (the query
+     container above), `100%` in a translate is the RUN's own width, so the
+     travel is negative exactly when the text does not fit and `min()` pins
+     everything shorter at zero. That is the whole "only when it overflows"
+     rule — no measuring, no script, and nothing to re-run on a resize.
+     The holds at each end are what make it readable rather than a ticker. */
+  @keyframes fh-text-scroll{
+  0%,12%{transform:translateX(0)}
+  88%,100%{transform:translateX(min(0px,calc(100cqw - 100%)))}
+  }
+  /* Motion is the one mode that is a preference, not a layout: a reader who
+     asked for less of it gets the clipped line, which still says there is more
+     text without ever moving. */
+  @media (prefers-reduced-motion:reduce){
+  .fh-text>.fh-text-run{animation:none}
+  .fh-text{text-overflow:ellipsis}
+  }
+  """
+
+// One class per mode, for `LayoutNode.textOverflow` — a plain declaration block,
+// so the winner between two of them on the same page is the nearer ancestor.
+const local modeCss: String = new Listing {
+  for (o in List("wrap", "clip", "scroll")) {
+    ".\(cls(o)){\(vars(o))}"
+  }
+}.toList().join("\n")

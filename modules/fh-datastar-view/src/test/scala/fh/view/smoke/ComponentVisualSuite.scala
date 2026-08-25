@@ -3,6 +3,7 @@ package fh.view.smoke
 import cats.effect.IO
 import com.microsoft.playwright.Page
 import com.microsoft.playwright.assertions.PlaywrightAssertions.assertThat
+import com.microsoft.playwright.options.AriaRole
 import fh.view.testkit.{Scene, SmokeDashboard, VisualSnapshot}
 
 /** "Verify looks": component-level screenshots of [[SmokeDashboard]] against
@@ -44,9 +45,17 @@ class ComponentVisualSuite extends SmokeSuite {
     withPage(scene, viewport) { (page, _) =>
       IO.blocking {
         settle(page)
+        // By ROLE, not by text: a label is two nested spans now (the text
+        // contract in `core/text.pkl`), so the text locator resolves to the
+        // innermost one and would shoot the words instead of the button.
         VisualSnapshot.check(
           "button",
-          page.getByText("Toggle Kitchen").screenshot()
+          page
+            .getByRole(
+              AriaRole.BUTTON,
+              new Page.GetByRoleOptions().setName("Toggle Kitchen")
+            )
+            .screenshot()
         )
       }
     }

@@ -8,6 +8,7 @@ import "../core/icon.pkl" as icons
 import "../core/node.pkl" as nodes
 import "../core/slot.pkl" as slotMod
 import "../core/tap.pkl" as tapMod
+import "../core/text.pkl" as textMod
 import "../hass.pkl"
 
 // The slider's controllable config per domain: the service to call, the
@@ -474,8 +475,8 @@ class Slider extends nodes.Node {
       <div id="{{selfId}}" class="slider-body">
         <div class="slider-head">
           {{#icon}}<div class="slider-icon"{{#busyVisual}} \(tapMod.busyClassChange) \(tapMod.busyShapeClassChange){{/busyVisual}}><i class="mdi {{icon}}"></i></div>{{/icon}}
-          <strong>{{label}}</strong>
-          {{#secondary}}<span class="slider-sub">{{secondary}}</span>{{/secondary}}
+          <strong class="\(textMod.BOX)">\(textMod.run("label"))</strong>
+          {{#secondary}}<span class="slider-sub \(textMod.BOX)">\(textMod.run("secondary"))</span>{{/secondary}}
           {{#state}}<span class="state" \(slotMod.signalBind("state"))>{{state}}</span>{{/state}}
           {{#onclick}}<button class="circle small slider-action {{lit}}" \(slotMod.signalBind("lit")) data-on:click="{{#busy}}\(tapMod.busyGuard){{/busy}}{{{onclick}}}"{{#busy}} \(tapMod.busyAttrs){{/busy}}{{#busyTapVisual}} \(tapMod.busyClass) \(tapMod.busyShapeClass){{/busyTapVisual}}><i class="mdi mdi-power"></i></button>{{/onclick}}
         </div>
@@ -528,9 +529,13 @@ const local sliderCss: String = """
      An explicit line-height, because `normal` is the FONT's own figure: the line
      box then changes size with whatever font resolved, which is half of how the
      same markup ends up looking different per engine. 1.5 is what the current
-     stack already computed, so this pins today's rhythm rather than changing it. */
+     stack already computed, so this pins today's rhythm rather than changing it.
+     The label and its second line are text BOXES (`core/text.pkl`); the readout
+     deliberately is not. It is a level or an on/off, sized to its content and
+     pushed to the end — a box that measures itself would have nothing to
+     measure against in the `auto` grid track a group's head puts it in. */
   .slider-head{display:flex;gap:.75rem;align-items:center;padding:.5rem;line-height:1.5;z-index:3;pointer-events:none}
-  .slider-head>.state{margin-inline-start:auto}
+  .slider-head>.state{margin-inline-start:auto;flex:0 0 auto}
   /* The edge of the control, drawn OVER the fill and never under it. Without it
      a nearly-full slider has no visible end: the fill runs to the card's own
      boundary and, on a bright light against a light palette, the last few

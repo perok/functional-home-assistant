@@ -63,8 +63,14 @@ feeds, and a morph that dropped it would leave the element inert for good.
 A card gets one extra template var per signal slot, spliced raw beside the ordinary hole:
 
 ```
-<span class="state" {{{value__bind}}}>{{value}}</span>
+<span class="state fh-text"><span class="fh-text-run" {{{value__bind}}}>{{value}}</span></span>
 ```
+
+It goes on the element whose text it IS, which is not always the card's outermost one: a
+`data-text` patch replaces that element's whole content, so binding a wrapper would delete
+whatever else the wrapper holds. (Here the wrapper is the label box of `core/text.pkl` — the
+entity card's reading is clipped or scrolled like any other text — and the binding rides on the
+run inside it.)
 
 `value__bind` is the whole attribute (`data-text="$_c_1__value"`), not a signal name. Three things
 follow that a template-authored `data-text` would not give:

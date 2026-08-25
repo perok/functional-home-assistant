@@ -24,6 +24,7 @@ module entry
 import "components.pkl" as c
 import "core/access.pkl" as accessMod
 import "core/css.pkl" as cssMod
+import "core/text.pkl" as textMod
 import "theme-beer.pkl" as themeMod
 
 /// The component modules whose card classes this dashboard can use. The
@@ -57,12 +58,26 @@ hidden componentModules: Listing<Module> = new {
 /// the theme; the registry is an ordinary call that can.
 cards = c.cardsWith(componentModules.toList(), theme.classes)
 
+/// What every card on THIS dashboard does with a label longer than its box:
+/// `wrap` it onto a second line, `clip` it with an ellipsis (the default), or
+/// `scroll` it past its box and back. See `core/text.pkl`.
+///
+/// One card differs by saying so itself — `c.entityCard(e).textOverflow("wrap")`
+/// — which wins wherever it sits, this included.
+///
+/// `hidden`, because it is spelled out in [[css]] below: the wire model carries
+/// the rules, not the choice that produced them.
+hidden textOverflow: textMod.Overflow = textMod.defaultOverflow
+
 /// The CSS every dashboard gets whatever its theme: the `fh-` layout contract,
 /// the `--fh-*` variables the cards read, and the classes the runtime itself
 /// emits (`core/css.pkl`). Assigned here rather than reached through the theme
 /// precisely so a theme cannot drop it — it may only override it, since the
 /// renderer emits it first (ADR 0020).
-css = cssMod.baseCss
+///
+/// [[textOverflow]] lands LAST of the base rules and at `:root`, so it beats the
+/// `var()` fallbacks and loses to any node that named a mode of its own.
+css = cssMod.baseCss + "\n" + textMod.rootCss(textOverflow)
 
 /// The shared theme — BeerCSS Material Design 3 (`theme-beer.pkl`; see
 /// `theme.pkl` for the contract + roster). Override in an entry that wants a
