@@ -24,6 +24,7 @@ module components
 import "hass.pkl"
 import "core/node.pkl" as nodes
 import "core/slot.pkl" as slotMod
+import "core/text.pkl" as coreTextMod
 import "core/tap.pkl" as tapMod
 import "core/surface.pkl" as surfaceMod
 import "core/predicate.pkl" as pred
@@ -84,6 +85,10 @@ typealias Tabs = surfaces.Tabs
 typealias If = surfaces.If
 typealias Slider = sliderMod.Slider
 typealias SlideAxis = sliderMod.SlideAxis
+/// What a card does with a label too long for its box — `"wrap"`, `"clip"` or
+/// `"scroll"`. An entry's `textOverflow` sets it for a whole dashboard;
+/// `.textOverflow(...)` on a node sets it for that card alone.
+typealias TextOverflow = coreTextMod.Overflow
 
 // ---- amendable base instances ----
 // `(c.row) { children { … } }` — the parens are mandatory (Pkl requires them

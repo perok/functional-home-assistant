@@ -25,6 +25,10 @@ class TabButton extends nodes.Node {
   cardDef = new nodes.LeafCard {
     template = #"<a data-on:click="{{{onclick}}}" data-class="{active: {{{active}}}}">{{label}}</a>"#
     slots { "label"; "onclick"; "active" }
+    // Deliberately NOT a `core/text.pkl` box: the bar scrolls sideways, so a tab
+    // that does not fit is reached rather than shortened — and a tab clipped to
+    // "Kitc…" is a control nobody can read, not a label that spilled.
+    //
     // The anchors must stay DIRECT children of the `.tabs` bar — BeerCSS's tab
     // styling is the structural selector `.tabs > a` — so this is the one card
     // that opts out of the universal `.fh-cell` wrapper.

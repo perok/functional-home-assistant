@@ -319,6 +319,34 @@ class UiSmokeSuite extends SmokeSuite {
     }
   }
 
+  test("slider: the readout holds its place while its reading changes width") {
+    // The label is capped by the readout's leading edge, so a shrink-wrapped
+    // readout was a moving cap: dragging `9 %` to `100 %` widened the box, slid
+    // that edge left, and re-clipped the label on every frame of the drag.
+    withPage(Scene.of(SmokeDashboard.percentSlider)) { (page, _) =>
+      val slider = page.locator("input[type=range]")
+      val readout = page.locator(".state")
+      for {
+        box <- IO.blocking(slider.boundingBox())
+        mid = box.y + box.height / 2
+        _ <- IO.blocking(page.mouse().move(box.x + box.width * 0.05, mid))
+        _ <- IO.blocking(page.mouse().down())
+        narrow <- IO.blocking(readout.textContent())
+        narrowEdge <- IO.blocking(readout.boundingBox().x)
+        _ <- IO.blocking(page.mouse().move(box.x + box.width * 0.98, mid))
+        // The reading has to actually get WIDER, or the edge holding still
+        // proves nothing.
+        _ <- IO.blocking(assertThat(readout).not().hasText(narrow))
+        wide <- IO.blocking(readout.textContent())
+        wideEdge <- IO.blocking(readout.boundingBox().x)
+        _ <- IO.blocking(page.mouse().up())
+      } yield {
+        assert(wide.trim.length > narrow.trim.length, clue = (narrow, wide))
+        assertEqualsDouble(wideEdge, narrowEdge, 0.5)
+      }
+    }
+  }
+
   test("slider: a REFUSED commit puts the thumb back where the device is") {
     // The bug the client/server split exists to fix (ADR 0025). While the drag
     // wrote the server's own `value` slot, a commit that failed produced no

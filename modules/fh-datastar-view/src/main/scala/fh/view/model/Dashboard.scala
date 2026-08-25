@@ -57,9 +57,10 @@ import io.circe.derivation.{Configuration, ConfiguredDecoder}
   *
   * The renderer hands the card one extra template var, `<slot>__bind`, the
   * whole binding attribute; the card places it beside the ordinary `{{<slot>}}`
-  * hole:
+  * hole, on the element whose text it is (a `data-text` patch replaces that
+  * element's whole content, so a wrapper would lose whatever else it holds):
   *
-  * {{{<span class="state" {{{value__bind}}}>{{value}}</span> }}}
+  * {{{<span class="fh-text-run" {{{value__bind}}}>{{value}}</span> }}}
   *
   * The value still renders inline on a wholesale render, which is what a
   * JS-less browser gets and all it ever gets. Incompatible with [[literal]] (a

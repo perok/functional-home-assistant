@@ -10,6 +10,7 @@ import "../../main/resources/dashboards/lib/components.pkl" as c
 import "../../main/resources/dashboards/lib/core/node.pkl" as nodes
 import "../../main/resources/dashboards/lib/core/css.pkl" as cssMod
 import "../../main/resources/dashboards/lib/core/slot.pkl" as slotMod
+import "../../main/resources/dashboards/lib/core/text.pkl" as textMod
 import "../../main/resources/dashboards/lib/query.pkl" as q
 import "../../main/resources/dashboards/lib/hass.pkl" as hass
 
@@ -258,16 +259,64 @@ facts {
     local cards = c.cards
     // A framework sizes a button to one line and a row to nowrap; a label
     // longer than either used to spill sideways — the button out of its pill,
-    // the toggle's switch off the card. Both now wrap instead.
-    cards["button"].css.contains("white-space:normal")
+    // the toggle's switch off the card. WHAT happens instead is the dashboard's
+    // choice now (`core/text.pkl`), so what each card owes is the ROOM to carry
+    // it out: a button free to grow down, and a switch that never shrinks.
     cards["button"].css.contains("min-block-size:2.5rem")
-    cards["toggle"].css.contains(".card.row.toggle{white-space:normal}")
-    // The switch is the thing that must NOT give way — it is what the card is
-    // for — so the label is the flex item allowed to shrink.
-    cards["toggle"].css.contains(".card.row.toggle>.max{min-inline-size:0")
+    cards["button"].css.contains("block-size:auto")
     cards["toggle"].css.contains(".card.row.toggle>.switch{flex:0 0 auto}")
     // ...and the class those rules name is really in the markup.
     cards["toggle"].template.contains(#"<article class="card row toggle">"#)
+    // The label itself is a text box in both, which is the half that shrinks.
+    cards["button"].template.contains(#"<span class="fh-text">"#)
+    cards["toggle"].template.contains(#"<span class="max fh-text">"#)
+  }
+
+  ["one dashboard-wide answer to a label that does not fit"] {
+    local cards = c.cards
+    // Every card that shows text places the same two boxes, so the modes are
+    // three declaration blocks rather than a rule per card. The OUTER box is
+    // what the card's own layout sizes; the INNER one is what a marquee moves,
+    // and a bare text node could not be moved at all.
+    cards["sectionTitle"].template.contains(#"<h2 class="section fh-text"><span class="fh-text-run">{{label}}</span></h2>"#)
+    cards["pill"].template.contains(#"<span class="fh-text"><span class="fh-text-run">{{label}}</span></span>"#)
+    cards["entityCard"].template.contains(#"<span class="secondary fh-text">"#)
+    cards["slider"].self.contains(#"<strong class="fh-text">"#)
+    // A signal-backed reading binds on the RUN, not on the box: `data-text`
+    // replaces an element's whole content, so binding the box would delete the
+    // run on the first tick and the label would never move again.
+    cards["entityCard"].template.contains(#"<span class="fh-text-run" {{{value__bind}}}>{{value}}</span>"#)
+
+    // The mode travels as inherited custom properties. That is not a style
+    // choice: two equally-specific `.fh-text-clip .fh-text` / `.fh-text-wrap
+    // .fh-text` rules would be settled by stylesheet ORDER, where inheritance is
+    // settled by which ancestor is NEARER — which is what "a card inside a
+    // scrolling group can say clip" means.
+    cssMod.baseCss.contains(".fh-text-clip{--fh-text-lines:nowrap")
+    cssMod.baseCss.contains(".fh-text-wrap{--fh-text-lines:normal")
+    cssMod.baseCss.contains("white-space:var(--fh-text-lines,nowrap)")
+    // Only the scrolling mode measures itself, and it travels by exactly the
+    // overflow: `100cqw` is the box, `100%` is the run, and `min()` pins a label
+    // that fits at zero — so "only when it does not fit" needs no script.
+    cssMod.baseCss.contains("container-type:var(--fh-text-track,normal)")
+    cssMod.baseCss.contains("transform:translateX(min(0px,calc(100cqw - 100%)))")
+    cssMod.baseCss.contains("@media (prefers-reduced-motion:reduce)")
+  }
+
+  ["a node can differ from the dashboard it is on"] {
+    // The per-node override is a cell class, so it covers the card AND anything
+    // under it — and it is ONE per node: asking twice replaces, it does not
+    // stack two modes whose winner would be stylesheet order.
+    local scrolling = c.entityCard(kitchen).textOverflow("scroll")
+    scrolling.cell.classes.toList() == List("fh-text-scroll")
+    scrolling.textOverflow("wrap").cell.classes.toList() == List("fh-text-wrap")
+    // ...and it composes with the other cell answers, which are a different
+    // question and keep their own slot.
+    c.entityCard(kitchen).columns(3).textOverflow("clip").cell.classes.toList()
+      == List("fh-cols-3", "fh-text-clip")
+    // The default is what a dashboard emits at :root, so a node that says
+    // nothing inherits it rather than each card carrying a copy.
+    textMod.rootCss("scroll").startsWith(":root{--fh-text-lines:nowrap")
   }
 
   ["the popup's ✕ is a touch target, and a member row has an edge"] {
@@ -279,6 +328,58 @@ facts {
     // The hairline that makes an OFF member row visible on a dark palette,
     // through the contract rather than as a literal.
     cards["slider"].css.contains("box-shadow:inset 0 0 0 .0625rem var(--fh-border)")
+  }
+
+  // #128: a slider's own edge, and a slider on a light that cannot dim.
+  ["a slider's edge is drawn OVER its fill, so a full one still ends somewhere"] {
+    local cards = c.cards
+    // The property, not the rule: whatever draws the edge has to be painted
+    // above the descendants, because the fill IS a descendant and reaches the
+    // card's boundary at 100 %. An inset shadow on the card itself cannot.
+    cards["slider"].css.contains(".slider-card:after{content:\"\";position:absolute")
+    // One edge, not two: the member row's own inset shadow was the invisible
+    // one, and it is this rule's job now.
+    cards["slider"].css.split("box-shadow:inset 0 0 0 .0625rem var(--fh-border)").length == 2
+  }
+
+  ["a light that only switches keeps the row, and stops pretending to slide"] {
+    local switchOnly: hass.LightEntity = new {
+      entity_id = "light.porch"
+      colourModes { "onoff" }
+    }
+    // As `sliderGroup` composes a member: the caller does not know, and does
+    // not have to, which of a group's lights can dim.
+    local row = (c.slider(switchOnly)).readout("percent")
+    row.toggleOnly
+    row.slots["toggle"] == "1"
+    // The whole track posts the domain's own toggle.
+    row.slots["toggleClick"].transform.contains("light/toggle")
+    // All or nothing, in the theme's switch-fill rather than in the text colour
+    // — a light with no brightness reports no colour either (`onoff` is a
+    // light's SOLE mode when present), so the default is the only paint it can
+    // get. A TOKEN, not the literal behind it: the value is the theme's to move.
+    row.slots["fill"].transform == #"$state = "on" ? "0%" : "100%""#
+    row.slots["fillColor"].default == "var(--fh-default-color)"
+    // ...and the token is one the contract actually defines. A `var()` naming
+    // nothing paints TRANSPARENT, and only a browser would ever say so.
+    cssMod.baseCss.contains("--fh-default-color:rgb(189, 189, 176)")
+    // A percentage of an axis it does not have reads 0 % forever, so the row
+    // reads out its state instead — and nothing drags the readout.
+    row.slots["state"].transform == "$state"
+    !row.slots.containsKey("dragPercent")
+    // The markup is ONE template shared by every slider, so the two shapes are
+    // sections of it rather than two cards.
+    c.cards["slider"].self.contains("{{#toggle}}<button type=\"button\" class=\"slider-toggle\"")
+    c.cards["slider"].self.contains("{{^toggle}}<input type=\"range\"")
+    // ...and a light that CAN dim is untouched by all of it — as is one that
+    // says NOTHING about its modes, which is what an entity that was
+    // unavailable when the dump was taken looks like.
+    local dim = (c.slider(dimmer)).readout("percent")
+    !dim.toggleOnly
+    !(c.slider(kitchen)).toggleOnly
+    !dim.slots.containsKey("toggle")
+    dim.slots["state"].transform.contains("$attr.brightness")
+    dim.slots["dragPercent"] == "1"
   }
 
   ["a card's structure travels with the card"] {

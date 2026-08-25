@@ -4,6 +4,7 @@ module components.control
 import "../core/node.pkl" as nodes
 import "../core/slot.pkl" as slotMod
 import "../core/tap.pkl" as tapMod
+import "../core/text.pkl" as textMod
 import "../hass.pkl"
 
 // What a pressable card says when it has nothing to press. `const` because it
@@ -27,7 +28,7 @@ class Button extends nodes.Node {
     // `:is(button,.button)`). Only `label` is a declared slot — the other two
     // are the two arms of one choice, so neither is always present.
     template = """
-      {{#href}}<a class="button card" href="{{{href}}}">{{label}}</a>{{/href}}{{^href}}<button class="card" data-on:click="{{#busy}}\(tapMod.busyGuard){{/busy}}{{{onclick}}}"{{#busy}} \(tapMod.busyAttrs){{/busy}}{{#busyVisual}} \(tapMod.busyClass){{/busyVisual}}>{{label}}</button>{{/href}}
+      {{#href}}<a class="button card" href="{{{href}}}">\(textMod.hole("label"))</a>{{/href}}{{^href}}<button class="card" data-on:click="{{#busy}}\(tapMod.busyGuard){{/busy}}{{{onclick}}}"{{#busy}} \(tapMod.busyAttrs){{/busy}}{{#busyVisual}} \(tapMod.busyClass){{/busyVisual}}>\(textMod.hole("label"))</button>{{/href}}
       """
     slots { "label" }
     // A button FILLS its layout cell. A framework that sizes buttons to their
@@ -40,14 +41,13 @@ class Button extends nodes.Node {
     // button live outside the layout and keep hugging their labels.
     // A label longer than the button is a LABEL, not an overflow: frameworks
     // size a button to one line of text (BeerCSS pins `block-size` to its
-    // `--_size`), so a two-word entity name spilled out of the pill sideways
-    // instead of taking a second line. The button grows down instead, and
-    // `min-block-size` keeps the resting height it had, so a one-line button is
-    // pixel-identical. `overflow-wrap:anywhere` is for the label with no space
-    // in it at all (an entity id), which `normal` alone still overflows.
+    // `--_size`), so a two-word entity name spilled out of the pill sideways.
+    // WHAT it does instead is `core/text.pkl`'s to say — what is here is only
+    // the room to do it: a button that may take a second line must be free to
+    // grow down, and `min-block-size` keeps the resting height it had, so a
+    // one-line button is pixel-identical either way.
     css = """
       .fh-cell>:is(.button,button){inline-size:100%;box-sizing:border-box;
-      white-space:normal;overflow-wrap:anywhere;
       block-size:auto;min-block-size:2.5rem;padding-block:.5rem}
       """
   }
@@ -110,7 +110,7 @@ class Toggle extends nodes.Node {
   cardDef = new nodes.LeafCard {
     template = """
       <article class="card row toggle">
-        <span class="max">{{label}}</span>
+        <span class="max \(textMod.BOX)">\(textMod.run("label"))</span>
         <label class="switch">
           <input type="checkbox" value="on" {{#checked}}checked{{/checked}} \(slotMod.signalBind("checked")) data-on:click="{{#busy}}\(tapMod.busyGuard){{/busy}}{{{onclick}}}"{{#busy}} \(tapMod.busyAttrs){{/busy}}{{#busyVisual}} \(tapMod.busyClass){{/busyVisual}} />
           <span></span>
@@ -118,18 +118,15 @@ class Toggle extends nodes.Node {
       </article>
       """
     slots { "label" }
-    // The `toggle` class exists only so these three rules have something to
-    // name — a framework's `.row` is a shared class and must not be retuned
-    // through it.
+    // The `toggle` class exists only so this rule has something to name — a
+    // framework's `.row` is a shared class and must not be retuned through it.
     //
-    // A row is `white-space:nowrap` (BeerCSS's is), and a flex item's automatic
-    // minimum size is its CONTENT, so a long label did not wrap and pushed the
-    // switch off the card's right edge instead — the control the card exists
-    // for, gone. `min-inline-size:0` is what lets the label shrink at all;
-    // `flex:0 0 auto` is what stops the switch being the thing that gives way.
+    // A flex item's automatic minimum size is its CONTENT, so a long label
+    // pushed the switch off the card's right edge — the control the card exists
+    // for, gone. The label giving way is `core/text.pkl`'s `min-inline-size:0`;
+    // this is the other half, and it has to be said here: the SWITCH must never
+    // be the thing that shrinks.
     css = """
-      .card.row.toggle{white-space:normal}
-      .card.row.toggle>.max{min-inline-size:0;overflow-wrap:anywhere}
       .card.row.toggle>.switch{flex:0 0 auto}
       """
   }
@@ -202,7 +199,7 @@ class Pill extends nodes.Node {
     // and already `box-sizing:border-box` (unlike `.button`, which is
     // content-box — see the theme's `.fh-cell>.button` rule).
     template = """
-      {{#href}}<a class="chip" href="{{{href}}}">{{label}}</a>{{/href}}{{^href}}<button class="chip" data-on:click="{{#busy}}\(tapMod.busyGuard){{/busy}}{{{onclick}}}"{{#busy}} \(tapMod.busyAttrs){{/busy}}{{#busyVisual}} \(tapMod.busyClass){{/busyVisual}}>{{label}}</button>{{/href}}
+      {{#href}}<a class="chip" href="{{{href}}}">\(textMod.hole("label"))</a>{{/href}}{{^href}}<button class="chip" data-on:click="{{#busy}}\(tapMod.busyGuard){{/busy}}{{{onclick}}}"{{#busy}} \(tapMod.busyAttrs){{/busy}}{{#busyVisual}} \(tapMod.busyClass){{/busyVisual}}>\(textMod.hole("label"))</button>{{/href}}
       """
     slots { "label" }
   }

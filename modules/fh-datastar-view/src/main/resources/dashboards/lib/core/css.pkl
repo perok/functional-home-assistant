@@ -20,6 +20,8 @@
 ///      `.chip`, `--_padding`), and any retune of layers 1-2.
 module core.css
 
+import "text.pkl" as textMod
+
 /// The colour contract a CARD's CSS is written against — one semantic name per
 /// job, defaulting to the HA-named design token that means the same thing (see
 /// `tokens.pkl`, which every theme supplies). A theme re-points these to its
@@ -30,6 +32,13 @@ module core.css
 /// colourless: a card says `var(--fh-text-dim)`, not `var(--on-surface-variant)`
 /// (a Material role that only exists because BeerCSS is loaded) and not a
 /// literal.
+///
+/// `--fh-default-color` is the odd one out, and deliberately: it is the paint
+/// for anywhere a card has to ASSUME a colour, because the device reported
+/// none — a light whose only mode is `onoff` is on, but has no colour of its
+/// own to be. Neither HA nor a framework names a role for that, so this one
+/// carries a literal. It is still a token, so a theme retunes it like the rest
+/// and every such place moves together.
 const local paletteVars: String = """
   :root{
   --fh-accent:var(--primary-color);
@@ -42,6 +51,7 @@ const local paletteVars: String = """
   --fh-error:var(--error-color);
   --fh-on-error:var(--text-primary-color);
   --fh-warning:var(--warning-color);
+  --fh-default-color:rgb(189, 189, 176);
   }
   """
 
@@ -182,5 +192,11 @@ const local sharedCss: String = """
 /// What `entry.pkl` puts on the dashboard's `css`. Order is cascade order:
 /// variables first (everything below reads them), then layout, then the
 /// runtime-owned classes.
+///
+/// `core/text.pkl` is here rather than in any card because the label boxes it
+/// styles are placed by ALL of them — a dashboard's answer to "what happens to
+/// a label that doesn't fit" is one answer, not one per card. The DEFAULT it
+/// runs at is the entry's (`entry.pkl` emits it at `:root`); these rules only
+/// say what each mode means.
 const baseCss: String =
-  List(paletteVars, layoutCss, busyCss, shellCss, sharedCss).join("\n")
+  List(paletteVars, layoutCss, busyCss, shellCss, sharedCss, textMod.css).join("\n")

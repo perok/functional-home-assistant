@@ -2,6 +2,7 @@ package fh.view.functional
 
 import cats.effect.IO
 import fh.view.runtime.TestServer
+import io.circe.Json
 import fh.view.testkit.{FixtureEntity, HouseFixture}
 
 import scala.concurrent.duration.*
@@ -96,7 +97,8 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
       // script, so it works before Datastar loads.
       assert(
         html.contains(
-          """<a class="button card" href="d/other">Elsewhere</a>"""
+          """<a class="button card" href="d/other">""" +
+            """<span class="fh-text"><span class="fh-text-run">Elsewhere</span></span></a>"""
         ),
         clue = html
       )
@@ -469,5 +471,114 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
         assert(live.contains(s"ui_$tabsHost: 1,"), clue = live)
       }
     }
+  }
+
+  test("a slider on a light that only switches renders a button, not a range") {
+    // The card carries the variant (issue #128), so the ONE shared template has
+    // to render two shapes — which is the half a Pkl test cannot prove: the
+    // sections are jmustache's to evaluate, and an inverted section over an
+    // absent slot is exactly the mechanism in question.
+    val plug = FixtureEntity(
+      "light.plug",
+      "on",
+      Map(
+        "friendly_name" -> Json.fromString("Plug"),
+        "supported_color_modes" -> Json.arr(Json.fromString("onoff"))
+      )
+    )
+    val plugEntry =
+      s"""amends "@fh-dashboard/entry.pkl"
+         |
+         |import "@fh-dashboard/components.pkl" as c
+         |import "@fh-home/dump.pkl" as dump
+         |
+         |card = (c.column) {
+         |  children {
+         |    c.slider(dump.entities.${plug.dumpKey}).readout("percent")
+         |  }
+         |}
+         |""".stripMargin
+    TestServer
+      .fromWorkspace("fixture-plug", plugEntry, List(plug))
+      .use { ts =>
+        ts.page().map { html =>
+          assert(html.contains("class=\"slider-toggle\""), clue = html)
+          assert(!html.contains("type=\"range\""), clue = html)
+          // The whole track posts the light's own toggle, under the same
+          // commit signal the drag would have used.
+          assert(
+            html.contains(
+              "data-on:click=\"$_c_0__busy_change ? '' : @post('sse/action/fixture-plug/light/toggle/light.plug'"
+            ),
+            clue = html
+          )
+          // Filled, because it is on — and in the switch-fill token, since a
+          // light that only switches reports no colour of its own.
+          assert(html.contains("--_end: 0%"), clue = html)
+          assert(
+            html.contains("background:var(--fh-default-color)"),
+            clue = html
+          )
+          // A percentage of an axis it does not have would read 0 % forever.
+          assert(html.contains(">on<"), clue = html)
+          assert(!html.contains(">0 %<"), clue = html)
+        }
+      }
+      .timeout(60.seconds)
+  }
+
+  test("a dashboard says what happens to a label that does not fit") {
+    // The knob is authored in two places at once — the entry's default and one
+    // card that differs — and only a real page proves they meet: the default is
+    // a `:root` block the entry composes into `css`, and the override is a cell
+    // class the RENDERER puts on the wrapper. Neither side sees the other.
+    val textEntry =
+      s"""amends "@fh-dashboard/entry.pkl"
+         |
+         |import "@fh-dashboard/components.pkl" as c
+         |import "@fh-home/dump.pkl" as dump
+         |
+         |textOverflow = "scroll"
+         |
+         |card = (c.column) {
+         |  children {
+         |    c.entityCard(dump.entities.${HouseFixture.outsideTemp.dumpKey})
+         |    c.entityCard(dump.entities.${HouseFixture.kitchenLight.dumpKey})
+         |      .textOverflow("wrap")
+         |  }
+         |}
+         |""".stripMargin
+    TestServer
+      .fromWorkspace("fixture-text", textEntry, entities)
+      .use { ts =>
+        ts.page().map { html =>
+          // The dashboard's answer, at the root, so a card that says nothing
+          // inherits it instead of carrying a copy.
+          assert(
+            html.contains(":root{--fh-text-lines:nowrap") &&
+              html.contains("--fh-text-motion:fh-text-scroll"),
+            clue = html
+          )
+          // The one card that differs, on its own wrapper. It beats the root by
+          // being NEARER, which is the property the custom-property carrier was
+          // chosen for — a selector would have tied and let file order decide.
+          assert(html.contains("fh-text-wrap"), clue = html)
+          // And the boxes the modes act on are really in the markup — the label
+          // and the live reading both.
+          assert(
+            html.contains(
+              """<span class="fh-text"><span class="fh-text-run">Kitchen"""
+            ),
+            clue = html
+          )
+          assert(
+            html.contains(
+              """<span class="state fh-text"><span class="fh-text-run" data-text="""
+            ),
+            clue = html
+          )
+        }
+      }
+      .timeout(60.seconds)
   }
 }

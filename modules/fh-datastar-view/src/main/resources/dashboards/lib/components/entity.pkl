@@ -6,6 +6,7 @@ import "../core/icon.pkl" as icons
 import "../core/node.pkl" as nodes
 import "../core/slot.pkl" as slotMod
 import "../core/tap.pkl" as tapMod
+import "../core/text.pkl" as textMod
 import "../hass.pkl"
 import "moreinfo.pkl"
 
@@ -18,20 +19,27 @@ class EntityCard extends nodes.Node {
     template = """
       <article class="card entity{{#tappable}} tappable{{/tappable}}"{{#tappable}}
         data-on:click="{{#busy}}\(tapMod.busyGuard){{/busy}}{{{onclick}}}"{{/tappable}}{{#busy}} \(tapMod.busyAttrs){{/busy}}{{#busyVisual}} \(tapMod.busyClass){{/busyVisual}}>
-        <header>{{#icon}}{{#busy}}<span class="fh-icon-shape"{{#busyVisual}} \(tapMod.busyShapeClass){{/busyVisual}}>{{/busy}}<i class="mdi {{icon}}"></i>{{#busy}}</span>{{/busy}}{{/icon}}{{label}}</header>
-        <span class="state" \(slotMod.signalBind("value"))>{{value}}</span>{{#secondary}}
-        <span class="secondary">{{secondary}}</span>{{/secondary}}
+        <header>{{#icon}}{{#busy}}<span class="fh-icon-shape"{{#busyVisual}} \(tapMod.busyShapeClass){{/busyVisual}}>{{/busy}}<i class="mdi {{icon}}"></i>{{#busy}}</span>{{/busy}}{{/icon}}\(textMod.hole("label"))</header>
+        <span class="state \(textMod.BOX)">\(textMod.liveRun("value"))</span>{{#secondary}}
+        <span class="secondary \(textMod.BOX)">\(textMod.run("secondary"))</span>{{/secondary}}
       </article>
       """
     slots { "label"; "value"; "entity_id" }
     // The card's own structure. The icon rules are metrics only — which FONT
     // draws the glyph is the theme's (it ships the icon set), and so is the
     // spinner badge's paint.
+    //
+    // The header is a FLEX line because its label is a box now (`core/text.pkl`)
+    // and a block box beside an inline icon would drop to its own line. The icon
+    // must not be the thing that shrinks, so the label is — which is what the
+    // clip and scroll modes need to act on at all.
     css = """
       .card.tappable{cursor:pointer}
-      .entity header i.mdi{font-size:1.25rem;line-height:1;vertical-align:text-bottom;
+      .entity header{display:flex;align-items:center;min-inline-size:0}
+      .entity header>:is(i.mdi,.fh-icon-shape){flex:0 0 auto}
+      .entity header i.mdi{font-size:1.25rem;line-height:1;
       margin-inline-end:.375rem;color:var(--fh-accent)}
-      .entity .secondary{display:block;font-size:.8em;color:var(--fh-text-dim)}
+      .entity .secondary{font-size:.8em;color:var(--fh-text-dim)}
       """
   }
   hidden entity: hass.Entity

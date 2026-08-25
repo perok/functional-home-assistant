@@ -49,7 +49,13 @@ abstract class SmokeSuite extends BrowserSuite {
       viewport: Option[(Int, Int)] = None,
       // The [[FakeConfig]] knobs for THIS test's fake — a delayed or failing
       // `call_service`, for the guarded-action feedback tests.
-      fakeConfig: FakeConfig = FakeConfig()
+      fakeConfig: FakeConfig = FakeConfig(),
+      // A phone rather than a desktop: enables `page.touchscreen()` AND flips
+      // the `(pointer:coarse)` media query, which is the half of the slider's
+      // touch gate that lives in CSS. Both or neither — a touch event on a
+      // page still styled for a mouse would exercise a combination no device
+      // has.
+      touch: Boolean = false
   )(
       f: (Page, TestServer) => IO[A]
   ): IO[A] = {
@@ -58,6 +64,7 @@ abstract class SmokeSuite extends BrowserSuite {
     viewport.foreach { case (w, h) =>
       contextOptions.setViewportSize(new ViewportSize(w, h))
     }
+    if (touch) contextOptions.setHasTouch(true)
     val resource = for {
       served <- TestServer.served(scene.dashboard, scene.entities, fakeConfig)
       (ts, uri) = served

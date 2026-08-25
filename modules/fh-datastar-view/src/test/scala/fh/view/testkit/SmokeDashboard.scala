@@ -1,6 +1,7 @@
 package fh.view.testkit
 
 import fh.view.model.Dashboard
+import io.circe.Json
 
 /** The Pkl-authored dashboard the browser suites (`fh.view.smoke`) drive: real
   * `theme-beer.pkl` chrome/CSS (unlike [[PklFixture.dummyTheme]] fixtures
@@ -126,5 +127,46 @@ object SmokeDashboard {
          |  }
          |}
          |""".stripMargin
+    )
+
+  /** The light [[switchSlider]] drives: its only colour mode is `onoff`, which
+    * is Home Assistant's own statement that it switches and nothing more. Not a
+    * member of the house — see [[HouseFixture.dumpWith]] — so a scene that
+    * wants it seeds it with `.entity(...)`.
+    */
+  val switchLight: FixtureEntity = FixtureEntity(
+    "light.plug",
+    "on",
+    Map(
+      "friendly_name" -> Json.fromString("Plug"),
+      "supported_color_modes" -> Json.arr(Json.fromString("onoff"))
+    )
+  )
+
+  /** The on/off variant of a slider: nothing to drag, so the whole track is one
+    * button ([[fh.view.smoke.ControlSmokeSuite]] presses it). A second line, so
+    * the card is taller than a button's own height — which is the difference
+    * that made the target miss. Its own dashboard for the PNG-baseline reason
+    * [[percentSlider]] has one.
+    */
+  val switchSlider: Dashboard =
+    PklFixture.buildDashboard(
+      "smoke-switch",
+      s"""amends "@fh-dashboard/entry.pkl"
+         |
+         |import "@fh-dashboard/components.pkl" as c
+         |import "@fh-home/dump.pkl" as dump
+         |
+         |title = "Smoke Switch"
+         |
+         |$fontPinnedTheme
+         |
+         |card = (c.column) {
+         |  children {
+         |    c.slider(dump.entities.${switchLight.dumpKey}).secondary("friendly_name")
+         |  }
+         |}
+         |""".stripMargin,
+      HouseFixture.dumpWith(switchLight)
     )
 }

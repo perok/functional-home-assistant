@@ -86,9 +86,16 @@ object HouseFixture {
     * dashboard is authored against, so it and the served state share one
     * source.
     */
-  val transformedDump: Json = Json.obj(
+  val transformedDump: Json = dumpWith()
+
+  /** [[transformedDump]] plus entities the house does not carry — for a fixture
+    * that needs a shape no shared entity has (a light with no brightness axis),
+    * without adding it to [[all]], where every candidate-set query and every
+    * seeded fake would start seeing it too.
+    */
+  def dumpWith(extra: FixtureEntity*): Json = Json.obj(
     "areas" -> Json.obj(),
     "floors" -> Json.obj(),
-    "entities" -> Json.fromFields(all.map(_.toDumpEntry))
+    "entities" -> Json.fromFields((all ++ extra).map(_.toDumpEntry))
   )
 }
