@@ -64,6 +64,25 @@ Two plugins, two readings of the same value, and only one of them is documented:
   removes the attribute, so `data-attr:aria-label="$foo"` is exactly as it looks.
   The trap is in assigning null to the signal, not in the plugin.
 
+**`data-ignore-morph` is BOTH-SIDED, and it survives an ancestor's morph.** Read off the
+bundle, not yet measured — the docs state neither half. In the per-node morph:
+
+```js
+dt=(e,t)=>{ … if(r.hasAttribute(Re)&&s.hasAttribute(Re))return e; …   // Re = data-ignore-morph
+```
+
+- **Both** the node in the DOM and the node in the ARRIVING fragment must carry the
+  attribute. A server that emits the element without it in one of its two rendering forms
+  gets an ordinary morph — i.e. the subtree it meant to protect is blown away.
+- It returns the existing node *before* attribute reconciliation, so the element's own
+  attributes are preserved too, not just its children.
+- This is the per-node walk, so the skip applies **while an ancestor is being morphed** —
+  not only when a patch targets that element. (The top-level entry has its own guard,
+  `e.parentElement?.closest('[data-ignore-morph]')`, which is one-sided.)
+
+Unverified and worth a spike before relying on it: whether an `Inner`-mode patch aimed AT a
+marked element is refused by the same guard.
+
 **`data-bind` beats a co-located `data-attr:value` from the first pass.**
 `data-bind` sets `.value` through the IDL before any user interaction, which
 raises the browser's dirty-value flag, so the content attribute never positions
