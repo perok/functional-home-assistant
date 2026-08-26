@@ -1942,11 +1942,12 @@ class Server(
     //      `datastar-fetch` CustomEvent whose `detail.type` is
     //      `error`/`retrying` (trouble), `retries-failed` (given up — the stream
     //      is dead and only a reload revives it), or anything else (`started`,
-    //      `finished`, a patch type — the transport is alive). `data-on` binds
-    //      it directly: the event is dispatched on `document` WITHOUT bubbling,
-    //      and the plugin special-cases this name onto `document` for us, so
-    //      neither `__window` (which cannot see it) nor a global+poll bridge is
-    //      needed.
+    //      `finished`, a patch type — the transport is alive). It is bound
+    //      through [[Server.StreamEvent]], not `datastar-fetch` itself: that
+    //      event fires for EVERY fetch on the page and this banner is about one
+    //      of them, and the filter cannot live in a debounced handler — see the
+    //      re-dispatch in `shell.ts` for the bug that taught us so. Both are
+    //      dispatched on `document` without bubbling, hence `__document`.
     //
     // Transport takes priority: a dead transport also freezes `haDown` updates,
     // so the HA banner is gated on `$_sse == 0`. Structure/behavior live here so
@@ -2016,7 +2017,7 @@ class Server(
       s"""<div data-signals="{${Server.HaDownSignal}: $haDown, _sse: 0, ${Server.ReloadSignal}: false, $popupSignalName: '$popupSeed', ${Server.ConnSignal}: '${Server
           .escapeJsString(restore.conn)}'}"
          |     data-effect="$$${Server.ReloadSignal} && window.location.reload(); fhUrl('$popupParamName', $$$popupSignalName)"
-         |     data-on:datastar-fetch__debounce.600ms="$$_sse = $sseLatched">
+         |     data-on:${Server.StreamEvent}__document__debounce.600ms="$$_sse = $sseLatched">
          |  <div class="fh-offline fh-offline-sse" $hidden role="status" aria-live="assertive" data-show="$$_sse > 0">
          |    <span $hidden data-show="$$_sse < 2">Reconnecting to the dashboard…</span>
          |    <span $hidden data-show="$$_sse >= 2">Dashboard connection lost. <button class="fh-offline-action" data-on:click="window.location.reload()">Reload</button></span>
@@ -2775,6 +2776,17 @@ object Server {
     * surface-action POST for nobody.
     */
   val HaDownSignal: String = "_haDown"
+
+  /** The DOM event carrying the SSE stream's own fetch lifecycle, re-dispatched
+    * by `shell.ts` from the `datastar-fetch` events whose element is `<body>`.
+    * Concept 2 of the two disconnect concepts (see [[HaDownSignal]]), and the
+    * client owns it end to end — the server only names the event and classifies
+    * `detail.type` into `_sse` in [[Server.page]].
+    *
+    * A name shared with the TypeScript, like `fhUrl`/`fhConn`: change one and
+    * the banner stops updating, silently, on a page that otherwise works.
+    */
+  val StreamEvent: String = "fh-stream"
 
   /** The four resume signals (docs/adr/0011-the-live-connection.md), all PUSHED
     * by the server and never declared client-side. Datastar sends every

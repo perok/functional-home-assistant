@@ -73,7 +73,25 @@ same commit; ADRs that change the pipeline update it too.
    to context7 (`/websites/data-star_dev`) for general docs, plus pinned-bundle corrections and
    project conventions context7 won't have. Attributes use colon syntax (`data-on:click`, not
    `data-on-click`).
-6. Formatting (Scala only; there is no formatter for the Pkl sources) is handled by the
+6. Browser-test questions (the `smoke` suites): read context7 (`/websites/playwright_dev`)
+   before writing one — the Java binding is the minority dialect, most examples are the TS
+   test-runner's, and the difference bites. Four things it will not tell you, each of which
+   has already cost a debugging session here:
+
+   - **A retrying assertion is not a synchronization point.** `assertThat(x).containsText(…)`
+     passes the instant it holds, so a test that clicks and then asserts an UNCHANGED state
+     asserts nothing — it is answered by a page that has not acted yet. Wait for the request
+     the click makes (`waitForResponse`, or `waitForRequest` when the response is aborted
+     away), then assert.
+   - **Playwright's Java client dispatches event callbacks only while the calling thread is
+     inside one of its calls.** A `page.onRequestFailed` collector polled from a plain `IO`
+     never fills, and the test hangs to its timeout rather than failing.
+   - **Datastar retries a failed action POST** (two attempts, measured). "The tap could not be
+     sent" is not one event, so a test that races it is asserting against a page mid-retry.
+   - **Service workers are blocked in `SmokeSuite`'s contexts** and should stay blocked:
+     `fhRegisterSw` runs on localhost, which is a secure context, so otherwise a worker claims
+     every smoke page mid-test.
+7. Formatting (Scala only; there is no formatter for the Pkl sources) is handled by the
    `PreToolUse` hook in `.claude/settings.json`, which runs the standalone `scalafmt` CLI
    before every `git add`. `project.git = true` in `.scalafmt.conf` covers every tracked
    source in one pass, so nothing reaches CI's `scalafmt --test` unformatted.

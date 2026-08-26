@@ -325,6 +325,14 @@ client-only feedback around the `@post` — see `docs/adr/0019-an-action-in-flig
   `<body>` and are already the `_sse`/haDown banners' job) and shows a themed
   `fh-toast`. The error detail carries only `status`, so the toast is generic —
   surfacing HA's actual rejection text is a deferred backend step.
+- **Connection banner, the same split the other way.** `shell.ts` also
+  re-dispatches the `datastar-fetch` events whose element IS `<body>` as
+  `fh-stream`, and the banner's debounced `data-on` binds that. The filter
+  cannot live in the banner's own handler: a debounce keeps only the last event
+  of its window, so an action's fetch would displace the stream event it
+  followed — which is how a rejected click used to raise "Reconnecting…" on a
+  live connection, and how a stream frame landing during a failing tap used to
+  put the banner away again.
 - **What did NOT change.** The POST is still `NoContent`; the state change still
   flows back over the persistent stream. A rejected call (400) only toasts —
   nothing in the feedback layer blocks the SSE patch path.

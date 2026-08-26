@@ -2,7 +2,7 @@ package fh.view.smoke
 
 import cats.effect.{IO, Resource}
 import com.microsoft.playwright.{Browser, Page}
-import com.microsoft.playwright.options.ViewportSize
+import com.microsoft.playwright.options.{ServiceWorkerPolicy, ViewportSize}
 import fh.view.runtime.TestServer
 import fh.view.testkit.{FakeConfig, Scene}
 
@@ -35,7 +35,10 @@ abstract class SmokeSuite extends BrowserSuite {
     * browser opens its OWN SSE connection, so a test that emits a change still
     * must await it, exactly as [[TestServer.observePatch]] does for the
     * HTTP-body-stream suites). Everything is released after; a global timeout
-    * so a missed assertion fails fast rather than hanging the suite.
+    * so a test that hangs outright still ends the suite. It is deliberately
+    * several times [[BrowserSuite.AssertionTimeout]]: a test makes a handful of
+    * retrying assertions in sequence, and this bound exists to catch a hang,
+    * not to be the thing that decides a failure.
     *
     * Fails on any uncaught JS exception ([[Page.onPageError]]) — a wrong
     * `data-on:click` selector or a dropped SSE continuation line surfaces
@@ -61,6 +64,13 @@ abstract class SmokeSuite extends BrowserSuite {
   ): IO[A] = {
     val pageErrors = collection.mutable.Buffer.empty[String]
     val contextOptions = new Browser.NewContextOptions()
+    // No service worker, because none of these suites is about the PWA and a
+    // live worker is a second actor in every one of them: `fhRegisterSw` runs
+    // on localhost (a secure context), the worker claims the page mid-test, and
+    // from then on the page has a fetch path the test never set up. Playwright
+    // offers this knob for exactly that reason. `ServerRoutesSuite` still
+    // covers `/sw.js` at the wire level, so nothing is left untested.
+    contextOptions.setServiceWorkers(ServiceWorkerPolicy.BLOCK)
     viewport.foreach { case (w, h) =>
       contextOptions.setViewportSize(new ViewportSize(w, h))
     }
@@ -82,7 +92,7 @@ abstract class SmokeSuite extends BrowserSuite {
 
     resource
       .use { case (p, ts) => f(p, ts) }
-      .timeout(45.seconds)
+      .timeout(90.seconds)
       .flatTap(_ => IO(assert(pageErrors.isEmpty, clue = pageErrors.toList)))
   }
 
@@ -94,7 +104,7 @@ abstract class SmokeSuite extends BrowserSuite {
     */
   def eventually[A](
       io: IO[A],
-      timeout: FiniteDuration = 5.seconds,
+      timeout: FiniteDuration = BrowserSuite.AssertionTimeout,
       interval: FiniteDuration = 20.millis
   )(cond: A => Boolean): IO[A] =
     fs2.Stream
