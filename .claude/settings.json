@@ -20,6 +20,10 @@
       "Bash(sbt 'dashboardBuild ; scalafmt')"
     ]
   },
+  "statusLine": {
+    "type": "command",
+    "command": "bash \"${CLAUDE_PROJECT_DIR:-.}/.claude/statusline.sh\""
+  },
   "enabledPlugins": {
     "frontend-design@claude-plugins-official": false,
     "scalex@scalex-marketplace": true
