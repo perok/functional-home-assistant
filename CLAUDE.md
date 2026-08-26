@@ -29,6 +29,14 @@ connection, and the three node kinds. Read it before changing anything in `fh/vi
 owns the shape). It is also where a proposal should point: say which box moves. Its "Known open
 questions" section is a live list, not a backlog — delete an entry when it is answered.
 
+[`docs/terminology.md`](docs/terminology.md) defines the words this project uses in a specific way
+— `self`/`mount`, bake, surface, clause, holds, floor, horizon, doorbell, linger. **Read it before
+writing an ADR, a plan or a comment that leans on one**, and use the term as defined rather than a
+near-synonym: the vocabulary is load-bearing (a "mount" and a "self-region" are different
+mechanisms, and prose that blurs them has already produced a wrong design). When a change coins a
+term or moves what one means, update that file in the same commit — a definition that lags the code
+is worse than none, because it gets trusted.
+
 A `docs/plan-*.md` is a design for work **in flight**, not a description of the sources — do not
 assume an API written there exists.
 
