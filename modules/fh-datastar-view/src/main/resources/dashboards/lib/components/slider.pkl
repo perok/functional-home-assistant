@@ -427,6 +427,8 @@ class Slider extends nodes.Node {
   function max(m: Int): Slider = let (self = this) (self) { max = m }
   function valueAttr(a: String): Slider = let (self = this) (self) { valueAttr = a }
   function readout(r: Readout|slotMod.Expr): Slider = let (self = this) (self) { readout = r }
+  //function withSubSliders(sliders: Listing<Slider>): Slider = let (self = this) (self) { children = sliders }
+  function withSubSliders(sliders: List<Slider>): Slider = let (self = this) (self) { children = sliders.toListing() }
   // Nullable so `.icon(null)` is how a chain says "no badge" — the property
   // already means that, and a second `noIcon()` builder would be a parallel way
   // to say the same thing.
@@ -699,6 +701,7 @@ function slider(a: SlideAxis): Slider = new Slider { on = a }
 /// The slider constructor as a VALUE, for a query's render positions.
 hidden slider: (hass.Entity) -> Slider = (e) -> slider(e)
 
+// TODO delete, see withSubSliders
 /// The common group as one call: a master and the entities it stands for, each
 /// a member [[Slider]] on its own domain's default axis, reading out its LEVEL
 /// (a hand-composed member says `.readout("percent")` for the same).
