@@ -191,7 +191,7 @@ Implemented on the Pkl authoring surface (owning ADRs in parentheses):
 - Containers (grid/row/column)/sectionTitle/entityCard/button/slider (one card:
   give it `children` and it is a group — the slider is the head and the children
   are member rows, which are ordinary nodes, so nesting and mixing card kinds cost
-  nothing; `c.sliderGroup(master, members)` is the shorthand); `expr`,
+  nothing; `c.slider(master).withSubSliders(rows)` is the chain form); `expr`,
   and `exprOf` multi-entity slots (0001/0004); `cssClass` slot on
   grid/row/col; the layout-cell builders on the `LayoutNode` base —
   `columns(n)`/`fullWidth()`/`centered()`/`cellClass` appending to the

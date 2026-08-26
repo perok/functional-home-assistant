@@ -134,9 +134,6 @@ function pill(l: String, a: tapMod.TapAction): control.Pill = control.pill(l, a)
 /// Value slider — an entity for its domain's default axis, or a capability
 /// group for that axis (`c.slider(l.colourTemp)`).
 function slider(a: sliderMod.SlideAxis): sliderMod.Slider = sliderMod.slider(a)
-/// A master and the entities it stands for, as one grouped slider.
-function sliderGroup(a: sliderMod.SlideAxis, members: List<hass.Entity>): sliderMod.Slider =
-  sliderMod.sliderGroup(a, members)
 /// A conditional section, shown while `p` holds over live entity state.
 function iff(p: pred.Predicate|Boolean): surfaces.If = surfaces.iff(p)
 /// A live value expression: `c.expr(#"$round($number($state), 1) & " V""#)`.

@@ -254,12 +254,12 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   its `self` and the members its mount, so a master state change never repaints a row; every slider
   carries its entity's own `iconFor` badge unless told otherwise (`icon = null` for none), and
   `icon`/`secondary`/`tap` are optional pieces a plain row simply doesn't carry
-  (`c.sliderGroup(master, members)` is the shorthand; `.readout(…)` picks what a line reads out —
+  (`c.slider(master).withSubSliders(rows)` is the chain form; `.readout(…)` picks what a line reads out —
   `"percent"`/`"state"`/`"none"`, or any `expr`/`exprOf`, the names being shorthands for the two
   readings that need the card's resolved axis config, which `percentExpr`/`valueExpr`/`minExpr`/
   `maxExpr` expose for splicing — and defaults by shape: a head with rows under it reads out nothing;
   a light whose only colour mode is `onoff` renders the same row as a TOGGLE — full-bleed fill in the
-  accent, the track itself a button, no range input — so a `sliderGroup` member that cannot dim still
+  accent, the track itself a button, no range input — so a group member that cannot dim still
   looks like the rows beside it),
   **what happens to a label that does not fit** (`core/text.pkl`): every card that shows text places
   the same two boxes — the outer one the card's layout sizes, the inner one a marquee can move — and
