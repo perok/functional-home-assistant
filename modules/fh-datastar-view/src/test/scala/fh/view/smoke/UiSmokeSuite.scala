@@ -93,7 +93,19 @@ class UiSmokeSuite extends SmokeSuite {
               )
           )
         )
-        _ <- IO.blocking(climateTab.click())
+        // Click and wait for the REFUSAL ITSELF, rather than clicking and
+        // asserting. Everything below is a statement about what the page does
+        // once the 404 has landed, and a retrying assertion supplies no such
+        // starting point: `containsText("Living Room")` passes the instant it
+        // is called — before the POST has even been sent — so without this the
+        // three assertions that follow are satisfied by a page that has not yet
+        // done anything at all.
+        _ <- IO.blocking(
+          page.waitForResponse(
+            "**/sse/surface/**",
+            () => climateTab.click()
+          )
+        )
         // The panel cannot have moved — nothing served the swap.
         _ <- IO.blocking(assertThat(panel).containsText("Living Room"))
         // …and the URL still names the tab that is actually on screen. This is
@@ -115,6 +127,13 @@ class UiSmokeSuite extends SmokeSuite {
     // that no commit is coming. Here the POST is aborted outright — no status,
     // so no `error` event — which is only reachable at all because the
     // transport failed. The banner's `_sse` is what says so.
+    //
+    // The stream is cut SERVER-SIDE (`forgetConnections` reaps the session,
+    // which ends the response) as well as blocked client-side, because a
+    // `page.route` only ever meets a NEW request: the stream this page already
+    // has open would survive it, and the banner would then be asserting the
+    // health of a connection that is fine. Reaping makes the transport really
+    // fail, and the blocked reconnect is what keeps it failed.
     withPage(scene) { (page, ts) =>
       val panel = page.locator(".tab-panel")
       val climateTab =
@@ -122,9 +141,21 @@ class UiSmokeSuite extends SmokeSuite {
       for {
         _ <- ts.awaitLive()
         _ <- IO.blocking(page.route("**/sse/**", route => route.abort()))
-        _ <- IO.blocking(climateTab.click())
+        // Wait for the tap's POST to be ISSUED, not just for the click to
+        // return. An aborted request has no response to wait for, and a
+        // listener would never be seen here — Playwright's Java client
+        // dispatches event callbacks only while this thread is inside one of
+        // its calls, so polling a buffer from a plain `IO` waits forever. This
+        // is the one synchronization point the abort path offers, and it is
+        // enough: the abort is immediate, so past this line the tap has been
+        // sent and has failed.
+        _ <- IO.blocking(
+          page.waitForRequest("**/sse/surface/**", () => climateTab.click())
+        )
         // It highlights while it is still an open question…
         _ <- IO.blocking(assertThat(climateTab).hasClass(active))
+        _ <- ts.forgetConnections
+        _ <- ts.awaitNoConnections
         // …and stops when the connection that would have answered is gone.
         _ <- IO.blocking(
           assertThat(page.locator(".fh-offline-sse")).isVisible()

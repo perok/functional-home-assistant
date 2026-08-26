@@ -1,8 +1,10 @@
 package fh.view.smoke
 
 import com.microsoft.playwright.{Browser, BrowserType, Playwright}
+import com.microsoft.playwright.assertions.PlaywrightAssertions
 
 import scala.compiletime.uninitialized
+import scala.concurrent.duration.*
 import scala.jdk.CollectionConverters.*
 
 /** Tags every test in a mixing-in suite `Slow`, so `build.sbt`'s
@@ -53,6 +55,16 @@ trait BrowserSuite extends munit.CatsEffectSuite with SlowSuite {
       )
     )
     browser = BrowserSuite.connectOrLaunch(playwright)
+    // Playwright's own default is 5s, which is a budget for a fast machine
+    // running one thing. CI runs this suite alongside three other build steps
+    // on a 2-core runner, and the assertions that failed there were not
+    // asserting anything false — they were asserting something that had not
+    // happened YET. A passing run costs nothing extra (a locator assertion
+    // returns as soon as it holds); only a genuine failure waits longer, and
+    // `SmokeSuite.withPage`'s own timeout still bounds the test.
+    PlaywrightAssertions.setDefaultAssertionTimeout(
+      BrowserSuite.AssertionTimeout.toMillis.toDouble
+    )
   }
 
   override def afterAll(): Unit = {
@@ -68,6 +80,11 @@ object BrowserSuite {
     * box" flag to keep consistent with it.
     */
   val WsEndpointVar = "FH_PLAYWRIGHT_WS"
+
+  /** How long a retrying locator assertion waits for the DOM to agree with it,
+    * replacing Playwright's 5s default — see [[BrowserSuite.beforeAll]].
+    */
+  val AssertionTimeout: FiniteDuration = 15.seconds
 
   /** Chromium flags for deterministic rendering, so [[ComponentVisualSuite]]
     * compares like with like.

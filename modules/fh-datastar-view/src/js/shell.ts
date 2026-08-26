@@ -241,4 +241,32 @@ document.addEventListener("datastar-fetch", (e: Event) => {
   showToast("Command failed (" + detail.argsRaw.status + ")")
 })
 
+/**
+ * The connection banner's half of the same split, as its own event.
+ *
+ * `datastar-fetch` fires for EVERY fetch on the page, but only one of them is
+ * the SSE stream — the `data-init` `@get`, which fires from `<body>`, so
+ * `el === document.body` is exactly it. The banner's handler is debounced (a
+ * sub-second blip must never paint), and a debounce keeps only the LAST event
+ * of its window: filtering inside that handler is too late, because an
+ * action's fetch has already displaced the stream event it followed. So the
+ * filter has to happen per-event, here, and the banner listens to a stream that
+ * contains nothing else.
+ *
+ * That displacement was a real bug in both directions: a click the server
+ * rejected raised "Reconnecting to the dashboard…" on a live connection, and a
+ * stream frame arriving while a tap's POST was failing put the banner away
+ * again — leaving nothing on screen to say the tap could not be answered.
+ *
+ * `detail` carries the fetch `type` and nothing else; classifying it is the
+ * banner's job (`Server.page`), not this bridge's.
+ */
+document.addEventListener("datastar-fetch", (e: Event) => {
+  const detail = (e as CustomEvent<{ type: string; el: Element | null }>).detail
+  if (!detail || detail.el !== document.body) return
+  document.dispatchEvent(
+    new CustomEvent("fh-stream", { detail: { type: detail.type } })
+  )
+})
+
 export {}
