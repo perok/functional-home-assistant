@@ -55,48 +55,78 @@ Everything else follows — `patchTargetId` returns `<id>-self`, that element is
 wire, and it is what `Session.holds` digests.
 
 A fragment may compose other NODES. `Tabs` already does — its buttons are children rendered inside
-its `self`, and `Renderer.renderIndexed` hands a `self` its children's renderings on purpose. What a
-fragment may not contain is a BAKED region, and the reasons survive every simplification below:
+its `self`, and `Renderer.renderIndexed` hands a `self` its children's renderings on purpose.
 
-- `RenderCache` keys on `RenderInputs`, whose selection half is `activeBakeIndex(id, …)` — the
-  node's OWN bake group. Bytes carrying a descendant's baked region vary by a selection the key does
-  not name, so two viewers on different tabs get each other's bytes.
-- `Session.holds` is a node-to-digest map. A fragment that overwrites a region owned by other
-  addressable nodes leaves their entries describing bytes that are no longer in that DOM, and the
-  surface flip machinery — which records structure, not content (§4 of the pipeline map) — is a
-  second writer to the same region with no knowledge of the first.
-
-Rendering the baked region as an inert empty host inside the fragment does not rescue it. ADR 0012
-already rejected that under *"a hollow mount plus a per-connection fill"*, and the reason is the part
-worth keeping: **a mount carries client-dependent ATTRIBUTES, not merely children.**
-
-So the constraint stays. What changes is that it becomes a declared fact rather than a guess.
-
-## Step 1 — make the guard exact (`carriesBakeHost`)
-
-Separable, releasable on its own, and no new concepts — it uses machinery that already exists.
+**A node's OWN baked region cannot reach its own `self`, and that is already structural.** In
+`Renderer.traced`:
 
 ```scala
-private def carriesMount(node: LayoutNode): Boolean = node match {
-  case c: LayoutNode.Component =>
-    templates.mounts.contains(c.card) || c.children.exists(carriesMount)
+val selfVars = structuralVars(id) ++ bakeIndex   // no `baked`
+val vars     = selfVars ++ baked                 // the mount part only
 ```
 
-`templates.mounts.contains(card)` is true for any card with a mount TEMPLATE — `Row`, `Column` and
-`Grid` included, whose mounts hold plain nested children and nothing client-dependent.
-`Renderer.mountId`'s own comment concedes it: those mounts "are never fill targets … and simply
-never use" their id.
+The `self` template is handed no variable holding the baked member, so there is nothing to render it
+with. This is the rule at its strongest and it costs nothing; step 2 keeps it as a declared,
+validated fact (`in = "self"` ⟹ `fill = "eager"`) rather than an accident of a var map.
 
-Replace it with the predicate the invariant names: does this subtree contain a mount some surface
-BAKES INTO? `SurfaceGraph.bakeGroup(id)` answers that per node id today, and `Index.walk` already
-carries the paths that produce ids, so the recursion threads an id rather than only a node.
+**Everything else — a self-region holding nodes that themselves have baked regions, stacked to any
+depth — is a BOOKKEEPING job, not a prohibition.** Two arguments were made for banning it and only
+one is real:
 
-This lifts an existing over-restriction — a container whose `self` splices children stops being
-disqualified by a member that merely *has* a mount — and it is what lets step 2's regions carry any
-node at all rather than needing an element-type constraint.
+- *The render cache.* Not an issue. `renderInputs` returns `None` whenever `ownBytesCarryChildren`
+  (today simply `children.nonEmpty`), so a node that composes children is already uncached — the
+  same answer ADR 0012 gives for the composed surface mount, "its bytes carry its children, so it
+  has no sound key". Composition is handled by opting out of the cache, not by being forbidden.
+- *`Session.holds`.* Real, and the reason the ban exists today: `renderNodeById` returns a bare
+  `String`, and the content-patch path claims only the node it targeted. A content patch that
+  composed a baked region would write DOM that the session's records never hear about, so later
+  patches for the nodes inside it would be suppressed or duplicated against stale entries.
 
-`hasOwnRendering`'s doc comment enumerates the three shapes that fail it; rewrite it here rather than
-leave it describing the old predicate.
+That second one is already solved elsewhere, for exactly this shape. `Patches.hostFill` renders a
+whole surface subtree and emits a patch that CLAIMS every node it placed (from `Traced.own`) and
+INVALIDATES what it displaced:
+
+```scala
+Addressed(
+  Patch.Insert(t.html, PatchMode.Inner, host),
+  t.own.map { case (id, p) => id -> Held(Some(Digest.of(p.html)), p.signals) },
+  (renderer.surfaces.surfacesAt(host) ++ arriving).flatMap(renderer.surfaceNodeIds)
+)
+```
+
+A tab switch and a popup open are that call. The content-patch path needs the same treatment, which
+is step 1.
+
+Two things this does NOT license, worth keeping in view:
+
+- Rendering a baked region as an inert empty host inside a fragment. ADR 0012 rejected that under
+  *"a hollow mount plus a per-connection fill"*, and the reason still holds: **a mount carries
+  client-dependent ATTRIBUTES, not merely children.** Compose it fully or not at all.
+- Deep composition for free. A content patch that composes a panel re-sends that panel's bytes even
+  when only the outer node moved. Correct once claims are recorded, but not cheap — an argument for
+  keeping self-regions shallow by convention, not for a rule.
+
+## Step 1 — trace the content-patch path, and delete the ban
+
+Separable, releasable on its own, and it uses a pattern already in production rather than inventing
+one. It is also what lets step 2's regions carry any node at all, instead of needing an
+element-type constraint on what a self-region may hold.
+
+- `renderNodeById` gains a traced sibling returning `Traced` rather than `String` — the walk already
+  computes per-node bytes (`Traced.own`), so this is a matter of not discarding them on this path.
+- The content patch is built like `Patches.hostFill`: `claims` from `t.own`, `invalidates` for the
+  surfaces it displaced. `Patches.applied` already knows how to fold both into a session.
+- `hasOwnRendering` loses its third clause entirely — the `selvesCarryChildren && children.exists(
+  carriesMount)` exclusion — and with it `Templates.selvesCarryChildren` and `carriesMount` go. Its
+  doc comment enumerates three shapes that fail it; two survive (a bare container, a candidate-set
+  root) and the third is deleted, so rewrite it here.
+- `ownBytesCarryChildren` stays as-is for now: opting composed nodes out of the render cache is the
+  correct answer, not a workaround, and step 2 only refines *which* children count.
+
+The test that matters is the one that would have caught the original bug rather than the shape of
+it: a node whose fragment composes a subtree must leave the session holding a correct digest for
+**every** node it wrote, so a later change to any of them is neither suppressed nor re-sent. A
+grouped slider nested inside a grouped slider, and a tab inside one, are the two fixtures.
 
 ## Step 2 — regions
 
@@ -149,18 +179,12 @@ concept, two roles. (Sketched originally as `parts` — say if you prefer that f
 - region names are plain tokens (`Dashboard.sanitize` maps everything outside `[A-Za-z0-9_]` to `_`,
   and region names now enter node ids — same rule cell classes already get).
 
-The second rule is what retires the runtime grep in `Templates`:
-
-```scala
-selvesCarryChildren = dashboard.cards.collect {
-  case (name, cd) if cd.self.exists(_.contains("{{#children}}")) => name
-}.toSet
-```
-
-whose own comment explains itself as a workaround — "a card cannot be asked to declare it
-truthfully". With `regions` as the declaration and a build-time assertion holding the templates to
-it, it can. The check is the same shape as the one at `Dashboard.scala:800-805` (a signal slot whose
-`{{{x__bind}}}` no part places), so this is an existing pattern rather than a new one.
+Step 1 already deletes `Templates.selvesCarryChildren` — the string grep whose own comment concedes
+it is a workaround ("a card cannot be asked to declare it truthfully"). What the second rule adds is
+the thing that makes the declaration trustworthy in the first place: a card that says a region is
+placed `in = "self"` and then splices it somewhere else is now a build error, not a silent
+mismatch. Same shape as the check at `Dashboard.scala:800-805` (a signal slot whose `{{{x__bind}}}`
+no part places), so it is an existing pattern rather than a new one.
 
 ### Node ids — full symmetry, and it breaks tab-state URLs
 
@@ -177,13 +201,15 @@ pre-v1. `path: List[Int]` becomes a list of `(region, index)`.
 
 - `Index.walk`, `MemberGraph`, the `danglingBakes` walk and the other traversals take
   `children.values.flatten` — mechanical and region-blind, since they only need every node.
-- Region-aware in three places: `renderTemplateOf`'s var map (one section per region rather than one
-  `children` list); the step-1 guard, which now asks only about regions the card places `in = "self"`;
-  and `mountId`, which becomes `regionId(nodeId, region)` for the baked region a surface names.
+- Region-aware in two places: `renderTemplateOf`'s var map (one section per region rather than one
+  `children` list), and `mountId`, which becomes `regionId(nodeId, region)` for the baked region a
+  surface names.
 - `renderWhole` splices `{{{self}}}` only — the `mounts` template map goes away with the property.
-- `ownBytesCarryChildren` (the cache opt-out) becomes "populates a region placed in `self`". Today it
-  is `children.nonEmpty`, which needlessly un-caches every slider group, whose `self` never contains
-  its members.
+- `traced`'s `selfVars`/`vars` split becomes "a region placed `in = "self"` sees no baked member",
+  which is the same fact it enforces today, now derived from the declaration.
+- `ownBytesCarryChildren` (the cache opt-out) can narrow from `children.nonEmpty` to "populates a
+  region placed in `self`" — today it needlessly un-caches every slider group, whose `self` never
+  contains its members. Optional and measurable; leave it if the numbers say it does not matter.
 
 ### Wire format
 
@@ -221,10 +247,10 @@ in the same PR as step 3.
 - **`headCount` — a leading-N split of one list.** Smallest possible diff, and a hack: it uses
   `List[LayoutNode]` as an ad-hoc two-region protocol with the boundary carried alongside as an
   integer, adding a fourth implicit thing instead of removing any of the three.
-- **A region tag on each child.** Keeps ids and traversals untouched, but the tag lives in the data
-  while `selvesCarryChildren` reads the template SOURCE, so the grep cannot see the filter and the
-  slider joins the set — costing its head live patches as soon as a member carries a mount. Viable
-  only on top of steps 1 and 2, at which point the map is the honest type.
+- **A region tag on each child.** Keeps ids and traversals untouched, and once step 1 has deleted
+  the template grep it is no longer *unsound* — just dishonest: a child would be declaring where its
+  parent puts it, with region membership recoverable only by filtering, and `validate` re-checking
+  per child what the map holds by construction. Rejected on "types hold truth", not on breakage.
 - **Split the slider card** into a bare container holding a `SliderHead` node with the members as
   siblings, actions being ordinary children of the head. Needs no renderer change at all — but trades
   away a documented authoring property ("give a slider children and it is the same card, a group":
