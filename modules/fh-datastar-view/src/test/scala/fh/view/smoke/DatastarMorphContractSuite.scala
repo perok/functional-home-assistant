@@ -334,6 +334,7 @@ class DatastarMorphContractSuite extends BrowserSuite {
          |<div data-effect="$clear"></div>
          |<div id="shown" data-text="$$_g__pending || $$ui_g"></div>
          |<div id="pending" data-text="$$_g__pending"></div>
+         |<div id="committed" data-text="$$ui_g"></div>
          |<button id="tapA" data-on:click="$$_g__pending = 'a'">a</button>
          |<button id="tapB" data-on:click="$$_g__pending = 'b'">b</button>
          |<button id="commitA" data-on:click="@post('/commit/a')">ca</button>
@@ -363,16 +364,26 @@ class DatastarMorphContractSuite extends BrowserSuite {
         _ <- eventually(text(p, "#shown"))(_ == "b")
 
         // (3) The FIRST tap's commit lands. Pending must survive it — this is
-        // the race a server-sent clear gets wrong.
+        // the race a server-sent clear gets wrong. Gate on the COMMITTED value
+        // saying the overtaken tap landed, because the
+        // obvious gate — pending is still 'b' — is no gate at all: it is
+        // already 'b', so it holds before the frame is anywhere near the
+        // store, and this step used to pass whether or not `/commit/a` was
+        // ever served. Worse, it let the two commits land in either order,
+        // and out of order the run ends with `ui_g == 'a'`.
         _ <- click(p, "#commitA")
-        _ <- eventually(text(p, "#pending"), 2.seconds)(_ == "b")
-        shown <- text(p, "#shown")
+        _ <- eventually(text(p, "#committed"))(_ == "a")
+        held <- text(p, "#pending")
         _ <- IO(
           assertEquals(
-            shown,
+            held,
             "b",
             "a commit for an OVERTAKEN tap must not clear the pending one"
           )
+        )
+        shown <- text(p, "#shown")
+        _ <- IO(
+          assertEquals(shown, "b", "…so the display still shows what was asked")
         )
 
         // (4) The second tap's commit lands: pending clears itself, and the
