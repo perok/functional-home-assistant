@@ -1597,8 +1597,9 @@ object Renderer {
       context: Map[String, String],
       childrenHtml: List[String]
   ): java.util.Map[String, AnyRef] = {
+    import scala.jdk.CollectionConverters.*
     val m = new java.util.HashMap[String, AnyRef](context.size + 1)
-    context.foreach { case (k, v) => m.put(k, v) }
+    m.putAll(context.asJava)
     if (childrenHtml.nonEmpty) {
       val list = new java.util.ArrayList[AnyRef](childrenHtml.size)
       childrenHtml.foreach(h =>
