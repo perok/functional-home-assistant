@@ -1539,7 +1539,7 @@ class PklBuildSuite extends munit.FunSuite {
       """light: hass.GenericEntity = new { entity_id = "light.lys"; domain = "light" }
         |a: hass.GenericEntity = new { entity_id = "light.a"; domain = "light" }
         |cover: hass.GenericEntity = new { entity_id = "cover.blind"; domain = "cover" }
-        |node = (c.sliderGroup(light, List(a, cover))) { icon = "mdi:lightbulb-group"; tapAction = c.tap.toggle }
+        |node = (c.slider(light).withSubSliders(List(a, cover).map((m) -> c.slider(m).readout("percent")))) { icon = "mdi:lightbulb-group"; tapAction = c.tap.toggle }
         |""".stripMargin
     )
     assertEquals(group.card, "slider")

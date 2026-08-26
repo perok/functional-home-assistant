@@ -347,8 +347,8 @@ facts {
       entity_id = "light.porch"
       colourModes { "onoff" }
     }
-    // As `sliderGroup` composes a member: the caller does not know, and does
-    // not have to, which of a group's lights can dim.
+    // As a group's rows are composed: the caller does not know, and does not
+    // have to, which of a group's lights can dim.
     local row = (c.slider(switchOnly)).readout("percent")
     row.toggleOnly
     row.slots["toggle"] == "1"

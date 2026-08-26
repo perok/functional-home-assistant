@@ -155,8 +155,8 @@ typealias Readout = "state"|"percent"|"none"
 /// ORDINARY nodes: a member can be another grouped slider (nesting works by
 /// construction), an [[EntityCard]], or a [[DynamicGroup]] of everything in an
 /// area, and each keeps its own entity, its own domain config and its own live
-/// patch. [[sliderGroup]] is the shorthand for the common "a master and its
-/// member entities" case.
+/// patch. [[Slider.withSubSliders]] is the chain form of the common "a master
+/// and its member entities" case.
 ///
 /// The head is the card's `self` and the members its `mount`, so a state change
 /// on the master repaints the head alone and never the rows (ADR 0012) — the
@@ -199,8 +199,8 @@ class Slider extends nodes.Node {
   /// be a track that never fills posting a `brightness` HA discards.
   ///
   /// The card carries the variant rather than the caller choosing a different
-  /// card, so a member of `sliderGroup` still reads as one of the rows around
-  /// it: same pill, same head, but filled all-or-nothing and tapped rather than
+  /// card, so a member of a group still reads as one of the rows around it:
+  /// same pill, same head, but filled all-or-nothing and tapped rather than
   /// dragged. Only a light can report this — every other axis is settable by
   /// construction (a `colourTemp` group exists only where the range does).
   ///
@@ -256,8 +256,8 @@ class Slider extends nodes.Node {
   hidden percentExpr: String =
     "($v := \(valueExpr); $v != null ? $string($round(($v - \(minExpr)) * 100 / (\(maxExpr) - \(minExpr)))) & \" %\" : \"0 %\")"
   // A percentage of an axis the entity does not have is a permanent "0 %", so a
-  // toggle-only row reads out its STATE instead — `sliderGroup` gives every
-  // member `percent` without knowing which of them can dim. An author's own
+  // toggle-only row reads out its STATE instead — a group's rows are usually
+  // given `percent` in one `map`, without knowing which can dim. An author's own
   // [[Expr]] is left alone: it may well be about something else entirely.
   hidden shownReadout: (Readout|slotMod.Expr) =
     if (toggleOnly && readout == "percent") "state" else readout
@@ -427,6 +427,19 @@ class Slider extends nodes.Node {
   function max(m: Int): Slider = let (self = this) (self) { max = m }
   function valueAttr(a: String): Slider = let (self = this) (self) { valueAttr = a }
   function readout(r: Readout|slotMod.Expr): Slider = let (self = this) (self) { readout = r }
+  /// The member rows this slider heads, as ready-made [[Slider]]s — so the
+  /// group is one chain over the master's own members:
+  ///
+  ///   c.slider(l).withSubSliders(
+  ///     l.members.map((m) -> c.slider(m).readout("percent").icon(null))
+  ///   )
+  ///
+  /// Each row is composed by the CALLER, which is the point: what a row reads
+  /// out, whether it carries a badge and what it is bound to are the author's,
+  /// one row at a time. A member that is not a slider (an [[EntityCard]], a
+  /// [[DynamicGroup]] of an area) goes through `children` directly.
+  function withSubSliders(sliders: List<Slider>): Slider =
+    let (self = this) (self) { children = sliders.toListing() }
   // Nullable so `.icon(null)` is how a chain says "no badge" — the property
   // already means that, and a second `noIcon()` builder would be a parallel way
   // to say the same thing.
@@ -698,12 +711,3 @@ const local sliderCss: String = """
 function slider(a: SlideAxis): Slider = new Slider { on = a }
 /// The slider constructor as a VALUE, for a query's render positions.
 hidden slider: (hass.Entity) -> Slider = (e) -> slider(e)
-
-/// The common group as one call: a master and the entities it stands for, each
-/// a member [[Slider]] on its own domain's default axis, reading out its LEVEL
-/// (a hand-composed member says `.readout("percent")` for the same).
-function sliderGroup(a: SlideAxis, members: List<hass.Entity>): Slider =
-  new Slider {
-    on = a
-    children { for (m in members) { (slider(m)) { readout = "percent" } } }
-  }
