@@ -102,9 +102,22 @@ Two things this does NOT license, worth keeping in view:
 - Rendering a baked region as an inert empty host inside a fragment. ADR 0012 rejected that under
   *"a hollow mount plus a per-connection fill"*, and the reason still holds: **a mount carries
   client-dependent ATTRIBUTES, not merely children.** Compose it fully or not at all.
-- Deep composition for free. A content patch that composes a panel re-sends that panel's bytes even
-  when only the outer node moved. Correct once claims are recorded, but not cheap — an argument for
-  keeping self-regions shallow by convention, not for a rule.
+- Deep composition for free. A content patch that composes a bake host re-sends that host's whole
+  baked content even when only the outer node's own slot moved: the fragment is one blob morphed
+  onto one element, so the panel's bytes have to be *in* it.
+
+  **Not reachable today, or after step 3** — it needs a `self`-placed region holding a `Tabs` or an
+  `iff` host, and the only two self-regions that exist hold leaves by construction (a tab bar holds
+  `TabButton`s the card generates; the slider head holds icon buttons). A popup does not count: an
+  unbaked surface hosts at the page-level overlay (`Dashboard.PopupHostId`), so a tap that opens one
+  never makes its opener a bake host.
+
+  So this is a property to check when declaring a NEW self-region, not a cost this work incurs. If a
+  region is chrome, say so — a `holds = "leaves"` declaration on `Region` makes it unrepresentable
+  rather than merely unlikely, and costs one validate rule. Leave it open where an author genuinely
+  wants containers there. (A third option — marking the host so the morph skips its subtree — would
+  avoid the re-send outright, but depends on morph behaviour nobody here has verified; check before
+  designing on it.)
 
 ## Step 1 — trace the content-patch path, and delete the ban
 
