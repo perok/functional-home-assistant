@@ -93,7 +93,19 @@ class UiSmokeSuite extends SmokeSuite {
               )
           )
         )
-        _ <- IO.blocking(climateTab.click())
+        // Click and wait for the REFUSAL ITSELF, rather than clicking and
+        // asserting. Everything below is a statement about what the page does
+        // once the 404 has landed, and a retrying assertion supplies no such
+        // starting point: `containsText("Living Room")` passes the instant it
+        // is called — before the POST has even been sent — so without this the
+        // three assertions that follow are satisfied by a page that has not yet
+        // done anything at all.
+        _ <- IO.blocking(
+          page.waitForResponse(
+            "**/sse/surface/**",
+            () => climateTab.click()
+          )
+        )
         // The panel cannot have moved — nothing served the swap.
         _ <- IO.blocking(assertThat(panel).containsText("Living Room"))
         // …and the URL still names the tab that is actually on screen. This is
@@ -129,7 +141,17 @@ class UiSmokeSuite extends SmokeSuite {
       for {
         _ <- ts.awaitLive()
         _ <- IO.blocking(page.route("**/sse/**", route => route.abort()))
-        _ <- IO.blocking(climateTab.click())
+        // Wait for the tap's POST to be ISSUED, not just for the click to
+        // return. An aborted request has no response to wait for, and a
+        // listener would never be seen here — Playwright's Java client
+        // dispatches event callbacks only while this thread is inside one of
+        // its calls, so polling a buffer from a plain `IO` waits forever. This
+        // is the one synchronization point the abort path offers, and it is
+        // enough: the abort is immediate, so past this line the tap has been
+        // sent and has failed.
+        _ <- IO.blocking(
+          page.waitForRequest("**/sse/surface/**", () => climateTab.click())
+        )
         // It highlights while it is still an open question…
         _ <- IO.blocking(assertThat(climateTab).hasClass(active))
         _ <- ts.forgetConnections

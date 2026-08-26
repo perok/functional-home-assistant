@@ -2,7 +2,7 @@ package fh.view.smoke
 
 import cats.effect.{IO, Resource}
 import com.microsoft.playwright.{Browser, Page}
-import com.microsoft.playwright.options.ViewportSize
+import com.microsoft.playwright.options.{ServiceWorkerPolicy, ViewportSize}
 import fh.view.runtime.TestServer
 import fh.view.testkit.{FakeConfig, Scene}
 
@@ -64,6 +64,13 @@ abstract class SmokeSuite extends BrowserSuite {
   ): IO[A] = {
     val pageErrors = collection.mutable.Buffer.empty[String]
     val contextOptions = new Browser.NewContextOptions()
+    // No service worker, because none of these suites is about the PWA and a
+    // live worker is a second actor in every one of them: `fhRegisterSw` runs
+    // on localhost (a secure context), the worker claims the page mid-test, and
+    // from then on the page has a fetch path the test never set up. Playwright
+    // offers this knob for exactly that reason. `ServerRoutesSuite` still
+    // covers `/sw.js` at the wire level, so nothing is left untested.
+    contextOptions.setServiceWorkers(ServiceWorkerPolicy.BLOCK)
     viewport.foreach { case (w, h) =>
       contextOptions.setViewportSize(new ViewportSize(w, h))
     }
