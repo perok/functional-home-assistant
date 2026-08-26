@@ -300,6 +300,87 @@ in the same PR as step 3.
   subsume it instead: the same card expresses one eager region and one baked one without either
   becoming hollow.
 
+## Appendix — the re-send, as code
+
+Nothing here compiles today: it is written against step 2's model, and the card is hypothetical.
+That is the point — the shape is not reachable with the shipped library, so this is what to
+recognise if someone builds it.
+
+**The card that makes it possible.** One line does it: a region that accepts arbitrary author nodes,
+placed in the part a live patch rewrites.
+
+```pkl
+class StatusPanel extends nodes.Node {
+  card = "statusPanel"
+  hidden entity: hass.Entity
+  hidden title: String
+  slots {
+    ["entity_id"] = entity.entity_id
+    ["title"] = title
+    // A PLAIN reactive slot — no `signal`, so a change re-renders this card
+    // rather than pushing a value. That is what makes the node a patch target
+    // whose fragment is rebuilt from scratch.
+    ["summary"] = new slotMod.Slot { transform = #"$state & " active""# }
+  }
+  cardDef = new nodes.CardDef {
+    regions {
+      ["body"] = new nodes.Region { in = "self"; fill = "eager" }   // <- the mistake
+    }
+    template = #"<article class="card">{{{self}}}</article>"#
+    self = #"""
+      <div id="{{selfId}}" class="panel">
+        <h3>{{title}}</h3><span>{{summary}}</span>
+        <div class="panel-body">{{#body}}{{{html}}}{{/body}}</div>
+      </div>
+      """#
+  }
+}
+```
+
+**The dashboard that trips it.** An ordinary conditional section, put in that region:
+
+```pkl
+node = (new StatusPanel { entity = dump.entities.sensor_hall_power; title = "Hall" }) {
+  children {
+    ["body"] {
+      c.iff(q.entity(dump.entities.binary_sensor_hall_motion).stateIs("on"))
+        .then(new layout.Grid {
+          children { for (l in dump.areas.hall.lights) { c.slider(l) } }
+        })
+    }
+  }
+}
+```
+
+**What happens.** `sensor.hall_power` ticks — a power reading, so several times a minute. Its only
+reader is the panel's own `summary` slot, four words of text. But:
+
+1. `StatusPanel` is patched, so its `self` is re-rendered;
+2. `{{#body}}` composes the `ifhost` node in full;
+3. `ifhost` is a pure mount whose `{{{branch}}}` hole carries the baked `then` branch;
+4. so every slider in the hall — markup, slot values, signal seeds — goes over the wire, on every
+   power tick, having changed nothing.
+
+The panel's own patch is a few hundred bytes. What rides along is the whole conditional.
+
+**Either fix removes it.** Declaring the region as chrome makes the dashboard above a build error at
+the `c.iff` line, naming it:
+
+```pkl
+["body"] = new nodes.Region { in = "self"; fill = "eager"; holds = "leaves" }
+```
+
+Or, where an author genuinely should be able to put containers there, mark the bake host so the
+morph skips it — then step 1's traced patch carries an empty `ifhost` and disturbs nothing:
+
+```pkl
+// components/surface.pkl, If.cardDef — subject to the hostFill spike above
+mount = #"<div class="fh-ifhost" id="{{mountId}}" data-ignore-morph>{{{branch}}}</div>"#
+```
+
+Both belong to whoever declares a self-region, which is why this is a review question and not a
+rule the plan imposes.
+
 ### Prior art
 
 `docs/plan-mount-unification.md` (June 2026; landed, then superseded by the self/mount card split)
