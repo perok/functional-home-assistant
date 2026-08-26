@@ -99,9 +99,12 @@ is step 1.
 
 Two things this does NOT license, worth keeping in view:
 
-- Rendering a baked region as an inert empty host inside a fragment. ADR 0012 rejected that under
-  *"a hollow mount plus a per-connection fill"*, and the reason still holds: **a mount carries
-  client-dependent ATTRIBUTES, not merely children.** Compose it fully or not at all.
+- Rendering a baked region as an inert empty host inside a fragment, UNMARKED. ADR 0012 rejected
+  that under *"a hollow mount plus a per-connection fill"*, and its reason is the one that bites:
+  **a mount carries client-dependent ATTRIBUTES, not merely children** — so an unmarked hollow host
+  does not merely fail to carry the panel, it overwrites the real host's attributes with a
+  placeholder's. Compose it fully, or mark it `data-ignore-morph` (see the re-send note above, and
+  spike the `hostFill` interaction first). Never emit a bare empty host.
 - Deep composition for free. A content patch that composes a bake host re-sends that host's whole
   baked content even when only the outer node's own slot moved: the fragment is one blob morphed
   onto one element, so the panel's bytes have to be *in* it.
@@ -115,9 +118,31 @@ Two things this does NOT license, worth keeping in view:
   So this is a property to check when declaring a NEW self-region, not a cost this work incurs. If a
   region is chrome, say so — a `holds = "leaves"` declaration on `Region` makes it unrepresentable
   rather than merely unlikely, and costs one validate rule. Leave it open where an author genuinely
-  wants containers there. (A third option — marking the host so the morph skips its subtree — would
-  avoid the re-send outright, but depends on morph behaviour nobody here has verified; check before
-  designing on it.)
+  wants containers there.
+
+  **`data-ignore-morph` is the third option, and it is real** — read off the pinned bundle
+  (`assets-cache/*-datastar.js`, v1.0.2), in the per-node morph `dt`:
+
+  ```js
+  dt=(e,t)=>{ ... if(r.hasAttribute(Re)&&s.hasAttribute(Re))return e; ...   // Re = data-ignore-morph
+  ```
+
+  It returns the EXISTING node before any attribute reconciliation, so the element, its attributes
+  and its whole subtree are left untouched — and because this is the per-node walk, it applies while
+  an ancestor is being morphed, not only when the patch targets that element. The guard is
+  **both-sided**: the skip happens only if the node in the DOM *and* the node in the arriving
+  fragment both carry the attribute. The published docs state neither the both-sided requirement nor
+  that it survives an ancestor morph.
+
+  So a bake host marked `data-ignore-morph` lets an ancestor's fragment carry an EMPTY host and
+  disturb nothing: no re-send, and no bookkeeping to do, because the patch writes nothing there.
+
+  **Open risk before designing on it:** `Patches.hostFill` inner-patches that same host. If an
+  `Inner` patch reaches `dt` with the host on both sides, the fill would be refused by the same
+  guard. It probably does not — under `Inner` the arriving side is the new children rather than a
+  copy of the host — but that is inference from the call shape, not something read or measured.
+  Spike it against `DatastarMorphContractSuite` (with a control, per that suite's own lesson) before
+  the design leans on it.
 
 ## Step 1 — trace the content-patch path, and delete the ban
 
