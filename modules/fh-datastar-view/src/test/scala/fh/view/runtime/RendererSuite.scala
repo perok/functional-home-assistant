@@ -93,7 +93,7 @@ class RendererSuite extends munit.FunSuite {
       // template at `{{id}}_panel`; the default tab is injected via `{{{panel}}}`.
       LayoutNode.Component(
         "tabs",
-        children = List(
+        children = LayoutNode.kids(
           LayoutNode.Component("btn", Map("label" -> lit("A"))),
           LayoutNode.Component("btn", Map("label" -> lit("B")))
         )
@@ -1011,6 +1011,41 @@ class RendererSuite extends munit.FunSuite {
     )
   }
 
+  /** `children` decodes from either form, and the point of the array form is
+    * that the wire this project actually emits did not have to change: the
+    * authoring layer still writes a plain list for the one-hole case.
+    *
+    * Asserted through `Dashboard`'s own decoder rather than the field's, so it
+    * is the path a real `dashboard.json` takes.
+    */
+  test("children decodes from a bare array and from a region object alike") {
+    def decode(childrenJson: String) = io.circe.parser
+      .decode[Dashboard](
+        s"""{"cards":{"col":{"template":"<div>{{#children}}{{{html}}}{{/children}}</div>"},
+           | "card":{"template":"<span>{{state}}</span>","slots":["state"]}},
+           | "card":{"kind":"component","card":"col","children":$childrenJson}}""".stripMargin
+      )
+      .fold(e => fail(s"decode failed: $e"), identity)
+
+    val leaf = """{"kind":"component","card":"card","slots":{"state":"x"}}"""
+    val fromArray = decode(s"[$leaf]")
+    val fromObject = decode(s"""{"children":[$leaf]}""")
+
+    // Same value, so everything downstream — ids, walkers, rendering — cannot
+    // tell which form was on the wire.
+    assertEquals(fromArray.card, fromObject.card)
+    assertEquals(
+      fromArray.card.asInstanceOf[LayoutNode.Component].children.keySet,
+      Set(LayoutNode.DefaultRegion)
+    )
+    // Non-vacuous: an empty array is no region at all, not a region holding
+    // nothing — otherwise a leaf would read as structure.
+    assertEquals(
+      decode("[]").card.asInstanceOf[LayoutNode.Component].children,
+      Map.empty[String, List[LayoutNode]]
+    )
+  }
+
   test(
     "validate: a non-empty theme.chrome lacking id=\"dashboard\" is a hard error"
   ) {
@@ -1350,7 +1385,10 @@ class RendererSuite extends munit.FunSuite {
         )
       ),
       card = LayoutNode
-        .Component("box", children = List(LayoutNode.Component("tabs"))),
+        .Component(
+          "box",
+          children = LayoutNode.kids(LayoutNode.Component("tabs"))
+        ),
       surfaces = Map(
         "t0" -> Surface(
           LayoutNode.Component(
@@ -1403,7 +1441,7 @@ class RendererSuite extends munit.FunSuite {
         card = LayoutNode
           .Component(
             "box",
-            children = List(
+            children = LayoutNode.kids(
               LayoutNode.Component(
                 "card",
                 slots = Map("state" -> SlotSource(Some("sensor.a")))
@@ -1448,7 +1486,7 @@ class RendererSuite extends munit.FunSuite {
         LayoutNode.Component(
           "host",
           slots = Map("state" -> SlotSource(Some("sensor.a"))),
-          children = List(LayoutNode.Component("member"))
+          children = LayoutNode.kids(LayoutNode.Component("member"))
         )
       )
     )
@@ -1611,7 +1649,7 @@ class RendererSuite extends munit.FunSuite {
         LayoutNode.Component(
           "split",
           slots = Map("state" -> SlotSource(Some("sensor.t"))),
-          children = List(
+          children = LayoutNode.kids(
             LayoutNode.Component("btn", Map("label" -> lit("inside")))
           )
         )

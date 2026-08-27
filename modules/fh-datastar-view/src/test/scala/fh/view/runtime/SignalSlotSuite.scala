@@ -363,7 +363,7 @@ class SignalSlotSuite extends ServerHarness {
     )),
     LayoutNode.Component(
       "col",
-      children = List(gauge("sensor.a"), gauge("sensor.b"))
+      children = LayoutNode.kids(gauge("sensor.a"), gauge("sensor.b"))
     )
   )
 

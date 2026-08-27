@@ -209,7 +209,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
         cards,
         LayoutNode.Component(
           "tabs",
-          children = List(
+          children = LayoutNode.kids(
             LayoutNode.Component(
               "btn",
               Map("label" -> SlotSource(literal = Some("A")))
@@ -263,7 +263,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
     ),
     card = LayoutNode.Component(
       "col",
-      children = List(
+      children = LayoutNode.kids(
         LayoutNode.Component(
           "card",
           slots = Map("state" -> SlotSource(Some("sensor.a")))
@@ -395,7 +395,10 @@ trait ServerHarness extends munit.CatsEffectSuite {
     Dashboard(
       cards = ifCards,
       card = LayoutNode
-        .Component("col", children = List(LayoutNode.Component("ifhost"))),
+        .Component(
+          "col",
+          children = LayoutNode.kids(LayoutNode.Component("ifhost"))
+        ),
       surfaces = Map(
         "then" -> stateMember(thenContent, "c_0", 0, armedCond),
         "else" -> stateMember(elseContent, "c_0", 1, always)
@@ -590,7 +593,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
     ),
     card = LayoutNode.Component(
       "col",
-      children = List(
+      children = LayoutNode.kids(
         LayoutNode.Component(
           "card",
           slots = Map("state" -> SlotSource(Some("sensor.shared")))
@@ -895,7 +898,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
     ),
     card = LayoutNode.Component(
       "col",
-      children = List(
+      children = LayoutNode.kids(
         LayoutNode.Component(
           "card",
           slots = Map("state" -> SlotSource(Some("sensor.shared")))

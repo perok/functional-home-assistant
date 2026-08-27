@@ -117,7 +117,7 @@ class Renderer(
         val self = LayoutNode.nodeId(idPrefix, path) -> (node, path)
         node match {
           case c: LayoutNode.Component =>
-            self :: c.children.zipWithIndex.flatMap { case (ch, i) =>
+            self :: c.orderedChildren.zipWithIndex.flatMap { case (ch, i) =>
               walk(ch, path :+ i)
             }
           // A member container is a LEAF of the static index: its children are
@@ -492,7 +492,7 @@ class Renderer(
           templates.selves(c.card),
           structuralVars(id) ++ resolveBakeTraced(id, uiState, states)._2,
           c.slots,
-          c.children.zipWithIndex.map { case (child, i) =>
+          c.orderedChildren.zipWithIndex.map { case (child, i) =>
             render(child, path :+ i, prefix, states, uiState, form)
           },
           states,
@@ -658,7 +658,7 @@ class Renderer(
   private def carriesMount(node: LayoutNode): Boolean = node match {
     case c: LayoutNode.Component =>
       dashboard.cards.get(c.card).exists(_.isStructure) ||
-      c.children.exists(carriesMount)
+      c.orderedChildren.exists(carriesMount)
     case _: LayoutNode.SetNode => false
   }
 
@@ -868,7 +868,7 @@ class Renderer(
 
   private def ownBytesCarryChildren(id: NodeId): Boolean =
     allIndexed.get(id).exists {
-      case (c: LayoutNode.Component, _, _) => c.children.nonEmpty
+      case (c: LayoutNode.Component, _, _) => c.orderedChildren.nonEmpty
       case _                               => false
     }
 
@@ -917,7 +917,7 @@ class Renderer(
     node match {
       case c: LayoutNode.Component =>
         val id = LayoutNode.nodeId(idPrefix, path)
-        val kids = c.children.zipWithIndex.map { case (child, i) =>
+        val kids = c.orderedChildren.zipWithIndex.map { case (child, i) =>
           traced(child, path :+ i, idPrefix, states, uiState)
         }
         val childrenHtml = kids.map(_.html)
@@ -1094,7 +1094,7 @@ class Renderer(
       // child's entity changing re-renders it (which is why
       // [[Member.entitiesOf]] walks them). A nested SET is the exception: it
       // is addressable, and [[Member.entitiesOf]] stops there.
-      m.node.children.zipWithIndex.map { case (child, i) =>
+      m.node.orderedChildren.zipWithIndex.map { case (child, i) =>
         memberChild(m, child, List(i), m.clause, states, form)
       },
       states,
@@ -1133,7 +1133,7 @@ class Renderer(
         c.card,
         structuralVars(m.id),
         c.slots,
-        c.children.zipWithIndex.map { case (child, i) =>
+        c.orderedChildren.zipWithIndex.map { case (child, i) =>
           memberChild(m, child, path :+ i, clauseIdx, states, form)
         },
         states,
@@ -1368,7 +1368,7 @@ class Renderer(
       states: Map[String, EntityState]
   ): Map[SignalId, String] = node match {
     case c: LayoutNode.Component =>
-      c.children.foldLeft(signalsOfSlots(id, c, states))(
+      c.orderedChildren.foldLeft(signalsOfSlots(id, c, states))(
         _ ++ memberSignals(id, _, states)
       )
     case _: LayoutNode.SetNode => Map.empty

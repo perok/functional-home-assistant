@@ -294,7 +294,7 @@ class RenderInputsSuite extends munit.FunSuite {
         LayoutNode.Component(
           "banner",
           slots = Map("title" -> SlotSource(Some("sensor.t"))),
-          children = List(
+          children = LayoutNode.kids(
             LayoutNode.Component("btn", Map("label" -> lit("A")))
           )
         ),

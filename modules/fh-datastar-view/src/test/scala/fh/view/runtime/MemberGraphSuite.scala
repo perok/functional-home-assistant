@@ -312,7 +312,7 @@ class MemberGraphSuite extends munit.FunSuite {
           List(
             LayoutNode.SetClause(
               None,
-              LayoutNode.Component("tile", Map.empty, List(inner))
+              LayoutNode.Component("tile", Map.empty, LayoutNode.kids(inner))
             )
           )
         )
@@ -341,7 +341,7 @@ class MemberGraphSuite extends munit.FunSuite {
         // itself track light.a.
         "state" -> SlotSource(entityId = Some("light.a"))
       ),
-      List(
+      LayoutNode.kids(
         LayoutNode.Component(
           "row",
           Map("x" -> SlotSource(entityId = Some("sensor.k")))

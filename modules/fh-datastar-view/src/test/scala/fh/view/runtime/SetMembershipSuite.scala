@@ -605,7 +605,7 @@ class SetMembershipSuite extends ServerHarness {
                   None,
                   LayoutNode.Component(
                     "col",
-                    children = List(
+                    children = LayoutNode.kids(
                       onSet(
                         List("light.a", "light.b"),
                         List((None, "dot", Map("state" -> SlotSource())))

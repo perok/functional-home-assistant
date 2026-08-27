@@ -10,7 +10,7 @@ class PklBuildSuite extends munit.FunSuite {
     */
   private def sets(node: LayoutNode): List[LayoutNode.SetNode] =
     node match {
-      case c: LayoutNode.Component => c.children.flatMap(sets)
+      case c: LayoutNode.Component => c.orderedChildren.flatMap(sets)
       case s: LayoutNode.SetNode   =>
         s :: s.members.values.toList
           .flatMap(_.clauses)
@@ -20,8 +20,9 @@ class PklBuildSuite extends munit.FunSuite {
   /** Every card name reachable from a node, in document order. */
   private def cardNames(node: LayoutNode): List[String] =
     node match {
-      case c: LayoutNode.Component => c.card :: c.children.flatMap(cardNames)
-      case s: LayoutNode.SetNode   =>
+      case c: LayoutNode.Component =>
+        c.card :: c.orderedChildren.flatMap(cardNames)
+      case s: LayoutNode.SetNode =>
         s.members.values.toList
           .flatMap(_.clauses)
           .flatMap(cl => cardNames(cl.node))
@@ -857,7 +858,7 @@ class PklBuildSuite extends munit.FunSuite {
     val sets = {
       def walk(n: LayoutNode): List[LayoutNode.SetNode] = n match {
         case s: LayoutNode.SetNode   => List(s)
-        case c: LayoutNode.Component => c.children.flatMap(walk)
+        case c: LayoutNode.Component => c.orderedChildren.flatMap(walk)
       }
       walk(d.card)
     }
@@ -1552,7 +1553,8 @@ class PklBuildSuite extends munit.FunSuite {
     assertEquals(group.slots("icon").literal, Some("mdi-lightbulb-group"))
     assert(group.slots.contains("onclick"), clue = group.slots.keySet)
 
-    val members = group.children.collect { case c: LayoutNode.Component => c }
+    val members =
+      group.orderedChildren.collect { case c: LayoutNode.Component => c }
     assertEquals(members.map(_.card), List("slider", "slider"))
     assertEquals(
       members.map(_.slots("entity_id").literal),
@@ -1805,12 +1807,15 @@ class PklBuildSuite extends munit.FunSuite {
 
     // Outer container is a column; exactly one area column (bad is skipped).
     assertEquals(node.card, "fhcol")
-    val areaCols = node.children.collect { case c: LayoutNode.Component => c }
+    val areaCols = node.orderedChildren.collect {
+      case c: LayoutNode.Component => c
+    }
     assertEquals(areaCols.map(_.card), List("fhcol"))
 
     // The area column: the area name, then a slider per light (key-sorted).
-    val inner = areaCols.head.children.collect { case c: LayoutNode.Component =>
-      c
+    val inner = areaCols.head.orderedChildren.collect {
+      case c: LayoutNode.Component =>
+        c
     }
     assertEquals(inner.map(_.card), List("sectionTitle", "slider", "slider"))
     assertEquals(inner(0).slots("label").literal, Some("Stue"))
@@ -1958,13 +1963,15 @@ class PklBuildSuite extends munit.FunSuite {
       )
     )
     assertEquals(col.card, "fhcol")
-    val kids = col.children.collect { case c: LayoutNode.Component => c }
+    val kids = col.orderedChildren.collect { case c: LayoutNode.Component => c }
     assertEquals(kids.map(_.card), List("slider", "slider", "fhrow"))
     // brightness first (the domain default), then the colour-temperature one
     assertEquals(kids(0).slots("key").literal, Some("brightness"))
     assertEquals(kids(1).slots("key").literal, Some("color_temp_kelvin"))
     // one pill per named effect, each posting light/turn_on effect=<name>
-    val pills = kids(2).children.collect { case c: LayoutNode.Component => c }
+    val pills = kids(2).orderedChildren.collect {
+      case c: LayoutNode.Component => c
+    }
     assertEquals(
       pills.map(_.slots("label").literal),
       List(Some("off"), Some("Color loop"))
@@ -1982,7 +1989,7 @@ class PklBuildSuite extends munit.FunSuite {
         "c.light.controls(l)"
       )
     )
-    val kids = col.children.collect { case c: LayoutNode.Component => c }
+    val kids = col.orderedChildren.collect { case c: LayoutNode.Component => c }
     assertEquals(kids.map(_.card), List("entityCard"))
     assertEquals(kids.head.slots("tappable").literal, Some("1"))
   }

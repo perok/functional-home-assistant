@@ -216,7 +216,7 @@ class LiveStreamSuite extends ServerHarness {
     ),
     card = LayoutNode.Component(
       "col",
-      children = List(
+      children = LayoutNode.kids(
         LayoutNode.Component(
           "card",
           slots = Map("state" -> SlotSource(Some("sensor.shared")))
@@ -277,7 +277,7 @@ class LiveStreamSuite extends ServerHarness {
       "det" -> Surface(
         LayoutNode.Component(
           "col",
-          children = List(LayoutNode.Component("tabs"))
+          children = LayoutNode.kids(LayoutNode.Component("tabs"))
         )
       ),
       "t0" -> Surface(
@@ -316,7 +316,10 @@ class LiveStreamSuite extends ServerHarness {
       card = LayoutNode.Component("col"),
       surfaces = Map(
         "det" -> Surface(
-          LayoutNode.Component("col", children = List(branchCard("sensor.a")))
+          LayoutNode.Component(
+            "col",
+            children = LayoutNode.kids(branchCard("sensor.a"))
+          )
         )
       )
     )
@@ -465,11 +468,17 @@ class LiveStreamSuite extends ServerHarness {
         )
       ),
       card = LayoutNode
-        .Component("col", children = List(LayoutNode.Component("ifhost"))),
+        .Component(
+          "col",
+          children = LayoutNode.kids(LayoutNode.Component("ifhost"))
+        ),
       surfaces = Map(
         // The branch's root is a `col` — a mount with no self.
         "then" -> stateMember(
-          LayoutNode.Component("col", children = List(branchCard("sensor.a"))),
+          LayoutNode.Component(
+            "col",
+            children = LayoutNode.kids(branchCard("sensor.a"))
+          ),
           "c_0",
           0,
           armedCond
@@ -698,7 +707,7 @@ class LiveStreamSuite extends ServerHarness {
     ),
     card = LayoutNode.Component(
       "col",
-      children = List(
+      children = LayoutNode.kids(
         LayoutNode.Component(
           "tabs",
           slots = Map("title" -> SlotSource(Some("sensor.title")))
@@ -914,7 +923,7 @@ class LiveStreamSuite extends ServerHarness {
       ),
       card = LayoutNode.Component(
         "col",
-        children = List(
+        children = LayoutNode.kids(
           LayoutNode.Component(
             "card",
             slots = Map("state" -> SlotSource(Some("sensor.a")))

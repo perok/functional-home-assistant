@@ -415,6 +415,33 @@ enum Activation derives ConfiguredDecoder:
 /** A node in the recursive dashboard layout tree. */
 sealed trait LayoutNode derives ConfiguredDecoder
 object LayoutNode:
+
+  /** The region a card's children go to when nobody names one — the hole every
+    * container template has spelled `{{#children}}` since before regions
+    * existed.
+    */
+  val DefaultRegion: String = "children"
+
+  /** `children` on the wire is either a bare ARRAY — the default region, which
+    * is what the authoring layer emits for a card with one hole — or an object
+    * keyed by region name.
+    *
+    * Two forms for the same reason [[SlotSource]] has two: the common case
+    * should not have to name itself. `Grid { children { … } }` stays what an
+    * author writes and what Pkl emits, and gains a name only where a card
+    * genuinely has more than one hole to choose between.
+    */
+  given Decoder[Map[String, List[LayoutNode]]] =
+    Decoder[List[LayoutNode]]
+      .map(cs => if cs.isEmpty then Map.empty else Map(DefaultRegion -> cs))
+      .or(Decoder.decodeMap[String, List[LayoutNode]])
+
+  /** Children in the default region — the one-hole case, spelled for the many
+    * construction sites that predate regions.
+    */
+  def kids(cs: LayoutNode*): Map[String, List[LayoutNode]] =
+    if cs.isEmpty then Map.empty else Map(DefaultRegion -> cs.toList)
+
   /** A node referencing a shared template by name. Both leaves and containers
     * are Components — a container is simply a Component whose template splices
     * its rendered `children` via `{{#children}}{{{html}}}{{/children}}` (e.g.
@@ -436,10 +463,32 @@ object LayoutNode:
   case class Component(
       card: String,
       slots: Map[String, SlotSource] = Map.empty,
-      children: List[LayoutNode] = Nil,
+      // Child nodes BY REGION — the holes the card declares (`CardDef.regions`).
+      // Decoded from either a bare ARRAY (the default region, which is what the
+      // authoring layer emits today) or an object keyed by region name; see the
+      // decoder below.
+      children: Map[String, List[LayoutNode]] = Map.empty,
       // Layout-cell classes for this node's `.fh-cell` wrapper (see [[Cell]]).
       cell: Option[Cell] = None
   ) extends LayoutNode:
+
+    /** Every child, in one list — what a traversal that only needs to REACH
+      * every node wants, which is most of them.
+      *
+      * Sorted by region name so the order is a function of the value and not of
+      * `Map` iteration: node ids are still positional (`LayoutNode.pathId`), so
+      * a nondeterministic order here would be nondeterministic ids. That
+      * coupling is temporary. Once ids carry their region the flattening stops
+      * feeding them, and this becomes what it reads like — a convenience for
+      * walkers.
+      *
+      * Until then a card may declare at most ONE eager region
+      * ([[Dashboard.validate]]), so there is exactly one order and nothing to
+      * get wrong.
+      */
+    def orderedChildren: List[LayoutNode] =
+      children.toList.sortBy(_._1).flatMap(_._2)
+
     /** The card's subject entity — the `entity_id` slot's value when it is a
       * constant `literal` (the common case). A *transform* `entity_id`
       * (indirection) resolves only at render time, so it contributes no static
@@ -733,7 +782,7 @@ case class Dashboard(
 
     def walk(n: LayoutNode): List[String] = n match {
       case c: LayoutNode.Component =>
-        fromSlots(c.slots, c.subjectEntity) ++ c.children.flatMap(walk)
+        fromSlots(c.slots, c.subjectEntity) ++ c.orderedChildren.flatMap(walk)
       case set: LayoutNode.SetNode =>
         // A clause node is an ordinary component, so its own slots and children
         // are reached by the same walk — and its candidate is named in a
@@ -885,7 +934,7 @@ case class Dashboard(
             Dashboard.injectedStatic,
             slots.keySet
           ) ++ slotErrors(nodeId, card, slots) ++ cellErrors(nodeId, cell) ++
-            wrapErrors ++ children(kids, path)
+            wrapErrors ++ children(c.orderedChildren, path)
         // A set's clauses carry COMPLETE nodes — their own card, slots (the
         // candidate's `entity_id` among them) and cell — so each one validates
         // as the ordinary node it is. `noWrap` is rejected because every member
@@ -960,6 +1009,29 @@ case class Dashboard(
         }
       }
 
+    // TEMPORARY, and it is what makes `Component.orderedChildren` sound: node
+    // ids are still positional, so they are assigned by flattening the regions
+    // in name order. With one eager region there is one order and nothing to
+    // get wrong. With two, adding or renaming a region would silently RENUMBER
+    // a card's children — every id below it shifting, every bookmarked tab-state
+    // URL pointing somewhere else, and no error anywhere.
+    //
+    // So the second eager region is not forbidden because it is hard; it is
+    // forbidden until ids carry their region and the flattening stops feeding
+    // them. Delete this rule in the same commit that qualifies them.
+    val eagerRegionErrors: List[String] =
+      cards.toList.sortBy(_._1).flatMap { case (name, cd) =>
+        val eager = cd.regions.filter(_._2.fill == Region.Eager).keys.toList
+        Option
+          .when(eager.sizeIs > 1)(
+            s"card '$name' declares ${eager.size} eager regions " +
+              s"(${eager.sorted.mkString(", ")}) — node ids are still " +
+              "positional, so a second one would renumber this card's children " +
+              "silently. Qualify ids by region first"
+          )
+          .toList
+      }
+
     // A non-empty theme.chrome MUST wrap {{{body}}} in an element carrying
     // id="dashboard" — that's the navigate/reload swap target. An empty chrome
     // is fine (Renderer falls back to the minimal default). Fail loudly here
@@ -987,7 +1059,7 @@ case class Dashboard(
       ): List[NodeId] =
         LayoutNode.nodeId(prefix, path) :: (node match {
           case c: LayoutNode.Component =>
-            c.children.zipWithIndex.flatMap { case (ch, i) =>
+            c.orderedChildren.zipWithIndex.flatMap { case (ch, i) =>
               idsOf(ch, prefix, path :+ i)
             }
           // Neither member container hosts a bake: a member renders with no
@@ -1052,6 +1124,7 @@ case class Dashboard(
     // prefixed with the surface id for locatability.
     selfHoleErrors ++
       regionHoleErrors ++
+      eagerRegionErrors ++
       chromeErrors ++
       danglingBakes ++
       activationErrors ++
@@ -1103,7 +1176,7 @@ case class Dashboard(
   def transformStrings: List[String] =
     def slotsOf(n: LayoutNode): List[SlotSource] = n match
       case c: LayoutNode.Component =>
-        c.slots.values.toList ++ c.children.flatMap(slotsOf)
+        c.slots.values.toList ++ c.orderedChildren.flatMap(slotsOf)
       case s: LayoutNode.SetNode =>
         s.members.values.toList
           .flatMap(_.clauses)

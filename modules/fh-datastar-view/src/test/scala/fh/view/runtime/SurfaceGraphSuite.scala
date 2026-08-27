@@ -31,7 +31,7 @@ import io.circe.Json
 class SurfaceGraphSuite extends munit.FunSuite {
 
   private def col(kids: LayoutNode*) =
-    LayoutNode.Component("col", children = kids.toList)
+    LayoutNode.Component("col", children = LayoutNode.kids(kids*))
 
   private def isOn(e: String): Predicate =
     Predicate.Cmp("state", Op.Eq, Json.fromString("on"), Some(e))
@@ -387,7 +387,11 @@ class SurfaceGraphSuite extends munit.FunSuite {
           List(
             LayoutNode.SetClause(
               None,
-              LayoutNode.Component("tile", Map.empty, List(nestedSet))
+              LayoutNode.Component(
+                "tile",
+                Map.empty,
+                LayoutNode.kids(nestedSet)
+              )
             )
           )
         )

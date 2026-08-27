@@ -23,7 +23,7 @@ private[runtime] object Member {
     */
   def entitiesOf(node: LayoutNode): List[String] = node match {
     case c: LayoutNode.Component =>
-      (c.liveEntities ++ c.children.flatMap(entitiesOf)).distinct
+      (c.liveEntities ++ c.orderedChildren.flatMap(entitiesOf)).distinct
     // Deliberately NOT into a nested set: its members are tracked as members,
     // and they patch themselves. Descending here would wake the whole tile on
     // any bulb inside it — re-rendering, and re-supplying, everything the inner
@@ -366,7 +366,7 @@ private[runtime] final class MemberGraph(
         path: List[Int]
     ): List[(NodeId, MemberSource)] = node match {
       case c: LayoutNode.Component =>
-        c.children.zipWithIndex.flatMap { case (child, i) =>
+        c.orderedChildren.zipWithIndex.flatMap { case (child, i) =>
           setsIn(member, clauseIdx, child, path :+ i)
         }
       case inner: LayoutNode.SetNode =>
