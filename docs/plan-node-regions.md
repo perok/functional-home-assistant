@@ -525,15 +525,22 @@ plan gives. What it misses is `{{#children}}`, which is exactly what `Tabs` does
   stays a `List` filling the single declared eager region. Cut here because the counts said so:
   `mount = Some` is 20 test sites, `children = List` is 28+ across more files, so this is the
   smaller half and it is behaviour-preserving.
-- **1c — regions, NODE side.** `children` becomes a region map and ids get region-qualified, with
-  the tab-state URL breakage. This is where a card can finally hold TWO eager regions, which is what
-  #151 needs. It also carries the rule 1b deliberately left out: **a template that splices
-  `{{#children}}` must declare a region for it.** Until then `isStructure` is not quite the single
-  source of truth — `carriesMount`'s recursion still covers the actual safety property, so nothing
-  is unsafe, but leaf-vs-structure is not yet fully derivable from the card alone. Deferred because
-  that rule forces every `{{#children}}`-splicing fixture to name its region, which is the churn 1c
-  is already paying.
-- **1d — surfaces.** `inlineSurfaces` absorbed into the baked region; the only cut that touches
+- **1c — regions, NODE side.** `LayoutNode.Component.children` becomes `Map[String, List[LayoutNode]]`.
+  The wire does not move: `children` decodes from a bare ARRAY (the default region, which is what the
+  authoring layer emits for a one-hole card) or an object keyed by region — the two forms `SlotSource`
+  already has, for the same reason. So no Pkl changes and no snapshot moves. Cut apart from ids
+  after counting: the model change is 13 walker sites in main; the id grammar is 136 literal id
+  assertions plus every snapshot and the tab-state URLs.
+- **1d — ids.** Region-qualified node ids and the tab-state URL breakage. Until this lands, ids are
+  assigned by flattening the regions in name order (`Component.orderedChildren`), which is sound only
+  while a card has ONE eager region — with two, adding or renaming one silently renumbers that card's
+  children. So `validate` rejects a second eager region and says why; **that rule and the flattening
+  are deleted by this cut, together.** It also carries the rule 1b left out: *a template that splices
+  `{{#children}}` must declare a region for it* — until then `isStructure` is not quite the single
+  source of truth (nothing is unsafe: `carriesMount`'s recursion still covers the safety property),
+  and the rule forces every `{{#children}}`-splicing fixture to name its region, which is churn this
+  cut already pays.
+- **1e — surfaces.** `inlineSurfaces` absorbed into the baked region; the only cut that touches
   `DashboardBuild`'s splice branch, so the leftover-token check lands here.
 
 1a is worth doing alone regardless of how the rest is cut: it is the safety property, it is small,
