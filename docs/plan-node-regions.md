@@ -624,6 +624,36 @@ reachable in today's library at all — every `{{{panel}}}`/`{{{branch}}}` sits 
 
 Each is recorded so it is not rediscovered as a surprise mid-implementation. None blocks steps 1–4.
 
+- **Decide ancestry from the STRUCTURE, not from the id spelling.** Four places treat
+  `id.startsWith(parent + "_")` as tree ancestry: `FragmentLog.filled` (invalidate a container's
+  subtree), `FragmentLog.coveredByMutation` (is this node under something that moved),
+  `MemberGraph`, and `Patches` (what a patch displaced).
+
+  `coveredByMutation`'s own doc gives the justification — *"Ancestry is a string-prefix test because
+  ids are location-derived"* — and **1f falsified it.** An authored id is not location-derived, so
+  the premise the encoding rests on no longer holds, and `authoredIdErrors`' third rule
+  (prefix-ancestry must agree with tree-ancestry) is a prop holding it up rather than a real
+  constraint on authors.
+
+  The fix is the one the design already earns: **the whole id space is statically knowable.**
+  `MemberGraph.sources` says so in as many words — *"They can all be enumerated here because a set's
+  candidates are static, so the whole tree of sets is knowable before any state arrives"* — and the
+  static tree and every surface's content are known at renderer construction. So ancestry can be a
+  precomputed relation (`ancestorsOf: NodeId => Set[NodeId]`, or `descendants` for the invalidate
+  side) rather than a string test.
+
+  Three things follow, and only the first is why to do it:
+
+  1. **Authored ids stop needing a rule.** `detail` and `detail_0` become unrelated because the
+     relation says so. Delete `authoredIdErrors`' ancestry half.
+  2. `filled` stops scanning the whole log to find a subtree — it removes exactly the ids in it.
+  3. It removes a class of latent bug the prefix test always had: any id scheme that ever produces
+     a `_`-prefix coincidence is silently wrong, and nothing would report it.
+
+  Cost: the two `FragmentLog` methods take the relation as an argument (the log stays a pure data
+  structure; `Patches` has the renderer and can supply it), plus the `Patches` and `MemberGraph`
+  sites. Small in shape, but it touches the RESUME path, which is the most delicate machinery here
+  — so it wants its own change and its own careful reading, not a ride on a step.
 - **Make the wire carry ONE explicit form for `children`.** 1c made the decoder accept a bare array
   (the default region) as well as a region-keyed object, so the authoring layer's existing emission
   kept working unchanged. That is the right trade for the migration and the wrong one to keep: two

@@ -31,6 +31,24 @@ slots on the same node read it unless they name an entity of their own.
 **Surface** — a chunk of layout that is shown only sometimes and rendered only while shown: a popup,
 a tab panel, an `if`/`else` branch. Registered separately from the main tree and addressed by id.
 
+Two kinds, and they are not interchangeable:
+
+- **Owned** — a tab panel, an `If` branch. It is part of one node's definition, only that node
+  refers to it, and it has no meaning apart from it. Authored inline at that node.
+- **Triggered** — a popup. It is a dashboard-level thing that any number of taps may open, and its
+  lifetime should not depend on which of them exists.
+
+**The registry** (`surfaces { ["detail"] { … } }`) is for the TRIGGERED kind, and that is the whole
+of what it is for. Registering something owned — a tab's panel by hand — throws away the ownership
+that makes it addressable, orderable and lazily baked as part of its node. What earns a registry
+entry is being referred to by NAME from more than one place, or from somewhere that is not its
+parent; nothing else does.
+
+An **inline** surface (`openPopupInline`) is a locality convenience, not a third kind: the body is
+written where the tap is and the build lifts it into the registry. It cannot be shared — its id is
+derived from the owning node, and the `@@NODE_ID@@` token resolves only to a node's OWN id, so no
+second tap can name it. Sharing means registering it and using `openPopup("detail")`.
+
 **Tap / tap action** — what a click does, as a value rather than a string: a service call, a
 navigation, opening a popup. ADR 0016, 0024.
 

@@ -20,6 +20,20 @@ import "predicate.pkl" as pred
 /// becomes visible — [[UserActivation]] or [[StateActivation]] — nullable so
 /// omitNullProperties drops it and the backend defaults to user activation,
 /// closed (a plain popup declares nothing).
+///
+/// WHICH to write is not a style choice. An OWNED surface — a tab's panel, an
+/// [[If]] branch — belongs to exactly one node, has no meaning apart from it,
+/// and is authored inline at that node; registering it by hand throws away the
+/// ownership that makes it baked, ordered and addressed as part of that node. A
+/// TRIGGERED surface — a popup — is dashboard-level: any number of taps may
+/// open it and its lifetime should not depend on which of them exists, so it
+/// earns a registry entry.
+///
+/// The test for a registry entry is being referred to BY NAME from more than
+/// one place, or from somewhere that is not its parent. Nothing else is.
+/// `openPopupInline` is locality only, not a third kind: its id is derived from
+/// the owning node and `NODE_ID` resolves only to a node's OWN id, so a second
+/// tap cannot name it — sharing means registering it and using [[openPopup]].
 open class SurfaceDef {
   content: nodes.LayoutNode
   bakeInto: String? = null
