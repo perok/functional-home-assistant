@@ -735,9 +735,6 @@ class PklBuildSuite extends munit.FunSuite {
       ),
       // `secondary` is optional (a plain row carries none).
       "sliderText" -> List("label", "entity_id"),
-      // `lit`/`busy`/`busyVisual` are optional: an action that does not mean
-      // "this entity is on", or whose tap does not guard, simply omits them.
-      "sliderAction" -> List("icon", "onclick", "entity_id"),
       "popup" -> Nil,
       "tabs" -> Nil,
       "ifhost" -> Nil
@@ -1647,9 +1644,13 @@ class PklBuildSuite extends munit.FunSuite {
     // (#151): the press lives on a node of its own, which is what gives it a
     // busy signal nothing else shares.
     val actions = actionsOf(group)
-    assertEquals(actions.map(_.card), List("sliderAction"))
+    // The shared round icon button, not a card of the slider's own: what it
+    // needed over `c.pill` was a glyph, no label and the `lit` tint, and none of
+    // those three is about sliders.
+    assertEquals(actions.map(_.card), List("button"))
     assert(actions.head.slots.contains("onclick"), clue = actions.head.slots)
-    assertEquals(actions.head.slots("icon").literal, Some("mdi-power"))
+    assertEquals(actions.head.slots("glyph").literal, Some("mdi-power"))
+    assertEquals(actions.head.slots("round").literal, Some("1"))
 
     // The MEMBERS region specifically: `allChildren` would also hand back the
     // head, which is the point of the two regions.

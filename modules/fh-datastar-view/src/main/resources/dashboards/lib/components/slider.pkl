@@ -9,6 +9,7 @@ import "../core/node.pkl" as nodes
 import "../core/slot.pkl" as slotMod
 import "../core/tap.pkl" as tapMod
 import "../core/text.pkl" as textMod
+import "control.pkl" as control
 import "../hass.pkl"
 
 // The slider's controllable config per domain: the service to call, the
@@ -260,77 +261,25 @@ class SliderText extends nodes.Node {
 /// One button at the right of a slider's head — the group's on/off, and now
 /// anything else an author wants there (#151).
 ///
-/// It is a NODE, which is the whole point of making it one: ADR 0019 allows one
+/// It is an ordinary [[control.Button]] in its round icon form, not a card of
+/// its own: what it needed over `c.pill` was a glyph, no label, and the `lit`
+/// tint, and none of those three is about sliders. They are now [[Button]]'s,
+/// so the library has ONE icon button and the slider just uses it.
+///
+/// What matters here is that each action is a NODE. ADR 0019 allows one
 /// busy-guarded element per node, so a single shared `_<id>__busy` could only
-/// ever arm ONE button. Each action owning its id means two of them can be
-/// in flight independently, and neither disables the other.
-class SliderAction extends nodes.Node {
-  card = "sliderAction"
-  /// `display:contents` so the button itself is the flex item of
-  /// `.slider-actions`, not a wrapper around it.
-  cell = new nodes.Cell { classes { "slider-action-cell" } }
-  /// What the entity is — inherited from the slider unless an action points
-  /// somewhere else entirely (a scene, a different light's toggle).
-  hidden entity: hass.Entity
-  /// What the press does. No default: a button that does nothing is a build
-  /// error, the same rule [[Button]] and [[Pill]] carry.
-  hidden tap: tapMod.TapAction
-  /// The glyph, as an MDI name. Defaults to the power symbol, which is what
-  /// this button was before it was configurable.
-  hidden icon: String = "mdi:power"
-  /// Light the button while the entity is on — the one thing a slider's fill
-  /// cannot say, since a light at 0 % and a light that is off look alike.
-  /// Off for an action whose meaning is not "this entity is on".
-  hidden lit: Boolean = true
-  /// Whether the press shows the busy LOOK (dim, then spinner). The guard is
-  /// signal-driven and stays either way; this only hides the visuals.
-  hidden busyVisual: Boolean = true
-  inlineSurfaces = tap.inlineSurfaces
-  slots {
-    ["entity_id"] = entity.entity_id
-    ["icon"] = icons.mdiClass(icon)
-    ["onclick"] = tap.onclick
-    when (lit) {
-      // A CLASS signal slot: on/off is not a reason to re-render a button.
-      // `""` for off, because an empty string is the only falsy value a slot
-      // can produce.
-      ["lit"] = new slotMod.Slot {
-        transform = #"$state = "on" ? "lit" : """#
-        default = ""
-        bypassUnavailable = false
-        signal = slotMod.asClass("lit")
-      }
-    }
-    when (tap.busy) {
-      ["busy"] = "1"
-    }
-    when (tap.busy && busyVisual && tap.busyVisual) {
-      ["busyVisual"] = "1"
-    }
-  }
-  cardDef = new nodes.CardDef {
-    template = """
-      <button class="circle small slider-action {{lit}}" \(slotMod.signalBind("lit")) data-on:click="{{#busy}}\(tapMod.busyGuard){{/busy}}{{{onclick}}}"{{#busy}} \(tapMod.busyAttrs){{/busy}}{{#busyVisual}} \(tapMod.busyClass) \(tapMod.busyShapeClass){{/busyVisual}}><i class="mdi {{icon}}"></i></button>
-      """
-    slots { "icon"; "onclick"; "entity_id" }
-  }
-  /// Fluent config, mirroring the other cards' builders.
-  function icon(i: String): SliderAction = let (self = this) (self) { icon = i }
-  function lit(l: Boolean): SliderAction = let (self = this) (self) { lit = l }
-  function busyVisual(b: Boolean): SliderAction =
-    let (self = this) (self) { busyVisual = b }
-}
-
-/// A button for a slider's head: what it drives, and what a press does.
+/// ever arm ONE button; each action owning its id means two can be in flight
+/// independently, and neither disables the other.
 ///
 ///     c.slider(l).actions(List(
 ///       c.sliderAction(l, c.tap.toggle),
-///       c.sliderAction(l, c.tap.moreInfo(l)).icon("mdi:information").lit(false)
+///       c.sliderAction(l, c.moreInfo(l)).icon("mdi:information").lit(false)
 ///     ))
+///
 /// `const` because [[Slider.allActions]] calls it from a class body, which Pkl
 /// allows only for a const method.
-const function sliderAction(e: hass.Entity, t: tapMod.TapAction): SliderAction =
-  new SliderAction { entity = e; tap = t }
+const function sliderAction(e: hass.Entity, t: tapMod.TapAction): control.Button =
+  (control.iconButton("mdi:power", t)) { entity = e; lit = true }
 
 class Slider extends nodes.Node {
   card = "slider"
@@ -438,7 +387,7 @@ class Slider extends nodes.Node {
     if (toggleOnly) #"$state = "on" ? "0%" : "100%""#
     else "$string(($v := \(valueExpr); $v != null ? 100 - (($v - \(minExpr)) * 100 / (\(maxExpr) - \(minExpr))) : 100)) & \"%\""
   // No `inlineSurfaces` here any more: every tap this card can make is an
-  // action NODE now, and each carries its own (see [[SliderAction]]). Copying
+  // action NODE now, and each carries its own (see [[sliderAction]]). Copying
   // them up to the slider as well would declare the same surface twice, under
   // two node ids — and the one that owns the popup should be the one that
   // opens it.
@@ -463,7 +412,7 @@ class Slider extends nodes.Node {
     }
     // The commit's busy LOOK (the wrapper + badge `fh-disabled` bindings) is
     // gated on the card's own `busyVisual`. Each head action carries its own
-    // now — see [[SliderAction]].
+    // now — see [[sliderAction]].
     when (busyVisual) {
       ["busyVisual"] = "1"
     }
@@ -585,14 +534,14 @@ class Slider extends nodes.Node {
   /// [[tapAction]] is the one-button shorthand and simply prepends to this, so
   /// the two compose: a group that keeps its power button and adds a scene
   /// button sets both.
-  hidden actions: Listing<SliderAction> = new {}
+  hidden actions: Listing<control.Button> = new {}
   // `tapAction` as what it always was — one action, first. Kept as its own
   // property rather than folded into `actions` because it is the shape almost
   // every group wants, and because it carries the card's `busyVisual` down,
   // which a hand-built action would have to repeat.
-  hidden allActions: Listing<SliderAction> = new {
+  hidden allActions: Listing<control.Button> = new {
     when (tapAction != null) {
-      (sliderAction(entity, tapAction!!).busyVisual(busyVisual))
+      (sliderAction(entity, tapAction!!))
     }
     ...actions
   }
@@ -656,7 +605,7 @@ class Slider extends nodes.Node {
   ///       .tapAction(c.tap.toggle)
   ///       .actions(List(c.sliderAction(l, c.tap.moreInfo(l))
   ///         .icon("mdi:information").lit(false)))
-  function actions(xs: List<SliderAction>): Slider =
+  function actions(xs: List<control.Button>): Slider =
     let (self = this) (self) { actions = xs.toListing() }
   function busyVisual(b: Boolean): Slider = let (self = this) (self) { busyVisual = b }
   function secondary(s: String|slotMod.Expr): Slider = let (self = this) (self) { secondary = s }
@@ -861,8 +810,9 @@ const local sliderCss: String = """
      `.slider-head-cell` is: the backend gives every node an `.fh-cell`, and
      neither of these should become a box between the row and what it holds —
      the group's grid places `strong`, `.slider-sub` and the button strip
-     itself. */
-  .slider-text,.slider-action-cell{display:contents}
+     itself. The actions are ordinary `c.iconButton`s, so the rule names the
+     STRIP's cells rather than a class only this card's buttons carry. */
+  .slider-text,.slider-actions>.fh-cell{display:contents}
   /* The button strip. It takes the pointer back from `.slider-head`'s
      `pointer-events:none` — the buttons are the only things in the row that ARE
      controls — and `:empty` removes it on a slider with no actions, which is
@@ -872,8 +822,12 @@ const local sliderCss: String = """
      space for nothing. */
   .slider-actions{display:flex;align-items:center;gap:.25rem;pointer-events:auto}
   .slider-actions:empty{display:none}
-  .slider-action{background:var(--fh-surface-alt);color:var(--fh-text)}
-  .slider-action.lit{background:var(--fh-accent);color:var(--fh-on-accent)}
+  /* The head's buttons are the shared round icon button, so this paints them by
+     POSITION rather than by a class of their own — the card says how a control
+     in its head looks, which is the same thing `.slider-members .card` does for
+     a member row. */
+  .slider-actions>.fh-cell>button{background:var(--fh-surface-alt);color:var(--fh-text)}
+  .slider-actions>.fh-cell>button.lit{background:var(--fh-accent);color:var(--fh-on-accent)}
   /* BeerCSS's `.slider.max` is already `position:absolute;inset:0` of the card,
      so the master's track — and its painted span — span the WHOLE card, members
      included. Nothing constrains the master's range input to the head strip

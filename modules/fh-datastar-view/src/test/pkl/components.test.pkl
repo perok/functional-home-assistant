@@ -434,6 +434,40 @@ facts {
       .slots["entity_id"] == "light.kitchen"
   }
 
+  ["a button or a pill can be a glyph, a label, or both"] {
+    // What the slider's head action needed over `c.pill` was a glyph, no label
+    // and the `lit` tint. None of the three is about sliders, so all three are
+    // the shared cards' — one icon button in the library, not a private copy.
+    local labelled = c.button("Close", c.tap.closePopup())
+    !labelled.slots.containsKey("glyph")
+    !labelled.slots.containsKey("round")
+    labelled.slots["label"] == "Close"
+
+    local glyphOnly = c.iconButton("mdi:power", c.tap.closePopup())
+    glyphOnly.slots["glyph"] == "mdi-power"
+    // ROUND exactly when the glyph is alone: a bare icon in a rectangle reads
+    // as a label that failed to render.
+    glyphOnly.slots["round"] == "1"
+    glyphOnly.slots["label"] == ""
+
+    // Both together stay rectangular — that is an ordinary button with an icon.
+    local both = (c.button("Power", c.tap.closePopup())).icon("mdi:power")
+    both.slots["glyph"] == "mdi-power"
+    !both.slots.containsKey("round")
+
+    // A pill takes the glyph too; it has no round variant because a chip is
+    // already pill-shaped.
+    local chip = (c.pill("Up", c.tap.navigate("under"))).icon("mdi:arrow-up")
+    chip.slots["glyph"] == "mdi-arrow-up"
+    !chip.slots.containsKey("round")
+
+    // `lit` is OFF by default — most buttons do something rather than reflect a
+    // state — and needs an entity to read.
+    !glyphOnly.slots.containsKey("lit")
+    ((c.iconButton("mdi:power", c.tap.toggle)) { entity = kitchen; lit = true })
+      .slots["lit"].signal == "class:lit"
+  }
+
   ["a slider's head actions are NODES, so each owns its own busy signal"] {
     // The reason #151 is a region and not a repeated slot. ADR 0019 allows one
     // busy-guarded element per node, and the busy signal is named after the
@@ -449,11 +483,15 @@ facts {
     acts.length == 2
     // `tapAction` stays FIRST — it is the shorthand for the button this card
     // has always had, and adding a second must not move it.
-    acts[0].slots["icon"] == "mdi-power"
-    acts[1].slots["icon"] == "mdi-information"
+    acts[0].slots["glyph"] == "mdi-power"
+    acts[1].slots["glyph"] == "mdi-information"
+    // They are ordinary `button`s — the shared round icon form, not a card of
+    // this module's own. What the slider adds is only WHERE they sit.
+    acts.toList().every((a) -> a.card == "button")
+    acts.toList().every((a) -> a.slots["round"] == "1")
     // Each declares the guard, and the template names the node's own id — the
     // renderer fills `{{id}}` per node, which is what makes the two distinct.
-    c.cards["sliderAction"].template.contains(#"data-indicator="_{{id}}__busy""#)
+    c.cards["button"].template.contains(#"data-indicator="_{{id}}__busy""#)
     // `lit(false)` drops the class signal rather than binding a constant: a
     // button that does not mean "this entity is on" should not light up.
     acts[0].slots.containsKey("lit")

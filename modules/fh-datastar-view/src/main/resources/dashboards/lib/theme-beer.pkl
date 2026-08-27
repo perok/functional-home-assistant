@@ -295,7 +295,7 @@ class BeerTheme extends themeMod.Theme {
        blob in the wrong colour. `filter:invert(1)` is BeerCSS's contrast trick
        for arbitrary photo content; our glyph carries an explicit colour
        already, so it takes the shape's `--on-primary` instead. */
-    .fh-icon-shape.shape,.slider-icon.shape,.slider-action.shape{
+    .fh-icon-shape.shape,.slider-icon.shape,.circle.shape{
       display:inline-flex;align-items:center;justify-content:center;
       vertical-align:middle;background:var(--primary)}
     .shape>i.mdi{filter:none;color:var(--on-primary)}

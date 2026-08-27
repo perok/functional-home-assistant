@@ -85,7 +85,6 @@ typealias Tabs = surfaces.Tabs
 typealias If = surfaces.If
 typealias Slider = sliderMod.Slider
 typealias SlideAxis = sliderMod.SlideAxis
-typealias SliderAction = sliderMod.SliderAction
 /// What a card does with a label too long for its box — `"wrap"`, `"clip"` or
 /// `"scroll"`. An entry's `textOverflow` sets it for a whole dashboard;
 /// `.textOverflow(...)` on a node sets it for that card alone.
@@ -132,11 +131,14 @@ function toggle(e: hass.Entity): control.Toggle = control.toggle(e)
 function button(l: String, a: tapMod.TapAction): control.Button = control.button(l, a)
 /// The compact form of the same: `c.pill("Underetasje", c.tap.navigate("under"))`.
 function pill(l: String, a: tapMod.TapAction): control.Pill = control.pill(l, a)
+/// A round icon button — a glyph, no label: `c.iconButton("mdi:power", c.tap.toggle)`.
+function iconButton(i: String, a: tapMod.TapAction): control.Button = control.iconButton(i, a)
 /// Value slider — an entity for its domain's default axis, or a capability
 /// group for that axis (`c.slider(l.colourTemp)`).
 function slider(a: sliderMod.SlideAxis): sliderMod.Slider = sliderMod.slider(a)
-/// One button for a slider's head — see [[Slider.actions]].
-function sliderAction(e: hass.Entity, t: tapMod.TapAction): sliderMod.SliderAction =
+/// One button for a slider's head — a round [[iconButton]] tinted while its
+/// entity is on. See [[Slider.actions]].
+function sliderAction(e: hass.Entity, t: tapMod.TapAction): control.Button =
   sliderMod.sliderAction(e, t)
 /// A conditional section, shown while `p` holds over live entity state.
 function iff(p: pred.Predicate|Boolean): surfaces.If = surfaces.iff(p)
