@@ -188,25 +188,32 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
             ),
             clue = html
           )
-          // The power button on the same node keeps its own unsuffixed name —
-          // the two guarded elements never share a signal (a shared one would
-          // let one element's `finished` clear the other's in-flight busy).
-          // Its busy class is the tap's own `_<id>__busy` binding.
+          // The power button is its OWN node now (#151), so the two guarded
+          // elements cannot share a signal even in principle — where before
+          // they were one node kept apart by a `_change` suffix, and a shared
+          // name would have let one element's `finished` clear the other's
+          // in-flight busy. The suffix survives for the commit; the button
+          // takes the plain name under the action's own id.
+          val button = "_c_0_head_0_actions_0__busy"
+          assert(html.contains(s"""data-indicator="$button""""), clue = html)
           assert(
-            html.contains("data-indicator=\"_c_0_head_0__busy\""),
+            html.contains(s"""data-on:click="$$$button ? '' : @post("""),
             clue = html
           )
           assert(
-            html.contains("data-on:click=\"$_c_0_head_0__busy ? '' : @post("),
+            html.contains(s"""data-class:fh-disabled="$$$button""""),
             clue = html
           )
           assert(
-            html.contains("data-class:fh-disabled=\"$_c_0_head_0__busy\""),
+            html.contains(s"""data-class:fh-loading="$$$button""""),
             clue = html
           )
+          // Stated as the separation it is: the commit's signal and the
+          // button's differ in the NODE, not merely in a suffix, so neither
+          // name is a prefix of the other.
           assert(
-            html.contains("data-class:fh-loading=\"$_c_0_head_0__busy\""),
-            clue = html
+            !button.startsWith("_c_0_head_0__busy"),
+            clue = button
           )
         }
       }

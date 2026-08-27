@@ -210,16 +210,17 @@ class ControlSmokeSuite extends SmokeSuite {
   test(
     "a busy-guarded element's icon becomes a spinner while its call is in flight"
   ) {
-    // The slider's power button carries an `i.mdi` icon AND the busy pieces,
-    // so while its POST is held it takes BeerCSS's `.shape.loading-indicator`
-    // and paints a morphing shape around the glyph. The class IS the assertion
+    // The slider's power button is `c.iconButton` — an `i.mdi` glyph AND the
+    // busy pieces — so while its POST is held it takes BeerCSS's
+    // `.shape.loading-indicator` and paints a morphing shape around the glyph.
+    // The GLYPH is what earns the shape: a labelled button dims instead. The class IS the assertion
     // now: it is bound to the delayed signal `tap.pkl` derives, so its presence
     // already means "we decided to show this".
     withPage(
       Scene.of(SmokeDashboard.busyIcon),
       fakeConfig = FakeConfig(callDelay = 2.seconds)
     ) { (page, ts) =>
-      val icon = page.locator("button.slider-action")
+      val icon = page.locator(".slider-actions button")
       def spinning: IO[Boolean] =
         IO.blocking(
           icon

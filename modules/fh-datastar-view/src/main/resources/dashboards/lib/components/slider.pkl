@@ -9,6 +9,7 @@ import "../core/node.pkl" as nodes
 import "../core/slot.pkl" as slotMod
 import "../core/tap.pkl" as tapMod
 import "../core/text.pkl" as textMod
+import "control.pkl" as control
 import "../hass.pkl"
 
 // The slider's controllable config per domain: the service to call, the
@@ -179,14 +180,27 @@ class SliderHead extends nodes.Node {
   // members' (see `sliderCss`).
   cell = new nodes.Cell { classes { "slider-head-cell" } }
   cardDef = new nodes.CardDef {
+    // TWO regions, and between them they are everything on this row that is not
+    // a signal or a literal.
+    //
+    // `text` holds the label and its second line — the ONLY bytes here that
+    // move. Everything else that changes on this card is a signal (ADR 0017),
+    // which is what lets the head be structure at all: a signal never becomes
+    // bytes in this element, so it does not need this element patched.
+    //
+    // A rename now repaints a `<strong>`, where it used to repaint the whole
+    // row — track, badge and all.
+    regions = new Mapping {
+      ["text"] = new nodes.Region {}
+      ["actions"] = new nodes.Region {}
+    }
     template = """
       <div class="slider-body">
         <div class="slider-head">
           {{#icon}}<div class="slider-icon"{{#busyVisual}} \(tapMod.busyClassChange) \(tapMod.busyShapeClassChange){{/busyVisual}}><i class="mdi {{icon}}"></i></div>{{/icon}}
-          <strong class="\(textMod.BOX)">\(textMod.run("label"))</strong>
-          {{#secondary}}<span class="slider-sub \(textMod.BOX)">\(textMod.run("secondary"))</span>{{/secondary}}
+          {{#text}}{{{html}}}{{/text}}
           {{#state}}<span class="state" \(slotMod.signalBind("state"))>{{state}}</span>{{/state}}
-          {{#onclick}}<button class="circle small slider-action {{lit}}" \(slotMod.signalBind("lit")) data-on:click="{{#busy}}\(tapMod.busyGuard){{/busy}}{{{onclick}}}"{{#busy}} \(tapMod.busyAttrs){{/busy}}{{#busyTapVisual}} \(tapMod.busyClass) \(tapMod.busyShapeClass){{/busyTapVisual}}><i class="mdi mdi-power"></i></button>{{/onclick}}
+          <div class="slider-actions">{{#actions}}{{{html}}}{{/actions}}</div>
         </div>
         <div class="slider max" style="--_start: 0%;--_end: {{fill}}" \(slotMod.signalBind("fill")){{#busyVisual}} \(tapMod.busyClassChange){{/busyVisual}}>
           {{^toggle}}<input type="range" min="{{min}}" max="{{max}}" value="{{value}}"
@@ -209,9 +223,63 @@ class SliderHead extends nodes.Node {
     // `state` is NOT declared: a grouped head omits the slot entirely (see
     // [[Slider.readout]]), and a declared slot is one every node of the card
     // must have.
+    //
+    // `label` stays declared even though the visible label moved into `text`:
+    // the toggle variant's whole-track button needs an `aria-label`, and that
+    // is drawn when the card is drawn. It is an `onRender` slot on this node
+    // for exactly that reason — read every render, never a reason to have one,
+    // which is what an accessible name on static markup wants. (`once` would
+    // also be legal on structure and is wrong here: a rename would never
+    // reach the label at all.)
     slots { "label"; "value"; "action"; "min"; "max"; "key"; "entity_id" }
   }
 }
+
+/// The label and its second line — the head's only moving BYTES, so its own
+/// node and its own patch target.
+///
+/// Split out when the head became structure ([[SliderHead]]): a card holding
+/// regions is never patched, and these two are the values that need patching.
+/// The upside was not the point but is real — a friendly-name change now
+/// re-renders a `<strong>`, not a whole slider row.
+///
+/// `display:contents` on its cell, so `strong` and `.slider-sub` stay layout
+/// children of `.slider-head` and the group's grid still places them.
+class SliderText extends nodes.Node {
+  card = "sliderText"
+  cell = new nodes.Cell { classes { "slider-text" } }
+  cardDef = new nodes.CardDef {
+    template = """
+      <strong class="\(textMod.BOX)">\(textMod.run("label"))</strong>{{#secondary}}<span class="slider-sub \(textMod.BOX)">\(textMod.run("secondary"))</span>{{/secondary}}
+      """
+    // `secondary` is optional (a plain row carries none), so it is not declared
+    // — an absent slot renders "" and the section collapses.
+    slots { "label"; "entity_id" }
+  }
+}
+
+/// One button at the right of a slider's head — the group's on/off, and now
+/// anything else an author wants there (#151).
+///
+/// It is an ordinary [[control.Button]] in its round icon form, not a card of
+/// its own: what it needed over `c.pill` was a glyph, no label, and the `lit`
+/// tint, and none of those three is about sliders. They are now [[Button]]'s,
+/// so the library has ONE icon button and the slider just uses it.
+///
+/// What matters here is that each action is a NODE. ADR 0019 allows one
+/// busy-guarded element per node, so a single shared `_<id>__busy` could only
+/// ever arm ONE button; each action owning its id means two can be in flight
+/// independently, and neither disables the other.
+///
+///     c.slider(l).actions(List(
+///       c.sliderAction(l, c.tap.toggle),
+///       c.sliderAction(l, c.moreInfo(l)).icon("mdi:information").lit(false)
+///     ))
+///
+/// `const` because [[Slider.allActions]] calls it from a class body, which Pkl
+/// allows only for a const method.
+const function sliderAction(e: hass.Entity, t: tapMod.TapAction): control.Button =
+  (control.iconButton("mdi:power", t)) { entity = e; lit = true }
 
 class Slider extends nodes.Node {
   card = "slider"
@@ -318,9 +386,11 @@ class Slider extends nodes.Node {
   hidden fillExpr: String =
     if (toggleOnly) #"$state = "on" ? "0%" : "100%""#
     else "$string(($v := \(valueExpr); $v != null ? 100 - (($v - \(minExpr)) * 100 / (\(maxExpr) - \(minExpr))) : 100)) & \"%\""
-  // Copy the tap's inline surfaces onto the node so the hoist lifts them
-  // (see [[EntityCard.inlineSurfaces]]).
-  inlineSurfaces = if (tapAction != null) tapAction!!.inlineSurfaces else null
+  // No `inlineSurfaces` here any more: every tap this card can make is an
+  // action NODE now, and each carries its own (see [[sliderAction]]). Copying
+  // them up to the slider as well would declare the same surface twice, under
+  // two node ids — and the one that owns the popup should be the one that
+  // opens it.
   // Resolved here rather than inline in `slots`, because a body that AMENDS an
   // inherited property does not see the inherited `icon` by name — only this
   // class's own members and the module.
@@ -330,39 +400,21 @@ class Slider extends nodes.Node {
   // one place and the head is a card that only knows how to draw them.
   hidden headSlots: Mapping<String, slotMod.Slot|String> = new {
     ["entity_id"] = entity.entity_id
-    ["label"] = slotMod.labelSlot(entity, label)
+    // `onRender`, not live: the visible label is [[SliderText]]'s now, and what
+    // is left of it here is the toggle variant's `aria-label`. The head holds
+    // regions, so it is never patched — an `onRender` read is right whenever
+    // the card IS drawn and never asks for a drawing of its own, which is
+    // exactly what an accessible name on static markup wants.
+    ["label"] = let (l = slotMod.labelSlot(entity, label))
+      if (l is slotMod.Slot) (l) { reads = "onRender" } else l
     when (resolvedIcon != null) {
       ["icon"] = resolvedIcon!!
     }
-    when (tapAction != null) {
-      ["onclick"] = tapAction!!.onclick
-      // Lights the button while the entity is on — the one thing the fill
-      // cannot say, since a light at 0 % and a light that is off look alike.
-      // A CLASS signal slot: the FIFTH thing on this card that moves, and the
-      // one that would have kept re-rendering it on every on/off had it stayed
-      // bytes. `""` for off, because an empty string is the only falsy value a
-      // slot can produce.
-      ["lit"] = new slotMod.Slot {
-        transform = #"$state = "on" ? "lit" : """#
-        default = ""
-        bypassUnavailable = false
-        signal = slotMod.asClass("lit")
-      }
-    }
-    when (tapAction != null && tapAction!!.busy) {
-      ["busy"] = "1"
-    }
     // The commit's busy LOOK (the wrapper + badge `fh-disabled` bindings) is
-    // gated on the card's own `busyVisual`; the power button's on the same AND
-    // its tap's — see the `busyVisual` doc above.
+    // gated on the card's own `busyVisual`. Each head action carries its own
+    // now — see [[sliderAction]].
     when (busyVisual) {
       ["busyVisual"] = "1"
-    }
-    when (tapAction != null && tapAction!!.busy && busyVisual && tapAction!!.busyVisual) {
-      ["busyTapVisual"] = "1"
-    }
-    when (secondary != null) {
-      ["secondary"] = slotMod.secondarySlot(secondary!!)
     }
     // The display header (inherits entity_id, bypassUnavailable default).
     // Omitted entirely when the readout is "none": an absent slot renders ""
@@ -466,6 +518,33 @@ class Slider extends nodes.Node {
     ["min"] = sliderConfig(if (min != null) "\(min)" else null, spec, (s) -> s.min)
     ["max"] = sliderConfig(if (max != null) "\(max)" else null, spec, (s) -> s.max)
   }
+  // What [[SliderText]] draws: the label and its optional second line, the two
+  // values on this row that move as BYTES. Live here, unlike the head's own
+  // `label` — this node IS a patch target, which is why they were split out.
+  hidden textSlots: Mapping<String, slotMod.Slot|String> = new {
+    ["entity_id"] = entity.entity_id
+    ["label"] = slotMod.labelSlot(entity, label)
+    when (secondary != null) {
+      ["secondary"] = slotMod.secondarySlot(secondary!!)
+    }
+  }
+  /// The buttons at the right of the head, left to right (#151). Empty renders
+  /// none, which is what a plain row has.
+  ///
+  /// [[tapAction]] is the one-button shorthand and simply prepends to this, so
+  /// the two compose: a group that keeps its power button and adds a scene
+  /// button sets both.
+  hidden actions: Listing<control.Button> = new {}
+  // `tapAction` as what it always was — one action, first. Kept as its own
+  // property rather than folded into `actions` because it is the shape almost
+  // every group wants, and because it carries the card's `busyVisual` down,
+  // which a hand-built action would have to repeat.
+  hidden allActions: Listing<control.Button> = new {
+    when (tapAction != null) {
+      (sliderAction(entity, tapAction!!))
+    }
+    ...actions
+  }
   /// The rows this slider stands for. Named `members` rather than `children`
   /// because `children` now says WHICH REGION on every node, and this card has
   /// two — the head is one, these are the other.
@@ -479,7 +558,15 @@ class Slider extends nodes.Node {
     }
   }
   children = new Mapping {
-    ["head"] = new Listing { (new SliderHead {}) { slots = headSlots } }
+    ["head"] = new Listing {
+      (new SliderHead {}) {
+        slots = headSlots
+        children = new Mapping {
+          ["text"] = new Listing { (new SliderText {}) { slots = textSlots } }
+          ["actions"] = allActions
+        }
+      }
+    }
     ["children"] = members
   }
 
@@ -511,6 +598,15 @@ class Slider extends nodes.Node {
   // to say the same thing.
   function icon(i: String?): Slider = let (self = this) (self) { icon = i }
   function tapAction(t: tapMod.TapAction): Slider = let (self = this) (self) { tapAction = t }
+  /// The head's buttons, left to right (#151) — see [[actions]]. Composes with
+  /// [[tapAction]], which stays first.
+  ///
+  ///     c.slider(l)
+  ///       .tapAction(c.tap.toggle)
+  ///       .actions(List(c.sliderAction(l, c.tap.moreInfo(l))
+  ///         .icon("mdi:information").lit(false)))
+  function actions(xs: List<control.Button>): Slider =
+    let (self = this) (self) { actions = xs.toListing() }
   function busyVisual(b: Boolean): Slider = let (self = this) (self) { busyVisual = b }
   function secondary(s: String|slotMod.Expr): Slider = let (self = this) (self) { secondary = s }
   // The range input rides inside BeerCSS's slider markup (`.slider` wrapper +
@@ -696,11 +792,11 @@ const local sliderCss: String = """
   .slider-group>.slider-head-cell>.slider-body>.slider-head{display:grid;grid-template-columns:auto 1fr auto auto;
   grid-template-rows:auto auto;align-items:center;align-content:center;
   min-block-size:4.5rem;box-sizing:border-box;gap:0 .75rem}
-  .slider-group>.slider-head-cell>.slider-body>.slider-head>strong{grid-column:2;grid-row:1}
-  .slider-group>.slider-head-cell>.slider-body>.slider-head>.slider-sub{grid-column:2;grid-row:2}
+  .slider-group>.slider-head-cell>.slider-body>.slider-head>.slider-text>strong{grid-column:2;grid-row:1}
+  .slider-group>.slider-head-cell>.slider-body>.slider-head>.slider-text>.slider-sub{grid-column:2;grid-row:2}
   .slider-group>.slider-head-cell>.slider-body>.slider-head>.slider-icon{grid-row:1/3}
   .slider-group>.slider-head-cell>.slider-body>.slider-head>.state{grid-column:3;grid-row:1/3}
-  .slider-group>.slider-head-cell>.slider-body>.slider-head>.slider-action{grid-column:4;grid-row:1/3}
+  .slider-group>.slider-head-cell>.slider-body>.slider-head>.slider-actions{grid-column:4;grid-row:1/3}
   .slider-icon{display:flex;align-items:center;justify-content:center;
   inline-size:2rem;block-size:2rem;border-radius:50%;
   background:var(--fh-surface-alt);color:var(--fh-accent)}
@@ -710,10 +806,28 @@ const local sliderCss: String = """
   .slider-group>.slider-head-cell>.slider-body>.slider-head>.slider-icon{inline-size:2.75rem;block-size:2.75rem}
   .slider-group>.slider-head-cell>.slider-body>.slider-head>.slider-icon>i{font-size:1.5rem}
   .slider-sub{font-size:.8rem;color:var(--fh-text-dim)}
-  /* The one thing in the head that IS a control has to take the pointer back
-     from `.slider-head`'s `pointer-events:none`. */
-  .slider-action{pointer-events:auto;background:var(--fh-surface-alt);color:var(--fh-text)}
-  .slider-action.lit{background:var(--fh-accent);color:var(--fh-on-accent)}
+  /* The head's two node regions. Both wrappers are boxless for the same reason
+     `.slider-head-cell` is: the backend gives every node an `.fh-cell`, and
+     neither of these should become a box between the row and what it holds —
+     the group's grid places `strong`, `.slider-sub` and the button strip
+     itself. The actions are ordinary `c.iconButton`s, so the rule names the
+     STRIP's cells rather than a class only this card's buttons carry. */
+  .slider-text,.slider-actions>.fh-cell{display:contents}
+  /* The button strip. It takes the pointer back from `.slider-head`'s
+     `pointer-events:none` — the buttons are the only things in the row that ARE
+     controls — and `:empty` removes it on a slider with no actions, which is
+     every plain row. A card is ONE shape: its optional pieces are absent, not
+     different (same reason `.slider-members:empty` is here), and without the
+     `:empty` rule the flex gap and the group's fourth grid column would hold
+     space for nothing. */
+  .slider-actions{display:flex;align-items:center;gap:.25rem;pointer-events:auto}
+  .slider-actions:empty{display:none}
+  /* The head's buttons are the shared round icon button, so this paints them by
+     POSITION rather than by a class of their own — the card says how a control
+     in its head looks, which is the same thing `.slider-members .card` does for
+     a member row. */
+  .slider-actions>.fh-cell>button{background:var(--fh-surface-alt);color:var(--fh-text)}
+  .slider-actions>.fh-cell>button.lit{background:var(--fh-accent);color:var(--fh-on-accent)}
   /* BeerCSS's `.slider.max` is already `position:absolute;inset:0` of the card,
      so the master's track — and its painted span — span the WHOLE card, members
      included. Nothing constrains the master's range input to the head strip

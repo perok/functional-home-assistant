@@ -45,7 +45,7 @@
 ///   `.section`, state text -> `.state`, popup dialog -> `.popup`/`.popup-close`,
 ///   tabs -> `.tabs`/`.tabbar`/`.tab`, more-info facts ->
 ///   `.entity-info`/`.entity-info-id`/`.entity-info-attrs`, the slider's parts ->
-///   `.slider-card`/`.slider-head`/`.slider-icon`/`.slider-sub`/`.slider-action`/
+///   `.slider-card`/`.slider-head`/`.slider-icon`/`.slider-sub`/`.slider-actions`/
 ///   `.slider-body`/`.slider-members`/`.slider-group`.
 ///
 /// A guarded action in flight toggles two classes on the tappable element

@@ -5,6 +5,7 @@ import "../core/node.pkl" as nodes
 import "../core/slot.pkl" as slotMod
 import "../core/tap.pkl" as tapMod
 import "../core/text.pkl" as textMod
+import "../core/icon.pkl" as icons
 import "../hass.pkl"
 
 // What a pressable card says when it has nothing to press. `const` because it
@@ -27,9 +28,27 @@ class Button extends nodes.Node {
     // the same (verified in beer.min.css: every button rule is
     // `:is(button,.button)`). Only `label` is a declared slot — the other two
     // are the two arms of one choice, so neither is always present.
+    //
+    // A button may carry a GLYPH, a label, or both. Icon-only is `round`
+    // (BeerCSS `circle small`), because a button with nothing but a glyph in a
+    // rectangle reads as a broken label, and round is what every framework and
+    // every phone means by "icon button". The shape travels as a slot rather
+    // than being derived in the template, because `{{^label}}` nested inside
+    // `{{#glyph}}` says the same thing in a form nobody can read.
+    //
+    // `lit` tints the control while its entity is on — a CLASS signal slot, so
+    // the state costs a frame and never a re-render. Absent unless asked for.
+    //
+    // A GLYPH button additionally takes `busyShapeClass` while its call is in
+    // flight: BeerCSS paints a morphing shape around the icon, which is the
+    // in-flight affordance an icon has instead of a label going dim. A labelled
+    // button gets `busyClass` alone, as it always did.
     template = """
-      {{#href}}<a class="button card" href="{{{href}}}">\(textMod.hole("label"))</a>{{/href}}{{^href}}<button class="card" data-on:click="{{#busy}}\(tapMod.busyGuard){{/busy}}{{{onclick}}}"{{#busy}} \(tapMod.busyAttrs){{/busy}}{{#busyVisual}} \(tapMod.busyClass){{/busyVisual}}>\(textMod.hole("label"))</button>{{/href}}
+      {{#href}}<a class="button {{#round}}circle small{{/round}}{{^round}}card{{/round}}{{#hasLit}} {{lit}}{{/hasLit}}"{{#hasLit}} \(slotMod.signalBind("lit")){{/hasLit}} href="{{{href}}}">{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</a>{{/href}}{{^href}}<button class="{{#round}}circle small{{/round}}{{^round}}card{{/round}}{{#hasLit}} {{lit}}{{/hasLit}}"{{#hasLit}} \(slotMod.signalBind("lit")){{/hasLit}} data-on:click="{{#busy}}\(tapMod.busyGuard){{/busy}}{{{onclick}}}"{{#busy}} \(tapMod.busyAttrs){{/busy}}{{#busyVisual}} \(tapMod.busyClass){{#glyph}} \(tapMod.busyShapeClass){{/glyph}}{{/busyVisual}}>{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</button>{{/href}}
       """
+    // `label` stays declared — every button has one, even when it is the empty
+    // string an icon-only button carries. `glyph`/`round`/`lit` do not: they are
+    // optional pieces, absent on the ordinary labelled button.
     slots { "label" }
     // A button FILLS its layout cell. A framework that sizes buttons to their
     // label (BeerCSS does) left-aligns a short pill in a wide box: three nav
@@ -53,6 +72,13 @@ class Button extends nodes.Node {
   }
   hidden entity: hass.Entity? = null
   hidden label: (String|slotMod.Expr)? = null
+  /// A glyph before the label, as an MDI name (`mdi:power`). With `label = ""`
+  /// the button is icon-only and renders round — see [[iconButton]].
+  hidden icon: String? = null
+  /// Tint the control while its entity is on. Off by default: most buttons DO
+  /// something rather than reflecting a state, and a button that lit up for no
+  /// reason would be worse than one that never does. Needs an [[entity]].
+  hidden lit: Boolean = false
   /// What pressing it DOES. Defaults to the entity's domain action where the
   /// button has an entity — and with neither, this FAILS the build: a button is
   /// defined by what pressing it does, so not knowing that is not a state it
@@ -69,6 +95,33 @@ class Button extends nodes.Node {
       ["entity_id"] = entity!!.entity_id
     }
     ["label"] = slotMod.labelSlot(entity, label)
+    when (icon != null) {
+      ["glyph"] = icons.mdiClass(icon!!)
+      // Round exactly when there is nothing but the glyph. `label` is the
+      // AUTHORED value, not the resolved slot: a button with an entity resolves
+      // to its friendly_name, and asking about that would make every
+      // icon-carrying entity button rectangular.
+      when (label == "") {
+        ["round"] = "1"
+      }
+    }
+    when (lit && entity != null) {
+      // `""` for off — an empty string is the only falsy value a slot can
+      // produce, and `"false"` would read as ON.
+      ["lit"] = new slotMod.Slot {
+        transform = #"$state = "on" ? "lit" : """#
+        default = ""
+        bypassUnavailable = false
+        signal = slotMod.asClass("lit")
+      }
+      // A LITERAL flag gating both the class hole and the binding. It cannot be
+      // `{{#lit}}` itself: the slot's value is "" whenever the entity is off,
+      // and in the PATCH form it is always "" — so the section would collapse
+      // and take the binding with it, leaving the element inert for good (ADR
+      // 0017). It also keeps an unlit button byte-identical to what it was
+      // before this card grew the option.
+      ["hasLit"] = "1"
+    }
     // The anchor form wins when the tap offers one; the other slot is then
     // omitted entirely rather than emitted-and-ignored, so the node JSON says
     // which element it is.
@@ -93,6 +146,8 @@ class Button extends nodes.Node {
   // Fluent config (see [[EntityCard]]'s builder methods).
   function entity(e: hass.Entity): Button = let (self = this) (self) { entity = e }
   function label(l: String|slotMod.Expr): Button = let (self = this) (self) { label = l }
+  function icon(i: String): Button = let (self = this) (self) { icon = i }
+  function lit(l: Boolean): Button = let (self = this) (self) { lit = l }
   function tapAction(a: tapMod.TapAction): Button = let (self = this) (self) { tapAction = a }
 }
 
@@ -198,14 +253,19 @@ class Pill extends nodes.Node {
     // BeerCSS's `.chip`: outlined, `--on-surface-variant` text, pill radius,
     // and already `box-sizing:border-box` (unlike `.button`, which is
     // content-box — see the theme's `.fh-cell>.button` rule).
+    // A chip is already pill-shaped, so unlike [[Button]] there is no round
+    // variant: a glyph-only chip is a chip with a glyph in it.
     template = """
-      {{#href}}<a class="chip" href="{{{href}}}">\(textMod.hole("label"))</a>{{/href}}{{^href}}<button class="chip" data-on:click="{{#busy}}\(tapMod.busyGuard){{/busy}}{{{onclick}}}"{{#busy}} \(tapMod.busyAttrs){{/busy}}{{#busyVisual}} \(tapMod.busyClass){{/busyVisual}}>\(textMod.hole("label"))</button>{{/href}}
+      {{#href}}<a class="chip" href="{{{href}}}">{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</a>{{/href}}{{^href}}<button class="chip" data-on:click="{{#busy}}\(tapMod.busyGuard){{/busy}}{{{onclick}}}"{{#busy}} \(tapMod.busyAttrs){{/busy}}{{#busyVisual}} \(tapMod.busyClass){{#glyph}} \(tapMod.busyShapeClass){{/glyph}}{{/busyVisual}}>{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</button>{{/href}}
       """
     slots { "label" }
   }
   cell = new nodes.Cell { classes { "fh-hug" } }
   hidden entity: hass.Entity? = null
   hidden label: (String|slotMod.Expr)? = null
+  /// A glyph before the label, as an MDI name — see [[Button.icon]]. With
+  /// `label = ""` the chip is glyph-only.
+  hidden icon: String? = null
   /// See [[Button.tapAction]] — same rule, same build error.
   hidden tapAction: tapMod.TapAction =
     (if (entity != null) tapMod.byDomain(entity!!) else null)
@@ -216,6 +276,9 @@ class Pill extends nodes.Node {
       ["entity_id"] = entity!!.entity_id
     }
     ["label"] = slotMod.labelSlot(entity, label)
+    when (icon != null) {
+      ["glyph"] = icons.mdiClass(icon!!)
+    }
     when (tapAction.href != null) {
       ["href"] = tapAction.href!!
     } else {
@@ -230,6 +293,7 @@ class Pill extends nodes.Node {
   }
   function entity(e: hass.Entity): Pill = let (self = this) (self) { entity = e }
   function label(l: String|slotMod.Expr): Pill = let (self = this) (self) { label = l }
+  function icon(i: String): Pill = let (self = this) (self) { icon = i }
   function tapAction(a: tapMod.TapAction): Pill = let (self = this) (self) { tapAction = a }
 }
 
@@ -237,3 +301,12 @@ class Pill extends nodes.Node {
 function button(l: String, a: tapMod.TapAction): Button = new Button { label = l; tapAction = a }
 /// The compact form of the same thing: `c.pill("Underetasje", c.tap.navigate("under"))`.
 function pill(l: String, a: tapMod.TapAction): Pill = new Pill { label = l; tapAction = a }
+
+/// A round icon button — [[Button]] with a glyph and no label:
+///
+///     c.iconButton("mdi:power", c.tap.toggle)
+///     c.iconButton("mdi:power", c.tap.toggle).entity(l).lit(true)
+///
+/// `const` so a class body can call it (the slider's head actions do).
+const function iconButton(i: String, a: tapMod.TapAction): Button =
+  new Button { icon = i; label = ""; tapAction = a }
