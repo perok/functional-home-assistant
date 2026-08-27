@@ -475,18 +475,12 @@ object LayoutNode:
     /** Every child, in one list — what a traversal that only needs to REACH
       * every node wants, which is most of them.
       *
-      * Sorted by region name so the order is a function of the value and not of
-      * `Map` iteration: node ids are still positional (`LayoutNode.pathId`), so
-      * a nondeterministic order here would be nondeterministic ids. That
-      * coupling is temporary. Once ids carry their region the flattening stops
-      * feeding them, and this becomes what it reads like — a convenience for
-      * walkers.
-      *
-      * Until then a card may declare at most ONE eager region
-      * ([[Dashboard.validate]]), so there is exactly one order and nothing to
-      * get wrong.
+      * Regions in name order so a walk is reproducible. Ids no longer come from
+      * here — each step names its own region ([[LayoutNode.steps]]) — so this
+      * order is nobody's contract, which is what lets a card have a second
+      * region at all.
       */
-    def orderedChildren: List[LayoutNode] =
+    def allChildren: List[LayoutNode] =
       children.toList.sortBy(_._1).flatMap(_._2)
 
     /** The card's subject entity — the `entity_id` slot's value when it is a
@@ -590,16 +584,54 @@ object LayoutNode:
     * authors never invent ids; underscore-joined so it is also a valid signal
     * name (`_val_{{id}}`).
     */
-  def pathId(path: List[Int]): NodeId =
-    NodeId.derived(if path.isEmpty then "c" else path.mkString("c_", "_", ""))
+  /** One step down the tree: which region the child sits in, and where in it.
+    */
+  case class Step(region: String, index: Int)
+
+  /** A step's id segment. The DEFAULT region contributes only its index, so
+    * every id a dashboard had before regions existed is byte-identical — no
+    * snapshot moves, and a bookmarked `ui.<id>` tab URL still resolves. Only a
+    * card with a second, NAMED region pays for one.
+    *
+    * The grammar therefore has two shapes, and the thing that keeps them apart
+    * is that a region name can never look like an index: [[Dashboard.validate]]
+    * rejects an all-digit one, so `headActions_0` cannot be read as the pair
+    * `headActions`, `0` — nor `0_0` as region `0`, index `0`.
+    */
+  private def segment(s: Step): String =
+    if s.region == DefaultRegion then s.index.toString
+    else s"${sanitize(s.region)}_${s.index}"
+
+  /** A path as id segments, without the `c` root — for the id schemes that nest
+    * under something else ([[MemberGraph.innerSetId]]). ONE encoding, so a
+    * child of a member and a child of the static tree cannot disagree about
+    * what a region contributes.
+    */
+  def segments(path: List[Step]): String = path.map(segment).mkString("_")
+
+  def pathId(path: List[Step]): NodeId =
+    NodeId.derived(if path.isEmpty then "c" else s"c_${segments(path)}")
 
   /** [[pathId]] inside an id namespace — the main page's is empty, a surface's
     * is [[surfacePrefix]]. Named rather than left as `prefix + pathId(path)` at
     * four call sites, because the concatenation is what actually produces a
     * [[NodeId]] and the prefix alone is not one.
     */
-  def nodeId(prefix: String, path: List[Int]): NodeId =
+  def nodeId(prefix: String, path: List[Step]): NodeId =
     NodeId.derived(prefix + pathId(path))
+
+  /** Every child paired with the step that reaches it — what a walk that
+    * assigns ids needs, as opposed to [[Component.allChildren]], which is for
+    * walks that only need to reach every node.
+    *
+    * Regions in name order so the traversal is a function of the value rather
+    * than of `Map` iteration. Order no longer decides ids — each step names its
+    * own region — so this is now only about a walk being reproducible.
+    */
+  def steps(children: Map[String, List[LayoutNode]]): List[(Step, LayoutNode)] =
+    children.toList.sortBy(_._1).flatMap { case (region, nodes) =>
+      nodes.zipWithIndex.map { case (n, i) => Step(region, i) -> n }
+    }
 
   /** Slug an arbitrary string (an entity id, a surface id) into a valid HTML id
     * fragment — also a valid Datastar signal-name fragment.
@@ -782,7 +814,7 @@ case class Dashboard(
 
     def walk(n: LayoutNode): List[String] = n match {
       case c: LayoutNode.Component =>
-        fromSlots(c.slots, c.subjectEntity) ++ c.orderedChildren.flatMap(walk)
+        fromSlots(c.slots, c.subjectEntity) ++ c.allChildren.flatMap(walk)
       case set: LayoutNode.SetNode =>
         // A clause node is an ordinary component, so its own slots and children
         // are reached by the same walk — and its candidate is named in a
@@ -882,8 +914,11 @@ case class Dashboard(
               "— the value would stop updating"
           )
 
-    def children(nodes: List[LayoutNode], path: List[Int]): List[String] =
-      nodes.zipWithIndex.flatMap { case (n, i) => walk(n, path :+ i) }
+    def children(
+        kids: Map[String, List[LayoutNode]],
+        path: List[LayoutNode.Step]
+    ): List[String] =
+      LayoutNode.steps(kids).flatMap { case (step, n) => walk(n, path :+ step) }
 
     // Cell classes are string-interpolated into the wrapper's `class`
     // attribute, so each must be a plain CSS class token — reject anything
@@ -905,7 +940,7 @@ case class Dashboard(
     def noWrap(cardName: String): Boolean =
       cards.get(cardName).exists(!_.wrapAsCell)
 
-    def walk(node: LayoutNode, path: List[Int]): List[String] =
+    def walk(node: LayoutNode, path: List[LayoutNode.Step]): List[String] =
       node match
         case c @ LayoutNode.Component(card, slots, kids, cell) =>
           val nodeId = LayoutNode.pathId(path)
@@ -934,7 +969,7 @@ case class Dashboard(
             Dashboard.injectedStatic,
             slots.keySet
           ) ++ slotErrors(nodeId, card, slots) ++ cellErrors(nodeId, cell) ++
-            wrapErrors ++ children(c.orderedChildren, path)
+            wrapErrors ++ children(c.children, path)
         // A set's clauses carry COMPLETE nodes — their own card, slots (the
         // candidate's `entity_id` among them) and cell — so each one validates
         // as the ordinary node it is. `noWrap` is rejected because every member
@@ -948,7 +983,10 @@ case class Dashboard(
             } ++
             s.members.toList.sortBy(_._1).flatMap { case (candidate, m) =>
               m.clauses.zipWithIndex.flatMap { case (clause, i) =>
-                walk(clause.node, path :+ i) ++ (clause.node match {
+                walk(
+                  clause.node,
+                  path :+ LayoutNode.Step(LayoutNode.DefaultRegion, i)
+                ) ++ (clause.node match {
                   case c: LayoutNode.Component if noWrap(c.card) =>
                     List(
                       s"$setId/$candidate: card '${c.card}' has " +
@@ -1009,27 +1047,27 @@ case class Dashboard(
         }
       }
 
-    // TEMPORARY, and it is what makes `Component.orderedChildren` sound: node
-    // ids are still positional, so they are assigned by flattening the regions
-    // in name order. With one eager region there is one order and nothing to
-    // get wrong. With two, adding or renaming a region would silently RENUMBER
-    // a card's children — every id below it shifting, every bookmarked tab-state
-    // URL pointing somewhere else, and no error anywhere.
+    // What keeps the id grammar's two shapes apart. A step in the DEFAULT
+    // region contributes only its index (`c_0_1`), so every id that existed
+    // before regions is unchanged; a NAMED region contributes `<name>_<index>`.
+    // The two can never be confused as long as a name cannot look like an
+    // index — so an all-digit name is rejected, and with it the only way
+    // `0_0` could mean either "region 0, index 0" or "index 0, index 0".
     //
-    // So the second eager region is not forbidden because it is hard; it is
-    // forbidden until ids carry their region and the flattening stops feeding
-    // them. Delete this rule in the same commit that qualifies them.
-    val eagerRegionErrors: List[String] =
+    // Empty is rejected for the same reason (it would contribute a bare `_`),
+    // and a non-token name because ids are interpolated into `id` attributes
+    // and signal names — the rule cell classes already get.
+    val regionNameErrors: List[String] =
       cards.toList.sortBy(_._1).flatMap { case (name, cd) =>
-        val eager = cd.regions.filter(_._2.fill == Region.Eager).keys.toList
-        Option
-          .when(eager.sizeIs > 1)(
-            s"card '$name' declares ${eager.size} eager regions " +
-              s"(${eager.sorted.mkString(", ")}) — node ids are still " +
-              "positional, so a second one would renumber this card's children " +
-              "silently. Qualify ids by region first"
-          )
-          .toList
+        cd.regions.keys.toList.sorted.collect {
+          case r if r.isEmpty || !r.matches("[A-Za-z0-9_]+") =>
+            s"card '$name': region name '$r' is not a plain token " +
+              "([A-Za-z0-9_]+) — region names enter node ids"
+          case r if r.forall(_.isDigit) =>
+            s"card '$name': region name '$r' is all digits, which a node id " +
+              "cannot tell from a child index — name it something a number " +
+              "could not be"
+        }
       }
 
     // A non-empty theme.chrome MUST wrap {{{body}}} in an element carrying
@@ -1055,12 +1093,12 @@ case class Dashboard(
       def idsOf(
           node: LayoutNode,
           prefix: String,
-          path: List[Int]
+          path: List[LayoutNode.Step]
       ): List[NodeId] =
         LayoutNode.nodeId(prefix, path) :: (node match {
           case c: LayoutNode.Component =>
-            c.orderedChildren.zipWithIndex.flatMap { case (ch, i) =>
-              idsOf(ch, prefix, path :+ i)
+            LayoutNode.steps(c.children).flatMap { case (step, ch) =>
+              idsOf(ch, prefix, path :+ step)
             }
           // Neither member container hosts a bake: a member renders with no
           // children and no bake group.
@@ -1124,7 +1162,7 @@ case class Dashboard(
     // prefixed with the surface id for locatability.
     selfHoleErrors ++
       regionHoleErrors ++
-      eagerRegionErrors ++
+      regionNameErrors ++
       chromeErrors ++
       danglingBakes ++
       activationErrors ++
@@ -1176,7 +1214,7 @@ case class Dashboard(
   def transformStrings: List[String] =
     def slotsOf(n: LayoutNode): List[SlotSource] = n match
       case c: LayoutNode.Component =>
-        c.slots.values.toList ++ c.orderedChildren.flatMap(slotsOf)
+        c.slots.values.toList ++ c.allChildren.flatMap(slotsOf)
       case s: LayoutNode.SetNode =>
         s.members.values.toList
           .flatMap(_.clauses)

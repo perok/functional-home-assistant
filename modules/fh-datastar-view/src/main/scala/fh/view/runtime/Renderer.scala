@@ -109,16 +109,16 @@ class Renderer(
     * (empty for the main page, `s_<id>__` for a surface).
     */
   private class Index(root: LayoutNode, val idPrefix: String) {
-    val indexed: Map[NodeId, (LayoutNode, List[Int])] = {
+    val indexed: Map[NodeId, (LayoutNode, List[LayoutNode.Step])] = {
       def walk(
           node: LayoutNode,
-          path: List[Int]
-      ): List[(NodeId, (LayoutNode, List[Int]))] = {
+          path: List[LayoutNode.Step]
+      ): List[(NodeId, (LayoutNode, List[LayoutNode.Step]))] = {
         val self = LayoutNode.nodeId(idPrefix, path) -> (node, path)
         node match {
           case c: LayoutNode.Component =>
-            self :: c.orderedChildren.zipWithIndex.flatMap { case (ch, i) =>
-              walk(ch, path :+ i)
+            self :: LayoutNode.steps(c.children).flatMap { case (step, ch) =>
+              walk(ch, path :+ step)
             }
           // A member container is a LEAF of the static index: its children are
           // members, addressed by `memberId` rather than by a path (see
@@ -203,7 +203,8 @@ class Renderer(
       sid -> new Index(s.content, Renderer.surfacePrefix(sid))
     }
 
-  private val allIndexed: Map[NodeId, (LayoutNode, List[Int], String)] =
+  private val allIndexed
+      : Map[NodeId, (LayoutNode, List[LayoutNode.Step], String)] =
     (mainIndex :: surfaceIndexes.values.toList).flatMap { idx =>
       idx.indexed.map { case (id, (n, p)) => id -> (n, p, idx.idPrefix) }
     }.toMap
@@ -421,7 +422,7 @@ class Renderer(
           // byte-identical and the later patch is a no-op morph.
           "popups" -> dialog.fold("")(_.html)
         ),
-        Nil
+        Map.empty
       )
     )
     // The whole page is never a patch target — a repaint replaces `#dashboard`
@@ -492,9 +493,9 @@ class Renderer(
           templates.selves(c.card),
           structuralVars(id) ++ resolveBakeTraced(id, uiState, states)._2,
           c.slots,
-          c.orderedChildren.zipWithIndex.map { case (child, i) =>
-            render(child, path :+ i, prefix, states, uiState, form)
-          },
+          Renderer.perRegion(c.children)((child, step) =>
+            render(child, path :+ step, prefix, states, uiState, form)
+          ),
           states,
           form
         )
@@ -658,7 +659,7 @@ class Renderer(
   private def carriesMount(node: LayoutNode): Boolean = node match {
     case c: LayoutNode.Component =>
       dashboard.cards.get(c.card).exists(_.isStructure) ||
-      c.orderedChildren.exists(carriesMount)
+      c.allChildren.exists(carriesMount)
     case _: LayoutNode.SetNode => false
   }
 
@@ -868,13 +869,13 @@ class Renderer(
 
   private def ownBytesCarryChildren(id: NodeId): Boolean =
     allIndexed.get(id).exists {
-      case (c: LayoutNode.Component, _, _) => c.orderedChildren.nonEmpty
+      case (c: LayoutNode.Component, _, _) => c.allChildren.nonEmpty
       case _                               => false
     }
 
   private def render(
       node: LayoutNode,
-      path: List[Int],
+      path: List[LayoutNode.Step],
       idPrefix: String,
       states: Map[String, EntityState],
       uiState: Map[String, String],
@@ -909,7 +910,7 @@ class Renderer(
 
   private def traced(
       node: LayoutNode,
-      path: List[Int],
+      path: List[LayoutNode.Step],
       idPrefix: String,
       states: Map[String, EntityState],
       uiState: Map[String, String]
@@ -917,10 +918,22 @@ class Renderer(
     node match {
       case c: LayoutNode.Component =>
         val id = LayoutNode.nodeId(idPrefix, path)
-        val kids = c.orderedChildren.zipWithIndex.map { case (child, i) =>
-          traced(child, path :+ i, idPrefix, states, uiState)
-        }
-        val childrenHtml = kids.map(_.html)
+        // Per REGION, because each hole is spliced with its own children and a
+        // child's step names the region it sits in.
+        val kidsByRegion: Map[String, List[Traced]] =
+          c.children.map { case (region, nodes) =>
+            region -> nodes.zipWithIndex.map { case (child, i) =>
+              traced(
+                child,
+                path :+ LayoutNode.Step(region, i),
+                idPrefix,
+                states,
+                uiState
+              )
+            }
+          }
+        val kids = kidsByRegion.toList.sortBy(_._1).flatMap(_._2)
+        val childrenHtml = kidsByRegion.view.mapValues(_.map(_.html)).toMap
         val (baked, bakeIndex, bakedTrace) =
           resolveBakeTraced(id, uiState, states)
         // The document path renders the whole card: its two parts first, then
@@ -937,7 +950,10 @@ class Renderer(
         // ONE walk, both forms — see [[Traced]]. Only the form differs between
         // the two calls, so a node with no signal slot anywhere under it does
         // the second not at all.
-        def compose(form: SlotForm, kidsHtml: List[String]): String = {
+        def compose(
+            form: SlotForm,
+            kidsHtml: Map[String, List[String]]
+        ): String = {
           val selfPart = templates.selves
             .get(c.card)
             .map(renderTemplateOf(_, selfVars, c.slots, kidsHtml, states, form))
@@ -950,7 +966,10 @@ class Renderer(
             form
           )
         }
-        def selfOnly(form: SlotForm, kidsHtml: List[String]): Option[String] =
+        def selfOnly(
+            form: SlotForm,
+            kidsHtml: Map[String, List[String]]
+        ): Option[String] =
           templates.selves
             .get(c.card)
             .map(renderTemplateOf(_, selfVars, c.slots, kidsHtml, states, form))
@@ -962,7 +981,8 @@ class Renderer(
         val twoForms =
           declaresSignals(c) || kids.exists(k => k.patch ne k.html)
         val patchChildren =
-          if (twoForms) kids.map(_.patch) else childrenHtml
+          if (twoForms) kidsByRegion.view.mapValues(_.map(_.patch)).toMap
+          else childrenHtml
         val patchHtml =
           if (twoForms) compose(SlotForm.Patch, patchChildren) else html
         // EVERY node is a cell — containers included. The backend owns the id'd
@@ -1094,9 +1114,9 @@ class Renderer(
       // child's entity changing re-renders it (which is why
       // [[Member.entitiesOf]] walks them). A nested SET is the exception: it
       // is addressable, and [[Member.entitiesOf]] stops there.
-      m.node.orderedChildren.zipWithIndex.map { case (child, i) =>
-        memberChild(m, child, List(i), m.clause, states, form)
-      },
+      Renderer.perRegion(m.node.children)((child, step) =>
+        memberChild(m, child, List(step), m.clause, states, form)
+      ),
       states,
       form
     )
@@ -1123,7 +1143,7 @@ class Renderer(
   private def memberChild(
       m: Member,
       node: LayoutNode,
-      path: List[Int],
+      path: List[LayoutNode.Step],
       clauseIdx: Int,
       states: Map[String, EntityState],
       form: SlotForm
@@ -1133,9 +1153,9 @@ class Renderer(
         c.card,
         structuralVars(m.id),
         c.slots,
-        c.orderedChildren.zipWithIndex.map { case (child, i) =>
-          memberChild(m, child, path :+ i, clauseIdx, states, form)
-        },
+        Renderer.perRegion(c.children)((child, step) =>
+          memberChild(m, child, path :+ step, clauseIdx, states, form)
+        ),
         states,
         form
       )
@@ -1156,7 +1176,7 @@ class Renderer(
       cardName: String,
       injected: Map[String, String],
       slots: Map[String, SlotSource],
-      childrenHtml: List[String],
+      childrenHtml: Map[String, List[String]],
       states: Map[String, EntityState],
       form: SlotForm
   ): String =
@@ -1183,7 +1203,7 @@ class Renderer(
       cardName: String,
       vars: Map[String, String],
       slots: Map[String, SlotSource],
-      childrenHtml: List[String],
+      childrenHtml: Map[String, List[String]],
       states: Map[String, EntityState],
       form: SlotForm
   ): String = {
@@ -1212,7 +1232,7 @@ class Renderer(
       tpl: Template,
       injected: Map[String, String],
       slots: Map[String, SlotSource],
-      childrenHtml: List[String],
+      childrenHtml: Map[String, List[String]],
       states: Map[String, EntityState],
       form: SlotForm
   ): String = {
@@ -1368,7 +1388,7 @@ class Renderer(
       states: Map[String, EntityState]
   ): Map[SignalId, String] = node match {
     case c: LayoutNode.Component =>
-      c.orderedChildren.foldLeft(signalsOfSlots(id, c, states))(
+      c.allChildren.foldLeft(signalsOfSlots(id, c, states))(
         _ ++ memberSignals(id, _, states)
       )
     case _: LayoutNode.SetNode => Map.empty
@@ -1579,19 +1599,40 @@ object Renderer {
     * container templates (`{{#children}}{{{html}}}{{/children}}`). Kept here so
     * the rest of the renderer works in plain `Map[String, String]`.
     */
+  /** Render each region's children, keeping them under their region's name and
+    * handing each child the [[LayoutNode.Step]] that reaches it. Every walk
+    * that produces `childrenHtml` goes through here, so "which region am I in"
+    * is answered in exactly one place.
+    */
+  private[runtime] def perRegion[A](children: Map[String, List[LayoutNode]])(
+      f: (LayoutNode, LayoutNode.Step) => A
+  ): Map[String, List[A]] =
+    children.map { case (region, nodes) =>
+      region -> nodes.zipWithIndex.map { case (n, i) =>
+        f(n, LayoutNode.Step(region, i))
+      }
+    }
+
   private def javaContext(
       context: Map[String, String],
-      childrenHtml: List[String]
+      childrenHtml: Map[String, List[String]]
   ): java.util.Map[String, AnyRef] = {
     import scala.jdk.CollectionConverters.*
-    val m = new java.util.HashMap[String, AnyRef](context.size + 1)
+    val m =
+      new java.util.HashMap[String, AnyRef](context.size + childrenHtml.size)
     m.putAll(context.asJava)
-    if (childrenHtml.nonEmpty) {
-      val list = new java.util.ArrayList[AnyRef](childrenHtml.size)
-      childrenHtml.foreach(h =>
-        list.add(java.util.Collections.singletonMap("html", h))
-      )
-      val _ = m.put("children", list)
+    // One list per REGION, under the region's own name, so a template's
+    // `{{#headActions}}` and `{{#children}}` splice different children. An
+    // empty region contributes nothing, which is what makes the section vanish
+    // rather than render an empty list.
+    childrenHtml.foreach { case (region, htmls) =>
+      if (htmls.nonEmpty) {
+        val list = new java.util.ArrayList[AnyRef](htmls.size)
+        htmls.foreach(h =>
+          list.add(java.util.Collections.singletonMap("html", h))
+        )
+        val _ = m.put(region, list)
+      }
     }
     m
   }

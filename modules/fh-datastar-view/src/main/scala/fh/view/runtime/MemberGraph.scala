@@ -23,7 +23,7 @@ private[runtime] object Member {
     */
   def entitiesOf(node: LayoutNode): List[String] = node match {
     case c: LayoutNode.Component =>
-      (c.liveEntities ++ c.orderedChildren.flatMap(entitiesOf)).distinct
+      (c.liveEntities ++ c.allChildren.flatMap(entitiesOf)).distinct
     // Deliberately NOT into a nested set: its members are tracked as members,
     // and they patch themselves. Descending here would wake the whole tile on
     // any bulb inside it — re-rendering, and re-supplying, everything the inner
@@ -322,11 +322,13 @@ private[runtime] final class MemberGraph(
   def innerSetId(
       member: MemberId,
       clauseIdx: Int,
-      path: List[Int],
+      path: List[LayoutNode.Step],
       set: LayoutNode.SetNode
   ): SetId =
     SetId.of(
-      NodeId.derived(s"${member}_${clauseIdx}_${path.mkString("_")}"),
+      NodeId.derived(
+        s"${member}_${clauseIdx}_${LayoutNode.segments(path)}"
+      ),
       set
     )
 
@@ -363,11 +365,11 @@ private[runtime] final class MemberGraph(
         member: MemberId,
         clauseIdx: Int,
         node: LayoutNode,
-        path: List[Int]
+        path: List[LayoutNode.Step]
     ): List[(NodeId, MemberSource)] = node match {
       case c: LayoutNode.Component =>
-        c.orderedChildren.zipWithIndex.flatMap { case (child, i) =>
-          setsIn(member, clauseIdx, child, path :+ i)
+        LayoutNode.steps(c.children).flatMap { case (step, child) =>
+          setsIn(member, clauseIdx, child, path :+ step)
         }
       case inner: LayoutNode.SetNode =>
         val id = innerSetId(member, clauseIdx, path, inner)

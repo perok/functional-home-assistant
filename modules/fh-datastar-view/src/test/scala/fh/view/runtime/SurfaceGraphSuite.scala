@@ -417,7 +417,12 @@ class SurfaceGraphSuite extends munit.FunSuite {
       states
     )
     val member = members.membersOf(setId, states).head
-    val innerId = members.innerSetId(member.id, 0, List(0), nestedSet)
+    val innerId = members.innerSetId(
+      member.id,
+      0,
+      List(LayoutNode.Step(LayoutNode.DefaultRegion, 0)),
+      nestedSet
+    )
 
     assertEquals(g.rootOf("c"), Some(""), "static index")
     assertEquals(g.rootOf(member.id), Some("det"), "materialised member")

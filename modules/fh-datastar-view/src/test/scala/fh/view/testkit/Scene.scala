@@ -105,7 +105,7 @@ object Scene {
 
     def walk(n: LayoutNode): List[String] = n match {
       case c: LayoutNode.Component =>
-        fromSlots(c.slots, c.subjectEntity) ++ c.orderedChildren.flatMap(walk)
+        fromSlots(c.slots, c.subjectEntity) ++ c.allChildren.flatMap(walk)
       case set: LayoutNode.SetNode =>
         // A clause node is an ordinary component, so its own slots and children
         // are reached by the same walk — and its candidate is named in a

@@ -1046,6 +1046,69 @@ class RendererSuite extends munit.FunSuite {
     )
   }
 
+  /** The capability the whole region grammar exists for, and the first thing
+    * that could not be expressed before: ONE card, TWO eager regions.
+    *
+    * Two claims, and they are separable — a renderer that spliced both regions
+    * into the first hole would still give every child a distinct id, and one
+    * that numbered them into a single sequence would still put them in the
+    * right holes. So both are asserted.
+    */
+  test("two eager regions splice separately and address separately") {
+    val two = CardDef(
+      template = """<div><b>{{#children}}{{{html}}}{{/children}}</b>""" +
+        """<i>{{#extra}}{{{html}}}{{/extra}}</i></div>""",
+      regions = Map("children" -> Region(), "extra" -> Region())
+    )
+    def leaf(v: String) =
+      LayoutNode.Component("card", slots = Map("state" -> lit(v)))
+
+    val d = Dashboard(
+      cards + ("two" -> two),
+      LayoutNode.Component(
+        "two",
+        children = Map(
+          "children" -> List(leaf("IN-B")),
+          "extra" -> List(leaf("IN-I"))
+        )
+      )
+    )
+    assertEquals(d.validate(), Nil)
+    val html = Renderer.create(d).renderBody(Map.empty)
+
+    // Each region's children land in ITS OWN hole.
+    assert(html.contains("<b><div class=\"fh-cell\""), clue = html)
+    assert(
+      html.matches("""(?s).*<b>.*IN-B.*</b>.*<i>.*IN-I.*</i>.*"""),
+      clue = html
+    )
+
+    // The default region contributes only its index, so its child keeps the id
+    // it had before regions existed; the named one carries its region.
+    assert(html.contains("""id="c_0""""), clue = html)
+    assert(html.contains("""id="c_extra_0""""), clue = html)
+  }
+
+  test("validate: a region name that could be read as an index is rejected") {
+    def card(region: String) = Dashboard(
+      Map(
+        "box" -> CardDef(
+          s"<div>{{#$region}}{{{html}}}{{/$region}}</div>",
+          regions = Map(region -> Region())
+        )
+      ),
+      LayoutNode.Component("box")
+    )
+    // `c_0_0` would be unreadable: region "0" index 0, or index 0 then index 0?
+    assert(
+      card("0").validate().exists(_.contains("all digits")),
+      clue = card("0").validate()
+    )
+    // Non-vacuous: a name merely CONTAINING digits is fine, because it can
+    // never be a whole index.
+    assertEquals(card("tab2").validate(), Nil)
+  }
+
   test(
     "validate: a non-empty theme.chrome lacking id=\"dashboard\" is a hard error"
   ) {

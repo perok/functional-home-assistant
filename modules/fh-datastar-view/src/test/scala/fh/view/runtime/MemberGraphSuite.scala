@@ -319,7 +319,12 @@ class MemberGraphSuite extends munit.FunSuite {
       )
     )
     val g = graphOf(outer, root = "detail")
-    val innerId = g.innerSetId(g.memberIdOf(gid, "light.a"), 0, List(0), inner)
+    val innerId = g.innerSetId(
+      g.memberIdOf(gid, "light.a"),
+      0,
+      List(LayoutNode.Step(LayoutNode.DefaultRegion, 0)),
+      inner
+    )
     assert(
       g.setContainer(innerId).isDefined,
       s"$innerId should be a set container"
