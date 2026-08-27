@@ -610,21 +610,24 @@ class Renderer(
     * A mount's contents are whichever member that client selected, so a node
     * carrying one has bytes that differ per viewer.
     *
-    * Three shapes fail it, and only the first two are what a card's own
-    * definition tells you:
+    * Two shapes fail it:
     *
     *   - a BARE container — a mount and no `self` — whose markup is a constant
     *     `.fh-cell` wrapper around a hole;
     *   - a candidate set root, which composes its members (each addressable in
-    *     its own right) rather than having markup of its own;
-    *   - anything whose CHILDREN bring a mount along — a pre-split container
-    *     splicing `{{#children}}` into its `template`, or a custom card with a
-    *     `self` and a bake-owning child. Neither is reachable from the shipped
-    *     library, and neither is visible to a test on the card alone, which is
-    *     why this asks about the rendering instead.
+    *     its own right) rather than having markup of its own.
     *
     * Neither loses anything by being excluded: their children are addressable
     * in their own right.
+    *
+    * A card WITH a `self` always has its own rendering, and that is now a fact
+    * about the card rather than a hope: both `ContainerCard.self` (authoring)
+    * and `Dashboard.validate` (the wire model) reject a `self` containing
+    * `{{{mount}}}` or `{{#children}}` — the two holes this renderer fills, so
+    * the two that could smuggle another node's bytes into a patch. The third
+    * shape this used to guard against — a self splicing `{{#children}}` where a
+    * child carried a mount — is therefore unrepresentable, which is why the
+    * `Templates.selvesCarryChildren` grep it needed is gone.
     *
     * The same rule `Dashboard.validate` enforces when it rejects a live-entity
     * slot on a bare container: no patch target.
@@ -637,19 +640,10 @@ class Renderer(
     allIndexed.get(id).exists {
       case (c: LayoutNode.Component, _, _) =>
         // What `renderNodeById` would produce: a card with a `self` renders
-        // that element plus — only if the self SPLICES them — its children's
-        // full renderings; anything else renders its whole card, its own mount
-        // included.
-        //
-        // A self that leaves its children entirely to the mount (a slider
-        // holding member sliders) is unaffected by what those children carry:
-        // its bytes never contain them. Asking `children.exists(carriesMount)`
-        // unconditionally cost exactly that node its live updates the moment a
-        // member card gained a mount of its own.
-        if (hasSelf(c.card))
-          !(templates.selvesCarryChildren(c.card) &&
-            c.children.exists(carriesMount))
-        else !carriesMount(c)
+        // that element and nothing else — the self holds no hole, so its bytes
+        // cannot contain a child's, whatever those children carry. Anything
+        // else renders its whole card, its own mount included.
+        if (hasSelf(c.card)) true else !carriesMount(c)
       // A member container composes its members and renders nothing of its
       // own; the members are the log keys.
       case (_: LayoutNode.SetNode, _, _) => false

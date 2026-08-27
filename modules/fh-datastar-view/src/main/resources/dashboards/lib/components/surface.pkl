@@ -80,30 +80,28 @@ class Tabs extends nodes.Node {
   // by the swap, which is also what empties pending
   // (`tapMod.pendingClear`) — see `docs/adr/0025-a-value-in-flight.md`.
   //
-  // `{{bakeIndex}}` in a `self` makes this node variant-bearing (ADR 0012): one
-  // rendering per member, its own log entry per variant, and every path that
-  // renders it by id must know the viewer — including `Patches.resume`, which
-  // is why that had to learn the viewer first.
-  // THE self/mount split's one real user in the shipped library. The bar is the
-  // card's own presentation (`self`), the panel is where the selected tab's
-  // content is mounted, and they are SIBLINGS — so re-rendering the bar cannot
-  // touch the panel. BeerCSS already dictated this shape: its tab styling is the
-  // structural selector `.tabs > a`.
+  // The bar is STRUCTURE, not a patch target: it holds the buttons, and a self
+  // may hold no hole, so it cannot be one and hold them both. It does not need
+  // to be — the bar carries no live value (the active highlight is client-side,
+  // `data-class` off the two selection signals) and a selection change arrives
+  // as a signal frame (`Server.selectionJson`), never as re-rendered markup.
+  // BeerCSS dictates the nesting either way: its tab styling is the structural
+  // selector `.tabs > a`, so the anchors must be direct children of the bar.
   //
-  // The bar carries no live value today (the active highlight is client-side,
-  // `data-class` off the two selection signals), so the `self` machinery is not yet exercised —
-  // but this is the card a live header ("the tab bar with the current
-  // temperature") would be authored on.
+  // A live header — "the tab bar with the current temperature" — is therefore
+  // authored as an ordinary node beside the buttons rather than by giving this
+  // card a `self`, and costs its own bytes instead of every button's.
+  //
+  // The bar reads `{{bakeIndex}}` for its signal seed, which the TEMPLATE is
+  // given (`Renderer.traced` composes with `vars = structuralVars ++ bakeIndex
+  // ++ baked`), so moving it out of the `self` changes no bytes.
   //
   // `{{mountId}}` replaces the hand-derived `{{id}}_panel`: it resolves to
   // `Surface.hostId`, the same string the backend addresses, so Pkl and Scala
   // stop agreeing by convention.
   cardDef = new nodes.ContainerCard {
     template = """
-      <div class="fh-col">{{{self}}}{{{mount}}}</div>
-      """
-    self = """
-      <div id="{{selfId}}" class="tabs" data-signals__ifmissing="{ ui_{{id}}: {{bakeIndex}}, \(tapMod.pendingSeedEntry("{{id}}")) }" \(tapMod.pendingClear("{{id}}")) \(tapMod.pendingFail("{{id}}"))>{{#children}}{{{html}}}{{/children}}</div>
+      <div class="fh-col"><div class="tabs" data-signals__ifmissing="{ ui_{{id}}: {{bakeIndex}}, \(tapMod.pendingSeedEntry("{{id}}")) }" \(tapMod.pendingClear("{{id}}")) \(tapMod.pendingFail("{{id}}"))>{{#children}}{{{html}}}{{/children}}</div>{{{mount}}}</div>
       """
     mount = """
       <div id="{{mountId}}" class="tab-panel" data-effect="fhUrl('ui.{{id}}', $ui_{{id}})">{{{panel}}}</div>

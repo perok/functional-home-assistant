@@ -44,17 +44,16 @@ class RendererSuite extends munit.FunSuite {
     ),
     // Tabs container: tabbar row of buttons (children) + panel host (baked via {{{panel}}}).
     // `data-signals` seeds the active-tab signal to the baked tab index ({{bakeIndex}}).
-    // SPLIT, like the shipped `Tabs`: the bar is the card's own presentation
-    // (`self`), the panel is where the selected tab is mounted, and they are
-    // siblings. Minimal markup, real SHAPE — shape is what the engine dispatches
-    // on (`hasSelf` picks what a patch renders and targets), so a fixture that
-    // mimicked Tabs while unsplit would be a different KIND of card.
+    // Shaped like the shipped `Tabs`: the bar is STRUCTURE holding the buttons,
+    // the panel is the mount. No `self` — a self may hold no hole, so a card
+    // cannot both be a patch target and splice its children. Minimal markup,
+    // real SHAPE — shape is what the engine dispatches on (`hasSelf` picks what
+    // a patch renders and targets), so a fixture whose shape drifted from Tabs
+    // would be a different KIND of card. See `tabsLive` below for the split
+    // that survives: a self beside the mount, holding no hole.
     "tabs" -> CardDef(
-      template = """<div class="fh-col">{{{self}}}{{{mount}}}</div>""",
-      self = Some(
-        """<div id="{{selfId}}" class="fh-row tabbar">""" +
-          """{{#children}}{{{html}}}{{/children}}</div>"""
-      ),
+      template = """<div class="fh-col"><div class="fh-row tabbar">""" +
+        """{{#children}}{{{html}}}{{/children}}</div>{{{mount}}}</div>""",
       mount = Some(
         """<div id="{{mountId}}" class="tab-panel" data-signals="{ tab_{{id}}: {{bakeIndex}} }">{{{panel}}}</div>"""
       )
@@ -1324,19 +1323,25 @@ class RendererSuite extends munit.FunSuite {
       dash(CardDef("<div>{{#children}}{{{html}}}{{/children}}</div>"))
     )
     assertEquals(preSplit.renderNodeById("c", states), None)
-    // ...and a card with a `self` whose CHILD owns the bake group — the same
-    // failure from the other direction.
-    val selfWithBakingChild = Renderer.create(
-      dash(
-        CardDef(
-          template = "{{{self}}}",
-          self = Some(
-            """<div id="{{selfId}}">{{#children}}{{{html}}}{{/children}}</div>"""
-          )
+    // ...and a card with a `self` that splices its children, whose CHILD owns
+    // the bake group. This one is no longer the renderer's to exclude: a self
+    // may hold no hole, so the dashboard is REJECTED rather than rendered with
+    // one node quietly denied live updates. Asserting the stronger thing —
+    // nothing reaches the renderer at all.
+    val selfWithBakingChild = dash(
+      CardDef(
+        template = "{{{self}}}",
+        self = Some(
+          """<div id="{{selfId}}">{{#children}}{{{html}}}{{/children}}</div>"""
         )
       )
     )
-    assertEquals(selfWithBakingChild.renderNodeById("c", states), None)
+    assert(
+      selfWithBakingChild
+        .validate()
+        .exists(e => e.contains("box") && e.contains("{{#children}}")),
+      s"expected a self-hole error, got ${selfWithBakingChild.validate()}"
+    )
 
     // Non-vacuous: the same container with a LEAF child keeps its own
     // rendering, because nothing under it holds a mount.

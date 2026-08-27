@@ -882,6 +882,32 @@ case class Dashboard(
               }
             }
 
+    // A `self` may contain NO HOLE — not the `{{{mount}}}`, not the children
+    // the renderer splices. It is the element a patch replaces, so anything
+    // nested in it rides along, and a node's patch must never carry another
+    // node's bytes.
+    //
+    // The authoring layer states this as a type refinement on
+    // `ContainerCard.self`, but `cards` is decoded from JSON, so the model has
+    // to say it too or the guarantee stops at the Pkl boundary. This replaces
+    // `Templates.selvesCarryChildren`, a runtime grep over the same strings
+    // whose own comment conceded it was a workaround — same test, moved to the
+    // one place that can reject the dashboard instead of quietly excluding the
+    // node from live updates.
+    val selfHoleErrors: List[String] =
+      cards.toList.sortBy(_._1).flatMap { case (name, cd) =>
+        cd.self.toList.flatMap { self =>
+          List("{{{mount}}}", "{{#children}}")
+            .filter(self.contains)
+            .map(hole =>
+              s"card '$name': its `self` contains $hole — a self is what a " +
+                "patch replaces, so a hole inside it would make that patch " +
+                "carry content the node does not own. Move the hole to " +
+                "`template` or `mount`"
+            )
+        }
+      }
+
     // A non-empty theme.chrome MUST wrap {{{body}}} in an element carrying
     // id="dashboard" — that's the navigate/reload swap target. An empty chrome
     // is fine (Renderer falls back to the minimal default). Fail loudly here
@@ -972,7 +998,8 @@ case class Dashboard(
     // The main layout, then every surface's content tree (so card refs / params
     // / slots / transforms inside popups are checked too). Surface errors are
     // prefixed with the surface id for locatability.
-    chromeErrors ++
+    selfHoleErrors ++
+      chromeErrors ++
       danglingBakes ++
       activationErrors ++
       unboundConditions ++

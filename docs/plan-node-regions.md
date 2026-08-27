@@ -511,7 +511,10 @@ A `self` is already forbidden from containing the `{{{mount}}}` hole, with the s
 plan gives. What it misses is `{{#children}}`, which is exactly what `Tabs` does and exactly what
 `Templates.selvesCarryChildren` exists to detect at runtime. So:
 
-- **1a — the invariant.** Widen that constraint to reject ANY hole in a `self`. `Tabs` migrates (its
+- **1a — the invariant.** Widen that constraint to reject `{{#children}}` as well — the two holes
+  the renderer actually fills, hence the two that could smuggle another node's bytes into a patch.
+  Say it again in `Dashboard.validate`, because `cards` is decoded from JSON and a guarantee that
+  stops at the Pkl boundary is not one. `Tabs` migrates (its
   bar moves into `template`, leaving it with no `self` at all), and `Templates.selvesCarryChildren`
   plus the `hasOwnRendering` clause that consumes it are deleted — the runtime grep is replaced by
   a build-time type refinement. **No model change, no renaming, no id change.** Ends at the

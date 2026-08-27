@@ -182,10 +182,22 @@ class ContainerCard extends CardDef {
   /// needs no id.
   mount: String
   /// The card's own presentation, patched independently of the mount. It IS the
-  /// patch target, so it must carry the engine's `{{selfId}}`; and it must not
-  /// nest the mount, or a patch would carry the mounted content after all.
+  /// patch target, so it must carry the engine's `{{selfId}}`.
+  ///
+  /// It must contain **no hole at all** — neither the `{{{mount}}}` nor the
+  /// children the renderer splices. That is the invariant the whole design
+  /// rests on, stated where it can be checked: a patch replaces the element
+  /// carrying `{{selfId}}`, so anything nested inside it rides along, and a
+  /// node's patch must never carry another node's bytes.
+  ///
+  /// The children half of this was a runtime `String.contains("{{#children}}")`
+  /// in `Templates.selvesCarryChildren`, whose own comment conceded it was a
+  /// workaround ("a card cannot be asked to declare it truthfully"). A card can
+  /// be asked — this is the asking.
   self: String?(this == null ||
-    (this.contains("{{selfId}}") && !this.contains("{{{mount}}}"))) = null
+    (this.contains("{{selfId}}") &&
+      !this.contains("{{{mount}}}") &&
+      !this.contains("{{#children}}"))) = null
 }
 
 /// Whether a card holds content but has NO presentation of its own — so its

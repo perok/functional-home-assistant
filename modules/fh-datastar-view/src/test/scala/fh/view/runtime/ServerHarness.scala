@@ -189,13 +189,11 @@ trait ServerHarness extends munit.CatsEffectSuite {
         CardDef("<button>{{label}}</button>", slots = List("label")),
       "card" ->
         CardDef("<span>{{state}}</span>", slots = List("state")),
-      // Split like the shipped `Tabs` — minimal markup, real shape.
+      // Shaped like the shipped `Tabs` — minimal markup, real shape. The bar is
+      // structure holding the buttons, not a `self`: a self may hold no hole.
       "tabs" -> CardDef(
-        template = "{{{self}}}{{{mount}}}",
-        self = Some(
-          """<div id="{{selfId}}" class="tabs">""" +
-            """{{#children}}{{{html}}}{{/children}}</div>"""
-        ),
+        template = """<div class="tabs">""" +
+          """{{#children}}{{{html}}}{{/children}}</div>{{{mount}}}""",
         mount = Some(
           """<div id="{{mountId}}" data-signals="{ tab_{{id}}: {{bakeIndex}} }">{{{panel}}}</div>"""
         )
