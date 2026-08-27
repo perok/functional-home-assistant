@@ -89,6 +89,42 @@ class RenderCacheContentionSuite extends ServerHarness {
     )
   )
 
+  /** The shape after `self` goes: the live part is a LEAF sibling of the baked
+    * region, not the bake owner's own presentation.
+    *
+    * Same dashboard, same two viewers on two tabs — the only change is WHERE
+    * the live value lives. `c_0` is structure and renders nothing per frame;
+    * `c_0_bar_0` is the leaf that does.
+    */
+  private def leafDash = Dashboard(
+    cards = Map(
+      "col" -> CardDef("<div>{{#children}}{{{html}}}{{/children}}</div>"),
+      "card" -> CardDef("<span>{{state}}</span>", slots = List("state")),
+      "tabs" -> CardDef(
+        template =
+          """{{#bar}}{{{html}}}{{/bar}}<div id="{{hostId}}" class="tabs">{{{panel}}}</div>""",
+        regions = Map("bar" -> Region(), "panel" -> Region(Region.Baked))
+      )
+    ),
+    card = LayoutNode.Component(
+      "col",
+      children = LayoutNode.kids(
+        LayoutNode.Component(
+          "tabs",
+          children = Map(
+            "bar" -> List(
+              LayoutNode.Component(
+                "card",
+                slots = Map("state" -> SlotSource(Some("sensor.shared")))
+              )
+            )
+          )
+        )
+      )
+    ),
+    surfaces = contendedDash.surfaces
+  )
+
   /** The same node with no bake group: one key for everyone, at any count. */
   private def plainDash = Dashboard(
     cards = Map(
@@ -145,7 +181,8 @@ class RenderCacheContentionSuite extends ServerHarness {
   private def rendersPerFrame(
       dash: Dashboard,
       queries: List[String],
-      frames: Int
+      frames: Int,
+      node: NodeId = "c_0"
   ): IO[Double] = {
     val renderer = new PerNode(dash)
     liveWorldOf(renderer, initial) { world =>
@@ -156,7 +193,7 @@ class RenderCacheContentionSuite extends ServerHarness {
           world.change(st("sensor.shared", i.toString))
         )
       } yield ()
-    } *> renderer.tally.map(_.getOrElse("c_0", 0).toDouble / frames)
+    } *> renderer.tally.map(_.getOrElse(node, 0).toDouble / frames)
   }
 
   private val Frames = 8
@@ -166,9 +203,10 @@ class RenderCacheContentionSuite extends ServerHarness {
       qs: List[String],
       dash: Dashboard,
       expected: Double,
-      frames: Int = Frames
+      frames: Int = Frames,
+      node: NodeId = "c_0"
   ): IO[Unit] =
-    rendersPerFrame(dash, qs, frames).flatMap(got =>
+    rendersPerFrame(dash, qs, frames, node).flatMap(got =>
       IO(assertEquals(got, expected, s"$label (${qs.size} viewers)"))
     )
 
@@ -215,6 +253,40 @@ class RenderCacheContentionSuite extends ServerHarness {
         contendedDash,
         2.0,
         frames = 5
+      )
+  }
+
+  /** THE question the `self` deletion turns on, measured rather than argued.
+    *
+    * The old shape needs two renders a frame for two tabs and that is a FLOOR:
+    * the bake owner's own bytes carry the viewer's selection, so the two
+    * viewers are owed different bytes. The new shape needs ONE — the live part
+    * is a leaf whose bytes mention no selection, so every viewer is owed the
+    * same bytes and one render serves them all.
+    *
+    * If this measured 2.0 the contention would merely have moved and the
+    * per-selection bucketing would still be earning its keep.
+    */
+  test("as a leaf, two tabs cost ONE render — the contention is gone") {
+    assertCost(
+      "old shape, 1+1 on two tabs",
+      List("", "?ui.c_0=1"),
+      contendedDash,
+      2.0
+    ) *>
+      assertCost(
+        "new shape, 1+1 on two tabs",
+        List("", "?ui.c_0=1"),
+        leafDash,
+        1.0,
+        node = "c_0_bar_0"
+      ) *>
+      // ...and the owner itself is not rendered per frame at all.
+      assertCost(
+        "new shape, the structural owner",
+        List("", "?ui.c_0=1"),
+        leafDash,
+        0.0
       )
   }
 
