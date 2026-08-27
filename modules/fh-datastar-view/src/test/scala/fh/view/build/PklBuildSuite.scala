@@ -1,7 +1,7 @@
 package fh.view.build
 
 import fh.view.model.{CardDef, Dashboard, LayoutNode, Op, Predicate}
-import fh.view.testkit.{PklFixture, PklWorkspace}
+import fh.view.testkit.{FixtureEntity, HouseFixture, PklFixture, PklWorkspace}
 import io.circe.Json
 
 class PklBuildSuite extends munit.FunSuite {
@@ -859,6 +859,55 @@ class PklBuildSuite extends munit.FunSuite {
     * (`HouseFixture` has no switches at all): "renders on any installation" is
     * its whole design property, so an empty domain list must build, not throw.
     */
+  /** The starter, against a house that actually POPULATES its "Low battery"
+    * section — which `HouseFixture` does not, so the test above builds it with
+    * three empty sets and proves less than it looks.
+    *
+    * That gap shipped a real failure: a low-battery `c.entityCard` takes the
+    * default tap, a sensor has no domain service, so the default is an INLINE
+    * more-info popup — and the hoist never walked a candidate set's clauses, so
+    * its `@@NODE_ID@@` survived and the server refused the dashboard with "the
+    * build left placeholder tokens unresolved".
+    *
+    * Asserted on the SHIPPED starter rather than a fixture, because the shape
+    * is not exotic: it is what a fresh install serves on first boot.
+    */
+  test("the starter's low-battery cards hoist their more-info popups") {
+    val dump = HouseFixture.dumpWith(
+      FixtureEntity(
+        "sensor.remote_battery",
+        "7",
+        Map(
+          "friendly_name" -> Json.fromString("Remote Battery"),
+          "device_class" -> Json.fromString("battery"),
+          "unit_of_measurement" -> Json.fromString("%")
+        )
+      )
+    )
+    // The starter is a SITE, so the dashboard is under `dashboards.home` —
+    // hoisting the site JSON itself finds no `card` and walks nothing, which is
+    // a way to write a vacuous assertion, not a passing one.
+    val built = PklFixture.eval("site", AddonBootstrap.starterSite, dump)
+    val home = built.value.hcursor
+      .downField("dashboards")
+      .downField("home")
+      .focus
+      .getOrElse(fail("the starter names no dashboard 'home'"))
+    val hoisted = DashboardBuild.hoistInlineSurfaces(home)
+    assertEquals(
+      DashboardBuild.unresolvedTokens(hoisted),
+      Nil,
+      clue = "a set clause's inline surface was not hoisted"
+    )
+    // The set really did select it — otherwise the assertion above is vacuous,
+    // which is exactly how this went unnoticed.
+    assert(
+      hoisted.noSpaces.contains("sensor.remote_battery"),
+      clue =
+        "the low-battery set selected no candidate; the test proves nothing"
+    )
+  }
+
   test("the bundled starter dashboard builds against an arbitrary house") {
     val d = PklFixture.buildSiteDashboard(
       "home",

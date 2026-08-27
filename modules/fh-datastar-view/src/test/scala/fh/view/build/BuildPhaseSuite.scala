@@ -144,12 +144,89 @@ class BuildPhaseSuite extends munit.FunSuite {
     assertEquals(DashboardBuild.unresolvedTokens(named), Nil)
   }
 
+  /** A candidate set's clause nodes were invisible to this pass — it knew only
+    * `children`, and a set holds its nodes under `members[…].clauses[…].node`.
+    * So an inline surface inside a set was never hoisted and its `@@NODE_ID@@`
+    * reached the browser.
+    *
+    * That is not an exotic shape: it is what the SHIPPED starter does. Its "Low
+    * battery" section renders `c.entityCard` over sensors, a sensor has no
+    * domain service, so its default tap is more-info — an INLINE popup (ADR
+    * 0016). Any house with a battery sensor under 20 % built a dashboard the
+    * server then refused.
+    *
+    * The member's id carries no clause index, deliberately (`MemberGraph`: only
+    * a set NESTED in a clause needs one), so both clauses of a candidate hoist
+    * under the same id — see the duplicate-key test below.
+    */
+  test("hoistInlineSurfaces descends a candidate set's clauses") {
+    val json = parser
+      .parse("""
+        { "cards": {}, "card": {
+            "kind": "component", "card": "fhcol",
+            "children": [
+              { "kind": "set",
+                "candidates": ["sensor.batt"],
+                "members": { "sensor.batt": { "clauses": [
+                  { "node": { "kind": "component", "card": "entityCard",
+                      "slots": { "onclick": "open @@NODE_ID@@_self" },
+                      "inlineSurfaces": { "self": {
+                        "content": { "kind": "component", "card": "card" } } } } }
+                ] } } }
+            ] } }
+      """)
+      .toOption
+      .get
+    val hoisted = DashboardBuild.hoistInlineSurfaces(json)
+    assertEquals(
+      DashboardBuild.unresolvedTokens(hoisted),
+      Nil,
+      clue = hoisted.noSpaces
+    )
+    // Under the id the RENDERER gives that member — `<setId>_<entity>`, with
+    // the entity sanitised (`MemberGraph.memberId`). An id this pass invented
+    // instead would leave the popup registered where no node looks for it.
+    assertEquals(
+      hoisted.hcursor.downField("surfaces").keys.map(_.toList),
+      Some(List("c_0_sensor_batt_self"))
+    )
+  }
+
+  test("two clauses of one candidate cannot both own a popup") {
+    // The consequence of a member id with no clause index, made LOUD. Merging
+    // keeps the last of a repeated key, so the quiet version of this is a popup
+    // that opens and shows another clause's content.
+    val json = parser
+      .parse("""
+        { "cards": {}, "card": {
+            "kind": "component", "card": "fhcol",
+            "children": [
+              { "kind": "set",
+                "candidates": ["sensor.batt"],
+                "members": { "sensor.batt": { "clauses": [
+                  { "node": { "kind": "component", "card": "a",
+                      "inlineSurfaces": { "self": {
+                        "content": { "kind": "component", "card": "card" } } } } },
+                  { "node": { "kind": "component", "card": "b",
+                      "inlineSurfaces": { "self": {
+                        "content": { "kind": "component", "card": "card" } } } } }
+                ] } } }
+            ] } }
+      """)
+      .toOption
+      .get
+    val e = intercept[fh.view.FHError](DashboardBuild.hoistInlineSurfaces(json))
+    assert(
+      e.getMessage.contains("c_0_sensor_batt_self"),
+      clue = e.getMessage
+    )
+  }
+
   /** `children` has TWO wire forms — a bare array for a card with one region,
     * an object keyed by region for a card with several — and this pass read
     * only the first. It did not merely skip the second: it STOPPED at such a
     * node, so nothing below a grouped slider's head or members was hoisted and
-    * the `@@NODE_ID@@` down there reached the browser verbatim. That is what
-    * the dev server reported as "the build left placeholder tokens unresolved".
+    * the `@@NODE_ID@@` down there reached the browser verbatim.
     *
     * Asserted as the PROPERTY — no token survives, wherever the surface sits —
     * rather than on the one id that was wrong, because the same gap swallows

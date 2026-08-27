@@ -95,6 +95,15 @@ object DashboardBuild {
     */
   val ContentKey: String = "content"
 
+  /** A candidate set's layout-tree edges: `members` maps a candidate to its
+    * guarded renderings, `clauses` are those renderings in order, and `node` is
+    * the one each renders. The OTHER recursive edge [[hoistInlineSurfaces]]
+    * walks — a set holds no `children`.
+    */
+  val MembersKey: String = "members"
+  val ClausesKey: String = "clauses"
+  val NodeKey: String = "node"
+
   /** The literal token an authored node uses to refer to its own backend-minted
     * id — the SAME id the renderer injects as `{{id}}` for that node
     * ([[fh.view.model.LayoutNode.pathId]]). [[hoistInlineSurfaces]] mints it
@@ -155,6 +164,19 @@ object DashboardBuild {
         }
         val collected =
           cardSurfaces ++ rebuilt.flatMap(_._2)
+        // `JsonObject.fromIterable` keeps the LAST of a repeated key, so a
+        // collision here silently drops a popup — it opens, and the registry
+        // hands back somebody else's content. The one shape that can produce
+        // it is two clauses of one candidate each owning an inline surface,
+        // since a member's id carries no clause index (`walkMembers`).
+        val clashes = collected.map(_._1).diff(collected.map(_._1).distinct)
+        if (clashes.nonEmpty)
+          throw FHError.badCondition(
+            s"two inline surfaces claim the id ${clashes.distinct.sorted
+                .mkString(", ")} — a candidate's clauses share one node id, so " +
+              "at most one of its renderings may own a popup. Give the others " +
+              "a registered surface and open it by name."
+          )
         val merged = JsonObject.fromIterable(
           rebuilt.map(_._1) ++ collected
         )
@@ -266,6 +288,58 @@ object DashboardBuild {
     (rs.map(_._1).toList, rs.toList.flatMap(_._2))
   }
 
+  /** A candidate set's clause nodes, walked under the ids the RENDERER gives
+    * its members: `<setId>_<sanitised entity>`, which is `MemberGraph.memberId`
+    * — spelled here because this pass sees JSON, not a `MemberGraph`.
+    *
+    * '''Both clauses of a candidate get the SAME id, and that is not an
+    * oversight here.''' A member's id deliberately carries no clause index
+    * (only a set NESTED in a clause needs one, so that two clauses holding sets
+    * cannot share one), because exactly one clause is ever rendered. Two
+    * clauses that each own an inline surface therefore collide on one registry
+    * key — caught in [[hoistInlineSurfaces]] rather than silently resolved,
+    * since whichever one won would be right half the time.
+    *
+    * A no-op for anything that is not a set, which is almost every node.
+    */
+  private def walkMembers(
+      obj: JsonObject,
+      idBase: String
+  ): (JsonObject, List[(String, Json)]) =
+    obj(MembersKey).flatMap(_.asObject) match {
+      case None          => (obj, Nil)
+      case Some(members) =>
+        val rs = members.toList.map { case (entityId, m) =>
+          val mObj = m.asObject.getOrElse(JsonObject.empty)
+          val memberBase = s"${idBase}_${LayoutNode.sanitize(entityId)}"
+          val walked = mObj(ClausesKey)
+            .flatMap(_.asArray)
+            .getOrElse(Vector.empty)
+            .map { clause =>
+              val cObj = clause.asObject.getOrElse(JsonObject.empty)
+              cObj(NodeKey) match {
+                case None    => (clause, Nil)
+                case Some(n) =>
+                  val (walkedNode, surfaces) = walk(n, memberBase)
+                  (Json.fromJsonObject(cObj.add(NodeKey, walkedNode)), surfaces)
+              }
+            }
+          (
+            entityId -> Json.fromJsonObject(
+              mObj.add(ClausesKey, Json.fromValues(walked.map(_._1)))
+            ),
+            walked.toList.flatMap(_._2)
+          )
+        }
+        (
+          obj.add(
+            MembersKey,
+            Json.fromJsonObject(JsonObject.fromIterable(rs.map(_._1)))
+          ),
+          rs.flatMap(_._2)
+        )
+    }
+
   private def walk(node: Json, idBase: String): (Json, List[(String, Json)]) =
     node.asObject match {
       case None       => (node, Nil)
@@ -299,8 +373,16 @@ object DashboardBuild {
               )
             case _ => (obj0, Nil)
           }
-        obj1(InlineSurfacesKey).flatMap(_.asObject) match {
-          case None         => (Json.fromJsonObject(obj1), childSurfaces)
+        // A CANDIDATE SET holds its nodes under `members[…].clauses[…].node`,
+        // not under `children`, so it was invisible here — and an inline
+        // surface inside one was never hoisted. Not an exotic shape: the
+        // shipped starter's "Low battery" section renders `c.entityCard` over
+        // sensors, a sensor has no domain service, so its default tap is an
+        // INLINE more-info popup (ADR 0016).
+        val (obj2, setSurfaces) = walkMembers(obj1, idBase)
+        obj2(InlineSurfacesKey).flatMap(_.asObject) match {
+          case None =>
+            (Json.fromJsonObject(obj2), childSurfaces ++ setSurfaces)
           case Some(marker) =>
             // Resolve nested inline surfaces inside each panel first, so the
             // only `NodeIdToken`s left in this subtree belong to THIS node.
@@ -323,7 +405,7 @@ object DashboardBuild {
                 )
               (key, sdObj.add(ContentKey, content), nested)
             }
-            val withResolved = obj1.add(
+            val withResolved = obj2.add(
               InlineSurfacesKey,
               Json.fromJsonObject(
                 JsonObject.fromIterable(
@@ -346,7 +428,7 @@ object DashboardBuild {
               }
             (
               Json.fromJsonObject(splicedObj.remove(InlineSurfacesKey)),
-              childSurfaces ++ resolved.flatMap(_._3) ++ lifted
+              childSurfaces ++ setSurfaces ++ resolved.flatMap(_._3) ++ lifted
             )
         }
     }
