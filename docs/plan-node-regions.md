@@ -1,4 +1,4 @@
-# Plan: named child regions on a node (fh-datastar-view)
+# Plan: named regions on a node, and the end of `self` (fh-datastar-view)
 
 > Status: direction picked, pre-implementation. Closes [#151](https://github.com/perok/functional-home-assistant/issues/151)
 > and answers the Open question in [ADR 0012](adr/0012-each-session-renders-what-it-is-owed.md),
@@ -8,173 +8,135 @@
 ## Why
 
 A node has ONE `children` list, and every markup part of its card is handed that same list — so a
-container spends it on exactly one hole:
+container spends it on exactly one hole. Issue 151 is the first card that needs two: the slider
+head's single hardcoded `mdi-power` button becomes a list of author-supplied action nodes, so the
+guard, indicator, `fh-disabled`/`fh-loading` and delayed-spinner attributes key on each action's own
+id instead of borrowing the slider's `_<id>__busy`. That is what stops one action's `finished` from
+clearing another's in-flight busy.
 
-| card | `self` (the patch fragment) | `mount` |
+Named regions are the mechanism. Working out where they may be placed turned out to answer a larger
+question, so this plan does two things: it adds regions, and it deletes `self`.
+
+## The invariant
+
+> **Every hole in a card's template is disjoint from every other hole.**
+
+No hole nests inside another. Not a hole inside `self`, and not a hole inside another region — the
+second case matters the moment regions are plural, because an outer region's refill would carry the
+inner one's bytes exactly as a `self` patch would.
+
+Stated about the template, it is checkable at build with no runtime knowledge at all. That is the
+whole point: it replaces `Templates.selvesCarryChildren`, a `String.contains("{{#children}}")` grep
+whose own comment concedes it is a workaround ("a card cannot be asked to declare it truthfully").
+
+What it buys is that **a node's patch can never carry another node's bytes**. Not policed, not
+opted out of — unrepresentable. Every design in this area that tried to make the composing case
+*safe* (see Rejected) was working around a shape the invariant simply removes.
+
+## What `self` was, and why it goes
+
+`self` exists for exactly one reason, and `Renderer.patchTargetId` says so:
+
+```scala
+def patchTargetId(id: NodeId): DomId =
+  allIndexed.get(id) match {
+    case Some((c: LayoutNode.Component, _, _)) if hasSelf(c.card) =>
+      Renderer.selfElementId(id)      // <id>-self
+    case _ => elementId(id)           // the .fh-cell wrapper
+  }
+```
+
+> *"A container declaring a `self` targets `<id>-self`, so its patch cannot reach the sibling mount
+> holding its children."*
+
+That is the entire job: give a card that has regions a patch target excluding them. A leaf card
+needs no such thing — its whole template is its fragment, and the `.fh-cell` wrapper is the target.
+
+So under the invariant, `self` is precisely *"the leaf-shaped part of a card that also has regions."*
+Which can be a node in a region instead, with its own cell as its own target — and then the concept
+is gone.
+
+### The rule that replaces it
+
+> **A card is a LEAF (no regions — its template is its patch fragment) or STRUCTURE (regions — never
+> a patch target). A structural card's own markup changes only through signal slots.**
+
+The last clause is the escape hatch, and it is the mechanism this project already has for it: ADR
+0017 signal slots push a value without re-rendering anything, so a structural element can carry a
+live class or label without ever being patched. A structural card wanting *markup* to change puts
+that markup in a region, as a node.
+
+### The library says this costs almost nothing
+
+Every card in `lib/`, by which parts it declares:
+
+| card | declares | under the rule |
 |---|---|---|
-| `Tabs` (`components/surface.pkl`) | `{{#children}}` — the tab bar | `{{{panel}}}`, filled per viewer |
-| `Slider` (`components/slider.pkl`) | splices nothing | `{{#children}}` — the member rows |
-| `Row`/`Column`/`Grid`/popup | — | `{{#children}}` |
+| `EntityCard`, `Button`, `Toggle`, `Pill` | `template` only | leaf — unchanged, `self` was never involved |
+| `Row`, `Column`, `Grid`, popup | `mount` only | structure — `mount` renamed to a region |
+| `If` (`ifhost`) | `mount` only | structure — one baked region |
+| `Tabs` | `self` + `mount` | structure — `self` deleted, see below |
+| `Slider` | `self` + `mount` | structure — head becomes a node, see below |
 
-Nothing supports a card placing children in more than one of its parts. Issue 151 is the first card
-that needs to: the slider head's single hardcoded `mdi-power` button becomes a list of author-supplied
-action nodes, so the guard, indicator, `fh-disabled`/`fh-loading` and delayed-spinner attributes key
-on each action's own id instead of borrowing the slider's `_<id>__busy`. That is what stops one
-action's `finished` from clearing another's in-flight busy. The head is the slider's `self`; the
-members are its `mount`.
+**Two cards in the whole library have a `self`, and both also have a region.** Every other card is
+already a pure leaf or pure structure. There is no third shape to migrate.
 
-ADR 0012 records the question this raises:
+**Tabs** costs nothing. Its `self` is the `.tabs` bar, and it wraps `{{#children}}` (the buttons)
+because BeerCSS styles tabs with the structural selector `.tabs > a`. But the card's own comment
+records that *"the bar carries no live value today"* — so the bar is structure:
 
-> **Should a `self` splice children at all?** … What would decide it: whether any card ever wants
-> AUTHOR-supplied children inside a `self`. Until then the rule is checked, not trusted.
-
-**This plan answers yes**, and pays for the answer by making the guard exact rather than
-conservative.
-
-## The mechanism is regions, not head actions
-
-The slider is the first consumer, not the shape of the design. A region mechanism that only handled
-eagerly-rendered chrome would leave `mount` as a parallel special case and would have to be widened
-the first time a card wanted a lazily-selected region — so it is general from the start:
-
-**A region declares WHERE it is placed and HOW it is filled.**
-
-- `fill = "eager"` — the node's own children, composed into the card's rendering. A row's children,
-  a slider's member rows, a tab BAR's buttons, a slider head's actions.
-- `fill = "baked"` — a hole some surface fills per viewer, lazily, as its own operation. A tab
-  PANEL, a popup, an `If` branch.
-
-With that, `mount` stops being a word. It exists today to carry two unrelated facts at once — "not
-in the patch fragment" and "the bake host" — which is why `Row` and `Tabs` both have one while
-meaning entirely different things by it.
-
-## What `self` is, since the rest depends on it
-
-`self` answers exactly one question: **when this node's entity moves, which bytes get replaced?**
-Everything else follows — `patchTargetId` returns `<id>-self`, that element is the fragment on the
-wire, and it is what `Session.holds` digests.
-
-A fragment may compose other NODES. `Tabs` already does — its buttons are children rendered inside
-its `self`, and `Renderer.renderIndexed` hands a `self` its children's renderings on purpose.
-
-**A node's OWN baked region cannot reach its own `self`, and that is already structural.** In
-`Renderer.traced`:
-
-```scala
-val selfVars = structuralVars(id) ++ bakeIndex   // no `baked`
-val vars     = selfVars ++ baked                 // the mount part only
+```pkl
+template = <div class="fh-col">
+             <div class="tabs" data-signals__ifmissing="{ ui_{{id}}: {{bakeIndex}} }" …>
+               {{#buttons}}{{{html}}}{{/buttons}}
+             </div>
+             <div id="{{regionId_panel}}" class="tab-panel" …>{{{panel}}}</div>
+           </div>
 ```
 
-The `self` template is handed no variable holding the baked member, so there is nothing to render it
-with. This is the rule at its strongest and it costs nothing; step 2 keeps it as a declared,
-validated fact (`in = "self"` ⟹ `fill = "eager"`) rather than an accident of a var map.
+The template is rendered with `vars`, which includes `bakeIndex` (`Renderer.traced`), so the signal
+seed comes along unchanged, and the buttons stay direct children of `.tabs`. A *live* tab-bar header
+— the "tab bar with the current temperature" that `RendererSuite`'s `tabsLive` fixture exists for —
+is a leaf node in a third region beside the buttons. Note that `tabsLive`'s `self` already contains
+no hole, so that fixture already satisfies the invariant.
 
-**Everything else — a self-region holding nodes that themselves have baked regions, stacked to any
-depth — is a BOOKKEEPING job, not a prohibition.** Two arguments were made for banning it and only
-one is real:
+**Slider** is the one real cost. Its `self` is the head row: label, fill bar, input, toggle, readout
+— one indivisible chunk of markup driven by one entity. It becomes a `SliderHead` leaf node in a
+`head` region, constructed by the `Slider` class itself, never written by an author. The bill:
 
-- *The render cache.* Not an issue. `renderInputs` returns `None` whenever `ownBytesCarryChildren`
-  (today simply `children.nonEmpty`), so a node that composes children is already uncached — the
-  same answer ADR 0012 gives for the composed surface mount, "its bytes carry its children, so it
-  has no sound key". Composition is handled by opting out of the cache, not by being forbidden.
-- *`Session.holds`.* Real, and the reason the ban exists today: `renderNodeById` returns a bare
-  `String`, and the content-patch path claims only the node it targeted. A content patch that
-  composed a baked region would write DOM that the session's records never hear about, so later
-  patches for the nodes inside it would be suppressed or duplicated against stale entries.
+- **One extra node per slider** — an id, a changelog entry, a `Session.holds` entry.
+- Its `.fh-cell` wrapper must be `display:contents` so the slider's grid is unaffected. Precedent
+  in the same card family: `.tab-panel{display:contents}`, for the same reason.
+- It cannot use `wrapAsCell = false`: `Dashboard.validate` rejects an unwrapped card that binds live
+  entities, because *"an unwrapped node has no morph target"*. The cell IS the target here, which is
+  the whole mechanism.
 
-That second one is already solved elsewhere, for exactly this shape. `Patches.hostFill` renders a
-whole surface subtree and emits a patch that CLAIMS every node it placed (from `Traced.own`) and
-INVALIDATES what it displaced:
+This is **not** the "split the slider card" option rejected below. The author still writes
+`c.slider(light).withSubSliders(rows)` and still gets one card; the head is internal.
 
-```scala
-Addressed(
-  Patch.Insert(t.html, PatchMode.Inner, host),
-  t.own.map { case (id, p) => id -> Held(Some(Digest.of(p.html)), p.signals) },
-  (renderer.surfaces.surfacesAt(host) ++ arriving).flatMap(renderer.surfaceNodeIds)
-)
-```
+### What gets deleted
 
-A tab switch and a popup open are that call. The content-patch path needs the same treatment, which
-is step 1.
+`Templates.selves`, `Templates.mounts`, `Templates.selvesCarryChildren`, `Renderer.hasSelf`,
+`selfElementId`, `patchTargetId` (collapses into `elementId`), `mountId` (becomes
+`regionId(id, region)`), `hasOwnRendering`, `carriesMount`, `ownBytesCarryChildren`, the
+`selfVars`/`vars` split in `traced`, and the `compose`/`selfOnly` two-form split — a patch is always
+one node's whole template.
 
-Two things this does NOT license, worth keeping in view:
+Two consequences worth naming:
 
-- Rendering a baked region as an inert empty host inside a fragment, UNMARKED. ADR 0012 rejected
-  that under *"a hollow mount plus a per-connection fill"*, and its reason is the one that bites:
-  **a mount carries client-dependent ATTRIBUTES, not merely children** — so an unmarked hollow host
-  does not merely fail to carry the panel, it overwrites the real host's attributes with a
-  placeholder's. Compose it fully, or mark it `data-ignore-morph` (see the re-send note above, and
-  spike the `hostFill` interaction first). Never emit a bare empty host.
-- Deep composition for free. A content patch that composes a bake host re-sends that host's whole
-  baked content even when only the outer node's own slot moved: the fragment is one blob morphed
-  onto one element, so the panel's bytes have to be *in* it.
+- **Every leaf is cacheable.** `ownBytesCarryChildren` is `children.nonEmpty`, a conservative proxy
+  for "my bytes carry my kids". Under the rule a patched node has no kids in its bytes, ever, so the
+  opt-out has nothing to opt out. A slider group is uncached today; it stops being.
+- **Open question #130 loses its first obstacle.** Its wording is *"what a parent EMBEDS is not what
+  a patch carries (for a `self` card the cache holds the `self` element alone)"*. Under the rule
+  what a parent embeds is a composition of separately-cached leaves, which is the same thing.
 
-  **Not reachable today, or after step 3** — it needs a `self`-placed region holding a `Tabs` or an
-  `iff` host, and the only two self-regions that exist hold leaves by construction (a tab bar holds
-  `TabButton`s the card generates; the slider head holds icon buttons). A popup does not count: an
-  unbaked surface hosts at the page-level overlay (`Dashboard.PopupHostId`), so a tap that opens one
-  never makes its opener a bake host.
-
-  So this is a property to check when declaring a NEW self-region, not a cost this work incurs. If a
-  region is chrome, say so — a `holds = "leaves"` declaration on `Region` makes it unrepresentable
-  rather than merely unlikely, and costs one validate rule. Leave it open where an author genuinely
-  wants containers there.
-
-  **`data-ignore-morph` is the third option, and it is real** — read off the pinned bundle
-  (`assets-cache/*-datastar.js`, v1.0.2), in the per-node morph `dt`:
-
-  ```js
-  dt=(e,t)=>{ ... if(r.hasAttribute(Re)&&s.hasAttribute(Re))return e; ...   // Re = data-ignore-morph
-  ```
-
-  It returns the EXISTING node before any attribute reconciliation, so the element, its attributes
-  and its whole subtree are left untouched — and because this is the per-node walk, it applies while
-  an ancestor is being morphed, not only when the patch targets that element. The guard is
-  **both-sided**: the skip happens only if the node in the DOM *and* the node in the arriving
-  fragment both carry the attribute. The published docs state neither the both-sided requirement nor
-  that it survives an ancestor morph.
-
-  So a bake host marked `data-ignore-morph` lets an ancestor's fragment carry an EMPTY host and
-  disturb nothing: no re-send, and no bookkeeping to do, because the patch writes nothing there.
-
-  **Open risk before designing on it:** `Patches.hostFill` inner-patches that same host. If an
-  `Inner` patch reaches `dt` with the host on both sides, the fill would be refused by the same
-  guard. It probably does not — under `Inner` the arriving side is the new children rather than a
-  copy of the host — but that is inference from the call shape, not something read or measured.
-  Spike it against `DatastarMorphContractSuite` (with a control, per that suite's own lesson) before
-  the design leans on it.
-
-## Step 1 — trace the content-patch path, and delete the ban
-
-Separable, releasable on its own, and it uses a pattern already in production rather than inventing
-one. It is also what lets step 2's regions carry any node at all, instead of needing an
-element-type constraint on what a self-region may hold.
-
-- `renderNodeById` gains a traced sibling returning `Traced` rather than `String` — the walk already
-  computes per-node bytes (`Traced.own`), so this is a matter of not discarding them on this path.
-- The content patch is built like `Patches.hostFill`: `claims` from `t.own`, `invalidates` for the
-  surfaces it displaced. `Patches.applied` already knows how to fold both into a session.
-- `hasOwnRendering` loses its third clause entirely — the `selvesCarryChildren && children.exists(
-  carriesMount)` exclusion — and with it `Templates.selvesCarryChildren` and `carriesMount` go. Its
-  doc comment enumerates three shapes that fail it; two survive (a bare container, a candidate-set
-  root) and the third is deleted, so rewrite it here.
-- `ownBytesCarryChildren` stays as-is for now: opting composed nodes out of the render cache is the
-  correct answer, not a workaround, and step 2 only refines *which* children count.
-
-The test that matters is the one that would have caught the original bug rather than the shape of
-it: a node whose fragment composes a subtree must leave the session holding a correct digest for
-**every** node it wrote, so a later change to any of them is neither suppressed nor re-sent. A
-grouped slider nested inside a grouped slider, and a tab inside one, are the two fixtures.
-
-## Step 2 — regions
+## Step 1 — regions
 
 ### Pkl
 
 ```pkl
 class Region {
-  /// Which markup part places this region's hole: the card's `template`, or its
-  /// `self` (the patch fragment). A BAKED region may not be placed in `self`.
-  in: "template"|"self" = "template"
   /// eager — the node's own children, composed with the card.
   /// baked  — a hole a surface fills per viewer, lazily, as its own operation.
   fill: "eager"|"baked" = "eager"
@@ -182,8 +144,6 @@ class Region {
 
 class CardDef {
   template: String
-  /// The patch fragment, spliced into `template` at `{{{self}}}`.
-  self: String? = null
   regions: Mapping<String, Region> = new {}
   slots: Listing<String> = new {}
   css: String = ""
@@ -197,66 +157,73 @@ abstract class Node extends LayoutNode {
 }
 ```
 
-`ContainerCard` and `LeafCard` merge into `CardDef`: a leaf is a card with no regions, and the
-`mount` property disappears. A card that used to need a separate `mount` part now writes that markup
-in `template` directly, because the constraint it existed to enforce is now the declaration
-`in = "self"` ⟹ `fill = "eager"`.
+`ContainerCard` and `LeafCard` merge into `CardDef`; `self` and `mount` both disappear as properties.
+A leaf is a card with no regions.
 
-Naming: the card declares `regions`; the node's `children` is a map keyed by region name. One
-concept, two roles. (Sketched originally as `parts` — say if you prefer that for the node side.)
+`fill` keeps the distinction `mount` used to blur: `mount` carried two unrelated facts at once —
+"not in the patch fragment" and "the bake host" — which is why `Row` and `Tabs` both had one while
+meaning entirely different things by it. The first fact is now the invariant; only the second is a
+declaration.
 
 ### Model + validate
 
-`LayoutNode.Component.children: List[LayoutNode]` becomes
-`Map[String, List[LayoutNode]]`. `Dashboard.validate` gains:
+`LayoutNode.Component.children: List[LayoutNode]` becomes `Map[String, List[LayoutNode]]`.
+`Dashboard.validate` gains:
 
-- every region a node populates is one its card declares, and declares `eager` (an unknown or baked
-  region would render nowhere, silently);
-- for each declared region, the part named by `in` splices its hole and no other part does;
-- `in = "self"` implies `fill = "eager"`;
-- region names are plain tokens (`Dashboard.sanitize` maps everything outside `[A-Za-z0-9_]` to `_`,
-  and region names now enter node ids — same rule cell classes already get).
+- **the invariant**: the holes a template splices are pairwise disjoint. Parse the template's
+  section structure once at build rather than grepping it per render;
+- a card with any region is never a patch target, so its template binds no live entity slot — signal
+  slots only. Same shape as the existing `wrapAsCell=false` rejection, and the same reason;
+- every region a node populates is one its card declares, and declares `eager`;
+- every declared region is spliced by the template exactly once;
+- region names are plain tokens — they enter node ids, so `Dashboard.sanitize`'s rule applies as it
+  already does to cell classes.
 
-Step 1 already deletes `Templates.selvesCarryChildren` — the string grep whose own comment concedes
-it is a workaround ("a card cannot be asked to declare it truthfully"). What the second rule adds is
-the thing that makes the declaration trustworthy in the first place: a card that says a region is
-placed `in = "self"` and then splices it somewhere else is now a build error, not a silent
-mismatch. Same shape as the check at `Dashboard.scala:800-805` (a signal slot whose `{{{x__bind}}}`
-no part places), so it is an existing pattern rather than a new one.
+The second rule is what makes the leaf/structure split real rather than a convention.
 
 ### Node ids — full symmetry, and it breaks tab-state URLs
 
 `LayoutNode.pathId` is a flat `List[Int]` (`path.mkString("c_", "_", "")`). Every child segment
 becomes region-qualified, the default region included: `c_2_children_0`, `c_2_headActions_0`. One
-grammar, no privileged region.
+grammar, no privileged region. `path: List[Int]` becomes a list of `(region, index)`.
 
 **Accepted breakage:** node ids are mirrored into the URL for tab state
 (`fhUrl('ui.{{id}}', $ui_{{id}})`), so every bookmarked or shared URL carrying a tab selection stops
 resolving. Deliberate — a second id grammar to protect them is the worse trade while the design is
-pre-v1. `path: List[Int]` becomes a list of `(region, index)`.
+pre-v1.
 
 ### Renderer
 
 - `Index.walk`, `MemberGraph`, the `danglingBakes` walk and the other traversals take
   `children.values.flatten` — mechanical and region-blind, since they only need every node.
 - Region-aware in two places: `renderTemplateOf`'s var map (one section per region rather than one
-  `children` list), and `mountId`, which becomes `regionId(nodeId, region)` for the baked region a
-  surface names.
-- `renderWhole` splices `{{{self}}}` only — the `mounts` template map goes away with the property.
-- `traced`'s `selfVars`/`vars` split becomes "a region placed `in = "self"` sees no baked member",
-  which is the same fact it enforces today, now derived from the declaration.
-- `ownBytesCarryChildren` (the cache opt-out) can narrow from `children.nonEmpty` to "populates a
-  region placed in `self`" — today it needlessly un-caches every slider group, whose `self` never
-  contains its members. Optional and measurable; leave it if the numbers say it does not matter.
+  `children` list), and `mountId` → `regionId(nodeId, region)` for the baked region a surface names.
+- `Tabs` migrates here (its buttons move into the template), because the invariant rejects its
+  current shape the moment it is enforced.
 
 ### Wire format
 
 `dashboard.json` is generated, never tracked, so there is no migration — but `children` changing
 shape is a breaking decoder change, and every suite fixture that hand-writes a node moves with it.
 
-## Step 3 — the slider head, the first consumer
+## Step 2 — delete `self`
 
-- `Slider` declares a `headActions` region with `in = "self"`; the head grid's last column becomes a
+Mechanical once step 1 holds, because the invariant already forbids the only shape that made `self`
+load-bearing.
+
+- `Slider` gains its internal `head` region and `SliderHead` card; the head markup moves across
+  unchanged, plus a `display:contents` cell.
+- `patchTargetId` collapses into `elementId`, and the *"what I morph vs what I am"* distinction its
+  doc comment describes goes with it — one element per node again.
+- Everything in "What gets deleted" above.
+
+The test that matters is the property, not the deletion: **a patch for any node must write bytes for
+that node alone.** A grouped slider nested inside a grouped slider, and a tab inside one, are the
+fixtures — under the old model those were the shapes that could smuggle a subtree into a fragment.
+
+## Step 3 — the slider head actions, the first consumer
+
+- `Slider` declares a `headActions` region beside `head`; the head grid's last column becomes a
   `.slider-actions` flex row carrying `pointer-events:auto` (the rule currently on `.slider-action`,
   which stops being one element's business).
 - A new leaf card for the action itself — a circle icon button with the `lit` signal binding. `c.pill`
@@ -267,119 +234,84 @@ shape is a breaking decoder change, and every suite fixture that hand-writes a n
   **Behaviour change for the commit message:** that action's busy signal moves from the slider's
   `_<id>__busy` to the action node's own. That is the point of the issue, but it is not a no-op.
 
-## Step 4 — ADR 0012
+## Step 4 — the docs
 
-Rewrite its **Open** section in place: the question is answered, and the answer belongs where the
-question was asked. Its *"Rejected along the way"* entry for the hollow mount stays — it is still
-guarding the design, and this plan leans on it. The pipeline map
-(`docs/architecture-rendering-pipeline.md`) moves in the same commits: §5's scope table and the
-`self`/`mount` vocabulary throughout.
+- **ADR 0012**: rewrite the **Open** section in place — the question *"should a `self` splice
+  children at all?"* is answered by the concept no longer existing. Its *"Rejected along the way"*
+  entry for the hollow mount stays; it is still guarding the design.
+- **`docs/architecture-rendering-pipeline.md`**: nearly every "mount" in it is a *surface* mount —
+  the bake host in the fill/refill/horizon machinery, the `Patches.applied` box, `hostEvicts`. That
+  concept survives intact as "baked region"; it is a rename. Two substantive edits: §7's cache row
+  ("A composed surface mount is NOT cached") narrows, and open question #130's first obstacle is
+  struck.
+- **`docs/terminology.md`**: `self` and `mount` are deleted as terms; `region`, `leaf card` and
+  `structural card` replace them. `bake`/`bake group`/`flip` are unaffected.
 
 ## Sequencing
 
-Steps 1–4 land as separate commits in that order; step 1 is releasable on its own. Delete this file
+Steps 1–4 land as separate commits in that order. Step 1 is releasable on its own. Delete this file
 in the same PR as step 3.
+
+### Expected test movement
+
+Not a no-op, though the behavioural surface is small:
+
+- any `.pkl` byte moves the `@fh-dashboard` package hash — the pure-Pkl suite runs on every step;
+- **Tabs' emitted DOM changes**: `id="{{selfId}}"` is on the `.tabs` div today and afterwards is not.
+  Wire snapshots (`fixture-surfaces.json`, `fixture-features.json`) move, and probably the tabs
+  visual baseline. The `data-signals__ifmissing`/`pendingClear`/`pendingFail` attributes key on
+  `{{id}}`, not `selfId`, so those ride along unchanged;
+- **Slider's DOM gains one wrapper** (the head's `display:contents` cell) — same for the snapshots;
+- `ServerHarness`'s synthetic `"tabs"` card has `{{#children}}` in its `self` — the shape the build
+  now rejects — so it and any test asserting patch-target behaviour through it are restructured;
+- `RendererSuite`'s `tabsLive`, and the whole bake / surface / resume / membership layer, should be
+  untouched.
+
+Performance: nothing new is introduced anywhere, and two improvements become available (every leaf
+cacheable; #130's first obstacle gone). The over-send this plan originally set out to prevent is not
+reachable in today's library at all — every `{{{panel}}}`/`{{{branch}}}` sits in a `mount`, never a
+`self` — so removing it saves nothing now. Its value is that it stays impossible.
 
 ## Rejected
 
 - **`headCount` — a leading-N split of one list.** Smallest possible diff, and a hack: it uses
   `List[LayoutNode]` as an ad-hoc two-region protocol with the boundary carried alongside as an
   integer, adding a fourth implicit thing instead of removing any of the three.
-- **A region tag on each child.** Keeps ids and traversals untouched, and once step 1 has deleted
-  the template grep it is no longer *unsound* — just dishonest: a child would be declaring where its
-  parent puts it, with region membership recoverable only by filtering, and `validate` re-checking
-  per child what the map holds by construction. Rejected on "types hold truth", not on breakage.
-- **Split the slider card** into a bare container holding a `SliderHead` node with the members as
-  siblings, actions being ordinary children of the head. Needs no renderer change at all — but trades
-  away a documented authoring property ("give a slider children and it is the same card, a group":
-  ADR 0006, the class doc, a `PklBuildSuite` test), and answers nothing general, so the next card
-  wanting a header control row arrives back here.
-- **Everything through mounts** — ADR 0012's other branch, which would make the rule "unnecessary
-  rather than merely satisfied". It forces `Tabs`' `self` to become a hollow signals-only element
-  beside a `.tabs` mount, because its buttons sit inside the element carrying `{{selfId}}`. Regions
-  subsume it instead: the same card expresses one eager region and one baked one without either
-  becoming hollow.
+- **A region tag on each child.** Keeps ids and traversals untouched, but is dishonest: a child would
+  declare where its parent puts it, with region membership recoverable only by filtering, and
+  `validate` re-checking per child what the map holds by construction. Rejected on "types hold
+  truth".
+- **`Region.in = "template"|"self"`, policed by `holds = "leaves"`.** This plan's own earlier draft:
+  let a region sit inside the patch fragment, and add a declaration forbidding containers there so
+  the composing case stays cheap. Rejected because the invariant removes the case instead of
+  policing it — two knobs, a validate rule and a review question, all deleted by one constraint on
+  the template. The general lesson: a rule with an exception knob loses to an absolute rule you can
+  check at build.
+- **`data-ignore-morph` on the bake host**, so an ancestor's fragment could carry an empty host and
+  disturb nothing. **Measured and unusable.** In the pinned bundle (`assets-cache/*-datastar.js`,
+  v1.0.2) the top-level morph entry is:
 
-## Appendix — the re-send, as code
+  ```js
+  Hn=(e,t,n="outer")=>{ if( z(e)&&z(t)&&e.hasAttribute(Re)&&t.hasAttribute(Re)
+                          || e.parentElement?.closest(Fn) ) return;   // Re="data-ignore-morph"
+  ```
 
-Nothing here compiles today: it is written against step 2's model, and the card is hypothetical.
-That is the point — the shape is not reachable with the shipped library, so this is what to
-recognise if someone builds it.
-
-**The card that makes it possible.** One line does it: a region that accepts arbitrary author nodes,
-placed in the part a live patch rewrites.
-
-```pkl
-class StatusPanel extends nodes.Node {
-  card = "statusPanel"
-  hidden entity: hass.Entity
-  hidden title: String
-  slots {
-    ["entity_id"] = entity.entity_id
-    ["title"] = title
-    // A PLAIN reactive slot — no `signal`, so a change re-renders this card
-    // rather than pushing a value. That is what makes the node a patch target
-    // whose fragment is rebuilt from scratch.
-    ["summary"] = new slotMod.Slot { transform = #"$state & " active""# }
-  }
-  cardDef = new nodes.CardDef {
-    regions {
-      ["body"] = new nodes.Region { in = "self"; fill = "eager" }   // <- the mistake
-    }
-    template = #"<article class="card">{{{self}}}</article>"#
-    self = #"""
-      <div id="{{selfId}}" class="panel">
-        <h3>{{title}}</h3><span>{{summary}}</span>
-        <div class="panel-body">{{#body}}{{{html}}}{{/body}}</div>
-      </div>
-      """#
-  }
-}
-```
-
-**The dashboard that trips it.** An ordinary conditional section, put in that region:
-
-```pkl
-node = (new StatusPanel { entity = dump.entities.sensor_hall_power; title = "Hall" }) {
-  children {
-    ["body"] {
-      c.iff(q.entity(dump.entities.binary_sensor_hall_motion).stateIs("on"))
-        .then(new layout.Grid {
-          children { for (l in dump.areas.hall.lights) { c.slider(l) } }
-        })
-    }
-  }
-}
-```
-
-**What happens.** `sensor.hall_power` ticks — a power reading, so several times a minute. Its only
-reader is the panel's own `summary` slot, four words of text. But:
-
-1. `StatusPanel` is patched, so its `self` is re-rendered;
-2. `{{#body}}` composes the `ifhost` node in full;
-3. `ifhost` is a pure mount whose `{{{branch}}}` hole carries the baked `then` branch;
-4. so every slider in the hall — markup, slot values, signal seeds — goes over the wire, on every
-   power tick, having changed nothing.
-
-The panel's own patch is a few hundred bytes. What rides along is the whole conditional.
-
-**Either fix removes it.** Declaring the region as chrome makes the dashboard above a build error at
-the `c.iff` line, naming it:
-
-```pkl
-["body"] = new nodes.Region { in = "self"; fill = "eager"; holds = "leaves" }
-```
-
-Or, where an author genuinely should be able to put containers there, mark the bake host so the
-morph skips it — then step 1's traced patch carries an empty `ifhost` and disturbs nothing:
-
-```pkl
-// components/surface.pkl, If.cardDef — subject to the hostFill spike above
-mount = #"<div class="fh-ifhost" id="{{mountId}}" data-ignore-morph>{{{branch}}}</div>"#
-```
-
-Both belong to whoever declares a self-region, which is why this is a review question and not a
-rule the plan imposes.
+  Precedence is `(A&&B&&C&&D)||E`, and the guard runs before any mode branch. The second disjunct is
+  unconditional and one-sided: **any element inside a marked subtree is unpatchable, in every mode,
+  silently.** Every slider under a marked host would stop receiving its own updates entirely. This
+  also settles the spike the earlier draft flagged — a patch aimed *at* the marked element is
+  refused only when the arriving fragment also carries the attribute, since `closest` starts at the
+  parent; aimed *below* it, always. Fold into `.claude/skills/datastar/SKILL.md`, replacing the
+  "worth a spike" line with the measurement.
+- **Splitting the slider card in the AUTHORING model** — a bare container holding a `SliderHead`
+  node with the members as siblings. Still rejected: it trades away a documented authoring property
+  ("give a slider children and it is the same card, a group": ADR 0006, the class doc, a
+  `PklBuildSuite` test). Step 2 adopts the *internal* version, where the `Slider` class constructs
+  its own head and the author sees one card.
+- **Everything through mounts** — ADR 0012's other branch. Its objection was that `Tabs`' `self`
+  would have to become a hollow signals-only element beside a `.tabs` mount, because its buttons sit
+  inside the element carrying `{{selfId}}`. Answered by going further: `Tabs` needs no `self`, so
+  nothing becomes hollow.
 
 ### Prior art
 
