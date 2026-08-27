@@ -144,6 +144,62 @@ class BuildPhaseSuite extends munit.FunSuite {
     assertEquals(DashboardBuild.unresolvedTokens(named), Nil)
   }
 
+  /** `children` has TWO wire forms — a bare array for a card with one region,
+    * an object keyed by region for a card with several — and this pass read
+    * only the first. It did not merely skip the second: it STOPPED at such a
+    * node, so nothing below a grouped slider's head or members was hoisted and
+    * the `@@NODE_ID@@` down there reached the browser verbatim. That is what
+    * the dev server reported as "the build left placeholder tokens unresolved".
+    *
+    * Asserted as the PROPERTY — no token survives, wherever the surface sits —
+    * rather than on the one id that was wrong, because the same gap swallows
+    * every region a card ever grows.
+    */
+  test("hoistInlineSurfaces descends BOTH children forms") {
+    val json = parser
+      .parse("""
+        { "cards": {}, "card": {
+            "kind": "component", "card": "fhcol",
+            "children": [
+              { "kind": "component", "card": "slider",
+                "children": {
+                  "head": [
+                    { "kind": "component", "card": "sliderHead",
+                      "children": {
+                        "actions": [
+                          { "kind": "component", "card": "sliderAction",
+                            "slots": { "onclick": "open @@NODE_ID@@_self" },
+                            "inlineSurfaces": { "self": {
+                              "content": { "kind": "component", "card": "card" } } } }
+                        ] } }
+                  ],
+                  "children": [
+                    { "kind": "component", "card": "slider",
+                      "slots": { "onclick": "open @@NODE_ID@@_self" },
+                      "inlineSurfaces": { "self": {
+                        "content": { "kind": "component", "card": "card" } } } }
+                  ] } }
+            ] } }
+      """)
+      .toOption
+      .get
+    val hoisted = DashboardBuild.hoistInlineSurfaces(json)
+    assertEquals(
+      DashboardBuild.unresolvedTokens(hoisted),
+      Nil,
+      clue = hoisted.noSpaces
+    )
+    // ...and under the ids the RENDERER derives, which is the other half: a
+    // surface registered under an id no node has is as broken as an unspliced
+    // token, and just as quiet. The default region contributes only its index
+    // (`children` -> `_0`), a named one contributes both (`head` -> `_head_0`)
+    // — `LayoutNode.segment`, the one encoding.
+    assertEquals(
+      hoisted.hcursor.downField("surfaces").keys.map(_.toList.sorted),
+      Some(List("c_0_0_self", "c_0_head_0_actions_0_self"))
+    )
+  }
+
   test("hoistInlineSurfaces lifts an inline surface and splices the node id") {
     // The node already carries the authored onclick referencing the future id
     // via the NODE token; the hoist only lifts the content + splices the id.

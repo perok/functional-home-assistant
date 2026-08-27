@@ -242,25 +242,62 @@ object DashboardBuild {
 
   // Returns the rewritten node and the surfaces collected from it (and its
   // subtree). `idBase` is the node's position-derived id namespace.
+  /** One region's children, walked under the ids the RENDERER will give them.
+    *
+    * The segment comes from `LayoutNode.segment`, not from a local
+    * `s"${idBase}_$i"`: that spelling is right for the default region and wrong
+    * for every other one, and an id this pass invents is an id nothing else
+    * uses — the surface is registered under a key no node has.
+    */
+  private def walkRegion(
+      region: String,
+      children: Json,
+      idBase: String
+  ): (List[Json], List[(String, Json)]) = {
+    val rs = children.asArray.getOrElse(Vector.empty).zipWithIndex.map {
+      case (ch, i) =>
+        // An AUTHORED id replaces the position-derived one here too, or this
+        // pass would key a node's inline surfaces off an id the renderer never
+        // uses.
+        val derived =
+          s"${idBase}_${LayoutNode.segment(LayoutNode.Step(region, i))}"
+        walk(ch, authoredIdOf(ch).getOrElse(derived))
+    }
+    (rs.map(_._1).toList, rs.toList.flatMap(_._2))
+  }
+
   private def walk(node: Json, idBase: String): (Json, List[(String, Json)]) =
     node.asObject match {
       case None       => (node, Nil)
       case Some(obj0) =>
-        // Recurse into children first.
+        // Recurse into children first — in BOTH wire forms. `children` is a
+        // bare array for a node whose card has one region, and an object keyed
+        // by region name for one with several (`LayoutNode`'s decoder takes
+        // either). Reading only the array form did not merely miss the second:
+        // it made this pass STOP at such a node, so nothing under a grouped
+        // slider's head or members was hoisted, and any `@@NODE_ID@@` down
+        // there survived into the DOM.
         val (obj1, childSurfaces) =
-          obj0(ChildrenKey).flatMap(_.asArray) match {
-            case Some(arr) =>
-              val rs = arr.zipWithIndex.map { case (ch, i) =>
-                // An AUTHORED id replaces the position-derived one here too, or
-                // this pass would key a node's inline surfaces off an id the
-                // renderer never uses.
-                walk(ch, authoredIdOf(ch).getOrElse(s"${idBase}_$i"))
+          obj0(ChildrenKey) match {
+            case Some(kids) if kids.asArray.isDefined =>
+              val (js, ss) = walkRegion(LayoutNode.DefaultRegion, kids, idBase)
+              (obj0.add(ChildrenKey, Json.fromValues(js)), ss)
+            case Some(kids) if kids.asObject.isDefined =>
+              // Region ORDER does not enter an id — the index does, within its
+              // own region — so the object's key order is irrelevant here and
+              // the result stays keyed exactly as it arrived.
+              val rs = kids.asObject.get.toList.map { case (region, arr) =>
+                val (js, ss) = walkRegion(region, arr, idBase)
+                (region -> Json.fromValues(js), ss)
               }
               (
-                obj0.add(ChildrenKey, Json.fromValues(rs.map(_._1))),
-                rs.toList.flatMap(_._2)
+                obj0.add(
+                  ChildrenKey,
+                  Json.fromJsonObject(JsonObject.fromIterable(rs.map(_._1)))
+                ),
+                rs.flatMap(_._2)
               )
-            case None => (obj0, Nil)
+            case _ => (obj0, Nil)
           }
         obj1(InlineSurfacesKey).flatMap(_.asObject) match {
           case None         => (Json.fromJsonObject(obj1), childSurfaces)

@@ -662,8 +662,15 @@ object LayoutNode:
     * is that a region name can never look like an index: [[Dashboard.validate]]
     * rejects an all-digit one, so `headActions_0` cannot be read as the pair
     * `headActions`, `0` — nor `0_0` as region `0`, index `0`.
+    *
+    * PUBLIC because the build's inline-surface hoist walks the same tree and
+    * has to arrive at the same ids. It used to spell the default shape out
+    * (`s"${idBase}_$i"`), which is not a second opinion so much as a second
+    * IMPLEMENTATION: it could only read the array wire form, so it did not
+    * descend a region-keyed node at all, and an inline surface under one was
+    * silently never hoisted — its `@@NODE_ID@@` reaching the DOM verbatim.
     */
-  private def segment(s: Step): String =
+  def segment(s: Step): String =
     if s.region == DefaultRegion then s.index.toString
     else s"${sanitize(s.region)}_${s.index}"
 
