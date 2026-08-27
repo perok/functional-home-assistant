@@ -281,7 +281,7 @@ facts {
     cards["sectionTitle"].template.contains(#"<h2 class="section fh-text"><span class="fh-text-run">{{label}}</span></h2>"#)
     cards["pill"].template.contains(#"<span class="fh-text"><span class="fh-text-run">{{label}}</span></span>"#)
     cards["entityCard"].template.contains(#"<span class="secondary fh-text">"#)
-    cards["slider"].self.contains(#"<strong class="fh-text">"#)
+    cards["sliderHead"].template.contains(#"<strong class="fh-text">"#)
     // A signal-backed reading binds on the RUN, not on the box: `data-text`
     // replaces an element's whole content, so binding the box would delete the
     // run on the first tick and the label would never move again.
@@ -351,26 +351,26 @@ facts {
     // have to, which of a group's lights can dim.
     local row = (c.slider(switchOnly)).readout("percent")
     row.toggleOnly
-    row.slots["toggle"] == "1"
+    row.headSlots["toggle"] == "1"
     // The whole track posts the domain's own toggle.
-    row.slots["toggleClick"].transform.contains("light/toggle")
+    row.headSlots["toggleClick"].transform.contains("light/toggle")
     // All or nothing, in the theme's switch-fill rather than in the text colour
     // — a light with no brightness reports no colour either (`onoff` is a
     // light's SOLE mode when present), so the default is the only paint it can
     // get. A TOKEN, not the literal behind it: the value is the theme's to move.
-    row.slots["fill"].transform == #"$state = "on" ? "0%" : "100%""#
-    row.slots["fillColor"].default == "var(--fh-default-color)"
+    row.headSlots["fill"].transform == #"$state = "on" ? "0%" : "100%""#
+    row.headSlots["fillColor"].default == "var(--fh-default-color)"
     // ...and the token is one the contract actually defines. A `var()` naming
     // nothing paints TRANSPARENT, and only a browser would ever say so.
     cssMod.baseCss.contains("--fh-default-color:rgb(189, 189, 176)")
     // A percentage of an axis it does not have reads 0 % forever, so the row
     // reads out its state instead — and nothing drags the readout.
-    row.slots["state"].transform == "$state"
+    row.headSlots["state"].transform == "$state"
     !row.slots.containsKey("dragPercent")
     // The markup is ONE template shared by every slider, so the two shapes are
     // sections of it rather than two cards.
-    c.cards["slider"].self.contains("{{#toggle}}<button type=\"button\" class=\"slider-toggle\"")
-    c.cards["slider"].self.contains("{{^toggle}}<input type=\"range\"")
+    c.cards["sliderHead"].template.contains("{{#toggle}}<button type=\"button\" class=\"slider-toggle\"")
+    c.cards["sliderHead"].template.contains("{{^toggle}}<input type=\"range\"")
     // ...and a light that CAN dim is untouched by all of it — as is one that
     // says NOTHING about its modes, which is what an entity that was
     // unavailable when the dump was taken looks like.
@@ -378,8 +378,8 @@ facts {
     !dim.toggleOnly
     !(c.slider(kitchen)).toggleOnly
     !dim.slots.containsKey("toggle")
-    dim.slots["state"].transform.contains("$attr.brightness")
-    dim.slots["dragPercent"] == "1"
+    dim.headSlots["state"].transform.contains("$attr.brightness")
+    dim.headSlots["dragPercent"] == "1"
   }
 
   ["a card's structure travels with the card"] {
@@ -411,7 +411,7 @@ facts {
     !plain["entityCard"].template.contains("@@CLASSBIND")
     !beer["entityCard"].template.contains("@@CLASSBIND")
     // The slider binds its own commit signal, in `self` rather than `template`.
-    beer["slider"].self.contains(#"data-class:shape="$_{{id}}__busy_change_slow""#)
+    beer["sliderHead"].template.contains(#"data-class:shape="$_{{id}}__busy_change_slow""#)
   }
 
   ["a theme that names no spinner binds nothing at all"] {

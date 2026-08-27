@@ -29,8 +29,8 @@ private[runtime] object TestAncestry {
       }.toMap
     )
 
-  /** Every id a log knows about — what a suite means by "the tree" when the
-    * log IS the only structure it has.
+  /** Every id a log knows about — what a suite means by "the tree" when the log
+    * IS the only structure it has.
     */
   def of(log: FragmentLog): NodeAncestry =
     of(log.fragments.keySet ++ log.mutations.keySet ++ log.horizon.keySet)

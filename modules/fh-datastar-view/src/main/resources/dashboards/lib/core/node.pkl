@@ -129,9 +129,20 @@ abstract class Node extends LayoutNode {
   /// the runtime decides ancestry by string prefix (`startsWith(id + "_")`),
   /// which positional ids satisfy by construction and authored ones can break.
   id: String? = null
-  // Widened to LayoutNode so a container can nest either a component or a
-  // dynamic group.
-  children: Listing<LayoutNode> = new {}
+  /// What fills this node's regions.
+  ///
+  /// A bare `Listing` is the DEFAULT region — the one hole most cards have, and
+  /// what an author writes: `Grid { children { … } }`. A `Mapping` names each
+  /// region, which is what a card with more than one hole needs
+  /// ([[Slider]] holds its head in one and its members in another).
+  ///
+  /// Two forms rather than making everyone name the only hole they have — the
+  /// same trade [[slotMod.Slot]] makes between a bare String and an object, and
+  /// the backend decodes both the same way.
+  ///
+  /// Widened to LayoutNode so a container can nest either a component or a
+  /// dynamic group.
+  children: Listing<LayoutNode>|Mapping<String, Listing<LayoutNode>> = new Listing {}
   // A node-level map of inline surfaces the build-phase hoist lifts into the
   // top-level `surfaces` registry (keyed `<node-id>_<localKey>`), splicing the
   // node's real id into every [[NODE_ID]] token in the subtree. Null (dropped

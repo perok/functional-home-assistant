@@ -154,16 +154,16 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
           // The three pieces: the indicator arms the signal, the attr freezes
           // the control while it is set, and the guard swallows a second commit.
           assert(
-            html.contains("data-indicator=\"_c_0__busy_change\""),
+            html.contains("data-indicator=\"_c_0_head_0__busy_change\""),
             clue = html
           )
           assert(
-            html.contains("data-attr:disabled=\"$_c_0__busy_change\""),
+            html.contains("data-attr:disabled=\"$_c_0_head_0__busy_change\""),
             clue = html
           )
           assert(
             html.contains(
-              "data-on:change=\"$_c_0__busy_change ? '' : @post('sse/action/fixture-slider/light/turn_on/"
+              "data-on:change=\"$_c_0_head_0__busy_change ? '' : @post('sse/action/fixture-slider/light/turn_on/"
             ),
             clue = html
           )
@@ -173,16 +173,18 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
           // commit runs long); the input itself stays free of the class — it is
           // frozen via `data-attr:disabled` instead.
           assert(
-            html.contains("data-class:fh-disabled=\"$_c_0__busy_change\""),
+            html
+              .contains("data-class:fh-disabled=\"$_c_0_head_0__busy_change\""),
             clue = html
           )
           assert(
-            html.contains("data-class:fh-loading=\"$_c_0__busy_change\""),
+            html
+              .contains("data-class:fh-loading=\"$_c_0_head_0__busy_change\""),
             clue = html
           )
           assert(
             html.contains(
-              "class=\"slider-icon\" data-class:fh-disabled=\"$_c_0__busy_change\" data-class:fh-loading=\"$_c_0__busy_change\" "
+              "class=\"slider-icon\" data-class:fh-disabled=\"$_c_0_head_0__busy_change\" data-class:fh-loading=\"$_c_0_head_0__busy_change\" "
             ),
             clue = html
           )
@@ -190,17 +192,20 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
           // the two guarded elements never share a signal (a shared one would
           // let one element's `finished` clear the other's in-flight busy).
           // Its busy class is the tap's own `_<id>__busy` binding.
-          assert(html.contains("data-indicator=\"_c_0__busy\""), clue = html)
           assert(
-            html.contains("data-on:click=\"$_c_0__busy ? '' : @post("),
+            html.contains("data-indicator=\"_c_0_head_0__busy\""),
             clue = html
           )
           assert(
-            html.contains("data-class:fh-disabled=\"$_c_0__busy\""),
+            html.contains("data-on:click=\"$_c_0_head_0__busy ? '' : @post("),
             clue = html
           )
           assert(
-            html.contains("data-class:fh-loading=\"$_c_0__busy\""),
+            html.contains("data-class:fh-disabled=\"$_c_0_head_0__busy\""),
+            clue = html
+          )
+          assert(
+            html.contains("data-class:fh-loading=\"$_c_0_head_0__busy\""),
             clue = html
           )
         }
@@ -268,16 +273,16 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
             // wrapper/badge `data-class:fh-disabled` and `data-class:fh-loading`
             // bindings are gone.
             assert(
-              html.contains("data-indicator=\"_c_0__busy_change\""),
+              html.contains("data-indicator=\"_c_0_head_0__busy_change\""),
               clue = html
             )
             assert(
-              html.contains("data-attr:disabled=\"$_c_0__busy_change\""),
+              html.contains("data-attr:disabled=\"$_c_0_head_0__busy_change\""),
               clue = html
             )
             assert(
               html.contains(
-                "data-on:change=\"$_c_0__busy_change ? '' : @post('sse/action/fixture-quiet-slider/light/turn_on/"
+                "data-on:change=\"$_c_0_head_0__busy_change ? '' : @post('sse/action/fixture-quiet-slider/light/turn_on/"
               ),
               clue = html
             )
@@ -508,7 +513,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
           // commit signal the drag would have used.
           assert(
             html.contains(
-              "data-on:click=\"$_c_0__busy_change ? '' : @post('sse/action/fixture-plug/light/toggle/light.plug'"
+              "data-on:click=\"$_c_0_head_0__busy_change ? '' : @post('sse/action/fixture-plug/light/toggle/light.plug'"
             ),
             clue = html
           )

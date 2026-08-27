@@ -17,6 +17,20 @@ class PklBuildSuite extends munit.FunSuite {
           .flatMap(cl => sets(cl.node))
     }
 
+  /** A slider's ROW — the `sliderHead` node in its `head` region.
+    *
+    * The slider is structure now: it holds a head and its members in two
+    * regions, and every value the row shows lives on the head. So the
+    * assertions that used to read `slider.slots(…)` read this instead, and what
+    * stays on the slider itself is the one thing the OUTER markup takes from
+    * having members (the `group` modifier).
+    */
+  private def rowOf(node: LayoutNode.Component): LayoutNode.Component =
+    node
+      .children("head")
+      .collectFirst { case c: LayoutNode.Component => c }
+      .getOrElse(fail(s"card '${node.card}' has no head node"))
+
   /** Every card name reachable from a node, in document order. */
   private def cardNames(node: LayoutNode): List[String] =
     node match {
@@ -690,10 +704,15 @@ class PklBuildSuite extends munit.FunSuite {
       // only `label` is declared — same shape as `button`/`pill`.
       "toggle" -> List("label"),
       "tab" -> List("label", "onclick", "active"),
+      // The slider is STRUCTURE — a head region and a members region — so what
+      // the row shows is declared by the row's own card, and the slider itself
+      // declares nothing (its only slot, `group`, is optional: a member-less
+      // slider has no modifier).
+      "slider" -> Nil,
       // No `state`: a slider that holds member rows omits the readout slot
       // entirely, and a declared slot is one EVERY node of the card must carry
       // (`icon`/`secondary`/`onclick`/`group` are optional for the same reason).
-      "slider" -> List(
+      "sliderHead" -> List(
         "label",
         "value",
         "action",
@@ -1489,13 +1508,16 @@ class PklBuildSuite extends munit.FunSuite {
     )
     assertEquals(slider.card, "slider")
     assertEquals(
-      slider.slots("action").literal,
+      rowOf(slider).slots("action").literal,
       Some("cover/set_cover_position")
     )
-    assertEquals(slider.slots("key").literal, Some("position"))
-    assertEquals(slider.slots("min").literal, Some("0"))
-    assertEquals(slider.slots("max").literal, Some("100"))
-    assertEquals(slider.slots("value").transform, "$attr.current_position")
+    assertEquals(rowOf(slider).slots("key").literal, Some("position"))
+    assertEquals(rowOf(slider).slots("min").literal, Some("0"))
+    assertEquals(rowOf(slider).slots("max").literal, Some("100"))
+    assertEquals(
+      rowOf(slider).slots("value").transform,
+      "$attr.current_position"
+    )
   }
 
   test("a slider in a QUERY bakes its config, with no $lookup($domain)") {
@@ -1508,13 +1530,14 @@ class PklBuildSuite extends munit.FunSuite {
     val set = probeSet(
       """node = q.from(dump.areas.stue.lights).render((e) -> c.slider(e)).build()"""
     )
-    val slots = set
-      .members("light.taklys")
-      .clauses
-      .head
-      .node
-      .asInstanceOf[LayoutNode.Component]
-      .slots
+    val slots = rowOf(
+      set
+        .members("light.taklys")
+        .clauses
+        .head
+        .node
+        .asInstanceOf[LayoutNode.Component]
+    ).slots
     assertEquals(slots("entity_id").literal, Some("light.taklys"))
     assertEquals(slots("action").literal, Some("light/turn_on"))
     assertEquals(slots("key").literal, Some("brightness"))
@@ -1547,39 +1570,50 @@ class PklBuildSuite extends munit.FunSuite {
     // The one thing the markup takes from having children.
     assertEquals(group.slots("group").literal, Some("slider-group"))
     // A head does not repeat a readout its rows already carry.
-    assert(!group.slots.contains("state"), clue = group.slots.keySet)
-    assertEquals(group.slots("entity_id").literal, Some("light.lys"))
-    assertEquals(group.slots("action").literal, Some("light/turn_on"))
-    assertEquals(group.slots("icon").literal, Some("mdi-lightbulb-group"))
-    assert(group.slots.contains("onclick"), clue = group.slots.keySet)
+    assert(!rowOf(group).slots.contains("state"), clue = group.slots.keySet)
+    assertEquals(rowOf(group).slots("entity_id").literal, Some("light.lys"))
+    assertEquals(rowOf(group).slots("action").literal, Some("light/turn_on"))
+    assertEquals(
+      rowOf(group).slots("icon").literal,
+      Some("mdi-lightbulb-group")
+    )
+    assert(rowOf(group).slots.contains("onclick"), clue = group.slots.keySet)
 
+    // The MEMBERS region specifically: `allChildren` would also hand back the
+    // head, which is the point of the two regions.
     val members =
-      group.allChildren.collect { case c: LayoutNode.Component => c }
+      group.children("children").collect { case c: LayoutNode.Component => c }
     assertEquals(members.map(_.card), List("slider", "slider"))
     assertEquals(
-      members.map(_.slots("entity_id").literal),
+      members.map(rowOf(_).slots("entity_id").literal),
       List(Some("light.a"), Some("cover.blind"))
     )
     // Each member keeps its OWN domain's config — the group does not impose the
     // master's.
     assertEquals(
-      members.map(_.slots("key").literal),
+      members.map(rowOf(_).slots("key").literal),
       List(Some("brightness"), Some("position"))
     )
     // …and reads out its LEVEL rather than its state, off its own range.
     assert(
-      members.head.slots("state").transform.contains("""& " %""""),
-      clue = members.head.slots("state").transform
+      rowOf(members.head).slots("state").transform.contains("""& " %""""),
+      clue = rowOf(members.head).slots("state").transform
     )
     assert(
-      members(1).slots("state").transform.contains("$attr.current_position"),
-      clue = members(1).slots("state").transform
+      rowOf(members(1))
+        .slots("state")
+        .transform
+        .contains("$attr.current_position"),
+      clue = rowOf(members(1)).slots("state").transform
     )
     // …and because that reading IS the position, a drag moves it locally too —
     // the flag the template's section reads. The head, reading out nothing, has
     // no such slot, so its `data-on:input` paints the fill alone.
-    assertEquals(members.head.slots("dragPercent").literal, Some("1"))
-    assert(!group.slots.contains("dragPercent"), clue = group.slots.keySet)
+    assertEquals(rowOf(members.head).slots("dragPercent").literal, Some("1"))
+    assert(
+      !rowOf(group).slots.contains("dragPercent"),
+      clue = group.slots.keySet
+    )
 
     // A childless slider is the plain row it always was: no group modifier, no
     // badge, no button, and its state back as the readout.
@@ -1589,7 +1623,7 @@ class PklBuildSuite extends munit.FunSuite {
         |""".stripMargin
     )
     assertEquals(
-      plain.slots.keySet -- Set("entity_id", "label", "state"),
+      rowOf(plain).slots.keySet -- Set("entity_id", "label", "state"),
       Set(
         "value",
         "fill",
@@ -1601,19 +1635,22 @@ class PklBuildSuite extends munit.FunSuite {
         "icon",
         "busyVisual"
       ),
-      clue = plain.slots.keySet
+      clue = rowOf(plain).slots.keySet
     )
-    assertEquals(plain.slots("state").transform, "$state")
+    // A plain slider is STRUCTURE too — its own slots are just the absent
+    // group modifier; everything the row shows is on the row.
+    assertEquals(plain.slots.keySet, Set.empty[String])
+    assertEquals(rowOf(plain).slots("state").transform, "$state")
     // The badge is the entity's OWN icon, baked as a literal — here the light
     // domain's default, since this probe entity declares none.
-    assertEquals(plain.slots("icon").literal, Some("mdi-lightbulb"))
+    assertEquals(rowOf(plain).slots("icon").literal, Some("mdi-lightbulb"))
     // …and opting out drops the slot, so the template renders no badge at all.
     val bare = probeComponent(
       """light: hass.GenericEntity = new { entity_id = "light.lys"; domain = "light" }
         |node = c.slider(light).icon(null)
         |""".stripMargin
     )
-    assert(!bare.slots.contains("icon"), clue = bare.slots.keySet)
+    assert(!rowOf(bare).slots.contains("icon"), clue = bare.slots.keySet)
   }
 
   test("a slider's readout takes an expression, not just the two names") {
@@ -1625,7 +1662,7 @@ class PklBuildSuite extends munit.FunSuite {
         |node = (c.slider(light)) { readout = c.expr("\(percentExpr) & \" · \" & $state") }
         |""".stripMargin
     )
-    val state = own.slots("state")
+    val state = rowOf(own).slots("state")
     assert(state.transform.contains("$attr.brightness"), clue = state.transform)
     assert(
       state.transform.endsWith(""" & " · " & $state"""),
@@ -1638,10 +1675,10 @@ class PklBuildSuite extends munit.FunSuite {
         |node = (c.slider(light)).readout(c.exprOf(power, #"$state & " W""#))
         |""".stripMargin
     )
-    assertEquals(other.slots("state").entityId, Some("sensor.w"))
-    assertEquals(other.slots("state").transform, """$state & " W"""")
+    assertEquals(rowOf(other).slots("state").entityId, Some("sensor.w"))
+    assertEquals(rowOf(other).slots("state").transform, """$state & " W"""")
     // The subject is unchanged — only the readout looks elsewhere.
-    assertEquals(other.slots("entity_id").literal, Some("light.lys"))
+    assertEquals(rowOf(other).slots("entity_id").literal, Some("light.lys"))
   }
 
   test("a Slider on a non-slider domain (static sensor) fails the constraint") {
@@ -1819,12 +1856,18 @@ class PklBuildSuite extends munit.FunSuite {
     }
     assertEquals(inner.map(_.card), List("sectionTitle", "slider", "slider"))
     assertEquals(inner(0).slots("label").literal, Some("Stue"))
-    assertEquals(inner(1).slots("entity_id").literal, Some("light.stue_1"))
-    assertEquals(inner(2).slots("entity_id").literal, Some("light.stue_2"))
+    assertEquals(
+      rowOf(inner(1)).slots("entity_id").literal,
+      Some("light.stue_1")
+    )
+    assertEquals(
+      rowOf(inner(2)).slots("entity_id").literal,
+      Some("light.stue_2")
+    )
     // The sliders resolved the light spec at build time (string literals).
-    assertEquals(inner(1).slots("action").literal, Some("light/turn_on"))
-    assertEquals(inner(1).slots("min").literal, Some("1"))
-    assertEquals(inner(1).slots("max").literal, Some("255"))
+    assertEquals(rowOf(inner(1)).slots("action").literal, Some("light/turn_on"))
+    assertEquals(rowOf(inner(1)).slots("min").literal, Some("1"))
+    assertEquals(rowOf(inner(1)).slots("max").literal, Some("255"))
   }
 
   // ---------------------------------------------------------------------------
@@ -1944,13 +1987,13 @@ class PklBuildSuite extends munit.FunSuite {
       )
     )
     assertEquals(s.card, "slider")
-    assertEquals(s.slots("action").literal, Some("light/turn_on"))
-    assertEquals(s.slots("key").literal, Some("color_temp_kelvin"))
+    assertEquals(rowOf(s).slots("action").literal, Some("light/turn_on"))
+    assertEquals(rowOf(s).slots("key").literal, Some("color_temp_kelvin"))
     // the bounds are the LIGHT's, not the light domain's brightness 1..255
-    assertEquals(s.slots("min").literal, Some("2000"))
-    assertEquals(s.slots("max").literal, Some("6535"))
+    assertEquals(rowOf(s).slots("min").literal, Some("2000"))
+    assertEquals(rowOf(s).slots("max").literal, Some("6535"))
     // and the handle tracks the value it writes, not brightness
-    assertEquals(s.slots("value").transform, "$attr.color_temp_kelvin")
+    assertEquals(rowOf(s).slots("value").transform, "$attr.color_temp_kelvin")
   }
 
   test("lightControls emits one control per capability the light has") {
@@ -1966,8 +2009,8 @@ class PklBuildSuite extends munit.FunSuite {
     val kids = col.allChildren.collect { case c: LayoutNode.Component => c }
     assertEquals(kids.map(_.card), List("slider", "slider", "fhrow"))
     // brightness first (the domain default), then the colour-temperature one
-    assertEquals(kids(0).slots("key").literal, Some("brightness"))
-    assertEquals(kids(1).slots("key").literal, Some("color_temp_kelvin"))
+    assertEquals(rowOf(kids(0)).slots("key").literal, Some("brightness"))
+    assertEquals(rowOf(kids(1)).slots("key").literal, Some("color_temp_kelvin"))
     // one pill per named effect, each posting light/turn_on effect=<name>
     val pills = kids(2).allChildren.collect { case c: LayoutNode.Component =>
       c
@@ -2052,8 +2095,8 @@ class PklBuildSuite extends munit.FunSuite {
       .toOption
       .get
       .asInstanceOf[LayoutNode.Component]
-    assertEquals(node.slots("min").literal, Some("2000"))
-    assertEquals(node.slots("max").literal, Some("6535"))
+    assertEquals(rowOf(node).slots("min").literal, Some("2000"))
+    assertEquals(rowOf(node).slots("max").literal, Some("6535"))
   }
 
   test("fixture-features wire JSON matches the checked-in snapshot") {

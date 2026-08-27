@@ -77,8 +77,12 @@ class PklLibraryTestSuite extends munit.FunSuite {
           section.results.asScala.toList.filter(_.isFailure).map { test =>
             val failures = test.failures.asScala.toList
               .map(f => s"      ${f.kind}: ${f.message}")
+            // An ERROR carries its text on the EXCEPTION; `message` is a short
+            // kind ("cannotFindKey") and is often null. Printing the field alone
+            // produced `error: cannotFindKey` with no file, line or expression —
+            // useless exactly when something is badly wrong.
             val errors = test.errors.asScala.toList
-              .map(e => s"      error: ${Option(e.message).getOrElse("")}")
+              .map(e => s"      error: ${errorText(e)}")
             (s"    ${section.name} / ${test.name}" :: (failures ++ errors))
               .mkString("\n")
           }
@@ -88,9 +92,20 @@ class PklLibraryTestSuite extends munit.FunSuite {
     // section results at all, so it has to be reported separately or the
     // message comes out empty for the loudest kind of failure there is.
     val moduleError =
-      Option(results.error).toList
-        .map(e => s"    module error: ${Option(e.message).getOrElse("")}")
+      Option(results.error).toList.map(e =>
+        s"    module error: ${errorText(e)}"
+      )
 
     (s"pkl test failed: $header" :: (sections ++ moduleError)).mkString("\n")
   }
+
+  /** Whatever the error actually says. `TestResults.Error.message` is a short
+    * kind and may be null; the location and the offending expression are on the
+    * exception, which is what a reader needs.
+    */
+  private def errorText(e: TestResults.Error): String =
+    List(
+      Option(e.message),
+      Option(e.exception).flatMap(x => Option(x.getMessage))
+    ).flatten.distinct.mkString(": ")
 }
