@@ -1184,6 +1184,60 @@ class RendererSuite extends munit.FunSuite {
     assertEquals(a.descendantsOf("detail"), Set[NodeId]("detail_0"))
   }
 
+  /** A structural card may not bind a LIVE entity — its patch would carry
+    * everything it holds. It may still READ one, as long as the slot says it
+    * does not vary with state (`reactive = false`): a friendly name, a unit, a
+    * domain-derived action.
+    *
+    * The rule keys on [[LayoutNode.Component.liveEntities]], which is exactly
+    * "reactive, non-literal slots", so the two cases separate on the slot's own
+    * declaration rather than on a second rule.
+    */
+  test("structure may READ an entity, as long as the slot is not reactive") {
+    def dash(reactive: Boolean) = Dashboard(
+      cards + ("box" -> CardDef(
+        """<div title="{{name}}">{{#children}}{{{html}}}{{/children}}</div>""",
+        regions = Map("children" -> Region()),
+        slots = List("name")
+      )),
+      LayoutNode.Component(
+        "box",
+        slots = Map(
+          "name" -> SlotSource(
+            Some("sensor.a"),
+            "$attr.friendly_name",
+            reactive = reactive
+          )
+        ),
+        children = LayoutNode.kids(
+          LayoutNode.Component("card", Map("state" -> lit("x")))
+        )
+      )
+    )
+
+    // Reactive: rejected, because it could never reach the DOM.
+    assert(
+      dash(true).validate().exists(_.contains("never a patch target")),
+      clue = dash(true).validate()
+    )
+
+    // Non-reactive: accepted, and the value is really read — it is resolved on
+    // the document path, where structure renders.
+    val ok = dash(false)
+    assertEquals(ok.validate(), Nil)
+    val html = Renderer
+      .create(ok)
+      .renderBody(
+        Map(
+          "sensor.a" -> st("sensor.a", "on")
+            .copy(attributes =
+              Map("friendly_name" -> io.circe.Json.fromString("Hall"))
+            )
+        )
+      )
+    assert(html.contains("""title="Hall""""), clue = html)
+  }
+
   test("validate: a region name that could be read as an index is rejected") {
     def card(region: String) = Dashboard(
       Map(
