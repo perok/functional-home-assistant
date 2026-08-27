@@ -120,6 +120,12 @@ Both halves keep working, unchanged in mechanism:
 - **The panel stays lazy.** `fill = "baked"` is the declaration of exactly the property
   `plan-mount-unification` feared losing: only the selected surface renders and streams, and a
   switch is `Patches.hostFill` inner-patching `panelId` as it does today.
+- **The committed index already travels as a signal, not as re-rendered markup.**
+  `Server.selectionJson` emits `ui_<gid> -> index` from `SurfaceGraph.committedSelections`, and that
+  method's doc states the cadence: *"A stream states this when it connects. The per-swap frame is
+  enough while a stream is up."* So a swap is a patch for the panel plus a signal for the index, and
+  the bar re-highlights client-side. The bar never needed to re-render for a selection change, which
+  is why deleting its `self` costs nothing.
 - `TabButton` is already `wrapAsCell = false` — *"the anchors must stay DIRECT children of the
   `.tabs` bar"* — so it has no morph target and `Dashboard.validate` already forbids it binding a
   live entity. It doesn't: `active` and `onclick` are client-side expressions. Consistent with the
@@ -202,11 +208,34 @@ class CardDef {
 }
 
 abstract class Node extends LayoutNode {
-  /// Child nodes BY REGION. Eager regions only — a baked region's contents are
-  /// surfaces, not children.
+  /// What fills each EAGER region.
   children: Mapping<String, Listing<LayoutNode>> = new {}
+  /// What fills each BAKED region — the bake group competing for that hole.
+  /// Replaces `inlineSurfaces`; the build lifts these into the top-level
+  /// registry exactly as the hoist does today.
+  surfaces: Mapping<String, Listing<surfaceMod.SurfaceDef>> = new {}
 }
 ```
+
+Two maps rather than one, because a baked region's contents are a different type: a `SurfaceDef`
+carries activation conditions and chrome, not just nodes. `fill` is precisely the declaration of
+which map a region draws from, and validate checks it draws from that one and not the other.
+
+**`inlineSurfaces` is absorbed by this, and so are `bakeInto`/`bakeAs`.** A surface written in a node's
+`surfaces["panel"]` is saying `bakeInto = this node, bakeAs = "panel"` — the region it is written in
+IS the statement. `Surface.hostId` (`<bakeInto>_<bakeAs>`) becomes `regionId(id, region)`, the same
+string. **Bake group** stops being a separate word too: it is "the surfaces in one baked region".
+
+Laziness is untouched. What makes a panel lazy is that surfaces live in a registry and
+`resolveBakeTraced` renders only the selected member — a property of the registry and the selection,
+not of where the author typed the panel. Being written in a region changes the authoring surface and
+nothing about when bytes are produced.
+
+**Popups do not collapse.** A popup has `bakeInto = None` and hosts at the page-level
+`Dashboard.PopupHostId`, and it is authored inside a *tap*, not in a region of its owning node. So
+the inline-marker-and-hoist machinery stays for that case — which is also what keeps the `NODE_ID`
+splice's home alive. Two of the three baked shapes (tabs panels, `If` branches) become regions; the
+popup stays a hoist.
 
 `ContainerCard` and `LeafCard` merge into `CardDef`; `self` and `mount` both disappear as properties.
 A leaf is a card with no regions.
@@ -273,9 +302,20 @@ obj1(InlineSurfacesKey).flatMap(_.asObject) match {
 1. **The splice is a passenger on the hoist, not a service.** Tabs works because its panels are
    inline surfaces, so the fixup runs as a side effect of hoisting them. A card that only wants to
    hand its own children a signal reference — a `Slider` handing its head one — hits the `None`
-   branch and gets no splice. The pass's own doc says it *"is deliberately generic — it knows
-   nothing about popups, tabs, buttons, signals, or onclick wiring"*, so the fix is to run it for
-   every node rather than for marker-bearing ones.
+   branch and gets no splice.
+
+   **The fix is not "run it at every node".** `walk` recurses into children *first*, so the marker
+   is currently what makes the bottom-up rule mean "innermost OWNER wins" rather than "innermost
+   NODE wins". An unmarked intermediate node passes tokens through untouched — which is why a card
+   can construct a `Row` around its buttons today and still have their tokens resolve to itself.
+   Splice everywhere and that `Row` claims them.
+
+   The distinction the splice needs is authorship — *"my card class wrote this string"* — and no
+   pass over JSON can see it, because an author-placed child and a card-constructed one are the same
+   shape. Today `inlineSurfaces` stands in for it by coincidence: the cards that hoist surfaces are
+   exactly the cards that write tokens. Making it a service means making that explicit — a card that
+   writes `NODE_ID` into its children declares so, and the splice fires on that declaration instead
+   of on the popup marker.
 2. **A surviving token is silent.** Nothing validates that no `@@…@@` remains: `Dashboard.validate`
    never mentions `NodeIdToken`, and the only occurrence of the string in `src/main/scala` is its
    own definition. So an unspliced token renders literally into the DOM as `@@NODE_ID@@`, and the
