@@ -138,10 +138,24 @@ live value lives on a patchable node" used to be true by construction, and was s
 [#133](https://github.com/perok/functional-home-assistant/issues/133)'s work for it. It is now a
 property a card can lose without saying so.
 
-So when #133 is built, plain-form capability wants to be **computed, not surveyed** — a card is
-plain-form-capable when no slot binds `bind` and, if it holds regions, no slot is a signal slot.
-That is two predicates over data the model already has. Deliberately not added now: a capability
-surface designed against no client is what that issue exists to avoid.
+The sharper question underneath it is that **the model cannot tell a display signal from an
+interaction one**, and #133 needs exactly that split. The slider's five are not one kind of thing:
+`busy_change` (a client indicator) and `value` (server-written, feeding adopt/rollback, with no DOM
+home of its own) are machinery a morph-only client should never receive; `state`, `fill` and
+`fillColor` are the pixels such a client exists to render. With the distinction named, the rule
+becomes exact — display signals must live on a patchable node, interaction signals may live
+anywhere and the plain form omits them — and without it, no rule about where signal slots may sit
+can be.
+
+And the constraint that makes it more than bookkeeping is **granularity**. A morph carries the whole
+of the node it targets, so a display value falling back to a morph should sit on the smallest leaf
+that contains it. On structure there is no target at all, so the fallback would have to climb to
+some patchable ancestor — not a coarse morph but an unbounded one. `sliderText` is the shape that
+gets this right (a rename repaints a `<strong>`); the head's own signals are the shape that does
+not.
+
+Deliberately not acted on here: a capability surface designed against no client is what #133 exists
+to avoid. Recorded on the issue too.
 
 For the one thing a canned attribute cannot cover — a card composing the signal into an expression
 of its own, as the slider's action URL does — the renderer also injects `<slot>__signal`, the bare
