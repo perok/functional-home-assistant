@@ -1305,10 +1305,14 @@ class Renderer(
       .memberAt(id, states)
       .map(m => memberSignals(m.id, m.node, states))
       .orElse(
+        // NOT gated on `hasOwnRendering`. Structure has signals like any other
+        // node — its seed already rides its own `.fh-cell` wrapper in the
+        // document form — and gating here was the half that made a signal slot
+        // on structure seed once and then stand still forever. The two halves
+        // have to agree, so `Dashboard.validate` no longer rejects them either.
         allIndexed
           .get(id)
           .map(_._1)
-          .filter(_ => hasOwnRendering(id))
           .map(signalsOfSlots(id, _, states))
       )
       .getOrElse(Map.empty)

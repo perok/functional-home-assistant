@@ -660,4 +660,94 @@ class SignalSlotSuite extends ServerHarness {
       )
     )
   }
+
+  // ---------------------------------------------------------------------------
+  // Signals on STRUCTURE
+  // ---------------------------------------------------------------------------
+
+  /** A card that holds a region AND carries a signal slot of its own.
+    *
+    * Structure is never a patch target, so a live BYTES slot on one is a build
+    * error — but a signal is not bytes, and the error's own advice was to reach
+    * for exactly this. It was rejected anyway, and the runtime half agreed:
+    * `signalsFor` gated on `hasOwnRendering`, so had validate let it through,
+    * the seed would have been written once and then never updated.
+    *
+    * Both halves are asserted below, because either one alone is the silent
+    * failure this suite exists to catch.
+    */
+  private val structural = Dashboard(
+    cards + ("frame" -> CardDef(
+      "<section {{{tint__bind}}}>{{#body}}{{{html}}}{{/body}}</section>",
+      slots = List("tint"),
+      regions = Map("body" -> Region())
+    )),
+    LayoutNode.Component(
+      "frame",
+      Map(
+        "entity_id" -> SlotSource(literal = Some("sensor.a")),
+        "tint" -> SlotSource(
+          transform = "$attr.tint",
+          signal = Some(SignalBind.Style("background"))
+        )
+      ),
+      children = Map("body" -> List(gauge("sensor.a")))
+    )
+  )
+
+  private def tinted(tint: String, value: String = "21.4") =
+    Map(
+      "sensor.a" -> st(
+        "sensor.a",
+        value,
+        "friendly_name" -> "Hall".asJson,
+        "tint" -> tint.asJson
+      )
+    )
+
+  test("a signal slot on a structural card is accepted") {
+    assertEquals(structural.validate(), Nil)
+  }
+
+  test("a live BYTES slot on a structural card is still rejected") {
+    // The rule did not go, it narrowed — and this is the half it still owns:
+    // `tint` as bytes could only reach the DOM by patching the section, which
+    // would carry the region's whole content back with it.
+    val bytes = structural.copy(card =
+      structural.card
+        .asInstanceOf[LayoutNode.Component]
+        .copy(slots =
+          Map(
+            "entity_id" -> SlotSource(literal = Some("sensor.a")),
+            "tint" -> SlotSource(transform = "$attr.tint")
+          )
+        )
+    )
+    assert(
+      bytes.validate().exists(_.contains("as BYTES")),
+      clue = bytes.validate()
+    )
+  }
+
+  test("structure seeds its signal on its own cell wrapper") {
+    val html = Renderer.create(structural).renderPage(tinted("red"))
+    assert(html.contains("data-signals=\"{_c__tint: 'red'}\""), clue = html)
+    assert(html.contains("data-style:background=\"$_c__tint\""), clue = html)
+  }
+
+  test("a change to structure's signal sends a frame and patches nothing") {
+    val r = Renderer.create(structural)
+    val holds = documentHolds(r, tinted("red"))
+    val log = FragmentLog("test").touched("c", 1L)
+    val out =
+      resumeNow(r, log, holds, tinted("blue"), 1L, Set.empty, Map.empty)
+    assertEquals(
+      out.map(_.patch),
+      List(frame(Renderer.signalName("c", "tint") -> "blue")),
+      clue = events(out).map(_.renderString)
+    )
+    // The structural element itself is what must not move: a morph aimed at it
+    // would re-send the region's content as a side effect of a colour change.
+    assertEquals(elementPatches(events(out)), Nil)
+  }
 }

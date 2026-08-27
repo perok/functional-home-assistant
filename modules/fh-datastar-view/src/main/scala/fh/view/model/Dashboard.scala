@@ -555,6 +555,22 @@ object LayoutNode:
         .flatMap(s => s.entityId.orElse(subjectEntity))
         .distinct
 
+    /** [[liveEntities]] minus the ones reached ONLY through signal slots — the
+      * entities whose movement can reach this node's DOM only by re-rendering
+      * it. A signal's does not: it travels as its own frame, addressed by name.
+      *
+      * Both lists are needed and neither derives the other. The reverse index
+      * wants [[liveEntities]] (a signal still has to make its node a candidate,
+      * or no frame is ever computed for it); the structure rule wants this one.
+      */
+    def liveEntitiesAsBytes: List[String] =
+      slots.values.toList
+        .filter(s =>
+          s.reads == Reads.Live && s.literal.isEmpty && s.signal.isEmpty
+        )
+        .flatMap(s => s.entityId.orElse(subjectEntity))
+        .distinct
+
   /** A set over a STATICALLY KNOWN candidate list.
     *
     * The candidates are decided at build time from the typed dump, so the
@@ -1074,12 +1090,19 @@ case class Dashboard(
               }
             }
 
-    // A STRUCTURAL card may bind no live entity slot. Its element contains the
-    // regions, so a patch aimed at it would carry back everything it holds —
-    // which is the whole reason structure is never a patch target. A card that
-    // wants its OWN markup to move puts that markup in a region as a node, or
-    // moves the value to a signal slot (ADR 0017), which changes without a
-    // re-render.
+    // A STRUCTURAL card may bind no live entity slot AS BYTES. Its element
+    // contains the regions, so a patch aimed at it would carry back everything
+    // it holds — which is the whole reason structure is never a patch target. A
+    // card that wants its OWN markup to move puts that markup in a region as a
+    // node.
+    //
+    // A SIGNAL slot (ADR 0017) is exempt, and the exemption is what makes the
+    // advice this error gives true. A signal never travels as bytes: the seed
+    // rides the `.fh-cell` wrapper, which structure has like any node, and the
+    // live value arrives as a `datastar-patch-signals` frame addressed by
+    // `_<nodeId>__<slot>`. Neither step needs the node to be a patch target, so
+    // there is nothing here for the rule to protect — it used to reject exactly
+    // the slots that are safe, while telling the author to reach for them.
     //
     // The authoring layer says the same on `Node.slots`, but `cards` is decoded
     // from JSON, so the model has to say it too or the guarantee stops at the
@@ -1087,17 +1110,18 @@ case class Dashboard(
     val structureLiveSlotErrors: List[String] = {
       def walk(node: LayoutNode): List[String] = node match {
         case c: LayoutNode.Component =>
+          val asBytes = c.liveEntitiesAsBytes
           val here = cards
             .get(c.card)
             .filter(_.isStructure)
             .toList
-            .filter(_ => c.liveEntities.nonEmpty)
+            .filter(_ => asBytes.nonEmpty)
             .map(_ =>
               s"card '${c.card}' holds regions and so is never a patch " +
                 s"target, but this node binds live entities " +
-                s"(${c.liveEntities.sorted.mkString(", ")}) — they would never " +
-                "reach the DOM. Put the live markup in a region as a node, or " +
-                "make the slot a signal slot"
+                s"(${asBytes.sorted.mkString(", ")}) as BYTES — they would " +
+                "never reach the DOM. Put the live markup in a region as a " +
+                "node, or make the slot a signal slot"
             )
           here ++ c.allChildren.flatMap(walk)
         case s: LayoutNode.SetNode =>
@@ -1222,10 +1246,16 @@ case class Dashboard(
             val p = LayoutNode.surfacePrefix(sid)
             walkIds(s.content, p, LayoutNode.rootId(p, s.content), false)
           }
-      val authored = all.filter(_._3.isDefined)
+      // `collect`, not `filter`: the filtered list still had an `Option` in it,
+      // so every reader below had to re-establish what the filter already knew
+      // — and the compiler said so, since the `Some(name)` pattern it forced is
+      // not exhaustive.
+      val authored = all.collect { case (id, inSet, Some(name)) =>
+        (id, inSet, name)
+      }
       val ids = all.map(_._1)
 
-      val shape = authored.flatMap { case (id, inSet, Some(name)) =>
+      val shape = authored.flatMap { case (id, inSet, name) =>
         if (inSet)
           List(
             s"node id '$name' is inside a candidate set's clause, which is " +

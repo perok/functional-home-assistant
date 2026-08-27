@@ -98,21 +98,25 @@ abstract class Node extends LayoutNode {
   // tags/attributes are harmless whitespace, but a newline inside an
   // attribute would break it.
   hidden cardDef: CardDef
-  // A LIVE slot on a STRUCTURAL card is a build error: such a card holds
-  // content AND would re-render on state, and its patch would carry everything
-  // it holds. Put the live markup in a region as a node ([[SliderHead]]), or
-  // move the value to a signal slot, which changes without a re-render.
+  // A live slot carrying BYTES on a STRUCTURAL card is a build error: such a
+  // card holds content AND would re-render on state, and its patch would carry
+  // everything it holds. Put the live markup in a region as a node
+  // ([[SliderHead]]), or move the value to a SIGNAL slot — which is allowed
+  // here, because it never becomes bytes in this card's element: it is seeded
+  // on the node's wrapper and updated by its own frame.
   //
   // Checked at the NODE, not the card, because liveness is a property of the
   // VALUE: `Slot|String` IS the distinction (a Pkl `String` is exactly the
   // wire's `literal`), so [[Grid]] keeps its `class` slot — a literal — and only
   // a genuinely LIVE one is rejected — `onRender` and `once` read an entity
-  // without tracking it, which is exactly what structure may do. Mirrors
-  // `LayoutNode.Component.liveEntities`, subject case included (the subject
-  // counts only when `entity_id` is a literal).
+  // without tracking it, which is exactly what structure may do, and a SIGNAL
+  // slot is exempt whatever it reads: its value never becomes bytes in this
+  // card. Mirrors `LayoutNode.Component.liveEntitiesAsBytes`, subject case
+  // included (the subject counts only when `entity_id` is a literal).
   slots: Mapping<String, slotMod.Slot|String>(
     !bareContainer(cardDef) || !toMap().values.any((v) ->
-      v is slotMod.Slot && v.reads == "live" && (v.entityId != null ||
+      v is slotMod.Slot && v.reads == "live" && v.signal == null &&
+        (v.entityId != null ||
         (containsKey("entity_id") && this["entity_id"] is String)))
   ) = new {}
   /// An id of the author's choosing, replacing the position-derived one for
@@ -174,9 +178,14 @@ class Region {
 /// (docs/adr/0012-each-session-renders-what-it-is-owed.md).
 ///
 /// So a structural card ([[Row]]/[[Column]]/[[Grid]], [[Slider]]) has only what
-/// it holds to show, and a LIVE slot on one is a build error. A card that wants
-/// its OWN markup to change puts that markup in a region, as a node — which is
-/// what [[SliderHead]] is — or moves the value to a signal slot (ADR 0017).
+/// it holds to show, and a live slot on one that carries its value as BYTES is
+/// a build error. A card that wants its own bytes to change puts that markup in
+/// a region, as a node — which is what [[SliderHead]] is.
+///
+/// A SIGNAL slot (ADR 0017) is fine on structure, and is the reason that
+/// sentence says "as bytes". A signal is seeded on the node's `.fh-cell`
+/// wrapper, which structure has, and updated by a frame addressed by name —
+/// neither step patches the element, so nothing about structure is in its way.
 class CardDef {
   /// The whole card, holes included.
   template: String
@@ -212,7 +221,7 @@ class CardDef {
 
 /// Whether a card holds content — so its whole HTML contains what it holds, and
 /// patching it would re-render that. Such a card must never enter a diff set,
-/// which is why a LIVE slot on it is a build error (see [[Node.slots]]).
+/// which is why a live BYTES slot on it is a build error (see [[Node.slots]]).
 const local function bareContainer(d: CardDef): Boolean = d.regions != null
 
 // ---- the backend-facing card library (DERIVED from the card classes) ----
