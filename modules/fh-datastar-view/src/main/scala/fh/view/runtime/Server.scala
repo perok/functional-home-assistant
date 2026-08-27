@@ -910,7 +910,9 @@ class Server(
             )
             .flatMap { patches =>
               session.holds
-                .update(patches.foldLeft(_)(Patches.applied)) *>
+                .update(
+                  patches.foldLeft(_)(Patches.applied(renderer.ancestry, _, _))
+                ) *>
                 // The cursor rides LAST below, which is what makes it an ack:
                 // a client echoing it applied the patches in front of it. Only
                 // recorded when there are bytes — a silent frame announces
@@ -1110,7 +1112,9 @@ class Server(
                 id -> Held(Some(Digest.of(p.html)), p.signals)
               })
             )(patches =>
-              session.holds.update(patches.foldLeft(_)(Patches.applied))
+              session.holds.update(
+                patches.foldLeft(_)(Patches.applied(renderer.ancestry, _, _))
+              )
             ) *> session.position.set(claim) *> session.told.set(claim)
             record.as(
               head ++ resumed.fold(List(repaint))(_.map(_.patch.toSse)) ++
@@ -1291,7 +1295,7 @@ class Server(
       filled = Patches.hostFill(renderer, host, newSurface, states, uiState)
       _ <- filled match {
         case Some((patch, html)) =>
-          session.holds.update(Patches.applied(_, patch)) *>
+          session.holds.update(Patches.applied(renderer.ancestry, _, patch)) *>
             session.control.offer(
               Datastar.patch(html, PatchMode.Inner, Some("#" + host))
             )

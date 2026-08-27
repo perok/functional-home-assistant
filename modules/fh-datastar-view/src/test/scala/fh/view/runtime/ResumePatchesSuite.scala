@@ -189,6 +189,7 @@ class ResumePatchesSuite extends munit.FunSuite {
       "d_1" -> "<other/>"
     ).map { case (id, html) => (id: NodeId) -> Held.of(html) }.toMap
     val after = Patches.applied(
+      TestAncestry.of(holds.keySet),
       holds,
       Addressed(
         Patch.Morph("<ignored/>"),

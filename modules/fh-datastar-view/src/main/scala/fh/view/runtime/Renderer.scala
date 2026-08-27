@@ -86,8 +86,9 @@ case class RenderInputs(
   * `children` (`{{#children}}{{{html}}}{{/children}}`), so container kinds
   * (row, column, grid, …) are templates rather than cases here.
   *
-  * Ids are location-derived from a node's index path ([[LayoutNode.pathId]]) —
-  * authors never invent one. A surface is a separate layout tree whose ids are
+  * Ids are location-derived from a node's index path ([[LayoutNode.pathId]])
+  * unless an author named the node ([[LayoutNode.Component.id]]) — authors
+  * never invent one. A surface is a separate layout tree whose ids are
   * namespaced (`s_<id>__…`) so they cannot collide with the main page.
   */
 class Renderer(
@@ -109,6 +110,23 @@ class Renderer(
     * (empty for the main page, `s_<id>__` for a surface).
     */
   private class Index(root: LayoutNode, val idPrefix: String) {
+
+    /** `child -> parent` for this tree, recorded by the SAME walk that mints
+      * the ids so the two cannot disagree — see [[NodeAncestry]].
+      */
+    val parents: Map[NodeId, NodeId] = {
+      def walk(node: LayoutNode, id: NodeId): List[(NodeId, NodeId)] =
+        node match {
+          case c: LayoutNode.Component =>
+            LayoutNode.steps(c.children).flatMap { case (step, ch) =>
+              val cid = LayoutNode.childId(idPrefix, id, step, ch)
+              (cid -> id) :: walk(ch, cid)
+            }
+          case _: LayoutNode.SetNode => Nil
+        }
+      walk(root, LayoutNode.rootId(idPrefix, root)).toMap
+    }
+
     val indexed: Map[NodeId, LayoutNode] = {
       def walk(node: LayoutNode, id: NodeId): List[(NodeId, LayoutNode)] = {
         val self = id -> node
@@ -231,6 +249,17 @@ class Renderer(
     allIndexed.collect { case (id, (s: LayoutNode.SetNode, _)) => id -> s },
     rootOfIndexed
   )
+
+  /** Containment, from the tree rather than from how ids are spelled. Built
+    * from the SAME walks that mint the ids (each `Index`'s `parents`) plus the
+    * two edges only the member graph knows — see [[NodeAncestry]].
+    */
+  private[runtime] val ancestry: NodeAncestry =
+    NodeAncestry.fromParents(
+      (mainIndex :: surfaceIndexes.values.toList)
+        .flatMap(_.parents)
+        .toMap ++ members.parentEdges
+    )
 
   /** Which parts of the dashboard are showing, and to whom — selection and
     * visibility. The other decision half, exposed on the same terms as

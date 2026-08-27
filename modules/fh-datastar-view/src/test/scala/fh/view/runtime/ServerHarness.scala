@@ -444,7 +444,11 @@ trait ServerHarness extends munit.CatsEffectSuite {
           Patches
             .resume(renderer, rc, log, held, now.entities, from + 1)
             .flatMap { patches =>
-              holds.set(patches.foldLeft(held)(Patches.applied)) *>
+              holds.set(
+                patches.foldLeft(held)(
+                  Patches.applied(renderer.ancestry, _, _)
+                )
+              ) *>
                 position
                   .set(now.version)
                   .as(events(patches) :+ Server.versionSignal(now.version))

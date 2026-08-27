@@ -170,7 +170,7 @@ class SetMembershipSuite extends ServerHarness {
             // where a seeded log entry used to be the baseline, this is.
           } yield (
             elementPatches(events(patches)),
-            patches.foldLeft(seed._2)(Patches.applied)
+            patches.foldLeft(seed._2)(Patches.applied(renderer.ancestry, _, _))
           )
         }
     } yield out)

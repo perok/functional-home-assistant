@@ -597,6 +597,27 @@ plan gives. What it misses is `{{#children}}`, which is exactly what `Tabs` does
   surface's `s_<sid>__` prefix — `Renderer.prefixToRoot` works out which surface a node belongs to
   from that prefix, so an id that dropped it would be unattributable.
 
+- **1g — ancestry comes from the tree, not from the id spelling.** `NodeAncestry` replaces the
+  `id.startsWith(parent + "_")` test at the three places that decide containment:
+  `FragmentLog.filled` (what a refill makes stale), `FragmentLog.coveredByMutation` (is my change
+  already covered by an ancestor that moved) and `Patches.applied` (what a patch displaced).
+
+  1f is what forced it. `FragmentLog.coveredByMutation` justified the string test in its own doc —
+  *"Ancestry is a string-prefix test because ids are location-derived"* — and an authored id is not
+  location-derived, so `detail_0` reads as a child of `detail` while being its sibling. 1f patched
+  that with a validate rule; this removes the reason for the rule, and the rule with it.
+
+  It costs nothing to know, because **the whole id space is static**: the layout tree and every
+  surface's content are fixed at build time, and `MemberGraph.sources` says the same for the part
+  that looks dynamic — *"a set's candidates are static, so the whole tree of sets is knowable before
+  any state arrives"*. The relation is built from the SAME walks that mint the ids (each `Index`'s
+  `parents`) plus the two edges only the member graph knows (member → set, nested set → member), so
+  ids and containment cannot disagree.
+
+  Two things fall out. `filled` stops scanning the whole log testing a string and removes exactly
+  the subtree. And an authored id may now be anything unique — `detail` and `detail_0` are simply
+  two nodes.
+
 1a is worth doing alone regardless of how the rest is cut: it is the safety property, it is small,
 and it moves a stringly-typed runtime check into the type system.
 
@@ -624,36 +645,6 @@ reachable in today's library at all — every `{{{panel}}}`/`{{{branch}}}` sits 
 
 Each is recorded so it is not rediscovered as a surprise mid-implementation. None blocks steps 1–4.
 
-- **Decide ancestry from the STRUCTURE, not from the id spelling.** Four places treat
-  `id.startsWith(parent + "_")` as tree ancestry: `FragmentLog.filled` (invalidate a container's
-  subtree), `FragmentLog.coveredByMutation` (is this node under something that moved),
-  `MemberGraph`, and `Patches` (what a patch displaced).
-
-  `coveredByMutation`'s own doc gives the justification — *"Ancestry is a string-prefix test because
-  ids are location-derived"* — and **1f falsified it.** An authored id is not location-derived, so
-  the premise the encoding rests on no longer holds, and `authoredIdErrors`' third rule
-  (prefix-ancestry must agree with tree-ancestry) is a prop holding it up rather than a real
-  constraint on authors.
-
-  The fix is the one the design already earns: **the whole id space is statically knowable.**
-  `MemberGraph.sources` says so in as many words — *"They can all be enumerated here because a set's
-  candidates are static, so the whole tree of sets is knowable before any state arrives"* — and the
-  static tree and every surface's content are known at renderer construction. So ancestry can be a
-  precomputed relation (`ancestorsOf: NodeId => Set[NodeId]`, or `descendants` for the invalidate
-  side) rather than a string test.
-
-  Three things follow, and only the first is why to do it:
-
-  1. **Authored ids stop needing a rule.** `detail` and `detail_0` become unrelated because the
-     relation says so. Delete `authoredIdErrors`' ancestry half.
-  2. `filled` stops scanning the whole log to find a subtree — it removes exactly the ids in it.
-  3. It removes a class of latent bug the prefix test always had: any id scheme that ever produces
-     a `_`-prefix coincidence is silently wrong, and nothing would report it.
-
-  Cost: the two `FragmentLog` methods take the relation as an argument (the log stays a pure data
-  structure; `Patches` has the renderer and can supply it), plus the `Patches` and `MemberGraph`
-  sites. Small in shape, but it touches the RESUME path, which is the most delicate machinery here
-  — so it wants its own change and its own careful reading, not a ride on a step.
 - **Make the wire carry ONE explicit form for `children`.** 1c made the decoder accept a bare array
   (the default region) as well as a region-keyed object, so the authoring layer's existing emission
   kept working unchanged. That is the right trade for the migration and the wrong one to keep: two

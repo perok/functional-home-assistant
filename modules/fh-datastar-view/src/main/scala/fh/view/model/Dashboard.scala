@@ -1123,20 +1123,16 @@ case class Dashboard(
         }
       }
 
-    /** What an authored `id` has to satisfy, and the third rule is the one that
-      * is not obvious.
+    /** What an authored `id` has to satisfy: a plain token, used once, and not
+      * inside a candidate set's clause.
       *
-      * The runtime decides tree ANCESTRY by string prefix — `FragmentLog`
-      * invalidates `k.startsWith(container + "_")`, `Patches` reads the same
-      * shape for what a patch displaced, `MemberGraph` for which set a node is
-      * under. Positional ids satisfy that by construction: `c_3` prefixes
-      * `c_3_0` and nothing else. Authored ones need not — name one node
-      * `detail` and another `detail_0`, and the second READS as a child of the
-      * first while being unrelated, so invalidating `detail` silently takes
-      * `detail_0` with it.
-      *
-      * So the check is not "unique": it is that prefix-ancestry and
-      * tree-ancestry agree, which is exactly checkable once every id is known.
+      * There used to be a fourth rule — that an id must not READ as another
+      * node's descendant, because the runtime decided ancestry by string prefix
+      * and `detail_0` looks like a child of `detail`. That rule was a prop
+      * under an encoding, not a constraint authors could learn anything from,
+      * and it is gone: ancestry comes from [[fh.view.runtime.NodeAncestry]],
+      * which asks the tree. Two nodes may now be called `detail` and `detail_0`
+      * and simply be unrelated, which is what they are.
       */
     val authoredIdErrors: List[String] = {
       def walkIds(
@@ -1189,42 +1185,7 @@ case class Dashboard(
         else Nil
       }
 
-      // Ancestry: an id may prefix another only when it really is its ancestor.
-      val treeAncestors: Map[NodeId, Set[NodeId]] = {
-        def anc(
-            node: LayoutNode,
-            prefix: String,
-            id: NodeId,
-            above: Set[NodeId]
-        ): List[(NodeId, Set[NodeId])] =
-          (id -> above) :: (node match {
-            case c: LayoutNode.Component =>
-              LayoutNode.steps(c.children).flatMap { case (step, ch) =>
-                anc(
-                  ch,
-                  prefix,
-                  LayoutNode.childId(prefix, id, step, ch),
-                  above + id
-                )
-              }
-            case _: LayoutNode.SetNode => Nil
-          })
-        (anc(card, "", LayoutNode.rootId("", card), Set.empty) ++
-          surfaces.toList.flatMap { case (sid, s) =>
-            val p = LayoutNode.surfacePrefix(sid)
-            anc(s.content, p, LayoutNode.rootId(p, s.content), Set.empty)
-          }).toMap
-      }
-      val ancestry =
-        treeAncestors.toList.sortBy(_._1).flatMap { case (id, above) =>
-          ids.distinct.filter(o => o != id && id.startsWith(o + "_")).collect {
-            case o if !above.contains(o) =>
-              s"node id '$id' reads as a descendant of '$o' but is not one — " +
-                "the runtime decides ancestry by id prefix, so invalidating " +
-                s"'$o' would silently take '$id' with it"
-          }
-        }
-      (shape ++ ancestry).distinct
+      shape.distinct
     }
 
     // A non-empty theme.chrome MUST wrap {{{body}}} in an element carrying

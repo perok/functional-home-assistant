@@ -6,6 +6,7 @@ import fh.view.model.{
   Cell,
   Dashboard,
   LayoutNode,
+  NodeId,
   Op,
   Predicate,
   Region,
@@ -1119,12 +1120,11 @@ class RendererSuite extends munit.FunSuite {
     assert(html.contains("""id="c_0""""), clue = html)
   }
 
-  /** The rule that is not "unique", and the reason this feature needs checking
-    * at all: the runtime reads tree ancestry off the id STRING (`startsWith(id
-    * + "_")` in `FragmentLog`, `Patches`, `MemberGraph`). Positional ids
-    * satisfy that by construction; authored ones need not.
+  /** An authored id must be a token and used once. It need NOT avoid looking
+    * like another id's child: that rule existed only while the runtime read
+    * ancestry off the id string, and `NodeAncestry` retired it.
     */
-  test("validate: an authored id may not read as another node's descendant") {
+  test("validate: an authored id must be a plain token, used once") {
     def two(a: String, b: String) = Dashboard(
       cards,
       col(
@@ -1132,25 +1132,55 @@ class RendererSuite extends munit.FunSuite {
         LayoutNode.Component("col", id = Some(b))
       )
     )
-    // Both unique, both sane tokens — and still wrong: invalidating `detail`
-    // would silently take `detail_0` with it.
-    assert(
-      two("detail", "detail_0")
-        .validate()
-        .exists(_.contains("reads as a descendant")),
-      clue = two("detail", "detail_0").validate()
-    )
-    // Non-vacuous: unrelated names are fine, and so is a shared PREFIX that is
-    // not a whole segment boundary.
+    // The pair that used to be rejected — now simply two siblings.
+    assertEquals(two("detail", "detail_0").validate(), Nil)
     assertEquals(two("detail", "summary").validate(), Nil)
-    assertEquals(two("detail", "details").validate(), Nil)
 
-    // Duplicates and non-tokens.
     assert(two("same", "same").validate().exists(_.contains("more than once")))
     assert(
       two("ok", "no-dashes").validate().exists(_.contains("plain token")),
       clue = two("ok", "no-dashes").validate()
     )
+  }
+
+  /** ...and the reason dropping that rule is SAFE, which is the whole point of
+    * the change: a sibling named like a child is not treated as one.
+    *
+    * Asserted on the relation the runtime actually consults. The string test it
+    * replaced answers this wrongly, and nothing else in the suite would notice
+    * — the symptom is a fragment silently dropped from one client's record.
+    */
+  test("ancestry: a sibling whose id looks like a child is not one") {
+    val d = Dashboard(
+      cards,
+      col(
+        LayoutNode.Component(
+          "col",
+          children = LayoutNode.kids(
+            LayoutNode.Component("card", Map("state" -> lit("under")))
+          ),
+          id = Some("detail")
+        ),
+        // Reads as a child of `detail` and is its SIBLING. Not `detail_0`:
+        // that is what `detail`'s own child derives to, so it would be a
+        // genuine duplicate and the uniqueness rule catches it — the two rules
+        // cover different things.
+        LayoutNode.Component("col", id = Some("detail_x"))
+      )
+    )
+    assertEquals(d.validate(), Nil)
+    val a = Renderer.create(d).ancestry
+
+    // The real child IS under it...
+    assert(a.under("detail_0", Set[NodeId]("detail")), clue = "real child")
+    // ...and the sibling that merely reads like one is not, though
+    // `startsWith("detail_")` would say otherwise.
+    assert(
+      !a.under("detail_x", Set[NodeId]("detail")),
+      clue = "a sibling must not be swallowed by its neighbour's name"
+    )
+    // What a refill would drop contains only the real one.
+    assertEquals(a.descendantsOf("detail"), Set[NodeId]("detail_0"))
   }
 
   test("validate: a region name that could be read as an index is rejected") {

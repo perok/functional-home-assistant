@@ -341,11 +341,16 @@ private[runtime] final class MemberGraph(
     * something materialised per frame, and it is why the inner members patch
     * themselves instead of the tile re-rendering.
     */
-  private val sources: Map[NodeId, MemberSource] = {
+  /** Every set container, each with the MEMBER it hangs off when it is a nested
+    * one. The owner is carried out rather than recovered later: `setsIn` knows
+    * it while walking, and the alternative — reading it back off the id's
+    * prefix — is exactly the inference [[NodeAncestry]] exists to stop.
+    */
+  private val sourcesWithOwner: List[(NodeId, MemberSource, Option[NodeId])] = {
     def nested(
         gid: SetId,
         s: LayoutNode.SetNode
-    ): List[(NodeId, MemberSource)] =
+    ): List[(NodeId, MemberSource, Option[NodeId])] =
       for {
         candidate <- s.candidates
         (clause, ci) <- s.members
@@ -366,21 +371,38 @@ private[runtime] final class MemberGraph(
         clauseIdx: Int,
         node: LayoutNode,
         path: List[LayoutNode.Step]
-    ): List[(NodeId, MemberSource)] = node match {
+    ): List[(NodeId, MemberSource, Option[NodeId])] = node match {
       case c: LayoutNode.Component =>
         LayoutNode.steps(c.children).flatMap { case (step, child) =>
           setsIn(member, clauseIdx, child, path :+ step)
         }
       case inner: LayoutNode.SetNode =>
         val id = innerSetId(member, clauseIdx, path, inner)
-        (id -> MemberSource(inner)) :: nested(id, inner)
+        (id, MemberSource(inner), Some(NodeId.derived(member))) ::
+          nested(id, inner)
     }
 
-    val roots = setNodes.map { case (id, s) => id -> MemberSource(s) }
-    roots ++ roots.toList.flatMap { case (gid, src) =>
+    val roots = setNodes.toList.map { case (id, s) =>
+      (id, MemberSource(s), None)
+    }
+    roots ++ roots.flatMap { case (gid, src, _) =>
       nested(src.setId(gid), src.s)
     }
   }
+
+  private val sources: Map[NodeId, MemberSource] =
+    sourcesWithOwner.map { case (id, src, _) => id -> src }.toMap
+
+  /** `member -> its set`, and `nested set -> the member it hangs off`: the two
+    * parent edges the static index cannot see, for [[NodeAncestry]].
+    *
+    * Both are STATIC despite living here. A set's candidates are decided at
+    * build time (ADR 0003), so every member id that could ever exist is known
+    * now — presence varies, the id space does not.
+    */
+  def parentEdges: Map[NodeId, NodeId] =
+    memberOwner.view.mapValues(g => NodeId.derived(g)).toMap ++
+      sourcesWithOwner.collect { case (id, _, Some(owner)) => id -> owner }
 
   /** Which layout tree each member container is in — `""` for the main page,
     * else the surface id. A nested set inherits its tile's, because it is not
