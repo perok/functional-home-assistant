@@ -312,20 +312,32 @@ obj1(InlineSurfacesKey).flatMap(_.asObject) match {
 
    The distinction the splice needs is authorship — *"my card class wrote this string"* — and no
    pass over JSON can see it, because an author-placed child and a card-constructed one are the same
-   shape. Today `inlineSurfaces` stands in for it by coincidence: the cards that hoist surfaces are
-   exactly the cards that write tokens.
+   shape. Today `inlineSurfaces` stands in for it, and calling that a coincidence was wrong: **the
+   coupling is structural.** A card hands its children a reference to its own id in order to name a
+   SELECTION it owns — that is what the reference is for — and a card owning a selection is a card
+   with a bake group, whose alternatives are surfaces. So "carries surfaces" and "writes tokens"
+   are not two facts that happen to coincide; the second implies the first. The gap is only a card
+   wanting to share a NON-selection value with its children, and no card wants one (ADR 0017 signal
+   slots already cover sharing a display value client-side).
 
-   **So do not invest in fixing the splice.** A subtree find-and-replace is the wrong shape for
-   this, and the right one is sketched under "Node variables" below. Take defect (2) — the leftover
-   check — which is correct under either design, and leave (1) alone.
+   **So the splice does not need fixing** — but see the scope note below, because step 1 moves the
+   key it branches on.
 2. **A surviving token is silent.** Nothing validates that no `@@…@@` remains: `Dashboard.validate`
    never mentions `NodeIdToken`, and the only occurrence of the string in `src/main/scala` is its
    own definition. So an unspliced token renders literally into the DOM as `@@NODE_ID@@`, and the
    first sign of it is a binding that quietly never matches.
 
-Both are one-liners and neither blocks steps 1–3 — each head action keys on its own id, which is the
-point of #151. Do (2) regardless whenever this file is next touched; it is a build-time check that
-can only ever be right. Do (1) when a consumer arrives.
+**Step 1 is entangled with this, and the check belongs IN step 1.** Absorbing `inlineSurfaces` into
+a per-region `surfaces` map moves the very key `walk` branches on, so step 1 must update that branch
+— it is not optional and it is not deferrable. Keeping the behaviour identical is mechanical (branch
+on the new key; `Tabs` still carries surfaces, so the splice still fires for it). Getting it wrong
+is silent: every tab button renders `@@NODE_ID@@` and its highlight simply never matches. That is
+exactly what defect (2)'s check catches, so it lands in step 1 as the regression detector for a
+change step 1 is definitely making — not "whenever this file is next touched".
+
+What steps 1–3 do NOT need is any change to the splice's semantics. Each head action keys on its own
+id, which is the point of #151, and `SliderHead` gets its entity from Pkl (a value the class holds)
+rather than from an id (a value only the build knows).
 
 **Not** a reason to move the owner id into a declared slot. The parent still cannot know the id at
 authoring time, so the slot's VALUE would be the same token — one more declaration and the same
@@ -338,8 +350,12 @@ per region.
 
 ### Node variables — the direction, not this plan's work
 
-Not scoped here. Recorded because it changes what is worth doing about `NODE_ID` now, and because
-regions are what make it expressible.
+**What this is and is not.** It is not a prerequisite for regions: the case a card actually needs —
+handing its children a reference to a selection it owns — is served today, and served correctly,
+because owning a selection implies carrying surfaces implies carrying the splice marker (above). It
+is what would turn that from a mechanism that works into a mechanism that is *declared*. Recorded
+here because regions are what make it expressible, and because it changes what is worth doing about
+`NODE_ID`.
 
 A string convention (`ui_<gid>`, `_<g>__pending`) ties nothing to a node's lifecycle. Compare how
 entity reads work: a node DECLARES the entities its slots read, and the recorder, `renderInputs` and
