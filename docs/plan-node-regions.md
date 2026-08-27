@@ -570,6 +570,21 @@ reachable in today's library at all — every `{{{panel}}}`/`{{{branch}}}` sits 
 
 Each is recorded so it is not rediscovered as a surprise mid-implementation. None blocks steps 1–4.
 
+- **Make the wire carry ONE explicit form for `children`.** 1c made the decoder accept a bare array
+  (the default region) as well as a region-keyed object, so the authoring layer's existing emission
+  kept working unchanged. That is the right trade for the migration and the wrong one to keep: two
+  shapes on the wire means every reader has to know both, and the explicit one is the honest record
+  of what a node holds.
+
+  The end state keeps the Pkl AUTHORING sugar exactly as it is — a card with one region is still
+  written `Grid { children { … } }`, because naming the only hole adds nothing — and changes only
+  what Pkl EMITS: a hidden `children: Listing` feeding an emitted region map, then drop the array
+  branch from the decoder. Note the one snag to settle when doing it: the authored and emitted
+  properties cannot both be called `children` in Pkl, so the emitted one needs a name — `regions`
+  mirrors `CardDef.regions` ("the card declares them, the node fills them") at the cost of one word
+  meaning two things.
+
+  Wire-only, so it moves every snapshot; worth doing right after ids settle, not before.
 - **Run the Pkl suite from Scala.** The blocker on this branch is that `pkl test` needs a CLI nobody
   has here, so `.pkl` edits ship unverified. `pkl-core` is already a dependency and
   `Evaluator.evaluateTest(ModuleSource, overwrite)` is public API returning `TestResults` with
