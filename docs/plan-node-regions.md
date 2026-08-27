@@ -90,7 +90,7 @@ template = <div class="fh-col">
              <div class="tabs" data-signals__ifmissing="{ ui_{{id}}: {{bakeIndex}} }" …>
                {{#buttons}}{{{html}}}{{/buttons}}
              </div>
-             <div id="{{regionId_panel}}" class="tab-panel" …>{{{panel}}}</div>
+             <div id="{{panelId}}" class="tab-panel" …>{{{panel}}}</div>
            </div>
 ```
 
@@ -99,6 +99,25 @@ seed comes along unchanged, and the buttons stay direct children of `.tabs`. A *
 — the "tab bar with the current temperature" that `RendererSuite`'s `tabsLive` fixture exists for —
 is a leaf node in a third region beside the buttons. Note that `tabsLive`'s `self` already contains
 no hole, so that fixture already satisfies the invariant.
+
+Both halves keep working, unchanged in mechanism:
+
+- **Selection is a signal, entirely client-side.** `data-signals__ifmissing="{ ui_{{id}}:
+  {{bakeIndex}} }"` moves onto the template's `.tabs` div, which is rendered with `vars` — and
+  `vars` includes `bakeIndex` — so the seed is the same bytes. The active highlight is each button's
+  own `data-class` off `$ui_<id>`, with no server round trip. `ui_{{id}}` keys on the tabs NODE id,
+  which does not move.
+- **The panel stays lazy.** `fill = "baked"` is the declaration of exactly the property
+  `plan-mount-unification` feared losing: only the selected surface renders and streams, and a
+  switch is `Patches.hostFill` inner-patching `panelId` as it does today.
+- `TabButton` is already `wrapAsCell = false` — *"the anchors must stay DIRECT children of the
+  `.tabs` bar"* — so it has no morph target and `Dashboard.validate` already forbids it binding a
+  live entity. It doesn't: `active` and `onclick` are client-side expressions. Consistent with the
+  new rule rather than an exception to it.
+
+The one thing that improves: a live tab-bar header today would re-send every button with it, since
+they sit inside the element the patch targets. As a leaf in its own region it costs its own bytes
+and nothing else.
 
 **Slider** is the one real cost. Its `self` is the head row: label, fill bar, input, toggle, readout
 — one indivisible chunk of markup driven by one entity. It becomes a `SliderHead` leaf node in a
@@ -124,12 +143,34 @@ one node's whole template.
 
 Two consequences worth naming:
 
-- **Every leaf is cacheable.** `ownBytesCarryChildren` is `children.nonEmpty`, a conservative proxy
-  for "my bytes carry my kids". Under the rule a patched node has no kids in its bytes, ever, so the
-  opt-out has nothing to opt out. A slider group is uncached today; it stops being.
-- **Open question #130 loses its first obstacle.** Its wording is *"what a parent EMBEDS is not what
-  a patch carries (for a `self` card the cache holds the `self` element alone)"*. Under the rule
-  what a parent embeds is a composition of separately-cached leaves, which is the same thing.
+### Caching, which is where the win actually lands
+
+**The tick path stops being uncached, for free.** Today a grouped slider is the worst case in the
+library: it has a `self`, so the slider node IS the patch target and every light tick re-renders it
+— and `ownBytesCarryChildren` (`children.nonEmpty`) turns the cache off for it, even though its
+`self` contains no children at all. The proxy is conservative in the one place it is expensive: on
+the hot path, for the card the whole library leans on.
+
+After step 2, what re-renders on that tick is `SliderHead`, a leaf. Leaves carry no children by
+construction, so they cache. The structural `Slider` node stays uncached, but it is never on the
+tick path — it is rendered by the document walk and by a structural insert, and by nothing else.
+
+**And caching becomes compositional, top to bottom.** `renderInputs`' own scaladoc already describes
+the second pass:
+
+> *"HOLES where the children go and substituting their (separately keyed) bytes in a second pass —
+> `renderTemplateOf` taking `childrenHtml` is the seam. That is an optimisation, not a
+> precondition."*
+
+The reason it was never applied uniformly is that a `self` could splice children at arbitrary
+nesting, so "this node's own shell" was not a well-defined thing to key. The invariant defines it:
+a node's bytes are its own shell (keyed on its own slots) plus each region's bytes (each keyed on
+its own). Every level cacheable, nothing composed into a key it cannot compute.
+
+That is **open question #130's first obstacle** — *"what a parent EMBEDS is not what a patch carries
+(for a `self` card the cache holds the `self` element alone)"* — struck. Under the invariant what a
+parent embeds is a composition of separately-cached shells and leaves. Worth doing as a follow-on
+with numbers, not as a step here; the point is that this work is what makes it sound.
 
 ## Step 1 — regions
 
@@ -197,7 +238,16 @@ pre-v1.
 - `Index.walk`, `MemberGraph`, the `danglingBakes` walk and the other traversals take
   `children.values.flatten` — mechanical and region-blind, since they only need every node.
 - Region-aware in two places: `renderTemplateOf`'s var map (one section per region rather than one
-  `children` list), and `mountId` → `regionId(nodeId, region)` for the baked region a surface names.
+  `children` list, plus a `{{<region>Id}}` var per declared region), and `mountId` →
+  `regionId(nodeId, region)`.
+- **`bakeAs` and the region name become one field.** `Surface.hostId` is already
+  `<bakeInto>_<bakeAs>`, and `regionId(id, "panel")` is `<id>_panel` — byte-identical, so `c_2_panel`
+  stays `c_2_panel`. `mountId`'s doc already frames that derivation as *"removing a duplication
+  rather than adding one"*; regions finish it, because a surface naming the region it bakes into is
+  the same statement as naming its template var.
+- A region needs an id only where something FILLS it — baked regions and set mounts. `Row`/`Grid`
+  eager regions never do (`mountId`: *"their children arrive nested — so they fall back to the
+  node's own id and simply never use it"*), so named regions do not force an id onto every hole.
 - `Tabs` migrates here (its buttons move into the template), because the invariant rejects its
   current shape the moment it is enforced.
 
