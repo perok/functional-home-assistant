@@ -219,6 +219,10 @@ class Region {
 
 class CardDef {
   template: String
+  /// Step 1 keeps this; step 2 removes it along with the concept. A card
+  /// declaring one is a card whose patch target is `{{selfId}}` rather than its
+  /// cell — see "What `self` was".
+  self: String? = null
   regions: Mapping<String, Region> = new {}
   slots: Listing<String> = new {}
   css: String = ""
@@ -255,8 +259,8 @@ the inline-marker-and-hoist machinery stays for that case — which is also what
 splice's home alive. Two of the three baked shapes (tabs panels, `If` branches) become regions; the
 popup stays a hoist.
 
-`ContainerCard` and `LeafCard` merge into `CardDef`; `self` and `mount` both disappear as properties.
-A leaf is a card with no regions.
+`ContainerCard` and `LeafCard` merge into `CardDef`, and `mount` disappears as a property. `self`
+survives step 1 and dies in step 2; a leaf is a card with no regions.
 
 `fill` keeps the distinction `mount` used to blur: `mount` carried two unrelated facts at once —
 "not in the patch fragment" and "the bake host" — which is why `Row` and `Tabs` both had one while
@@ -494,10 +498,32 @@ in the same PR as step 3.
 exactly one card in the library still declaring a `self`** — `Slider`. Step 2 is then "remove the
 last one, and the concept with it". If step 1 ends with two, something was missed.
 
-**Step 1 is the big one and could be split** if the diff proves unwieldy: (1a) `children` becomes a
-region map with `mount` renamed, ids unchanged; (1b) region-qualified ids and the URL breakage; (1c)
-`inlineSurfaces` absorbed. Only 1c touches `DashboardBuild`'s splice branch. Do not split on a guess
-— split if 1 does not fit in a reviewable commit.
+**Step 1 splits, and the first cut is the invariant alone.** Reading `core/node.pkl` changed the
+shape of this: the invariant is not new machinery, it is **a tightening of a constraint that already
+exists**, and half of it is already enforced —
+
+```pkl
+self: String?(this == null ||
+  (this.contains("{{selfId}}") && !this.contains("{{{mount}}}"))) = null
+```
+
+A `self` is already forbidden from containing the `{{{mount}}}` hole, with the same reasoning this
+plan gives. What it misses is `{{#children}}`, which is exactly what `Tabs` does and exactly what
+`Templates.selvesCarryChildren` exists to detect at runtime. So:
+
+- **1a — the invariant.** Widen that constraint to reject ANY hole in a `self`. `Tabs` migrates (its
+  bar moves into `template`, leaving it with no `self` at all), and `Templates.selvesCarryChildren`
+  plus the `hasOwnRendering` clause that consumes it are deleted — the runtime grep is replaced by
+  a build-time type refinement. **No model change, no renaming, no id change.** Ends at the
+  checkpoint: `Slider` is the only card with a `self`, and it holds no hole.
+- **1b — regions.** `children` becomes a region map, `mount` renamed, `ContainerCard`/`LeafCard`
+  merged.
+- **1c — ids.** Region-qualified node ids and the tab-state URL breakage.
+- **1d — surfaces.** `inlineSurfaces` absorbed into the baked region; the only cut that touches
+  `DashboardBuild`'s splice branch, so the leftover-token check lands here.
+
+1a is worth doing alone regardless of how the rest is cut: it is the safety property, it is small,
+and it moves a stringly-typed runtime check into the type system.
 
 ### Expected test movement
 
