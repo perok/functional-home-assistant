@@ -119,6 +119,30 @@ card is **not plain-form-capable** — an interactive control needs a client sig
 setting says. That is not a new limitation; the slider hard-coded `data-signals` + `data-bind` +
 `data-on:change` long before any of this.
 
+### The second way a card stops being plain-form-capable: a signal slot on STRUCTURE
+
+A signal slot on a card that holds regions is legal (see the structure rule in
+`Dashboard.validate`, which forbids only a live slot carrying BYTES there — a signal needs no patch,
+so nothing about structure is in its way). In the **plain** form it has no delivery mechanism at
+all: that form emits no binding and no seed, so the value is inline bytes, and inline bytes change
+only by patching the node — which structure never is. The card is right at first paint and frozen
+after.
+
+Worth naming because it is the same failure the signals form had until `signalsFor` stopped gating
+on `hasOwnRendering`: seeded once, then still. Fixing it for one profile re-created it for the other,
+and only one of the two has a client today.
+
+Concretely this costs nothing yet — `sliderHead` is the only structural card carrying signal slots,
+and the slider was already excluded by the `bind` rule above. What it costs is the *guarantee*: "a
+live value lives on a patchable node" used to be true by construction, and was silently doing issue
+[#133](https://github.com/perok/functional-home-assistant/issues/133)'s work for it. It is now a
+property a card can lose without saying so.
+
+So when #133 is built, plain-form capability wants to be **computed, not surveyed** — a card is
+plain-form-capable when no slot binds `bind` and, if it holds regions, no slot is a signal slot.
+That is two predicates over data the model already has. Deliberately not added now: a capability
+surface designed against no client is what that issue exists to avoid.
+
 For the one thing a canned attribute cannot cover — a card composing the signal into an expression
 of its own, as the slider's action URL does — the renderer also injects `<slot>__signal`, the bare
 name. Not a binding, so it does not compromise the plain form; a card that uses it is simply
