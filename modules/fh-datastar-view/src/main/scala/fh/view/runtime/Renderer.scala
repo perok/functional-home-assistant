@@ -519,33 +519,12 @@ class Renderer(
       uiState: Map[String, String],
       form: SlotForm
   ): Option[String] =
-    allIndexed.get(id).filter(_ => hasOwnRendering(id)).map {
-      // A card that declares a `self` patches through THAT element alone — no
-      // cell wrapper (the cell contains the mount) and no mount. Statement (1)
-      // made structural rather than enforced by suppression: the fragment
-      // simply cannot carry what the mount holds. Children DO ride along — a
-      // tab bar's buttons are the card's own rendering, not mounted content.
-      case (c: LayoutNode.Component, prefix) if hasSelf(c.card) =>
-        renderTemplateOf(
-          templates.selves(c.card),
-          structuralVars(id) ++ resolveBakeTraced(id, uiState, states)._2,
-          c.slots,
-          Renderer.perRegion(c.children)((child, step) =>
-            render(
-              child,
-              LayoutNode.childId(prefix, id, step, child),
-              prefix,
-              states,
-              uiState,
-              form
-            )
-          ),
-          states,
-          form
-        )
-      case (node, prefix) =>
+    allIndexed
+      .get(id)
+      .filter(_ => hasOwnRendering(id))
+      .map { case (node, prefix) =>
         render(node, id, prefix, states, uiState, form)
-    }
+      }
 
   /** `s_<sid>__c` — what a state group's mount holds, and so what a flip
     * removes or places. The same scheme the build-phase hoist uses, so a
@@ -630,15 +609,14 @@ class Renderer(
     *
     * > Structural vars are a pure function of the node id in scope.
     *
-    * So a container card used as a set clause gets `selfId`/`hostId` off its
-    * member id for free, with no per-call-site knowledge. `bakeIndex` is NOT
-    * here: it is a function of the client's selection, not of the id, and it
-    * belongs to the document path alone ([[resolveBakeTraced]]).
+    * So a container card used as a set clause gets its `hostId` off its member
+    * id for free, with no per-call-site knowledge. `bakeIndex` is NOT here: it
+    * is a function of the client's selection, not of the id, and it belongs to
+    * the document path alone ([[resolveBakeTraced]]).
     */
   private def structuralVars(id: NodeId): Map[String, String] =
     Map(
       "id" -> id,
-      "selfId" -> Renderer.selfElementId(id),
       "hostId" -> hostId(id),
       // The dashboard's slug, for the action URL a card builds in its own
       // TEMPLATE (the slider's commit). A tap builds its URL in a transform
@@ -683,35 +661,15 @@ class Renderer(
     */
   private def hasOwnRendering(id: NodeId): Boolean =
     allIndexed.get(id).exists {
+      // A LEAF renders itself and nothing else; STRUCTURE renders what it
+      // holds, so patching it would re-send that. One question, asked of the
+      // card — where it used to be three, asked of a template's spelling.
       case (c: LayoutNode.Component, _) =>
-        // What `renderNodeById` would produce: a card with a `self` renders
-        // that element and nothing else — the self holds no hole, so its bytes
-        // cannot contain a child's, whatever those children carry. Anything
-        // else renders its whole card, its own mount included.
-        if (hasSelf(c.card)) true else !carriesMount(c)
+        !dashboard.cards.get(c.card).exists(_.isStructure)
       // A member container composes its members and renders nothing of its
       // own; the members are the log keys.
       case (_: LayoutNode.SetNode, _) => false
     }
-
-  /** Whether rendering this node in FULL — as a parent's markup embeds it —
-    * brings a mount along, its own or a descendant's.
-    *
-    * A member container does not count: a member renders with no bake group, so
-    * a member card's mount comes out empty and carries nobody's selection.
-    */
-  private def carriesMount(node: LayoutNode): Boolean = node match {
-    case c: LayoutNode.Component =>
-      dashboard.cards.get(c.card).exists(_.isStructure) ||
-      c.allChildren.exists(carriesMount)
-    case _: LayoutNode.SetNode => false
-  }
-
-  /** The ONE predicate the self/mount split turns on: it picks what the patch
-    * path renders, what [[patchTargetId]] returns, and so what the diff
-    * compares. The three can never disagree.
-    */
-  private def hasSelf(card: String): Boolean = templates.selves.contains(card)
 
   /** The DOM element a patch for `id` targets — the ONE crossing from node id
     * to DOM id, and one-way.
@@ -723,19 +681,13 @@ class Renderer(
     * contain one and no `startsWith(id + "_")` ancestry test can mistake
     * `c_2-self` for a child of `c_2`.
     */
-  def patchTargetId(id: NodeId): DomId =
-    allIndexed.get(id) match {
-      case Some((c: LayoutNode.Component, _)) if hasSelf(c.card) =>
-        Renderer.selfElementId(id)
-      case _ => elementId(id)
-    }
-
-  /** The node's OWN root element — the `.fh-cell` wrapper `render` emits. What
-    * a structural patch names: the thing a `remove` deletes and an `insert`
-    * anchors `before`. Distinct from [[patchTargetId]] on purpose: once a
-    * container patches its `self` alone, removing that element would leave the
-    * mount and its children standing, so "what I morph" and "what I am" stop
-    * being the same element.
+  /** The node's OWN root element — the `.fh-cell` wrapper `render` emits, and
+    * the ONE crossing from node id to DOM id.
+    *
+    * "What I morph" and "what I am" used to be different elements: a card with
+    * a `self` was patched at `<id>-self` so its patch could not reach the
+    * sibling holding its children. A node holds its regions in OTHER NODES now,
+    * so there is nothing to exclude and one element does both jobs.
     */
   def elementId(id: NodeId): DomId = DomId.derived(id)
 
@@ -892,7 +844,13 @@ class Renderer(
       )
       .orElse(
         Option
-          .when(hasOwnRendering(id) && !ownBytesCarryChildren(id))(
+          // No `&& !ownBytesCarryChildren(id)` any more. That was a
+          // CONSERVATIVE proxy for "my bytes carry my children", and it cost
+          // every grouped slider its cache entry on the hot path even though
+          // the head's bytes never held a member. A node with its own rendering
+          // IS a leaf now, so it has no children to carry — the exclusion has
+          // nothing left to exclude.
+          .when(hasOwnRendering(id))(
             RenderInputs(
               versions(entitiesForNode(id), states),
               activeBakeIndex(id, uiState, states)
@@ -910,12 +868,6 @@ class Renderer(
     entities.distinct
       .flatMap(e => states.get(e).map(e -> _.contentVersion))
       .toMap
-
-  private def ownBytesCarryChildren(id: NodeId): Boolean =
-    allIndexed.get(id).exists {
-      case (c: LayoutNode.Component, _) => c.allChildren.nonEmpty
-      case _                            => false
-    }
 
   private def render(
       node: LayoutNode,
@@ -980,43 +932,20 @@ class Renderer(
         val childrenHtml = kidsByRegion.view.mapValues(_.map(_.html)).toMap
         val (baked, bakeIndex, bakedTrace) =
           resolveBakeTraced(id, uiState, states)
-        // The document path renders the whole card: its two parts first, then
-        // `template` with them spliced in. A leaf card has neither part, so its
-        // `template` renders exactly as before.
-        //
-        // The `self` sees the structural vars AND `bakeIndex` — precisely what
-        // `renderNodeById` gives it, which is what lets the trace be captured
-        // here and compared there. NOT the baked member itself: that is the
-        // mount's contents, and statement (1) is that a node's own rendering
-        // never carries them.
-        val selfVars = structuralVars(id) ++ bakeIndex
-        val vars = selfVars ++ baked
+        // ONE template per card now. It used to be composed from two parts
+        // spliced together, with the `self` shown a NARROWER var map than the
+        // whole — no baked member — so a node's own rendering could not carry
+        // what it hosted. A region's contents are other nodes, so that
+        // separation is structural and one var map serves.
+        val vars = structuralVars(id) ++ bakeIndex ++ baked
         // ONE walk, both forms — see [[Traced]]. Only the form differs between
         // the two calls, so a node with no signal slot anywhere under it does
         // the second not at all.
         def compose(
             form: SlotForm,
             kidsHtml: Map[String, List[String]]
-        ): String = {
-          val selfPart = templates.selves
-            .get(c.card)
-            .map(renderTemplateOf(_, selfVars, c.slots, kidsHtml, states, form))
-          renderTemplate(
-            c.card,
-            vars ++ Map("self" -> selfPart.getOrElse("")),
-            c.slots,
-            kidsHtml,
-            states,
-            form
-          )
-        }
-        def selfOnly(
-            form: SlotForm,
-            kidsHtml: Map[String, List[String]]
-        ): Option[String] =
-          templates.selves
-            .get(c.card)
-            .map(renderTemplateOf(_, selfVars, c.slots, kidsHtml, states, form))
+        ): String =
+          renderTemplate(c.card, vars, c.slots, kidsHtml, states, form)
         val html = compose(SlotForm.Document, childrenHtml)
         // The patch form is needed when THIS node's slots carry a signal, or
         // when a child's bytes (which ride inside these) differ between the
@@ -1054,18 +983,14 @@ class Renderer(
                 c.cell
               )}" id="$id"${seedAttr(id, c, states, form)}>$inner</div>"""
         val wrapped = wrap(html, SlotForm.Document)
-        // What this node contributes to the trace: its `self` when it has one,
-        // otherwise its whole (wrapped) rendering when it holds no mount, and
-        // nothing at all when it is a bare container. Mirrors `renderNodeById`
-        // exactly — including the wrapper, which that method's leaf branch also
-        // returns, and the PATCH form, which is what that method produces.
+        // What this node contributes to the trace: its whole (wrapped) patch
+        // rendering when it is a LEAF, and nothing when it is structure.
+        // Mirrors `renderNodeById` exactly — wrapper included, and in the PATCH
+        // form, which is what that method produces.
         val patch =
           if (!twoForms) wrapped else wrap(patchHtml, SlotForm.Patch)
         val own = Option.when(hasOwnRendering(id))(
-          Painted(
-            selfOnly(SlotForm.Patch, patchChildren).getOrElse(patch),
-            signalsOfSlots(id, c, states)
-          )
+          Painted(patch, signalsOfSlots(id, c, states))
         )
         Traced(
           wrapped,
@@ -1253,22 +1178,11 @@ class Renderer(
       states: Map[String, EntityState],
       form: SlotForm
   ): String = {
-    val selfPart = templates.selves
-      .get(cardName)
-      .fold("")(renderTemplateOf(_, vars, slots, childrenHtml, states, form))
-    renderTemplate(
-      cardName,
-      vars ++ Map("self" -> selfPart),
-      slots,
-      childrenHtml,
-      states,
-      form
-    )
+    renderTemplate(cardName, vars, slots, childrenHtml, states, form)
   }
 
-  /** Render an already-resolved template — `template`, `self` or `mount` — with
-    * the same slot resolution for all three, so a card's parts can never
-    * disagree about what a slot means.
+  /** Render an already-resolved template with the card's slot resolution, so a
+    * card's markup and its parts can never disagree about what a slot means.
     *
     * `form` picks which rendering a SIGNAL slot gets, and changes nothing else
     * (see [[SlotForm]]). A card with no signal slot renders identically either
@@ -1580,16 +1494,6 @@ object Renderer {
     * navigate can morph one theme into another.
     */
   val ThemeStyleId: String = "fh-theme"
-
-  /** The `self` element's DOM id for a node — `<nodeId>-self`.
-    *
-    * One derivation, used both to WRITE the id (`{{selfId}}`) and to TARGET it
-    * ([[Renderer.patchTargetId]]), so the template and the patch cannot drift
-    * apart. `-` cannot appear in a generated node id ([[LayoutNode.sanitize]]),
-    * which is what keeps the log's `startsWith(id + "_")` ancestry tests from
-    * reading `c_2-self` as a child of `c_2`.
-    */
-  def selfElementId(id: NodeId): DomId = DomId.derived(id + "-self")
 
   /** The signal a signal slot's value lives in: `_<nodeId>__<slot>` (ADR 0017).
     *

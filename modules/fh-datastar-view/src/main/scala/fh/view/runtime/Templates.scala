@@ -9,16 +9,10 @@ import fh.view.model.{CardDef, Dashboard}
   * Missing slots render as empty strings rather than throwing.
   *
   * @param components
-  *   the whole card, `{{{self}}}` and every region hole included — the document
-  *   path.
-  * @param selves
-  *   the `self` part of a card that declares one — what the patch path renders,
-  *   and the predicate deciding which path a node takes.
+  *   the whole card, every region hole included. There is one template per card
+  *   now: a leaf's IS its patch fragment, and structure is never patched.
   */
-class Templates private (
-    val components: Map[String, Template],
-    val selves: Map[String, Template]
-)
+class Templates private (val components: Map[String, Template])
 
 object Templates {
 
@@ -36,19 +30,6 @@ object Templates {
 
   def from(dashboard: Dashboard): Templates =
     new Templates(
-      components = dashboard.cards.view
-        .mapValues(cd => compiler.compile(cd.template))
-        .toMap,
-      // Compiled alongside `template`, so the patch path is a lookup rather
-      // than a re-parse on the hot path.
-      selves = part(dashboard, _.self)
+      dashboard.cards.view.mapValues(cd => compiler.compile(cd.template)).toMap
     )
-
-  private def part(
-      dashboard: Dashboard,
-      of: CardDef => Option[String]
-  ): Map[String, Template] =
-    dashboard.cards.view.flatMap { case (name, cd) =>
-      of(cd).map(name -> compiler.compile(_))
-    }.toMap
 }
