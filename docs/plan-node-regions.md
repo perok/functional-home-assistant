@@ -660,6 +660,25 @@ Each is recorded so it is not rediscovered as a surprise mid-implementation. Non
   meaning two things.
 
   Wire-only, so it moves every snapshot; worth doing right after ids settle, not before.
+
+  **This one has now cost real bugs, and they showed the entry above is too small a fix.** Two
+  shipped: `hoistInlineSurfaces` read only the array form, so it STOPPED at a region-keyed node and
+  never hoisted anything below one; and it knew nothing of `members`/`clauses`, so a candidate set's
+  clauses were invisible to it. The second broke the SHIPPED starter on any house with a low battery
+  sensor — an `entityCard` over sensors takes the more-info default tap, which is an inline popup.
+
+  The shape of both is the same: **the hoist is a second implementation of the tree walk and a third
+  implementation of the id scheme.** It has three descent branches (children-array, children-object,
+  set members), and it derives node ids itself — `LayoutNode.segment` had to be made public for it,
+  and `MemberGraph.memberId` is spelled out again as string concatenation. It works on raw JSON
+  because it must: it rewrites the JSON that then decodes.
+
+  So one children form removes one branch of three and leaves the id duplication standing. The
+  fuller answer is to **decode to `LayoutNode` first and hoist over the typed tree**, using
+  `LayoutNode.childId`/`steps` and `MemberGraph`'s member ids rather than re-deriving them. Node ids
+  are derived, never stored, so nothing blocks decoding before the hoist. That deletes the third id
+  implementation outright, which is the part that keeps producing silent wrong-id bugs rather than
+  loud ones.
 - **Run the Pkl suite from Scala.** The blocker on this branch is that `pkl test` needs a CLI nobody
   has here, so `.pkl` edits ship unverified. `pkl-core` is already a dependency and
   `Evaluator.evaluateTest(ModuleSource, overwrite)` is public API returning `TestResults` with
