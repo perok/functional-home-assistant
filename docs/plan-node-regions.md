@@ -707,16 +707,6 @@ Each is recorded so it is not rediscovered as a surprise mid-implementation. Non
   are derived, never stored, so nothing blocks decoding before the hoist. That deletes the third id
   implementation outright, which is the part that keeps producing silent wrong-id bugs rather than
   loud ones.
-- **Run the Pkl suite from Scala.** The blocker on this branch is that `pkl test` needs a CLI nobody
-  has here, so `.pkl` edits ship unverified. `pkl-core` is already a dependency and
-  `Evaluator.evaluateTest(ModuleSource, overwrite)` is public API returning `TestResults` with
-  `failed()` / `totalFailures()` / per-test failure messages. The four `src/test/pkl/*.test.pkl`
-  modules import by RELATIVE PATH, not `@fh-dashboard`, so no project, lockfile or package resolver
-  is needed — `EvaluatorBuilder.preconfigured()` plus filesystem read permission covers it. They are
-  **facts-only** (zero `examples` blocks, no `.pcf` baselines), so `evaluateTest` writes no files and
-  the `--overwrite` mode is not needed. `PklBuildSuite` already proves in-process Pkl evaluation
-  works under the module's Truffle/JPMS setup. **Do this FIRST** — it is independent of the plan, and
-  it is what makes "the pure-Pkl suite runs on every step" true rather than aspirational.
 - **Node variables** (see the section above). What turns the owner-reference mechanism from one that
   works into one that is declared. Touches `RenderInputs`, the recorder, the tap layer and ADR 0017
   together; wants its own plan.
