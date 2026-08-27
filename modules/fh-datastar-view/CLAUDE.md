@@ -40,10 +40,13 @@ same commit; ADRs that change the pipeline update it too.
    pkl test --overwrite modules/fh-datastar-view/src/test/pkl/*.test.pkl
    ```
 
-   **A `-D` or env var on the `sbt` command line does NOT reach the tests here** — this repo
-   runs a long-lived sbt server, so the client gets the setting and the JVM running the tests
-   does not. Measured, both silent no-ops. Anything a test must be told belongs in `build.sbt`
-   or in the test itself.
+   **A `-D` or env var on the `sbt` command line does not reach the tests here** — measured,
+   both silent no-ops. The long-lived sbt server captures its environment when it STARTS, which
+   is the same fact the snapshot-flag warning below records from the other side: exported before
+   the server starts it sticks forever, set on a client invocation afterwards it never arrives.
+   Neither is a way to tell a test something. The established answer in this repo is an sbt
+   `Command` that sets and clears `sys.props` in a `try/finally` — see `dashboardSnapshotsUpdate`
+   in `build.sbt`.
 
    **`*.test.pkl`, not `*.pkl`** — the glob both runners use. The directory also holds fixture
    modules (`site-kitchen.pkl`, `site-attic.dashboard.pkl`) which are not test modules, so the

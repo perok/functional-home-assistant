@@ -22,27 +22,30 @@ class PklLibraryTestSuite extends munit.FunSuite {
     os.pwd / "modules" / "fh-datastar-view" / "src" / "test" / "pkl"
 
   /** `*.test.pkl`, not `*.pkl` — the same glob the CLI invocation uses. The
-    * directory also holds fixture modules (`site-kitchen.pkl`) that are imports,
-    * not suites, and amend no `pkl:test`.
+    * directory also holds fixture modules (`site-kitchen.pkl`) that are
+    * imports, not suites, and amend no `pkl:test`.
     */
   private val modules: List[os.Path] =
     os.list(testPklDir).filter(_.last.endsWith(".test.pkl")).toList.sorted
 
   /** Never overwrite `examples` baselines from an automated run — a suite that
-    * rewrites what it checks against always passes. Accepting new example output
-    * is an authoring act and stays with the CLI (`pkl test --overwrite`). Moot
-    * today: the suite is facts-only.
+    * rewrites what it checks against always passes. Accepting new example
+    * output is an authoring act and stays with the CLI (`pkl test
+    * --overwrite`). Moot today: the suite is facts-only.
     *
-    * Not a flag, deliberately. This repo runs a long-lived sbt server, so a
-    * system property or env var set on the `sbt` command line reaches the client
-    * and not the JVM the tests run in — both measured, both silent no-ops. A
-    * switch that does nothing is worse than no switch.
+    * Not a flag, deliberately. A `-D` or env var on the `sbt` command line does
+    * not reach the tests here — both measured, both silent no-ops, because the
+    * long-lived sbt server captures its environment when it starts. A switch
+    * that does nothing is worse than no switch, and the repo's answer when a
+    * test genuinely must be told something is an sbt `Command` around
+    * `sys.props` (`dashboardSnapshotsUpdate`), which this does not need.
     */
   private val Overwrite = false
 
   /** A glob that matches nothing is a suite that passes by testing nothing, and
-    * renaming a file is all it takes. Assert the count rather than the names, so
-    * adding a module needs no edit here and losing every module fails loudly.
+    * renaming a file is all it takes. Assert the count rather than the names,
+    * so adding a module needs no edit here and losing every module fails
+    * loudly.
     */
   test("the pkl suite is discovered") {
     assert(
