@@ -72,14 +72,15 @@ Every card in `lib/`, by which parts it declares:
 
 | card | declares | under the rule |
 |---|---|---|
-| `EntityCard`, `Button`, `Toggle`, `Pill` | `template` only | leaf — unchanged, `self` was never involved |
-| `Row`, `Column`, `Grid`, popup | `mount` only | structure — `mount` renamed to a region |
+| `EntityCard`, `Button`, `Toggle`, `Pill`, `Text`, `MoreInfo`, `TabButton` | `template` only | leaf — unchanged, `self` was never involved |
+| `Row`, `Column`, `Grid`, popup (`core/surface.pkl`) | `mount` only | structure — `mount` renamed to a region |
 | `If` (`ifhost`) | `mount` only | structure — one baked region |
 | `Tabs` | `self` + `mount` | structure — `self` deleted, see below |
 | `Slider` | `self` + `mount` | structure — head becomes a node, see below |
 
-**Two cards in the whole library have a `self`, and both also have a region.** Every other card is
-already a pure leaf or pure structure. There is no third shape to migrate.
+Seven `LeafCard`s and seven `ContainerCard`s, and **two cards in the whole library have a `self`,
+both of which also have a region.** Every other card is already a pure leaf or pure structure. There
+is no third shape to migrate.
 
 **Tabs** costs nothing. Its `self` is the `.tabs` bar, and it wraps `{{#children}}` (the buttons)
 because BeerCSS styles tabs with the structural selector `.tabs > a`. But the card's own comment
@@ -151,13 +152,30 @@ This is **not** the "split the slider card" option rejected below. The author st
 
 ### What gets deleted
 
-`Templates.selves`, `Templates.mounts`, `Templates.selvesCarryChildren`, `Renderer.hasSelf`,
-`selfElementId`, `patchTargetId` (collapses into `elementId`), `mountId` (becomes
-`regionId(id, region)`), `hasOwnRendering`, `carriesMount`, `ownBytesCarryChildren`, the
-`selfVars`/`vars` split in `traced`, and the `compose`/`selfOnly` two-form split — a patch is always
-one node's whole template.
+Deleted outright: `Templates.selves`, `Templates.mounts`, `Templates.selvesCarryChildren`,
+`Renderer.hasSelf`, `selfElementId`, `patchTargetId` (collapses into `elementId`), `carriesMount`,
+`ownBytesCarryChildren`, the `selfVars`/`vars` split in `traced`, and the `compose`/`selfOnly`
+two-form split — a patch is always one node's whole template.
 
-Two consequences worth naming:
+**`hasOwnRendering` is REDUCED, not deleted** — its three cases are not one fact:
+
+```scala
+case (c: Component, _, _) =>
+  if (hasSelf(c.card)) !(selvesCarryChildren && children.exists(carriesMount))  // 1: dies with self
+  else !carriesMount(c)                                                         // 2: becomes isLeaf
+case (_: SetNode, _, _) => false                                                // 3: untouched
+```
+
+1. dies with the concept;
+2. becomes `card.regions.isEmpty` — and the recursion inside `carriesMount` collapses with it,
+   because under the invariant a leaf card has no regions and therefore no children, so
+   `children.exists(carriesMount)` can never fire. A card-level property replaces a subtree walk;
+3. *"a member container composes its members and renders nothing of its own; the members are the log
+   keys"* — nothing to do with `self`, and it must survive verbatim.
+
+`renderInputs`' gate is `hasOwnRendering(id) && !ownBytesCarryChildren(id)` today; it becomes the
+single question **"is this a leaf?"**, with the member branch (`members.memberAt`) unchanged above
+it.
 
 ### Caching, which is where the win actually lands
 
@@ -401,6 +419,16 @@ variable unifies where the NAME comes from, not how a reader consumes it — ADR
 - A region needs an id only where something FILLS it — baked regions and set mounts. `Row`/`Grid`
   eager regions never do (`mountId`: *"their children arrive nested — so they fall back to the
   node's own id and simply never use it"*), so named regions do not force an id onto every hole.
+
+**Open — a set's mount has no region to be named by.** `Patches` uses `renderer.mountId(gid)` as an
+`Append` anchor when a member arrives with no sibling, and as an `Inner` target on a refill. But a
+`SetNode` is not a `Component`: it has no `cardDef` and so declares no regions, and `mountId(gid)`
+resolves through the `bakeGroup`-empty fallback to the set's own `elementId`. That works today
+because a set has exactly one implicit hole. `regionId(id, region)` has no region to pass. Either
+`mountId` keeps a `SetNode` branch, or sets get a reserved implicit region name. **Decide before
+starting step 1** — it is small, but it is the one place the region model does not obviously reach,
+and the arch doc's §5 leans on it (*"a set mount's children ARE `gid_…`, so there the container's id
+is the right root"*).
 - `Tabs` migrates here (its buttons move into the template), because the invariant rejects its
   current shape the moment it is enforced.
 
@@ -442,11 +470,17 @@ fixtures — under the old model those were the shapes that could smuggle a subt
 - **ADR 0012**: rewrite the **Open** section in place — the question *"should a `self` splice
   children at all?"* is answered by the concept no longer existing. Its *"Rejected along the way"*
   entry for the hollow mount stays; it is still guarding the design.
-- **`docs/architecture-rendering-pipeline.md`**: nearly every "mount" in it is a *surface* mount —
-  the bake host in the fill/refill/horizon machinery, the `Patches.applied` box, `hostEvicts`. That
-  concept survives intact as "baked region"; it is a rename. Two substantive edits: §7's cache row
-  ("A composed surface mount is NOT cached") narrows, and open question #130's first obstacle is
-  struck.
+- **`docs/architecture-rendering-pipeline.md`**: mostly a rename, but **"mount" has three senses in
+  it and they must be disentangled, not swept**:
+  1. the **bake host** — the fill/refill/horizon machinery, the `Patches.applied` box, `hostEvicts`
+     (§5 lines ~374, 391, 436, 470, 494–518). Becomes "baked region";
+  2. a card's **children hole** — `Row`/`Grid`. Becomes "eager region";
+  3. a **set's member container** — *"a set mount's children ARE `gid_…`"* (§5 line ~518). This one
+     has no card and no declared region; it is whatever the open question above resolves to, and
+     glossing it as "region" before that is decided would put a wrong sentence in the map.
+
+  Two substantive edits beyond the rename: §7's cache row ("A composed surface mount is NOT cached")
+  narrows, and open question #130's first obstacle is struck.
 - **`docs/terminology.md`**: `self` and `mount` are deleted as terms; `region`, `leaf card` and
   `structural card` replace them. `bake`/`bake group`/`flip` are unaffected.
 
@@ -454,6 +488,16 @@ fixtures — under the old model those were the shapes that could smuggle a subt
 
 Steps 1–4 land as separate commits in that order. Step 1 is releasable on its own. Delete this file
 in the same PR as step 3.
+
+**The checkpoint between 1 and 2 is worth naming:** step 1 enforces the invariant, which forces
+`Tabs` to migrate (its buttons move out of its `self` and into the template), so **step 1 ends with
+exactly one card in the library still declaring a `self`** — `Slider`. Step 2 is then "remove the
+last one, and the concept with it". If step 1 ends with two, something was missed.
+
+**Step 1 is the big one and could be split** if the diff proves unwieldy: (1a) `children` becomes a
+region map with `mount` renamed, ids unchanged; (1b) region-qualified ids and the URL breakage; (1c)
+`inlineSurfaces` absorbed. Only 1c touches `DashboardBuild`'s splice branch. Do not split on a guess
+— split if 1 does not fit in a reviewable commit.
 
 ### Expected test movement
 
@@ -474,6 +518,30 @@ Performance: nothing new is introduced anywhere, and two improvements become ava
 cacheable; #130's first obstacle gone). The over-send this plan originally set out to prevent is not
 reachable in today's library at all — every `{{{panel}}}`/`{{{branch}}}` sits in a `mount`, never a
 `self` — so removing it saves nothing now. Its value is that it stays impossible.
+
+## Follow-ups — deliberately not in this plan
+
+Each is recorded so it is not rediscovered as a surprise mid-implementation. None blocks steps 1–4.
+
+- **Run the Pkl suite from Scala.** The blocker on this branch is that `pkl test` needs a CLI nobody
+  has here, so `.pkl` edits ship unverified. `pkl-core` is already a dependency and
+  `Evaluator.evaluateTest(ModuleSource, overwrite)` is public API returning `TestResults` with
+  `failed()` / `totalFailures()` / per-test failure messages. The four `src/test/pkl/*.test.pkl`
+  modules import by RELATIVE PATH, not `@fh-dashboard`, so no project, lockfile or package resolver
+  is needed — `EvaluatorBuilder.preconfigured()` plus filesystem read permission covers it. They are
+  **facts-only** (zero `examples` blocks, no `.pcf` baselines), so `evaluateTest` writes no files and
+  the `--overwrite` mode is not needed. `PklBuildSuite` already proves in-process Pkl evaluation
+  works under the module's Truffle/JPMS setup. **Do this FIRST** — it is independent of the plan, and
+  it is what makes "the pure-Pkl suite runs on every step" true rather than aspirational.
+- **Node variables** (see the section above). What turns the owner-reference mechanism from one that
+  works into one that is declared. Touches `RenderInputs`, the recorder, the tap layer and ADR 0017
+  together; wants its own plan.
+- **Compositional caching / [#130](https://github.com/perok/functional-home-assistant/issues/130).**
+  The invariant makes the two-pass shell split sound; doing it wants numbers, not just soundness.
+- **The `NODE_ID` splice decoupling.** Deliberately NOT done — the coupling is structural (a card
+  handing children its id is naming a selection it owns, hence has a bake group, hence carries
+  surfaces). Revisit only if a card wants to share a non-selection value, and prefer node variables
+  if so. The leftover-token check is separate and lands in step 1.
 
 ## Rejected
 
