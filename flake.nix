@@ -204,6 +204,35 @@
         HISTCONTROL=ignoredups
       '';
 
+      # GitHub's SSH host keys, so the first `git push` out of a fresh box
+      # authenticates the host instead of stopping to ask.
+      #
+      # The box has no `~/.ssh` under the default `AGENTBOX_SSH=agent` — that
+      # mode forwards the AGENT SOCKET, which carries the ability to sign but
+      # says nothing about who github.com is. So ssh had the credentials and
+      # not the host identity, and every fresh box hit an interactive
+      # fingerprint prompt on its first push. An agent cannot answer that
+      # prompt, so an unattended one hangs or fails.
+      #
+      # `/etc/ssh/ssh_known_hosts` is OpenSSH's own `GlobalKnownHostsFile`
+      # default (`ssh -G github.com` in the image confirms it), so this needs no
+      # ssh_config, no `GIT_SSH_COMMAND`, and nothing in the throwaway home.
+      #
+      # PINNED, deliberately, rather than `StrictHostKeyChecking=accept-new`:
+      # accept-new is trust-on-first-use — it silently accepts whatever answers
+      # first, which is the check, not the prompt, being turned off. These are
+      # GitHub's PUBLISHED keys, so an impostor fails even on a first contact.
+      # Verified against `StrictHostKeyChecking=yes`, the strictest mode, which
+      # refuses an unknown host outright.
+      #
+      # Refresh (GitHub rotated its RSA key once, in 2023) with:
+      #     gh api meta --jq '.ssh_keys[] | "github.com \(.)"'
+      knownHosts = pkgs.writeTextDir "etc/ssh/ssh_known_hosts" ''
+        github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl
+        github.com ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBEmKSENjQEezOmxkZMy7opKgwFB9nkt5YRrYMjNuG5N87uRgg6CLrbo5wAdT/y6v0mKV0U2w0WZ2YB/++Tpockg=
+        github.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHBL9j1aNUkY4Ue1gvwnGLVlOhGeYrnZaMgRK6+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SJMy/BCZfxd1nWzAOxSDPgVsmerOBYfNqltV9/hWCqBywINIR+5dIg6JTJ72pcEpEjcYgXkE2YEFXV1JHnsKgbLWNlhScqb2UmyRkQyytRLtL+38TGxkxCflmO+5Z8CSSNY7GidjMIZ7Q4zMjA2n1nGrlTDkzwDCsw+wqFPGQA179cnfGWOWRVruj16z6XyvxvjJwbz0wQZ75XK5tKSb7FNyeIEs4TT4jk+S4dhPeAUC5y+bDYirYgM4GC7uEnztnZyaVWQ7B381AK4Qdrwt51ZqExKbQpTUNn+EjqoTwvqNj4kqx5QUCI0ThS/YkOxJCXmPUWZbhjpCg56i+2aB6CmK2JGhn57K5mj0MNdBXA4/WnwH6XoPWJzK5Nyu2zB3nAZp+S5hpQs+p1vN1/wsjk=
+      '';
+
       # Runs INSIDE the Playwright sidecar (AGENTBOX_BROWSER=1), not in the box.
       #
       # `npx playwright run-server` would be the obvious thing, but a client
@@ -259,6 +288,7 @@
           curl
           git
           openssh
+          knownHosts # github.com's host keys, so a first push does not prompt
           gnupg # gpg + gpgconf for signed commits (AGENTBOX_GPG=agent)
           ripgrep
           fd
@@ -648,6 +678,20 @@
         key while it runs, but cannot keep it afterwards. `keys` puts the key
         material inside, and is only needed for a passphrase-less key with no
         agent running, or when something reads `~/.ssh/config`.
+
+        **github.com's host keys ship in the image** (`/etc/ssh/ssh_known_hosts`,
+        which is OpenSSH's own global default). `agent` forwards the ability to
+        SIGN but says nothing about who github.com is, and the box has no
+        `~/.ssh` in that mode — so without this the first push out of every
+        fresh box stopped on an interactive fingerprint prompt, which an agent
+        cannot answer.
+
+        They are GitHub's published keys, PINNED — not
+        `StrictHostKeyChecking=accept-new`, which would silence the prompt by
+        trusting whatever answers first. Refresh them (GitHub rotated its RSA
+        key once, in 2023) with:
+
+            gh api meta --jq '.ssh_keys[] | "github.com \(.)"'
 
         `AGENTBOX_GH=1` passes a token rather than mounting `~/.config/gh`, for
         two reasons: a mounted config dir is the box's to rewrite (it can change
