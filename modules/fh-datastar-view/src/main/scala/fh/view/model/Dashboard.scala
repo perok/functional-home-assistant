@@ -248,7 +248,6 @@ case class CardDef(
     slots: List[String] = Nil,
     wrapAsCell: Boolean = true,
     regions: Map[String, Region] = Map.empty,
-    self: Option[String] = None,
     css: String = ""
 ) derives ConfiguredDecoder {
 
@@ -951,10 +950,7 @@ case class Dashboard(
         cards
           .get(cardName)
           .toList
-          .filterNot(cd =>
-            (cd.template :: cd.self.toList)
-              .exists(_.contains(s"{{{${name}__bind}}}"))
-          )
+          .filterNot(cd => cd.template.contains(s"{{{${name}__bind}}}"))
           .map(_ =>
             s"$nodeId: card '$cardName' has slot '$name' marked as a signal " +
               s"slot, but no part of its template places {{{${name}__bind}}} " +
@@ -1051,40 +1047,73 @@ case class Dashboard(
               }
             }
 
-    // A `self` may contain NO HOLE — not the `{{{mount}}}`, not the children
-    // the renderer splices. It is the element a patch replaces, so anything
-    // nested in it rides along, and a node's patch must never carry another
-    // node's bytes.
+    // A STRUCTURAL card may bind no live entity slot. Its element contains the
+    // regions, so a patch aimed at it would carry back everything it holds —
+    // which is the whole reason structure is never a patch target. A card that
+    // wants its OWN markup to move puts that markup in a region as a node, or
+    // moves the value to a signal slot (ADR 0017), which changes without a
+    // re-render.
     //
-    // The authoring layer states this as a type refinement on
-    // `ContainerCard.self`, but `cards` is decoded from JSON, so the model has
-    // to say it too or the guarantee stops at the Pkl boundary. This replaces
-    // `Templates.selvesCarryChildren`, a runtime grep over the same strings
-    // whose own comment conceded it was a workaround — same test, moved to the
-    // one place that can reject the dashboard instead of quietly excluding the
-    // node from live updates.
-    val selfHoleErrors: List[String] =
-      cards.toList.sortBy(_._1).flatMap { case (name, cd) =>
-        cd.self.toList.flatMap { self =>
-          // Every DECLARED region by name, so the rule generalises with the
-          // card. `{{#children}}` is also checked literally, to catch a
-          // template splicing children it never declared a region for.
-          val declared = cd.regions.toList.sortBy(_._1).collect {
-            case (r, region) if self.contains(cd.holeOf(r, region)) =>
-              cd.holeOf(r, region)
-          }
-          val undeclared =
-            Option.when(
-              self.contains("{{#children}}") && !cd.regions.contains("children")
-            )("{{#children}}")
-          (declared ++ undeclared).distinct.map(hole =>
-            s"card '$name': its `self` contains $hole — a self is what a " +
-              "patch replaces, so a hole inside it would make that patch " +
-              "carry content the node does not own. Move the hole into " +
-              "`template`, beside the self rather than inside it"
-          )
-        }
+    // The authoring layer says the same on `Node.slots`, but `cards` is decoded
+    // from JSON, so the model has to say it too or the guarantee stops at the
+    // Pkl boundary.
+    val structureLiveSlotErrors: List[String] = {
+      def walk(node: LayoutNode): List[String] = node match {
+        case c: LayoutNode.Component =>
+          val here = cards
+            .get(c.card)
+            .filter(_.isStructure)
+            .toList
+            .filter(_ => c.liveEntities.nonEmpty)
+            .map(_ =>
+              s"card '${c.card}' holds regions and so is never a patch " +
+                s"target, but this node binds live entities " +
+                s"(${c.liveEntities.sorted.mkString(", ")}) — they would never " +
+                "reach the DOM. Put the live markup in a region as a node, or " +
+                "make the slot a signal slot"
+            )
+          here ++ c.allChildren.flatMap(walk)
+        case s: LayoutNode.SetNode =>
+          s.members.toList
+            .sortBy(_._1)
+            .flatMap(_._2.clauses)
+            .flatMap(cl => walk(cl.node))
       }
+      (walk(card) ++ surfaces.toList
+        .sortBy(_._1)
+        .flatMap(s => walk(s._2.content))).distinct
+    }
+
+    // A template that SPLICES CHILDREN into a section must declare that section
+    // as a region. Without this the leaf/structure split is not decidable from
+    // the card: such a template reads as a leaf — no regions — while its bytes
+    // carry its children, so it would be cached and patched, and a patch would
+    // re-send everything under it.
+    //
+    // A runtime walk used to catch it (`carriesMount`, asking whether anything
+    // BELOW a node held a mount). That was a check on the tree standing in for
+    // a fact about the card; this is the fact.
+    //
+    // The signature is `{{{html}}}` inside a section: that is what splicing a
+    // child's rendering looks like and the only thing it looks like.
+    val undeclaredHoleErrors: List[String] = {
+      val section =
+        """\{\{#([A-Za-z0-9_]+)\}\}(?:(?!\{\{/\1\}\}).)*\{\{\{html\}\}\}""".r
+      cards.toList.sortBy(_._1).flatMap { case (name, cd) =>
+        section
+          .findAllMatchIn(cd.template.replaceAll("\n", " "))
+          .map(_.group(1))
+          .toList
+          .distinct
+          .sorted
+          .filterNot(cd.regions.contains)
+          .map(r =>
+            s"card '$name': its template splices children into '$r' but " +
+              s"declares no region '$r' — the card would read as a leaf while " +
+              "its bytes carry its children, so a patch would re-send them"
+          )
+      }
+    }
 
     // A region nobody can fill and a hole nobody declared are the same defect
     // seen from two sides, and both are silent: the region renders nothing, or
@@ -1339,7 +1368,8 @@ case class Dashboard(
     // / slots / transforms inside popups are checked too). Surface errors are
     // prefixed with the surface id for locatability.
     authoredIdErrors ++
-      selfHoleErrors ++
+      structureLiveSlotErrors ++
+      undeclaredHoleErrors ++
       regionHoleErrors ++
       regionNameErrors ++
       chromeErrors ++

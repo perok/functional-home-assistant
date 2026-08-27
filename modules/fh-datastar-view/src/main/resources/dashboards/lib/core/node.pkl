@@ -98,10 +98,10 @@ abstract class Node extends LayoutNode {
   // tags/attributes are harmless whitespace, but a newline inside an
   // attribute would break it.
   hidden cardDef: CardDef
-  // A LIVE slot on a bare container is a build error — the hazard the whole
-  // self/mount split exists to remove. Such a card hosts content AND would
-  // re-render on state, and having no `self` its patch would carry everything
-  // its mount holds. Declaring a `self` is the fix, and it lifts the ban.
+  // A LIVE slot on a STRUCTURAL card is a build error: such a card holds
+  // content AND would re-render on state, and its patch would carry everything
+  // it holds. Put the live markup in a region as a node ([[SliderHead]]), or
+  // move the value to a signal slot, which changes without a re-render.
   //
   // Checked at the NODE, not the card, because liveness is a property of the
   // VALUE: `Slot|String` IS the distinction (a Pkl `String` is exactly the
@@ -125,9 +125,8 @@ abstract class Node extends LayoutNode {
   ///
   /// Rarely needed: leave it null and the id is derived, which is right for
   /// almost everything. `Dashboard.validate` checks a name is a plain token,
-  /// is globally unique, and does not read as some other node's descendant —
-  /// the runtime decides ancestry by string prefix (`startsWith(id + "_")`),
-  /// which positional ids satisfy by construction and authored ones can break.
+  /// is globally unique, and is not inside a candidate set's clause (which is
+  /// instantiated once per member, so every member would claim the name).
   id: String? = null
   /// What fills this node's regions.
   ///
@@ -168,19 +167,18 @@ class Region {
 /// that something else fills.
 ///
 /// A card is a LEAF (no regions — its whole template is what a live patch
-/// renders) or STRUCTURE (regions — it holds content it does not own). The rule
-/// that makes the difference safe is stated on [[self]]: the holes and the patch
-/// target are DISJOINT parts of the template, so a node's patch carries its own
-/// rendering and never the contents of a region
+/// renders) or STRUCTURE (regions — it holds content it does not own), and that
+/// is the whole rule: a patch replaces a node's own element, and a structural
+/// card's element contains the regions, so structure is never a patch target
 /// (docs/adr/0012-each-session-renders-what-it-is-owed.md).
 ///
-/// A structural card with no `self` ([[Row]]/[[Column]]/[[Grid]]) has only its
-/// children to show, so its whole HTML contains them and it must never be
-/// patched — which is why a LIVE slot on that shape is a build error.
+/// So a structural card ([[Row]]/[[Column]]/[[Grid]], [[Slider]]) has only what
+/// it holds to show, and a LIVE slot on one is a build error. A card that wants
+/// its OWN markup to change puts that markup in a region, as a node — which is
+/// what [[SliderHead]] is — or moves the value to a signal slot (ADR 0017).
 class CardDef {
-  /// The whole card, holes included. Defaults to just the `self` part, which is
-  /// right for a leaf that renders nothing but itself.
-  template: String = "{{{self}}}"
+  /// The whole card, holes included.
+  template: String
   /// name -> how that hole is filled. The template must place a hole for each:
   /// `{{#name}}{{{html}}}{{/name}}` for an eager region, `{{{name}}}` for a
   /// baked one.
@@ -209,37 +207,12 @@ class CardDef {
   // in a layout box" — NOT "never a morph target", which is now decided by card
   // shape (a container patches through its `self`).
   wrapAsCell: Boolean? = null
-  /// The card's own presentation — a slider head, a frame — patched
-  /// independently of every region. It IS the patch target, so it must carry
-  /// the engine's `{{selfId}}`.
-  ///
-  /// It must contain **no hole**: not a region's, and not the children the
-  /// renderer splices. That is the invariant the whole design rests on, stated
-  /// where it can be checked — a patch replaces the element carrying
-  /// `{{selfId}}`, so anything nested inside it rides along, and a node's patch
-  /// must never carry another node's bytes.
-  ///
-  /// The children half of this was a runtime `String.contains("{{#children}}")`
-  /// in `Templates.selvesCarryChildren`, whose own comment conceded it was a
-  /// workaround ("a card cannot be asked to declare it truthfully"). A card can
-  /// be asked — this is the asking.
-  /// Checked against every DECLARED region by name, so the rule generalises
-  /// with the card instead of naming one hole the way it used to
-  /// (`!this.contains("{{{mount}}}")`). The literal `{{#children}}` stays as
-  /// well, to catch a template splicing children it never declared a region for.
-  self: String?(this == null ||
-    (this.contains("{{selfId}}") &&
-      !this.contains("{{#children}}") &&
-      !(regions ?? new Mapping {}).keys.any((r) ->
-        this.contains("{{{\(r)}}}") || this.contains("{{#\(r)}}")))) = null
 }
 
-/// Whether a card holds content but has NO presentation of its own — so its
-/// whole HTML contains its children, and patching it would re-render them. Such
-/// a card must never enter a diff set, which is why a LIVE slot on it is a build
-/// error (see [[Node.slots]]).
-const local function bareContainer(d: CardDef): Boolean =
-  d.regions != null && d.self == null
+/// Whether a card holds content — so its whole HTML contains what it holds, and
+/// patching it would re-render that. Such a card must never enter a diff set,
+/// which is why a LIVE slot on it is a build error (see [[Node.slots]]).
+const local function bareContainer(d: CardDef): Boolean = d.regions != null
 
 // ---- the backend-facing card library (DERIVED from the card classes) ----
 // Each card class carries its own template + declared slots (`cardDef`,
@@ -343,10 +316,7 @@ const local function fillHoles(s: String, classes: Mapping<String, String>): Str
 // binding is an attribute, and a selector naming a theme's class belongs in
 // that theme's own styles.
 const local function injectClasses(d: CardDef, classes: Mapping<String, String>): CardDef =
-  (d) {
-    template = fillHoles(d.template, classes)
-    self = if (d.self != null) fillHoles(d.self!!, classes) else null
-  }
+  (d) { template = fillHoles(d.template, classes) }
 
 
 

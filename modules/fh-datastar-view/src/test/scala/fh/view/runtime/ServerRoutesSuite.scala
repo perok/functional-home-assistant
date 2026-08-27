@@ -12,6 +12,7 @@ import fh.view.model.{
   NodeId,
   Op,
   Predicate,
+  Region,
   SlotSource,
   Surface,
   Theme
@@ -130,7 +131,10 @@ class ServerRoutesSuite extends ServerHarness {
   private def titleDash(slug: String, title: Option[String]): Dashboard =
     Dashboard(
       cards = Map(
-        "col" -> CardDef("<div>{{#children}}{{{html}}}{{/children}}</div>")
+        "col" -> CardDef(
+          "<div>{{#children}}{{{html}}}{{/children}}</div>",
+          regions = Map("children" -> Region())
+        )
       ),
       card = LayoutNode.Component("col"),
       slug = slug,

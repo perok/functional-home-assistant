@@ -47,29 +47,22 @@ private[runtime] object NodeBytes {
   * old ones are never asked for again — unbounded retention of HTML in exchange
   * for hits that do not happen.
   *
-  * But the two halves of a [[RenderInputs]] behave nothing alike, and that is
-  * what this splits on:
+  * One generation per node, replaced in place. `RenderInputs` is entity
+  * versions and nothing else, and those CHURN — every frame moves one, so the
+  * generation for the previous version is dead the moment it is replaced.
   *
-  *   - `entities` CHURNS. Every frame moves a version, so a generation for the
-  *     previous one is dead the moment it is replaced. One per bucket, replaced
-  *     in place, exactly as before.
-  *   - `vars` DOES NOT. It is the resolved structural selection (`bakeIndex`),
-  *     which ranges over a bake group's members — a small finite set fixed by
-  *     the dashboard, not by traffic. Viewers on different tabs differ HERE and
-  *     nowhere else.
+  * It used to hold one generation per SELECTION as well, because a node could
+  * be both cached and the owner of a bake group: its own bytes then carried the
+  * viewer's chosen tab, so two viewers on two tabs were owed different bytes
+  * for one node and evicted each other on every frame. That shape no longer
+  * exists — a bake owner holds its content in REGIONS, which makes it
+  * structure, and structure is never a patch target and so never cached. The
+  * live part is an ordinary leaf beside it, whose bytes mention no selection at
+  * all.
   *
-  * So a node holds one generation per selection it has been asked for, and the
-  * map is bounded by nodes × that node's bake group size. Still no timer and no
-  * sweep.
-  *
-  * '''What that buys, measured.''' Before it, two viewers on different tabs
-  * evicted each other's entry on every frame, and viewers beyond the first on
-  * each tab then missed a cache their own neighbour had just filled: 3+3
-  * viewers across two tabs cost ~3.5 renders a frame against a floor of 2, and
-  * the drift went the way of one render per VIEWER. Bucketed, the cost is the
-  * number of distinct selections in flight — the floor, which is irreducible
-  * because those viewers are owed genuinely different bytes.
-  * `RenderCacheContentionSuite` holds both numbers.
+  * So the contention did not move, it went: `RenderCacheContentionSuite`
+  * measures the same two viewers on two tabs at ONE render a frame where the
+  * old shape needed two, and the structural owner at none.
   *
   * '''A STRAGGLER NEVER DISPLACES THE CURRENT GENERATION.''' Sessions pull in
   * parallel and read the store when they get there, so they do not all render
@@ -161,8 +154,7 @@ private[runtime] final class RenderCache(
             // A renderer swap invalidates every selection at once, so the
             // whole entry goes rather than a bucket of it: nothing a previous
             // dashboard rendered is worth keeping under any selection.
-            val ours = current.filter(_.renderer eq renderer)
-            val here = ours.flatMap(_.gens.get(inputs.vars))
+            val here = current.filter(_.renderer eq renderer).map(_.gen)
             here.filter(_.inputs == inputs) match {
               case Some(gen) => (current, poll(gen.slot.get))
               case None if here.exists(_.inputs.isAtLeast(inputs)) =>
@@ -174,13 +166,7 @@ private[runtime] final class RenderCache(
                 (current, poll(fresh(render)))
               case None =>
                 val gen = RenderCache.Gen(inputs, mine)
-                val gens = ours.fold(RenderCache.NoGens)(_.gens)
-                (
-                  Some(
-                    RenderCache.Entry(renderer, gens.updated(inputs.vars, gen))
-                  ),
-                  fill(id, gen, render)
-                )
+                (Some(RenderCache.Entry(renderer, gen)), fill(id, gen, render))
             }
           }
           .flatten
@@ -205,16 +191,12 @@ private[runtime] final class RenderCache(
       // order that matters — the next caller retries, while the waiters already
       // holding this slot still see the error rather than hanging.
       //
-      // Only the bucket that is still OURS: a newer generation may have
-      // replaced it while this one rendered, and dropping that would evict a
-      // live entry on the strength of a stale failure. Identity, not the key —
-      // a bucket refilled for the same selection is still not this generation.
+      // Only if it is still OURS: a newer generation may have replaced it
+      // while this one rendered, and dropping that would evict a live entry on
+      // the strength of a stale failure. Identity, not equality.
       .flatTap {
         case Left(_) =>
-          entries(id).update(
-            _.map(e => e.copy(gens = e.gens.filterNot((_, g) => g eq gen)))
-              .filter(_.gens.nonEmpty)
-          )
+          entries(id).update(_.filterNot(_.gen eq gen))
         case Right(_) => IO.unit
       }
       .flatTap(gen.slot.complete(_).void)
@@ -224,40 +206,30 @@ private[runtime] final class RenderCache(
     */
   def size: IO[Int] = IO(live.size)
 
-  /** Generations held across every node: nodes × selections, the bound this
-    * widened to. [[size]] alone can no longer see it.
+  /** Generations held across every node — one each, so equal to [[size]]. Named
+    * separately because it used to be nodes × selections, and a test asserting
+    * the bound should keep asking the question rather than assume the answer.
     */
-  def generations: IO[Int] =
-    IO(live.values.iterator.asScala.map(_.gens.size).sum)
+  def generations: IO[Int] = IO(live.size)
 }
 
 private[runtime] object RenderCache {
 
-  /** One node under one renderer: its generations, bucketed by the SELECTION
-    * they were rendered for ([[RenderInputs.vars]]).
+  /** One node under one renderer: the bytes it currently holds.
     *
-    * The renderer is held here rather than per generation because a swap
-    * invalidates all of them together, and it is compared by IDENTITY (`eq`).
-    * Inputs alone are not enough to survive a hot swap: a dashboard edit
-    * changes the MARKUP while the entity versions it reads stay exactly where
-    * they were, so an unchanged key would answer with the previous dashboard's
-    * bytes.
+    * The renderer is held here rather than on the generation because a swap
+    * invalidates the node outright — nothing a previous dashboard rendered is
+    * worth keeping.
     */
-  private[runtime] case class Entry(
-      renderer: Renderer,
-      gens: Map[Map[String, String], Gen]
-  )
+  private[runtime] case class Entry(renderer: Renderer, gen: Gen)
 
-  /** One selection's current generation: the inputs in full — the entity
-    * versions as well as the selection that buckets it — and the slot its bytes
-    * arrive in.
+  /** A node's current generation: the inputs it was rendered from, and the slot
+    * its bytes arrive in.
     */
   private[runtime] case class Gen(
       inputs: RenderInputs,
       slot: Deferred[IO, Either[Throwable, NodeBytes]]
   )
-
-  private val NoGens: Map[Map[String, String], Gen] = Map.empty
 
   def create: IO[RenderCache] =
     IO(new ConcurrentHashMap[NodeId, Entry]()).map(chm =>

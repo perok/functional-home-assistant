@@ -41,24 +41,23 @@ class RenderInputsSuite extends munit.FunSuite {
 
   private val cards = Map(
     "col" -> CardDef(
-      """<div>{{#children}}{{{html}}}{{/children}}</div>"""
+      """<div>{{#children}}{{{html}}}{{/children}}</div>""",
+      regions = Map("children" -> Region())
     ),
     "card" -> CardDef(
       """<div><span>{{state}}</span> {{unit}}</div>""",
       slots = List("state", "unit")
     ),
-    // A bake owner with a `self` that binds a live entity AND prints
-    // `bakeIndex` — the shape where both halves of the key are load-bearing at
-    // once.
+    // A bake owner with a live LEAF beside its branch. There is no longer a
+    // shape where one cached node reads both an entity and a selection: an
+    // owner holds regions, so it is structure and is never cached, and the leaf
+    // beside it cannot see the selection at all. The key is entity versions.
     "banner" -> CardDef(
       template =
-        """<div>{{{self}}}<div id="{{hostId}}">{{{branch}}}</div></div>""",
-      self = Some(
-        """<div id="{{selfId}}"><b>{{title}}</b><i>{{bakeIndex}}</i></div>"""
-      ),
-      regions = Map("branch" -> Region(Region.Baked)),
-      slots = List("title")
+        """<div><i>{{bakeIndex}}</i>{{#bar}}{{{html}}}{{/bar}}<div id="{{hostId}}">{{{branch}}}</div></div>""",
+      regions = Map("bar" -> Region(), "branch" -> Region(Region.Baked))
     ),
+    "bannerBar" -> CardDef("""<b>{{title}}</b>""", slots = List("title")),
     "btn" -> CardDef("""<button>{{label}}</button>""", slots = List("label"))
   )
 
@@ -94,7 +93,14 @@ class RenderInputsSuite extends munit.FunSuite {
       bound("sensor.other"),
       LayoutNode.Component(
         "banner",
-        slots = Map("title" -> SlotSource(Some("sensor.t")))
+        children = Map(
+          "bar" -> List(
+            LayoutNode.Component(
+              "bannerBar",
+              slots = Map("title" -> SlotSource(Some("sensor.t")))
+            )
+          )
+        )
       ),
       LayoutNode.SetNode(
         candidates = List("light.a", "light.b"),
@@ -245,11 +251,10 @@ class RenderInputsSuite extends munit.FunSuite {
     assertEquals(key("c_0", 1), key("c_0", 2))
     // An unrelated entity moving (step 3) leaves c_0 alone...
     assertEquals(key("c_0", 2), key("c_0", 3))
-    // ...and so does a light that does not move the quantified condition
-    // (step 5), for the node whose bake group that condition selects.
-    assertEquals(key("c_2", 4), key("c_2", 5))
-    // But a light that DOES flip it (step 4) must not.
-    assertNotEquals(key("c_2", 3), key("c_2", 4))
+    // `c_2` used to be asserted here too — the bake owner, whose key carried
+    // the SELECTION its condition resolved to as well as its entity versions.
+    // A bake owner holds regions now, so it is structure and has no key at all
+    // (asserted below); the selection half of a key no longer exists.
   }
 
   test("an absent entity keys differently from any version it could hold") {
@@ -304,8 +309,11 @@ class RenderInputsSuite extends munit.FunSuite {
       )
     )
     assertEquals(tabs.renderInputs("c", line.head, Map.empty), None)
-    // Still renderable and still a patch target — it just pays for its render.
-    assert(tabs.renderNodeById("c", line.head).isDefined)
+    // ...and not renderable by id either. It used to be both — no key, but
+    // still a patch target that paid for its render. A card holding regions is
+    // structure now: its element contains what it holds, so patching it would
+    // re-send that, and the things worth patching are the nodes inside.
+    assertEquals(tabs.renderNodeById("c", line.head), None)
   }
 
   test("a node that composes rather than renders has no key") {

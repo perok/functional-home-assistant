@@ -258,7 +258,10 @@ trait ServerHarness extends munit.CatsEffectSuite {
   // groups, so its live patches belong entirely to the shared per-slug pass.
   def liveLeafDash = Dashboard(
     cards = Map(
-      "col" -> CardDef("<div>{{#children}}{{{html}}}{{/children}}</div>"),
+      "col" -> CardDef(
+        "<div>{{#children}}{{{html}}}{{/children}}</div>",
+        regions = Map("children" -> Region())
+      ),
       "card" -> CardDef("<span>{{state}}</span>", slots = List("state"))
     ),
     card = LayoutNode.Component(
@@ -358,7 +361,10 @@ trait ServerHarness extends munit.CatsEffectSuite {
   val armedCond = entityIs("alarm.h", "armed")
 
   val ifCards = Map(
-    "col" -> CardDef("<div>{{#children}}{{{html}}}{{/children}}</div>"),
+    "col" -> CardDef(
+      "<div>{{#children}}{{{html}}}{{/children}}</div>",
+      regions = Map("children" -> Region())
+    ),
     // A pure mount, like lib/components.pkl's `If`.
     "ifhost" -> CardDef(
       template = """<div id="{{hostId}}">{{{branch}}}</div>""",
@@ -586,7 +592,10 @@ trait ServerHarness extends munit.CatsEffectSuite {
 
   def mixedTabsDash = Dashboard(
     cards = Map(
-      "col" -> CardDef("<div>{{#children}}{{{html}}}{{/children}}</div>"),
+      "col" -> CardDef(
+        "<div>{{#children}}{{{html}}}{{/children}}</div>",
+        regions = Map("children" -> Region())
+      ),
       "card" -> CardDef("<span>{{state}}</span>", slots = List("state")),
       // A bar-less tabs host: pure mount, no `self` — nothing about it can
       // change without its content changing.
@@ -893,7 +902,10 @@ trait ServerHarness extends munit.CatsEffectSuite {
 
   def twoTabsDash = Dashboard(
     cards = Map(
-      "col" -> CardDef("<div>{{#children}}{{{html}}}{{/children}}</div>"),
+      "col" -> CardDef(
+        "<div>{{#children}}{{{html}}}{{/children}}</div>",
+        regions = Map("children" -> Region())
+      ),
       "card" -> CardDef("<span>{{state}}</span>", slots = List("state")),
       "tabs" -> CardDef(
         template = """<div id="{{hostId}}" class="tabs">{{{panel}}}</div>""",

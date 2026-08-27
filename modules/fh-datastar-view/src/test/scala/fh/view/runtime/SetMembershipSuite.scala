@@ -11,6 +11,7 @@ import fh.view.model.{
   NodeId,
   Op,
   Predicate,
+  Region,
   SlotSource,
   Surface
 }
@@ -419,7 +420,10 @@ class SetMembershipSuite extends ServerHarness {
   // surface-namespaced `s_det__c`, children `s_det__c_<slug>`.
   private def surfaceDynDash = Dashboard(
     cards = Map(
-      "col" -> CardDef("<div>{{#children}}{{{html}}}{{/children}}</div>"),
+      "col" -> CardDef(
+        "<div>{{#children}}{{{html}}}{{/children}}</div>",
+        regions = Map("children" -> Region())
+      ),
       "dot" -> CardDef("<span>{{state}}</span>", slots = List("state"))
     ),
     card = LayoutNode.Component("col"),
@@ -590,7 +594,10 @@ class SetMembershipSuite extends ServerHarness {
     */
   private def nestedSurfaceDash = Dashboard(
     cards = Map(
-      "col" -> CardDef("<div>{{#children}}{{{html}}}{{/children}}</div>"),
+      "col" -> CardDef(
+        "<div>{{#children}}{{{html}}}{{/children}}</div>",
+        regions = Map("children" -> Region())
+      ),
       "dot" -> CardDef("<span>{{state}}</span>", slots = List("state"))
     ),
     card = LayoutNode.Component("col"),

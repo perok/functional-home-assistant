@@ -5,6 +5,7 @@ import fh.view.model.{
   Dashboard,
   LayoutNode,
   NodeId,
+  Region,
   SetId,
   SignalBind,
   SlotSource
@@ -359,7 +360,8 @@ class SignalSlotSuite extends ServerHarness {
     */
   private val twoNodes = Dashboard(
     cards + ("col" -> CardDef(
-      "<div>{{#children}}{{{html}}}{{/children}}</div>"
+      "<div>{{#children}}{{{html}}}{{/children}}</div>",
+      regions = Map("children" -> Region())
     )),
     LayoutNode.Component(
       "col",

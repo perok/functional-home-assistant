@@ -29,8 +29,8 @@ class RenderCacheSuite extends munit.FunSuite {
   private val r = aRenderer
 
   private val id: NodeId = "c_0"
-  private val v1 = RenderInputs(Map("sensor.t" -> 1L), Map.empty)
-  private val v2 = RenderInputs(Map("sensor.t" -> 2L), Map.empty)
+  private val v1 = RenderInputs(Map("sensor.t" -> 1L))
+  private val v2 = RenderInputs(Map("sensor.t" -> 2L))
 
   /** A render that counts its runs and suspends until the test releases it — so
     * waiters genuinely pile up behind a producer rather than arriving after it

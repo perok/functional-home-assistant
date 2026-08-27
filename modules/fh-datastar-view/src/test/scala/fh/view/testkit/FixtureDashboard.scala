@@ -34,7 +34,8 @@ object FixtureDashboard {
     */
   val cards: Map[String, CardDef] = Map(
     "col" -> CardDef(
-      """<div class="col">{{#children}}{{{html}}}{{/children}}</div>"""
+      """<div class="col">{{#children}}{{{html}}}{{/children}}</div>""",
+      regions = Map("children" -> Region())
     ),
     "reading" -> CardDef(
       """<div class="reading"><span>{{state}}</span> {{unit}}</div>""",
