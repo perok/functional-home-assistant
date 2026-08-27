@@ -312,14 +312,19 @@ class MemberGraphSuite extends munit.FunSuite {
           List(
             LayoutNode.SetClause(
               None,
-              LayoutNode.Component("tile", Map.empty, List(inner))
+              LayoutNode.Component("tile", Map.empty, LayoutNode.kids(inner))
             )
           )
         )
       )
     )
     val g = graphOf(outer, root = "detail")
-    val innerId = g.innerSetId(g.memberIdOf(gid, "light.a"), 0, List(0), inner)
+    val innerId = g.innerSetId(
+      g.memberIdOf(gid, "light.a"),
+      0,
+      List(LayoutNode.Step(LayoutNode.DefaultRegion, 0)),
+      inner
+    )
     assert(
       g.setContainer(innerId).isDefined,
       s"$innerId should be a set container"
@@ -341,7 +346,7 @@ class MemberGraphSuite extends munit.FunSuite {
         // itself track light.a.
         "state" -> SlotSource(entityId = Some("light.a"))
       ),
-      List(
+      LayoutNode.kids(
         LayoutNode.Component(
           "row",
           Map("x" -> SlotSource(entityId = Some("sensor.k")))

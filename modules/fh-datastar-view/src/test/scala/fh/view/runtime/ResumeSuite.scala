@@ -236,7 +236,10 @@ class ResumeSuite extends ServerHarness {
         assertEquals(log.mutations.keySet, Set[NodeId]("c_new"))
         // Dropped, not silently lost: a CLIENT cursor is not bounded by the
         // floor, so one below this gets that mount refilled.
-        assertEquals(log.since(2L).refill, List[NodeId]("c"))
+        assertEquals(
+          log.since(2L, TestAncestry.of(log)).refill,
+          List[NodeId]("c")
+        )
       }
   }
 

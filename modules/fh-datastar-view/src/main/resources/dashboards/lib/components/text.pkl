@@ -7,7 +7,7 @@ import "../core/text.pkl" as textMod
 /// Static title text (not bound to an entity).
 class SectionTitle extends nodes.Node {
   card = "sectionTitle"
-  cardDef = new nodes.LeafCard {
+  cardDef = new nodes.CardDef {
     template = """
       <h2 class="section \(textMod.BOX)">\(textMod.run("label"))</h2>
       """

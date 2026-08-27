@@ -14,6 +14,7 @@ import fh.view.model.{
   NodeId,
   Op,
   Predicate,
+  Region,
   SlotSource,
   Surface,
   Theme
@@ -189,16 +190,13 @@ trait ServerHarness extends munit.CatsEffectSuite {
         CardDef("<button>{{label}}</button>", slots = List("label")),
       "card" ->
         CardDef("<span>{{state}}</span>", slots = List("state")),
-      // Split like the shipped `Tabs` — minimal markup, real shape.
+      // Shaped like the shipped `Tabs` — minimal markup, real shape. The bar is
+      // structure holding the buttons, not a `self`: a self may hold no hole.
       "tabs" -> CardDef(
-        template = "{{{self}}}{{{mount}}}",
-        self = Some(
-          """<div id="{{selfId}}" class="tabs">""" +
-            """{{#children}}{{{html}}}{{/children}}</div>"""
-        ),
-        mount = Some(
-          """<div id="{{mountId}}" data-signals="{ tab_{{id}}: {{bakeIndex}} }">{{{panel}}}</div>"""
-        )
+        template = """<div class="tabs">""" +
+          """{{#children}}{{{html}}}{{/children}}</div>""" +
+          """<div id="{{hostId}}" data-signals="{ tab_{{id}}: {{bakeIndex}} }">{{{panel}}}</div>""",
+        regions = Map("children" -> Region(), "panel" -> Region(Region.Baked))
       )
     )
     def panel(name: String): LayoutNode.Component =
@@ -211,7 +209,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
         cards,
         LayoutNode.Component(
           "tabs",
-          children = List(
+          children = LayoutNode.kids(
             LayoutNode.Component(
               "btn",
               Map("label" -> SlotSource(literal = Some("A")))
@@ -260,12 +258,15 @@ trait ServerHarness extends munit.CatsEffectSuite {
   // groups, so its live patches belong entirely to the shared per-slug pass.
   def liveLeafDash = Dashboard(
     cards = Map(
-      "col" -> CardDef("<div>{{#children}}{{{html}}}{{/children}}</div>"),
+      "col" -> CardDef(
+        "<div>{{#children}}{{{html}}}{{/children}}</div>",
+        regions = Map("children" -> Region())
+      ),
       "card" -> CardDef("<span>{{state}}</span>", slots = List("state"))
     ),
     card = LayoutNode.Component(
       "col",
-      children = List(
+      children = LayoutNode.kids(
         LayoutNode.Component(
           "card",
           slots = Map("state" -> SlotSource(Some("sensor.a")))
@@ -360,11 +361,14 @@ trait ServerHarness extends munit.CatsEffectSuite {
   val armedCond = entityIs("alarm.h", "armed")
 
   val ifCards = Map(
-    "col" -> CardDef("<div>{{#children}}{{{html}}}{{/children}}</div>"),
+    "col" -> CardDef(
+      "<div>{{#children}}{{{html}}}{{/children}}</div>",
+      regions = Map("children" -> Region())
+    ),
     // A pure mount, like lib/components.pkl's `If`.
     "ifhost" -> CardDef(
-      template = "{{{self}}}{{{mount}}}",
-      mount = Some("""<div id="{{mountId}}">{{{branch}}}</div>""")
+      template = """<div id="{{hostId}}">{{{branch}}}</div>""",
+      regions = Map("branch" -> Region(Region.Baked))
     ),
     "card" -> CardDef("<span>{{state}}</span>", slots = List("state")),
     "dot" -> CardDef("<b>{{state}}</b>", slots = List("state"))
@@ -397,7 +401,10 @@ trait ServerHarness extends munit.CatsEffectSuite {
     Dashboard(
       cards = ifCards,
       card = LayoutNode
-        .Component("col", children = List(LayoutNode.Component("ifhost"))),
+        .Component(
+          "col",
+          children = LayoutNode.kids(LayoutNode.Component("ifhost"))
+        ),
       surfaces = Map(
         "then" -> stateMember(thenContent, "c_0", 0, armedCond),
         "else" -> stateMember(elseContent, "c_0", 1, always)
@@ -443,7 +450,11 @@ trait ServerHarness extends munit.CatsEffectSuite {
           Patches
             .resume(renderer, rc, log, held, now.entities, from + 1)
             .flatMap { patches =>
-              holds.set(patches.foldLeft(held)(Patches.applied)) *>
+              holds.set(
+                patches.foldLeft(held)(
+                  Patches.applied(renderer.ancestry, _, _)
+                )
+              ) *>
                 position
                   .set(now.version)
                   .as(events(patches) :+ Server.versionSignal(now.version))
@@ -581,18 +592,21 @@ trait ServerHarness extends munit.CatsEffectSuite {
 
   def mixedTabsDash = Dashboard(
     cards = Map(
-      "col" -> CardDef("<div>{{#children}}{{{html}}}{{/children}}</div>"),
+      "col" -> CardDef(
+        "<div>{{#children}}{{{html}}}{{/children}}</div>",
+        regions = Map("children" -> Region())
+      ),
       "card" -> CardDef("<span>{{state}}</span>", slots = List("state")),
       // A bar-less tabs host: pure mount, no `self` — nothing about it can
       // change without its content changing.
       "tabs" -> CardDef(
-        template = "{{{self}}}{{{mount}}}",
-        mount = Some("""<div id="{{mountId}}" class="tabs">{{{panel}}}</div>""")
+        template = """<div id="{{hostId}}" class="tabs">{{{panel}}}</div>""",
+        regions = Map("panel" -> Region(Region.Baked))
       )
     ),
     card = LayoutNode.Component(
       "col",
-      children = List(
+      children = LayoutNode.kids(
         LayoutNode.Component(
           "card",
           slots = Map("state" -> SlotSource(Some("sensor.shared")))
@@ -888,16 +902,19 @@ trait ServerHarness extends munit.CatsEffectSuite {
 
   def twoTabsDash = Dashboard(
     cards = Map(
-      "col" -> CardDef("<div>{{#children}}{{{html}}}{{/children}}</div>"),
+      "col" -> CardDef(
+        "<div>{{#children}}{{{html}}}{{/children}}</div>",
+        regions = Map("children" -> Region())
+      ),
       "card" -> CardDef("<span>{{state}}</span>", slots = List("state")),
       "tabs" -> CardDef(
-        template = "{{{self}}}{{{mount}}}",
-        mount = Some("""<div id="{{mountId}}" class="tabs">{{{panel}}}</div>""")
+        template = """<div id="{{hostId}}" class="tabs">{{{panel}}}</div>""",
+        regions = Map("panel" -> Region(Region.Baked))
       )
     ),
     card = LayoutNode.Component(
       "col",
-      children = List(
+      children = LayoutNode.kids(
         LayoutNode.Component(
           "card",
           slots = Map("state" -> SlotSource(Some("sensor.shared")))

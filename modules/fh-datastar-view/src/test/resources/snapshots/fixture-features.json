@@ -34,7 +34,7 @@
                         "label" : "Outside Temperature",
                         "value" : {
                           "bypassUnavailable" : true,
-                          "reactive" : true,
+                          "reads" : "live",
                           "signal" : "text",
                           "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
                         }
@@ -49,7 +49,7 @@
                         "attributes" : {
                           "bypassUnavailable" : true,
                           "default" : "",
-                          "reactive" : true,
+                          "reads" : "live",
                           "transform" : "$join($sort($each($attr, function($v, $k) { $k & \": \" & $string($v) })), \"\\n\")"
                         },
                         "entity_id" : "sensor.outside_temp"
@@ -64,7 +64,7 @@
                         "label" : "Close",
                         "onclick" : {
                           "bypassUnavailable" : false,
-                          "reactive" : false,
+                          "reads" : "once",
                           "transform" : "\"@post('sse/popup/\" & $dashboardSlug & \"/close')\""
                         }
                       }
@@ -90,13 +90,13 @@
           "label" : "Outside Temperature",
           "onclick" : {
             "bypassUnavailable" : false,
-            "reactive" : false,
+            "reads" : "once",
             "transform" : "\"@post('sse/surface/\" & $dashboardSlug & \"/open/@@NODE_ID@@_self')\""
           },
           "tappable" : "1",
           "value" : {
             "bypassUnavailable" : true,
-            "reactive" : true,
+            "reads" : "live",
             "signal" : "text",
             "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
           }
@@ -115,13 +115,13 @@
           "label" : "Kitchen",
           "onclick" : {
             "bypassUnavailable" : false,
-            "reactive" : false,
+            "reads" : "once",
             "transform" : "\"@post('sse/action/\" & $dashboardSlug & \"/\" & (\"homeassistant/toggle\") & \"/\" & $entity_id & \"', {filterSignals:{exclude:'.*'}})\""
           },
           "tappable" : "1",
           "value" : {
             "bypassUnavailable" : true,
-            "reactive" : true,
+            "reads" : "live",
             "signal" : "text",
             "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
           }
@@ -152,13 +152,13 @@
                         "label" : "Kitchen",
                         "onclick" : {
                           "bypassUnavailable" : false,
-                          "reactive" : false,
+                          "reads" : "once",
                           "transform" : "\"@post('sse/action/\" & $dashboardSlug & \"/\" & (\"light/toggle\") & \"/\" & $entity_id & \"', {filterSignals:{exclude:'.*'}})\""
                         },
                         "tappable" : "1",
                         "value" : {
                           "bypassUnavailable" : true,
-                          "reactive" : true,
+                          "reads" : "live",
                           "signal" : "text",
                           "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
                         }
@@ -180,13 +180,13 @@
                             "label" : "Kitchen",
                             "onclick" : {
                               "bypassUnavailable" : false,
-                              "reactive" : false,
+                              "reads" : "once",
                               "transform" : "\"@post('sse/action/\" & $dashboardSlug & \"/\" & (\"homeassistant/toggle\") & \"/\" & $entity_id & \"', {filterSignals:{exclude:'.*'}})\""
                             },
                             "tappable" : "1",
                             "value" : {
                               "bypassUnavailable" : true,
-                              "reactive" : true,
+                              "reads" : "live",
                               "signal" : "text",
                               "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
                             }
@@ -207,7 +207,7 @@
                         "attributes" : {
                           "bypassUnavailable" : true,
                           "default" : "",
-                          "reactive" : true,
+                          "reads" : "live",
                           "transform" : "$join($sort($each($attr, function($v, $k) { $k & \": \" & $string($v) })), \"\\n\")"
                         },
                         "entity_id" : "light.kitchen"
@@ -222,7 +222,7 @@
                         "label" : "Close",
                         "onclick" : {
                           "bypassUnavailable" : false,
-                          "reactive" : false,
+                          "reads" : "once",
                           "transform" : "\"@post('sse/popup/\" & $dashboardSlug & \"/close')\""
                         }
                       }
@@ -248,13 +248,13 @@
           "label" : "Kitchen",
           "onclick" : {
             "bypassUnavailable" : false,
-            "reactive" : false,
+            "reads" : "once",
             "transform" : "\"@post('sse/surface/\" & $dashboardSlug & \"/open/@@NODE_ID@@_self')\""
           },
           "tappable" : "1",
           "value" : {
             "bypassUnavailable" : true,
-            "reactive" : true,
+            "reads" : "live",
             "signal" : "text",
             "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
           }
@@ -262,45 +262,63 @@
       },
       {
         "card" : "slider",
-        "children" : [
-        ],
+        "children" : {
+          "children" : [
+          ],
+          "head" : [
+            {
+              "card" : "sliderHead",
+              "cell" : {
+                "classes" : [
+                  "slider-head-cell"
+                ]
+              },
+              "children" : [
+              ],
+              "kind" : "component",
+              "slots" : {
+                "action" : "light/turn_on",
+                "busyVisual" : "1",
+                "entity_id" : "light.kitchen",
+                "fill" : {
+                  "bypassUnavailable" : false,
+                  "default" : "100%",
+                  "reads" : "live",
+                  "signal" : "style:--_end",
+                  "transform" : "$string(($v := $attr.brightness; $v != null ? 100 - (($v - 1) * 100 / (255 - 1)) : 100)) & \"%\""
+                },
+                "fillColor" : {
+                  "bypassUnavailable" : false,
+                  "default" : "currentcolor",
+                  "reads" : "live",
+                  "signal" : "style:background",
+                  "transform" : "($rgb := $attr.rgb_color; $k := $attr.color_temp_kelvin; $count($rgb) = 3 ? \"rgb(\" & $string($rgb[0]) & \",\" & $string($rgb[1]) & \",\" & $string($rgb[2]) & \")\" : $k != null ? ($t := $k < 2000 ? 0 : ($k > 6500 ? 1 : ($k - 2000) / 4500); \"rgb(\" & $string($round(255 - 54 * $t)) & \",\" & $string($round(166 + 60 * $t)) & \",\" & $string($round(87 + 168 * $t)) & \")\") : null)"
+                },
+                "icon" : "mdi-lightbulb",
+                "key" : "brightness",
+                "label" : "Kitchen",
+                "max" : "255",
+                "min" : "1",
+                "state" : {
+                  "bypassUnavailable" : true,
+                  "reads" : "live",
+                  "signal" : "text",
+                  "transform" : "$state"
+                },
+                "value" : {
+                  "bypassUnavailable" : false,
+                  "default" : "0",
+                  "reads" : "live",
+                  "signal" : "attr:value",
+                  "transform" : "$attr.brightness"
+                }
+              }
+            }
+          ]
+        },
         "kind" : "component",
         "slots" : {
-          "action" : "light/turn_on",
-          "busyVisual" : "1",
-          "entity_id" : "light.kitchen",
-          "fill" : {
-            "bypassUnavailable" : false,
-            "default" : "100%",
-            "reactive" : true,
-            "signal" : "style:--_end",
-            "transform" : "$string(($v := $attr.brightness; $v != null ? 100 - (($v - 1) * 100 / (255 - 1)) : 100)) & \"%\""
-          },
-          "fillColor" : {
-            "bypassUnavailable" : false,
-            "default" : "currentcolor",
-            "reactive" : true,
-            "signal" : "style:background",
-            "transform" : "($rgb := $attr.rgb_color; $k := $attr.color_temp_kelvin; $count($rgb) = 3 ? \"rgb(\" & $string($rgb[0]) & \",\" & $string($rgb[1]) & \",\" & $string($rgb[2]) & \")\" : $k != null ? ($t := $k < 2000 ? 0 : ($k > 6500 ? 1 : ($k - 2000) / 4500); \"rgb(\" & $string($round(255 - 54 * $t)) & \",\" & $string($round(166 + 60 * $t)) & \",\" & $string($round(87 + 168 * $t)) & \")\") : null)"
-          },
-          "icon" : "mdi-lightbulb",
-          "key" : "brightness",
-          "label" : "Kitchen",
-          "max" : "255",
-          "min" : "1",
-          "state" : {
-            "bypassUnavailable" : true,
-            "reactive" : true,
-            "signal" : "text",
-            "transform" : "$state"
-          },
-          "value" : {
-            "bypassUnavailable" : false,
-            "default" : "0",
-            "reactive" : true,
-            "signal" : "attr:value",
-            "transform" : "$attr.brightness"
-          }
+          
         }
       },
       {
@@ -326,13 +344,13 @@
                     "label" : "Kitchen",
                     "onclick" : {
                       "bypassUnavailable" : false,
-                      "reactive" : false,
+                      "reads" : "once",
                       "transform" : "\"@post('sse/action/\" & $dashboardSlug & \"/\" & (\"light/toggle\") & \"/\" & $entity_id & \"', {filterSignals:{exclude:'.*'}})\""
                     },
                     "tappable" : "1",
                     "value" : {
                       "bypassUnavailable" : true,
-                      "reactive" : true,
+                      "reads" : "live",
                       "signal" : "text",
                       "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
                     }
@@ -363,13 +381,13 @@
                     "label" : "Living Room",
                     "onclick" : {
                       "bypassUnavailable" : false,
-                      "reactive" : false,
+                      "reads" : "once",
                       "transform" : "\"@post('sse/action/\" & $dashboardSlug & \"/\" & (\"light/toggle\") & \"/\" & $entity_id & \"', {filterSignals:{exclude:'.*'}})\""
                     },
                     "tappable" : "1",
                     "value" : {
                       "bypassUnavailable" : true,
-                      "reactive" : true,
+                      "reads" : "live",
                       "signal" : "text",
                       "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
                     }
@@ -397,7 +415,7 @@
           "label" : "Detail…",
           "onclick" : {
             "bypassUnavailable" : false,
-            "reactive" : false,
+            "reads" : "once",
             "transform" : "\"@post('sse/surface/\" & $dashboardSlug & \"/open/detail')\""
           }
         }
@@ -432,7 +450,7 @@
                         "label" : "Close",
                         "onclick" : {
                           "bypassUnavailable" : false,
-                          "reactive" : false,
+                          "reads" : "once",
                           "transform" : "\"@post('sse/popup/\" & $dashboardSlug & \"/close')\""
                         }
                       }
@@ -456,7 +474,7 @@
           "label" : "Inline…",
           "onclick" : {
             "bypassUnavailable" : false,
-            "reactive" : false,
+            "reads" : "once",
             "transform" : "\"@post('sse/surface/\" & $dashboardSlug & \"/open/@@NODE_ID@@_self')\""
           }
         }
@@ -490,28 +508,44 @@
       "template" : "<div class=\"card entity-info\">\n  <code class=\"entity-info-id\">{{entity_id}}</code>{{#attributes}}\n  <pre class=\"entity-info-attrs\">{{attributes}}</pre>{{/attributes}}\n</div>"
     },
     "fhcol" : {
-      "mount" : "<div class=\"fh-col{{#class}} {{class}}{{/class}}\">{{#children}}{{{html}}}{{/children}}</div>",
+      "regions" : {
+        "children" : {
+          "fill" : "eager"
+        }
+      },
       "slots" : [
       ],
-      "template" : "{{{self}}}{{{mount}}}"
+      "template" : "<div class=\"fh-col{{#class}} {{class}}{{/class}}\">{{#children}}{{{html}}}{{/children}}</div>"
     },
     "fhgrid" : {
-      "mount" : "<div class=\"fh-grid{{#class}} {{class}}{{/class}}\">{{#children}}{{{html}}}{{/children}}</div>",
+      "regions" : {
+        "children" : {
+          "fill" : "eager"
+        }
+      },
       "slots" : [
       ],
-      "template" : "{{{self}}}{{{mount}}}"
+      "template" : "<div class=\"fh-grid{{#class}} {{class}}{{/class}}\">{{#children}}{{{html}}}{{/children}}</div>"
     },
     "fhrow" : {
-      "mount" : "<div class=\"fh-row{{#class}} {{class}}{{/class}}\">{{#children}}{{{html}}}{{/children}}</div>",
+      "regions" : {
+        "children" : {
+          "fill" : "eager"
+        }
+      },
       "slots" : [
       ],
-      "template" : "{{{self}}}{{{mount}}}"
+      "template" : "<div class=\"fh-row{{#class}} {{class}}{{/class}}\">{{#children}}{{{html}}}{{/children}}</div>"
     },
     "ifhost" : {
-      "mount" : "<div class=\"fh-ifhost\" id=\"{{mountId}}\">{{{branch}}}</div>",
+      "regions" : {
+        "branch" : {
+          "fill" : "baked"
+        }
+      },
       "slots" : [
       ],
-      "template" : "{{{self}}}{{{mount}}}"
+      "template" : "<div class=\"fh-ifhost\" id=\"{{hostId}}\">{{{branch}}}</div>"
     },
     "pill" : {
       "slots" : [
@@ -520,10 +554,14 @@
       "template" : "{{#href}}<a class=\"chip\" href=\"{{{href}}}\"><span class=\"fh-text\"><span class=\"fh-text-run\">{{label}}</span></span></a>{{/href}}{{^href}}<button class=\"chip\" data-on:click=\"{{#busy}}$_{{id}}__busy ? '' : {{/busy}}{{{onclick}}}\"{{#busy}} data-indicator=\"_{{id}}__busy\"{{/busy}}{{#busyVisual}} data-class:fh-disabled=\"$_{{id}}__busy\" data-class:fh-loading=\"$_{{id}}__busy\"{{/busyVisual}}><span class=\"fh-text\"><span class=\"fh-text-run\">{{label}}</span></span></button>{{/href}}"
     },
     "popup" : {
-      "mount" : "<dialog open class=\"popup\"><button class=\"popup-close\" data-on:click=\"@post('sse/popup/{{dashboardSlug}}/close'); $ui_popups = ''\">✕</button>{{#children}}{{{html}}}{{/children}}</dialog>",
+      "regions" : {
+        "children" : {
+          "fill" : "eager"
+        }
+      },
       "slots" : [
       ],
-      "template" : "{{{self}}}{{{mount}}}"
+      "template" : "<dialog open class=\"popup\"><button class=\"popup-close\" data-on:click=\"@post('sse/popup/{{dashboardSlug}}/close'); $ui_popups = ''\">✕</button>{{#children}}{{{html}}}{{/children}}</dialog>"
     },
     "sectionTitle" : {
       "slots" : [
@@ -532,8 +570,19 @@
       "template" : "<h2 class=\"section fh-text\"><span class=\"fh-text-run\">{{label}}</span></h2>"
     },
     "slider" : {
-      "mount" : "<div class=\"slider-members\">{{#children}}{{{html}}}{{/children}}</div>",
-      "self" : "<div id=\"{{selfId}}\" class=\"slider-body\">\n  <div class=\"slider-head\">\n    {{#icon}}<div class=\"slider-icon\"{{#busyVisual}} data-class:fh-disabled=\"$_{{id}}__busy_change\" data-class:fh-loading=\"$_{{id}}__busy_change\" data-signals__ifmissing=\"{_{{id}}__busy_change_slow:false}\" data-on-signal-patch-filter=\"{include:/^_{{id}}__busy_change$/}\" data-on-signal-patch__delay.300ms=\"$_{{id}}__busy_change_slow = $_{{id}}__busy_change\" data-class:fh-busy-spin=\"$_{{id}}__busy_change_slow\"{{/busyVisual}}><i class=\"mdi {{icon}}\"></i></div>{{/icon}}\n    <strong class=\"fh-text\"><span class=\"fh-text-run\">{{label}}</span></strong>\n    {{#secondary}}<span class=\"slider-sub fh-text\"><span class=\"fh-text-run\">{{secondary}}</span></span>{{/secondary}}\n    {{#state}}<span class=\"state\" {{{state__bind}}}>{{state}}</span>{{/state}}\n    {{#onclick}}<button class=\"circle small slider-action {{lit}}\" {{{lit__bind}}} data-on:click=\"{{#busy}}$_{{id}}__busy ? '' : {{/busy}}{{{onclick}}}\"{{#busy}} data-indicator=\"_{{id}}__busy\"{{/busy}}{{#busyTapVisual}} data-class:fh-disabled=\"$_{{id}}__busy\" data-class:fh-loading=\"$_{{id}}__busy\" data-signals__ifmissing=\"{_{{id}}__busy_slow:false}\" data-on-signal-patch-filter=\"{include:/^_{{id}}__busy$/}\" data-on-signal-patch__delay.300ms=\"$_{{id}}__busy_slow = $_{{id}}__busy\" data-class:fh-busy-spin=\"$_{{id}}__busy_slow\"{{/busyTapVisual}}><i class=\"mdi mdi-power\"></i></button>{{/onclick}}\n  </div>\n  <div class=\"slider max\" style=\"--_start: 0%;--_end: {{fill}}\" {{{fill__bind}}}{{#busyVisual}} data-class:fh-disabled=\"$_{{id}}__busy_change\" data-class:fh-loading=\"$_{{id}}__busy_change\"{{/busyVisual}}>\n    {{^toggle}}<input type=\"range\" min=\"{{min}}\" max=\"{{max}}\" value=\"{{value}}\"\n      {{{value__bind}}}\n      data-signals__ifmissing=\"{ _{{id}}__slide: '{{value}}' }\"\n      data-bind=\"_{{id}}__slide\"\n      data-on-signal-patch-filter=\"{include:/^{{value__signal}}$/}\" data-on-signal-patch=\"$_{{id}}__slide = ${{value__signal}}\"\n      data-on:datastar-fetch__document=\"evt.detail.type === 'error' && ($_{{id}}__slide = ${{value__signal}}, ${{fill__signal}} = (100 - ((${{value__signal}} - {{min}}) * 100 / ({{max}} - {{min}}))) + '%'{{#dragPercent}}, ${{state__signal}} = Math.round(((${{value__signal}} - {{min}}) * 100 / ({{max}} - {{min}}))) + ' %'{{/dragPercent}})\" data-effect=\"$_sse > 0 && ($_{{id}}__slide = ${{value__signal}}, ${{fill__signal}} = (100 - ((${{value__signal}} - {{min}}) * 100 / ({{max}} - {{min}}))) + '%'{{#dragPercent}}, ${{state__signal}} = Math.round(((${{value__signal}} - {{min}}) * 100 / ({{max}} - {{min}}))) + ' %'{{/dragPercent}})\"\n      data-indicator=\"_{{id}}__busy_change\" data-attr:disabled=\"$_{{id}}__busy_change\"\n      data-on:input=\"${{fill__signal}} = (100 - ((evt.target.value - {{min}}) * 100 / ({{max}} - {{min}}))) + '%'{{#dragPercent}}; ${{state__signal}} = Math.round(((evt.target.value - {{min}}) * 100 / ({{max}} - {{min}}))) + ' %'{{/dragPercent}}\"\n      data-on:change=\"$_{{id}}__busy_change ? '' : @post('sse/action/{{dashboardSlug}}/{{{action}}}/{{{entity_id}}}/{{key}}/' + $_{{id}}__slide, {filterSignals:{exclude:'.*'}})\" />{{/toggle}}\n    <span style=\"background:{{fillColor}}\" {{{fillColor__bind}}}></span>\n    {{#toggle}}<button type=\"button\" class=\"slider-toggle\" aria-label=\"{{label}}\"\n      {{{value__bind}}}\n      data-on:click=\"$_{{id}}__busy_change ? '' : {{{toggleClick}}}\"\n      data-indicator=\"_{{id}}__busy_change\" data-attr:disabled=\"$_{{id}}__busy_change\"></button>{{/toggle}}\n  </div>\n</div>",
+      "regions" : {
+        "children" : {
+          "fill" : "eager"
+        },
+        "head" : {
+          "fill" : "eager"
+        }
+      },
+      "slots" : [
+      ],
+      "template" : "<article class=\"card slider-card{{#group}} {{group}}{{/group}}\">{{#head}}{{{html}}}{{/head}}<div class=\"slider-members\">{{#children}}{{{html}}}{{/children}}</div></article>"
+    },
+    "sliderHead" : {
       "slots" : [
         "label",
         "value",
@@ -543,7 +592,7 @@
         "key",
         "entity_id"
       ],
-      "template" : "<article class=\"card slider-card{{#group}} {{group}}{{/group}}\">{{{self}}}{{{mount}}}</article>"
+      "template" : "<div class=\"slider-body\">\n  <div class=\"slider-head\">\n    {{#icon}}<div class=\"slider-icon\"{{#busyVisual}} data-class:fh-disabled=\"$_{{id}}__busy_change\" data-class:fh-loading=\"$_{{id}}__busy_change\" data-signals__ifmissing=\"{_{{id}}__busy_change_slow:false}\" data-on-signal-patch-filter=\"{include:/^_{{id}}__busy_change$/}\" data-on-signal-patch__delay.300ms=\"$_{{id}}__busy_change_slow = $_{{id}}__busy_change\" data-class:fh-busy-spin=\"$_{{id}}__busy_change_slow\"{{/busyVisual}}><i class=\"mdi {{icon}}\"></i></div>{{/icon}}\n    <strong class=\"fh-text\"><span class=\"fh-text-run\">{{label}}</span></strong>\n    {{#secondary}}<span class=\"slider-sub fh-text\"><span class=\"fh-text-run\">{{secondary}}</span></span>{{/secondary}}\n    {{#state}}<span class=\"state\" {{{state__bind}}}>{{state}}</span>{{/state}}\n    {{#onclick}}<button class=\"circle small slider-action {{lit}}\" {{{lit__bind}}} data-on:click=\"{{#busy}}$_{{id}}__busy ? '' : {{/busy}}{{{onclick}}}\"{{#busy}} data-indicator=\"_{{id}}__busy\"{{/busy}}{{#busyTapVisual}} data-class:fh-disabled=\"$_{{id}}__busy\" data-class:fh-loading=\"$_{{id}}__busy\" data-signals__ifmissing=\"{_{{id}}__busy_slow:false}\" data-on-signal-patch-filter=\"{include:/^_{{id}}__busy$/}\" data-on-signal-patch__delay.300ms=\"$_{{id}}__busy_slow = $_{{id}}__busy\" data-class:fh-busy-spin=\"$_{{id}}__busy_slow\"{{/busyTapVisual}}><i class=\"mdi mdi-power\"></i></button>{{/onclick}}\n  </div>\n  <div class=\"slider max\" style=\"--_start: 0%;--_end: {{fill}}\" {{{fill__bind}}}{{#busyVisual}} data-class:fh-disabled=\"$_{{id}}__busy_change\" data-class:fh-loading=\"$_{{id}}__busy_change\"{{/busyVisual}}>\n    {{^toggle}}<input type=\"range\" min=\"{{min}}\" max=\"{{max}}\" value=\"{{value}}\"\n      {{{value__bind}}}\n      data-signals__ifmissing=\"{ _{{id}}__slide: '{{value}}' }\"\n      data-bind=\"_{{id}}__slide\"\n      data-on-signal-patch-filter=\"{include:/^{{value__signal}}$/}\" data-on-signal-patch=\"$_{{id}}__slide = ${{value__signal}}\"\n      data-on:datastar-fetch__document=\"evt.detail.type === 'error' && ($_{{id}}__slide = ${{value__signal}}, ${{fill__signal}} = (100 - ((${{value__signal}} - {{min}}) * 100 / ({{max}} - {{min}}))) + '%'{{#dragPercent}}, ${{state__signal}} = Math.round(((${{value__signal}} - {{min}}) * 100 / ({{max}} - {{min}}))) + ' %'{{/dragPercent}})\" data-effect=\"$_sse > 0 && ($_{{id}}__slide = ${{value__signal}}, ${{fill__signal}} = (100 - ((${{value__signal}} - {{min}}) * 100 / ({{max}} - {{min}}))) + '%'{{#dragPercent}}, ${{state__signal}} = Math.round(((${{value__signal}} - {{min}}) * 100 / ({{max}} - {{min}}))) + ' %'{{/dragPercent}})\"\n      data-indicator=\"_{{id}}__busy_change\" data-attr:disabled=\"$_{{id}}__busy_change\"\n      data-on:input=\"${{fill__signal}} = (100 - ((evt.target.value - {{min}}) * 100 / ({{max}} - {{min}}))) + '%'{{#dragPercent}}; ${{state__signal}} = Math.round(((evt.target.value - {{min}}) * 100 / ({{max}} - {{min}}))) + ' %'{{/dragPercent}}\"\n      data-on:change=\"$_{{id}}__busy_change ? '' : @post('sse/action/{{dashboardSlug}}/{{{action}}}/{{{entity_id}}}/{{key}}/' + $_{{id}}__slide, {filterSignals:{exclude:'.*'}})\" />{{/toggle}}\n    <span style=\"background:{{fillColor}}\" {{{fillColor__bind}}}></span>\n    {{#toggle}}<button type=\"button\" class=\"slider-toggle\" aria-label=\"{{label}}\"\n      {{{value__bind}}}\n      data-on:click=\"$_{{id}}__busy_change ? '' : {{{toggleClick}}}\"\n      data-indicator=\"_{{id}}__busy_change\" data-attr:disabled=\"$_{{id}}__busy_change\"></button>{{/toggle}}\n  </div>\n</div>"
     },
     "tab" : {
       "slots" : [
@@ -555,11 +604,17 @@
       "wrapAsCell" : false
     },
     "tabs" : {
-      "mount" : "<div id=\"{{mountId}}\" class=\"tab-panel\" data-effect=\"fhUrl('ui.{{id}}', $ui_{{id}})\">{{{panel}}}</div>",
-      "self" : "<div id=\"{{selfId}}\" class=\"tabs\" data-signals__ifmissing=\"{ ui_{{id}}: {{bakeIndex}}, _{{id}}__pending: '' }\" data-effect=\"$_{{id}}__pending !== '' && ($ui_{{id}} == $_{{id}}__pending || $_sse > 0) && ($_{{id}}__pending = '')\" data-on:datastar-fetch__document=\"evt.detail.type === 'error' && ($_{{id}}__pending = '')\">{{#children}}{{{html}}}{{/children}}</div>",
+      "regions" : {
+        "children" : {
+          "fill" : "eager"
+        },
+        "panel" : {
+          "fill" : "baked"
+        }
+      },
       "slots" : [
       ],
-      "template" : "<div class=\"fh-col\">{{{self}}}{{{mount}}}</div>"
+      "template" : "<div class=\"fh-col\"><div class=\"tabs\" data-signals__ifmissing=\"{ ui_{{id}}: {{bakeIndex}}, _{{id}}__pending: '' }\" data-effect=\"$_{{id}}__pending !== '' && ($ui_{{id}} == $_{{id}}__pending || $_sse > 0) && ($_{{id}}__pending = '')\" data-on:datastar-fetch__document=\"evt.detail.type === 'error' && ($_{{id}}__pending = '')\">{{#children}}{{{html}}}{{/children}}</div><div id=\"{{hostId}}\" class=\"tab-panel\" data-effect=\"fhUrl('ui.{{id}}', $ui_{{id}})\">{{{panel}}}</div></div>"
     },
     "toggle" : {
       "slots" : [
@@ -605,7 +660,7 @@
                             "label" : "Outside Temperature",
                             "value" : {
                               "bypassUnavailable" : true,
-                              "reactive" : true,
+                              "reads" : "live",
                               "signal" : "text",
                               "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
                             }
@@ -620,7 +675,7 @@
                             "attributes" : {
                               "bypassUnavailable" : true,
                               "default" : "",
-                              "reactive" : true,
+                              "reads" : "live",
                               "transform" : "$join($sort($each($attr, function($v, $k) { $k & \": \" & $string($v) })), \"\\n\")"
                             },
                             "entity_id" : "sensor.outside_temp"
@@ -635,7 +690,7 @@
                             "label" : "Close",
                             "onclick" : {
                               "bypassUnavailable" : false,
-                              "reactive" : false,
+                              "reads" : "once",
                               "transform" : "\"@post('sse/popup/\" & $dashboardSlug & \"/close')\""
                             }
                           }
@@ -661,13 +716,13 @@
               "label" : "Outside Temperature",
               "onclick" : {
                 "bypassUnavailable" : false,
-                "reactive" : false,
+                "reads" : "once",
                 "transform" : "\"@post('sse/surface/\" & $dashboardSlug & \"/open/@@NODE_ID@@_self')\""
               },
               "tappable" : "1",
               "value" : {
                 "bypassUnavailable" : true,
-                "reactive" : true,
+                "reads" : "live",
                 "signal" : "text",
                 "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
               }
@@ -682,7 +737,7 @@
               "label" : "Close",
               "onclick" : {
                 "bypassUnavailable" : false,
-                "reactive" : false,
+                "reads" : "once",
                 "transform" : "\"@post('sse/popup/\" & $dashboardSlug & \"/close')\""
               }
             }

@@ -75,7 +75,7 @@ private[runtime] enum Patch:
 private[runtime] case class Addressed(
     patch: Patch,
     establishes: Map[NodeId, Held] = Map.empty,
-    // Roots, applied by prefix — a mount and everything under it.
+    // Roots: a mount and everything under it ([[NodeAncestry]]).
     invalidates: Set[NodeId] = Set.empty
 )
 
@@ -350,7 +350,7 @@ private[runtime] object Patches {
       // a morph at one would land nowhere, and the changelog must stop naming
       // them.
       val evicted =
-        log.invalidateWhere(hostEvicts(renderer, renderer.mountId(gid)))
+        log.invalidateWhere(hostEvicts(renderer, renderer.hostId(gid)))
       val withGone = was
         .map(renderer.surfaceContentId)
         .foldLeft(evicted)(_.removed(gid, _, at))
@@ -428,7 +428,7 @@ private[runtime] object Patches {
         // entries it leaves are what make the group ESTABLISHED for the next
         // membership change. Without them every change fills, and every fill
         // raises the horizon past another cursor.
-        now.foldLeft(base.filled(gid, at))((l, e) =>
+        now.foldLeft(base.filled(gid, at, renderer.ancestry))((l, e) =>
           l.touched(renderer.members.memberIdOf(gid, e), at)
         )
       else {
@@ -527,7 +527,7 @@ private[runtime] object Patches {
       open: Set[String] = Set.empty,
       uiState: Map[String, String] = Map.empty
   ): IO[List[Addressed]] = {
-    val all = log.since(v)
+    val all = log.since(v, renderer.ancestry)
     // Only what this client can SEE. A mutation inside a surface it does not
     // have open would patch an id its DOM lacks — a silent no-op, so this only
     // ever costs bytes, but it is one client's worth of another client's tab on
@@ -569,7 +569,7 @@ private[runtime] object Patches {
           // container's id reaches — so the mount says which nodes it holds.
           Addressed(
             _,
-            invalidates = hostEvicts(renderer, renderer.mountId(gid))
+            invalidates = hostEvicts(renderer, renderer.hostId(gid))
           )
         )
       }
@@ -635,7 +635,7 @@ private[runtime] object Patches {
         Patch.Insert(
           members.map(_._2).mkString,
           PatchMode.Inner,
-          renderer.mountId(gid)
+          renderer.hostId(gid)
         ),
         // A SET mount's contents are one resolvable node per member, so the
         // fill can say what it put in each and the next tick can tell
@@ -647,7 +647,7 @@ private[runtime] object Patches {
           members.map { case (id, html) => id -> Held.of(html) }.toMap
         else Map.empty,
         if (asSet.isDefined) Set(gid)
-        else hostEvicts(renderer, renderer.mountId(gid))
+        else hostEvicts(renderer, renderer.hostId(gid))
       )
     }
     // The second candidate set: an open surface's nodes, which the cursor alone
@@ -663,7 +663,11 @@ private[runtime] object Patches {
       .distinct
       .filterNot(id =>
         owed.nodes.contains(id) || owed.moved.exists(_._1 == id) ||
-          log.coveredByMutation(id, owed.moved.map(_._1).toSet ++ owed.refill)
+          log.coveredByMutation(
+            id,
+            owed.moved.map(_._1).toSet ++ owed.refill,
+            renderer.ancestry
+          )
       )
       .sorted
     val changed = owed.nodes
@@ -824,7 +828,7 @@ private[runtime] object Patches {
           renderer.elementId(renderer.members.memberIdOf(gid, succ))
         )
       case None =>
-        Patch.Insert(html, PatchMode.Append, renderer.mountId(gid))
+        Patch.Insert(html, PatchMode.Append, renderer.hostId(gid))
     }
 
   /** Fill `host` with `arriving`'s rendering, as a patch that knows what it
@@ -884,12 +888,13 @@ private[runtime] object Patches {
     * inside it — invalidating afterwards would drop the very claims the same
     * patch just earned.
     *
-    * Prefix semantics on the roots, the same string test ancestry uses
-    * everywhere here ([[FragmentLog.coveredByMutation]]): ids are
-    * location-derived, and the trailing `_` keeps `c_1` from swallowing `c_10`.
-    * A root itself goes too — it is inside the DOM the fill replaced.
+    * Containment comes from [[NodeAncestry]], the same relation ancestry uses
+    * everywhere here — not from how the ids are spelled, which stopped being
+    * safe once an author could name a node. A root itself goes too: it is
+    * inside the DOM the fill replaced.
     */
   def applied(
+      ancestry: NodeAncestry,
       holds: Map[NodeId, Held],
       patch: Addressed
   ): Map[NodeId, Held] =
@@ -901,7 +906,7 @@ private[runtime] object Patches {
       if (patch.invalidates.isEmpty) holds
       else
         holds.filterNot { case (id, _) =>
-          patch.invalidates.exists(r => id == r || id.startsWith(r + "_"))
+          ancestry.withinAny(id, patch.invalidates.toSet)
         }
     ) { case (acc, (id, later)) =>
       acc.updated(id, acc.get(id).fold(later)(_.merge(later)))
@@ -957,7 +962,7 @@ private[runtime] object Patches {
   ): List[Patch] =
     content match {
       case Some(html) =>
-        List(Patch.Insert(html, PatchMode.Inner, renderer.mountId(gid)))
+        List(Patch.Insert(html, PatchMode.Inner, renderer.hostId(gid)))
       case None =>
         departed.map(id => Patch.Remove(renderer.elementId(id))).toList
     }

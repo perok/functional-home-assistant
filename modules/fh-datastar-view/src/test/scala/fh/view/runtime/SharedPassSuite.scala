@@ -12,6 +12,7 @@ import fh.view.model.{
   NodeId,
   Op,
   Predicate,
+  Region,
   SlotSource,
   Surface,
   Theme
@@ -48,16 +49,21 @@ class SharedPassSuite extends ServerHarness {
   // ordering barrier that proves the connection is live before we look.
   private def twoLeafDash = Dashboard(
     cards = Map(
-      "col" -> CardDef("<div>{{#children}}{{{html}}}{{/children}}</div>"),
+      "col" -> CardDef(
+        "<div>{{#children}}{{{html}}}{{/children}}</div>",
+        regions = Map("children" -> Region())
+      ),
       "card" -> CardDef("<span>{{state}}</span>", slots = List("state"))
     ),
     card = LayoutNode.Component(
       "col",
-      children = List("sensor.a", "sensor.b").map(e =>
-        LayoutNode.Component(
-          "card",
-          slots = Map("state" -> SlotSource(Some(e)))
-        )
+      children = LayoutNode.kids(
+        List("sensor.a", "sensor.b").map(e =>
+          LayoutNode.Component(
+            "card",
+            slots = Map("state" -> SlotSource(Some(e)))
+          )
+        )*
       )
     )
   )

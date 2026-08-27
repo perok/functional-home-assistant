@@ -8,6 +8,7 @@ import fh.view.model.{
   Dashboard,
   LayoutNode,
   NodeId,
+  Region,
   SlotSource,
   Surface
 }
@@ -202,20 +203,23 @@ class LiveStreamSuite extends ServerHarness {
 
   private def tabsInBranchDash = Dashboard(
     cards = Map(
-      "col" -> CardDef("<div>{{#children}}{{{html}}}{{/children}}</div>"),
+      "col" -> CardDef(
+        "<div>{{#children}}{{{html}}}{{/children}}</div>",
+        regions = Map("children" -> Region())
+      ),
       "card" -> CardDef("<span>{{state}}</span>", slots = List("state")),
       "ifhost" -> CardDef(
-        template = "{{{self}}}{{{mount}}}",
-        mount = Some("""<div id="{{mountId}}">{{{branch}}}</div>""")
+        template = """<div id="{{hostId}}">{{{branch}}}</div>""",
+        regions = Map("branch" -> Region(Region.Baked))
       ),
       "tabs" -> CardDef(
-        template = "{{{self}}}{{{mount}}}",
-        mount = Some("""<div id="{{mountId}}" class="tabs">{{{panel}}}</div>""")
+        template = """<div id="{{hostId}}" class="tabs">{{{panel}}}</div>""",
+        regions = Map("panel" -> Region(Region.Baked))
       )
     ),
     card = LayoutNode.Component(
       "col",
-      children = List(
+      children = LayoutNode.kids(
         LayoutNode.Component(
           "card",
           slots = Map("state" -> SlotSource(Some("sensor.shared")))
@@ -260,14 +264,13 @@ class LiveStreamSuite extends ServerHarness {
       // in the mount. That shape is the whole point — it has no markup of its
       // own to fingerprint.
       "col" -> CardDef(
-        template = "{{{mount}}}",
-        mount = Some("<div>{{#children}}{{{html}}}{{/children}}</div>")
+        template = "<div>{{#children}}{{{html}}}{{/children}}</div>",
+        regions = Map("children" -> Region())
       ),
       "card" -> CardDef("<span>{{state}}</span>", slots = List("state")),
       "tabs" -> CardDef(
-        template = "{{{self}}}{{{mount}}}",
-        self = Some("""<div id="{{selfId}}">bar</div>"""),
-        mount = Some("""<div id="{{mountId}}">{{{panel}}}</div>""")
+        template = """<div>bar</div><div id="{{hostId}}">{{{panel}}}</div>""",
+        regions = Map("panel" -> Region(Region.Baked))
       )
     ),
     card = LayoutNode.Component("col"),
@@ -276,7 +279,7 @@ class LiveStreamSuite extends ServerHarness {
       "det" -> Surface(
         LayoutNode.Component(
           "col",
-          children = List(LayoutNode.Component("tabs"))
+          children = LayoutNode.kids(LayoutNode.Component("tabs"))
         )
       ),
       "t0" -> Surface(
@@ -307,15 +310,18 @@ class LiveStreamSuite extends ServerHarness {
     val dash = Dashboard(
       cards = Map(
         "col" -> CardDef(
-          template = "{{{mount}}}",
-          mount = Some("<div>{{#children}}{{{html}}}{{/children}}</div>")
+          template = "<div>{{#children}}{{{html}}}{{/children}}</div>",
+          regions = Map("children" -> Region())
         ),
         "card" -> CardDef("<span>{{state}}</span>", slots = List("state"))
       ),
       card = LayoutNode.Component("col"),
       surfaces = Map(
         "det" -> Surface(
-          LayoutNode.Component("col", children = List(branchCard("sensor.a")))
+          LayoutNode.Component(
+            "col",
+            children = LayoutNode.kids(branchCard("sensor.a"))
+          )
         )
       )
     )
@@ -459,16 +465,22 @@ class LiveStreamSuite extends ServerHarness {
     val d = Dashboard(
       cards = ifCards ++ Map(
         "col" -> CardDef(
-          template = "{{{mount}}}",
-          mount = Some("<div>{{#children}}{{{html}}}{{/children}}</div>")
+          template = "<div>{{#children}}{{{html}}}{{/children}}</div>",
+          regions = Map("children" -> Region())
         )
       ),
       card = LayoutNode
-        .Component("col", children = List(LayoutNode.Component("ifhost"))),
+        .Component(
+          "col",
+          children = LayoutNode.kids(LayoutNode.Component("ifhost"))
+        ),
       surfaces = Map(
         // The branch's root is a `col` — a mount with no self.
         "then" -> stateMember(
-          LayoutNode.Component("col", children = List(branchCard("sensor.a"))),
+          LayoutNode.Component(
+            "col",
+            children = LayoutNode.kids(branchCard("sensor.a"))
+          ),
           "c_0",
           0,
           armedCond
@@ -481,7 +493,7 @@ class LiveStreamSuite extends ServerHarness {
       "sensor.a" -> es("sensor.a", "A0")
     )
     val (patch, _) =
-      Patches.hostFill(r, r.mountId("c_0"), Some("then"), armed, Map.empty).get
+      Patches.hostFill(r, r.hostId("c_0"), Some("then"), armed, Map.empty).get
 
     // The leaf the fill places is claimed, holding exactly what a patch for
     // that node alone would carry — which is what makes the two comparable.
@@ -497,19 +509,24 @@ class LiveStreamSuite extends ServerHarness {
     assert(!patch.establishes.contains(root), clue = patch.establishes.keySet)
   }
 
-  test("a resume renders a variant-bearing node for THIS viewer") {
-    // The hole that kept `__ifmissing` out. A node whose own markup reads its
-    // own selection has one rendering per member, and `resume` renders its
-    // candidates BY ID — so without the viewer it hands every client the
-    // default member's bar, flipping a tab-1 viewer's highlight to tab 0 on
-    // reconnect.
+  test("a resume sends one viewer's bar bytes that fit every viewer") {
+    // This used to be "a resume renders a VARIANT-BEARING node for THIS
+    // viewer": a node whose own markup read its own selection had one rendering
+    // per member, so a resume that rendered by id without knowing the viewer
+    // handed a tab-1 client tab 0's bar and flipped its highlight.
+    //
+    // There is no such node now. The selection lives on the STRUCTURE (rendered
+    // on the document path, where the viewer is known) and in the client's own
+    // signal; the live bar is a leaf whose bytes read entities and nothing
+    // else. So a resume's bytes fit every viewer by construction — asserted
+    // here, because the failure mode it replaces was silent.
     val r = Renderer.create(serverHighlightDash)
     val states = Map(
       "sensor.title" -> es("sensor.title", "T1"),
       "sensor.a" -> es("sensor.a", "A0"),
       "sensor.b" -> es("sensor.b", "B0")
     )
-    val host: NodeId = "c_0"
+    val host: NodeId = "c_0_bar_0"
     val mine = Map("c_0" -> "1")
     // The bar moved at v5. What this viewer is recorded as holding is the
     // DEFAULT variant's bytes — tab 0's bar, which is what a repaint or an
@@ -527,16 +544,27 @@ class LiveStreamSuite extends ServerHarness {
       mine
     )
 
+    // The bar is owed NOTHING. It moved at v5, and this viewer is recorded as
+    // holding what a tab-0 connect left behind — which used to be the WRONG
+    // bytes for a tab-1 viewer and had to be re-sent per viewer. The bar reads
+    // entities and nothing else now, so those bytes are already right.
     assert(
-      owed.exists(_.patch.toSse.renderString.contains("active-1")),
-      clue = owed.map(_.patch.toSse.renderString)
-    )
-    assert(
-      !owed.exists(_.patch.toSse.renderString.contains("active-0")),
+      !owed.exists(_.patch.toSse.renderString.contains(host: String)),
       clue = (
-        "a tab-1 viewer must not be sent tab 0's bar",
+        "one rendering fits every viewer, so there is nothing to correct",
         owed.map(_.patch.toSse.renderString)
       )
+    )
+    // What IS owed is this viewer's own panel — which is per-viewer because it
+    // is a different SURFACE, not because one node has two renderings.
+    assert(
+      owed.exists(_.patch.toSse.renderString.contains("s_t1__c")),
+      clue = owed.map(_.patch.toSse.renderString)
+    )
+    // And nothing owed carries a selection at all.
+    assert(
+      !owed.exists(_.patch.toSse.renderString.contains("active-")),
+      clue = owed.map(_.patch.toSse.renderString)
     )
   }
 
@@ -680,27 +708,33 @@ class LiveStreamSuite extends ServerHarness {
   private def serverHighlightDash = Dashboard(
     cards = Map(
       "col" -> CardDef(
-        template = "{{{mount}}}",
-        mount = Some("<div>{{#children}}{{{html}}}{{/children}}</div>")
+        template = "<div>{{#children}}{{{html}}}{{/children}}</div>",
+        regions = Map("children" -> Region())
       ),
       "card" -> CardDef("<span>{{state}}</span>", slots = List("state")),
+      // A live bar BESIDE the panel: the bar is its own node, so a title tick
+      // re-renders it and cannot reach the panel. The active-tab class stays on
+      // the structure, which is where a selection is known.
       "tabs" -> CardDef(
-        template = "{{{self}}}{{{mount}}}",
-        // The bar names the active tab AND binds a live entity, so it is
-        // re-rendered on that entity's ticks — the shape the split exists for.
-        self = Some(
-          """<div id="{{selfId}}" class="active-{{bakeIndex}}">{{title}}</div>"""
-        ),
-        mount = Some("""<div id="{{mountId}}">{{{panel}}}</div>"""),
-        slots = List("title")
-      )
+        template =
+          """<div class="active-{{bakeIndex}}">{{#bar}}{{{html}}}{{/bar}}</div><div id="{{hostId}}">{{{panel}}}</div>""",
+        regions = Map("bar" -> Region(), "panel" -> Region(Region.Baked))
+      ),
+      "bar" -> CardDef("""<div>{{title}}</div>""", slots = List("title"))
     ),
     card = LayoutNode.Component(
       "col",
-      children = List(
+      children = LayoutNode.kids(
         LayoutNode.Component(
           "tabs",
-          slots = Map("title" -> SlotSource(Some("sensor.title")))
+          children = Map(
+            "bar" -> List(
+              LayoutNode.Component(
+                "bar",
+                slots = Map("title" -> SlotSource(Some("sensor.title")))
+              )
+            )
+          )
         )
       )
     ),
@@ -767,7 +801,15 @@ class LiveStreamSuite extends ServerHarness {
     }
   }
 
-  test("a server-rendered selection survives the first tick, per viewer") {
+  /** A tick on the bar's entity sends the SAME bytes to both viewers, and
+    * neither carries a selection — where this used to assert that each viewer
+    * kept its own index inside those bytes.
+    *
+    * The index is on the structure and in each client's `ui_` signal now, so a
+    * tick cannot disturb it: there is nothing per-viewer in the patch to get
+    * wrong.
+    */
+  test("a tick sends both viewers the same bar, carrying no selection") {
     liveWorld(
       serverHighlightDash,
       Map(
@@ -787,23 +829,21 @@ class LiveStreamSuite extends ServerHarness {
         a <- onT0.drain
         b <- onT1.drain
         _ = assert(
-          domEvents(a).exists(_._3.exists(_.contains("""class="active-0""""))),
-          clue = ("tab 0's viewer keeps index 0", a)
+          domEvents(a).exists(_._3.exists(_.contains("T1"))),
+          clue = ("tab 0's viewer gets the new title", a)
         )
         _ = assert(
-          domEvents(b).exists(_._3.exists(_.contains("""class="active-1""""))),
-          clue = ("tab 1's viewer keeps index 1", b)
+          domEvents(b).exists(_._3.exists(_.contains("T1"))),
+          clue = ("tab 1's viewer gets the new title", b)
         )
-        // ...and both got the new title, so the patch is real.
-        _ = assert(domEvents(a).exists(_._3.exists(_.contains("T1"))), clue = a)
-        _ = assert(domEvents(b).exists(_._3.exists(_.contains("T1"))), clue = b)
-        // Neither is handed the other's bar.
+        // Neither is handed ANY selection: there is none in the bytes to be
+        // right or wrong about, which is what makes one render serve both.
         _ = assert(
-          !domEvents(a).exists(_._3.exists(_.contains("active-1"))),
+          !domEvents(a).exists(_._3.exists(_.contains("active-"))),
           clue = a
         )
         _ = assert(
-          !domEvents(b).exists(_._3.exists(_.contains("active-0"))),
+          !domEvents(b).exists(_._3.exists(_.contains("active-"))),
           clue = b
         )
       } yield ()
@@ -908,12 +948,15 @@ class LiveStreamSuite extends ServerHarness {
     // observable on the wire as `storeVersion: 150` twice.
     val twoCards = Dashboard(
       cards = Map(
-        "col" -> CardDef("<div>{{#children}}{{{html}}}{{/children}}</div>"),
+        "col" -> CardDef(
+          "<div>{{#children}}{{{html}}}{{/children}}</div>",
+          regions = Map("children" -> Region())
+        ),
         "card" -> CardDef("<span>{{state}}</span>", slots = List("state"))
       ),
       card = LayoutNode.Component(
         "col",
-        children = List(
+        children = LayoutNode.kids(
           LayoutNode.Component(
             "card",
             slots = Map("state" -> SlotSource(Some("sensor.a")))

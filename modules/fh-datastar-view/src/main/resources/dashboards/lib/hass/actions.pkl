@@ -23,7 +23,7 @@ class Call {
 /// state equals [[whenState]], [[otherwise]] in every other state.
 ///
 /// A lock has `lock`/`unlock` and no `toggle`, so which to call is not knowable
-/// until the click. A slot built from this is `reactive` and leaves the
+/// until the click. A slot built from this is `live` and leaves the
 /// renderer's identity cache — which is why the shape is deliberately limited to
 /// a two-way test, and why growing past one is the trigger to revisit ADR 0016.
 class CallByState {

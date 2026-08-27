@@ -51,7 +51,7 @@ private[runtime] final class SurfaceGraph(
     * surface ids.
     *
     * It has to be a `val`. As a `def` it re-scanned every surface on each call,
-    * and `mountId` calls it for EVERY node on EVERY render — so a paint cost
+    * and `hostId` calls it for EVERY node on EVERY render — so a paint cost
     * O(nodes × surfaces) for an answer that cannot change.
     */
   private val bakeGroups: Map[NodeId, List[String]] =

@@ -1,6 +1,14 @@
 package fh.view.runtime
 
-import fh.view.model.{CardDef, Dashboard, LayoutNode, Op, Predicate, SlotSource}
+import fh.view.model.{
+  CardDef,
+  Dashboard,
+  LayoutNode,
+  Op,
+  Predicate,
+  Region,
+  SlotSource
+}
 import fh.view.testkit.DashboardBuilders.st
 import fh.view.testkit.TestIds.given
 import io.circe.Json
@@ -345,12 +353,13 @@ class SetNodeSuite extends ServerHarness {
     // through the MEMBER, or the tile silently stops updating.
     val cards = tile ++ Map(
       "col" -> CardDef(
-        """<div>{{#children}}{{{html}}}{{/children}}</div>"""
+        """<div>{{#children}}{{{html}}}{{/children}}</div>""",
+        regions = Map("children" -> Region())
       )
     )
     val subtree = LayoutNode.Component(
       "col",
-      children = List(
+      children = LayoutNode.kids(
         tileNode("light.a"),
         // A child binding a DIFFERENT entity than the candidate.
         LayoutNode.Component(
@@ -397,7 +406,10 @@ class SetNodeSuite extends ServerHarness {
     // composing bytes: a bulb patches ITS OWN element, and the tile — whose
     // content is a registry fact and so a literal — is never re-rendered.
     val cards = tile ++ Map(
-      "col" -> CardDef("""<div>{{#children}}{{{html}}}{{/children}}</div>""")
+      "col" -> CardDef(
+        """<div>{{#children}}{{{html}}}{{/children}}</div>""",
+        regions = Map("children" -> Region())
+      )
     )
     def room(id: String, lights: List[String]) =
       id -> LayoutNode.SetMember(
@@ -406,7 +418,7 @@ class SetNodeSuite extends ServerHarness {
             None,
             LayoutNode.Component(
               "col",
-              children = List(
+              children = LayoutNode.kids(
                 LayoutNode.SetNode(
                   candidates = lights,
                   members = lights.map { l =>
@@ -468,10 +480,13 @@ class SetNodeSuite extends ServerHarness {
     // container. Two levels deep, so a scheme that happens to work at one level
     // does not pass.
     val cards = tile ++ Map(
-      "col" -> CardDef("""<div>{{#children}}{{{html}}}{{/children}}</div>""")
+      "col" -> CardDef(
+        """<div>{{#children}}{{{html}}}{{/children}}</div>""",
+        regions = Map("children" -> Region())
+      )
     )
     def wrap(children: List[LayoutNode]) =
-      LayoutNode.Component("col", children = children)
+      LayoutNode.Component("col", children = LayoutNode.kids(children*))
     def leafSet(ids: List[String]) = LayoutNode.SetNode(
       candidates = ids,
       members = ids.map { l =>

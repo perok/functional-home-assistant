@@ -95,6 +95,15 @@ object DashboardBuild {
     */
   val ContentKey: String = "content"
 
+  /** A candidate set's layout-tree edges: `members` maps a candidate to its
+    * guarded renderings, `clauses` are those renderings in order, and `node` is
+    * the one each renders. The OTHER recursive edge [[hoistInlineSurfaces]]
+    * walks — a set holds no `children`.
+    */
+  val MembersKey: String = "members"
+  val ClausesKey: String = "clauses"
+  val NodeKey: String = "node"
+
   /** The literal token an authored node uses to refer to its own backend-minted
     * id — the SAME id the renderer injects as `{{id}}` for that node
     * ([[fh.view.model.LayoutNode.pathId]]). [[hoistInlineSurfaces]] mints it
@@ -155,6 +164,19 @@ object DashboardBuild {
         }
         val collected =
           cardSurfaces ++ rebuilt.flatMap(_._2)
+        // `JsonObject.fromIterable` keeps the LAST of a repeated key, so a
+        // collision here silently drops a popup — it opens, and the registry
+        // hands back somebody else's content. The one shape that can produce
+        // it is two clauses of one candidate each owning an inline surface,
+        // since a member's id carries no clause index (`walkMembers`).
+        val clashes = collected.map(_._1).diff(collected.map(_._1).distinct)
+        if (clashes.nonEmpty)
+          throw FHError.badCondition(
+            s"two inline surfaces claim the id ${clashes.distinct.sorted
+                .mkString(", ")} — a candidate's clauses share one node id, so " +
+              "at most one of its renderings may own a popup. Give the others " +
+              "a registered surface and open it by name."
+          )
         val merged = JsonObject.fromIterable(
           rebuilt.map(_._1) ++ collected
         )
@@ -162,6 +184,38 @@ object DashboardBuild {
           obj.add("card", newCard).add("surfaces", Json.fromJsonObject(merged))
         )
     }
+
+  /** Every `@@…@@` placeholder still standing after the build, deduplicated.
+    *
+    * The authoring layer writes these because the value is not knowable while
+    * authoring — [[NodeIdToken]] for a node's own id, `@@CLASSBIND:…@@` for a
+    * theme's class list — and a later pass fills them in. Nothing checked that
+    * the pass ran: an unresolved token is a plain String, so it decodes, it
+    * validates, and it renders into the DOM verbatim. The first symptom is a
+    * binding that quietly never matches.
+    *
+    * A check rather than a type because the tokens live inside arbitrary
+    * author-composed strings (an onclick expression, a `data-class` predicate),
+    * where the surrounding text is the author's and only the placeholder is
+    * ours.
+    */
+  private[build] def unresolvedTokens(j: Json): List[String] = {
+    // `[^@]*` rather than a name charset: a token's payload is arbitrary
+    // (`@@CLASSBIND:busySpin:$b@@` carries a Datastar expression), and the
+    // delimiters are what identify it. Both `@@` are required, so a lone `@@`
+    // in prose and a bare `@post(…)` are not tokens.
+    val pattern = """@@[^@]*@@""".r
+    def go(j: Json): List[String] =
+      j.fold(
+        Nil,
+        _ => Nil,
+        _ => Nil,
+        s => pattern.findAllIn(s).toList,
+        _.toList.flatMap(go),
+        _.toList.flatMap((_, v) => go(v))
+      )
+    go(j).distinct.sorted
+  }
 
   // Replace every occurrence of `token` in every String leaf of `j`.
   private def splice(j: Json, token: String, value: String): Json =
@@ -173,6 +227,12 @@ object DashboardBuild {
       arr => Json.fromValues(arr.map(splice(_, token, value))),
       obj => Json.fromJsonObject(obj.mapValues(splice(_, token, value)))
     )
+
+  // A node's authored `id`, if it declared one — the same field
+  // `LayoutNode.Component.id` decodes. Read off the JSON because this pass runs
+  // before decoding.
+  private def authoredIdOf(node: Json): Option[String] =
+    node.asObject.flatMap(_("id")).flatMap(_.asString)
 
   // Keep only the surface's own fields (content + optional bakeInto/bakeAs/bakeIndex/activation).
   // The host is derived (Surface.hostId), not authored, so "mount" is not lifted;
@@ -204,25 +264,125 @@ object DashboardBuild {
 
   // Returns the rewritten node and the surfaces collected from it (and its
   // subtree). `idBase` is the node's position-derived id namespace.
+  /** One region's children, walked under the ids the RENDERER will give them.
+    *
+    * The segment comes from `LayoutNode.segment`, not from a local
+    * `s"${idBase}_$i"`: that spelling is right for the default region and wrong
+    * for every other one, and an id this pass invents is an id nothing else
+    * uses — the surface is registered under a key no node has.
+    */
+  private def walkRegion(
+      region: String,
+      children: Json,
+      idBase: String
+  ): (List[Json], List[(String, Json)]) = {
+    val rs = children.asArray.getOrElse(Vector.empty).zipWithIndex.map {
+      case (ch, i) =>
+        // An AUTHORED id replaces the position-derived one here too, or this
+        // pass would key a node's inline surfaces off an id the renderer never
+        // uses.
+        val derived =
+          s"${idBase}_${LayoutNode.segment(LayoutNode.Step(region, i))}"
+        walk(ch, authoredIdOf(ch).getOrElse(derived))
+    }
+    (rs.map(_._1).toList, rs.toList.flatMap(_._2))
+  }
+
+  /** A candidate set's clause nodes, walked under the ids the RENDERER gives
+    * its members: `<setId>_<sanitised entity>`, which is `MemberGraph.memberId`
+    * — spelled here because this pass sees JSON, not a `MemberGraph`.
+    *
+    * '''Both clauses of a candidate get the SAME id, and that is not an
+    * oversight here.''' A member's id deliberately carries no clause index
+    * (only a set NESTED in a clause needs one, so that two clauses holding sets
+    * cannot share one), because exactly one clause is ever rendered. Two
+    * clauses that each own an inline surface therefore collide on one registry
+    * key — caught in [[hoistInlineSurfaces]] rather than silently resolved,
+    * since whichever one won would be right half the time.
+    *
+    * A no-op for anything that is not a set, which is almost every node.
+    */
+  private def walkMembers(
+      obj: JsonObject,
+      idBase: String
+  ): (JsonObject, List[(String, Json)]) =
+    obj(MembersKey).flatMap(_.asObject) match {
+      case None          => (obj, Nil)
+      case Some(members) =>
+        val rs = members.toList.map { case (entityId, m) =>
+          val mObj = m.asObject.getOrElse(JsonObject.empty)
+          val memberBase = s"${idBase}_${LayoutNode.sanitize(entityId)}"
+          val walked = mObj(ClausesKey)
+            .flatMap(_.asArray)
+            .getOrElse(Vector.empty)
+            .map { clause =>
+              val cObj = clause.asObject.getOrElse(JsonObject.empty)
+              cObj(NodeKey) match {
+                case None    => (clause, Nil)
+                case Some(n) =>
+                  val (walkedNode, surfaces) = walk(n, memberBase)
+                  (Json.fromJsonObject(cObj.add(NodeKey, walkedNode)), surfaces)
+              }
+            }
+          (
+            entityId -> Json.fromJsonObject(
+              mObj.add(ClausesKey, Json.fromValues(walked.map(_._1)))
+            ),
+            walked.toList.flatMap(_._2)
+          )
+        }
+        (
+          obj.add(
+            MembersKey,
+            Json.fromJsonObject(JsonObject.fromIterable(rs.map(_._1)))
+          ),
+          rs.flatMap(_._2)
+        )
+    }
+
   private def walk(node: Json, idBase: String): (Json, List[(String, Json)]) =
     node.asObject match {
       case None       => (node, Nil)
       case Some(obj0) =>
-        // Recurse into children first.
+        // Recurse into children first — in BOTH wire forms. `children` is a
+        // bare array for a node whose card has one region, and an object keyed
+        // by region name for one with several (`LayoutNode`'s decoder takes
+        // either). Reading only the array form did not merely miss the second:
+        // it made this pass STOP at such a node, so nothing under a grouped
+        // slider's head or members was hoisted, and any `@@NODE_ID@@` down
+        // there survived into the DOM.
         val (obj1, childSurfaces) =
-          obj0(ChildrenKey).flatMap(_.asArray) match {
-            case Some(arr) =>
-              val rs = arr.zipWithIndex.map { case (ch, i) =>
-                walk(ch, s"${idBase}_$i")
+          obj0(ChildrenKey) match {
+            case Some(kids) if kids.asArray.isDefined =>
+              val (js, ss) = walkRegion(LayoutNode.DefaultRegion, kids, idBase)
+              (obj0.add(ChildrenKey, Json.fromValues(js)), ss)
+            case Some(kids) if kids.asObject.isDefined =>
+              // Region ORDER does not enter an id — the index does, within its
+              // own region — so the object's key order is irrelevant here and
+              // the result stays keyed exactly as it arrived.
+              val rs = kids.asObject.get.toList.map { case (region, arr) =>
+                val (js, ss) = walkRegion(region, arr, idBase)
+                (region -> Json.fromValues(js), ss)
               }
               (
-                obj0.add(ChildrenKey, Json.fromValues(rs.map(_._1))),
-                rs.toList.flatMap(_._2)
+                obj0.add(
+                  ChildrenKey,
+                  Json.fromJsonObject(JsonObject.fromIterable(rs.map(_._1)))
+                ),
+                rs.flatMap(_._2)
               )
-            case None => (obj0, Nil)
+            case _ => (obj0, Nil)
           }
-        obj1(InlineSurfacesKey).flatMap(_.asObject) match {
-          case None         => (Json.fromJsonObject(obj1), childSurfaces)
+        // A CANDIDATE SET holds its nodes under `members[…].clauses[…].node`,
+        // not under `children`, so it was invisible here — and an inline
+        // surface inside one was never hoisted. Not an exotic shape: the
+        // shipped starter's "Low battery" section renders `c.entityCard` over
+        // sensors, a sensor has no domain service, so its default tap is an
+        // INLINE more-info popup (ADR 0016).
+        val (obj2, setSurfaces) = walkMembers(obj1, idBase)
+        obj2(InlineSurfacesKey).flatMap(_.asObject) match {
+          case None =>
+            (Json.fromJsonObject(obj2), childSurfaces ++ setSurfaces)
           case Some(marker) =>
             // Resolve nested inline surfaces inside each panel first, so the
             // only `NodeIdToken`s left in this subtree belong to THIS node.
@@ -245,7 +405,7 @@ object DashboardBuild {
                 )
               (key, sdObj.add(ContentKey, content), nested)
             }
-            val withResolved = obj1.add(
+            val withResolved = obj2.add(
               InlineSurfacesKey,
               Json.fromJsonObject(
                 JsonObject.fromIterable(
@@ -268,7 +428,7 @@ object DashboardBuild {
               }
             (
               Json.fromJsonObject(splicedObj.remove(InlineSurfacesKey)),
-              childSurfaces ++ resolved.flatMap(_._3) ++ lifted
+              childSurfaces ++ setSurfaces ++ resolved.flatMap(_._3) ++ lifted
             )
         }
     }
@@ -293,7 +453,18 @@ object DashboardBuild {
       slug: Option[String] = None
   ): IO[Dashboard.Validated] =
     for {
-      decoded <- hoistInlineSurfaces(json)
+      hoisted <- IO.pure(hoistInlineSurfaces(json))
+      _ <- unresolvedTokens(hoisted) match {
+        case Nil => IO.unit
+        case bad =>
+          FHError
+            .badCondition(
+              "the build left placeholder tokens unresolved, which would " +
+                s"render literally into the DOM: ${bad.mkString(", ")}"
+            )
+            .raiseError[IO, Unit]
+      }
+      decoded <- hoisted
         .as[Dashboard]
         .leftMap(err =>
           FHError.badCondition(s"dashboard is not a valid Dashboard: $err")

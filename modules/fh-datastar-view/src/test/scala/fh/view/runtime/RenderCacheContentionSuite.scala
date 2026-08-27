@@ -8,6 +8,7 @@ import fh.view.model.{
   Dashboard,
   LayoutNode,
   NodeId,
+  Region,
   SlotSource,
   Surface
 }
@@ -44,24 +45,40 @@ class RenderCacheContentionSuite extends ServerHarness {
     * fixture without the `self` would be measuring a dashboard nobody can
     * author.
     */
-  private def contendedDash = Dashboard(
+  /** A bake owner and, beside it, the live leaf that actually renders.
+    *
+    * `c_0` is the tabs host: structure, so it renders nothing per frame.
+    * [[Live]] is the leaf in its `bar` region, whose bytes are what a frame
+    * moves — and which mention no selection, so every viewer shares them.
+    */
+  private val Live: NodeId = "c_0_bar_0"
+
+  private def leafDash = Dashboard(
     cards = Map(
-      "col" -> CardDef("<div>{{#children}}{{{html}}}{{/children}}</div>"),
+      "col" -> CardDef(
+        "<div>{{#children}}{{{html}}}{{/children}}</div>",
+        regions = Map("children" -> Region())
+      ),
       "card" -> CardDef("<span>{{state}}</span>", slots = List("state")),
       "tabs" -> CardDef(
-        template = "{{{self}}}{{{mount}}}",
-        self = Some("""<span id="{{selfId}}">{{state}}</span>"""),
-        mount =
-          Some("""<div id="{{mountId}}" class="tabs">{{{panel}}}</div>"""),
-        slots = List("state")
+        template =
+          """{{#bar}}{{{html}}}{{/bar}}<div id="{{hostId}}" class="tabs">{{{panel}}}</div>""",
+        regions = Map("bar" -> Region(), "panel" -> Region(Region.Baked))
       )
     ),
     card = LayoutNode.Component(
       "col",
-      children = List(
+      children = LayoutNode.kids(
         LayoutNode.Component(
           "tabs",
-          slots = Map("state" -> SlotSource(Some("sensor.shared")))
+          children = Map(
+            "bar" -> List(
+              LayoutNode.Component(
+                "card",
+                slots = Map("state" -> SlotSource(Some("sensor.shared")))
+              )
+            )
+          )
         )
       )
     ),
@@ -91,12 +108,15 @@ class RenderCacheContentionSuite extends ServerHarness {
   /** The same node with no bake group: one key for everyone, at any count. */
   private def plainDash = Dashboard(
     cards = Map(
-      "col" -> CardDef("<div>{{#children}}{{{html}}}{{/children}}</div>"),
+      "col" -> CardDef(
+        "<div>{{#children}}{{{html}}}{{/children}}</div>",
+        regions = Map("children" -> Region())
+      ),
       "card" -> CardDef("<span>{{state}}</span>", slots = List("state"))
     ),
     card = LayoutNode.Component(
       "col",
-      children = List(
+      children = LayoutNode.kids(
         LayoutNode.Component(
           "card",
           slots = Map("state" -> SlotSource(Some("sensor.shared")))
@@ -144,7 +164,8 @@ class RenderCacheContentionSuite extends ServerHarness {
   private def rendersPerFrame(
       dash: Dashboard,
       queries: List[String],
-      frames: Int
+      frames: Int,
+      node: NodeId = "c_0"
   ): IO[Double] = {
     val renderer = new PerNode(dash)
     liveWorldOf(renderer, initial) { world =>
@@ -155,7 +176,7 @@ class RenderCacheContentionSuite extends ServerHarness {
           world.change(st("sensor.shared", i.toString))
         )
       } yield ()
-    } *> renderer.tally.map(_.getOrElse("c_0", 0).toDouble / frames)
+    } *> renderer.tally.map(_.getOrElse(node, 0).toDouble / frames)
   }
 
   private val Frames = 8
@@ -165,94 +186,100 @@ class RenderCacheContentionSuite extends ServerHarness {
       qs: List[String],
       dash: Dashboard,
       expected: Double,
-      frames: Int = Frames
+      frames: Int = Frames,
+      node: NodeId = "c_0"
   ): IO[Unit] =
-    rendersPerFrame(dash, qs, frames).flatMap(got =>
+    rendersPerFrame(dash, qs, frames, node).flatMap(got =>
       IO(assertEquals(got, expected, s"$label (${qs.size} viewers)"))
     )
 
   test("one selection is one render a frame, however many viewers hold it") {
     assertCost("no bake group, 3 viewers", List.fill(3)(""), plainDash, 1.0) *>
       assertCost(
-        "bake owner, 4 viewers on one tab",
+        "beside a bake owner, 4 viewers on one tab",
         List.fill(4)(""),
-        contendedDash,
+        leafDash,
         1.0,
-        frames = 5
+        frames = 5,
+        node = Live
       )
   }
 
-  /** The contract that was the open question.
+  /** The contract that was the open question, and the answer changed.
     *
-    * Two selections need two DIFFERENT renders a frame — the viewers are owed
-    * different bytes — so 2.0 is the floor and not waste. What is NOT
-    * inevitable is the third and fourth viewer: before the cache bucketed on
-    * the selection, a pull for tab 1 evicted tab 0's entry, so the next tab-0
-    * viewer re-rendered what its neighbour had just filled. That measured
-    * 2.13–3.80 renders a frame at 3+3, drifting toward one render per VIEWER.
+    * It used to be that two selections needed two DIFFERENT renders a frame,
+    * because the bake OWNER was itself cached and its own bytes carried the
+    * viewer's chosen tab. 2.0 was the floor, and the cache bucketed per
+    * selection to hold it there: unbucketed, a pull for tab 1 evicted tab 0's
+    * entry and the cost drifted toward one render per VIEWER (2.13–3.80 at
+    * 3+3).
     *
-    * So the assertion is not "2.0 is fast" — it is that the cost is the number
-    * of distinct SELECTIONS in flight, and does not move when viewers pile up
-    * behind each one.
+    * A bake owner holds its content in REGIONS now, which makes it structure —
+    * never a patch target, never cached, never rendered per frame. What renders
+    * is the LEAF beside it, and a leaf's bytes mention no selection, so every
+    * viewer is owed the same bytes.
+    *
+    * So the floor is 1.0 and the bucketing has nothing left to bucket. Were
+    * this to measure 2.0, the contention would merely have moved and deleting
+    * `RenderInputs.vars` would have taken something away.
     */
-  test("cost follows distinct selections, not viewers") {
+  test("cost does not follow selections any more — one render serves both") {
     assertCost(
       "1+1 on two tabs",
       List("", "?ui.c_0=1"),
-      contendedDash,
-      2.0
+      leafDash,
+      1.0,
+      node = Live
     ) *>
       assertCost(
         "2+2 on two tabs",
         List("", "", "?ui.c_0=1", "?ui.c_0=1"),
-        contendedDash,
-        2.0
+        leafDash,
+        1.0,
+        node = Live
       ) *>
       assertCost(
         "3+3 on two tabs",
         List.fill(3)("") ++ List.fill(3)("?ui.c_0=1"),
-        contendedDash,
-        2.0,
-        frames = 5
+        leafDash,
+        1.0,
+        frames = 5,
+        node = Live
+      ) *>
+      // ...and the owner is not rendered per frame at all, which is why.
+      assertCost(
+        "the structural owner",
+        List("", "?ui.c_0=1"),
+        leafDash,
+        0.0
       )
   }
 
-  /** The other half of bucketing: it must not become a leak.
+  /** The bound: it must not become a leak.
     *
-    * A node keeps ONE generation per selection, so churning the entity behind a
-    * node over many frames leaves the count where it started — it is the entity
-    * VERSIONS that replace in place. If this ever grows with frames, the split
-    * has been keyed on the whole [[RenderInputs]] again and the map retains
-    * dead HTML forever.
+    * A node keeps ONE generation, so churning the entity behind it over many
+    * frames leaves the count where it started — entity versions replace in
+    * place. If this ever grows with frames, the map is retaining dead HTML
+    * forever.
     */
-  test("generations are bounded by selections, not by frames") {
-    val renderer = Renderer.create(contendedDash)
-    val v = (n: Long) =>
-      RenderInputs(Map("sensor.shared" -> n), Map("bakeIndex" -> "0"))
+  test("generations are bounded, however many frames go by") {
+    val renderer = Renderer.create(leafDash)
+    val v = (n: Long) => RenderInputs(Map("sensor.shared" -> n))
 
     for {
       cache <- RenderCache.create
       _ <- (1L to 50L).toList.traverse_(n =>
-        cache("c_0", renderer, v(n))(IO.pure(s"<b>$n</b>"))
+        cache("c_0_bar_0", renderer, v(n))(IO.pure(s"<b>$n</b>"))
       )
       afterChurn <- cache.generations
-      // ...and a SECOND selection is a second generation, not a replacement.
-      _ <- cache(
-        "c_0",
-        renderer,
-        RenderInputs(Map("sensor.shared" -> 50L), Map("bakeIndex" -> "1"))
-      )(IO.pure("<b>other tab</b>"))
-      afterSecondTab <- cache.generations
       nodes <- cache.size
     } yield {
-      assertEquals(afterChurn, 1, "50 frames of one selection")
-      assertEquals(afterSecondTab, 2, "one generation per selection")
+      assertEquals(afterChurn, 1, "50 frames, one generation")
       assertEquals(nodes, 1)
     }
   }
 
-  private val tab0 = Map("bakeIndex" -> "0")
-  private def at(v: Long) = RenderInputs(Map("sensor.shared" -> v), tab0)
+  private def at(v: Long) = RenderInputs(Map("sensor.shared" -> v))
 
   /** The parallelism case: sessions pull on their own fibers and read the store
     * when they get there, so they do not all render from one snapshot.
@@ -268,12 +295,12 @@ class RenderCacheContentionSuite extends ServerHarness {
 
     for {
       cache <- RenderCache.create
-      renderer = Renderer.create(contendedDash)
-      newest <- cache("c_0", renderer, at(2))(render("<b>v2</b>"))
+      renderer = Renderer.create(leafDash)
+      newest <- cache(Live, renderer, at(2))(render("<b>v2</b>"))
       // The laggard is SERVED, and served its own version's bytes...
-      late <- cache("c_0", renderer, at(1))(render("<b>v1</b>"))
+      late <- cache(Live, renderer, at(1))(render("<b>v1</b>"))
       // ...and the third session finds v2 still there.
-      third <- cache("c_0", renderer, at(2))(render("<b>v2 again</b>"))
+      third <- cache(Live, renderer, at(2))(render("<b>v2 again</b>"))
       gens <- cache.generations
     } yield {
       assertEquals(newest.html, "<b>v2</b>")
@@ -293,10 +320,10 @@ class RenderCacheContentionSuite extends ServerHarness {
 
     for {
       cache <- RenderCache.create
-      renderer = Renderer.create(contendedDash)
-      _ <- cache("c_0", renderer, at(1))(render("<b>v1</b>"))
-      _ <- cache("c_0", renderer, at(2))(render("<b>v2</b>"))
-      hit <- cache("c_0", renderer, at(2))(render("<b>never</b>"))
+      renderer = Renderer.create(leafDash)
+      _ <- cache(Live, renderer, at(1))(render("<b>v1</b>"))
+      _ <- cache(Live, renderer, at(2))(render("<b>v2</b>"))
+      hit <- cache(Live, renderer, at(2))(render("<b>never</b>"))
       gens <- cache.generations
     } yield {
       assertEquals(hit.html, "<b>v2</b>")
@@ -307,18 +334,18 @@ class RenderCacheContentionSuite extends ServerHarness {
 
   /** Freshness is per ENTITY, so a mixed key is not ordered either way. */
   test("a partly-newer generation is not treated as a straggler") {
-    val two = (a: Long, b: Long) =>
-      RenderInputs(Map("sensor.a" -> a, "sensor.b" -> b), tab0)
+    val two =
+      (a: Long, b: Long) => RenderInputs(Map("sensor.a" -> a, "sensor.b" -> b))
     val runs = new AtomicInteger(0)
     def render(html: String) = IO(runs.incrementAndGet()).as(html)
 
     for {
       cache <- RenderCache.create
-      renderer = Renderer.create(contendedDash)
-      _ <- cache("c_0", renderer, two(2, 1))(render("<b>a2 b1</b>"))
+      renderer = Renderer.create(leafDash)
+      _ <- cache(Live, renderer, two(2, 1))(render("<b>a2 b1</b>"))
       // Behind on a, ahead on b: neither dominates, so it installs.
-      mixed <- cache("c_0", renderer, two(1, 2))(render("<b>a1 b2</b>"))
-      hit <- cache("c_0", renderer, two(1, 2))(render("<b>never</b>"))
+      mixed <- cache(Live, renderer, two(1, 2))(render("<b>a1 b2</b>"))
+      hit <- cache(Live, renderer, two(1, 2))(render("<b>never</b>"))
     } yield {
       assertEquals(mixed.html, "<b>a1 b2</b>")
       assertEquals(hit.html, "<b>a1 b2</b>", "it took the entry")
@@ -333,12 +360,12 @@ class RenderCacheContentionSuite extends ServerHarness {
 
     for {
       cache <- RenderCache.create
-      renderer = Renderer.create(contendedDash)
-      _ <- cache("c_0", renderer, at(5))(render("<b>one</b>"))
+      renderer = Renderer.create(leafDash)
+      _ <- cache(Live, renderer, at(5))(render("<b>one</b>"))
       grew <- cache(
-        "c_0",
+        Live,
         renderer,
-        RenderInputs(Map("sensor.shared" -> 4L, "sensor.new" -> 1L), tab0)
+        RenderInputs(Map("sensor.shared" -> 4L, "sensor.new" -> 1L))
       )(render("<b>two</b>"))
       gens <- cache.generations
     } yield {
@@ -348,26 +375,27 @@ class RenderCacheContentionSuite extends ServerHarness {
     }
   }
 
-  /** A renderer swap drops EVERY selection, not just the one asked for. */
-  test("a renderer swap clears a node's other selections too") {
-    val before = Renderer.create(contendedDash)
-    val after = Renderer.create(contendedDash)
-    val at = (i: String) =>
-      RenderInputs(Map("sensor.shared" -> 1L), Map("bakeIndex" -> i))
+  /** A renderer swap invalidates by IDENTITY: nothing the previous dashboard
+    * rendered is worth keeping, whatever inputs it was rendered from.
+    */
+  test("a renderer swap replaces what a node holds") {
+    val before = Renderer.create(leafDash)
+    val after = Renderer.create(leafDash)
+    val at = (v: Long) => RenderInputs(Map("sensor.shared" -> v))
 
     for {
       cache <- RenderCache.create
-      _ <- cache("c_0", before, at("0"))(IO.pure("<b>old tab0</b>"))
-      _ <- cache("c_0", before, at("1"))(IO.pure("<b>old tab1</b>"))
-      two <- cache.generations
-      _ <- cache("c_0", after, at("0"))(IO.pure("<b>new tab0</b>"))
-      one <- cache.generations
-      // The stale tab-1 generation is gone rather than served.
-      tab1 <- cache("c_0", after, at("1"))(IO.pure("<b>new tab1</b>"))
+      old <- cache(Live, before, at(1L))(IO.pure("<b>old</b>"))
+      first <- cache.generations
+      // Same node, same inputs, DIFFERENT renderer: a hit would serve the old
+      // dashboard's bytes, so it must render again.
+      fresh <- cache(Live, after, at(1L))(IO.pure("<b>new</b>"))
+      afterSwap <- cache.generations
     } yield {
-      assertEquals(two, 2)
-      assertEquals(one, 1, "the swap took the other selection with it")
-      assertEquals(tab1.html, "<b>new tab1</b>")
+      assertEquals(old.html, "<b>old</b>")
+      assertEquals(fresh.html, "<b>new</b>", "the swap was not served a hit")
+      assertEquals(first, 1)
+      assertEquals(afterSwap, 1, "replaced, not accumulated")
     }
   }
 }

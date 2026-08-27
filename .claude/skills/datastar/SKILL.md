@@ -64,6 +64,40 @@ Two plugins, two readings of the same value, and only one of them is documented:
   removes the attribute, so `data-attr:aria-label="$foo"` is exactly as it looks.
   The trap is in assigning null to the signal, not in the plugin.
 
+**`data-ignore-morph` makes a subtree PERMANENTLY unpatchable, not merely morph-skipped.**
+The docs state none of this. Two independent guards, read off the bundle.
+
+The top-level entry, which runs **before any mode branch** (`n` is `"outer"`/`"inner"`):
+
+```js
+Hn=(e,t,n="outer")=>{ if( z(e)&&z(t)&&e.hasAttribute(Re)&&t.hasAttribute(Re)
+                        || e.parentElement?.closest(Fn) ) return;
+// Re="data-ignore-morph", Fn="[data-ignore-morph]", z=isElement
+```
+
+Precedence is `(A&&B&&C&&D)||E`, so:
+
+- **Clause E is one-sided, unconditional and applies in every mode.** Any element *inside* a
+  marked subtree is refused as a patch target — silently, no error. Marking a host to protect
+  it from an ancestor's re-send also kills every live update to everything under it. This is
+  what makes the attribute unusable as a "skip this subtree during someone else's morph"
+  tool; it is a "this DOM is client-owned, server keep out" tool.
+- **Clause A–D is both-sided**, and covers the element itself. A patch aimed AT a marked
+  element (any mode, `Inner` included) is refused only when the ARRIVING fragment also carries
+  the attribute. A server that emits it in one rendering form but not the other gets an
+  ordinary morph — the subtree it meant to protect is blown away.
+- `closest` starts at the parent, so clause E never catches the marked element itself.
+
+The per-node walk has the both-sided check too, so the skip also applies while an ancestor is
+being morphed:
+
+```js
+dt=(e,t)=>{ … if(r.hasAttribute(Re)&&s.hasAttribute(Re))return e; …
+```
+
+It returns the existing node *before* attribute reconciliation, so the element's own
+attributes are preserved as well as its children.
+
 **`data-bind` beats a co-located `data-attr:value` from the first pass.**
 `data-bind` sets `.value` through the IDL before any user interaction, which
 raises the browser's dirty-value flag, so the content attribute never positions

@@ -246,12 +246,15 @@ class StateSurfaceSuite extends ServerHarness {
     val innerHost =
       LayoutNode.Component(
         "col",
-        children = List(LayoutNode.Component("ifhost"))
+        children = LayoutNode.kids(LayoutNode.Component("ifhost"))
       )
     val d = Dashboard(
       cards = ifCards,
       card = LayoutNode
-        .Component("col", children = List(LayoutNode.Component("ifhost"))),
+        .Component(
+          "col",
+          children = LayoutNode.kids(LayoutNode.Component("ifhost"))
+        ),
       surfaces = Map(
         "then" -> stateMember(innerHost, "c_0", 0, armedCond),
         "else" -> stateMember(branchCard("sensor.b"), "c_0", 1, always),
@@ -317,7 +320,10 @@ class StateSurfaceSuite extends ServerHarness {
       surfaces = Map(
         "det" -> Surface(
           LayoutNode
-            .Component("col", children = List(LayoutNode.Component("ifhost")))
+            .Component(
+              "col",
+              children = LayoutNode.kids(LayoutNode.Component("ifhost"))
+            )
         ),
         "d_then" -> stateMember(
           branchCard("sensor.a"),

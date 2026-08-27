@@ -8,6 +8,7 @@ import fh.view.model.{
   LayoutNode,
   Op,
   Predicate,
+  Region,
   SlotSource,
   Surface
 }
@@ -94,6 +95,186 @@ class BuildPhaseSuite extends munit.FunSuite {
     assert(errs.exists(_.contains("cell class")), clue = errs)
     // The valid token passes; only the bad one is reported.
     assert(!errs.exists(_.contains("'fh-cols-3'")), clue = errs)
+  }
+
+  /** The payoff for authoring an id, in the place it is most useful: an inline
+    * popup's surface id stops being positional.
+    *
+    * `openPopupInline` mints `surfaces["<nodeId>_self"]`, so with a derived id
+    * the popup is `c_0_self` and moving the button that defines it renames it.
+    * Naming the button pins it — which is also what makes it referenceable from
+    * elsewhere at all, since `@@NODE_ID@@` only ever resolves to a node's OWN
+    * id and so cannot be used to point at someone else's popup.
+    */
+  test("hoistInlineSurfaces keys an inline surface off an AUTHORED node id") {
+    def hoist(idField: String) = DashboardBuild
+      .hoistInlineSurfaces(
+        parser
+          .parse(s"""
+            { "cards": {}, "card": {
+                "kind": "component", "card": "fhcol",
+                "children": [
+                  { "kind": "component", "card": "card" },
+                  { "kind": "component", "card": "button"$idField,
+                    "slots": { "onclick": "open @@NODE_ID@@_self" },
+                    "inlineSurfaces": { "self": {
+                      "content": { "kind": "component", "card": "card" } } } }
+                ] } }
+          """)
+          .toOption
+          .get
+      )
+
+    // Derived: positional, and the second child's index is in the name.
+    assertEquals(
+      hoist("").hcursor.downField("surfaces").keys.map(_.toList),
+      Some(List("c_1_self"))
+    )
+    // Authored: the name is the author's, and the onclick was spliced with it.
+    val named = hoist(""", "id": "quickInfo"""")
+    assertEquals(
+      named.hcursor.downField("surfaces").keys.map(_.toList),
+      Some(List("quickInfo_self"))
+    )
+    assert(
+      named.noSpaces.contains("open quickInfo_self"),
+      clue = named.noSpaces
+    )
+    // Nothing unresolved is left behind either way.
+    assertEquals(DashboardBuild.unresolvedTokens(named), Nil)
+  }
+
+  /** A candidate set's clause nodes were invisible to this pass — it knew only
+    * `children`, and a set holds its nodes under `members[…].clauses[…].node`.
+    * So an inline surface inside a set was never hoisted and its `@@NODE_ID@@`
+    * reached the browser.
+    *
+    * That is not an exotic shape: it is what the SHIPPED starter does. Its "Low
+    * battery" section renders `c.entityCard` over sensors, a sensor has no
+    * domain service, so its default tap is more-info — an INLINE popup (ADR
+    * 0016). Any house with a battery sensor under 20 % built a dashboard the
+    * server then refused.
+    *
+    * The member's id carries no clause index, deliberately (`MemberGraph`: only
+    * a set NESTED in a clause needs one), so both clauses of a candidate hoist
+    * under the same id — see the duplicate-key test below.
+    */
+  test("hoistInlineSurfaces descends a candidate set's clauses") {
+    val json = parser
+      .parse("""
+        { "cards": {}, "card": {
+            "kind": "component", "card": "fhcol",
+            "children": [
+              { "kind": "set",
+                "candidates": ["sensor.batt"],
+                "members": { "sensor.batt": { "clauses": [
+                  { "node": { "kind": "component", "card": "entityCard",
+                      "slots": { "onclick": "open @@NODE_ID@@_self" },
+                      "inlineSurfaces": { "self": {
+                        "content": { "kind": "component", "card": "card" } } } } }
+                ] } } }
+            ] } }
+      """)
+      .toOption
+      .get
+    val hoisted = DashboardBuild.hoistInlineSurfaces(json)
+    assertEquals(
+      DashboardBuild.unresolvedTokens(hoisted),
+      Nil,
+      clue = hoisted.noSpaces
+    )
+    // Under the id the RENDERER gives that member — `<setId>_<entity>`, with
+    // the entity sanitised (`MemberGraph.memberId`). An id this pass invented
+    // instead would leave the popup registered where no node looks for it.
+    assertEquals(
+      hoisted.hcursor.downField("surfaces").keys.map(_.toList),
+      Some(List("c_0_sensor_batt_self"))
+    )
+  }
+
+  test("two clauses of one candidate cannot both own a popup") {
+    // The consequence of a member id with no clause index, made LOUD. Merging
+    // keeps the last of a repeated key, so the quiet version of this is a popup
+    // that opens and shows another clause's content.
+    val json = parser
+      .parse("""
+        { "cards": {}, "card": {
+            "kind": "component", "card": "fhcol",
+            "children": [
+              { "kind": "set",
+                "candidates": ["sensor.batt"],
+                "members": { "sensor.batt": { "clauses": [
+                  { "node": { "kind": "component", "card": "a",
+                      "inlineSurfaces": { "self": {
+                        "content": { "kind": "component", "card": "card" } } } } },
+                  { "node": { "kind": "component", "card": "b",
+                      "inlineSurfaces": { "self": {
+                        "content": { "kind": "component", "card": "card" } } } } }
+                ] } } }
+            ] } }
+      """)
+      .toOption
+      .get
+    val e = intercept[fh.view.FHError](DashboardBuild.hoistInlineSurfaces(json))
+    assert(
+      e.getMessage.contains("c_0_sensor_batt_self"),
+      clue = e.getMessage
+    )
+  }
+
+  /** `children` has TWO wire forms — a bare array for a card with one region,
+    * an object keyed by region for a card with several — and this pass read
+    * only the first. It did not merely skip the second: it STOPPED at such a
+    * node, so nothing below a grouped slider's head or members was hoisted and
+    * the `@@NODE_ID@@` down there reached the browser verbatim.
+    *
+    * Asserted as the PROPERTY — no token survives, wherever the surface sits —
+    * rather than on the one id that was wrong, because the same gap swallows
+    * every region a card ever grows.
+    */
+  test("hoistInlineSurfaces descends BOTH children forms") {
+    val json = parser
+      .parse("""
+        { "cards": {}, "card": {
+            "kind": "component", "card": "fhcol",
+            "children": [
+              { "kind": "component", "card": "slider",
+                "children": {
+                  "head": [
+                    { "kind": "component", "card": "sliderHead",
+                      "children": {
+                        "actions": [
+                          { "kind": "component", "card": "sliderAction",
+                            "slots": { "onclick": "open @@NODE_ID@@_self" },
+                            "inlineSurfaces": { "self": {
+                              "content": { "kind": "component", "card": "card" } } } }
+                        ] } }
+                  ],
+                  "children": [
+                    { "kind": "component", "card": "slider",
+                      "slots": { "onclick": "open @@NODE_ID@@_self" },
+                      "inlineSurfaces": { "self": {
+                        "content": { "kind": "component", "card": "card" } } } }
+                  ] } }
+            ] } }
+      """)
+      .toOption
+      .get
+    val hoisted = DashboardBuild.hoistInlineSurfaces(json)
+    assertEquals(
+      DashboardBuild.unresolvedTokens(hoisted),
+      Nil,
+      clue = hoisted.noSpaces
+    )
+    // ...and under the ids the RENDERER derives, which is the other half: a
+    // surface registered under an id no node has is as broken as an unspliced
+    // token, and just as quiet. The default region contributes only its index
+    // (`children` -> `_0`), a named one contributes both (`head` -> `_head_0`)
+    // — `LayoutNode.segment`, the one encoding.
+    assertEquals(
+      hoisted.hcursor.downField("surfaces").keys.map(_.toList.sorted),
+      Some(List("c_0_0_self", "c_0_head_0_actions_0_self"))
+    )
   }
 
   test("hoistInlineSurfaces lifts an inline surface and splices the node id") {
@@ -300,7 +481,14 @@ class BuildPhaseSuite extends munit.FunSuite {
         .Cmp("state", Op.Eq, Json.fromString("on"), entity = Some("light.a"))
     )
     val mixed = Dashboard(
-      cards = Map("ok" -> CardDef("<i></i>")),
+      // The bake target must declare the region its surfaces name; these
+      // dashboards were only ever valid because nothing checked.
+      cards = Map(
+        "ok" -> CardDef(
+          "<i>{{{branch}}}</i>",
+          regions = Map("branch" -> Region(Region.Baked))
+        )
+      ),
       card = LayoutNode.Component("ok"),
       surfaces = Map(
         "a" -> member(0, Activation.User(defaultOpen = true)),
@@ -327,7 +515,14 @@ class BuildPhaseSuite extends munit.FunSuite {
 
   test("validate rejects a state condition that names no entity") {
     def dash(condition: Predicate) = Dashboard(
-      cards = Map("ok" -> CardDef("<i></i>")),
+      // The bake target must declare the region its surfaces name; these
+      // dashboards were only ever valid because nothing checked.
+      cards = Map(
+        "ok" -> CardDef(
+          "<i>{{{branch}}}</i>",
+          regions = Map("branch" -> Region(Region.Baked))
+        )
+      ),
       card = LayoutNode.Component("ok"),
       surfaces = Map(
         "a" -> Surface(
@@ -361,6 +556,92 @@ class BuildPhaseSuite extends munit.FunSuite {
     )
     for (c <- List(named, count, Predicate.And(Nil), Predicate.Or(List(count))))
       assertEquals(dash(c).validate(), Nil, clue = c)
+  }
+
+  /** `bakeAs` names the template var a surface's content is substituted into,
+    * which since regions IS a region name — so the two can be checked against
+    * each other rather than agreeing by convention.
+    *
+    * Naming a region the host does not declare fails exactly the way
+    * `danglingBakes` describes for a missing NODE: the host renders its wrapper
+    * with an empty hole, indistinguishable from a state group that legitimately
+    * matched nothing. That is why it is worth a build error.
+    */
+  test("validate rejects a surface baking into a region its card lacks") {
+    def dash(hostCard: CardDef, as: String) = Dashboard(
+      cards = Map("host" -> hostCard),
+      card = LayoutNode.Component("host"),
+      surfaces = Map(
+        "s" -> Surface(
+          LayoutNode.Component("host"),
+          bakeInto = Some("c"),
+          bakeAs = Some(as),
+          bakeIndex = Some(0),
+          activation = Activation.User(defaultOpen = true)
+        )
+      )
+    )
+    val hasBranch = CardDef(
+      "<i>{{{branch}}}</i>",
+      regions = Map("branch" -> Region(Region.Baked))
+    )
+
+    // Named region, wrong name.
+    assert(
+      dash(hasBranch, "panel").validate().exists(_.contains("no baked region")),
+      clue = dash(hasBranch, "panel").validate()
+    )
+    // A card with no regions at all — the shape the fixtures in this file
+    // silently had before this rule existed.
+    assert(
+      dash(CardDef("<i></i>"), "branch")
+        .validate()
+        .exists(_.contains("it declares none")),
+      clue = dash(CardDef("<i></i>"), "branch").validate()
+    )
+    // An EAGER region of the right name is still wrong: a surface fills a hole
+    // lazily, and `{{#branch}}` is not the hole it substitutes into.
+    assert(
+      dash(
+        CardDef(
+          "<i>{{#branch}}{{{html}}}{{/branch}}</i>",
+          regions = Map("branch" -> Region())
+        ),
+        "branch"
+      ).validate().exists(_.contains("no baked region")),
+      clue = "an eager region must not satisfy a bakeAs"
+    )
+    // Non-vacuous.
+    assertEquals(dash(hasBranch, "branch").validate(), Nil)
+  }
+
+  /** An unresolved placeholder is a plain String: it decodes, it validates, and
+    * it renders into the DOM verbatim. Nothing used to notice, and the first
+    * symptom is a binding that quietly never matches — so the build says so.
+    */
+  test("unresolvedTokens finds a placeholder the build failed to fill in") {
+    def json(s: String) = parser.parse(s).fold(throw _, identity)
+
+    // Nested anywhere, in a value the author composed around it.
+    assertEquals(
+      DashboardBuild.unresolvedTokens(
+        json(
+          """{"card":{"slots":{"active":"($_@@NODE_ID@@__pending || $x) == 0"}},
+            | "cards":{"a":{"template":"<i class=\"@@CLASSBIND:busySpin:$b@@\"></i>"}}}""".stripMargin
+        )
+      ),
+      List("@@CLASSBIND:busySpin:$b@@", "@@NODE_ID@@").sorted
+    )
+
+    // Non-vacuous, and the reason the pattern is anchored on both sides: an
+    // ordinary `@` in an onclick is not a token, and neither is a lone `@@`
+    // inside prose.
+    assertEquals(
+      DashboardBuild.unresolvedTokens(
+        json("""{"a":"@post('sse/x')","b":"see @@ below","c":42,"d":null}""")
+      ),
+      Nil
+    )
   }
 
   test("hoistInlineSurfaces lifts the activation object onto the surface") {

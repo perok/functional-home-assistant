@@ -6,8 +6,11 @@ import fh.view.model.{
   Cell,
   Dashboard,
   LayoutNode,
+  NodeId,
   Op,
   Predicate,
+  Reads,
+  Region,
   SlotSource,
   Surface,
   Theme
@@ -37,44 +40,39 @@ class RendererSuite extends munit.FunSuite {
       slots = List("action")
     ),
     "col" -> CardDef(
-      """<div class="fh-col">{{#children}}{{{html}}}{{/children}}</div>"""
+      """<div class="fh-col">{{#children}}{{{html}}}{{/children}}</div>""",
+      regions = Map("children" -> Region())
     ),
     "row" -> CardDef(
-      """<div class="fh-row">{{#children}}{{{html}}}{{/children}}</div>"""
+      """<div class="fh-row">{{#children}}{{{html}}}{{/children}}</div>""",
+      regions = Map("children" -> Region())
     ),
     // Tabs container: tabbar row of buttons (children) + panel host (baked via {{{panel}}}).
     // `data-signals` seeds the active-tab signal to the baked tab index ({{bakeIndex}}).
-    // SPLIT, like the shipped `Tabs`: the bar is the card's own presentation
-    // (`self`), the panel is where the selected tab is mounted, and they are
-    // siblings. Minimal markup, real SHAPE — shape is what the engine dispatches
-    // on (`hasSelf` picks what a patch renders and targets), so a fixture that
-    // mimicked Tabs while unsplit would be a different KIND of card.
+    // Shaped like the shipped `Tabs`: the bar is STRUCTURE holding the buttons,
+    // the panel is the mount. No `self` — a self may hold no hole, so a card
+    // cannot both be a patch target and splice its children. Minimal markup,
+    // real SHAPE — shape is what the engine dispatches on (`hasSelf` picks what
+    // a patch renders and targets), so a fixture whose shape drifted from Tabs
+    // would be a different KIND of card. See `tabsLive` below for the split
+    // that survives: a self beside the mount, holding no hole.
     "tabs" -> CardDef(
-      template = """<div class="fh-col">{{{self}}}{{{mount}}}</div>""",
-      self = Some(
-        """<div id="{{selfId}}" class="fh-row tabbar">""" +
-          """{{#children}}{{{html}}}{{/children}}</div>"""
-      ),
-      mount = Some(
-        """<div id="{{mountId}}" class="tab-panel" data-signals="{ tab_{{id}}: {{bakeIndex}} }">{{{panel}}}</div>"""
-      )
+      template = """<div class="fh-col"><div class="fh-row tabbar">""" +
+        """{{#children}}{{{html}}}{{/children}}</div>""" +
+        """<div id="{{hostId}}" class="tab-panel" data-signals="{ tab_{{id}}: {{bakeIndex}} }">{{{panel}}}</div></div>""",
+      regions = Map("children" -> Region(), "panel" -> Region(Region.Baked))
     ),
-    // Like `tabs`, but the bake-owning component ALSO binds a live entity via a
-    // `{{title}}` slot — so it is morph-wrapped and re-rendered on that entity's
-    // state change. Exercises that a live node patch re-bakes the SELECTED tab.
-    // THE shape the split exists for: a container with a mount AND a live slot
-    // ("a tab bar with the current temperature in its header"). Its patch is the
-    // `self` alone, so a title tick cannot re-render the panel.
+    // "A tab bar with the current temperature in its header" — the shape the
+    // self/mount split existed for, in the form that replaced it: the live
+    // header is a NODE in the bar region, beside the baked panel. A title tick
+    // patches that node and cannot reach the panel, which is now true by
+    // structure rather than by a patch aimed at a sub-element.
     "tabsLive" -> CardDef(
-      template = """<div>{{{self}}}{{{mount}}}</div>""",
-      self = Some(
-        """<div id="{{selfId}}" class="tabs"><span>{{title}}</span></div>"""
-      ),
-      mount = Some(
-        """<div id="{{mountId}}" data-signals="{ tab_{{id}}: {{bakeIndex}} }">{{{panel}}}</div>"""
-      ),
-      slots = List("title")
-    )
+      template = """<div><div class="tabs">{{#bar}}{{{html}}}{{/bar}}</div>""" +
+        """<div id="{{hostId}}" data-signals="{ tab_{{id}}: {{bakeIndex}} }">{{{panel}}}</div></div>""",
+      regions = Map("bar" -> Region(), "panel" -> Region(Region.Baked))
+    ),
+    "tabsBar" -> CardDef("""<span>{{title}}</span>""", slots = List("title"))
   )
 
   // A tabs group as `c.tabs` + the hoist produce it: a `tabs` component whose
@@ -95,7 +93,7 @@ class RendererSuite extends munit.FunSuite {
       // template at `{{id}}_panel`; the default tab is injected via `{{{panel}}}`.
       LayoutNode.Component(
         "tabs",
-        children = List(
+        children = LayoutNode.kids(
           LayoutNode.Component("btn", Map("label" -> lit("A"))),
           LayoutNode.Component("btn", Map("label" -> lit("B")))
         )
@@ -273,29 +271,36 @@ class RendererSuite extends munit.FunSuite {
     )
   }
 
+  /** The three `reads` modes, told apart on the two things they decide.
+    *
+    * They used to be one Boolean, which could pair "track and re-read" with
+    * "ignore and read once" and nothing else. `onRender` is the pairing that
+    * had no spelling — re-read, but never a reason to render — and it is the
+    * one an author reaches for constantly: a friendly name, a unit.
+    */
   test(
-    "a reactive:false slot is resolved once and memoized; a reactive:true slot re-resolves"
+    "reads: live re-resolves and tracks, onRender re-resolves, once neither"
   ) {
-    // `reactive = false` promises the value is identity-only, so the renderer
+    // `reads = Reads.Once` promises the value is identity-only, so the renderer
     // resolves it ONCE per (entity, transform) and reuses it — this is what
     // keeps the set render path cheap (action/domain-config slots become a
     // cache lookup, not a JSONata eval, on every re-render). We expose the memo
     // with a state-reading transform (a deliberate misuse): its value freezes
-    // at the first render and ignores a later state change. A `reactive = true`
+    // at the first render and ignores a later state change. A `reads = Reads.Live`
     // slot, by contrast, re-resolves every render.
-    def node(reactive: Boolean): LayoutNode =
+    def node(reads: String): LayoutNode =
       LayoutNode.Component(
         card = "act",
         slots = Map(
           "action" -> SlotSource(
             Some("sensor.t"),
             transform = "$state",
-            reactive = reactive
+            reads = reads
           )
         )
       )
 
-    val frozen = renderer(node(false))
+    val frozen = renderer(node(Reads.Once))
     val a =
       frozen.renderNodeById("c", Map("sensor.t" -> st("sensor.t", "one"))).get
     val b =
@@ -303,13 +308,29 @@ class RendererSuite extends munit.FunSuite {
     assert(a.contains("""href="one""""), clue = a)
     assertEquals(b, a) // memoized: the changed state is ignored
 
-    val live = renderer(node(true))
+    val live = renderer(node(Reads.Live))
     val c1 =
       live.renderNodeById("c", Map("sensor.t" -> st("sensor.t", "one"))).get
     val c2 =
       live.renderNodeById("c", Map("sensor.t" -> st("sensor.t", "two"))).get
     assert(c1.contains("""href="one""""), clue = c1)
     assert(c2.contains("""href="two""""), clue = c2) // re-resolved
+
+    // `onRender` re-resolves like `live`...
+    val onRender = renderer(node(Reads.OnRender))
+    val d1 =
+      onRender.renderNodeById("c", Map("sensor.t" -> st("sensor.t", "one"))).get
+    val d2 =
+      onRender.renderNodeById("c", Map("sensor.t" -> st("sensor.t", "two"))).get
+    assert(d1.contains("""href="one""""), clue = d1)
+    assert(d2.contains("""href="two""""), clue = d2)
+
+    // ...and subscribes like `once`, which is to say not at all. THE
+    // distinction, and the only place the two halves come apart: a change to
+    // sensor.t wakes the live node and neither of the others.
+    assertEquals(live.componentsFor("sensor.t"), Set[NodeId]("c"))
+    assertEquals(onRender.componentsFor("sensor.t"), Set.empty[NodeId])
+    assertEquals(frozen.componentsFor("sensor.t"), Set.empty[NodeId])
   }
 
   test("missing entity renders empty slots rather than throwing") {
@@ -335,10 +356,13 @@ class RendererSuite extends munit.FunSuite {
       page,
       """<style id="fh-theme"></style><main class="container" id="dashboard"><div class="fh-cell" id="c"><div class="fh-col"><div class="fh-cell" id="c_0"><div class="fh-row"><div class="fh-cell" id="c_0_0"><button>Go</button></div></div></div></div></div></main>"""
     )
-    // containers are addressable and re-render (wrapped) by id
+    // A container is STRUCTURE: it is wrapped and addressable as an element (a
+    // remove/insert names it), but it is not rendered BY ID — its bytes hold
+    // its children, so a patch would re-send them. The child is the target.
+    assertEquals(r.renderNodeById("c_0", Map.empty), None)
     assertEquals(
-      r.renderNodeById("c_0", Map.empty).get,
-      """<div class="fh-cell" id="c_0"><div class="fh-row"><div class="fh-cell" id="c_0_0"><button>Go</button></div></div></div>"""
+      r.renderNodeById("c_0_0", Map.empty).get,
+      """<div class="fh-cell" id="c_0_0"><button>Go</button></div>"""
     )
   }
 
@@ -962,6 +986,303 @@ class RendererSuite extends munit.FunSuite {
     )
   }
 
+  /** A region and the hole it fills are one fact written twice, and a
+    * disagreement between them is silent both ways round: the declared region
+    * renders nowhere, or the hole renders empty forever. So `validate` asks
+    * that they agree, rather than the renderer discovering it at paint time.
+    */
+  test(
+    "validate: a declared region whose template places no hole is rejected"
+  ) {
+    def dash(card: CardDef) =
+      Dashboard(Map("box" -> card), LayoutNode.Component("box"))
+
+    // The two fills place DIFFERENT holes, so each has to be checked against
+    // its own spelling — a single "does the name appear" test would pass both
+    // of these while neither renders.
+    val eagerMissing = dash(
+      CardDef("<div>nothing</div>", regions = Map("kids" -> Region()))
+    )
+    assert(
+      eagerMissing
+        .validate()
+        .exists(e => e.contains("kids") && e.contains("{{#kids}}")),
+      clue = eagerMissing.validate()
+    )
+
+    val bakedWrongHole = dash(
+      CardDef(
+        // A SECTION where the baked region needs a raw var: the likeliest
+        // real mistake, and it renders nothing.
+        "<div>{{#panel}}{{{html}}}{{/panel}}</div>",
+        regions = Map("panel" -> Region(Region.Baked))
+      )
+    )
+    assert(
+      bakedWrongHole
+        .validate()
+        .exists(e => e.contains("panel") && e.contains("{{{panel}}}")),
+      clue = bakedWrongHole.validate()
+    )
+
+    // Non-vacuous: both spellings, placed correctly, are accepted.
+    assertEquals(
+      dash(
+        CardDef(
+          """<div>{{#kids}}{{{html}}}{{/kids}}<i id="{{hostId}}">{{{panel}}}</i></div>""",
+          regions = Map("kids" -> Region(), "panel" -> Region(Region.Baked))
+        )
+      ).validate(),
+      Nil
+    )
+  }
+
+  /** `children` decodes from either form, and the point of the array form is
+    * that the wire this project actually emits did not have to change: the
+    * authoring layer still writes a plain list for the one-hole case.
+    *
+    * Asserted through `Dashboard`'s own decoder rather than the field's, so it
+    * is the path a real `dashboard.json` takes.
+    */
+  test("children decodes from a bare array and from a region object alike") {
+    def decode(childrenJson: String) = io.circe.parser
+      .decode[Dashboard](
+        s"""{"cards":{"col":{"template":"<div>{{#children}}{{{html}}}{{/children}}</div>"},
+           | "card":{"template":"<span>{{state}}</span>","slots":["state"]}},
+           | "card":{"kind":"component","card":"col","children":$childrenJson}}""".stripMargin
+      )
+      .fold(e => fail(s"decode failed: $e"), identity)
+
+    val leaf = """{"kind":"component","card":"card","slots":{"state":"x"}}"""
+    val fromArray = decode(s"[$leaf]")
+    val fromObject = decode(s"""{"children":[$leaf]}""")
+
+    // Same value, so everything downstream — ids, walkers, rendering — cannot
+    // tell which form was on the wire.
+    assertEquals(fromArray.card, fromObject.card)
+    assertEquals(
+      fromArray.card.asInstanceOf[LayoutNode.Component].children.keySet,
+      Set(LayoutNode.DefaultRegion)
+    )
+    // Non-vacuous: an empty array is no region at all, not a region holding
+    // nothing — otherwise a leaf would read as structure.
+    assertEquals(
+      decode("[]").card.asInstanceOf[LayoutNode.Component].children,
+      Map.empty[String, List[LayoutNode]]
+    )
+  }
+
+  /** The capability the whole region grammar exists for, and the first thing
+    * that could not be expressed before: ONE card, TWO eager regions.
+    *
+    * Two claims, and they are separable — a renderer that spliced both regions
+    * into the first hole would still give every child a distinct id, and one
+    * that numbered them into a single sequence would still put them in the
+    * right holes. So both are asserted.
+    */
+  test("two eager regions splice separately and address separately") {
+    val two = CardDef(
+      template = """<div><b>{{#children}}{{{html}}}{{/children}}</b>""" +
+        """<i>{{#extra}}{{{html}}}{{/extra}}</i></div>""",
+      regions = Map("children" -> Region(), "extra" -> Region())
+    )
+    def leaf(v: String) =
+      LayoutNode.Component("card", slots = Map("state" -> lit(v)))
+
+    val d = Dashboard(
+      cards + ("two" -> two),
+      LayoutNode.Component(
+        "two",
+        children = Map(
+          "children" -> List(leaf("IN-B")),
+          "extra" -> List(leaf("IN-I"))
+        )
+      )
+    )
+    assertEquals(d.validate(), Nil)
+    val html = Renderer.create(d).renderBody(Map.empty)
+
+    // Each region's children land in ITS OWN hole.
+    assert(html.contains("<b><div class=\"fh-cell\""), clue = html)
+    assert(
+      html.matches("""(?s).*<b>.*IN-B.*</b>.*<i>.*IN-I.*</i>.*"""),
+      clue = html
+    )
+
+    // The default region contributes only its index, so its child keeps the id
+    // it had before regions existed; the named one carries its region.
+    assert(html.contains("""id="c_0""""), clue = html)
+    assert(html.contains("""id="c_extra_0""""), clue = html)
+  }
+
+  /** An authored id replaces the derived one AND roots what is under it — that
+    * is the whole point. A node id reaches users (`ui.<id>` tab state) and
+    * names every signal a card owns, so an author can pin one instead of
+    * letting layout decide it: insert a card above a tab bar and every bookmark
+    * pointing at a tab stops resolving.
+    */
+  test("an authored node id replaces the derived one, descendants included") {
+    val d = Dashboard(
+      cards,
+      col(
+        LayoutNode.Component("card", slots = Map("state" -> lit("first"))),
+        LayoutNode.Component(
+          "col",
+          children = LayoutNode
+            .kids(LayoutNode.Component("card", Map("state" -> lit("inner")))),
+          id = Some("panel")
+        )
+      )
+    )
+    assertEquals(d.validate(), Nil)
+    val html = Renderer.create(d).renderBody(Map.empty)
+
+    assert(html.contains("""id="panel""""), clue = html)
+    // Rooted: the child is under the NAME, not under the position.
+    assert(html.contains("""id="panel_0""""), clue = html)
+    assert(!html.contains("""id="c_1""""), clue = "c_1 was replaced by 'panel'")
+    // Its unnamed sibling is untouched — naming is per node, not a mode.
+    assert(html.contains("""id="c_0""""), clue = html)
+  }
+
+  /** An authored id must be a token and used once. It need NOT avoid looking
+    * like another id's child: that rule existed only while the runtime read
+    * ancestry off the id string, and `NodeAncestry` retired it.
+    */
+  test("validate: an authored id must be a plain token, used once") {
+    def two(a: String, b: String) = Dashboard(
+      cards,
+      col(
+        LayoutNode.Component("col", id = Some(a)),
+        LayoutNode.Component("col", id = Some(b))
+      )
+    )
+    // The pair that used to be rejected — now simply two siblings.
+    assertEquals(two("detail", "detail_0").validate(), Nil)
+    assertEquals(two("detail", "summary").validate(), Nil)
+
+    assert(two("same", "same").validate().exists(_.contains("more than once")))
+    assert(
+      two("ok", "no-dashes").validate().exists(_.contains("plain token")),
+      clue = two("ok", "no-dashes").validate()
+    )
+  }
+
+  /** ...and the reason dropping that rule is SAFE, which is the whole point of
+    * the change: a sibling named like a child is not treated as one.
+    *
+    * Asserted on the relation the runtime actually consults. The string test it
+    * replaced answers this wrongly, and nothing else in the suite would notice
+    * — the symptom is a fragment silently dropped from one client's record.
+    */
+  test("ancestry: a sibling whose id looks like a child is not one") {
+    val d = Dashboard(
+      cards,
+      col(
+        LayoutNode.Component(
+          "col",
+          children = LayoutNode.kids(
+            LayoutNode.Component("card", Map("state" -> lit("under")))
+          ),
+          id = Some("detail")
+        ),
+        // Reads as a child of `detail` and is its SIBLING. Not `detail_0`:
+        // that is what `detail`'s own child derives to, so it would be a
+        // genuine duplicate and the uniqueness rule catches it — the two rules
+        // cover different things.
+        LayoutNode.Component("col", id = Some("detail_x"))
+      )
+    )
+    assertEquals(d.validate(), Nil)
+    val a = Renderer.create(d).ancestry
+
+    // The real child IS under it...
+    assert(a.under("detail_0", Set[NodeId]("detail")), clue = "real child")
+    // ...and the sibling that merely reads like one is not, though
+    // `startsWith("detail_")` would say otherwise.
+    assert(
+      !a.under("detail_x", Set[NodeId]("detail")),
+      clue = "a sibling must not be swallowed by its neighbour's name"
+    )
+    // What a refill would drop contains only the real one.
+    assertEquals(a.descendantsOf("detail"), Set[NodeId]("detail_0"))
+  }
+
+  /** A structural card may not bind a LIVE entity — its patch would carry
+    * everything it holds. It may still READ one, as long as the slot says it
+    * does not vary with state (`reads = Reads.Once`): a friendly name, a unit,
+    * a domain-derived action.
+    *
+    * The rule keys on [[LayoutNode.Component.liveEntities]], which is exactly
+    * "reactive, non-literal slots", so the two cases separate on the slot's own
+    * declaration rather than on a second rule.
+    */
+  test("structure may READ an entity, as long as the slot is not reactive") {
+    def dash(mode: String) = Dashboard(
+      cards + ("box" -> CardDef(
+        """<div title="{{name}}">{{#children}}{{{html}}}{{/children}}</div>""",
+        regions = Map("children" -> Region()),
+        slots = List("name")
+      )),
+      LayoutNode.Component(
+        "box",
+        slots = Map(
+          "name" -> SlotSource(
+            Some("sensor.a"),
+            "$attr.friendly_name",
+            reads = mode
+          )
+        ),
+        children = LayoutNode.kids(
+          LayoutNode.Component("card", Map("state" -> lit("x")))
+        )
+      )
+    )
+
+    // `live`: rejected, because it could never reach the DOM.
+    assert(
+      dash(Reads.Live).validate().exists(_.contains("never a patch target")),
+      clue = dash(Reads.Live).validate()
+    )
+
+    // `onRender`: accepted, and the value is really read — resolved on the
+    // document path, where structure renders. `once` would be accepted too,
+    // and wrong for a NAME: it memoizes, so a rename would not show.
+    val ok = dash(Reads.OnRender)
+    assertEquals(ok.validate(), Nil)
+    val html = Renderer
+      .create(ok)
+      .renderBody(
+        Map(
+          "sensor.a" -> st("sensor.a", "on")
+            .copy(attributes =
+              Map("friendly_name" -> io.circe.Json.fromString("Hall"))
+            )
+        )
+      )
+    assert(html.contains("""title="Hall""""), clue = html)
+  }
+
+  test("validate: a region name that could be read as an index is rejected") {
+    def card(region: String) = Dashboard(
+      Map(
+        "box" -> CardDef(
+          s"<div>{{#$region}}{{{html}}}{{/$region}}</div>",
+          regions = Map(region -> Region())
+        )
+      ),
+      LayoutNode.Component("box")
+    )
+    // `c_0_0` would be unreadable: region "0" index 0, or index 0 then index 0?
+    assert(
+      card("0").validate().exists(_.contains("all digits")),
+      clue = card("0").validate()
+    )
+    // Non-vacuous: a name merely CONTAINING digits is fine, because it can
+    // never be a whole index.
+    assertEquals(card("tab2").validate(), Nil)
+  }
+
   test(
     "validate: a non-empty theme.chrome lacking id=\"dashboard\" is a hard error"
   ) {
@@ -1016,7 +1337,14 @@ class RendererSuite extends munit.FunSuite {
       cards,
       LayoutNode.Component(
         "tabsLive",
-        slots = Map("title" -> SlotSource(Some("sensor.title"), "$state"))
+        children = Map(
+          "bar" -> List(
+            LayoutNode.Component(
+              "tabsBar",
+              slots = Map("title" -> SlotSource(Some("sensor.title"), "$state"))
+            )
+          )
+        )
       ),
       surfaces = Map(
         "c_t0" -> Surface(
@@ -1040,16 +1368,18 @@ class RendererSuite extends munit.FunSuite {
       "sensor.a" -> st("sensor.a", "AA"),
       "sensor.b" -> st("sensor.b", "BB")
     )
-    // The live entity binds "c" so the node is morph-wrapped and re-renderable.
-    assertEquals(rr.componentsFor("sensor.title"), Set("c"))
+    // The live entity binds the HEADER node, not the host — the header is where
+    // it is read, and the host holds regions.
+    assertEquals(rr.componentsFor("sensor.title"), Set("c_bar_0"))
+    assertEquals(rr.renderNodeById("c", states), None)
 
-    // THE contract, and the reason the whole design exists: a live tick on the
-    // host patches its `self` — the header — and carries NOTHING of the panel.
-    // A change to the title cannot re-render what the tabs host holds.
-    val patch = rr.renderNodeById("c", states).get
+    // THE contract, and the reason the whole design exists: a live tick patches
+    // the header and carries NOTHING of the panel. A change to the title cannot
+    // re-render what the tabs host holds.
+    val patch = rr.renderNodeById("c_bar_0", states).get
     assertEquals(
       patch,
-      """<div id="c-self" class="tabs"><span>Live</span></div>"""
+      """<div class="fh-cell" id="c_bar_0"><span>Live</span></div>"""
     )
 
     // Which member is baked was the ONLY thing that made this per-client, and it
@@ -1138,8 +1468,8 @@ class RendererSuite extends munit.FunSuite {
     // presentation of its own. The cell wrapper (which the backend owns) is the
     // node's id'd element; the mount's id is `Surface.hostId`.
     cards + ("ifhost" -> CardDef(
-      template = "{{{self}}}{{{mount}}}",
-      mount = Some("""<div id="{{mountId}}">{{{branch}}}</div>""")
+      template = """<div id="{{hostId}}">{{{branch}}}</div>""",
+      regions = Map("branch" -> Region(Region.Baked))
     ))
 
   /** An If/else dashboard: an `ifhost` root (id "c") whose `then` member (a
@@ -1289,76 +1619,57 @@ class RendererSuite extends munit.FunSuite {
     * Found by accident: W18's first test fixture was exactly this, and the test
     * still failed after the fix.
     */
-  test("a node whose CHILDREN carry a mount has no rendering of its own") {
+  test(
+    "a card that splices children without declaring the region is rejected"
+  ) {
     def dash(container: CardDef) = Dashboard(
-      cards =
-        Map(
-          "box" -> container,
-          "card" -> CardDef("<span>{{state}}</span>", slots = List("state")),
-          "tabs" -> CardDef(
-            template = "{{{self}}}{{{mount}}}",
-            self = Some("""<div id="{{selfId}}">bar</div>"""),
-            mount = Some("""<div id="{{mountId}}">{{{panel}}}</div>""")
-          )
-        ),
-      card = LayoutNode
-        .Component("box", children = List(LayoutNode.Component("tabs"))),
-      surfaces = Map(
-        "t0" -> Surface(
+      cards = Map(
+        "box" -> container,
+        "card" -> CardDef("<span>{{state}}</span>", slots = List("state"))
+      ),
+      card = LayoutNode.Component(
+        "box",
+        children = LayoutNode.kids(
           LayoutNode.Component(
             "card",
             slots = Map("state" -> SlotSource(Some("sensor.a")))
-          ),
-          bakeInto = Some("c_0"),
-          bakeAs = Some("panel"),
-          bakeIndex = Some(0),
-          activation = Activation.User(defaultOpen = true)
+          )
         )
       )
     )
-    val states = Map("sensor.a" -> st("sensor.a", "A0"))
 
-    // The PRE-SPLIT shape: children in `template`, no mount anywhere on the
-    // card itself.
-    val preSplit = Renderer.create(
+    // The shape this used to catch at RENDER time, by walking the tree asking
+    // whether anything below the node held a mount. It is a fact about the
+    // CARD, so it is a build error now: undeclared, this template reads as a
+    // leaf — no regions — while its bytes carry its children, and a patch aimed
+    // at it would re-send them.
+    val undeclared =
       dash(CardDef("<div>{{#children}}{{{html}}}{{/children}}</div>"))
+    assert(
+      undeclared
+        .validate()
+        .exists(e => e.contains("box") && e.contains("children")),
+      clue = undeclared.validate()
     )
-    assertEquals(preSplit.renderNodeById("c", states), None)
-    // ...and a card with a `self` whose CHILD owns the bake group — the same
-    // failure from the other direction.
-    val selfWithBakingChild = Renderer.create(
-      dash(
-        CardDef(
-          template = "{{{self}}}",
-          self = Some(
-            """<div id="{{selfId}}">{{#children}}{{{html}}}{{/children}}</div>"""
-          )
-        )
-      )
-    )
-    assertEquals(selfWithBakingChild.renderNodeById("c", states), None)
 
-    // Non-vacuous: the same container with a LEAF child keeps its own
-    // rendering, because nothing under it holds a mount.
-    val plain = Renderer.create(
-      Dashboard(
-        cards = Map(
-          "box" -> CardDef("<div>{{#children}}{{{html}}}{{/children}}</div>"),
-          "card" -> CardDef("<span>{{state}}</span>", slots = List("state"))
-        ),
-        card = LayoutNode
-          .Component(
-            "box",
-            children = List(
-              LayoutNode.Component(
-                "card",
-                slots = Map("state" -> SlotSource(Some("sensor.a")))
-              )
-            )
-          )
+    // Declared, it is STRUCTURE: accepted, and not rendered by id — its
+    // children are addressable in their own right.
+    val declared = dash(
+      CardDef(
+        "<div>{{#children}}{{{html}}}{{/children}}</div>",
+        regions = Map("children" -> Region())
       )
     )
-    assert(plain.renderNodeById("c", states).exists(_.contains("A0")))
+    assertEquals(declared.validate(), Nil)
+    val states = Map("sensor.a" -> st("sensor.a", "A0"))
+    assertEquals(Renderer.create(declared).renderNodeById("c", states), None)
+    // ...while the child is.
+    assert(
+      Renderer
+        .create(declared)
+        .renderNodeById("c_0", states)
+        .exists(_.contains("A0"))
+    )
   }
 
   /** The other half of the rule above, and the one that cost a live update: a
@@ -1371,19 +1682,19 @@ class RendererSuite extends munit.FunSuite {
     * unconditionally made the HEAD unaddressable, so dragging a row stopped
     * updating the master until a reload.
     */
-  test("a self that does not splice its children stays addressable") {
+  test("a live head beside its members carries none of them") {
     val cards = Map(
       "host" -> CardDef(
-        template = "{{{self}}}{{{mount}}}",
-        self = Some("""<div id="{{selfId}}"><span>{{state}}</span></div>"""),
-        mount = Some("""<div>{{#children}}{{{html}}}{{/children}}</div>"""),
-        slots = List("state")
+        template = """{{#head}}{{{html}}}{{/head}}""" +
+          """<div>{{#children}}{{{html}}}{{/children}}</div>""",
+        regions = Map("head" -> Region(), "children" -> Region())
       ),
-      // A member that is itself a container — the change that broke this.
+      "head" -> CardDef("""<span>{{state}}</span>""", slots = List("state")),
+      // A member that is itself a container — the change that broke this when
+      // the answer was a walk over what the children carried.
       "member" -> CardDef(
-        template = "{{{self}}}{{{mount}}}",
-        self = Some("""<div id="{{selfId}}">m</div>"""),
-        mount = Some("""<div>{{#children}}{{{html}}}{{/children}}</div>""")
+        template = """<div>m{{#children}}{{{html}}}{{/children}}</div>""",
+        regions = Map("children" -> Region())
       )
     )
     val r = Renderer.create(
@@ -1391,15 +1702,25 @@ class RendererSuite extends munit.FunSuite {
         cards,
         LayoutNode.Component(
           "host",
-          slots = Map("state" -> SlotSource(Some("sensor.a"))),
-          children = List(LayoutNode.Component("member"))
+          children = Map(
+            "head" -> List(
+              LayoutNode.Component(
+                "head",
+                slots = Map("state" -> SlotSource(Some("sensor.a")))
+              )
+            ),
+            "children" -> List(LayoutNode.Component("member"))
+          )
         )
       )
     )
-    val html = r.renderNodeById("c", Map("sensor.a" -> st("sensor.a", "A0")))
-    assert(html.exists(_.contains("A0")), clue = html)
-    // Its patch still targets the self alone, so the rows are not in it.
-    assert(!html.exists(_.contains("m")), clue = html)
+    val states = Map("sensor.a" -> st("sensor.a", "A0"))
+    // The head is the patch target and its bytes are its own...
+    val head = r.renderNodeById("c_head_0", states)
+    assert(head.exists(_.contains("A0")), clue = head)
+    assert(!head.exists(_.contains("m")), clue = head)
+    // ...and the host, being structure, is not a patch target at all.
+    assertEquals(r.renderNodeById("c", states), None)
   }
 
   test("userSurfaceOf: state surfaces are transparent, user surfaces are not") {
@@ -1538,13 +1859,14 @@ class RendererSuite extends munit.FunSuite {
     * header"). The mount holds the child; the self holds the live header.
     */
   private val splitCards = cards + ("split" -> CardDef(
-    template = """<div class="fh-col">{{{self}}}{{{mount}}}</div>""",
-    self = Some("""<div id="{{selfId}}" class="bar">{{state}}</div>"""),
-    // No `{{mountId}}`: a mount needs an id only where something FILLS it, which
-    // is where `bakeAs` names it. This card has no bake group, like Grid/Row.
-    mount = Some(
-      """<div class="panel">{{#children}}{{{html}}}{{/children}}</div>"""
-    ),
+    // No `{{hostId}}`: a region needs an id only where something FILLS it,
+    // which is where `bakeAs` names it. This card has no bake group, like
+    // Grid/Row, so its eager regions are addressed by nothing.
+    template = """<div class="fh-col">{{#bar}}{{{html}}}{{/bar}}""" +
+      """<div class="panel">{{#children}}{{{html}}}{{/children}}</div></div>""",
+    regions = Map("bar" -> Region(), "children" -> Region())
+  )) + ("bar" -> CardDef(
+    """<div class="bar">{{state}}</div>""",
     slots = List("state")
   ))
 
@@ -1554,55 +1876,70 @@ class RendererSuite extends munit.FunSuite {
         splitCards,
         LayoutNode.Component(
           "split",
-          slots = Map("state" -> SlotSource(Some("sensor.t"))),
-          children = List(
-            LayoutNode.Component("btn", Map("label" -> lit("inside")))
+          children = Map(
+            "bar" -> List(
+              LayoutNode.Component(
+                "bar",
+                slots = Map("state" -> SlotSource(Some("sensor.t")))
+              )
+            ),
+            "children" -> List(
+              LayoutNode.Component("btn", Map("label" -> lit("inside")))
+            )
           )
         )
       )
     )
 
-  test("the document path renders both parts, the child inside the mount") {
+  test("the document path renders every region, each child in its own") {
     val html = splitRenderer.renderBody(Map("sensor.t" -> st("sensor.t", "21")))
-    // The cell wrapper owns the node id, the self part owns its own — disjoint,
-    // one owner each.
+    // One id per node, on its cell. There is no second id to own: the live bar
+    // is a NODE with a cell of its own rather than an element inside this card.
     assert(html.contains("""class="fh-cell" id="c""""), clue = html)
-    assert(html.contains("""id="c-self""""), clue = html)
+    assert(html.contains("""class="fh-cell" id="c_bar_0""""), clue = html)
     assert(html.contains("21"), clue = html)
     assert(html.contains("inside"), clue = html)
   }
 
-  test("a container's patch render is its self element alone — statement (1)") {
+  /** Statement (1): a node's patch carries its own rendering and never the
+    * contents of a region.
+    *
+    * It used to be bought by aiming the patch at a sub-element (`#c-self`) so
+    * it could not reach the sibling holding the children. It is bought by
+    * STRUCTURE now: the live part is a node of its own, the regions are other
+    * nodes, and the container is not a patch target at all. Same guarantee,
+    * nothing to aim.
+    */
+  test("a node's patch carries its own rendering alone — statement (1)") {
     val r = splitRenderer
-    val patch =
-      r.renderNodeById("c", Map("sensor.t" -> st("sensor.t", "21"))).get
-    // What it IS: the self element, with the live value.
-    assert(patch.startsWith("""<div id="c-self""""), clue = patch)
+    val states = Map("sensor.t" -> st("sensor.t", "21"))
+    // The container holds regions, so it is not rendered by id...
+    assertEquals(r.renderNodeById("c", states), None)
+    // ...and the live bar's patch is its own cell, with the live value.
+    val patch = r.renderNodeById("c_bar_0", states).get
+    assert(patch.contains("""id="c_bar_0""""), clue = patch)
     assert(patch.contains("21"), clue = patch)
-    // What it is NOT — the point of the whole design. The mount's id does not
-    // appear at all, so this fragment cannot disturb what the mount holds, and
-    // neither does the cell wrapper (which contains the mount).
+    // What it is NOT — the point of the whole design.
     assert(!patch.contains("panel"), clue = patch)
     assert(!patch.contains("inside"), clue = patch)
-    assert(!patch.contains("fh-cell"), clue = patch)
   }
 
-  test(
-    "patchTargetId aims at the self element for a container, the node for a leaf"
-  ) {
+  /** "What I morph" and "what I am" used to be different elements — a card with
+    * a `self` was patched at `<id>-self` so its patch could not reach the
+    * sibling holding its children. A node holds its regions in OTHER NODES now,
+    * so there is nothing to exclude and one element does both jobs.
+    */
+  test("one element per node: what a patch targets is what the node IS") {
     val r = splitRenderer
-    assertEquals(r.patchTargetId("c"), "c-self")
-    // The child is a leaf: its whole rendering IS its patch.
-    assertEquals(r.patchTargetId("c_0"), "c_0")
-    // Nothing maps back — the log key stays the node id.
     assertEquals(r.elementId("c"), "c")
+    assertEquals(r.elementId("c_bar_0"), "c_bar_0")
   }
 
   test(
-    "mountId IS Surface.hostId — the template stops deriving it separately"
+    "hostId IS Surface.hostId — the template stops deriving it separately"
   ) {
     val r = Renderer.create(tabsDashboard)
-    assertEquals(r.mountId("c"), "c_panel")
-    assertEquals(r.mountId("c"), r.surface("c_t0").get.hostId)
+    assertEquals(r.hostId("c"), "c_panel")
+    assertEquals(r.hostId("c"), r.surface("c_t0").get.hostId)
   }
 }

@@ -207,11 +207,11 @@ const local function serviceOnclick(route: String): String =
 // resolve even when that entity is unavailable (an unavailable light is exactly
 // the one you want to click). `live` is the rare case: a route the CURRENT state
 // picks ([[stateService]]), which has to re-render like any other state
-// reading. Everything else is identity-derived — `reactive = false` keeps it in
+// reading. Everything else is identity-derived — `reads = "once"` keeps it in
 // the renderer's identity cache.
 const local function clickSlot(transformExpr: String, live: Boolean): slotMod.Slot = new {
   transform = transformExpr
-  reactive = live
+  reads = if (live) "live" else "once"
   bypassUnavailable = false
 }
 

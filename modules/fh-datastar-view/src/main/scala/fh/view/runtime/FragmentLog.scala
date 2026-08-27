@@ -28,7 +28,7 @@ private[runtime] object Digest {
   * is not a nicety: a mount fill makes everything under it unknown, and with a
   * separate signal map keyed by signal NAME that invalidation could only be
   * expressed by string-prefixing the name back into a node id. Keyed by node,
-  * it is the id-prefix test `Patches.applied` already runs.
+  * it is the containment test `Patches.applied` already runs.
   *
   * '''`digest` is optional because a patch can establish one half alone.''' A
   * patch-form morph carries bytes and no values (that is the point of it); a
@@ -229,8 +229,15 @@ private[runtime] case class FragmentLog(
     * the version whose detail was discarded — and a session pulling THIS
     * version asks with `v = at`, so `v < h` has to still be true for it.
     */
-  def filled(container: NodeId, at: Long): FragmentLog =
-    invalidateWhere(k => k == container || k.startsWith(container + "_"))
+  def filled(
+      container: NodeId,
+      at: Long,
+      ancestry: NodeAncestry
+  ): FragmentLog =
+    // Exactly the subtree, rather than a scan of every entry testing a string:
+    // ancestry is a relation now ([[NodeAncestry]]), so this both stops
+    // inferring structure from an id's spelling and stops being O(log size).
+    invalidateOf(ancestry.descendantsOf(container) + container)
       .copy(horizon =
         horizon.updatedWith(container)(prev =>
           Some(math.max(prev.getOrElse(0L), at + 1))
@@ -244,6 +251,12 @@ private[runtime] case class FragmentLog(
     * the root ([[touched]]) — this is not a bare `filterNot`. Use [[removed]]
     * when the DOM really is being deleted.
     */
+  /** Drop exactly these ids — what a wholesale re-supply of a subtree owes,
+    * once the subtree is known rather than guessed at from key spellings.
+    */
+  def invalidateOf(ids: Set[NodeId]): FragmentLog =
+    copy(fragments = fragments -- ids, mutations = mutations -- ids)
+
   def invalidateWhere(p: NodeId => Boolean): FragmentLog =
     copy(
       fragments = fragments.filterNot { case (k, _) => p(k) },
@@ -277,13 +290,18 @@ private[runtime] case class FragmentLog(
     * `remove`/`append` that actually carries them.
     *
     * STRICT ancestors: a node never covers itself, or every mutation would
-    * suppress its own emission. Ancestry is a string-prefix test because ids
-    * are location-derived ([[fh.view.model.LayoutNode.pathId]]: `c`, `c_0`,
-    * `c_0_1`); the trailing `_` keeps `c_1` from matching `c_10`, and no
-    * generated id can contain the `-` a `self` element's DOM id uses.
+    * suppress its own emission.
+    *
+    * This used to read ancestry off the id STRING, justified by ids being
+    * location-derived. They are not always — an author may name a node — so it
+    * asks the structure instead ([[NodeAncestry]]), which is knowable because
+    * the whole id space is static.
     */
-  def coveredByMutation(nodeId: NodeId, moved: Set[NodeId]): Boolean =
-    moved.exists(id => id != nodeId && nodeId.startsWith(id + "_"))
+  def coveredByMutation(
+      nodeId: NodeId,
+      moved: Set[NodeId],
+      ancestry: NodeAncestry
+  ): Boolean = ancestry.under(nodeId, moved)
 
   /** TOTAL: a container whose history is gone yields a `refill` rather than a
     * refusal, so a whole-body repaint survives only for the genuinely global
@@ -303,22 +321,22 @@ private[runtime] case class FragmentLog(
     * is at least as fresh as anything the log could have stored
     * (docs/adr/0012-each-session-renders-what-it-is-owed.md).
     */
-  def since(v: Long): Resume = {
+  def since(v: Long, ancestry: NodeAncestry): Resume = {
     val refill = horizon.collect { case (gid, h) if v < h => gid }.toList
     val moved = mutations.filter { case (_, m) => m.version >= v }
-    // A refill re-supplies its container's whole mount, so it covers by prefix
-    // exactly the way a `Placed` does — which is why "a refilled container's
-    // members must not ALSO be sent" is not a rule to remember, just this union.
+    // A refill re-supplies its container's whole mount, so it covers exactly
+    // the way a `Placed` does — which is why "a refilled container's members
+    // must not ALSO be sent" is not a rule to remember, just this union.
     val resupplied = moved.keySet ++ refill
     Resume(
       fragments.collect {
         case (nodeId, at)
             if at >= v && !resupplied.contains(nodeId) &&
-              !coveredByMutation(nodeId, resupplied) =>
+              !coveredByMutation(nodeId, resupplied, ancestry) =>
           nodeId
       }.toList,
       moved.filterNot { case (nodeId, _) =>
-        coveredByMutation(nodeId, resupplied)
+        coveredByMutation(nodeId, resupplied, ancestry)
       }.toList,
       refill
     )

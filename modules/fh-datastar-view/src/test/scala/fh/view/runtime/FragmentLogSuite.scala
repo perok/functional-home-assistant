@@ -30,7 +30,13 @@ class FragmentLogSuite extends munit.FunSuite {
   /** `since` is TOTAL — an aged-out container is answered with a `refill`,
     * never a refusal — so this is just a shorter name.
     */
-  extension (l: FragmentLog) private def owed(v: Long): Resume = l.since(v)
+  extension (l: FragmentLog) {
+    // The ids in this suite are hand-written and positional, so their own
+    // spelling is a sound source for the relation — see [[TestAncestry]].
+    private def owed(v: Long): Resume = l.since(v, TestAncestry.of(l))
+    private def filledAt(container: NodeId, at: Long): FragmentLog =
+      l.filled(container, at, TestAncestry.of(l))
+  }
 
   test("a cursor at the current version is owed nothing older") {
     // `>=`, so version 3 is re-sent to a cursor AT 3 (one store version can span
@@ -144,7 +150,13 @@ class FragmentLogSuite extends munit.FunSuite {
       )
       .touched("s_else__c_0", 30L)
       .touched("s_else__c_1", 30L)
-    assert(flipped.coveredByMutation("s_else__c_0", Set[NodeId]("s_else__c")))
+    assert(
+      flipped.coveredByMutation(
+        "s_else__c_0",
+        Set[NodeId]("s_else__c"),
+        TestAncestry.of(flipped)
+      )
+    )
     val out = flipped.owed(20L)
     assertEquals(out.nodes, Nil, clue = out)
     assertEquals(out.moved.map(_._1), List[NodeId]("s_else__c"))
@@ -166,17 +178,24 @@ class FragmentLogSuite extends munit.FunSuite {
   test("a node never covers itself") {
     // Self-coverage would make every mutation suppress its own emission — the
     // whole resume would silently send nothing.
-    assert(!log.coveredByMutation("c_0", Set[NodeId]("c_0")))
+    assert(
+      !log.coveredByMutation(
+        "c_0",
+        Set[NodeId]("c_0"),
+        TestAncestry.of(Set[NodeId]("c", "c_0"))
+      )
+    )
     val l = log.removed("c", "c_0", 5L)
     assertEquals(l.owed(1L).moved.map(_._1), List[NodeId]("c_0"))
   }
 
-  test("prefix ancestry does not confuse sibling ids") {
-    // `c_1` must not read as an ancestor of `c_10`; the trailing `_` is what
-    // prevents it. Nor can a `-self` DOM id ever appear here — no generated node
-    // id contains a hyphen.
-    assert(!log.coveredByMutation("c_10", Set[NodeId]("c_1")))
-    assert(log.coveredByMutation("c_1_0", Set[NodeId]("c_1")))
+  test("ancestry does not confuse sibling ids") {
+    // `c_1` must not cover `c_10`. This used to be a claim about the trailing
+    // `_` in a string test; it is now a claim about the TREE — `c_10` is a
+    // sibling, so nothing about their spelling can make one contain the other.
+    val tree = TestAncestry.of(Set[NodeId]("c", "c_1", "c_10", "c_1_0"))
+    assert(!log.coveredByMutation("c_10", Set[NodeId]("c_1"), tree))
+    assert(log.coveredByMutation("c_1_0", Set[NodeId]("c_1"), tree))
   }
 
   test("a removal under a re-supplied ancestor is not replayed") {
@@ -240,10 +259,10 @@ class FragmentLogSuite extends munit.FunSuite {
       .pruned(7L)
     assertEquals(horizonOf(evicted), Map("c_0" -> 6L))
     // A cursor below c_0's horizon gets THAT mount refilled, and nothing else.
-    assertEquals(evicted.since(5L).refill, List[NodeId]("c_0"))
-    assertEquals(evicted.since(6L).refill, Nil)
+    assertEquals(evicted.owed(5L).refill, List[NodeId]("c_0"))
+    assertEquals(evicted.owed(6L).refill, Nil)
     // ...and c_1's own delta still rides normally.
-    assertEquals(evicted.since(5L).moved.map(_._1), List[NodeId]("c_1_new"))
+    assertEquals(evicted.owed(5L).moved.map(_._1), List[NodeId]("c_1_new"))
   }
 
   test("a refilled container's members are not ALSO sent") {
@@ -255,7 +274,7 @@ class FragmentLogSuite extends munit.FunSuite {
       .removed("c_1", "c_1_x", 9L)
       .pruned(7L)
       .touched("c_0_light_a", 9L)
-    val out = evicted.since(5L)
+    val out = evicted.owed(5L)
     assertEquals(out.refill, List[NodeId]("c_0"))
     assertEquals(out.nodes, Nil, clue = out)
   }
@@ -280,7 +299,7 @@ class FragmentLogSuite extends munit.FunSuite {
     val busy = log
       .touched("c_0", 3L)
       .removed("c", "c_old", 5L)
-      .filled("c_1", 6L)
+      .filledAt("c_1", 6L)
     val idle = busy.skipped(9L)
     assertEquals(idle.mutations, Map.empty[NodeId, Mutation])
     assertEquals(idle.fragments, Map.empty[NodeId, Long])

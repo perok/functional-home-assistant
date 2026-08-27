@@ -9,6 +9,7 @@ import fh.view.model.{
   DomId,
   LayoutNode,
   NodeId,
+  Reads,
   SetId,
   SignalBind,
   SignalId,
@@ -62,10 +63,7 @@ private[runtime] enum SlotForm derives CanEqual {
   * client bytes that no longer match its state, silently and permanently. When
   * in doubt, over-discriminate.
   */
-case class RenderInputs(
-    entities: Map[String, Long],
-    vars: Map[String, String]
-) derives CanEqual {
+case class RenderInputs(entities: Map[String, Long]) derives CanEqual {
 
   /** Whether this was rendered from a snapshot at or ahead of `other` on every
     * entity it reads — the partial order [[RenderCache]] uses to refuse an
@@ -77,8 +75,7 @@ case class RenderInputs(
     * Only a same-shaped, entity-for-entity comparison answers `true`.
     */
   def isAtLeast(other: RenderInputs): Boolean =
-    vars == other.vars &&
-      entities.sizeIs == other.entities.size &&
+    entities.sizeIs == other.entities.size &&
       other.entities.forall((e, v) => entities.get(e).exists(_ >= v))
 }
 
@@ -86,8 +83,9 @@ case class RenderInputs(
   * `children` (`{{#children}}{{{html}}}{{/children}}`), so container kinds
   * (row, column, grid, …) are templates rather than cases here.
   *
-  * Ids are location-derived from a node's index path ([[LayoutNode.pathId]]) —
-  * authors never invent one. A surface is a separate layout tree whose ids are
+  * Ids are location-derived from a node's index path ([[LayoutNode.pathId]])
+  * unless an author named the node ([[LayoutNode.Component.id]]) — authors
+  * never invent one. A surface is a separate layout tree whose ids are
   * namespaced (`s_<id>__…`) so they cannot collide with the main page.
   */
 class Renderer(
@@ -109,16 +107,30 @@ class Renderer(
     * (empty for the main page, `s_<id>__` for a surface).
     */
   private class Index(root: LayoutNode, val idPrefix: String) {
-    val indexed: Map[NodeId, (LayoutNode, List[Int])] = {
-      def walk(
-          node: LayoutNode,
-          path: List[Int]
-      ): List[(NodeId, (LayoutNode, List[Int]))] = {
-        val self = LayoutNode.nodeId(idPrefix, path) -> (node, path)
+
+    /** `child -> parent` for this tree, recorded by the SAME walk that mints
+      * the ids so the two cannot disagree — see [[NodeAncestry]].
+      */
+    val parents: Map[NodeId, NodeId] = {
+      def walk(node: LayoutNode, id: NodeId): List[(NodeId, NodeId)] =
         node match {
           case c: LayoutNode.Component =>
-            self :: c.children.zipWithIndex.flatMap { case (ch, i) =>
-              walk(ch, path :+ i)
+            LayoutNode.steps(c.children).flatMap { case (step, ch) =>
+              val cid = LayoutNode.childId(idPrefix, id, step, ch)
+              (cid -> id) :: walk(ch, cid)
+            }
+          case _: LayoutNode.SetNode => Nil
+        }
+      walk(root, LayoutNode.rootId(idPrefix, root)).toMap
+    }
+
+    val indexed: Map[NodeId, LayoutNode] = {
+      def walk(node: LayoutNode, id: NodeId): List[(NodeId, LayoutNode)] = {
+        val self = id -> node
+        node match {
+          case c: LayoutNode.Component =>
+            self :: LayoutNode.steps(c.children).flatMap { case (step, ch) =>
+              walk(ch, LayoutNode.childId(idPrefix, id, step, ch))
             }
           // A member container is a LEAF of the static index: its children are
           // members, addressed by `memberId` rather than by a path (see
@@ -126,12 +138,12 @@ class Renderer(
           case _: LayoutNode.SetNode => List(self)
         }
       }
-      walk(root, Nil).toMap
+      walk(root, LayoutNode.rootId(idPrefix, root)).toMap
     }
 
     val byEntity: Map[String, Set[NodeId]] =
       indexed.toList
-        .collect { case (id, (c: LayoutNode.Component, _)) => id -> c }
+        .collect { case (id, c: LayoutNode.Component) => id -> c }
         .flatMap { case (id, c) => c.liveEntities.map(_ -> id) }
         .groupMap(_._1)(_._2)
         .view
@@ -203,9 +215,9 @@ class Renderer(
       sid -> new Index(s.content, Renderer.surfacePrefix(sid))
     }
 
-  private val allIndexed: Map[NodeId, (LayoutNode, List[Int], String)] =
+  private val allIndexed: Map[NodeId, (LayoutNode, String)] =
     (mainIndex :: surfaceIndexes.values.toList).flatMap { idx =>
-      idx.indexed.map { case (id, (n, p)) => id -> (n, p, idx.idPrefix) }
+      idx.indexed.map { case (id, n) => id -> (n, idx.idPrefix) }
     }.toMap
 
   private val prefixToRoot: Map[String, String] =
@@ -217,7 +229,7 @@ class Renderer(
     * rather than either of them being handed the index itself.
     */
   private val rootOfIndexed: Map[NodeId, String] =
-    allIndexed.view.mapValues { case (_, _, prefix) =>
+    allIndexed.view.mapValues { case (_, prefix) =>
       prefixToRoot(prefix)
     }.toMap
 
@@ -231,9 +243,20 @@ class Renderer(
     * write `renderer.members.affectedSets(…)` puts the seam in the call site.
     */
   private[runtime] val members: MemberGraph = new MemberGraph(
-    allIndexed.collect { case (id, (s: LayoutNode.SetNode, _, _)) => id -> s },
+    allIndexed.collect { case (id, (s: LayoutNode.SetNode, _)) => id -> s },
     rootOfIndexed
   )
+
+  /** Containment, from the tree rather than from how ids are spelled. Built
+    * from the SAME walks that mint the ids (each `Index`'s `parents`) plus the
+    * two edges only the member graph knows — see [[NodeAncestry]].
+    */
+  private[runtime] val ancestry: NodeAncestry =
+    NodeAncestry.fromParents(
+      (mainIndex :: surfaceIndexes.values.toList)
+        .flatMap(_.parents)
+        .toMap ++ members.parentEdges
+    )
 
   /** Which parts of the dashboard are showing, and to whom — selection and
     * visibility. The other decision half, exposed on the same terms as
@@ -259,8 +282,8 @@ class Renderer(
     */
   def entitiesForNode(id: NodeId): List[String] =
     allIndexed.get(id) match {
-      case Some((c: LayoutNode.Component, _, _)) => c.liveEntities
-      case _                                     => members.liveEntitiesOf(id)
+      case Some((c: LayoutNode.Component, _)) => c.liveEntities
+      case _                                  => members.liveEntitiesOf(id)
     }
 
   /** Whether this dashboard names `entityId` at all — the bound an action POST
@@ -381,7 +404,13 @@ class Renderer(
       states: Map[String, EntityState],
       uiState: Map[String, String] = Map.empty
   ): Traced =
-    traced(dashboard.card, Nil, "", states, uiState)
+    traced(
+      dashboard.card,
+      LayoutNode.rootId("", dashboard.card),
+      "",
+      states,
+      uiState
+    )
 
   /** The style sits BEFORE the chrome, so every patch target inside it can be
     * repainted without re-sending the CSS.
@@ -421,7 +450,7 @@ class Renderer(
           // byte-identical and the later patch is a no-op morph.
           "popups" -> dialog.fold("")(_.html)
         ),
-        Nil
+        Map.empty
       )
     )
     // The whole page is never a patch target — a repaint replaces `#dashboard`
@@ -454,7 +483,13 @@ class Renderer(
       uiState: Map[String, String] = Map.empty
   ): Option[Traced] =
     dashboard.surfaces.get(surfaceId).map { s =>
-      traced(s.content, Nil, Renderer.surfacePrefix(surfaceId), states, uiState)
+      traced(
+        s.content,
+        LayoutNode.rootId(Renderer.surfacePrefix(surfaceId), s.content),
+        Renderer.surfacePrefix(surfaceId),
+        states,
+        uiState
+      )
     }
 
   /** `uiState` is threaded through so a node that owns a bake group — a `tabs`
@@ -481,26 +516,12 @@ class Renderer(
       uiState: Map[String, String],
       form: SlotForm
   ): Option[String] =
-    allIndexed.get(id).filter(_ => hasOwnRendering(id)).map {
-      // A card that declares a `self` patches through THAT element alone — no
-      // cell wrapper (the cell contains the mount) and no mount. Statement (1)
-      // made structural rather than enforced by suppression: the fragment
-      // simply cannot carry what the mount holds. Children DO ride along — a
-      // tab bar's buttons are the card's own rendering, not mounted content.
-      case (c: LayoutNode.Component, path, prefix) if hasSelf(c.card) =>
-        renderTemplateOf(
-          templates.selves(c.card),
-          structuralVars(id) ++ resolveBakeTraced(id, uiState, states)._2,
-          c.slots,
-          c.children.zipWithIndex.map { case (child, i) =>
-            render(child, path :+ i, prefix, states, uiState, form)
-          },
-          states,
-          form
-        )
-      case (node, path, prefix) =>
-        render(node, path, prefix, states, uiState, form)
-    }
+    allIndexed
+      .get(id)
+      .filter(_ => hasOwnRendering(id))
+      .map { case (node, prefix) =>
+        render(node, id, prefix, states, uiState, form)
+      }
 
   /** `s_<sid>__c` — what a state group's mount holds, and so what a flip
     * removes or places. The same scheme the build-phase hoist uses, so a
@@ -585,16 +606,15 @@ class Renderer(
     *
     * > Structural vars are a pure function of the node id in scope.
     *
-    * So a container card used as a set clause gets `selfId`/`mountId` off its
-    * member id for free, with no per-call-site knowledge. `bakeIndex` is NOT
-    * here: it is a function of the client's selection, not of the id, and it
-    * belongs to the document path alone ([[resolveBakeTraced]]).
+    * So a container card used as a set clause gets its `hostId` off its member
+    * id for free, with no per-call-site knowledge. `bakeIndex` is NOT here: it
+    * is a function of the client's selection, not of the id, and it belongs to
+    * the document path alone ([[resolveBakeTraced]]).
     */
   private def structuralVars(id: NodeId): Map[String, String] =
     Map(
       "id" -> id,
-      "selfId" -> Renderer.selfElementId(id),
-      "mountId" -> mountId(id),
+      "hostId" -> hostId(id),
       // The dashboard's slug, for the action URL a card builds in its own
       // TEMPLATE (the slider's commit). A tap builds its URL in a transform
       // instead and reads the same value as `$dashboardSlug` — one fact, and
@@ -610,21 +630,24 @@ class Renderer(
     * A mount's contents are whichever member that client selected, so a node
     * carrying one has bytes that differ per viewer.
     *
-    * Three shapes fail it, and only the first two are what a card's own
-    * definition tells you:
+    * Two shapes fail it:
     *
     *   - a BARE container — a mount and no `self` — whose markup is a constant
     *     `.fh-cell` wrapper around a hole;
     *   - a candidate set root, which composes its members (each addressable in
-    *     its own right) rather than having markup of its own;
-    *   - anything whose CHILDREN bring a mount along — a pre-split container
-    *     splicing `{{#children}}` into its `template`, or a custom card with a
-    *     `self` and a bake-owning child. Neither is reachable from the shipped
-    *     library, and neither is visible to a test on the card alone, which is
-    *     why this asks about the rendering instead.
+    *     its own right) rather than having markup of its own.
     *
     * Neither loses anything by being excluded: their children are addressable
     * in their own right.
+    *
+    * A card WITH a `self` always has its own rendering, and that is now a fact
+    * about the card rather than a hope: both `ContainerCard.self` (authoring)
+    * and `Dashboard.validate` (the wire model) reject a `self` containing
+    * `{{{mount}}}` or `{{#children}}` — the two holes this renderer fills, so
+    * the two that could smuggle another node's bytes into a patch. The third
+    * shape this used to guard against — a self splicing `{{#children}}` where a
+    * child carried a mount — is therefore unrepresentable, which is why the
+    * `Templates.selvesCarryChildren` grep it needed is gone.
     *
     * The same rule `Dashboard.validate` enforces when it rejects a live-entity
     * slot on a bare container: no patch target.
@@ -635,43 +658,15 @@ class Renderer(
     */
   private def hasOwnRendering(id: NodeId): Boolean =
     allIndexed.get(id).exists {
-      case (c: LayoutNode.Component, _, _) =>
-        // What `renderNodeById` would produce: a card with a `self` renders
-        // that element plus — only if the self SPLICES them — its children's
-        // full renderings; anything else renders its whole card, its own mount
-        // included.
-        //
-        // A self that leaves its children entirely to the mount (a slider
-        // holding member sliders) is unaffected by what those children carry:
-        // its bytes never contain them. Asking `children.exists(carriesMount)`
-        // unconditionally cost exactly that node its live updates the moment a
-        // member card gained a mount of its own.
-        if (hasSelf(c.card))
-          !(templates.selvesCarryChildren(c.card) &&
-            c.children.exists(carriesMount))
-        else !carriesMount(c)
+      // A LEAF renders itself and nothing else; STRUCTURE renders what it
+      // holds, so patching it would re-send that. One question, asked of the
+      // card — where it used to be three, asked of a template's spelling.
+      case (c: LayoutNode.Component, _) =>
+        !dashboard.cards.get(c.card).exists(_.isStructure)
       // A member container composes its members and renders nothing of its
       // own; the members are the log keys.
-      case (_: LayoutNode.SetNode, _, _) => false
+      case (_: LayoutNode.SetNode, _) => false
     }
-
-  /** Whether rendering this node in FULL — as a parent's markup embeds it —
-    * brings a mount along, its own or a descendant's.
-    *
-    * A member container does not count: a member renders with no bake group, so
-    * a member card's mount comes out empty and carries nobody's selection.
-    */
-  private def carriesMount(node: LayoutNode): Boolean = node match {
-    case c: LayoutNode.Component =>
-      templates.mounts.contains(c.card) || c.children.exists(carriesMount)
-    case _: LayoutNode.SetNode => false
-  }
-
-  /** The ONE predicate the self/mount split turns on: it picks what the patch
-    * path renders, what [[patchTargetId]] returns, and so what the diff
-    * compares. The three can never disagree.
-    */
-  private def hasSelf(card: String): Boolean = templates.selves.contains(card)
 
   /** The DOM element a patch for `id` targets — the ONE crossing from node id
     * to DOM id, and one-way.
@@ -683,24 +678,18 @@ class Renderer(
     * contain one and no `startsWith(id + "_")` ancestry test can mistake
     * `c_2-self` for a child of `c_2`.
     */
-  def patchTargetId(id: NodeId): DomId =
-    allIndexed.get(id) match {
-      case Some((c: LayoutNode.Component, _, _)) if hasSelf(c.card) =>
-        Renderer.selfElementId(id)
-      case _ => elementId(id)
-    }
-
-  /** The node's OWN root element — the `.fh-cell` wrapper `render` emits. What
-    * a structural patch names: the thing a `remove` deletes and an `insert`
-    * anchors `before`. Distinct from [[patchTargetId]] on purpose: once a
-    * container patches its `self` alone, removing that element would leave the
-    * mount and its children standing, so "what I morph" and "what I am" stop
-    * being the same element.
+  /** The node's OWN root element — the `.fh-cell` wrapper `render` emits, and
+    * the ONE crossing from node id to DOM id.
+    *
+    * "What I morph" and "what I am" used to be different elements: a card with
+    * a `self` was patched at `<id>-self` so its patch could not reach the
+    * sibling holding its children. A node holds its regions in OTHER NODES now,
+    * so there is nothing to exclude and one element does both jobs.
     */
   def elementId(id: NodeId): DomId = DomId.derived(id)
 
   /** The element a node's children live IN — an `Inner`/`append` target, and
-    * the `{{mountId}}` a container's `mount` part writes.
+    * the `{{hostId}}` a container's `mount` part writes.
     *
     * '''This is not a new id — for a bake owner it IS
     * [[fh.view.model.Surface.hostId]]''', so `Tabs` resolves to `c_2_panel`,
@@ -714,7 +703,7 @@ class Renderer(
     * `Column` mounts are never fill targets — their children arrive nested — so
     * they fall back to the node's own id and simply never use it.
     */
-  def mountId(id: NodeId): DomId =
+  def hostId(id: NodeId): DomId =
     surfaces
       .bakeGroup(id)
       .headOption
@@ -846,20 +835,19 @@ class Renderer(
           // The SUBJECT is in the key whether or not a slot reads it: the
           // materialised node is state-derived, so the entity that chose its
           // case has to be able to invalidate the bytes that case produced.
-          versions(m.node.subjectEntity.toList ++ m.node.liveEntities, states),
-          Map.empty
+          versions(m.node.subjectEntity.toList ++ m.node.liveEntities, states)
         )
       )
       .orElse(
         Option
-          .when(hasOwnRendering(id) && !ownBytesCarryChildren(id))(
-            RenderInputs(
-              versions(entitiesForNode(id), states),
-              activeBakeIndex(id, uiState, states)
-                .fold(Map.empty[String, String])(i =>
-                  Map("bakeIndex" -> i.toString)
-                )
-            )
+          // No `&& !ownBytesCarryChildren(id)` any more. That was a
+          // CONSERVATIVE proxy for "my bytes carry my children", and it cost
+          // every grouped slider its cache entry on the hot path even though
+          // the head's bytes never held a member. A node with its own rendering
+          // IS a leaf now, so it has no children to carry — the exclusion has
+          // nothing left to exclude.
+          .when(hasOwnRendering(id))(
+            RenderInputs(versions(entitiesForNode(id), states))
           )
       )
 
@@ -871,21 +859,15 @@ class Renderer(
       .flatMap(e => states.get(e).map(e -> _.contentVersion))
       .toMap
 
-  private def ownBytesCarryChildren(id: NodeId): Boolean =
-    allIndexed.get(id).exists {
-      case (c: LayoutNode.Component, _, _) => c.children.nonEmpty
-      case _                               => false
-    }
-
   private def render(
       node: LayoutNode,
-      path: List[Int],
+      id: NodeId,
       idPrefix: String,
       states: Map[String, EntityState],
       uiState: Map[String, String],
       form: SlotForm
   ): String = {
-    val t = traced(node, path, idPrefix, states, uiState)
+    val t = traced(node, id, idPrefix, states, uiState)
     if (form.isPatch) t.patch else t.html
   }
 
@@ -914,57 +896,46 @@ class Renderer(
 
   private def traced(
       node: LayoutNode,
-      path: List[Int],
+      id: NodeId,
       idPrefix: String,
       states: Map[String, EntityState],
       uiState: Map[String, String]
   ): Traced =
     node match {
       case c: LayoutNode.Component =>
-        val id = LayoutNode.nodeId(idPrefix, path)
-        val kids = c.children.zipWithIndex.map { case (child, i) =>
-          traced(child, path :+ i, idPrefix, states, uiState)
-        }
-        val childrenHtml = kids.map(_.html)
+        // Per REGION, because each hole is spliced with its own children and a
+        // child's step names the region it sits in.
+        val kidsByRegion: Map[String, List[Traced]] =
+          c.children.map { case (region, nodes) =>
+            region -> nodes.zipWithIndex.map { case (child, i) =>
+              val step = LayoutNode.Step(region, i)
+              traced(
+                child,
+                LayoutNode.childId(idPrefix, id, step, child),
+                idPrefix,
+                states,
+                uiState
+              )
+            }
+          }
+        val kids = kidsByRegion.toList.sortBy(_._1).flatMap(_._2)
+        val childrenHtml = kidsByRegion.view.mapValues(_.map(_.html)).toMap
         val (baked, bakeIndex, bakedTrace) =
           resolveBakeTraced(id, uiState, states)
-        // The document path renders the whole card: its two parts first, then
-        // `template` with them spliced in. A leaf card has neither part, so its
-        // `template` renders exactly as before.
-        //
-        // The `self` sees the structural vars AND `bakeIndex` — precisely what
-        // `renderNodeById` gives it, which is what lets the trace be captured
-        // here and compared there. NOT the baked member itself: that is the
-        // mount's contents, and statement (1) is that a node's own rendering
-        // never carries them.
-        val selfVars = structuralVars(id) ++ bakeIndex
-        val vars = selfVars ++ baked
+        // ONE template per card now. It used to be composed from two parts
+        // spliced together, with the `self` shown a NARROWER var map than the
+        // whole — no baked member — so a node's own rendering could not carry
+        // what it hosted. A region's contents are other nodes, so that
+        // separation is structural and one var map serves.
+        val vars = structuralVars(id) ++ bakeIndex ++ baked
         // ONE walk, both forms — see [[Traced]]. Only the form differs between
         // the two calls, so a node with no signal slot anywhere under it does
         // the second not at all.
-        def compose(form: SlotForm, kidsHtml: List[String]): String = {
-          val selfPart = templates.selves
-            .get(c.card)
-            .map(renderTemplateOf(_, selfVars, c.slots, kidsHtml, states, form))
-          val mountPart = templates.mounts
-            .get(c.card)
-            .map(renderTemplateOf(_, vars, c.slots, kidsHtml, states, form))
-          renderTemplate(
-            c.card,
-            vars ++ Map(
-              "self" -> selfPart.getOrElse(""),
-              "mount" -> mountPart.getOrElse("")
-            ),
-            c.slots,
-            kidsHtml,
-            states,
-            form
-          )
-        }
-        def selfOnly(form: SlotForm, kidsHtml: List[String]): Option[String] =
-          templates.selves
-            .get(c.card)
-            .map(renderTemplateOf(_, selfVars, c.slots, kidsHtml, states, form))
+        def compose(
+            form: SlotForm,
+            kidsHtml: Map[String, List[String]]
+        ): String =
+          renderTemplate(c.card, vars, c.slots, kidsHtml, states, form)
         val html = compose(SlotForm.Document, childrenHtml)
         // The patch form is needed when THIS node's slots carry a signal, or
         // when a child's bytes (which ride inside these) differ between the
@@ -973,7 +944,8 @@ class Renderer(
         val twoForms =
           declaresSignals(c) || kids.exists(k => k.patch ne k.html)
         val patchChildren =
-          if (twoForms) kids.map(_.patch) else childrenHtml
+          if (twoForms) kidsByRegion.view.mapValues(_.map(_.patch)).toMap
+          else childrenHtml
         val patchHtml =
           if (twoForms) compose(SlotForm.Patch, patchChildren) else html
         // EVERY node is a cell — containers included. The backend owns the id'd
@@ -1001,18 +973,14 @@ class Renderer(
                 c.cell
               )}" id="$id"${seedAttr(id, c, states, form)}>$inner</div>"""
         val wrapped = wrap(html, SlotForm.Document)
-        // What this node contributes to the trace: its `self` when it has one,
-        // otherwise its whole (wrapped) rendering when it holds no mount, and
-        // nothing at all when it is a bare container. Mirrors `renderNodeById`
-        // exactly — including the wrapper, which that method's leaf branch also
-        // returns, and the PATCH form, which is what that method produces.
+        // What this node contributes to the trace: its whole (wrapped) patch
+        // rendering when it is a LEAF, and nothing when it is structure.
+        // Mirrors `renderNodeById` exactly — wrapper included, and in the PATCH
+        // form, which is what that method produces.
         val patch =
           if (!twoForms) wrapped else wrap(patchHtml, SlotForm.Patch)
         val own = Option.when(hasOwnRendering(id))(
-          Painted(
-            selfOnly(SlotForm.Patch, patchChildren).getOrElse(patch),
-            signalsOfSlots(id, c, states)
-          )
+          Painted(patch, signalsOfSlots(id, c, states))
         )
         Traced(
           wrapped,
@@ -1024,20 +992,22 @@ class Renderer(
       case s: LayoutNode.SetNode =>
         // The match IS the proof: this node is a `SetNode`, which is exactly
         // the evidence `MemberGraph` mints its root [[SetId]]s from.
-        val id = SetId.of(LayoutNode.nodeId(idPrefix, path), s)
-        val document = renderSet(id, s.cell, states, SlotForm.Document)
+        val setId = SetId.of(id, s)
+        val document = renderSet(setId, s.cell, states, SlotForm.Document)
         Traced(
           document,
           // A set root has no rendering of its own and is never a patch target,
           // so its two forms are only ever embedded in an ancestor's. Rendering
           // the patch one is worth it exactly when a member has a signal slot.
           if (
-            members.membersOf(id, states).exists(m => declaresSignals(m.node))
+            members
+              .membersOf(setId, states)
+              .exists(m => declaresSignals(m.node))
           )
-            renderSet(id, s.cell, states, SlotForm.Patch)
+            renderSet(setId, s.cell, states, SlotForm.Patch)
           else document,
           members
-            .membersOf(id, states)
+            .membersOf(setId, states)
             .map { m =>
               m.id -> Painted(
                 renderMember(m, states, SlotForm.Patch),
@@ -1105,9 +1075,9 @@ class Renderer(
       // child's entity changing re-renders it (which is why
       // [[Member.entitiesOf]] walks them). A nested SET is the exception: it
       // is addressable, and [[Member.entitiesOf]] stops there.
-      m.node.children.zipWithIndex.map { case (child, i) =>
-        memberChild(m, child, List(i), m.clause, states, form)
-      },
+      Renderer.perRegion(m.node.children)((child, step) =>
+        memberChild(m, child, List(step), m.clause, states, form)
+      ),
       states,
       form
     )
@@ -1134,7 +1104,7 @@ class Renderer(
   private def memberChild(
       m: Member,
       node: LayoutNode,
-      path: List[Int],
+      path: List[LayoutNode.Step],
       clauseIdx: Int,
       states: Map[String, EntityState],
       form: SlotForm
@@ -1144,9 +1114,9 @@ class Renderer(
         c.card,
         structuralVars(m.id),
         c.slots,
-        c.children.zipWithIndex.map { case (child, i) =>
-          memberChild(m, child, path :+ i, clauseIdx, states, form)
-        },
+        Renderer.perRegion(c.children)((child, step) =>
+          memberChild(m, child, path :+ step, clauseIdx, states, form)
+        ),
         states,
         form
       )
@@ -1167,7 +1137,7 @@ class Renderer(
       cardName: String,
       injected: Map[String, String],
       slots: Map[String, SlotSource],
-      childrenHtml: List[String],
+      childrenHtml: Map[String, List[String]],
       states: Map[String, EntityState],
       form: SlotForm
   ): String =
@@ -1194,29 +1164,15 @@ class Renderer(
       cardName: String,
       vars: Map[String, String],
       slots: Map[String, SlotSource],
-      childrenHtml: List[String],
+      childrenHtml: Map[String, List[String]],
       states: Map[String, EntityState],
       form: SlotForm
   ): String = {
-    def part(of: Map[String, Template]): String =
-      of.get(cardName)
-        .fold("")(renderTemplateOf(_, vars, slots, childrenHtml, states, form))
-    renderTemplate(
-      cardName,
-      vars ++ Map(
-        "self" -> part(templates.selves),
-        "mount" -> part(templates.mounts)
-      ),
-      slots,
-      childrenHtml,
-      states,
-      form
-    )
+    renderTemplate(cardName, vars, slots, childrenHtml, states, form)
   }
 
-  /** Render an already-resolved template — `template`, `self` or `mount` — with
-    * the same slot resolution for all three, so a card's parts can never
-    * disagree about what a slot means.
+  /** Render an already-resolved template with the card's slot resolution, so a
+    * card's markup and its parts can never disagree about what a slot means.
     *
     * `form` picks which rendering a SIGNAL slot gets, and changes nothing else
     * (see [[SlotForm]]). A card with no signal slot renders identically either
@@ -1226,7 +1182,7 @@ class Renderer(
       tpl: Template,
       injected: Map[String, String],
       slots: Map[String, SlotSource],
-      childrenHtml: List[String],
+      childrenHtml: Map[String, List[String]],
       states: Map[String, EntityState],
       form: SlotForm
   ): String = {
@@ -1250,17 +1206,20 @@ class Renderer(
           val srcEntity =
             if (slot == "entity_id") source.entityId
             else source.entityId.orElse(subject)
-          // A `reactive: false` slot is identity-derived — its transform
-          // reads only `$domain`/`$entity_id` (a service action, the
-          // slider's domain config), both immutable for the life of the
-          // entity. So its value never changes: resolve it ONCE per
-          // (entity, transform) and reuse forever. This is what keeps the
-          // set render path slick — a candidate set re-renders every
-          // matched card on every event, but those cards' action/config
-          // slots become a cache lookup, not a JSONata eval. Live slots
-          // (`reactive: true`) always re-resolve. `$entity_id` is in the key
-          // (the action URL embeds it), so two entities never collide.
-          if (!source.reactive)
+          // `once` is identity-derived — its transform reads only
+          // `$domain`/`$entity_id` (a service action, the slider's domain
+          // config), both immutable for the life of the entity. So its value
+          // never changes: resolve it ONCE per (entity, transform) and reuse
+          // forever. This is what keeps the set render path slick — a candidate
+          // set re-renders every matched card on every event, but those cards'
+          // action/config slots become a cache lookup, not a JSONata eval.
+          // `$entity_id` is in the key (the action URL embeds it), so two
+          // entities never collide.
+          //
+          // `live` and `onRender` both re-resolve; they differ in whether the
+          // entity is SUBSCRIBED, which is `liveEntities`' business, not this
+          // one. That is why the memo asks only about `once`.
+          if (source.reads == Reads.Once)
             identityCache.computeIfAbsent(
               (srcEntity.getOrElse(""), source.transform),
               _ => resolveSlot(srcEntity, source, states)
@@ -1346,10 +1305,14 @@ class Renderer(
       .memberAt(id, states)
       .map(m => memberSignals(m.id, m.node, states))
       .orElse(
+        // NOT gated on `hasOwnRendering`. Structure has signals like any other
+        // node — its seed already rides its own `.fh-cell` wrapper in the
+        // document form — and gating here was the half that made a signal slot
+        // on structure seed once and then stand still forever. The two halves
+        // have to agree, so `Dashboard.validate` no longer rejects them either.
         allIndexed
           .get(id)
           .map(_._1)
-          .filter(_ => hasOwnRendering(id))
           .map(signalsOfSlots(id, _, states))
       )
       .getOrElse(Map.empty)
@@ -1382,7 +1345,7 @@ class Renderer(
       states: Map[String, EntityState]
   ): Map[SignalId, String] = node match {
     case c: LayoutNode.Component =>
-      c.children.foldLeft(signalsOfSlots(id, c, states))(
+      c.allChildren.foldLeft(signalsOfSlots(id, c, states))(
         _ ++ memberSignals(id, _, states)
       )
     case _: LayoutNode.SetNode => Map.empty
@@ -1529,16 +1492,6 @@ object Renderer {
     */
   val ThemeStyleId: String = "fh-theme"
 
-  /** The `self` element's DOM id for a node — `<nodeId>-self`.
-    *
-    * One derivation, used both to WRITE the id (`{{selfId}}`) and to TARGET it
-    * ([[Renderer.patchTargetId]]), so the template and the patch cannot drift
-    * apart. `-` cannot appear in a generated node id ([[LayoutNode.sanitize]]),
-    * which is what keeps the log's `startsWith(id + "_")` ancestry tests from
-    * reading `c_2-self` as a child of `c_2`.
-    */
-  def selfElementId(id: NodeId): DomId = DomId.derived(id + "-self")
-
   /** The signal a signal slot's value lives in: `_<nodeId>__<slot>` (ADR 0017).
     *
     * `_`-prefixed deliberately. Datastar's default request filter excludes any
@@ -1571,7 +1524,7 @@ object Renderer {
     * this renderer emitted before signal slots existed. See ADR 0017.
     */
   def signalBind(src: SlotSource): Option[SignalBind] =
-    src.signal.filter(_ => src.literal.isEmpty && src.reactive)
+    src.signal.filter(_ => src.literal.isEmpty && src.reads == Reads.Live)
 
   def isSignalSlot(src: SlotSource): Boolean = signalBind(src).isDefined
 
@@ -1593,19 +1546,40 @@ object Renderer {
     * container templates (`{{#children}}{{{html}}}{{/children}}`). Kept here so
     * the rest of the renderer works in plain `Map[String, String]`.
     */
+  /** Render each region's children, keeping them under their region's name and
+    * handing each child the [[LayoutNode.Step]] that reaches it. Every walk
+    * that produces `childrenHtml` goes through here, so "which region am I in"
+    * is answered in exactly one place.
+    */
+  private[runtime] def perRegion[A](children: Map[String, List[LayoutNode]])(
+      f: (LayoutNode, LayoutNode.Step) => A
+  ): Map[String, List[A]] =
+    children.map { case (region, nodes) =>
+      region -> nodes.zipWithIndex.map { case (n, i) =>
+        f(n, LayoutNode.Step(region, i))
+      }
+    }
+
   private def javaContext(
       context: Map[String, String],
-      childrenHtml: List[String]
+      childrenHtml: Map[String, List[String]]
   ): java.util.Map[String, AnyRef] = {
     import scala.jdk.CollectionConverters.*
-    val m = new java.util.HashMap[String, AnyRef](context.size + 1)
+    val m =
+      new java.util.HashMap[String, AnyRef](context.size + childrenHtml.size)
     m.putAll(context.asJava)
-    if (childrenHtml.nonEmpty) {
-      val list = new java.util.ArrayList[AnyRef](childrenHtml.size)
-      childrenHtml.foreach(h =>
-        list.add(java.util.Collections.singletonMap("html", h))
-      )
-      val _ = m.put("children", list)
+    // One list per REGION, under the region's own name, so a template's
+    // `{{#headActions}}` and `{{#children}}` splice different children. An
+    // empty region contributes nothing, which is what makes the section vanish
+    // rather than render an empty list.
+    childrenHtml.foreach { case (region, htmls) =>
+      if (htmls.nonEmpty) {
+        val list = new java.util.ArrayList[AnyRef](htmls.size)
+        htmls.foreach(h =>
+          list.add(java.util.Collections.singletonMap("html", h))
+        )
+        val _ = m.put(region, list)
+      }
     }
     m
   }
