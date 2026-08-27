@@ -417,7 +417,20 @@ enum Activation derives ConfiguredDecoder:
   case State(condition: Predicate)
 
 /** A node in the recursive dashboard layout tree. */
-sealed trait LayoutNode derives ConfiguredDecoder
+sealed trait LayoutNode derives ConfiguredDecoder {
+
+  /** The id this node was GIVEN, as opposed to the one its position would
+    * derive. Only a [[LayoutNode.Component]] can carry one today: the case that
+    * wants it is a tab bar, whose id reaches users through `ui.<id>`, and a
+    * candidate set's own id is not user-visible the same way — its MEMBERS are
+    * addressed by entity, which is already position-independent.
+    */
+  def authoredId: Option[String] = this match {
+    case c: LayoutNode.Component => c.id
+    case _: LayoutNode.SetNode   => None
+  }
+}
+
 object LayoutNode:
 
   /** The region a card's children go to when nobody names one — the hole every
@@ -473,7 +486,13 @@ object LayoutNode:
       // decoder below.
       children: Map[String, List[LayoutNode]] = Map.empty,
       // Layout-cell classes for this node's `.fh-cell` wrapper (see [[Cell]]).
-      cell: Option[Cell] = None
+      cell: Option[Cell] = None,
+      // An AUTHORED id, replacing the position-derived one for this node and
+      // rooting its descendants. Node ids reach users (a tab bar mirrors its own
+      // into `ui.<id>`) and name every signal a card owns, so an author can pin
+      // one rather than have layout decide it. `Dashboard.validate` checks it —
+      // see `authoredIdErrors`, which owns the reason it needs checking at all.
+      id: Option[String] = None
   ) extends LayoutNode:
 
     /** Every child, in one list — what a traversal that only needs to REACH
@@ -615,6 +634,30 @@ object LayoutNode:
 
   def pathId(path: List[Step]): NodeId =
     NodeId.derived(if path.isEmpty then "c" else s"c_${segments(path)}")
+
+  /** A tree root's id: the author's, or the derived `c`, inside `prefix` (empty
+    * for the main page, `s_<id>__` for a surface).
+    */
+  def rootId(prefix: String, node: LayoutNode): NodeId =
+    NodeId.derived(prefix + node.authoredId.getOrElse("c"))
+
+  /** The id one step down: the child's OWN authored id when it has one,
+    * otherwise its parent's plus this step's segment.
+    *
+    * An authored id still carries `prefix`. It has to: the runtime works out
+    * which surface a node belongs to from its id prefix
+    * (`Renderer.prefixToRoot`), so an id that dropped it would be
+    * unattributable — and two surfaces would be free to use the same name.
+    */
+  def childId(
+      prefix: String,
+      parent: NodeId,
+      step: Step,
+      child: LayoutNode
+  ): NodeId =
+    child.authoredId.fold(NodeId.derived(s"${parent}_${segment(step)}"))(a =>
+      NodeId.derived(prefix + a)
+    )
 
   /** [[pathId]] inside an id namespace — the main page's is empty, a surface's
     * is [[surfacePrefix]]. Named rather than left as `prefix + pathId(path)` at
@@ -920,9 +963,11 @@ case class Dashboard(
 
     def children(
         kids: Map[String, List[LayoutNode]],
-        path: List[LayoutNode.Step]
+        id: NodeId
     ): List[String] =
-      LayoutNode.steps(kids).flatMap { case (step, n) => walk(n, path :+ step) }
+      LayoutNode.steps(kids).flatMap { case (step, n) =>
+        walk(n, LayoutNode.childId("", id, step, n))
+      }
 
     // Cell classes are string-interpolated into the wrapper's `class`
     // attribute, so each must be a plain CSS class token — reject anything
@@ -944,10 +989,9 @@ case class Dashboard(
     def noWrap(cardName: String): Boolean =
       cards.get(cardName).exists(!_.wrapAsCell)
 
-    def walk(node: LayoutNode, path: List[LayoutNode.Step]): List[String] =
+    def walk(node: LayoutNode, nodeId: NodeId): List[String] =
       node match
-        case c @ LayoutNode.Component(card, slots, kids, cell) =>
-          val nodeId = LayoutNode.pathId(path)
+        case c @ LayoutNode.Component(card, slots, _, cell, _) =>
           val wrapErrors =
             if (!noWrap(card)) Nil
             else
@@ -973,13 +1017,13 @@ case class Dashboard(
             Dashboard.injectedStatic,
             slots.keySet
           ) ++ slotErrors(nodeId, card, slots) ++ cellErrors(nodeId, cell) ++
-            wrapErrors ++ children(c.children, path)
+            wrapErrors ++ children(c.children, nodeId)
         // A set's clauses carry COMPLETE nodes — their own card, slots (the
         // candidate's `entity_id` among them) and cell — so each one validates
         // as the ordinary node it is. `noWrap` is rejected because every member
         // is its own per-candidate patch target.
         case s: LayoutNode.SetNode =>
-          val setId = LayoutNode.pathId(path)
+          val setId = nodeId
           cellErrors(setId, s.cell) ++
             s.candidates.filterNot(s.members.contains).map { c =>
               s"$setId: candidate '$c' has no member entry — it could never " +
@@ -989,7 +1033,12 @@ case class Dashboard(
               m.clauses.zipWithIndex.flatMap { case (clause, i) =>
                 walk(
                   clause.node,
-                  path :+ LayoutNode.Step(LayoutNode.DefaultRegion, i)
+                  LayoutNode.childId(
+                    "",
+                    nodeId,
+                    LayoutNode.Step(LayoutNode.DefaultRegion, i),
+                    clause.node
+                  )
                 ) ++ (clause.node match {
                   case c: LayoutNode.Component if noWrap(c.card) =>
                     List(
@@ -1074,6 +1123,110 @@ case class Dashboard(
         }
       }
 
+    /** What an authored `id` has to satisfy, and the third rule is the one that
+      * is not obvious.
+      *
+      * The runtime decides tree ANCESTRY by string prefix — `FragmentLog`
+      * invalidates `k.startsWith(container + "_")`, `Patches` reads the same
+      * shape for what a patch displaced, `MemberGraph` for which set a node is
+      * under. Positional ids satisfy that by construction: `c_3` prefixes
+      * `c_3_0` and nothing else. Authored ones need not — name one node
+      * `detail` and another `detail_0`, and the second READS as a child of the
+      * first while being unrelated, so invalidating `detail` silently takes
+      * `detail_0` with it.
+      *
+      * So the check is not "unique": it is that prefix-ancestry and
+      * tree-ancestry agree, which is exactly checkable once every id is known.
+      */
+    val authoredIdErrors: List[String] = {
+      def walkIds(
+          node: LayoutNode,
+          prefix: String,
+          id: NodeId,
+          inSet: Boolean
+      ): List[(NodeId, Boolean, Option[String])] =
+        (id, inSet, node.authoredId) :: (node match {
+          case c: LayoutNode.Component =>
+            LayoutNode.steps(c.children).flatMap { case (step, ch) =>
+              walkIds(
+                ch,
+                prefix,
+                LayoutNode.childId(prefix, id, step, ch),
+                inSet
+              )
+            }
+          // A clause node is instantiated once PER MEMBER, so anything it names
+          // would be claimed by every member at once. Flagged rather than
+          // walked for ids.
+          case s: LayoutNode.SetNode =>
+            s.members.toList.sortBy(_._1).flatMap { case (_, m) =>
+              m.clauses.flatMap(cl => walkIds(cl.node, prefix, id, true))
+            }
+        })
+
+      val all =
+        walkIds(card, "", LayoutNode.rootId("", card), false) ++
+          surfaces.toList.sortBy(_._1).flatMap { case (sid, s) =>
+            val p = LayoutNode.surfacePrefix(sid)
+            walkIds(s.content, p, LayoutNode.rootId(p, s.content), false)
+          }
+      val authored = all.filter(_._3.isDefined)
+      val ids = all.map(_._1)
+
+      val shape = authored.flatMap { case (id, inSet, Some(name)) =>
+        if (inSet)
+          List(
+            s"node id '$name' is inside a candidate set's clause, which is " +
+              "rendered once per member — every member would claim the name"
+          )
+        else if (!name.matches("[A-Za-z0-9_]+"))
+          List(
+            s"node id '$name' is not a plain token ([A-Za-z0-9_]+) — ids are " +
+              "interpolated into `id` attributes and signal names"
+          )
+        else if (ids.count(_ == id) > 1)
+          List(s"node id '$name' is used more than once")
+        else Nil
+      }
+
+      // Ancestry: an id may prefix another only when it really is its ancestor.
+      val treeAncestors: Map[NodeId, Set[NodeId]] = {
+        def anc(
+            node: LayoutNode,
+            prefix: String,
+            id: NodeId,
+            above: Set[NodeId]
+        ): List[(NodeId, Set[NodeId])] =
+          (id -> above) :: (node match {
+            case c: LayoutNode.Component =>
+              LayoutNode.steps(c.children).flatMap { case (step, ch) =>
+                anc(
+                  ch,
+                  prefix,
+                  LayoutNode.childId(prefix, id, step, ch),
+                  above + id
+                )
+              }
+            case _: LayoutNode.SetNode => Nil
+          })
+        (anc(card, "", LayoutNode.rootId("", card), Set.empty) ++
+          surfaces.toList.flatMap { case (sid, s) =>
+            val p = LayoutNode.surfacePrefix(sid)
+            anc(s.content, p, LayoutNode.rootId(p, s.content), Set.empty)
+          }).toMap
+      }
+      val ancestry =
+        treeAncestors.toList.sortBy(_._1).flatMap { case (id, above) =>
+          ids.distinct.filter(o => o != id && id.startsWith(o + "_")).collect {
+            case o if !above.contains(o) =>
+              s"node id '$id' reads as a descendant of '$o' but is not one — " +
+                "the runtime decides ancestry by id prefix, so invalidating " +
+                s"'$o' would silently take '$id' with it"
+          }
+        }
+      (shape ++ ancestry).distinct
+    }
+
     // A non-empty theme.chrome MUST wrap {{{body}}} in an element carrying
     // id="dashboard" — that's the navigate/reload swap target. An empty chrome
     // is fine (Renderer falls back to the minimal default). Fail loudly here
@@ -1099,17 +1252,22 @@ case class Dashboard(
       def cardAt(
           node: LayoutNode,
           prefix: String,
-          path: List[LayoutNode.Step],
+          id: NodeId,
           target: NodeId
       ): Option[String] =
         node match {
           case c: LayoutNode.Component =>
-            if (LayoutNode.nodeId(prefix, path) == target) Some(c.card)
+            if (id == target) Some(c.card)
             else
               LayoutNode
                 .steps(c.children)
                 .collectFirst(Function.unlift { case (step, ch) =>
-                  cardAt(ch, prefix, path :+ step, target)
+                  cardAt(
+                    ch,
+                    prefix,
+                    LayoutNode.childId(prefix, id, step, ch),
+                    target
+                  )
                 })
           case _: LayoutNode.SetNode => None
         }
@@ -1117,28 +1275,31 @@ case class Dashboard(
       def idsOf(
           node: LayoutNode,
           prefix: String,
-          path: List[LayoutNode.Step]
+          id: NodeId
       ): List[NodeId] =
-        LayoutNode.nodeId(prefix, path) :: (node match {
+        id :: (node match {
           case c: LayoutNode.Component =>
             LayoutNode.steps(c.children).flatMap { case (step, ch) =>
-              idsOf(ch, prefix, path :+ step)
+              idsOf(ch, prefix, LayoutNode.childId(prefix, id, step, ch))
             }
           // Neither member container hosts a bake: a member renders with no
           // children and no bake group.
           case _: LayoutNode.SetNode => Nil
         })
       val known: Set[NodeId] =
-        (idsOf(card, "", Nil) ++ surfaces.toList.flatMap { case (sid, s) =>
-          idsOf(s.content, LayoutNode.surfacePrefix(sid), Nil)
-        }).toSet
+        (idsOf(card, "", LayoutNode.rootId("", card)) ++
+          surfaces.toList.flatMap { case (sid, s) =>
+            val p = LayoutNode.surfacePrefix(sid)
+            idsOf(s.content, p, LayoutNode.rootId(p, s.content))
+          }).toSet
       // The node a surface bakes into, when it names one that exists — needed
       // twice below, and `known` alone cannot supply the card.
       def hostCard(gid: NodeId): Option[CardDef] =
-        cardAt(card, "", Nil, gid)
+        cardAt(card, "", LayoutNode.rootId("", card), gid)
           .orElse(
             surfaces.collectFirst(Function.unlift { case (sid, s) =>
-              cardAt(s.content, LayoutNode.surfacePrefix(sid), Nil, gid)
+              val p = LayoutNode.surfacePrefix(sid)
+              cardAt(s.content, p, LayoutNode.rootId(p, s.content), gid)
             })
           )
           .flatMap(cards.get)
@@ -1216,16 +1377,18 @@ case class Dashboard(
     // The main layout, then every surface's content tree (so card refs / params
     // / slots / transforms inside popups are checked too). Surface errors are
     // prefixed with the surface id for locatability.
-    selfHoleErrors ++
+    authoredIdErrors ++
+      selfHoleErrors ++
       regionHoleErrors ++
       regionNameErrors ++
       chromeErrors ++
       danglingBakes ++
       activationErrors ++
       unboundConditions ++
-      walk(card, Nil) ++
+      walk(card, LayoutNode.rootId("", card)) ++
       surfaces.toList.sortBy(_._1).flatMap { case (sid, surface) =>
-        walk(surface.content, Nil).map(err => s"surface '$sid': $err")
+        walk(surface.content, LayoutNode.rootId("", surface.content))
+          .map(err => s"surface '$sid': $err")
       }
 
   /** Non-fatal problems worth telling the author about: unlike [[validate]]'s

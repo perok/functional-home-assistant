@@ -114,6 +114,21 @@ abstract class Node extends LayoutNode {
       v is slotMod.Slot && v.reactive && (v.entityId != null ||
         (containsKey("entity_id") && this["entity_id"] is String)))
   ) = new {}
+  /// An id of the author's choosing, replacing the position-derived one for
+  /// this node AND rooting its descendants (`detail`, `detail_0`, …).
+  ///
+  /// Node ids are user-visible: a tab bar mirrors its own into the `ui.<id>`
+  /// URL param, and every signal a card owns is named after it. Positional ids
+  /// make both of those hostage to layout — insert a card above a tab bar and
+  /// every bookmark pointing at a tab stops resolving. Naming the node is how
+  /// an author says "this one's identity is mine, not the tree's".
+  ///
+  /// Rarely needed: leave it null and the id is derived, which is right for
+  /// almost everything. `Dashboard.validate` checks a name is a plain token,
+  /// is globally unique, and does not read as some other node's descendant —
+  /// the runtime decides ancestry by string prefix (`startsWith(id + "_")`),
+  /// which positional ids satisfy by construction and authored ones can break.
+  id: String? = null
   // Widened to LayoutNode so a container can nest either a component or a
   // dynamic group.
   children: Listing<LayoutNode> = new {}

@@ -97,6 +97,53 @@ class BuildPhaseSuite extends munit.FunSuite {
     assert(!errs.exists(_.contains("'fh-cols-3'")), clue = errs)
   }
 
+  /** The payoff for authoring an id, in the place it is most useful: an inline
+    * popup's surface id stops being positional.
+    *
+    * `openPopupInline` mints `surfaces["<nodeId>_self"]`, so with a derived id
+    * the popup is `c_0_self` and moving the button that defines it renames it.
+    * Naming the button pins it — which is also what makes it referenceable from
+    * elsewhere at all, since `@@NODE_ID@@` only ever resolves to a node's OWN
+    * id and so cannot be used to point at someone else's popup.
+    */
+  test("hoistInlineSurfaces keys an inline surface off an AUTHORED node id") {
+    def hoist(idField: String) = DashboardBuild
+      .hoistInlineSurfaces(
+        parser
+          .parse(s"""
+            { "cards": {}, "card": {
+                "kind": "component", "card": "fhcol",
+                "children": [
+                  { "kind": "component", "card": "card" },
+                  { "kind": "component", "card": "button"$idField,
+                    "slots": { "onclick": "open @@NODE_ID@@_self" },
+                    "inlineSurfaces": { "self": {
+                      "content": { "kind": "component", "card": "card" } } } }
+                ] } }
+          """)
+          .toOption
+          .get
+      )
+
+    // Derived: positional, and the second child's index is in the name.
+    assertEquals(
+      hoist("").hcursor.downField("surfaces").keys.map(_.toList),
+      Some(List("c_1_self"))
+    )
+    // Authored: the name is the author's, and the onclick was spliced with it.
+    val named = hoist(""", "id": "quickInfo"""")
+    assertEquals(
+      named.hcursor.downField("surfaces").keys.map(_.toList),
+      Some(List("quickInfo_self"))
+    )
+    assert(
+      named.noSpaces.contains("open quickInfo_self"),
+      clue = named.noSpaces
+    )
+    // Nothing unresolved is left behind either way.
+    assertEquals(DashboardBuild.unresolvedTokens(named), Nil)
+  }
+
   test("hoistInlineSurfaces lifts an inline surface and splices the node id") {
     // The node already carries the authored onclick referencing the future id
     // via the NODE token; the hoist only lifts the content + splices the id.

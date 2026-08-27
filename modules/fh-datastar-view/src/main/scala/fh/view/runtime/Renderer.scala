@@ -109,16 +109,13 @@ class Renderer(
     * (empty for the main page, `s_<id>__` for a surface).
     */
   private class Index(root: LayoutNode, val idPrefix: String) {
-    val indexed: Map[NodeId, (LayoutNode, List[LayoutNode.Step])] = {
-      def walk(
-          node: LayoutNode,
-          path: List[LayoutNode.Step]
-      ): List[(NodeId, (LayoutNode, List[LayoutNode.Step]))] = {
-        val self = LayoutNode.nodeId(idPrefix, path) -> (node, path)
+    val indexed: Map[NodeId, LayoutNode] = {
+      def walk(node: LayoutNode, id: NodeId): List[(NodeId, LayoutNode)] = {
+        val self = id -> node
         node match {
           case c: LayoutNode.Component =>
             self :: LayoutNode.steps(c.children).flatMap { case (step, ch) =>
-              walk(ch, path :+ step)
+              walk(ch, LayoutNode.childId(idPrefix, id, step, ch))
             }
           // A member container is a LEAF of the static index: its children are
           // members, addressed by `memberId` rather than by a path (see
@@ -126,12 +123,12 @@ class Renderer(
           case _: LayoutNode.SetNode => List(self)
         }
       }
-      walk(root, Nil).toMap
+      walk(root, LayoutNode.rootId(idPrefix, root)).toMap
     }
 
     val byEntity: Map[String, Set[NodeId]] =
       indexed.toList
-        .collect { case (id, (c: LayoutNode.Component, _)) => id -> c }
+        .collect { case (id, c: LayoutNode.Component) => id -> c }
         .flatMap { case (id, c) => c.liveEntities.map(_ -> id) }
         .groupMap(_._1)(_._2)
         .view
@@ -203,10 +200,9 @@ class Renderer(
       sid -> new Index(s.content, Renderer.surfacePrefix(sid))
     }
 
-  private val allIndexed
-      : Map[NodeId, (LayoutNode, List[LayoutNode.Step], String)] =
+  private val allIndexed: Map[NodeId, (LayoutNode, String)] =
     (mainIndex :: surfaceIndexes.values.toList).flatMap { idx =>
-      idx.indexed.map { case (id, (n, p)) => id -> (n, p, idx.idPrefix) }
+      idx.indexed.map { case (id, n) => id -> (n, idx.idPrefix) }
     }.toMap
 
   private val prefixToRoot: Map[String, String] =
@@ -218,7 +214,7 @@ class Renderer(
     * rather than either of them being handed the index itself.
     */
   private val rootOfIndexed: Map[NodeId, String] =
-    allIndexed.view.mapValues { case (_, _, prefix) =>
+    allIndexed.view.mapValues { case (_, prefix) =>
       prefixToRoot(prefix)
     }.toMap
 
@@ -232,7 +228,7 @@ class Renderer(
     * write `renderer.members.affectedSets(…)` puts the seam in the call site.
     */
   private[runtime] val members: MemberGraph = new MemberGraph(
-    allIndexed.collect { case (id, (s: LayoutNode.SetNode, _, _)) => id -> s },
+    allIndexed.collect { case (id, (s: LayoutNode.SetNode, _)) => id -> s },
     rootOfIndexed
   )
 
@@ -260,8 +256,8 @@ class Renderer(
     */
   def entitiesForNode(id: NodeId): List[String] =
     allIndexed.get(id) match {
-      case Some((c: LayoutNode.Component, _, _)) => c.liveEntities
-      case _                                     => members.liveEntitiesOf(id)
+      case Some((c: LayoutNode.Component, _)) => c.liveEntities
+      case _                                  => members.liveEntitiesOf(id)
     }
 
   /** Whether this dashboard names `entityId` at all — the bound an action POST
@@ -382,7 +378,13 @@ class Renderer(
       states: Map[String, EntityState],
       uiState: Map[String, String] = Map.empty
   ): Traced =
-    traced(dashboard.card, Nil, "", states, uiState)
+    traced(
+      dashboard.card,
+      LayoutNode.rootId("", dashboard.card),
+      "",
+      states,
+      uiState
+    )
 
   /** The style sits BEFORE the chrome, so every patch target inside it can be
     * repainted without re-sending the CSS.
@@ -455,7 +457,13 @@ class Renderer(
       uiState: Map[String, String] = Map.empty
   ): Option[Traced] =
     dashboard.surfaces.get(surfaceId).map { s =>
-      traced(s.content, Nil, Renderer.surfacePrefix(surfaceId), states, uiState)
+      traced(
+        s.content,
+        LayoutNode.rootId(Renderer.surfacePrefix(surfaceId), s.content),
+        Renderer.surfacePrefix(surfaceId),
+        states,
+        uiState
+      )
     }
 
   /** `uiState` is threaded through so a node that owns a bake group — a `tabs`
@@ -488,19 +496,26 @@ class Renderer(
       // made structural rather than enforced by suppression: the fragment
       // simply cannot carry what the mount holds. Children DO ride along — a
       // tab bar's buttons are the card's own rendering, not mounted content.
-      case (c: LayoutNode.Component, path, prefix) if hasSelf(c.card) =>
+      case (c: LayoutNode.Component, prefix) if hasSelf(c.card) =>
         renderTemplateOf(
           templates.selves(c.card),
           structuralVars(id) ++ resolveBakeTraced(id, uiState, states)._2,
           c.slots,
           Renderer.perRegion(c.children)((child, step) =>
-            render(child, path :+ step, prefix, states, uiState, form)
+            render(
+              child,
+              LayoutNode.childId(prefix, id, step, child),
+              prefix,
+              states,
+              uiState,
+              form
+            )
           ),
           states,
           form
         )
-      case (node, path, prefix) =>
-        render(node, path, prefix, states, uiState, form)
+      case (node, prefix) =>
+        render(node, id, prefix, states, uiState, form)
     }
 
   /** `s_<sid>__c` — what a state group's mount holds, and so what a flip
@@ -639,7 +654,7 @@ class Renderer(
     */
   private def hasOwnRendering(id: NodeId): Boolean =
     allIndexed.get(id).exists {
-      case (c: LayoutNode.Component, _, _) =>
+      case (c: LayoutNode.Component, _) =>
         // What `renderNodeById` would produce: a card with a `self` renders
         // that element and nothing else — the self holds no hole, so its bytes
         // cannot contain a child's, whatever those children carry. Anything
@@ -647,7 +662,7 @@ class Renderer(
         if (hasSelf(c.card)) true else !carriesMount(c)
       // A member container composes its members and renders nothing of its
       // own; the members are the log keys.
-      case (_: LayoutNode.SetNode, _, _) => false
+      case (_: LayoutNode.SetNode, _) => false
     }
 
   /** Whether rendering this node in FULL — as a parent's markup embeds it —
@@ -681,7 +696,7 @@ class Renderer(
     */
   def patchTargetId(id: NodeId): DomId =
     allIndexed.get(id) match {
-      case Some((c: LayoutNode.Component, _, _)) if hasSelf(c.card) =>
+      case Some((c: LayoutNode.Component, _)) if hasSelf(c.card) =>
         Renderer.selfElementId(id)
       case _ => elementId(id)
     }
@@ -869,19 +884,19 @@ class Renderer(
 
   private def ownBytesCarryChildren(id: NodeId): Boolean =
     allIndexed.get(id).exists {
-      case (c: LayoutNode.Component, _, _) => c.allChildren.nonEmpty
-      case _                               => false
+      case (c: LayoutNode.Component, _) => c.allChildren.nonEmpty
+      case _                            => false
     }
 
   private def render(
       node: LayoutNode,
-      path: List[LayoutNode.Step],
+      id: NodeId,
       idPrefix: String,
       states: Map[String, EntityState],
       uiState: Map[String, String],
       form: SlotForm
   ): String = {
-    val t = traced(node, path, idPrefix, states, uiState)
+    val t = traced(node, id, idPrefix, states, uiState)
     if (form.isPatch) t.patch else t.html
   }
 
@@ -910,22 +925,22 @@ class Renderer(
 
   private def traced(
       node: LayoutNode,
-      path: List[LayoutNode.Step],
+      id: NodeId,
       idPrefix: String,
       states: Map[String, EntityState],
       uiState: Map[String, String]
   ): Traced =
     node match {
       case c: LayoutNode.Component =>
-        val id = LayoutNode.nodeId(idPrefix, path)
         // Per REGION, because each hole is spliced with its own children and a
         // child's step names the region it sits in.
         val kidsByRegion: Map[String, List[Traced]] =
           c.children.map { case (region, nodes) =>
             region -> nodes.zipWithIndex.map { case (child, i) =>
+              val step = LayoutNode.Step(region, i)
               traced(
                 child,
-                path :+ LayoutNode.Step(region, i),
+                LayoutNode.childId(idPrefix, id, step, child),
                 idPrefix,
                 states,
                 uiState
@@ -1033,20 +1048,22 @@ class Renderer(
       case s: LayoutNode.SetNode =>
         // The match IS the proof: this node is a `SetNode`, which is exactly
         // the evidence `MemberGraph` mints its root [[SetId]]s from.
-        val id = SetId.of(LayoutNode.nodeId(idPrefix, path), s)
-        val document = renderSet(id, s.cell, states, SlotForm.Document)
+        val setId = SetId.of(id, s)
+        val document = renderSet(setId, s.cell, states, SlotForm.Document)
         Traced(
           document,
           // A set root has no rendering of its own and is never a patch target,
           // so its two forms are only ever embedded in an ancestor's. Rendering
           // the patch one is worth it exactly when a member has a signal slot.
           if (
-            members.membersOf(id, states).exists(m => declaresSignals(m.node))
+            members
+              .membersOf(setId, states)
+              .exists(m => declaresSignals(m.node))
           )
-            renderSet(id, s.cell, states, SlotForm.Patch)
+            renderSet(setId, s.cell, states, SlotForm.Patch)
           else document,
           members
-            .membersOf(id, states)
+            .membersOf(setId, states)
             .map { m =>
               m.id -> Painted(
                 renderMember(m, states, SlotForm.Patch),

@@ -206,6 +206,12 @@ object DashboardBuild {
       obj => Json.fromJsonObject(obj.mapValues(splice(_, token, value)))
     )
 
+  // A node's authored `id`, if it declared one — the same field
+  // `LayoutNode.Component.id` decodes. Read off the JSON because this pass runs
+  // before decoding.
+  private def authoredIdOf(node: Json): Option[String] =
+    node.asObject.flatMap(_("id")).flatMap(_.asString)
+
   // Keep only the surface's own fields (content + optional bakeInto/bakeAs/bakeIndex/activation).
   // The host is derived (Surface.hostId), not authored, so "mount" is not lifted;
   // chrome/stack are gone too — every surface is chrome-less (Surface's final 5 fields).
@@ -245,7 +251,10 @@ object DashboardBuild {
           obj0(ChildrenKey).flatMap(_.asArray) match {
             case Some(arr) =>
               val rs = arr.zipWithIndex.map { case (ch, i) =>
-                walk(ch, s"${idBase}_$i")
+                // An AUTHORED id replaces the position-derived one here too, or
+                // this pass would key a node's inline surfaces off an id the
+                // renderer never uses.
+                walk(ch, authoredIdOf(ch).getOrElse(s"${idBase}_$i"))
               }
               (
                 obj0.add(ChildrenKey, Json.fromValues(rs.map(_._1))),

@@ -557,6 +557,46 @@ plan gives. What it misses is `{{#children}}`, which is exactly what `Tabs` does
   Plus the leftover-token check, which belongs here because it is the same "a build step did not
   run and nothing said so" failure.
 
+  **Correction to the count above.** The six "popup callers" are `inlineSurfaces =
+  tapAction.inlineSurfaces` — a `TapAction` cannot reach its node's `inlineSurfaces`, so every
+  tappable card forwards it. That is one producer (`openPopupInline`) plumbed through six cards, not
+  six users. Counting pipes as users is what made absorption look expensive.
+
+  It stays out of 1e anyway, for a better reason: `inlineSurfaces` conflates two relationships.
+  **Owned** content (a tab panel, an `If` branch) is part of the node's definition and only the node
+  references it — that belongs in the node's baked region. A **triggered** popup is a
+  dashboard-level thing any number of triggers open; giving it a node-derived identity is what makes
+  it unshareable, because `@@NODE_ID@@` resolves only to a node's OWN id, so no second button can
+  name it. Sharing already works the other way: `surfaces { ["detail"] { … } }` +
+  `openPopup("detail")`, which the demo entry uses. So `inlineSurfaces` buys locality, not sharing.
+
+  1f makes that locality cost nothing: name the node and its inline popup's id stops being
+  positional. Moving the owned surfaces into their regions is still worth doing, as its own change,
+  and now for the right reason — ownership, not tidiness.
+
+- **1f — an author may name a node.** `LayoutNode.Component.id` replaces the position-derived id for
+  that node and roots its descendants (`panel`, `panel_0`, …). Opt-in and rare: leave it unset and
+  nothing changes.
+
+  Worth having because node ids are **user-visible and layout-hostage**. A tab bar mirrors its own
+  id into `ui.<id>`, and every signal a card owns is named after it — so inserting a card above a
+  tab bar breaks every bookmark pointing at a tab. That is the class of breakage 1d's id decision
+  called "accepted"; naming the node removes it rather than shrinking it.
+
+  **The validation is not "unique", and that is the interesting part.** The runtime reads tree
+  ancestry off the id STRING — `FragmentLog.invalidateWhere(k.startsWith(container + "_"))`, the
+  same shape in `Patches` for what a patch displaced, and in `MemberGraph` for which set a node sits
+  under. Positional ids satisfy it by construction: `c_3` prefixes `c_3_0` and nothing else.
+  Authored ones need not — name one node `detail` and another `detail_0` and the second READS as a
+  child of the first, so invalidating `detail` silently takes `detail_0` with it. Both are unique;
+  both are sane tokens. So `validate` checks that **prefix-ancestry and tree-ancestry agree**, which
+  is exactly decidable once every id is known.
+
+  Two more rules fall out. An authored id inside a candidate set's CLAUSE is rejected: a clause is
+  instantiated once per member, so every member would claim the name. And an authored id keeps its
+  surface's `s_<sid>__` prefix — `Renderer.prefixToRoot` works out which surface a node belongs to
+  from that prefix, so an id that dropped it would be unattributable.
+
 1a is worth doing alone regardless of how the rest is cut: it is the safety property, it is small,
 and it moves a stringly-typed runtime check into the type system.
 

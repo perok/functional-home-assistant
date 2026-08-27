@@ -1089,6 +1089,70 @@ class RendererSuite extends munit.FunSuite {
     assert(html.contains("""id="c_extra_0""""), clue = html)
   }
 
+  /** An authored id replaces the derived one AND roots what is under it — that
+    * is the whole point. A node id reaches users (`ui.<id>` tab state) and
+    * names every signal a card owns, so an author can pin one instead of
+    * letting layout decide it: insert a card above a tab bar and every bookmark
+    * pointing at a tab stops resolving.
+    */
+  test("an authored node id replaces the derived one, descendants included") {
+    val d = Dashboard(
+      cards,
+      col(
+        LayoutNode.Component("card", slots = Map("state" -> lit("first"))),
+        LayoutNode.Component(
+          "col",
+          children = LayoutNode
+            .kids(LayoutNode.Component("card", Map("state" -> lit("inner")))),
+          id = Some("panel")
+        )
+      )
+    )
+    assertEquals(d.validate(), Nil)
+    val html = Renderer.create(d).renderBody(Map.empty)
+
+    assert(html.contains("""id="panel""""), clue = html)
+    // Rooted: the child is under the NAME, not under the position.
+    assert(html.contains("""id="panel_0""""), clue = html)
+    assert(!html.contains("""id="c_1""""), clue = "c_1 was replaced by 'panel'")
+    // Its unnamed sibling is untouched — naming is per node, not a mode.
+    assert(html.contains("""id="c_0""""), clue = html)
+  }
+
+  /** The rule that is not "unique", and the reason this feature needs checking
+    * at all: the runtime reads tree ancestry off the id STRING (`startsWith(id
+    * + "_")` in `FragmentLog`, `Patches`, `MemberGraph`). Positional ids
+    * satisfy that by construction; authored ones need not.
+    */
+  test("validate: an authored id may not read as another node's descendant") {
+    def two(a: String, b: String) = Dashboard(
+      cards,
+      col(
+        LayoutNode.Component("col", id = Some(a)),
+        LayoutNode.Component("col", id = Some(b))
+      )
+    )
+    // Both unique, both sane tokens — and still wrong: invalidating `detail`
+    // would silently take `detail_0` with it.
+    assert(
+      two("detail", "detail_0")
+        .validate()
+        .exists(_.contains("reads as a descendant")),
+      clue = two("detail", "detail_0").validate()
+    )
+    // Non-vacuous: unrelated names are fine, and so is a shared PREFIX that is
+    // not a whole segment boundary.
+    assertEquals(two("detail", "summary").validate(), Nil)
+    assertEquals(two("detail", "details").validate(), Nil)
+
+    // Duplicates and non-tokens.
+    assert(two("same", "same").validate().exists(_.contains("more than once")))
+    assert(
+      two("ok", "no-dashes").validate().exists(_.contains("plain token")),
+      clue = two("ok", "no-dashes").validate()
+    )
+  }
+
   test("validate: a region name that could be read as an index is rejected") {
     def card(region: String) = Dashboard(
       Map(
