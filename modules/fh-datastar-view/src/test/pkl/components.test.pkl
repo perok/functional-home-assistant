@@ -281,7 +281,11 @@ facts {
     cards["sectionTitle"].template.contains(#"<h2 class="section fh-text"><span class="fh-text-run">{{label}}</span></h2>"#)
     cards["pill"].template.contains(#"<span class="fh-text"><span class="fh-text-run">{{label}}</span></span>"#)
     cards["entityCard"].template.contains(#"<span class="secondary fh-text">"#)
-    cards["sliderHead"].template.contains(#"<strong class="fh-text">"#)
+    // A slider's text is `sliderText`'s, not `sliderHead`'s: the head holds
+    // regions now (#151), and a card that holds regions is never patched — so
+    // the two values here that move as bytes are their own node.
+    cards["sliderText"].template.contains(#"<strong class="fh-text"><span class="fh-text-run">{{label}}</span></strong>"#)
+    cards["sliderText"].template.contains(#"<span class="slider-sub fh-text"><span class="fh-text-run">{{secondary}}</span></span>"#)
     // A signal-backed reading binds on the RUN, not on the box: `data-text`
     // replaces an element's whole content, so binding the box would delete the
     // run on the first tick and the label would never move again.
@@ -428,5 +432,61 @@ facts {
     local card = (c.entityCard(kitchen)) |> c.informative
     card.inlineSurfaces["self"].content.children[0].children[0]
       .slots["entity_id"] == "light.kitchen"
+  }
+
+  ["a slider's head actions are NODES, so each owns its own busy signal"] {
+    // The reason #151 is a region and not a repeated slot. ADR 0019 allows one
+    // busy-guarded element per node, and the busy signal is named after the
+    // node — so two buttons sharing the head's id could only ever arm one of
+    // them, and pressing either would disable both.
+    local row = (c.slider(kitchen))
+      .tapAction(c.tap.toggle)
+      .actions(List(
+        c.sliderAction(kitchen, c.moreInfo(kitchen))
+          .icon("mdi:information").lit(false)
+      ))
+    local acts = row.children["head"][0].children["actions"]
+    acts.length == 2
+    // `tapAction` stays FIRST — it is the shorthand for the button this card
+    // has always had, and adding a second must not move it.
+    acts[0].slots["icon"] == "mdi-power"
+    acts[1].slots["icon"] == "mdi-information"
+    // Each declares the guard, and the template names the node's own id — the
+    // renderer fills `{{id}}` per node, which is what makes the two distinct.
+    c.cards["sliderAction"].template.contains(#"data-indicator="_{{id}}__busy""#)
+    // `lit(false)` drops the class signal rather than binding a constant: a
+    // button that does not mean "this entity is on" should not light up.
+    acts[0].slots.containsKey("lit")
+    !acts[1].slots.containsKey("lit")
+    // A popup action carries its OWN surfaces, so the popup hangs off the
+    // button that opens it rather than off the slider.
+    acts[1].inlineSurfaces != null
+    row.inlineSurfaces == null
+  }
+
+  ["a slider with no actions still renders the strip, and the theme hides it"] {
+    // A card is ONE shape: its optional pieces are absent, not different. The
+    // strip is always in the markup and `:empty` is what removes it, the same
+    // way `.slider-members:empty` handles a member-less group.
+    local plain = c.slider(kitchen)
+    plain.children["head"][0].children["actions"].isEmpty
+    c.cards["sliderHead"].template.contains(#"<div class="slider-actions">"#)
+    c.cards["slider"].css.contains(".slider-actions:empty{display:none}")
+  }
+
+  ["the head is STRUCTURE, so nothing on it reads live as bytes"] {
+    // The invariant the split exists to keep (#151). A region-holding card is
+    // never a patch target, so a live bytes slot on it would never reach the
+    // DOM — `Dashboard.validate` rejects one, and `core/node.pkl` constrains
+    // `slots` so it fails in the author's editor first.
+    local head = (c.slider(kitchen)).children["head"][0]
+    head.cardDef.regions.keys == Set("text", "actions")
+    // Every live slot left on it carries a signal binding...
+    head.slots.toMap().values
+      .filter((v) -> v is slotMod.Slot && v.reads == "live")
+      .every((v) -> v.signal != null)
+    // ...and the label that stayed behind for the toggle's `aria-label` reads
+    // `onRender`: right whenever the card is drawn, never a reason to draw it.
+    head.slots["label"] is String || head.slots["label"].reads == "onRender"
   }
 }

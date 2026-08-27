@@ -31,6 +31,14 @@ class PklBuildSuite extends munit.FunSuite {
       .collectFirst { case c: LayoutNode.Component => c }
       .getOrElse(fail(s"card '${node.card}' has no head node"))
 
+  /** A slider's head buttons, in order — the `actions` region of its head. */
+  private def actionsOf(
+      node: LayoutNode.Component
+  ): List[LayoutNode.Component] =
+    rowOf(node).children.getOrElse("actions", Nil).collect {
+      case c: LayoutNode.Component => c
+    }
+
   /** Every card name reachable from a node, in document order. */
   private def cardNames(node: LayoutNode): List[String] =
     node match {
@@ -711,7 +719,11 @@ class PklBuildSuite extends munit.FunSuite {
       "slider" -> Nil,
       // No `state`: a slider that holds member rows omits the readout slot
       // entirely, and a declared slot is one EVERY node of the card must carry
-      // (`icon`/`secondary`/`onclick`/`group` are optional for the same reason).
+      // (`icon`/`group` are optional for the same reason).
+      //
+      // The head is STRUCTURE too now (#151) — a `text` region and an `actions`
+      // region — so `label` here is only the toggle variant's `aria-label`; the
+      // visible one is `sliderText`'s.
       "sliderHead" -> List(
         "label",
         "value",
@@ -721,6 +733,11 @@ class PklBuildSuite extends munit.FunSuite {
         "key",
         "entity_id"
       ),
+      // `secondary` is optional (a plain row carries none).
+      "sliderText" -> List("label", "entity_id"),
+      // `lit`/`busy`/`busyVisual` are optional: an action that does not mean
+      // "this entity is on", or whose tap does not guard, simply omits them.
+      "sliderAction" -> List("icon", "onclick", "entity_id"),
       "popup" -> Nil,
       "tabs" -> Nil,
       "ifhost" -> Nil
@@ -1626,7 +1643,13 @@ class PklBuildSuite extends munit.FunSuite {
       rowOf(group).slots("icon").literal,
       Some("mdi-lightbulb-group")
     )
-    assert(rowOf(group).slots.contains("onclick"), clue = group.slots.keySet)
+    // `tapAction` is now the one-button shorthand for the head's ACTIONS region
+    // (#151): the press lives on a node of its own, which is what gives it a
+    // busy signal nothing else shares.
+    val actions = actionsOf(group)
+    assertEquals(actions.map(_.card), List("sliderAction"))
+    assert(actions.head.slots.contains("onclick"), clue = actions.head.slots)
+    assertEquals(actions.head.slots("icon").literal, Some("mdi-power"))
 
     // The MEMBERS region specifically: `allChildren` would also hand back the
     // head, which is the point of the two regions.

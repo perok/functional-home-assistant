@@ -456,18 +456,46 @@ The test that matters is the property, not the deletion: **a patch for any node 
 that node alone.** A grouped slider nested inside a grouped slider, and a tab inside one, are the
 fixtures — under the old model those were the shapes that could smuggle a subtree into a fragment.
 
-## Step 3 — the slider head actions, the first consumer
+## Step 3 — the slider head actions, the first consumer — DONE
 
-- `Slider` declares a `headActions` region beside `head`; the head grid's last column becomes a
-  `.slider-actions` flex row carrying `pointer-events:auto` (the rule currently on `.slider-action`,
-  which stops being one element's business).
-- A new leaf card for the action itself — a circle icon button with the `lit` signal binding. `c.pill`
-  is the wrong reuse: it is a BeerCSS `.chip` with a label and a hardcoded `fh-hug` cell, with no icon
-  and no `lit`. It is right about the busy wiring, which the new card copies.
-- `tapAction` on the slider becomes sugar for a single-element `headActions` list, and the hardcoded
-  `{{#onclick}}…mdi-power…{{/onclick}}` fragment is deleted — one mechanism, not two.
-  **Behaviour change for the commit message:** that action's busy signal moves from the slider's
-  `_<id>__busy` to the action node's own. That is the point of the issue, but it is not a no-op.
+The region is on **`SliderHead`, not `Slider`**, and the plan was wrong about that. It said `Slider`
+declares `headActions` with `in = "self"` — but `in = "self"` was deleted by step 1a, and the buttons
+have to sit inside `.slider-head`, which is `SliderHead`'s markup. Issue #151 had already named this
+as its open question ("does the slider head become a container in its own right?"). It does.
+
+What made that possible was **narrowing the structure rule, which was over-broad and said so itself**:
+`structureLiveSlotErrors` advised "make the slot a signal slot" and then rejected exactly that, since
+`liveEntities` counts a signal slot like any other. The runtime agreed in the half that would have
+been silent — the seed rides the `.fh-cell` wrapper, which structure has, but `signalsFor` gated on
+`hasOwnRendering`, so a signal on structure would have been right on page load and frozen after.
+Both halves moved together; the rule now covers what it protects, a live slot carrying **bytes**.
+(`wrapAsCell = false` stays strict: no wrapper, no seed.)
+
+That matters because the slider's head is almost entirely signals and literals. Only `label` and
+`secondary` are live bytes — so:
+
+- **`SliderHead` holds two regions**, `text` and `actions`, and keeps the icon, the readout, the
+  track and the toggle as its own signal/literal slots. Its `label` slot survives as the toggle
+  variant's `aria-label`, read `onRender`.
+- **`SliderText`** is the label and its second line: the only bytes on the row that move, and now the
+  only thing a rename repaints.
+- **`SliderAction`** is one circle icon button with the `lit` class-signal binding. `c.pill` was the
+  wrong reuse (a BeerCSS `.chip` with a label, a hardcoded `fh-hug` cell, no icon, no `lit`); it was
+  right about the busy wiring, which this copies.
+- `.slider-actions` is a flex strip carrying `pointer-events:auto` (the rule that was on
+  `.slider-action`, which stopped being one element's business) and `:empty` for a plain row. Both
+  new cells are `display:contents`, so the group's grid still places `strong`, `.slider-sub` and the
+  strip; those selectors gained one step each.
+- `.actions(…)` is the list; `.tapAction(…)` is the one-button shorthand, still first, and the
+  hardcoded `{{#onclick}}…mdi-power…{{/onclick}}` fragment is gone — one mechanism, not two.
+
+**Behaviour change:** that action's busy signal moved from `_c_…_head_0__busy` to the action node's
+own `_c_…_head_0_actions_0__busy`. That is the point of the issue, and it is not a no-op. It is also
+what makes more than one button possible at all: ADR 0019 allows one guarded element per node, so
+buttons sharing the head's id could only ever have armed one of them.
+
+`Slider.inlineSurfaces` is gone with it — every tap the card can make is an action node now, and each
+carries its own, so the popup hangs off the button that opens it.
 
 ## Step 4 — the docs
 
