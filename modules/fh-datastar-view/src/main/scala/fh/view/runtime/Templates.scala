@@ -9,18 +9,15 @@ import fh.view.model.{CardDef, Dashboard}
   * Missing slots render as empty strings rather than throwing.
   *
   * @param components
-  *   the whole card, `{{{self}}}`/`{{{mount}}}` holes included — the document
+  *   the whole card, `{{{self}}}` and every region hole included — the document
   *   path.
   * @param selves
-  *   the `self` part of a container that declares one — what the patch path
-  *   renders, and the predicate deciding which path a node takes.
-  * @param mounts
-  *   the `mount` part, rendered only by the document path and by a fill.
+  *   the `self` part of a card that declares one — what the patch path renders,
+  *   and the predicate deciding which path a node takes.
   */
 class Templates private (
     val components: Map[String, Template],
-    val selves: Map[String, Template],
-    val mounts: Map[String, Template]
+    val selves: Map[String, Template]
 )
 
 object Templates {
@@ -44,8 +41,7 @@ object Templates {
         .toMap,
       // Compiled alongside `template`, so the patch path is a lookup rather
       // than a re-parse on the hot path.
-      selves = part(dashboard, _.self),
-      mounts = part(dashboard, _.mount)
+      selves = part(dashboard, _.self)
     )
 
   private def part(

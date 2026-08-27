@@ -519,9 +519,20 @@ plan gives. What it misses is `{{#children}}`, which is exactly what `Tabs` does
   plus the `hasOwnRendering` clause that consumes it are deleted — the runtime grep is replaced by
   a build-time type refinement. **No model change, no renaming, no id change.** Ends at the
   checkpoint: `Slider` is the only card with a `self`, and it holds no hole.
-- **1b — regions.** `children` becomes a region map, `mount` renamed, `ContainerCard`/`LeafCard`
-  merged.
-- **1c — ids.** Region-qualified node ids and the tab-state URL breakage.
+- **1b — regions, CARD side.** `CardDef.mount` becomes `regions: Map[String, Region]` with the hole
+  moved into `template`; `ContainerCard`/`LeafCard` merge; `{{mountId}}` becomes `{{hostId}}`, which
+  is what the renderer already called it (`Surface.hostId`). The node side is untouched — `children`
+  stays a `List` filling the single declared eager region. Cut here because the counts said so:
+  `mount = Some` is 20 test sites, `children = List` is 28+ across more files, so this is the
+  smaller half and it is behaviour-preserving.
+- **1c — regions, NODE side.** `children` becomes a region map and ids get region-qualified, with
+  the tab-state URL breakage. This is where a card can finally hold TWO eager regions, which is what
+  #151 needs. It also carries the rule 1b deliberately left out: **a template that splices
+  `{{#children}}` must declare a region for it.** Until then `isStructure` is not quite the single
+  source of truth — `carriesMount`'s recursion still covers the actual safety property, so nothing
+  is unsafe, but leaf-vs-structure is not yet fully derivable from the card alone. Deferred because
+  that rule forces every `{{#children}}`-splicing fixture to name its region, which is the churn 1c
+  is already paying.
 - **1d — surfaces.** `inlineSurfaces` absorbed into the baked region; the only cut that touches
   `DashboardBuild`'s splice branch, so the leftover-token check lands here.
 

@@ -12,10 +12,11 @@ import "core/node.pkl" as nodes
 // the literal slot key `"class"` that the `{{#class}}` template sections read.
 class Row extends nodes.Node {
   card = "fhrow"
-  // Pure mount: the row IS where its children go, so there is no `self` and
-  // `template` stays the default. No id — nothing fills a row from outside.
-  cardDef = new nodes.ContainerCard {
-    mount = """
+  // Pure structure: the row IS where its children go, so there is no `self`.
+  // No id on the hole — nothing fills a row from outside.
+  cardDef = new nodes.CardDef {
+    regions = new Mapping { ["children"] = new nodes.Region {} }
+    template = """
       <div class="fh-row{{#class}} {{class}}{{/class}}">{{#children}}{{{html}}}{{/children}}</div>
       """
   }
@@ -39,8 +40,9 @@ hidden row: Row = new Row {}
 
 class Column extends nodes.Node {
   card = "fhcol"
-  cardDef = new nodes.ContainerCard {
-    mount = """
+  cardDef = new nodes.CardDef {
+    regions = new Mapping { ["children"] = new nodes.Region {} }
+    template = """
       <div class="fh-col{{#class}} {{class}}{{/class}}">{{#children}}{{{html}}}{{/children}}</div>
       """
   }
@@ -64,8 +66,9 @@ hidden column: Column = new Column {}
 /// layout contract CSS lives in lib/theme.pkl.
 class Grid extends nodes.Node {
   card = "fhgrid"
-  cardDef = new nodes.ContainerCard {
-    mount = """
+  cardDef = new nodes.CardDef {
+    regions = new Mapping { ["children"] = new nodes.Region {} }
+    template = """
       <div class="fh-grid{{#class}} {{class}}{{/class}}">{{#children}}{{{html}}}{{/children}}</div>
       """
   }

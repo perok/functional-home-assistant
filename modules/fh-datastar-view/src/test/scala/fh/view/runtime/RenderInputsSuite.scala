@@ -10,6 +10,7 @@ import fh.view.model.{
   NodeId,
   Op,
   Predicate,
+  Region,
   SlotSource,
   Surface
 }
@@ -50,11 +51,12 @@ class RenderInputsSuite extends munit.FunSuite {
     // `bakeIndex` — the shape where both halves of the key are load-bearing at
     // once.
     "banner" -> CardDef(
-      template = """<div>{{{self}}}{{{mount}}}</div>""",
+      template =
+        """<div>{{{self}}}<div id="{{hostId}}">{{{branch}}}</div></div>""",
       self = Some(
         """<div id="{{selfId}}"><b>{{title}}</b><i>{{bakeIndex}}</i></div>"""
       ),
-      mount = Some("""<div id="{{mountId}}">{{{branch}}}</div>"""),
+      regions = Map("branch" -> Region(Region.Baked)),
       slots = List("title")
     ),
     "btn" -> CardDef("""<button>{{label}}</button>""", slots = List("label"))

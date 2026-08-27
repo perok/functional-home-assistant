@@ -22,7 +22,7 @@ import "../layout.pkl" as layout
 /// choice as PENDING — the committed `ui_<id>` is the server's to write.
 class TabButton extends nodes.Node {
   card = "tab"
-  cardDef = new nodes.LeafCard {
+  cardDef = new nodes.CardDef {
     template = #"<a data-on:click="{{{onclick}}}" data-class="{active: {{{active}}}}">{{label}}</a>"#
     slots { "label"; "onclick"; "active" }
     // Deliberately NOT a `core/text.pkl` box: the bar scrolls sideways, so a tab
@@ -96,15 +96,16 @@ class Tabs extends nodes.Node {
   // given (`Renderer.traced` composes with `vars = structuralVars ++ bakeIndex
   // ++ baked`), so moving it out of the `self` changes no bytes.
   //
-  // `{{mountId}}` replaces the hand-derived `{{id}}_panel`: it resolves to
+  // `{{hostId}}` replaces the hand-derived `{{id}}_panel`: it resolves to
   // `Surface.hostId`, the same string the backend addresses, so Pkl and Scala
   // stop agreeing by convention.
-  cardDef = new nodes.ContainerCard {
+  cardDef = new nodes.CardDef {
+    regions = new Mapping {
+      ["children"] = new nodes.Region {}
+      ["panel"] = new nodes.Region { fill = "baked" }
+    }
     template = """
-      <div class="fh-col"><div class="tabs" data-signals__ifmissing="{ ui_{{id}}: {{bakeIndex}}, \(tapMod.pendingSeedEntry("{{id}}")) }" \(tapMod.pendingClear("{{id}}")) \(tapMod.pendingFail("{{id}}"))>{{#children}}{{{html}}}{{/children}}</div>{{{mount}}}</div>
-      """
-    mount = """
-      <div id="{{mountId}}" class="tab-panel" data-effect="fhUrl('ui.{{id}}', $ui_{{id}})">{{{panel}}}</div>
+      <div class="fh-col"><div class="tabs" data-signals__ifmissing="{ ui_{{id}}: {{bakeIndex}}, \(tapMod.pendingSeedEntry("{{id}}")) }" \(tapMod.pendingClear("{{id}}")) \(tapMod.pendingFail("{{id}}"))>{{#children}}{{{html}}}{{/children}}</div><div id="{{hostId}}" class="tab-panel" data-effect="fhUrl('ui.{{id}}', $ui_{{id}})">{{{panel}}}</div></div>
       """
     // The panel host is a patch target that must not be a box: the selected
     // tab's own layout is what should reach the surrounding column.
@@ -194,16 +195,17 @@ const local function stateActivation(p: pred.Predicate): surfaceMod.StateActivat
 /// bakes empty; nesting an If inside `else` is the else-if story.
 class If extends nodes.Node {
   card = "ifhost"
-  // Pure mount: one `{{{branch}}}` bake hole (the selected member's rendered
-  // content, injected by the backend like the tabs `{{{panel}}}` — not a
-  // declared slot). No `self` at all — an If has no presentation of its own, so
+  // Pure structure: one BAKED region, `branch` (the selected member's rendered
+  // content, injected by the backend like the tabs `panel` — not a declared
+  // slot). No `self` at all — an If has no presentation of its own, so
   // there is nothing about it that could change without its content changing.
   // `fh-ifhost` exists so the layout can collapse an unmatched conditional. With
   // no matching branch the bake hole is the empty string, and without the class
   // the surrounding `fh-cols-full` cell still claimed a full-width flex line —
   // one band of dead vertical space per hidden `If`. See `theme.layoutCss`.
-  cardDef = new nodes.ContainerCard {
-    mount = #"<div class="fh-ifhost" id="{{mountId}}">{{{branch}}}</div>"#
+  cardDef = new nodes.CardDef {
+    regions = new Mapping { ["branch"] = new nodes.Region { fill = "baked" } }
+    template = #"<div class="fh-ifhost" id="{{hostId}}">{{{branch}}}</div>"#
   }
   // A conditional SECTION, sized like one; its content's own layout stays the
   // branch `Row`'s business. (Layout transparency was considered and dropped:

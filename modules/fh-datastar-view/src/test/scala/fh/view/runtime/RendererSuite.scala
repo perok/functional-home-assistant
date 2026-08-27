@@ -8,6 +8,7 @@ import fh.view.model.{
   LayoutNode,
   Op,
   Predicate,
+  Region,
   SlotSource,
   Surface,
   Theme
@@ -53,10 +54,9 @@ class RendererSuite extends munit.FunSuite {
     // that survives: a self beside the mount, holding no hole.
     "tabs" -> CardDef(
       template = """<div class="fh-col"><div class="fh-row tabbar">""" +
-        """{{#children}}{{{html}}}{{/children}}</div>{{{mount}}}</div>""",
-      mount = Some(
-        """<div id="{{mountId}}" class="tab-panel" data-signals="{ tab_{{id}}: {{bakeIndex}} }">{{{panel}}}</div>"""
-      )
+        """{{#children}}{{{html}}}{{/children}}</div>""" +
+        """<div id="{{hostId}}" class="tab-panel" data-signals="{ tab_{{id}}: {{bakeIndex}} }">{{{panel}}}</div></div>""",
+      regions = Map("children" -> Region(), "panel" -> Region(Region.Baked))
     ),
     // Like `tabs`, but the bake-owning component ALSO binds a live entity via a
     // `{{title}}` slot — so it is morph-wrapped and re-rendered on that entity's
@@ -65,13 +65,12 @@ class RendererSuite extends munit.FunSuite {
     // ("a tab bar with the current temperature in its header"). Its patch is the
     // `self` alone, so a title tick cannot re-render the panel.
     "tabsLive" -> CardDef(
-      template = """<div>{{{self}}}{{{mount}}}</div>""",
+      template = """<div>{{{self}}}""" +
+        """<div id="{{hostId}}" data-signals="{ tab_{{id}}: {{bakeIndex}} }">{{{panel}}}</div></div>""",
       self = Some(
         """<div id="{{selfId}}" class="tabs"><span>{{title}}</span></div>"""
       ),
-      mount = Some(
-        """<div id="{{mountId}}" data-signals="{ tab_{{id}}: {{bakeIndex}} }">{{{panel}}}</div>"""
-      ),
+      regions = Map("panel" -> Region(Region.Baked)),
       slots = List("title")
     )
   )
@@ -961,6 +960,57 @@ class RendererSuite extends munit.FunSuite {
     )
   }
 
+  /** A region and the hole it fills are one fact written twice, and a
+    * disagreement between them is silent both ways round: the declared region
+    * renders nowhere, or the hole renders empty forever. So `validate` asks
+    * that they agree, rather than the renderer discovering it at paint time.
+    */
+  test(
+    "validate: a declared region whose template places no hole is rejected"
+  ) {
+    def dash(card: CardDef) =
+      Dashboard(Map("box" -> card), LayoutNode.Component("box"))
+
+    // The two fills place DIFFERENT holes, so each has to be checked against
+    // its own spelling — a single "does the name appear" test would pass both
+    // of these while neither renders.
+    val eagerMissing = dash(
+      CardDef("<div>nothing</div>", regions = Map("kids" -> Region()))
+    )
+    assert(
+      eagerMissing
+        .validate()
+        .exists(e => e.contains("kids") && e.contains("{{#kids}}")),
+      clue = eagerMissing.validate()
+    )
+
+    val bakedWrongHole = dash(
+      CardDef(
+        // A SECTION where the baked region needs a raw var: the likeliest
+        // real mistake, and it renders nothing.
+        "<div>{{#panel}}{{{html}}}{{/panel}}</div>",
+        regions = Map("panel" -> Region(Region.Baked))
+      )
+    )
+    assert(
+      bakedWrongHole
+        .validate()
+        .exists(e => e.contains("panel") && e.contains("{{{panel}}}")),
+      clue = bakedWrongHole.validate()
+    )
+
+    // Non-vacuous: both spellings, placed correctly, are accepted.
+    assertEquals(
+      dash(
+        CardDef(
+          """<div>{{#kids}}{{{html}}}{{/kids}}<i id="{{hostId}}">{{{panel}}}</i></div>""",
+          regions = Map("kids" -> Region(), "panel" -> Region(Region.Baked))
+        )
+      ).validate(),
+      Nil
+    )
+  }
+
   test(
     "validate: a non-empty theme.chrome lacking id=\"dashboard\" is a hard error"
   ) {
@@ -1137,8 +1187,8 @@ class RendererSuite extends munit.FunSuite {
     // presentation of its own. The cell wrapper (which the backend owns) is the
     // node's id'd element; the mount's id is `Surface.hostId`.
     cards + ("ifhost" -> CardDef(
-      template = "{{{self}}}{{{mount}}}",
-      mount = Some("""<div id="{{mountId}}">{{{branch}}}</div>""")
+      template = """<div id="{{hostId}}">{{{branch}}}</div>""",
+      regions = Map("branch" -> Region(Region.Baked))
     ))
 
   /** An If/else dashboard: an `ifhost` root (id "c") whose `then` member (a
@@ -1290,16 +1340,15 @@ class RendererSuite extends munit.FunSuite {
     */
   test("a node whose CHILDREN carry a mount has no rendering of its own") {
     def dash(container: CardDef) = Dashboard(
-      cards =
-        Map(
-          "box" -> container,
-          "card" -> CardDef("<span>{{state}}</span>", slots = List("state")),
-          "tabs" -> CardDef(
-            template = "{{{self}}}{{{mount}}}",
-            self = Some("""<div id="{{selfId}}">bar</div>"""),
-            mount = Some("""<div id="{{mountId}}">{{{panel}}}</div>""")
-          )
-        ),
+      cards = Map(
+        "box" -> container,
+        "card" -> CardDef("<span>{{state}}</span>", slots = List("state")),
+        "tabs" -> CardDef(
+          template = """{{{self}}}<div id="{{hostId}}">{{{panel}}}</div>""",
+          self = Some("""<div id="{{selfId}}">bar</div>"""),
+          regions = Map("panel" -> Region(Region.Baked))
+        )
+      ),
       card = LayoutNode
         .Component("box", children = List(LayoutNode.Component("tabs"))),
       surfaces = Map(
@@ -1379,16 +1428,18 @@ class RendererSuite extends munit.FunSuite {
   test("a self that does not splice its children stays addressable") {
     val cards = Map(
       "host" -> CardDef(
-        template = "{{{self}}}{{{mount}}}",
+        template =
+          """{{{self}}}<div>{{#children}}{{{html}}}{{/children}}</div>""",
         self = Some("""<div id="{{selfId}}"><span>{{state}}</span></div>"""),
-        mount = Some("""<div>{{#children}}{{{html}}}{{/children}}</div>"""),
+        regions = Map("children" -> Region()),
         slots = List("state")
       ),
       // A member that is itself a container — the change that broke this.
       "member" -> CardDef(
-        template = "{{{self}}}{{{mount}}}",
+        template =
+          """{{{self}}}<div>{{#children}}{{{html}}}{{/children}}</div>""",
         self = Some("""<div id="{{selfId}}">m</div>"""),
-        mount = Some("""<div>{{#children}}{{{html}}}{{/children}}</div>""")
+        regions = Map("children" -> Region())
       )
     )
     val r = Renderer.create(
@@ -1543,13 +1594,13 @@ class RendererSuite extends munit.FunSuite {
     * header"). The mount holds the child; the self holds the live header.
     */
   private val splitCards = cards + ("split" -> CardDef(
-    template = """<div class="fh-col">{{{self}}}{{{mount}}}</div>""",
+    // No `{{hostId}}`: a region needs an id only where something FILLS it,
+    // which is where `bakeAs` names it. This card has no bake group, like
+    // Grid/Row, so its eager region is addressed by nothing.
+    template = """<div class="fh-col">{{{self}}}""" +
+      """<div class="panel">{{#children}}{{{html}}}{{/children}}</div></div>""",
     self = Some("""<div id="{{selfId}}" class="bar">{{state}}</div>"""),
-    // No `{{mountId}}`: a mount needs an id only where something FILLS it, which
-    // is where `bakeAs` names it. This card has no bake group, like Grid/Row.
-    mount = Some(
-      """<div class="panel">{{#children}}{{{html}}}{{/children}}</div>"""
-    ),
+    regions = Map("children" -> Region()),
     slots = List("state")
   ))
 
@@ -1604,10 +1655,10 @@ class RendererSuite extends munit.FunSuite {
   }
 
   test(
-    "mountId IS Surface.hostId — the template stops deriving it separately"
+    "hostId IS Surface.hostId — the template stops deriving it separately"
   ) {
     val r = Renderer.create(tabsDashboard)
-    assertEquals(r.mountId("c"), "c_panel")
-    assertEquals(r.mountId("c"), r.surface("c_t0").get.hostId)
+    assertEquals(r.hostId("c"), "c_panel")
+    assertEquals(r.hostId("c"), r.surface("c_t0").get.hostId)
   }
 }

@@ -350,7 +350,7 @@ private[runtime] object Patches {
       // a morph at one would land nowhere, and the changelog must stop naming
       // them.
       val evicted =
-        log.invalidateWhere(hostEvicts(renderer, renderer.mountId(gid)))
+        log.invalidateWhere(hostEvicts(renderer, renderer.hostId(gid)))
       val withGone = was
         .map(renderer.surfaceContentId)
         .foldLeft(evicted)(_.removed(gid, _, at))
@@ -569,7 +569,7 @@ private[runtime] object Patches {
           // container's id reaches — so the mount says which nodes it holds.
           Addressed(
             _,
-            invalidates = hostEvicts(renderer, renderer.mountId(gid))
+            invalidates = hostEvicts(renderer, renderer.hostId(gid))
           )
         )
       }
@@ -635,7 +635,7 @@ private[runtime] object Patches {
         Patch.Insert(
           members.map(_._2).mkString,
           PatchMode.Inner,
-          renderer.mountId(gid)
+          renderer.hostId(gid)
         ),
         // A SET mount's contents are one resolvable node per member, so the
         // fill can say what it put in each and the next tick can tell
@@ -647,7 +647,7 @@ private[runtime] object Patches {
           members.map { case (id, html) => id -> Held.of(html) }.toMap
         else Map.empty,
         if (asSet.isDefined) Set(gid)
-        else hostEvicts(renderer, renderer.mountId(gid))
+        else hostEvicts(renderer, renderer.hostId(gid))
       )
     }
     // The second candidate set: an open surface's nodes, which the cursor alone
@@ -824,7 +824,7 @@ private[runtime] object Patches {
           renderer.elementId(renderer.members.memberIdOf(gid, succ))
         )
       case None =>
-        Patch.Insert(html, PatchMode.Append, renderer.mountId(gid))
+        Patch.Insert(html, PatchMode.Append, renderer.hostId(gid))
     }
 
   /** Fill `host` with `arriving`'s rendering, as a patch that knows what it
@@ -957,7 +957,7 @@ private[runtime] object Patches {
   ): List[Patch] =
     content match {
       case Some(html) =>
-        List(Patch.Insert(html, PatchMode.Inner, renderer.mountId(gid)))
+        List(Patch.Insert(html, PatchMode.Inner, renderer.hostId(gid)))
       case None =>
         departed.map(id => Patch.Remove(renderer.elementId(id))).toList
     }

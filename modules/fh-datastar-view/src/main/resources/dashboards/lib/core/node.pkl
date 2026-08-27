@@ -124,29 +124,46 @@ abstract class Node extends LayoutNode {
   inlineSurfaces: Mapping<String, surfaceMod.SurfaceDef>? = null
 }
 
-/// A card's markup. A LEAF card is just a `template`; a card that HOLDS other
-/// nodes splits into two parts placed at independent holes in it:
+/// A named hole in a card's `template`, and how it gets filled.
 ///
-///   - `mount` — the element the children occupy. Filled as its own operation
-///     (a tab select, a popup open, a group repaint); a live patch never
-///     renders into it.
-///   - `self` — the card's own presentation: a tab bar, a header, a frame. This
-///     is what a live patch renders, under the engine's `{{selfId}}`.
+/// `eager` — the node's own children, composed with the card in one render.
+/// `baked` — a hole a SURFACE fills per viewer, lazily and as its own
+/// operation: a tab panel, an [[If]] branch, a popup. Only the selected member
+/// is ever rendered, which is what keeps an unopened tab free.
 ///
-/// They are SIBLINGS — `self` must not contain the `{{{mount}}}` hole — and
-/// that is the whole mechanism: a top-level patch matches only the element
-/// carrying its own id, so a patch at the self element cannot reach the mount.
-/// Hence the rule the design rests on: a node's patch carries its own rendering
-/// and NEVER the contents of a mount, so a host changing cannot re-render what
-/// it hosts (docs/adr/0012-each-session-renders-what-it-is-owed.md).
+/// A baked region's element carries `id="{{hostId}}"`, because something has to
+/// address it to fill it. An eager region needs no id: its children arrive
+/// nested, in the same bytes.
+class Region {
+  fill: "eager"|"baked" = "eager"
+}
+
+/// A card's markup: one `template`, with a named [[Region]] for each hole in it
+/// that something else fills.
 ///
-/// A container with a `mount` and NO `self` ([[Row]]/[[Column]]/[[Grid]]) has
-/// only children to show, so its whole HTML contains them and it must never be
+/// A card is a LEAF (no regions — its whole template is what a live patch
+/// renders) or STRUCTURE (regions — it holds content it does not own). The rule
+/// that makes the difference safe is stated on [[self]]: the holes and the patch
+/// target are DISJOINT parts of the template, so a node's patch carries its own
+/// rendering and never the contents of a region
+/// (docs/adr/0012-each-session-renders-what-it-is-owed.md).
+///
+/// A structural card with no `self` ([[Row]]/[[Column]]/[[Grid]]) has only its
+/// children to show, so its whole HTML contains them and it must never be
 /// patched — which is why a LIVE slot on that shape is a build error.
-abstract class CardDef {
-  /// The whole card. Defaults to the two parts back to back, which is right for
-  /// a container that is nothing but its mount.
-  template: String = "{{{self}}}{{{mount}}}"
+class CardDef {
+  /// The whole card, holes included. Defaults to just the `self` part, which is
+  /// right for a leaf that renders nothing but itself.
+  template: String = "{{{self}}}"
+  /// name -> how that hole is filled. The template must place a hole for each:
+  /// `{{#name}}{{{html}}}{{/name}}` for an eager region, `{{{name}}}` for a
+  /// baked one.
+  ///
+  /// Null (dropped from JSON by omitNullProperties) for a LEAF card, which is
+  /// most of them — same convention as [[wrapAsCell]] and
+  /// [[Node.inlineSurfaces]]. A structural card assigns `new Mapping { … }`
+  /// rather than amending, because a null default has nothing to amend.
+  regions: Mapping<String, Region>? = null
   slots: Listing<String> = new {}
   /// The CSS this card's markup needs to work — its own class names, their box,
   /// flow and spacing — collected from every card in the registry and emitted
@@ -166,38 +183,29 @@ abstract class CardDef {
   // in a layout box" — NOT "never a morph target", which is now decided by card
   // shape (a container patches through its `self`).
   wrapAsCell: Boolean? = null
-}
-
-/// A card with no children: one `template`, nothing to mount.
-class LeafCard extends CardDef {}
-
-/// A card that HOLDS other nodes. Splitting the two parts into separate
-/// properties placed at independent holes is what makes "they are siblings"
-/// structural: the ONLY way to nest them would be for `self` to contain the
-/// mount hole, and the constraint below forbids exactly that.
-class ContainerCard extends CardDef {
-  /// Where child nodes go. Carries `id="{{mountId}}"` only when something FILLS
-  /// it — a tab panel, an [[If]] branch — which is exactly where a surface's
-  /// `bakeAs` names it. A plain container's children arrive nested, so its mount
-  /// needs no id.
-  mount: String
-  /// The card's own presentation, patched independently of the mount. It IS the
-  /// patch target, so it must carry the engine's `{{selfId}}`.
+  /// The card's own presentation — a slider head, a frame — patched
+  /// independently of every region. It IS the patch target, so it must carry
+  /// the engine's `{{selfId}}`.
   ///
-  /// It must contain **no hole at all** — neither the `{{{mount}}}` nor the
-  /// children the renderer splices. That is the invariant the whole design
-  /// rests on, stated where it can be checked: a patch replaces the element
-  /// carrying `{{selfId}}`, so anything nested inside it rides along, and a
-  /// node's patch must never carry another node's bytes.
+  /// It must contain **no hole**: not a region's, and not the children the
+  /// renderer splices. That is the invariant the whole design rests on, stated
+  /// where it can be checked — a patch replaces the element carrying
+  /// `{{selfId}}`, so anything nested inside it rides along, and a node's patch
+  /// must never carry another node's bytes.
   ///
   /// The children half of this was a runtime `String.contains("{{#children}}")`
   /// in `Templates.selvesCarryChildren`, whose own comment conceded it was a
   /// workaround ("a card cannot be asked to declare it truthfully"). A card can
   /// be asked — this is the asking.
+  /// Checked against every DECLARED region by name, so the rule generalises
+  /// with the card instead of naming one hole the way it used to
+  /// (`!this.contains("{{{mount}}}")`). The literal `{{#children}}` stays as
+  /// well, to catch a template splicing children it never declared a region for.
   self: String?(this == null ||
     (this.contains("{{selfId}}") &&
-      !this.contains("{{{mount}}}") &&
-      !this.contains("{{#children}}"))) = null
+      !this.contains("{{#children}}") &&
+      !(regions ?? new Mapping {}).keys.any((r) ->
+        this.contains("{{{\(r)}}}") || this.contains("{{#\(r)}}")))) = null
 }
 
 /// Whether a card holds content but has NO presentation of its own — so its
@@ -205,7 +213,7 @@ class ContainerCard extends CardDef {
 /// a card must never enter a diff set, which is why a LIVE slot on it is a build
 /// error (see [[Node.slots]]).
 const local function bareContainer(d: CardDef): Boolean =
-  d is ContainerCard && d.self == null
+  d.regions != null && d.self == null
 
 // ---- the backend-facing card library (DERIVED from the card classes) ----
 // Each card class carries its own template + declared slots (`cardDef`,
@@ -309,13 +317,10 @@ const local function fillHoles(s: String, classes: Mapping<String, String>): Str
 // binding is an attribute, and a selector naming a theme's class belongs in
 // that theme's own styles.
 const local function injectClasses(d: CardDef, classes: Mapping<String, String>): CardDef =
-  if (d is ContainerCard)
-    (d) {
-      template = fillHoles(d.template, classes)
-      mount = fillHoles(d.mount, classes)
-      self = if (d.self != null) fillHoles(d.self!!, classes) else null
-    }
-  else (d) { template = fillHoles(d.template, classes) }
+  (d) {
+    template = fillHoles(d.template, classes)
+    self = if (d.self != null) fillHoles(d.self!!, classes) else null
+  }
 
 
 

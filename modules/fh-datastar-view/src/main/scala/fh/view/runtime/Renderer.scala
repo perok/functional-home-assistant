@@ -585,7 +585,7 @@ class Renderer(
     *
     * > Structural vars are a pure function of the node id in scope.
     *
-    * So a container card used as a set clause gets `selfId`/`mountId` off its
+    * So a container card used as a set clause gets `selfId`/`hostId` off its
     * member id for free, with no per-call-site knowledge. `bakeIndex` is NOT
     * here: it is a function of the client's selection, not of the id, and it
     * belongs to the document path alone ([[resolveBakeTraced]]).
@@ -594,7 +594,7 @@ class Renderer(
     Map(
       "id" -> id,
       "selfId" -> Renderer.selfElementId(id),
-      "mountId" -> mountId(id),
+      "hostId" -> hostId(id),
       // The dashboard's slug, for the action URL a card builds in its own
       // TEMPLATE (the slider's commit). A tap builds its URL in a transform
       // instead and reads the same value as `$dashboardSlug` — one fact, and
@@ -657,7 +657,8 @@ class Renderer(
     */
   private def carriesMount(node: LayoutNode): Boolean = node match {
     case c: LayoutNode.Component =>
-      templates.mounts.contains(c.card) || c.children.exists(carriesMount)
+      dashboard.cards.get(c.card).exists(_.isStructure) ||
+      c.children.exists(carriesMount)
     case _: LayoutNode.SetNode => false
   }
 
@@ -694,7 +695,7 @@ class Renderer(
   def elementId(id: NodeId): DomId = DomId.derived(id)
 
   /** The element a node's children live IN — an `Inner`/`append` target, and
-    * the `{{mountId}}` a container's `mount` part writes.
+    * the `{{hostId}}` a container's `mount` part writes.
     *
     * '''This is not a new id — for a bake owner it IS
     * [[fh.view.model.Surface.hostId]]''', so `Tabs` resolves to `c_2_panel`,
@@ -708,7 +709,7 @@ class Renderer(
     * `Column` mounts are never fill targets — their children arrive nested — so
     * they fall back to the node's own id and simply never use it.
     */
-  def mountId(id: NodeId): DomId =
+  def hostId(id: NodeId): DomId =
     surfaces
       .bakeGroup(id)
       .headOption
@@ -940,15 +941,9 @@ class Renderer(
           val selfPart = templates.selves
             .get(c.card)
             .map(renderTemplateOf(_, selfVars, c.slots, kidsHtml, states, form))
-          val mountPart = templates.mounts
-            .get(c.card)
-            .map(renderTemplateOf(_, vars, c.slots, kidsHtml, states, form))
           renderTemplate(
             c.card,
-            vars ++ Map(
-              "self" -> selfPart.getOrElse(""),
-              "mount" -> mountPart.getOrElse("")
-            ),
+            vars ++ Map("self" -> selfPart.getOrElse("")),
             c.slots,
             kidsHtml,
             states,
@@ -1192,15 +1187,12 @@ class Renderer(
       states: Map[String, EntityState],
       form: SlotForm
   ): String = {
-    def part(of: Map[String, Template]): String =
-      of.get(cardName)
-        .fold("")(renderTemplateOf(_, vars, slots, childrenHtml, states, form))
+    val selfPart = templates.selves
+      .get(cardName)
+      .fold("")(renderTemplateOf(_, vars, slots, childrenHtml, states, form))
     renderTemplate(
       cardName,
-      vars ++ Map(
-        "self" -> part(templates.selves),
-        "mount" -> part(templates.mounts)
-      ),
+      vars ++ Map("self" -> selfPart),
       slots,
       childrenHtml,
       states,

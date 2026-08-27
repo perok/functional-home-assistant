@@ -8,6 +8,7 @@ import fh.view.model.{
   Dashboard,
   LayoutNode,
   NodeId,
+  Region,
   SlotSource,
   Surface
 }
@@ -49,10 +50,10 @@ class RenderCacheContentionSuite extends ServerHarness {
       "col" -> CardDef("<div>{{#children}}{{{html}}}{{/children}}</div>"),
       "card" -> CardDef("<span>{{state}}</span>", slots = List("state")),
       "tabs" -> CardDef(
-        template = "{{{self}}}{{{mount}}}",
+        template =
+          """{{{self}}}<div id="{{hostId}}" class="tabs">{{{panel}}}</div>""",
         self = Some("""<span id="{{selfId}}">{{state}}</span>"""),
-        mount =
-          Some("""<div id="{{mountId}}" class="tabs">{{{panel}}}</div>"""),
+        regions = Map("panel" -> Region(Region.Baked)),
         slots = List("state")
       )
     ),

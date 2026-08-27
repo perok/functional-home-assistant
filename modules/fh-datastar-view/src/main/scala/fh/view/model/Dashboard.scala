@@ -208,28 +208,32 @@ object SignalBind:
   *     always wrapped — they ARE the patch targets). [[Dashboard.validate]]
   *     rejects the wrapper-dependent shapes on such a card: live-entity slots,
   *     `cell` params, and set-clause use.
-  *   - `mount` / `self`: the two named parts of a card that HOLDS other nodes —
-  *     see below.
+  *   - `regions` / `self`: what a card that HOLDS other nodes declares — see
+  *     below.
   *
-  * '''The self/mount split.''' A container renders in two parts, placed at
-  * independent holes in `template` (which defaults to `{{{self}}}{{{mount}}}`):
+  * '''Regions and the self.''' A card is a LEAF (no regions — its whole
+  * `template` is what a patch renders) or STRUCTURE (regions — it holds content
+  * it does not own). A [[Region]] is one named hole in `template`:
   *
-  *   - `mount` — the element the card's children occupy. Filled as its own
-  *     operation (a tab select, a popup open, a group repaint); the patch path
-  *     never renders into it.
-  *   - `self` — the card's own presentation: a tab bar, a header, a frame. This
-  *     is what the patch path renders and diffs, under the DOM id
-  *     `<nodeId>-self`.
+  *   - `eager` — the node's own children, composed with the card in one render.
+  *     A `Row`'s children, a slider's member rows.
+  *   - `baked` — a hole a SURFACE fills per viewer, lazily and as its own
+  *     operation: a tab panel, an `If` branch, a popup. Its element carries the
+  *     `{{hostId}}` something addresses to fill it.
   *
-  * They are '''siblings''' — `self` must not contain the mount hole — and that
-  * is the whole mechanism: a top-level patch matches only the element carrying
-  * its own id, so a patch at `#c_2-self` cannot reach `#c_2_panel`. Hence the
+  * `self` is the card's own presentation — a slider head, a frame — and is what
+  * the patch path renders and diffs, under the DOM id `<nodeId>-self`.
+  *
+  * '''`self` and every region are disjoint parts of the template''', which is
+  * the whole mechanism: a top-level patch matches only the element carrying its
+  * own id, so a patch at `#c_2-self` cannot reach `#c_2_panel`. Hence the
   * design's first rule: '''a node's patch carries its own rendering and never
-  * the contents of a mount''', so a host changing cannot re-render what it
-  * hosts (docs/adr/0012-each-session-renders-what-it-is-owed.md).
+  * the contents of a region''', so a host changing cannot re-render what it
+  * hosts (docs/adr/0012-each-session-renders-what-it-is-owed.md). Enforced by
+  * [[Dashboard.validate]], and by a type refinement in the authoring layer.
   *
-  * Both are optional and a leaf card sets neither. A container with a `mount`
-  * and NO `self` (`Grid`, `Row`, `Column`) has only children to show, so its
+  * A leaf sets no regions and usually no `self`. A structural card with NO
+  * `self` (`Grid`, `Row`, `Column`, `If`) has only its children to show, so its
   * whole HTML contains them — it must never be patched, which the authoring
   * layer enforces by rejecting a *live* slot on exactly that shape.
   *
@@ -243,10 +247,35 @@ case class CardDef(
     template: String,
     slots: List[String] = Nil,
     wrapAsCell: Boolean = true,
-    mount: Option[String] = None,
+    regions: Map[String, Region] = Map.empty,
     self: Option[String] = None,
     css: String = ""
-) derives ConfiguredDecoder
+) derives ConfiguredDecoder {
+
+  /** The hole this card's template places for `name` — a section for an eager
+    * region (its children are spliced), a raw var for a baked one (a surface's
+    * bytes are substituted whole).
+    */
+  def holeOf(name: String, r: Region): String =
+    if (r.fill == Region.Baked) "{{{" + name + "}}}" else "{{#" + name + "}}"
+
+  /** Whether this card holds content it does not own — the LEAF/STRUCTURE
+    * split. Structure is never a patch target.
+    */
+  def isStructure: Boolean = regions.nonEmpty
+}
+
+/** One named hole in a card's [[CardDef.template]]. `fill` says who puts
+  * content there and when: the node's own children, composed in the same render
+  * (`eager`), or a surface selected per viewer and rendered only while shown
+  * (`baked`).
+  */
+case class Region(fill: String = Region.Eager) derives ConfiguredDecoder
+
+object Region {
+  val Eager: String = "eager"
+  val Baked: String = "baked"
+}
 
 /** Per-node layout-cell parameters, rendered by the Renderer as extra CSS
   * classes on the node's `.fh-cell` wrapper (`<div class="fh-cell fh-cols-3"
@@ -795,7 +824,7 @@ case class Dashboard(
           .get(cardName)
           .toList
           .filterNot(cd =>
-            (cd.template :: cd.self.toList ++ cd.mount.toList)
+            (cd.template :: cd.self.toList)
               .exists(_.contains(s"{{{${name}__bind}}}"))
           )
           .map(_ =>
@@ -897,14 +926,37 @@ case class Dashboard(
     val selfHoleErrors: List[String] =
       cards.toList.sortBy(_._1).flatMap { case (name, cd) =>
         cd.self.toList.flatMap { self =>
-          List("{{{mount}}}", "{{#children}}")
-            .filter(self.contains)
-            .map(hole =>
-              s"card '$name': its `self` contains $hole — a self is what a " +
-                "patch replaces, so a hole inside it would make that patch " +
-                "carry content the node does not own. Move the hole to " +
-                "`template` or `mount`"
-            )
+          // Every DECLARED region by name, so the rule generalises with the
+          // card. `{{#children}}` is also checked literally, to catch a
+          // template splicing children it never declared a region for.
+          val declared = cd.regions.toList.sortBy(_._1).collect {
+            case (r, region) if self.contains(cd.holeOf(r, region)) =>
+              cd.holeOf(r, region)
+          }
+          val undeclared =
+            Option.when(
+              self.contains("{{#children}}") && !cd.regions.contains("children")
+            )("{{#children}}")
+          (declared ++ undeclared).distinct.map(hole =>
+            s"card '$name': its `self` contains $hole — a self is what a " +
+              "patch replaces, so a hole inside it would make that patch " +
+              "carry content the node does not own. Move the hole into " +
+              "`template`, beside the self rather than inside it"
+          )
+        }
+      }
+
+    // A region nobody can fill and a hole nobody declared are the same defect
+    // seen from two sides, and both are silent: the region renders nothing, or
+    // the hole renders empty. Disjointness only means something if the holes
+    // are the ones the card said it had.
+    val regionHoleErrors: List[String] =
+      cards.toList.sortBy(_._1).flatMap { case (name, cd) =>
+        cd.regions.toList.sortBy(_._1).collect {
+          case (r, region) if !cd.template.contains(cd.holeOf(r, region)) =>
+            s"card '$name': declares region '$r' (${region.fill}) but its " +
+              s"`template` places no ${cd.holeOf(r, region)} hole for it — " +
+              "nothing would ever appear there"
         }
       }
 
@@ -999,6 +1051,7 @@ case class Dashboard(
     // / slots / transforms inside popups are checked too). Surface errors are
     // prefixed with the surface id for locatability.
     selfHoleErrors ++
+      regionHoleErrors ++
       chromeErrors ++
       danglingBakes ++
       activationErrors ++

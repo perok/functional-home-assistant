@@ -19,7 +19,7 @@ const local function noAction(ctor: String): String =
 /// buttons — see [[TabButton]].)
 class Button extends nodes.Node {
   card = "button"
-  cardDef = new nodes.LeafCard {
+  cardDef = new nodes.CardDef {
     // A button that GOES somewhere is an `<a href>`, not a scripted click: the
     // browser then gives it middle-click, open-in-new-tab, the status-bar
     // preview, and a working click before Datastar has even loaded. `.button`
@@ -107,7 +107,7 @@ class Button extends nodes.Node {
 /// `<a>`), defaulting to the same domain-resolved toggle every [[Button]] does.
 class Toggle extends nodes.Node {
   card = "toggle"
-  cardDef = new nodes.LeafCard {
+  cardDef = new nodes.CardDef {
     template = """
       <article class="card row toggle">
         <span class="max \(textMod.BOX)">\(textMod.run("label"))</span>
@@ -194,7 +194,7 @@ hidden toggle: (hass.Entity) -> Toggle = (e) -> toggle(e)
 /// perfectly reasonable thing to ask for.
 class Pill extends nodes.Node {
   card = "pill"
-  cardDef = new nodes.LeafCard {
+  cardDef = new nodes.CardDef {
     // BeerCSS's `.chip`: outlined, `--on-surface-variant` text, pill radius,
     // and already `box-sizing:border-box` (unlike `.button`, which is
     // content-box — see the theme's `.fh-cell>.button` rule).

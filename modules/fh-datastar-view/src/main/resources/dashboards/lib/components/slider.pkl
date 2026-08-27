@@ -481,9 +481,10 @@ class Slider extends nodes.Node {
   // renders the mount — an empty `<div>` the theme hides — because a card is
   // one shape, and its optional pieces (icon, second line, button, members) are
   // absent rather than different.
-  cardDef = new nodes.ContainerCard {
+  cardDef = new nodes.CardDef {
+    regions = new Mapping { ["children"] = new nodes.Region {} }
     template = """
-      <article class="card slider-card{{#group}} {{group}}{{/group}}">{{{self}}}{{{mount}}}</article>
+      <article class="card slider-card{{#group}} {{group}}{{/group}}">{{{self}}}<div class="slider-members">{{#children}}{{{html}}}{{/children}}</div></article>
       """
     self = """
       <div id="{{selfId}}" class="slider-body">
@@ -511,9 +512,6 @@ class Slider extends nodes.Node {
             \(tapMod.busyAttrsChange)></button>{{/toggle}}
         </div>
       </div>
-      """
-    mount = """
-      <div class="slider-members">{{#children}}{{{html}}}{{/children}}</div>
       """
     // `state` is NOT declared: a grouped head omits the slot entirely (see
     // [[readout]]), and a declared slot is one every node of the card must have.

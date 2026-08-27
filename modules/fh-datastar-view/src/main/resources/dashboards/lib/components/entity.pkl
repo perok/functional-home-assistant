@@ -15,7 +15,7 @@ import "moreinfo.pkl"
 /// what [[iconFor]] resolved, as an MDI name (`mdi:thermometer`).
 class EntityCard extends nodes.Node {
   card = "entityCard"
-  cardDef = new nodes.LeafCard {
+  cardDef = new nodes.CardDef {
     template = """
       <article class="card entity{{#tappable}} tappable{{/tappable}}"{{#tappable}}
         data-on:click="{{#busy}}\(tapMod.busyGuard){{/busy}}{{{onclick}}}"{{/tappable}}{{#busy}} \(tapMod.busyAttrs){{/busy}}{{#busyVisual}} \(tapMod.busyClass){{/busyVisual}}>

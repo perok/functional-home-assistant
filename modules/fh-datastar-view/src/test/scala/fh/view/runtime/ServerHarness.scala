@@ -14,6 +14,7 @@ import fh.view.model.{
   NodeId,
   Op,
   Predicate,
+  Region,
   SlotSource,
   Surface,
   Theme
@@ -193,10 +194,9 @@ trait ServerHarness extends munit.CatsEffectSuite {
       // structure holding the buttons, not a `self`: a self may hold no hole.
       "tabs" -> CardDef(
         template = """<div class="tabs">""" +
-          """{{#children}}{{{html}}}{{/children}}</div>{{{mount}}}""",
-        mount = Some(
-          """<div id="{{mountId}}" data-signals="{ tab_{{id}}: {{bakeIndex}} }">{{{panel}}}</div>"""
-        )
+          """{{#children}}{{{html}}}{{/children}}</div>""" +
+          """<div id="{{hostId}}" data-signals="{ tab_{{id}}: {{bakeIndex}} }">{{{panel}}}</div>""",
+        regions = Map("children" -> Region(), "panel" -> Region(Region.Baked))
       )
     )
     def panel(name: String): LayoutNode.Component =
@@ -361,8 +361,8 @@ trait ServerHarness extends munit.CatsEffectSuite {
     "col" -> CardDef("<div>{{#children}}{{{html}}}{{/children}}</div>"),
     // A pure mount, like lib/components.pkl's `If`.
     "ifhost" -> CardDef(
-      template = "{{{self}}}{{{mount}}}",
-      mount = Some("""<div id="{{mountId}}">{{{branch}}}</div>""")
+      template = """<div id="{{hostId}}">{{{branch}}}</div>""",
+      regions = Map("branch" -> Region(Region.Baked))
     ),
     "card" -> CardDef("<span>{{state}}</span>", slots = List("state")),
     "dot" -> CardDef("<b>{{state}}</b>", slots = List("state"))
@@ -584,8 +584,8 @@ trait ServerHarness extends munit.CatsEffectSuite {
       // A bar-less tabs host: pure mount, no `self` — nothing about it can
       // change without its content changing.
       "tabs" -> CardDef(
-        template = "{{{self}}}{{{mount}}}",
-        mount = Some("""<div id="{{mountId}}" class="tabs">{{{panel}}}</div>""")
+        template = """<div id="{{hostId}}" class="tabs">{{{panel}}}</div>""",
+        regions = Map("panel" -> Region(Region.Baked))
       )
     ),
     card = LayoutNode.Component(
@@ -889,8 +889,8 @@ trait ServerHarness extends munit.CatsEffectSuite {
       "col" -> CardDef("<div>{{#children}}{{{html}}}{{/children}}</div>"),
       "card" -> CardDef("<span>{{state}}</span>", slots = List("state")),
       "tabs" -> CardDef(
-        template = "{{{self}}}{{{mount}}}",
-        mount = Some("""<div id="{{mountId}}" class="tabs">{{{panel}}}</div>""")
+        template = """<div id="{{hostId}}" class="tabs">{{{panel}}}</div>""",
+        regions = Map("panel" -> Region(Region.Baked))
       )
     ),
     card = LayoutNode.Component(

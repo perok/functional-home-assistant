@@ -7,6 +7,7 @@ import fh.view.model.{
   LayoutNode,
   Op,
   Predicate,
+  Region,
   SlotSource,
   Surface
 }
@@ -127,9 +128,8 @@ object FixtureDashboard {
   ): Dashboard =
     Dashboard(
       cards = cards + ("ifhost" -> CardDef(
-        template = "{{{self}}}{{{mount}}}",
-        mount =
-          Some("""<div class="ifhost" id="{{mountId}}">{{{branch}}}</div>""")
+        template = """<div class="ifhost" id="{{hostId}}">{{{branch}}}</div>""",
+        regions = Map("branch" -> Region(Region.Baked))
       )),
       card = LayoutNode.Component("ifhost"),
       surfaces = Map(

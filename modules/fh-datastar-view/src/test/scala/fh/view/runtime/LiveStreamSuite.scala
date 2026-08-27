@@ -8,6 +8,7 @@ import fh.view.model.{
   Dashboard,
   LayoutNode,
   NodeId,
+  Region,
   SlotSource,
   Surface
 }
@@ -205,12 +206,12 @@ class LiveStreamSuite extends ServerHarness {
       "col" -> CardDef("<div>{{#children}}{{{html}}}{{/children}}</div>"),
       "card" -> CardDef("<span>{{state}}</span>", slots = List("state")),
       "ifhost" -> CardDef(
-        template = "{{{self}}}{{{mount}}}",
-        mount = Some("""<div id="{{mountId}}">{{{branch}}}</div>""")
+        template = """<div id="{{hostId}}">{{{branch}}}</div>""",
+        regions = Map("branch" -> Region(Region.Baked))
       ),
       "tabs" -> CardDef(
-        template = "{{{self}}}{{{mount}}}",
-        mount = Some("""<div id="{{mountId}}" class="tabs">{{{panel}}}</div>""")
+        template = """<div id="{{hostId}}" class="tabs">{{{panel}}}</div>""",
+        regions = Map("panel" -> Region(Region.Baked))
       )
     ),
     card = LayoutNode.Component(
@@ -260,14 +261,14 @@ class LiveStreamSuite extends ServerHarness {
       // in the mount. That shape is the whole point — it has no markup of its
       // own to fingerprint.
       "col" -> CardDef(
-        template = "{{{mount}}}",
-        mount = Some("<div>{{#children}}{{{html}}}{{/children}}</div>")
+        template = "<div>{{#children}}{{{html}}}{{/children}}</div>",
+        regions = Map("children" -> Region())
       ),
       "card" -> CardDef("<span>{{state}}</span>", slots = List("state")),
       "tabs" -> CardDef(
-        template = "{{{self}}}{{{mount}}}",
+        template = """{{{self}}}<div id="{{hostId}}">{{{panel}}}</div>""",
         self = Some("""<div id="{{selfId}}">bar</div>"""),
-        mount = Some("""<div id="{{mountId}}">{{{panel}}}</div>""")
+        regions = Map("panel" -> Region(Region.Baked))
       )
     ),
     card = LayoutNode.Component("col"),
@@ -307,8 +308,8 @@ class LiveStreamSuite extends ServerHarness {
     val dash = Dashboard(
       cards = Map(
         "col" -> CardDef(
-          template = "{{{mount}}}",
-          mount = Some("<div>{{#children}}{{{html}}}{{/children}}</div>")
+          template = "<div>{{#children}}{{{html}}}{{/children}}</div>",
+          regions = Map("children" -> Region())
         ),
         "card" -> CardDef("<span>{{state}}</span>", slots = List("state"))
       ),
@@ -459,8 +460,8 @@ class LiveStreamSuite extends ServerHarness {
     val d = Dashboard(
       cards = ifCards ++ Map(
         "col" -> CardDef(
-          template = "{{{mount}}}",
-          mount = Some("<div>{{#children}}{{{html}}}{{/children}}</div>")
+          template = "<div>{{#children}}{{{html}}}{{/children}}</div>",
+          regions = Map("children" -> Region())
         )
       ),
       card = LayoutNode
@@ -481,7 +482,7 @@ class LiveStreamSuite extends ServerHarness {
       "sensor.a" -> es("sensor.a", "A0")
     )
     val (patch, _) =
-      Patches.hostFill(r, r.mountId("c_0"), Some("then"), armed, Map.empty).get
+      Patches.hostFill(r, r.hostId("c_0"), Some("then"), armed, Map.empty).get
 
     // The leaf the fill places is claimed, holding exactly what a patch for
     // that node alone would carry — which is what makes the two comparable.
@@ -680,18 +681,18 @@ class LiveStreamSuite extends ServerHarness {
   private def serverHighlightDash = Dashboard(
     cards = Map(
       "col" -> CardDef(
-        template = "{{{mount}}}",
-        mount = Some("<div>{{#children}}{{{html}}}{{/children}}</div>")
+        template = "<div>{{#children}}{{{html}}}{{/children}}</div>",
+        regions = Map("children" -> Region())
       ),
       "card" -> CardDef("<span>{{state}}</span>", slots = List("state")),
       "tabs" -> CardDef(
-        template = "{{{self}}}{{{mount}}}",
+        template = """{{{self}}}<div id="{{hostId}}">{{{panel}}}</div>""",
         // The bar names the active tab AND binds a live entity, so it is
         // re-rendered on that entity's ticks — the shape the split exists for.
         self = Some(
           """<div id="{{selfId}}" class="active-{{bakeIndex}}">{{title}}</div>"""
         ),
-        mount = Some("""<div id="{{mountId}}">{{{panel}}}</div>"""),
+        regions = Map("panel" -> Region(Region.Baked)),
         slots = List("title")
       )
     ),

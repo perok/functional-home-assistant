@@ -80,8 +80,9 @@ class Popup extends nodes.Node {
   // spelling `{{dashboardSlug}}` rather than the transform's `$dashboardSlug`
   // ([[closePopup]] is the same route reached from a tap). Two spellings, one
   // fact — see ADR 0023.
-  cardDef = new nodes.ContainerCard {
-    mount = #"<dialog open class="popup"><button class="popup-close" data-on:click="@post('sse/popup/{{dashboardSlug}}/close'); $ui_popups = ''">✕</button>{{#children}}{{{html}}}{{/children}}</dialog>"#
+  cardDef = new nodes.CardDef {
+    regions = new Mapping { ["children"] = new nodes.Region {} }
+    template = #"<dialog open class="popup"><button class="popup-close" data-on:click="@post('sse/popup/{{dashboardSlug}}/close'); $ui_popups = ''">✕</button>{{#children}}{{{html}}}{{/children}}</dialog>"#
     // The frame itself (fixed, centred, elevated) is the theme's `<dialog>`
     // styling; ours is the width cap and the shape of the ✕.
     //
