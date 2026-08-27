@@ -109,7 +109,7 @@ const local restoreOnFailure: String =
 //
 // There used to be a third tier, a `$lookup($domain)` JSONata transform, for a
 // slider whose entity was a `$self` placeholder. It was the plan's motivating
-// example: four `reactive: false` transforms per member computing a BUILD-TIME
+// example: four `reads = "once"` transforms per member computing a BUILD-TIME
 // fact at runtime, because the entity was unknown at build time. A candidate
 // set knows it, so all four are literals and the tier is gone.
 // `override` is a Pkl reserved word — the param is `ovr`.

@@ -9,6 +9,7 @@ import fh.view.model.{
   DomId,
   LayoutNode,
   NodeId,
+  Reads,
   SetId,
   SignalBind,
   SignalId,
@@ -1205,17 +1206,20 @@ class Renderer(
           val srcEntity =
             if (slot == "entity_id") source.entityId
             else source.entityId.orElse(subject)
-          // A `reactive: false` slot is identity-derived — its transform
-          // reads only `$domain`/`$entity_id` (a service action, the
-          // slider's domain config), both immutable for the life of the
-          // entity. So its value never changes: resolve it ONCE per
-          // (entity, transform) and reuse forever. This is what keeps the
-          // set render path slick — a candidate set re-renders every
-          // matched card on every event, but those cards' action/config
-          // slots become a cache lookup, not a JSONata eval. Live slots
-          // (`reactive: true`) always re-resolve. `$entity_id` is in the key
-          // (the action URL embeds it), so two entities never collide.
-          if (!source.reactive)
+          // `once` is identity-derived — its transform reads only
+          // `$domain`/`$entity_id` (a service action, the slider's domain
+          // config), both immutable for the life of the entity. So its value
+          // never changes: resolve it ONCE per (entity, transform) and reuse
+          // forever. This is what keeps the set render path slick — a candidate
+          // set re-renders every matched card on every event, but those cards'
+          // action/config slots become a cache lookup, not a JSONata eval.
+          // `$entity_id` is in the key (the action URL embeds it), so two
+          // entities never collide.
+          //
+          // `live` and `onRender` both re-resolve; they differ in whether the
+          // entity is SUBSCRIBED, which is `liveEntities`' business, not this
+          // one. That is why the memo asks only about `once`.
+          if (source.reads == Reads.Once)
             identityCache.computeIfAbsent(
               (srcEntity.getOrElse(""), source.transform),
               _ => resolveSlot(srcEntity, source, states)
@@ -1516,7 +1520,7 @@ object Renderer {
     * this renderer emitted before signal slots existed. See ADR 0017.
     */
   def signalBind(src: SlotSource): Option[SignalBind] =
-    src.signal.filter(_ => src.literal.isEmpty && src.reactive)
+    src.signal.filter(_ => src.literal.isEmpty && src.reads == Reads.Live)
 
   def isSignalSlot(src: SlotSource): Boolean = signalBind(src).isDefined
 

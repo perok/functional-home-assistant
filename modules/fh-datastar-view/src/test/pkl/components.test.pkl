@@ -185,7 +185,7 @@ facts {
     !onclick.transform.contains("$lookup")
     !onclick.transform.contains("$domain")
     // Identity-derived, so it stays in the renderer's identity cache.
-    onclick.reactive == false
+    onclick.reads == "once"
   }
 
   ["a one-shot domain presses instead of toggling"] {
@@ -196,7 +196,7 @@ facts {
     local onclick = c.entityCard(frontLock).slots["onclick"]
     onclick.transform.contains(#"$state = "locked" ? "lock/unlock" : "lock/lock""#)
     // The whole reason this slot is live — and the only tap shape that is.
-    onclick.reactive == true
+    onclick.reads == "live"
   }
 
   ["a domain with NO action falls back to more-info, so nothing is dead"] {

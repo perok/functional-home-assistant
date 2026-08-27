@@ -20,7 +20,7 @@
               "label" : "Temp",
               "onclick" : {
                 "bypassUnavailable" : false,
-                "reactive" : false,
+                "reads" : "once",
                 "transform" : "\"$_@@NODE_ID@@__pending = '0'; @post('sse/surface/\" & $dashboardSlug & \"/open/@@NODE_ID@@_t0')\""
               }
             }
@@ -35,7 +35,7 @@
               "label" : "Light",
               "onclick" : {
                 "bypassUnavailable" : false,
-                "reactive" : false,
+                "reads" : "once",
                 "transform" : "\"$_@@NODE_ID@@__pending = '1'; @post('sse/surface/\" & $dashboardSlug & \"/open/@@NODE_ID@@_t1')\""
               }
             }
@@ -76,7 +76,7 @@
                                   "label" : "Outside Temperature",
                                   "value" : {
                                     "bypassUnavailable" : true,
-                                    "reactive" : true,
+                                    "reads" : "live",
                                     "signal" : "text",
                                     "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
                                   }
@@ -91,7 +91,7 @@
                                   "attributes" : {
                                     "bypassUnavailable" : true,
                                     "default" : "",
-                                    "reactive" : true,
+                                    "reads" : "live",
                                     "transform" : "$join($sort($each($attr, function($v, $k) { $k & \": \" & $string($v) })), \"\\n\")"
                                   },
                                   "entity_id" : "sensor.outside_temp"
@@ -106,7 +106,7 @@
                                   "label" : "Close",
                                   "onclick" : {
                                     "bypassUnavailable" : false,
-                                    "reactive" : false,
+                                    "reads" : "once",
                                     "transform" : "\"@post('sse/popup/\" & $dashboardSlug & \"/close')\""
                                   }
                                 }
@@ -132,13 +132,13 @@
                     "label" : "Outside Temperature",
                     "onclick" : {
                       "bypassUnavailable" : false,
-                      "reactive" : false,
+                      "reads" : "once",
                       "transform" : "\"@post('sse/surface/\" & $dashboardSlug & \"/open/@@NODE_ID@@_self')\""
                     },
                     "tappable" : "1",
                     "value" : {
                       "bypassUnavailable" : true,
-                      "reactive" : true,
+                      "reads" : "live",
                       "signal" : "text",
                       "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
                     }
@@ -171,13 +171,13 @@
                     "label" : "Kitchen",
                     "onclick" : {
                       "bypassUnavailable" : false,
-                      "reactive" : false,
+                      "reads" : "once",
                       "transform" : "\"@post('sse/action/\" & $dashboardSlug & \"/\" & (\"light/toggle\") & \"/\" & $entity_id & \"', {filterSignals:{exclude:'.*'}})\""
                     },
                     "tappable" : "1",
                     "value" : {
                       "bypassUnavailable" : true,
-                      "reactive" : true,
+                      "reads" : "live",
                       "signal" : "text",
                       "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
                     }
@@ -244,7 +244,7 @@
                                   "label" : "Outside Temperature",
                                   "value" : {
                                     "bypassUnavailable" : true,
-                                    "reactive" : true,
+                                    "reads" : "live",
                                     "signal" : "text",
                                     "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
                                   }
@@ -259,7 +259,7 @@
                                   "attributes" : {
                                     "bypassUnavailable" : true,
                                     "default" : "",
-                                    "reactive" : true,
+                                    "reads" : "live",
                                     "transform" : "$join($sort($each($attr, function($v, $k) { $k & \": \" & $string($v) })), \"\\n\")"
                                   },
                                   "entity_id" : "sensor.outside_temp"
@@ -274,7 +274,7 @@
                                   "label" : "Close",
                                   "onclick" : {
                                     "bypassUnavailable" : false,
-                                    "reactive" : false,
+                                    "reads" : "once",
                                     "transform" : "\"@post('sse/popup/\" & $dashboardSlug & \"/close')\""
                                   }
                                 }
@@ -300,13 +300,13 @@
                     "label" : "Outside Temperature",
                     "onclick" : {
                       "bypassUnavailable" : false,
-                      "reactive" : false,
+                      "reads" : "once",
                       "transform" : "\"@post('sse/surface/\" & $dashboardSlug & \"/open/@@NODE_ID@@_self')\""
                     },
                     "tappable" : "1",
                     "value" : {
                       "bypassUnavailable" : true,
-                      "reactive" : true,
+                      "reads" : "live",
                       "signal" : "text",
                       "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
                     }
@@ -349,13 +349,13 @@
                     "label" : "Kitchen",
                     "onclick" : {
                       "bypassUnavailable" : false,
-                      "reactive" : false,
+                      "reads" : "once",
                       "transform" : "\"@post('sse/action/\" & $dashboardSlug & \"/\" & (\"light/toggle\") & \"/\" & $entity_id & \"', {filterSignals:{exclude:'.*'}})\""
                     },
                     "tappable" : "1",
                     "value" : {
                       "bypassUnavailable" : true,
-                      "reactive" : true,
+                      "reads" : "live",
                       "signal" : "text",
                       "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
                     }

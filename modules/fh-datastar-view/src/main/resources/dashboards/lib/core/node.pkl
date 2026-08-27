@@ -106,12 +106,13 @@ abstract class Node extends LayoutNode {
   // Checked at the NODE, not the card, because liveness is a property of the
   // VALUE: `Slot|String` IS the distinction (a Pkl `String` is exactly the
   // wire's `literal`), so [[Grid]] keeps its `class` slot — a literal — and only
-  // a genuinely reactive one is rejected. Mirrors
+  // a genuinely LIVE one is rejected — `onRender` and `once` read an entity
+  // without tracking it, which is exactly what structure may do. Mirrors
   // `LayoutNode.Component.liveEntities`, subject case included (the subject
   // counts only when `entity_id` is a literal).
   slots: Mapping<String, slotMod.Slot|String>(
     !bareContainer(cardDef) || !toMap().values.any((v) ->
-      v is slotMod.Slot && v.reactive && (v.entityId != null ||
+      v is slotMod.Slot && v.reads == "live" && (v.entityId != null ||
         (containsKey("entity_id") && this["entity_id"] is String)))
   ) = new {}
   /// An id of the author's choosing, replacing the position-derived one for

@@ -10,15 +10,32 @@ module core.slot
 
 import "../hass.pkl"
 
-/// The object form of a slot (fh.view.model.SlotSource). A live JSONata
-/// expression over the card's entity; `reactive = false` marks an
-/// identity-derived slot (resolved once, never re-rendered on state change).
+/// The object form of a slot (fh.view.model.SlotSource): a JSONata expression
+/// over the card's entity. [[Slot.reads]] says when it is read.
 class Slot {
   entityId: String? = null
   transform: String = "$state"
   default: String? = null
   bypassUnavailable: Boolean = true
-  reactive: Boolean = true
+  /// WHEN this value is read, and whether reading it is a reason to re-render.
+  ///
+  ///   - `live` — read every render, and a change to the entity IS a render.
+  ///     A brightness, a state readout.
+  ///   - `onRender` — read every render, and never a reason to have one. A
+  ///     friendly name, a unit: right whenever the card is drawn, costing no
+  ///     subscription. The only mode a STRUCTURAL card may use on an entity,
+  ///     since structure is never patched.
+  ///   - `once` — resolved once per (entity, transform) and reused for the
+  ///     dashboard's life. For a value that is a function of WHICH entity this
+  ///     is rather than of its state: a service action from `$domain`, an id in
+  ///     a URL. Wrong for anything that can move — a rename would not show
+  ///     until the dashboard rebuilds.
+  ///
+  /// Three values and not two flags: `reactive: Boolean` could say "track and
+  /// re-read" or "ignore and read once", and the pairing an author keeps
+  /// wanting — a value that CAN move but is not worth waking the card for —
+  /// was the one it could not express.
+  reads: "live"|"onRender"|"once" = "live"
   /// Carry this value as a Datastar SIGNAL rather than as bytes in the element,
   /// so a change to it costs a signals frame instead of re-rendering the whole
   /// card (ADR 0017). The value says WHERE it lands — see [[SignalBind]] —

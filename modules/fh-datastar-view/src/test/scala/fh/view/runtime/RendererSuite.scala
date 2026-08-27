@@ -9,6 +9,7 @@ import fh.view.model.{
   NodeId,
   Op,
   Predicate,
+  Reads,
   Region,
   SlotSource,
   Surface,
@@ -270,29 +271,36 @@ class RendererSuite extends munit.FunSuite {
     )
   }
 
+  /** The three `reads` modes, told apart on the two things they decide.
+    *
+    * They used to be one Boolean, which could pair "track and re-read" with
+    * "ignore and read once" and nothing else. `onRender` is the pairing that
+    * had no spelling — re-read, but never a reason to render — and it is the
+    * one an author reaches for constantly: a friendly name, a unit.
+    */
   test(
-    "a reactive:false slot is resolved once and memoized; a reactive:true slot re-resolves"
+    "reads: live re-resolves and tracks, onRender re-resolves, once neither"
   ) {
-    // `reactive = false` promises the value is identity-only, so the renderer
+    // `reads = Reads.Once` promises the value is identity-only, so the renderer
     // resolves it ONCE per (entity, transform) and reuses it — this is what
     // keeps the set render path cheap (action/domain-config slots become a
     // cache lookup, not a JSONata eval, on every re-render). We expose the memo
     // with a state-reading transform (a deliberate misuse): its value freezes
-    // at the first render and ignores a later state change. A `reactive = true`
+    // at the first render and ignores a later state change. A `reads = Reads.Live`
     // slot, by contrast, re-resolves every render.
-    def node(reactive: Boolean): LayoutNode =
+    def node(reads: String): LayoutNode =
       LayoutNode.Component(
         card = "act",
         slots = Map(
           "action" -> SlotSource(
             Some("sensor.t"),
             transform = "$state",
-            reactive = reactive
+            reads = reads
           )
         )
       )
 
-    val frozen = renderer(node(false))
+    val frozen = renderer(node(Reads.Once))
     val a =
       frozen.renderNodeById("c", Map("sensor.t" -> st("sensor.t", "one"))).get
     val b =
@@ -300,13 +308,29 @@ class RendererSuite extends munit.FunSuite {
     assert(a.contains("""href="one""""), clue = a)
     assertEquals(b, a) // memoized: the changed state is ignored
 
-    val live = renderer(node(true))
+    val live = renderer(node(Reads.Live))
     val c1 =
       live.renderNodeById("c", Map("sensor.t" -> st("sensor.t", "one"))).get
     val c2 =
       live.renderNodeById("c", Map("sensor.t" -> st("sensor.t", "two"))).get
     assert(c1.contains("""href="one""""), clue = c1)
     assert(c2.contains("""href="two""""), clue = c2) // re-resolved
+
+    // `onRender` re-resolves like `live`...
+    val onRender = renderer(node(Reads.OnRender))
+    val d1 =
+      onRender.renderNodeById("c", Map("sensor.t" -> st("sensor.t", "one"))).get
+    val d2 =
+      onRender.renderNodeById("c", Map("sensor.t" -> st("sensor.t", "two"))).get
+    assert(d1.contains("""href="one""""), clue = d1)
+    assert(d2.contains("""href="two""""), clue = d2)
+
+    // ...and subscribes like `once`, which is to say not at all. THE
+    // distinction, and the only place the two halves come apart: a change to
+    // sensor.t wakes the live node and neither of the others.
+    assertEquals(live.componentsFor("sensor.t"), Set[NodeId]("c"))
+    assertEquals(onRender.componentsFor("sensor.t"), Set.empty[NodeId])
+    assertEquals(frozen.componentsFor("sensor.t"), Set.empty[NodeId])
   }
 
   test("missing entity renders empty slots rather than throwing") {
@@ -1186,15 +1210,15 @@ class RendererSuite extends munit.FunSuite {
 
   /** A structural card may not bind a LIVE entity — its patch would carry
     * everything it holds. It may still READ one, as long as the slot says it
-    * does not vary with state (`reactive = false`): a friendly name, a unit, a
-    * domain-derived action.
+    * does not vary with state (`reads = Reads.Once`): a friendly name, a unit,
+    * a domain-derived action.
     *
     * The rule keys on [[LayoutNode.Component.liveEntities]], which is exactly
     * "reactive, non-literal slots", so the two cases separate on the slot's own
     * declaration rather than on a second rule.
     */
   test("structure may READ an entity, as long as the slot is not reactive") {
-    def dash(reactive: Boolean) = Dashboard(
+    def dash(mode: String) = Dashboard(
       cards + ("box" -> CardDef(
         """<div title="{{name}}">{{#children}}{{{html}}}{{/children}}</div>""",
         regions = Map("children" -> Region()),
@@ -1206,7 +1230,7 @@ class RendererSuite extends munit.FunSuite {
           "name" -> SlotSource(
             Some("sensor.a"),
             "$attr.friendly_name",
-            reactive = reactive
+            reads = mode
           )
         ),
         children = LayoutNode.kids(
@@ -1215,15 +1239,16 @@ class RendererSuite extends munit.FunSuite {
       )
     )
 
-    // Reactive: rejected, because it could never reach the DOM.
+    // `live`: rejected, because it could never reach the DOM.
     assert(
-      dash(true).validate().exists(_.contains("never a patch target")),
-      clue = dash(true).validate()
+      dash(Reads.Live).validate().exists(_.contains("never a patch target")),
+      clue = dash(Reads.Live).validate()
     )
 
-    // Non-reactive: accepted, and the value is really read — it is resolved on
-    // the document path, where structure renders.
-    val ok = dash(false)
+    // `onRender`: accepted, and the value is really read — resolved on the
+    // document path, where structure renders. `once` would be accepted too,
+    // and wrong for a NAME: it memoizes, so a rename would not show.
+    val ok = dash(Reads.OnRender)
     assertEquals(ok.validate(), Nil)
     val html = Renderer
       .create(ok)

@@ -100,21 +100,48 @@ case class SlotSource(
     // fields above are unused. Authored (and decoded) as a bare JSON string
     // rather than an object — see the decoder below.
     literal: Option[String] = None,
-    // Whether a state change of this slot's entity re-renders the component (so
-    // its entity joins Component.liveEntities). ON by default; turn OFF for an
-    // identity-only slot (an onclick/action reading $entity_id/$domain) that
-    // binds an entity but never varies with its state. `reactive = false`
-    // carries a second guarantee the renderer relies on: the value is a pure
-    // function of the entity's identity, so it is resolved ONCE per
-    // (entity, transform) and memoized (never re-evaluated per render) — keep
-    // it off only for slots that truly read no live state.
-    reactive: Boolean = true,
+    // WHEN this slot's value is read — see [[Reads]]. `live` by default.
+    reads: String = Reads.Live,
     // Carry this slot's value as a Datastar SIGNAL rather than as bytes in the
     // element, so a change to it costs a signals frame instead of a card
     // re-render (ADR 0017). The value says WHERE it lands — see [[SignalBind]]
     // — and the card's template must place `{{{<slot>__bind}}}`.
     signal: Option[SignalBind] = None
 )
+
+/** When a slot's value is read, and whether reading it is a reason to
+  * re-render.
+  *
+  * Two questions, and they used to be one `reactive: Boolean` — which could
+  * only say `(track, re-read)` or `(ignore, read once)`. The pairing nobody
+  * could ask for is the one an author keeps wanting: a value that CAN move but
+  * is not worth waking the card for.
+  *
+  *   - `live` — read on every render, and a change to the entity IS a render. A
+  *     brightness, a state readout. The node joins the reverse index
+  *     ([[LayoutNode.Component.liveEntities]]) and the entity's version enters
+  *     the render key.
+  *   - `onRender` — read on every render, and never a reason to have one. A
+  *     friendly name, a unit: correct whenever the node is drawn, and it costs
+  *     no subscription. The ONLY mode a structural card may use on an entity,
+  *     since structure is never a patch target.
+  *   - `once` — read once per (entity, transform) and memoized for the
+  *     renderer's life. For a value that is a pure function of WHICH entity
+  *     this is rather than of its state: a service action from `$domain`, the
+  *     entity id in a URL. It is what keeps a candidate set's re-render cheap —
+  *     those cards' action and config slots become a lookup, not a JSONata
+  *     eval. Wrong for anything that can move: a rename would not show until
+  *     the dashboard rebuilds.
+  *
+  * Three values rather than two flags because `(wake me, never re-read)` is
+  * incoherent, and a pair of booleans would let it be written.
+  */
+object Reads:
+  val Live: String = "live"
+  val OnRender: String = "onRender"
+  val Once: String = "once"
+
+  val All: Set[String] = Set(Live, OnRender, Once)
 
 object SlotSource:
   // The object form (a live-expression slot) — the standard configured decoder.
@@ -524,7 +551,7 @@ object LayoutNode:
       */
     def liveEntities: List[String] =
       slots.values.toList
-        .filter(s => s.reactive && s.literal.isEmpty)
+        .filter(s => s.reads == Reads.Live && s.literal.isEmpty)
         .flatMap(s => s.entityId.orElse(subjectEntity))
         .distinct
 

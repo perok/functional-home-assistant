@@ -1,7 +1,7 @@
 package fh.view.runtime
 
 import fh.view.build.DashboardBuild
-import fh.view.model.{CardDef, Dashboard, LayoutNode, SlotSource}
+import fh.view.model.{CardDef, Dashboard, LayoutNode, Reads, SlotSource}
 import io.circe.Json
 
 /** How a dashboard's slug reaches the action URL a tap builds (ADR 0023).
@@ -29,7 +29,7 @@ class TransformsSuite extends munit.CatsEffectSuite {
       card = LayoutNode.Component(
         card = "c",
         slots = Map(
-          "onclick" -> SlotSource(transform = tapUrl, reactive = false)
+          "onclick" -> SlotSource(transform = tapUrl, reads = Reads.Once)
         )
       ),
       slug = slug
