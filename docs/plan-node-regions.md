@@ -313,9 +313,11 @@ obj1(InlineSurfacesKey).flatMap(_.asObject) match {
    The distinction the splice needs is authorship — *"my card class wrote this string"* — and no
    pass over JSON can see it, because an author-placed child and a card-constructed one are the same
    shape. Today `inlineSurfaces` stands in for it by coincidence: the cards that hoist surfaces are
-   exactly the cards that write tokens. Making it a service means making that explicit — a card that
-   writes `NODE_ID` into its children declares so, and the splice fires on that declaration instead
-   of on the popup marker.
+   exactly the cards that write tokens.
+
+   **So do not invest in fixing the splice.** A subtree find-and-replace is the wrong shape for
+   this, and the right one is sketched under "Node variables" below. Take defect (2) — the leftover
+   check — which is correct under either design, and leave (1) alone.
 2. **A surviving token is silent.** Nothing validates that no `@@…@@` remains: `Dashboard.validate`
    never mentions `NodeIdToken`, and the only occurrence of the string in `src/main/scala` is its
    own definition. So an unspliced token renders literally into the DOM as `@@NODE_ID@@`, and the
@@ -333,6 +335,40 @@ var the way it supplies `{{id}}`. What makes it explicit is (2), not ceremony ar
 
 `DashboardBuild.walk` does move with the children map: its `ChildrenKey` recursion becomes one pass
 per region.
+
+### Node variables — the direction, not this plan's work
+
+Not scoped here. Recorded because it changes what is worth doing about `NODE_ID` now, and because
+regions are what make it expressible.
+
+A string convention (`ui_<gid>`, `_<g>__pending`) ties nothing to a node's lifecycle. Compare how
+entity reads work: a node DECLARES the entities its slots read, and the recorder, `renderInputs` and
+the cache all derive from that declaration. A selection has no such declaration — the only reason
+`ui_<gid>` works is that a browser evaluates the string. Nothing server-side knows that a tab button
+depends on the tabs node's selection.
+
+The shape that fixes it: a node **declares a variable**, a descendant **reads it through a slot**,
+and an action **writes it**. `RenderInputs` already has the field for it —
+`RenderInputs(entityVersions, vars)`, whose `vars` today carries exactly one hardcoded entry,
+`bakeIndex`. A node variable is that field generalised, and `bakeIndex` becomes its first instance
+rather than a special case.
+
+**This is also the answer to the `NODE_ID` walk problem**, and a better one than marking authorship.
+A variable is resolved by NAME up the ancestor chain, not by splicing a subtree:
+
+- an intermediate container that declares nothing is transparent — the `Row` case that works today
+  by accident keeps working, by rule;
+- a nested `Tabs` declaring the same name shadows correctly, which is what "innermost owner wins"
+  was approximating;
+- a reader with no enclosing declarer is a BUILD ERROR naming the node and the variable, where an
+  unresolved token today renders `@@NODE_ID@@` into the DOM. Defect (2) stops needing a check
+  because the case stops being representable.
+
+**One thing it must not collapse.** "The variable changed, so re-render its readers" would regress
+the tab bar from zero bytes per click to every button re-rendered. The two readings that exist today
+must both survive: a plain slot re-renders its reader (right for a panel, whose content changes) and
+a signal slot pushes a value with no re-render (right for the highlight, which is a class). A
+variable unifies where the NAME comes from, not how a reader consumes it — ADR 0017's split stays.
 
 ### Renderer
 
