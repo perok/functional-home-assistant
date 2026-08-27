@@ -540,8 +540,22 @@ plan gives. What it misses is `{{#children}}`, which is exactly what `Tabs` does
   source of truth (nothing is unsafe: `carriesMount`'s recursion still covers the safety property),
   and the rule forces every `{{#children}}`-splicing fixture to name its region, which is churn this
   cut already pays.
-- **1e — surfaces.** `inlineSurfaces` absorbed into the baked region; the only cut that touches
-  `DashboardBuild`'s splice branch, so the leftover-token check lands here.
+- **1e — the surface↔region relation, checked.** NOT the absorption this plan first described.
+  Counting the users settled it: `inlineSurfaces` has **six-plus callers on the POPUP path**
+  (`entity.pkl`, `control.pkl` ×3, `slider.pkl`, `tap.pkl`) against two on the baked path (`Tabs`,
+  `If`) — and a popup does not collapse into a region (it hosts at the page-level overlay and is
+  authored inside a tap). So absorbing the baked two would convert the minority, leave the majority
+  on `inlineSurfaces`, and churn every surface id: it would CREATE the second mechanism this plan
+  exists to remove, not remove one.
+
+  What is worth having is the relation made checkable. `bakeAs` names the template var a surface
+  substitutes into, which since 1b IS a region name, so `validate` now asserts the target node's
+  card declares that region AND declares it `baked`. Same class of defect as the existing
+  `danglingBakes` and the same silent symptom — the host renders its wrapper with an empty hole,
+  indistinguishable from a state group that legitimately matched nothing.
+
+  Plus the leftover-token check, which belongs here because it is the same "a build step did not
+  run and nothing said so" failure.
 
 1a is worth doing alone regardless of how the rest is cut: it is the safety property, it is small,
 and it moves a stringly-typed runtime check into the type system.
@@ -603,7 +617,7 @@ Each is recorded so it is not rediscovered as a surprise mid-implementation. Non
 - **The `NODE_ID` splice decoupling.** Deliberately NOT done — the coupling is structural (a card
   handing children its id is naming a selection it owns, hence has a bake group, hence carries
   surfaces). Revisit only if a card wants to share a non-selection value, and prefer node variables
-  if so. The leftover-token check is separate and lands in step 1.
+  if so. The leftover-token check that made its failure mode visible landed in 1e.
 
 ## Rejected
 

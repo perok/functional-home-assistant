@@ -8,6 +8,7 @@ import fh.view.model.{
   LayoutNode,
   Op,
   Predicate,
+  Region,
   SlotSource,
   Surface
 }
@@ -300,7 +301,14 @@ class BuildPhaseSuite extends munit.FunSuite {
         .Cmp("state", Op.Eq, Json.fromString("on"), entity = Some("light.a"))
     )
     val mixed = Dashboard(
-      cards = Map("ok" -> CardDef("<i></i>")),
+      // The bake target must declare the region its surfaces name; these
+      // dashboards were only ever valid because nothing checked.
+      cards = Map(
+        "ok" -> CardDef(
+          "<i>{{{branch}}}</i>",
+          regions = Map("branch" -> Region(Region.Baked))
+        )
+      ),
       card = LayoutNode.Component("ok"),
       surfaces = Map(
         "a" -> member(0, Activation.User(defaultOpen = true)),
@@ -327,7 +335,14 @@ class BuildPhaseSuite extends munit.FunSuite {
 
   test("validate rejects a state condition that names no entity") {
     def dash(condition: Predicate) = Dashboard(
-      cards = Map("ok" -> CardDef("<i></i>")),
+      // The bake target must declare the region its surfaces name; these
+      // dashboards were only ever valid because nothing checked.
+      cards = Map(
+        "ok" -> CardDef(
+          "<i>{{{branch}}}</i>",
+          regions = Map("branch" -> Region(Region.Baked))
+        )
+      ),
       card = LayoutNode.Component("ok"),
       surfaces = Map(
         "a" -> Surface(
@@ -361,6 +376,92 @@ class BuildPhaseSuite extends munit.FunSuite {
     )
     for (c <- List(named, count, Predicate.And(Nil), Predicate.Or(List(count))))
       assertEquals(dash(c).validate(), Nil, clue = c)
+  }
+
+  /** `bakeAs` names the template var a surface's content is substituted into,
+    * which since regions IS a region name — so the two can be checked against
+    * each other rather than agreeing by convention.
+    *
+    * Naming a region the host does not declare fails exactly the way
+    * `danglingBakes` describes for a missing NODE: the host renders its wrapper
+    * with an empty hole, indistinguishable from a state group that legitimately
+    * matched nothing. That is why it is worth a build error.
+    */
+  test("validate rejects a surface baking into a region its card lacks") {
+    def dash(hostCard: CardDef, as: String) = Dashboard(
+      cards = Map("host" -> hostCard),
+      card = LayoutNode.Component("host"),
+      surfaces = Map(
+        "s" -> Surface(
+          LayoutNode.Component("host"),
+          bakeInto = Some("c"),
+          bakeAs = Some(as),
+          bakeIndex = Some(0),
+          activation = Activation.User(defaultOpen = true)
+        )
+      )
+    )
+    val hasBranch = CardDef(
+      "<i>{{{branch}}}</i>",
+      regions = Map("branch" -> Region(Region.Baked))
+    )
+
+    // Named region, wrong name.
+    assert(
+      dash(hasBranch, "panel").validate().exists(_.contains("no baked region")),
+      clue = dash(hasBranch, "panel").validate()
+    )
+    // A card with no regions at all — the shape the fixtures in this file
+    // silently had before this rule existed.
+    assert(
+      dash(CardDef("<i></i>"), "branch")
+        .validate()
+        .exists(_.contains("it declares none")),
+      clue = dash(CardDef("<i></i>"), "branch").validate()
+    )
+    // An EAGER region of the right name is still wrong: a surface fills a hole
+    // lazily, and `{{#branch}}` is not the hole it substitutes into.
+    assert(
+      dash(
+        CardDef(
+          "<i>{{#branch}}{{{html}}}{{/branch}}</i>",
+          regions = Map("branch" -> Region())
+        ),
+        "branch"
+      ).validate().exists(_.contains("no baked region")),
+      clue = "an eager region must not satisfy a bakeAs"
+    )
+    // Non-vacuous.
+    assertEquals(dash(hasBranch, "branch").validate(), Nil)
+  }
+
+  /** An unresolved placeholder is a plain String: it decodes, it validates, and
+    * it renders into the DOM verbatim. Nothing used to notice, and the first
+    * symptom is a binding that quietly never matches — so the build says so.
+    */
+  test("unresolvedTokens finds a placeholder the build failed to fill in") {
+    def json(s: String) = parser.parse(s).fold(throw _, identity)
+
+    // Nested anywhere, in a value the author composed around it.
+    assertEquals(
+      DashboardBuild.unresolvedTokens(
+        json(
+          """{"card":{"slots":{"active":"($_@@NODE_ID@@__pending || $x) == 0"}},
+            | "cards":{"a":{"template":"<i class=\"@@CLASSBIND:busySpin:$b@@\"></i>"}}}""".stripMargin
+        )
+      ),
+      List("@@CLASSBIND:busySpin:$b@@", "@@NODE_ID@@").sorted
+    )
+
+    // Non-vacuous, and the reason the pattern is anchored on both sides: an
+    // ordinary `@` in an onclick is not a token, and neither is a lone `@@`
+    // inside prose.
+    assertEquals(
+      DashboardBuild.unresolvedTokens(
+        json("""{"a":"@post('sse/x')","b":"see @@ below","c":42,"d":null}""")
+      ),
+      Nil
+    )
   }
 
   test("hoistInlineSurfaces lifts the activation object onto the surface") {

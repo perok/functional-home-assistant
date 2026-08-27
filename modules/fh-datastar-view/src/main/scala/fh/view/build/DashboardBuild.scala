@@ -163,6 +163,38 @@ object DashboardBuild {
         )
     }
 
+  /** Every `@@…@@` placeholder still standing after the build, deduplicated.
+    *
+    * The authoring layer writes these because the value is not knowable while
+    * authoring — [[NodeIdToken]] for a node's own id, `@@CLASSBIND:…@@` for a
+    * theme's class list — and a later pass fills them in. Nothing checked that
+    * the pass ran: an unresolved token is a plain String, so it decodes, it
+    * validates, and it renders into the DOM verbatim. The first symptom is a
+    * binding that quietly never matches.
+    *
+    * A check rather than a type because the tokens live inside arbitrary
+    * author-composed strings (an onclick expression, a `data-class` predicate),
+    * where the surrounding text is the author's and only the placeholder is
+    * ours.
+    */
+  private[build] def unresolvedTokens(j: Json): List[String] = {
+    // `[^@]*` rather than a name charset: a token's payload is arbitrary
+    // (`@@CLASSBIND:busySpin:$b@@` carries a Datastar expression), and the
+    // delimiters are what identify it. Both `@@` are required, so a lone `@@`
+    // in prose and a bare `@post(…)` are not tokens.
+    val pattern = """@@[^@]*@@""".r
+    def go(j: Json): List[String] =
+      j.fold(
+        Nil,
+        _ => Nil,
+        _ => Nil,
+        s => pattern.findAllIn(s).toList,
+        _.toList.flatMap(go),
+        _.toList.flatMap((_, v) => go(v))
+      )
+    go(j).distinct.sorted
+  }
+
   // Replace every occurrence of `token` in every String leaf of `j`.
   private def splice(j: Json, token: String, value: String): Json =
     j.fold(
@@ -293,7 +325,18 @@ object DashboardBuild {
       slug: Option[String] = None
   ): IO[Dashboard.Validated] =
     for {
-      decoded <- hoistInlineSurfaces(json)
+      hoisted <- IO.pure(hoistInlineSurfaces(json))
+      _ <- unresolvedTokens(hoisted) match {
+        case Nil => IO.unit
+        case bad =>
+          FHError
+            .badCondition(
+              "the build left placeholder tokens unresolved, which would " +
+                s"render literally into the DOM: ${bad.mkString(", ")}"
+            )
+            .raiseError[IO, Unit]
+      }
+      decoded <- hoisted
         .as[Dashboard]
         .leftMap(err =>
           FHError.badCondition(s"dashboard is not a valid Dashboard: $err")

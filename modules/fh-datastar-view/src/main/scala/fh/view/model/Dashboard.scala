@@ -263,6 +263,10 @@ case class CardDef(
     * split. Structure is never a patch target.
     */
   def isStructure: Boolean = regions.nonEmpty
+
+  /** The regions a SURFACE can fill — what a `bakeAs` may name. */
+  def bakedRegions: Map[String, Region] =
+    regions.filter(_._2.fill == Region.Baked)
 }
 
 /** One named hole in a card's [[CardDef.template]]. `fill` says who puts
@@ -1090,6 +1094,26 @@ case class Dashboard(
     // state group with no matching branch legitimately does. Checking it here
     // is what turns "the panel is blank" into a build error naming the surface.
     val danglingBakes: List[String] = {
+      // The card name at `target`, if the walk reaches it. Same traversal as
+      // [[idsOf]], stopping at the node asked about.
+      def cardAt(
+          node: LayoutNode,
+          prefix: String,
+          path: List[LayoutNode.Step],
+          target: NodeId
+      ): Option[String] =
+        node match {
+          case c: LayoutNode.Component =>
+            if (LayoutNode.nodeId(prefix, path) == target) Some(c.card)
+            else
+              LayoutNode
+                .steps(c.children)
+                .collectFirst(Function.unlift { case (step, ch) =>
+                  cardAt(ch, prefix, path :+ step, target)
+                })
+          case _: LayoutNode.SetNode => None
+        }
+
       def idsOf(
           node: LayoutNode,
           prefix: String,
@@ -1108,13 +1132,45 @@ case class Dashboard(
         (idsOf(card, "", Nil) ++ surfaces.toList.flatMap { case (sid, s) =>
           idsOf(s.content, LayoutNode.surfacePrefix(sid), Nil)
         }).toSet
-      surfaces.toList.sortBy(_._1).flatMap { case (sid, s) =>
-        s.bakeInto
-          .filterNot(known)
-          .map(gid =>
-            s"surface '$sid' bakes into '$gid', which is not a node in this " +
-              "dashboard (main tree or any surface's content)"
+      // The node a surface bakes into, when it names one that exists — needed
+      // twice below, and `known` alone cannot supply the card.
+      def hostCard(gid: NodeId): Option[CardDef] =
+        cardAt(card, "", Nil, gid)
+          .orElse(
+            surfaces.collectFirst(Function.unlift { case (sid, s) =>
+              cardAt(s.content, LayoutNode.surfacePrefix(sid), Nil, gid)
+            })
           )
+          .flatMap(cards.get)
+
+      surfaces.toList.sortBy(_._1).flatMap { case (sid, s) =>
+        s.bakeInto.toList.flatMap { gid =>
+          if (!known(gid))
+            List(
+              s"surface '$sid' bakes into '$gid', which is not a node in this " +
+                "dashboard (main tree or any surface's content)"
+            )
+          else
+            // ...and that node's card must actually have a BAKED region by
+            // this name. `bakeAs` names the template var the content is
+            // substituted into, which since regions IS a region name — so the
+            // two can be checked against each other instead of agreeing by
+            // convention. Getting it wrong is the silent failure this section
+            // already describes: the host renders its wrapper with an empty
+            // hole, exactly as a legitimately unmatched state group does.
+            (s.bakeAs, hostCard(gid)) match {
+              case (Some(region), Some(cd))
+                  if !cd.regions.get(region).exists(_.fill == Region.Baked) =>
+                val baked = cd.bakedRegions.keys.toList.sorted
+                List(
+                  s"surface '$sid' bakes into '$gid' as '$region', but that " +
+                    s"node's card declares no baked region '$region'" +
+                    (if (baked.isEmpty) " (it declares none)"
+                     else s" — it has ${baked.mkString(", ")}")
+                )
+              case _ => Nil
+            }
+        }
       }
     }
 
