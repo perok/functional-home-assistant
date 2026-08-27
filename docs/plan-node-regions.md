@@ -260,13 +260,36 @@ right, and deliberately so: the walk resolves bottom-up so that *"the only `Node
 this subtree belong to THIS node"* — innermost owner wins, and tabs nested in tabs does not cross
 wires. Regions do not disturb any of it; `children["buttons"]` is the same subtree it was.
 
-**One limit, if a future card needs it.** The splice fires only for a node carrying an
-`inlineSurfaces` marker, so it is coupled to the hoist. Tabs qualifies because its panels are inline
-surfaces; a card that only wants to hand its own children a signal reference has no splice point.
-The pass's own doc says it *"is deliberately generic — it knows nothing about popups, tabs, buttons,
-signals, or onclick wiring"*, so decoupling it is small: splice over every node's subtree whether or
-not it hoists. Nothing in steps 1–3 needs this — each head action keys on its own id, which is the
-point of #151 — so do it when a consumer arrives, not speculatively.
+**Two defects in it, neither caused by this work.** `DashboardBuild.walk` branches on whether the
+node carries an `inlineSurfaces` marker:
+
+```scala
+obj1(InlineSurfacesKey).flatMap(_.asObject) match {
+  case None         => (Json.fromJsonObject(obj1), childSurfaces)   // no splice at all
+  case Some(marker) => … splice(…, NodeIdToken, idBase) …
+}
+```
+
+1. **The splice is a passenger on the hoist, not a service.** Tabs works because its panels are
+   inline surfaces, so the fixup runs as a side effect of hoisting them. A card that only wants to
+   hand its own children a signal reference — a `Slider` handing its head one — hits the `None`
+   branch and gets no splice. The pass's own doc says it *"is deliberately generic — it knows
+   nothing about popups, tabs, buttons, signals, or onclick wiring"*, so the fix is to run it for
+   every node rather than for marker-bearing ones.
+2. **A surviving token is silent.** Nothing validates that no `@@…@@` remains: `Dashboard.validate`
+   never mentions `NodeIdToken`, and the only occurrence of the string in `src/main/scala` is its
+   own definition. So an unspliced token renders literally into the DOM as `@@NODE_ID@@`, and the
+   first sign of it is a binding that quietly never matches.
+
+Both are one-liners and neither blocks steps 1–3 — each head action keys on its own id, which is the
+point of #151. Do (2) regardless whenever this file is next touched; it is a build-time check that
+can only ever be right. Do (1) when a consumer arrives.
+
+**Not** a reason to move the owner id into a declared slot. The parent still cannot know the id at
+authoring time, so the slot's VALUE would be the same token — one more declaration and the same
+splice. The token is doing something a slot cannot: `NODE_ID` means *"the card that wrote this
+string"*, which is authorship, not tree position, so the renderer cannot supply it as a structural
+var the way it supplies `{{id}}`. What makes it explicit is (2), not ceremony around it.
 
 `DashboardBuild.walk` does move with the children map: its `ChildrenKey` recursion becomes one pass
 per region.

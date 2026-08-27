@@ -37,6 +37,16 @@ navigation, opening a popup. ADR 0016, 0024.
 **Guard** — the attribute on a tappable element that refuses a second click while the first is still
 in flight. The point of the busy machinery; the spinner is decoration. ADR 0019.
 
+**Busy** — per CONTROL: a request is in flight *from this element*. What the guard, the spinner and
+the disabled state read. About whether you may click, not about what is shown.
+
+**Pending / committed** — per SELECTION GROUP, and a different fact from busy: **pending** is the
+value this client has ASKED for, **committed** is the value the server says is in effect. A control
+shows the pending one while there is one and the committed one otherwise, so an optimistic update
+never has to be rolled back — nothing wrong was ever committed. Pending is client-written only, and
+clears itself three ways: the committed value agrees, the stream is down (so no answer is coming),
+or the server refused. ADR 0025.
+
 **Candidate set** — a card position that stands for "whichever entities currently match", with the
 possible entities known at build time from the dump. ADR 0003.
 
@@ -59,6 +69,13 @@ serves; an entry's key in it is that dashboard's **slug** (its URL segment). ADR
 **Hoist** — the build step that lifts a popup defined inline inside a tap up into the top-level
 surface registry, splicing the owning node's real id into it. Why authors can write a popup where it
 is used rather than registering it elsewhere.
+
+**Token (`@@NODE_ID@@`, `@@CLASSBIND:…@@`)** — a placeholder Pkl writes because the value is not
+knowable while authoring, filled in later by a pass that is. `NODE_ID` stands for *the node that
+owns this subtree*: a card constructing its own children writes it so they can name signals the card
+owns, and the build replaces it with that node's real id — bottom-up, so the innermost owner wins.
+Note this is authorship, not tree position: it means "the card that wrote this", which is why the
+renderer cannot derive it from the parent link.
 
 ---
 
