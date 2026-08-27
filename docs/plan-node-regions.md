@@ -102,11 +102,21 @@ no hole, so that fixture already satisfies the invariant.
 
 Both halves keep working, unchanged in mechanism:
 
-- **Selection is a signal, entirely client-side.** `data-signals__ifmissing="{ ui_{{id}}:
-  {{bakeIndex}} }"` moves onto the template's `.tabs` div, which is rendered with `vars` — and
-  `vars` includes `bakeIndex` — so the seed is the same bytes. The active highlight is each button's
-  own `data-class` off `$ui_<id>`, with no server round trip. `ui_{{id}}` keys on the tabs NODE id,
-  which does not move.
+- **Selection is a signal, and the optimistic-update machinery moves with it unchanged.** ADR 0025
+  is already the "value in flight" design: `_<groupId>__pending` is what this client ASKED for
+  (client-writes-only, `_`-prefixed so it never rides a request), `ui_<groupId>` is what the server
+  says it IS showing, and a button reads `pendingOrCommitted` = `($_<g>__pending || $ui_<g>)`.
+  `pendingClear` empties it when the committed value agrees or the stream is down; `pendingFail` on
+  a real refusal. All three ride on `data-signals__ifmissing` / `data-effect` /
+  `data-on:datastar-fetch__document` attributes keyed on `{{id}}`, so they move from the deleted
+  `self` onto the template's `.tabs` div verbatim. `vars` includes `bakeIndex`, so the seed is the
+  same bytes.
+
+  One hazard shrinks. `__ifmissing` is there because *"a plain seed would wipe an in-flight pending
+  on every re-render of the host"* — and today the host IS the patch target, so that is live on
+  every tick the moment the bar binds anything. As structure it is never patched, so the modifier
+  goes from load-bearing to belt-and-braces (a repaint or a structural insert still re-renders it,
+  so keep it).
 - **The panel stays lazy.** `fill = "baked"` is the declaration of exactly the property
   `plan-mount-unification` feared losing: only the selected surface renders and streams, and a
   switch is `Patches.hostFill` inner-patching `panelId` as it does today.
@@ -232,6 +242,34 @@ grammar, no privileged region. `path: List[Int]` becomes a list of `(region, ind
 (`fhUrl('ui.{{id}}', $ui_{{id}})`), so every bookmarked or shared URL carrying a tab selection stops
 resolving. Deliberate — a second id grammar to protect them is the worse trade while the design is
 pre-v1.
+
+### A child already reaches its owner's signals — `NODE_ID`
+
+Worth writing down, because it looks like a gap regions would have to open and is not one.
+Datastar's store is one flat namespace, so the only question is whether a child's markup can *name*
+a signal its parent owns. It can: `core/node.pkl` defines `NODE_ID = "@@NODE_ID@@"`, and
+`DashboardBuild` *"splices `idBase` into every `NodeIdToken` in the node's subtree"*. Tabs is the
+existing user — `surface.pkl:157`:
+
+```pkl
+active = "\(tapMod.pendingOrCommitted(nodes.NODE_ID)) == \(i)"
+```
+
+That is a tab BUTTON's slot naming the TABS node's pending/committed signals. The scoping is already
+right, and deliberately so: the walk resolves bottom-up so that *"the only `NodeIdToken`s left in
+this subtree belong to THIS node"* — innermost owner wins, and tabs nested in tabs does not cross
+wires. Regions do not disturb any of it; `children["buttons"]` is the same subtree it was.
+
+**One limit, if a future card needs it.** The splice fires only for a node carrying an
+`inlineSurfaces` marker, so it is coupled to the hoist. Tabs qualifies because its panels are inline
+surfaces; a card that only wants to hand its own children a signal reference has no splice point.
+The pass's own doc says it *"is deliberately generic — it knows nothing about popups, tabs, buttons,
+signals, or onclick wiring"*, so decoupling it is small: splice over every node's subtree whether or
+not it hoists. Nothing in steps 1–3 needs this — each head action keys on its own id, which is the
+point of #151 — so do it when a consumer arrives, not speculatively.
+
+`DashboardBuild.walk` does move with the children map: its `ChildrenKey` recursion becomes one pass
+per region.
 
 ### Renderer
 
