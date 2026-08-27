@@ -194,12 +194,12 @@ easy to never see. Two consequences worth knowing:
 Green tests are not the finish line. Make one pass over your own diff as if it were someone
 else's. Every check below has caught a real defect that a passing suite said nothing about:
 
-- **Run the suite for every KIND of file you touched.** There are three runners and no single
-  command covers them: `sbt fh-datastar-view/testFull`, the pure-Pkl suite (see the module's
-  `CLAUDE.md` — any `.pkl` edit, comments included, moves the `@fh-dashboard` package hash),
-  and `scripts/fh.test.scala`. Touching a `.pkl` file silently opts you into a runner `sbt`
-  does not invoke. Where no browser driver is installed, run the `--exclude-tags=Slow` variant
-  above instead and say so — six red `smoke` suites are the environment, not the diff.
+- **Run the suite for every KIND of file you touched.** `sbt fh-datastar-view/testFull` now
+  covers `.pkl` too — `PklLibraryTestSuite` runs the pure-Pkl `facts` through the pinned
+  `pkl-core`, so a `.pkl` edit no longer opts you into a runner `sbt` does not invoke. The one
+  still outside it is `scripts/fh.test.scala`. Where no browser driver is installed, run the
+  `--exclude-tags=Slow` variant above instead and say so — six red `smoke` suites are the
+  environment, not the diff.
 - **Check every claim you wrote against the code you wrote.** A scaladoc saying "the only way
   to X", "cannot happen" or "is not possible" is an assertion about the codebase, and the
   commit that adds the second way is usually the same one that wrote the sentence. If a claim

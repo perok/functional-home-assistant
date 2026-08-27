@@ -22,24 +22,38 @@ same commit; ADRs that change the pipeline update it too.
    needed** for tests. (`sbt dashboardBuild` *does* need the live instance — it fetches the
    entity dump.)
 
-   For changes to the Pkl authoring library itself there is also a pure-Pkl suite (`facts` +
-   `examples`, no JVM and no dump), run with the `pkl` CLI at the **same version as the
-   `pkl-core` pin** — a different CLI tests different semantics than we ship:
+   For changes to the Pkl authoring library itself there is a pure-Pkl suite (`facts` +
+   `examples`, no dump), and **`sbt` runs it** — `PklLibraryTestSuite` calls
+   `Evaluator.evaluateTest`, which IS the runner the CLI calls, through the pinned `pkl-core`.
+   So it needs no `pkl` on PATH, and the "CLI must match the `pkl-core` pin or you are testing
+   semantics you do not ship" hazard is gone by construction.
 
    ```bash
-   pkl test modules/fh-datastar-view/src/test/pkl/*.test.pkl
-   pkl test --overwrite modules/fh-datastar-view/src/test/pkl/*.test.pkl  # accept new example output
+   sbt 'fh-datastar-view/testOnly *PklLibraryTestSuite'   # just the Pkl suite, ~2s
    ```
 
-   **`*.test.pkl`, not `*.pkl`** — the same glob CI uses. The directory also holds fixture
+   The CLI is still the tool for **authoring `examples`**: the Scala runner never overwrites a
+   baseline (a suite that rewrites what it checks against always passes), so accepting new
+   example output stays a deliberate local act.
+
+   ```bash
+   pkl test --overwrite modules/fh-datastar-view/src/test/pkl/*.test.pkl
+   ```
+
+   **A `-D` or env var on the `sbt` command line does NOT reach the tests here** — this repo
+   runs a long-lived sbt server, so the client gets the setting and the JVM running the tests
+   does not. Measured, both silent no-ops. Anything a test must be told belongs in `build.sbt`
+   or in the test itself.
+
+   **`*.test.pkl`, not `*.pkl`** — the glob both runners use. The directory also holds fixture
    modules (`site-kitchen.pkl`, `site-attic.dashboard.pkl`) which are not test modules, so the
    wider glob reports two `–– Pkl Error ––` blocks and **exits 1 on a fully passing suite**
    ("100.0% tests pass" and a red exit, together). A signal that is already noisy when nothing
    is wrong cannot tell you when something is.
 
-   **Run this whenever you touch a `.pkl` file**, including a comment-only edit: `lib/` is
-   packaged into the content-versioned `@fh-dashboard`, so any byte moves the package hash.
-   `sbt fh-datastar-view/testFull` does NOT run it.
+   **Every `.pkl` edit is covered whenever you run the module's tests**, comment-only edits
+   included — which matters because `lib/` is packaged into the content-versioned
+   `@fh-dashboard`, so any byte moves the package hash.
 
    The tests live outside `lib/` deliberately: `LibPackage` packages that directory into the
    content-versioned `@fh-dashboard` package, so a test module inside it would move the package
