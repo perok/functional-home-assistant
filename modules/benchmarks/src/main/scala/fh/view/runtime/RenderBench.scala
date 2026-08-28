@@ -77,6 +77,7 @@ class RenderBench {
   private var signalled: Renderer = null
   private var narrow: Renderer = null
   private var flat: Renderer = null
+  private var set: Renderer = null
   private var st: Map[String, EntityState] = null
   private var transforms: Transforms = null
   private var entityTemplate: com.samskivert.mustache.Template = null
@@ -91,6 +92,7 @@ class RenderBench {
     narrow = Renderer.create(Dashboard(cards, tree(Leaves, 2, signals = true)))
     flat =
       Renderer.create(Dashboard(cards, tree(Leaves, Leaves, signals = true)))
+    set = Renderer.create(Dashboard(cards, setTree(Leaves)))
     transforms = Transforms.from(
       Dashboard(cards, tree(Leaves, 4, signals = true))
     )
@@ -123,6 +125,16 @@ class RenderBench {
     */
   @Benchmark
   def pageNarrow(bh: Blackhole): Unit = bh.consume(narrow.renderPageTraced(st))
+
+  /** The same leaves as members of a CANDIDATE SET rather than static nodes.
+    *
+    * A separate benchmark because the member path is a separate renderer: a
+    * member is one patch unit covering a whole subtree, so it resolves, renders
+    * and seeds differently from a static node — and it is the hotter of the
+    * two, since a set re-renders every matched member on every event.
+    */
+  @Benchmark
+  def pageSet(bh: Blackhole): Unit = bh.consume(set.renderPageTraced(st))
 
   /** JSONata at the count one page performs, `Reads.Once` slots excluded (the
     * renderer memoises those, which is the state a warm server is in).
@@ -257,6 +269,27 @@ object RenderBench {
         )
     stack(List.tabulate(leaves)(leaf(signals)))
   }
+
+  /** The same leaves, as one candidate set: every entity a candidate, each with
+    * a single unguarded clause rendering the same card. Membership is therefore
+    * total, so this measures the RENDER path rather than predicate evaluation.
+    */
+  def setTree(leaves: Int): LayoutNode =
+    LayoutNode.Component(
+      "col",
+      regions = LayoutNode.kids(
+        LayoutNode.SetNode(
+          candidates = List.tabulate(leaves)(entityId),
+          members = List
+            .tabulate(leaves)(i =>
+              entityId(i) -> LayoutNode.SetMember(
+                List(LayoutNode.SetClause(node = leaf(signals = true)(i)))
+              )
+            )
+            .toMap
+        )
+      )
+    )
 
   def states(leaves: Int): Map[String, EntityState] =
     List

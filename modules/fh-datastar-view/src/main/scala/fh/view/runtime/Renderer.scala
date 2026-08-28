@@ -1000,17 +1000,28 @@ class Renderer(
         // ancestor's — and an ancestor has no `own` either, so that form is
         // discarded unread all the way to the root. What IS read is each
         // MEMBER's patch rendering, below, which is a patch target.
-        Traced(
-          renderSet(setId, s.cell, states, SlotForm.Document),
+        // Membership is evaluated ONCE and each member resolved once, then
+        // both forms and the seed come off that. Evaluating `membersOf` twice
+        // is not just a repeated lookup: it re-tests every candidate's `when`
+        // against live state.
+        val resolved =
           members
             .membersOf(setId, states)
-            .map { m =>
-              m.id -> Painted(
-                renderMember(m, states, SlotForm.Patch),
-                memberSignals(m.id, m.node, states)
-              )
-            }
-            .toMap
+            .map(m => m -> resolveMember(m, states))
+        Traced(
+          setElement(
+            setId,
+            s.cell,
+            resolved.map((m, rm) =>
+              renderResolvedMember(m, rm, SlotForm.Document)
+            )
+          ),
+          resolved.map { (m, rm) =>
+            m.id -> Painted(
+              renderResolvedMember(m, rm, SlotForm.Patch),
+              memberSignalsOf(rm)
+            )
+          }.toMap
         )
     }
 
@@ -1019,17 +1030,26 @@ class Renderer(
       cell: Option[Cell],
       states: Map[String, EntityState],
       form: SlotForm
-  ): String = {
-    val children =
+  ): String =
+    setElement(
+      id,
+      cell,
       members.membersOf(id, states).map(renderMember(_, states, form))
-    // The group root is itself a cell (a first-class layout item in its
-    // container) plus `.fh-group`, the themed flow container its per-entity
-    // member cells live in. Authored `cell` classes (e.g. `fh-cols-full` to
-    // span a parent grid) ride on it.
+    )
+
+  /** The group root is itself a cell (a first-class layout item in its
+    * container) plus `.fh-group`, the themed flow container its per-entity
+    * member cells live in. Authored `cell` classes (e.g. `fh-cols-full` to span
+    * a parent grid) ride on it.
+    */
+  private def setElement(
+      id: SetId,
+      cell: Option[Cell],
+      members: Seq[String]
+  ): String =
     s"""<div class="fh-cell fh-group${Renderer.cellClasses(
         cell
-      )}" id="$id">${children.mkString}</div>"""
-  }
+      )}" id="$id">${members.mkString}</div>"""
 
   /** Render ONE set member by its entity — the by-key accessor into the graph.
     * `None` when the set id is unknown/not a set or the entity is not a current
@@ -1057,72 +1077,139 @@ class Renderer(
       m: Member,
       states: Map[String, EntityState],
       form: SlotForm
-  ): String = {
-    val html = renderTemplate(
-      m.node.card,
-      structuralVars(m.id),
-      m.node.slots,
-      // A member may render a SUBTREE — a card with children, not only a leaf.
-      // Ordinary children come out INSIDE the member's bytes with no ids of
-      // their own, so the member is the single patch target for them and a
-      // child's entity changing re-renders it (which is why
-      // [[Member.entitiesOf]] walks them). A nested SET is the exception: it
-      // is addressable, and [[Member.entitiesOf]] stops there.
-      Renderer.perRegion(m.node.regions)((child, step) =>
-        memberChild(m, child, List(step), m.clause, states, form)
-      ),
-      states,
-      form
-    )
-    // A member's children have no ids, so the seed here covers THEM too — see
-    // [[memberSignals]]. That is why a member's wrapper carries the whole patch
-    // unit's signals rather than only its own card's.
-    s"""<div class="fh-cell${Renderer.cellClasses(m.node.cell)}" id="${m.id}"${
-        if (form.isPatch) ""
-        else Datastar.signalsAttr(memberSignals(m.id, m.node, states))
-      }>$html</div>"""
-  }
+  ): String = renderResolvedMember(m, resolveMember(m, states), form)
+
+  /** A member's card, resolved — and, recursively, every unaddressed node under
+    * it. The counterpart of [[Resolved]] for the tree a member renders as ONE
+    * patch unit.
+    *
+    * Worth more here than for a static node: a candidate set re-renders every
+    * matched member on every event, and a member used to be resolved three
+    * times per walk — once for the group's document bytes, once for its own
+    * patch bytes, and once again by `memberSignals` for the seed.
+    */
+  private case class ResolvedMember(
+      tpl: Template,
+      resolved: Resolved,
+      regions: Map[String, List[ResolvedChild]]
+  )
 
   /** One node inside a member. Ordinary children render whole and unaddressed —
     * the member is their patch target. A nested SET is the exception: it is an
     * addressable container of its own, so it renders as its group element and
     * its members are patched individually rather than through the tile.
-    *
-    * It needs no template support because the tile's own content is static —
-    * `Dashboard.validate` already refuses a live BYTES slot on structure, and a
-    * room's NAME is a registry fact, hence a literal.
     */
-  private def memberChild(
+  private enum ResolvedChild {
+
+    /** No id: a child's `.fh-cell` is layout only, since the MEMBER is the
+      * patch target for everything under it.
+      */
+    case Node(cell: Option[Cell], node: ResolvedMember)
+
+    /** Bytes, not a resolved node — a nested set renders in the DOCUMENT form
+      * whatever form encloses it (blanking its values here would withhold ones
+      * no patch of THIS node restores), so they do not vary by form and are
+      * rendered once.
+      */
+    case NestedSet(html: String)
+  }
+
+  private def resolveMember(
+      m: Member,
+      states: Map[String, EntityState]
+  ): ResolvedMember =
+    ResolvedMember(
+      templateOf(m.node.card),
+      // `structuralVars(m.id)` for every node in the subtree, member and
+      // children alike: the children have no ids of their own, so their signals
+      // are minted in the MEMBER's namespace and seeded on its wrapper.
+      resolveTemplate(structuralVars(m.id), m.node.slots, states),
+      Renderer.perRegion(m.node.regions)((child, step) =>
+        resolveChild(m, child, List(step), m.clause, states)
+      )
+    )
+
+  private def resolveChild(
       m: Member,
       node: LayoutNode,
       path: List[LayoutNode.Step],
       clauseIdx: Int,
-      states: Map[String, EntityState],
-      form: SlotForm
-  ): String = node match {
+      states: Map[String, EntityState]
+  ): ResolvedChild = node match {
     case c: LayoutNode.Component =>
-      val html = renderTemplate(
-        c.card,
-        structuralVars(m.id),
-        c.slots,
-        Renderer.perRegion(c.regions)((child, step) =>
-          memberChild(m, child, path :+ step, clauseIdx, states, form)
-        ),
-        states,
-        form
+      ResolvedChild.Node(
+        c.cell,
+        ResolvedMember(
+          templateOf(c.card),
+          resolveTemplate(structuralVars(m.id), c.slots, states),
+          Renderer.perRegion(c.regions)((child, step) =>
+            resolveChild(m, child, path :+ step, clauseIdx, states)
+          )
+        )
       )
-      s"""<div class="fh-cell${Renderer.cellClasses(c.cell)}">$html</div>"""
     case inner: LayoutNode.SetNode =>
-      // A nested set is its own patch unit, so its members carry their own
-      // values and their own seeds whatever form this tile is in — blanking
-      // them here would withhold values no patch of THIS node restores.
-      renderSet(
-        members.innerSetId(m.id, clauseIdx, path, inner),
-        inner.cell,
-        states,
-        SlotForm.Document
+      ResolvedChild.NestedSet(
+        renderSet(
+          members.innerSetId(m.id, clauseIdx, path, inner),
+          inner.cell,
+          states,
+          SlotForm.Document
+        )
       )
   }
+
+  /** Execute an already-resolved member in one form.
+    *
+    * Every member gets the SAME id'd `.fh-cell` wrapper as a static component,
+    * so it is an addressable patch target (in-place morph / insert / remove)
+    * rather than only ever re-rendered as part of the whole group — which is
+    * why the wrap here is UNCONDITIONAL (a `wrapAsCell = false` card has no
+    * member morph target and is not usable as a set clause).
+    */
+  private def renderResolvedMember(
+      m: Member,
+      rm: ResolvedMember,
+      form: SlotForm
+  ): String =
+    // A member's children have no ids, so the seed here covers THEM too — see
+    // [[memberSignalsOf]]. That is why a member's wrapper carries the whole
+    // patch unit's signals rather than only its own card's.
+    s"""<div class="fh-cell${Renderer.cellClasses(m.node.cell)}" id="${m.id}"${
+        if (form.isPatch) ""
+        else Datastar.signalsAttr(memberSignalsOf(rm))
+      }>${memberBody(rm, form)}</div>"""
+
+  /** The member's own markup, children spliced in — everything inside its
+    * wrapper.
+    */
+  private def memberBody(rm: ResolvedMember, form: SlotForm): String =
+    executeResolved(
+      rm.tpl,
+      rm.resolved,
+      rm.regions.view
+        .mapValues(_.map {
+          case ResolvedChild.NestedSet(html) => html
+          case ResolvedChild.Node(cell, n)   =>
+            s"""<div class="fh-cell${Renderer.cellClasses(cell)}">${memberBody(
+                n,
+                form
+              )}</div>"""
+        })
+        .toMap,
+      form
+    )
+
+  /** A resolved member's signals, children INCLUDED — they share its id and its
+    * patch. Stops at a nested set for the reason [[Member.entitiesOf]] does:
+    * that set is addressable in its own right, so its members own their own
+    * signals — which is why [[ResolvedChild.NestedSet]] holds no resolution to
+    * descend into.
+    */
+  private def memberSignalsOf(rm: ResolvedMember): Map[SignalId, String] =
+    rm.regions.values.flatten.foldLeft(rm.resolved.signals) {
+      case (acc, ResolvedChild.Node(_, n))   => acc ++ memberSignalsOf(n)
+      case (acc, ResolvedChild.NestedSet(_)) => acc
+    }
 
   private def renderTemplate(
       cardName: String,
@@ -1332,7 +1419,7 @@ class Renderer(
   ): Map[SignalId, String] =
     members
       .memberAt(id, states)
-      .map(m => memberSignals(m.id, m.node, states))
+      .map(m => memberSignalsOf(resolveMember(m, states)))
       .orElse(
         // NOT gated on `hasOwnRendering`. Structure has signals like any other
         // node — its seed already rides its own `.fh-cell` wrapper in the
@@ -1363,22 +1450,6 @@ class Renderer(
           Renderer.signalName(id, slot, entity, src.transform, kind) ->
             resolveSlot(entity, src, states)
       }
-    case _: LayoutNode.SetNode => Map.empty
-  }
-
-  /** A member's, children INCLUDED — they share its id and its patch. Stops at
-    * a nested set for the reason [[Member.entitiesOf]] does: that set is
-    * addressable in its own right, so its members own their own signals.
-    */
-  private def memberSignals(
-      id: NodeId,
-      node: LayoutNode,
-      states: Map[String, EntityState]
-  ): Map[SignalId, String] = node match {
-    case c: LayoutNode.Component =>
-      c.allChildren.foldLeft(signalsOfSlots(id, c, states))(
-        _ ++ memberSignals(id, _, states)
-      )
     case _: LayoutNode.SetNode => Map.empty
   }
 
