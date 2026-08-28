@@ -1,5 +1,5 @@
 name: FH Dashboard
-version: "0.1.27"
+version: "0.1.28"
 slug: fh_dashboard
 description: Pkl-authored Datastar dashboards for Home Assistant
 url: https://github.com/perok/functional-home-assistant
