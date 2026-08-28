@@ -684,6 +684,14 @@ class Renderer(
     * `Grid`/`Row`/`Column`, and every card's default one — is never a fill
     * target, because its children arrive nested in the same bytes, so those
     * nodes fall back to their own id and simply never use it.
+    *
+    * '''A CANDIDATE SET reaches the same fallback and does use it.''' A
+    * `SetNode` has no card, so it declares no regions and has no `bakeAs` to
+    * name one — but its members ARE filled into it (`Patches` anchors an
+    * `Append` here, and a refill targets it with an `Inner`). The fallback is
+    * right rather than lucky: a set has exactly one implicit hole and its
+    * members are `<setId>_<slug>`, so the set's own element IS the thing they
+    * live in and there is nothing for a second id to name.
     */
   def hostId(id: NodeId): DomId =
     surfaces
