@@ -732,20 +732,24 @@ class DatastarMorphContractSuite extends BrowserSuite {
     }
   }
 
-  /** A fill that sends PATCH-form bytes has no value in them, so the value has
-    * to arrive as a frame — and the ORDER of the two decides whether a user
-    * sees a blank.
+  /** Why `Patches.signalFrame` goes FIRST in a batch, measured.
     *
-    * Measured two ways on purpose, because they disagree. A `MutationObserver`
-    * reports `["", "42"]` for BOTH orders: the fragment's own text is empty
-    * either way, so the DOM always passes through blank. Sampling per animation
-    * frame — what the browser actually PAINTS — separates them, and that is the
-    * question worth answering.
+    * A member INSERT sends patch-form bytes and carries no seed (ADR 0017), so
+    * the frame is the only thing that gives it a value. That already ships, and
+    * nothing pinned the ordering it depends on: move `signalFrame` to the end
+    * of the batch and every existing test stays green while an inserted card
+    * flashes blank.
+    *
+    * Measured two ways on purpose, because they disagree and only one answers
+    * the question. A `MutationObserver` reports `["", "42"]` for BOTH orders:
+    * the fragment's own text is empty either way, so the DOM always passes
+    * through blank and the observer cannot separate them. Sampling per
+    * animation frame — what the browser actually PAINTS — does.
     *
     * The harness meters patches 50ms apart, wider than the single flush
-    * production would use, so treat "elements-first flashes" as the direction
-    * of the risk rather than its size. Signals-first is safe at any spacing,
-    * which is why it is the rule rather than a tuning.
+    * production uses, so treat "elements-first flashes" as the direction of the
+    * risk rather than its size. Signals-first is safe at any spacing, which is
+    * why it is the rule rather than a tuning.
     */
   private val recorder =
     """window.__seen = [];
