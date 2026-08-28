@@ -13,6 +13,32 @@ class FragmentLogSuite extends munit.FunSuite {
 
   private val log = FragmentLog("test")
 
+  test("a digest is the truncated SHA-256, whatever the encoding costs") {
+    // `Digest.of` hand-rolls the hex encoding because the shared helper spends
+    // a `String.format` per byte. That is only a safe trade while the two agree
+    // EXACTLY: a digest is a diff baseline, so an encoding that differed would
+    // not fail loudly, it would make every node look changed forever.
+    //
+    // Empty and multi-byte cases included because the truncation and the
+    // `getBytes` are the two places a hand-rolled version can differ: a
+    // sign-extended byte prints as `ffffffab`, and UTF-8 is where a naive
+    // `.getBytes` picks up the platform charset.
+    List(
+      "",
+      "<div>21.4</div>",
+      "<b>ø 😀 ünïcødé</b>",
+      "<div class=\"fh-cell\" id=\"c_1_2\">" + ("x" * 5000) + "</div>"
+    ).foreach { html =>
+      assertEquals(
+        // `.toString` because `Digest` is opaque with no `String` bound;
+        // its runtime representation IS the hex string.
+        Digest.of(html).toString,
+        fh.view.build.LibPackage.sha256(html.getBytes("UTF-8")).take(32),
+        clue = html.take(40)
+      )
+    }
+  }
+
   private def member(e: String): MemberKey = MemberKey.Entity(e)
 
   /** One `moved` entry, typed — the tuple's key is a [[NodeId]] and a literal
