@@ -100,3 +100,6 @@ scripts/.scala-build/
 # Editor/agent backups. Nothing here is ever worth committing, and 172 of these
 # plus the two dirs above once rode in on a `git add -A`.
 *.bak
+
+# JMH run output (sbt-jmh writes it to the working dir)
+jmh-result.*
