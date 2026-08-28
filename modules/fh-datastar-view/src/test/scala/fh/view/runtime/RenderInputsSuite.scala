@@ -278,25 +278,27 @@ class RenderInputsSuite extends munit.FunSuite {
     )
   }
 
-  test("a bake owner with a live slot of its own has no key either") {
-    // A card holding a region AND binding an entity: structure like any other.
-    // The authoring layer refuses the combination outright, so the model is
-    // built here directly — the point is what the RENDERER answers for it.
-    val tabs = Renderer.create(
-      Dashboard(
-        cards,
-        LayoutNode.Component(
-          "banner",
-          slots = Map("title" -> SlotSource(Some("sensor.t"))),
-          regions = LayoutNode.kids(
-            LayoutNode.Component("btn", Map("label" -> lit("A")))
-          )
-        ),
-        surfaces = dashboard.surfaces.map { case (sid, s) =>
-          sid -> s.copy(bakeInto = Some("c"))
-        }
-      )
+  /** A card holding a region AND binding an entity: structure like any other.
+    * The authoring layer refuses the combination outright, so the model is
+    * built here directly — the point is what the RENDERER answers for it.
+    */
+  private val tabsOwner: Dashboard =
+    Dashboard(
+      cards,
+      LayoutNode.Component(
+        "banner",
+        slots = Map("title" -> SlotSource(Some("sensor.t"))),
+        regions = LayoutNode.kids(
+          LayoutNode.Component("btn", Map("label" -> lit("A")))
+        )
+      ),
+      surfaces = dashboard.surfaces.map { case (sid, s) =>
+        sid -> s.copy(bakeInto = Some("c"))
+      }
     )
+
+  test("a bake owner with a live slot of its own has no key either") {
+    val tabs = Renderer.create(tabsOwner)
     assertEquals(tabs.renderInputs("c", line.head), None)
     // ...and not renderable by id either: its element contains what it holds,
     // so patching it would re-send that. The things worth patching are the
@@ -309,5 +311,37 @@ class RenderInputsSuite extends munit.FunSuite {
     // and `renderNodeById` refuses it.
     assertEquals(renderer.renderInputs("c_3", line.head), None)
     assertEquals(renderer.renderNodeById("c_3", line.head), None)
+  }
+
+  /** '''NO CACHEABLE NODE OWNS A BAKE GROUP.''' The key carries entity versions
+    * and nothing else, so a node whose bytes could depend on which member is
+    * selected must not have one — two viewers on two tabs would otherwise be
+    * served each other's bytes out of one cache slot.
+    *
+    * It holds because `Dashboard.validate` requires a `bakeInto` target's card
+    * to declare a BAKED REGION by that `bakeAs` name, and a card with any
+    * region is structure, which has no key. So this asserts the JOIN of two
+    * rules that live in different files and are checked at different times —
+    * the kind of thing that stays true right up until one of them is relaxed
+    * for a good local reason.
+    */
+  test("no cacheable node owns a bake group") {
+    def check(label: String, r: Renderer, states: Map[String, EntityState]) = {
+      val owners = r.surfaces.userBakeOwnerIds ++ r.surfaces.stateBakeOwnerIds
+      assert(owners.nonEmpty, s"$label exercises no bake group at all")
+      owners.foreach(id =>
+        assertEquals(
+          r.renderInputs(id, states),
+          None,
+          s"$label: bake owner '$id' has a cache key, but its bytes can carry " +
+            "the viewer's selection"
+        )
+      )
+    }
+    // BOTH activation kinds, because they resolve a selection by different
+    // means and only one of them reads the viewer: this suite's `dashboard` has
+    // a STATE-activated group, and `tabsOwner` a USER-selected one.
+    check("state-activated", renderer, line.head)
+    check("user-selected", Renderer.create(tabsOwner), line.head)
   }
 }
