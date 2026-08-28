@@ -286,6 +286,16 @@ class Renderer(
       case _                                  => members.liveEntitiesOf(id)
     }
 
+  /** [[entitiesForNode]] minus the entities reached ONLY through signal slots —
+    * what [[renderInputs]] keys on, because those are the reads whose movement
+    * can change this node's bytes.
+    */
+  private def entitiesAsBytesForNode(id: NodeId): List[String] =
+    allIndexed.get(id) match {
+      case Some((c: LayoutNode.Component, _)) => c.liveEntitiesAsBytes
+      case _ => members.liveEntitiesAsBytesOf(id)
+    }
+
   /** Whether this dashboard names `entityId` at all — the bound an action POST
     * is held to (ADR 0023). Delegates to the model's static walk rather than
     * reading [[Index.byEntity]], which stops at a candidate set: a set's
@@ -771,14 +781,20 @@ class Renderer(
     * render cache needs
     * (docs/adr/0012-each-session-renders-what-it-is-owed.md).
     *
-    * ONE part: the CONTENT VERSION of each entity the node's slots bind
-    * ([[entitiesForNode]]). A version rather than the value because
-    * [[EntityState]]'s synthesized `hashCode` recurses into the attribute map
-    * on every lookup, and because it is MORE discriminating than the render is:
-    * `lastUpdated` moves on ticks that change no rendered byte. An entity the
-    * snapshot does not hold has NO entry, which is a distinct key from any
-    * version it could have — [[resolveSlot]] renders such a slot from a
-    * synthetic empty state.
+    * ONE part: the CONTENT VERSION of each entity whose movement can change
+    * this node's BYTES ([[entitiesAsBytesForNode]]). Not every entity it binds:
+    * a slot that travels as a signal is absent from the patch form entirely
+    * (ADR 0017), so its value moving cannot move these bytes, and keying on it
+    * would invalidate a generation whose re-render is identical. The reverse
+    * index still wants the wider list — a signal has to make its node a
+    * candidate or no frame is ever computed for it — which is why
+    * [[fh.view.model.LayoutNode.Component]] carries both and neither derives
+    * the other. A version rather than the value because [[EntityState]]'s
+    * synthesized `hashCode` recurses into the attribute map on every lookup,
+    * and because it is MORE discriminating than the render is: `lastUpdated`
+    * moves on ticks that change no rendered byte. An entity the snapshot does
+    * not hold has NO entry, which is a distinct key from any version it could
+    * have — [[resolveSlot]] renders such a slot from a synthetic empty state.
     *
     * A viewer's SELECTION is not in it, and takes no argument here. Only
     * structure reads a selection, and structure is never cached: the leaf
@@ -805,12 +821,15 @@ class Renderer(
           // The SUBJECT is in the key whether or not a slot reads it: the
           // materialised node is state-derived, so the entity that chose its
           // case has to be able to invalidate the bytes that case produced.
-          versions(m.node.subjectEntity.toList ++ m.node.liveEntities, states)
+          versions(
+            m.node.subjectEntity.toList ++ m.node.liveEntitiesAsBytes,
+            states
+          )
         )
       )
       .orElse(
         Option.when(hasOwnRendering(id))(
-          RenderInputs(versions(entitiesForNode(id), states))
+          RenderInputs(versions(entitiesAsBytesForNode(id), states))
         )
       )
 

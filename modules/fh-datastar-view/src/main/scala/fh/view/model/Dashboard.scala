@@ -549,7 +549,13 @@ object LayoutNode:
       *
       * Both lists are needed and neither derives the other. The reverse index
       * wants [[liveEntities]] (a signal still has to make its node a candidate,
-      * or no frame is ever computed for it); the structure rule wants this one.
+      * or no frame is ever computed for it); the structure rule and the render
+      * key ([[fh.view.runtime.Renderer.renderInputs]]) want this one.
+      *
+      * Getting the two the wrong way round fails in opposite directions, and
+      * only one of them is loud: the wide list in the key costs a wasted
+      * render, while the narrow list in the reverse index silently stops signal
+      * frames.
       */
     def liveEntitiesAsBytes: List[String] =
       slots.values.toList
