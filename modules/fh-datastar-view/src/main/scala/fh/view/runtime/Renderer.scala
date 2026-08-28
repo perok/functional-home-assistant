@@ -115,7 +115,7 @@ class Renderer(
       def walk(node: LayoutNode, id: NodeId): List[(NodeId, NodeId)] =
         node match {
           case c: LayoutNode.Component =>
-            LayoutNode.steps(c.children).flatMap { case (step, ch) =>
+            LayoutNode.steps(c.regions).flatMap { case (step, ch) =>
               val cid = LayoutNode.childId(idPrefix, id, step, ch)
               (cid -> id) :: walk(ch, cid)
             }
@@ -129,7 +129,7 @@ class Renderer(
         val self = id -> node
         node match {
           case c: LayoutNode.Component =>
-            self :: LayoutNode.steps(c.children).flatMap { case (step, ch) =>
+            self :: LayoutNode.steps(c.regions).flatMap { case (step, ch) =>
               walk(ch, LayoutNode.childId(idPrefix, id, step, ch))
             }
           // A member container is a LEAF of the static index: its children are
@@ -906,7 +906,7 @@ class Renderer(
         // Per REGION, because each hole is spliced with its own children and a
         // child's step names the region it sits in.
         val kidsByRegion: Map[String, List[Traced]] =
-          c.children.map { case (region, nodes) =>
+          c.regions.map { case (region, nodes) =>
             region -> nodes.zipWithIndex.map { case (child, i) =>
               val step = LayoutNode.Step(region, i)
               traced(
@@ -1075,7 +1075,7 @@ class Renderer(
       // child's entity changing re-renders it (which is why
       // [[Member.entitiesOf]] walks them). A nested SET is the exception: it
       // is addressable, and [[Member.entitiesOf]] stops there.
-      Renderer.perRegion(m.node.children)((child, step) =>
+      Renderer.perRegion(m.node.regions)((child, step) =>
         memberChild(m, child, List(step), m.clause, states, form)
       ),
       states,
@@ -1114,7 +1114,7 @@ class Renderer(
         c.card,
         structuralVars(m.id),
         c.slots,
-        Renderer.perRegion(c.children)((child, step) =>
+        Renderer.perRegion(c.regions)((child, step) =>
           memberChild(m, child, path :+ step, clauseIdx, states, form)
         ),
         states,

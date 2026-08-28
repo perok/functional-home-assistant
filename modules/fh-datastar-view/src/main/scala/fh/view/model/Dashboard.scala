@@ -462,22 +462,13 @@ object LayoutNode:
   /** The region a card's children go to when nobody names one — the hole every
     * container template has spelled `{{#children}}` since before regions
     * existed.
+    *
+    * A NAME the authoring layer resolves, not a wire form: Pkl's bare
+    * `children { … }` sugar normalises to this key before it emits
+    * ([[Component.regions]]), so nothing downstream has a nameless region to
+    * interpret. `core/node.pkl`'s `defaultRegion` is the same string.
     */
   val DefaultRegion: String = "children"
-
-  /** `children` on the wire is either a bare ARRAY — the default region, which
-    * is what the authoring layer emits for a card with one hole — or an object
-    * keyed by region name.
-    *
-    * Two forms for the same reason [[SlotSource]] has two: the common case
-    * should not have to name itself. `Grid { children { … } }` stays what an
-    * author writes and what Pkl emits, and gains a name only where a card
-    * genuinely has more than one hole to choose between.
-    */
-  given Decoder[Map[String, List[LayoutNode]]] =
-    Decoder[List[LayoutNode]]
-      .map(cs => if cs.isEmpty then Map.empty else Map(DefaultRegion -> cs))
-      .or(Decoder.decodeMap[String, List[LayoutNode]])
 
   /** Children in the default region — the one-hole case, spelled for the many
     * construction sites that predate regions.
@@ -506,11 +497,10 @@ object LayoutNode:
   case class Component(
       card: String,
       slots: Map[String, SlotSource] = Map.empty,
-      // Child nodes BY REGION — the holes the card declares (`CardDef.regions`).
-      // Decoded from either a bare ARRAY (the default region, which is what the
-      // authoring layer emits today) or an object keyed by region name; see the
-      // decoder below.
-      children: Map[String, List[LayoutNode]] = Map.empty,
+      // Child nodes BY REGION — the holes the card declares (`CardDef.regions`)
+      // and what fills each. One wire shape: the authoring layer names the
+      // default region itself, so there is no nameless form to decode.
+      regions: Map[String, List[LayoutNode]] = Map.empty,
       // Layout-cell classes for this node's `.fh-cell` wrapper (see [[Cell]]).
       cell: Option[Cell] = None,
       // An AUTHORED id, replacing the position-derived one for this node and
@@ -530,7 +520,7 @@ object LayoutNode:
       * region at all.
       */
     def allChildren: List[LayoutNode] =
-      children.toList.sortBy(_._1).flatMap(_._2)
+      regions.toList.sortBy(_._1).flatMap(_._2)
 
     /** The card's subject entity — the `entity_id` slot's value when it is a
       * constant `literal` (the common case). A *transform* `entity_id`
@@ -733,6 +723,21 @@ object LayoutNode:
     * fragment — also a valid Datastar signal-name fragment.
     */
   def sanitize(s: String): String = s.replaceAll("[^A-Za-z0-9_]", "_")
+
+  /** One set member's id: its set's id plus the member's key, slugged.
+    *
+    * Here rather than only in [[fh.view.runtime.MemberGraph]] because the
+    * build's inline-surface hoist has to arrive at the SAME ids for a
+    * candidate's clause nodes, and it sees JSON, not a `MemberGraph`. Spelled
+    * once, because the two spellings disagreeing is silent: the surface is
+    * registered under a key no node ever asks for.
+    *
+    * Carries no clause index. Exactly one clause of a member is ever rendered,
+    * so its renderings share the member's id — the build rejects two of them
+    * owning an inline surface rather than letting one win.
+    */
+  def memberSegment(setId: String, key: String): String =
+    s"${setId}_${sanitize(key)}"
 
   /** A surface's mount/root element id (`s_<id>`) — the live-patch target and
     * the `remove` selector on close.
@@ -1007,7 +1012,7 @@ case class Dashboard(
               "— the value would stop updating"
           )
 
-    def children(
+    def childErrors(
         kids: Map[String, List[LayoutNode]],
         id: NodeId
     ): List[String] =
@@ -1063,7 +1068,7 @@ case class Dashboard(
             Dashboard.injectedStatic,
             slots.keySet
           ) ++ slotErrors(nodeId, card, slots) ++ cellErrors(nodeId, cell) ++
-            wrapErrors ++ children(c.children, nodeId)
+            wrapErrors ++ childErrors(c.regions, nodeId)
         // A set's clauses carry COMPLETE nodes — their own card, slots (the
         // candidate's `entity_id` among them) and cell — so each one validates
         // as the ordinary node it is. `noWrap` is rejected because every member
@@ -1230,7 +1235,7 @@ case class Dashboard(
       ): List[(NodeId, Boolean, Option[String])] =
         (id, inSet, node.authoredId) :: (node match {
           case c: LayoutNode.Component =>
-            LayoutNode.steps(c.children).flatMap { case (step, ch) =>
+            LayoutNode.steps(c.regions).flatMap { case (step, ch) =>
               walkIds(
                 ch,
                 prefix,
@@ -1314,7 +1319,7 @@ case class Dashboard(
             if (id == target) Some(c.card)
             else
               LayoutNode
-                .steps(c.children)
+                .steps(c.regions)
                 .collectFirst(Function.unlift { case (step, ch) =>
                   cardAt(
                     ch,
@@ -1333,7 +1338,7 @@ case class Dashboard(
       ): List[NodeId] =
         id :: (node match {
           case c: LayoutNode.Component =>
-            LayoutNode.steps(c.children).flatMap { case (step, ch) =>
+            LayoutNode.steps(c.regions).flatMap { case (step, ch) =>
               idsOf(ch, prefix, LayoutNode.childId(prefix, id, step, ch))
             }
           // Neither member container hosts a bake: a member renders with no

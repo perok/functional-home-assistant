@@ -359,7 +359,7 @@ class SetNodeSuite extends ServerHarness {
     )
     val subtree = LayoutNode.Component(
       "col",
-      children = LayoutNode.kids(
+      regions = LayoutNode.kids(
         tileNode("light.a"),
         // A child binding a DIFFERENT entity than the candidate.
         LayoutNode.Component(
@@ -418,7 +418,7 @@ class SetNodeSuite extends ServerHarness {
             None,
             LayoutNode.Component(
               "col",
-              children = LayoutNode.kids(
+              regions = LayoutNode.kids(
                 LayoutNode.SetNode(
                   candidates = lights,
                   members = lights.map { l =>
@@ -486,7 +486,7 @@ class SetNodeSuite extends ServerHarness {
       )
     )
     def wrap(children: List[LayoutNode]) =
-      LayoutNode.Component("col", children = LayoutNode.kids(children*))
+      LayoutNode.Component("col", regions = LayoutNode.kids(children*))
     def leafSet(ids: List[String]) = LayoutNode.SetNode(
       candidates = ids,
       members = ids.map { l =>

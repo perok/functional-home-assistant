@@ -95,7 +95,8 @@ class WireShapeSuite extends munit.FunSuite {
   private def check(
       pklClass: String,
       sample: Product,
-      scalaOnly: Set[String] = Set.empty
+      scalaOnly: Set[String] = Set.empty,
+      pklOnly: Set[String] = Set.empty
   ): Unit = {
     val pkl = pklProperties.getOrElse(
       pklClass,
@@ -107,7 +108,7 @@ class WireShapeSuite extends munit.FunSuite {
     val scala = scalaFields(sample)
     // `kind` is the circe discriminator: carried explicitly in Pkl, supplied by
     // the decoder configuration in Scala, so it is never a Scala field.
-    val pklWire = pkl - "kind"
+    val pklWire = pkl - "kind" -- pklOnly
     val scalaWire = scala -- scalaOnly
     assertEquals(
       pklWire,
@@ -120,6 +121,23 @@ class WireShapeSuite extends munit.FunSuite {
                 |A field on one side and not the other decodes to its default and
                 |is silently ignored — add it to both, or exclude it here with a
                 |reason.""".stripMargin
+    )
+  }
+
+  test("the component node agrees on both sides") {
+    // The biggest wire class, and the one where a rename is cheapest to get
+    // half-right: `regions` is emitted by Pkl and decoded here, while the
+    // `children` an author writes is `hidden` and stops at the authoring layer.
+    // If only one side moved, this says so by name instead of leaving every
+    // child of every container to decode to `Map.empty`.
+    //
+    // `inlineSurfaces` is Pkl-only on purpose: it is a BUILD-PHASE marker that
+    // `DashboardBuild.hoistInlineSurfaces` lifts and removes, so the runtime
+    // model never sees one.
+    check(
+      "Node",
+      LayoutNode.Component("card"),
+      pklOnly = Set("inlineSurfaces")
     )
   }
 

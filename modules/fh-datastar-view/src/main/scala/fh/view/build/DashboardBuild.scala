@@ -85,10 +85,17 @@ object DashboardBuild {
     */
   val InlineSurfacesKey: String = "inlineSurfaces"
 
-  /** The layout-node field naming a container's child nodes — the recursive
-    * layout-tree edge that [[hoistInlineSurfaces]] walks.
+  /** The layout-node field naming a container's child nodes BY REGION — the
+    * recursive layout-tree edge that [[hoistInlineSurfaces]] walks.
+    *
+    * One shape, always keyed. The authoring layer's bare `children { … }` sugar
+    * names the default region before it emits (`core/node.pkl`), so this pass
+    * and [[fh.view.model.LayoutNode.Component]] read the same thing. They did
+    * not always: while a bare array was also legal here, this walk read only
+    * that form and STOPPED at a region-keyed node, so nothing under a grouped
+    * slider's head was hoisted and its `@@NODE_ID@@` reached the DOM verbatim.
     */
-  val ChildrenKey: String = "children"
+  val RegionsKey: String = "regions"
 
   /** The field naming a surface's (or inline-surface marker's) layout subtree
     * root — part of the surface JSON contract [[hoistInlineSurfaces]] lifts.
@@ -289,8 +296,8 @@ object DashboardBuild {
   }
 
   /** A candidate set's clause nodes, walked under the ids the RENDERER gives
-    * its members: `<setId>_<sanitised entity>`, which is `MemberGraph.memberId`
-    * — spelled here because this pass sees JSON, not a `MemberGraph`.
+    * its members — [[LayoutNode.memberSegment]], the same function
+    * `MemberGraph.memberId` mints from.
     *
     * '''Both clauses of a candidate get the SAME id, and that is not an
     * oversight here.''' A member's id deliberately carries no clause index
@@ -311,7 +318,7 @@ object DashboardBuild {
       case Some(members) =>
         val rs = members.toList.map { case (entityId, m) =>
           val mObj = m.asObject.getOrElse(JsonObject.empty)
-          val memberBase = s"${idBase}_${LayoutNode.sanitize(entityId)}"
+          val memberBase = LayoutNode.memberSegment(idBase, entityId)
           val walked = mObj(ClausesKey)
             .flatMap(_.asArray)
             .getOrElse(Vector.empty)
@@ -344,34 +351,24 @@ object DashboardBuild {
     node.asObject match {
       case None       => (node, Nil)
       case Some(obj0) =>
-        // Recurse into children first — in BOTH wire forms. `children` is a
-        // bare array for a node whose card has one region, and an object keyed
-        // by region name for one with several (`LayoutNode`'s decoder takes
-        // either). Reading only the array form did not merely miss the second:
-        // it made this pass STOP at such a node, so nothing under a grouped
-        // slider's head or members was hoisted, and any `@@NODE_ID@@` down
-        // there survived into the DOM.
+        // Recurse into children first. Region ORDER does not enter an id — the
+        // index does, within its own region — so the object's key order is
+        // irrelevant here and the result stays keyed exactly as it arrived.
         val (obj1, childSurfaces) =
-          obj0(ChildrenKey) match {
-            case Some(kids) if kids.asArray.isDefined =>
-              val (js, ss) = walkRegion(LayoutNode.DefaultRegion, kids, idBase)
-              (obj0.add(ChildrenKey, Json.fromValues(js)), ss)
-            case Some(kids) if kids.asObject.isDefined =>
-              // Region ORDER does not enter an id — the index does, within its
-              // own region — so the object's key order is irrelevant here and
-              // the result stays keyed exactly as it arrived.
-              val rs = kids.asObject.get.toList.map { case (region, arr) =>
+          obj0(RegionsKey).flatMap(_.asObject) match {
+            case None          => (obj0, Nil)
+            case Some(regions) =>
+              val rs = regions.toList.map { case (region, arr) =>
                 val (js, ss) = walkRegion(region, arr, idBase)
                 (region -> Json.fromValues(js), ss)
               }
               (
                 obj0.add(
-                  ChildrenKey,
+                  RegionsKey,
                   Json.fromJsonObject(JsonObject.fromIterable(rs.map(_._1)))
                 ),
                 rs.flatMap(_._2)
               )
-            case _ => (obj0, Nil)
           }
         // A CANDIDATE SET holds its nodes under `members[…].clauses[…].node`,
         // not under `children`, so it was invisible here — and an inline

@@ -33,9 +33,9 @@ object DashboardBuilders {
     * defines).
     */
   def col(kids: LayoutNode*): LayoutNode.Component =
-    LayoutNode.Component("col", children = LayoutNode.kids(kids*))
+    LayoutNode.Component("col", regions = LayoutNode.kids(kids*))
 
   /** A `row` container over `kids`. */
   def row(kids: LayoutNode*): LayoutNode.Component =
-    LayoutNode.Component("row", children = LayoutNode.kids(kids*))
+    LayoutNode.Component("row", regions = LayoutNode.kids(kids*))
 }

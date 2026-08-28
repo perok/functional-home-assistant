@@ -1,381 +1,375 @@
 {
   "card" : {
     "card" : "fhcol",
-    "children" : [
-      {
-        "card" : "tabs",
-        "cell" : {
-          "classes" : [
-            "fh-cols-full"
-          ]
-        },
-        "children" : [
-          {
-            "card" : "tab",
-            "children" : [
-            ],
-            "kind" : "component",
-            "slots" : {
-              "active" : "($_@@NODE_ID@@__pending || $ui_@@NODE_ID@@) == 0",
-              "label" : "Temp",
-              "onclick" : {
-                "bypassUnavailable" : false,
-                "reads" : "once",
-                "transform" : "\"$_@@NODE_ID@@__pending = '0'; @post('sse/surface/\" & $dashboardSlug & \"/open/@@NODE_ID@@_t0')\""
-              }
-            }
-          },
-          {
-            "card" : "tab",
-            "children" : [
-            ],
-            "kind" : "component",
-            "slots" : {
-              "active" : "($_@@NODE_ID@@__pending || $ui_@@NODE_ID@@) == 1",
-              "label" : "Light",
-              "onclick" : {
-                "bypassUnavailable" : false,
-                "reads" : "once",
-                "transform" : "\"$_@@NODE_ID@@__pending = '1'; @post('sse/surface/\" & $dashboardSlug & \"/open/@@NODE_ID@@_t1')\""
-              }
-            }
-          }
-        ],
-        "inlineSurfaces" : {
-          "t0" : {
-            "activation" : {
-              "defaultOpen" : true,
-              "kind" : "user"
-            },
-            "bakeAs" : "panel",
-            "bakeIndex" : 0,
-            "bakeInto" : "@@NODE_ID@@",
-            "content" : {
-              "card" : "fhrow",
-              "children" : [
-                {
-                  "card" : "entityCard",
-                  "children" : [
-                  ],
-                  "inlineSurfaces" : {
-                    "self" : {
-                      "content" : {
-                        "card" : "popup",
-                        "children" : [
-                          {
-                            "card" : "fhcol",
-                            "children" : [
-                              {
-                                "card" : "entityCard",
-                                "children" : [
-                                ],
-                                "kind" : "component",
-                                "slots" : {
-                                  "entity_id" : "sensor.outside_temp",
-                                  "icon" : "mdi-thermometer",
-                                  "label" : "Outside Temperature",
-                                  "value" : {
-                                    "bypassUnavailable" : true,
-                                    "reads" : "live",
-                                    "signal" : "text",
-                                    "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
-                                  }
-                                }
-                              },
-                              {
-                                "card" : "entityInfo",
-                                "children" : [
-                                ],
-                                "kind" : "component",
-                                "slots" : {
-                                  "attributes" : {
-                                    "bypassUnavailable" : true,
-                                    "default" : "",
-                                    "reads" : "live",
-                                    "transform" : "$join($sort($each($attr, function($v, $k) { $k & \": \" & $string($v) })), \"\\n\")"
-                                  },
-                                  "entity_id" : "sensor.outside_temp"
-                                }
-                              },
-                              {
-                                "card" : "button",
-                                "children" : [
-                                ],
-                                "kind" : "component",
-                                "slots" : {
-                                  "label" : "Close",
-                                  "onclick" : {
-                                    "bypassUnavailable" : false,
-                                    "reads" : "once",
-                                    "transform" : "\"@post('sse/popup/\" & $dashboardSlug & \"/close')\""
-                                  }
-                                }
-                              }
-                            ],
-                            "kind" : "component",
-                            "slots" : {
-                              
-                            }
-                          }
-                        ],
-                        "kind" : "component",
-                        "slots" : {
-                          
-                        }
-                      }
-                    }
-                  },
-                  "kind" : "component",
-                  "slots" : {
-                    "entity_id" : "sensor.outside_temp",
-                    "icon" : "mdi-thermometer",
-                    "label" : "Outside Temperature",
-                    "onclick" : {
-                      "bypassUnavailable" : false,
-                      "reads" : "once",
-                      "transform" : "\"@post('sse/surface/\" & $dashboardSlug & \"/open/@@NODE_ID@@_self')\""
-                    },
-                    "tappable" : "1",
-                    "value" : {
-                      "bypassUnavailable" : true,
-                      "reads" : "live",
-                      "signal" : "text",
-                      "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
-                    }
-                  }
-                }
-              ],
-              "kind" : "component",
-              "slots" : {
-                
-              }
-            }
-          },
-          "t1" : {
-            "bakeAs" : "panel",
-            "bakeIndex" : 1,
-            "bakeInto" : "@@NODE_ID@@",
-            "content" : {
-              "card" : "fhrow",
-              "children" : [
-                {
-                  "card" : "entityCard",
-                  "children" : [
-                  ],
-                  "kind" : "component",
-                  "slots" : {
-                    "busy" : "1",
-                    "busyVisual" : "1",
-                    "entity_id" : "light.kitchen",
-                    "icon" : "mdi-lightbulb",
-                    "label" : "Kitchen",
-                    "onclick" : {
-                      "bypassUnavailable" : false,
-                      "reads" : "once",
-                      "transform" : "\"@post('sse/action/\" & $dashboardSlug & \"/\" & (\"light/toggle\") & \"/\" & $entity_id & \"', {filterSignals:{exclude:'.*'}})\""
-                    },
-                    "tappable" : "1",
-                    "value" : {
-                      "bypassUnavailable" : true,
-                      "reads" : "live",
-                      "signal" : "text",
-                      "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
-                    }
-                  }
-                }
-              ],
-              "kind" : "component",
-              "slots" : {
-                
-              }
-            }
-          }
-        },
-        "kind" : "component",
-        "slots" : {
-          
-        }
-      },
-      {
-        "card" : "ifhost",
-        "cell" : {
-          "classes" : [
-            "fh-cols-full"
-          ]
-        },
-        "children" : [
-        ],
-        "inlineSurfaces" : {
-          "else" : {
-            "activation" : {
-              "condition" : {
-                "items" : [
-                ],
-                "kind" : "and"
-              },
-              "kind" : "state"
-            },
-            "bakeAs" : "branch",
-            "bakeIndex" : 1,
-            "bakeInto" : "@@NODE_ID@@",
-            "content" : {
-              "card" : "fhrow",
-              "children" : [
-                {
-                  "card" : "entityCard",
-                  "children" : [
-                  ],
-                  "inlineSurfaces" : {
-                    "self" : {
-                      "content" : {
-                        "card" : "popup",
-                        "children" : [
-                          {
-                            "card" : "fhcol",
-                            "children" : [
-                              {
-                                "card" : "entityCard",
-                                "children" : [
-                                ],
-                                "kind" : "component",
-                                "slots" : {
-                                  "entity_id" : "sensor.outside_temp",
-                                  "icon" : "mdi-thermometer",
-                                  "label" : "Outside Temperature",
-                                  "value" : {
-                                    "bypassUnavailable" : true,
-                                    "reads" : "live",
-                                    "signal" : "text",
-                                    "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
-                                  }
-                                }
-                              },
-                              {
-                                "card" : "entityInfo",
-                                "children" : [
-                                ],
-                                "kind" : "component",
-                                "slots" : {
-                                  "attributes" : {
-                                    "bypassUnavailable" : true,
-                                    "default" : "",
-                                    "reads" : "live",
-                                    "transform" : "$join($sort($each($attr, function($v, $k) { $k & \": \" & $string($v) })), \"\\n\")"
-                                  },
-                                  "entity_id" : "sensor.outside_temp"
-                                }
-                              },
-                              {
-                                "card" : "button",
-                                "children" : [
-                                ],
-                                "kind" : "component",
-                                "slots" : {
-                                  "label" : "Close",
-                                  "onclick" : {
-                                    "bypassUnavailable" : false,
-                                    "reads" : "once",
-                                    "transform" : "\"@post('sse/popup/\" & $dashboardSlug & \"/close')\""
-                                  }
-                                }
-                              }
-                            ],
-                            "kind" : "component",
-                            "slots" : {
-                              
-                            }
-                          }
-                        ],
-                        "kind" : "component",
-                        "slots" : {
-                          
-                        }
-                      }
-                    }
-                  },
-                  "kind" : "component",
-                  "slots" : {
-                    "entity_id" : "sensor.outside_temp",
-                    "icon" : "mdi-thermometer",
-                    "label" : "Outside Temperature",
-                    "onclick" : {
-                      "bypassUnavailable" : false,
-                      "reads" : "once",
-                      "transform" : "\"@post('sse/surface/\" & $dashboardSlug & \"/open/@@NODE_ID@@_self')\""
-                    },
-                    "tappable" : "1",
-                    "value" : {
-                      "bypassUnavailable" : true,
-                      "reads" : "live",
-                      "signal" : "text",
-                      "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
-                    }
-                  }
-                }
-              ],
-              "kind" : "component",
-              "slots" : {
-                
-              }
-            }
-          },
-          "then" : {
-            "activation" : {
-              "condition" : {
-                "entity" : "light.kitchen",
-                "kind" : "cmp",
-                "op" : "eq",
-                "property" : "state",
-                "value" : "on"
-              },
-              "kind" : "state"
-            },
-            "bakeAs" : "branch",
-            "bakeIndex" : 0,
-            "bakeInto" : "@@NODE_ID@@",
-            "content" : {
-              "card" : "fhrow",
-              "children" : [
-                {
-                  "card" : "entityCard",
-                  "children" : [
-                  ],
-                  "kind" : "component",
-                  "slots" : {
-                    "busy" : "1",
-                    "busyVisual" : "1",
-                    "entity_id" : "light.kitchen",
-                    "icon" : "mdi-lightbulb",
-                    "label" : "Kitchen",
-                    "onclick" : {
-                      "bypassUnavailable" : false,
-                      "reads" : "once",
-                      "transform" : "\"@post('sse/action/\" & $dashboardSlug & \"/\" & (\"light/toggle\") & \"/\" & $entity_id & \"', {filterSignals:{exclude:'.*'}})\""
-                    },
-                    "tappable" : "1",
-                    "value" : {
-                      "bypassUnavailable" : true,
-                      "reads" : "live",
-                      "signal" : "text",
-                      "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
-                    }
-                  }
-                }
-              ],
-              "kind" : "component",
-              "slots" : {
-                
-              }
-            }
-          }
-        },
-        "kind" : "component",
-        "slots" : {
-          
-        }
-      }
-    ],
     "kind" : "component",
+    "regions" : {
+      "children" : [
+        {
+          "card" : "tabs",
+          "cell" : {
+            "classes" : [
+              "fh-cols-full"
+            ]
+          },
+          "inlineSurfaces" : {
+            "t0" : {
+              "activation" : {
+                "defaultOpen" : true,
+                "kind" : "user"
+              },
+              "bakeAs" : "panel",
+              "bakeIndex" : 0,
+              "bakeInto" : "@@NODE_ID@@",
+              "content" : {
+                "card" : "fhrow",
+                "kind" : "component",
+                "regions" : {
+                  "children" : [
+                    {
+                      "card" : "entityCard",
+                      "inlineSurfaces" : {
+                        "self" : {
+                          "content" : {
+                            "card" : "popup",
+                            "kind" : "component",
+                            "regions" : {
+                              "children" : [
+                                {
+                                  "card" : "fhcol",
+                                  "kind" : "component",
+                                  "regions" : {
+                                    "children" : [
+                                      {
+                                        "card" : "entityCard",
+                                        "kind" : "component",
+                                        "slots" : {
+                                          "entity_id" : "sensor.outside_temp",
+                                          "icon" : "mdi-thermometer",
+                                          "label" : "Outside Temperature",
+                                          "value" : {
+                                            "bypassUnavailable" : true,
+                                            "reads" : "live",
+                                            "signal" : "text",
+                                            "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
+                                          }
+                                        }
+                                      },
+                                      {
+                                        "card" : "entityInfo",
+                                        "kind" : "component",
+                                        "slots" : {
+                                          "attributes" : {
+                                            "bypassUnavailable" : true,
+                                            "default" : "",
+                                            "reads" : "live",
+                                            "transform" : "$join($sort($each($attr, function($v, $k) { $k & \": \" & $string($v) })), \"\\n\")"
+                                          },
+                                          "entity_id" : "sensor.outside_temp"
+                                        }
+                                      },
+                                      {
+                                        "card" : "button",
+                                        "kind" : "component",
+                                        "slots" : {
+                                          "label" : "Close",
+                                          "onclick" : {
+                                            "bypassUnavailable" : false,
+                                            "reads" : "once",
+                                            "transform" : "\"@post('sse/popup/\" & $dashboardSlug & \"/close')\""
+                                          }
+                                        }
+                                      }
+                                    ]
+                                  },
+                                  "slots" : {
+                                    
+                                  }
+                                }
+                              ]
+                            },
+                            "slots" : {
+                              
+                            }
+                          }
+                        }
+                      },
+                      "kind" : "component",
+                      "slots" : {
+                        "entity_id" : "sensor.outside_temp",
+                        "icon" : "mdi-thermometer",
+                        "label" : "Outside Temperature",
+                        "onclick" : {
+                          "bypassUnavailable" : false,
+                          "reads" : "once",
+                          "transform" : "\"@post('sse/surface/\" & $dashboardSlug & \"/open/@@NODE_ID@@_self')\""
+                        },
+                        "tappable" : "1",
+                        "value" : {
+                          "bypassUnavailable" : true,
+                          "reads" : "live",
+                          "signal" : "text",
+                          "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
+                        }
+                      }
+                    }
+                  ]
+                },
+                "slots" : {
+                  
+                }
+              }
+            },
+            "t1" : {
+              "bakeAs" : "panel",
+              "bakeIndex" : 1,
+              "bakeInto" : "@@NODE_ID@@",
+              "content" : {
+                "card" : "fhrow",
+                "kind" : "component",
+                "regions" : {
+                  "children" : [
+                    {
+                      "card" : "entityCard",
+                      "kind" : "component",
+                      "slots" : {
+                        "busy" : "1",
+                        "busyVisual" : "1",
+                        "entity_id" : "light.kitchen",
+                        "icon" : "mdi-lightbulb",
+                        "label" : "Kitchen",
+                        "onclick" : {
+                          "bypassUnavailable" : false,
+                          "reads" : "once",
+                          "transform" : "\"@post('sse/action/\" & $dashboardSlug & \"/\" & (\"light/toggle\") & \"/\" & $entity_id & \"', {filterSignals:{exclude:'.*'}})\""
+                        },
+                        "tappable" : "1",
+                        "value" : {
+                          "bypassUnavailable" : true,
+                          "reads" : "live",
+                          "signal" : "text",
+                          "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
+                        }
+                      }
+                    }
+                  ]
+                },
+                "slots" : {
+                  
+                }
+              }
+            }
+          },
+          "kind" : "component",
+          "regions" : {
+            "children" : [
+              {
+                "card" : "tab",
+                "kind" : "component",
+                "slots" : {
+                  "active" : "($_@@NODE_ID@@__pending || $ui_@@NODE_ID@@) == 0",
+                  "label" : "Temp",
+                  "onclick" : {
+                    "bypassUnavailable" : false,
+                    "reads" : "once",
+                    "transform" : "\"$_@@NODE_ID@@__pending = '0'; @post('sse/surface/\" & $dashboardSlug & \"/open/@@NODE_ID@@_t0')\""
+                  }
+                }
+              },
+              {
+                "card" : "tab",
+                "kind" : "component",
+                "slots" : {
+                  "active" : "($_@@NODE_ID@@__pending || $ui_@@NODE_ID@@) == 1",
+                  "label" : "Light",
+                  "onclick" : {
+                    "bypassUnavailable" : false,
+                    "reads" : "once",
+                    "transform" : "\"$_@@NODE_ID@@__pending = '1'; @post('sse/surface/\" & $dashboardSlug & \"/open/@@NODE_ID@@_t1')\""
+                  }
+                }
+              }
+            ]
+          },
+          "slots" : {
+            
+          }
+        },
+        {
+          "card" : "ifhost",
+          "cell" : {
+            "classes" : [
+              "fh-cols-full"
+            ]
+          },
+          "inlineSurfaces" : {
+            "else" : {
+              "activation" : {
+                "condition" : {
+                  "items" : [
+                  ],
+                  "kind" : "and"
+                },
+                "kind" : "state"
+              },
+              "bakeAs" : "branch",
+              "bakeIndex" : 1,
+              "bakeInto" : "@@NODE_ID@@",
+              "content" : {
+                "card" : "fhrow",
+                "kind" : "component",
+                "regions" : {
+                  "children" : [
+                    {
+                      "card" : "entityCard",
+                      "inlineSurfaces" : {
+                        "self" : {
+                          "content" : {
+                            "card" : "popup",
+                            "kind" : "component",
+                            "regions" : {
+                              "children" : [
+                                {
+                                  "card" : "fhcol",
+                                  "kind" : "component",
+                                  "regions" : {
+                                    "children" : [
+                                      {
+                                        "card" : "entityCard",
+                                        "kind" : "component",
+                                        "slots" : {
+                                          "entity_id" : "sensor.outside_temp",
+                                          "icon" : "mdi-thermometer",
+                                          "label" : "Outside Temperature",
+                                          "value" : {
+                                            "bypassUnavailable" : true,
+                                            "reads" : "live",
+                                            "signal" : "text",
+                                            "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
+                                          }
+                                        }
+                                      },
+                                      {
+                                        "card" : "entityInfo",
+                                        "kind" : "component",
+                                        "slots" : {
+                                          "attributes" : {
+                                            "bypassUnavailable" : true,
+                                            "default" : "",
+                                            "reads" : "live",
+                                            "transform" : "$join($sort($each($attr, function($v, $k) { $k & \": \" & $string($v) })), \"\\n\")"
+                                          },
+                                          "entity_id" : "sensor.outside_temp"
+                                        }
+                                      },
+                                      {
+                                        "card" : "button",
+                                        "kind" : "component",
+                                        "slots" : {
+                                          "label" : "Close",
+                                          "onclick" : {
+                                            "bypassUnavailable" : false,
+                                            "reads" : "once",
+                                            "transform" : "\"@post('sse/popup/\" & $dashboardSlug & \"/close')\""
+                                          }
+                                        }
+                                      }
+                                    ]
+                                  },
+                                  "slots" : {
+                                    
+                                  }
+                                }
+                              ]
+                            },
+                            "slots" : {
+                              
+                            }
+                          }
+                        }
+                      },
+                      "kind" : "component",
+                      "slots" : {
+                        "entity_id" : "sensor.outside_temp",
+                        "icon" : "mdi-thermometer",
+                        "label" : "Outside Temperature",
+                        "onclick" : {
+                          "bypassUnavailable" : false,
+                          "reads" : "once",
+                          "transform" : "\"@post('sse/surface/\" & $dashboardSlug & \"/open/@@NODE_ID@@_self')\""
+                        },
+                        "tappable" : "1",
+                        "value" : {
+                          "bypassUnavailable" : true,
+                          "reads" : "live",
+                          "signal" : "text",
+                          "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
+                        }
+                      }
+                    }
+                  ]
+                },
+                "slots" : {
+                  
+                }
+              }
+            },
+            "then" : {
+              "activation" : {
+                "condition" : {
+                  "entity" : "light.kitchen",
+                  "kind" : "cmp",
+                  "op" : "eq",
+                  "property" : "state",
+                  "value" : "on"
+                },
+                "kind" : "state"
+              },
+              "bakeAs" : "branch",
+              "bakeIndex" : 0,
+              "bakeInto" : "@@NODE_ID@@",
+              "content" : {
+                "card" : "fhrow",
+                "kind" : "component",
+                "regions" : {
+                  "children" : [
+                    {
+                      "card" : "entityCard",
+                      "kind" : "component",
+                      "slots" : {
+                        "busy" : "1",
+                        "busyVisual" : "1",
+                        "entity_id" : "light.kitchen",
+                        "icon" : "mdi-lightbulb",
+                        "label" : "Kitchen",
+                        "onclick" : {
+                          "bypassUnavailable" : false,
+                          "reads" : "once",
+                          "transform" : "\"@post('sse/action/\" & $dashboardSlug & \"/\" & (\"light/toggle\") & \"/\" & $entity_id & \"', {filterSignals:{exclude:'.*'}})\""
+                        },
+                        "tappable" : "1",
+                        "value" : {
+                          "bypassUnavailable" : true,
+                          "reads" : "live",
+                          "signal" : "text",
+                          "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
+                        }
+                      }
+                    }
+                  ]
+                },
+                "slots" : {
+                  
+                }
+              }
+            }
+          },
+          "kind" : "component",
+          "slots" : {
+            
+          }
+        }
+      ]
+    },
     "slots" : {
       
     }

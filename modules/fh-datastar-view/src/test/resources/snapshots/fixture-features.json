@@ -1,505 +1,485 @@
 {
   "card" : {
     "card" : "fhcol",
-    "children" : [
-      {
-        "card" : "sectionTitle",
-        "children" : [
-        ],
-        "kind" : "component",
-        "slots" : {
-          "label" : "Features"
-        }
-      },
-      {
-        "card" : "entityCard",
-        "children" : [
-        ],
-        "inlineSurfaces" : {
-          "self" : {
-            "content" : {
-              "card" : "popup",
-              "children" : [
-                {
-                  "card" : "fhcol",
-                  "children" : [
-                    {
-                      "card" : "entityCard",
-                      "children" : [
-                      ],
-                      "kind" : "component",
-                      "slots" : {
-                        "entity_id" : "sensor.outside_temp",
-                        "icon" : "mdi-thermometer",
-                        "label" : "Outside Temperature",
-                        "value" : {
-                          "bypassUnavailable" : true,
-                          "reads" : "live",
-                          "signal" : "text",
-                          "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
-                        }
-                      }
-                    },
-                    {
-                      "card" : "entityInfo",
-                      "children" : [
-                      ],
-                      "kind" : "component",
-                      "slots" : {
-                        "attributes" : {
-                          "bypassUnavailable" : true,
-                          "default" : "",
-                          "reads" : "live",
-                          "transform" : "$join($sort($each($attr, function($v, $k) { $k & \": \" & $string($v) })), \"\\n\")"
-                        },
-                        "entity_id" : "sensor.outside_temp"
-                      }
-                    },
-                    {
-                      "card" : "button",
-                      "children" : [
-                      ],
-                      "kind" : "component",
-                      "slots" : {
-                        "label" : "Close",
-                        "onclick" : {
-                          "bypassUnavailable" : false,
-                          "reads" : "once",
-                          "transform" : "\"@post('sse/popup/\" & $dashboardSlug & \"/close')\""
-                        }
-                      }
-                    }
-                  ],
-                  "kind" : "component",
-                  "slots" : {
-                    
-                  }
-                }
-              ],
-              "kind" : "component",
-              "slots" : {
-                
-              }
-            }
+    "kind" : "component",
+    "regions" : {
+      "children" : [
+        {
+          "card" : "sectionTitle",
+          "kind" : "component",
+          "slots" : {
+            "label" : "Features"
           }
         },
-        "kind" : "component",
-        "slots" : {
-          "entity_id" : "sensor.outside_temp",
-          "icon" : "mdi-thermometer",
-          "label" : "Outside Temperature",
-          "onclick" : {
-            "bypassUnavailable" : false,
-            "reads" : "once",
-            "transform" : "\"@post('sse/surface/\" & $dashboardSlug & \"/open/@@NODE_ID@@_self')\""
-          },
-          "tappable" : "1",
-          "value" : {
-            "bypassUnavailable" : true,
-            "reads" : "live",
-            "signal" : "text",
-            "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
-          }
-        }
-      },
-      {
-        "card" : "entityCard",
-        "children" : [
-        ],
-        "kind" : "component",
-        "slots" : {
-          "busy" : "1",
-          "busyVisual" : "1",
-          "entity_id" : "light.kitchen",
-          "icon" : "mdi-lightbulb",
-          "label" : "Kitchen",
-          "onclick" : {
-            "bypassUnavailable" : false,
-            "reads" : "once",
-            "transform" : "\"@post('sse/action/\" & $dashboardSlug & \"/\" & (\"homeassistant/toggle\") & \"/\" & $entity_id & \"', {filterSignals:{exclude:'.*'}})\""
-          },
-          "tappable" : "1",
-          "value" : {
-            "bypassUnavailable" : true,
-            "reads" : "live",
-            "signal" : "text",
-            "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
-          }
-        }
-      },
-      {
-        "card" : "entityCard",
-        "children" : [
-        ],
-        "inlineSurfaces" : {
-          "self" : {
-            "content" : {
-              "card" : "popup",
-              "children" : [
-                {
-                  "card" : "fhcol",
+        {
+          "card" : "entityCard",
+          "inlineSurfaces" : {
+            "self" : {
+              "content" : {
+                "card" : "popup",
+                "kind" : "component",
+                "regions" : {
                   "children" : [
                     {
-                      "card" : "entityCard",
-                      "children" : [
-                      ],
-                      "kind" : "component",
-                      "slots" : {
-                        "busy" : "1",
-                        "busyVisual" : "1",
-                        "entity_id" : "light.kitchen",
-                        "icon" : "mdi-lightbulb",
-                        "label" : "Kitchen",
-                        "onclick" : {
-                          "bypassUnavailable" : false,
-                          "reads" : "once",
-                          "transform" : "\"@post('sse/action/\" & $dashboardSlug & \"/\" & (\"light/toggle\") & \"/\" & $entity_id & \"', {filterSignals:{exclude:'.*'}})\""
-                        },
-                        "tappable" : "1",
-                        "value" : {
-                          "bypassUnavailable" : true,
-                          "reads" : "live",
-                          "signal" : "text",
-                          "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
-                        }
-                      }
-                    },
-                    {
                       "card" : "fhcol",
-                      "children" : [
-                        {
-                          "card" : "entityCard",
-                          "children" : [
-                          ],
-                          "kind" : "component",
-                          "slots" : {
-                            "busy" : "1",
-                            "busyVisual" : "1",
-                            "entity_id" : "light.kitchen",
-                            "icon" : "mdi-lightbulb",
-                            "label" : "Kitchen",
-                            "onclick" : {
-                              "bypassUnavailable" : false,
-                              "reads" : "once",
-                              "transform" : "\"@post('sse/action/\" & $dashboardSlug & \"/\" & (\"homeassistant/toggle\") & \"/\" & $entity_id & \"', {filterSignals:{exclude:'.*'}})\""
-                            },
-                            "tappable" : "1",
-                            "value" : {
-                              "bypassUnavailable" : true,
-                              "reads" : "live",
-                              "signal" : "text",
-                              "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
+                      "kind" : "component",
+                      "regions" : {
+                        "children" : [
+                          {
+                            "card" : "entityCard",
+                            "kind" : "component",
+                            "slots" : {
+                              "entity_id" : "sensor.outside_temp",
+                              "icon" : "mdi-thermometer",
+                              "label" : "Outside Temperature",
+                              "value" : {
+                                "bypassUnavailable" : true,
+                                "reads" : "live",
+                                "signal" : "text",
+                                "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
+                              }
+                            }
+                          },
+                          {
+                            "card" : "entityInfo",
+                            "kind" : "component",
+                            "slots" : {
+                              "attributes" : {
+                                "bypassUnavailable" : true,
+                                "default" : "",
+                                "reads" : "live",
+                                "transform" : "$join($sort($each($attr, function($v, $k) { $k & \": \" & $string($v) })), \"\\n\")"
+                              },
+                              "entity_id" : "sensor.outside_temp"
+                            }
+                          },
+                          {
+                            "card" : "button",
+                            "kind" : "component",
+                            "slots" : {
+                              "label" : "Close",
+                              "onclick" : {
+                                "bypassUnavailable" : false,
+                                "reads" : "once",
+                                "transform" : "\"@post('sse/popup/\" & $dashboardSlug & \"/close')\""
+                              }
                             }
                           }
-                        }
-                      ],
-                      "kind" : "component",
+                        ]
+                      },
                       "slots" : {
                         
                       }
-                    },
-                    {
-                      "card" : "entityInfo",
-                      "children" : [
-                      ],
-                      "kind" : "component",
-                      "slots" : {
-                        "attributes" : {
-                          "bypassUnavailable" : true,
-                          "default" : "",
-                          "reads" : "live",
-                          "transform" : "$join($sort($each($attr, function($v, $k) { $k & \": \" & $string($v) })), \"\\n\")"
-                        },
-                        "entity_id" : "light.kitchen"
-                      }
-                    },
-                    {
-                      "card" : "button",
-                      "children" : [
-                      ],
-                      "kind" : "component",
-                      "slots" : {
-                        "label" : "Close",
-                        "onclick" : {
-                          "bypassUnavailable" : false,
-                          "reads" : "once",
-                          "transform" : "\"@post('sse/popup/\" & $dashboardSlug & \"/close')\""
-                        }
-                      }
                     }
-                  ],
-                  "kind" : "component",
-                  "slots" : {
-                    
-                  }
+                  ]
+                },
+                "slots" : {
+                  
                 }
-              ],
-              "kind" : "component",
-              "slots" : {
-                
               }
+            }
+          },
+          "kind" : "component",
+          "slots" : {
+            "entity_id" : "sensor.outside_temp",
+            "icon" : "mdi-thermometer",
+            "label" : "Outside Temperature",
+            "onclick" : {
+              "bypassUnavailable" : false,
+              "reads" : "once",
+              "transform" : "\"@post('sse/surface/\" & $dashboardSlug & \"/open/@@NODE_ID@@_self')\""
+            },
+            "tappable" : "1",
+            "value" : {
+              "bypassUnavailable" : true,
+              "reads" : "live",
+              "signal" : "text",
+              "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
             }
           }
         },
-        "kind" : "component",
-        "slots" : {
-          "entity_id" : "light.kitchen",
-          "icon" : "mdi-lightbulb",
-          "label" : "Kitchen",
-          "onclick" : {
-            "bypassUnavailable" : false,
-            "reads" : "once",
-            "transform" : "\"@post('sse/surface/\" & $dashboardSlug & \"/open/@@NODE_ID@@_self')\""
-          },
-          "tappable" : "1",
-          "value" : {
-            "bypassUnavailable" : true,
-            "reads" : "live",
-            "signal" : "text",
-            "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
+        {
+          "card" : "entityCard",
+          "kind" : "component",
+          "slots" : {
+            "busy" : "1",
+            "busyVisual" : "1",
+            "entity_id" : "light.kitchen",
+            "icon" : "mdi-lightbulb",
+            "label" : "Kitchen",
+            "onclick" : {
+              "bypassUnavailable" : false,
+              "reads" : "once",
+              "transform" : "\"@post('sse/action/\" & $dashboardSlug & \"/\" & (\"homeassistant/toggle\") & \"/\" & $entity_id & \"', {filterSignals:{exclude:'.*'}})\""
+            },
+            "tappable" : "1",
+            "value" : {
+              "bypassUnavailable" : true,
+              "reads" : "live",
+              "signal" : "text",
+              "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
+            }
           }
-        }
-      },
-      {
-        "card" : "slider",
-        "children" : {
-          "children" : [
+        },
+        {
+          "card" : "entityCard",
+          "inlineSurfaces" : {
+            "self" : {
+              "content" : {
+                "card" : "popup",
+                "kind" : "component",
+                "regions" : {
+                  "children" : [
+                    {
+                      "card" : "fhcol",
+                      "kind" : "component",
+                      "regions" : {
+                        "children" : [
+                          {
+                            "card" : "entityCard",
+                            "kind" : "component",
+                            "slots" : {
+                              "busy" : "1",
+                              "busyVisual" : "1",
+                              "entity_id" : "light.kitchen",
+                              "icon" : "mdi-lightbulb",
+                              "label" : "Kitchen",
+                              "onclick" : {
+                                "bypassUnavailable" : false,
+                                "reads" : "once",
+                                "transform" : "\"@post('sse/action/\" & $dashboardSlug & \"/\" & (\"light/toggle\") & \"/\" & $entity_id & \"', {filterSignals:{exclude:'.*'}})\""
+                              },
+                              "tappable" : "1",
+                              "value" : {
+                                "bypassUnavailable" : true,
+                                "reads" : "live",
+                                "signal" : "text",
+                                "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
+                              }
+                            }
+                          },
+                          {
+                            "card" : "fhcol",
+                            "kind" : "component",
+                            "regions" : {
+                              "children" : [
+                                {
+                                  "card" : "entityCard",
+                                  "kind" : "component",
+                                  "slots" : {
+                                    "busy" : "1",
+                                    "busyVisual" : "1",
+                                    "entity_id" : "light.kitchen",
+                                    "icon" : "mdi-lightbulb",
+                                    "label" : "Kitchen",
+                                    "onclick" : {
+                                      "bypassUnavailable" : false,
+                                      "reads" : "once",
+                                      "transform" : "\"@post('sse/action/\" & $dashboardSlug & \"/\" & (\"homeassistant/toggle\") & \"/\" & $entity_id & \"', {filterSignals:{exclude:'.*'}})\""
+                                    },
+                                    "tappable" : "1",
+                                    "value" : {
+                                      "bypassUnavailable" : true,
+                                      "reads" : "live",
+                                      "signal" : "text",
+                                      "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
+                                    }
+                                  }
+                                }
+                              ]
+                            },
+                            "slots" : {
+                              
+                            }
+                          },
+                          {
+                            "card" : "entityInfo",
+                            "kind" : "component",
+                            "slots" : {
+                              "attributes" : {
+                                "bypassUnavailable" : true,
+                                "default" : "",
+                                "reads" : "live",
+                                "transform" : "$join($sort($each($attr, function($v, $k) { $k & \": \" & $string($v) })), \"\\n\")"
+                              },
+                              "entity_id" : "light.kitchen"
+                            }
+                          },
+                          {
+                            "card" : "button",
+                            "kind" : "component",
+                            "slots" : {
+                              "label" : "Close",
+                              "onclick" : {
+                                "bypassUnavailable" : false,
+                                "reads" : "once",
+                                "transform" : "\"@post('sse/popup/\" & $dashboardSlug & \"/close')\""
+                              }
+                            }
+                          }
+                        ]
+                      },
+                      "slots" : {
+                        
+                      }
+                    }
+                  ]
+                },
+                "slots" : {
+                  
+                }
+              }
+            }
+          },
+          "kind" : "component",
+          "slots" : {
+            "entity_id" : "light.kitchen",
+            "icon" : "mdi-lightbulb",
+            "label" : "Kitchen",
+            "onclick" : {
+              "bypassUnavailable" : false,
+              "reads" : "once",
+              "transform" : "\"@post('sse/surface/\" & $dashboardSlug & \"/open/@@NODE_ID@@_self')\""
+            },
+            "tappable" : "1",
+            "value" : {
+              "bypassUnavailable" : true,
+              "reads" : "live",
+              "signal" : "text",
+              "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
+            }
+          }
+        },
+        {
+          "card" : "slider",
+          "kind" : "component",
+          "regions" : {
+            "children" : [
+            ],
+            "head" : [
+              {
+                "card" : "sliderHead",
+                "cell" : {
+                  "classes" : [
+                    "slider-head-cell"
+                  ]
+                },
+                "kind" : "component",
+                "regions" : {
+                  "actions" : [
+                  ],
+                  "text" : [
+                    {
+                      "card" : "sliderText",
+                      "cell" : {
+                        "classes" : [
+                          "slider-text"
+                        ]
+                      },
+                      "kind" : "component",
+                      "slots" : {
+                        "entity_id" : "light.kitchen",
+                        "label" : "Kitchen"
+                      }
+                    }
+                  ]
+                },
+                "slots" : {
+                  "action" : "light/turn_on",
+                  "busyVisual" : "1",
+                  "entity_id" : "light.kitchen",
+                  "fill" : {
+                    "bypassUnavailable" : false,
+                    "default" : "100%",
+                    "reads" : "live",
+                    "signal" : "style:--_end",
+                    "transform" : "$string(($v := $attr.brightness; $v != null ? 100 - (($v - 1) * 100 / (255 - 1)) : 100)) & \"%\""
+                  },
+                  "fillColor" : {
+                    "bypassUnavailable" : false,
+                    "default" : "currentcolor",
+                    "reads" : "live",
+                    "signal" : "style:background",
+                    "transform" : "($rgb := $attr.rgb_color; $k := $attr.color_temp_kelvin; $count($rgb) = 3 ? \"rgb(\" & $string($rgb[0]) & \",\" & $string($rgb[1]) & \",\" & $string($rgb[2]) & \")\" : $k != null ? ($t := $k < 2000 ? 0 : ($k > 6500 ? 1 : ($k - 2000) / 4500); \"rgb(\" & $string($round(255 - 54 * $t)) & \",\" & $string($round(166 + 60 * $t)) & \",\" & $string($round(87 + 168 * $t)) & \")\") : null)"
+                  },
+                  "icon" : "mdi-lightbulb",
+                  "key" : "brightness",
+                  "label" : "Kitchen",
+                  "max" : "255",
+                  "min" : "1",
+                  "state" : {
+                    "bypassUnavailable" : true,
+                    "reads" : "live",
+                    "signal" : "text",
+                    "transform" : "$state"
+                  },
+                  "value" : {
+                    "bypassUnavailable" : false,
+                    "default" : "0",
+                    "reads" : "live",
+                    "signal" : "attr:value",
+                    "transform" : "$attr.brightness"
+                  }
+                }
+              }
+            ]
+          },
+          "slots" : {
+            
+          }
+        },
+        {
+          "candidates" : [
+            "light.kitchen",
+            "light.living_room"
           ],
-          "head" : [
-            {
-              "card" : "sliderHead",
-              "cell" : {
-                "classes" : [
-                  "slider-head-cell"
-                ]
-              },
-              "children" : {
-                "actions" : [
-                ],
-                "text" : [
-                  {
-                    "card" : "sliderText",
-                    "cell" : {
-                      "classes" : [
-                        "slider-text"
-                      ]
-                    },
-                    "children" : [
-                    ],
+          "kind" : "set",
+          "members" : {
+            "light.kitchen" : {
+              "clauses" : [
+                {
+                  "node" : {
+                    "card" : "entityCard",
                     "kind" : "component",
                     "slots" : {
+                      "busy" : "1",
+                      "busyVisual" : "1",
                       "entity_id" : "light.kitchen",
-                      "label" : "Kitchen"
+                      "icon" : "mdi-lightbulb",
+                      "label" : "Kitchen",
+                      "onclick" : {
+                        "bypassUnavailable" : false,
+                        "reads" : "once",
+                        "transform" : "\"@post('sse/action/\" & $dashboardSlug & \"/\" & (\"light/toggle\") & \"/\" & $entity_id & \"', {filterSignals:{exclude:'.*'}})\""
+                      },
+                      "tappable" : "1",
+                      "value" : {
+                        "bypassUnavailable" : true,
+                        "reads" : "live",
+                        "signal" : "text",
+                        "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
+                      }
                     }
+                  },
+                  "when" : {
+                    "kind" : "cmp",
+                    "op" : "eq",
+                    "property" : "state",
+                    "value" : "on"
                   }
-                ]
-              },
-              "kind" : "component",
-              "slots" : {
-                "action" : "light/turn_on",
-                "busyVisual" : "1",
-                "entity_id" : "light.kitchen",
-                "fill" : {
-                  "bypassUnavailable" : false,
-                  "default" : "100%",
-                  "reads" : "live",
-                  "signal" : "style:--_end",
-                  "transform" : "$string(($v := $attr.brightness; $v != null ? 100 - (($v - 1) * 100 / (255 - 1)) : 100)) & \"%\""
-                },
-                "fillColor" : {
-                  "bypassUnavailable" : false,
-                  "default" : "currentcolor",
-                  "reads" : "live",
-                  "signal" : "style:background",
-                  "transform" : "($rgb := $attr.rgb_color; $k := $attr.color_temp_kelvin; $count($rgb) = 3 ? \"rgb(\" & $string($rgb[0]) & \",\" & $string($rgb[1]) & \",\" & $string($rgb[2]) & \")\" : $k != null ? ($t := $k < 2000 ? 0 : ($k > 6500 ? 1 : ($k - 2000) / 4500); \"rgb(\" & $string($round(255 - 54 * $t)) & \",\" & $string($round(166 + 60 * $t)) & \",\" & $string($round(87 + 168 * $t)) & \")\") : null)"
-                },
-                "icon" : "mdi-lightbulb",
-                "key" : "brightness",
-                "label" : "Kitchen",
-                "max" : "255",
-                "min" : "1",
-                "state" : {
-                  "bypassUnavailable" : true,
-                  "reads" : "live",
-                  "signal" : "text",
-                  "transform" : "$state"
-                },
-                "value" : {
-                  "bypassUnavailable" : false,
-                  "default" : "0",
-                  "reads" : "live",
-                  "signal" : "attr:value",
-                  "transform" : "$attr.brightness"
                 }
-              }
+              ]
+            },
+            "light.living_room" : {
+              "clauses" : [
+                {
+                  "node" : {
+                    "card" : "entityCard",
+                    "kind" : "component",
+                    "slots" : {
+                      "busy" : "1",
+                      "busyVisual" : "1",
+                      "entity_id" : "light.living_room",
+                      "icon" : "mdi-lightbulb",
+                      "label" : "Living Room",
+                      "onclick" : {
+                        "bypassUnavailable" : false,
+                        "reads" : "once",
+                        "transform" : "\"@post('sse/action/\" & $dashboardSlug & \"/\" & (\"light/toggle\") & \"/\" & $entity_id & \"', {filterSignals:{exclude:'.*'}})\""
+                      },
+                      "tappable" : "1",
+                      "value" : {
+                        "bypassUnavailable" : true,
+                        "reads" : "live",
+                        "signal" : "text",
+                        "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
+                      }
+                    }
+                  },
+                  "when" : {
+                    "kind" : "cmp",
+                    "op" : "eq",
+                    "property" : "state",
+                    "value" : "on"
+                  }
+                }
+              ]
             }
+          },
+          "orderBy" : [
           ]
         },
-        "kind" : "component",
-        "slots" : {
-          
-        }
-      },
-      {
-        "candidates" : [
-          "light.kitchen",
-          "light.living_room"
-        ],
-        "kind" : "set",
-        "members" : {
-          "light.kitchen" : {
-            "clauses" : [
-              {
-                "node" : {
-                  "card" : "entityCard",
-                  "children" : [
-                  ],
-                  "kind" : "component",
-                  "slots" : {
-                    "busy" : "1",
-                    "busyVisual" : "1",
-                    "entity_id" : "light.kitchen",
-                    "icon" : "mdi-lightbulb",
-                    "label" : "Kitchen",
-                    "onclick" : {
-                      "bypassUnavailable" : false,
-                      "reads" : "once",
-                      "transform" : "\"@post('sse/action/\" & $dashboardSlug & \"/\" & (\"light/toggle\") & \"/\" & $entity_id & \"', {filterSignals:{exclude:'.*'}})\""
-                    },
-                    "tappable" : "1",
-                    "value" : {
-                      "bypassUnavailable" : true,
-                      "reads" : "live",
-                      "signal" : "text",
-                      "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
-                    }
-                  }
-                },
-                "when" : {
-                  "kind" : "cmp",
-                  "op" : "eq",
-                  "property" : "state",
-                  "value" : "on"
-                }
-              }
-            ]
-          },
-          "light.living_room" : {
-            "clauses" : [
-              {
-                "node" : {
-                  "card" : "entityCard",
-                  "children" : [
-                  ],
-                  "kind" : "component",
-                  "slots" : {
-                    "busy" : "1",
-                    "busyVisual" : "1",
-                    "entity_id" : "light.living_room",
-                    "icon" : "mdi-lightbulb",
-                    "label" : "Living Room",
-                    "onclick" : {
-                      "bypassUnavailable" : false,
-                      "reads" : "once",
-                      "transform" : "\"@post('sse/action/\" & $dashboardSlug & \"/\" & (\"light/toggle\") & \"/\" & $entity_id & \"', {filterSignals:{exclude:'.*'}})\""
-                    },
-                    "tappable" : "1",
-                    "value" : {
-                      "bypassUnavailable" : true,
-                      "reads" : "live",
-                      "signal" : "text",
-                      "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
-                    }
-                  }
-                },
-                "when" : {
-                  "kind" : "cmp",
-                  "op" : "eq",
-                  "property" : "state",
-                  "value" : "on"
-                }
-              }
-            ]
-          }
-        },
-        "orderBy" : [
-        ]
-      },
-      {
-        "card" : "button",
-        "children" : [
-        ],
-        "kind" : "component",
-        "slots" : {
-          "label" : "Detail…",
-          "onclick" : {
-            "bypassUnavailable" : false,
-            "reads" : "once",
-            "transform" : "\"@post('sse/surface/\" & $dashboardSlug & \"/open/detail')\""
-          }
-        }
-      },
-      {
-        "card" : "button",
-        "children" : [
-        ],
-        "inlineSurfaces" : {
-          "self" : {
-            "content" : {
-              "card" : "popup",
-              "children" : [
-                {
-                  "card" : "fhcol",
-                  "children" : [
-                    {
-                      "card" : "sectionTitle",
-                      "children" : [
-                      ],
-                      "kind" : "component",
-                      "slots" : {
-                        "label" : "Inline"
-                      }
-                    },
-                    {
-                      "card" : "button",
-                      "children" : [
-                      ],
-                      "kind" : "component",
-                      "slots" : {
-                        "label" : "Close",
-                        "onclick" : {
-                          "bypassUnavailable" : false,
-                          "reads" : "once",
-                          "transform" : "\"@post('sse/popup/\" & $dashboardSlug & \"/close')\""
-                        }
-                      }
-                    }
-                  ],
-                  "kind" : "component",
-                  "slots" : {
-                    
-                  }
-                }
-              ],
-              "kind" : "component",
-              "slots" : {
-                
-              }
+        {
+          "card" : "button",
+          "kind" : "component",
+          "slots" : {
+            "label" : "Detail…",
+            "onclick" : {
+              "bypassUnavailable" : false,
+              "reads" : "once",
+              "transform" : "\"@post('sse/surface/\" & $dashboardSlug & \"/open/detail')\""
             }
           }
         },
-        "kind" : "component",
-        "slots" : {
-          "label" : "Inline…",
-          "onclick" : {
-            "bypassUnavailable" : false,
-            "reads" : "once",
-            "transform" : "\"@post('sse/surface/\" & $dashboardSlug & \"/open/@@NODE_ID@@_self')\""
+        {
+          "card" : "button",
+          "inlineSurfaces" : {
+            "self" : {
+              "content" : {
+                "card" : "popup",
+                "kind" : "component",
+                "regions" : {
+                  "children" : [
+                    {
+                      "card" : "fhcol",
+                      "kind" : "component",
+                      "regions" : {
+                        "children" : [
+                          {
+                            "card" : "sectionTitle",
+                            "kind" : "component",
+                            "slots" : {
+                              "label" : "Inline"
+                            }
+                          },
+                          {
+                            "card" : "button",
+                            "kind" : "component",
+                            "slots" : {
+                              "label" : "Close",
+                              "onclick" : {
+                                "bypassUnavailable" : false,
+                                "reads" : "once",
+                                "transform" : "\"@post('sse/popup/\" & $dashboardSlug & \"/close')\""
+                              }
+                            }
+                          }
+                        ]
+                      },
+                      "slots" : {
+                        
+                      }
+                    }
+                  ]
+                },
+                "slots" : {
+                  
+                }
+              }
+            }
+          },
+          "kind" : "component",
+          "slots" : {
+            "label" : "Inline…",
+            "onclick" : {
+              "bypassUnavailable" : false,
+              "reads" : "once",
+              "transform" : "\"@post('sse/surface/\" & $dashboardSlug & \"/open/@@NODE_ID@@_self')\""
+            }
           }
         }
-      }
-    ],
-    "kind" : "component",
+      ]
+    },
     "slots" : {
       
     }
@@ -661,123 +641,117 @@
     "detail" : {
       "content" : {
         "card" : "popup",
-        "children" : [
-          {
-            "card" : "sectionTitle",
-            "children" : [
-            ],
-            "kind" : "component",
-            "slots" : {
-              "label" : "Detail"
-            }
-          },
-          {
-            "card" : "entityCard",
-            "children" : [
-            ],
-            "inlineSurfaces" : {
-              "self" : {
-                "content" : {
-                  "card" : "popup",
-                  "children" : [
-                    {
-                      "card" : "fhcol",
+        "kind" : "component",
+        "regions" : {
+          "children" : [
+            {
+              "card" : "sectionTitle",
+              "kind" : "component",
+              "slots" : {
+                "label" : "Detail"
+              }
+            },
+            {
+              "card" : "entityCard",
+              "inlineSurfaces" : {
+                "self" : {
+                  "content" : {
+                    "card" : "popup",
+                    "kind" : "component",
+                    "regions" : {
                       "children" : [
                         {
-                          "card" : "entityCard",
-                          "children" : [
-                          ],
+                          "card" : "fhcol",
                           "kind" : "component",
+                          "regions" : {
+                            "children" : [
+                              {
+                                "card" : "entityCard",
+                                "kind" : "component",
+                                "slots" : {
+                                  "entity_id" : "sensor.outside_temp",
+                                  "icon" : "mdi-thermometer",
+                                  "label" : "Outside Temperature",
+                                  "value" : {
+                                    "bypassUnavailable" : true,
+                                    "reads" : "live",
+                                    "signal" : "text",
+                                    "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
+                                  }
+                                }
+                              },
+                              {
+                                "card" : "entityInfo",
+                                "kind" : "component",
+                                "slots" : {
+                                  "attributes" : {
+                                    "bypassUnavailable" : true,
+                                    "default" : "",
+                                    "reads" : "live",
+                                    "transform" : "$join($sort($each($attr, function($v, $k) { $k & \": \" & $string($v) })), \"\\n\")"
+                                  },
+                                  "entity_id" : "sensor.outside_temp"
+                                }
+                              },
+                              {
+                                "card" : "button",
+                                "kind" : "component",
+                                "slots" : {
+                                  "label" : "Close",
+                                  "onclick" : {
+                                    "bypassUnavailable" : false,
+                                    "reads" : "once",
+                                    "transform" : "\"@post('sse/popup/\" & $dashboardSlug & \"/close')\""
+                                  }
+                                }
+                              }
+                            ]
+                          },
                           "slots" : {
-                            "entity_id" : "sensor.outside_temp",
-                            "icon" : "mdi-thermometer",
-                            "label" : "Outside Temperature",
-                            "value" : {
-                              "bypassUnavailable" : true,
-                              "reads" : "live",
-                              "signal" : "text",
-                              "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
-                            }
-                          }
-                        },
-                        {
-                          "card" : "entityInfo",
-                          "children" : [
-                          ],
-                          "kind" : "component",
-                          "slots" : {
-                            "attributes" : {
-                              "bypassUnavailable" : true,
-                              "default" : "",
-                              "reads" : "live",
-                              "transform" : "$join($sort($each($attr, function($v, $k) { $k & \": \" & $string($v) })), \"\\n\")"
-                            },
-                            "entity_id" : "sensor.outside_temp"
-                          }
-                        },
-                        {
-                          "card" : "button",
-                          "children" : [
-                          ],
-                          "kind" : "component",
-                          "slots" : {
-                            "label" : "Close",
-                            "onclick" : {
-                              "bypassUnavailable" : false,
-                              "reads" : "once",
-                              "transform" : "\"@post('sse/popup/\" & $dashboardSlug & \"/close')\""
-                            }
+                            
                           }
                         }
-                      ],
-                      "kind" : "component",
-                      "slots" : {
-                        
-                      }
+                      ]
+                    },
+                    "slots" : {
+                      
                     }
-                  ],
-                  "kind" : "component",
-                  "slots" : {
-                    
                   }
+                }
+              },
+              "kind" : "component",
+              "slots" : {
+                "entity_id" : "sensor.outside_temp",
+                "icon" : "mdi-thermometer",
+                "label" : "Outside Temperature",
+                "onclick" : {
+                  "bypassUnavailable" : false,
+                  "reads" : "once",
+                  "transform" : "\"@post('sse/surface/\" & $dashboardSlug & \"/open/@@NODE_ID@@_self')\""
+                },
+                "tappable" : "1",
+                "value" : {
+                  "bypassUnavailable" : true,
+                  "reads" : "live",
+                  "signal" : "text",
+                  "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
                 }
               }
             },
-            "kind" : "component",
-            "slots" : {
-              "entity_id" : "sensor.outside_temp",
-              "icon" : "mdi-thermometer",
-              "label" : "Outside Temperature",
-              "onclick" : {
-                "bypassUnavailable" : false,
-                "reads" : "once",
-                "transform" : "\"@post('sse/surface/\" & $dashboardSlug & \"/open/@@NODE_ID@@_self')\""
-              },
-              "tappable" : "1",
-              "value" : {
-                "bypassUnavailable" : true,
-                "reads" : "live",
-                "signal" : "text",
-                "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
+            {
+              "card" : "button",
+              "kind" : "component",
+              "slots" : {
+                "label" : "Close",
+                "onclick" : {
+                  "bypassUnavailable" : false,
+                  "reads" : "once",
+                  "transform" : "\"@post('sse/popup/\" & $dashboardSlug & \"/close')\""
+                }
               }
             }
-          },
-          {
-            "card" : "button",
-            "children" : [
-            ],
-            "kind" : "component",
-            "slots" : {
-              "label" : "Close",
-              "onclick" : {
-                "bypassUnavailable" : false,
-                "reads" : "once",
-                "transform" : "\"@post('sse/popup/\" & $dashboardSlug & \"/close')\""
-              }
-            }
-          }
-        ],
-        "kind" : "component",
+          ]
+        },
         "slots" : {
           
         }

@@ -673,40 +673,29 @@ reachable in today's library at all — every `{{{panel}}}`/`{{{branch}}}` sits 
 
 Each is recorded so it is not rediscovered as a surprise mid-implementation. None blocks steps 1–4.
 
-- **Make the wire carry ONE explicit form for `children`.** 1c made the decoder accept a bare array
-  (the default region) as well as a region-keyed object, so the authoring layer's existing emission
-  kept working unchanged. That is the right trade for the migration and the wrong one to keep: two
-  shapes on the wire means every reader has to know both, and the explicit one is the honest record
-  of what a node holds.
+- ~~**Make the wire carry ONE explicit form for `children`.**~~ **DONE.** The node's children are
+  `regions` on the wire, always keyed by region name; `children` is now `hidden` in Pkl and is
+  purely the authoring word, so `Grid { children { … } }` is unchanged and the sugar stops at the
+  emission boundary. The decoder's array branch is gone, and so is the hoist's.
 
-  The end state keeps the Pkl AUTHORING sugar exactly as it is — a card with one region is still
-  written `Grid { children { … } }`, because naming the only hole adds nothing — and changes only
-  what Pkl EMITS: a hidden `children: Listing` feeding an emitted region map, then drop the array
-  branch from the decoder. Note the one snag to settle when doing it: the authored and emitted
-  properties cannot both be called `children` in Pkl, so the emitted one needs a name — `regions`
-  mirrors `CardDef.regions` ("the card declares them, the node fills them") at the cost of one word
-  meaning two things.
+  Two bugs came out of the two forms before it was done: `hoistInlineSurfaces` read only the array
+  form, so it STOPPED at a region-keyed node and hoisted nothing below one; and it knew nothing of
+  `members`/`clauses`, so a candidate set's clauses were invisible to it. The second broke the
+  SHIPPED starter on any house with a low battery sensor — an `entityCard` over sensors takes the
+  more-info default tap, which is an inline popup.
 
-  Wire-only, so it moves every snapshot; worth doing right after ids settle, not before.
+  **What is NOT done, and is now its own follow-up.** The shape of both bugs was the same: *the
+  hoist is a second implementation of the tree walk and a third implementation of the id scheme.*
+  One wire form removed one of its three descent branches (it is down to regions + set members) and
+  it no longer spells the member id out — `LayoutNode.memberSegment` is shared with
+  `MemberGraph.memberId` — but it still derives ids itself, from JSON, because it rewrites the JSON
+  that then decodes.
 
-  **This one has now cost real bugs, and they showed the entry above is too small a fix.** Two
-  shipped: `hoistInlineSurfaces` read only the array form, so it STOPPED at a region-keyed node and
-  never hoisted anything below one; and it knew nothing of `members`/`clauses`, so a candidate set's
-  clauses were invisible to it. The second broke the SHIPPED starter on any house with a low battery
-  sensor — an `entityCard` over sensors takes the more-info default tap, which is an inline popup.
-
-  The shape of both is the same: **the hoist is a second implementation of the tree walk and a third
-  implementation of the id scheme.** It has three descent branches (children-array, children-object,
-  set members), and it derives node ids itself — `LayoutNode.segment` had to be made public for it,
-  and `MemberGraph.memberId` is spelled out again as string concatenation. It works on raw JSON
-  because it must: it rewrites the JSON that then decodes.
-
-  So one children form removes one branch of three and leaves the id duplication standing. The
-  fuller answer is to **decode to `LayoutNode` first and hoist over the typed tree**, using
-  `LayoutNode.childId`/`steps` and `MemberGraph`'s member ids rather than re-deriving them. Node ids
-  are derived, never stored, so nothing blocks decoding before the hoist. That deletes the third id
-  implementation outright, which is the part that keeps producing silent wrong-id bugs rather than
-  loud ones.
+  The fuller answer is to **decode to `LayoutNode` first and hoist over the typed tree**, using
+  `LayoutNode.childId`/`steps` rather than re-deriving them. Node ids are derived, never stored, so
+  nothing blocks decoding before the hoist; what it costs is that the inline-surface marker and the
+  unresolved tokens have to survive decoding, and that the `@@NODE_ID@@` splice — today one
+  `Json.fold` over every string leaf — needs a typed equivalent.
 - **Node variables** (see the section above). What turns the owner-reference mechanism from one that
   works into one that is declared. Touches `RenderInputs`, the recorder, the tap layer and ADR 0017
   together; wants its own plan.

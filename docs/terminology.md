@@ -102,8 +102,12 @@ renderer cannot derive it from the parent link.
 **Template** — the whole card's markup, holes included. There is one per card.
 
 **Region** — a named hole in a template that something else fills. A card declares them
-(`CardDef.regions`), a node fills them (`children`, keyed by region name). `fill = "eager"` splices
-the children it was given; `fill = "baked"` is filled by a surface instead (see **bake**).
+(`CardDef.regions`), a node fills them (`Component.regions`, keyed by region name). `fill = "eager"`
+splices the children it was given; `fill = "baked"` is filled by a surface instead (see **bake**).
+
+Every region is named on the wire, the default one included. `children` is the AUTHORING word —
+`Grid { children { … } }` is still what a one-hole card is written as, and Pkl resolves the name
+before it emits. Two words for two sides of one thing, and the sugar stops at the boundary.
 
 **Leaf card** — a card with no regions. Its template *is* what a live patch renders, so a leaf is
 the only kind of node a patch ever targets.

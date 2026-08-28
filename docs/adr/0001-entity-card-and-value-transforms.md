@@ -65,7 +65,7 @@ attribute, `"$lookup(…, $domain)"` an identity-derived value. There is no
 separate "computed" concept. A hardcoded value is a **literal** slot (a bare
 JSON string) — no entity, no JSONata, no compilation.
 
-**`entity_id` is the magical slot.** A component is `(card, slots, children)`;
+**`entity_id` is the magical slot.** A component is `(card, slots, regions)`;
 the card's subject entity is the slot *named* `entity_id` (normally a literal;
 a transform form grounds indirection on its own entity). It is the single slot
 that does **not** inherit the subject — it *defines* it. Every other slot with
