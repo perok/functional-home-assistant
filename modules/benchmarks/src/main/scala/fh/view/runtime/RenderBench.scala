@@ -113,7 +113,23 @@ class RenderBench {
       Dashboard(cards, tree(Leaves, 4, signals = true, distinct = Distinct))
     )
     transforms = Transforms.from(
-      Dashboard(cards, tree(Leaves, 4, signals = true))
+      Dashboard(
+        cards ++ TrivialTransforms.zipWithIndex.map { case (t, i) =>
+          s"probe$i" -> CardDef(s"{{v}}", slots = List("v"))
+        },
+        LayoutNode.Component(
+          "col",
+          regions = LayoutNode.kids(
+            (tree(Leaves, 4, signals = true) :: TrivialTransforms.zipWithIndex
+              .map { case (t, i) =>
+                LayoutNode.Component(
+                  s"probe$i",
+                  Map("v" -> SlotSource(transform = t))
+                )
+              })*
+          )
+        )
+      )
     )
     entityTemplate = Templates
       .from(Dashboard(cards, tree(Leaves, 4, signals = true)))
@@ -182,6 +198,26 @@ class RenderBench {
     }
   }
 
+  /** The same count of evaluations, but of the two TRIVIAL transform shapes — a
+    * bare `$state` and a single `$attr.<name>`. Neither applies a function, so
+    * this is what a JSONata evaluation costs when nothing triggers the per-call
+    * argument-signature validation that dominates [[jsonata]].
+    *
+    * The gap decides whether a renderer-side fast path for those two shapes is
+    * worth building, or whether JSONata is expensive whatever you ask it.
+    */
+  @Benchmark
+  def jsonataTrivial(bh: Blackhole): Unit = {
+    var i = 0
+    while (i < Leaves) {
+      val e = st(entityId(i))
+      bh.consume(transforms.run("$state", e, "dashboard"))
+      bh.consume(transforms.run("$attr.friendly_name", e, "dashboard"))
+      bh.consume(transforms.run("$attr.brightness", e, "dashboard"))
+      i += 1
+    }
+  }
+
   /** Mustache at the count one page performs, context construction included —
     * it is per-node work the walk cannot avoid either.
     */
@@ -228,6 +264,13 @@ object RenderBench {
     """$attr.friendly_name ? $attr.friendly_name : $entity_id"""
   final val TransformFill =
     """($v := $attr.brightness; $v != null ? $round($v * 100 / 255) & "%" : "")"""
+
+  /** Compiled alongside the rest so [[RenderBench.jsonataTrivial]] can look
+    * them up; not used by any card here.
+    */
+  final val TrivialTransforms =
+    List("$state", "$attr.friendly_name", "$attr.brightness")
+
   final val TransformAction =
     """"@post('sse/action/light/toggle/" & $entity_id & "')""""
 

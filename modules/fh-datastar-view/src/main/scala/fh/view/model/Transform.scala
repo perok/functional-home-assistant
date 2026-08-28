@@ -44,6 +44,49 @@ object Transform {
   /** A compiled JSONata expression. */
   type Compiled = Jsonata
 
+  /** The two transform shapes that read a value and apply nothing to it.
+    *
+    * They are worth naming because JSONata charges for them anyway: it
+    * validates a function's argument signature with a regex on every
+    * invocation, and its own `&`/coercion machinery invokes functions, so even
+    * an expression with no visible call allocates. Measured at ~1.28 kB per
+    * evaluation of `$state` (`benchmarks/RenderBench.jsonataTrivial`) against
+    * ~3.39 kB for one that calls `$lookup` — so reading the field directly
+    * saves the whole 1.28 kB, not the difference (issue #237).
+    *
+    * `None` for everything else, which is the honest answer: anything with an
+    * operator, a function or a conditional goes to JSONata, and this must never
+    * grow into a second implementation of the language.
+    */
+  enum Direct {
+    case State
+    case Attr(name: String)
+  }
+
+  /** Recognise a [[Direct]] shape. Deliberately strict — a leading/trailing
+    * space is already handled by the trim, but anything else at all (`$state `
+    * with an operator after it, `$attr.a.b`, `$attr."x"`) is not one of these
+    * two shapes and must go to JSONata.
+    */
+  def direct(src: String): Option[Direct] = src.trim match {
+    case "$state"                                   => Some(Direct.State)
+    case s"$$attr.$name" if name.forall(isNameChar) => Some(Direct.Attr(name))
+    case _                                          => None
+  }
+
+  private def isNameChar(c: Char): Boolean =
+    c.isLetterOrDigit || c == '_'
+
+  /** Evaluate a [[Direct]] shape without JSONata, stringified exactly as
+    * [[run]] would — the SAME `asString`, so the two cannot drift in how they
+    * render a number, a boolean or an absent value.
+    */
+  def runDirect(d: Direct, entity: EntityState): String = d match {
+    case Direct.State      => entity.state
+    case Direct.Attr(name) =>
+      asString(entity.javaAttributes.get(name))
+  }
+
   /** Compile a JSONata expression (build/validate time). */
   def parse(src: String): Either[String, Compiled] = {
     val trimmed = src.trim
