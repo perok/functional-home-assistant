@@ -30,12 +30,12 @@ owns the shape). It is also where a proposal should point: say which box moves. 
 questions" section is a live list, not a backlog — delete an entry when it is answered.
 
 [`docs/terminology.md`](docs/terminology.md) defines the words this project uses in a specific way
-— `self`/`mount`, bake, surface, clause, holds, floor, horizon, doorbell, linger. **Read it before
-writing an ADR, a plan or a comment that leans on one**, and use the term as defined rather than a
-near-synonym: the vocabulary is load-bearing (a "mount" and a "self-region" are different
-mechanisms, and prose that blurs them has already produced a wrong design). When a change coins a
-term or moves what one means, update that file in the same commit — a definition that lags the code
-is worse than none, because it gets trusted.
+— region, leaf/structure, host, bake, surface, clause, holds, floor, horizon, doorbell, linger.
+**Read it before writing an ADR, a plan or a comment that leans on one**, and use the term as
+defined rather than a near-synonym: the vocabulary is load-bearing (a "region" is a declaration, a
+"host" is the element it is filled through, and prose that blurs them has already produced a wrong
+design). When a change coins a term or moves what one means, update that file in the same commit —
+a definition that lags the code is worse than none, because it gets trusted.
 
 A `docs/plan-*.md` is a design for work **in flight**, not a description of the sources — do not
 assume an API written there exists.
@@ -208,11 +208,12 @@ else's. Every check below has caught a real defect that a passing suite said not
   still outside it is `scripts/fh.test.scala`. Where no browser driver is installed, run the
   `--exclude-tags=Slow` variant above instead and say so — six red `smoke` suites are the
   environment, not the diff.
-- **Check every claim you wrote against the code you wrote.** A scaladoc saying "the only way
-  to X", "cannot happen" or "is not possible" is an assertion about the codebase, and the
-  commit that adds the second way is usually the same one that wrote the sentence. If a claim
-  would be falsified by a `grep`, run the `grep` — the counterexample is often already in the
-  tree, in a test helper.
+- **Check every claim your change touches, not only the ones you wrote.** A scaladoc saying "the
+  only way to X", "cannot happen" or "is not possible" is an assertion about the codebase, and the
+  commit that adds the second way is usually the same one that wrote the sentence. If a claim would
+  be falsified by a `grep`, run the `grep` — the counterexample is often already in the tree, in a
+  test helper. The claims your change FALSIFIED are the more expensive half: nothing fails, so they
+  survive until someone trusts one.
 - **Cash the justification.** If the stated reason was testability, the same change adds the
   test. If it was "one mechanism, not two", the second is deleted here, not left for later. A
   refactor justified by a benefit it did not deliver is unfinished, not done.
@@ -242,6 +243,23 @@ probably a design decision and belongs in the ADR, with the code pointing at it.
 
 A useful test: delete the comment and ask whether a competent reader would now make a mistake. If
 not, leave it deleted.
+
+**A comment your change falsified is part of your change.** The same rule the ADRs and the
+architecture doc already have. The failure is not that an old comment is dated — it is that it is
+now WRONG, and a wrong comment is trusted. Two habits that produce them, both seen here:
+
+- **Rewriting history instead of deleting it.** Turning "a container patches its `self`" into "a
+  container used to patch its `self`" preserves a fact nobody needs and leaves the reader
+  reconstructing a design that no longer exists. Say what is true; git holds the rest. The
+  exception is a trap that actually bit — keep the symptom, drop the chronology.
+- **Writing the new block ABOVE the old one.** Scala attaches the last doc comment, so the earlier
+  one becomes invisible dead prose that still asserts something false. Four of these were found in
+  one sweep. After editing a doc comment, check there is only one.
+
+**Tells worth grepping for after a design change**, because they are how a comment written from the
+diff reads: `used to`, `no longer`, `the old`, `now that`, `since <feature>`, `pre-split`. Also grep
+the names you deleted — a method, a field, a card kind — since a comment naming a symbol that no
+longer exists is the cheapest possible thing to find and the most confusing thing to leave.
 
 ## Design principles (apply when touching existing code, not just when writing new code)
 

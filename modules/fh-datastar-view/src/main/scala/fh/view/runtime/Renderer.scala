@@ -754,10 +754,8 @@ class Renderer(
     * `None` for a node that owns no group, and for a state group whose branches
     * all fail.
     *
-    * Split out of [[resolveBakeTraced]] because [[renderInputs]] needs the
-    * selection WITHOUT rendering the member it selects. Sharing it is what
-    * makes the cache key honest: a key derived independently could drift from
-    * the render it claims to describe.
+    * Split out of [[resolveBakeTraced]] so the SELECTION can be answered
+    * without rendering the member it selects.
     */
   private def activeBakeIndex(
       id: NodeId,
@@ -773,44 +771,32 @@ class Renderer(
     * render cache needs
     * (docs/adr/0012-each-session-renders-what-it-is-owed.md).
     *
-    * Two parts, and the split is the point:
+    * ONE part: the CONTENT VERSION of each entity the node's slots bind
+    * ([[entitiesForNode]]). A version rather than the value because
+    * [[EntityState]]'s synthesized `hashCode` recurses into the attribute map
+    * on every lookup, and because it is MORE discriminating than the render is:
+    * `lastUpdated` moves on ticks that change no rendered byte. An entity the
+    * snapshot does not hold has NO entry, which is a distinct key from any
+    * version it could have — [[resolveSlot]] renders such a slot from a
+    * synthetic empty state.
     *
-    *   - `entities` — the CONTENT VERSION of each entity the node's slots bind
-    *     ([[entitiesForNode]]). A version rather than the value because
-    *     [[EntityState]]'s synthesized `hashCode` recurses into the attribute
-    *     map on every lookup, and because it is MORE discriminating than the
-    *     render is: `lastUpdated` moves on ticks that change no rendered byte.
-    *     An entity the snapshot does not hold has NO entry, which is a distinct
-    *     key from any version it could have — [[resolveSlot]] renders such a
-    *     slot from a synthetic empty state.
-    *   - `vars` — the structural vars the bake group contributes (`bakeIndex`),
-    *     taken as the RESOLVED value rather than the inputs it derives from.
-    *     That is what keeps the key small where it could not otherwise be: a
-    *     state group's branch is a QUANTIFIED predicate over the whole entity
-    *     map ([[holds]]), so keying on its sources would key on every entity.
+    * A viewer's SELECTION is not in it, and takes no argument here. Only
+    * structure reads a selection, and structure is never cached: the leaf
+    * beside it that a frame actually re-renders mentions no selection at all.
     *
-    * Deliberately NOT included: the node's children. Including them would make
-    * any descendant's tick invalidate every ancestor to the root, which is the
-    * whole reason a per-node cache earns anything.
+    * Deliberately NOT included either: the node's children. Including them
+    * would make any descendant's tick invalidate every ancestor to the root,
+    * which is the whole reason a per-node cache earns anything.
     *
     * `None` — NOT CACHEABLE — is what keeps that honest, and it is the reason
     * this returns an `Option` rather than a key that a caller has to know not
     * to trust. It is now exactly [[hasOwnRendering]]'s `false`: structure, or a
     * candidate set root. Both compose rather than render, and neither is a
     * patch target, so nothing is lost by excluding them.
-    *
-    * There used to be a SECOND excluded kind — a node whose own bytes carried
-    * its children, so they moved when a child's entity moved while this key
-    * stood still — and a plan for admitting it by rendering own markup with
-    * holes and substituting separately-keyed child bytes in a second pass.
-    * Regions did that instead, and did it in the model: a node's regions are
-    * other nodes, each keyed and cached on its own, so no node's bytes carry a
-    * child's and there is nothing left to admit.
     */
   def renderInputs(
       id: NodeId,
-      states: Map[String, EntityState],
-      uiState: Map[String, String]
+      states: Map[String, EntityState]
   ): Option[RenderInputs] =
     members
       .memberAt(id, states)
@@ -823,16 +809,9 @@ class Renderer(
         )
       )
       .orElse(
-        Option
-          // No `&& !ownBytesCarryChildren(id)` any more. That was a
-          // CONSERVATIVE proxy for "my bytes carry my children", and it cost
-          // every grouped slider its cache entry on the hot path even though
-          // the head's bytes never held a member. A node with its own rendering
-          // IS a leaf now, so it has no children to carry — the exclusion has
-          // nothing left to exclude.
-          .when(hasOwnRendering(id))(
-            RenderInputs(versions(entitiesForNode(id), states))
-          )
+        Option.when(hasOwnRendering(id))(
+          RenderInputs(versions(entitiesForNode(id), states))
+        )
       )
 
   private def versions(

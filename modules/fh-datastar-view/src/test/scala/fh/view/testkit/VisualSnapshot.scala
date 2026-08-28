@@ -111,7 +111,7 @@ object VisualSnapshot {
     } else if (!os.exists(file)) {
       throw new AssertionError(
         s"missing visual snapshot $file — regenerate with " +
-          "`sbt dashboardSnapshotsUpdate`"
+          "`sbt dashboardVisualSnapshotsUpdate`"
       )
     } else {
       val expectedImg = decode(os.read.bytes(file))
@@ -127,7 +127,7 @@ object VisualSnapshot {
         throw new AssertionError(
           s"visual snapshot for $name.png changed ($reason). before/after written to " +
             s"$failureDir ($name.expected.png / $name.actual.png) for review. If " +
-            "intended, regenerate with `sbt dashboardSnapshotsUpdate`."
+            "intended, regenerate with `sbt dashboardVisualSnapshotsUpdate`."
         )
       }
 

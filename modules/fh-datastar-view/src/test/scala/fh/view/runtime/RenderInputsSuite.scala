@@ -208,8 +208,8 @@ class RenderInputsSuite extends munit.FunSuite {
       id <- ids
       (a, i) <- line.zipWithIndex
       (b, j) <- line.zipWithIndex
-      key <- renderer.renderInputs(id, a, Map.empty).toList
-      if renderer.renderInputs(id, b, Map.empty).contains(key)
+      key <- renderer.renderInputs(id, a).toList
+      if renderer.renderInputs(id, b).contains(key)
     } assertEquals(
       renderer.renderNodeById(id, a),
       renderer.renderNodeById(id, b),
@@ -232,8 +232,8 @@ class RenderInputsSuite extends munit.FunSuite {
       ra = Renderer.create(dashboard)
       rb = Renderer.create(dashboard)
       id = ra.members.memberIdOf(setId("c_3"), entity)
-      key <- ra.renderInputs(id, a, Map.empty).toList
-      if rb.renderInputs(id, b, Map.empty).contains(key)
+      key <- ra.renderInputs(id, a).toList
+      if rb.renderInputs(id, b).contains(key)
     } assertEquals(
       ra.renderNodeById(id, a),
       rb.renderNodeById(id, b),
@@ -244,7 +244,7 @@ class RenderInputsSuite extends munit.FunSuite {
 
   test("the key is not trivially discriminating — it hits where it must") {
     def key(id: NodeId, at: Int) =
-      renderer.renderInputs(id, line(at), Map.empty).get
+      renderer.renderInputs(id, line(at)).get
 
     // A timestamp-only re-seed (step 2) keys the same as the content change
     // before it. Without this the cache would miss on every HA reconnect.
@@ -256,23 +256,14 @@ class RenderInputsSuite extends munit.FunSuite {
   }
 
   test("an absent entity keys differently from any version it could hold") {
-    val absent = renderer.renderInputs("c_0", Map.empty, Map.empty).get
+    val absent = renderer.renderInputs("c_0", Map.empty).get
     assertNotEquals(
       absent,
-      renderer.renderInputs("c_0", line.head, Map.empty).get
+      renderer.renderInputs("c_0", line.head).get
     )
     // Not merely different — it carries no entry at all, so no stamp can
     // collide with it.
     assertEquals(absent.entities, Map.empty[String, Long])
-  }
-
-  test("a user group's selection is part of the key, per viewer") {
-    // `c_2`'s group is state-activated, so uiState cannot move it — the
-    // asymmetry a user-selected group does not have.
-    assertEquals(
-      renderer.renderInputs("c_2", line.head, Map.empty),
-      renderer.renderInputs("c_2", line.head, Map("ui_c_2" -> "1"))
-    )
   }
 
   test("STRUCTURE has NO key") {
@@ -280,7 +271,7 @@ class RenderInputsSuite extends munit.FunSuite {
     // descendant's entity moves. The key excludes children by design, so the
     // only sound answer is that it cannot be cached at all — the difference
     // between a `None` and a key a caller must know not to trust.
-    assertEquals(renderer.renderInputs("c", line.head, Map.empty), None)
+    assertEquals(renderer.renderInputs("c", line.head), None)
     assertNotEquals(
       renderer.renderBody(line.head),
       renderer.renderBody(line.last)
@@ -306,7 +297,7 @@ class RenderInputsSuite extends munit.FunSuite {
         }
       )
     )
-    assertEquals(tabs.renderInputs("c", line.head, Map.empty), None)
+    assertEquals(tabs.renderInputs("c", line.head), None)
     // ...and not renderable by id either: its element contains what it holds,
     // so patching it would re-send that. The things worth patching are the
     // nodes inside.
@@ -316,7 +307,7 @@ class RenderInputsSuite extends munit.FunSuite {
   test("a node that composes rather than renders has no key") {
     // The candidate set root: its members are addressable in their own right,
     // and `renderNodeById` refuses it.
-    assertEquals(renderer.renderInputs("c_3", line.head, Map.empty), None)
+    assertEquals(renderer.renderInputs("c_3", line.head), None)
     assertEquals(renderer.renderNodeById("c_3", line.head), None)
   }
 }
