@@ -474,7 +474,7 @@ class SetNodeSuite extends ServerHarness {
     // reading the static index, which cannot hold a nested set).
     //
     // The id scheme is one function now (`Renderer.innerSetId`, read by both
-    // `memberSources` and `memberChild`), so the two ends cannot drift by
+    // `memberSources` and `resolveChild`), so the two ends cannot drift by
     // spelling. This pins the property that survives that refactor: whatever
     // the renderer PAINTS as a group is something the renderer KNOWS as a
     // container. Two levels deep, so a scheme that happens to work at one level

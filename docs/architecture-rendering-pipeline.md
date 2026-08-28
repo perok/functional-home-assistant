@@ -610,8 +610,8 @@ The two halves are two files, and the seam between them is one sentence: **`Memb
 presence and order, `Renderer` paints.** `MemberGraph` reaches back into the renderer for nothing —
 it is constructed from the `SetNode`s in the static index plus each indexed id's layout root, and
 answers membership questions with no template, no mustache context and no document walk. The
-`render*` half deliberately stayed behind: `renderMember`, `memberChild` and `renderSet` need
-`templates` and `identityCache`.
+`render*` half deliberately stayed behind: `resolveMember`, `renderResolvedMember` and
+`renderSet` need `templates` and `identityCache`.
 
 **`SurfaceGraph` is the same split, for the other decision.** Which branch of a bake group is
 active, which tab a viewer is on, and which clients a patch at a given node may reach: selection and
@@ -651,7 +651,7 @@ than the static index (a nested set is not in the index — it hangs off a membe
 live half). The second was a real bug: correct ids, correct HTML, zero patches.
 
 The id scheme itself is ONE function, `MemberGraph.innerSetId`, read from both ends —
-`MemberGraph.sources` registers a container under it, `memberChild` paints an element under it. A
+`MemberGraph.sources` registers a container under it, `resolveChild` paints an element under it. A
 second spelling of it is the same silent failure again: the recorder maintains a container the
 browser does not have. `SetNodeSuite` pins the property rather than the spelling — every group the
 markup shows is one the graph registered, two levels deep.
