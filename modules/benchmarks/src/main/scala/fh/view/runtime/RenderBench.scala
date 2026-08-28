@@ -58,6 +58,21 @@ import java.util.concurrent.TimeUnit
   *     far as writing runner sources that `Jmh / compile` then would not pick
   *     up. A separate project on the plugin's DEFAULT layout needs none of it,
   *     and keeps jmh-core out of the add-on jar besides.
+  *   - '''A transform memo keyed by `(entity, contentVersion, transform)`.'''
+  *     Unsound: `contentVersion` stands for an entity's content only for states
+  *     stamped by `StateStore.update`, and nothing in the type says a `states`
+  *     map came from there — `DashboardBuilders.st` defaults it to 0, so two
+  *     different states share a key and the memo returns a stale value. Three
+  *     suites caught it. A per-WALK memo keyed by `(entity, transform)` is
+  *     sound (one walk sees one snapshot), but wants a walk-scoped type
+  *     threaded through ~28 signatures; [[pageShared]] is here to say what that
+  *     would be worth before anyone pays for it.
+  *   - '''Benchmarking that memo without a per-walk scope.''' JMH re-renders
+  *     the same `states` thousands of times, so a version-keyed memo never
+  *     misses after the first iteration and reports the cost of a page whose
+  *     every transform is precomputed — a state production never reaches.
+  *     `pageSignals` "improved" 3816 -> 2042 us on a fixture with nothing to
+  *     share, which is the tell.
   *   - '''A byte-ratio for the composition cost''' — bytes written over bytes
   *     the page holds. It is structurally 1.0 whatever the tree, because the
   *     `own` map it sums holds ONLY leaves (a container "has no rendering of
@@ -78,6 +93,7 @@ class RenderBench {
   private var narrow: Renderer = null
   private var flat: Renderer = null
   private var set: Renderer = null
+  private var shared: Renderer = null
   private var st: Map[String, EntityState] = null
   private var transforms: Transforms = null
   private var entityTemplate: com.samskivert.mustache.Template = null
@@ -93,6 +109,9 @@ class RenderBench {
     flat =
       Renderer.create(Dashboard(cards, tree(Leaves, Leaves, signals = true)))
     set = Renderer.create(Dashboard(cards, setTree(Leaves)))
+    shared = Renderer.create(
+      Dashboard(cards, tree(Leaves, 4, signals = true, distinct = Distinct))
+    )
     transforms = Transforms.from(
       Dashboard(cards, tree(Leaves, 4, signals = true))
     )
@@ -135,6 +154,18 @@ class RenderBench {
     */
   @Benchmark
   def pageSet(bh: Blackhole): Unit = bh.consume(set.renderPageTraced(st))
+
+  /** The same 200 leaves over only 40 DISTINCT entities — each shown five
+    * times, which is what a real dashboard looks like once a light appears in
+    * both its room and a summary.
+    *
+    * Against [[pageSignals]] (200 leaves, 200 distinct entities, so nothing to
+    * share) this is what a per-`(entity, content, transform)` memo can win, and
+    * [[pageSignals]] itself is what says whether the memo COSTS anything where
+    * there is no duplication to exploit.
+    */
+  @Benchmark
+  def pageShared(bh: Blackhole): Unit = bh.consume(shared.renderPageTraced(st))
 
   /** JSONata at the count one page performs, `Reads.Once` slots excluded (the
     * renderer memoises those, which is the state a warm server is in).
@@ -182,6 +213,9 @@ object RenderBench {
     */
   final val Leaves = 200
 
+  /** Distinct entities behind [[RenderBench.pageShared]]'s leaves. */
+  final val Distinct = 40
+
   // The transform shapes the real `dashboard.json` uses, in roughly the
   // proportion it uses them: mostly a `$lookup` table or a unit concatenation,
   // rarely a bare `$state`. Benchmarking `$state` alone would flatter JSONata.
@@ -223,11 +257,13 @@ object RenderBench {
     )
   )
 
-  def leaf(signals: Boolean)(i: Int): LayoutNode.Component =
+  def leaf(signals: Boolean, distinct: Int = Int.MaxValue)(
+      i: Int
+  ): LayoutNode.Component =
     LayoutNode.Component(
       "entity",
       Map(
-        "entity_id" -> SlotSource(literal = Some(entityId(i))),
+        "entity_id" -> SlotSource(literal = Some(entityId(i % distinct))),
         "cls" -> SlotSource(literal = Some("fh-tile")),
         "icon" -> SlotSource(transform = TransformIcon),
         "name" -> SlotSource(transform = TransformName),
@@ -255,7 +291,12 @@ object RenderBench {
     * work still while multiplying the copying, which is the only way to see the
     * copying by itself.
     */
-  def tree(leaves: Int, branching: Int, signals: Boolean): LayoutNode = {
+  def tree(
+      leaves: Int,
+      branching: Int,
+      signals: Boolean,
+      distinct: Int = Int.MaxValue
+  ): LayoutNode = {
     def stack(items: List[LayoutNode]): LayoutNode =
       if (items.sizeIs == 1) items.head
       else
@@ -267,7 +308,7 @@ object RenderBench {
             )
             .toList
         )
-    stack(List.tabulate(leaves)(leaf(signals)))
+    stack(List.tabulate(leaves)(leaf(signals, distinct)))
   }
 
   /** The same leaves, as one candidate set: every entity a candidate, each with
