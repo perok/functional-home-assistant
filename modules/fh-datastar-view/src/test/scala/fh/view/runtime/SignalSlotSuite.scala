@@ -9,7 +9,8 @@ import fh.view.model.{
   SetId,
   SignalBind,
   SignalId,
-  SlotSource
+  SlotSource,
+  Surface
 }
 import api.homeassistant.HomeAssistantApi
 import cats.effect.IO
@@ -29,13 +30,15 @@ import fh.view.testkit.TestAuth
   */
 class SignalSlotSuite extends ServerHarness {
 
-  // A card whose reading is signal-backed and whose label is not: the two paths
-  // side by side, in one node, so a test can move each independently.
   /** The slider's computed fill transform — named once because it is both a
     * fixture value and, hashed, the tail of the signal path it produces.
+    * Declared HERE because a `val` a fixture reads must be initialised before
+    * it: constructor statements run in source order, and a later one is null.
     */
   private val fillPct = "$string($attr.brightness) & \"%\""
 
+  // A card whose reading is signal-backed and whose label is not: the two paths
+  // side by side, in one node, so a test can move each independently.
   private val cards = Map(
     "gauge" -> CardDef(
       "<b>{{label}}</b><i {{{value__bind}}}>{{value}}</i>",
@@ -458,6 +461,112 @@ class SignalSlotSuite extends ServerHarness {
       "data-text=\"\\$_e\\.sensor\\.a\\.state\"".r.findAllIn(html).size,
       2,
       clue = html
+    )
+  }
+
+  test(
+    "issue #134's frame: one entity in three places, nine slots, three entries"
+  ) {
+    // The shape #134 measured — one light, three places on the dashboard, each
+    // reading it through the same transforms. The old node-scoped name made
+    // that 3 nodes x 3 slots = 9 entries, of which only 3 were distinct values;
+    // `39.7637795275591%` and `154` each rode three times.
+    val trio = Map(
+      "trio" -> CardDef(
+        "<i {{{state__bind}}}>{{state}}</i><b {{{fill__bind}}}></b>" +
+          "<u {{{tint__bind}}}></u>",
+        slots = List("state", "fill", "tint")
+      ),
+      "col" -> CardDef(
+        "<div>{{#children}}{{{html}}}{{/children}}</div>",
+        regions = Map("children" -> Region())
+      )
+    )
+    def place = LayoutNode.Component(
+      "trio",
+      Map(
+        "entity_id" -> SlotSource(literal = Some("light.a")),
+        "state" -> SlotSource(signal = Some(SignalBind.Text)),
+        "fill" -> SlotSource(
+          transform = fillPct,
+          signal = Some(SignalBind.Style("--_end"))
+        ),
+        "tint" -> SlotSource(
+          transform = "$attr.rgb_color",
+          signal = Some(SignalBind.Attr("title"))
+        )
+      )
+    )
+    val r = Renderer.create(
+      Dashboard(
+        trio,
+        LayoutNode.Component(
+          "col",
+          regions = LayoutNode.kids(place, place, place)
+        )
+      )
+    )
+    val log = List("c_0", "c_1", "c_2").foldLeft(FragmentLog("test"))((l, id) =>
+      l.touched(NodeId.derived(id), 1L)
+    )
+    // All three readings move, so all three are genuinely in play — a fixture
+    // where only one moved would score 1 and prove nothing about sharing.
+    def lightAt(bright: Int, state: String, rgb: String) =
+      Map(
+        "light.a" -> st(
+          "light.a",
+          state,
+          "brightness" -> io.circe.Json.fromInt(bright),
+          "rgb_color" -> rgb.asJson
+        )
+      )
+    val out = resumeNow(
+      r,
+      log,
+      documentHolds(r, lightAt(40, "on", "warm")),
+      lightAt(41, "dim", "cool"),
+      1L,
+      Set.empty,
+      Map.empty
+    )
+    val entries = out.map(_.patch).collect { case s: Patch.Signals => s.values }
+    // NINE slots moved; THREE values did. That is issue #134's saving, stated
+    // as the number it argued about.
+    assertEquals(entries.map(_.size), List(3), clue = entries)
+    assertEquals(elementPatches(events(out)), Nil)
+  }
+
+  test("a fill seeds an entity the page has never shown") {
+    // Why the seed CANNOT move to one document-level `data-signals`, however
+    // tempting that looks once signals are shared: a surface can introduce an
+    // entity no node on the page was reading, so the store has no value for it
+    // and no frame is coming — the fill's own bytes are the only thing that can
+    // make it correct. This is ADR 0017's reason for putting the seed on the
+    // `.fh-cell` wrapper, restated as the test that would catch removing it.
+    val r = Renderer.create(
+      Dashboard(
+        cards,
+        gauge("sensor.a"),
+        surfaces = Map("panel" -> Surface(gauge("sensor.unseen")))
+      )
+    )
+    val states = at("21.4") ++
+      Map(
+        "sensor.unseen" -> st(
+          "sensor.unseen",
+          "7",
+          "friendly_name" -> "New".asJson
+        )
+      )
+    // The document never mentions it...
+    val page = r.renderPage(states)
+    assertEquals(page.contains("sensor.unseen"), false, clue = page)
+    // ...so the fill has to carry both the binding and the value.
+    val fill = r.renderSurface("panel", states).get
+    assert(fill.contains("data-text=\"$_e.sensor.unseen.state\""), clue = fill)
+    assert(
+      fill.contains("data-signals=\"{_e: {sensor: {unseen: {state: '7'"),
+      clue = fill
     )
   }
 

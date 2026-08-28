@@ -22,17 +22,22 @@ They mostly dissolve under the variant in #134's second comment — reference th
 | #134's stated cost | Under a store |
 |---|---|
 | Readability goes | **Dissolved.** No name is minted. The binding names the entity literally; `$_e.light.taklys.brightness` reads better than `_c_16__fill`, not worse. |
-| Node-prefix invalidation breaks | **Mostly dissolved** — see below. Validated in step 2, and the plan stops if it does not hold. |
-| The node-level seed story changes | **Real, and accepted.** The `data-signals` seed leaves `.fh-cell` for one document-level store. |
+| Node-prefix invalidation breaks | **Not the blocker it looked like** — see below. |
+| The node-level seed story changes | **Real, and accepted.** Two wrappers seed the same path with the same value. Harmless, as ADR 0017 already noted. |
 
 On invalidation: `Session.holds` is `Map[NodeId, Held]` with `Held(digest, signals)`, and a host
-fill drops entries by node-id prefix. With a document-level store, **a remounted node needs no
-re-seed** — its binding reads the store, which already holds the current value. So signals stop
-needing node-scoped invalidation at all; they need a per-session last-sent map keyed by store path,
-pruned only when an entity leaves the dashboard's static index. That is less machinery than today,
-not the second parallel mechanism ADR 0017 was right to avoid.
+fill drops entries by node-id prefix. With shared paths one value can sit in two nodes' entries,
+but the diff maps by NAME, so duplicates collapse and a dropped node merely re-sends a value
+another node still holds — a redundant frame entry, never a wrong one. So this never needed a
+second mechanism; splitting `holds` is an optimisation (step 6), not a prerequisite.
 
-**This is the plan's load-bearing claim.** Step 2 proves it before anything else is built.
+**What this plan got wrong.** It claimed a remounted node needs no re-seed, because it reads a
+store that already holds the value — and proposed moving the seed to one document-level
+`data-signals` on the strength of it. That is true only for an entity the page was ALREADY showing.
+A fill can introduce an entity no node was reading, and then the store has nothing and no frame is
+coming. ADR 0017 had already reasoned this out; the seed rides the `.fh-cell` wrapper *because* the
+document form is what a fill sends. Step 2 refuted the claim, step 5 is dropped, and a test now
+pins it so the idea cannot be re-had silently.
 
 ## Not the framework question
 
@@ -137,9 +142,17 @@ whatever 1 leaves behind.
    keeps the ENTITY readable in a frame log, which is the half of ADR 0017's readability objection
    that actually mattered.
 
-2. **Prove the remount claim.** Before the refactor: confirm that a node re-rendered by a host fill
-   picks its value up from a document-level store with no re-seed. A tab switch with a live value
-   visible is the case. If this fails, stop and redesign — the whole simplification rests on it.
+2. ~~**Prove the remount claim.**~~ **REFUTED — and this plan's central hypothesis was wrong.**
+
+   The claim was that a remounted node needs no re-seed because it reads a store that already
+   holds the value. That is true only for an entity the page was ALREADY showing. A surface fill
+   can introduce an entity no node was reading: the store has no value for it and no frame is
+   coming, so the fill's own bytes are the only thing that can make it correct.
+
+   ADR 0017 had already reasoned this out — the seed rides the `.fh-cell` wrapper precisely
+   because the DOCUMENT form is what a page load, a repaint, a HOST FILL and an insert-from-fill
+   all send. Pinned now by `SignalSlotSuite."a fill seeds an entity the page has never shown"`,
+   so removing the seed fails a test instead of silently blanking a tab.
 
 3. **Name the path as a type.** Add `SignalPath` (or extend `SignalId`) owning the store path for
    an `(entity, transform)` pair and its JSON nesting, following the `PackageRef` precedent in
@@ -149,11 +162,13 @@ whatever 1 leaves behind.
 4. **Repoint `Renderer.signalName`** to produce a store path. `SignalBind` stays renderer-side —
    ADR 0017's reason holds, a card that wrote its own `data-text` could not have it un-written.
 
-5. **Move the seed** to one `data-signals` on the document, alongside the existing `data-init` on
-   `<body>`, instead of per-`.fh-cell` seeds.
+5. ~~**Move the seed** to one `data-signals` on the document.~~ **DROPPED**, as a direct
+   consequence of step 2. The per-node seed is load-bearing for fills and cannot move.
 
-6. **Split `Session.holds`.** Digests stay keyed by `NodeId` with the existing prefix-drop rule in
-   `Patches.applied`; signals become a per-session `Map[SignalPath, String]` of last-sent values.
+6. **Split `Session.holds`** — OPTIONAL, and an optimisation rather than a correctness fix.
+   With shared paths, one value can sit in two nodes' `Held.signals`; the diff maps by name, so
+   duplicates collapse and a dropped node merely re-sends a value another node still holds. That is
+   a redundant frame entry, never a wrong one. Worth doing on its own merits, not as a blocker.
 
 7. **Keep the `_` prefix.** The store root stays underscore-prefixed so Datastar's default request
    filter keeps a dashboard's worth of live values out of every action POST and SSE reconnect.
@@ -184,11 +199,16 @@ whatever 1 leaves behind.
    issue #130). If #130 lands and documents enter the cache, this step's assumption changes — see
    below.
 
-9. **Measure, and answer #134's own question.** The issue says "worth measuring first" and #130
-   established that as the house style. Record frame bytes and signal-entry count on a dashboard
-   built to have duplication *and* one built to have none. #134's observed frame — 7 entries → 3,
-   ~55% — is the baseline to reproduce. A no-duplication dashboard saving ~0% is a finding that
-   belongs in the ADR, not a result to bury.
+9. ~~**Measure.**~~ **Done**, as a test rather than a one-off run:
+   `SignalSlotSuite."issue #134's frame: one entity in three places, nine slots, three entries"`.
+   Three nodes reading one entity through three transforms move NINE slots and produce THREE frame
+   entries. #134's observed frame was 7 → 3, so this reproduces its argument on the shape it argued
+   about, and keeps it from regressing.
+
+   The number that still needs the maintainer's own instance is the one on a REAL dashboard, since
+   the saving is proportional to how often one entity appears more than once. A dashboard where
+   every card shows a different entity saves nothing — which the issue said, and which is still the
+   honest caveat.
 
 ## Files
 
@@ -239,14 +259,14 @@ whatever 1 leaves behind.
   therefore `RenderInputs.vars`, so the two viewer kinds do not share a `RenderCache` generation for
   a signal-carrying node." The cost is a cached generation per profile for signal-carrying nodes.
 
-  Note the ordering dependency, which runs the *opposite* way to intuition: it is tempting to say a
-  signals client tolerates stale document bytes because it fixes the value from the store, but
-  **today it does not** — the document form's `data-signals` seed carries the value too, and ADR
-  0017 makes a first paint correct with no following frame, so a stale seed stays stale until that
-  entity next changes. Step 5 of this plan is what changes that: moving the seed to one
-  document-level attribute generated outside the cache leaves the cached per-node bytes carrying
-  only the inline text, which matters only to no-JS and morph-only viewers. **The store is the
-  prerequisite that makes document caching safe**, not a consequence of it.
+  Note what does NOT rescue this, since it looked like it would: moving the seed out of the cached
+  bytes. The seed cannot move (step 2/5 above) — a fill is exactly the render that has to carry it.
+  So document-form bytes keep BOTH the inline text and the seed, and a stale cached entry would
+  hand a signals client a stale seed with no frame coming to correct it. Whoever does #130 therefore
+  still needs the profile-dependent key, and should look at `data-signals__ifmissing` as the other
+  half — with the caveat that ADR 0017 makes the overwrite deliberate, because a `?prev=` reconnect
+  repaint is supposed to correct the store.
+
 - **Store eviction.** "Entity leaves the dashboard's static index" is the proposed prune rule.
   Confirm nothing else needs to drop a path.
 - **A home-grown signal inspector.** The Datastar Inspector is Pro, and being locked out of it is a
