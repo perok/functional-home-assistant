@@ -528,7 +528,7 @@ object LayoutNode:
       * entity).
       */
     def subjectEntity: Option[String] =
-      slots.get("entity_id").flatMap(_.literal)
+      slots.get(Dashboard.SubjectSlot).flatMap(_.literal)
 
     /** The entities whose live state this component depends on. A slot
       * contributes when it is reactive and not a constant literal; its source
@@ -999,6 +999,23 @@ case class Dashboard(
         List(
           s"$nodeId: slot '$name' is a constant literal and cannot be a " +
             "signal slot — a value that never moves has nothing to patch"
+        )
+      else if (name == Dashboard.SubjectSlot)
+        // The subject is not a value the card DISPLAYS, it is what every other
+        // slot resolves against. A signal moves in the browser only, so the
+        // server would go on resolving the card against the old entity while
+        // the DOM claimed a new one — and there is no coherent reading of a
+        // card whose subject differs between the two.
+        //
+        // The renderer's two halves already disagreed about it, which is the
+        // tell that it was never a defined case rather than a supported one:
+        // the value was resolved against the slot's own entity, and the seed
+        // against the subject the same slot defines.
+        List(
+          s"$nodeId: slot '${Dashboard.SubjectSlot}' cannot be a signal " +
+            "slot — it names " +
+            "the entity the card's other slots read, which is a build-time " +
+            "fact, not a value that moves"
         )
       else
         // The card must PLACE the binding, via the `<slot>__bind` var the
@@ -1542,6 +1559,19 @@ case class Dashboard(
     transformStrings.flatMap(t => Transform.parse(t).toOption.map(t -> _)).toMap
 
 object Dashboard:
+
+  /** The magic slot naming the entity a card is ABOUT — its subject. Every
+    * other slot on the node resolves against it unless it names one of its own,
+    * and it never inherits, because it is what there is to inherit.
+    *
+    * Named because four places in the renderer and the model turn on this exact
+    * string and each was spelling it out. NOT every `"entity_id"` in the tree:
+    * HA's own field name in a service payload, in the dump, and the
+    * `$entity_id` JSONata binding are different facts that happen to share a
+    * spelling, and folding them together would be one concept faking three.
+    */
+  val SubjectSlot: String = "entity_id"
+
   /** A dashboard PROVEN valid: every card reference resolves, every slot is
     * satisfied, and every slot transform compiled (kept in `transforms`, so the
     * renderer looks them up instead of recompiling or defending against a bad
