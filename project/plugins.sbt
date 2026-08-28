@@ -12,3 +12,9 @@ addSbtPlugin("org.scalameta" % "sbt-scalafmt" % "2.6.1")
 addSbtPlugin("com.eed3si9n" % "sbt-assembly" % "2.3.1")
 
 addSbtPlugin("com.timushev.sbt" % "sbt-updates" % "0.7.0")
+
+// Benchmarks (`fh-datastar-view/Jmh/run`). A hand-rolled nanoTime loop was
+// tried first and was wrong in the way such loops always are: no fork, so
+// seven measurements in one JVM inherited each other's JIT state, and the
+// per-bucket numbers moved 2x between runs of the same file.
+addSbtPlugin("pl.project13.scala" % "sbt-jmh" % "0.4.8")

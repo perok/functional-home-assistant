@@ -1495,11 +1495,37 @@ object Renderer {
     // which is the confusion ADR 0025 separated `_<id>__slide` out to avoid.
     // So it stays scoped to the node that owns the control.
     case SignalBind.Bind => SignalId.derived(s"_${id}__$slot")
-    case _               =>
-      SignalId.derived(
-        s"_e.${entitySegments(entity)}.${transformSegment(transform)}"
-      )
+    case _               => displayPath(entity, transform)
   }
+
+  /** [[signalName]]'s display half, memoised on exactly what the path is
+    * derived from.
+    *
+    * Deriving it is pure but not free — an uncommon transform hashes, and
+    * `MessageDigest.getInstance` is a fresh provider lookup each time — and it
+    * runs once per signal slot per node on EVERY render, first paint and live
+    * patch alike. The distinct pairs are the dashboard's authored ones, so the
+    * memo is small and warms in one render.
+    *
+    * Static rather than per-Renderer (unlike [[identityCache]]) because the
+    * derivation reads nothing from a dashboard. A hot-reload therefore leaves
+    * entries behind, which is harmless twice over: they are a handful of short
+    * strings, and the value is a pure function of the key that found it.
+    */
+  private def displayPath(entity: Option[String], transform: String): SignalId =
+    displayPaths.computeIfAbsent(
+      (entity, transform),
+      key =>
+        SignalId.derived(
+          s"_e.${entitySegments(key._1)}.${transformSegment(key._2)}"
+        )
+    )
+
+  private val displayPaths =
+    new java.util.concurrent.ConcurrentHashMap[
+      (Option[String], String),
+      SignalId
+    ]()
 
   private def isWord(s: String): Boolean =
     s.nonEmpty && s.forall(c => c.isLetterOrDigit || c == '_')

@@ -248,6 +248,30 @@ lazy val `fh-datastar-view` = project
     )
   )
 
+// JMH benchmarks, in their own project so neither the benchmark nor jmh-core
+// can reach the add-on jar `fh-datastar-view/assembly` builds.
+//
+// Benchmarks go in `src/main/scala` because that is JmhPlugin's documented
+// layout — it instruments the Compile classes. (The README's `src/test`
+// variant needs `Jmh / compile := (Jmh / compile).dependsOn(...)`, which sbt
+// 2's task cache rejects: `compile` has no `JsonFormat` for its
+// `CompileAnalysis` result. A separate project sidesteps that question rather
+// than working around it.)
+//
+// `package fh.view.runtime`, deliberately: what a page open costs is measured
+// through `renderPageTraced`, which — like `Traced` and `Painted` — is
+// `private[runtime]`. Package-private is checked by PACKAGE, not by
+// compilation unit, so a dependent project in that package reaches it and the
+// runtime needs no widened API to be measurable.
+lazy val benchmarks = project
+  .in(file("modules/benchmarks"))
+  .dependsOn(`fh-datastar-view`)
+  .enablePlugins(JmhPlugin)
+  .settings(
+    commonSettings,
+    publish / skip := true
+  )
+
 lazy val root = project
   .in(file("."))
   .dependsOn(`ha-api`, `fh-domain`)
@@ -259,6 +283,7 @@ lazy val root = project
     `fh-automation`,
     `home-codegen`,
     `fh-datastar-view`,
+    benchmarks,
     home
   )
   .settings(
