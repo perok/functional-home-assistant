@@ -7,17 +7,18 @@ import io.circe.Decoder
   * decision, the three failures that motivated it, and what the mint does and
   * does not guarantee.
   *
-  * They were both `String` until the self/mount split
-  * (docs/adr/0012-each-session-renders-what-it-is-owed.md) made the distinction
-  * load-bearing: a container card's patch targets `<nodeId>-self`, a mount is
-  * `<nodeId>_panel`, and neither is the node id the
+  * They were both `String` until
+  * docs/adr/0012-each-session-renders-what-it-is-owed.md made the distinction
+  * load-bearing: a bake host is `<nodeId>_<bakeAs>` and the popup host is the
+  * page-level `popups`, and neither is the node id the
   * [[fh.view.runtime.FragmentLog]] is keyed by. The ledger renders content FROM
   * its keys, so a DOM id stored as a key is a fragment that can never be
   * rendered again — a silent, permanent hole. That is a type error now rather
   * than a test's obligation.
   *
   * [[NodeId]] -> [[DomId]] is one-way, through
-  * [[fh.view.runtime.Renderer.patchTargetId]]. Nothing travels back.
+  * [[fh.view.runtime.Renderer.elementId]] — a node's patch target is its own
+  * `.fh-cell`, since regions landed and `self` went away. Nothing travels back.
   *
   * [[SetId]] and [[MemberId]] refine it further: same string, but the type says
   * WHICH KIND of node it names, so "this container is a candidate set" is a

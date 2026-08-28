@@ -101,7 +101,7 @@ class Tabs extends nodes.Node {
   // stop agreeing by convention.
   cardDef = new nodes.CardDef {
     regions = new Mapping {
-      ["children"] = new nodes.Region {}
+      [nodes.defaultRegion] = new nodes.Region {}
       ["panel"] = new nodes.Region { fill = "baked" }
     }
     template = """

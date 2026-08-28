@@ -650,7 +650,7 @@ class Slider extends nodes.Node {
   cardDef = new nodes.CardDef {
     regions = new Mapping {
       ["head"] = new nodes.Region {}
-      ["children"] = new nodes.Region {}
+      [nodes.defaultRegion] = new nodes.Region {}
     }
     template = """
       <article class="card slider-card{{#group}} {{group}}{{/group}}">{{#head}}{{{html}}}{{/head}}<div class="slider-members">{{#children}}{{{html}}}{{/children}}</div></article>

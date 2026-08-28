@@ -133,20 +133,36 @@ abstract class Node extends LayoutNode {
   /// is globally unique, and is not inside a candidate set's clause (which is
   /// instantiated once per member, so every member would claim the name).
   id: String? = null
-  /// What fills this node's regions.
+  /// What fills this node's regions — what an AUTHOR writes.
   ///
-  /// A bare `Listing` is the DEFAULT region — the one hole most cards have, and
-  /// what an author writes: `Grid { children { … } }`. A `Mapping` names each
-  /// region, which is what a card with more than one hole needs
-  /// ([[Slider]] holds its head in one and its members in another).
+  /// A bare `Listing` is the DEFAULT region — the one hole most cards have:
+  /// `Grid { children { … } }`. A `Mapping` names each region, which is what a
+  /// card with more than one hole needs ([[Slider]] holds its head in one and
+  /// its members in another).
   ///
   /// Two forms rather than making everyone name the only hole they have — the
-  /// same trade [[slotMod.Slot]] makes between a bare String and an object, and
-  /// the backend decodes both the same way.
+  /// same trade [[slotMod.Slot]] makes between a bare String and an object.
+  /// `hidden`, because the two forms stop here: [[regions]] is what reaches the
+  /// wire, and it has one.
   ///
   /// Widened to LayoutNode so a container can nest either a component or a
   /// dynamic group.
-  children: Listing<LayoutNode>|Mapping<String, Listing<LayoutNode>> = new Listing {}
+  hidden children: Listing<LayoutNode>|Mapping<String, Listing<LayoutNode>> = new Listing {}
+  /// [[children]] with the default region NAMED — the one form on the wire, and
+  /// not something an author assigns.
+  ///
+  /// The sugar is worth having and two wire forms are not: every reader of the
+  /// JSON would have to know both, and the one that omits the region name is
+  /// the one that cannot say which hole it means. Normalising here keeps the
+  /// authoring convenience and leaves the record explicit — `Component.regions`
+  /// in the backend is a plain map, and the build's hoist walks one shape.
+  ///
+  /// Null (dropped by omitNullProperties) when there is nothing to fill, which
+  /// is every leaf.
+  regions: Mapping<String, Listing<LayoutNode>>? =
+    if (children is Mapping) children
+    else if (children.isEmpty) null
+    else new Mapping { [defaultRegion] = children }
   // A node-level map of inline surfaces the build-phase hoist lifts into the
   // top-level `surfaces` registry (keyed `<node-id>_<localKey>`), splicing the
   // node's real id into every [[NODE_ID]] token in the subtree. Null (dropped
@@ -167,6 +183,11 @@ abstract class Node extends LayoutNode {
 class Region {
   fill: "eager"|"baked" = "eager"
 }
+
+/// The region a bare `children` Listing fills, and the hole every one-region
+/// card spells `{{#children}}` in its template. `LayoutNode.DefaultRegion` in
+/// the backend.
+const defaultRegion: String = "children"
 
 /// A card's markup: one `template`, with a named [[Region]] for each hole in it
 /// that something else fills.

@@ -276,10 +276,14 @@ private[runtime] final class MemberGraph(
     * of the predicate engine, not of the id scheme — [[MemberKey]] is already a
     * sum, so a set whose unit of membership becomes something else needs no new
     * id story.
+    *
+    * The string itself is [[LayoutNode.memberSegment]]'s, shared with the
+    * build's hoist — this method's job is the typing (which [[MemberKey]] a
+    * member is keyed by), not the spelling.
     */
   private def memberId(setId: SetId, key: MemberKey): MemberId =
     MemberId.of(
-      NodeId.derived(s"${setId}_${LayoutNode.sanitize(sortKey(key))}")
+      NodeId.derived(LayoutNode.memberSegment(setId, sortKey(key)))
     )
 
   /** [[memberId]] for the entity case — the form the Server's per-entity patch
@@ -373,7 +377,7 @@ private[runtime] final class MemberGraph(
         path: List[LayoutNode.Step]
     ): List[(NodeId, MemberSource, Option[NodeId])] = node match {
       case c: LayoutNode.Component =>
-        LayoutNode.steps(c.children).flatMap { case (step, child) =>
+        LayoutNode.steps(c.regions).flatMap { case (step, child) =>
           setsIn(member, clauseIdx, child, path :+ step)
         }
       case inner: LayoutNode.SetNode =>

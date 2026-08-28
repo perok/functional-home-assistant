@@ -66,7 +66,7 @@ extended. Once the hand-port completes they are deleted.
    hand-curated per domain (HA's attribute shapes exist only in its developer
    docs, not machine-readably); it types only what the dump extracts.
 5. **The output contract is the existing one**: Pkl components emit
-   `{kind: "component", card, slots, children}` nodes and a
+   `{kind: "component", card, slots, regions}` nodes and a
    `{cards, theme, card, surfaces?}` top level. A slot is a bare string
    (literal) or the `SlotSource` object form. **Literal slots must be JSON
    strings, never numbers** (the slot decoder rejects numbers) — numeric config

@@ -27,7 +27,7 @@ class PklBuildSuite extends munit.FunSuite {
     */
   private def rowOf(node: LayoutNode.Component): LayoutNode.Component =
     node
-      .children("head")
+      .regions("head")
       .collectFirst { case c: LayoutNode.Component => c }
       .getOrElse(fail(s"card '${node.card}' has no head node"))
 
@@ -35,7 +35,7 @@ class PklBuildSuite extends munit.FunSuite {
   private def actionsOf(
       node: LayoutNode.Component
   ): List[LayoutNode.Component] =
-    rowOf(node).children.getOrElse("actions", Nil).collect {
+    rowOf(node).regions.getOrElse("actions", Nil).collect {
       case c: LayoutNode.Component => c
     }
 
@@ -1655,7 +1655,7 @@ class PklBuildSuite extends munit.FunSuite {
     // The MEMBERS region specifically: `allChildren` would also hand back the
     // head, which is the point of the two regions.
     val members =
-      group.children("children").collect { case c: LayoutNode.Component => c }
+      group.regions("children").collect { case c: LayoutNode.Component => c }
     assertEquals(members.map(_.card), List("slider", "slider"))
     assertEquals(
       members.map(rowOf(_).slots("entity_id").literal),

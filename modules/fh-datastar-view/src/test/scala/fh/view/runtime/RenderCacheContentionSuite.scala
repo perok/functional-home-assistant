@@ -68,10 +68,10 @@ class RenderCacheContentionSuite extends ServerHarness {
     ),
     card = LayoutNode.Component(
       "col",
-      children = LayoutNode.kids(
+      regions = LayoutNode.kids(
         LayoutNode.Component(
           "tabs",
-          children = Map(
+          regions = Map(
             "bar" -> List(
               LayoutNode.Component(
                 "card",
@@ -116,7 +116,7 @@ class RenderCacheContentionSuite extends ServerHarness {
     ),
     card = LayoutNode.Component(
       "col",
-      children = LayoutNode.kids(
+      regions = LayoutNode.kids(
         LayoutNode.Component(
           "card",
           slots = Map("state" -> SlotSource(Some("sensor.shared")))

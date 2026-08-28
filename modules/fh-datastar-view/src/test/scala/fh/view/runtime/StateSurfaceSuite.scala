@@ -246,14 +246,14 @@ class StateSurfaceSuite extends ServerHarness {
     val innerHost =
       LayoutNode.Component(
         "col",
-        children = LayoutNode.kids(LayoutNode.Component("ifhost"))
+        regions = LayoutNode.kids(LayoutNode.Component("ifhost"))
       )
     val d = Dashboard(
       cards = ifCards,
       card = LayoutNode
         .Component(
           "col",
-          children = LayoutNode.kids(LayoutNode.Component("ifhost"))
+          regions = LayoutNode.kids(LayoutNode.Component("ifhost"))
         ),
       surfaces = Map(
         "then" -> stateMember(innerHost, "c_0", 0, armedCond),
@@ -322,7 +322,7 @@ class StateSurfaceSuite extends ServerHarness {
           LayoutNode
             .Component(
               "col",
-              children = LayoutNode.kids(LayoutNode.Component("ifhost"))
+              regions = LayoutNode.kids(LayoutNode.Component("ifhost"))
             )
         ),
         "d_then" -> stateMember(

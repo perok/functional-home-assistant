@@ -93,7 +93,7 @@ class RenderInputsSuite extends munit.FunSuite {
       bound("sensor.other"),
       LayoutNode.Component(
         "banner",
-        children = Map(
+        regions = Map(
           "bar" -> List(
             LayoutNode.Component(
               "bannerBar",
@@ -299,7 +299,7 @@ class RenderInputsSuite extends munit.FunSuite {
         LayoutNode.Component(
           "banner",
           slots = Map("title" -> SlotSource(Some("sensor.t"))),
-          children = LayoutNode.kids(
+          regions = LayoutNode.kids(
             LayoutNode.Component("btn", Map("label" -> lit("A")))
           )
         ),

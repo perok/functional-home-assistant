@@ -93,7 +93,7 @@ class RendererSuite extends munit.FunSuite {
       // template at `{{id}}_panel`; the default tab is injected via `{{{panel}}}`.
       LayoutNode.Component(
         "tabs",
-        children = LayoutNode.kids(
+        regions = LayoutNode.kids(
           LayoutNode.Component("btn", Map("label" -> lit("A"))),
           LayoutNode.Component("btn", Map("label" -> lit("B")))
         )
@@ -1037,38 +1037,49 @@ class RendererSuite extends munit.FunSuite {
     )
   }
 
-  /** `children` decodes from either form, and the point of the array form is
-    * that the wire this project actually emits did not have to change: the
-    * authoring layer still writes a plain list for the one-hole case.
+  /** A node's children take ONE shape on the wire: an object keyed by region
+    * name. The bare `children { … }` an author writes is authoring sugar, and
+    * `core/node.pkl` names the default region before it emits — so nothing
+    * downstream ever has a nameless region to interpret.
     *
     * Asserted through `Dashboard`'s own decoder rather than the field's, so it
-    * is the path a real `dashboard.json` takes.
+    * is the path a real `dashboard.json` takes. The array case is asserted to
+    * FAIL, and that is the point of the test rather than pedantry: while both
+    * forms were legal here, the build's inline-surface hoist read only the
+    * array one, so it stopped dead at every region-keyed node and quietly
+    * hoisted nothing below one.
     */
-  test("children decodes from a bare array and from a region object alike") {
-    def decode(childrenJson: String) = io.circe.parser
+  test("regions decode from a region object, and from nothing else") {
+    def decode(regionsField: String) = io.circe.parser
       .decode[Dashboard](
         s"""{"cards":{"col":{"template":"<div>{{#children}}{{{html}}}{{/children}}</div>"},
            | "card":{"template":"<span>{{state}}</span>","slots":["state"]}},
-           | "card":{"kind":"component","card":"col","children":$childrenJson}}""".stripMargin
+           | "card":{"kind":"component","card":"col"$regionsField}}""".stripMargin
       )
-      .fold(e => fail(s"decode failed: $e"), identity)
 
     val leaf = """{"kind":"component","card":"card","slots":{"state":"x"}}"""
-    val fromArray = decode(s"[$leaf]")
-    val fromObject = decode(s"""{"children":[$leaf]}""")
 
-    // Same value, so everything downstream — ids, walkers, rendering — cannot
-    // tell which form was on the wire.
-    assertEquals(fromArray.card, fromObject.card)
+    val fromObject = decode(s""","regions":{"children":[$leaf]}""")
+      .fold(e => fail(s"decode failed: $e"), identity)
     assertEquals(
-      fromArray.card.asInstanceOf[LayoutNode.Component].children.keySet,
+      fromObject.card.asInstanceOf[LayoutNode.Component].regions.keySet,
       Set(LayoutNode.DefaultRegion)
     )
-    // Non-vacuous: an empty array is no region at all, not a region holding
-    // nothing — otherwise a leaf would read as structure.
+
+    // A leaf carries no field at all — Pkl drops an empty one — and reads as no
+    // regions rather than as a region holding nothing.
     assertEquals(
-      decode("[]").card.asInstanceOf[LayoutNode.Component].children,
+      decode("")
+        .fold(e => fail(s"decode failed: $e"), identity)
+        .card
+        .asInstanceOf[LayoutNode.Component]
+        .regions,
       Map.empty[String, List[LayoutNode]]
+    )
+
+    assert(
+      decode(s""","regions":[$leaf]""").isLeft,
+      "a bare array is no longer a wire form — it must not decode silently"
     )
   }
 
@@ -1093,7 +1104,7 @@ class RendererSuite extends munit.FunSuite {
       cards + ("two" -> two),
       LayoutNode.Component(
         "two",
-        children = Map(
+        regions = Map(
           "children" -> List(leaf("IN-B")),
           "extra" -> List(leaf("IN-I"))
         )
@@ -1128,7 +1139,7 @@ class RendererSuite extends munit.FunSuite {
         LayoutNode.Component("card", slots = Map("state" -> lit("first"))),
         LayoutNode.Component(
           "col",
-          children = LayoutNode
+          regions = LayoutNode
             .kids(LayoutNode.Component("card", Map("state" -> lit("inner")))),
           id = Some("panel")
         )
@@ -1181,7 +1192,7 @@ class RendererSuite extends munit.FunSuite {
       col(
         LayoutNode.Component(
           "col",
-          children = LayoutNode.kids(
+          regions = LayoutNode.kids(
             LayoutNode.Component("card", Map("state" -> lit("under")))
           ),
           id = Some("detail")
@@ -1233,7 +1244,7 @@ class RendererSuite extends munit.FunSuite {
             reads = mode
           )
         ),
-        children = LayoutNode.kids(
+        regions = LayoutNode.kids(
           LayoutNode.Component("card", Map("state" -> lit("x")))
         )
       )
@@ -1337,7 +1348,7 @@ class RendererSuite extends munit.FunSuite {
       cards,
       LayoutNode.Component(
         "tabsLive",
-        children = Map(
+        regions = Map(
           "bar" -> List(
             LayoutNode.Component(
               "tabsBar",
@@ -1629,7 +1640,7 @@ class RendererSuite extends munit.FunSuite {
       ),
       card = LayoutNode.Component(
         "box",
-        children = LayoutNode.kids(
+        regions = LayoutNode.kids(
           LayoutNode.Component(
             "card",
             slots = Map("state" -> SlotSource(Some("sensor.a")))
@@ -1702,7 +1713,7 @@ class RendererSuite extends munit.FunSuite {
         cards,
         LayoutNode.Component(
           "host",
-          children = Map(
+          regions = Map(
             "head" -> List(
               LayoutNode.Component(
                 "head",
@@ -1876,7 +1887,7 @@ class RendererSuite extends munit.FunSuite {
         splitCards,
         LayoutNode.Component(
           "split",
-          children = Map(
+          regions = Map(
             "bar" -> List(
               LayoutNode.Component(
                 "bar",

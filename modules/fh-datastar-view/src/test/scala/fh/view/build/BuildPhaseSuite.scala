@@ -113,13 +113,13 @@ class BuildPhaseSuite extends munit.FunSuite {
           .parse(s"""
             { "cards": {}, "card": {
                 "kind": "component", "card": "fhcol",
-                "children": [
+                "regions": { "children": [
                   { "kind": "component", "card": "card" },
                   { "kind": "component", "card": "button"$idField,
                     "slots": { "onclick": "open @@NODE_ID@@_self" },
                     "inlineSurfaces": { "self": {
                       "content": { "kind": "component", "card": "card" } } } }
-                ] } }
+                ] } } }
           """)
           .toOption
           .get
@@ -164,7 +164,7 @@ class BuildPhaseSuite extends munit.FunSuite {
       .parse("""
         { "cards": {}, "card": {
             "kind": "component", "card": "fhcol",
-            "children": [
+            "regions": { "children": [
               { "kind": "set",
                 "candidates": ["sensor.batt"],
                 "members": { "sensor.batt": { "clauses": [
@@ -173,7 +173,7 @@ class BuildPhaseSuite extends munit.FunSuite {
                       "inlineSurfaces": { "self": {
                         "content": { "kind": "component", "card": "card" } } } } }
                 ] } } }
-            ] } }
+            ] } } }
       """)
       .toOption
       .get
@@ -200,7 +200,7 @@ class BuildPhaseSuite extends munit.FunSuite {
       .parse("""
         { "cards": {}, "card": {
             "kind": "component", "card": "fhcol",
-            "children": [
+            "regions": { "children": [
               { "kind": "set",
                 "candidates": ["sensor.batt"],
                 "members": { "sensor.batt": { "clauses": [
@@ -211,7 +211,7 @@ class BuildPhaseSuite extends munit.FunSuite {
                       "inlineSurfaces": { "self": {
                         "content": { "kind": "component", "card": "card" } } } } }
                 ] } } }
-            ] } }
+            ] } } }
       """)
       .toOption
       .get
@@ -222,27 +222,27 @@ class BuildPhaseSuite extends munit.FunSuite {
     )
   }
 
-  /** `children` has TWO wire forms — a bare array for a card with one region,
-    * an object keyed by region for a card with several — and this pass read
-    * only the first. It did not merely skip the second: it STOPPED at such a
-    * node, so nothing below a grouped slider's head or members was hoisted and
-    * the `@@NODE_ID@@` down there reached the browser verbatim.
+  /** This pass once read only a BARE ARRAY of children, which the wire also
+    * allowed. It did not merely skip the region-keyed form: it STOPPED at such
+    * a node, so nothing below a grouped slider's head or members was hoisted
+    * and the `@@NODE_ID@@` down there reached the browser verbatim. One wire
+    * shape is what removed that class of bug; this holds the depth it costs.
     *
     * Asserted as the PROPERTY — no token survives, wherever the surface sits —
     * rather than on the one id that was wrong, because the same gap swallows
     * every region a card ever grows.
     */
-  test("hoistInlineSurfaces descends BOTH children forms") {
+  test("hoistInlineSurfaces descends every region, at every depth") {
     val json = parser
       .parse("""
         { "cards": {}, "card": {
             "kind": "component", "card": "fhcol",
-            "children": [
+            "regions": { "children": [
               { "kind": "component", "card": "slider",
-                "children": {
+                "regions": {
                   "head": [
                     { "kind": "component", "card": "sliderHead",
-                      "children": {
+                      "regions": {
                         "actions": [
                           { "kind": "component", "card": "sliderAction",
                             "slots": { "onclick": "open @@NODE_ID@@_self" },
@@ -256,7 +256,7 @@ class BuildPhaseSuite extends munit.FunSuite {
                       "inlineSurfaces": { "self": {
                         "content": { "kind": "component", "card": "card" } } } }
                   ] } }
-            ] } }
+            ] } } }
       """)
       .toOption
       .get
@@ -286,7 +286,7 @@ class BuildPhaseSuite extends munit.FunSuite {
           "cards": {},
           "card": {
             "kind": "component", "card": "fhcol",
-            "children": [
+            "regions": { "children": [
               { "kind": "component", "card": "button",
                 "params": { "label": "More" },
                 "entities": [],
@@ -294,7 +294,7 @@ class BuildPhaseSuite extends munit.FunSuite {
                   "transform": "\"@post('sse/surface/open/@@NODE_ID@@_self')\"" } },
                 "inlineSurfaces": { "self": {
                   "content": { "kind": "component", "card": "card" } } } }
-            ]
+            ] }
           }
         }
       """)
@@ -308,7 +308,11 @@ class BuildPhaseSuite extends munit.FunSuite {
     assertEquals(keys, List("c_0_self"), clue = keys)
 
     // the trigger lost its marker; the NODE token was spliced with the real id
-    val trigger = hoisted.downField("card").downField("children").downN(0)
+    val trigger = hoisted
+      .downField("card")
+      .downField("regions")
+      .downField("children")
+      .downN(0)
     assert(
       trigger.downField("inlineSurfaces").failed,
       clue = "marker not removed"
@@ -350,12 +354,12 @@ class BuildPhaseSuite extends munit.FunSuite {
           "card": {
             "kind": "component", "card": "tabs", "entities": [], "slots": {},
             "params": { "initial": "@@NODE_ID@@_0", "panelHost": "panel_@@NODE_ID@@", "sig": "tab_@@NODE_ID@@" },
-            "children": [
+            "regions": { "children": [
               { "kind": "component", "card": "button", "entities": [],
                 "params": { "active": "$tab_@@NODE_ID@@ == '@@NODE_ID@@_0'" },
                 "slots": { "onclick": { "entity": "",
                   "transform": "\"@post('sse/surface/open/@@NODE_ID@@_0')\"" } } }
-            ],
+            ] },
             "inlineSurfaces": {
               "0": { "content": { "kind":"component","card":"card" }, "bakeInto": "@@NODE_ID@@", "bakeAs": "panel" },
               "1": { "content": { "kind":"component","card":"card" }, "bakeInto": "@@NODE_ID@@", "bakeAs": "panel" }
@@ -397,7 +401,7 @@ class BuildPhaseSuite extends munit.FunSuite {
       Some("panel_c")
     )
 
-    val first = node.downField("children").downN(0)
+    val first = node.downField("regions").downField("children").downN(0)
     assertEquals(
       first.downField("params").get[String]("active").toOption,
       Some("$tab_c == 'c_0'")
