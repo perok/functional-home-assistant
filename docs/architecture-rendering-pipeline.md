@@ -51,7 +51,7 @@ flowchart TB
     BEAT["keepAlive · every 25s<br/>a comment, or the CURSOR when position moved<br/>since this stream last said so"]
     PULL["Server.pull<br/>Patches.resume from position + 1<br/>ALL RENDERING HAPPENS HERE, in the PATCH form:<br/>a signal slot's value is NOT in these bytes<br/>against THIS session's holds + open set"]
     SIGS["Patches.signalFrame<br/>ONE datastar-patch-signals for the batch<br/>the candidates' signal slots, diffed<br/>against this session's record<br/>— the CURSOR merges into it when no<br/>element patch separates them"]
-    APPL["Patches.applied<br/>forget the mounts it re-supplied,<br/>claim what its bytes placed<br/>AND what the frame set"]
+    APPL["Patches.applied<br/>forget the hosts it re-supplied,<br/>claim what its bytes placed<br/>AND what the frame set"]
     MERGE["merge: pulls ▸ control ▸ reloads<br/>▸ haDown ▸ keepAlive"]
     SSE["SSE bytes to the browser<br/>Datastar morphs the DOM<br/>…and re-evaluates the bound elements"]
   end
@@ -371,10 +371,10 @@ every slug's recorder wakes
                                            // the reverse index like any node
       sets           -> the members whose CLAUSE was replaced (no entity edge can
                         name a card binding nothing live), then Gone/Placed per
-                        membership move, or a filled mount
+                        membership move, or a filled host
                         (a fill is recorded as `filled`, which raises the
                          container's horizon — "any cursor below this gets
-                         this mount")
+                         this host")
   ring the doorbell with the version          // AFTER the log is written, or a
                                               // session could set its position
                                               // past changes it never saw
@@ -388,7 +388,7 @@ each connection wakes and PULLS
          a signal slot therefore emits no element patch at all — that silence is
          the feature (ADR 0017), which is why the frame is collected from the
          CANDIDATES rather than from the patches
-  applied  -> forget the mounts those patches re-supplied, claim what they placed
+  applied  -> forget the hosts those patches re-supplied, claim what they placed
               and what the frame set (merged per node, never replaced: a morph
               says nothing about the signals bound inside it, and a frame says
               nothing about the bytes)
@@ -433,7 +433,7 @@ client sends back its stored signals: logId, version, headHash, styleHash
               rendered it while nobody was viewing it, so the cursor cannot
               name it and only re-rendering can tell
       moved   Gone/Placed                      -> replayed as remove + insert
-      refill  containers whose history aged out -> whole mount
+      refill  containers whose history aged out -> whole host
 ```
 
 A client's cursor gets `>=` where a session's `position` gets `+ 1`, and the difference is who is
@@ -467,7 +467,7 @@ flowchart TB
   SAME -->|yes| SET{"who arrived, left,<br/>or changed PLACE?<br/>(a place can only move in a set<br/>ordered by a live value)"}
   SET -->|nobody| OUT
   SET -->|somebody| CHURN{"is the UNCHANGED set empty?<br/>(everything arrived, or everything left)"}
-  CHURN -->|yes, a fill re-sends nothing| FILL["filled: drop what is under the mount,<br/>raise its horizon past this version<br/>= any cursor below gets the whole mount"]
+  CHURN -->|yes, a fill re-sends nothing| FILL["filled: drop what is under the host,<br/>raise its horizon past this version<br/>= any cursor below gets the whole host"]
   CHURN -->|no| EST{"log.holdsAnyOf the members<br/>is there a base to patch against?"}
   EST -->|yes, established| DELTA["Gone per departure,<br/>Placed per arrival,<br/>and both for a member that MOVED<br/>— fewest moves, via Patches.reordered"]
   EST -->|no, fresh log after swap or fill| FILL
@@ -491,11 +491,11 @@ is. That is the whole of what `Varying`/`Pending`/`Memo` used to buy, for free, 
 
 **Filling had to survive the loss of the render**, or the wire would move. It is recorded as
 `FragmentLog.filled`, which raises the container's `horizon` — already the mechanism for "no delta
-describes this, send the mount" — so `resume` reaches the same patch from the other side. A fill
+describes this, send the host" — so `resume` reaches the same patch from the other side. A fill
 also `touched`es the members it leaves, because those entries are what keep the group *established*
 for the next membership change.
 
-*What* fills has narrowed since: a churn FRACTION used to send the whole mount past half the
+*What* fills has narrowed since: a churn FRACTION used to send the whole host past half the
 group, which re-sent the members that did not change. Now only the two cases where a fill re-sends
 nothing — everything arrived, or everything left — plus the no-baseline fallback.
 
@@ -504,19 +504,20 @@ nothing — everything arrived, or everything left — plus the no-baseline fall
 ## 4. Why the flip records nothing but structure
 
 A flip is server truth — the branch every viewer must move to — but *which* branch a given viewer
-has mounted, and what belongs inside it, depends on selections below it. So the recorder does the
+has baked, and what belongs inside it, depends on selections below it. So the recorder does the
 part that is identical for everyone (evict the departed branch, record where it went) and each
-session fills the mount for its own selection when it pulls. A branch no connected viewer reaches is
+session fills the host for its own selection when it pulls. A branch no connected viewer reaches is
 never rendered at all.
 
 That is the same mechanism as every other node, not a second path — which is the point: it used to
 need a deferred render (`Pending`) and a memo to share one verdict between viewers who agreed,
 because the *pass* was shared. Once the render moved to the viewer, both disappeared.
 
-**A branch fill forgets by MOUNT, not by prefix.** A branch's content ids are `s_<surface>__…`,
-which no prefix of the container's id reaches, so the patch names the surfaces at that mount
-(`Patches.hostEvicts`) as what it made unknown. A set mount's children *are* `gid_…`, so there
-the container's id is the right root.
+**A branch fill forgets by HOST, not by prefix.** A branch's content ids are `s_<surface>__…`,
+which no prefix of the container's id reaches, so the patch names the surfaces at that host
+(`Patches.hostEvicts`) as what it made unknown. A SET's members are `gid_…`, so there the set's
+own id is the right root — a set has no card and no declared region, so it is the one container
+that is neither.
 
 ---
 
@@ -800,7 +801,7 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 | the member graph | `runtime/MemberGraph.scala` · `Member`, `MemberIndex`, `syncMembers`, `membersOf`, `innerSetId` |
 | which branch is showing, and to whom | `runtime/SurfaceGraph.scala` · `bakeGroup`, `resolveActive` (per viewer) / `resolveActiveByState` (per slug), `selectedSurfaces`, `visibleNode`, `visibleSurface`, `userSurfaceOf`, `rootOf` |
 | evaluating a guard / activation condition | `runtime/Conditions.scala` · `matches`, `matchesIn`, `propertyOf`; ordering in `runtime/MemberGraph.scala` · `precedes`, `compareOn` |
-| the render cache | `runtime/RenderCache.scala`; entered from `Patches.bytes` (morphs, placements). A composed surface mount is NOT cached — its bytes carry its children, so it has no sound key |
+| the render cache | `runtime/RenderCache.scala`; entered from `Patches.bytes` (morphs, placements). STRUCTURE is never cached — a card holding regions has its children in its own bytes, so it has no sound key. Decidable from the CARD now (`CardDef.regions`), where it used to be a property of a particular composition |
 | what a cache entry is keyed by | node id -> renderer identity + one generation per SELECTION (`RenderInputs.vars`), each holding its entity versions. The renderer is in the key because a dashboard edit changes the MARKUP while the entity versions it reads stay put; a swap drops every selection at once |
 
 ## 8. Known open questions
@@ -832,11 +833,14 @@ Live list — delete an entry when it is answered, and say where the answer land
 - **The document walk and the repaint bypass the `RenderCache` entirely** —
   [issue #130](https://github.com/perok/functional-home-assistant/issues/130). Two simultaneous page
   loads each render the whole page, and the first live tick after a load or a repaint meets a cold
-  cache, even though the walk just rendered every node it is about to be asked for. Two obstacles,
-  and only the second is incidental: what a parent EMBEDS is not what a patch carries (for a `self`
-  card the cache holds the `self` element alone), and the walk is pure where the cache is `IO`.
-  Signal slots make it easier rather than harder — the walk now produces a patch-form rendering per
-  node, and the patch form is the only thing the cache ever holds.
+  cache, even though the walk just rendered every node it is about to be asked for. ONE obstacle
+  now, and it is incidental: the walk is pure where the cache is `IO`.
+
+  The other one is struck. It was "what a parent EMBEDS is not what a patch carries" — true when a
+  `self` card's cache entry held the `self` element alone. A leaf card's template IS its patch
+  fragment and structure is never cached, so there is no longer a composed form to disagree with;
+  signal slots close the rest, since the walk produces a patch-form rendering per node and the patch
+  form is the only thing the cache ever holds.
 
 - **A morph-only client profile** —
   [issue #133](https://github.com/perok/functional-home-assistant/issues/133). ADR 0017 keeps the

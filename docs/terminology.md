@@ -97,22 +97,37 @@ renderer cannot derive it from the parent link.
 
 ---
 
-## Card structure — how a card's markup is split
+## Card structure — what a card's markup holds
 
-**Template** — the whole card's markup.
+**Template** — the whole card's markup, holes included. There is one per card.
 
-**Self** — the part of a card that a live update replaces. It answers exactly one question: *when
-this node's entity changes, which bytes get rewritten?* It carries the element id a patch targets.
+**Region** — a named hole in a template that something else fills. A card declares them
+(`CardDef.regions`), a node fills them (`children`, keyed by region name). `fill = "eager"` splices
+the children it was given; `fill = "baked"` is filled by a surface instead (see **bake**).
 
-**Mount** — the part of a card that holds content the card does not own: children nested by an
-author, or a hole something else fills. A node's own update never rewrites its mount, which is what
-stops a group's header from repainting its rows. ADR 0012.
+**Leaf card** — a card with no regions. Its template *is* what a live patch renders, so a leaf is
+the only kind of node a patch ever targets.
 
-**Bake** — to render chosen content into a mount. A surface declares which node it bakes **into**;
+**Structural card** — a card with regions. Its element contains what it holds, so a patch aimed at
+it would carry that content back with it — which is why **structure is never a patch target**. A
+structural card therefore has only what it holds to show: a live slot on one is a build error
+*unless the value travels as a signal*, which never becomes bytes in the element. ADR 0012, ADR
+0017.
+
+The pair replaces **self** and **mount**, which were two named PARTS of one template. Regions are
+ordinary node structure instead: what was a `self` is a leaf card beside its siblings, and what was
+a `mount` is a region. The old split needed a rule — *a `self` must not contain the mount hole* —
+where the invariant now falls out of the shape: every hole in a template is disjoint from every
+other, so a patch at one node can never reach another's content.
+
+**Host** — the node a baked region belongs to, addressed as `hostId` (`c_2_panel`). The one sense
+of "mount" that survived the rename, and the word the runtime uses.
+
+**Bake** — to render chosen content into a host. A surface declares which node it bakes **into**;
 the host renders it as **bakeAs**; **bakeIndex** is which member of the group is currently chosen,
 exposed so a tab bar can show the selection without JavaScript.
 
-**Bake group** — the set of surfaces competing for one mount. Exactly one is baked at a time.
+**Bake group** — the set of surfaces competing for one host. Exactly one is baked at a time.
 
 **Flip** — a state-activated bake group changing which branch is selected because *entity state*
 moved, not because a user clicked. Server truth, so every viewer gets it. ADR 0007.

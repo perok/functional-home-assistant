@@ -50,7 +50,13 @@ class Button extends nodes.Node {
     // string an icon-only button carries. `glyph`/`round`/`lit` do not: they are
     // optional pieces, absent on the ordinary labelled button.
     slots { "label" }
-    // A button FILLS its layout cell. A framework that sizes buttons to their
+    // A LABELLED button fills its layout cell — `:not(.circle)`, because a round
+    // one is sized by its SHAPE and stretching it to the cell's width made an
+    // oval. This rule's specificity (0,2,0) beats BeerCSS's own `.circle`
+    // (0,1,0), so it wins silently rather than being overridden by the
+    // framework; the exception has to be written here or not at all.
+    //
+    // A framework that sizes buttons to their
     // label (BeerCSS does) left-aligns a short pill in a wide box: three nav
     // buttons on one row came out ragged, spaced by leftover cell rather than by
     // the gap. Every other card already fills its cell, so this is the cell
@@ -66,7 +72,7 @@ class Button extends nodes.Node {
     // grow down, and `min-block-size` keeps the resting height it had, so a
     // one-line button is pixel-identical either way.
     css = """
-      .fh-cell>:is(.button,button){inline-size:100%;box-sizing:border-box;
+      .fh-cell>:is(.button,button):not(.circle){inline-size:100%;box-sizing:border-box;
       block-size:auto;min-block-size:2.5rem;padding-block:.5rem}
       """
   }

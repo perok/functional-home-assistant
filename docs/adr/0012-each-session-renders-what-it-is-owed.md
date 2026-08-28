@@ -14,7 +14,7 @@ one and not the other.
 
 The first attempt to close it kept the shared pass and made a *tag* decide who saw each
 patch: one render per slug, addressed per client, with a "variant" dimension for the one
-thing that genuinely could not be rendered once (a `self` reading its own selection).
+thing that genuinely could not be rendered once (a card reading its own selection).
 That worked, and it cost a second vocabulary — deferred renders, memoised verdicts,
 per-variant log entries — to describe what one sentence describes instead.
 
@@ -44,15 +44,20 @@ woken by one ring of the doorbell render each node once between them. The render
 the key because a dashboard edit changes the markup while the entity versions it reads
 stay exactly where they were.
 
-**One generation per SELECTION, not per node** — the two halves of `RenderInputs` do not
-behave alike. Entity versions churn (every frame moves one, so the previous generation is
-dead on arrival) and are replaced in place. The resolved selection does not: it ranges
-over a bake group's members, a finite set the dashboard fixes. Bucketing on it is what
-lets viewers on different tabs stop evicting each other while viewers behind each tab
-still share, so the cost of a node is the number of distinct selections in flight — the
-floor, since those viewers are owed different bytes. Measured before it: 3+3 viewers
-across two tabs cost ~3.5 renders a frame against that floor of 2, trending toward one
-render per viewer. `RenderCacheContentionSuite` holds the floor and the bound both.
+**One generation per node.** `RenderInputs` is entity versions and nothing else, and those
+CHURN — every frame moves one, so the generation for the previous version is dead the
+moment it is replaced.
+
+It used to hold one per SELECTION as well, because a node could be both cached and the
+owner of a bake group: its own bytes then carried the viewer's chosen tab, so two viewers
+on two tabs were owed different bytes for one node and evicted each other every frame.
+That shape no longer exists. A bake owner holds its content in REGIONS, which makes it
+structure, and structure is never a patch target and so never cached — the live part is an
+ordinary leaf beside it, whose bytes mention no selection at all.
+
+So the contention did not move, it went: `RenderCacheContentionSuite` measures the same two
+viewers on two tabs at ONE render a frame where the old shape needed two, and the
+structural owner at none.
 
 **A straggler never displaces the current generation.** Sessions pull in parallel and read
 the store when they get there, so they do not all render from one snapshot — and an
@@ -64,18 +69,23 @@ CLUSTER of stragglers at one older version stops sharing with itself. The newest
 is what more arrivals are coming for, so it is what the single slot should hold.
 
 **Variance stopped being a concept.** A node whose own markup reads its own selection —
-`{{bakeIndex}}` in a `self`, the no-JS tab bar — is now just a node: the session renders
+`{{bakeIndex}}` in a tab bar, the no-JS selection display — is now just a node: the session renders
 it with its own `uiState`, and the cache key already carries the selection that render
 reads. No deferral, no memo, no per-variant log entry, no classification. This is the
 part the shared pass had to invent machinery for, and the part that costs nothing once
 the renderer runs where the viewer is.
 
 **A fragment is a node's OWN html, never the composed html.** The composed form welds a
-host to its children, which is what the self/mount split exists to prevent (ADR 0008).
-Nodes with no markup of their own — a bare container, a dynamic group root, anything
-whose children carry a mount — are neither log keys nor patch targets; their children are
-addressable in their own right. It is also why a composed surface mount is the one thing
-NOT cached: its bytes carry its children, so it has no sound key.
+host to its children, which is what the leaf/structure split exists to prevent (ADR 0008).
+STRUCTURAL nodes — a bare container, a set root, anything holding regions — are neither
+log keys nor patch targets; their children are addressable in their own right. It is also
+why a composed host is the one thing NOT cached: its bytes carry its children, so it has
+no sound key.
+
+A structural node may still carry SIGNAL slots, and that is not an exception to the
+above: a signal is seeded on the node's `.fh-cell` wrapper and updated by a frame
+addressed by name, so it never becomes bytes in the element and never needs the node
+patched (ADR 0017).
 
 **Visibility is a chain, not a membership test.** A client can see a node when every user
 surface above it is selected AND every state surface above it is active. `open` alone is
@@ -86,8 +96,8 @@ patch an id its DOM lacks.
 
 **A fill is one operation, whoever chose the member.** A tab switch, a popup open and an
 `If` flip all evict a host's occupants, render the arriving surface, and overwrite the
-mount. The model already said so: both kinds of member are surfaces with
-`bakeInto`/`bakeAs`/`bakeIndex`, and `Renderer.mountId` derives a group's mount from its
+host. The model already said so: both kinds of member are surfaces with
+`bakeInto`/`bakeAs`/`bakeIndex`, and `Renderer.hostId` derives a group's host from its
 members' `Surface.hostId`. What differs is the SELECTOR (a client's `ui_<gid>` signal vs
 a condition over entity state) and where the claim lands: a flip records a `Mutation`,
 because it is server truth every client must be replayed; a tab switch claims into the
@@ -113,11 +123,11 @@ anyone else's DOM.
 
 ## Why the no-JS path is worth its cost
 
-`{{bakeIndex}}` in a `self` is the only way a selection is visible without scripts — a
+`{{bakeIndex}}` is the only way a selection is visible without scripts — a
 tab click is then an `<a href="?ui.<host>=N">` and the answer is a fresh document.
 Supporting it used to cost four concepts and a branch in the diff path. It now costs
 nothing: the renderer already takes a `uiState`, and the cache key already includes what
-the render read. **The `validate` rule that would reject `{{bakeIndex}}` in a `self` is
+the render read. **The `validate` rule that would reject `{{bakeIndex}}` on a structural card is
 still the thing to restore if the no-JS goal is ever dropped** — but there is no longer a
 pipeline to simplify by dropping it.
 
@@ -194,12 +204,12 @@ other.
 
 ## Rejected along the way (still guarding the design)
 
-- **A hollow mount plus a per-connection fill.** The first attempt at serving viewers on
-  different tabs from one render: insert the branch with its mount EMPTY, then let each
-  connection fill it. Two DOM updates for one change, and a rendering "for nobody" that
-  leaked a blank tab index into live markup — a mount carries client-dependent
+- **A hollow host plus a per-connection fill.** The first attempt at serving viewers on
+  different tabs from one render: insert the branch with its baked region EMPTY, then let
+  each connection fill it. Two DOM updates for one change, and a rendering "for nobody"
+  that leaked a blank tab index into live markup — a host carries client-dependent
   ATTRIBUTES, not merely children.
-- **Baking whatever the connected clients agree on.** Would have removed the hollow mount
+- **Baking whatever the connected clients agree on.** Would have removed the hollow host
   for the common case by reading the union of open sets. It makes rendered bytes depend
   on the audience — one dashboard, one state, different HTML depending on who is
   watching.
@@ -216,19 +226,32 @@ other.
   of that key — see below.
 - **Keeping N generations per node** to stop two viewers evicting each other. It fixes the
   right problem with the wrong bound: N-1 of those generations are stale entity versions
-  nobody will ask for. Bucketing on the SELECTION (`RenderInputs.vars`) fixes the same
-  problem exactly, because that is the only half of the key that differs between two
-  viewers looking at one snapshot — and it does not churn, so a node holds one live
-  generation per member of its bake group and no dead ones.
+  nobody will ask for. This was answered by bucketing on the SELECTION
+  (`RenderInputs.vars`) — and that half is now gone too: a bake owner holds its content in
+  REGIONS, which makes it structure, which is never cached, so no node's bytes mention a
+  selection any more. `RenderInputs` is entity versions and nothing else, and the cache
+  holds ONE generation per node. `RenderCacheContentionSuite` measures two viewers on two
+  tabs at one render a frame where the old shape needed two.
 - **Rotating the cache on a renderer swap** instead of naming the renderer in each entry.
   Leaves a window where a pull that read the previous renderer writes its bytes into the
   fresh map — the same bug with a smaller target.
 
-## Open
+## Answered: a `self` cannot splice children, because there is no `self`
 
-**Should a `self` splice children at all?** Today it may: a tab bar's buttons are the
-card's own chrome, generated by the card rather than nested by an author, so no mount can
-appear among them. The alternative is that everything a card holds goes through a mount,
-which would make the rule unnecessary rather than merely satisfied. What would decide it:
-whether any card ever wants AUTHOR-supplied children inside a `self`. Until then the rule
-is checked, not trusted.
+The question here used to be *"should a `self` splice children at all?"* — a tab bar's
+buttons are the card's own chrome, so no mount could appear among them, and the rule was
+satisfied rather than unnecessary. The alternative recorded was that everything a card
+holds goes through a mount.
+
+Neither won. The `self`/`mount` split is gone, and with it the question: a card is now a
+LEAF (no regions — its whole template is what a patch renders) or STRUCTURE (regions — it
+holds content it does not own). The rule that had to be checked is now the shape itself —
+every hole in a template is disjoint from every other, so a patch at one node cannot reach
+another's content. `Tabs` was the card the question was really about, and it answered it by
+migrating: its buttons became ordinary children of its template rather than chrome inside
+a `self`.
+
+What survives is the constraint the question was protecting, in a sharper form:
+**structure is never a patch target**, so a live slot on a structural card is a build
+error — unless the value travels as a SIGNAL, which never becomes bytes in the element and
+so needs no patch (ADR 0017).

@@ -755,11 +755,9 @@ const local sliderCss: String = """
   z-index:1;margin:0;padding:0;border:0;
   background:none;box-shadow:none;color:inherit;font:inherit;border-radius:inherit;
   appearance:none;-webkit-appearance:none;cursor:pointer}
-  /* The card's two structural wrappers. `display:contents` on the self wrapper is
-     deliberate: it is the patch target (`{{selfId}}`), and a boxless one leaves
-     the head and the track laid out by the CARD exactly as they were before the
-     card split into self + mount. The mount is an empty div on every childless
-     slider, which is the whole reason `:empty` is here. */
+  /* The card's two structural wrappers, both boxless. `.slider-body` is one so
+     the head and the track are laid out by the CARD, exactly as they were when
+     this was a single element rather than a node holding regions. */
   .slider-body{display:contents}
   /* The head is a NODE, so the backend wraps it in an id'd `.fh-cell`. That
      wrapper must not become a box between the card and the row — and it must
