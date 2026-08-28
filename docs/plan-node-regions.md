@@ -699,16 +699,17 @@ Each is recorded so it is not rediscovered as a surprise mid-implementation. Non
 - **Node variables** (see the section above). What turns the owner-reference mechanism from one that
   works into one that is declared. Touches `RenderInputs`, the recorder, the tap layer and ADR 0017
   together; wants its own plan.
-- ~~**Compositional caching / [#130](https://github.com/perok/functional-home-assistant/issues/130).**~~
-  **Answered: not worth building, and the numbers are on the issue.** The invariant did make the
-  two-pass shell split sound — and then made it pointless, because regions ARE the split: a node's
-  regions are other nodes, each keyed and cached on its own, so `renderInputs` no longer excludes
-  any composing node and there is nothing left for a second pass to admit.
+- **Compositional caching / [#130](https://github.com/perok/functional-home-assistant/issues/130).**
+  **Measured; deferred, and the numbers are on the issue.** The invariant did make the two-pass
+  shell split sound — and then made it unnecessary, because regions ARE the split: a node's regions
+  are other nodes, each keyed and cached on its own, so `renderInputs` no longer excludes any
+  composing node and there is nothing left for a second pass to admit.
 
-  The measurement killed the rest. A live tick cannot hit bytes the document walk installed — the
-  tick asks for that node because an entity it reads moved, which is what the key is made of — so
-  the "cold cache after a load" half of the issue was false. What remains is sharing between
-  document renders that coincide, at 17 µs a node: 5.7 ms for a 200-card page shipping 257 kB.
+  What the measurement changed is the SCOPE. A live tick cannot hit bytes the document walk
+  installed — the tick asks for that node because an entity it reads moved, which is what the key
+  is made of — so the cheap half is not a smaller version of the fix, it is no fix at all. The
+  whole of it is the effectful walk. The win is sharing between document renders that coincide, at
+  17 µs a node: 5.7 ms for a 200-card page shipping 257 kB.
 - **The `NODE_ID` splice decoupling.** Deliberately NOT done — the coupling is structural (a card
   handing children its id is naming a selection it owns, hence has a bake group, hence carries
   surfaces). Revisit only if a card wants to share a non-selection value, and prefer node variables
