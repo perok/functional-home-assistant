@@ -380,7 +380,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
       assert(html.contains("Lights"), clue = html)
       assert(html.contains("Sensors"), clue = html)
       // ...and — the actual claim — the SELECTED panel is not empty. This is
-      // what a user sees before any script runs, so an empty mount here is a
+      // what a user sees before any script runs, so an empty host here is a
       // blank dashboard, not a flicker.
       assert(html.contains("Living Room"), clue = html)
       // The unselected panel is not rendered at all (hidden-branch silence).
@@ -406,15 +406,15 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
     withBranchServer { ts =>
       ts.observeLive(
         // Only the fill can produce this: the branch is re-rendered for the
-        // slug with no client, so its tab mount arrives EMPTY.
+        // slug with no client, so its tab host arrives EMPTY.
         marker = "Outside Temperature",
         query = s"?ui.$tabsHost=1",
         // Off, then on: the branch leaves and comes back, which is what
-        // re-creates the tabs mount this client has to have refilled.
+        // re-creates the tabs host this client has to have refilled.
         trigger = ts.fake.emit(light.entityId, "off") *>
           ts.fake.emit(light.entityId, "on", light.attributes)
       ).map { live =>
-        // ONE patch, not a hollow mount followed by a fill: the branch and the
+        // ONE patch, not a hollow host followed by a fill: the branch and the
         // panel this viewer chose arrive TOGETHER, so there is no frame in which
         // the tabs card exists with nothing in it.
         //
@@ -457,8 +457,8 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
     }
   }
 
-  /** A mount carries client-dependent ATTRIBUTES, not only children. The tabs
-    * mount seeds its selection signal from the baked index, so a re-revealed
+  /** A host carries client-dependent ATTRIBUTES, not only children. The tabs
+    * host seeds its selection signal from the baked index, so a re-revealed
     * panel that arrives with the wrong index — or with none, which is not even
     * valid — leaves the bar highlighting a different tab than the one on
     * screen. Asserted on the wire because it is invisible to a content check.
@@ -478,7 +478,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
         // is no longer last in the seed object (the pending one follows it), so
         // the delimiter that pins "a value is present" is the comma.
         assert(!live.contains(s"ui_$tabsHost: ,"), clue = live)
-        // The fill replaces the mount ELEMENT, so the index that lands is this
+        // The fill replaces the host ELEMENT, so the index that lands is this
         // client's tab, not the group's default.
         assert(live.contains(s"ui_$tabsHost: 1,"), clue = live)
       }

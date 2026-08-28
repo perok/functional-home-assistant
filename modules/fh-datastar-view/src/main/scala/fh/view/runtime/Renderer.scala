@@ -41,8 +41,8 @@ private[runtime] case class Painted(
   *
   *   - [[Document]] — the value inline (which is what a JS-less browser gets,
   *     and all it ever gets) plus the `data-signals` seed, so the element
-  *     carries its own signal and a first paint, a mount fill or a member
-  *     insert needs no frame to be correct.
+  *     carries its own signal and a first paint, a host fill or a member insert
+  *     needs no frame to be correct.
   *   - [[Patch]] — neither. The value is not in these bytes, so the node's
   *     digest does not move when only a signal slot does, `Patches.morph`
   *     suppresses the element patch, and one frame carries the values instead.
@@ -523,9 +523,9 @@ class Renderer(
         render(node, id, prefix, states, uiState, form)
       }
 
-  /** `s_<sid>__c` — what a state group's mount holds, and so what a flip
-    * removes or places. The same scheme the build-phase hoist uses, so a
-    * branch's build-time id and the id a flip records are one story.
+  /** `s_<sid>__c` — what a state group's host holds, and so what a flip removes
+    * or places. The same scheme the build-phase hoist uses, so a branch's
+    * build-time id and the id a flip records are one story.
     */
   def surfaceContentId(surfaceId: String): NodeId =
     LayoutNode.nodeId(Renderer.surfacePrefix(surfaceId), Nil)
@@ -540,8 +540,8 @@ class Renderer(
     surfaceIndexes.get(surfaceId).fold(Set.empty)(_.indexed.keySet)
 
   /** In DOM order. Paired rather than concatenated because a fill owes the log
-    * a digest per member: the mount's contents are re-supplied wholesale, so
-    * the next live diff must compare against what this fill actually put there.
+    * a digest per member: the host's contents are re-supplied wholesale, so the
+    * next live diff must compare against what this fill actually put there.
     */
   def renderMembers(
       groupId: SetId,
@@ -554,9 +554,9 @@ class Renderer(
 
   /** What a wholesale FILL carries, for EITHER kind of container: a candidate
     * set's members, or a state group's one active branch. Both are "what is in
-    * this mount", so they answer here rather than at each fill site.
+    * this host", so they answer here rather than at each fill site.
     */
-  def renderMount(
+  def renderHost(
       container: NodeId,
       states: Map[String, EntityState],
       uiState: Map[String, String] = Map.empty
@@ -639,10 +639,10 @@ class Renderer(
     *
     * This used to be three questions asked of a TEMPLATE's spelling — whether a
     * card declared a `self`, whether that `self` spliced `{{#children}}`, and
-    * whether any child carried a mount — because a card's own bytes could
-    * contain another node's. Regions removed the shape rather than the check:
-    * every hole in a template is filled by a node, so "my bytes carry someone
-    * else's" is unrepresentable and the card alone decides.
+    * whether anything below it declared a hole of its own — because a card's
+    * own bytes could contain another node's. Regions removed the shape, not
+    * just the check: every hole in a template is filled by a node, so "my bytes
+    * carry someone else's" is unrepresentable and the card alone decides.
     *
     * The same rule `Dashboard.validate` enforces when it rejects a live BYTES
     * slot on structure: no patch target.
@@ -673,8 +673,8 @@ class Renderer(
     */
   def elementId(id: NodeId): DomId = DomId.derived(id)
 
-  /** The element a node's children live IN — an `Inner`/`append` target, and
-    * the `{{hostId}}` a container's `mount` part writes.
+  /** The element a node's BAKED region lives in — an `Inner`/`append` target,
+    * and the `{{hostId}}` a structural card writes on it.
     *
     * '''This is not a new id — for a bake owner it IS
     * [[fh.view.model.Surface.hostId]]''', so `Tabs` resolves to `c_2_panel`,
@@ -683,10 +683,11 @@ class Renderer(
     * alternative has Pkl and Scala deriving the same string independently, with
     * nothing checking they agree.
     *
-    * A mount needs an id only where something FILLS it, which is exactly where
-    * `bakeAs` already names it (a tab panel, an `If` branch). `Grid`/`Row`/
-    * `Column` mounts are never fill targets — their children arrive nested — so
-    * they fall back to the node's own id and simply never use it.
+    * A region needs an id only where something FILLS it, which is exactly where
+    * `bakeAs` already names it (a tab panel, an `If` branch). An EAGER region —
+    * `Grid`/`Row`/`Column`, and every card's default one — is never a fill
+    * target, because its children arrive nested in the same bytes, so those
+    * nodes fall back to their own id and simply never use it.
     */
   def hostId(id: NodeId): DomId =
     surfaces
@@ -852,10 +853,10 @@ class Renderer(
 
   /** The composed rendering, and every node's OWN html inside it.
     *
-    * The walk already computes both — a card's `self` is built and then spliced
-    * into `template` — so the trace is a matter of not discarding it. Anything
+    * The walk already computes both — a child is rendered before the parent it
+    * is spliced into — so the trace is a matter of not discarding it. Anything
     * needing per-node bytes after a wholesale render (a fill recording what it
-    * put in a mount, the page seeding the log for its open surfaces) would
+    * put in a host, the page seeding the log for its open surfaces) would
     * otherwise walk the whole subtree a SECOND time, node by node.
     *
     * `own` carries an entry only for nodes that have a rendering of their own
@@ -937,10 +938,10 @@ class Renderer(
         // direct children of BeerCSS's `.tabs`). It does NOT imply "never a
         // morph target" — that is decided by card shape.
         //
-        // A bake owner gets a wrapper like anything else, because the
-        // self/mount split separates the two roles: the cell is the layout
-        // item, the `self` element is the patch target. Conflating them denies
-        // `Tabs`/`If` a cell and silently drops `.columns(n)` on them.
+        // A bake owner gets a wrapper like anything else: the cell is the
+        // LAYOUT item, which is a different job from being a patch target (it is
+        // not one — it holds regions). Denying it a cell would silently drop
+        // `.columns(n)` on every `Tabs`/`If`.
         //
         // The wrapper is also where a signal slot's `data-signals` SEED rides,
         // in the document form only — see [[seedAttr]]. One attribute for the
@@ -1222,10 +1223,10 @@ class Renderer(
     * ([[Datastar.signalsAttr]]).
     *
     * It rides on the `.fh-cell` wrapper, which is renderer-owned and appears in
-    * precisely the renders that should carry it: a `self` card's patch renders
-    * `<id>-self` alone and is correctly seedless, while its document render
-    * includes the wrapper. `""` — no attribute — for the patch form and for
-    * every node that opted into nothing.
+    * precisely the renders that should carry it: the DOCUMENT render includes
+    * the wrapper, the PATCH render is the card's own markup and is correctly
+    * seedless. `""` — no attribute — for the patch form and for every node that
+    * opted into nothing.
     */
   private def seedAttr(
       id: NodeId,

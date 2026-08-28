@@ -141,7 +141,7 @@ class ResumePatchesSuite extends munit.FunSuite {
   test("a log key the renderer cannot resolve emits nothing") {
     // The ledger renders content FROM its keys, so a key naming no node is a
     // fragment that can never be sent. It must be dropped, not crash the resume
-    // — and `NodeId`/`DomId` are what keep a `-self` or mount id from getting in
+    // — and `NodeId`/`DomId` are what keep a host id from getting in
     // here in the first place.
     val out = resume(empty.touched("no_such_node", 5L), 1L)
     assertEquals(out, Nil)
@@ -176,11 +176,11 @@ class ResumePatchesSuite extends munit.FunSuite {
 
   /** What a patch does to the SESSION's record of this client's DOM. The
     * dangerous direction is claiming a digest the client does not have, and a
-    * fill is where that happens without help: it overwrites a mount's whole
+    * fill is where that happens without help: it overwrites a host's whole
     * subtree with no per-node trace, so a member's old claim would outlive the
     * bytes it described and suppress that value coming round again.
     */
-  test("a fill forgets its mount, then claims what it placed") {
+  test("a fill forgets its host, then claims what it placed") {
     val holds: Map[NodeId, Held] = List(
       "c" -> "<c/>",
       "c_1" -> "<one/>",

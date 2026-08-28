@@ -15,22 +15,23 @@ import org.http4s.implicits.*
 import scala.concurrent.duration.*
 import scala.jdk.CollectionConverters.*
 
-/** The TWO Datastar behaviours the self/mount split rests on
+/** The TWO Datastar behaviours the leaf/structure split rests on
   * (docs/adr/0012-each-session-renders-what-it-is-owed.md). Not a general morph
   * exploration — only the contracts, so a failure here names exactly what
   * broke.
   *
-  *   1. '''Sibling isolation.''' A container card patches its OWN element
-  *      (`<nodeId>-self`), which is a SIBLING of the mount holding its
-  *      children. The whole design — "a host's change must not re-render its
-  *      children" — is that a top-level patch touches only the element matching
-  *      its own id. The control in the same test patches the PARENT instead and
-  *      must wipe the mount, so the test cannot pass vacuously.
-  *   2. '''`data-ignore-morph` is total.''' A client-owned mount (a React root,
-  *      a chart) survives an ancestor morph, AND patches aimed inside it are
-  *      dropped. The second half is a FEATURE here (the JS owns that DOM) where
-  *      it was fatal for a server-filled panel — and the vendored docs get it
-  *      wrong (`attributes.md:218` claims attribute updates still apply).
+  *   1. '''Sibling isolation.''' A leaf's patch names its OWN element, which is
+  *      a SIBLING of everything else its parent holds. The whole design — "a
+  *      node's change must not re-render what sits beside it" — is that a
+  *      top-level patch touches only the element matching its own id. The
+  *      control in the same test patches the PARENT instead and must wipe the
+  *      sibling, so the test cannot pass vacuously.
+  *   2. '''`data-ignore-morph` is total.''' A client-owned element (a React
+  *      root, a chart) survives an ancestor morph, AND patches aimed inside it
+  *      are dropped. The second half is a FEATURE here (the JS owns that DOM)
+  *      where it was fatal for a server-filled panel — and the vendored docs
+  *      get it wrong (`attributes.md:218` claims attribute updates still
+  *      apply).
   *
   * Pinned bundle: whatever `Server.DatastarCdn` names, fetched into a cache. On
   * upgrade, a failure here means the split is unsafe — NOT that the test needs
@@ -41,23 +42,24 @@ import scala.jdk.CollectionConverters.*
   */
 class DatastarMorphContractSuite extends BrowserSuite {
 
-  test("a patch at the self element leaves its sibling mount untouched") {
+  test("a patch at one child leaves its sibling untouched") {
     val page =
       """<div id="h">
-        |  <div id="h-self">OLD</div>
-        |  <div id="h_mount"><p id="h_keep">KEEP</p></div>
+        |  <div id="h_head">OLD</div>
+        |  <div id="h_panel"><p id="h_keep">KEEP</p></div>
         |</div>
         |<div id="c">
-        |  <div id="c-self">OLD</div>
-        |  <div id="c_mount"><p id="c_keep">KEEP</p></div>
+        |  <div id="c_head">OLD</div>
+        |  <div id="c_panel"><p id="c_keep">KEEP</p></div>
         |</div>""".stripMargin
 
     val patches = List(
-      // The split's patch: aimed at the card's OWN element.
-      Datastar.patch("""<div id="h-self">NEW</div>"""),
-      // Control: the pre-split patch — the whole card, mount rendered empty.
+      // What a leaf's patch looks like: aimed at that node's OWN element.
+      Datastar.patch("""<div id="h_head">NEW</div>"""),
+      // Control: what patching STRUCTURE would look like — the whole container,
+      // with the sibling region rendered empty.
       Datastar.patch(
-        """<div id="c"><div id="c-self">NEW</div><div id="c_mount"></div></div>"""
+        """<div id="c"><div id="c_head">NEW</div><div id="c_panel"></div></div>"""
       )
     )
 
@@ -67,29 +69,29 @@ class DatastarMorphContractSuite extends BrowserSuite {
         _ <- eventually(text(p, "#done"))(_ == "yes")
 
         // (1) The patch applied.
-        self <- text(p, "#h-self")
-        _ <- IO(assertEquals(self, "NEW", "the self patch must apply"))
+        head <- text(p, "#h_head")
+        _ <- IO(assertEquals(head, "NEW", "the leaf's patch must apply"))
 
-        // (2) THE contract: the sibling mount and its contents are untouched,
-        // because the fragment does not mention them.
+        // (2) THE contract: the sibling and its contents are untouched, because
+        // the fragment does not mention them.
         kept <- text(p, "#h_keep")
         _ <- IO(
           assertEquals(
             kept,
             "KEEP",
-            "a patch at the self element must not touch the sibling mount"
+            "a patch at one child must not touch its sibling"
           )
         )
 
-        // (3) Control — patching the PARENT with an empty mount wipes it. This
-        // is what the split exists to avoid, and without it (2) could pass
+        // (3) Control — patching the PARENT with an empty sibling wipes it.
+        // This is what the split exists to avoid, and without it (2) could pass
         // vacuously if morphs stopped wiping.
         control <- text(p, "#c_keep")
         _ <- IO(
           assertEquals(
             control,
             "<gone>",
-            "control: patching the parent wipes the mount, so targeting matters"
+            "control: patching the parent wipes the sibling, so targeting matters"
           )
         )
       } yield ()
@@ -134,7 +136,9 @@ class DatastarMorphContractSuite extends BrowserSuite {
     }
   }
 
-  test("data-ignore-morph protects a client-owned mount, in both directions") {
+  test(
+    "data-ignore-morph protects a client-owned subtree, in both directions"
+  ) {
     val page =
       """<div id="w">
         |  <span id="w_label">OLD</span>
@@ -170,17 +174,17 @@ class DatastarMorphContractSuite extends BrowserSuite {
           assertEquals(
             kept,
             "KEEP",
-            "a client-owned mount must survive an ancestor morph"
+            "a client-owned subtree must survive an ancestor morph"
           )
         )
 
         // (3) And the server cannot patch INTO it. Fatal for a server-filled
-        // panel; required for a mount whose JS owns the DOM.
+        // panel; required for a host whose JS owns the DOM.
         _ <- IO(
           assertEquals(
             kept,
             "KEEP",
-            "a patch aimed inside a protected mount must be dropped"
+            "a patch aimed inside a protected subtree must be dropped"
           )
         )
       } yield ()

@@ -22,10 +22,10 @@ import io.circe.Json
   * machinery, but membership is a static list the runtime only filters, so
   * nothing here scans the state map to find out who the members are.
   *
-  * Every delta test spends its first frame ESTABLISHING the mount. A viewer
-  * that has only just connected holds no membership history, so the first
-  * change refills the container wholesale (`Patches.resume`'s `refill`) and
-  * says nothing about deltas; the frame after it is the one under test.
+  * Every delta test spends its first frame ESTABLISHING the host. A viewer that
+  * has only just connected holds no membership history, so the first change
+  * refills the container wholesale (`Patches.resume`'s `refill`) and says
+  * nothing about deltas; the frame after it is the one under test.
   */
 class SetNodeSuite extends ServerHarness {
 
@@ -447,7 +447,7 @@ class SetNodeSuite extends ServerHarness {
     SharedHarness.create(dash, states.toMap).flatMap { h =>
       for {
         html <- h.opening(None)
-        // Establish the inner mount, as every delta test here must.
+        // Establish the inner host, as every delta test here must.
         _ <- h.step(off("light.d"))
         patches <- h.step(off("light.b"))
       } yield {

@@ -235,12 +235,12 @@ object SignalBind:
   *     always wrapped — they ARE the patch targets). [[Dashboard.validate]]
   *     rejects the wrapper-dependent shapes on such a card: live-entity slots,
   *     `cell` params, and set-clause use.
-  *   - `regions` / `self`: what a card that HOLDS other nodes declares — see
-  *     below.
+  *   - `regions`: what a card that HOLDS other nodes declares — see below.
   *
-  * '''Regions and the self.''' A card is a LEAF (no regions — its whole
-  * `template` is what a patch renders) or STRUCTURE (regions — it holds content
-  * it does not own). A [[Region]] is one named hole in `template`:
+  * '''Regions.''' A card is a LEAF (no regions — its whole `template` is what a
+  * patch renders) or STRUCTURE (regions — it holds content it does not own).
+  * That is the entire split, and it is decidable from the card
+  * ([[CardDef.isStructure]]). A [[Region]] is one named hole in `template`:
   *
   *   - `eager` — the node's own children, composed with the card in one render.
   *     A `Row`'s children, a slider's member rows.
@@ -248,21 +248,19 @@ object SignalBind:
   *     operation: a tab panel, an `If` branch, a popup. Its element carries the
   *     `{{hostId}}` something addresses to fill it.
   *
-  * `self` is the card's own presentation — a slider head, a frame — and is what
-  * the patch path renders and diffs, under the DOM id `<nodeId>-self`.
+  * '''Every hole is filled by a NODE''', which is the whole mechanism: a patch
+  * matches only the element carrying its target's own id, and what a region
+  * holds has an id of its own. Hence the design's first rule — '''a node's
+  * patch carries its own rendering and never the contents of a region''' — so a
+  * host changing cannot re-render what it hosts
+  * (docs/adr/0012-each-session-renders-what-it-is-owed.md).
   *
-  * '''`self` and every region are disjoint parts of the template''', which is
-  * the whole mechanism: a top-level patch matches only the element carrying its
-  * own id, so a patch at `#c_2-self` cannot reach `#c_2_panel`. Hence the
-  * design's first rule: '''a node's patch carries its own rendering and never
-  * the contents of a region''', so a host changing cannot re-render what it
-  * hosts (docs/adr/0012-each-session-renders-what-it-is-owed.md). Enforced by
-  * [[Dashboard.validate]], and by a type refinement in the authoring layer.
-  *
-  * A leaf sets no regions and usually no `self`. A structural card with NO
-  * `self` (`Grid`, `Row`, `Column`, `If`) has only its children to show, so its
-  * whole HTML contains them — it must never be patched, which the authoring
-  * layer enforces by rejecting a *live* slot on exactly that shape.
+  * It is unrepresentable rather than policed. A card wanting its OWN markup to
+  * move puts that markup in a region, as a node — a slider's head is a card of
+  * its own for exactly this reason. Structure therefore has only what it holds
+  * to show, so a live BYTES slot on it is a build error
+  * ([[Dashboard.validate]], and a constraint in the authoring layer); a SIGNAL
+  * slot is fine, because its value never becomes bytes in this element.
   *
   * '''`css`''' is the structure the card's own markup needs — its class names,
   * their box, flow and spacing — authored beside the template it belongs to
@@ -739,8 +737,8 @@ object LayoutNode:
   def memberSegment(setId: String, key: String): String =
     s"${setId}_${sanitize(key)}"
 
-  /** A surface's mount/root element id (`s_<id>`) — the live-patch target and
-    * the `remove` selector on close.
+  /** A surface's ROOT element id (`s_<id>`) — the live-patch target and the
+    * `remove` selector on close.
     */
   def surfaceRootId(surfaceId: String): String = s"s_${sanitize(surfaceId)}"
 
@@ -804,10 +802,10 @@ case class Theme(
     chrome: String = ""
 ) derives ConfiguredDecoder
 
-/** A lazily-activated render subtree mounted on demand — a popup or a tab
-  * panel. Registered in [[Dashboard.surfaces]] keyed by id; a component's click
-  * action (`surface/open/<id>`) opens it. The backend renders + streams it only
-  * while a connection has it open (see `Renderer.renderSurface` and the
+/** A lazily-activated render subtree baked on demand — a popup or a tab panel.
+  * Registered in [[Dashboard.surfaces]] keyed by id; a component's click action
+  * (`surface/open/<id>`) opens it. The backend renders + streams it only while
+  * a connection has it open (see `Renderer.renderSurface` and the
   * per-connection session in `Server`). Every surface is chrome-less — its
   * content renders straight into whatever host it swaps into; the frame around
   * that host (the popup overlay's `<dialog>`, inlined in `theme.chrome`, or a
@@ -1153,9 +1151,9 @@ case class Dashboard(
     // carry its children, so it would be cached and patched, and a patch would
     // re-send everything under it.
     //
-    // A runtime walk used to catch it (`carriesMount`, asking whether anything
-    // BELOW a node held a mount). That was a check on the tree standing in for
-    // a fact about the card; this is the fact.
+    // A runtime walk used to catch it, asking whether anything BELOW a node
+    // held a hole of its own. That was a check on the TREE standing in for a
+    // fact about the CARD; this is the fact.
     //
     // The signature is `{{{html}}}` inside a section: that is what splicing a
     // child's rendering looks like and the only thing it looks like.
@@ -1455,7 +1453,7 @@ case class Dashboard(
     * errors the dashboard still builds and serves, it just misbehaves in a way
     * that is hard to attribute from the browser.
     *
-    * Both are about the popup mount, which only the THEME can place (ADR 0002),
+    * Both are about the popup host, which only the THEME can place (ADR 0002),
     * and both are silent at render time — which is why they are reported at
     * all:
     *
@@ -1551,7 +1549,7 @@ object Dashboard:
     def withAccess(siteDefault: Access): Validated =
       copy(access = dashboard.access.getOrElse(siteDefault))
 
-  /** The theme's popup overlay mount — the `<div id="popups">` a popup's
+  /** The theme's popup overlay host — the `<div id="popups">` a popup's
     * (dialog-wrapped) content is patched into (and cleared from on close). The
     * dialog itself is NOT here and NOT backend chrome: it is a plain `popup`
     * container card composed into the surface's content by
@@ -1565,7 +1563,7 @@ object Dashboard:
 
   /** Backend-injected template vars available to a *static* component (the
     * author never supplies them): the stable location-based `id`.
-    * (Default-panel baking moved to the `Mount` node, so there is no longer an
-    * injected `panel`.)
+    * (Default-panel baking is the HOST's, so there is no longer an injected
+    * `panel`.)
     */
   val injectedStatic: Set[String] = Set("id")

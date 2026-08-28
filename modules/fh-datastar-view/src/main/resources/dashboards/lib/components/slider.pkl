@@ -159,9 +159,9 @@ typealias Readout = "state"|"percent"|"none"
 /// patch. [[Slider.withSubSliders]] is the chain form of the common "a master
 /// and its member entities" case.
 ///
-/// The head is the card's `self` and the members its `mount`, so a state change
-/// on the master repaints the head alone and never the rows (ADR 0012) — the
-/// reason this is a container card even when it holds nothing.
+/// The head and the members are two REGIONS of the card, so a state change on
+/// the master repaints the head alone and never the rows (ADR 0012) — the
+/// reason this is a structural card even when it holds nothing.
 /// The slider's own row — label, readout, track, action — as a NODE.
 ///
 /// It is a node rather than a part of [[Slider]] because a card's patch target

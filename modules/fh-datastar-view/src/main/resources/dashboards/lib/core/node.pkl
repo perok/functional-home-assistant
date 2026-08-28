@@ -114,7 +114,7 @@ abstract class Node extends LayoutNode {
   // card. Mirrors `LayoutNode.Component.liveEntitiesAsBytes`, subject case
   // included (the subject counts only when `entity_id` is a literal).
   slots: Mapping<String, slotMod.Slot|String>(
-    !bareContainer(cardDef) || !toMap().values.any((v) ->
+    !isStructure(cardDef) || !toMap().values.any((v) ->
       v is slotMod.Slot && v.reads == "live" && v.signal == null &&
         (v.entityId != null ||
         (containsKey("entity_id") && this["entity_id"] is String)))
@@ -235,15 +235,16 @@ class CardDef {
   // every normal card; set `false` only for a card whose root must stay a
   // direct child of a framework-structural parent (the [[TabButton]] anchors
   // under BeerCSS's `.tabs > a`). It means exactly "my root must not be wrapped
-  // in a layout box" — NOT "never a morph target", which is now decided by card
-  // shape (a container patches through its `self`).
+  // in a layout box" — NOT "never a morph target", which is decided by card
+  // SHAPE: a leaf is one, structure never is.
   wrapAsCell: Boolean? = null
 }
 
-/// Whether a card holds content — so its whole HTML contains what it holds, and
-/// patching it would re-render that. Such a card must never enter a diff set,
-/// which is why a live BYTES slot on it is a build error (see [[Node.slots]]).
-const local function bareContainer(d: CardDef): Boolean = d.regions != null
+/// Whether a card holds content — STRUCTURE, so its whole HTML contains what it
+/// holds and patching it would re-render that. Such a card must never enter a
+/// diff set, which is why a live BYTES slot on it is a build error (see
+/// [[Node.slots]]). `CardDef.isStructure` in the backend.
+const local function isStructure(d: CardDef): Boolean = d.regions != null
 
 // ---- the backend-facing card library (DERIVED from the card classes) ----
 // Each card class carries its own template + declared slots (`cardDef`,

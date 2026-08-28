@@ -33,18 +33,6 @@ import scala.jdk.CollectionConverters.*
   */
 class RenderCacheContentionSuite extends ServerHarness {
 
-  /** A bake owner that ALSO binds an entity — the only shape where two viewers
-    * hold different inputs for one node. `c_0` is the tabs host: its key
-    * carries `sensor.shared`'s version AND the `bakeIndex` its viewer selected.
-    *
-    * It is a `self` host deliberately, and that is the shape the authoring
-    * layer blesses: `lib/components.pkl` makes a LIVE slot on a card that
-    * mounts children with no `self` a build error, because such a card's patch
-    * would carry everything its mount holds — "declaring a `self` is the fix,
-    * and it lifts the ban". So a live tab host looks exactly like this, and a
-    * fixture without the `self` would be measuring a dashboard nobody can
-    * author.
-    */
   /** A bake owner and, beside it, the live leaf that actually renders.
     *
     * `c_0` is the tabs host: structure, so it renders nothing per frame.

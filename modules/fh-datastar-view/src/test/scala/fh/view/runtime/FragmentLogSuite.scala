@@ -137,7 +137,7 @@ class FragmentLogSuite extends munit.FunSuite {
   }
 
   test("a mutation re-supplying an ancestor covers everything under it") {
-    // A branch root PLACED into an If's mount carries its whole subtree, so the
+    // A branch root PLACED into an If's host carries its whole subtree, so the
     // nodes inside it must not also ship as morphs — the client's DOM does not
     // hold those ids yet, so each would be a silent no-op followed by the insert
     // that actually carries them. Ancestry is a path-id prefix.
@@ -165,8 +165,8 @@ class FragmentLogSuite extends munit.FunSuite {
   test(
     "a FRAGMENT ancestor covers nothing — no fragment contains another node"
   ) {
-    // The rationale the self/mount split retires. A container's patch is its own
-    // `self` element and never the contents of its mount, so an ancestor's entry
+    // The rationale the leaf/structure split retires. A patch is a node's own
+    // element and never the contents of a region, so an ancestor's entry
     // cannot carry a descendant and both are sent on their own ids.
     val out = log
       .touched("c_0_1", 20L)
@@ -258,7 +258,7 @@ class FragmentLogSuite extends munit.FunSuite {
       .removed("c_1", "c_1_new", 9L)
       .pruned(7L)
     assertEquals(horizonOf(evicted), Map("c_0" -> 6L))
-    // A cursor below c_0's horizon gets THAT mount refilled, and nothing else.
+    // A cursor below c_0's horizon gets THAT host refilled, and nothing else.
     assertEquals(evicted.owed(5L).refill, List[NodeId]("c_0"))
     assertEquals(evicted.owed(6L).refill, Nil)
     // ...and c_1's own delta still rides normally.
@@ -266,7 +266,7 @@ class FragmentLogSuite extends munit.FunSuite {
   }
 
   test("a refilled container's members are not ALSO sent") {
-    // The fill re-supplies the whole mount, so anything under it would be a
+    // The fill re-supplies the whole host, so anything under it would be a
     // duplicate — and this is not a rule to remember, it is the same prefix test
     // a `Placed` goes through.
     val evicted = log

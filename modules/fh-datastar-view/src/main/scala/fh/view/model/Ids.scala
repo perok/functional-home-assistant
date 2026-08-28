@@ -102,8 +102,9 @@ object MemberId {
   private[view] def of(id: NodeId): MemberId = id
 }
 
-/** The id of an element a patch TARGETS — `c_2-self`, `c_2_panel`, `popups`.
-  * Derived from a [[NodeId]] or authored by the theme; never a log key.
+/** The id of an element a patch TARGETS — a node's own `.fh-cell`, a bake
+  * host's `c_2_panel`, the theme's `popups`. Derived from a [[NodeId]] or
+  * authored by the theme; never a log key.
   */
 opaque type DomId <: String = String
 

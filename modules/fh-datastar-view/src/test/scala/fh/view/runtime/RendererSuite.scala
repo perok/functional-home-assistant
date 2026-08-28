@@ -49,13 +49,12 @@ class RendererSuite extends munit.FunSuite {
     ),
     // Tabs container: tabbar row of buttons (children) + panel host (baked via {{{panel}}}).
     // `data-signals` seeds the active-tab signal to the baked tab index ({{bakeIndex}}).
-    // Shaped like the shipped `Tabs`: the bar is STRUCTURE holding the buttons,
-    // the panel is the mount. No `self` — a self may hold no hole, so a card
-    // cannot both be a patch target and splice its children. Minimal markup,
-    // real SHAPE — shape is what the engine dispatches on (`hasSelf` picks what
-    // a patch renders and targets), so a fixture whose shape drifted from Tabs
-    // would be a different KIND of card. See `tabsLive` below for the split
-    // that survives: a self beside the mount, holding no hole.
+    // Shaped like the shipped `Tabs`: the card is STRUCTURE — a bar region
+    // holding the buttons and a baked panel region — so it is never a patch
+    // target. Minimal markup, real SHAPE, because shape is what the engine
+    // dispatches on (`CardDef.isStructure` decides whether a node may be
+    // patched at all), so a fixture whose shape drifted from Tabs would be a
+    // different KIND of card. See `tabsLive` below for a live bar header.
     "tabs" -> CardDef(
       template = """<div class="fh-col"><div class="fh-row tabbar">""" +
         """{{#children}}{{{html}}}{{/children}}</div>""" +
@@ -63,7 +62,7 @@ class RendererSuite extends munit.FunSuite {
       regions = Map("children" -> Region(), "panel" -> Region(Region.Baked))
     ),
     // "A tab bar with the current temperature in its header" — the shape the
-    // self/mount split existed for, in the form that replaced it: the live
+    // `self`/mount split existed for, in the form that replaced it: the live
     // header is a NODE in the bar region, beside the baked panel. A title tick
     // patches that node and cannot reach the panel, which is now true by
     // structure rather than by a patch aimed at a sub-element.
@@ -528,7 +527,7 @@ class RendererSuite extends munit.FunSuite {
     )
   }
 
-  test("a popup surface with nowhere to mount is a warning, not an error") {
+  test("a popup surface with nowhere to host is a warning, not an error") {
     // Both failures are silent in the browser — a tap that does nothing, or a
     // dialog that pops in late — so the only place they can be attributed is
     // here, at build time.
@@ -1475,9 +1474,9 @@ class RendererSuite extends munit.FunSuite {
   // The If host: a plain component card with one {{{branch}}} bake hole — no
   // tab bar, no signal, no ui state; the backend never required them.
   private val ifCards =
-    // Mirrors lib/components.pkl's `If`: a pure mount, no `self` — an If has no
-    // presentation of its own. The cell wrapper (which the backend owns) is the
-    // node's id'd element; the mount's id is `Surface.hostId`.
+    // Mirrors lib/components.pkl's `If`: one baked region and no markup of its
+    // own. The cell wrapper (which the backend owns) is the node's id'd
+    // element; the region's id is `Surface.hostId`.
     cards + ("ifhost" -> CardDef(
       template = """<div id="{{hostId}}">{{{branch}}}</div>""",
       regions = Map("branch" -> Region(Region.Baked))
@@ -1542,8 +1541,8 @@ class RendererSuite extends munit.FunSuite {
     assertEquals(r.surfaces.resolveActiveByState("c", states), None)
     // The host still renders its wrapper — with empty branch content, so a
     // matching branch appearing later has its patch target in the DOM. Both
-    // boxes: the cell (the node's own element) and the mount inside it. Through
-    // the document path: an If is a pure mount, so it has no rendering of its
+    // boxes: the cell (the node's own element) and the host inside it. Through
+    // the document path: an If is pure structure, so it has no rendering of its
     // own and `renderNodeById` refuses it.
     assertEquals(
       r.renderBody(states),
@@ -1621,14 +1620,13 @@ class RendererSuite extends munit.FunSuite {
     assertEquals(tabs.surfaces.stateBakeOwnerIds, Set.empty[String])
   }
 
-  /** The shape W18's card-shape test could not see: a container that splices
-    * `{{#children}}` into its `template` with no mount at all — the pre-split
-    * container. It passes "has no mount", so it looked like a node with its own
-    * rendering, while its rendering carries whatever its children's mounts
-    * hold.
+  /** The shape the old card-shape check could not see: a container that splices
+    * `{{#children}}` into its template while DECLARING no region. It read as a
+    * leaf, so it looked like a node with a rendering of its own, while its
+    * bytes carried its children.
     *
-    * Found by accident: W18's first test fixture was exactly this, and the test
-    * still failed after the fix.
+    * Found by accident: the first fixture written for that check was exactly
+    * this, and the test still failed after the fix.
     */
   test(
     "a card that splices children without declaring the region is rejected"
@@ -1649,8 +1647,8 @@ class RendererSuite extends munit.FunSuite {
       )
     )
 
-    // The shape this used to catch at RENDER time, by walking the tree asking
-    // whether anything below the node held a mount. It is a fact about the
+    // This used to be caught at RENDER time, by walking the tree asking
+    // whether anything below the node declared a hole. It is a fact about the
     // CARD, so it is a build error now: undeclared, this template reads as a
     // leaf — no regions — while its bytes carry its children, and a patch aimed
     // at it would re-send them.
@@ -1684,14 +1682,14 @@ class RendererSuite extends munit.FunSuite {
   }
 
   /** The other half of the rule above, and the one that cost a live update: a
-    * `self` that leaves its children ENTIRELY to the mount cannot carry what
-    * they hold, so what they hold is none of its business.
+    * node in one region cannot carry what a SIBLING region holds, so what the
+    * sibling holds is none of its business.
     *
-    * Real shape: a slider holding member sliders. The head is the `self`, the
-    * rows are the mount — and the moment the member card gained a mount of its
-    * own (one card for both, ADR 0006), asking `children.exists(carriesMount)`
-    * unconditionally made the HEAD unaddressable, so dragging a row stopped
-    * updating the master until a reload.
+    * Real shape: a slider holding member sliders — the head in one region, the
+    * rows in another. Under the old rule the head was the card's `self`, and
+    * the moment a member card gained a hole of its own (one card for both, ADR
+    * 0006) the runtime walk made the HEAD unaddressable, so dragging a row
+    * stopped updating the master until a reload.
     */
   test("a live head beside its members carries none of them") {
     val cards = Map(
@@ -1863,11 +1861,11 @@ class RendererSuite extends munit.FunSuite {
     )
   }
 
-  // ---- the self/mount split (docs/adr/0012-each-session-renders-what-it-is-owed.md) ----
+  // ---- the leaf/structure split (docs/adr/0012-each-session-renders-what-it-is-owed.md) ----
 
-  /** A container that declares both parts AND binds a live entity — the shape
-    * the split exists for ("a tab bar with the current temperature in its
-    * header"). The mount holds the child; the self holds the live header.
+  /** A container holding a LIVE node beside its children — the shape the split
+    * exists for ("a tab bar with the current temperature in its header"). Two
+    * regions: `bar` holds the live header, `children` holds the rest.
     */
   private val splitCards = cards + ("split" -> CardDef(
     // No `{{hostId}}`: a region needs an id only where something FILLS it,

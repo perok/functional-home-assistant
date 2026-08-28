@@ -191,7 +191,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
       "card" ->
         CardDef("<span>{{state}}</span>", slots = List("state")),
       // Shaped like the shipped `Tabs` — minimal markup, real shape. The bar is
-      // structure holding the buttons, not a `self`: a self may hold no hole.
+      // STRUCTURE holding the buttons, so never itself a patch target.
       "tabs" -> CardDef(
         template = """<div class="tabs">""" +
           """{{#children}}{{{html}}}{{/children}}</div>""" +
@@ -365,7 +365,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
       "<div>{{#children}}{{{html}}}{{/children}}</div>",
       regions = Map("children" -> Region())
     ),
-    // A pure mount, like lib/components.pkl's `If`.
+    // Pure structure — one baked region — like lib/components.pkl's `If`.
     "ifhost" -> CardDef(
       template = """<div id="{{hostId}}">{{{branch}}}</div>""",
       regions = Map("branch" -> Region(Region.Baked))
@@ -597,7 +597,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
         regions = Map("children" -> Region())
       ),
       "card" -> CardDef("<span>{{state}}</span>", slots = List("state")),
-      // A bar-less tabs host: pure mount, no `self` — nothing about it can
+      // A bar-less tabs host: pure structure — nothing about it can
       // change without its content changing.
       "tabs" -> CardDef(
         template = """<div id="{{hostId}}" class="tabs">{{{panel}}}</div>""",

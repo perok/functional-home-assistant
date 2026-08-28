@@ -574,7 +574,7 @@ class SignalSlotSuite extends ServerHarness {
     val gone = on.updated("light.a", st("light.a", "off"))
     // The graph has to have SEEN the members before it can report one leaving,
     // and the LOG has to know them or the group is not "established" and a
-    // departure fills the mount wholesale instead of emitting a delta.
+    // departure fills the host wholesale instead of emitting a delta.
     val _ = r.members.syncMembers(Nil, on, on)
     val held = r.renderPageTraced(on).own.map { case (id, p) =>
       id -> Held(Some(Digest.of(p.html)), p.signals)

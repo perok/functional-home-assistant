@@ -25,7 +25,7 @@ private[runtime] object Digest {
   *
   * Both halves answer the same question — "is this worth sending?" — of one
   * node, which is why they share a map rather than sitting in parallel ones. It
-  * is not a nicety: a mount fill makes everything under it unknown, and with a
+  * is not a nicety: a host fill makes everything under it unknown, and with a
   * separate signal map keyed by signal NAME that invalidation could only be
   * expressed by string-prefixing the name back into a node id. Keyed by node,
   * it is the containment test `Patches.applied` already runs.
@@ -56,7 +56,7 @@ private[runtime] object Held {
 
 /** Which kind decides how a resume replays the member: an entity's card is a
   * per-member delta that must preserve its siblings, where a branch is one
-  * `Inner` over a mount holding exactly one thing.
+  * `Inner` over a host holding exactly one thing.
   */
 private[runtime] enum MemberKey {
   case Entity(id: String)
@@ -84,7 +84,7 @@ private[runtime] enum Mutation(val version: Long, val container: NodeId) {
 }
 
 /** `refill` names containers whose membership history no longer reaches back to
-  * the cursor, so no delta can be computed and the mount is filled wholesale —
+  * the cursor, so no delta can be computed and the host is filled wholesale —
   * the fallback of LAST resort. See [[Patches.resume]] for how `moved` becomes
   * patches, and for the ordering argument that makes the anchors resolvable.
   */
@@ -123,7 +123,7 @@ private[runtime] case class FragmentLog(
     mutations: Map[NodeId, Mutation] = Map.empty,
     // Per container, the oldest version for which its membership history is
     // COMPLETE. Rises as that container's mutations are evicted; a cursor below
-    // it gets that container's mount filled instead of a delta, which is what
+    // it gets that container's host filled instead of a delta, which is what
     // makes eviction safe rather than silently lossy. Per-container because that
     // is the granularity at which completeness is actually lost: one churning
     // group aging out says nothing about any other.
@@ -178,7 +178,7 @@ private[runtime] case class FragmentLog(
     *
     * Dropping one still raises its container's [[horizon]], because a CLIENT
     * cursor is not bounded by the floor — a client returning after its session
-    * was reaped can present anything, and must get that mount refilled rather
+    * was reaped can present anything, and must get that host refilled rather
     * than silence.
     *
     * `fragments` is deliberately untouched: it holds one entry per node that
@@ -220,7 +220,7 @@ private[runtime] case class FragmentLog(
     if (fragments.get(nodeId).exists(_ > at)) this
     else copy(fragments = fragments.updated(nodeId, at))
 
-  /** This container's mount was re-supplied wholesale at `at`, so no delta
+  /** This container's host was re-supplied wholesale at `at`, so no delta
     * describes it any more: drop what is under it and raise its [[horizon]]
     * past this version, which is how [[since]] turns any older cursor into a
     * refill.
@@ -324,7 +324,7 @@ private[runtime] case class FragmentLog(
   def since(v: Long, ancestry: NodeAncestry): Resume = {
     val refill = horizon.collect { case (gid, h) if v < h => gid }.toList
     val moved = mutations.filter { case (_, m) => m.version >= v }
-    // A refill re-supplies its container's whole mount, so it covers exactly
+    // A refill re-supplies its container's whole host, so it covers exactly
     // the way a `Placed` does — which is why "a refilled container's members
     // must not ALSO be sent" is not a rule to remember, just this union.
     val resupplied = moved.keySet ++ refill

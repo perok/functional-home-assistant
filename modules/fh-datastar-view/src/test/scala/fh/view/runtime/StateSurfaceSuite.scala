@@ -80,7 +80,7 @@ class StateSurfaceSuite extends ServerHarness {
   }
 
   test(
-    "state flip: ONE overwrite of the host's mount, at CURRENT state"
+    "state flip: ONE overwrite of the host, at CURRENT state"
   ) {
     for {
       h <- SharedHarness.create(
@@ -95,7 +95,7 @@ class StateSurfaceSuite extends ServerHarness {
       _ <- h.step(es("sensor.a", "A1")).map(p => assertEquals(p.size, 1))
       // ...and churn the hidden branch (never rendered, never patched).
       _ <- h.step(es("sensor.b", "B1")).assertEquals(Nil)
-      // The flip: ONE patch. The mount takes at most one member, so overwriting
+      // The flip: ONE patch. The host takes at most one member, so overwriting
       // it IS the delta — no siblings to preserve, no position to fix — and it
       // lands the same whatever the client currently holds there. Not a morph of
       // the host, whose HTML would have embedded the branch.
@@ -106,7 +106,7 @@ class StateSurfaceSuite extends ServerHarness {
       assertEquals(flip.size, 1, clue = flip)
       val p = flip.head
       assert(p.contains("mode inner"), clue = p)
-      // The MOUNT — `Surface.hostId`, the id the If's mount template carries.
+      // The HOST — `Surface.hostId`, the id the If's template puts on it.
       assert(p.contains("selector #c_0_branch"), clue = p)
       assert(p.contains("""id="s_else__c""""), clue = p)
       // Rendered against CURRENT state: B1, which no client ever saw.
@@ -114,7 +114,7 @@ class StateSurfaceSuite extends ServerHarness {
       assert(!p.contains("A1"), clue = p)
       assert(!p.contains("mode remove"), clue = p)
       // The prune keeps its original job (hidden-branch churn leaves entries
-      // stale), and the new branch's ROOT is recorded as the mount's occupant —
+      // stale), and the new branch's ROOT is recorded as the host's occupant —
       // structure, not content, which is why it is a Mutation and not a
       // fragment. No host-level entry of either kind.
       assert(!cache.keys.exists(_.startsWith("s_then__")), clue = cache)
@@ -230,7 +230,7 @@ class StateSurfaceSuite extends ServerHarness {
       // "on2" fails the query -> a membership change (remove) for the group.
       _ = assert(tick.nonEmpty, clue = tick)
       _ = assert(tick.forall(_.contains("s_then__c")), clue = tick)
-      // Flip to else: one overwrite of the mount...
+      // Flip to else: one overwrite of the host...
       _ <- h.step(es("alarm.h", "disarmed")).map(p => assertEquals(p.size, 1))
       // ...and now the group is in a hidden branch: query-affecting churn that
       // would previously re-render it emits NOTHING.
@@ -283,7 +283,7 @@ class StateSurfaceSuite extends ServerHarness {
           "sensor.b" -> es("sensor.b", "B0")
         )
       )
-      // Outer active: the inner flip patches ONLY the inner host's mount
+      // Outer active: the inner flip patches ONLY the inner host
       // (recursion into the active member's index found it), with its else branch.
       innerFlip <- h.step(es("mode.h", "day"))
       _ = assertEquals(innerFlip.size, 1, clue = innerFlip)
