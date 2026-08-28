@@ -830,17 +830,22 @@ Live list — delete an entry when it is answered, and say where the answer land
 - **Carrying the converted attribute map across a tick.** See TODO2.md — `EntityState.javaAttributes`
   is rebuilt per state change even when attributes did not move.
 
-- **The document walk and the repaint bypass the `RenderCache` entirely** —
-  [issue #130](https://github.com/perok/functional-home-assistant/issues/130). Two simultaneous page
-  loads each render the whole page, and the first live tick after a load or a repaint meets a cold
-  cache, even though the walk just rendered every node it is about to be asked for. ONE obstacle
-  now, and it is incidental: the walk is pure where the cache is `IO`.
+- ~~**The document walk and the repaint bypass the `RenderCache` entirely.**~~ *Measured, and not
+  worth building* — [issue #130](https://github.com/perok/functional-home-assistant/issues/130)
+  carries the numbers. Both obstacles are gone: "what a parent EMBEDS is not what a patch carries"
+  went with `self` (a leaf card's template IS its patch fragment, structure is never cached), and
+  the walk-is-pure-cache-is-`IO` one is only work.
 
-  The other one is struck. It was "what a parent EMBEDS is not what a patch carries" — true when a
-  `self` card's cache entry held the `self` element alone. A leaf card's template IS its patch
-  fragment and structure is never cached, so there is no longer a composed form to disagree with;
-  signal slots close the rest, since the walk produces a patch-form rendering per node and the patch
-  form is the only thing the cache ever holds.
+  What went with them is the reason to do it. **A live tick cannot hit bytes the walk installed**,
+  because the tick asks for that node precisely when an entity it reads has moved — which is what
+  its [[RenderInputs]] key is made of, so the walk's generation is stale by construction. The
+  "cold cache after a load" half of the issue was simply wrong. That leaves sharing between
+  document renders that COINCIDE, and a body render is 17 µs a node: 5.7 ms for a 200-card page
+  whose HTML is 257 kB, 0.2 ms for the shipped starter. Ten coincident loads of the big one cost
+  57 ms of CPU while shipping 2.5 MB — the render is ~2 % of the work it feeds.
+
+  Reopen it if a deployment ever shows page renders on the profile. Do not reopen it for
+  `reloadRepaints`: that is N × the same body render, but it fires on a manual dashboard edit.
 
 - **A morph-only client profile** —
   [issue #133](https://github.com/perok/functional-home-assistant/issues/133). ADR 0017 keeps the

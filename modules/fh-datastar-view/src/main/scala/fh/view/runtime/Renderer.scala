@@ -625,32 +625,27 @@ class Renderer(
   /** Whether this node HAS a rendering of its own — the thing that decides
     * whether it may be a log key or a patch target at all.
     *
-    * The property, not a card shape: **a node's own rendering must contain no
-    * mount** — its own, or one belonging to markup that rides along inside it.
-    * A mount's contents are whichever member that client selected, so a node
-    * carrying one has bytes that differ per viewer.
+    * '''One question, asked of the CARD.''' A leaf card's template is its whole
+    * fragment; a structural card's element contains the regions it holds, so a
+    * patch aimed at it would carry their bytes back with it. Two shapes fail:
     *
-    * Two shapes fail it:
-    *
-    *   - a BARE container — a mount and no `self` — whose markup is a constant
-    *     `.fh-cell` wrapper around a hole;
+    *   - any STRUCTURAL card ([[fh.view.model.CardDef.isStructure]]) — a
+    *     container, a slider, a tabs host;
     *   - a candidate set root, which composes its members (each addressable in
     *     its own right) rather than having markup of its own.
     *
     * Neither loses anything by being excluded: their children are addressable
     * in their own right.
     *
-    * A card WITH a `self` always has its own rendering, and that is now a fact
-    * about the card rather than a hope: both `ContainerCard.self` (authoring)
-    * and `Dashboard.validate` (the wire model) reject a `self` containing
-    * `{{{mount}}}` or `{{#children}}` — the two holes this renderer fills, so
-    * the two that could smuggle another node's bytes into a patch. The third
-    * shape this used to guard against — a self splicing `{{#children}}` where a
-    * child carried a mount — is therefore unrepresentable, which is why the
-    * `Templates.selvesCarryChildren` grep it needed is gone.
+    * This used to be three questions asked of a TEMPLATE's spelling — whether a
+    * card declared a `self`, whether that `self` spliced `{{#children}}`, and
+    * whether any child carried a mount — because a card's own bytes could
+    * contain another node's. Regions removed the shape rather than the check:
+    * every hole in a template is filled by a node, so "my bytes carry someone
+    * else's" is unrepresentable and the card alone decides.
     *
-    * The same rule `Dashboard.validate` enforces when it rejects a live-entity
-    * slot on a bare container: no patch target.
+    * The same rule `Dashboard.validate` enforces when it rejects a live BYTES
+    * slot on structure: no patch target.
     *
     * They keep their [[elementId]] — a structural patch still names them, a
     * `remove` deletes that element and an `insert` anchors before it. What they
@@ -668,16 +663,6 @@ class Renderer(
       case (_: LayoutNode.SetNode, _) => false
     }
 
-  /** The DOM element a patch for `id` targets — the ONE crossing from node id
-    * to DOM id, and one-way.
-    *
-    * A container declaring a `self` targets `<id>-self`, so its patch cannot
-    * reach the sibling mount holding its children; everything else targets its
-    * own element. `-` is safe as the separator because [[Dashboard.sanitize]]
-    * maps everything outside `[A-Za-z0-9_]` to `_`, so no generated node id can
-    * contain one and no `startsWith(id + "_")` ancestry test can mistake
-    * `c_2-self` for a child of `c_2`.
-    */
   /** The node's OWN root element — the `.fh-cell` wrapper `render` emits, and
     * the ONE crossing from node id to DOM id.
     *
@@ -805,23 +790,17 @@ class Renderer(
     *
     * `None` — NOT CACHEABLE — is what keeps that honest, and it is the reason
     * this returns an `Option` rather than a key that a caller has to know not
-    * to trust. Two nodes get it:
+    * to trust. It is now exactly [[hasOwnRendering]]'s `false`: structure, or a
+    * candidate set root. Both compose rather than render, and neither is a
+    * patch target, so nothing is lost by excluding them.
     *
-    *   - one with no rendering of its own ([[hasOwnRendering]]): a bare
-    *     container or a candidate set root, which composes rather than renders
-    *     and is not addressable at all;
-    *   - one whose OWN bytes carry its children — [[renderNodeById]] splices
-    *     them eagerly, so its bytes move when a child's entity moves while this
-    *     key stands still. In the shipped library that is exactly `Tabs`, whose
-    *     `self` is the bar and whose children are the tab buttons.
-    *
-    * The second could be turned into a `Some` by rendering own markup with
-    * HOLES where the children go and substituting their (separately keyed)
-    * bytes in a second pass — [[renderTemplateOf]] taking `childrenHtml` is the
-    * seam. That is an optimisation, not a precondition: such nodes are a
-    * handful and are not the hot path. Excluding them costs their renders and
-    * can never be wrong; including them without the split would be silently
-    * wrong.
+    * There used to be a SECOND excluded kind — a node whose own bytes carried
+    * its children, so they moved when a child's entity moved while this key
+    * stood still — and a plan for admitting it by rendering own markup with
+    * holes and substituting separately-keyed child bytes in a second pass.
+    * Regions did that instead, and did it in the model: a node's regions are
+    * other nodes, each keyed and cached on its own, so no node's bytes carry a
+    * child's and there is nothing left to admit.
     */
   def renderInputs(
       id: NodeId,
@@ -1055,17 +1034,14 @@ class Renderer(
     * so it is an addressable patch target (in-place morph / insert / remove)
     * rather than only ever re-rendered as part of the whole group — which is
     * why the wrap here is UNCONDITIONAL (a `wrapAsCell = false` card has no
-    * member morph target and is not usable as a set clause). It renders WHOLE
-    * rather than through the self/mount split, because a member composes
-    * nothing: its children are empty and its mount would carry nobody's
-    * selection.
+    * member morph target and is not usable as a set clause).
     */
   private def renderMember(
       m: Member,
       states: Map[String, EntityState],
       form: SlotForm
   ): String = {
-    val html = renderWhole(
+    val html = renderTemplate(
       m.node.card,
       structuralVars(m.id),
       m.node.slots,
@@ -1095,11 +1071,9 @@ class Renderer(
     * addressable container of its own, so it renders as its group element and
     * its members are patched individually rather than through the tile.
     *
-    * That split is the synthesised `self`/`mount`: the tile's own bytes are
-    * everything except the inner group, and the inner group is the mount. It
-    * needs no template support because the tile's own content is static —
-    * `Dashboard.validate` already refuses a live slot on a container with no
-    * `self`, and a room's NAME is a registry fact, hence a literal.
+    * It needs no template support because the tile's own content is static —
+    * `Dashboard.validate` already refuses a live BYTES slot on structure, and a
+    * room's NAME is a registry fact, hence a literal.
     */
   private def memberChild(
       m: Member,
@@ -1110,7 +1084,7 @@ class Renderer(
       form: SlotForm
   ): String = node match {
     case c: LayoutNode.Component =>
-      val html = renderWhole(
+      val html = renderTemplate(
         c.card,
         structuralVars(m.id),
         c.slots,
@@ -1151,25 +1125,6 @@ class Renderer(
       case Some(tpl) =>
         renderTemplateOf(tpl, injected, slots, childrenHtml, states, form)
     }
-
-  /** The DOCUMENT path's card render: both parts, then `template` with them
-    * spliced into its `{{{self}}}`/`{{{mount}}}` holes. A leaf card has
-    * neither, so its `template` renders exactly as it always did.
-    *
-    * The one place a mount is rendered as part of its own node, which is why
-    * the document path can hand a client fully-populated mounts on first paint
-    * while the patch path never touches one.
-    */
-  private def renderWhole(
-      cardName: String,
-      vars: Map[String, String],
-      slots: Map[String, SlotSource],
-      childrenHtml: Map[String, List[String]],
-      states: Map[String, EntityState],
-      form: SlotForm
-  ): String = {
-    renderTemplate(cardName, vars, slots, childrenHtml, states, form)
-  }
 
   /** Render an already-resolved template with the card's slot resolution, so a
     * card's markup and its parts can never disagree about what a slot means.
