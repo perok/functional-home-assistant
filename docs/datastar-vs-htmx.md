@@ -1,163 +1,173 @@
 # Datastar vs htmx for `fh-datastar-view`
 
-> Evaluation only — no source was changed. Scope: should this module swap its
-> frontend runtime library **Datastar** (`v1.0.2`) for **htmx** (2.x)?
+> Evaluation only — no source changed. Scope: should this module swap its frontend runtime
+> **Datastar** (`v1.0.2`, pinned at `Server.DatastarCdn`) for **htmx 4**?
+> Tracked in [issue #149](https://github.com/perok/functional-home-assistant/issues/149).
 
 ## Verdict
 
-**Stay on Datastar.** For *this* design, Datastar is the better fit and a swap
-would add libraries and seams without buying us anything the architecture needs.
-htmx is the more mature, larger-ecosystem project, and the one thing it would have
-genuinely improved — navigation, which used to fight Datastar's own guidance via
-the `history.pushState` anti-pattern — has since been fixed inside Datastar
-instead: dashboards are real pages (ADR 0002). Nothing left here is a reason to
-migrate a module whose runtime (`Server`/`Datastar`/`Renderer`), five ADRs, and
-~50 tests are all built on Datastar primitives.
+**Stay on Datastar.** Not because htmx is worse — htmx 4 closed most of the gaps an earlier version
+of this document held against it — but because the thing that would be traded away, a signal store
+the server can patch by name, is the one primitive this design is built on, and htmx has no
+equivalent that is not a regression or a second library.
 
-The decision turns on three things, in order of weight:
+The reason the question got asked is **the Datastar Pro license**, and that reason does not survive
+contact with the terms. See below: it constrains nothing we do.
 
-1. **Our central pattern is Datastar's first-class primitive and only htmx's
-   convention.** We hold one persistent SSE stream and, on each HA `state_changed`,
-   push fragments to *arbitrarily many* node ids with an explicit
-   **selector + mode (+ built-in morph)** — `datastar-patch-elements`. htmx's
-   SSE extension is element-scoped (a listener swaps *itself*); reaching our
-   pattern means embedding `hx-swap-oob` directives *into the fragment HTML* plus
-   the idiomorph extension. That re-pollutes the HTML with swap semantics —
-   precisely the "no presentation/control literals in the backend" discipline the
-   ADRs spent five documents protecting.
-2. **We rely on zero-round-trip client state that htmx does not have.** The tab
-   active-highlight (`data-class` over `tab_<id>`) and the slider's live value
-   (`data-bind` over `val_<id>`) are client signals (ADR 0005). htmx has *no*
-   reactive client state by design, so matching them means adding **Alpine.js** —
-   a second library and a second mental model. Net more complex, not less.
-3. **One batteries-included bundle vs four cooperating libraries.** Datastar is
-   hypermedia + signals + SSE + morph in a single `<script>`. The htmx-equivalent
-   of today's behaviour is **htmx + sse extension + idiomorph + Alpine** — each
-   individually mature, but a strictly larger and more seam-prone whole.
+## The license, since it is why this is open
+
+Datastar Pro is genuinely unusable for this project. The terms are explicit:
+
+> Redistribution, sublicensing, or making the software available to third parties in any form,
+> outside of an "end product", is strictly prohibited. Making the software available in a public
+> repo is a form of redistribution, and is strictly prohibited. Adding the software to an
+> open-source project is a violation of the license.
+
+For a public repo whose point is a reusable platform, that is fatal, and no reading rescues it.
+
+**But Datastar core is MIT, and Pro is garnish.** The Pro surface is `data-persist`,
+`data-query-string`, `data-replace-url`, `data-view-transition`, `data-animate`, `data-on-raf`,
+`data-on-resize`, `data-match-media`, `data-custom-validity`, `data-scroll-into-view`,
+`@clipboard()`, `@fit()`, `@intl()`, plus a bundler, an inspector, a component API and a CSS
+framework. Nothing there is load-bearing. Nothing in the runtime uses it. `shell.ts` already
+hand-rolls the one Pro attribute that was wanted (`data-query-string`) in four lines, and ADR 0005
+records why.
+
+So the paywall costs us **one thing**: the Inspector, for debugging signals and frames. That is a
+real annoyance and a fair signal about the project's direction — it is reasonable to dislike
+building on a runtime whose debugging story is behind a license we cannot buy. It is not, on its
+own, an architectural reason to migrate. A home-grown debug panel is cheap, and gets cheaper once
+[#134](https://github.com/perok/functional-home-assistant/issues/134) collapses the signals into one
+store.
+
+## What htmx 4 changed
+
+htmx 4.0.0 went GA on 2026-08-28. Three of the four objections an htmx-2 evaluation would raise are
+now weaker or gone:
+
+- **Morphing is core.** `hx-swap="innerMorph"` / `"outerMorph"` are built in. The idiomorph
+  extension is no longer a dependency.
+- **SSE is a maintained core extension** (`hx-sse`), rewritten on `fetch()` + `ReadableStream`
+  rather than `EventSource`, with real reconnect/backoff config and `Last-Event-ID` replay.
+- **Multi-target updates got better ergonomics** — `<hx-partial>` and `hx-swap-oob` are extracted
+  before the normal swap, and `hx-targets` exists.
+
+So "four cooperating libraries" is no longer the fair characterisation. The honest count today is
+**htmx + Alpine**, versus one Datastar bundle.
+
+What did *not* change is the thing that matters.
+
+## The blocking issue: there is no value-level patch
+
+ADR 0017's mechanism is that **a value moves without its node being patched**. A signal slot's value
+is not in the node's bytes at all — the element carries only its binding — so the digest stands
+still, the morph is suppressed, and one `datastar-patch-signals` frame carries the values for a
+whole batch.
+
+htmx 4 SSE swaps **elements**. There is no attribute- or value-level patch primitive anywhere in the
+protocol. Every mechanism it has is "replace this DOM subtree." To keep ADR 0017's property you
+build the value channel yourself, on top of `hx-sse`'s named-event hook.
+
+That is buildable and not large — `hx-sse` dispatches `htmx.trigger(element, msg.event, {data, id})`,
+so a named `signals` event merged into a client store is a handful of lines. It is a fair point that
+our Datastar surface is small and already isolated: `Datastar.scala` is 183 lines and is the only
+file that speaks the wire protocol, slot bindings all come from `Datastar.binding` driven by the
+renderer-side `SignalBind` enum, and the hand-written attributes live in ~17 `template =` sites
+across 8 Pkl files. This is not an 18k-line port.
+
+The question is what you put the values *into*, and that is where htmx's two answers both cost
+something.
+
+### `hx-live` is not a signal store, and would be a regression
+
+Read at the `v4.0.0` tag rather than from the docs — `src/ext/hx-live.js`:
+
+```js
+let fns = new Set();                     // every binding on the page, flat
+observer = new MutationObserver(recomputeBound);
+observer.observe(document.documentElement,
+    { childList: true, subtree: true, attributes: true, characterData: true });
+
+function schedule() { ... queueMicrotask(() => { fns.forEach(f => f()); ... }) }
+```
+
+- **No dependency tracking.** `fns.forEach(f => f())` re-runs *every* binding on the page on every
+  recompute. Datastar re-runs only the effects that read the changed signal. The 16ms warning in
+  `schedule()` is measuring that whole-page pass — the author knows it is O(page).
+- **Any mutation anywhere triggers it**, via a document-wide observer including `attributes` and
+  `subtree`. On a dashboard that morphs nodes continuously, incidental full passes are constant.
+- **No memoisation on reads.** `readData` does `getAttribute` + `JSON.parse` per read, so a store
+  held in a `data-*` attribute is re-parsed once per binding per tick.
+- **No two-way binding primitive**, so the slider's `data-bind` has no counterpart.
+
+Its own documentation states the model plainly: *"The DOM is the source of truth."* That is the
+opposite of what ADR 0017 needs.
+
+### Alpine works, and costs a second library
+
+htmx ships `hx-alpine-compat`, which is a fair indication of the intended answer. Alpine (MIT) has
+`Alpine.store()` — one global store, exactly the shape [#134](https://github.com/perok/functional-home-assistant/issues/134)
+wants — plus `Alpine.reactive()`/`effect()` (Proxy-based, fine-grained, the same granularity class
+as Datastar), `$store` readable from any element, and `x-model` for the slider.
+
+This is the only htmx configuration that does not regress. It costs a second runtime and a second
+idiom, and it means hand-building the value channel that `datastar-patch-signals` provides.
 
 ## Per-capability mapping
 
-| # | What we rely on (code / ADR) | Datastar today | htmx equivalent | Verdict |
+| # | What we rely on | Datastar today | htmx 4 equivalent | Verdict |
 |---|---|---|---|---|
-| 1 | **One SSE stream, push to many ids by id** on each state change (`Server.changedPatches`, `Renderer.componentsFor`/`renderNodeById`) | `datastar-patch-elements` with `selector` + `mode`; pure-content fragment, swap metadata lives in SSE `data:` lines (`Datastar.patch`) | SSE ext listener is self/descendant-scoped; to hit arbitrary ids you push a payload of `hx-swap-oob` fragments through a `hx-swap="none"` receiver. Works, but swap directives move *into* the HTML | **htmx worse** (convention + HTML pollution vs protocol) |
-| 2 | **Patch modes** inner / outer / append / prepend / remove (`PatchMode`, `openSurface`, `navigate`, `removeElement`) | 8 modes as a wire field; `mode remove` deletes by selector with no body | `hx-swap-oob` = `true`/`innerHTML`/`beforeend:#popups`/`delete` etc., encoded as an *attribute on each fragment root* | **htmx worse** (mode becomes an HTML attribute the renderer must inject) |
-| 3 | **Morph-preserve** of open `<dialog>`, focused input, mid-drag slider during a repaint | morph is the default swap | needs the **idiomorph** extension + `hx-swap="morph"` config | **htmx worse** (extra lib/config for a default) |
-| 4 | **Per-connection correlation** — mint `conn`, round-trip it on every action POST (`sseStream`, `withSession`, `Sessions`) | server pushes `conn` as a signal; Datastar sends the whole signal store on every `@post`, so `conn` rides free (`connOf`) | no signals; correlate via a **cookie** set on the SSE connect (EventSource sends cookies automatically) or `hx-vals`/`hx-headers` per action | **htmx worse** (a cookie is per-origin, so two browser tabs would fight over it — the reason ADR 0005 dropped cookies entirely) |
-| 5 | **Decoupled command/query** — action POST returns no content, result arrives later over SSE (`callService` → `NoContent`) | `@post(...)` + `NoContent`; this is the CQRS tenet in the tao | `hx-post` + `hx-swap="none"`; htmx's wheelhouse | **tie** (both clean) |
-| 6 | **Client-only reactive UI** — tab highlight (`data-class`), slider bind (`data-bind`), tab signal seed (`data-signals`) (ADR 0005, `lib/components.pkl` `tabs`/`slider`) | built in, zero round-trip | **none in htmx** → add **Alpine.js** (`x-data`/`:class`/`x-model`), or push the highlight from the server (a round-trip for a pure UI effect) | **htmx worse** (needs a 2nd library) |
-| 7 | **Lazy surfaces / popups / tabs** — render+push only while open (`Session.open`, `surfaceComponentsFor`, `renderSurface`) | server-side laziness; lib-agnostic. Open = `append`/`inner` patch, close = `remove` | same server logic; open = OOB `beforeend`/`innerHTML`, close = OOB `delete` | **tie** (server owns it) |
-| 8 | **Dynamic groups** — query-filtered re-render (`renderDynamic`, `affectedDynamicIds`, ADR 0003/0004) | server-side; lib-agnostic | identical server-side; push via same OOB mechanism | **tie** |
-| 9 | **URL first-paint mirror** (ADR 0005) | hand-rolled `replaceState` helper (`data-query-string` is Pro); the read side is plain query params, library-neutral | identical; htmx has `hx-replace-url` for the write half | **htmx marginally better** (one built-in attribute vs. 4 lines) |
-| 10 | **Navigation between dashboards** — an ordinary document load of `/d/:slug` (ADR 0002) | the browser owns history; no library involved, and the `pushState` anti-pattern is gone | same — `hx-boost` would add SPA-style swapping we deliberately do not want | **tie** |
+| 1 | **Value moves without patching its node** (ADR 0017, `Datastar.patchSignals`) | `datastar-patch-signals`; digest unchanged, morph suppressed, one frame per batch | none — no value-level primitive. Build it: named SSE event → merge into an Alpine store | **htmx worse** (the load-bearing one) |
+| 2 | **One SSE stream, push to many ids by id** (`Patches.scala`, `Renderer`) | `datastar-patch-elements` with `selector` + `mode`; payload stays pure content | `hx-swap-oob` / `<hx-partial>` extracted before the normal swap — swap metadata moves *into* the HTML | **htmx worse** (control literals re-enter the markup) |
+| 3 | **Patch modes** outer / inner / before / append / remove (`PatchMode`) | a wire field; `remove` deletes by selector with no body | an attribute on each fragment root the renderer injects | **htmx worse** (same reason as 2) |
+| 4 | **Morph-preserve** of open `<dialog>`, focus, mid-drag slider | morph is the default swap | `innerMorph` / `outerMorph`, core in htmx 4 | **tie** — was htmx's weakness, now is not |
+| 5 | **Client-only reactive UI** — `_<id>__slide` drag bind, `ui_<id>` tab highlight | `data-bind`, `data-class`, zero round-trip | `hx-live` regresses (see above); Alpine `x-model` / `:class` works | **htmx worse** (needs a 2nd library) |
+| 6 | **Per-connection correlation** — `conn` round-tripped on every action | Datastar sends the signal store on every POST, so `conn` rides free (`connOf`) | send it explicitly via `hx-vals='js:{...}'` from the store | **tie** — more code, but explicit beats implicit |
+| 7 | **Reconnect state** — `_cursor.*`, `ui_*` survive a reconnect via the `datastar` query param (`Server.signalsOf`, `uiFromSignals`) | automatic, and the `_` prefix filter is what keeps it from bloating every request | nothing automatic; the resume protocol needs rebuilding on `hx-vals` | **htmx worse**, and the least-understood cost |
+| 8 | **Seed-if-absent across a morph** (`data-signals__ifmissing`) | needed because signals are seeded from markup that gets re-morphed | **problem disappears** — a JS-owned store is not re-seeded by a swap | **htmx better** |
+| 9 | **Request-in-flight indicator** (`data-indicator`) | a named signal per `@post` | `hx-pending` / `hx-browser-indicator`, core extensions | **tie** |
+| 10 | **Fetch-lifecycle hooks** for drag rollback (`data-on:datastar-fetch__document`) | a Datastar CustomEvent on `document` | htmx's event model (`htmx:response:error`, `htmx:after:request`) | **tie** |
+| 11 | **Decoupled command/query** — POST returns nothing, result arrives over SSE | `@post(...)` + `NoContent` | `hx-post` + `hx-swap="none"`; htmx's wheelhouse | **tie** |
+| 12 | **Server-side laziness / dynamic groups** (`Session.open`, `renderDynamic`) | library-agnostic | identical | **tie** |
+| 13 | **Navigation** — dashboards are real pages (ADR 0002) | the browser owns history | same; `hx-boost` would add SPA swapping we do not want | **tie** |
+| 14 | **URL mirror** (ADR 0005) | hand-rolled `replaceState` (`data-query-string` is Pro) | `hx-replace-url` is core | **htmx marginally better** |
 
-## Reasoning
-
-### The wire protocol is the deciding architectural fit
-
-`Server.scala` and `Datastar.scala` are written *around* a server-push protocol:
-`datastar-patch-elements` carries `selector` + `mode` as SSE `data:` lines while
-the `elements` payload stays **pure content** (`Datastar.patch`/`removeElement`,
-`PatchMode`). That is exactly aligned with the module's prime directive — visible
-all over the ADRs — that the **backend holds no presentation or control literals**;
-chrome, mounts, and even close-URLs live in jsonnet templates, and *where/how* a
-fragment lands is SSE-event metadata, not HTML.
-
-htmx inverts this. Its SSE extension swaps the received content into the
-*listening* element; to update many independent ids from one stream you embed
-`hx-swap-oob` (and, for non-default placement, `beforeend:#popups` / `delete`)
-**on the fragment roots themselves**. So the swap mode/selector that Datastar keeps
-*outside* the HTML would move back *into* HTML the renderer emits or the templates
-carry. We would be re-introducing the exact control-literal coupling the design
-worked five ADRs to remove. It is doable — htmx OOB is a proven pattern and the
-SSE extension routes received content through the normal swap pipeline (so OOB
-fragments are honoured) — but it is a convention bolted onto a request/response
-core, where Datastar offers a purpose-built push protocol.
-
-### Signals are load-bearing for our UX, and htmx has none
-
-ADR 0005 deliberately tiers state: entity truth → server `StateStore`; **ephemeral
-UI → Datastar signals**; must-survive-and-inform-first-paint → an unprefixed
-signal mirrored to the URL. Two signals do real work *with no round-trip*:
-`ui_<id>` (active-tab highlight via
-`data-class`) and `_val_<id>` (slider position via `data-bind`, so the dragged
-number tracks the thumb before the server confirms). The tao sanctions exactly
-this ("Restrained Signal Usage" lists a tab index as appropriate local UI state).
-
-htmx has no equivalent. Replacing these means either (a) adding Alpine.js for
-`x-data`/`:class`/`x-model` — a second runtime and idiom, the opposite of
-simplification — or (b) doing the highlight server-side, turning a pure CSS toggle
-into an SSE round-trip and making the slider feel laggy. Neither is a win, and ADR
-0005's URL mirror was explicitly designed to *complement* signals (carry the
-slice that must survive a reload into the first paint), not to stand in for them.
-
-### Maturity vs fit
-
-htmx is older, bigger-ecosystem, and rock-stable; Datastar v1 is newer with a
-smaller community, and we have pinned it to `v1.0.2` precisely because its SSE
-event names and `data-*` syntax have shifted across releases (noted in
-`Datastar.scala`, `Server.DatastarCdn`, and several ADRs). That is the strongest
-generic argument *for* htmx. But "mature" here means assembling **htmx core + sse
-extension + idiomorph + Alpine** to recover what one Datastar bundle already does.
-Four mature parts compose into a less-cohesive whole than one cohesive part, and
-each seam (SSE-ext↔OOB, OOB↔idiomorph, Alpine↔htmx event timing) is a place our
-careful render/diff/morph invariants could fray.
-
-### Where our design used to fight Datastar
-
-One place, and the tao named it: **manual history management.** Navigation was
-`@post('/sse/navigate/:slug')` + inline `history.pushState` + a
-`data-on:popstate__window` handler, since Datastar v1 has no URL/redirect SSE
-event. That is now gone — a dashboard change is an ordinary document load and the
-browser owns the history entry (ADR 0002) — which was the localized fix inside
-Datastar this section predicted, and it closes htmx's one genuine advantage here.
-
-Still hand-rolled, and much smaller: the `?ui.<id>` / `?popup` URL mirror writes
-`history.replaceState` from a 4-line helper, because `data-query-string` is Pro
-(ADR 0005). That is keeping a URL honest about the view it names, not faking
-navigation, so it is outside the anti-pattern the tao warns about.
+Rows 8 and 14 are genuine wins for htmx, and row 4 is a gap that closed. Rows 1, 2, 3, 5 and 7 are
+what keeps the verdict.
 
 ## What a swap would cost
 
-- **Add 2–3 libraries** (sse extension + idiomorph, and Alpine.js for client
-  reactivity) where we ship one bundle today.
-- **Re-encode swap semantics into HTML.** `Datastar.patch(mode, selector)` and
-  `removeElement` become `hx-swap-oob` attributes the renderer injects onto
-  fragment roots — re-coupling control to presentation against the ADR discipline.
-- **Re-do client UI in Alpine.** `tabs`/`slider` in `components.libsonnet` drop
-  `data-signals`/`data-bind`/`data-class` for `x-data`/`x-model`/`:class`; ADR
-  0005's signal tier is rewritten.
-- **Rewrite the runtime SSE layer.** `Datastar.scala`'s protocol framing, the
-  `PatchMode` enum, and `Server`'s patch calls all change; the conn-signal
-  correlation becomes a cookie/header scheme (`withSession`/`Sessions`).
-- **Re-validate morph-preservation** (open dialog, focus, mid-drag slider) under
-  idiomorph instead of Datastar's default morph; re-run/adjust the ~50 tests.
-- **Rewrite ADR 0001–0005 anchors** that name Datastar primitives, plus the
-  `datastar` skill's pinned-bundle and project-convention notes.
+- **Rebuild the value channel** that `datastar-patch-signals` provides — bounded, but it is the
+  mechanism five ADRs are written around.
+- **Rebuild the resume protocol.** `Server.signalsOf`, `uiFromSignals`, `connOf` and `_cursor.*` all
+  assume the client sends its whole store unasked. htmx sends nothing by default. This is the least
+  well understood cost in this document and would need a spike before any estimate is trusted.
+- **Re-encode swap semantics into HTML** as `hx-swap-oob` attributes the renderer injects.
+- **Add Alpine** and rewrite the client-only signals in it.
+- **Rewrite the wire-format tests.** `DatastarMorphContractSuite`, `SignalSlotSuite`,
+  `SurfaceTapSuite`, `ResumePatchesSuite` and `AckedResumeSuite` pin bytes, plus six Playwright
+  smoke suites.
+- **Rewrite the ADR anchors** naming Datastar primitives, and the `datastar` skill.
 
-## What we'd gain / lose
+And the timing argument, which is temporary but real: htmx 4.0.0 is days old, npm `latest` is still
+`2.0.10`, and `hx-live` has no production soak. Migrating a working system onto day-one software,
+for a license constraint that does not bind, is not a trade worth making now.
 
-**Gain**
-- Native, idiomatic **navigation/history** (`hx-push-url`/`hx-boost`) — moot now
-  that dashboards are real pages (ADR 0002).
-- A **larger, more stable ecosystem** and a less version-fragile core API.
-- `hx-replace-url` would replace the hand-rolled URL-mirror helper (ADR 0005).
+## What would flip this
 
-**Lose**
-- The **single-bundle, batteries-included** model (signals + SSE + morph + push
-  protocol in one).
-- **First-class server-push with selector + mode + morph** kept *out* of the HTML
-  — replaced by in-HTML OOB conventions.
-- **Zero-round-trip client UI** (tab highlight, slider bind) unless we adopt
-  Alpine.
-- The **sunk, coherent investment**: runtime, five ADRs, and ~50 tests already
-  shaped to Datastar's primitives.
+Any of:
 
-## Conditional
+1. **Datastar core stops being MIT, or stalls.** The license is the whole reason core is safe; a
+   change there removes the argument in one step.
+2. **A capability lands behind the Pro paywall that the architecture actually needs** — as opposed
+   to the current list, which is garnish. Watch what moves into Pro, not what is already there.
+3. **The debugging cost compounds.** If a home-grown inspector proves inadequate and the Pro one is
+   the only real option, that is a slow, legitimate squeeze.
+4. **Issue [#133](https://github.com/perok/functional-home-assistant/issues/133) becomes real work.**
+   A morph-only client profile wants a protocol subset, and that reasoning is partly framework
+   independent — worth re-reading this document then.
 
-The only scenario that flips this: if the project decided to **drop live
-client-reactive UI** (server-rendered tab highlight, no optimistic slider) *and*
-prioritized ecosystem maturity above all, then **htmx + sse extension + idiomorph
-(no Alpine)** could serve a purely server-driven dashboard cleanly, and the
-navigation story would improve. That trades away UX niceties the current design
-deliberately has. Absent that decision, **stay on Datastar**, and consider
-addressing the navigation anti-pattern within Datastar as a small, separate change.
+Revisit when one of those is true, or in six months once htmx 4 has soaked, whichever comes first —
+and revisit with measurements from a three-card spike, not with argument. #134's store is the
+prerequisite that makes such a spike cheap, which is why it is being built first regardless; see
+[`plan-entity-signal-store.md`](plan-entity-signal-store.md).
