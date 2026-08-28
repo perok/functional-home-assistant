@@ -51,6 +51,31 @@ not the second parallel mechanism ADR 0017 was right to avoid.
 So this work is not a step toward or away from htmx. It happens to be the shape any htmx path would
 need — see [`datastar-vs-htmx.md`](datastar-vs-htmx.md) — which makes it cheap insurance, not a bet.
 
+## Two mechanisms that are easy to conflate
+
+**The digest governs sending; the cache governs re-rendering.** They are different questions and
+this plan touches both, so keep them apart:
+
+- `Session.holds` digests are per-viewer and answer *"is this worth putting on the wire?"* A signal
+  slot's value is not in patch-form bytes, so the digest does not move and `Patches.morph`
+  suppresses the element patch. **That win is already banked** — it is ADR 0017 working as designed.
+- `RenderCache` is per-slug and answers *"do I have to run mustache again?"* Nothing about the
+  digest stops a wasted render upstream of it. That is what step 8 addresses, and it is a CPU win,
+  not a bytes win.
+
+**Hard-inserting values for a JS-less browser is also already done.** ADR 0017's DOCUMENT form has
+the value inline, plus the binding, plus the seed; the PATCH form has the binding alone. The ADR's
+own reason is the one to preserve: "A JS-less browser gets the value. It receives the document and
+nothing else — no Datastar, no SSE, no patches ever." Nothing in this plan may take that away.
+
+**A JS-less browser and a morph-only client are not the same thing**, and ADR 0017 records
+conflating them as its first mistake. No-JS takes *no* patches, so there is no morph to fall back
+to for it — its inline document bytes are the whole story. A morph-only client (#133) does take
+`datastar-patch-elements` but has no expression evaluator, and it is the one a morph fallback would
+serve. #133 also warns the fallback is not always available: a display signal on a *structural*
+card has no valid patch target, so the fallback would have to climb to some patchable ancestor —
+"worse than a coarse morph; it is an unbounded one." `sliderHead` is already that case.
+
 ## Scope
 
 **In:** entity-derived display values — the signal slots ADR 0017 created.
@@ -92,7 +117,31 @@ this plan applies it rather than formalising it.
    ADR 0017's reasoning is unchanged and still load-bearing — without it this moves cost from the
    server's frames to the client's requests rather than removing it.
 
-8. **Measure, and answer #134's own question.** The issue says "worth measuring first" and #130
+8. **Narrow the render-cache key** — separable from the store, and worth landing on its own.
+
+   `RenderCache` holds **patch-form** bytes (`Patches.renderNodeById` → `NodeBytes.of`), and patch
+   form carries no signal value. But its key is built from `liveEntities`
+   (`Renderer.renderInputs`, `:808` and `:813`), which *includes* entities read only through signal
+   slots. So a brightness tick invalidates a generation whose re-render is byte-identical: the
+   mustache render runs, the digest then says nothing moved, and nothing is sent. `RenderInputs`
+   names this case itself (`Renderer.scala:60-62`) — "a key that is TOO DISCRIMINATING costs a
+   wasted render … CPU, no bug."
+
+   The narrower list already exists: **`Dashboard.liveEntitiesAsBytes`** (`:554`) is `liveEntities`
+   minus signal-only reads, documented as "the entities whose movement can reach this node's DOM
+   only by re-rendering it." That is the cache key's semantics exactly. Key on
+   `subjectEntity ++ liveEntitiesAsBytes`, preserving the subject rule the current comment gives.
+
+   **The reverse index must keep `liveEntities`.** The same doc comment says why — "a signal still
+   has to make its node a candidate, or no frame is ever computed for it." Swapping the two lists
+   the wrong way round silently stops signal frames rather than failing. Today
+   `liveEntitiesAsBytes` has exactly one caller, the structure rule at `Dashboard.scala:1120`.
+
+   Safe **because** the document form bypasses the cache today (`renderPageTraced` takes no cache;
+   issue #130). If #130 lands and documents enter the cache, this step's assumption changes — see
+   below.
+
+9. **Measure, and answer #134's own question.** The issue says "worth measuring first" and #130
    established that as the house style. Record frame bytes and signal-entry count on a dashboard
    built to have duplication *and* one built to have none. #134's observed frame — 7 entries → 3,
    ~55% — is the baseline to reproduce. A no-duplication dashboard saving ~0% is a finding that
@@ -140,6 +189,21 @@ this plan applies it rather than formalising it.
 
 ## Open
 
+- **A profile-dependent cache key, if and when #130 lands.** Step 8 is safe only while document
+  renders bypass the cache. Put documents *in* the cache and the key must distinguish viewers,
+  because document-form bytes carry the value and a stale entry would be served to a client that
+  cannot fix it. #133 already names the mechanism: "the mode has to reach the renderer, and
+  therefore `RenderInputs.vars`, so the two viewer kinds do not share a `RenderCache` generation for
+  a signal-carrying node." The cost is a cached generation per profile for signal-carrying nodes.
+
+  Note the ordering dependency, which runs the *opposite* way to intuition: it is tempting to say a
+  signals client tolerates stale document bytes because it fixes the value from the store, but
+  **today it does not** — the document form's `data-signals` seed carries the value too, and ADR
+  0017 makes a first paint correct with no following frame, so a stale seed stays stale until that
+  entity next changes. Step 5 of this plan is what changes that: moving the seed to one
+  document-level attribute generated outside the cache leaves the cached per-node bytes carrying
+  only the inline text, which matters only to no-JS and morph-only viewers. **The store is the
+  prerequisite that makes document caching safe**, not a consequence of it.
 - **Store eviction.** "Entity leaves the dashboard's static index" is the proposed prune rule.
   Confirm nothing else needs to drop a path.
 - **A home-grown signal inspector.** The Datastar Inspector is Pro, and being locked out of it is a
