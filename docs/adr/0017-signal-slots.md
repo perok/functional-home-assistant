@@ -241,11 +241,24 @@ So `Renderer.Traced` carries both: `html` (document form, to the browser) and pe
 patch form (what seeds `holds`), as `Painted(html, signals)` — a product, because a node has bytes
 *and* signals and one render establishes both.
 
-The cost is a second `tpl.execute` on the same compiled template, needed only where a node declares
-signal slots itself or has own rendering and embeds a descendant that does. The guard is exact
-(`kids.exists(_.patch ne _.html)`), so a signal-free subtree hands the same `String` reference back
-and does no extra work. In the shipped library the second clause almost never fires:
-`grid`/`row`/`column` are structure — no rendering of their own, and never log keys.
+The cost is a second `tpl.execute` on the same compiled template, and only that. It is paid exactly
+where there is an `own` to fingerprint — a node with its own rendering whose slots carry a signal —
+because nothing else ever reads a patch form. Structure therefore renders once, and cannot do
+otherwise: `Traced` has no `patch` field for it to render into.
+
+Two things this deliberately does NOT do, both measured rather than assumed
+(`benchmarks/RenderBench`, `pageSignals` against `page`):
+
+- **It does not resolve the slots twice.** The forms differ in one step — a signal slot's value is
+  withheld — so `resolveTemplate` runs once and `executeResolved` runs per form. Resolving per form
+  meant re-running every JSONata transform and re-deriving every signal name to arrive at the same
+  map and blank two entries in it, and that duplication, not the `execute`, was most of what a
+  signal slot cost a first paint.
+- **It does not re-derive the seed.** The `data-signals` values come off that same `Resolved`, so
+  the seeded value and the painted value are one computation rather than two that agree.
+
+Together those took the signal-slot premium on a 200-leaf page from ~2.5x a signal-free render to
+~1.5x.
 
 ## Consequences
 

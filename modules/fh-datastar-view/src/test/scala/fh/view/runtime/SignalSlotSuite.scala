@@ -136,13 +136,25 @@ class SignalSlotSuite extends ServerHarness {
     // execute. Asserted on ONE walk, because that is the only place the two
     // forms can share a string; two separate calls build two strings whatever
     // the slots say.
+    //
+    // The second form is read off `own`, which is the only place it exists:
+    // `Traced` carries no `patch` of its own, so STRUCTURE cannot have one at
+    // all. That is why there is no companion test for "a container over a
+    // signalled leaf renders once" — it is not a behaviour to check, it is
+    // unrepresentable.
     val free = Renderer.create(plain).renderBodyTraced(at("21.4"))
-    assert(free.html eq free.patch, clue = "a signal-free node rendered twice")
+    val freeId = free.own.keys.head
+    assert(
+      free.own(freeId).html eq free.html,
+      clue = "a signal-free node rendered twice"
+    )
     // ...and the same walk over the signal card really does produce two.
     val signalled = renderer.renderBodyTraced(at("21.4"))
-    assert(signalled.html ne signalled.patch)
+    val signalledId = signalled.own.keys.head
+    val signalledPatch = signalled.own(signalledId).html
+    assert(signalled.html ne signalledPatch)
     assert(signalled.html.contains("21.4"), clue = signalled.html)
-    assertEquals(signalled.patch.contains("21.4"), false, signalled.patch)
+    assertEquals(signalledPatch.contains("21.4"), false, signalledPatch)
   }
 
   // ---------------------------------------------------------------------------
@@ -199,7 +211,8 @@ class SignalSlotSuite extends ServerHarness {
   }
 
   test("the document's holds suppress the first tick's morph") {
-    // The invariant `Traced.patch` buys. Seeded from the DOCUMENT form while
+    // The invariant the patch form in `Traced.own` buys. Seeded from the
+    // DOCUMENT form while
     // the pull renders the PATCH form, a mismatch here would send one pointless
     // morph per signal node per page load — correct, but muddying what `holds`
     // means for the rest of the session's life.
