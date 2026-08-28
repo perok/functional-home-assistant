@@ -103,3 +103,8 @@ scripts/.scala-build/
 
 # JMH run output (sbt-jmh writes it to the working dir)
 jmh-result.*
+
+# JMH profiler output (JFR recordings capture env vars and system properties —
+# they must never be committed; GitHub push protection caught one).
+*.jfr
+*-AverageTime/
