@@ -137,4 +137,19 @@ object SignalId {
     * else is a card binding a signal nothing will ever patch.
     */
   private[view] def derived(s: String): SignalId = s
+
+  extension (id: SignalId) {
+
+    /** The name as a PATH. A dot is a separator, never a character in a
+      * segment: the pinned bundle rewrites `$_e.light.a.state` into bracket
+      * indexing, and `datastar-patch-signals` deep-merges an object, so a frame
+      * has to carry the nesting rather than one dotted key.
+      *
+      * Lives here so the format has ONE owner. `Renderer.signalName` builds it
+      * and `Datastar` nests by it; with the split spelled out at the far end,
+      * the two could drift and the failure would be silent — a signal patched
+      * under a key nothing is bound to.
+      */
+    def segments: List[String] = (id: String).split('.').toList
+  }
 }

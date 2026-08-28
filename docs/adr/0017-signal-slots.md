@@ -217,6 +217,13 @@ separate signal map keyed by signal *name* that invalidation could only be expre
 string-prefixing the name back into a node id. Keyed by node, it is the id-prefix test
 `Patches.applied` already runs.
 
+A signal name is no longer node-scoped, so one value can sit in TWO nodes' `Held.signals`. That is
+fine and stays fine: the frame is a map keyed by name, so duplicates collapse, and a node dropped by
+a fill merely re-sends a value another node still holds — a redundant frame entry, never a wrong
+one. It is why keying signals by value did NOT need the second invalidation mechanism this section
+exists to avoid; splitting `holds` to hold them per PATH would only remove that redundancy, which is
+an optimisation nobody has measured a need for.
+
 `digest` is optional because a patch can establish one half alone: a patch-form morph carries bytes
 and says nothing about the values bound inside them, and a `Patch.Signals` frame is the mirror
 image. So `Held` doubles as the delta a patch reports and the record a session keeps, with

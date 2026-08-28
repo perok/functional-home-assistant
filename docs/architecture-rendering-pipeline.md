@@ -741,7 +741,7 @@ not all render from one snapshot. Three racing — newest, straggler, newest —
 three renders: the straggler's install evicts bytes the third is about to hit. The waste is never
 the straggler's own render, which it needs, but what installing it throws away. So an install is
 refused when the generation present was rendered from a snapshot at or ahead of the caller's on
-every entity it reads (`RenderInputs.isAtLeast`); the straggler renders, is served, and the map
+every entity that can change its bytes (`RenderInputs.isAtLeast`); the straggler renders, is served, and the map
 keeps the newer bytes. The accepted cost is in §8.
 
 ---
@@ -786,7 +786,9 @@ backlog — and that falls out of the two rules above rather than being a rule o
 
 "Rendered now" goes through the slug's `RenderCache` (`Patches.bytes`), which is what keeps N
 sessions woken by one ring of the doorbell from rendering the same node N times. It changes no
-answer — the key is what the render reads, so a hit is the render — only who pays for it.
+answer — a hit yields the bytes the render would have — only who pays for it. The key is a SUBSET
+of what the render reads, not all of it: an entity reached only through a signal slot is left out,
+because its value is not in the patch form and so cannot move these bytes (ADR 0012).
 
 **The digest is asked of the PATCH FORM**, and that is what puts a moving value on the cheap side of
 it. A signal slot's value is not in those bytes at all (ADR 0017) — the element carries only its
@@ -794,7 +796,19 @@ it. A signal slot's value is not in those bytes at all (ADR 0017) — the elemen
 suppressed, and one `datastar-patch-signals` frame carries the values for the whole batch. The
 wholesale renders (page, repaint, fill, the document a JS-less browser gets) use the DOCUMENT form
 instead: value inline, plus a `data-signals` seed on the node's `.fh-cell` wrapper, so an element
-arriving that way is correct before any frame reaches it.
+arriving that way is correct before any frame reaches it. That seed is why a fill can introduce an
+entity nothing on the page was reading and still be right — there is no frame coming for it.
+
+**A display signal is named by what it READS**, `_e.<domain>.<object_id>.<transform>`, so one entity
+on three cards is one signal and one frame entry rather than three copies equal by construction
+(ADR 0017). Dots are PATH separators — the bundle rewrites `$_e.light.a.state` into bracket
+indexing, and `datastar-patch-signals` deep-merges — so a frame carries a nested structure and never
+a flat dotted key. A two-way `SignalBind.Bind` is the exception and stays node-scoped: an input
+writes it back, so sharing it would let one card's drag drive another card's readout (ADR 0025).
+
+The frame goes FIRST in a batch, which is what makes a member insert correct: its bytes are
+patch-form and carry no seed, so the frame is the only thing that gives it a value. Measured at
+paint level in `DatastarMorphContractSuite` — the other order paints a blank first.
 
 The second question — *does this client already have these bytes?* — is answered by the **session's
 own `holds`**, and only ever by that. It is seeded by the document that created the session (and by
@@ -902,6 +916,14 @@ Live list — delete an entry when it is answered, and say where the answer land
 - **Carrying the converted attribute map across a tick.** See TODO2.md — `EntityState.javaAttributes`
   is rebuilt per state change even when attributes did not move.
 
+- **Fills bypass the `RenderCache` entirely** —
+  [issue #224](https://github.com/perok/functional-home-assistant/issues/224). `arrivingFill` and
+  `branchPatch` take no cache and `Patches.resume` runs per session, so a flip renders its whole
+  surface subtree once per connection — the exact N-sessions-one-render waste `Patches.bytes` exists
+  to prevent. Not an oversight: a fill's content is a composed subtree, which `renderInputs` refuses
+  a key for by design, so the fix is composing a fill from per-node cached leaves rather than one
+  fresh walk. Orthogonal to render FORM — that was checked and changes nothing here (PR #222).
+
 - **The document walk and the repaint bypass the `RenderCache` entirely** —
   [issue #130](https://github.com/perok/functional-home-assistant/issues/130), measured and
   DEFERRED, with the numbers on the issue. Neither stated obstacle stands: "what a parent EMBEDS is
@@ -914,6 +936,13 @@ Live list — delete an entry when it is answered, and say where the answer land
   construction. So the cheap half — install after the walk, no `IO` anywhere near it — buys nothing
   and is not the fix. The fix is the effectful walk, reading the cache during it, and nothing
   short of that shares anything.
+
+  **That argument has a hole in it since the key narrowed** (ADR 0012). The key is now the entities
+  whose movement can change a node's BYTES, so a tick whose only movement was a SIGNAL slot does
+  not move the key — and the walk's generation is then live, not stale by construction. Signal
+  ticks are the frequent ones, so this is not a corner. Whoever picks #130 up should re-measure
+  before trusting the "cheap half buys nothing" conclusion: it was derived when every entity a node
+  read was in its key.
 
   What it wins, so the work can be judged: a body render is 17 µs a node — 5.7 ms for a 200-card
   page whose HTML is 257 kB, 0.2 ms for the shipped starter. Ten coincident loads of the big one
