@@ -4,7 +4,7 @@ import cats.effect.{IO, Resource}
 import cats.syntax.all.*
 import com.comcast.ip4s.{host, port}
 import com.microsoft.playwright.Page
-import fh.view.runtime.{AssetCache, Datastar, Server}
+import fh.view.runtime.{AssetCache, Datastar, PatchMode, Server}
 import fs2.Stream
 import org.http4s.*
 import org.http4s.dsl.io.*
@@ -729,6 +729,94 @@ class DatastarMorphContractSuite extends BrowserSuite {
           println(s"SPIKE|parent-seeds-child-reads = '$kid'")
         }
       } yield ()
+    }
+  }
+
+  /** A fill that sends PATCH-form bytes has no value in them, so the value has
+    * to arrive as a frame — and the ORDER of the two decides whether a user
+    * sees a blank.
+    *
+    * Measured two ways on purpose, because they disagree. A `MutationObserver`
+    * reports `["", "42"]` for BOTH orders: the fragment's own text is empty
+    * either way, so the DOM always passes through blank. Sampling per animation
+    * frame — what the browser actually PAINTS — separates them, and that is the
+    * question worth answering.
+    *
+    * The harness meters patches 50ms apart, wider than the single flush
+    * production would use, so treat "elements-first flashes" as the direction
+    * of the risk rather than its size. Signals-first is safe at any spacing,
+    * which is why it is the rule rather than a tuning.
+    */
+  private val recorder =
+    """window.__seen = [];
+      |window.__frames = [];
+      |const sample = () => {
+      |  const el = document.querySelector('#filled');
+      |  const t = el ? el.textContent : null;
+      |  if (t !== null && window.__frames[window.__frames.length - 1] !== t) {
+      |    window.__frames.push(t);
+      |  }
+      |  requestAnimationFrame(sample);
+      |};
+      |requestAnimationFrame(sample);
+      |new MutationObserver(() => {
+      |  const el = document.querySelector('#filled');
+      |  if (el) {
+      |    const t = el.textContent;
+      |    if (window.__seen[window.__seen.length - 1] !== t) window.__seen.push(t);
+      |  }
+      |}).observe(document, {subtree: true, childList: true, characterData: true});""".stripMargin
+
+  private def fillOrder(
+      patches: List[ServerSentEvent]
+  ): IO[(String, List[String], List[String])] =
+    served("""<div id="host"></div>""", patches).use { case (p, uri) =>
+      def strings(js: String) = IO
+        .blocking(p.evaluate(js).asInstanceOf[java.util.List[String]])
+        .map(scala.jdk.CollectionConverters.ListHasAsScala(_).asScala.toList)
+      for {
+        _ <- IO.blocking(p.addInitScript(recorder))
+        _ <- IO.blocking(p.navigate(uri.renderString))
+        _ <- eventually(text(p, "#done"))(_ == "yes")
+        shown <- text(p, "#filled")
+        seen <- strings("() => window.__seen")
+        frames <- strings("() => window.__frames")
+      } yield (shown, seen, frames)
+    }
+
+  private val frame =
+    Datastar.patchSignals("""{"_e":{"sensor":{"x":{"state":"42"}}}}""")
+
+  private val fill = Datastar.patch(
+    """<div id="filled" data-text="$_e.sensor.x.state"></div>""",
+    PatchMode.Inner,
+    Some("#host")
+  )
+
+  test(
+    "a signal patched before anything reads it survives, and a later fill paints it once"
+  ) {
+    fillOrder(List(frame, fill)).map { case (shown, seen, painted) =>
+      // The premise of sending patch-form fills at all: the store keeps a value
+      // nothing is bound to yet, and the binding reads it when it mounts.
+      assertEquals(shown, "42", s"a later-mounted binding must read the store")
+      // ...and the payoff: no blank is ever PAINTED, though the DOM passes
+      // through one — which is why the mutation list is not the measure.
+      assertEquals(
+        painted,
+        List("42"),
+        s"painted a blank; mutations were $seen"
+      )
+    }
+  }
+
+  test("the same two patches in the other order paint a blank first") {
+    fillOrder(List(fill, frame)).map { case (shown, seen, painted) =>
+      assertEquals(shown, "42", "the frame must still correct it")
+      assert(
+        painted.headOption.contains(""),
+        s"expected a blank paint before the value; painted=$painted seen=$seen"
+      )
     }
   }
 }
