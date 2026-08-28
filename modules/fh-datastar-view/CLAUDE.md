@@ -170,7 +170,7 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   affected components (`Renderer`, reverse index `entityId -> generated id`) plus the
   query-affected dynamic groups — **per-entity**: an in-place member tick morphs one
   `{gid}_{entity}` child, small membership deltas patch `remove`/`before`/`append`, and only
-  a mount whose whole content arrived or left at once, or a post-reload group,
+  a host whose whole content arrived or left at once, or a post-reload group,
   repaints wholesale — and pushes only the fragments whose HTML actually changed (`Server`
   keeps a per-node last-rendered cache; http4s ember).
 - **Phase discipline**: leaf templates escape `{{slot}}` values; container templates splice their

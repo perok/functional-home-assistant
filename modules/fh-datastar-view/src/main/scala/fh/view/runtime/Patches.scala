@@ -793,7 +793,7 @@ private[runtime] object Patches {
       states: Map[String, EntityState],
       uiState: Map[String, String]
   ): IO[Option[NodeBytes]] =
-    renderer.renderInputs(id, states, uiState) match {
+    renderer.renderInputs(id, states) match {
       case Some(inputs) =>
         cache(id, renderer, inputs)(
           IO(mustRender(renderer.renderNodeById(id, states, uiState), id))

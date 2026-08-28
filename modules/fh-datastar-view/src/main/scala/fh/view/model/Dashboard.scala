@@ -1383,6 +1383,20 @@ case class Dashboard(
                     (if (baked.isEmpty) " (it declares none)"
                      else s" — it has ${baked.mkString(", ")}")
                 )
+              // `bakeInto` without `bakeAs` is not a smaller statement, it is an
+              // incoherent one: it puts the node in a bake group (so the
+              // renderer treats it as an owner and resolves a selection for it)
+              // while `Surface.hostId` falls through to the page-level popup
+              // host, so the content lands nowhere near it and the selection
+              // never resolves. Rejected rather than half-served — and it is
+              // what keeps "a bake owner is STRUCTURE" true, which the render
+              // cache now leans on: a cacheable node must own no group, or two
+              // viewers on two tabs would share bytes that differ.
+              case (None, _) =>
+                List(
+                  s"surface '$sid' bakes into '$gid' but names no 'bakeAs' — " +
+                    "a baked surface must name the region it fills"
+                )
               case _ => Nil
             }
         }

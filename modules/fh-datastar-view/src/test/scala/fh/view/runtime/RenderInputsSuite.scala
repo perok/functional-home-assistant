@@ -208,8 +208,8 @@ class RenderInputsSuite extends munit.FunSuite {
       id <- ids
       (a, i) <- line.zipWithIndex
       (b, j) <- line.zipWithIndex
-      key <- renderer.renderInputs(id, a, Map.empty).toList
-      if renderer.renderInputs(id, b, Map.empty).contains(key)
+      key <- renderer.renderInputs(id, a).toList
+      if renderer.renderInputs(id, b).contains(key)
     } assertEquals(
       renderer.renderNodeById(id, a),
       renderer.renderNodeById(id, b),
@@ -232,8 +232,8 @@ class RenderInputsSuite extends munit.FunSuite {
       ra = Renderer.create(dashboard)
       rb = Renderer.create(dashboard)
       id = ra.members.memberIdOf(setId("c_3"), entity)
-      key <- ra.renderInputs(id, a, Map.empty).toList
-      if rb.renderInputs(id, b, Map.empty).contains(key)
+      key <- ra.renderInputs(id, a).toList
+      if rb.renderInputs(id, b).contains(key)
     } assertEquals(
       ra.renderNodeById(id, a),
       rb.renderNodeById(id, b),
@@ -244,7 +244,7 @@ class RenderInputsSuite extends munit.FunSuite {
 
   test("the key is not trivially discriminating — it hits where it must") {
     def key(id: NodeId, at: Int) =
-      renderer.renderInputs(id, line(at), Map.empty).get
+      renderer.renderInputs(id, line(at)).get
 
     // A timestamp-only re-seed (step 2) keys the same as the content change
     // before it. Without this the cache would miss on every HA reconnect.
@@ -256,23 +256,14 @@ class RenderInputsSuite extends munit.FunSuite {
   }
 
   test("an absent entity keys differently from any version it could hold") {
-    val absent = renderer.renderInputs("c_0", Map.empty, Map.empty).get
+    val absent = renderer.renderInputs("c_0", Map.empty).get
     assertNotEquals(
       absent,
-      renderer.renderInputs("c_0", line.head, Map.empty).get
+      renderer.renderInputs("c_0", line.head).get
     )
     // Not merely different — it carries no entry at all, so no stamp can
     // collide with it.
     assertEquals(absent.entities, Map.empty[String, Long])
-  }
-
-  test("a user group's selection is part of the key, per viewer") {
-    // `c_2`'s group is state-activated, so uiState cannot move it — the
-    // asymmetry a user-selected group does not have.
-    assertEquals(
-      renderer.renderInputs("c_2", line.head, Map.empty),
-      renderer.renderInputs("c_2", line.head, Map("ui_c_2" -> "1"))
-    )
   }
 
   test("STRUCTURE has NO key") {
@@ -280,33 +271,35 @@ class RenderInputsSuite extends munit.FunSuite {
     // descendant's entity moves. The key excludes children by design, so the
     // only sound answer is that it cannot be cached at all — the difference
     // between a `None` and a key a caller must know not to trust.
-    assertEquals(renderer.renderInputs("c", line.head, Map.empty), None)
+    assertEquals(renderer.renderInputs("c", line.head), None)
     assertNotEquals(
       renderer.renderBody(line.head),
       renderer.renderBody(line.last)
     )
   }
 
-  test("a bake owner with a live slot of its own has no key either") {
-    // A card holding a region AND binding an entity: structure like any other.
-    // The authoring layer refuses the combination outright, so the model is
-    // built here directly — the point is what the RENDERER answers for it.
-    val tabs = Renderer.create(
-      Dashboard(
-        cards,
-        LayoutNode.Component(
-          "banner",
-          slots = Map("title" -> SlotSource(Some("sensor.t"))),
-          regions = LayoutNode.kids(
-            LayoutNode.Component("btn", Map("label" -> lit("A")))
-          )
-        ),
-        surfaces = dashboard.surfaces.map { case (sid, s) =>
-          sid -> s.copy(bakeInto = Some("c"))
-        }
-      )
+  /** A card holding a region AND binding an entity: structure like any other.
+    * The authoring layer refuses the combination outright, so the model is
+    * built here directly — the point is what the RENDERER answers for it.
+    */
+  private val tabsOwner: Dashboard =
+    Dashboard(
+      cards,
+      LayoutNode.Component(
+        "banner",
+        slots = Map("title" -> SlotSource(Some("sensor.t"))),
+        regions = LayoutNode.kids(
+          LayoutNode.Component("btn", Map("label" -> lit("A")))
+        )
+      ),
+      surfaces = dashboard.surfaces.map { case (sid, s) =>
+        sid -> s.copy(bakeInto = Some("c"))
+      }
     )
-    assertEquals(tabs.renderInputs("c", line.head, Map.empty), None)
+
+  test("a bake owner with a live slot of its own has no key either") {
+    val tabs = Renderer.create(tabsOwner)
+    assertEquals(tabs.renderInputs("c", line.head), None)
     // ...and not renderable by id either: its element contains what it holds,
     // so patching it would re-send that. The things worth patching are the
     // nodes inside.
@@ -316,7 +309,39 @@ class RenderInputsSuite extends munit.FunSuite {
   test("a node that composes rather than renders has no key") {
     // The candidate set root: its members are addressable in their own right,
     // and `renderNodeById` refuses it.
-    assertEquals(renderer.renderInputs("c_3", line.head, Map.empty), None)
+    assertEquals(renderer.renderInputs("c_3", line.head), None)
     assertEquals(renderer.renderNodeById("c_3", line.head), None)
+  }
+
+  /** '''NO CACHEABLE NODE OWNS A BAKE GROUP.''' The key carries entity versions
+    * and nothing else, so a node whose bytes could depend on which member is
+    * selected must not have one — two viewers on two tabs would otherwise be
+    * served each other's bytes out of one cache slot.
+    *
+    * It holds because `Dashboard.validate` requires a `bakeInto` target's card
+    * to declare a BAKED REGION by that `bakeAs` name, and a card with any
+    * region is structure, which has no key. So this asserts the JOIN of two
+    * rules that live in different files and are checked at different times —
+    * the kind of thing that stays true right up until one of them is relaxed
+    * for a good local reason.
+    */
+  test("no cacheable node owns a bake group") {
+    def check(label: String, r: Renderer, states: Map[String, EntityState]) = {
+      val owners = r.surfaces.userBakeOwnerIds ++ r.surfaces.stateBakeOwnerIds
+      assert(owners.nonEmpty, s"$label exercises no bake group at all")
+      owners.foreach(id =>
+        assertEquals(
+          r.renderInputs(id, states),
+          None,
+          s"$label: bake owner '$id' has a cache key, but its bytes can carry " +
+            "the viewer's selection"
+        )
+      )
+    }
+    // BOTH activation kinds, because they resolve a selection by different
+    // means and only one of them reads the viewer: this suite's `dashboard` has
+    // a STATE-activated group, and `tabsOwner` a USER-selected one.
+    check("state-activated", renderer, line.head)
+    check("user-selected", Renderer.create(tabsOwner), line.head)
   }
 }

@@ -240,6 +240,78 @@ class ControlSmokeSuite extends SmokeSuite {
     }
   }
 
+  test("an icon-only button is ROUND, not stretched to its cell") {
+    // The bug this exists for shipped: `.fh-cell>:is(.button,button)` sets
+    // `inline-size:100%` so a labelled button fills its cell, and at
+    // specificity (0,2,0) it beat BeerCSS's own `.circle` (0,1,0) — so the
+    // round button stretched to the cell's width and kept its content height.
+    // A wide, short pill where a circle belongs.
+    //
+    // GEOMETRY, not a screenshot. The defect is a computed size, so it is
+    // assertable directly — no PNG baseline, nothing that varies with this
+    // machine's font rasterization, and a failure names the number. The
+    // visual suite could not have caught it anyway: no baseline contains a
+    // round button (`SmokeDashboard.dashboard`'s slider has no actions).
+    //
+    // Same shape as "pressable anywhere on its row" below: our layout rule and
+    // a BeerCSS rule fighting over one element, decided by specificity, silent
+    // when it goes the wrong way.
+    withPage(Scene.of(SmokeDashboard.busyIcon)) { (page, _) =>
+      for {
+        box <- IO.blocking(page.locator(".slider-actions button").boundingBox())
+        _ <- IO(
+          assert(
+            box.width > 8 && box.height > 8,
+            s"the button did not render: ${box.width}x${box.height}"
+          )
+        )
+        // A circle, within sub-pixel rounding. `2` rather than `0` because a
+        // fractional layout size can round differently on each axis; an OVAL
+        // is off by tens of pixels, so this cannot pass through it.
+        _ <- IO(
+          assert(
+            math.abs(box.width - box.height) <= 2,
+            s"an icon-only button must be round, but it is " +
+              f"${box.width}%.1f x ${box.height}%.1f — something is stretching " +
+              "it to its cell (check specificity against BeerCSS's .circle)"
+          )
+        )
+      } yield ()
+    }
+  }
+
+  test("a LABELLED button still fills its cell") {
+    // The other half of the rule above, and it is not decoration: `:not(.circle)`
+    // narrows an `inline-size:100%` that a labelled button depends on, so a
+    // future "fix" for an oval that simply deleted the rule would pass the
+    // roundness test and silently shrink every button on every dashboard to its
+    // text. Asserted as the RELATION to its cell rather than as a number, since
+    // the cell's width is the dashboard's business.
+    withPage(scene) { (page, _) =>
+      for {
+        button <- IO.blocking(
+          page
+            .locator(
+              "button",
+              new com.microsoft.playwright.Page.LocatorOptions()
+                .setHasText("Toggle Kitchen")
+            )
+            .boundingBox()
+        )
+        cell <- IO.blocking(
+          page.locator(".fh-cell:has(> button)").first().boundingBox()
+        )
+        _ <- IO(
+          assert(
+            math.abs(button.width - cell.width) <= 2,
+            f"a labelled button must fill its cell, but it is " +
+              f"${button.width}%.1f wide in a ${cell.width}%.1f cell"
+          )
+        )
+      } yield ()
+    }
+  }
+
   test("a rejected action surfaces a toast and clears busy") {
     // The fake's call_service RAISES; the server answers the action POST with
     // 400, and the shell's datastar-fetch listener turns that error into a
