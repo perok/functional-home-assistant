@@ -1301,7 +1301,7 @@ class Renderer(
     // OWN entity (it DEFINES the subject, so it never inherits it). Normally
     // a literal; a transform form (indirection) grounds on its own entityId.
     val subject: Option[String] =
-      slots.get("entity_id").map { s =>
+      slots.get(Dashboard.SubjectSlot).map { s =>
         s.literal.getOrElse(resolveSlot(s.entityId, s, states))
       }
     val resolved = slots.map { case (slot, source) =>
@@ -1315,7 +1315,7 @@ class Renderer(
           // the matched entity in a set clause). The `entity_id` slot
           // itself never inherits — it is the subject.
           val srcEntity =
-            if (slot == "entity_id") source.entityId
+            if (slot == Dashboard.SubjectSlot) source.entityId
             else source.entityId.orElse(subject)
           // `once` is identity-derived — its transform reads only
           // `$domain`/`$entity_id` (a service action, the slider's domain
@@ -1441,7 +1441,7 @@ class Renderer(
   ): Map[SignalId, String] = node match {
     case c: LayoutNode.Component =>
       val subject = c.slots
-        .get("entity_id")
+        .get(Dashboard.SubjectSlot)
         .map(s => s.literal.getOrElse(resolveSlot(s.entityId, s, states)))
       c.slots.collect {
         case (slot, src) if Renderer.isSignalSlot(src) =>

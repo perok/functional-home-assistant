@@ -876,6 +876,44 @@ class SignalSlotSuite extends ServerHarness {
     )
   }
 
+  test("the subject slot cannot be a signal slot") {
+    // Not a display value: `entity_id` is what every OTHER slot on the card
+    // resolves against. A signal moves in the browser alone, so the server
+    // would go on resolving the card against the old entity while the DOM
+    // claimed a new one.
+    //
+    // This was undefined rather than supported until now, and the two halves of
+    // the renderer disagreed about it — the rendered value resolved against the
+    // slot's own entity, the seed against the subject that same slot defines.
+    // A build error is the answer because neither reading is the right one.
+    val subject = Dashboard(
+      Map(
+        "gauge" -> CardDef(
+          "<i {{{entity_id__bind}}}>{{value}}</i>",
+          slots = List("value")
+        )
+      ),
+      LayoutNode.Component(
+        "gauge",
+        Map(
+          "entity_id" -> SlotSource(
+            transform = "$state",
+            signal = Some(SignalBind.Text)
+          ),
+          "value" -> SlotSource()
+        )
+      )
+    )
+    assertEquals(
+      subject.validate(),
+      List(
+        "c: slot 'entity_id' cannot be a signal slot — it names the entity " +
+          "the card's other slots read, which is a build-time fact, not a " +
+          "value that moves"
+      )
+    )
+  }
+
   // ---------------------------------------------------------------------------
   // Signals on STRUCTURE
   // ---------------------------------------------------------------------------
