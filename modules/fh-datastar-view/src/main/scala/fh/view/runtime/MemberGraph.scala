@@ -704,7 +704,19 @@ private[runtime] final class MemberGraph(
     * not a current member.
     */
   def liveEntitiesOf(id: NodeId): List[String] =
-    index.get.byId.get(id).toList.flatMap(_.node.liveEntities)
+    entitiesOf(id)(_.liveEntities)
+
+  /** [[liveEntitiesOf]] minus signal-only reads — the render key's half. See
+    * [[fh.view.model.LayoutNode.Component.liveEntitiesAsBytes]] for why both
+    * exist and why neither derives the other.
+    */
+  def liveEntitiesAsBytesOf(id: NodeId): List[String] =
+    entitiesOf(id)(_.liveEntitiesAsBytes)
+
+  private def entitiesOf(
+      id: NodeId
+  )(read: LayoutNode.Component => List[String]): List[String] =
+    index.get.byId.get(id).toList.flatMap(m => read(m.node))
 
   /** Main-page member containers whose MEMBERSHIP this frame could have moved.
     * No entity list: a member that merely ticked is found through the reverse

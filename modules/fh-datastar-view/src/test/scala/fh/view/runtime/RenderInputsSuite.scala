@@ -11,6 +11,7 @@ import fh.view.model.{
   Op,
   Predicate,
   Region,
+  SignalBind,
   SlotSource,
   Surface
 }
@@ -58,7 +59,14 @@ class RenderInputsSuite extends munit.FunSuite {
       regions = Map("bar" -> Region(), "branch" -> Region(Region.Baked))
     ),
     "bannerBar" -> CardDef("""<b>{{title}}</b>""", slots = List("title")),
-    "btn" -> CardDef("""<button>{{label}}</button>""", slots = List("label"))
+    "btn" -> CardDef("""<button>{{label}}</button>""", slots = List("label")),
+    // One plain slot and one SIGNAL slot, on different entities. The signal's
+    // entity reaches this card's patch form only as a binding, never as bytes
+    // (ADR 0017), which is the asymmetry the key has to reflect.
+    "gauge" -> CardDef(
+      """<div><span>{{state}}</span><em {{{live__bind}}}>{{live}}</em></div>""",
+      slots = List("state", "live")
+    )
   )
 
   private def bound(entity: String) = LayoutNode.Component(
@@ -127,6 +135,16 @@ class RenderInputsSuite extends munit.FunSuite {
             )
           )
         }.toMap
+      ),
+      LayoutNode.Component(
+        "gauge",
+        slots = Map(
+          "state" -> SlotSource(Some("sensor.t")),
+          "live" -> SlotSource(
+            Some("sensor.other"),
+            signal = Some(SignalBind.Text)
+          )
+        )
       )
     ),
     surfaces = Map(
@@ -201,7 +219,7 @@ class RenderInputsSuite extends munit.FunSuite {
     * root column) and `c_3` (the set root) compose rather than render, so
     * neither is addressable.
     */
-  private val ids: List[NodeId] = List("c_0", "c_1", "c_2")
+  private val ids: List[NodeId] = List("c_0", "c_1", "c_2", "c_4")
 
   test("agreeing on renderInputs means agreeing on the bytes") {
     for {
@@ -216,6 +234,28 @@ class RenderInputsSuite extends munit.FunSuite {
       clue =
         s"$id keyed identically at steps $i and $j but rendered differently"
     )
+  }
+
+  test("an entity reached ONLY through a signal slot is not in the key") {
+    // `c_4` binds sensor.t as bytes and sensor.other as a signal. A signal's
+    // value is absent from the patch form (ADR 0017), so sensor.other moving
+    // cannot move these bytes — keying on it would throw away a generation
+    // whose re-render is identical.
+    //
+    // The soundness direction is not asserted here: the all-pairs property
+    // above already covers `c_4`, and it is what would catch this narrowing if
+    // it went one entity too far.
+    val key = renderer.renderInputs("c_4", line.head).get
+    assertEquals(key.entities.keySet, Set("sensor.t"))
+  }
+
+  test("a signal slot's entity still reaches the reverse index") {
+    // The other half of the same fact, and the loud-vs-silent one: the key may
+    // drop sensor.other, but `componentsFor` may not — a signal has to make its
+    // node a candidate or no frame is ever computed for it, and nothing about
+    // that failure is visible in a render.
+    val nodes = renderer.componentsFor("sensor.other")
+    assert(nodes.contains(NodeId.derived("c_4")), clue = nodes)
   }
 
   test("a set member's key covers everything its clause dispatch reads") {
