@@ -277,8 +277,8 @@ class RenderInputsSuite extends munit.FunSuite {
     )
   }
 
-  test("a node whose own bytes carry its children has NO key") {
-    // The root column splices its children, so its rendering moves when any
+  test("STRUCTURE has NO key") {
+    // The root column holds a region, so its rendering moves when any
     // descendant's entity moves. The key excludes children by design, so the
     // only sound answer is that it cannot be cached at all — the difference
     // between a `None` and a key a caller must know not to trust.
@@ -289,10 +289,12 @@ class RenderInputsSuite extends munit.FunSuite {
     )
   }
 
-  test("a bake owner with tab-bar children has no key either") {
-    // `Tabs`' shape: a `self` (the bar) whose children are the tab buttons. It
-    // is the one node in the shipped library this excludes, and the reason the
-    // rule is about the RENDERING rather than about container-ness.
+  test("a bake owner with a live slot of its own has no key either") {
+    // A card holding a region AND binding an entity — the shape that used to
+    // be admitted (a `self` was its patch target, so it had a rendering of its
+    // own) and is now structure like any other. The authoring layer refuses
+    // this combination outright; the model is built here directly, because the
+    // point is what the RENDERER answers for it.
     val tabs = Renderer.create(
       Dashboard(
         cards,

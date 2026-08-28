@@ -63,7 +63,7 @@ enum Tenure derives CanEqual {
   *     surface's nodes are recorded and rendered only while it is in here, so a
   *     closed popup costs nothing.
   *   - `control`: server-pushed patches destined for *this* connection's stream
-  *     — popup mount/remove (the entity-change loop can't carry them, as
+  *     — popup insert/remove (the entity-change loop can't carry them, as
   *     they're triggered by action POSTs on other fibers).
   *   - `holds`: what THIS client's DOM has, per node — the digest of the bytes
   *     it was last sent, seeded by the document's own render. The answer to "is

@@ -103,8 +103,8 @@ private[runtime] final class SurfaceGraph(
     surfaces.values.flatMap(_.bakeInto).map(NodeId.derived).toSet
 
   /** Tabs. Their own rendering is shared like any other node — the
-    * client-selected member lives in the MOUNT, which a patch never carries.
-    * What is per-client is FILLING that mount ([[surfaceVariesByViewer]]).
+    * client-selected member lives in the HOST, which a patch never carries.
+    * What is per-client is FILLING that host ([[surfaceVariesByViewer]]).
     */
   val userBakeOwnerIds: Set[NodeId] =
     bakeOwnerIds.filterNot(isStateGroup)
@@ -131,7 +131,7 @@ private[runtime] final class SurfaceGraph(
     *
     * A NESTED SET CONTAINER needs the same treatment and for the same reason:
     * it is not in the static index either, and patches aim at it directly (a
-    * mount fill, and the `remove` of a departing member, which names its
+    * host fill, and the `remove` of a departing member, which names its
     * container). The graph is the only thing that knows where it hangs.
     */
   def rootOf(id: NodeId): Option[String] =
@@ -475,9 +475,7 @@ private[runtime] final class SurfaceGraph(
       .filterNot(isStateGroup)
       .flatMap(gid => resolveActive(gid, uiState)._2)
 
-  /** Which surfaces share `host` as their mount — the eviction group a swap
-    * replaces.
-    */
+  /** Which surfaces bake into `host` — the eviction group a swap replaces. */
   def surfacesAt(host: DomId): Set[String] =
     surfaces.collect {
       case (sid, s) if s.hostId == host => sid

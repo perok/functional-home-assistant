@@ -217,7 +217,7 @@ class BeerTheme extends themeMod.Theme {
   }
 
   // Same contract as theme.pkl: the `#dashboard` swap target (enforced by
-  // Dashboard.validate) + the `#popups` overlay mount, whose hole carries a
+  // Dashboard.validate) + the `#popups` overlay host, whose hole carries a
   // popup restored on refresh so it paints with the page. `responsive` is
   // BeerCSS's centered max-width container.
   chrome = """

@@ -41,7 +41,7 @@ object Datastar {
     * target `selector`. `outer` (the default) morphs the element matching the
     * fragment's own id; `inner` replaces a target's children;
     * `append`/`prepend` add to a target's children (e.g. stacking a popup into
-    * a mount) — these need a `selector`. See
+    * a host) — these need a `selector`. See
     * https://data-star.dev/reference/sse_events.
     */
   def patch(
@@ -121,7 +121,7 @@ object Datastar {
       .noSpaces
 
   /** The same values as a `data-signals` ATTRIBUTE — the inline seed that lets
-    * an element carry its own signals, so a first paint, a mount fill or a
+    * an element carry its own signals, so a first paint, a host fill or a
     * member insert needs no frame to be correct (ADR 0017). `""` for no values,
     * which renders as no attribute at all.
     *

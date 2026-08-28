@@ -12,8 +12,8 @@ import "core/node.pkl" as nodes
 // the literal slot key `"class"` that the `{{#class}}` template sections read.
 class Row extends nodes.Node {
   card = "fhrow"
-  // Pure structure: the row IS where its children go, so there is no `self`.
-  // No id on the hole — nothing fills a row from outside.
+  // Pure structure: the row IS where its children go, and it shows nothing of
+  // its own. No id on the hole — nothing fills a row from outside.
   cardDef = new nodes.CardDef {
     regions = new Mapping { [nodes.defaultRegion] = new nodes.Region {} }
     template = """

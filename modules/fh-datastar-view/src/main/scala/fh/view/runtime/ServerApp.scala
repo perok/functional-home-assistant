@@ -472,7 +472,7 @@ object ServerApp extends IOApp {
         .flatTap { prepared =>
           prepared.built.traverse_ { case (slug, renderer) =>
             // Built, but maybe not sound: report what still serves and only
-            // misbehaves (a popup with nowhere to mount).
+            // misbehaves (a popup with nowhere to go).
             renderer.warnings.traverse_(w => IO.println(s"[warn] '$slug': $w"))
           } *>
             prepared.failed.traverse_ { case (slug, message) =>

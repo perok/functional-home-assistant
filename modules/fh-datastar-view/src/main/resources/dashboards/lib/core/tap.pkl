@@ -397,7 +397,7 @@ function closePopup(): TapAction =
 
 /// Open the surface REGISTERED under `surfaceId` (a top-level `surfaces` entry).
 /// A registered popup surface is [[Popup]]-wrapped (the `<dialog>`); the backend
-/// renders it bare into the `#popups` mount.
+/// renders it bare into the `#popups` host.
 // No client-side `$ui_popups` assignment, unlike a tab's PENDING one: nothing
 // on the page displays a popup selection — the dialog itself is what the swap
 // patches in — so a pending value here would be a signal nobody reads. The

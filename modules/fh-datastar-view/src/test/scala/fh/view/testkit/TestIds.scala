@@ -6,12 +6,12 @@ import fh.view.model.{DomId, LayoutNode, NodeId, SetId}
   * [[fh.view.runtime.FragmentLog]] or assert on generated ids.
   *
   * A blanket conversion rather than a wrapper at ~130 call sites, and that is a
-  * deliberate trade. [[NodeId]] exists to stop a DOM id (`c_2-self`,
-  * `c_2_panel`) from being stored as a log key in the SERVER — a silent,
-  * permanent hole, invisible at the time of the mistake. A test writing
-  * `log.set("a", …)` has no such confusion available to it: the literal IS the
-  * spec. What the type still buys inside a suite is the production signatures
-  * it appears in, which no import can loosen.
+  * deliberate trade. [[NodeId]] exists to stop a DOM id (a bake host's
+  * `c_2_panel`, the theme's `popups`) being stored as a log key in the SERVER —
+  * a silent, permanent hole, invisible at the time of the mistake. A test
+  * writing `log.set("a", …)` has no such confusion available to it: the literal
+  * IS the spec. What the type still buys inside a suite is the production
+  * signatures it appears in, which no import can loosen.
   */
 object TestIds {
   given Conversion[String, NodeId] = NodeId.derived(_)
@@ -26,7 +26,7 @@ object TestIds {
   given munit.Compare[Set[NodeId], Set[String]] = (a, b) => a == b
 
   /** Same reason, for a DOM id asserted against the literal it must equal
-    * (`patchTargetId("c") == "c-self"`).
+    * (`hostId("c_2") == "c_2_panel"`).
     */
   given munit.Compare[DomId, String] = (a, b) => a == b
 

@@ -473,10 +473,10 @@ private[runtime] final class MemberGraph(
     * which is the live half. That distinction is the whole reason the type
     * exists: asking the index instead was silent when wrong.
     *
-    * It is also what decides how a mount is patched. A state group's mount
-    * holds at most ONE member (a bake group has one hole), so there are no
-    * siblings to preserve and no position to fix: overwriting it IS the delta.
-    * A set's is the opposite, and gets per-member `remove`/`before`.
+    * It is also what decides how a host is patched. A state group's host holds
+    * at most ONE member (a bake group has one hole), so there are no siblings
+    * to preserve and no position to fix: overwriting it IS the delta. A set's
+    * is the opposite, and gets per-member `remove`/`before`.
     */
   def setContainer(id: NodeId): Option[SetId] =
     sources.get(id).map(_.setId(id))

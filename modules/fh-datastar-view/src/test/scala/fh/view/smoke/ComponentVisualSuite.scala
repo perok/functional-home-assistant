@@ -94,7 +94,7 @@ class ComponentVisualSuite extends SmokeSuite {
         // panel — `.last()` picks it over the page-root `.fh-cell`, which also
         // (transitively) "has" `.tabs`.
         //
-        // This only became TRUE with the self/mount split: a bake owner used to
+        // This only became TRUE with the leaf/structure split: a bake owner used to
         // be denied its cell (its patch would have carried the whole panel), so
         // `.last()` fell through to the page root and the baseline was silently
         // a full-page shot. Hence the one-time rebaseline — the tabs look did

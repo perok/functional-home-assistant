@@ -242,7 +242,7 @@ object DashboardBuild {
     node.asObject.flatMap(_("id")).flatMap(_.asString)
 
   // Keep only the surface's own fields (content + optional bakeInto/bakeAs/bakeIndex/activation).
-  // The host is derived (Surface.hostId), not authored, so "mount" is not lifted;
+  // The host is derived (Surface.hostId), not authored, so it is not lifted;
   // chrome/stack are gone too — every surface is chrome-less (Surface's final 5 fields).
   // The retired flat `defaultOpen` is deliberately NOT lifted: its meaning moved
   // into the `activation` object ({kind:"user", defaultOpen}), and an authoring
@@ -390,7 +390,7 @@ object DashboardBuild {
             // that reads like the same thing and is not, so a surface-owning
             // card nested inside a panel (tabs inside an `If` branch) came out
             // with a `bakeInto` naming a node that does not exist — an unbaked
-            // host, a blank `bakeIndex`, and a mount id colliding with the
+            // host, a blank `bakeIndex`, and a host id colliding with the
             // node's own cell.
             val resolved = marker.toList.map { case (key, sd) =>
               val sdObj = sd.asObject.getOrElse(JsonObject.empty)

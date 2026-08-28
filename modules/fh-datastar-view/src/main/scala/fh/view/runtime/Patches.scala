@@ -53,11 +53,10 @@ private[runtime] enum Patch:
   * per node the patch renders, digest included. It is the only thing that can
   * tell a session what it just sent.
   *
-  * `invalidates` names mounts this patch RE-SUPPLIED. The self/mount split
-  * means an ordinary morph can never touch a child — a container's patch
-  * targets `<id>-self`, not the sibling mount ([[Renderer.patchTargetId]]) — so
-  * this is about the one patch that aims AT a mount: an `Inner` fill is
-  * all-or-nothing over its children by design.
+  * `invalidates` names bake HOSTS this patch RE-SUPPLIED. An ordinary morph can
+  * never touch a child — only a LEAF is a patch target, and a leaf holds no
+  * regions — so this is about the one patch that aims AT a host: an `Inner`
+  * fill is all-or-nothing over its children by design.
   *
   * Load-bearing where the fill carries no per-node trace (a branch fill, a
   * refill, a body repaint): those nodes are still on screen showing fill-time
@@ -75,7 +74,7 @@ private[runtime] enum Patch:
 private[runtime] case class Addressed(
     patch: Patch,
     establishes: Map[NodeId, Held] = Map.empty,
-    // Roots: a mount and everything under it ([[NodeAncestry]]).
+    // Roots: a host and everything under it ([[NodeAncestry]]).
     invalidates: Set[NodeId] = Set.empty
 )
 
@@ -169,9 +168,9 @@ private[runtime] object Patches {
     *     ids simply never enter the selection.
     *
     * Nothing here reads a client's `uiState`. The one thing that depends on it
-    * — which member of a USER-selected mount a viewer chose — is not rendered
-    * at all: the mount comes out empty and each connection fills its own from
-    * the mount's own [[Mutation]], which each session fills for itself.
+    * — which member of a USER-selected host a viewer chose — is not rendered at
+    * all: the host comes out empty and each connection fills its own from the
+    * host's own [[Mutation]], which each session fills for itself.
     */
   def plan(
       renderer: Renderer,
@@ -346,7 +345,8 @@ private[runtime] object Patches {
     val now = memberAt(states)
     if (was == now) log
     else {
-      // The departing branch's nodes are not merely stale, they are unmounted:
+      // The departing branch's nodes are not merely stale, they are GONE from
+      // the DOM:
       // a morph at one would land nowhere, and the changelog must stop naming
       // them.
       val evicted =
@@ -372,8 +372,8 @@ private[runtime] object Patches {
     * ([[MemberGraph.syncMembers]]), which applied that frame.
     *
     * '''Deltas by default; a fill only where it costs nothing or is the only
-    * option.''' A fill re-renders the WHOLE mount, so it re-sends the members
-    * that did not change — and it raises the mount's horizon, which drops every
+    * option.''' A fill re-renders the WHOLE host, so it re-sends the members
+    * that did not change — and it raises the host's horizon, which drops every
     * client below that cursor onto the same wholesale path. It is worth it in
     * exactly two places:
     *
@@ -424,7 +424,7 @@ private[runtime] object Patches {
           was.map(renderer.members.memberIdOf(gid, _))
         )
       )
-        // Touched as well as filled: the fill re-supplies the mount, and the
+        // Touched as well as filled: the fill re-supplies the host, and the
         // entries it leaves are what make the group ESTABLISHED for the next
         // membership change. Without them every change fills, and every fill
         // raises the horizon past another cursor.
@@ -465,7 +465,7 @@ private[runtime] object Patches {
     * Untagged — every patch here was already decided against THIS client's
     * `open` and `holds`, so there is nobody left to hide it from.
     *
-    * A fill establishes NOTHING and invalidates its mount: composed bytes have
+    * A fill establishes NOTHING and invalidates its host: composed bytes have
     * no per-node trace here, so the honest record is "these nodes are unknown
     * again", which costs redundant patches and never staleness.
     *
@@ -486,9 +486,10 @@ private[runtime] object Patches {
     *
     * One mechanism covers what would otherwise be two special cases. A
     * per-session fragment and an open popup are both just candidates here: the
-    * popup's nodes are in `open`, and a container's `self` does not contain its
-    * mount, so a client returning after a long absence gets the bar's new HTML
-    * and keeps its panel — no restore branch of its own.
+    * popup's nodes are in `open`, and a tab bar is a NODE beside the panel
+    * rather than markup wrapped around it, so a client returning after a long
+    * absence gets the bar's new HTML and keeps its panel — no restore branch of
+    * its own.
     *
     * '''The cursor selects which nodes; the renderer decides what to send.'''
     * The cursor is never consulted for content, which is what makes filtering
@@ -539,9 +540,9 @@ private[runtime] object Patches {
       },
       refill = all.refill.filter(renderer.surfaces.visibleNode(_, open, states))
     )
-    // Split by CONTAINER KIND, because the two mounts want different tools: a
-    // candidate set's needs per-member deltas that preserve siblings, a state
-    // group's holds one member and is simply overwritten.
+    // Split by CONTAINER KIND, because the two want different tools: a
+    // candidate set needs per-member deltas that preserve siblings, a state
+    // group's host holds one member and is simply overwritten.
     val (memberMoves, branch) = owed.moved.partition { case (_, m) =>
       renderer.members.setContainer(m.container).isDefined
     }
@@ -560,13 +561,13 @@ private[runtime] object Patches {
           renderer,
           gid,
           renderer
-            .renderMount(gid, states, uiState)
+            .renderHost(gid, states, uiState)
             .map(_._2)
             .reduceOption(_ + _),
           entries.map(_._1).sorted.headOption
         ).map(
           // A branch's content ids are `s_<surface>__…`, which no prefix of the
-          // container's id reaches — so the mount says which nodes it holds.
+          // container's id reaches — so the host says which nodes it holds.
           Addressed(
             _,
             invalidates = hostEvicts(renderer, renderer.hostId(gid))
@@ -624,20 +625,20 @@ private[runtime] object Patches {
         }
       }
     // Containers whose membership history no longer reaches this cursor: the
-    // delta is uncomputable, so the mount is filled wholesale. `Inner` is
-    // all-or-nothing over a mount's children, so this cannot be partial — which
+    // delta is uncomputable, so the host is filled wholesale. `Inner` is
+    // all-or-nothing over a host's children, so this cannot be partial — which
     // is precisely why it is the fallback of last resort, and why it is worth
     // having only because it replaced a whole-BODY repaint.
     val refills = owed.refill.sorted.map { gid =>
       val asSet = renderer.members.setContainer(gid)
-      val members = renderer.renderMount(gid, states, uiState)
+      val members = renderer.renderHost(gid, states, uiState)
       Addressed(
         Patch.Insert(
           members.map(_._2).mkString,
           PatchMode.Inner,
           renderer.hostId(gid)
         ),
-        // A SET mount's contents are one resolvable node per member, so the
+        // A SET host's contents are one resolvable node per member, so the
         // fill can say what it put in each and the next tick can tell
         // "unchanged" from "never told". A state group's is one composed
         // subtree under a root with no rendering of its own — a digest there
@@ -881,10 +882,10 @@ private[runtime] object Patches {
   ): Set[NodeId] =
     renderer.surfaces.surfacesAt(host).flatMap(renderer.surfaceNodeIds)
 
-  /** Apply what a patch did to one client's record: forget the mounts it
+  /** Apply what a patch did to one client's record: forget the hosts it
     * re-supplied, then claim what its bytes placed.
     *
-    * That ORDER, because a fill both re-supplies a mount and places members
+    * That ORDER, because a fill both re-supplies a host and places members
     * inside it — invalidating afterwards would drop the very claims the same
     * patch just earned.
     *
@@ -945,10 +946,10 @@ private[runtime] object Patches {
       .reverse
       .map(_.toSse)
 
-  /** Put `content` in a STATE group's mount — one patch, whatever the client's
+  /** Put `content` in a STATE group's host — one patch, whatever the client's
     * DOM currently holds there.
     *
-    * The mount takes at most one member, so `Inner` is both the delta (no
+    * The host takes at most one member, so `Inner` is both the delta (no
     * siblings exist to preserve) and idempotent (it lands the same on the old
     * branch, the new one, or an empty host). `departed` is only consulted when
     * nothing holds now: an `Inner` of empty content is not a well-formed patch,

@@ -537,7 +537,7 @@ class ServerRoutesSuite extends ServerHarness {
       titleDash("home", None).copy(
         surfaces = Map(
           "det" -> Surface(LayoutNode.Component("col")),
-          // Baked into a node, so it hosts in a panel — never the popup mount.
+          // Baked into a node, so it lands in a panel — never the popup host.
           "panel" -> Surface(
             LayoutNode.Component("col"),
             bakeInto = Some("c"),

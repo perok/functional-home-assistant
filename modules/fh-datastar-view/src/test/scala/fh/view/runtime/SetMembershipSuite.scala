@@ -26,7 +26,7 @@ import scala.concurrent.duration.*
 
 /** Candidate sets on the recording pass (ADR 0003): a member ticking, arriving,
   * leaving, switching case, and the churn heuristic that decides between a
-  * per-member delta and a whole-mount fill.
+  * per-member delta and a whole-host fill.
   */
 class SetMembershipSuite extends ServerHarness {
 
@@ -355,7 +355,7 @@ class SetMembershipSuite extends ServerHarness {
     // (half), and 1 of 2 is not a minority. It was the wrong call at its own
     // motivating boundary — a `remove` carries NO HTML, where the fill it chose
     // instead re-rendered the surviving member for nothing, and raised the
-    // mount's horizon so every client below that cursor lost its delta path
+    // host's horizon so every client below that cursor lost its delta path
     // too. A fill now happens only where it costs nothing (everything arrived,
     // or everything left) or where there is no baseline to patch against.
     val after = Map("light.a" -> on("light.a"), "light.b" -> off("light.b"))
@@ -381,7 +381,7 @@ class SetMembershipSuite extends ServerHarness {
   test("the LAST member leaving fills, because the fill carries nothing") {
     // The other side of the same rule. Everything left, so there is no
     // unchanged member for a fill to re-send: one empty `inner` beats one
-    // `remove`, and it leaves the mount unambiguously empty.
+    // `remove`, and it leaves the host unambiguously empty.
     val after = Map("light.a" -> off("light.a"))
     val change = StateChange("light.a", Some(on("light.a")), off("light.a"))
     runShared(dynDash, after, change, seedCache = Map("c_light_a" -> "<a>"))
@@ -659,7 +659,7 @@ class SetMembershipSuite extends ServerHarness {
             _ <- elsewhere.open.set(Set("other"))
             _ <- sessions.register("elsewhere", elsewhere)
             renderer <- ref.get.map(_.rendererOf.get)
-            // Establish the inner mount, so the frame produces a per-member
+            // Establish the inner host, so the frame produces a per-member
             // delta rather than a wholesale fill — the delta is the path that
             // has to get `root` right per member.
             seed = seeded(

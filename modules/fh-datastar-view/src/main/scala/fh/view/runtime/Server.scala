@@ -1023,7 +1023,7 @@ class Server(
               Server.headPatches(renderer, slug)
             else Nil
           // `Patches.resume` is TOTAL — a container whose history aged out is
-          // answered with a fill for THAT mount, not a refusal — so the only
+          // answered with a fill for THAT host, not a refusal — so the only
           // reasons left to repaint the body are the genuinely global ones
           // checked here: no cursor at all, a cursor minted against another log
           // (a restart or a renderer swap, which is every dashboard change),
@@ -2009,7 +2009,7 @@ class Server(
     // bare `'` and closes the literal early.
     // The popup host is the ONE selection with no card template to seed it —
     // it lives in `theme.chrome`, outside every node — so the shell declares
-    // `ui_<hostId>` and mirrors it, exactly as a tabs mount does for its own.
+    // `ui_<hostId>` and mirrors it, exactly as a tabs host does for its own.
     val popupSignalName = Server.UiSignalPrefix + Dashboard.PopupHostId
     val popupParamName = Server.UiParamPrefix + Dashboard.PopupHostId
     val popupSeed = Server.escapeHtml(

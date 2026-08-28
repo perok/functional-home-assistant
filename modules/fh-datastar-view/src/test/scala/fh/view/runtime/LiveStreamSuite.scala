@@ -195,8 +195,8 @@ class LiveStreamSuite extends ServerHarness {
     * [[Renderer.sessionOnlyStateGroups]] onto the per-session pass.
     *
     * A flip is decided by entity state, so the branch renders once for the slug
-    * — but the tabs host inside it holds a mount whose contents each client
-    * chose for itself. Rendering that mount on the shared pass would hand every
+    * — but the tabs host inside it holds a host whose contents each client
+    * chose for itself. Rendering that host on the shared pass would hand every
     * client the DEFAULT tab, silently yanking a viewer off the tab they picked.
     * Pinned here before the collapse deletes the pass that hides it.
     */
@@ -247,11 +247,10 @@ class LiveStreamSuite extends ServerHarness {
     )
   )
 
-  /** A BARE container — a mount and no `self` — has no rendering of its own:
-    * rendering it by id renders its whole subtree, mounts included. The log is
-    * per SLUG, so a digest recorded for one is one viewer's bytes presented as
-    * everyone's, and a resume re-rendering it hands that viewer's variant to
-    * whoever asks.
+  /** STRUCTURE has no rendering of its own: rendering it by id would render its
+    * whole subtree, hosts included, so it is refused. The log is per SLUG, so a
+    * digest recorded for one is one viewer's bytes presented as everyone's, and
+    * a resume re-rendering it hands that viewer's variant to whoever asks.
     *
     * Concretely, and this is the failure it caused: a client on tab 1
     * reconnects and is morphed onto tab 0 — over a change inside tab 0's panel,
@@ -260,8 +259,8 @@ class LiveStreamSuite extends ServerHarness {
 
   private def barePopupTabsDash = Dashboard(
     cards = Map(
-      // A PURE MOUNT, exactly as the shipped `Column` is: no `self`, children
-      // in the mount. That shape is the whole point — it has no markup of its
+      // PURE STRUCTURE, exactly as the shipped `Column` is: one region and
+      // nothing else. That shape is the whole point — it has no markup of its
       // own to fingerprint.
       "col" -> CardDef(
         template = "<div>{{#children}}{{{html}}}{{/children}}</div>",
@@ -427,8 +426,8 @@ class LiveStreamSuite extends ServerHarness {
     }
   }
 
-  test("a branch that empties removes its content, never the mount") {
-    // An `If` with no matching member: the mount must survive, because every
+  test("a branch that empties removes its content, never the host") {
+    // An `If` with no matching member: the host must survive, because every
     // later fill targets it by id and a patch at a missing id is a silent
     // no-op — the group would go permanently dead for that client.
     val d = ifDash().copy(surfaces =
@@ -450,7 +449,7 @@ class LiveStreamSuite extends ServerHarness {
       // The branch's CONTENT element, not the host it sat in.
       assert(removes.head.contains("selector #s_then__c"), clue = removes.head)
       assert(!removes.head.contains("#c_0_branch"), clue = removes.head)
-      // And the mount is still there to be filled again.
+      // And the host is still there to be filled again.
       assertEquals(refilled.size, 1, clue = refilled)
       assert(refilled.head.contains("selector #c_0_branch"), clue = refilled)
     }
@@ -475,7 +474,7 @@ class LiveStreamSuite extends ServerHarness {
           regions = LayoutNode.kids(LayoutNode.Component("ifhost"))
         ),
       surfaces = Map(
-        // The branch's root is a `col` — a mount with no self.
+        // The branch's root is a `col` — pure structure.
         "then" -> stateMember(
           LayoutNode.Component(
             "col",
@@ -697,7 +696,7 @@ class LiveStreamSuite extends ServerHarness {
   }
 
   /** A bar that renders its ACTIVE tab server-side rather than through a
-    * `$ui_<id>` expression — `{{bakeIndex}}` in the card's `self`.
+    * `$ui_<id>` expression — `{{bakeIndex}}` on the card's own template.
     *
     * It used to paint correctly and then blank itself on the first tick: the
     * document path passed `bakeIndex`, the patch path did not. Now both do, and
@@ -996,7 +995,7 @@ class LiveStreamSuite extends ServerHarness {
   test("viewers SHARING a selection each get the fill, not just the first") {
     // What is memoised is the VERDICT, not the render. Share the render and the
     // first viewer to force it writes the digest, so the second is told its
-    // branch is unchanged — and sits on an empty mount until something
+    // branch is unchanged — and sits on an empty host until something
     // unrelated moves. Every other multi-client test here puts its clients on
     // DIFFERENT selections, where one render each is the right answer anyway,
     // so nothing pinned the case where sharing is the whole point.
@@ -1099,7 +1098,7 @@ class LiveStreamSuite extends ServerHarness {
     }
   }
 
-  test("end to end: flipping there and back, one mount overwrite each time") {
+  test("end to end: flipping there and back, one host overwrite each time") {
     // The shape the running app showed wrong twice. Driving the diff core
     // directly could not see either: the first bug was in the resume path, the
     // second in how a replay was assembled, and both only appear once events
@@ -1155,7 +1154,7 @@ class LiveStreamSuite extends ServerHarness {
         // to even when it owed this client nothing.
         _ = assertEquals(domEvents(hidden), Nil, clue = hidden)
 
-        // 4. The flip: ONE overwrite of the host's mount, carrying the branch
+        // 4. The flip: ONE overwrite of the host, carrying the branch
         //    rendered at CURRENT state (B1, which this client never saw). The
         //    browser reported three events here — two removals and an append.
         flip <- world.change(es("alarm.h", "disarmed")) *> client.drain

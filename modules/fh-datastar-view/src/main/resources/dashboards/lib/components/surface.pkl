@@ -80,21 +80,21 @@ class Tabs extends nodes.Node {
   // by the swap, which is also what empties pending
   // (`tapMod.pendingClear`) — see `docs/adr/0025-a-value-in-flight.md`.
   //
-  // The bar is STRUCTURE, not a patch target: it holds the buttons, and a self
-  // may hold no hole, so it cannot be one and hold them both. It does not need
-  // to be — the bar carries no live value (the active highlight is client-side,
+  // The bar is STRUCTURE, not a patch target: it holds the buttons, and a
+  // patch at it would carry them back with it. It does not need to be one —
+  // the bar carries no live value (the active highlight is client-side,
   // `data-class` off the two selection signals) and a selection change arrives
   // as a signal frame (`Server.selectionJson`), never as re-rendered markup.
   // BeerCSS dictates the nesting either way: its tab styling is the structural
   // selector `.tabs > a`, so the anchors must be direct children of the bar.
   //
   // A live header — "the tab bar with the current temperature" — is therefore
-  // authored as an ordinary node beside the buttons rather than by giving this
-  // card a `self`, and costs its own bytes instead of every button's.
+  // authored as an ordinary node beside the buttons, in a region of its own,
+  // and costs its own bytes instead of every button's.
   //
   // The bar reads `{{bakeIndex}}` for its signal seed, which the TEMPLATE is
   // given (`Renderer.traced` composes with `vars = structuralVars ++ bakeIndex
-  // ++ baked`), so moving it out of the `self` changes no bytes.
+  // ++ baked`), so it is on the template itself and costs no extra bytes.
   //
   // `{{hostId}}` replaces the hand-derived `{{id}}_panel`: it resolves to
   // `Surface.hostId`, the same string the backend addresses, so Pkl and Scala
@@ -197,8 +197,8 @@ class If extends nodes.Node {
   card = "ifhost"
   // Pure structure: one BAKED region, `branch` (the selected member's rendered
   // content, injected by the backend like the tabs `panel` — not a declared
-  // slot). No `self` at all — an If has no presentation of its own, so
-  // there is nothing about it that could change without its content changing.
+  // slot). No markup of its own — an If has no presentation, so there is
+  // nothing about it that could change without its content changing.
   // `fh-ifhost` exists so the layout can collapse an unmatched conditional. With
   // no matching branch the bake hole is the empty string, and without the class
   // the surrounding `fh-cols-full` cell still claimed a full-width flex line —

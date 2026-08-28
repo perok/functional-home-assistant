@@ -1772,10 +1772,14 @@ class PklBuildSuite extends munit.FunSuite {
   // ---- the card shape is a type, so an invalid dashboard is unconstructable ----
 
   /** Evaluate a probe that defines its own card class, and say whether Pkl took
-    * it. The three rules below are the self/mount split's structural guarantees
+    * it. The rule below is the LEAF/STRUCTURE split's structural guarantee
     * (docs/adr/0012-each-session-renders-what-it-is-owed.md, "a fragment is a
     * node's OWN html") — enforced HERE, in the authoring layer, rather than as
     * a `Dashboard.validate` message after the fact.
+    *
+    * The `core/` modules are imported because a card AUTHOR writes against them
+    * (ADR 0015): the `components.pkl` facade re-exports cards, not the kit they
+    * are built from.
     */
   private def cardShapeAccepted(body: String): Boolean = {
     val tmp = os.temp.dir()
@@ -1785,56 +1789,74 @@ class PklBuildSuite extends munit.FunSuite {
       s"""module probe
          |import "@fh-dashboard/hass.pkl"
          |import "@fh-dashboard/components.pkl" as c
+         |import "@fh-dashboard/core/node.pkl" as nodes
+         |import "@fh-dashboard/core/slot.pkl" as slotMod
          |$body
          |""".stripMargin
     )
     evalProj(tmp, "probe.pkl").isRight
   }
 
-  test("Pkl rejects a card shape that would break the self/mount split") {
-    // A `self` IS the patch target, so it must carry the engine's id — without
-    // it the patch would have no element to match and would silently vanish.
+  /** A card holding one region, with `slot` as its only slot — the shape the
+    * rule is about, varying nothing but the slot.
+    */
+  private def structuralCard(slot: String): String =
+    s"""class Probe extends nodes.Node {
+       |  card = "probe"
+       |  cardDef = new nodes.CardDef {
+       |    regions = new Mapping { ["children"] = new nodes.Region {} }
+       |    template = #"<div>{{temp}}{{#children}}{{{html}}}{{/children}}</div>"#
+       |    slots { "temp" }
+       |  }
+       |  slots { ["temp"] = $slot }
+       |}
+       |node = new Probe {}""".stripMargin
+
+  /** A live BYTES slot on STRUCTURE is a build error: such a card holds content
+    * AND would re-render on state, so its patch would carry everything it
+    * holds.
+    *
+    * '''The positives are not decoration.''' They vary ONLY the slot against
+    * the same card, so a probe that stopped evaluating for an unrelated reason
+    * — a renamed class, a moved module — fails them too. The version of this
+    * test that regions replaced had no such control, and it outlived the API it
+    * named: every probe referenced a `ContainerCard` that no longer existed, so
+    * all three `!accepted` assertions passed on a name-resolution error and the
+    * rule went untested.
+    */
+  test("Pkl rejects a live BYTES slot on a card that holds regions") {
     assert(
       !cardShapeAccepted(
-        """class Bad extends c.Node {
-          |  card = "bad"
-          |  cardDef = new c.ContainerCard {
-          |    self = "<div>no id at all</div>"
-          |    mount = "<div>{{#children}}{{{html}}}{{/children}}</div>"
-          |  }
-          |}
-          |node = new Bad {}""".stripMargin
-      )
+        structuralCard("""new slotMod.Slot { entityId = "sensor.t" }""")
+      ),
+      "a live slot on structure must be rejected"
     )
-    // `self` and `mount` must be SIBLINGS. Nesting the mount inside the self is
-    // the one way to break that, so it is the one thing forbidden — this is what
-    // makes "a patch never carries mounted content" structural.
+    // A LITERAL is fine — the rule is about the VALUE, not the card's type.
+    // `Grid` is exactly this shape (see the next test).
     assert(
-      !cardShapeAccepted(
-        """class Bad extends c.Node {
-          |  card = "bad"
-          |  cardDef = new c.ContainerCard {
-          |    self = #"<div id="{{selfId}}">{{{mount}}}</div>"#
-          |    mount = "<div>x</div>"
-          |  }
-          |}
-          |node = new Bad {}""".stripMargin
-      )
+      cardShapeAccepted(structuralCard(""""hello"""")),
+      "a literal slot on structure is fine"
     )
-    // A LIVE slot on a container with no `self`: it hosts content AND re-renders
-    // on state, so its patch would carry everything its mount holds. Declaring a
-    // `self` is the fix, and lifts the ban.
+    // So is a SIGNAL slot, whatever it reads: its value never becomes bytes in
+    // this element — it is seeded on the node's wrapper and updated by its own
+    // frame (ADR 0017). This is the exemption the rule's wording turns on.
     assert(
-      !cardShapeAccepted(
-        """class Bare extends c.Node {
-          |  card = "bare"
-          |  cardDef = new c.ContainerCard {
-          |    mount = #"<div>{{temp}}{{#children}}{{{html}}}{{/children}}</div>"#
-          |  }
-          |  slots { ["temp"] = new c.Slot { entityId = "sensor.t" } }
-          |}
-          |node = new Bare {}""".stripMargin
-      )
+      cardShapeAccepted(
+        structuralCard(
+          """new slotMod.Slot { entityId = "sensor.t"; signal = "text" }"""
+        )
+      ),
+      "a signal slot on structure is fine"
+    )
+    // And so is a live slot that reads without TRACKING — `onRender`/`once`
+    // never put this card in a diff set.
+    assert(
+      cardShapeAccepted(
+        structuralCard(
+          """new slotMod.Slot { entityId = "sensor.t"; reads = "once" }"""
+        )
+      ),
+      "a non-live read on structure is fine"
     )
   }
 

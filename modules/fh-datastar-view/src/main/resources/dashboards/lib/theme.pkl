@@ -100,7 +100,7 @@
 ///   6. `chrome`: the page frame — MUST wrap `{{{body}}}` in an element with
 ///      `id="dashboard"` (the reload swap target; enforced by
 ///      Dashboard.validate) and, if the dashboard uses popups, host a
-///      `<div id="popups">{{{popups}}}</div>` overlay mount. The hole is where
+///      `<div id="popups">{{{popups}}}</div>` overlay host. The hole is where
 ///      a popup being RESTORED on a refresh is baked, so it is on screen with
 ///      the first paint instead of arriving when the stream connects; leave it
 ///      out and the dialog still works, it just pops in a moment late.
