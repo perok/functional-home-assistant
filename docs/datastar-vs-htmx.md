@@ -168,6 +168,7 @@ Any of:
    independent — worth re-reading this document then.
 
 Revisit when one of those is true, or in six months once htmx 4 has soaked, whichever comes first —
-and revisit with measurements from a three-card spike, not with argument. #134's store is the
-prerequisite that makes such a spike cheap, which is why it is being built first regardless; see
-[`plan-entity-signal-store.md`](plan-entity-signal-store.md).
+and revisit with measurements from a three-card spike, not with argument. The store that made such
+a spike cheap has landed ([issue #134](https://github.com/perok/functional-home-assistant/issues/134),
+ADR 0017): entity values already live under one `_e` path a client store could be seeded from, so
+the port's hardest half is no longer hypothetical.

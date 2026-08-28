@@ -115,7 +115,7 @@ object Datastar {
     */
   def signalsJson(values: Map[SignalId, Json]): String =
     nest(
-      values.toList.map((k, v) => (k: String).split('.').toList -> v)
+      values.toList.map((k, v) => k.segments -> v)
     ).noSpaces
 
   /** A dotted signal path is NESTED, never emitted as one flat key.
@@ -167,7 +167,7 @@ object Datastar {
       // after a quoted attribute value, and `id="c"data-signals=…` is a parse
       // error browsers only recover from by accident.
       s""" data-signals="${nestJs(
-          values.toList.map((k, v) => (k: String).split('.').toList -> v)
+          values.toList.map((k, v) => k.segments -> v)
         )}""""
 
   /** The seed's JS object literal, nested for the same reason [[nest]] is —

@@ -22,6 +22,14 @@ state). "Slot" is the value; the template hole it fills has the same name.
 **Signal slot** — a slot whose value is pushed to the browser as a Datastar signal instead of being
 baked into re-rendered HTML, so it can change without the card being re-rendered at all. ADR 0017.
 
+**Display signal** vs **interaction signal** — which of the two a signal is decides how it is NAMED,
+so the distinction is load-bearing rather than descriptive. A *display* signal carries an entity's
+value and is named by what it READS (`_e.<domain>.<object_id>.<transform>`), so every card showing
+that value shares one signal and one frame entry. An *interaction* signal is client state with no
+server truth to share — a drag position, an optimistic selection, a busy indicator — and stays
+scoped to the node that owns the control (`_<nodeId>__<slotName>`). Sharing an interaction signal
+would let one card's gesture drive another card's readout. ADR 0017, ADR 0025.
+
 **Subject entity** — the entity a card is "about", carried as the magic `entity_id` slot. Other
 slots on the same node read it unless they name an entity of their own.
 

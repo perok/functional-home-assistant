@@ -48,7 +48,16 @@ stay exactly where they were.
 CHURN — every frame moves one, so the generation for the previous version is dead the
 moment it is replaced.
 
-It used to hold one per SELECTION as well, because a node could be both cached and the
+Not every entity the node READS, though: only those whose movement can change its BYTES
+(`LayoutNode.Component.liveEntitiesAsBytes`). A slot that travels as a signal is absent from
+the patch form entirely (ADR 0017), so its value moving cannot move these bytes, and keying
+on it would throw away a generation whose re-render is identical. The reverse index still
+wants the wider list — a signal has to make its node a candidate or no frame is ever computed
+for it — so the two lists are both real and neither derives the other. Getting them the wrong
+way round fails asymmetrically, and only one way is loud: the wide list in the key wastes a
+render, the narrow list in the reverse index silently stops signal frames.
+
+The cache used to hold one generation per SELECTION as well, because a node could be both cached and the
 owner of a bake group: its own bytes then carried the viewer's chosen tab, so two viewers
 on two tabs were owed different bytes for one node and evicted each other every frame.
 That shape no longer exists. A bake owner holds its content in REGIONS, which makes it
@@ -62,16 +71,17 @@ structural owner at none.
 **A straggler never displaces the current generation.** Sessions pull in parallel and read
 the store when they get there, so they do not all render from one snapshot — and an
 install refuses when the generation present is at or ahead of the caller's on every entity
-it reads (`RenderInputs.isAtLeast`). The straggler renders and is served; the map keeps the
-newer bytes. Without it, three sessions racing (newest, straggler, newest) cost three
+that can change its bytes (`RenderInputs.isAtLeast`). The straggler renders and is served;
+the map keeps the newer bytes. Without it, three sessions racing (newest, straggler, newest) cost three
 renders, the third re-rendering what the first had already produced. Accepted cost: a
 CLUSTER of stragglers at one older version stops sharing with itself. The newest snapshot
 is what more arrivals are coming for, so it is what the single slot should hold.
 
 **Variance stopped being a concept.** A node whose own markup reads its own selection —
 `{{bakeIndex}}` in a tab bar, the no-JS selection display — is now just a node: the session renders
-it with its own `uiState`, and the cache key already carries the selection that render
-reads. No deferral, no memo, no per-variant log entry, no classification. This is the
+it with its own `uiState`, and the key needs no selection in it — such a node holds regions,
+which makes it structure, and structure is never cached. No deferral, no memo, no per-variant
+log entry, no classification. This is the
 part the shared pass had to invent machinery for, and the part that costs nothing once
 the renderer runs where the viewer is.
 
@@ -125,8 +135,8 @@ anyone else's DOM.
 `{{bakeIndex}}` is the only way a selection is visible without scripts — a
 tab click is then an `<a href="?ui.<host>=N">` and the answer is a fresh document.
 Supporting it used to cost four concepts and a branch in the diff path. It now costs
-nothing: the renderer already takes a `uiState`, and the cache key already includes what
-the render read. **The `validate` rule that would reject `{{bakeIndex}}` on a structural card is
+nothing: the renderer already takes a `uiState`, and a node whose markup reads the selection
+is structure, which is never cached — so no key has to carry one. **The `validate` rule that would reject `{{bakeIndex}}` on a structural card is
 still the thing to restore if the no-JS goal is ever dropped** — but there is no longer a
 pipeline to simplify by dropping it.
 
