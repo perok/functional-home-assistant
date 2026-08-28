@@ -916,11 +916,7 @@ class Renderer(
         // slot cost a first paint.
         val tpl = templateOf(c.card)
         val resolved = resolveTemplate(vars, c.slots, states)
-        def compose(
-            form: SlotForm,
-            kidsHtml: Map[String, List[String]]
-        ): String = executeResolved(tpl, resolved, kidsHtml, form)
-        val html = compose(SlotForm.Document, childrenHtml)
+        val ownRendering = hasOwnRendering(id)
         // The patch form is what `own` is fingerprinted from, and `own` is the
         // only thing that reads one — so it is needed exactly where there is an
         // `own`: a node with its own rendering whose slots carry a signal.
@@ -930,10 +926,7 @@ class Renderer(
         // patch-form set: a node with its own rendering has no regions
         // (`CardDef.isStructure` IS "has regions"), so there is nothing to
         // compose.
-        val ownRendering = hasOwnRendering(id)
         val twoForms = ownRendering && declaresSignals(c)
-        val patchHtml =
-          if (twoForms) compose(SlotForm.Patch, childrenHtml) else html
         // EVERY node is a cell — containers included. The backend owns the id'd
         // `.fh-cell` wrapper, so templates never carry `id="{{id}}"` themselves
         // and authored `cell` classes (fh-cols-*, …) ride on it.
@@ -961,24 +954,35 @@ class Renderer(
         // one of them. Values come from [[Resolved.signals]] — the same
         // resolution the template was rendered from, so the seeded value and
         // the painted value cannot disagree.
-        def wrap(inner: String, form: SlotForm): String =
-          if (noWrapCards(c.card)) inner
-          else {
-            val seed =
-              if (form.isPatch) ""
-              else Datastar.signalsAttr(resolved.signals)
-            s"""<div class="fh-cell${Renderer.cellClasses(
-                c.cell
-              )}" id="$id"$seed>$inner</div>"""
+        //
+        // Wrapper and body go into ONE buffer, so the body is written where it
+        // is going rather than built and then copied in.
+        def rendered(form: SlotForm): String = {
+          val out = new java.lang.StringBuilder(Renderer.NodeBytesHint)
+          val wrapped = !noWrapCards(c.card)
+          if (wrapped) {
+            out
+              .append("""<div class="fh-cell""")
+              .append(Renderer.cellClasses(c.cell))
+              .append("""" id="""")
+              .append(id)
+              .append('"')
+            if (!form.isPatch)
+              out.append(Datastar.signalsAttr(resolved.signals))
+            out.append('>')
           }
-        val wrapped = wrap(html, SlotForm.Document)
+          executeInto(out, tpl, resolved, childrenHtml, form)
+          if (wrapped) out.append("</div>")
+          out.toString
+        }
+        val wrapped = rendered(SlotForm.Document)
         // What this node contributes to the trace: its whole (wrapped) patch
         // rendering when it is a LEAF, and nothing when it is structure.
         // Mirrors `renderNodeById` exactly — wrapper included, and in the PATCH
         // form, which is what that method produces.
         val own = Option.when(ownRendering)(
           Painted(
-            if (twoForms) wrap(patchHtml, SlotForm.Patch) else wrapped,
+            if (twoForms) rendered(SlotForm.Patch) else wrapped,
             resolved.signals
           )
         )
@@ -1167,30 +1171,52 @@ class Renderer(
       m: Member,
       rm: ResolvedMember,
       form: SlotForm
-  ): String =
+  ): String = {
+    val out = new java.lang.StringBuilder(Renderer.NodeBytesHint)
     // A member's children have no ids, so the seed here covers THEM too — see
     // [[memberSignalsOf]]. That is why a member's wrapper carries the whole
     // patch unit's signals rather than only its own card's.
-    s"""<div class="fh-cell${Renderer.cellClasses(m.node.cell)}" id="${m.id}"${
-        if (form.isPatch) ""
-        else Datastar.signalsAttr(memberSignalsOf(rm))
-      }>${memberBody(rm, form)}</div>"""
+    out
+      .append("""<div class="fh-cell""")
+      .append(Renderer.cellClasses(m.node.cell))
+      .append("""" id="""")
+      .append(m.id)
+      .append('"')
+    if (!form.isPatch) out.append(Datastar.signalsAttr(memberSignalsOf(rm)))
+    out.append('>')
+    memberBodyInto(out, rm, form)
+    out.append("</div>")
+    out.toString
+  }
 
   /** The member's own markup, children spliced in — everything inside its
     * wrapper.
+    *
+    * A child still has to be a `String` before its parent runs, because
+    * mustache splices it as a VALUE. What this avoids is the copy after that:
+    * the child's cell wrapper, and the member's own, are written straight into
+    * the buffer the body is going into.
     */
-  private def memberBody(rm: ResolvedMember, form: SlotForm): String =
-    executeResolved(
+  private def memberBodyInto(
+      out: java.lang.StringBuilder,
+      rm: ResolvedMember,
+      form: SlotForm
+  ): Unit =
+    executeInto(
+      out,
       rm.tpl,
       rm.resolved,
       rm.regions.view
         .mapValues(_.map {
           case ResolvedChild.NestedSet(html) => html
           case ResolvedChild.Node(cell, n)   =>
-            s"""<div class="fh-cell${Renderer.cellClasses(cell)}">${memberBody(
-                n,
-                form
-              )}</div>"""
+            val child = new java.lang.StringBuilder(Renderer.NodeBytesHint)
+            child
+              .append("""<div class="fh-cell""")
+              .append(Renderer.cellClasses(cell))
+              .append("""">""")
+            memberBodyInto(child, n, form)
+            child.append("</div>").toString
         })
         .toMap,
       form
@@ -1280,13 +1306,17 @@ class Renderer(
       childrenHtml: Map[String, List[String]],
       states: Map[String, EntityState],
       form: SlotForm
-  ): String =
-    executeResolved(
+  ): String = {
+    val out = new java.lang.StringBuilder(Renderer.NodeBytesHint)
+    executeInto(
+      out,
       tpl,
       resolveTemplate(injected, slots, states),
       childrenHtml,
       form
     )
+    out.toString
+  }
 
   /** The template context, READ IN PLACE.
     *
@@ -1445,23 +1475,26 @@ class Renderer(
     * it is what the seeded signal feeds and a morph that dropped it would leave
     * the element inert.
     */
-  private def executeResolved(
+  /** Render one card INTO the caller's buffer.
+    *
+    * Into, rather than returning a `String`, because the caller is about to
+    * wrap this in a `.fh-cell` and that wrapper used to be a second
+    * interpolation — which copied the node's whole rendering again, and a
+    * node's rendering contains its entire subtree. One copy per node per level
+    * of nesting, for a wrapper of about forty bytes (issue #237).
+    *
+    * Not jmustache's own `execute(ctx)` for the same reason: that allocates a
+    * `StringWriter` over a `StringBuffer` of default capacity 16, so a
+    * ~400-byte fragment grew its array five times, under a lock nothing shared.
+    */
+  private def executeInto(
+      out: java.lang.StringBuilder,
       tpl: Template,
       r: Resolved,
       childrenHtml: Map[String, List[String]],
       form: SlotForm
-  ): String = {
-    // Presized, and NOT jmustache's own `execute(ctx)`: that allocates a
-    // `StringWriter` over a `StringBuffer` whose default capacity is 16, so a
-    // 400-byte fragment grew its array five times, per node, under a lock it
-    // never needed (issue #237).
-    val out = new java.lang.StringBuilder(Renderer.NodeBytesHint)
-    tpl.execute(
-      NodeContext(r, childrenHtml, form),
-      appendTo(out)
-    )
-    out.toString
-  }
+  ): Unit =
+    tpl.execute(NodeContext(r, childrenHtml, form), appendTo(out))
 
   /** The signal values one PATCH UNIT carries, named under its id (ADR 0017).
     *
