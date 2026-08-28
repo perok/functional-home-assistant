@@ -103,11 +103,39 @@ whatever 1 leaves behind.
 
 ## Steps
 
-1. **Settle the entity-id nesting question.** Entity ids contain dots, so `light.taklys` under a
-   nested path parses as two levels (`_e` → `light` → `taklys`). That may be elegant — domain,
-   entity, attribute — or may break access with a literal dotted key. Decide against the pinned
-   `v1.0.2` bundle with a throwaway page before writing any type; the answer fixes the path format
-   everything downstream depends on.
+1. ~~**Settle the entity-id nesting question.**~~ **Answered** — read off the pinned `v1.0.2`
+   bundle rather than spiked in a browser, since the parsing is all in the source.
+
+   **Nesting works, and dots are always path separators.** A `$name` reference is matched by
+   `\$([a-zA-Z_\d]\w*(?:[.-]\w+)*)` and rewritten by
+   `f.split(".").reduce((m,h) => \`${m}['${h}']\`, "$")`. So `$_e.light.taklys.<key>` becomes
+   `$['_e']['light']['taklys']['<key>']`. Segments are bracket-indexed, so they need not be JS
+   identifiers — but the *regex* requires `\w+`, and HA slugifies both domain and object id to
+   `[a-z0-9_]`, so every entity id fits with no escaping. There is **no bracket syntax in an
+   expression**: `$_e['light.taklys']` cannot be written, because the match stops at `$_e`. A
+   literal dotted key is therefore unreadable by construction, which settles the question — nest.
+
+   **The payload must be genuinely nested JSON, not flat dotted keys.** The handler is
+   `apply(…){ k(ce(t), {ifMissing:r}) }` — `k` is `mergePatch`, *not* `mergePaths`. `mergePatch`
+   recurses only where the VALUE is a plain object, so a flat `"_e.light.taklys.x"` key would be
+   set as one literal key containing dots and never match the nested read. (`mergePaths`, which
+   does split dotted keys, is not what the SSE event uses.) `Datastar.signalsJson` and
+   `signalsAttr` therefore have to build nested structures — today both emit a flat object.
+
+   **Deep merge is confirmed**, which is what makes a store viable: `Nt` walks into nested objects
+   and assigns only at leaves, so patching one entity leaves its siblings untouched. `ifMissing`
+   (the `__ifmissing` modifier) applies at every depth. Note `null` deletes a key at any depth —
+   the hazard `signalsJson` already guards at the top level now applies throughout.
+
+   **New fork this surfaced — the last segment.** The sharing key is `(entity, transform)`, and a
+   JSONata transform is not `\w+`, so it cannot be a path segment. Using the SLOT NAME instead
+   would defeat the deduplication outright (two cards naming one transform differently would stop
+   sharing, and one name over two transforms would collide), so it is not a real option. The
+   segment must be a function of the transform alone. Proposed: a readable slug for the two common
+   shapes — `$state` → `state`, `$attr.<word>` → `attr_<word>` — and a `t<hash>` fallback for
+   computed expressions like the slider's `percentExpr`. Disjoint prefixes keep it injective. This
+   keeps the ENTITY readable in a frame log, which is the half of ADR 0017's readability objection
+   that actually mattered.
 
 2. **Prove the remount claim.** Before the refactor: confirm that a node re-rendered by a host fill
    picks its value up from a document-level store with no re-seed. A tab switch with a live value
