@@ -86,6 +86,21 @@ signals, not entity values: they have no server-side truth to share and no dupli
 They keep their node-scoped names. #133's comment already draws this display/interaction line;
 this plan applies it rather than formalising it.
 
+## The stack
+
+Each lands as its own PR, stacked, in this order. Only the second is #134 proper.
+
+| # | branch | what | depends on |
+|---|---|---|---|
+| 1 | `cache-key-signal-slots` | Narrow the render-cache key (step 8 below) | nothing — lands first |
+| 2 | `entity-signal-store-impl` | The store: steps 1–7 and 9 below | 1, only to keep measurement clean |
+| 3 | — | Document-form caching (#130 + a profile-dependent key) | **2**, see Open |
+| 4 | — | Spike htmx + Alpine, throwaway | 2 |
+
+Step 8 is written last below because it is the least entangled, not because it lands last. It
+touches `renderInputs` and so does 3, which is the one real conflict in the stack — 3 rebases onto
+whatever 1 leaves behind.
+
 ## Steps
 
 1. **Settle the entity-id nesting question.** Entity ids contain dots, so `light.taklys` under a
