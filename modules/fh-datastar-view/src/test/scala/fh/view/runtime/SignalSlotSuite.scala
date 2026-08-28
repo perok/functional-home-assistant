@@ -8,7 +8,9 @@ import fh.view.model.{
   Region,
   SetId,
   SignalBind,
-  SlotSource
+  SignalId,
+  SlotSource,
+  Surface
 }
 import api.homeassistant.HomeAssistantApi
 import cats.effect.IO
@@ -27,6 +29,13 @@ import fh.view.testkit.TestAuth
   * nothing while every test that only checks the value looks green.
   */
 class SignalSlotSuite extends ServerHarness {
+
+  /** The slider's computed fill transform — named once because it is both a
+    * fixture value and, hashed, the tail of the signal path it produces.
+    * Declared HERE because a `val` a fixture reads must be initialised before
+    * it: constructor statements run in source order, and a later one is null.
+    */
+  private val fillPct = "$string($attr.brightness) & \"%\""
 
   // A card whose reading is signal-backed and whose label is not: the two paths
   // side by side, in one node, so a test can move each independently.
@@ -49,6 +58,21 @@ class SignalSlotSuite extends ServerHarness {
 
   private val dash = Dashboard(cards, gauge("sensor.a"))
   private val leaf: NodeId = "c"
+
+  /** A DISPLAY signal's name, which is keyed by what it reads — `(entity,
+    * transform)` — not by the node showing it (issue #134). Spelled through the
+    * production derivation for the same reason the node-scoped form always was:
+    * written out twice, a drift would be silent, and the card would bind a
+    * signal nothing patches.
+    */
+  private def sig(entity: String, transform: String = "$state"): SignalId =
+    Renderer.signalName(leaf, "", Some(entity), transform, SignalBind.Text)
+
+  /** A two-way binding is interaction state and stays scoped to its node (ADR
+    * 0025), so it is named the other way and shares with nothing.
+    */
+  private def bound(node: NodeId, slot: String): SignalId =
+    Renderer.signalName(node, slot, None, "", SignalBind.Bind)
 
   private def at(state: String, name: String = "Hall") =
     Map("sensor.a" -> st("sensor.a", state, "friendly_name" -> name.asJson))
@@ -77,8 +101,14 @@ class SignalSlotSuite extends ServerHarness {
     assert(html.contains(">21.4<"), clue = html)
     // ...and the seed, so a client that DOES run Datastar is correct before any
     // frame arrives rather than blanking until the first tick.
-    assert(html.contains("data-signals=\"{_c__value: '21.4'}\""), clue = html)
-    assert(html.contains("data-text=\"$_c__value\""), clue = html)
+    // Nested, because a dotted key is a PATH: `datastar-patch-signals` applies
+    // `mergePatch`, which would store a flat `_e.sensor.a.state` as one literal
+    // key with dots in it and never match the `$_e.sensor.a.state` read.
+    assert(
+      html.contains("data-signals=\"{_e: {sensor: {a: {state: '21.4'}}}}\""),
+      clue = html
+    )
+    assert(html.contains("data-text=\"$_e.sensor.a.state\""), clue = html)
   }
 
   test("the patch form carries neither the value nor the seed") {
@@ -87,7 +117,7 @@ class SignalSlotSuite extends ServerHarness {
     assertEquals(patch.contains("data-signals"), false, clue = patch)
     // The BINDING stays: it is what the frame feeds, and a morph that dropped
     // it would leave the element inert for good.
-    assert(patch.contains("data-text=\"$_c__value\""), clue = patch)
+    assert(patch.contains("data-text=\"$_e.sensor.a.state\""), clue = patch)
   }
 
   test("a node with no signal slot renders one form, by reference") {
@@ -144,7 +174,7 @@ class SignalSlotSuite extends ServerHarness {
     val out = resumeFrom(r, at("21.4"), at("21.5"))
     assertEquals(
       out.map(_.patch),
-      List(frame(Renderer.signalName(leaf, "value") -> "21.5")),
+      List(frame(sig("sensor.a") -> "21.5")),
       clue = events(out).map(_.renderString)
     )
     // The whole point, stated as the absence it is: no card was re-sent.
@@ -212,7 +242,10 @@ class SignalSlotSuite extends ServerHarness {
       clue = html
     )
     assert(
-      html.contains("data-signals=\"{_c__other: 'Hall', _c__value: '21.4'}\""),
+      html.contains(
+        "data-signals=\"{_e: {sensor: {a: " +
+          "{attr_friendly_name: 'Hall', state: '21.4'}}}}\""
+      ),
       clue = html
     )
   }
@@ -243,10 +276,10 @@ class SignalSlotSuite extends ServerHarness {
     val r = Renderer.create(Dashboard(cards, set))
     val states = Map("light.a" -> st("light.a", "on"))
     val html = r.renderPage(states)
-    assert(html.contains("data-text=\"$_c_light_a__value\""), clue = html)
+    assert(html.contains("data-text=\"$_e.light.a.state\""), clue = html)
     assertEquals(
       r.signalsFor("c_light_a", states),
-      Map(Renderer.signalName("c_light_a", "value") -> "on")
+      Map(sig("light.a") -> "on")
     )
   }
 
@@ -284,7 +317,7 @@ class SignalSlotSuite extends ServerHarness {
           signal = Some(SignalBind.Bind)
         ),
         "fill" -> SlotSource(
-          transform = "$string($attr.brightness) & \"%\"",
+          transform = fillPct,
           signal = Some(SignalBind.Style("--_end"))
         ),
         "tint" -> SlotSource(
@@ -309,10 +342,24 @@ class SignalSlotSuite extends ServerHarness {
     val html = Renderer.create(sliderish).renderPage(lit(40))
     // Text, two-way, one custom property, one attribute — and the two-way one
     // takes the signal's NAME rather than a `$`-read, because it writes back.
-    assert(html.contains("""data-text="$_c__state""""), clue = html)
+    // A DISPLAY signal is named by what it reads, so its path spells out the
+    // entity and its transform...
+    assert(
+      html.contains("""data-text="$_e.light.a.attr_brightness""""),
+      clue = html
+    )
+    assert(
+      html.contains("""data-attr:title="$_e.light.a.attr_rgb_color""""),
+      clue = html
+    )
+    // ...and a computed transform hashes into the one segment it has to be.
+    assert(
+      html.contains(s"""data-style:--_end="$$${sig("light.a", fillPct)}""""),
+      clue = html
+    )
+    // The two-way one is UNCHANGED — it stays scoped to its node, because an
+    // input writes it back and must not drive another card's readout.
     assert(html.contains("""data-bind="_c__value""""), clue = html)
-    assert(html.contains("""data-style:--_end="$_c__fill""""), clue = html)
-    assert(html.contains("""data-attr:title="$_c__tint""""), clue = html)
     // The value still lands inline in every position, for the reader that will
     // never run any of the above.
     assert(html.contains("--_end: 40%"), clue = html)
@@ -340,9 +387,9 @@ class SignalSlotSuite extends ServerHarness {
       out.map(_.patch),
       List(
         frame(
-          Renderer.signalName(leaf, "state") -> "41",
-          Renderer.signalName(leaf, "value") -> "41",
-          Renderer.signalName(leaf, "fill") -> "41%"
+          sig("light.a", "$attr.brightness") -> "41",
+          bound(leaf, "value") -> "41",
+          sig("light.a", "$string($attr.brightness) & \"%\"") -> "41%"
         )
       ),
       clue = events(out).map(_.renderString)
@@ -369,6 +416,160 @@ class SignalSlotSuite extends ServerHarness {
     )
   )
 
+  /** Two nodes showing the SAME entity through the same transform — the shape
+    * issue #134 was opened on.
+    */
+  private val twiceOver = Dashboard(
+    cards + ("col" -> CardDef(
+      "<div>{{#children}}{{{html}}}{{/children}}</div>",
+      regions = Map("children" -> Region())
+    )),
+    LayoutNode.Component(
+      "col",
+      regions = LayoutNode.kids(gauge("sensor.a"), gauge("sensor.a"))
+    )
+  )
+
+  test("one entity on two nodes is ONE signal, carried once") {
+    // The claim of issue #134, and the reason a signal is keyed by what it
+    // READS rather than by who shows it: under the node-scoped name these were
+    // two signals, equal by construction, that stayed equal forever and rode
+    // every frame twice.
+    val r = Renderer.create(twiceOver)
+    val log = FragmentLog("test")
+      .touched(NodeId.derived("c_0"), 1L)
+      .touched(NodeId.derived("c_1"), 1L)
+    val out = resumeNow(
+      r,
+      log,
+      documentHolds(r, at("21.4")),
+      at("21.5"),
+      1L,
+      Set.empty,
+      Map.empty
+    )
+    assertEquals(
+      out.map(_.patch),
+      List(frame(sig("sensor.a") -> "21.5")),
+      clue = events(out).map(_.renderString)
+    )
+    // Both nodes bind the same path, so both are live off that one entry —
+    // the saving is real only if neither had to be re-sent to get the value.
+    assertEquals(elementPatches(events(out)), Nil)
+    val html = r.renderPage(at("21.4"))
+    assertEquals(
+      "data-text=\"\\$_e\\.sensor\\.a\\.state\"".r.findAllIn(html).size,
+      2,
+      clue = html
+    )
+  }
+
+  test(
+    "issue #134's frame: one entity in three places, nine slots, three entries"
+  ) {
+    // The shape #134 measured — one light, three places on the dashboard, each
+    // reading it through the same transforms. The old node-scoped name made
+    // that 3 nodes x 3 slots = 9 entries, of which only 3 were distinct values;
+    // `39.7637795275591%` and `154` each rode three times.
+    val trio = Map(
+      "trio" -> CardDef(
+        "<i {{{state__bind}}}>{{state}}</i><b {{{fill__bind}}}></b>" +
+          "<u {{{tint__bind}}}></u>",
+        slots = List("state", "fill", "tint")
+      ),
+      "col" -> CardDef(
+        "<div>{{#children}}{{{html}}}{{/children}}</div>",
+        regions = Map("children" -> Region())
+      )
+    )
+    def place = LayoutNode.Component(
+      "trio",
+      Map(
+        "entity_id" -> SlotSource(literal = Some("light.a")),
+        "state" -> SlotSource(signal = Some(SignalBind.Text)),
+        "fill" -> SlotSource(
+          transform = fillPct,
+          signal = Some(SignalBind.Style("--_end"))
+        ),
+        "tint" -> SlotSource(
+          transform = "$attr.rgb_color",
+          signal = Some(SignalBind.Attr("title"))
+        )
+      )
+    )
+    val r = Renderer.create(
+      Dashboard(
+        trio,
+        LayoutNode.Component(
+          "col",
+          regions = LayoutNode.kids(place, place, place)
+        )
+      )
+    )
+    val log = List("c_0", "c_1", "c_2").foldLeft(FragmentLog("test"))((l, id) =>
+      l.touched(NodeId.derived(id), 1L)
+    )
+    // All three readings move, so all three are genuinely in play — a fixture
+    // where only one moved would score 1 and prove nothing about sharing.
+    def lightAt(bright: Int, state: String, rgb: String) =
+      Map(
+        "light.a" -> st(
+          "light.a",
+          state,
+          "brightness" -> io.circe.Json.fromInt(bright),
+          "rgb_color" -> rgb.asJson
+        )
+      )
+    val out = resumeNow(
+      r,
+      log,
+      documentHolds(r, lightAt(40, "on", "warm")),
+      lightAt(41, "dim", "cool"),
+      1L,
+      Set.empty,
+      Map.empty
+    )
+    val entries = out.map(_.patch).collect { case s: Patch.Signals => s.values }
+    // NINE slots moved; THREE values did. That is issue #134's saving, stated
+    // as the number it argued about.
+    assertEquals(entries.map(_.size), List(3), clue = entries)
+    assertEquals(elementPatches(events(out)), Nil)
+  }
+
+  test("a fill seeds an entity the page has never shown") {
+    // Why the seed CANNOT move to one document-level `data-signals`, however
+    // tempting that looks once signals are shared: a surface can introduce an
+    // entity no node on the page was reading, so the store has no value for it
+    // and no frame is coming — the fill's own bytes are the only thing that can
+    // make it correct. This is ADR 0017's reason for putting the seed on the
+    // `.fh-cell` wrapper, restated as the test that would catch removing it.
+    val r = Renderer.create(
+      Dashboard(
+        cards,
+        gauge("sensor.a"),
+        surfaces = Map("panel" -> Surface(gauge("sensor.unseen")))
+      )
+    )
+    val states = at("21.4") ++
+      Map(
+        "sensor.unseen" -> st(
+          "sensor.unseen",
+          "7",
+          "friendly_name" -> "New".asJson
+        )
+      )
+    // The document never mentions it...
+    val page = r.renderPage(states)
+    assertEquals(page.contains("sensor.unseen"), false, clue = page)
+    // ...so the fill has to carry both the binding and the value.
+    val fill = r.renderSurface("panel", states).get
+    assert(fill.contains("data-text=\"$_e.sensor.unseen.state\""), clue = fill)
+    assert(
+      fill.contains("data-signals=\"{_e: {sensor: {unseen: {state: '7'"),
+      clue = fill
+    )
+  }
+
   private def both(a: String, b: String) =
     Map(
       "sensor.a" -> st("sensor.a", a, "friendly_name" -> "A".asJson),
@@ -392,8 +593,8 @@ class SignalSlotSuite extends ServerHarness {
       out.map(_.patch),
       List(
         frame(
-          Renderer.signalName("c_0", "value") -> "9",
-          Renderer.signalName("c_1", "value") -> "8"
+          sig("sensor.a") -> "9",
+          sig("sensor.b") -> "8"
         )
       ),
       clue = events(out).map(_.renderString)
@@ -425,7 +626,7 @@ class SignalSlotSuite extends ServerHarness {
     )
     assertEquals(
       out.map(_.patch),
-      List(frame(Renderer.signalName(leaf, "value") -> "21.6")),
+      List(frame(sig("sensor.a") -> "21.6")),
       clue = events(out).map(_.renderString)
     )
   }
@@ -497,8 +698,8 @@ class SignalSlotSuite extends ServerHarness {
         first.map(_.data),
         List(
           Some(
-            """signals {"_c_0__value":"21.6","_c_1__value":"48",""" +
-              """"_cursor":{"storeVersion":3}}"""
+            """signals {"_cursor":{"storeVersion":3},"_e":{"sensor":""" +
+              """{"a":{"state":"21.6"},"b":{"state":"48"}}}}"""
           )
         ),
         clue = first.map(_.renderString)
@@ -512,13 +713,14 @@ class SignalSlotSuite extends ServerHarness {
     // A value tick is ONE event on the wire, not a frame followed by a cursor
     // frame. `encode` merges adjacent signal patches the way it merges adjacent
     // morphs, and the cursor rides as a patch so it lands in that merge.
-    val values = frame(Renderer.signalName(leaf, "value") -> "21.5")
+    val values = frame(sig("sensor.a") -> "21.5")
     val cursor = Server.versionPatch(27L)
     assertEquals(
       Patches.encode(List(Addressed(values), Addressed(cursor))).map(_.data),
       List(
         Some(
-          """signals {"_c__value":"21.5","_cursor":{"storeVersion":27}}"""
+          """signals {"_cursor":{"storeVersion":27},""" +
+            """"_e":{"sensor":{"a":{"state":"21.5"}}}}"""
         )
       )
     )
@@ -731,8 +933,14 @@ class SignalSlotSuite extends ServerHarness {
 
   test("structure seeds its signal on its own cell wrapper") {
     val html = Renderer.create(structural).renderPage(tinted("red"))
-    assert(html.contains("data-signals=\"{_c__tint: 'red'}\""), clue = html)
-    assert(html.contains("data-style:background=\"$_c__tint\""), clue = html)
+    assert(
+      html.contains("data-signals=\"{_e: {sensor: {a: {attr_tint: 'red'}}}}\""),
+      clue = html
+    )
+    assert(
+      html.contains("data-style:background=\"$_e.sensor.a.attr_tint\""),
+      clue = html
+    )
   }
 
   test("a change to structure's signal sends a frame and patches nothing") {
@@ -743,7 +951,7 @@ class SignalSlotSuite extends ServerHarness {
       resumeNow(r, log, holds, tinted("blue"), 1L, Set.empty, Map.empty)
     assertEquals(
       out.map(_.patch),
-      List(frame(Renderer.signalName("c", "tint") -> "blue")),
+      List(frame(sig("sensor.a", "$attr.tint") -> "blue")),
       clue = events(out).map(_.renderString)
     )
     // The structural element itself is what must not move: a morph aimed at it

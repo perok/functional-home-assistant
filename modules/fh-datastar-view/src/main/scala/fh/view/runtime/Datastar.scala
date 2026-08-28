@@ -114,11 +114,38 @@ object Datastar {
     * every producer today builds values with `Json.fromString`.
     */
   def signalsJson(values: Map[SignalId, Json]): String =
-    Json
-      .obj(values.toList.sortBy(_._1).map { case (k, v) =>
-        (k: String) -> v
-      }*)
-      .noSpaces
+    nest(
+      values.toList.map((k, v) => (k: String).split('.').toList -> v)
+    ).noSpaces
+
+  /** A dotted signal path is NESTED, never emitted as one flat key.
+    *
+    * `datastar-patch-signals` applies `mergePatch`, which recurses only where a
+    * value is an object: a flat `"_e.light.taklys.state"` key would be stored
+    * as one literal key with dots IN it, and `$_e.light.taklys.state` — which
+    * the bundle rewrites to `$['_e']['light']['taklys']['state']` — would never
+    * find it. (`mergePaths` does split dotted keys, but that is not the
+    * function the SSE event uses.)
+    *
+    * Nesting is also what makes a partial patch safe: the same recursion
+    * assigns only at leaves, so one entity's frame leaves its siblings alone.
+    *
+    * Keys are sorted at every level so a frame's bytes are deterministic.
+    */
+  private def nest(entries: List[(List[String], Json)]): Json =
+    Json.obj(
+      entries
+        .groupBy(_._1.head)
+        .toList
+        .sortBy(_._1)
+        .map { case (segment, rows) =>
+          val deeper =
+            rows.collect { case (_ :: rest, v) if rest.nonEmpty => rest -> v }
+          // A path that is both a leaf and a prefix cannot arise from
+          // `Renderer.signalName` — every path it mints has the same depth.
+          segment -> (if (deeper.isEmpty) rows.head._2 else nest(deeper))
+        }*
+    )
 
   /** The same values as a `data-signals` ATTRIBUTE — the inline seed that lets
     * an element carry its own signals, so a first paint, a host fill or a
@@ -136,13 +163,31 @@ object Datastar {
   def signalsAttr(values: Map[SignalId, String]): String =
     if (values.isEmpty) ""
     else
-      values.toList
-        .sortBy(_._1)
-        // LEADING SPACE, like `Renderer.cellClasses`: this is spliced straight
-        // after a quoted attribute value, and `id="c"data-signals=…` is a parse
-        // error browsers only recover from by accident.
-        .map { case (k, v) => s"$k: '${escapeJs(v)}'" }
-        .mkString(""" data-signals="{""", ", ", """}"""")
+      // LEADING SPACE, like `Renderer.cellClasses`: this is spliced straight
+      // after a quoted attribute value, and `id="c"data-signals=…` is a parse
+      // error browsers only recover from by accident.
+      s""" data-signals="${nestJs(
+          values.toList.map((k, v) => (k: String).split('.').toList -> v)
+        )}""""
+
+  /** The seed's JS object literal, nested for the same reason [[nest]] is —
+    * `data-signals` is compiled as an EXPRESSION, so `{a.b: 'x'}` is not even
+    * valid syntax, let alone the same store shape a frame patches.
+    */
+  private def nestJs(entries: List[(List[String], String)]): String =
+    entries
+      .groupBy(_._1.head)
+      .toList
+      .sortBy(_._1)
+      .map { case (segment, rows) =>
+        val deeper = rows.collect {
+          case (_ :: rest, v) if rest.nonEmpty => rest -> v
+        }
+        val value =
+          if (deeper.isEmpty) s"'${escapeJs(rows.head._2)}'" else nestJs(deeper)
+        s"$segment: $value"
+      }
+      .mkString("{", ", ", "}")
 
   /** The binding attribute for a signal slot — what `<slot>__bind` renders to
     * (ADR 0017). `""` where a value is not signal-backed, which is what keeps

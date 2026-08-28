@@ -1188,11 +1188,17 @@ class Renderer(
     // present in BOTH forms: it is what the seeded signal feeds, and a morph
     // that dropped it would leave the element inert.
     val signalled = slots.toList.flatMap { case (slot, src) =>
-      Renderer.signalBind(src).map(slot -> _)
+      Renderer.signalBind(src).map((slot, src, _))
     }
     val id = NodeId.derived(injected.getOrElse("id", ""))
-    val bindings = signalled.flatMap { case (slot, kind) =>
-      val signal = Renderer.signalName(id, slot)
+    val bindings = signalled.flatMap { case (slot, src, kind) =>
+      val signal = Renderer.signalName(
+        id,
+        slot,
+        src.entityId.orElse(subject),
+        src.transform,
+        kind
+      )
       List(
         s"${slot}__bind" -> Datastar.binding(signal, kind),
         // The bare NAME, for the one thing a canned attribute cannot cover: a
@@ -1284,8 +1290,10 @@ class Renderer(
         .map(s => s.literal.getOrElse(resolveSlot(s.entityId, s, states)))
       c.slots.collect {
         case (slot, src) if Renderer.isSignalSlot(src) =>
-          Renderer.signalName(id, slot) ->
-            resolveSlot(src.entityId.orElse(subject), src, states)
+          val entity = src.entityId.orElse(subject)
+          val kind = Renderer.signalBind(src).getOrElse(SignalBind.Text)
+          Renderer.signalName(id, slot, entity, src.transform, kind) ->
+            resolveSlot(entity, src, states)
       }
     case _: LayoutNode.SetNode => Map.empty
   }
@@ -1460,13 +1468,79 @@ object Renderer {
     * the card binds a signal nothing ever patches, so the value is simply
     * frozen at whatever the last wholesale render seeded.
     *
-    * The id is the PATCH UNIT's, not necessarily the slot's own node: a
-    * member's children have no id of their own, and the member is their patch
-    * target. Two children of one member therefore share a namespace, so a slot
-    * NAME means one value within a patch unit.
+    * Keyed by WHAT IT READS — `(entity, transform)` — not by who shows it, so
+    * one entity on three cards is one signal and one frame entry rather than
+    * three equal-by-construction copies (issue #134). That is the same key
+    * [[identityCache]] already uses for non-reactive slots.
+    *
+    * The path is `_e.<domain>.<object_id>.<transform>` and is read back as
+    * `$_e.light.taklys.state`, which the pinned bundle rewrites to
+    * `$['_e']['light']['taklys']['state']`. Segments are bracket-indexed so
+    * they need not be JS identifiers, but the reference REGEX
+    * (`\$([a-zA-Z_\d]\w*(?:[.-]\w+)*)`) requires `\w+` — and HA slugifies both
+    * halves of an entity id, so every real one fits with no escaping. An id
+    * that does not is hashed rather than spliced, because a stray character
+    * would not fail: it would silently parse as a different path.
     */
-  def signalName(id: NodeId, slot: String): SignalId =
-    SignalId.derived(s"_${id}__$slot")
+  def signalName(
+      id: NodeId,
+      slot: String,
+      entity: Option[String],
+      transform: String,
+      kind: SignalBind
+  ): SignalId = kind match {
+    // A two-way binding is INTERACTION state, not an entity value: the input
+    // writes it back on every keystroke or drag. Sharing it by `(entity,
+    // transform)` would let one card's drag drive another card's readout —
+    // which is the confusion ADR 0025 separated `_<id>__slide` out to avoid.
+    // So it stays scoped to the node that owns the control.
+    case SignalBind.Bind => SignalId.derived(s"_${id}__$slot")
+    case _               =>
+      SignalId.derived(
+        s"_e.${entitySegments(entity)}.${transformSegment(transform)}"
+      )
+  }
+
+  private def isWord(s: String): Boolean =
+    s.nonEmpty && s.forall(c => c.isLetterOrDigit || c == '_')
+
+  /** `light.taklys` -> `light.taklys`, as two path segments. Anything that is
+    * not two `\w+` halves collapses to one hashed segment.
+    */
+  private def entitySegments(entity: Option[String]): String = entity match {
+    case Some(id) =>
+      id.split('.') match {
+        case Array(domain, obj) if isWord(domain) && isWord(obj) => id
+        case _                                                   =>
+          s"x${shortHash(id)}"
+      }
+    // A live slot naming no entity and inheriting no subject reads an empty
+    // state, so its value depends on the transform alone and every such slot
+    // in the dashboard genuinely shares one.
+    case None => "_x"
+  }
+
+  /** The transform, as ONE `\w+` segment. Readable for the two shapes that
+    * cover most slots, hashed for a computed expression (the slider's
+    * `percentExpr`). The slot NAME cannot be used here: two cards naming one
+    * transform differently would stop sharing, and one name over two transforms
+    * would collide — either way the deduplication is lost.
+    *
+    * The three forms have disjoint prefixes, so the mapping stays injective.
+    */
+  private def transformSegment(transform: String): String = transform match {
+    case "$state"                  => "state"
+    case s"$$attr.$a" if isWord(a) => s"attr_$a"
+    case other                     => s"t${shortHash(other)}"
+  }
+
+  private def shortHash(s: String): String =
+    java.security.MessageDigest
+      .getInstance("SHA-256")
+      .digest(s.getBytes(java.nio.charset.StandardCharsets.UTF_8))
+      .take(4)
+      .map(b => f"${b & 0xff}%02x")
+      .mkString
 
   /** A slot whose value travels as a signal. A constant `literal` never can —
     * [[fh.view.model.Dashboard.validate]] rejects that combination — and a

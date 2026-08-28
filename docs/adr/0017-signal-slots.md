@@ -14,8 +14,24 @@ already has the mechanism: a signal, and an element bound to it.
 ## Decision
 
 **A slot opts in — `SlotSource.signal = true` — and its value then travels as a Datastar signal
-named `_<nodeId>__<slotName>` instead of as bytes inside the node's element.** A change to it costs
-one `datastar-patch-signals` frame for the whole batch rather than a re-rendered card each.
+instead of as bytes inside the node's element.** A change to it costs one
+`datastar-patch-signals` frame for the whole batch rather than a re-rendered card each.
+
+**A display signal is named by WHAT IT READS**: `_e.<domain>.<object_id>.<transform>`, so one
+entity shown on three cards is one signal and one frame entry (issue #134). The transform is one
+path segment — `state`, `attr_<name>`, or `t<hash>` for a computed expression — because the slot
+NAME cannot serve: two cards naming one transform differently would stop sharing, and one name over
+two transforms would collide.
+
+Dots are path separators, not characters: the bundle rewrites `$_e.light.taklys.state` to
+`$['_e']['light']['taklys']['state']`, and `datastar-patch-signals` applies `mergePatch`, which
+recurses only where a value is an object. So a frame carries a nested structure and never a flat
+dotted key, and a partial patch leaves an entity's siblings alone.
+
+**A two-way binding is the exception and stays `_<nodeId>__<slotName>`.** `SignalBind.Bind` is
+interaction state, not an entity value — the input writes it back on every drag — so sharing it by
+`(entity, transform)` would let one card's gesture drive another card's readout, which is the
+confusion ADR 0025 separated `_<id>__slide` out to avoid.
 
 `_`-prefixed deliberately: Datastar's default request filter drops underscore-prefixed signals from
 every request body, so a dashboard's worth of live values never joins an action POST or an SSE
@@ -244,11 +260,11 @@ and does no extra work. In the shipped library the second clause almost never fi
   re-inserted (patch-form, seedless) element reads a store that is still correct. What leaks is one
   entry per departed member on each side, bounded by the dashboard — a set's candidates are static
   (ADR 0003).
-- **One entity shown in N places mints N signals**, equal by construction, because a name is scoped
-  to the node that shows the value rather than to the value. Deliberate for now — the alternative
-  keys on `(entity, transform)` and trades away both readable names and the node-prefix invalidation
-  rule. Measured and argued in
-  [issue #134](https://github.com/perok/functional-home-assistant/issues/134).
+- **One entity shown in N places is ONE signal**, because a name is scoped to the value rather than
+  to the node showing it ([issue #134](https://github.com/perok/functional-home-assistant/issues/134)).
+  The readability this was once thought to cost did not materialise: no name is minted, so the
+  binding spells the entity out — `$_e.light.taklys.state` reads better in a frame log than
+  `_c_16__fill`, not worse.
 - **No `RenderCache` change at all**, and that is a consequence of what was left out (below): the
   cache only ever holds patch-form bytes, so there is one form per (node, selection) and
   `RenderInputs` does not grow.
