@@ -17,9 +17,9 @@ private[runtime] case class NodeBytes(html: String, digest: Digest)
 private[runtime] object NodeBytes {
 
   /** For the paths that render OUTSIDE the cache and so must hash for
-    * themselves. Everywhere else the digest arrives already computed, which is
-    * the point: the same HTML used to be hashed once to ask the log whether it
-    * held it and again to record that it now does.
+    * themselves. Everywhere else the digest arrives already computed, so no
+    * HTML is hashed twice — once to ask the log whether it holds it, again to
+    * record that it now does.
     */
   def of(html: String): NodeBytes = NodeBytes(html, Digest.of(html))
 }
@@ -40,9 +40,9 @@ private[runtime] object NodeBytes {
   * a key inserts an empty one and renders, everyone else finds it and waits, so
   * N sessions wanting the same node at the same instant cost one render.
   *
-  * '''ONE GENERATION PER (NODE, SELECTION), and that bound is not optional.'''
-  * Keying by `(nodeId, inputs)` outright would grow without bound: the shared
-  * pass selects exactly the nodes binding an entity that just moved
+  * '''ONE GENERATION PER NODE, and that bound is not optional.''' Keying by
+  * `(nodeId, inputs)` outright would grow without bound: the shared pass
+  * selects exactly the nodes binding an entity that just moved
   * (`Renderer.componentsFor`), so every batch mints new ENTITY VERSIONS and the
   * old ones are never asked for again — unbounded retention of HTML in exchange
   * for hits that do not happen.
@@ -51,25 +51,20 @@ private[runtime] object NodeBytes {
   * versions and nothing else, and those CHURN — every frame moves one, so the
   * generation for the previous version is dead the moment it is replaced.
   *
-  * It used to hold one generation per SELECTION as well, because a node could
-  * be both cached and the owner of a bake group: its own bytes then carried the
-  * viewer's chosen tab, so two viewers on two tabs were owed different bytes
-  * for one node and evicted each other on every frame. That shape no longer
-  * exists — a bake owner holds its content in REGIONS, which makes it
-  * structure, and structure is never a patch target and so never cached. The
-  * live part is an ordinary leaf beside it, whose bytes mention no selection at
-  * all.
-  *
-  * So the contention did not move, it went: `RenderCacheContentionSuite`
-  * measures the same two viewers on two tabs at ONE render a frame where the
-  * old shape needed two, and the structural owner at none.
+  * A SELECTION is not part of the key, and does not need to be: a bake owner
+  * holds its content in regions, which makes it structure, and structure is
+  * never a patch target and so never cached. What renders per frame is the leaf
+  * beside it, whose bytes mention no selection at all — so two viewers on two
+  * tabs are owed the same bytes and share one render.
+  * `RenderCacheContentionSuite` holds that at 1.0 renders a frame however many
+  * viewers and however many tabs.
   *
   * '''A STRAGGLER NEVER DISPLACES THE CURRENT GENERATION.''' Sessions pull in
   * parallel and read the store when they get there, so they do not all render
-  * from one snapshot: three racing (newest, laggard, newest) used to cost three
-  * renders, because the laggard's install evicted bytes the third was about to
-  * hit. The waste was never the laggard's own render — it needed that — but
-  * what installing it THREW AWAY.
+  * from one snapshot. Three racing (newest, laggard, newest) would otherwise
+  * cost three renders: the laggard's install evicts bytes the third is about to
+  * hit. The waste is never the laggard's own render — it needs that — but what
+  * installing it THROWS AWAY.
   *
   * So an install is refused when the generation present was rendered from a
   * snapshot at or ahead of the caller's on every entity it reads
@@ -123,14 +118,13 @@ private[runtime] final class RenderCache(
     * cancelled on disconnect and displacement, with the linger, the reap, the
     * deregistration and the changelog's pruning floor behind that teardown.
     *
-    * That obligation is NOT expressible here and never was. This took an
-    * `IO[String]` because it used to take a by-name `String`, which looked like
-    * it forbade suspending and did nothing of the kind: a thunk can
-    * `Thread.sleep`, take a lock or await a latch just as easily — the suite's
-    * own `Gated` fixture did exactly that — and the runtime cannot see any of
-    * it. All the by-name bought was making the effect UNTYPED, which is the
-    * worse half of the trade: `IO.blocking` and `IO.cede` become inexpressible
-    * precisely where they would be the answer.
+    * That obligation is NOT expressible here, and an `IO[String]` is the honest
+    * shape for it. A by-name `String` would LOOK like it forbade suspending and
+    * would not: a thunk can `Thread.sleep`, take a lock or await a latch just
+    * as easily, and the runtime cannot see any of it. All it would buy is
+    * making the effect UNTYPED, which is the worse half of the trade —
+    * `IO.blocking` and `IO.cede` become inexpressible precisely where they
+    * would be the answer.
     *
     * '''So bound the work, do not hide it.''' Today the only caller is
     * `Renderer.renderNodeById` — one node's own markup, children excluded by
@@ -207,8 +201,8 @@ private[runtime] final class RenderCache(
   def size: IO[Int] = IO(live.size)
 
   /** Generations held across every node — one each, so equal to [[size]]. Named
-    * separately because it used to be nodes × selections, and a test asserting
-    * the bound should keep asking the question rather than assume the answer.
+    * separately because a test asserting the bound should keep asking the
+    * question rather than assume the answer.
     */
   def generations: IO[Int] = IO(live.size)
 }

@@ -637,12 +637,9 @@ class Renderer(
     * Neither loses anything by being excluded: their children are addressable
     * in their own right.
     *
-    * This used to be three questions asked of a TEMPLATE's spelling — whether a
-    * card declared a `self`, whether that `self` spliced `{{#children}}`, and
-    * whether anything below it declared a hole of its own — because a card's
-    * own bytes could contain another node's. Regions removed the shape, not
-    * just the check: every hole in a template is filled by a node, so "my bytes
-    * carry someone else's" is unrepresentable and the card alone decides.
+    * The card decides it ALONE, and that is what makes it one question rather
+    * than a walk: every hole in a template is filled by a node, so no card's
+    * bytes can contain another's.
     *
     * The same rule `Dashboard.validate` enforces when it rejects a live BYTES
     * slot on structure: no patch target.
@@ -666,10 +663,9 @@ class Renderer(
   /** The node's OWN root element — the `.fh-cell` wrapper `render` emits, and
     * the ONE crossing from node id to DOM id.
     *
-    * "What I morph" and "what I am" used to be different elements: a card with
-    * a `self` was patched at `<id>-self` so its patch could not reach the
-    * sibling holding its children. A node holds its regions in OTHER NODES now,
-    * so there is nothing to exclude and one element does both jobs.
+    * One element does both jobs — what a patch targets IS what the node is —
+    * because a node holds its regions in other nodes, so there is nothing for
+    * the target to have to exclude.
     */
   def elementId(id: NodeId): DomId = DomId.derived(id)
 
@@ -688,6 +684,14 @@ class Renderer(
     * `Grid`/`Row`/`Column`, and every card's default one — is never a fill
     * target, because its children arrive nested in the same bytes, so those
     * nodes fall back to their own id and simply never use it.
+    *
+    * '''A CANDIDATE SET reaches the same fallback and does use it.''' A
+    * `SetNode` has no card, so it declares no regions and has no `bakeAs` to
+    * name one — but its members ARE filled into it (`Patches` anchors an
+    * `Append` here, and a refill targets it with an `Inner`). The fallback is
+    * right rather than lucky: a set has exactly one implicit hole and its
+    * members are `<setId>_<slug>`, so the set's own element IS the thing they
+    * live in and there is nothing for a second id to name.
     */
   def hostId(id: NodeId): DomId =
     surfaces
@@ -902,11 +906,8 @@ class Renderer(
         val childrenHtml = kidsByRegion.view.mapValues(_.map(_.html)).toMap
         val (baked, bakeIndex, bakedTrace) =
           resolveBakeTraced(id, uiState, states)
-        // ONE template per card now. It used to be composed from two parts
-        // spliced together, with the `self` shown a NARROWER var map than the
-        // whole — no baked member — so a node's own rendering could not carry
-        // what it hosted. A region's contents are other nodes, so that
-        // separation is structural and one var map serves.
+        // ONE var map for the whole template: a region's contents are other
+        // nodes, so nothing here needs a narrower view than the card's own.
         val vars = structuralVars(id) ++ bakeIndex ++ baked
         // ONE walk, both forms — see [[Traced]]. Only the form differs between
         // the two calls, so a node with no signal slot anywhere under it does

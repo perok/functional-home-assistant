@@ -126,7 +126,7 @@ reports a change the frame did not make (`MemberGraph.syncMembers`, and
 `architecture-rendering-pipeline.md` §4b).
 
 **What a membership change costs.** The recorder writes a delta where it can:
-one `Mutation` per member that moved. A whole-mount fill happens only in the two
+one `Mutation` per member that moved. A whole-host fill happens only in the two
 cases where it costs nothing — the UNCHANGED set is empty (everything arrived,
 or everything left, so the fill re-sends nothing and one patch replaces N), or
 the log holds no member entry to patch against. Nothing is rendered while
@@ -154,7 +154,7 @@ Three silent failure modes are worth naming, because all three were real bugs:
   static index, so both halves read as `""` — the main page — and went to every
   connected client whether or not they had the surface open. Two distinct
   leaks, found one after the other: the member's, which the reverse index
-  selects, and the container's, which a mount fill and a departing member's
+  selects, and the container's, which a host fill and a departing member's
   `remove` both name directly. `Renderer.rootOf` now falls through to the graph
   for each. Worth noting how they were found, because it generalises: a unit
   assertion on `Member.root` pinned the first and was blind to the second; the

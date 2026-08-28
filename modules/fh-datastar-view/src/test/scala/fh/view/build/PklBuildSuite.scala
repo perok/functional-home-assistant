@@ -1817,12 +1817,11 @@ class PklBuildSuite extends munit.FunSuite {
     * holds.
     *
     * '''The positives are not decoration.''' They vary ONLY the slot against
-    * the same card, so a probe that stopped evaluating for an unrelated reason
-    * — a renamed class, a moved module — fails them too. The version of this
-    * test that regions replaced had no such control, and it outlived the API it
-    * named: every probe referenced a `ContainerCard` that no longer existed, so
-    * all three `!accepted` assertions passed on a name-resolution error and the
-    * rule went untested.
+    * the same card, so a probe that stops evaluating for an unrelated reason —
+    * a renamed class, a moved module — fails them too. Without that control a
+    * negative-only test of an authoring rule passes on a name-resolution error,
+    * which is how this one can outlive the API it names and leave the rule
+    * untested.
     */
   test("Pkl rejects a live BYTES slot on a card that holds regions") {
     assert(

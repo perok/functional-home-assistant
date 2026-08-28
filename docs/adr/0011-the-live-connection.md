@@ -49,11 +49,10 @@ Three statements everything below rests on. The first is structural and belongs
 to ADR 0008; the other two are this ADR's.
 
 > **1. A node's patch carries its own rendering and never the contents of a
-> *mount*.** A mount is filled independently; anything else the card composes — a
-> tab bar's buttons — rides with it.
+> *region*.** A region is filled by other nodes, each addressable on its own.
 
 > **2. Everything that changes a client's DOM goes through the log.** Every path:
-> the live diff, a mount fill, a flip, a resume, a repaint.
+> the live diff, a host fill, a flip, a resume, a repaint.
 
 > **3. The log records WHEN each node last changed, never WHAT it contains.**
 > Content is always rendered now.
@@ -146,7 +145,7 @@ The per-slug log carries a version, turning "what did we last broadcast" into
 "when did each node last change":
 
 ```scala
-enum MemberKey:                                    // what occupies a mount, and how to render it
+enum MemberKey:                                    // what occupies a host, and how to render it
   case Entity(id: String)                          //   a dynamic group's member
   case Surface(id: String)                         //   a state group's branch
 
@@ -181,28 +180,29 @@ CURRENT snapshot and morphs it, then applies every mutation at `>= V`.
 includes its children. The composed form welds host to children and makes them inseparable, which
 is the thing statement (1) exists to prevent, arriving through the log instead of through a patch.
 
-For a card with a `self` the own html is that `self`; for a leaf it is the whole rendering. Two
-shapes have no own html and are therefore **neither log keys nor morph targets**:
+For a LEAF the own html is the whole rendering — a leaf holds no regions, so there is
+nothing else it could be. Two shapes have no own html and are therefore **neither log keys
+nor morph targets**:
 
-- a **bare container** (`Column`/`Row`/`Grid`/`If` — a mount and no `self`), which renders as a
-  constant wrapper around a hole;
-- a **dynamic group root**, which composes its members and whose members are keyed individually.
+- **structure** (`Column`/`Row`/`Grid`/`If`/`Tabs`/`Slider` — any card declaring a region),
+  whose element contains what it holds;
+- a **candidate set root**, which composes its members and whose members are keyed
+  individually.
 
-Excluding them loses nothing, because their children are addressable in their own right. It is
-also not a new rule: `validate` already rejects a live-entity slot on a bare container *because it
-has no patch target*.
+Excluding them loses nothing, because what they hold is addressable in its own right. It is
+also not a separate rule: `validate` rejects a live BYTES slot on structure *because it has
+no patch target*.
 
-The reason it matters is that the log is per SLUG. Rendering a bare container by id renders its
-whole subtree, mounts included, so its bytes depend on which member each descendant mount has
-selected — and whichever a shared structure recorded would be wrong for somebody.
+The reason it matters is that the log is per SLUG. Rendering structure by id would render
+its whole subtree, hosts included, so its bytes would depend on which member each
+descendant host has selected — and whichever a shared structure recorded would be wrong for
+somebody.
 
-**A node whose own html differs between viewers needs no special treatment**, and that is
-worth saying because it used to need a great deal. The only thing that can vary it is its
-own group's selection (`{{bakeIndex}}` in a `self`); never a descendant's, since own html
-excludes mount contents. Since the session renders what it is owed, it renders that node
-with its own `uiState` and records the digest in its own `holds` — no variant key, no
-second entry, nothing shared to disagree about. The rule to keep true is unchanged: a
-node's own rendering contains no mount, its own or a child's.
+**A node whose own html differs between viewers needs no special treatment.** Since the
+session renders what it is owed, it renders with its own `uiState` and records the digest
+in its own `holds` — no variant key, no second entry, nothing shared to disagree about.
+The rule that makes it safe is statement (1): a node's own rendering contains no region's
+contents, its own or a child's.
 
 **The log records WHEN, never WHAT.** Content is always rendered now. Three things
 follow. The log cannot go stale against the renderer, because it stores nothing a
@@ -212,7 +212,7 @@ gets the fifth and not the first. And — the property worth the most — **a pa
 what it put in a client's DOM can simply drop the entry**, because an absent entry reads
 as "unknown, send it". The worst outcome of dropping is a redundant re-send; the worst
 outcome of a wrong entry is a suppressed change, which is silent and permanent.
-Everything that mutates the DOM without knowing its own bytes exactly (a mount fill, a
+Everything that mutates the DOM without knowing its own bytes exactly (a host fill, a
 branch placement) uses that escape.
 
 **The version and the digest answer different questions, and the split survived the flip
@@ -296,7 +296,7 @@ holds (`Sessions.floor`) — and the log carries a **`horizon`**: the oldest ver
 `mutations` is complete for, raised past everything dropped, **per container**, because
 one group being pruned says nothing about any other. A cursor below a container's
 horizon does not repaint the page; it puts that container in `Resume.refill` and the
-client is sent that ONE mount's contents wholesale.
+client is sent that ONE host's contents wholesale.
 
 The floor is exact where the rule it replaced was a guess. A mutation below it cannot
 appear in any resume any session will ever run, so keeping it buys nothing; a mutation
@@ -304,7 +304,7 @@ above it may still be owed. The rule it replaced was a wall clock (keep an hour)
 answered "how long might a client be away" with a number rather than with the answer.
 Dropping a mutation still raises the horizon, because a CLIENT cursor is NOT bounded by
 the floor: a client returning after its session was reaped can present anything, and
-must get that mount refilled rather than silence.
+must get that host refilled rather than silence.
 
 **Nothing in the log reads a clock.** A version orders everything and is the only clock
 any correctness argument rests on. The wall clock that used to age mutations out is gone
@@ -324,7 +324,7 @@ read, so any skipped version is one that page already contains.
 Two properties worth keeping. **`since` is TOTAL**: it returns a `Resume` rather
 than an `Option`, because there is no longer a cursor it cannot answer. What used
 to be a refusal is now an entry in `refill`, so incompleteness is expressed as
-data at the smallest granularity that works — one mount, not the whole body. That
+data at the smallest granularity that works — one host, not the whole body. That
 is the standing rule this ADR shares with the design it came from: *a complete
 update is a fallback, never a design choice.* The failure mode it replaced was a
 phone foregrounding after an hour and being served its entire dashboard because
@@ -794,10 +794,9 @@ faithfully wrote empty, which is how a deep link lost its selection. Seeding
 from the BAR works: a parent's seed reaches its children's readers. Both halves
 are pinned by `DatastarMorphContractSuite`.
 
-It cost one prerequisite. `{{bakeIndex}}` in a `self` makes a tabs node's own html
-depend on the selection, so every path rendering one BY ID has to know the viewer — and
-`resume` did not; it would have handed a tab-1 client a bar drawn at the default index.
-Every render path now takes the viewer's `uiState`, which is also what made the variant
+It costs one prerequisite. A tabs node's template reads `{{bakeIndex}}`, so its bytes
+depend on the selection and every path that renders it has to know the viewer. Every
+render path therefore takes the viewer's `uiState`, which is also what makes any variant
 machinery unnecessary (ADR 0012).
 
 What it buys: a re-render can no longer overwrite the tab a client actually

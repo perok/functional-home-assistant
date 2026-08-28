@@ -5,13 +5,13 @@
 - **Scope:** `model/Ids.scala`, and every signature in `fh/view/runtime` that
   takes an id — `runtime/MemberGraph.scala`, `runtime/SurfaceGraph.scala`,
   `runtime/Renderer.scala`, `runtime/Patches.scala`, `runtime/FragmentLog.scala`
-- **Refines:** ADR 0012, whose self/mount split created the first of these
+- **Refines:** ADR 0012, whose bake hosts created the first of these
   distinctions (a patch target is not a log key) but recorded it only in
   scaladoc. ADR 0003 owns candidate sets; this owns how their ids are typed.
 
 ## Context
 
-Every id in the runtime is a string, and they all read alike. `c_2`, `c_2-self`,
+Every id in the runtime is a string, and they all read alike. `c_2`,
 `c_2_panel`, `c_2_light_a`, `s_det__c_0`, `_c_1__value` — six different spaces,
 one shape. Nothing in a `String` signature says which one a function wants, and
 the failures from mixing them share a signature of their own: **they are silent,
@@ -41,13 +41,13 @@ every consumer.** Six opaque types over `String` in `model/Ids.scala`:
 | `NodeId` | an addressable node — the log's key space | `LayoutNode.pathId`, `surfacePrefix`, `MemberGraph.memberIdOf` |
 | `SetId <: NodeId` | a candidate-set container, at any nesting depth | `MemberGraph.setContainer` / `innerSetId` |
 | `MemberId <: NodeId` | a materialised set member | `MemberGraph.memberIdOf` |
-| `DomId` | an element a patch TARGETS (`c_2-self`, `popups`) | `Renderer.patchTargetId` |
+| `DomId` | an element a patch TARGETS (`c_2`, `c_2_panel`, `popups`) | `Renderer.elementId`, `Renderer.hostId` |
 | `SignalId` | a slot's value in the client's signal store (ADR 0017) | `Renderer.signalName` |
 
 Three rules make it work.
 
 **Derivation is one-way and narrow.** `NodeId -> DomId` goes through
-`patchTargetId` and nothing travels back. Each type names its derivations in its
+`elementId` and nothing travels back. Each type names its derivations in its
 own scaladoc, and an id from anywhere else is a bug.
 
 **`<: String`, deliberately.** An id IS a string for interpolation, prefix tests

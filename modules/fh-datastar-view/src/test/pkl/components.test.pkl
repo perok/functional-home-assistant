@@ -414,7 +414,7 @@ facts {
     plain["entityCard"].template.contains(#"data-class:fh-busy-spin="$_{{id}}__busy_slow""#)
     !plain["entityCard"].template.contains("@@CLASSBIND")
     !beer["entityCard"].template.contains("@@CLASSBIND")
-    // The slider binds its own commit signal, in `self` rather than `template`.
+    // The commit signal is bound by the HEAD, which is the card that moves.
     beer["sliderHead"].template.contains(#"data-class:shape="$_{{id}}__busy_change_slow""#)
   }
 

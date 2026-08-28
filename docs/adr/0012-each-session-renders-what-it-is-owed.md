@@ -77,10 +77,9 @@ the renderer runs where the viewer is.
 
 **A fragment is a node's OWN html, never the composed html.** The composed form welds a
 host to its children, which is what the leaf/structure split exists to prevent (ADR 0008).
-STRUCTURAL nodes — a bare container, a set root, anything holding regions — are neither
-log keys nor patch targets; their children are addressable in their own right. It is also
-why a composed host is the one thing NOT cached: its bytes carry its children, so it has
-no sound key.
+STRUCTURAL nodes — any card holding regions, and a set root — are neither log keys nor
+patch targets; what they hold is addressable in its own right. It is also why structure is
+the one thing NOT cached: its bytes carry its children, so it has no sound key.
 
 A structural node may still carry SIGNAL slots, and that is not an exception to the
 above: a signal is seeded on the node's `.fh-cell` wrapper and updated by a frame
@@ -236,22 +235,18 @@ other.
   Leaves a window where a pull that read the previous renderer writes its bytes into the
   fresh map — the same bug with a smaller target.
 
-## Answered: a `self` cannot splice children, because there is no `self`
+## The rule is the card's shape
 
-The question here used to be *"should a `self` splice children at all?"* — a tab bar's
-buttons are the card's own chrome, so no mount could appear among them, and the rule was
-satisfied rather than unnecessary. The alternative recorded was that everything a card
-holds goes through a mount.
+A card is a LEAF (no regions — its whole template is what a patch renders) or STRUCTURE
+(regions — it holds content it does not own), and `CardDef.isStructure` is the whole
+question. Nothing walks a template looking for holes, and nothing walks the tree asking
+what a descendant carries.
 
-Neither won. The `self`/`mount` split is gone, and with it the question: a card is now a
-LEAF (no regions — its whole template is what a patch renders) or STRUCTURE (regions — it
-holds content it does not own). The rule that had to be checked is now the shape itself —
-every hole in a template is disjoint from every other, so a patch at one node cannot reach
-another's content. `Tabs` was the card the question was really about, and it answered it by
-migrating: its buttons became ordinary children of its template rather than chrome inside
-a `self`.
+That is what makes the guarantee unrepresentable rather than policed: every hole in a
+template is filled by a NODE, each with an id and a patch of its own, so a patch at one
+node cannot reach another's content. A tab bar's buttons are ordinary children in a
+region; a slider's head is a card of its own beside the rows.
 
-What survives is the constraint the question was protecting, in a sharper form:
-**structure is never a patch target**, so a live slot on a structural card is a build
-error — unless the value travels as a SIGNAL, which never becomes bytes in the element and
-so needs no patch (ADR 0017).
+**Structure is never a patch target**, so a live BYTES slot on a structural card is a
+build error — unless the value travels as a SIGNAL, which never becomes bytes in the
+element and so needs no patch (ADR 0017).

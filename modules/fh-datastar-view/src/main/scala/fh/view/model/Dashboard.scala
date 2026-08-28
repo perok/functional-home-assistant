@@ -641,10 +641,9 @@ object LayoutNode:
     */
   case class Step(region: String, index: Int)
 
-  /** A step's id segment. The DEFAULT region contributes only its index, so
-    * every id a dashboard had before regions existed is byte-identical — no
-    * snapshot moves, and a bookmarked `ui.<id>` tab URL still resolves. Only a
-    * card with a second, NAMED region pays for one.
+  /** A step's id segment. The DEFAULT region contributes only its index, so a
+    * one-region card's ids carry no region name and a bookmarked `ui.<id>` tab
+    * URL stays short; only a card with a second, NAMED region pays for one.
     *
     * The grammar therefore has two shapes, and the thing that keeps them apart
     * is that a region name can never look like an index: [[Dashboard.validate]]
@@ -652,11 +651,10 @@ object LayoutNode:
     * `headActions`, `0` — nor `0_0` as region `0`, index `0`.
     *
     * PUBLIC because the build's inline-surface hoist walks the same tree and
-    * has to arrive at the same ids. It used to spell the default shape out
-    * (`s"${idBase}_$i"`), which is not a second opinion so much as a second
-    * IMPLEMENTATION: it could only read the array wire form, so it did not
-    * descend a region-keyed node at all, and an inline surface under one was
-    * silently never hoisted — its `@@NODE_ID@@` reaching the DOM verbatim.
+    * has to arrive at the same ids. A second spelling of this is not a second
+    * opinion but a second IMPLEMENTATION, and the way it fails is silent: a
+    * surface registered under an id no node asks for, its `@@NODE_ID@@`
+    * reaching the DOM verbatim.
     */
   def segment(s: Step): String =
     if s.region == DefaultRegion then s.index.toString
@@ -1111,8 +1109,7 @@ case class Dashboard(
     // rides the `.fh-cell` wrapper, which structure has like any node, and the
     // live value arrives as a `datastar-patch-signals` frame addressed by
     // `_<nodeId>__<slot>`. Neither step needs the node to be a patch target, so
-    // there is nothing here for the rule to protect — it used to reject exactly
-    // the slots that are safe, while telling the author to reach for them.
+    // there is nothing here for the rule to protect.
     //
     // The authoring layer says the same on `Node.slots`, but `cards` is decoded
     // from JSON, so the model has to say it too or the guarantee stops at the

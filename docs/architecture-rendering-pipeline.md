@@ -330,12 +330,12 @@ client-only feedback around the `@post` — see `docs/adr/0019-an-action-in-flig
   `fh-stream`, and the banner's debounced `data-on` binds that. The filter
   cannot live in the banner's own handler: a debounce keeps only the last event
   of its window, so an action's fetch would displace the stream event it
-  followed — which is how a rejected click used to raise "Reconnecting…" on a
-  live connection, and how a stream frame landing during a failing tap used to
-  put the banner away again.
-- **What did NOT change.** The POST is still `NoContent`; the state change still
-  flows back over the persistent stream. A rejected call (400) only toasts —
-  nothing in the feedback layer blocks the SSE patch path.
+  followed. Both directions have bitten — a rejected click raising
+  "Reconnecting…" on a live connection, and a stream frame landing during a
+  failing tap putting the banner away again.
+- **The feedback layer never blocks the patch path.** The POST answers
+  `NoContent` and the state change flows back over the persistent stream; a
+  rejected call (400) only toasts.
 
 ### A state change arrives — once, globally
 
@@ -484,10 +484,9 @@ flowchart TB
   class SAME,SET,CHURN,EST q
 ```
 
-**There is no fourth kind.** A node whose markup reads its own viewer's selection used to be one. Its version
-moves like any other node's, and the render that reads a viewer's selection happens where the viewer
-is. That is the whole of what `Varying`/`Pending`/`Memo` used to buy, for free, and
-`nodeVariesByViewer` went with them once `plan` stopped partitioning what `record` merged back.
+**There is no fourth kind.** A node whose markup reads its own viewer's selection is not one: its
+version moves like any other node's, and the render that reads a selection happens where the viewer
+is. Nothing here classifies a node by whether it varies, because `record` never renders.
 
 **Filling had to survive the loss of the render**, or the wire would move. It is recorded as
 `FragmentLog.filled`, which raises the container's `horizon` — already the mechanism for "no delta
@@ -495,9 +494,9 @@ describes this, send the host" — so `resume` reaches the same patch from the o
 also `touched`es the members it leaves, because those entries are what keep the group *established*
 for the next membership change.
 
-*What* fills has narrowed since: a churn FRACTION used to send the whole host past half the
-group, which re-sent the members that did not change. Now only the two cases where a fill re-sends
-nothing — everything arrived, or everything left — plus the no-baseline fallback.
+*What* fills is deliberately narrow: only the two cases where a fill re-sends nothing — everything
+arrived, or everything left — plus the no-baseline fallback. Filling on a churn FRACTION instead
+would re-send every member that did not change.
 
 ---
 
@@ -509,9 +508,9 @@ part that is identical for everyone (evict the departed branch, record where it 
 session fills the host for its own selection when it pulls. A branch no connected viewer reaches is
 never rendered at all.
 
-That is the same mechanism as every other node, not a second path — which is the point: it used to
-need a deferred render (`Pending`) and a memo to share one verdict between viewers who agreed,
-because the *pass* was shared. Once the render moved to the viewer, both disappeared.
+That is the same mechanism as every other node, not a second path — which is the point. Sharing a
+verdict between viewers who agree would need a deferred render and a memo; rendering where the
+viewer is needs neither.
 
 **A branch fill forgets by HOST, not by prefix.** A branch's content ids are `s_<surface>__…`,
 which no prefix of the container's id reaches, so the patch names the surfaces at that host
@@ -520,6 +519,83 @@ own id is the right root — a set has no card and no declared region, so it is 
 that is neither.
 
 ---
+
+## 4a. Cards, nodes and regions — what a patch may target
+
+Everything above says "a node's patch". This is what decides which nodes have one.
+
+A **card** is a template with named **regions** — the holes something else fills. The card alone
+decides the node's kind, and that is the whole rule:
+
+```mermaid
+flowchart LR
+  CARD{"CardDef.regions<br/>empty?"}
+  CARD -->|yes| LEAF["LEAF<br/>its template IS its patch fragment"]
+  CARD -->|no| STRUCT["STRUCTURE<br/>its element contains what it holds"]
+
+  LEAF --> L1["a patch target · elementId = the node's .fh-cell"]
+  LEAF --> L2["a log key · a digest in every session's holds"]
+  LEAF --> L3["cacheable · renderInputs is Some"]
+
+  STRUCT --> S1["NEVER a patch target — a patch would carry<br/>its regions' bytes back with it"]
+  STRUCT --> S2["never a log key, never cached"]
+  STRUCT --> S3["a live BYTES slot on it is a BUILD ERROR;<br/>a SIGNAL slot is fine — it never becomes bytes here"]
+
+  classDef leaf fill:#dcfce7,stroke:#15803d,color:#0f172a
+  classDef struct fill:#fee2e2,stroke:#b91c1c,color:#0f172a
+  classDef q fill:#fef3c7,stroke:#b45309,color:#0f172a
+  class LEAF,L1,L2,L3 leaf
+  class STRUCT,S1,S2,S3 struct
+  class CARD q
+```
+
+**A region is filled by NODES, and that is what makes the guarantee structural.** There is no hole a
+patch could reach through, because every hole holds nodes with ids and patches of their own. A card
+that wants its own markup to move puts that markup in a region as a node — a slider's head is a leaf
+card beside the rows for exactly this reason.
+
+A region declares HOW it is filled, and the two are not interchangeable:
+
+| `fill` | Filled by | Element id | Rendered |
+|---|---|---|---|
+| `eager` | the node's own `regions[name]` children | none — they arrive nested | with the parent, in one pass |
+| `baked` | a SURFACE from the bake group, per viewer | `hostId` = `<nodeId>_<bakeAs>` | only the selected member, lazily |
+
+Laid over one slider and one tabs card:
+
+```mermaid
+flowchart TB
+  subgraph SL["node c_0 · card &quot;slider&quot; · STRUCTURE"]
+    direction TB
+    SH["region head → c_0_head_0<br/>card &quot;sliderHead&quot; · LEAF<br/>◀ a brightness tick patches THIS"]
+    SM["region children → c_0_0, c_0_1 …<br/>card &quot;slider&quot; each · member rows"]
+  end
+
+  subgraph TB2["node c_1 · card &quot;tabs&quot; · STRUCTURE"]
+    direction TB
+    BAR["region children → c_1_0, c_1_1<br/>card &quot;tab&quot; · LEAF each"]
+    PANEL["region panel · BAKED<br/>element id c_1_panel<br/>◀ a tab switch is one Inner HERE"]
+  end
+
+  SURF[("surfaces registry<br/>bakeInto = c_1, bakeAs = panel<br/>one baked at a time")]
+  SURF -.->|fillHost| PANEL
+
+  classDef struct fill:#fee2e2,stroke:#b91c1c,color:#0f172a
+  classDef leaf fill:#dcfce7,stroke:#15803d,color:#0f172a
+  classDef store fill:#fef3c7,stroke:#b45309,color:#0f172a
+  class SH,SM,BAR leaf
+  class PANEL struct
+  class SURF store
+```
+
+Note what the slider buys by being two regions: the master's state moves `c_0_head_0` and reaches no
+row, because the rows are not inside the head's element. Nothing checks that at render time — the
+rows are simply somewhere else.
+
+**Ids carry the region.** A child's id segment is its index within its region, prefixed by the
+region name unless it is the default one (`LayoutNode.segment`): `c_0_0` in the default region,
+`c_0_head_0` in `head`. A region name can never look like an index — `validate` rejects an all-digit
+one — so the two shapes cannot be confused.
 
 ## 4b. The member graph — a member container's members ARE nodes
 
@@ -574,11 +650,11 @@ would wake the tile on every bulb inside it), and container selection reads `Mem
 than the static index (a nested set is not in the index — it hangs off a member, which is the
 live half). The second was a real bug: correct ids, correct HTML, zero patches.
 
-The id scheme itself is ONE function, `MemberGraph.innerSetId`, read from both ends — `MemberGraph.sources`
-registers a container under it, `memberChild` paints an element under it. It used to be written out
-once per end with a comment asking the two to agree, which is the same silent failure again: the
-recorder maintains a container the browser does not have. `SetNodeSuite` pins the property that
-outlives the refactor — every group the markup shows is one the graph registered, two levels deep.
+The id scheme itself is ONE function, `MemberGraph.innerSetId`, read from both ends —
+`MemberGraph.sources` registers a container under it, `memberChild` paints an element under it. A
+second spelling of it is the same silent failure again: the recorder maintains a container the
+browser does not have. `SetNodeSuite` pins the property rather than the spelling — every group the
+markup shows is one the graph registered, two levels deep.
 
 **A set with a live `orderBy` or a `limit` is not INCREMENTAL.** One entity moving can reorder its
 neighbours, or push a different member past the cut, so `syncMembers` rebuilds that container's
@@ -636,38 +712,34 @@ three keyed on the dashboard, for free.
 | Sees | the full entity snapshot + the union of visible surfaces | one session's open set and ui-state |
 | Renders | **nothing** | everything: opening paint, live pulls, resume |
 | Writes | the changelog (`node -> version`, mutations, horizon) | that session's `holds` (digest **and** signals) and `position` |
-| Cost of N viewers | ×1 | ×1 per distinct SELECTION, via the per-slug render cache |
+| Cost of N viewers | ×1 | ×1 per node, via the per-slug render cache |
 
 The last row is about the PULL path, and only the pull path. **A document render and a body repaint
 go through no cache at all** — `Patches.bytes` is the `RenderCache`'s only entry point, and the page
 walk renders directly — so two viewers loading the same dashboard simultaneously each render the
-whole page, and the first live tick after either meets a cold cache. That is
-[issue #130](https://github.com/perok/functional-home-assistant/issues/130), not a property anything
-here relies on.
+whole page. That is
+[issue #130](https://github.com/perok/functional-home-assistant/issues/130): measured, deferred, and
+worth ~5.7 ms on a 200-card page. Nothing here relies on it.
 
-Each session renders
-for itself; what makes it ×1 is that both pulls go through one `RenderCache` keyed by what the render
-READS (`Renderer.renderInputs`), so whoever arrives first renders and the rest wait on the same slot.
-Two viewers of one dashboard have the same key for a node unless their selections differ — the hit is
-the normal case, not a lucky one. `SharedPassSuite`'s "rendered once between them" holds the number as
-a cost contract: a 2 there means a key is varying per viewer where it should not, or a pull is
-rendering outside the cache.
+Each session renders for itself; what makes the pull ×1 is that every pull goes through one
+`RenderCache` keyed by what the render READS (`Renderer.renderInputs`), so whoever arrives first
+renders and the rest wait on the same slot. `SharedPassSuite`'s "rendered once between them" holds
+the number as a cost contract: a 2 there means a key is varying per viewer where it should not, or a
+pull is rendering outside the cache.
 
-**Viewers whose selections DO differ cost one render each, and no more than that.** A node's key has
-two halves that behave nothing alike: the entity versions churn every frame, while the resolved
-selection (`bakeIndex`) ranges over a bake group's members — a finite set fixed by the dashboard. So
-the cache holds one generation per *(node, selection)*: viewers on different tabs no longer evict
-each other, and viewers behind each tab share. That is the floor, since those viewers are owed
-genuinely different bytes. Before it, 3+3 viewers across two tabs cost ~3.5 renders a frame against
-a floor of 2, drifting toward one render per viewer as viewers piled up.
-`RenderCacheContentionSuite` holds both halves — the floor, and the bound that keeps bucketing from
-becoming a leak.
+**A viewer's SELECTION is not in the key, and does not need to be.** A node whose bytes could depend
+on which tab is showing would be a node holding regions — and structure is never a patch target, so
+it is never rendered per frame and never cached. What renders on a tick is the LEAF beside it, whose
+bytes mention no selection at all. So viewers on different tabs are owed the same bytes for every
+node either of them is sent, and share one render. `RenderCacheContentionSuite` holds that at 1.0
+renders a frame at any mix of viewers and tabs; a 2.0 would mean cost had started following the
+selection again.
 
 **Sessions at different store versions is the other half, and it is an ordering problem, not a
-key problem.** Sessions pull on their own fibers and read the store when they get there, so they
-do not all render from one snapshot. Three racing — newest, straggler, newest — used to cost three
-renders: the straggler's install evicted bytes the third was about to hit. The waste was never the
-straggler's own render, which it needed, but what installing it threw away. So an install is
+key problem.** Sessions pull on their own fibers and read the store when they get there, so they do
+not all render from one snapshot. Three racing — newest, straggler, newest — would otherwise cost
+three renders: the straggler's install evicts bytes the third is about to hit. The waste is never
+the straggler's own render, which it needs, but what installing it throws away. So an install is
 refused when the generation present was rendered from a snapshot at or ahead of the caller's on
 every entity it reads (`RenderInputs.isAtLeast`); the straggler renders, is served, and the map
 keeps the newer bytes. The accepted cost is in §8.
@@ -742,8 +814,8 @@ owing this client nothing advances the position while announcing nothing — see
 
 **Mutations are filtered by visibility too.** A `Gone`/`Placed` inside a surface this client does not
 have open would patch an id its DOM lacks — a silent no-op, so it only ever cost bytes, but it is one
-client's worth of another client's tab on every frame. That test (`SurfaceGraph.visibleNode` on the
-container) is where the old audience tag's work now happens.
+client's worth of another client's tab on every frame. `SurfaceGraph.visibleNode` on the container
+is the test.
 
 Mutations are pruned below the floor (`Sessions.floor`, the lowest position among a slug's live
 sessions); a container whose history has been pruned past a client's cursor yields a `refill` rather
@@ -796,13 +868,13 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 | the colour a phone paints its own chrome | `runtime/Renderer.scala` · `themeColorTags` (the theme's background token, one `<meta>` per scheme, folded into `headFingerprint` because a style patch cannot rewrite a meta); `resources/pwa/manifest.webmanifest` for a cold launch |
 | a document on its way out | `src/js/shell.ts` · the `pagehide` listener → `fh-leaving`; `lib/core/css.pkl` hides `.fh-offline` under it, so an aborted stream cannot paint an outage on the page being left |
 | a stylesheet the first paint does not need | `model/Dashboard.scala` · `Theme.deferredStylesheets` (the icon font); `runtime/Server.scala` · `page`'s `rel=preload` + `<noscript>` pair. In `headFingerprint` like any other `<link>`, and prefetched by `AssetCache` like any other theme URL |
-| the actual rendering | `runtime/Renderer.scala` · `renderNodeById`, `renderMount` |
+| the actual rendering | `runtime/Renderer.scala` · `renderNodeById`, `renderHost` |
 | what keys a render | `runtime/Renderer.scala` · `renderInputs`, `activeBakeIndex` |
 | the member graph | `runtime/MemberGraph.scala` · `Member`, `MemberIndex`, `syncMembers`, `membersOf`, `innerSetId` |
 | which branch is showing, and to whom | `runtime/SurfaceGraph.scala` · `bakeGroup`, `resolveActive` (per viewer) / `resolveActiveByState` (per slug), `selectedSurfaces`, `visibleNode`, `visibleSurface`, `userSurfaceOf`, `rootOf` |
 | evaluating a guard / activation condition | `runtime/Conditions.scala` · `matches`, `matchesIn`, `propertyOf`; ordering in `runtime/MemberGraph.scala` · `precedes`, `compareOn` |
-| the render cache | `runtime/RenderCache.scala`; entered from `Patches.bytes` (morphs, placements). STRUCTURE is never cached — a card holding regions has its children in its own bytes, so it has no sound key. Decidable from the CARD now (`CardDef.regions`), where it used to be a property of a particular composition |
-| what a cache entry is keyed by | node id -> renderer identity + one generation per SELECTION (`RenderInputs.vars`), each holding its entity versions. The renderer is in the key because a dashboard edit changes the MARKUP while the entity versions it reads stay put; a swap drops every selection at once |
+| the render cache | `runtime/RenderCache.scala`; entered from `Patches.bytes` (morphs, placements). STRUCTURE is never cached — a card holding regions has its children in its own bytes, so it has no sound key — and that is decidable from the CARD (`CardDef.isStructure`) |
+| what a cache entry is keyed by | node id -> renderer identity + ONE generation, holding the entity versions that render read. The renderer is in the key because a dashboard edit changes the MARKUP while the entity versions it reads stay put; a swap drops the whole entry |
 
 ## 8. Known open questions
 
@@ -832,9 +904,9 @@ Live list — delete an entry when it is answered, and say where the answer land
 
 - **The document walk and the repaint bypass the `RenderCache` entirely** —
   [issue #130](https://github.com/perok/functional-home-assistant/issues/130), measured and
-  DEFERRED, with the numbers on the issue. Both stated obstacles are gone: "what a parent EMBEDS is
-  not what a patch carries" went with `self` (a leaf card's template IS its patch fragment,
-  structure is never cached), and the walk-is-pure-cache-is-`IO` one is only work.
+  DEFERRED, with the numbers on the issue. Neither stated obstacle stands: "what a parent EMBEDS is
+  not what a patch carries" does not hold under regions (a leaf card's template IS its patch
+  fragment, and structure is never cached), and the walk-is-pure-cache-is-`IO` one is only work.
 
   The measuring narrowed it to ONE change, and that is what it bought. **A live tick cannot hit
   bytes the walk installed**: the tick asks for that node precisely when an entity it reads has

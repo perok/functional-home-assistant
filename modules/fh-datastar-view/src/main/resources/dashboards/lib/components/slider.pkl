@@ -164,11 +164,9 @@ typealias Readout = "state"|"percent"|"none"
 /// reason this is a structural card even when it holds nothing.
 /// The slider's own row — label, readout, track, action — as a NODE.
 ///
-/// It is a node rather than a part of [[Slider]] because a card's patch target
-/// must hold no hole, and the head sits beside the members: they are two
-/// regions of one card, and only a leaf can be patched. So a brightness change
-/// re-renders this and never the rows under it, which is the property the old
-/// `self`/`mount` split existed to buy — now bought by ordinary node structure.
+/// It is a node rather than a part of [[Slider]] because only a LEAF can be
+/// patched, and the head sits beside the members: they are two regions of one
+/// card. So a brightness change re-renders this and never the rows under it.
 ///
 /// Built by [[Slider]], never by an author: it takes the slots the slider
 /// already computed, so its fifteen values are derived in exactly one place.
@@ -640,9 +638,8 @@ class Slider extends nodes.Node {
   //
   // TWO regions: the head is a [[SliderHead]] node, the members are the author's
   // rows. That is what keeps a brightness change off the rows — a patch targets
-  // the head, and the members are not inside it (ADR 0012). It used to be the
-  // `self`/`mount` split; it is now ordinary node structure, and the card is
-  // STRUCTURE, never itself a patch target.
+  // the head, and the members are not inside it (ADR 0012). This card is
+  // STRUCTURE, so it is never itself a patch target.
   //
   // A member-less slider still renders an empty `.slider-members` the theme
   // hides, because a card is one shape and its optional pieces (icon, second

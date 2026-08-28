@@ -251,10 +251,8 @@ class RenderInputsSuite extends munit.FunSuite {
     assertEquals(key("c_0", 1), key("c_0", 2))
     // An unrelated entity moving (step 3) leaves c_0 alone...
     assertEquals(key("c_0", 2), key("c_0", 3))
-    // `c_2` used to be asserted here too — the bake owner, whose key carried
-    // the SELECTION its condition resolved to as well as its entity versions.
-    // A bake owner holds regions now, so it is structure and has no key at all
-    // (asserted below); the selection half of a key no longer exists.
+    // Not `c_2`: a bake owner holds regions, so it is structure and has no
+    // key at all — asserted below.
   }
 
   test("an absent entity keys differently from any version it could hold") {
@@ -290,11 +288,9 @@ class RenderInputsSuite extends munit.FunSuite {
   }
 
   test("a bake owner with a live slot of its own has no key either") {
-    // A card holding a region AND binding an entity — the shape that used to
-    // be admitted (a `self` was its patch target, so it had a rendering of its
-    // own) and is now structure like any other. The authoring layer refuses
-    // this combination outright; the model is built here directly, because the
-    // point is what the RENDERER answers for it.
+    // A card holding a region AND binding an entity: structure like any other.
+    // The authoring layer refuses the combination outright, so the model is
+    // built here directly — the point is what the RENDERER answers for it.
     val tabs = Renderer.create(
       Dashboard(
         cards,
@@ -311,10 +307,9 @@ class RenderInputsSuite extends munit.FunSuite {
       )
     )
     assertEquals(tabs.renderInputs("c", line.head, Map.empty), None)
-    // ...and not renderable by id either. It used to be both — no key, but
-    // still a patch target that paid for its render. A card holding regions is
-    // structure now: its element contains what it holds, so patching it would
-    // re-send that, and the things worth patching are the nodes inside.
+    // ...and not renderable by id either: its element contains what it holds,
+    // so patching it would re-send that. The things worth patching are the
+    // nodes inside.
     assertEquals(tabs.renderNodeById("c", line.head), None)
   }
 

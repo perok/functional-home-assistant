@@ -118,14 +118,14 @@ structural card therefore has only what it holds to show: a live slot on one is 
 *unless the value travels as a signal*, which never becomes bytes in the element. ADR 0012, ADR
 0017.
 
-The pair replaces **self** and **mount**, which were two named PARTS of one template. Regions are
-ordinary node structure instead: what was a `self` is a leaf card beside its siblings, and what was
-a `mount` is a region. The old split needed a rule — *a `self` must not contain the mount hole* —
-where the invariant now falls out of the shape: every hole in a template is disjoint from every
-other, so a patch at one node can never reach another's content.
+A card wanting its OWN markup to move puts that markup in a region, as a node — a slider's head is
+a leaf card beside the rows for exactly this reason. So the guarantee needs no rule to police it:
+every hole in a template is filled by a node with an id of its own, and a patch at one node can
+never reach another's content.
 
-**Host** — the node a baked region belongs to, addressed as `hostId` (`c_2_panel`). The one sense
-of "mount" that survived the rename, and the word the runtime uses.
+**Host** — the element a baked region is filled through, addressed as `hostId` (`c_2_panel`). The
+word the runtime uses; not to be confused with a **region**, which is the declaration, or with the
+**node** that owns it.
 
 **Bake** — to render chosen content into a host. A surface declares which node it bakes **into**;
 the host renders it as **bakeAs**; **bakeIndex** is which member of the group is currently chosen,
