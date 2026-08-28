@@ -117,57 +117,46 @@ anyway (dynamic child ids, the group root), and the "all grid children are
 cells" invariant would depend on every card's root class list instead of one
 backend-emitted class. Same CSS work, weaker invariants, one less `<div>`.
 
-### The cell is the layout item; the patch target may be inside it
+### The cell is the layout item, and for a leaf it is the patch target too
 
-"Every node is a cell" originally meant two things at once: the cell is the
-layout box, AND the cell is the Datastar morph target. Those separated when
-containers gained a **self/mount split** (ADR 0011's statement (1)): a container
-renders its own presentation (`self`) and the place its children go (`mount`) as
-SIBLINGS, so that patching what a container shows cannot re-render what it holds.
-A tabs card ticking a live value in its header must not re-send the panel below
-it.
+"Every node is a cell" means two things, and only one of them is about every
+node:
 
-So the mapping is now one function, in one direction only:
+- **the cell is the layout box** — the flex/grid item, carrying the authored
+  `cell` classes. True for every node without exception, structure included.
+- **the cell is the Datastar morph target** — true for a LEAF, and for nothing
+  else. A structural card's element contains the regions it holds, so a patch
+  aimed at it would carry their bytes back with it (ADR 0012).
 
-> `patchTargetId(nodeId)` = `nodeId` for a leaf, `nodeId + "-self"` for a card
-> that declares a `self`.
+So the mapping is one function, in one direction only:
 
-The cell keeps its first job unchanged — it is the flex/grid item for every node,
-and `cell` classes still ride on it. What moved is the second job: for a card with
-a `self`, the patch aims at the `-self` element inside the cell, and the fragment
-structurally cannot contain the mount's contents.
+> `elementId(nodeId)` = `nodeId`, always. Whether a node may be a patch target
+> at all is `CardDef.isStructure`, asked of the card.
 
-**A card with a mount and no `self` has no rendering of its own**, and therefore
-is not a patch target and not a log key. Its `.fh-cell` is a constant wrapper
-around a hole; rendering it by id renders its whole subtree, which is its
-children's business and not its own. `Dashboard.validate` already says half of
-this — it rejects a live-entity slot on such a card *because there is nothing to
-patch* — and the log follows the same rule (ADR 0011, "what is a log key").
-Dynamic group roots are in the same class, for the same reason.
+**Structure is not a patch target and not a log key.** Its `.fh-cell` is a
+constant wrapper around holes; rendering it by id would render its whole
+subtree, which is its children's business and not its own. `Dashboard.validate`
+says the same from the other side — it rejects a live BYTES slot on structure
+*because there is nothing to patch* — and the log follows the same rule (ADR
+0011, "what is a log key"). Candidate-set roots are in the same class, for the
+same reason.
 
-**A `self` may read `bakeIndex`, but not the `{{{bakeAs}}}` hole.** The second is
-statement (1) — that hole IS the mount's contents. The first is allowed, and
-costs something worth knowing: `bakeIndex` is the node's own variant id, so a
-bar that renders its active tab server-side has one rendering per member of its
-group. Such a node is rendered per connection and kept out of the log (a shared
-digest could only describe one viewer's bytes), which means it loses digest
-suppression and re-sends on every tick of an entity it binds.
+**A structural card may read `bakeIndex`.** It is the node's own selected index,
+and the shipped tab bar seeds a signal from it. What a structural card may not
+do is show a live value as BYTES: it holds content, so it would have to be
+patched for those bytes to move, and it cannot be. A card wanting its own markup
+to change puts that markup in a region, as a node — a slider's head is a card of
+its own for exactly this reason — or carries the value as a SIGNAL slot (ADR
+0017), which never becomes bytes in its element.
 
-The variance is bounded — one variant per member of its OWN group, never a
-product over the subtree, because a node's own rendering carries no mount. The
-shipped bar highlights client-side through `$ui_<id>` instead, which needs no
-round trip and remains the better default; the server-rendered form is for when
-the selection must be right before Datastar loads.
+**The log key is always the node id.** A bake host's `<nodeId>_<bakeAs>` is a
+rendering detail derived from it and nothing maps back, so a DOM id can never
+enter the log, the reverse index, or a cursor (ADR 0022).
 
-**The log key is always the node id.** `-self` is a rendering detail derived from
-it and nothing maps back, so a DOM id can never enter the log, the reverse index,
-or a cursor.
-
-This also removed an exception. A bake-group owner (`Tabs`, `If`) used to be
-denied the cell wrapper, because the cell WAS the patch target and such a node's
-patch would have carried its whole baked panel. With the two jobs separated they
-are ordinary cells — which is why `.columns(n)` on a `Tabs` works now, where
-before it was accepted and silently dropped.
+A bake-group owner (`Tabs`, `If`) gets a cell like anything else. Being a layout
+item and being a patch target are different jobs, and denying it the first
+because it fails the second is what used to drop `.columns(n)` on a `Tabs`
+silently.
 
 ### Also decided here
 
@@ -187,8 +176,8 @@ framework-agnostic, and a new look is a sibling module exporting a
 - Every node now being id-addressable improves the editor overlay
   (`.fh-cell[id]` selects everything) and future per-node tooling.
 - `wrapAsCell = false` means exactly one thing: *my root must not be wrapped in
-  a layout box*. It no longer implies "never a patch target" — that is decided
-  by card shape, via `patchTargetId`.
+  a layout box*. It does not imply "never a patch target" — that is decided by
+  card shape (`CardDef.isStructure`).
 - DOM depth grows by one `div` per node; inert in flow terms everywhere but
   the layout containers, where it is the point.
 - The dynamic-group root's classes (`fh-cell fh-group`) are renderer policy,

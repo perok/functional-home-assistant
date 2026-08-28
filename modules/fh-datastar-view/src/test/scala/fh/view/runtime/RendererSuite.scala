@@ -61,11 +61,10 @@ class RendererSuite extends munit.FunSuite {
         """<div id="{{hostId}}" class="tab-panel" data-signals="{ tab_{{id}}: {{bakeIndex}} }">{{{panel}}}</div></div>""",
       regions = Map("children" -> Region(), "panel" -> Region(Region.Baked))
     ),
-    // "A tab bar with the current temperature in its header" — the shape the
-    // `self`/mount split existed for, in the form that replaced it: the live
-    // header is a NODE in the bar region, beside the baked panel. A title tick
-    // patches that node and cannot reach the panel, which is now true by
-    // structure rather than by a patch aimed at a sub-element.
+    // "A tab bar with the current temperature in its header": the live header
+    // is a NODE in the bar region, beside the baked panel. A title tick patches
+    // that node and cannot reach the panel — true by structure, with nothing
+    // to aim.
     "tabsLive" -> CardDef(
       template = """<div><div class="tabs">{{#bar}}{{{html}}}{{/bar}}</div>""" +
         """<div id="{{hostId}}" data-signals="{ tab_{{id}}: {{bakeIndex}} }">{{{panel}}}</div></div>""",
@@ -1119,8 +1118,8 @@ class RendererSuite extends munit.FunSuite {
       clue = html
     )
 
-    // The default region contributes only its index, so its child keeps the id
-    // it had before regions existed; the named one carries its region.
+    // The default region contributes only its index; a named one contributes
+    // its name as well.
     assert(html.contains("""id="c_0""""), clue = html)
     assert(html.contains("""id="c_extra_0""""), clue = html)
   }
@@ -1620,13 +1619,10 @@ class RendererSuite extends munit.FunSuite {
     assertEquals(tabs.surfaces.stateBakeOwnerIds, Set.empty[String])
   }
 
-  /** The shape the old card-shape check could not see: a container that splices
-    * `{{#children}}` into its template while DECLARING no region. It read as a
-    * leaf, so it looked like a node with a rendering of its own, while its
-    * bytes carried its children.
-    *
-    * Found by accident: the first fixture written for that check was exactly
-    * this, and the test still failed after the fix.
+  /** A container that splices `{{#children}}` into its template while DECLARING
+    * no region. Without this check the leaf/structure split is not decidable
+    * from the card: such a template reads as a leaf, so it would be cached and
+    * patched, while its bytes carry its children.
     */
   test(
     "a card that splices children without declaring the region is rejected"
@@ -1686,10 +1682,8 @@ class RendererSuite extends munit.FunSuite {
     * sibling holds is none of its business.
     *
     * Real shape: a slider holding member sliders — the head in one region, the
-    * rows in another. Under the old rule the head was the card's `self`, and
-    * the moment a member card gained a hole of its own (one card for both, ADR
-    * 0006) the runtime walk made the HEAD unaddressable, so dragging a row
-    * stopped updating the master until a reload.
+    * rows in another. Get it wrong and the head is unaddressable, so dragging a
+    * row stops updating the master until a reload.
     */
   test("a live head beside its members carries none of them") {
     val cards = Map(
@@ -1913,11 +1907,9 @@ class RendererSuite extends munit.FunSuite {
   /** Statement (1): a node's patch carries its own rendering and never the
     * contents of a region.
     *
-    * It used to be bought by aiming the patch at a sub-element (`#c-self`) so
-    * it could not reach the sibling holding the children. It is bought by
-    * STRUCTURE now: the live part is a node of its own, the regions are other
-    * nodes, and the container is not a patch target at all. Same guarantee,
-    * nothing to aim.
+    * Bought by STRUCTURE: the live part is a node of its own, the regions are
+    * other nodes, and the container is not a patch target at all — so there is
+    * nothing to aim and nothing to get wrong.
     */
   test("a node's patch carries its own rendering alone — statement (1)") {
     val r = splitRenderer
@@ -1933,10 +1925,8 @@ class RendererSuite extends munit.FunSuite {
     assert(!patch.contains("inside"), clue = patch)
   }
 
-  /** "What I morph" and "what I am" used to be different elements — a card with
-    * a `self` was patched at `<id>-self` so its patch could not reach the
-    * sibling holding its children. A node holds its regions in OTHER NODES now,
-    * so there is nothing to exclude and one element does both jobs.
+  /** "What I morph" and "what I am" are ONE element: a node holds its regions
+    * in other nodes, so a patch target has nothing to exclude.
     */
   test("one element per node: what a patch targets is what the node IS") {
     val r = splitRenderer

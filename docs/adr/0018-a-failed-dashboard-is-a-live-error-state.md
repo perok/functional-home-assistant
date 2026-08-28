@@ -98,7 +98,7 @@ the seam.
 The `Failed` state deliberately never propagates down into the rendering
 machinery. `RendererState.rendererOf: Option[Renderer]` collapses it, and the
 bulk of `Server.scala` sees `None` where a failed slug lives — the recorder,
-`Patches.resume`, `recordFrame`, the page render, surface swap and mount fill
+`Patches.resume`, `recordFrame`, the page render, surface swap and host fill
 all keep taking a concrete `Renderer`. Exactly five seams match on the state:
 
 | seam | `Ready` | `Failed` |

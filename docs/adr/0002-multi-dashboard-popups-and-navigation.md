@@ -49,7 +49,7 @@ bakeInto, bakeAs, bakeIndex, activation)`, where `activation` is the sum
 - **The host is derived, not authored** — `Surface.hostId` is
   `{bakeInto}_{bakeAs}` for a baked tab panel (enforcing the
   `id="{{bakeInto}}_{{bakeAs}}"` host convention the `tabs` card template
-  honours) and the theme's popup mount (`Dashboard.PopupHostId`, `#popups`)
+  honours) and the theme's popup host (`Dashboard.PopupHostId`, `#popups`)
   otherwise. The host is both the live-patch target and the eviction group.
 - **`bakeInto`/`bakeAs`/`bakeIndex`/`activation`** drive first-paint baking:
   the component whose id equals `bakeInto` receives the selected member's
@@ -111,15 +111,14 @@ will send it asked for it. State-activated surfaces need no special handling eit
 their selection is server truth, identical for every viewer (ADR 0007), so a node inside
 an `If` branch nested in a tab panel is visible exactly when that tab panel is.
 
-That also dissolves the one case that used to resist a shared rendering — a flip placing
-a branch whose subtree mounts a client-selected member (tabs inside an `If`). The session
+That also dissolves the one case that resists a shared rendering on its face — a flip
+placing a branch whose subtree holds a client-selected member (tabs inside an `If`). The session
 renders it with its own selections when it pulls, so it arrives as one complete patch
 with that viewer's panel already inside it, and there is no deferred render and no memo
 keyed by what the render reads.
 
-Almost nothing else can vary anyway: under the self/mount split (ADR 0008) a container
-patches its `self`, which holds no mount, so only a render that CREATES a subtree can
-differ per viewer.
+Almost nothing else can vary anyway: only a LEAF is a patch target and a leaf holds no
+regions (ADR 0008), so only a render that CREATES a subtree can differ per viewer.
 
 This replaced a **shared/per-session split**, in which open surfaces and bake-group
 owners were re-rendered once per connection against a per-session diff cache, and then a
@@ -271,14 +270,14 @@ wiring, not dashboard frame.
 
 ## Rejected along the way (still guarding the design)
 
-- **A `Mount` layout node** (backend-rendered host element + `MountKind`
+- **A dedicated host layout node** (backend-rendered host element + a kind
   heuristic): pushed presentation back into Scala (hardcoded host HTML, a
   kind→card-name binding). The host belongs in a card template; presentation is
   data.
 - **`children` as a multi-hole slot** (render all tab panels, `data-show` the
   active one): defeats surface laziness — hidden panels would receive SSE
   patches.
-- **Stacked popups + per-surface `chrome`/`stack`/`mount` fields**: the fields
+- **Stacked popups + per-surface `chrome`/`stack`/host fields**: the fields
   co-varied; deriving the host and dropping stacking collapsed `Surface` from 8
   fields to 5 and unified open/switch/close. The derivations are safe only
   because the constraining assumptions (popups don't stack; a baked surface's
@@ -286,16 +285,15 @@ wiring, not dashboard frame.
   inferred.
 - **A theme-composed `c.popupHost()` component**: inverted the layering (theme
   → components); the host is inlined in the theme instead.
-- **A hollow mount plus a per-connection fill**: the first attempt at serving
-  viewers on different tabs from one shared render — insert the branch with its
-  tabs mount EMPTY, then have each connection fill its own. It works, and it was
-  wrong twice over: two DOM updates for one change, and a rendering "for nobody"
-  that promptly leaked a blank tab index into live markup, because a mount
-  carries client-dependent ATTRIBUTES and not merely children. Having the session
-  render the branch with its own selections, above, is the same idea done at the
-  right boundary.
+- **A hollow host plus a per-connection fill**: serving viewers on different tabs
+  from one shared render by inserting the branch with its tabs host EMPTY, then
+  having each connection fill its own. It works, and it is wrong twice over: two
+  DOM updates for one change, and a rendering "for nobody" that leaks a blank tab
+  index into live markup, because a host element carries client-dependent
+  ATTRIBUTES and not merely children. Having the session render the branch with
+  its own selections, above, is the same idea at the right boundary.
 - **Baking whichever member the connected clients happen to agree on**: would
-  have removed the hollow mount for the common case by reading the union of
+  remove the hollow host for the common case by reading the union of
   every session's open set. It makes the rendered bytes depend on the audience —
   the same dashboard in the same state producing different HTML depending on who
   is watching — for no gain over letting each session render its own.

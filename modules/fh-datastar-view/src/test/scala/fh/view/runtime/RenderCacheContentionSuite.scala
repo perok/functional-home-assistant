@@ -193,25 +193,19 @@ class RenderCacheContentionSuite extends ServerHarness {
       )
   }
 
-  /** The contract that was the open question, and the answer changed.
+  /** Cost does not follow SELECTIONS: viewers on different tabs share a render.
     *
-    * It used to be that two selections needed two DIFFERENT renders a frame,
-    * because the bake OWNER was itself cached and its own bytes carried the
-    * viewer's chosen tab. 2.0 was the floor, and the cache bucketed per
-    * selection to hold it there: unbucketed, a pull for tab 1 evicted tab 0's
-    * entry and the cost drifted toward one render per VIEWER (2.13–3.80 at
-    * 3+3).
-    *
-    * A bake owner holds its content in REGIONS now, which makes it structure —
+    * A bake owner holds its content in regions, which makes it structure —
     * never a patch target, never cached, never rendered per frame. What renders
     * is the LEAF beside it, and a leaf's bytes mention no selection, so every
-    * viewer is owed the same bytes.
+    * viewer is owed the same bytes whatever tab they are on.
     *
-    * So the floor is 1.0 and the bucketing has nothing left to bucket. Were
-    * this to measure 2.0, the contention would merely have moved and deleting
-    * `RenderInputs.vars` would have taken something away.
+    * The floor is therefore 1.0 at any mix. A 2.0 here would mean the cost had
+    * started following the selection again, and a cache keyed on the entity
+    * half alone would then be evicting one tab's bytes for the other's on every
+    * frame.
     */
-  test("cost does not follow selections any more — one render serves both") {
+  test("cost does not follow selections — one render serves both tabs") {
     assertCost(
       "1+1 on two tabs",
       List("", "?ui.c_0=1"),

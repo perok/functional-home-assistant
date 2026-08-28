@@ -93,10 +93,11 @@ Per state change, the recording pass does two things:
    stale cache entries; the flip-prune is what makes that correct.
 
    The fill itself is `Patches.fillHost` — the same primitive a tab switch and
-   a popup open use, since all three evict a host and overwrite its mount
-   (ADR 0012). It arrives as one `Inner` at the mount, not a morph of the host:
-   the host's HTML would have embedded the branch, which is exactly the welding
-   the self/mount split exists to prevent (ADR 0008).
+   a popup open use, since all three evict a host and overwrite what it holds
+   (ADR 0012). It arrives as one `Inner` at the host element, not a morph of the
+   node: the node's own HTML embeds the branch, so morphing it would weld host
+   to content, which is exactly what the leaf/structure split prevents (ADR
+   0008).
 2. **Active-member liveness** (`Renderer.activeStateSurfaces`, transitive —
    a nested state group contributes only through its active ancestor branch):
    record the active members' affected components and dynamic groups. Inactive

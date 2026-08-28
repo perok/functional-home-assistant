@@ -151,7 +151,7 @@ input, clamped at the boundary:
   popup's equivalent of `resolveActive`'s index clamp.
 
   One asymmetry is unavoidable: every other selection's signal is declared by
-  the card that owns the mount, and the popup host lives in `theme.chrome`,
+  the card that owns the host, and the popup host lives in `theme.chrome`,
   outside every node — so the page shell declares and mirrors this one.
 
   The signal is authoritative **whenever it is present, `""` included** — that is

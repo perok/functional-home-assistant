@@ -18,7 +18,7 @@ import io.circe.Decoder
   *
   * [[NodeId]] -> [[DomId]] is one-way, through
   * [[fh.view.runtime.Renderer.elementId]] — a node's patch target is its own
-  * `.fh-cell`, since regions landed and `self` went away. Nothing travels back.
+  * `.fh-cell`. Nothing travels back.
   *
   * [[SetId]] and [[MemberId]] refine it further: same string, but the type says
   * WHICH KIND of node it names, so "this container is a candidate set" is a

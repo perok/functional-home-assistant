@@ -26,7 +26,7 @@ server's frames to the client's requests.
 
 | form | value inline | binding | seed | rendered by |
 |---|---|---|---|---|
-| **document** | yes | yes | yes | page load, body repaint, mount fill, insert-from-fill |
+| **document** | yes | yes | yes | page load, body repaint, host fill, insert-from-fill |
 | **patch** | no | yes | no | `renderNodeById` — the per-node morph path |
 
 ```html
@@ -49,7 +49,7 @@ Each form is load-bearing:
   what is **not** on the wire — a broken implementation still updates the card, because the morph it
   was meant to replace is still being sent.
 - **An element seeds its own signal.** The document form's `data-signals` means a first paint, a
-  mount fill or a `?prev=` reconnect repaint needs no frame to be correct. `data-signals`
+  host fill or a `?prev=` reconnect repaint needs no frame to be correct. `data-signals`
   overwrites by default in the pinned bundle (`__ifmissing` is opt-in), so re-seeding on a later
   wholesale render is correct rather than a race.
 - **A JS-less browser gets the value.** It receives the document and nothing else — no Datastar, no
@@ -86,7 +86,7 @@ follow that a template-authored `data-text` would not give:
   (`Datastar.signalsAttr`), not every card.
 
 The wrapper is the right home for the seed because it is renderer-owned and appears in precisely
-the renders that should carry it: a `self` card's patch renders `<id>-self` alone and is correctly
+the renders that should carry it: the PATCH form is the card's own markup and is correctly
 seedless, while its document render includes the wrapper.
 
 **Whether a signal name descends into children is the difference between the two halves of the
@@ -196,7 +196,7 @@ is the only window in which any of this is observable.
 `Session.holds` is `Map[NodeId, Held]`, where `Held(digest: Option[Digest], signals: Map[SignalId,
 String])`. Both halves answer "is this worth sending?" about one node.
 
-Sharing the map is not tidiness. A mount fill makes everything under it unknown, and with a
+Sharing the map is not tidiness. A host fill makes everything under it unknown, and with a
 separate signal map keyed by signal *name* that invalidation could only be expressed by
 string-prefixing the name back into a node id. Keyed by node, it is the id-prefix test
 `Patches.applied` already runs.
@@ -222,7 +222,7 @@ The cost is a second `tpl.execute` on the same compiled template, needed only wh
 signal slots itself or has own rendering and embeds a descendant that does. The guard is exact
 (`kids.exists(_.patch ne _.html)`), so a signal-free subtree hands the same `String` reference back
 and does no extra work. In the shipped library the second clause almost never fires:
-`grid`/`row`/`column` are bare containers with no own rendering and are never log keys.
+`grid`/`row`/`column` are structure — no rendering of their own, and never log keys.
 
 ## Consequences
 
