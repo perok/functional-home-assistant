@@ -1,7 +1,9 @@
 package fh.view.runtime
 
-import fh.view.build.LibPackage
 import fh.view.model.{NodeId, SignalId}
+
+import java.nio.charset.StandardCharsets
+import java.security.MessageDigest
 
 /** A 128-bit content digest.
   *
@@ -16,8 +18,42 @@ import fh.view.model.{NodeId, SignalId}
 private[runtime] opaque type Digest = String
 
 private[runtime] object Digest {
-  def of(html: String): Digest =
-    LibPackage.sha256(html.getBytes("UTF-8")).take(32)
+
+  /** `MessageDigest` is not thread-safe, and sessions render concurrently — but
+    * `getInstance` is a provider lookup, and this runs once per painted node on
+    * every page load, fill and repaint. One instance per thread, reset per use.
+    */
+  private val digester: ThreadLocal[MessageDigest] =
+    ThreadLocal.withInitial(() => MessageDigest.getInstance("SHA-256"))
+
+  private val Hex: Array[Char] = "0123456789abcdef".toCharArray
+
+  /** Byte-identical to the `LibPackage.sha256(...).take(32)` this replaces —
+    * same algorithm, same prefix. What changed is the encoding: that helper
+    * formats each byte with `"%02x".format(_)`, so a digest cost 32
+    * `String.format` calls (each parsing a format string) plus two String
+    * allocations, to keep half of what it built. The hashing was never the
+    * expensive part.
+    *
+    * Only the 16 bytes that survive the truncation are encoded, which is where
+    * the other half went. `LibPackage.sha256` keeps the slow encoding and
+    * should: it runs a handful of times at startup over package zips, and its
+    * output is a manifest checksum rather than a change detector.
+    */
+  def of(html: String): Digest = {
+    val md = digester.get()
+    md.reset()
+    val bytes = md.digest(html.getBytes(StandardCharsets.UTF_8))
+    val out = new Array[Char](32)
+    var i = 0
+    while (i < 16) {
+      val b = bytes(i) & 0xff
+      out(2 * i) = Hex(b >>> 4)
+      out(2 * i + 1) = Hex(b & 0x0f)
+      i += 1
+    }
+    new String(out)
+  }
 }
 
 /** What one client has, for one node: the digest of the bytes it was last sent,
