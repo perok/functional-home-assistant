@@ -54,10 +54,10 @@ import java.util.concurrent.TimeUnit
   *     documents that layout, but it needs `Jmh / compile := (Jmh /
   *     compile).dependsOn(Test / compile).value`, and sbt 2's task cache
   *     refuses a redefined `compile` — there is no `JsonFormat` for its
-  *     `CompileAnalysis`. Hand-wiring the bytecode generator around that got
-  *     as far as writing runner sources that `Jmh / compile` then would not
-  *     pick up. A separate project on the plugin's DEFAULT layout needs none
-  *     of it, and keeps jmh-core out of the add-on jar besides.
+  *     `CompileAnalysis`. Hand-wiring the bytecode generator around that got as
+  *     far as writing runner sources that `Jmh / compile` then would not pick
+  *     up. A separate project on the plugin's DEFAULT layout needs none of it,
+  *     and keeps jmh-core out of the add-on jar besides.
   *   - '''A byte-ratio for the composition cost''' — bytes written over bytes
   *     the page holds. It is structurally 1.0 whatever the tree, because the
   *     `own` map it sums holds ONLY leaves (a container "has no rendering of
@@ -86,16 +86,17 @@ class RenderBench {
   def setup(): Unit = {
     st = states(Leaves)
     plain = Renderer.create(Dashboard(cards, tree(Leaves, 4, signals = false)))
-    signalled = Renderer.create(Dashboard(cards, tree(Leaves, 4, signals = true)))
+    signalled =
+      Renderer.create(Dashboard(cards, tree(Leaves, 4, signals = true)))
     narrow = Renderer.create(Dashboard(cards, tree(Leaves, 2, signals = true)))
     flat =
       Renderer.create(Dashboard(cards, tree(Leaves, Leaves, signals = true)))
     transforms = Transforms.from(
       Dashboard(cards, tree(Leaves, 4, signals = true))
     )
-    entityTemplate =
-      Templates.from(Dashboard(cards, tree(Leaves, 4, signals = true)))
-        .components("entity")
+    entityTemplate = Templates
+      .from(Dashboard(cards, tree(Leaves, 4, signals = true)))
+      .components("entity")
     painted = signalled.renderPageTraced(st).own.values.map(_.html).toList
   }
 
@@ -177,7 +178,8 @@ object RenderBench {
   final val TransformIcon =
     """$lookup({"light":"lightbulb","switch":"toggle_on","sensor":"thermostat"}, $domain) ? """ +
       """$lookup({"light":"lightbulb","switch":"toggle_on","sensor":"thermostat"}, $domain) : "help""""
-  final val TransformName = """$attr.friendly_name ? $attr.friendly_name : $entity_id"""
+  final val TransformName =
+    """$attr.friendly_name ? $attr.friendly_name : $entity_id"""
   final val TransformFill =
     """($v := $attr.brightness; $v != null ? $round($v * 100 / 255) & "%" : "")"""
   final val TransformAction =
@@ -186,8 +188,8 @@ object RenderBench {
   def entityId(i: Int): String = s"light.tile_$i"
 
   /** An entity card shaped like the shipped ones: icon, name, state, a fill bar
-    * and a tap target. The `__bind` holes render empty for a slot that is not
-    * a signal slot, so ONE card set serves both dashboards and `signals` moves
+    * and a tap target. The `__bind` holes render empty for a slot that is not a
+    * signal slot, so ONE card set serves both dashboards and `signals` moves
     * only on the slot — which is what keeps [[RenderBench.page]] and
     * [[RenderBench.pageSignals]] a comparison of one variable.
     */
@@ -248,7 +250,9 @@ object RenderBench {
         stack(
           items
             .grouped(math.max(2, branching))
-            .map(g => LayoutNode.Component("col", regions = LayoutNode.kids(g*)))
+            .map(g =>
+              LayoutNode.Component("col", regions = LayoutNode.kids(g*))
+            )
             .toList
         )
     stack(List.tabulate(leaves)(leaf(signals)))
