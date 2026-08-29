@@ -11,28 +11,32 @@ package fh.view.runtime
   * registered `str(x)` for `$string` over heterogeneous values (arrays,
   * numbers, nulls) — the one place CEL has no native equivalent.
   *
-  * Presence is a REAL boolean in CEL (`!= null`, `size(...) == 3`), where
-  * JSONata used truthiness; on the benchmark fixture (present-or-absent
-  * strings, present ints) the two agree for every attribute the shapes read.
+  * Presence is a REAL boolean in CEL: `'x' in attr` for key presence, `!= null`
+  * for value presence, `size(...) == n` for shape. RAW `attr["x"]` THROWS an
+  * evaluation error when `x` is absent (a denormalised hand-rolled `attr` map,
+  * not a CEL native map), so `attr["x"] != null` is NOT a null check — a
+  * dimension the everything-present benchmark fixture never used, measured by
+  * the CelSpike sweep. Empty-string values are present to `in` (where JSONata
+  * found them falsy): the surviving, deliberate divergences are pinned there.
   */
 object CelShapes {
 
   final val TransformName =
-    """attr["friendly_name"] != null ? attr["friendly_name"] : entity_id"""
+    """'friendly_name' in attr ? attr["friendly_name"] : entity_id"""
 
   final val TransformUnit =
-    """attr["unit_of_measurement"] != null ? state + ' ' + attr["unit_of_measurement"] : state"""
+    """'unit_of_measurement' in attr ? state + ' ' + attr["unit_of_measurement"] : state"""
 
   final val TransformFill =
-    """cel.bind(v, attr["brightness"], v != null ? 100.0 - ((double(v) - 1.0) * 100.0 / (255.0 - 1.0)) : 100.0)"""
+    """cel.bind(v, 'brightness' in attr ? attr["brightness"] : null, v != null ? 100.0 - ((double(v) - 1.0) * 100.0 / (255.0 - 1.0)) : 100.0)"""
 
   final val TransformPercent =
-    """cel.bind(v, attr["brightness"], v != null ? string(int(math.round((double(v) - 1.0) * 100.0 / 254.0))) + ' %' : '0 %')"""
+    """cel.bind(v, 'brightness' in attr ? attr["brightness"] : null, v != null ? string(int(math.round((double(v) - 1.0) * 100.0 / 254.0))) + ' %' : '0 %')"""
 
   final val TransformFillColor =
-    """cel.bind(rgb, attr["rgb_color"],
-      |  cel.bind(k, attr["color_temp_kelvin"],
-      |    size(rgb) == 3
+    """cel.bind(rgb, 'rgb_color' in attr ? attr["rgb_color"] : null,
+      |  cel.bind(k, 'color_temp_kelvin' in attr ? attr["color_temp_kelvin"] : null,
+      |    (rgb != null && size(rgb) == 3)
       |      ? 'rgb(' + string(int(rgb[0])) + ',' + string(int(rgb[1])) + ',' + string(int(rgb[2])) + ')'
       |      : (k != null
       |          ? cel.bind(t, (double(k) - 2000.0) < 0.0 ? 0.0 : ((double(k) - 2000.0) > 4500.0 ? 1.0 : (double(k) - 2000.0) / 4500.0),

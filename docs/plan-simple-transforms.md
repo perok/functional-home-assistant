@@ -1,134 +1,150 @@
-# Simple transforms: a closed catalog of value reads with no engine
+# Transforms on CEL: an engine swap plus a closed fast-path catalog
 
-## What this changes
+Status: supersedes the prior draft of this file (which pinned a JSONata recognizer).
+Decided 2026-08-29: **CEL is the next engine, no matter what.** The prior draft's premise —
+recognize the shipped JSONata strings so a JSONata engine can be skipped — folded into the
+CEL workstream instead: the library will be re-authored in CEL, so the shipped strings are OURS,
+and recognising them is detecting our own canonical forms rather than hardcoding someone else's
+dialect.
 
-Value transforms today are either **literal** (no transform at all), two **direct** shapes
-(`$state`, `$attr.x` — `Transform.Direct`, issue #237's fast path), or **JSONata** on the live
-render path. The shipped library bakes a small, closed set of *string* shapes — some of them
-actually *per render* — and every one of those that is not `$state`/`$attr.x` pays a full engine
-cost for near-trivial work. This extends the direct path into a **closed catalog of simple
-forms**: recognized byte-for-byte, evaluated with arithmetic/lookups that beat an engine by
-~100x, and provably identical to what JSONata would produce (the oracle is JSONata itself).
+## Decisions
 
-The general `transform` (engine) stays exactly as it is for everything outside the catalog,
-including the two shipped blocks that genuinely need a language: the slider's `fillColor` kelvin
-ramp and more-info's `each/sort/join` attribute block. This is **not** a second implementation of
-the language — it is the existing direct-path mechanism widened to a bounded, enumerated set, and
-the guard test that keeps it from growing into one is updated to pin the new boundary.
+1. **CEL is the engine.** `com.google.cel` (cel-java), PLANNER runtime, compile-once/eval-many
+   (`CelTransforms` in `modules/benchmarks` already proves the pattern and the ~3.3x per-eval
+   gain over dashjoin on the same shapes). It replaces dashjoin JSONata everywhere a transform
+   is evaluated.
+2. **CEL-native value semantics.** No dashjoin-compatibility functions, no imported rounding or
+   stringification. Presence is `!= null`, rounding is `math.round`, numbers stringify as CEL
+   renders them, concat is null-safe only where the expression makes it so. Rendered bytes that
+   sat on a JSONata margin change (fill@155: dashjoin `$string` `39.3700787401575%` → CEL-native
+   `string()` `39.37007874015748%`), round halves move by one (`$round` was HALF_EVEN,
+   `math.round` is half-away), and an *empty-string* attribute stops being falsy. This is
+   intended, accounted for, snapshot-regen'd and documented — not an accident the swap trips
+   over. The exact byte set this produces is now pinned in the Phase 0 table; whether the swap
+   additionally normalises number text to the catalog's 10-digit `numToString` is a Phase-1
+   stringifier decision (both are CEL-native enough to write, and the pin makes the change of
+   approach visible).
+3. **The strict catalog stays as the fast tier.** `Transform.Direct` becomes `Transform.Simple`:
+   the closed set of recognized forms, evaluated by hand-rolled reads/arithmetic. Against CEL it
+   is still ~40x cheaper on those forms (~45 B vs ~1.8 kB per eval on the bench measures), and CEL
+   is still the expressive fallback for everything outside the catalog. The two tiers and a
+   continuous differential suite = no surprising behavior, no surprising cost.
+4. **`transform: String` remains the single wire fact.** It stays the `transformStrings`/
+   `compiled` key, the `once`-cache key, the signal name and the `transformSegment` source. The
+   catalog is a recognition over the canonical strings the (re-authored) library emits, with the
+   engine as the parity oracle. A structured `simpleTransform` wire field is still rejected: it
+   would duplicate the load-bearing string into a second map that must byte-stay in sync per slot,
+   and it has no author today — the components emit strings. (The one concrete rot that argues for
+   generating strings — slider.pkl's shipped `fillExpr` has a stray paren and does not compile —
+   must be caught by the same validation the swap already exercises, and disappears entirely when
+   the components are re-authored to CEL.)
 
-## Author-facing surface (approved) and where each meets the shipped bytes
+## Phases
 
-The simple read is `state` or `attr(name)`, optionally on a named **other entity** — cross-entity
-needs no new machinery: `SlotSource.entityId` already points a slot at another entity, and
-`Transforms.run` is called with that entity. The formats:
+### Phase 0 — pin the divergence map before anything rides on it ✅ done
 
-| Format | Emitted string the library ships | Where | Recognized as |
+The bench's `CelSpike` is now a **golden divergence gate** (not the all-or-nothing parity `main`
+it was): a value sweep per shape — present vs absent vs empty-string, whole/half/fractional and
+just-off-x.5 arithmetic results, list-valued attributes, an odd-typed margin — asserting the
+*set* of divergences equals the table below. Re-run with
+`sbt 'benchmarks/Compile/runMain fh.view.runtime.CelSpike'`; green means the swap's output delta
+is exactly this table, a new divergence (an engine drift or a wrong translation) fails loudly.
+
+Measured result: **19 divergences across 7 shapes, in four classes — and `percent` and
+`attrLines` bleed nothing, byte-identical over the whole sweep (every fixture value, a
+fractional, an absent, and a float-list probe each).**
+
+| Shape | Margin | dashjoin today | CEL (new truth) |
 |---|---|---|---|
-| `state` / `attr(x)` (raw) | `$state` / `$attr.<x>` | everywhere | `State` / `Attr(x)` (already direct) |
-| `name` fallback to id | `$attr.<x> ? $attr.<x> : $entity_id` | author `exprOf`, bench `TransformName` | `AttrFallbackId(x)` |
-| unit suffix | `$attr.<x> & ($attr.u ? " " & $attr.u : "")`, same with `$state` | `core/slot.pkl` `valueSlot`, `UNIT` | `ReadUnit(read, "u")` |
-| literal suffix/prefix | `$state & " W"`, `"lit" & $state` | `c.exprOf(power, #"$state & " W""#)` etc. | `WithLiteral(read, " W")` |
-| percent(range) | `($v := $attr.<x>; $v != null ? $string($round(($v - m) * 100 / (M - m))) & " %" : "0 %")` | `slider.pkl` `percentExpr` | `Percent(x, m, M)` |
-| fill(range) | `$string(($v := $attr.<x>; $v != null ? 100 - (($v - m) * 100 / (M - m))) : 100)) & "%"` | `slider.pkl` `fillExpr` (non-toggle) | `Fill(x, m, M)` |
-| enum map, default `""` | `$state = "on" ? "lit" : ""` / `"? "on" : ""` / toggle `"? "0%" : "100%"` | `control.pkl` :118,:222, toggle `fillExpr` | `EnumState(pairs, default)` |
+| name | `friendly_name=""` | falsy → `entity_id` | `'k' in attr` present → `""` |
+| unit | `unit_of_measurement=""` | falsy → `on` | present → `on ` (trailing space) |
+| fill | every value, integer included | `$string` MC15: `97.244094488189%`, `100%` | CEL `string()`: `97.24409448818898%`, `100.0%` |
+| fill | `brightness=129.27` | `49.5%` | `49.49999999999999%` (double dust) |
+| fill | `brightness="on"` (odd type) | `JSONata error: The left side of …` | `cel error: … For input string: "on"` (error text only) |
+| fillColor | kelvin ramp | `rgb(231,193,162)` | `rgb(231.0,193.0,162.0)` — `math.round` returns DOUBLE here |
+| complex | cover `position=63.5` | HALF_EVEN → `36` | half-away → `37` |
+| percent | (swept, none) | — | — |
+| attrLines | (swept, none) | — | — |
 
-`m`/`M` are the Pkl-interpolated integer literals for `min`/`max` (`\(min!!)` / `\(spec.min)`,
-always signed integers). The toggle fill is already the `EnumState` form (its output literals are
-`0%`/`100%`, no `%`-suffix operator). The more-info `attrLines` AND the `fillColor` ramp are
-outside the catalog and stay on the engine, on purpose.
+Half-rounding shows only on an exactly-representable `.5` (cover's 100-scaled range makes 63.5 → 
+36.5 exact); on integer attributes x.5 is unreachable, so percent/fillColor/fill cannot trip it —
+confirmed. The absent-key rows the fixture dodged are covered: **CEL's raw
+`attr["k"]` throws an evaluation error on a missing key**, so `attr["k"] != null` is NOT a null
+check. The translations now gate with `'k' in attr` (documented in `CelShapes`), and with that
+idiom the absent-key reads all agree byte-for-byte — the earlier run's `cel error:
+evaluation error at <input>:…` rows vanish.
 
-## Why backend string recognition, not a structured wire field
+Phase 1 therefore inherits exactly these four deliberate margins: empty-string presence (2 rows),
+number text (16, → stringifier decision in Dec. #2), one half-away step, error wording.
 
-Earlier chat floated baking a structured Pkl value (Design A). The plan diverges: recognize the
-**exact strings the library already emits** (Design B). The `transform` String is already
-load-bearing — it is the key of `transformStrings`/`compiled`, the cache key of `read = "once"`,
-and the source of the signal name and the `transformSegment` (`t`+hash). Adding a field would
-need `WireShapeSuite`, every snapshot, and a parallel signal-name path — and would *still* have
-to handle the old strings. Recognition is zero wire, zero snapshot, zero signal-name change, and
-by construction safe: an unrecognized string falls through to the engine exactly as it does today.
+### Phase 1 — the engine swap
 
-## Value semantics (byte-parity, not approximation)
+- `com.google.cel` becomes a main dependency of `fh-datastar-view`; `Transform.parse` → CEL
+  compile, `Transform.run` → planner-runtime eval (the `CelTransforms` pattern: compile once at
+  validate, `createFrame`-free per-eval activation, stringify via `asString`). Validation stays
+  the one gate; its error text becomes CEL's.
+- **Re-author the shipped transform strings in CEL.** The component sources are the bounded set
+  from the inventory below whose rows are JSONata today: `slider.pkl` (percent/fill/value/expr),
+  `control.pkl` (the enum forms), `core/slot.pkl` (value slot + unit), more-info
+  `each/sort/join`, every `c.expr`/`c.exprOf` in the demo boards and fixtures. Where the CEL
+  translations in `CelShapes` already exist, they are the first draft. The `$dashboardSlug`
+  binding becomes `dashboard_slug`. This is the step that changes rendered bytes; the readout
+  expectations move to CEL-native values (`TransformSuite` "slider fill" → the CEL form and
+  `…402%`).
+- **Regen the contract, deliberately:** wire snapshots (`sbt dashboardSnapshotsUpdate`, then read
+  the diff), visual baselines (CI's before/after), whatever names a transform string (signal
+  names, once-cache keys) — all change ONCE and then stabilise.
+- Signal/slot semantics, Mustache, the renderer's node walk, candidate sets: untouched (the
+  change is inside the transform step, same dispatch shape).
 
-The simple evaluator must reproduce dashjoin's exact results, because a swap that changes a
-rendered byte is behavior drift. Each form's semantics are pinned by the compiled engine:
+### Phase 2 — re-target the catalog
 
-- **strings** (`State`, `Attr`, `WithLiteral`, `ReadUnit`, `EnumState`) — plain reads and `&`
-  concat; value types only `String`/`null`/numbers via the existing `asString`. `ReadUnit`:
-  unit `null` or `""` → no suffix (dashjoin `boolize`: empty string is *falsy*); otherwise `" " + unit`.
-- **`AttrFallbackId`** — `boolize(attr)` (dashjoin's truthiness, including empty-string falsy)
-  decides which branch; else engine result is the attr.
-- **`Percent`** — arithmetic in doubles: `x = ((v - m) * 100.0) / (M - m)`, then **`$round` is
-  replicated exactly**: `BigDecimal(x.toString).setScale(0, HALF_EVEN)` (dashjoin 0.9.10 `.round`
-  — banker's rounding, verified in the sources). Out = `r + " %"`. Missing attr → `"0 %"`.
-- **`Fill`** — `d = 100 - ((v - m) * 100.0) / (M - m)`, then **`$string` is replicated exactly**:
-  integral → `Math.round(d)`; else `new BigDecimal(d, MathContext(15)).stripTrailingZeros` with
-  `E+`/`E-` → `e+`/`e-` (0.9.10 `Functions.string`, verified byte-for-byte). Missing attr →
-  `$string(100)` → `"100%"`, then `+ "%"`.
-- **Type safety**: `runSimple` returns `Option[String]`; a value shape the simple evaluator does
-  not model (numeric arithmetic on a String attribute, a non-string unit, non-finite numbers)
-  returns `None` and `Transforms.run` falls back to the engine — so an odd attribute type renders
-  the *same* bytes (error message included) as today. Simple is a safe *fast path*, never a
-  different answer.
+- `Transform.Direct` (`State`, `Attr`) → `Transform.Simple` with the full closed form set,
+  recognized over the CEL-canonical strings the re-authored library emits: the raw reads
+  (`state` / `attr["x"]`), fallback-to-id, unit suffix, literal prefix/suffix, range percent and
+  range fill, and the `state == 'on' ? ... : ...` enum. `Transforms.run` tries `simple` first and
+  falls back to the CEL engine; `runSimple: Option[String]` returns `None` on an unmodeled value
+  type so the engine's bytes (error text included) win — a safe fast path, never a different
+  answer.
+- **Parity suite in `testFull`, CEL as oracle:** each recognized string run both ways over the
+  sweep (whole/half/fractional/off-a-hair plus absent/empty/null), byte-equal per value, with the
+  `Percent`/`Fill` batteries. `TransformsSuite`'s guard moves to the new boundary (near-misses
+  resolve to `None`/engine). Benchmarks swap the `jsonata` cells for `simple` vs `cel` cells;
+  `RenderBench.TransformFill` is corrected to the true shipped bytes.
 
-Parity is enforced, not asserted in prose: the `TransformsSuite` oracle pattern (JSONata is the
-expected) extends over every catalog form with a value sweep, and for `Percent`/`Fill`
-specifically spans a battery of whole, half and off-by-a-hair edge values that a shipped card can
-actually produce.
+## Inventory of shipped transform strings (unchanged surface, now the re-author list)
 
-## Dispatch
+| Slot / shape | String shipped today (JSONata) | CEL translation (again) |
+|---|---|---|
+| raw `state` | `$state` | `state` |
+| raw `attr(x)` | `$attr.<x>` | `attr["x"]` |
+| name fallback | `$attr.<x> ? $attr.<x> : $entity_id` | `'x' in attr ? attr["x"] : entity_id` …<br/><sub>`attr["x"] != null` throws on an absent key (Phase 0), so presence is `'x' in attr`</sub> |
+| unit suffix | `$state & ($attr.u ? " " & $attr.u : "")` | `'u' in attr ? state + ' ' + attr["u"] : state` … |
+| literal | `$state & " W"` / `"lit" & $state` | `state + ' W'` / `'lit' + state` |
+| percent | `($v := …; … $string($round(($v - m) * 100 / (M - m))) & " %" : "0 %")` | `CelShapes.TransformPercent` |
+| fill | `$string(($v := …; … 100 - ((…)) : 100)) & "%"` *(stray-paren bug)* | `CelShapes.TransformFill` |
+| enum | `$state = "on" ? "lit" : ""` … | `state == 'on' ? 'lit' : ''` … |
+| fillColor | kelvin ramp (`$round`, `$each` of rgb) | `CelShapes.TransformFillColor` |
+| attrLines | more-info `$each`/`$sort`/`$join` | `CelShapes.TransformAttrLines` (`str()` helper) |
 
-`Transforms` keeps its `compiled` map (still compiled upfront; the map stays total, invariant
-uniform — we deliberately do not skip JSONata compilation for recognized strings). Add a second
-map, `simple: Map[Expr, Simple]`, built once from `compiled.keys` beside today's `direct`.
-`run` tries `simple` first, falls back to the engine. `Dashboard.scala` (validate/transformStrings)
-and the renderer are untouched; `Renderer.transformSegment` keeps hashing non-`$state`/`$attr`
-strings the same way, because the strings themselves do not change.
+`m`/`M` stay the Pkl-interpolated min/max literals. The fillColor ramp and attrLines stay on the
+engine (they genuinely need the language) in both worlds.
 
-Naming: `Transform.Direct` → `Transform.Simple` (recognizer `simple`, runner `runSimple`). The
-kind is no longer "reads and applies nothing".
+## Tests & docs discipline (same commit as each phase's change)
 
-## Tests
-
-- **New**: a catalog parity suite — each recognized string, run both ways (`runSimple` vs
-  `Transform.run` over the sweep), byte-equal per value. For `Percent`/`Fill` include values that
-  force the double paths (non-integral results, `.5`-rounding, min-bound, absent attribute).
-- **`TransformsSuite` guard is rewritten, not fudged.** The current test "only the two shapes are
-  direct" pins the OLD policy and its examples *move into* the new catalog: `$state & " W"`
-  (→ `WithLiteral`) and `$state = "on" ? "Open" : "Closed"` (→ `EnumState`) become recognized.
-  The boundary it then guards is the new one — near-misses that still read like simple forms
-  (`$attr.a.b`, `$attr."quoted"`, `$attr.a[0]`, `$states`, `$round($number($state), 1)`,
-  the `fillColor` and `attrLines` blocks) still resolve to `None`/engine. This is the "claim your
-  change falsified" rule applied to a test that encoded the superseded spec.
-- **`TransformSuite` "slider fill" is a stale claim fix.** It pins the *pre-`$string`* bytes
-  (`… ? 100 - ((…)) : 100`, expecting `"39.3700787402"`) while `slider.pkl` has shipped
-  `$string((…)) & "%"` for a while. It is switched to the true shipped string; expected outputs
-  become `"0%"`, `"50%"`, `"39.3700787401575%"` (the `MathContext(15)` rounding), `"100%"` — and
-  it doubles as the `Fill` parity pin. The shipped behavior being pinned does not change.
-- **No snapshot churn**: `PklBuildSuite`/`WireShapeSuite` untouched (wire unchanged; evaluated
-  output is byte-identical by construction).
-
-## Benchmarks
-
-- Fix the stale `RenderBench.TransformFill` constant — it is the pre-`$string` form, not the
-  bytes `slider.pkl` ships ("the shapes … in the exact form they ship" is falsified by it).
-- Add `simple` cells beside `direct`: the catalog forms through `runSimple`, the same shapes
-  through `run` for contrast. The `%`/`$string` fill cell measures the *true* shipped bytes both
-  ways.
-
-## Docs (same commit as the change)
-
-- `docs/terminology.md` — **Slot**: a transform is "a recognized simple form, or a JSONata
-  expression" (today it says a JSONata expression, which this change moves).
-- `docs/architecture-rendering-pipeline.md` — a short two-tier note where the transform cost is
-  described; no box moves (the change is inside the render step), and the `Transform` row in the
-  "where each box lives" table gains the simple path.
-- `Transform.scala`/`Transforms.scala` scaladocs state the catalog and the parity contract.
+- Phase 1: snapshot regen is the deliberate, laser-read diff of the sanctioned command; the
+  `fixup` note in the module's CLAUDE.md (whose premise was "no snapshot churn because nothing
+  changes") is not violated — this phase *means* to change bytes.
+- `docs/terminology.md` **Slot**: a transform becomes "a CEL expression, or a recognized simple
+  form". `docs/architecture-rendering-pipeline.md` gains the two-tier note and a corrected engine
+  row. `Transform`/`Transforms` scaladocs state the catalog + parity contract.
+- A new ADR lands *after* the swap (engine choice + CEL-native semantics + the fast-path
+  catalog), per the repo routine.
 
 ## Out of scope
 
-- Swapping the engine (CEL stays a benchmark counterfactual, not a candidate).
-- The `fillColor` kelvin ramp and more-info `attrLines` (genuinely need `$each`/`$count`/paths).
-- Author-facing `round(n)` decimals, composed reads (`"a" & unit & "%"`), templated percent —
-  v1 is atomic forms over one read. Anything new the library later bakes lands in the catalog
-  only through review; unrecognized strings are engine work, same as today.
-- A new ADR: this belongs to issue #237/#240's existing story; decide the ADR after the code lands.
+- Keeping any dashjoin/JSONata in production. Cross-entity reads (the existing
+  `SlotSource.entityId` mechanism covers them — no new machinery). Author-facing composed reads
+  (`round(n)` decimals, templated multi-read strings): catalog v1 is atomic forms over one read;
+  anything new the library bakes lands only through review, and unrecognized strings are CEL
+  engine work, same as today.
