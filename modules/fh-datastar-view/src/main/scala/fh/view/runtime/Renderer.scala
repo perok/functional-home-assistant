@@ -1,6 +1,6 @@
 package fh.view.runtime
 
-import com.samskivert.mustache.Template
+import com.samskivert.mustache.{Mustache, Template}
 import fh.view.build.LibPackage
 import fh.view.model.{
   Access,
@@ -451,18 +451,15 @@ class Renderer(
   ): Traced = {
     val body = renderBodyTraced(states, uiState)
     val dialog = popup.flatMap(renderSurfaceTraced(_, states, uiState))
-    val page = themeStyleTag + chromeTemplate.execute(
-      Renderer.javaContext(
-        Map(
-          "body" -> body.html,
-          // The dialog a refresh is restoring, baked into the host exactly as
-          // the connect would patch it — same render, so the two are
-          // byte-identical and the later patch is a no-op morph.
-          "popups" -> dialog.fold("")(_.html)
-        ),
-        Map.empty
-      )
-    )
+    // A plain map: this runs once per PAGE, so the per-node context machinery
+    // below would be ceremony for nothing.
+    val chrome = new java.util.HashMap[String, AnyRef](2)
+    val _ = chrome.put("body", body.html)
+    // The dialog a refresh is restoring, baked into the host exactly as the
+    // connect would patch it — same render, so the two are byte-identical and
+    // the later patch is a no-op morph.
+    val _ = chrome.put("popups", dialog.fold("")(_.html))
+    val page = themeStyleTag + chromeTemplate.execute(chrome)
     // The whole page is never a patch target — a repaint replaces `#dashboard`
     // wholesale — so it has no second form of its own. Its NODES do, and those
     // are in `own`.
@@ -1291,6 +1288,61 @@ class Renderer(
       form
     )
 
+  /** The template context, READ IN PLACE.
+    *
+    * jmustache resolves a name against whatever object it is handed; for a
+    * `java.util.Map` that meant copying every var into a fresh `HashMap` per
+    * node, which is pure waste when the values are already in a map. A
+    * `CustomContext` is one small object that answers `get` from the maps that
+    * already exist.
+    *
+    * It is also where the PATCH form withholds a signal slot's value, which is
+    * why there is no second map: blanking used to be `signalSlots.foldLeft(
+    * vars)(_.updated(_, ""))`, a whole new `HashMap` per signal slot per node,
+    * to change two entries.
+    *
+    * `null` for an unknown name is what jmustache expects, and
+    * `Templates.compiler`'s `defaultValue("")` turns it into the empty string —
+    * the same behaviour a `Map` context gave for a missing key.
+    */
+  private case class NodeContext(
+      resolved: Resolved,
+      childrenHtml: Map[String, List[String]],
+      form: SlotForm
+  ) extends Mustache.CustomContext {
+
+    /** One list per REGION, under the region's own name, so a template's
+      * `{{#headActions}}` and `{{#children}}` splice different children. An
+      * empty region contributes nothing, which is what makes the section vanish
+      * rather than render an empty list.
+      */
+    def get(name: String): AnyRef =
+      childrenHtml.get(name) match {
+        case Some(htmls) if htmls.nonEmpty =>
+          val list = new java.util.ArrayList[AnyRef](htmls.size)
+          htmls.foreach(h =>
+            list.add(java.util.Collections.singletonMap("html", h))
+          )
+          list
+        case _ =>
+          if (form.isPatch && resolved.signalSlots.contains(name)) ""
+          else resolved.vars.getOrElse(name, null)
+      }
+  }
+
+  /** A `Writer` over a `StringBuilder` — no lock, no second buffer, no copy on
+    * `toString`'s way out. `Writer`'s other methods all funnel through these.
+    */
+  private def appendTo(sb: java.lang.StringBuilder): java.io.Writer =
+    new java.io.Writer {
+      override def write(cbuf: Array[Char], off: Int, len: Int): Unit = {
+        val _ = sb.append(cbuf, off, len)
+      }
+      override def write(str: String): Unit = { val _ = sb.append(str) }
+      override def flush(): Unit = ()
+      override def close(): Unit = ()
+    }
+
   /** [[Resolved.vars]] and the signal slots, for one card. Pure of `form`. */
   private def resolveTemplate(
       injected: Map[String, String],
@@ -1371,8 +1423,16 @@ class Renderer(
         s"${slot}__signal" -> signal
       )
     }
+    // ONE map, built once. `injected ++ resolved ++ bindings` read well but
+    // allocated an intermediate `HashMap` per `++`, per node — and this is the
+    // hottest allocation site the walk owns (issue #237).
+    val vars = Map.newBuilder[String, String]
+    vars.sizeHint(injected.size + resolved.size + bindings.size)
+    vars ++= injected
+    vars ++= resolved
+    vars ++= bindings
     Resolved(
-      injected ++ resolved ++ bindings,
+      vars.result(),
       named.map(_._1),
       // `resolved(slot)` is the slot's value, already computed above — the
       // same `resolveSlot` on the same entity that a separate pass would redo.
@@ -1391,10 +1451,16 @@ class Renderer(
       childrenHtml: Map[String, List[String]],
       form: SlotForm
   ): String = {
-    val shown =
-      if (!form.isPatch) r.vars
-      else r.signalSlots.foldLeft(r.vars)((acc, slot) => acc.updated(slot, ""))
-    tpl.execute(Renderer.javaContext(shown, childrenHtml))
+    // Presized, and NOT jmustache's own `execute(ctx)`: that allocates a
+    // `StringWriter` over a `StringBuffer` whose default capacity is 16, so a
+    // 400-byte fragment grew its array five times, per node, under a lock it
+    // never needed (issue #237).
+    val out = new java.lang.StringBuilder(Renderer.NodeBytesHint)
+    tpl.execute(
+      NodeContext(r, childrenHtml, form),
+      appendTo(out)
+    )
+    out.toString
   }
 
   /** The signal values one PATCH UNIT carries, named under its id (ADR 0017).
@@ -1754,28 +1820,9 @@ object Renderer {
       }
     }
 
-  private def javaContext(
-      context: Map[String, String],
-      childrenHtml: Map[String, List[String]]
-  ): java.util.Map[String, AnyRef] = {
-    import scala.jdk.CollectionConverters.*
-    val m =
-      new java.util.HashMap[String, AnyRef](context.size + childrenHtml.size)
-    m.putAll(context.asJava)
-    // One list per REGION, under the region's own name, so a template's
-    // `{{#headActions}}` and `{{#children}}` splice different children. An
-    // empty region contributes nothing, which is what makes the section vanish
-    // rather than render an empty list.
-    childrenHtml.foreach { case (region, htmls) =>
-      if (htmls.nonEmpty) {
-        val list = new java.util.ArrayList[AnyRef](htmls.size)
-        htmls.foreach(h =>
-          list.add(java.util.Collections.singletonMap("html", h))
-        )
-        val _ = m.put(region, list)
-      }
-    }
-    m
-  }
+  /** A rough starting size for one node's rendered bytes. Only a hint: too
+    * small costs a copy, too large wastes a little, and neither is a bug.
+    */
+  private val NodeBytesHint = 512
 
 }
