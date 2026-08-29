@@ -299,6 +299,7 @@
           nodejs_24 # runtime for the skills CLI
           coursier # installs sbt + the Scala tools into /opt/agent on first run
           jdk
+          async-profiler # asprof: allocation-site sampling (issue #237); JFR is built-in
           uv
           python3 # runtime for jcodemunch-mcp
           # /lib64 loader for non-nix binaries (cs-installed native tools like
@@ -769,6 +770,25 @@
 
         Telemetry is opted out during bootstrap — its consent prompt would
         otherwise withhold output from piped/agent invocations.
+
+        ## Profiling
+
+        JFR is already in the JDK — zero install for issue #237's metric:
+        `-prof jfr` in JMH, or `-XX:StartFlightRecording` / `jcmd` against the
+        running server. `-prof gc` (JMH) gives the per-op allocation TOTAL but
+        not the sites; to NAME the allocation sites use async-profiler, which
+        ships in the image as `asprof`, attachable to the running add-on:
+
+            jps   # find the server pid
+            asprof -d 30 -e alloc -f /tmp/alloc.html <pid>   # where the MB go
+            asprof -d 30 -e cpu   -f /tmp/cpu.jfr   <pid>    # wall/cpu view
+
+        `alloc` and `wall` need no kernel perf access (fine under this
+        container's `--cap-drop=ALL`); `cpu` does, so run cpu profiles on the
+        Pi, whose unprivileged perf I denied nothing. In JMH the equivalent is
+        `-prof async:event=alloc,libPath=<async-profiler store>/lib/libasyncProfiler.so` —
+        find it with `find $(dirname $(readlink -f $(which asprof))) -name
+        'libasyncProfiler.so'`.
 
         ## Pinning
 
