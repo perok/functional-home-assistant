@@ -243,7 +243,9 @@ class RendererSuite extends munit.FunSuite {
     )
   }
 
-  test("an identity (action) slot resolves from the entity id with no state") {
+  // ADR 0016 bakes actions; this is the fallback path: a hand-written $lookup
+  // action must still resolve from $domain with no state in the renderer.
+  test("a fallback $lookup action resolves from the entity id with no state") {
     val expr =
       """($a := $lookup({"scene": "scene/turn_on"}, $domain); """ +
         """$a ? $a : "homeassistant/toggle")"""

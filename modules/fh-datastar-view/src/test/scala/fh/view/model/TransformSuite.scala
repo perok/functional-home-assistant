@@ -109,7 +109,9 @@ class TransformSuite extends munit.FunSuite {
     )
   }
 
-  test("identity-derived action: maps domain to a service, with a default") {
+  // ADR 0016 bakes a tap's action at build time; this pins that the runtime
+  // fallback can still derive one from $domain should anything hand-write it.
+  test("a runtime $lookup action over $domain still resolves (fallback)") {
     val expr =
       """($a := $lookup({"scene": "scene/turn_on"}, $domain); """ +
         """$a ? $a : "homeassistant/toggle")"""
@@ -204,7 +206,11 @@ class TransformSuite extends munit.FunSuite {
     assertEquals(light("brightness" -> Json.fromInt(155)), "")
   }
 
-  test("slider fill: the dynamic $lookup($domain) tier resolves per match") {
+  // The shipped slider bakes its config (test above); this covers the OTHER
+  // thing the engine must keep doing: a hand-written expression as hostile as
+  // the retired `$lookup($domain)` tier, because nothing stops an author from
+  // writing one. The fallback evaluates it and must resolve it correctly.
+  test("slider fill: a hand-written $lookup-bearing expr still evaluates") {
     val expr =
       "($v := $lookup($attr, $lookup({\"light\":\"brightness\",\"cover\":\"current_position\"}, $domain)); " +
         "$v != null ? $round(100 - (($v - $lookup({\"light\":1,\"cover\":0}, $domain)) * 100 / " +

@@ -4,7 +4,6 @@ import fh.view.model.{
   CardDef,
   Dashboard,
   LayoutNode,
-  Reads,
   Region,
   SignalBind,
   SlotSource
@@ -114,13 +113,13 @@ class RenderBench {
     )
     transforms = Transforms.from(
       Dashboard(
-        cards ++ TrivialTransforms.zipWithIndex.map { case (t, i) =>
+        cards ++ ProbeTransforms.zipWithIndex.map { case (_, i) =>
           s"probe$i" -> CardDef(s"{{v}}", slots = List("v"))
         },
         LayoutNode.Component(
           "col",
           regions = LayoutNode.kids(
-            (tree(Leaves, 4, signals = true) :: TrivialTransforms.zipWithIndex
+            (tree(Leaves, 4, signals = true) :: ProbeTransforms.zipWithIndex
               .map { case (t, i) =>
                 LayoutNode.Component(
                   s"probe$i",
@@ -184,16 +183,30 @@ class RenderBench {
   def pageShared(bh: Blackhole): Unit = bh.consume(shared.renderPageTraced(st))
 
   /** JSONata at the count one page performs, `Reads.Once` slots excluded (the
-    * renderer memoises those, which is the state a warm server is in).
+    * renderer memoises those, which is the state a warm server is in). The six
+    * shapes are the ones the shipped components actually stick on hot slots.
     */
   @Benchmark
   def jsonata(bh: Blackhole): Unit = {
     var i = 0
     while (i < Leaves) {
       val e = st(entityId(i))
-      bh.consume(transforms.run(TransformIcon, e, "dashboard"))
-      bh.consume(transforms.run(TransformName, e, "dashboard"))
-      bh.consume(transforms.run(TransformUnit, e, "dashboard"))
+      LiveTransforms.foreach(t => bh.consume(transforms.run(t, e, "dashboard")))
+      i += 1
+    }
+  }
+
+  /** The fallback's worst case, once per entity: a hand-written expression as
+    * hostile as the retired dynamic `$lookup($domain)` tier. Shipped nothing
+    * uses it, but authors are not limited to the shipped shapes, so its cost is
+    * what guarding against "someone writes something worse" has to swallow.
+    */
+  @Benchmark
+  def jsonataComplex(bh: Blackhole): Unit = {
+    var i = 0
+    while (i < Leaves) {
+      val e = st(entityId(i))
+      bh.consume(transforms.run(TransformComplex, e, "dashboard"))
       i += 1
     }
   }
@@ -252,27 +265,68 @@ object RenderBench {
   /** Distinct entities behind [[RenderBench.pageShared]]'s leaves. */
   final val Distinct = 40
 
-  // The transform shapes the real `dashboard.json` uses, in roughly the
-  // proportion it uses them: mostly a `$lookup` table or a unit concatenation,
-  // rarely a bare `$state`. Benchmarking `$state` alone would flatter JSONata.
-  final val TransformUnit =
-    """$state & ($attr.unit_of_measurement ? " " & $attr.unit_of_measurement : "")"""
-  final val TransformIcon =
-    """$lookup({"light":"lightbulb","switch":"toggle_on","sensor":"thermostat"}, $domain) ? """ +
-      """$lookup({"light":"lightbulb","switch":"toggle_on","sensor":"thermostat"}, $domain) : "help""""
+  // The transform shapes the shipped components use today, in the exact form
+  // they ship: concat readouts, presence ternaries, the slider's BAKED (min/max
+  // literal) fill and percent, its $count-based fill colour, and more-info's
+  // each/sort/join block. The icon is a literal now (entity.pkl), so it is not
+  // in the JSONata mix. Benchmarking `$state` alone would flatter JSONata, so
+  // these sit beside [[RenderBench.jsonataTrivial]].
   final val TransformName =
     """$attr.friendly_name ? $attr.friendly_name : $entity_id"""
+  final val TransformUnit =
+    """$state & ($attr.unit_of_measurement ? " " & $attr.unit_of_measurement : "")"""
+  // The slider's fill, as Pkl bakes it for a light (min 1, max 255), unrounded
+  // on purpose — beer.min.js recomputes the same percentage on load.
   final val TransformFill =
-    """($v := $attr.brightness; $v != null ? $round($v * 100 / 255) & "%" : "")"""
+    "($v := $attr.brightness; $v != null ? 100 - (($v - 1) * 100 / (255 - 1)) : 100)"
+  // The percent readout, same baked config, as a "%"-suffixed string.
+  final val TransformPercent =
+    """($v := $attr.brightness; $v != null ? $string($round(($v - 1) * 100 / (255 - 1))) & " %" : "0 %")"""
+  // The fill COLOUR: rgb_color verbatim, else the kelvin ramp (slider.pkl).
+  final val TransformFillColor =
+    "($rgb := $attr.rgb_color; $k := $attr.color_temp_kelvin; $count($rgb) = 3 " +
+      """? "rgb(" & $string($rgb[0]) & "," & $string($rgb[1]) & "," & $string($rgb[2]) & ")" """ +
+      " : $k != null ? ($t := $k < 2000 ? 0 : ($k > 6500 ? 1 : ($k - 2000) / 4500); " +
+      "\"rgb(\" & $string($round(255 - 54 * $t)) & \",\" & $string($round(166 + 60 * $t)) " +
+      "& \",\" & $string($round(87 + 168 * $t)) & \")\") : null)"
+  // More-info's attribute block: every attribute as a sorted `name: value`
+  // line (moreinfo.pkl).
+  final val TransformAttrLines =
+    """$join($sort($each($attr, function($v, $k) { $k & ": " & $string($v) })), "\n")"""
+  // The CEILING: a hand-written expression as hostile as the retired dynamic
+  // `$lookup($domain)` tier. Nothing stops an author writing one today, so the
+  // fallback's worst case stays priced ([[RenderBench.jsonataComplex]]).
+  final val TransformComplex =
+    "($v := $lookup($attr, $lookup({\"light\":\"brightness\",\"cover\":\"current_position\"}, $domain)); " +
+      "$v != null ? $round(100 - (($v - $lookup({\"light\":1,\"cover\":0}, $domain)) * 100 / " +
+      "($lookup({\"light\":255,\"cover\":100}, $domain) - $lookup({\"light\":1,\"cover\":0}, $domain)))) : 100)"
 
-  /** Compiled alongside the rest so [[RenderBench.jsonataTrivial]] can look
-    * them up; not used by any card here.
+  /** The shapes [[RenderBench.jsonata]] runs warm (precompiled into the
+    * `Transforms` map), plus the two trivial ones
+    * [[RenderBench.jsonataTrivial]] and the complex one
+    * [[RenderBench.jsonataComplex]] separate each need.
     */
   final val TrivialTransforms =
     List("$state", "$attr.friendly_name", "$attr.brightness")
+  final val LiveTransforms = List(
+    TransformName,
+    TransformUnit,
+    TransformFill,
+    TransformPercent,
+    TransformFillColor,
+    TransformAttrLines
+  )
 
-  final val TransformAction =
-    """"@post('sse/action/light/toggle/" & $entity_id & "')""""
+  /** Everything the transform benchmarks run, precompiled into the warm map. */
+  final val ProbeTransforms =
+    TrivialTransforms ++ LiveTransforms :+ TransformComplex
+
+  /** A tap's action as the builder bakes it for one entity (ADR 0016): a
+    * build-time literal per entity, so the card's action hole stays filled but
+    * no JSONata runs for it.
+    */
+  def actionLiteral(i: Int, distinct: Int): String =
+    s"@post('sse/action/light/toggle/${entityId(i % distinct)}')"
 
   def entityId(i: Int): String = s"light.tile_$i"
 
@@ -288,10 +342,12 @@ object RenderBench {
         """<i class="fh-icon">{{icon}}</i>""" +
         """<div class="fh-body"><span class="fh-name">{{name}}</span>""" +
         """<span class="fh-state" {{{state__bind}}}>{{state}}</span>""" +
-        """<div class="fh-bar" {{{fill__bind}}}></div></div>""" +
+        """<div class="fh-bar" {{{fill__bind}}}></div>""" +
+        """<span class="fh-fillcolor" {{{fillColor__bind}}}></span>""" +
         """<button data-on-click="{{{action}}}" class="fh-tap">go</button>""" +
         """</div>""",
-      slots = List("cls", "icon", "name", "state", "fill", "action")
+      slots =
+        List("cls", "icon", "name", "state", "fill", "fillColor", "action")
     ),
     "col" -> CardDef(
       template =
@@ -308,7 +364,8 @@ object RenderBench {
       Map(
         "entity_id" -> SlotSource(literal = Some(entityId(i % distinct))),
         "cls" -> SlotSource(literal = Some("fh-tile")),
-        "icon" -> SlotSource(transform = TransformIcon),
+        // Literal now (entity.pkl): the entity's icon is a registry fact.
+        "icon" -> SlotSource(literal = Some("mdi:lightbulb")),
         "name" -> SlotSource(transform = TransformName),
         "state" -> SlotSource(
           transform = TransformUnit,
@@ -318,9 +375,13 @@ object RenderBench {
           transform = TransformFill,
           signal = Option.when(signals)(SignalBind.Style("--_end"))
         ),
-        // Every dashboard has identity-derived action slots, and the renderer
-        // memoises them; leaving them out would overstate JSONata's share.
-        "action" -> SlotSource(transform = TransformAction, reads = Reads.Once)
+        "fillColor" -> SlotSource(
+          transform = TransformFillColor,
+          signal = Option.when(signals)(SignalBind.Style("background"))
+        ),
+        // Every dashboard has action slots, and ADR 0016 made them build-time
+        // literals; leaving the hole out would not match a shipped card.
+        "action" -> SlotSource(literal = Some(actionLiteral(i, distinct)))
       )
     )
 
@@ -384,7 +445,13 @@ object RenderBench {
           Map(
             "friendly_name" -> Json.fromString(s"Tile number $i"),
             "brightness" -> Json.fromInt(1 + (i * 7) % 254),
-            "unit_of_measurement" -> Json.fromString("lx")
+            "unit_of_measurement" -> Json.fromString("lx"),
+            // Half the cards take the rgb_color branch of the fill colour, the
+            // rest the kelvin-ramp/null branch, like a real house's mix.
+            "rgb_color" -> Json.arr(
+              List(i % 256, (i * 3) % 256, (i * 5) % 256).map(Json.fromInt)*
+            ),
+            "color_temp_kelvin" -> Json.fromInt(2000 + (i * 97) % 4500)
           )
         )
       }
