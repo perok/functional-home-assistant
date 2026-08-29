@@ -115,20 +115,35 @@ number text (16, → stringifier decision in Dec. #2), one half-away step, error
 - Signal/slot semantics, Mustache, the renderer's node walk, candidate sets: untouched (the
   change is inside the transform step, same dispatch shape).
 
-### Phase 2 — re-target the catalog
+### Phase 2 — re-target the catalog ✅ done (2026-08-29)
 
-- `Transform.Direct` (`State`, `Attr`) → `Transform.Simple` with the full closed form set,
-  recognized over the CEL-canonical strings the re-authored library emits: the raw reads
-  (`state` / `attr["x"]`), fallback-to-id, unit suffix, literal prefix/suffix, range percent and
-  range fill, and the `state == 'on' ? ... : ...` enum. `Transforms.run` tries `simple` first and
-  falls back to the CEL engine; `runSimple: Option[String]` returns `None` on an unmodeled value
-  type so the engine's bytes (error text included) win — a safe fast path, never a different
-  answer.
-- **Parity suite in `testFull`, CEL as oracle:** each recognized string run both ways over the
-  sweep (whole/half/fractional/off-a-hair plus absent/empty/null), byte-equal per value, with the
-  `Percent`/`Fill` batteries. `TransformsSuite`'s guard moves to the new boundary (near-misses
-  resolve to `None`/engine). Benchmarks swap the `jsonata` cells for `simple` vs `cel` cells;
-  `RenderBench.TransformFill` is corrected to the true shipped bytes.
+- **`Transform.Direct` is now `Transform.Simple`** with the closed form set,
+  recognized over the CEL-canonical strings the re-authored library emits: the
+  raw `state` read, the guarded attribute read (`'x' in attr ? attr['x'] : null`,
+  whose fast path returns `""` for the absent key — the engine's NullValue arm,
+  byte-identical), the parenthesized fallback-to-id name, the unit suffix, a
+  literal prefix/suffix, the `state == 'x' ? 'a' : 'b'` enum, and the slider's
+  range percent and fill (the Pkl-spliced `min`/`max` float literals are parsed
+  out of the string; the repeat-occurrence guard checks the spliced min really
+  appears twice). The fill colour and more-info's comprehension stay on the
+  engine — they genuinely need the language.
+- **`Transforms.run` tries `simple` first**; `runSimple: Option[String]`
+  returns `None` on an unmodeled VALUE (a non-numeric position, a non-string
+  unit) so the engine's bytes — error text included — win. A parity battery in
+  TransformSuite runs every recognized form both ways over the hostile sweep
+  (min edge, off-a-hair negative, fractional, absent, empty-string, odd types,
+  a list-valued attr) and asserts byte-equality per value; TransformsSuite's
+  boundary test pins the near-misses (the bare unparenthesized name form, an
+  int literal where a float is spliced, a half-formed enum) to `None`.
+- **No wire byte moved**: recognition is over the strings the library already
+  bakes, so the snapshots are untouched by construction.
+- **Benchmarks**: the retired-engine cells are gone; `RenderBench.simple`
+  measures the production dispatch (fast tier + fallback) against the
+  `cel` engine-only baseline and the `direct` raw-read floor. Measured
+  (1200 evals/op): `simple` 1001 µs / 968.9 kB vs `cel` 1592 µs / 1074.2 kB —
+  **-37% CPU / -10% allocation** on the mixed workload (4 of 6 shapes fast);
+  the fast reads land at ~61 B vs ~895 B per engine eval, while percent/fill
+  stay numToString-heavy on both paths. `direct`: 24 ns / 61 B per read.
 
 ## Inventory of shipped transform strings (unchanged surface, now the re-author list)
 

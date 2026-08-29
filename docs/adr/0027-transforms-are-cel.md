@@ -94,6 +94,19 @@ and the `jsonata` bench cells.
   eval), `celComplex` 512 002 → 328 002 B/op, with CPU following (1.6 →
   1.4 µs/eval). The resolver is one small object per eval; values are the
   entity's own cached references, unboxed.
+- **The fast tier beside it is a closed catalog (`Transform.Simple`).** The
+  shapes the library bakes that CAN be read as data — the raw `state` read,
+  the guarded attribute read, the fallback-to-id name, the unit suffix, a
+  literal prefix/suffix, the state enum, the slider's range percent and fill —
+  are recognized over the canonical strings and evaluated without the engine;
+  `runSimple` returns `None` on any value it cannot model so the engine's
+  bytes, error text included, always win, and a parity battery runs every form
+  both ways over a hostile sweep. Measured through the production dispatch
+  (`RenderBench.simple`, 1200 evals/op): 1001 µs / 968.9 kB against the
+  engine-only `cel` cell's 1592 µs / 1074.2 kB — -37% CPU, -10% allocation on
+  the mixed workload, with pure reads at ~61 B against ~895 B per engine eval.
+  Recognition must never grow into a second implementation of the language;
+  near-misses are pinned to `None` by test.
 - **cel-java's compile-time optimizers were measured and declined.** The
   codelab's pairing (`ConstantFoldingOptimizer` + `SubexpressionOptimizer`,
   wired via `CelOptimizerFactory` between compile and `createProgram`) ran

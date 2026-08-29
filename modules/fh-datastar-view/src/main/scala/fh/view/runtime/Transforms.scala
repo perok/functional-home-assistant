@@ -17,24 +17,34 @@ class Transforms private (
     private val compiled: Map[String, Transform.Compiled]
 ) {
 
-  /** The transforms that read a value and apply nothing to it, resolved ONCE
-    * here rather than asked per evaluation — the same reason the CEL
-    * expressions are compiled once. See [[Transform.Direct]] for why these are
-    * worth separating at all.
+  /** The transforms whose shape the fast catalog recognises, resolved ONCE here
+    * rather than asked per evaluation — the same reason the CEL expressions are
+    * compiled once. See [[Transform.Simple]] for the closed set and why it must
+    * stay closed.
     */
-  private val direct: Map[String, Transform.Direct] =
-    compiled.keys.flatMap(e => Transform.direct(e).map(e -> _)).toMap
+  private val simple: Map[String, Transform.Simple] =
+    compiled.keys.flatMap(e => Transform.simple(e).map(e -> _)).toMap
 
   /** Apply the transform named by `expr` to the producing entity, reading its
     * `state`/`attributes`/`domain`/`entity_id` as same-entity context, plus the
     * dashboard's `slug`. `expr` is always one the dashboard declared (the map
     * is total over the layout's transforms), so a miss is a bug, not a runtime
     * condition.
+    *
+    * The fast tier goes first: a recognized shape evaluates without the engine
+    * — UNLESS [[Transform.runSimple]] returns `None` for the VALUE (a
+    * non-numeric position, a non-string unit), in which case the engine's bytes
+    * — its error text included — win. The fast path is only ever an
+    * optimisation, never a different answer.
     */
   def run(expr: String, entity: EntityState, dashboardSlug: String): String =
-    direct.get(expr) match {
-      case Some(d) => Transform.runDirect(d, entity)
-      case None    => Transform.run(compiled(expr), entity, dashboardSlug)
+    simple.get(expr) match {
+      case Some(s) =>
+        Transform.runSimple(s, entity) match {
+          case Some(v) => v
+          case None    => Transform.run(compiled(expr), entity, dashboardSlug)
+        }
+      case None => Transform.run(compiled(expr), entity, dashboardSlug)
     }
 }
 

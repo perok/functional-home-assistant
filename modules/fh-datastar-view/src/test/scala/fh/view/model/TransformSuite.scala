@@ -285,4 +285,124 @@ class TransformSuite extends munit.FunSuite {
     )
     assertEquals(run(expr, "off", entity = "light.kitchen"), "100")
   }
+
+  // ---- the fast catalog's parity battery (plan Phase 2) ----
+  //
+  // Each recognized [[Transform.Simple]] shape runs both ways — fast path and
+  // engine — over the hostile sweep (min edge, off-a-hair, fractional, absent,
+  // empty-string, odd types), and the bytes must be EQUAL per value. Where the
+  // fast path declines the value (`runSimple` → None) the fallback IS the
+  // engine, so equality is the thing to prove, not an expectation to meet.
+
+  /** The parity harness: recognition, both evaluations, byte-equality. */
+  private def parity(src: String, probes: List[EntityState]): Unit = {
+    val compiled = compile(src)
+    val shape = Transform.simple(src).getOrElse(fail(s"not recognised: $src"))
+    probes.foreach { e =>
+      val viaEngine = Transform.run(compiled, e, "dashboard")
+      val viaFast =
+        Transform.runSimple(shape, e).getOrElse(viaEngine) // None → engine
+      assertEquals(
+        viaFast,
+        viaEngine,
+        clue = s"[$src] state=${e.state} attrs=${e.attributes}"
+      )
+    }
+  }
+
+  private def es(
+      state: String,
+      attrs: (String, Json)*
+  ): EntityState =
+    EntityState("light.kitchen", state, attrs.toMap)
+
+  private def d(v: Double): Json = Json.fromDouble(v).get
+
+  // The exact strings the shipped library bakes (slider.pkl, entity.pkl,
+  // slot.pkl, tap.pkl), with the slider's light-axis config (min 1, max 255).
+  private val percentExpr =
+    "cel.bind(v, 'brightness' in attr ? attr['brightness'] : null, " +
+      "v != null ? str(math.round((double(v) - 1.0) * 100.0 / (255.0 - 1.0))) " +
+      "+ ' %' : '0 %')"
+  private val fillExpr =
+    "str(cel.bind(v, 'brightness' in attr ? attr['brightness'] : null, " +
+      "v != null ? 100.0 - ((double(v) - 1.0) * 100.0 / (255.0 - 1.0)) " +
+      ": 100.0)) + '%'"
+
+  test("parity: state, attr read, and the fallback-to-id name") {
+    val probes = List(
+      es("on"),
+      es("on", "friendly_name" -> Json.fromString("Hall")),
+      es("on", "friendly_name" -> Json.fromString("")),
+      es("on", "friendly_name" -> Json.fromInt(7)),
+      es(
+        "on",
+        "friendly_name" -> Json.arr(d(3.5), d(4.0))
+      ), // exotic value: both paths String.valueOf it
+      es("off", "brightness" -> Json.fromInt(200))
+    )
+    parity("state", probes)
+    parity("'brightness' in attr ? attr['brightness'] : null", probes)
+    parity(
+      "('friendly_name' in attr ? attr['friendly_name'] : entity_id)",
+      probes
+    )
+  }
+
+  test("parity: unit suffix, literal prefix/suffix, and the state enum") {
+    val probes = List(
+      es("on"),
+      es("on", "unit_of_measurement" -> Json.fromString("°C")),
+      es("on", "unit_of_measurement" -> Json.fromString("")),
+      // A non-string unit is where the fast path DECLINES — the engine errors
+      // on `' ' + long` and its error text is the contract.
+      es("on", "unit_of_measurement" -> Json.fromInt(5)),
+      es("21.44"),
+      es("locked")
+    )
+    parity(
+      "state + ('unit_of_measurement' in attr ? ' ' + " +
+        "attr['unit_of_measurement'] : '')",
+      probes
+    )
+    parity("state + ' W'", probes)
+    parity("'lit: ' + state", probes)
+    parity("state == 'on' ? 'Open' : 'Closed'", probes)
+    parity("state == 'locked' ? 'lock/unlock' : 'lock/lock'", probes)
+  }
+
+  test("parity: the slider's range percent and fill over the hostile sweep") {
+    // min edge, off-a-hair below it, exact .5-adjacent fractions, the full
+    // range, beyond it, absent, empty-string, odd types — the values the
+    // bench's Fill/Percent batteries swept, plus the recogniser's spliced
+    // literals checked at both ends.
+    val brightnesses: List[Json] = List(
+      d(-0.27), // raw = -0.5±ulp: the rounding mode's knife edge
+      Json.fromInt(0), // below min: the negative arm
+      Json.fromInt(1), // the min edge: exactly 0 %
+      d(1.005),
+      Json.fromInt(2),
+      d(63.5),
+      Json.fromInt(127),
+      Json.fromInt(128), // exactly 50 %
+      d(129.27),
+      Json.fromInt(254),
+      Json.fromInt(255), // the max edge: exactly 100 %
+      Json.fromInt(256) // beyond max
+    )
+    val probes: List[EntityState] =
+      brightnesses.map(b => es("on", "brightness" -> b)) ++
+        List(
+          es("on"), // absent position: '0 %' / '100%'
+          es("on", "brightness" -> Json.fromString("")),
+          // A non-numeric position: both paths decline-or-error identically.
+          es("on", "brightness" -> Json.fromString("on")),
+          // A string NUMBER: the engine's double() accepts it; the fast path
+          // declines and falls back — bytes must still agree.
+          es("on", "brightness" -> Json.fromString("128")),
+          es("on", "brightness" -> Json.Null) // null attr is dropped as absent
+        )
+    parity(percentExpr, probes)
+    parity(fillExpr, probes)
+  }
 }

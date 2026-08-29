@@ -114,7 +114,7 @@ object Jsonata {
   )
 
   /** The two trivial reads, in the JSONata spelling that once reached the
-    * engine — in production they are [[fh.view.model.Transform.Direct]] and
+    * engine — in production they are [[fh.view.model.Transform.Simple]] and
     * never see an engine at all.
     */
   final val TrivialTransforms =
