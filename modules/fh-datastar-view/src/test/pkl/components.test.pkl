@@ -143,11 +143,11 @@ facts {
   ["more-info is an inline popup, so every entity's body is its own surface"] {
     local t = c.moreInfo(kitchen)
     t.inlineSurfaces.containsKey("self")
-    // A transform, not a constant: the route carries `$dashboardSlug`, which
+    // A transform, not a constant: the route carries `dashboard_slug`, which
     // only a transform can read.
     (t.onclick as slotMod.Slot).transform.contains("sse/surface/")
     (t.onclick as slotMod.Slot).transform.contains("/open/\(nodes.NODE_ID)_self")
-    (t.onclick as slotMod.Slot).transform.contains("$dashboardSlug")
+    (t.onclick as slotMod.Slot).transform.contains("dashboard_slug")
   }
 
   ["the body is the entity, then the controls its domain has, then its facts"] {
@@ -167,7 +167,7 @@ facts {
   ["the facts card names its subject and reads every attribute live"] {
     local info = c.entityInfo(kitchen)
     info.slots["entity_id"] == "light.kitchen"
-    info.slots["attributes"].transform.contains("$each($attr")
+    info.slots["attributes"].transform.contains("attr.transformList(k, v,")
     // No attributes evaluates to null, which this default renders as an absent
     // block rather than the word "null".
     info.slots["attributes"].default == ""
@@ -194,7 +194,9 @@ facts {
 
   ["a lock's service is the one thing the STATE has to decide"] {
     local onclick = c.entityCard(frontLock).slots["onclick"]
-    onclick.transform.contains(#"$state = "locked" ? "lock/unlock" : "lock/lock""#)
+    // A lock's snapshot state decides WHICH service the tap posts; the value
+    // itself never changes what the target is.
+    onclick.transform.contains(#"state == 'locked' ? 'lock/unlock' : 'lock/lock'"#)
     // The whole reason this slot is live — and the only tap shape that is.
     onclick.reads == "live"
   }
@@ -362,14 +364,14 @@ facts {
     // — a light with no brightness reports no colour either (`onoff` is a
     // light's SOLE mode when present), so the default is the only paint it can
     // get. A TOKEN, not the literal behind it: the value is the theme's to move.
-    row.headSlots["fill"].transform == #"$state = "on" ? "0%" : "100%""#
+    row.headSlots["fill"].transform == #"state == 'on' ? '0%' : '100%'"#
     row.headSlots["fillColor"].default == "var(--fh-default-color)"
     // ...and the token is one the contract actually defines. A `var()` naming
     // nothing paints TRANSPARENT, and only a browser would ever say so.
     cssMod.baseCss.contains("--fh-default-color:rgb(189, 189, 176)")
     // A percentage of an axis it does not have reads 0 % forever, so the row
     // reads out its state instead — and nothing drags the readout.
-    row.headSlots["state"].transform == "$state"
+    row.headSlots["state"].transform == "state"
     !row.slots.containsKey("dragPercent")
     // The markup is ONE template shared by every slider, so the two shapes are
     // sections of it rather than two cards.
@@ -382,7 +384,7 @@ facts {
     !dim.toggleOnly
     !(c.slider(kitchen)).toggleOnly
     !dim.slots.containsKey("toggle")
-    dim.headSlots["state"].transform.contains("$attr.brightness")
+    dim.headSlots["state"].transform.contains("attr['brightness']")
     dim.headSlots["dragPercent"] == "1"
   }
 

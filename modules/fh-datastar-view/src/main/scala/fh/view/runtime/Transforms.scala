@@ -3,11 +3,11 @@ package fh.view.runtime
 import fh.view.model.{Dashboard, Transform}
 
 /** The slot value-transform library, pre-compiled once at startup (never on the
-  * hot path) — the JSONata counterpart to [[Templates]].
+  * hot path) — the CEL counterpart to [[Templates]].
   *
   * Every distinct [[SlotSource.transform]] in the layout (and in every surface)
   * is compiled here and thereafter only looked up, so the renderer never parses
-  * JSONata while rendering. A transform that fails to compile is an invariant
+  * CEL while rendering. A transform that fails to compile is an invariant
   * breach: [[Dashboard.validate]] runs before any renderer is built and rejects
   * (and locates) bad expressions, so reaching this with an uncompilable one
   * means validation was bypassed — it fails loudly here, at setup, rather than
@@ -18,7 +18,7 @@ class Transforms private (
 ) {
 
   /** The transforms that read a value and apply nothing to it, resolved ONCE
-    * here rather than asked per evaluation — the same reason the JSONata
+    * here rather than asked per evaluation — the same reason the CEL
     * expressions are compiled once. See [[Transform.Direct]] for why these are
     * worth separating at all.
     */

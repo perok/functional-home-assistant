@@ -232,8 +232,10 @@ lazy val `fh-datastar-view` = project
       "net.harawata" % "appdirs" % "1.5.0",
       // mustache templating for runtime value injection (pure Java)
       "com.samskivert" % "jmustache" % "1.16",
-      // JSONata for per-slot value transforms (pure-JVM port of the spec)
-      "com.dashjoin" % "jsonata" % "0.9.10",
+      // CEL for per-slot value transforms (compile-once/eval-many planner
+      // runtime; bundles the extension libraries — string/list/math/bindings/
+      // comprehensions — in the same jar).
+      "dev.cel" % "cel" % "0.14.0",
       "org.scalameta" %% "munit" % "1.3.5" % Test,
       // Lets tests return IO[Unit] directly (no unsafeRunSync / global runtime)
       // and adds IO-aware assertions (assertIO, IO#assertEquals).
@@ -271,9 +273,13 @@ lazy val benchmarks = project
     commonSettings,
     publish / skip := true,
     libraryDependencies ++= Seq(
+      // The old transform engine, now dev-tooling only: the JSONata REFERENCE
+      // for the divergence gate + RenderBench's jsonata cells. The shipped
+      // runtime is `fh-datastar-view` (CEL), which no longer depends on it.
+      "com.dashjoin" % "jsonata" % "0.9.10",
       // CEL for the `engine-cel` comparison (RenderBench.cel / .celComplex).
-      // Dev-tooling only: the shipped runtime is `fh-datastar-view`, which does
-      // not depend on CEL. Bundles the extension libraries (strings/lists/math/
+      // Dev-tooling only: the shipped runtime is `fh-datastar-view`.
+      // Bundles the extension libraries (strings/lists/math/
       // bindings/comprehensions) in the same jar.
       "dev.cel" % "cel" % "0.14.0"
     )

@@ -7,6 +7,25 @@ CEL workstream instead: the library will be re-authored in CEL, so the shipped s
 and recognising them is detecting our own canonical forms rather than hardcoding someone else's
 dialect.
 
+**Phase 1 is shipped** (same day) — the swap is in `main`'s working tree, `testFull` 691/691,
+gate re-pinned. What it took, beyond the bullets below:
+
+- The bench-local `CelTransforms` (the Phase-0 stand-in engine) is deleted; the bench now runs
+  the production `Transform` for its CEL cells and keeps dashjoin ONLY as a bench-local
+  reference (`modules/benchmarks/.../Jsonata.scala`) for the JSONata cells and the gate's
+  reference side. `fh-datastar-view` itself carries no JSONata.
+- The stringifier decision (Dec. #2's open end): the shipped `str()` helper IS the shared
+  10-digit `numToString` — strips `.0`, renders lists `[a, b]`, HALF_UP. That normalised most
+  of the Phase-0 fill/fillColor margins away; the re-measured gate pins **15 rows** (empty-string
+  presence 2, fill digit rendering 11, error text 1, the HALF_EVEN half 1).
+- Two engine-adjacent fixes the swap surfaced, both pinned by suites: a kept JSON `null`
+  attribute made CEL's map index throw where JSONata read null — `toJavaObject` now drops null
+  attrs, the same "null is absent" rule `jsonToString` already applied to state; and a CEL null
+  RESULT arrives as `dev.cel.common.values.NullValue`, not Java null (guarded by class name in
+  `Cel`).
+- One real defect the gate caught mid-swap: the re-authored `fillExpr` splice dropped a paren
+  the JSONata original had — validation (the one gate) refused the library, exactly as designed.
+
 ## Decisions
 
 1. **CEL is the engine.** `com.google.cel` (cel-java), PLANNER runtime, compile-once/eval-many
@@ -77,7 +96,7 @@ evaluation error at <input>:…` rows vanish.
 Phase 1 therefore inherits exactly these four deliberate margins: empty-string presence (2 rows),
 number text (16, → stringifier decision in Dec. #2), one half-away step, error wording.
 
-### Phase 1 — the engine swap
+### Phase 1 — the engine swap ✅ done (2026-08-29)
 
 - `com.google.cel` becomes a main dependency of `fh-datastar-view`; `Transform.parse` → CEL
   compile, `Transform.run` → planner-runtime eval (the `CelTransforms` pattern: compile once at

@@ -73,7 +73,10 @@ class RenderInputsSuite extends munit.FunSuite {
     "card",
     slots = Map(
       "state" -> SlotSource(Some(entity)),
-      "unit" -> SlotSource(Some(entity), "$attr.unit_of_measurement")
+      "unit" -> SlotSource(
+        Some(entity),
+        "('unit_of_measurement' in attr ? attr['unit_of_measurement'] : '')"
+      )
     )
   )
 
@@ -121,7 +124,7 @@ class RenderInputsSuite extends munit.FunSuite {
                   "btn",
                   Map(
                     "entity_id" -> lit(id),
-                    "label" -> SlotSource(None, "$state")
+                    "label" -> SlotSource(None, "state")
                   )
                 )
               ),

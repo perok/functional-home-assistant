@@ -705,7 +705,7 @@ class BuildPhaseSuite extends munit.FunSuite {
         Map("card" -> CardDef("<span>{{state}}</span>", slots = List("state"))),
       card = LayoutNode.Component(
         "card",
-        // unterminated string literal -> JSONata compile failure
+        // unterminated string literal -> CEL compile failure
         slots = Map("state" -> SlotSource(Some("e.x"), transform = "'unclosed"))
       )
     )
@@ -728,12 +728,12 @@ class BuildPhaseSuite extends munit.FunSuite {
     os.write(
       dir / "site.pkl",
       "import \"lib/components.pkl\" as c\n" +
-        "card = (c.entityCard(p)) { transform = \"$round($number($state), 1)\" }\n"
+        "card = (c.entityCard(p)) { transform = \"str(math.round(num(state)))\" }\n"
     )
     // The generated dump is skipped even if it contains the literal.
     os.write(
       dir / "lib" / "dump.pkl",
-      "x = \"$round($number($state), 1)\"\n",
+      "x = \"str(math.round(num(state)))\"\n",
       createFolders = true
     )
 
@@ -741,9 +741,9 @@ class BuildPhaseSuite extends munit.FunSuite {
       Set(dir / "site.pkl", dir / "lib" / "dump.pkl")
     )
     assertEquals(
-      locate("$round($number($state), 1)"),
+      locate("str(math.round(num(state)))"),
       Some("site.pkl:2")
     )
-    assertEquals(locate("$nope($)"), None)
+    assertEquals(locate("nope(state)"), None)
   }
 }

@@ -3,54 +3,53 @@ package fh.view.runtime
 import fh.view.model.Transform
 import io.circe.Json
 
-/** Divergence gate for the CEL engine swap (plan Phase 0).
+/** Divergence gate for the CEL engine swap (plan Phase 0, kept for Phase 1).
   *
-  * Pairing the shipped-intended JSONata shapes against the CEL a port would
-  * write, this sweeps BOTH the benchmark's real-world fixture and a curated
-  * margin set (empty-string attrs, fractional values, odd types, absent attrs)
-  * and records — not assumes — where the two engines part. The rendered bytes
-  * of the affected slots are the contract, and the divergence table this prints
-  * is that contract, ahead of the swap.
+  * Pairing the shipped-intended JSONata shapes against the SHIPPED CEL bytes,
+  * this sweeps BOTH the benchmark's real-world fixture and a curated margin
+  * set (empty-string attrs, fractional values, odd types, absent attrs) and
+  * records — not assumes — where the two engines part. The rendered bytes of
+  * the affected slots are the contract, and the divergence table this prints
+  * is that contract: the JSONata side runs through the bench-local
+  * [[Jsonata]] reference (the retired engine, byte-for-byte), the CEL side
+  * through the production [[fh.view.model.Transform]].
   *
   * Run with `sbt 'benchmarks/Compile/runMain fh.view.runtime.CelSpike'`. The
   * exit code is non-zero iff the observed divergences stop matching the golden
-  * table below — so the swap's output delta is pinned and a NEW divergence (a
-  * drift in either engine, or a wrong translation) fails loudly.
+  * table below — so the swap's output delta stays pinned and a NEW divergence
+  * (a drift in either engine — a cel-java upgrade, a reference edit — or a
+  * wrong translation) fails loudly.
   */
 object CelSpike {
 
-  // The slider fill exactly as slider.pkl bakes it for a light (min 1, max
-  // 255), WITH the `$string(...) & "%"` wrapper — the CORRECTED bytes. The raw
-  // string in slider.pkl carries a stray paren (`…(255 - 1))) : 100))`) and
-  // does not compile; that defect is itself a divergence-class finding (the
-  // swap's re-authoring drops it by construction).
-  private val JsonFill =
-    """$string(($v := $attr.brightness; $v != null ? 100 - (($v - 1) * 100 / (255 - 1)) : 100)) & "%""""
-
-  // The CEL a port would emit for the same slot: same arithmetic, `%` suffix,
-  // CEL-native `string(...)` for the numeric (no dashjoin $string semantics).
-  private val CelFill =
-    """cel.bind(v, 'brightness' in attr ? attr["brightness"] : null, v != null ? string(100.0 - ((double(v) - 1.0) * 100.0 / (255.0 - 1.0))) + '%' : '100%')"""
+  // The slider fill exactly as slider.pkl baked it for a light (min 1, max
+  // 255), WITH the `$string(...) & "%"` wrapper — the CORRECTED bytes. (The
+  // pre-swap string in slider.pkl carried a stray paren and did not compile;
+  // that defect was itself a Phase-0 finding, and the CEL re-authoring drops
+  // it by construction — as the swap itself re-proved when the gate caught a
+  // reintroduced one.)
+  // The CEL side is the shipped `CelShapes.TransformFill` (a `str(...)` +
+  // '%' wrapper around the same arithmetic).
 
   private final case class Shape(json: String, cel: String)
 
   private val Shapes: List[(String, Shape)] = List(
-    "name" -> Shape(RenderBench.TransformName, CelShapes.TransformName),
-    "unit" -> Shape(RenderBench.TransformUnit, CelShapes.TransformUnit),
-    "fill" -> Shape(JsonFill, CelFill),
+    "name" -> Shape(Jsonata.TransformName, CelShapes.TransformName),
+    "unit" -> Shape(Jsonata.TransformUnit, CelShapes.TransformUnit),
+    "fill" -> Shape(Jsonata.TransformFill, CelShapes.TransformFill),
     "percent" -> Shape(
-      RenderBench.TransformPercent,
+      Jsonata.TransformPercent,
       CelShapes.TransformPercent
     ),
     "fillColor" -> Shape(
-      RenderBench.TransformFillColor,
+      Jsonata.TransformFillColor,
       CelShapes.TransformFillColor
     ),
     "attrLines" -> Shape(
-      RenderBench.TransformAttrLines,
+      Jsonata.TransformAttrLines,
       CelShapes.TransformAttrLines
     ),
-    "complex" -> Shape(RenderBench.TransformComplex, CelShapes.TransformComplex)
+    "complex" -> Shape(Jsonata.TransformComplex, CelShapes.TransformComplex)
   )
 
   private final case class Probe(label: String, entity: EntityState)
@@ -59,20 +58,25 @@ object CelSpike {
     EntityState("light.probe", state, attrs.toMap)
 
   private final case class Compiled(
-      jc: Transform.Compiled,
-      cp: CelTransforms.Program
+      jc: Jsonata.Compiled,
+      cp: Transform.Compiled
   )
 
   private lazy val compiled: Map[String, Compiled] = Shapes.map {
     case (name, s) =>
       name -> Compiled(
-        Transform
+        Jsonata
           .parse(s.json)
           .fold(
             e => sys.error(s"jsonata won't compile: $name [$e]"),
             identity
           ),
-        CelTransforms.parse(s.cel)
+        Transform
+          .parse(s.cel)
+          .fold(
+            e => sys.error(s"cel won't compile: $name [$e]"),
+            identity
+          )
       )
   }.toMap
 
@@ -80,8 +84,8 @@ object CelSpike {
 
   private def evaluate(name: String, p: Probe): Result = {
     val c = compiled(name)
-    val jr = Transform.run(c.jc, p.entity, "dashboard")
-    val cr = c.cp.run(p.entity, "dashboard")
+    val jr = Jsonata.run(c.jc, p.entity, "dashboard")
+    val cr = Transform.run(c.cp, p.entity, "dashboard")
     Result(jr != cr, jr, cr)
   }
 
@@ -89,41 +93,40 @@ object CelSpike {
     if (s.length <= n) s else s.take(n) + "…"
 
   /** The pinned divergence contract: (shape, probeLabel) pairs that MUST
-    * diverge. Every other (shape, probe) must agree byte-for-byte. Measured and
-    * occupied from the run during Phase 0 — never extended silently.
-    *
-    * The 19 rows sort into four classes, each a deliberate CEL-native margin:
+    * diverge. Every other (shape, probe) must agree byte-for-byte. Measured
+    * and occupied from the run of the SHIPPED CEL bytes — never extended
+    * silently. Fifteen rows, four classes:
     *
     *   - Empty-string presence (2): `friendly_name=""`, `unit=""`. JSONata
-    *     reads "" falsy and falls back; CEL's `'k' in attr` sees it as present
-    *     (`""` vs `entity_id`, `"on "` trailing space).
-    *   - Number stringification (16): `fill` on every fixture value (MC15
-    *     `…3228%` vs CEL `…32283%`, and integer `100%` vs `100.0%`), the
-    *     `brightness=129.27` double-dust (`49.5%` vs `49.49999999999999%`), and
-    *     the kelvin-ramp `math.round` DOUBLE results (`rgb(231,193,162)` vs
-    *     `rgb(231.0,193.0,162.0)`).
-    *   - Half-away vs HALF_EVEN (1): `cover 63.5` — an exactly-representable .5
-    *     from the 100-scaled cover range — rounds 36.5 to 36 vs 37. Unreachable
-    *     on integer attributes, so only this probe can see it.
-    *   - Error text (1): `brightness="on"` — each engine's wording for the same
-    *     type failure, inside `Transform.error`.
+    *     reads "" falsy and falls back (`light.probe`, no trailing space);
+    *     CEL's `'k' in attr` sees it as present (`""` vs `entity_id`, `"on "`
+    *     trailing space). The known, deliberate cost of the presence idiom.
+    *   - Number stringification (11): the fill fixture rows whose fill is a
+    *     non-terminating fraction. JSONata's `$string` renders ~15 significant
+    *     digits (`97.244094488189%`), the shared numToString rounds at 10
+    *     decimals HALF_UP (`97.2440944882%`). The twelfth fixture — the one
+    *     whose fill is exactly 100% — agrees, as do all integer fills.
+    *   - Error text (1): `brightness="on"` — each engine's wording for the
+    *     same type failure, inside `Transform.error` / the bench reference.
+    *   - Half-away vs HALF_EVEN (1): `cover 63.5 (true half)` — an
+    *     exactly-representable .5 from the 100-scaled cover range rounds 36.5
+    *     to 37 (HALF_UP) vs 36 (HALF_EVEN). Unreachable on integer attributes,
+    *     so only this probe can see it.
     *
-    * The inverse is the result that makes the swap safe: `percent` (every
-    * fixture value, a fractional, an absent and an integer margin) and
-    * `attrLines` (fixture, no-attrs, float-list) agree byte-for-byte, and with
-    * the `'k' in attr` presence idiom in the CelShapes translations, absent-key
-    * reads fall through like JSONata's null instead of being the `attr["k"]`
-    * evaluation errors the sweep first measured.
+    * The inverse is the result that makes the swap safe: every `percent` and
+    * `attrLines` probe agrees byte-for-byte, and the whole `fillColor` set —
+    * whose Phase-0 translation diverged on every kelvin probe — now agrees
+    * too: the shipped `str(...)` strips the `math.round` `.0` the native
+    * `string(...)` left, and `double(k)` removes the Long/float mix that
+    * produced it. Fixture row order is Scala-Map hash order — deterministic
+    * for a run, and any reorder only moves which row is the integral one.
     */
   private val Golden_Diverge: Set[(String, String)] = Set(
     "name" -> "friendly_name=\"\"",
     "unit" -> "unit=\"\"",
-    "complex" -> "cover 63.5 (true half)",
-    "fill" -> "brightness=129.27",
     "fill" -> "brightness=\"on\"",
-    "fillColor" -> "kelvin only, int",
-    "fillColor" -> "kelvin=4208.3333 (half)"
-  ) ++ (0 to 11).map(i => "fill" -> s"fixture[$i]")
+    "complex" -> "cover 63.5 (true half)"
+  ) ++ Set(0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11).map(i => "fill" -> s"fixture[$i]")
 
   def main(args: Array[String]): Unit = {
     val fixture =

@@ -41,7 +41,7 @@ surfaces {
 card = (c.grid) {
   children {
     c.title("Pkl demo").fullWidth()
-    // Default display: friendly_name label, $state + auto-appended unit.
+    // Default display: friendly_name label, `state` + auto-appended unit.
     // No layout builder -> the default third-grid cell.
 
     (c.column) {
@@ -61,7 +61,7 @@ card = (c.grid) {
         // mandatory-paren amend `(c.entityCard(x)) { ... }`). Pure sugar — the
         // emitted node is byte-identical (the wire snapshot guards this).
         c.entityCard(dump.entities.sensor_ams_1a4e_u1)
-          .value(c.expr(#"$round($number($state), 1) & " V""#))
+          .value(c.expr(#"str(math.round(num(state) * 10.0) / 10.0) + ' V'"#))
           .tapAction(c.tap.service("homeassistant/toggle"))
 
         // Domain-checked: only entities with a sliderSpec row (lights) compile.
@@ -89,7 +89,7 @@ card = (c.grid) {
       .caseOf(q.eq(q.prop("domain"), "light"), c.slider)
       .`else`((e) -> c.entityCard(e)
         .tapAction(c.tap.toggle)
-        .label(c.expr(#"$attr.friendly_name & " (" & $state & ")""#)))
+        .label(c.expr(#"('friendly_name' in attr ? attr['friendly_name'] : '') + ' (' + state + ')'"#)))
       .build()
       .fullWidth()
 
@@ -104,7 +104,7 @@ card = (c.grid) {
       .where(q.eq(q.optional(q.prop("device_class")), "battery"))
       .where(q.lt(q.stateProp, 20))
       .render((e) -> c.entityCard(e)
-        .label(c.expr(#"$attr.friendly_name & " — " & $state & "%""#))
+        .label(c.expr(#"('friendly_name' in attr ? attr['friendly_name'] : '') + ' — ' + state + '%'"#))
         .secondary("device_class"))
       .build()
       .fullWidth()

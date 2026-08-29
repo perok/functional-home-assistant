@@ -50,7 +50,7 @@
                                             "bypassUnavailable" : true,
                                             "reads" : "live",
                                             "signal" : "text",
-                                            "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
+                                            "transform" : "state + ('unit_of_measurement' in attr ? ' ' + attr['unit_of_measurement'] : '')"
                                           }
                                         }
                                       },
@@ -62,7 +62,7 @@
                                             "bypassUnavailable" : true,
                                             "default" : "",
                                             "reads" : "live",
-                                            "transform" : "$join($sort($each($attr, function($v, $k) { $k & \": \" & $string($v) })), \"\\n\")"
+                                            "transform" : "attr.transformList(k, v, k + ': ' + str(v)).sort().join('\\n')"
                                           },
                                           "entity_id" : "sensor.outside_temp"
                                         }
@@ -75,7 +75,7 @@
                                           "onclick" : {
                                             "bypassUnavailable" : false,
                                             "reads" : "once",
-                                            "transform" : "\"@post('sse/popup/\" & $dashboardSlug & \"/close')\""
+                                            "transform" : "\"@post('sse/popup/\" + dashboard_slug + \"/close')\""
                                           }
                                         }
                                       }
@@ -101,14 +101,14 @@
                         "onclick" : {
                           "bypassUnavailable" : false,
                           "reads" : "once",
-                          "transform" : "\"@post('sse/surface/\" & $dashboardSlug & \"/open/@@NODE_ID@@_self')\""
+                          "transform" : "\"@post('sse/surface/\" + dashboard_slug + \"/open/@@NODE_ID@@_self')\""
                         },
                         "tappable" : "1",
                         "value" : {
                           "bypassUnavailable" : true,
                           "reads" : "live",
                           "signal" : "text",
-                          "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
+                          "transform" : "state + ('unit_of_measurement' in attr ? ' ' + attr['unit_of_measurement'] : '')"
                         }
                       }
                     }
@@ -140,14 +140,14 @@
                         "onclick" : {
                           "bypassUnavailable" : false,
                           "reads" : "once",
-                          "transform" : "\"@post('sse/action/\" & $dashboardSlug & \"/\" & (\"light/toggle\") & \"/\" & $entity_id & \"', {filterSignals:{exclude:'.*'}})\""
+                          "transform" : "\"@post('sse/action/\" + dashboard_slug + \"/\" + ('light/toggle') + \"/\" + entity_id + \"', {filterSignals:{exclude:'.*'}})\""
                         },
                         "tappable" : "1",
                         "value" : {
                           "bypassUnavailable" : true,
                           "reads" : "live",
                           "signal" : "text",
-                          "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
+                          "transform" : "state + ('unit_of_measurement' in attr ? ' ' + attr['unit_of_measurement'] : '')"
                         }
                       }
                     }
@@ -171,7 +171,7 @@
                   "onclick" : {
                     "bypassUnavailable" : false,
                     "reads" : "once",
-                    "transform" : "\"$_@@NODE_ID@@__pending = '0'; @post('sse/surface/\" & $dashboardSlug & \"/open/@@NODE_ID@@_t0')\""
+                    "transform" : "\"$_@@NODE_ID@@__pending = '0'; @post('sse/surface/\" + dashboard_slug + \"/open/@@NODE_ID@@_t0')\""
                   }
                 }
               },
@@ -184,7 +184,7 @@
                   "onclick" : {
                     "bypassUnavailable" : false,
                     "reads" : "once",
-                    "transform" : "\"$_@@NODE_ID@@__pending = '1'; @post('sse/surface/\" & $dashboardSlug & \"/open/@@NODE_ID@@_t1')\""
+                    "transform" : "\"$_@@NODE_ID@@__pending = '1'; @post('sse/surface/\" + dashboard_slug + \"/open/@@NODE_ID@@_t1')\""
                   }
                 }
               }
@@ -244,7 +244,7 @@
                                             "bypassUnavailable" : true,
                                             "reads" : "live",
                                             "signal" : "text",
-                                            "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
+                                            "transform" : "state + ('unit_of_measurement' in attr ? ' ' + attr['unit_of_measurement'] : '')"
                                           }
                                         }
                                       },
@@ -256,7 +256,7 @@
                                             "bypassUnavailable" : true,
                                             "default" : "",
                                             "reads" : "live",
-                                            "transform" : "$join($sort($each($attr, function($v, $k) { $k & \": \" & $string($v) })), \"\\n\")"
+                                            "transform" : "attr.transformList(k, v, k + ': ' + str(v)).sort().join('\\n')"
                                           },
                                           "entity_id" : "sensor.outside_temp"
                                         }
@@ -269,7 +269,7 @@
                                           "onclick" : {
                                             "bypassUnavailable" : false,
                                             "reads" : "once",
-                                            "transform" : "\"@post('sse/popup/\" & $dashboardSlug & \"/close')\""
+                                            "transform" : "\"@post('sse/popup/\" + dashboard_slug + \"/close')\""
                                           }
                                         }
                                       }
@@ -295,14 +295,14 @@
                         "onclick" : {
                           "bypassUnavailable" : false,
                           "reads" : "once",
-                          "transform" : "\"@post('sse/surface/\" & $dashboardSlug & \"/open/@@NODE_ID@@_self')\""
+                          "transform" : "\"@post('sse/surface/\" + dashboard_slug + \"/open/@@NODE_ID@@_self')\""
                         },
                         "tappable" : "1",
                         "value" : {
                           "bypassUnavailable" : true,
                           "reads" : "live",
                           "signal" : "text",
-                          "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
+                          "transform" : "state + ('unit_of_measurement' in attr ? ' ' + attr['unit_of_measurement'] : '')"
                         }
                       }
                     }
@@ -344,14 +344,14 @@
                         "onclick" : {
                           "bypassUnavailable" : false,
                           "reads" : "once",
-                          "transform" : "\"@post('sse/action/\" & $dashboardSlug & \"/\" & (\"light/toggle\") & \"/\" & $entity_id & \"', {filterSignals:{exclude:'.*'}})\""
+                          "transform" : "\"@post('sse/action/\" + dashboard_slug + \"/\" + ('light/toggle') + \"/\" + entity_id + \"', {filterSignals:{exclude:'.*'}})\""
                         },
                         "tappable" : "1",
                         "value" : {
                           "bypassUnavailable" : true,
                           "reads" : "live",
                           "signal" : "text",
-                          "transform" : "$state & ($attr.unit_of_measurement ? \" \" & $attr.unit_of_measurement : \"\")"
+                          "transform" : "state + ('unit_of_measurement' in attr ? ' ' + attr['unit_of_measurement'] : '')"
                         }
                       }
                     }
