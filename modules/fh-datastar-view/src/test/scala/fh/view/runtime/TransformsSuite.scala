@@ -18,6 +18,76 @@ import io.circe.Json
   */
 class TransformsSuite extends munit.CatsEffectSuite {
 
+  test("a direct transform renders exactly what JSONata would") {
+    // The fast path skips JSONata for `$state` and `$attr.<name>` (issue
+    // #237). It is only safe while the two agree on EVERY value shape, and a
+    // disagreement would not fail — it would quietly render a different string
+    // on some attribute type nobody thought about. So this compares them
+    // rather than asserting expected output: the oracle is JSONata itself.
+    val values: List[(String, Json)] = List(
+      "text" -> Json.fromString("Hall"),
+      "empty" -> Json.fromString(""),
+      "int" -> Json.fromInt(42),
+      "negative" -> Json.fromInt(-7),
+      "double" -> Json.fromDoubleOrNull(21.4),
+      "whole_double" -> Json.fromDoubleOrNull(21.0),
+      "big" -> Json.fromLong(9007199254740993L),
+      "tiny" -> Json.fromDoubleOrNull(0.000001),
+      "bool" -> Json.True,
+      "boolFalse" -> Json.False,
+      // Not the key "null": that is a JSONata keyword and `$attr.null` does
+      // not compile. Direct recognition is only ever applied to expressions
+      // that already compiled (`Transforms` classifies `compiled.keys`), so
+      // the two cannot disagree about what is even a valid expression.
+      "nulled" -> Json.Null,
+      "list" -> Json.arr(Json.fromString("a"), Json.fromInt(2)),
+      "obj" -> Json.obj("k" -> Json.fromString("v")),
+      "quoted" -> Json.fromString("say \"hi\""),
+      "unicode" -> Json.fromString("ø 😀")
+    )
+    val entity = EntityState("sensor.a", "21.4", values.toMap)
+    // `$attr.missing` too — an absent key is the case most likely to differ.
+    val exprs = "$state" :: ("missing" :: values.map(_._1)).map("$attr." + _)
+
+    exprs.foreach { expr =>
+      val compiled = fh.view.model.Transform
+        .parse(expr)
+        .getOrElse(fail(s"could not compile $expr"))
+      val viaJsonata =
+        fh.view.model.Transform.run(compiled, entity, "dashboard")
+      val direct = fh.view.model.Transform
+        .direct(expr)
+        .getOrElse(fail(s"$expr should be recognised as direct"))
+      assertEquals(
+        fh.view.model.Transform.runDirect(direct, entity),
+        viaJsonata,
+        clue = expr
+      )
+    }
+  }
+
+  test("only the two shapes are direct; everything else goes to JSONata") {
+    // The guard against this growing into a second implementation of the
+    // language. Each of these READS like a direct shape and is not one.
+    List(
+      "$state & \" W\"",
+      "$attr.a.b",
+      "$attr",
+      "$attr.\"quoted\"",
+      "$attr.a[0]",
+      "$states",
+      "$round($number($state), 1)",
+      "$state = \"on\" ? \"Open\" : \"Closed\""
+    ).foreach(e =>
+      assertEquals(fh.view.model.Transform.direct(e), None, clue = e)
+    )
+    // ...and the two that ARE, including surrounding whitespace.
+    assert(fh.view.model.Transform.direct("  $state  ").isDefined)
+    assert(
+      fh.view.model.Transform.direct("$attr.unit_of_measurement").isDefined
+    )
+  }
+
   private val tapUrl =
     "\"@post('sse/action/\" & $dashboardSlug & \"/light/toggle/\" & $entity_id & \"')\""
 

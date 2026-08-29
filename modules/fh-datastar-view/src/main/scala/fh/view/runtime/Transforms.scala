@@ -17,6 +17,14 @@ class Transforms private (
     private val compiled: Map[String, Transform.Compiled]
 ) {
 
+  /** The transforms that read a value and apply nothing to it, resolved ONCE
+    * here rather than asked per evaluation — the same reason the JSONata
+    * expressions are compiled once. See [[Transform.Direct]] for why these are
+    * worth separating at all.
+    */
+  private val direct: Map[String, Transform.Direct] =
+    compiled.keys.flatMap(e => Transform.direct(e).map(e -> _)).toMap
+
   /** Apply the transform named by `expr` to the producing entity, reading its
     * `state`/`attributes`/`domain`/`entity_id` as same-entity context, plus the
     * dashboard's `slug`. `expr` is always one the dashboard declared (the map
@@ -24,7 +32,10 @@ class Transforms private (
     * condition.
     */
   def run(expr: String, entity: EntityState, dashboardSlug: String): String =
-    Transform.run(compiled(expr), entity, dashboardSlug)
+    direct.get(expr) match {
+      case Some(d) => Transform.runDirect(d, entity)
+      case None    => Transform.run(compiled(expr), entity, dashboardSlug)
+    }
 }
 
 object Transforms {
