@@ -68,12 +68,12 @@ object Cel {
     * engine applies to a bare result, so `str(v)` and a bare `v` never part.
     */
   private def stringLike(v: Any): String = v match
-    case n if isNullValue(n) => ""
-    case s: String           => s
-    case b: java.lang.Boolean => b.toString
-    case l: java.lang.Long    => l.toString
-    case i: java.lang.Integer => i.toString
-    case n: java.lang.Number  => numToString(n.doubleValue)
+    case n if isNullValue(n)   => ""
+    case s: String             => s
+    case b: java.lang.Boolean  => b.toString
+    case l: java.lang.Long     => l.toString
+    case i: java.lang.Integer  => i.toString
+    case n: java.lang.Number   => numToString(n.doubleValue)
     case xs: java.util.List[?] =>
       val it = xs.iterator()
       val sb = new java.lang.StringBuilder("[")
@@ -210,10 +210,10 @@ object Cel {
   private final class EntityResolver(entity: EntityState, slug: String)
       extends CelVariableResolver {
     def find(name: String): Optional[Object] = name match {
-      case "state"          => Optional.ofNullable[Object](entity.state)
-      case "attr"           => Optional.ofNullable[Object](entity.javaAttributes)
-      case "entity_id"      => Optional.ofNullable[Object](entity.entityId)
-      case "domain"         => Optional.ofNullable[Object](entity.domain)
+      case "state"     => Optional.ofNullable[Object](entity.state)
+      case "attr"      => Optional.ofNullable[Object](entity.javaAttributes)
+      case "entity_id" => Optional.ofNullable[Object](entity.entityId)
+      case "domain"    => Optional.ofNullable[Object](entity.domain)
       case "dashboard_slug" => Optional.ofNullable[Object](slug)
       case _                => Optional.empty()
     }
@@ -222,11 +222,16 @@ object Cel {
   /** Evaluate a compiled program against one entity, stringified for the
     * template. The dashboard's slug binds `dashboard_slug` (ADR 0023); on
     * evaluation failure the CEL error message is returned so the card shows it
-    * — contained, never thrown into the render. A `null` result becomes `""`
-    * so the slot's `default` can take over.
+    * — contained, never thrown into the render. A `null` result becomes `""` so
+    * the slot's `default` can take over.
     */
-  def run(program: Program, entity: EntityState, dashboardSlug: String): String =
-    try stringify(
+  def run(
+      program: Program,
+      entity: EntityState,
+      dashboardSlug: String
+  ): String =
+    try
+      stringify(
         program.eval(new EntityResolver(entity, dashboardSlug))
       )
     catch case e: Exception => s"cel error: ${errorText(e)}"
@@ -236,13 +241,13 @@ object Cel {
     * "" so the slot's `default` can take over.
     */
   private def stringify(result: Any): String = result match
-    case n if isNullValue(n)   => ""
-    case s: String             => s
-    case b: java.lang.Boolean  => b.toString
-    case l: java.lang.Long     => l.toString
-    case i: java.lang.Integer  => i.toString
-    case n: java.lang.Number   => numToString(n.doubleValue)
-    case other                 => String.valueOf(other)
+    case n if isNullValue(n)  => ""
+    case s: String            => s
+    case b: java.lang.Boolean => b.toString
+    case l: java.lang.Long    => l.toString
+    case i: java.lang.Integer => i.toString
+    case n: java.lang.Number  => numToString(n.doubleValue)
+    case other                => String.valueOf(other)
 
   private def errorText(e: Throwable): String =
     Option(e.getMessage).filter(_.nonEmpty).getOrElse(e.getClass.getSimpleName)

@@ -20,12 +20,11 @@ import io.circe.derivation.{Configuration, ConfiguredDecoder}
   * `bypassUnavailable` (ON by default) makes an `"unavailable"`/`"unknown"`
   * entity show its raw state *instead of* running the transform — what keeps a
   * value-display readable when its transform would otherwise error on a
-  * non-numeric state (`num(state)`).
-  * Set it to `false` on the slots that must run their transform regardless of
-  * availability: identity-derived slots (an action resolves from `domain`, not
-  * state), labels (keep the friendly_name rather than showing `"unavailable"`),
-  * and a slider's numeric position (fall back to its `default`, not the literal
-  * `"unavailable"` string).
+  * non-numeric state (`num(state)`). Set it to `false` on the slots that must
+  * run their transform regardless of availability: identity-derived slots (an
+  * action resolves from `domain`, not state), labels (keep the friendly_name
+  * rather than showing `"unavailable"`), and a slider's numeric position (fall
+  * back to its `default`, not the literal `"unavailable"` string).
   *
   * `entityId` is the slot's OWN entity. When `None`, the slot INHERITS the
   * component's `entity_id` param (the card's one entity) — so a card binds its

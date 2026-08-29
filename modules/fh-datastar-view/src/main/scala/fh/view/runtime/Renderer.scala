@@ -1793,8 +1793,8 @@ object Renderer {
     * The three forms have disjoint prefixes, so the mapping stays injective.
     */
   private def transformSegment(transform: String): String = transform match {
-    case "state"                  => "state"
-    case other                    => s"t${shortHash(other)}"
+    case "state" => "state"
+    case other   => s"t${shortHash(other)}"
   }
 
   private def shortHash(s: String): String =

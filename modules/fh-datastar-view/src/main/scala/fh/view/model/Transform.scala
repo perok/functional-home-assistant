@@ -2,8 +2,8 @@ package fh.view.model
 
 import fh.view.runtime.{Cel, EntityState}
 
-/** Per-slot value transforms, expressed as [CEL](https://cel.dev) (the
-  * "Common Expression Language").
+/** Per-slot value transforms, expressed as [CEL](https://cel.dev) (the "Common
+  * Expression Language").
   *
   * Authored inline in the dashboard source as a string (see
   * [[SlotSource.transform]]) and evaluated by the renderer per live value.
@@ -29,8 +29,8 @@ import fh.view.runtime.{Cel, EntityState}
   * Presence is a REAL boolean in CEL, and the entity's `attr` is a JVM map
   * adapted as a CEL map (not a native one): `'x' in attr` tests a key's
   * presence, while a RAW `attr['x']` on an absent key is an evaluation error —
-  * so the shipped strings read attributes guarded (`'x' in attr ? … : …`),
-  * the idiom that mirrors JSONata's null-on-missing (measured in the Phase-0
+  * so the shipped strings read attributes guarded (`'x' in attr ? … : …`), the
+  * idiom that mirrors JSONata's null-on-missing (measured in the Phase-0
   * sweep). Stringify a heterogeneous value with `str(x)`, which renders numbers
   * the same 10-digit way the engine renders a bare numeric result, so the two
   * can never drift.
@@ -65,11 +65,12 @@ object Transform {
     * saves the whole engine cost, not a fraction (issue #237). `Transforms.run`
     * resolves them at startup and never sends them to an engine.
     *
-    * Phase 1 recognises only the bare `state` read: it is the guaranteed-present
-    * one (the fast path survives for every plain state slot). An `attr` read is
-    * ship-shaped GUARDED (`'x' in attr ? attr['x'] : …`), and guards need the
-    * engine — correctness first, the `Direct.Attr` fast path re-targets in
-    * Phase 2 (the benchmark keeps pricing the read mechanism).
+    * Phase 1 recognises only the bare `state` read: it is the
+    * guaranteed-present one (the fast path survives for every plain state
+    * slot). An `attr` read is ship-shaped GUARDED (`'x' in attr ? attr['x'] :
+    * …`), and guards need the engine — correctness first, the `Direct.Attr`
+    * fast path re-targets in Phase 2 (the benchmark keeps pricing the read
+    * mechanism).
     *
     * `None` for everything else, which is the honest answer: anything with an
     * operator, a function or a conditional goes to the engine, and this must

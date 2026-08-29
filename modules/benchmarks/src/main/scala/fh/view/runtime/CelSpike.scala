@@ -6,13 +6,13 @@ import io.circe.Json
 /** Divergence gate for the CEL engine swap (plan Phase 0, kept for Phase 1).
   *
   * Pairing the shipped-intended JSONata shapes against the SHIPPED CEL bytes,
-  * this sweeps BOTH the benchmark's real-world fixture and a curated margin
-  * set (empty-string attrs, fractional values, odd types, absent attrs) and
-  * records — not assumes — where the two engines part. The rendered bytes of
-  * the affected slots are the contract, and the divergence table this prints
-  * is that contract: the JSONata side runs through the bench-local
-  * [[Jsonata]] reference (the retired engine, byte-for-byte), the CEL side
-  * through the production [[fh.view.model.Transform]].
+  * this sweeps BOTH the benchmark's real-world fixture and a curated margin set
+  * (empty-string attrs, fractional values, odd types, absent attrs) and records
+  * — not assumes — where the two engines part. The rendered bytes of the
+  * affected slots are the contract, and the divergence table this prints is
+  * that contract: the JSONata side runs through the bench-local [[Jsonata]]
+  * reference (the retired engine, byte-for-byte), the CEL side through the
+  * production [[fh.view.model.Transform]].
   *
   * Run with `sbt 'benchmarks/Compile/runMain fh.view.runtime.CelSpike'`. The
   * exit code is non-zero iff the observed divergences stop matching the golden
@@ -93,9 +93,9 @@ object CelSpike {
     if (s.length <= n) s else s.take(n) + "…"
 
   /** The pinned divergence contract: (shape, probeLabel) pairs that MUST
-    * diverge. Every other (shape, probe) must agree byte-for-byte. Measured
-    * and occupied from the run of the SHIPPED CEL bytes — never extended
-    * silently. Fifteen rows, four classes:
+    * diverge. Every other (shape, probe) must agree byte-for-byte. Measured and
+    * occupied from the run of the SHIPPED CEL bytes — never extended silently.
+    * Fifteen rows, four classes:
     *
     *   - Empty-string presence (2): `friendly_name=""`, `unit=""`. JSONata
     *     reads "" falsy and falls back (`light.probe`, no trailing space);
@@ -106,8 +106,8 @@ object CelSpike {
     *     digits (`97.244094488189%`), the shared numToString rounds at 10
     *     decimals HALF_UP (`97.2440944882%`). The twelfth fixture — the one
     *     whose fill is exactly 100% — agrees, as do all integer fills.
-    *   - Error text (1): `brightness="on"` — each engine's wording for the
-    *     same type failure, inside `Transform.error` / the bench reference.
+    *   - Error text (1): `brightness="on"` — each engine's wording for the same
+    *     type failure, inside `Transform.error` / the bench reference.
     *   - Half-away vs HALF_EVEN (1): `cover 63.5 (true half)` — an
     *     exactly-representable .5 from the 100-scaled cover range rounds 36.5
     *     to 37 (HALF_UP) vs 36 (HALF_EVEN). Unreachable on integer attributes,
@@ -115,11 +115,11 @@ object CelSpike {
     *
     * The inverse is the result that makes the swap safe: every `percent` and
     * `attrLines` probe agrees byte-for-byte, and the whole `fillColor` set —
-    * whose Phase-0 translation diverged on every kelvin probe — now agrees
-    * too: the shipped `str(...)` strips the `math.round` `.0` the native
+    * whose Phase-0 translation diverged on every kelvin probe — now agrees too:
+    * the shipped `str(...)` strips the `math.round` `.0` the native
     * `string(...)` left, and `double(k)` removes the Long/float mix that
-    * produced it. Fixture row order is Scala-Map hash order — deterministic
-    * for a run, and any reorder only moves which row is the integral one.
+    * produced it. Fixture row order is Scala-Map hash order — deterministic for
+    * a run, and any reorder only moves which row is the integral one.
     */
   private val Golden_Diverge: Set[(String, String)] = Set(
     "name" -> "friendly_name=\"\"",

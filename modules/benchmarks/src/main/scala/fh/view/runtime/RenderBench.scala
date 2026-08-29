@@ -118,15 +118,19 @@ class RenderBench {
       Dashboard(cards, tree(Leaves, 4, signals = true, distinct = Distinct))
     )
     def jparse(src: String): Jsonata.Compiled =
-      Jsonata.parse(src).fold(
-        e => sys.error(s"jsonata won't compile: $src [$e]"),
-        identity
-      )
+      Jsonata
+        .parse(src)
+        .fold(
+          e => sys.error(s"jsonata won't compile: $src [$e]"),
+          identity
+        )
     def cparse(src: String): Transform.Compiled =
-      Transform.parse(src).fold(
-        e => sys.error(s"cel won't compile: $src [$e]"),
-        identity
-      )
+      Transform
+        .parse(src)
+        .fold(
+          e => sys.error(s"cel won't compile: $src [$e]"),
+          identity
+        )
     jsonataProbes = Jsonata.LiveTransforms.map(jparse)
     jsonataComplexExpr = jparse(Jsonata.TransformComplex)
     jsonataTrivialProbes = Jsonata.TrivialTransforms.map(jparse)
@@ -184,10 +188,10 @@ class RenderBench {
   @Benchmark
   def pageShared(bh: Blackhole): Unit = bh.consume(shared.renderPageTraced(st))
 
-  /** The RETIRED JSONata engine ([[Jsonata]], bench-only) at the count one
-    * page performs, `Reads.Once` slots excluded (the renderer memoises those,
-    * which is the state a warm server is in). The six shapes are the ones the
-    * shipped components actually stuck on hot slots before the CEL swap.
+  /** The RETIRED JSONata engine ([[Jsonata]], bench-only) at the count one page
+    * performs, `Reads.Once` slots excluded (the renderer memoises those, which
+    * is the state a warm server is in). The six shapes are the ones the shipped
+    * components actually stuck on hot slots before the CEL swap.
     */
   @Benchmark
   def jsonata(bh: Blackhole): Unit = {
@@ -231,8 +235,8 @@ class RenderBench {
     }
   }
 
-  /** The same hostile ceiling as [[jsonataComplex]], as the shipped engine —
-    * on the fixture that exercises longest/complex each hit (see [[CelSpike]]).
+  /** The same hostile ceiling as [[jsonataComplex]], as the shipped engine — on
+    * the fixture that exercises longest/complex each hit (see [[CelSpike]]).
     */
   @Benchmark
   def celComplex(bh: Blackhole): Unit = {
@@ -268,10 +272,10 @@ class RenderBench {
 
   /** The hand-rolled fast path for the two TRIVIAL shapes — a bare `state` and
     * a guarded attribute read — which is what the renderer ships INSTEAD of an
-    * engine for them ([[Transform.Direct]]). Same count and same three reads
-    * as [[jsonataTrivial]], with the engine removed, so the gap between the
-    * two is what deciding-to-use-an-engine cost on those shapes, and the gap
-    * against [[cel]] is the floor the engines are compared against.
+    * engine for them ([[Transform.Direct]]). Same count and same three reads as
+    * [[jsonataTrivial]], with the engine removed, so the gap between the two is
+    * what deciding-to-use-an-engine cost on those shapes, and the gap against
+    * [[cel]] is the floor the engines are compared against.
     */
   @Benchmark
   def direct(bh: Blackhole): Unit = {

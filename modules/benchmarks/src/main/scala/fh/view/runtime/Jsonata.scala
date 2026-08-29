@@ -4,12 +4,12 @@ import com.dashjoin.jsonata.Jsonata
 import com.dashjoin.jsonata.Jsonata.jsonata
 
 /** The RETIRED JSONata transform engine, kept here — bench-only — as the
-  * reference the divergence gate ([[CelSpike]]) and RenderBench's jsonata
-  * cells measure against. This is the pre-swap `fh.view.model.Transform`,
+  * reference the divergence gate ([[CelSpike]]) and RenderBench's jsonata cells
+  * measure against. This is the pre-swap `fh.view.model.Transform`,
   * byte-for-byte in behaviour — same bindings, same evaluation, same
   * stringification — so the engine comparison stays apples-to-apples now that
-  * the shipped runtime compiles CEL only and this module is the only thing
-  * that still reaches dashjoin.
+  * the shipped runtime compiles CEL only and this module is the only thing that
+  * still reaches dashjoin.
   */
 object Jsonata {
 
@@ -30,7 +30,11 @@ object Jsonata {
     * `asString`, so the two engines land on identical slot values and a
     * divergence is the engines', not the wrappers'.
     */
-  def run(expr: Compiled, entity: EntityState, dashboardSlug: String): String = {
+  def run(
+      expr: Compiled,
+      entity: EntityState,
+      dashboardSlug: String
+  ): String = {
     val frame = expr.createFrame()
     frame.bind("dashboardSlug", dashboardSlug)
     frame.bind("state", entity.state)
@@ -70,11 +74,11 @@ object Jsonata {
         .stripTrailingZeros
         .toPlainString
 
-  /** The six shipped shapes, as the JSONata the shipped components stuck on
-    * hot slots before the CEL swap — the reference side of [[CelSpike]]'s
-    * pairing and of RenderBench's jsonata cells. (The icon is a literal now,
-    * so it is not in the mix; benchmarking `$state` alone would flatter
-    * JSONata, so the trivial shapes sit beside [[TrivialTransforms]].)
+  /** The six shipped shapes, as the JSONata the shipped components stuck on hot
+    * slots before the CEL swap — the reference side of [[CelSpike]]'s pairing
+    * and of RenderBench's jsonata cells. (The icon is a literal now, so it is
+    * not in the mix; benchmarking `$state` alone would flatter JSONata, so the
+    * trivial shapes sit beside [[TrivialTransforms]].)
     */
   final val TransformName =
     """$attr.friendly_name ? $attr.friendly_name : $entity_id"""

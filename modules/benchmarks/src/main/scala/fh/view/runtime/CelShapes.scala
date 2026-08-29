@@ -10,8 +10,8 @@ package fh.view.runtime
   * finding, pinned by TransformSuite):
   *
   *   - '''`double(v)` is not decoration.''' An attribute position arrives as a
-  *     Long, and CEL's double overloads have no (Long, double) operand — a
-  *     bare `v - 1.0` COMPILES and throws at evaluation.
+  *     Long, and CEL's double overloads have no (Long, double) operand — a bare
+  *     `v - 1.0` COMPILES and throws at evaluation.
   *   - '''Float literals throughout the range arithmetic.''' CEL's `/` on two
   *     ints is integer division.
   *   - '''`str(...)`, never native `string(...)`.''' `math.round` returns a
@@ -23,8 +23,8 @@ package fh.view.runtime
   *     evaluation error (JSONata read it as null), so every attribute read is
   *     gated — and an empty-string value is PRESENT to `in`, where JSONata
   *     found it falsy (the surviving, deliberate divergences CelSpike pins).
-  *   - '''`cel.bind` for JSONata's `:=`''', `attr.transformList(k, v, ...)`
-  *     for `$each`, `.sort()`/`.join('\n')` for `$sort`/`$join`.
+  *   - '''`cel.bind` for JSONata's `:=`''', `attr.transformList(k, v, ...)` for
+  *     `$each`, `.sort()`/`.join('\n')` for `$sort`/`$join`.
   */
 object CelShapes {
 

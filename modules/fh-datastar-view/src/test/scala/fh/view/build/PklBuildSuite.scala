@@ -1608,7 +1608,10 @@ class PklBuildSuite extends munit.FunSuite {
     assertEquals(slots("max").literal, Some("255"))
     // The live position is the one that stays live — it reads state, not
     // identity — but it names the attribute directly instead of looking it up.
-    assertEquals(slots("value").transform, "'brightness' in attr ? attr['brightness'] : null")
+    assertEquals(
+      slots("value").transform,
+      "'brightness' in attr ? attr['brightness'] : null"
+    )
     assertEquals(slots("value").default, Some("0"))
     assertEquals(slots("value").bypassUnavailable, false)
     // Not one $lookup anywhere in the member.
@@ -1736,7 +1739,10 @@ class PklBuildSuite extends munit.FunSuite {
         |""".stripMargin
     )
     val state = rowOf(own).slots("state")
-    assert(state.transform.contains("attr['brightness']"), clue = state.transform)
+    assert(
+      state.transform.contains("attr['brightness']"),
+      clue = state.transform
+    )
     assert(
       state.transform.endsWith("""+ ' · ' + state"""),
       clue = state.transform
@@ -2087,7 +2093,10 @@ class PklBuildSuite extends munit.FunSuite {
     assertEquals(rowOf(s).slots("min").literal, Some("2000"))
     assertEquals(rowOf(s).slots("max").literal, Some("6535"))
     // and the handle tracks the value it writes, not brightness
-    assertEquals(rowOf(s).slots("value").transform, "'color_temp_kelvin' in attr ? attr['color_temp_kelvin'] : null")
+    assertEquals(
+      rowOf(s).slots("value").transform,
+      "'color_temp_kelvin' in attr ? attr['color_temp_kelvin'] : null"
+    )
   }
 
   test("lightControls emits one control per capability the light has") {
@@ -2116,7 +2125,8 @@ class PklBuildSuite extends munit.FunSuite {
     // The value splices as a SINGLE-QUOTED CEL literal inside the @post string
     // — the old JSONata splicing left it outside (the latent bug tap.pkl records).
     assert(
-      pills(1).slots("onclick")
+      pills(1)
+        .slots("onclick")
         .transform
         .contains("'effect' + \"/\" + 'Color%20loop'"),
       clue = pills(1).slots("onclick").transform
