@@ -269,7 +269,14 @@ lazy val benchmarks = project
   .enablePlugins(JmhPlugin)
   .settings(
     commonSettings,
-    publish / skip := true
+    publish / skip := true,
+    libraryDependencies ++= Seq(
+      // CEL for the `engine-cel` comparison (RenderBench.cel / .celComplex).
+      // Dev-tooling only: the shipped runtime is `fh-datastar-view`, which does
+      // not depend on CEL. Bundles the extension libraries (strings/lists/math/
+      // bindings/comprehensions) in the same jar.
+      "dev.cel" % "cel" % "0.14.0"
+    )
   )
 
 lazy val root = project

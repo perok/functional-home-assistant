@@ -95,6 +95,8 @@ class RenderBench {
   private var shared: Renderer = null
   private var st: Map[String, EntityState] = null
   private var transforms: Transforms = null
+  private var celProbes: List[CelTransforms.Program] = null
+  private var celComplex: CelTransforms.Program = null
   private var entityTemplate: com.samskivert.mustache.Template = null
   private var painted: List[String] = null
 
@@ -134,6 +136,8 @@ class RenderBench {
       .from(Dashboard(cards, tree(Leaves, 4, signals = true)))
       .components("entity")
     painted = signalled.renderPageTraced(st).own.values.map(_.html).toList
+    celProbes = CelShapes.LiveTransforms.map(CelTransforms.parse)
+    celComplex = CelTransforms.parse(CelShapes.TransformComplex)
   }
 
   /** The baseline: a whole page, no signal slots. */
@@ -207,6 +211,35 @@ class RenderBench {
     while (i < Leaves) {
       val e = st(entityId(i))
       bh.consume(transforms.run(TransformComplex, e, "dashboard"))
+      i += 1
+    }
+  }
+
+  /** CEL at the same count and shapes as [[jsonata]]: the six shipped shapes,
+    * each compiled once into a `CelRuntime.Program` (the port's `Compiled`
+    * form) and evaluated per entity. The difference against [[jsonata]] is what
+    * the engine swap prices at the eval the benchmark measures; both build
+    * their per-eval activation the same way.
+    */
+  @Benchmark
+  def cel(bh: Blackhole): Unit = {
+    var i = 0
+    while (i < Leaves) {
+      val e = st(entityId(i))
+      celProbes.foreach(p => bh.consume(p.run(e, "dashboard")))
+      i += 1
+    }
+  }
+
+  /** The same hostile ceiling as [[jsonataComplex]], as CEL — on the fixture
+    * that exercises longest/complex each hit (see [[CelSpike]]).
+    */
+  @Benchmark
+  def celComplex(bh: Blackhole): Unit = {
+    var i = 0
+    while (i < Leaves) {
+      val e = st(entityId(i))
+      bh.consume(celComplex.run(e, "dashboard"))
       i += 1
     }
   }
