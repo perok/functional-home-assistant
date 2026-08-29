@@ -7,8 +7,8 @@ CEL workstream instead: the library will be re-authored in CEL, so the shipped s
 and recognising them is detecting our own canonical forms rather than hardcoding someone else's
 dialect.
 
-**Phase 1 is shipped** (same day) — the swap is in `main`'s working tree, `testFull` 691/691,
-gate re-pinned. What it took, beyond the bullets below:
+**Phase 1 is shipped** (same day) — the swap is on the `engine-cel-spike` branch, `testFull`
+691/691, gate re-pinned. What it took, beyond the bullets below:
 
 - The bench-local `CelTransforms` (the Phase-0 stand-in engine) is deleted; the bench now runs
   the production `Transform` for its CEL cells and keeps dashjoin ONLY as a bench-local
@@ -29,9 +29,8 @@ gate re-pinned. What it took, beyond the bullets below:
 ## Decisions
 
 1. **CEL is the engine.** `com.google.cel` (cel-java), PLANNER runtime, compile-once/eval-many
-   (`CelTransforms` in `modules/benchmarks` already proves the pattern and the ~3.3x per-eval
-   gain over dashjoin on the same shapes). It replaces dashjoin JSONata everywhere a transform
-   is evaluated.
+   (the Phase-0 bench stand-in proved the pattern and the ~3.3x per-eval gain over dashjoin on
+   the same shapes). It replaces dashjoin JSONata everywhere a transform is evaluated.
 2. **CEL-native value semantics.** No dashjoin-compatibility functions, no imported rounding or
    stringification. Presence is `!= null`, rounding is `math.round`, numbers stringify as CEL
    renders them, concat is null-safe only where the expression makes it so. Rendered bytes that
