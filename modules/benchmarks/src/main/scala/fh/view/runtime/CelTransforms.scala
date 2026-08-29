@@ -76,7 +76,7 @@ object CelTransforms {
     .build()
 
   private val runtime = CelRuntimeFactory
-    .standardCelRuntimeBuilder()
+    .plannerRuntimeBuilder()
     .addLibraries(
       CelExtensions.strings(),
       CelExtensions.lists(),

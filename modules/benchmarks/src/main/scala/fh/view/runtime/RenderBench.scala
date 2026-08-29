@@ -6,7 +6,8 @@ import fh.view.model.{
   LayoutNode,
   Region,
   SignalBind,
-  SlotSource
+  SlotSource,
+  Transform
 }
 import io.circe.Json
 import org.openjdk.jmh.annotations.*
@@ -217,9 +218,11 @@ class RenderBench {
 
   /** CEL at the same count and shapes as [[jsonata]]: the six shipped shapes,
     * each compiled once into a `CelRuntime.Program` (the port's `Compiled`
-    * form) and evaluated per entity. The difference against [[jsonata]] is what
-    * the engine swap prices at the eval the benchmark measures; both build
-    * their per-eval activation the same way.
+    * form) on cel-java's PLANNER runtime and evaluated per entity. The
+    * difference against [[jsonata]] is what the engine swap prices at the eval
+    * the benchmark measures; both build their per-eval activation the same way.
+    * (The deprecated `standardCelRuntimeBuilder()` — the legacy runtime —
+    * measured ~4.9x heavier on these shapes; a port uses the planner.)
     */
   @Benchmark
   def cel(bh: Blackhole): Unit = {
@@ -244,13 +247,16 @@ class RenderBench {
     }
   }
 
-  /** The same count of evaluations, but of the two TRIVIAL transform shapes — a
-    * bare `$state` and a single `$attr.<name>`. Neither applies a function, so
-    * this is what a JSONata evaluation costs when nothing triggers the per-call
-    * argument-signature validation that dominates [[jsonata]].
-    *
-    * The gap decides whether a renderer-side fast path for those two shapes is
-    * worth building, or whether JSONata is expensive whatever you ask it.
+  /** The same three TRIVIAL reads — a bare `$state` and two bare `$attr.<name>`
+    * — through the renderer's warm path. All three are shapes
+    * [[Transform.Direct]] recognises, so [[Transforms.run]] resolves them at
+    * startup and never sends them to an engine: this prices the dispatcher
+    * lookup plus the direct read, NOT JSONata ([[jsonata]] is the engine over
+    * the six real shapes). [[direct]] strips the dispatcher to price the read
+    * alone. There is deliberately no engine figure for the trivial shapes — an
+    * engine would still cost in the kB-per-eval range whether or not a function
+    * is called; that is the entire reason [[Transform.Direct]] exists (issue
+    * #237).
     */
   @Benchmark
   def jsonataTrivial(bh: Blackhole): Unit = {
@@ -260,6 +266,25 @@ class RenderBench {
       bh.consume(transforms.run("$state", e, "dashboard"))
       bh.consume(transforms.run("$attr.friendly_name", e, "dashboard"))
       bh.consume(transforms.run("$attr.brightness", e, "dashboard"))
+      i += 1
+    }
+  }
+
+  /** The hand-rolled fast path for the two TRIVIAL shapes — a bare `$state` and
+    * a bare `$attr.<name>` — which is what the renderer ships INSTEAD of
+    * JSONata for them ([[Transform.Direct]]). Same count and same three reads
+    * as [[jsonataTrivial]], with the engine removed, so the gap between the two
+    * is what deciding-to-use-the-engine costs on those shapes, and the gap
+    * against [[cel]] is the floor the engines are compared against.
+    */
+  @Benchmark
+  def direct(bh: Blackhole): Unit = {
+    var i = 0
+    while (i < Leaves) {
+      val e = st(entityId(i))
+      bh.consume(Transform.runDirect(Transform.Direct.State, e))
+      bh.consume(Transform.runDirect(Transform.Direct.Attr("friendly_name"), e))
+      bh.consume(Transform.runDirect(Transform.Direct.Attr("brightness"), e))
       i += 1
     }
   }

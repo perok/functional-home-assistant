@@ -46,17 +46,19 @@ object Transform {
 
   /** The two transform shapes that read a value and apply nothing to it.
     *
-    * They are worth naming because JSONata charges for them anyway: it
-    * validates a function's argument signature with a regex on every
-    * invocation, and its own `&`/coercion machinery invokes functions, so even
-    * an expression with no visible call allocates. Measured at ~1.28 kB per
-    * evaluation of `$state` (`benchmarks/RenderBench.jsonataTrivial`) against
-    * ~3.39 kB for one that calls `$lookup` — so reading the field directly
-    * saves the whole 1.28 kB, not the difference (issue #237).
+    * They are worth separating because an ENGINE charges for being an engine: a
+    * general evaluator converts the entity into its own value model on every
+    * evaluation. On the renderer's warm path one evaluation of the six shipped
+    * shapes costs ~5.9 kB (dashjoin jsonata) or ~1.8 kB (cel-java's planner
+    * runtime) (`benchmarks/RenderBench.jsonata` / `.cel`), against ~45 B for a
+    * direct read (`benchmarks/RenderBench.direct`) — so on the two shapes that
+    * apply nothing, the fast path saves the whole engine cost, not a fraction
+    * (issue #237). `Transforms.run` resolves them at startup and never sends
+    * them to an engine.
     *
     * `None` for everything else, which is the honest answer: anything with an
-    * operator, a function or a conditional goes to JSONata, and this must never
-    * grow into a second implementation of the language.
+    * operator, a function or a conditional goes to the engine, and this must
+    * never grow into a second implementation of the language.
     */
   enum Direct {
     case State
