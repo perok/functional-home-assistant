@@ -71,6 +71,31 @@ and the `jsonata` bench cells.
 - **A CEL null result arrives as `dev.cel.common.values.NullValue`,** not Java
   null and not protobuf's — guarded by class name in `Cel`, so a null result
   still renders `""` and hands the slot's `default` its turn.
-- **Per-eval cost drops ~3.3x on the shipped shapes** (Phase-0 bench
-  measurement; `RenderBench.cel` vs `.jsonata` re-measures it on the shipped
-  bytes), and the JSONata engine no longer ships in the add-on jar.
+- **Per-eval cost, re-measured on the shipped bytes** (JMH, `-f 2 -wi 5 -i 5
+  -prof gc`, 200 leaves × 6 shapes = 1200 evals/op; allocation figures are
+  exact, CPU carries the bench's usual ±20-30%):
+
+  | Cells | CPU/eval | Allocation/eval |
+  |---|---|---|
+  | `RenderBench.cel` (shipped engine) | **1.6 µs** | **~1.8 kB** |
+  | `RenderBench.jsonata` (retired) | 2.9 µs | ~6.3 kB |
+  | `RenderBench.direct` (no engine) | 0.024 µs | ~45 B |
+  | `celComplex` / `jsonataComplex` (ceiling) | 1.9 / 7.4 µs | ~2.6 / ~15.6 kB |
+
+  So the swap bought **3.5x memory / 1.8x CPU** on the shipped shapes and
+  **6x memory / 3.9x CPU** on the hostile ceiling; the scaladoc's standing
+  figures (~5.9 kB / ~1.8 kB / ~45 B) reproduce within machine variance. The
+  JSONata gap is mostly MEMORY — dashjoin burns 3.5x the allocations for 1.8x
+  the time. The JSONata engine no longer ships in the add-on jar.
+- **cel-java's compile-time optimizers were measured and declined.** The
+  codelab's pairing (`ConstantFoldingOptimizer` + `SubexpressionOptimizer`,
+  wired via `CelOptimizerFactory` between compile and `createProgram`) ran
+  green through the gate and suites but bought no CPU (every difference inside
+  the error bars) and cost a consistent ~1-2% MORE allocation per eval
+  (~2.15 MB/op → ~2.18-2.19 MB/op): the planner materializes a folded constant
+  node where inline arithmetic was free, and the shipped shapes carry no
+  repeated subtree for CSE to extract — each attribute read appears once, and
+  the sharing that exists is already authored as `cel.bind`. Compile is
+  once-per-transform at validate, so the optimizers' own cost was never the
+  issue; the eval side just does not pay. Revisit only if a shape with
+  genuinely repeated subtrees ships.

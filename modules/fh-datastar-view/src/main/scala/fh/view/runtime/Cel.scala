@@ -178,6 +178,16 @@ object Cel {
     )
     .build()
 
+  // The cel-java compile-time optimizers (ConstantFoldingOptimizer +
+  // SubexpressionOptimizer, the codelab's Exercise 8) were MEASURED and
+  // declined: on the shipped shapes they bought no CPU (all differences inside
+  // the bench's error bars) and cost a consistent ~1-2% MORE allocation per
+  // eval — the planner materializes a folded constant node where inline
+  // arithmetic was free, and our expressions carry no repeated subtree for CSE
+  // to extract (each attribute read appears once). Revisit only if a shape
+  // with genuinely repeated subtrees ships; the gate + suites pin the values
+  // either way.
+
   /** Compile a CEL expression (build/validate time and the gate's CEL side).
     */
   def parse(src: String): Either[String, Program] = {
