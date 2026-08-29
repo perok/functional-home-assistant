@@ -59,7 +59,7 @@ object Transform {
     * They are worth separating because an ENGINE charges for being an engine: a
     * general evaluator converts the entity into its own value model on every
     * evaluation. On the renderer's warm path one evaluation of the six shipped
-    * shapes costs ~1.8 kB of cel-java's planner runtime (`benchmarks/
+    * shapes costs ~0.9 kB of cel-java's planner runtime (`benchmarks/
     * RenderBench.cel`), against ~45 B for a direct read (`benchmarks/
     * RenderBench.direct`) — so on the shape that applies nothing, the fast path
     * saves the whole engine cost, not a fraction (issue #237). `Transforms.run`

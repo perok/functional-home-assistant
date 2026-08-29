@@ -7,10 +7,11 @@ import dev.cel.extensions.CelExtensions
 import dev.cel.runtime.{
   CelFunctionBinding,
   CelFunctionOverload,
-  CelRuntimeFactory
+  CelRuntimeFactory,
+  CelVariableResolver
 }
 
-import java.util
+import java.util.Optional
 
 /** The per-slot value-transform engine: CEL, compiled once at build/validate
   * time and evaluated per live value on the planner runtime (the engine the
@@ -160,7 +161,7 @@ object Cel {
     .addFunctionBindings(
       CelFunctionBinding.from(
         STR_OVERLOAD,
-        util.List.of(classOf[Object]),
+        java.util.List.of(classOf[Object]),
         new CelFunctionOverload {
           def apply(args: Array[Object]): Object =
             if (args.isEmpty) ""
@@ -169,7 +170,7 @@ object Cel {
       ),
       CelFunctionBinding.from(
         NUM_OVERLOAD,
-        util.List.of(classOf[Object]),
+        java.util.List.of(classOf[Object]),
         new CelFunctionOverload {
           def apply(args: Array[Object]): Object =
             parseNum(args(0))
@@ -200,22 +201,35 @@ object Cel {
     }
   }
 
+  /** The five bindings, resolved ON DEMAND: the planner asks only for what the
+    * expression reads, so nothing is materialized per evaluation — no HashMap
+    * to build, and an expression that reads no attribute (a bare `state`
+    * concat) never forces [[EntityState.javaAttributes]] either. The whole
+    * per-eval cost is this one small resolver object.
+    */
+  private final class EntityResolver(entity: EntityState, slug: String)
+      extends CelVariableResolver {
+    def find(name: String): Optional[Object] = name match {
+      case "state"          => Optional.ofNullable[Object](entity.state)
+      case "attr"           => Optional.ofNullable[Object](entity.javaAttributes)
+      case "entity_id"      => Optional.ofNullable[Object](entity.entityId)
+      case "domain"         => Optional.ofNullable[Object](entity.domain)
+      case "dashboard_slug" => Optional.ofNullable[Object](slug)
+      case _                => Optional.empty()
+    }
+  }
+
   /** Evaluate a compiled program against one entity, stringified for the
     * template. The dashboard's slug binds `dashboard_slug` (ADR 0023); on
     * evaluation failure the CEL error message is returned so the card shows it
     * — contained, never thrown into the render. A `null` result becomes `""`
     * so the slot's `default` can take over.
     */
-  def run(program: Program, entity: EntityState, dashboardSlug: String): String = {
-    val activation = new util.HashMap[String, Object]()
-    activation.put("state", entity.state)
-    activation.put("attr", entity.javaAttributes)
-    activation.put("entity_id", entity.entityId)
-    activation.put("domain", entity.domain)
-    activation.put("dashboard_slug", dashboardSlug)
-    try stringify(program.eval(activation))
+  def run(program: Program, entity: EntityState, dashboardSlug: String): String =
+    try stringify(
+        program.eval(new EntityResolver(entity, dashboardSlug))
+      )
     catch case e: Exception => s"cel error: ${errorText(e)}"
-  }
 
   /** Stringify a CEL result the way a string-coercing operator would, so a bare
     * number and a `str(...)` number land identically on the slot. Null becomes

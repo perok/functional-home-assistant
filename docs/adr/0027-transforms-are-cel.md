@@ -77,16 +77,23 @@ and the `jsonata` bench cells.
 
   | Cells | CPU/eval | Allocation/eval |
   |---|---|---|
-  | `RenderBench.cel` (shipped engine) | **1.6 µs** | **~1.8 kB** |
+  | `RenderBench.cel` (shipped engine) | **1.4 µs** | **~0.9 kB** |
   | `RenderBench.jsonata` (retired) | 2.9 µs | ~6.3 kB |
   | `RenderBench.direct` (no engine) | 0.024 µs | ~45 B |
-  | `celComplex` / `jsonataComplex` (ceiling) | 1.9 / 7.4 µs | ~2.6 / ~15.6 kB |
+  | `celComplex` / `jsonataComplex` (ceiling) | 1.4 / 7.4 µs | ~1.6 / ~15.6 kB |
 
-  So the swap bought **3.5x memory / 1.8x CPU** on the shipped shapes and
-  **6x memory / 3.9x CPU** on the hostile ceiling; the scaladoc's standing
-  figures (~5.9 kB / ~1.8 kB / ~45 B) reproduce within machine variance. The
-  JSONata gap is mostly MEMORY — dashjoin burns 3.5x the allocations for 1.8x
-  the time. The JSONata engine no longer ships in the add-on jar.
+  So the swap bought **7x memory / 2.2x CPU** on the shipped shapes and
+  **9.5x memory / 5.3x CPU** on the hostile ceiling. The JSONata gap is mostly
+  MEMORY — dashjoin burns 7x the allocations for 2.2x the time. The JSONata
+  engine no longer ships in the add-on jar.
+- **The per-eval activation is a resolver, not a map.** `Cel.run` hands the
+  planner a `CelVariableResolver` that produces each binding on demand, so the
+  five-entry `HashMap` build is gone and an expression that reads no attribute
+  never forces `EntityState.javaAttributes` at all. Measured before/after:
+  `cel` 2 154 237 → 1 056 636 B/op (allocation halved, ~1.8 kB → ~0.9 kB per
+  eval), `celComplex` 512 002 → 328 002 B/op, with CPU following (1.6 →
+  1.4 µs/eval). The resolver is one small object per eval; values are the
+  entity's own cached references, unboxed.
 - **cel-java's compile-time optimizers were measured and declined.** The
   codelab's pairing (`ConstantFoldingOptimizer` + `SubexpressionOptimizer`,
   wired via `CelOptimizerFactory` between compile and `createProgram`) ran
@@ -95,7 +102,8 @@ and the `jsonata` bench cells.
   (~2.15 MB/op → ~2.18-2.19 MB/op): the planner materializes a folded constant
   node where inline arithmetic was free, and the shipped shapes carry no
   repeated subtree for CSE to extract — each attribute read appears once, and
-  the sharing that exists is already authored as `cel.bind`. Compile is
-  once-per-transform at validate, so the optimizers' own cost was never the
-  issue; the eval side just does not pay. Revisit only if a shape with
-  genuinely repeated subtrees ships.
+  the sharing that exists is already authored as `cel.bind`. The "complex"
+  ceiling shape IS the repeated-subtree case (its map-literal lookup appears
+  twice) and still measured byte-identical, so the decline is not an artifact
+  of an easy fixture. Compile is once-per-transform at validate, so the
+  optimizers' own cost was never the issue; the eval side just does not pay.
