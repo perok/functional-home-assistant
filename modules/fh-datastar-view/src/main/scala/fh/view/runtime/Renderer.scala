@@ -1121,9 +1121,11 @@ class Renderer(
           members
             .membersOf(setId, states)
             .map(m => m -> resolveMember(m, states))
-        // The set wrapper appends into the walk's buffer; only the member
-        // Strings are materialized (a member is a patch target with its own
-        // bytes) — one copy each, none for the wrapper (issue #237).
+        // The set wrapper and every member's DOCUMENT bytes go into the walk's
+        // one buffer — a member String here would be this buffer's bytes
+        // copied out and copied back in (issue #237). Only the member's PATCH
+        // rendering materializes, below, because those bytes are its cache
+        // entry.
         out
           .append("""<div class="fh-cell fh-group""")
           .append(Renderer.cellClasses(s.cell))
@@ -1131,7 +1133,7 @@ class Renderer(
           .append(setId)
           .append("\">")
         resolved.foreach((m, rm) =>
-          out.append(renderResolvedMember(m, rm, SlotForm.Document))
+          renderResolvedMemberInto(out, m, rm, SlotForm.Document)
         )
         out.append("</div>")
         resolved.map { (m, rm) =>
@@ -1219,6 +1221,7 @@ class Renderer(
     * patch bytes, and once again by `memberSignals` for the seed.
     */
   private case class ResolvedMember(
+      cardName: String,
       tpl: Mustache,
       resolved: Resolved,
       regions: Map[String, List[ResolvedChild]]
@@ -1249,6 +1252,7 @@ class Renderer(
       states: Map[String, EntityState]
   ): ResolvedMember =
     ResolvedMember(
+      m.node.card,
       templateOf(m.node.card),
       // `structuralVars(m.id)` for every node in the subtree, member and
       // children alike: the children have no ids of their own, so their signals
@@ -1270,6 +1274,7 @@ class Renderer(
       ResolvedChild.Node(
         c.cell,
         ResolvedMember(
+          c.card,
           templateOf(c.card),
           resolveTemplate(structuralVars(m.id), c.slots, states),
           Renderer.perRegion(c.regions)((child, step) =>
@@ -1302,6 +1307,23 @@ class Renderer(
       form: SlotForm
   ): String = {
     val out = new java.lang.StringBuilder(Renderer.NodeBytesHint)
+    renderResolvedMemberInto(out, m, rm, form)
+    out.toString
+  }
+
+  /** The member's whole wrapped rendering, written into the CALLER's buffer.
+    *
+    * The document walk appends members straight into its one buffer — a member
+    * String would be that buffer's bytes copied out and copied back in. Only
+    * the patch path materializes ([[renderResolvedMember]] above), because a
+    * member's patch bytes ARE its cache entry.
+    */
+  private def renderResolvedMemberInto(
+      out: java.lang.StringBuilder,
+      m: Member,
+      rm: ResolvedMember,
+      form: SlotForm
+  ): Unit = {
     // A member's children have no ids, so the seed here covers THEM too — see
     // [[memberSignalsOf]]. That is why a member's wrapper carries the whole
     // patch unit's signals rather than only its own card's.
@@ -1315,41 +1337,85 @@ class Renderer(
     out.append('>')
     memberBodyInto(out, rm, form)
     out.append("</div>")
-    out.toString
   }
 
-  /** The member's own markup, children spliced in — everything inside its
-    * wrapper.
+  /** The member's own markup — everything inside its wrapper.
     *
-    * A child still has to be a `String` before its parent runs, because
-    * mustache splices it as a VALUE. What this avoids is the copy after that:
-    * the child's cell wrapper, and the member's own, are written straight into
-    * the buffer the body is going into.
+    * Children of a region whose loop the visitor made INLINE (body exactly
+    * `{{{html}}}`) are written into this buffer through the walk: the member's
+    * engine run carries a [[NodeContext.regionWalk]] that appends the child's
+    * wrapper and body at the hole position, and no child String exists. Any
+    * other region keeps the string splice, each child rendered isolated exactly
+    * as before — a template written differently loses speed, never bytes.
+    * (Members' children have no ids, so the walk collects nothing: the member
+    * is the whole subtree's patch target.)
     */
   private def memberBodyInto(
       out: java.lang.StringBuilder,
       rm: ResolvedMember,
       form: SlotForm
-  ): Unit =
-    executeInto(
-      out,
-      rm.tpl,
-      rm.resolved,
-      rm.regions.view
-        .mapValues(_.map {
-          case ResolvedChild.NestedSet(html) => html
-          case ResolvedChild.Node(cell, n)   =>
-            val child = new java.lang.StringBuilder(Renderer.NodeBytesHint)
-            child
-              .append("""<div class="fh-cell""")
-              .append(Renderer.cellClasses(cell))
-              .append("""">""")
-            memberBodyInto(child, n, form)
-            child.append("</div>").toString
-        })
-        .toMap,
-      form
-    )
+  ): Unit = {
+    val inline = templates.inlineRegions.getOrElse(rm.cardName, Set.empty)
+    val walk: Map[String, java.io.Writer => Map[NodeId, Painted]] =
+      inline.view.collect {
+        case region if rm.regions.contains(region) =>
+          region -> { (_: java.io.Writer) =>
+            rm.regions(region).foreach {
+              case ResolvedChild.NestedSet(html) => out.append(html)
+              case ResolvedChild.Node(cell, n)   =>
+                out
+                  .append("""<div class="fh-cell""")
+                  .append(Renderer.cellClasses(cell))
+                  .append("""">""")
+                memberBodyInto(out, n, form)
+                out.append("</div>")
+            }
+            Map.empty[NodeId, Painted]
+          }
+      }.toMap
+    // Only the NON-inline regions need child strings: an inline region's
+    // section never reads them (the walk answers first), and a region that is
+    // not in the compiled set keeps its splice.
+    val childrenHtml: Map[String, List[String]] =
+      if (walk.isEmpty) memberChildrenHtml(rm, form)
+      else
+        rm.regions.view.collect {
+          case (region, kids) if !walk.contains(region) =>
+            region -> kids.map {
+              case ResolvedChild.NestedSet(html) => html
+              case ResolvedChild.Node(cell, n)   =>
+                val child = new java.lang.StringBuilder(Renderer.NodeBytesHint)
+                child
+                  .append("""<div class="fh-cell""")
+                  .append(Renderer.cellClasses(cell))
+                  .append("""">""")
+                memberBodyInto(child, n, form)
+                child.append("</div>").toString
+            }
+        }.toMap
+    executeInto(out, rm.tpl, rm.resolved, childrenHtml, form, walk)
+  }
+
+  /** Every region's children as splice strings — the pre-walk shape, kept for
+    * templates whose loops are not inline-eligible.
+    */
+  private def memberChildrenHtml(
+      rm: ResolvedMember,
+      form: SlotForm
+  ): Map[String, List[String]] =
+    rm.regions.view
+      .mapValues(_.map {
+        case ResolvedChild.NestedSet(html) => html
+        case ResolvedChild.Node(cell, n)   =>
+          val child = new java.lang.StringBuilder(Renderer.NodeBytesHint)
+          child
+            .append("""<div class="fh-cell""")
+            .append(Renderer.cellClasses(cell))
+            .append("""">""")
+          memberBodyInto(child, n, form)
+          child.append("</div>").toString
+      })
+      .toMap
 
   /** A resolved member's signals, children INCLUDED — they share its id and its
     * patch. Stops at a nested set for the reason [[Member.entitiesOf]] does:
@@ -1646,9 +1712,19 @@ class Renderer(
       tpl: Mustache,
       r: Resolved,
       childrenHtml: Map[String, List[String]],
-      form: SlotForm
+      form: SlotForm,
+      // Region name -> write that region's children into `out` at the hole.
+      // Set only where the caller can produce a region's bytes inline — the
+      // document walk for a node's own regions, [[memberBodyInto]] for a
+      // member's; the region codes fall back to the string splice when absent.
+      regionWalk: Map[String, java.io.Writer => Map[NodeId, Painted]] =
+        Map.empty
   ): Unit =
-    Templates.run(tpl, appendTo(out), NodeContext(r, childrenHtml, form))
+    Templates.run(
+      tpl,
+      appendTo(out),
+      NodeContext(r, childrenHtml, form, regionWalk)
+    )
 
   /** The signal values one PATCH UNIT carries, named under its id (ADR 0017).
     *
