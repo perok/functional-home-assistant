@@ -620,7 +620,7 @@ class Renderer(
       "hostId" -> hostId(id),
       // The dashboard's slug, for the action URL a card builds in its own
       // TEMPLATE (the slider's commit). A tap builds its URL in a transform
-      // instead and reads the same value as `$dashboardSlug` — one fact, and
+      // instead and reads the same value as `dashboard_slug` — one fact, and
       // each spelling names the mechanism that actually fills it.
       "dashboardSlug" -> dashboard.slug
     )
@@ -1793,9 +1793,8 @@ object Renderer {
     * The three forms have disjoint prefixes, so the mapping stays injective.
     */
   private def transformSegment(transform: String): String = transform match {
-    case "$state"                  => "state"
-    case s"$$attr.$a" if isWord(a) => s"attr_$a"
-    case other                     => s"t${shortHash(other)}"
+    case "state" => "state"
+    case other   => s"t${shortHash(other)}"
   }
 
   private def shortHash(s: String): String =

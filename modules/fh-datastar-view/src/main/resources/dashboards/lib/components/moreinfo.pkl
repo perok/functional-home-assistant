@@ -58,10 +58,16 @@ function entityInfo(e: hass.Entity): EntityInfo = new EntityInfo { entity = e }
 // Every attribute the entity currently reports, one `name: value` line each,
 // sorted by name — HA's payload order is not stable and an unsorted block would
 // reshuffle under the reader on an unrelated change. Non-string values
-// ($string-ed) show as their JSON, so an `rgb_color` reads `[255,0,10]`. An
+// (str()-ed) show as their JSON, so an `rgb_color` reads `[255,0,10]`. An
 // entity with no attributes yields null, which the slot's "" default collapses.
+//
+// CEL has no map-comprehension that strings a MAP's entries, so this uses the
+// transformations extension's `transformList(iterable, key, value, fn(key,
+// value, combined) -> string): list<string>` — over a MAP it walks the entries,
+// which is exactly what the benchmark's `attr.transformList` sweep validated —
+// then core `.sort()` and the strings extension's `.join('\n')`.
 const local ATTR_LINES =
-  #"$join($sort($each($attr, function($v, $k) { $k & ": " & $string($v) })), "\n")"#
+  #"attr.transformList(k, v, k + ': ' + str(v)).sort().join('\n')"#
 
 // ---- more-info ----
 

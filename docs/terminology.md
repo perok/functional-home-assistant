@@ -16,7 +16,7 @@ class; the backend knows it as a template plus a list of slot names it expects.
 **Node** — one placed instance of a card in a dashboard's layout tree. Nodes nest.
 
 **Slot** — one named value a card's markup needs, filled per node. Either a **literal** (a constant
-string baked at build time) or a **transform** (a JSONata expression evaluated against live entity
+string baked at build time) or a **transform** (a CEL expression evaluated against live entity
 state). "Slot" is the value; the template hole it fills has the same name.
 
 **Signal slot** — a slot whose value is pushed to the browser as a Datastar signal instead of being

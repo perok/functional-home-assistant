@@ -91,7 +91,7 @@ class Popup extends nodes.Node {
   // dialog is transient — present only while open.
   //
   // The ✕ builds its close URL in the TEMPLATE, so the slug is the Mustache
-  // spelling `{{dashboardSlug}}` rather than the transform's `$dashboardSlug`
+  // spelling `{{dashboardSlug}}` rather than the transform's `dashboard_slug`
   // ([[closePopup]] is the same route reached from a tap). Two spellings, one
   // fact — see ADR 0023.
   cardDef = new nodes.CardDef {

@@ -1021,7 +1021,7 @@ class PklBuildSuite extends munit.FunSuite {
     )
     // One candidate set in the layout.
     assertEquals(sets(d.card).size, 1, clue = d.card)
-    // Validation (card refs, required slots, JSONata compile) passes.
+    // Validation (card refs, required slots, CEL compile) passes.
     assertEquals(d.validate(SourceEval.literalLocator(built.imports)), Nil)
   }
 
@@ -1516,17 +1516,17 @@ class PklBuildSuite extends munit.FunSuite {
         |
         |node = new c.EntityCard {
         |  entity = light
-        |  value = c.exprOf(power, "$state")
+        |  value = c.exprOf(power, "state")
         |}""".stripMargin
     )
     val value = node.slots("value")
     assertEquals(value.entityId, Some("sensor.power"))
     assertEquals(value.literal, None)
-    assertEquals(value.transform, "$state")
+    assertEquals(value.transform, "state")
     // A plain expr (no exprOf) still inherits the card's entity (no entityId).
     val plain = probeComponent(
       """light: hass.LightEntity = new { entity_id = "light.kitchen" }
-        |node = new c.EntityCard { entity = light; value = c.expr("$state") }""".stripMargin
+        |node = new c.EntityCard { entity = light; value = c.expr("state") }""".stripMargin
     )
     assertEquals(plain.slots("value").entityId, None)
   }
@@ -1579,7 +1579,7 @@ class PklBuildSuite extends munit.FunSuite {
     assertEquals(rowOf(slider).slots("max").literal, Some("100"))
     assertEquals(
       rowOf(slider).slots("value").transform,
-      "$attr.current_position"
+      "'current_position' in attr ? attr['current_position'] : null"
     )
   }
 
@@ -1608,7 +1608,10 @@ class PklBuildSuite extends munit.FunSuite {
     assertEquals(slots("max").literal, Some("255"))
     // The live position is the one that stays live — it reads state, not
     // identity — but it names the attribute directly instead of looking it up.
-    assertEquals(slots("value").transform, "$attr.brightness")
+    assertEquals(
+      slots("value").transform,
+      "'brightness' in attr ? attr['brightness'] : null"
+    )
     assertEquals(slots("value").default, Some("0"))
     assertEquals(slots("value").bypassUnavailable, false)
     // Not one $lookup anywhere in the member.
@@ -1669,14 +1672,14 @@ class PklBuildSuite extends munit.FunSuite {
     )
     // …and reads out its LEVEL rather than its state, off its own range.
     assert(
-      rowOf(members.head).slots("state").transform.contains("""& " %""""),
+      rowOf(members.head).slots("state").transform.contains("""+ ' %'"""),
       clue = rowOf(members.head).slots("state").transform
     )
     assert(
       rowOf(members(1))
         .slots("state")
         .transform
-        .contains("$attr.current_position"),
+        .contains("attr['current_position']"),
       clue = rowOf(members(1)).slots("state").transform
     )
     // …and because that reading IS the position, a drag moves it locally too —
@@ -1713,7 +1716,7 @@ class PklBuildSuite extends munit.FunSuite {
     // A plain slider is STRUCTURE too — its own slots are just the absent
     // group modifier; everything the row shows is on the row.
     assertEquals(plain.slots.keySet, Set.empty[String])
-    assertEquals(rowOf(plain).slots("state").transform, "$state")
+    assertEquals(rowOf(plain).slots("state").transform, "state")
     // The badge is the entity's OWN icon, baked as a literal — here the light
     // domain's default, since this probe entity declares none.
     assertEquals(rowOf(plain).slots("icon").literal, Some("mdi-lightbulb"))
@@ -1732,24 +1735,27 @@ class PklBuildSuite extends munit.FunSuite {
     // `percentExpr` and friends are the card's own hidden properties.
     val own = probeComponent(
       """light: hass.GenericEntity = new { entity_id = "light.lys"; domain = "light" }
-        |node = (c.slider(light)) { readout = c.expr("\(percentExpr) & \" · \" & $state") }
+        |node = (c.slider(light)) { readout = c.expr("\(percentExpr) + ' · ' + state") }
         |""".stripMargin
     )
     val state = rowOf(own).slots("state")
-    assert(state.transform.contains("$attr.brightness"), clue = state.transform)
     assert(
-      state.transform.endsWith(""" & " · " & $state"""),
+      state.transform.contains("attr['brightness']"),
+      clue = state.transform
+    )
+    assert(
+      state.transform.endsWith("""+ ' · ' + state"""),
       clue = state.transform
     )
     // …and it can read a DIFFERENT entity, like every other Expr slot.
     val other = probeComponent(
       """light: hass.GenericEntity = new { entity_id = "light.lys"; domain = "light" }
         |power: hass.GenericEntity = new { entity_id = "sensor.w"; domain = "sensor" }
-        |node = (c.slider(light)).readout(c.exprOf(power, #"$state & " W""#))
+        |node = (c.slider(light)).readout(c.exprOf(power, #"state + ' W'"#))
         |""".stripMargin
     )
     assertEquals(rowOf(other).slots("state").entityId, Some("sensor.w"))
-    assertEquals(rowOf(other).slots("state").transform, """$state & " W"""")
+    assertEquals(rowOf(other).slots("state").transform, """state + ' W'""")
     // The subject is unchanged — only the readout looks elsewhere.
     assertEquals(rowOf(other).slots("entity_id").literal, Some("light.lys"))
   }
@@ -2087,7 +2093,10 @@ class PklBuildSuite extends munit.FunSuite {
     assertEquals(rowOf(s).slots("min").literal, Some("2000"))
     assertEquals(rowOf(s).slots("max").literal, Some("6535"))
     // and the handle tracks the value it writes, not brightness
-    assertEquals(rowOf(s).slots("value").transform, "$attr.color_temp_kelvin")
+    assertEquals(
+      rowOf(s).slots("value").transform,
+      "'color_temp_kelvin' in attr ? attr['color_temp_kelvin'] : null"
+    )
   }
 
   test("lightControls emits one control per capability the light has") {
@@ -2113,8 +2122,13 @@ class PklBuildSuite extends munit.FunSuite {
       pills.map(_.slots("label").literal),
       List(Some("off"), Some("Color loop"))
     )
+    // The value splices as a SINGLE-QUOTED CEL literal inside the @post string
+    // — the old JSONata splicing left it outside (the latent bug tap.pkl records).
     assert(
-      pills(1).slots("onclick").transform.contains("/effect/Color%20loop'"),
+      pills(1)
+        .slots("onclick")
+        .transform
+        .contains("'effect' + \"/\" + 'Color%20loop'"),
       clue = pills(1).slots("onclick").transform
     )
   }

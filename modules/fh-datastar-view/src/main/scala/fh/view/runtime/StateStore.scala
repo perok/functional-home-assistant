@@ -101,7 +101,13 @@ object EntityState {
       attrs: Map[String, Json]
   ): java.util.Map[String, Any] = {
     val m = new java.util.LinkedHashMap[String, Any](attrs.size)
-    attrs.foreach { case (k, v) => m.put(k, toJava(v)) }
+    // A JSON null attribute is DROPPED, so `'k' in attr` is false and the slot's
+    // default takes over — the same "null is absent" rule `jsonToString` applies
+    // to state. (A kept null would make CEL's map index throw instead.)
+    attrs.foreach {
+      case (k, v) if !v.isNull => { m.put(k, toJava(v)); () }
+      case _                   => ()
+    }
     m
   }
 

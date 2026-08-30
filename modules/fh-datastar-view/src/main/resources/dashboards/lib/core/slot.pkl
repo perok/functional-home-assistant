@@ -2,7 +2,7 @@
 /// that shape the common ones the same way every card does.
 ///
 /// A slot is either a bare String (a constant literal) or a [[Slot]] object (a
-/// live JSONata transform over the card's entity). The builders are the reason
+/// live CEL transform over the card's entity). The builders are the reason
 /// a third-party card can look like a shipped one: `labelSlot` falls back to
 /// friendly_name, `valueSlot` appends the entity's unit, `secondarySlot` keeps
 /// the mustache section collapsed when blank.
@@ -10,11 +10,11 @@ module core.slot
 
 import "../hass.pkl"
 
-/// The object form of a slot (fh.view.model.SlotSource): a JSONata expression
+/// The object form of a slot (fh.view.model.SlotSource): a CEL expression
 /// over the card's entity. [[Slot.reads]] says when it is read.
 class Slot {
   entityId: String? = null
-  transform: String = "$state"
+  transform: String = "state"
   default: String? = null
   bypassUnavailable: Boolean = true
   /// WHEN this value is read, and whether reading it is a reason to re-render.
@@ -27,7 +27,7 @@ class Slot {
   ///     since structure is never patched.
   ///   - `once` — resolved once per (entity, transform) and reused for the
   ///     dashboard's life. For a value that is a function of WHICH entity this
-  ///     is rather than of its state: a service action from `$domain`, an id in
+  ///     is rather than of its state: a service action from `domain`, an id in
   ///     a URL. Wrong for anything that can move — a rename would not show
   ///     until the dashboard rebuilds.
   ///
@@ -110,8 +110,8 @@ const function signalValueSlot(value: (String|Expr)?): Slot =
   (valueSlot(value)) { signal = asText }
 
 /// A live value expression for a display field that also accepts a plain
-/// string: `label = expr(#"$attr.friendly_name & " " & $state"#)` vs the
-/// literal `label = "Kitchen"`.
+/// string: `label = expr(#"('friendly_name' in attr ? attr['friendly_name'] : '') + ' ' + state"#)`
+/// vs the literal `label = "Kitchen"`.
 class Expr {
   entityId: String? = null
   transform: String
@@ -125,9 +125,11 @@ function expr(s: String): Expr = new { transform = s }
 function exprOf(eo: hass.Entity, s: String): Expr = new { entityId = eo.entity_id; transform = s }
 
 // Auto-appended unit for a value display: the entity's unit_of_measurement,
-// space-separated, when it has one.
-const UNIT =
-  #" & ($attr.unit_of_measurement ? " " & $attr.unit_of_measurement : "")"#
+// space-separated, when it has one. The append is a guarded CEL conditional
+// spliced onto the value expression with a `+` (presence is a real boolean;
+// `attr['x']` on an absent key is an eval error, so every read is guarded).
+const UNIT_EXPR =
+  #"'unit_of_measurement' in attr ? ' ' + attr['unit_of_measurement'] : ''"#
 
 // label: Expr -> live (still resolving when unavailable, so a label shows the
 // name, not "unavailable"); String -> literal; null -> the entity's
@@ -138,19 +140,25 @@ const function labelSlot(entity: hass.Entity?, label: (String|Expr)?): Slot|Stri
   else if (entity != null) entity.friendly_name ?? entity.entity_id
   else ""
 
-// value: null -> $state (+ unit); String -> that attribute (+ unit);
+// value: null -> state (+ unit); String -> that attribute, guarded (+ unit);
 // Expr -> your expression verbatim (you own the unit).
 const function valueSlot(value: (String|Expr)?): Slot =
   if (value is Expr) new Slot { entityId = value.entityId; transform = value.transform }
   else new Slot {
-    transform = (if (value == null) "$state" else "$attr." + value) + UNIT
+    transform =
+      (if (value == null) "state"
+       else "('" + value + "' in attr ? attr['" + value + "'] : '')") +
+      " + (" + UNIT_EXPR + ")"
   }
 
-// secondary (only built when authored): String -> an attribute (no unit);
-// Expr -> live. Empty default keeps the mustache section collapsed when blank.
+// secondary (only built when authored): String -> an attribute, guarded (no
+// unit); Expr -> live. Empty default keeps the mustache section collapsed when
+// blank.
 const function secondarySlot(secondary: String|Expr): Slot =
   new Slot {
     entityId = if (secondary is Expr) secondary.entityId else null
-    transform = if (secondary is Expr) secondary.transform else "$attr." + secondary
+    transform =
+      if (secondary is Expr) secondary.transform
+      else "'" + secondary + "' in attr ? attr['" + secondary + "'] : \"\""
     default = ""
   }

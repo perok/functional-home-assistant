@@ -38,15 +38,27 @@ const sliderSpec: Mapping<String, SliderSpec> = new {
 // own temperature picker shows. Null for every entity that reports neither
 // (covers, fans, a light that is off), which the slot's default turns back into
 // `currentcolor`.
+//
+// CEL has no variable-binding operator, so the three intermediates (the rgb
+// list, the kelvin, the ramp position) ride the `cel.bind` extension's:
+// `cel.bind(<name>, <value>, <body>)` runs body with the name bound. A kelvin
+// value arrives as a Long and CEL's double overloads have no (Long, double)
+// operand, so every arithmetic read coerces `double(k)` first. Both ternary
+// arms must be the SAME type (CEL has no `? x : null`), so the kelvin-absent
+// arm is `''`; the `rgb != null && size(rgb) == 3` guard short-circuits, so
+// `size` and the element reads never run on an entity that reports no colour.
 const local sliderFillColor: String =
-  #"($rgb := $attr.rgb_color; $k := $attr.color_temp_kelvin; $count($rgb) = 3 "#
-  + #"? "rgb(" & $string($rgb[0]) & "," & $string($rgb[1]) & "," & $string($rgb[2]) & ")" "#
-  + #": $k != null ? ($t := $k < 2000 ? 0 : ($k > 6500 ? 1 : ($k - 2000) / 4500); "#
-  + #""rgb(" & $string($round(255 - 54 * $t)) & "," & $string($round(166 + 60 * $t)) "#
-  + #"& "," & $string($round(87 + 168 * $t)) & ")") : null)"#
+  #"cel.bind(rgb, 'rgb_color' in attr ? attr['rgb_color'] : null, "#
+  + #"cel.bind(k, 'color_temp_kelvin' in attr ? attr['color_temp_kelvin'] : null, "#
+  + #"(rgb != null && size(rgb) == 3) "#
+  + #"? 'rgb(' + str(rgb[0]) + ',' + str(rgb[1]) + ',' + str(rgb[2]) + ')' : "#
+  + #"(k != null ? cel.bind(t, (double(k) - 2000.0) < 0.0 ? 0.0 : "#
+  + #"((double(k) - 2000.0) > 4500.0 ? 1.0 : (double(k) - 2000.0) / 4500.0), "#
+  + #"'rgb(' + str(math.round(255.0 - 54.0 * t)) + ',' + str(math.round(166.0 + 60.0 * t)) "#
+  + #"+ ',' + str(math.round(87.0 + 168.0 * t)) + ')') : '')))"#
 
 // The dragged position as a percentage of the card's own range, in JS — the
-// client-side twin of `percentExpr`'s JSONata, spliced into the template so the
+// client-side twin of `percentExpr`'s CEL, spliced into the template so the
 // range arrives through the `min`/`max` SLOTS. It cannot read `minExpr`/
 // `maxExpr` instead: `cardDef` is shared by every slider on the page, and
 // reading this card's own entity there closes the `on`/`entity` mutual default
@@ -147,7 +159,7 @@ typealias Readout = "state"|"percent"|"none"
 ///
 ///   (c.slider(dump.entities.light_lys)) {
 ///     icon = "mdi:lightbulb-group"
-///     secondary = c.exprOf(dump.entities.sensor_kitchen_temp, #"$state & " °C""#)
+///     secondary = c.exprOf(dump.entities.sensor_kitchen_temp, #"state + ' °C'"#)
 ///     tap = c.toggle
 ///     children { c.slider(a).readout("percent") c.slider(b).readout("percent") }
 ///   }
@@ -302,16 +314,27 @@ class Slider extends nodes.Node {
     if (on is hass.ColourTemp) "color_temp_kelvin" else null
   // Never null: the `entity` constraint above admits only a domain with a row,
   // and a slider's subject is always a known entity now that a set's candidates
-  // are. That is what retired the runtime `$lookup($domain)` config tier — it
+  // are. That is what retired the runtime `lookup`-style config tier — it
   // existed for a member whose domain was unknown until it matched.
   hidden spec: SliderSpec = sliderSpec[entity.domain]!!
-  // The JSONata pieces of the `fill` computation, honouring the same two config
+  // The CEL pieces of the `fill` computation, honouring the same two config
   // tiers as the input's own slots: author override → build-time spec literal.
+  //
+  // `valueExpr` is the GUARDED attribute read (a missing position — a light
+  // that is off — yields null, and the slot's `default` takes over; CEL has no
+  // JSONata's null-on-missing, so `attr['x']` on an absent key would error and
+  // every read is gated on `'x' in attr`).
   hidden valueExpr: String =
-    if (valueAttr != null) "$attr." + valueAttr!!
-    else "$attr." + spec.value
-  hidden minExpr: String = if (min != null) "\(min!!)" else "\(spec.min)"
-  hidden maxExpr: String = if (max != null) "\(max!!)" else "\(spec.max)"
+    if (valueAttr != null) "'\(valueAttr!!)' in attr ? attr['\(valueAttr!!)'] : null"
+    else "'\(spec.value)' in attr ? attr['\(spec.value)'] : null"
+  // Float literals: CEL's `/` on two ints is INTEGER division, so the range
+  // arithmetic below needs doubles to divide as JSONata's number type did. And
+  // because an attribute POSITION arrives as a Long, the range arithmetic
+  // coerces it with `double(v)` before subtracting — CEL's double overloads
+  // have no (Long, double) operand, so a bare `v - 1.0` compiles but throws at
+  // evaluation (the Phase-0 sweep's `double(v)` was doing real work).
+  hidden minExpr: String = if (min != null) "\(min!!).0" else "\(spec.min).0"
+  hidden maxExpr: String = if (max != null) "\(max!!).0" else "\(spec.max).0"
   /// Whether the axis this card drives EXISTS on its entity. A light whose only
   /// colour mode is `onoff` has no brightness to set, so a slider on it would
   /// be a track that never fills posting a `brightness` HA discards.
@@ -361,8 +384,8 @@ class Slider extends nodes.Node {
   /// config is `hidden` properties, so an expression can splice the pieces
   /// instead of re-deriving the range:
   ///
-  ///   (c.slider(l)) { readout = c.expr("\(percentExpr) & \" · \" & $state") }
-  ///   (c.slider(l)) { readout = c.exprOf(power, #"$state & " W""#) }
+  ///   (c.slider(l)) { readout = c.expr("\(percentExpr) + ' · ' + state") }
+  ///   (c.slider(l)) { readout = c.exprOf(power, #"state + ' W'"#) }
   ///
   /// Defaults by SHAPE: a head that has member rows under it does not repeat a
   /// readout (the rows carry their own), a plain row shows its state.
@@ -372,7 +395,7 @@ class Slider extends nodes.Node {
   // `fill` it wants whole numbers. No position attribute (a light that is off)
   // reads 0 %, which is what the row shows: an empty track.
   hidden percentExpr: String =
-    "($v := \(valueExpr); $v != null ? $string($round(($v - \(minExpr)) * 100 / (\(maxExpr) - \(minExpr)))) & \" %\" : \"0 %\")"
+    "cel.bind(v, \(valueExpr), v != null ? str(math.round((double(v) - \(minExpr)) * 100.0 / (\(maxExpr) - \(minExpr)))) + ' %' : '0 %')"
   // A percentage of an axis the entity does not have is a permanent "0 %", so a
   // toggle-only row reads out its STATE instead — a group's rows are usually
   // given `percent` in one `map`, without knowing which can dim. An author's own
@@ -382,8 +405,8 @@ class Slider extends nodes.Node {
   // The track fill, as the `--_end` percentage — see the `fill` slot. A
   // toggle-only row has no position to express, so it fills all or nothing.
   hidden fillExpr: String =
-    if (toggleOnly) #"$state = "on" ? "0%" : "100%""#
-    else "$string(($v := \(valueExpr); $v != null ? 100 - (($v - \(minExpr)) * 100 / (\(maxExpr) - \(minExpr))) : 100)) & \"%\""
+    if (toggleOnly) #"state == 'on' ? '0%' : '100%'"#
+    else "str(cel.bind(v, \(valueExpr), v != null ? 100.0 - ((double(v) - \(minExpr)) * 100.0 / (\(maxExpr) - \(minExpr))) : 100.0)) + '%'"
   // No `inlineSurfaces` here any more: every tap this card can make is an
   // action NODE now, and each carries its own (see [[sliderAction]]). Copying
   // them up to the slider as well would declare the same surface twice, under
@@ -430,8 +453,7 @@ class Slider extends nodes.Node {
         else new slotMod.Slot { signal = slotMod.asText }
     }
     // The range input's numeric position: opt OUT of bypass so an unavailable
-    // entity falls back to `default` ("0") rather than "unavailable". Static:
-    // read the domain's position attr; dynamic: $lookup it per match.
+    // entity falls back to `default` ("0") rather than "unavailable".
     //
     // WHERE THE DEVICE IS — server-written, and never touched by this card.
     // It used to be the input's `data-bind`, which made the drag write it, and

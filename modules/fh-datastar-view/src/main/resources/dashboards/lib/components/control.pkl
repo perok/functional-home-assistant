@@ -115,7 +115,7 @@ class Button extends nodes.Node {
       // `""` for off — an empty string is the only falsy value a slot can
       // produce, and `"false"` would read as ON.
       ["lit"] = new slotMod.Slot {
-        transform = #"$state = "on" ? "lit" : """#
+        transform = #"state == 'on' ? 'lit' : ''"#
         default = ""
         bypassUnavailable = false
         signal = slotMod.asClass("lit")
@@ -219,7 +219,7 @@ class Toggle extends nodes.Node {
     // signal immediately, so the switch flips optimistically and the frame that
     // follows either confirms it or puts it back.
     ["checked"] = new slotMod.Slot {
-      transform = #"$state = "on" ? "on" : """#
+      transform = #"state == 'on' ? 'on' : ''"#
       default = ""
       bypassUnavailable = false
       signal = slotMod.asBind

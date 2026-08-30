@@ -29,7 +29,7 @@ import io.circe.Json
 object FixtureDashboard {
 
   /** The card templates every fixture dashboard is rendered over: a `col`
-    * container, a numeric `reading` (state + a unit pulled from `$attr`), and a
+    * container, a numeric `reading` (state + a unit read from `attr`), and a
     * named on/off `light` tile.
     */
   val cards: Map[String, CardDef] = Map(
@@ -74,7 +74,10 @@ object FixtureDashboard {
                 "member",
                 slots = Map(
                   "entity_id" -> SlotSource(literal = Some(id)),
-                  "name" -> SlotSource(transform = "$attr.friendly_name"),
+                  "name" -> SlotSource(
+                    transform =
+                      "('friendly_name' in attr ? attr['friendly_name'] : entity_id)"
+                  ),
                   "state" -> SlotSource()
                 )
               )
@@ -88,14 +91,17 @@ object FixtureDashboard {
   def stateIs(s: String): Predicate =
     Predicate.Cmp("state", Op.Eq, Json.fromString(s))
 
-  /** A `reading` bound to `e`: its `$state` plus its `unit_of_measurement`
-    * attribute.
+  /** A `reading` bound to `e`: its `state` plus its `unit_of_measurement`
+    * attribute (guarded — an absent attribute reads nothing, not an error).
     */
   def reading(e: FixtureEntity): LayoutNode.Component =
     component(
       "reading",
       "state" -> SlotSource(Some(e.entityId)),
-      "unit" -> SlotSource(Some(e.entityId), "$attr.unit_of_measurement")
+      "unit" -> SlotSource(
+        Some(e.entityId),
+        "('unit_of_measurement' in attr ? attr['unit_of_measurement'] : '')"
+      )
     )
 
   /** A named `light` tile bound to `e`, labelled `label`. */

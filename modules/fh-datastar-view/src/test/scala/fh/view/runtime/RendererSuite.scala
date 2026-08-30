@@ -160,7 +160,10 @@ class RendererSuite extends munit.FunSuite {
     card = "card",
     slots = Map(
       "state" -> SlotSource(Some("sensor.t")),
-      "unit" -> SlotSource(Some("sensor.t"), "$attr.unit_of_measurement")
+      "unit" -> SlotSource(
+        Some("sensor.t"),
+        "'unit_of_measurement' in attr ? attr['unit_of_measurement'] : ''"
+      )
     )
   )
 
@@ -201,7 +204,7 @@ class RendererSuite extends munit.FunSuite {
       slots = Map(
         "state" -> SlotSource(
           Some("sensor.t"),
-          transform = "$round($number($state), 1)"
+          transform = "str(math.round(num(state) * 10.0) / 10.0)"
         )
       )
     )
@@ -212,7 +215,7 @@ class RendererSuite extends munit.FunSuite {
         .get
         .contains("<span>21.5</span>")
     )
-    // ...but "unavailable" never enters JSONata (which would error) — shown raw.
+    // ...but "unavailable" never enters CEL (which would error) — shown raw.
     assert(
       r.renderNodeById("c", Map("sensor.t" -> st("sensor.t", "unavailable")))
         .get
@@ -229,7 +232,7 @@ class RendererSuite extends munit.FunSuite {
       slots = Map(
         "state" -> SlotSource(
           Some("sensor.t"),
-          transform = "$state & \"!\"",
+          transform = "state + '!'",
           bypassUnavailable = false
         )
       )
@@ -243,10 +246,12 @@ class RendererSuite extends munit.FunSuite {
     )
   }
 
-  test("an identity (action) slot resolves from the entity id with no state") {
+  // ADR 0016 bakes actions; this is the fallback path: a hand-written map
+  // action must still resolve from `domain` with no state in the renderer.
+  test("a fallback map action resolves from the entity id with no state") {
     val expr =
-      """($a := $lookup({"scene": "scene/turn_on"}, $domain); """ +
-        """$a ? $a : "homeassistant/toggle")"""
+      """cel.bind(m, {'scene': 'scene/turn_on'}, """ +
+        """domain in m ? m[domain] : 'homeassistant/toggle')"""
     def actionNode(entity: String): LayoutNode =
       LayoutNode.Component(
         card = "act",
@@ -282,7 +287,7 @@ class RendererSuite extends munit.FunSuite {
     // `reads = Reads.Once` promises the value is identity-only, so the renderer
     // resolves it ONCE per (entity, transform) and reuses it — this is what
     // keeps the set render path cheap (action/domain-config slots become a
-    // cache lookup, not a JSONata eval, on every re-render). We expose the memo
+    // cache lookup, not a CEL eval, on every re-render). We expose the memo
     // with a state-reading transform (a deliberate misuse): its value freezes
     // at the first render and ignores a later state change. A `reads = Reads.Live`
     // slot, by contrast, re-resolves every render.
@@ -292,7 +297,7 @@ class RendererSuite extends munit.FunSuite {
         slots = Map(
           "action" -> SlotSource(
             Some("sensor.t"),
-            transform = "$state",
+            transform = "state",
             reads = reads
           )
         )
@@ -584,7 +589,7 @@ class RendererSuite extends munit.FunSuite {
       slots = Map(
         "bri" -> SlotSource(
           Some("light.x"),
-          transform = "$attr.brightness",
+          transform = "'brightness' in attr ? attr['brightness'] : null",
           default = Some("0")
         )
       )
@@ -615,7 +620,10 @@ class RendererSuite extends munit.FunSuite {
                 "btn",
                 Map(
                   "entity_id" -> lit("light.a"),
-                  "label" -> SlotSource(transform = "$attr.friendly_name")
+                  "label" -> SlotSource(
+                    transform =
+                      "'friendly_name' in attr ? attr['friendly_name'] : entity_id"
+                  )
                 )
               )
             )
@@ -733,7 +741,7 @@ class RendererSuite extends munit.FunSuite {
     val es =
       EntityState("light.x", "on", Map("brightness" -> Json.fromInt(200)))
     // Same instance on every access (cached per state version), and numbers stay
-    // numeric for `$attr.brightness` arithmetic.
+    // numeric for `attr['brightness']` reads (a Long, which `double()` coerces).
     assert(
       es.javaAttributes eq es.javaAttributes,
       clue = "identity-stable cache"
@@ -1238,7 +1246,7 @@ class RendererSuite extends munit.FunSuite {
         slots = Map(
           "name" -> SlotSource(
             Some("sensor.a"),
-            "$attr.friendly_name",
+            "'friendly_name' in attr ? attr['friendly_name'] : entity_id",
             reads = mode
           )
         ),
@@ -1350,7 +1358,7 @@ class RendererSuite extends munit.FunSuite {
           "bar" -> List(
             LayoutNode.Component(
               "tabsBar",
-              slots = Map("title" -> SlotSource(Some("sensor.title"), "$state"))
+              slots = Map("title" -> SlotSource(Some("sensor.title"), "state"))
             )
           )
         )

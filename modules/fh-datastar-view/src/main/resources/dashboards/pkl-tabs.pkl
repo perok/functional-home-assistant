@@ -41,10 +41,10 @@ card = (c.column) {
         // Live value expressions (own unit).
         ["Sensors"] {
           (c.entityCard(dump.entities.sensor_ams_1a4e_q)) {
-            value = c.expr(#"$round($number($state), 1) & " " & $attr.unit_of_measurement"#)
+            value = c.expr(#"str(math.round(num(state) * 10.0) / 10.0) + ' ' + ('unit_of_measurement' in attr ? attr['unit_of_measurement'] : '')"#)
           }
           (c.entityCard(dump.entities.sensor_ams_1a4e_u1)) {
-            value = c.expr(#"$round($number($state), 1) & " " & $attr.unit_of_measurement"#)
+            value = c.expr(#"str(math.round(num(state) * 10.0) / 10.0) + ' ' + ('unit_of_measurement' in attr ? attr['unit_of_measurement'] : '')"#)
           }
         }
       }

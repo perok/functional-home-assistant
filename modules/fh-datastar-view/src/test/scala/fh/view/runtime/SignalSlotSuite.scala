@@ -35,7 +35,18 @@ class SignalSlotSuite extends ServerHarness {
     * Declared HERE because a `val` a fixture reads must be initialised before
     * it: constructor statements run in source order, and a later one is null.
     */
-  private val fillPct = "$string($attr.brightness) & \"%\""
+  private val fillPct = "str(attr['brightness']) + '%'"
+
+  // The guarded attribute reads the fixtures use, named once for the same
+  // reason `fillPct` is: each is both a fixture value and, hashed, the tail of
+  // the signal path it produces (`t` + the first 8 hex of its SHA-256 — see
+  // `Renderer.transformSegment`, which hashes everything but `state`).
+  private val friendlyRead =
+    "'friendly_name' in attr ? attr['friendly_name'] : entity_id"
+  private val brightnessRead =
+    "'brightness' in attr ? attr['brightness'] : null"
+  private val rgbRead = "'rgb_color' in attr ? attr['rgb_color'] : null"
+  private val tintRead = "'tint' in attr ? attr['tint'] : null"
 
   // A card whose reading is signal-backed and whose label is not: the two paths
   // side by side, in one node, so a test can move each independently.
@@ -51,7 +62,7 @@ class SignalSlotSuite extends ServerHarness {
       "gauge",
       Map(
         "entity_id" -> SlotSource(literal = Some(entity)),
-        "label" -> SlotSource(transform = "$attr.friendly_name"),
+        "label" -> SlotSource(transform = friendlyRead),
         "value" -> SlotSource(signal = Some(SignalBind.Text))
       )
     )
@@ -65,7 +76,7 @@ class SignalSlotSuite extends ServerHarness {
     * written out twice, a drift would be silent, and the card would bind a
     * signal nothing patches.
     */
-  private def sig(entity: String, transform: String = "$state"): SignalId =
+  private def sig(entity: String, transform: String = "state"): SignalId =
     Renderer.signalName(leaf, "", Some(entity), transform, SignalBind.Text)
 
   /** A two-way binding is interaction state and stays scoped to its node (ADR
@@ -242,7 +253,7 @@ class SignalSlotSuite extends ServerHarness {
           "entity_id" -> SlotSource(literal = Some("sensor.a")),
           "value" -> SlotSource(signal = Some(SignalBind.Text)),
           "other" -> SlotSource(
-            transform = "$attr.friendly_name",
+            transform = friendlyRead,
             signal = Some(SignalBind.Text)
           )
         )
@@ -257,7 +268,7 @@ class SignalSlotSuite extends ServerHarness {
     assert(
       html.contains(
         "data-signals=\"{_e: {sensor: {a: " +
-          "{attr_friendly_name: 'Hall', state: '21.4'}}}}\""
+          "{state: '21.4', tb1663a46: 'Hall'}}}}\""
       ),
       clue = html
     )
@@ -277,7 +288,7 @@ class SignalSlotSuite extends ServerHarness {
                 "gauge",
                 Map(
                   "entity_id" -> SlotSource(literal = Some("light.a")),
-                  "label" -> SlotSource(transform = "$attr.friendly_name"),
+                  "label" -> SlotSource(transform = friendlyRead),
                   "value" -> SlotSource(signal = Some(SignalBind.Text))
                 )
               )
@@ -322,11 +333,11 @@ class SignalSlotSuite extends ServerHarness {
       Map(
         "entity_id" -> SlotSource(literal = Some("light.a")),
         "state" -> SlotSource(
-          transform = "$attr.brightness",
+          transform = brightnessRead,
           signal = Some(SignalBind.Text)
         ),
         "value" -> SlotSource(
-          transform = "$attr.brightness",
+          transform = brightnessRead,
           signal = Some(SignalBind.Bind)
         ),
         "fill" -> SlotSource(
@@ -334,7 +345,7 @@ class SignalSlotSuite extends ServerHarness {
           signal = Some(SignalBind.Style("--_end"))
         ),
         "tint" -> SlotSource(
-          transform = "$attr.rgb_color",
+          transform = rgbRead,
           signal = Some(SignalBind.Attr("title"))
         )
       )
@@ -358,11 +369,11 @@ class SignalSlotSuite extends ServerHarness {
     // A DISPLAY signal is named by what it reads, so its path spells out the
     // entity and its transform...
     assert(
-      html.contains("""data-text="$_e.light.a.attr_brightness""""),
+      html.contains("""data-text="$_e.light.a.t62b081ec""""),
       clue = html
     )
     assert(
-      html.contains("""data-attr:title="$_e.light.a.attr_rgb_color""""),
+      html.contains("""data-attr:title="$_e.light.a.t26900b50""""),
       clue = html
     )
     // ...and a computed transform hashes into the one segment it has to be.
@@ -400,9 +411,9 @@ class SignalSlotSuite extends ServerHarness {
       out.map(_.patch),
       List(
         frame(
-          sig("light.a", "$attr.brightness") -> "41",
+          sig("light.a", brightnessRead) -> "41",
           bound(leaf, "value") -> "41",
-          sig("light.a", "$string($attr.brightness) & \"%\"") -> "41%"
+          sig("light.a", fillPct) -> "41%"
         )
       ),
       clue = events(out).map(_.renderString)
@@ -505,7 +516,7 @@ class SignalSlotSuite extends ServerHarness {
           signal = Some(SignalBind.Style("--_end"))
         ),
         "tint" -> SlotSource(
-          transform = "$attr.rgb_color",
+          transform = rgbRead,
           signal = Some(SignalBind.Attr("title"))
         )
       )
@@ -768,7 +779,7 @@ class SignalSlotSuite extends ServerHarness {
       "gauge",
       Map(
         "entity_id" -> SlotSource(literal = Some(id)),
-        "label" -> SlotSource(transform = "$attr.friendly_name"),
+        "label" -> SlotSource(transform = friendlyRead),
         "value" -> SlotSource(signal = Some(SignalBind.Text))
       )
     )
@@ -897,7 +908,7 @@ class SignalSlotSuite extends ServerHarness {
         "gauge",
         Map(
           "entity_id" -> SlotSource(
-            transform = "$state",
+            transform = "state",
             signal = Some(SignalBind.Text)
           ),
           "value" -> SlotSource()
@@ -940,7 +951,7 @@ class SignalSlotSuite extends ServerHarness {
       Map(
         "entity_id" -> SlotSource(literal = Some("sensor.a")),
         "tint" -> SlotSource(
-          transform = "$attr.tint",
+          transform = tintRead,
           signal = Some(SignalBind.Style("background"))
         )
       ),
@@ -972,7 +983,7 @@ class SignalSlotSuite extends ServerHarness {
         .copy(slots =
           Map(
             "entity_id" -> SlotSource(literal = Some("sensor.a")),
-            "tint" -> SlotSource(transform = "$attr.tint")
+            "tint" -> SlotSource(transform = tintRead)
           )
         )
     )
@@ -985,11 +996,11 @@ class SignalSlotSuite extends ServerHarness {
   test("structure seeds its signal on its own cell wrapper") {
     val html = Renderer.create(structural).renderPage(tinted("red"))
     assert(
-      html.contains("data-signals=\"{_e: {sensor: {a: {attr_tint: 'red'}}}}\""),
+      html.contains("data-signals=\"{_e: {sensor: {a: {t9902cc28: 'red'}}}}\""),
       clue = html
     )
     assert(
-      html.contains("data-style:background=\"$_e.sensor.a.attr_tint\""),
+      html.contains("data-style:background=\"$_e.sensor.a.t9902cc28\""),
       clue = html
     )
   }
@@ -1002,7 +1013,7 @@ class SignalSlotSuite extends ServerHarness {
       resumeNow(r, log, holds, tinted("blue"), 1L, Set.empty, Map.empty)
     assertEquals(
       out.map(_.patch),
-      List(frame(sig("sensor.a", "$attr.tint") -> "blue")),
+      List(frame(sig("sensor.a", tintRead) -> "blue")),
       clue = events(out).map(_.renderString)
     )
     // The structural element itself is what must not move: a morph aimed at it

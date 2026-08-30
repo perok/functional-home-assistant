@@ -43,3 +43,4 @@ to move it; 0003 and 0007 own two of the three node kinds it draws.
 - [0024 — A tap is a request the server can answer; the DOM should stand on its own](0024-a-tap-is-a-request-the-server-can-answer.md)
 - [0025 — A value in flight: what was asked for is not what is showing](0025-a-value-in-flight.md)
 - [0026 — The look is BeerCSS: an MD3 framework that styles semantic HTML](0026-the-look-is-beercss.md)
+- [0027 — Transforms are CEL: the engine swap and what it kept](0027-transforms-are-cel.md)

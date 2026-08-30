@@ -5,25 +5,26 @@ import io.circe.derivation.{Configuration, ConfiguredDecoder}
 
 /** Where a single mustache slot gets its value at runtime.
   *
-  * A slot's value is the [[Transform]] JSONata expression `transform`,
-  * evaluated by the renderer against the producing entity. The entity's full
-  * context is bound: `$state` (raw state String), `$attr` (its attribute
-  * object, e.g. `$attr.brightness`), `$domain` (the entity-id prefix) and
-  * `$entity_id` (the id). So selecting a value *is* the transform — `"$state"`
-  * (the default) shows the state, `"$attr.brightness"` an attribute,
-  * `"$lookup(…, $domain)"` an identity-derived value like a service action. No
+  * A slot's value is the [[Transform]] CEL expression `transform`, evaluated by
+  * the renderer against the producing entity. The entity's full context is
+  * bound: `state` (raw state String), `attr` (its attribute map, indexed as
+  * `attr['brightness']`), `domain` (the entity-id prefix) and `entity_id` (the
+  * id), plus `dashboard_slug`. So selecting a value *is* the transform —
+  * `"state"` (the default) shows the state, `"state + ' kWh'"` the state with a
+  * unit, `"str(double(attr['brightness']))"` an attribute, and a CEL string
+  * building an action URL an identity-derived value like a service action. No
   * other entity is reachable.
   *
-  * `default` applies when the transform yields an empty string (e.g.
-  * `$attr.brightness` when a light is off). `bypassUnavailable` (ON by default)
-  * makes an `"unavailable"`/`"unknown"` entity show its raw state *instead of*
-  * running the transform — what keeps a value-display readable when its
-  * transform would otherwise error on a non-numeric state (`$number($state)`).
-  * Set it to `false` on the slots that must run their transform regardless of
-  * availability: identity-derived slots (an action resolves from `$domain`, not
-  * state), labels (keep the friendly_name rather than showing `"unavailable"`),
-  * and a slider's numeric position (fall back to its `default`, not the literal
-  * `"unavailable"` string).
+  * `default` applies when the transform yields an empty string (e.g. a guarded
+  * attribute read when it falls back to `""` while a light is off).
+  * `bypassUnavailable` (ON by default) makes an `"unavailable"`/`"unknown"`
+  * entity show its raw state *instead of* running the transform — what keeps a
+  * value-display readable when its transform would otherwise error on a
+  * non-numeric state (`num(state)`). Set it to `false` on the slots that must
+  * run their transform regardless of availability: identity-derived slots (an
+  * action resolves from `domain`, not state), labels (keep the friendly_name
+  * rather than showing `"unavailable"`), and a slider's numeric position (fall
+  * back to its `default`, not the literal `"unavailable"` string).
   *
   * `entityId` is the slot's OWN entity. When `None`, the slot INHERITS the
   * component's `entity_id` param (the card's one entity) — so a card binds its
@@ -84,10 +85,10 @@ case class SlotSource(
     // — the multi-entity card. With neither, the transform runs against an empty
     // state (the constant case).
     entityId: Option[String] = None,
-    // The value expression — JSONata over $state/$attr/$domain/$entity_id, compiled
-    // at build time (validated below) and reused by the renderer. Defaults to the
-    // entity's raw state.
-    transform: String = "$state",
+    // The value expression — CEL over state/attr/domain/entity_id/dashboard_slug,
+    // compiled at build time (validated below) and reused by the renderer.
+    // Defaults to the entity's raw state.
+    transform: String = "state",
     // Used when the transform yields "" (e.g. brightness when a light is off).
     // Keeps numeric signal initialisers like `{bri: {{x}}}` valid.
     default: Option[String] = None,

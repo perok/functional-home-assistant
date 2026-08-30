@@ -1,34 +1,44 @@
 package fh.view.model
 
-import com.dashjoin.jsonata.Jsonata
-import com.dashjoin.jsonata.Jsonata.jsonata
-import fh.view.runtime.EntityState
+import fh.view.runtime.{Cel, EntityState}
 
-/** Per-slot value transforms, expressed as [JSONata](https://jsonata.org).
+/** Per-slot value transforms, expressed as [CEL](https://cel.dev) (the "Common
+  * Expression Language").
   *
   * Authored inline in the dashboard source as a string (see
   * [[SlotSource.transform]]) and evaluated by the renderer per live value.
   *
-  * A transform reads the entity through bound variables — `$state` (its raw
-  * state String), `$attr` (its full attribute object, navigated as
-  * `$attr.unit_of_measurement`), `$domain` (the entity-id prefix) and
-  * `$entity_id` (the full id); numbers stay numeric, so coerce a String state
-  * with `$number($state)` for arithmetic. Only this entity is reachable —
-  * lookups are same-entity only — and there is no bare `$`: the slot value is
-  * whatever the expression returns. Examples:
+  * A transform reads the entity through bound variables — `state` (its raw
+  * state String), `attr` (its full attribute map, indexed as
+  * `attr['unit_of_measurement']`), `entity_id` and `domain` (from the id); a
+  * String state coerces for arithmetic with the registered `num()` helper
+  * (`int()`/`double()` cover the rare numeric attribute). Only this entity is
+  * reachable — lookups are same-entity only — and the slot value is whatever
+  * the expression returns. Examples:
   *
-  *   - `$round($number($state) * 1000) & " W"` — scale, round, append a unit
-  *   - `$state & " " & $attr.unit_of_measurement` — append the entity's own
-  *     unit
-  *   - `$round($number($state) * 1.8 + 32, 1)` — °C → °F, one decimal
-  *   - `$state = "on" ? "Open" : "Closed"` — map a state to display text
-  *   - `$lookup({"scene": "scene/turn_on"}, $domain) ? … : "homeassistant/toggle"`
-  *     — an identity-derived value (a tap action), independent of live state
+  *   - `str(math.round(num(state) * 10.0) / 10.0) + ' V'` — round to one
+  *     decimal, append a unit
+  *   - `state + ('unit_of_measurement' in attr ? ' ' + attr['unit_of_measurement'] : '')`
+  *     — append the entity's own unit only when it has one
+  *   - `'brightness' in attr ? str(math.round((double(attr['brightness']) - 1.0) * 100.0 / 254.0)) + ' %' : '0 %'`
+  *     — position as a percentage of the slider's baked min..max range
+  *   - `state == 'on' ? 'Open' : 'Closed'` — map a state to display text
+  *   - `"@post('sse/action/\" + dashboard_slug + \"/\" + 'light/toggle' + \"/\" + entity_id + \"')"`
+  *     — an identity-derived action URL (a tap), reading no live state
+  *
+  * Presence is a REAL boolean in CEL, and the entity's `attr` is a JVM map
+  * adapted as a CEL map (not a native one): `'x' in attr` tests a key's
+  * presence, while a RAW `attr['x']` on an absent key is an evaluation error —
+  * so the shipped strings read attributes guarded (`'x' in attr ? … : …`), the
+  * idiom that mirrors JSONata's null-on-missing (measured in the Phase-0
+  * sweep). Stringify a heterogeneous value with `str(x)`, which renders numbers
+  * the same 10-digit way the engine renders a bare numeric result, so the two
+  * can never drift.
   *
   * Compilation happens once at build/validate time; the renderer reuses the
-  * compiled expression. A failing evaluation is **not** swallowed nor allowed
-  * to crash the render — the card shows the JSONata error message, contained to
-  * that one card, so a genuinely broken expression is visible. (For
+  * compiled program. A failing evaluation is **not** swallowed nor allowed to
+  * crash the render — the card shows the CEL error message, contained to that
+  * one card, so a genuinely broken expression is visible. (For
   * unavailable/unknown entities the renderer shows the raw state and skips the
   * transform by default — `SlotSource.bypassUnavailable`, ON unless an action /
   * label / slider position opts out — see `EntityState.unavailable`.) A `null`
@@ -36,27 +46,35 @@ import fh.view.runtime.EntityState
   *
   * Takes an [[EntityState]], which carries the entity's identity (`entityId`,
   * and `domain` derived from it) alongside its live `state`/`attributes`, so
-  * the `$domain`/`$entity_id` bindings come straight off the fetched state
-  * rather than being recomputed here.
+  * the `entity_id`/`domain` bindings come straight off the fetched state rather
+  * than being recomputed here.
   */
 object Transform {
 
-  /** A compiled JSONata expression. */
-  type Compiled = Jsonata
+  /** A compiled CEL program (see [[Cel]]). */
+  type Compiled = Cel.Program
 
-  /** The two transform shapes that read a value and apply nothing to it.
+  /** The transform shapes that read a value and apply nothing to it.
     *
-    * They are worth naming because JSONata charges for them anyway: it
-    * validates a function's argument signature with a regex on every
-    * invocation, and its own `&`/coercion machinery invokes functions, so even
-    * an expression with no visible call allocates. Measured at ~1.28 kB per
-    * evaluation of `$state` (`benchmarks/RenderBench.jsonataTrivial`) against
-    * ~3.39 kB for one that calls `$lookup` — so reading the field directly
-    * saves the whole 1.28 kB, not the difference (issue #237).
+    * They are worth separating because an ENGINE charges for being an engine: a
+    * general evaluator converts the entity into its own value model on every
+    * evaluation. On the renderer's warm path one evaluation of the six shipped
+    * shapes costs ~0.9 kB of cel-java's planner runtime (`benchmarks/
+    * RenderBench.cel`), against ~45 B for a direct read (`benchmarks/
+    * RenderBench.direct`) — so on the shape that applies nothing, the fast path
+    * saves the whole engine cost, not a fraction (issue #237). `Transforms.run`
+    * resolves them at startup and never sends them to an engine.
+    *
+    * Phase 1 recognises only the bare `state` read: it is the
+    * guaranteed-present one (the fast path survives for every plain state
+    * slot). An `attr` read is ship-shaped GUARDED (`'x' in attr ? attr['x'] :
+    * …`), and guards need the engine — correctness first, the `Direct.Attr`
+    * fast path re-targets in Phase 2 (the benchmark keeps pricing the read
+    * mechanism).
     *
     * `None` for everything else, which is the honest answer: anything with an
-    * operator, a function or a conditional goes to JSONata, and this must never
-    * grow into a second implementation of the language.
+    * operator, a function or a conditional goes to the engine, and this must
+    * never grow into a second implementation of the language.
     */
   enum Direct {
     case State
@@ -64,22 +82,18 @@ object Transform {
   }
 
   /** Recognise a [[Direct]] shape. Deliberately strict — a leading/trailing
-    * space is already handled by the trim, but anything else at all (`$state `
-    * with an operator after it, `$attr.a.b`, `$attr."x"`) is not one of these
-    * two shapes and must go to JSONata.
+    * space is already handled by the trim, but anything else at all (`state `
+    * with an operator after it, `state == 'on' ? … : …`) is not the one shape
+    * and must go to the engine.
     */
   def direct(src: String): Option[Direct] = src.trim match {
-    case "$state"                                   => Some(Direct.State)
-    case s"$$attr.$name" if name.forall(isNameChar) => Some(Direct.Attr(name))
-    case _                                          => None
+    case "state" => Some(Direct.State)
+    case _       => None
   }
 
-  private def isNameChar(c: Char): Boolean =
-    c.isLetterOrDigit || c == '_'
-
-  /** Evaluate a [[Direct]] shape without JSONata, stringified exactly as
-    * [[run]] would — the SAME `asString`, so the two cannot drift in how they
-    * render a number, a boolean or an absent value.
+  /** Evaluate a [[Direct]] shape without the engine, stringified exactly as
+    * [[run]] would — the SAME rendering, so the two cannot drift in how they
+    * render a state, a number or an absent value.
     */
   def runDirect(d: Direct, entity: EntityState): String = d match {
     case Direct.State      => entity.state
@@ -87,63 +101,27 @@ object Transform {
       asString(entity.javaAttributes.get(name))
   }
 
-  /** Compile a JSONata expression (build/validate time). */
-  def parse(src: String): Either[String, Compiled] = {
-    val trimmed = src.trim
-    if (trimmed.isEmpty) Left("empty transform expression")
-    else
-      try Right(jsonata(trimmed))
-      catch case e: Exception => Left(s"invalid JSONata: ${e.getMessage}")
-  }
+  /** Compile a CEL expression (build/validate time). */
+  def parse(src: String): Either[String, Compiled] = Cel.parse(src)
 
-  /** Evaluate a compiled expression against one entity, stringified for the
-    * template. Binds the entity's full context — `$state`/`$attr` (its live
-    * value) and `$domain`/`$entity_id` (its identity, from the id) — so the
-    * same mechanism serves value slots and identity-derived slots (e.g. a tap
-    * action) — plus `$dashboardSlug`, the only binding that is not about the
-    * entity. On evaluation failure, returns the JSONata error message so the
-    * card shows it (contained — never throws into the render).
+  /** Evaluate a compiled program against one entity, stringified for the
+    * template. Binds the entity's full context — `state`/`attr` (its live
+    * value) and `entity_id`/`domain` (its identity, from the id) — so the same
+    * mechanism serves value slots and identity-derived slots (e.g. a tap
+    * action) — plus `dashboard_slug`, the only binding that is not about the
+    * entity. On evaluation failure, returns the CEL error message so the card
+    * shows it (contained — never throws into the render). See [[Cel]].
     */
   def run(expr: Compiled, entity: EntityState, dashboardSlug: String): String =
-    evalBound(
-      expr,
-      // The dashboard being rendered. A tap builds an action URL the server can
-      // bound (ADR 0023) and only the renderer knows the slug, since a module
-      // does not know its own. A real BINDING rather than a token substituted
-      // into the expression text: `$dashboardSlug` then says what it is, where
-      // a `{{…}}` in a transform would read as Mustache and never be one — a
-      // transform's output is inserted raw, so Mustache never sees it.
-      "dashboardSlug" -> dashboardSlug,
-      "state" -> entity.state,
-      // Cached on the EntityState (converted once per state version — see
-      // EntityState.javaAttributes), so repeated evals on the same entity (a card
-      // with several `$attr` slots, or a candidate set scanning a hot entity) do
-      // not each rebuild the attribute map.
-      "attr" -> entity.javaAttributes,
-      "entity_id" -> entity.entityId,
-      "domain" -> entity.domain
-    )
-
-  // dashjoin's Jsonata is documented thread-safe: `createFrame` makes a fresh
-  // child of the (shared, read-only) std-library environment, so binding here is
-  // local to this call and the renderer safely shares one compiled instance
-  // across fibers without locking. No input context: the expression addresses
-  // the entity via $state/$attr/$domain/$entity_id, so there is no bare `$`.
-  private def evalBound(expr: Compiled, bindings: (String, Any)*): String =
-    val frame = expr.createFrame()
-    bindings.foreach { case (name, value) => frame.bind(name, value) }
-    try asString(expr.evaluate(null, frame))
-    catch case e: Exception => s"JSONata error: ${errorText(e)}"
-
-  private def errorText(e: Throwable): String =
-    Option(e.getMessage).filter(_.nonEmpty).getOrElse(e.getClass.getSimpleName)
+    Cel.run(expr, entity, dashboardSlug)
 
   // (The attribute JSON -> Java conversion lives on EntityState.javaAttributes,
   // cached per state version, so it runs once per entity rather than per eval.)
 
-  // JSONata produces Java values; render them the way the spec's string
-  // coercion (`&` / $string) would, so bare-number results match concatenated
-  // ones. Null becomes "" so the slot's `default` can take over.
+  // Direct-result rendering, kept byte-identical to `Cel.stringify` — the fast
+  // path is only sound while it renders exactly what the engine would. Numbers
+  // render via the same 10-digit numToString, so a bare `state`-adjacent value
+  // never shows more precision than the engine.
   private def asString(result: Any): String =
     result match
       case null                 => ""
