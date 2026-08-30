@@ -104,7 +104,7 @@ class RenderBench {
   // shipped page dispatches.
   private var simpleProbes: List[Transform.Simple] = null
   private var engineShapes: List[Transform.Compiled] = null
-  private var entityTemplate: com.samskivert.mustache.Template = null
+  private var entityTemplate: com.github.mustachejava.Mustache = null
   private var painted: List[String] = null
 
   @Setup(Level.Trial)
@@ -297,7 +297,9 @@ class RenderBench {
       val _ = m.put("name", "Tile number 7")
       val _ = m.put("state", "on lx")
       val _ = m.put("action", "@post('x')")
-      bh.consume(entityTemplate.execute(m))
+      val w = new java.io.StringWriter
+      entityTemplate.execute(w, m)
+      bh.consume(w.toString)
       i += 1
     }
   }

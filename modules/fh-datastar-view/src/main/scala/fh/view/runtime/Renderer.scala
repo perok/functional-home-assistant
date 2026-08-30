@@ -1,6 +1,6 @@
 package fh.view.runtime
 
-import com.samskivert.mustache.{Mustache, Template}
+import com.github.mustachejava.Mustache
 import fh.view.build.LibPackage
 import fh.view.model.{
   Access,
@@ -391,11 +391,11 @@ class Renderer(
     * popup host's placement. An empty `theme.chrome` falls back to a minimal
     * frame with no popup host — see [[Theme.chrome]] for the contract.
     */
-  private val chromeTemplate: Template = {
+  private val chromeTemplate: Mustache = {
     val chrome =
       if (dashboard.theme.chrome.nonEmpty) dashboard.theme.chrome
       else """<main class="container" id="dashboard">{{{body}}}</main>"""
-    Templates.compiler.compile(chrome)
+    Templates.compile("chrome", chrome)
   }
 
   /** Without the page shell and without the theme ([[themeStyleTag]] sits
@@ -470,7 +470,7 @@ class Renderer(
         themeStyleTag.length + body.html.length + 4096
       )
       val _ = out.append(themeStyleTag)
-      chromeTemplate.execute(chrome, appendTo(out))
+      chromeTemplate.execute(appendTo(out), chrome)
       out.toString
     }
     // The whole page is never a patch target — a repaint replaces `#dashboard`
@@ -1124,7 +1124,7 @@ class Renderer(
     * patch bytes, and once again by `memberSignals` for the seed.
     */
   private case class ResolvedMember(
-      tpl: Template,
+      tpl: Mustache,
       resolved: Resolved,
       regions: Map[String, List[ResolvedChild]]
   )
@@ -1288,7 +1288,7 @@ class Renderer(
   /** Unreachable `None` by construction: `Dashboard.validate` resolves every
     * card reference before a Renderer is built.
     */
-  private def templateOf(cardName: String): Template =
+  private def templateOf(cardName: String): Mustache =
     templates.components.getOrElse(
       cardName,
       throw new IllegalStateException(
@@ -1334,7 +1334,7 @@ class Renderer(
     * way, which is what lets the callers skip the second execute entirely.
     */
   private def renderTemplateOf(
-      tpl: Template,
+      tpl: Mustache,
       injected: Map[String, String],
       slots: Map[String, SlotSource],
       childrenHtml: Map[String, List[String]],
@@ -1381,14 +1381,19 @@ class Renderer(
       resolved: Resolved,
       childrenHtml: Map[String, List[String]],
       form: SlotForm
-  ) extends Mustache.CustomContext {
+  ) extends Templates.FhScope {
 
     /** One list per REGION, under the region's own name, so a template's
       * `{{#headActions}}` and `{{#children}}` splice different children. An
       * empty region contributes nothing, which is what makes the section vanish
       * rather than render an empty list.
+      *
+      * Resolved READ IN PLACE — the name answers from the maps that already
+      * exist (the handler in [[Templates]] calls this directly; mustache.java
+      * resolves Map scopes through `entrySet`, so a get-only map answers every
+      * name empty, which cost a probe suite to find).
       */
-    def get(name: String): AnyRef =
+    def fhGet(name: String): AnyRef =
       childrenHtml.get(name) match {
         case Some(htmls) if htmls.nonEmpty =>
           val list = new java.util.ArrayList[AnyRef](htmls.size)
@@ -1411,6 +1416,12 @@ class Renderer(
         val _ = sb.append(cbuf, off, len)
       }
       override def write(str: String): Unit = { val _ = sb.append(str) }
+      // The 3-arg String form is Writer's other default that allocates a
+      // copy per call; appending the slice directly keeps bulk writers (the
+      // escaping runs, template literals) allocation-free.
+      override def write(str: String, off: Int, len: Int): Unit = {
+        val _ = sb.append(str, off, off + len)
+      }
       override def flush(): Unit = ()
       override def close(): Unit = ()
     }
@@ -1531,12 +1542,12 @@ class Renderer(
     */
   private def executeInto(
       out: java.lang.StringBuilder,
-      tpl: Template,
+      tpl: Mustache,
       r: Resolved,
       childrenHtml: Map[String, List[String]],
       form: SlotForm
   ): Unit =
-    tpl.execute(NodeContext(r, childrenHtml, form), appendTo(out))
+    Templates.run(tpl, appendTo(out), NodeContext(r, childrenHtml, form))
 
   /** The signal values one PATCH UNIT carries, named under its id (ADR 0017).
     *
