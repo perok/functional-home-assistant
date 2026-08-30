@@ -23,11 +23,12 @@ class MustacheEngineParitySuite extends munit.FunSuite:
   private def jmustache(tpl: String, vars: java.util.Map[String, AnyRef]) =
     Templates.compiler.compile(tpl).execute(vars).asInstanceOf[String]
 
-  /** mustache.java, defaults, writer-native (as [[Renderer.executeInto]] would
-    * drive it).
+  /** mustache.java through the PRODUCTION factory ([[Templates.factory]]), the
+    * same objects the runtime executes — writer-native, as
+    * [[Renderer.executeInto]] drives it.
     */
   private def spullaraRender(tpl: String, vars: java.util.Map[String, AnyRef]) =
-    val mustache = spullara.compile(new java.io.StringReader(tpl), "t")
+    val mustache = Templates.factory.compile(new java.io.StringReader(tpl), "t")
     val w = new java.io.StringWriter
     mustache.execute(w, vars)
     w.toString
@@ -57,6 +58,21 @@ class MustacheEngineParitySuite extends munit.FunSuite:
 
   test("escaping: unicode and newlines pass through") {
     parity("""<span>{{v}}</span>""")("v" -> "héllo — l1\nl2")
+  }
+
+  test("the raw engine rewrites newlines as entities — the override pins it") {
+    // The ONE divergence the parity sweep found between the engines, kept as
+    // an explicit pin: mustache.java's own `encode` HTML-escapes a newline
+    // (mustache.js and jmustache leave it verbatim). HA values carry newlines
+    // (more-info attribute blocks), so [[Templates.factory]] overrides
+    // `encode` to jmustache's exact set. If the override is ever dropped,
+    // THIS test names the byte that changed.
+    val raw = new DefaultMustacheFactory()
+      .compile(new java.io.StringReader("{{v}}"), "t")
+    val w = new java.io.StringWriter
+    raw.execute(w, java.util.Collections.singletonMap[String, AnyRef]("v", "a\nb"))
+    assertEquals(w.toString, "a&#10;b", clue = "raw engine behavior moved — reread the override")
+    assertEquals(spullaraRender("{{v}}", java.util.Collections.singletonMap[String, AnyRef]("v", "a\nb")), "a\nb", clue = "our encode override regressed")
   }
 
   test("raw holes: {{{x}}} never escapes") {
