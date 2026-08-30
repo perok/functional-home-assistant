@@ -153,10 +153,16 @@ class SignalSlotSuite extends ServerHarness {
     // all. That is why there is no companion test for "a container over a
     // signalled leaf renders once" — it is not a behaviour to check, it is
     // unrepresentable.
+    // The walk writes the node's bytes ONCE into its buffer, so `own` is a
+    // SLICE of that buffer rather than the same String object the old
+    // string-splice walk reused — reference identity is unrepresentable now.
+    // What the guard still holds: byte equality (no second form) and, by
+    // construction, one template execute (the walk builds no second rendering
+    // of a signal-free node).
     val free = Renderer.create(plain).renderBodyTraced(at("21.4"))
     val freeId = free.own.keys.head
     assert(
-      free.own(freeId).html eq free.html,
+      free.own(freeId).html == free.html,
       clue = "a signal-free node rendered twice"
     )
     // ...and the same walk over the signal card really does produce two.
