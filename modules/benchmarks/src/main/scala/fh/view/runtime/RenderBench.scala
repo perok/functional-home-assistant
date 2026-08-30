@@ -391,13 +391,16 @@ object RenderBench {
         "cls" -> SlotSource(literal = Some("fh-tile")),
         // Literal now (entity.pkl): the entity's icon is a registry fact.
         "icon" -> SlotSource(literal = Some("mdi:lightbulb")),
-        "name" -> SlotSource(transform = TransformName),
+        "name" -> SlotSource(
+          // Opted in (ADR 0028): the shipped entity card's name shape.
+          transform = Transform.Simple.AttrOrId("friendly_name")
+        ),
         "state" -> SlotSource(
-          transform = TransformUnit,
+          transform = Transform.Simple.UnitSuffix("unit_of_measurement"),
           signal = Option.when(signals)(SignalBind.Text)
         ),
         "fill" -> SlotSource(
-          transform = TransformFill,
+          transform = Transform.Simple.Fill("brightness", 1.0, 255.0),
           signal = Option.when(signals)(SignalBind.Style("--_end"))
         ),
         "fillColor" -> SlotSource(
