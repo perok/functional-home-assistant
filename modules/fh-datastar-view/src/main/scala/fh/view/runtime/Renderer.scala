@@ -27,18 +27,89 @@ import fh.view.model.{
   * the same render. Carrying them as one value is what lets a session's record
   * fall straight out of a page render rather than being re-derived by a second
   * pass over the painted ids.
+  *
+  * The digest is of the node's render INPUTS, not of output bytes (ADR 0029):
+  * the walk never renders the patch form, and what `holds` recorded and what
+  * the render cache stores are the same digest because both sides name their
+  * bytes the same way — by what they were rendered FROM. The biconditional
+  * equal digest ⟺ equal bytes is enforced by `DigestPropertySuite`, not by
+  * construction.
   */
 private[runtime] case class Painted(
-    html: String,
+    digest: Digest,
     signals: Map[SignalId, String]
 )
+
+/** Everything a node's own PATCH rendering is a pure function of (ADR 0029).
+  *
+  * Equal inputs ⟺ equal bytes is the contract the digest stands on, so the list
+  * is exhaustive and each entry is one of the things the patch bytes actually
+  * contain or depend on:
+  *
+  *   - `templateGen` — the renderer's template generation
+  *     ([[Templates.fingerprint]]). The cache evicts on a renderer swap, but a
+  *     session's `holds` survives one; without this token a re-evaluated
+  *     dashboard whose card text changed would digest identically and a client
+  *     would keep stale bytes forever.
+  *   - `cardName` — template identity within one renderer.
+  *   - `id` — spelled in the wrapper. A member CHILD's rendering carries no id
+  *     (the member is the patch target), so children pass "".
+  *   - `cellClasses` — the exact class string the wrapper carries,
+  *     [[Renderer.cellClasses]] verbatim ("" included), since that is what the
+  *     bytes spell.
+  *   - `shownVars` — the resolved vars as the PATCH form sees them: signal slot
+  *     values BLANKED, which is exactly the rule `NodeContext.fhGet` applies.
+  *     Sorted, so the map's iteration order cannot reach the hash. Deliberately
+  *     NOT the full vars: including a signal value would digest differently on
+  *     every value tick — the spurious-morph storm ADR 0017 exists to prevent,
+  *     reintroduced through the fingerprint. (Values are pre-escape: HTML
+  *     escaping is injective on the five specials, so raw values name the bytes
+  *     as precisely as escaped ones would.)
+  *   - `children` — per REGION, the child's own input digest (a nested member —
+  *     its bytes are its inputs by this same induction) or, for a nested set, a
+  *     digest of the bytes themselves (a nested set renders in the document
+  *     form whatever form encloses it, so there is no input digest to inherit).
+  *     Members only: a leaf's own markup names no child bytes.
+  */
+private[runtime] case class PatchInputs(
+    templateGen: String,
+    cardName: String,
+    id: String,
+    cellClasses: String,
+    shownVars: List[(String, String)],
+    children: List[(String, Digest)] = Nil
+) {
+
+  /** Length-prefixed serialization, so no value can impersonate a separator and
+    * two different input sets can never hash the same.
+    */
+  def canonical: String = {
+    val sb = new java.lang.StringBuilder(64 + shownVars.length * 16)
+    def part(s: String): Unit = {
+      sb.append(s.length).append(':').append(s)
+    }
+    part(templateGen)
+    part(cardName)
+    part(id)
+    part(cellClasses)
+    shownVars.foreach { case (k, v) =>
+      part(k)
+      part(v)
+    }
+    children.foreach { case (region, d) =>
+      part(region)
+      part(d.value)
+    }
+    sb.toString
+  }
+}
 
 /** Which of a signal slot's two renderings a walk is producing (ADR 0017).
   *
   * The distinction exists only for slots with `signal = true`; every other slot
-  * renders identically either way, and a node with no signal slot produces the
-  * same bytes for both — [[Renderer.Traced]] relies on that, handing the same
-  * `String` reference back rather than executing a template twice.
+  * renders identically either way. The walk itself renders only the DOCUMENT
+  * form — a node's patch fingerprint is its input digest ([[PatchInputs]]), so
+  * the form decides what a caller's direct render produces:
   *
   *   - [[Document]] — the value inline (which is what a JS-less browser gets,
   *     and all it ever gets) plus the `data-signals` seed, so the element
@@ -511,6 +582,14 @@ class Renderer(
   /** `uiState` is threaded through so a node that owns a bake group — a `tabs`
     * host that also binds a live entity — re-bakes the viewer's selected member
     * on a live patch rather than the default one.
+    *
+    * The digest rides WITH the bytes ([[NodeBytes]]): it is the node's input
+    * digest (ADR 0029), computed from the same resolution that produced the
+    * html, which is what makes "what this returns" and "what the walk recorded
+    * in `own`" the same digest by construction — the property the old shape
+    * bought by carrying the bytes themselves, kept now that the bytes are
+    * rendered on demand. The digest is meaningful for the PATCH form only; a
+    * caller asking for [[SlotForm.Document]] reads `.html` and ignores it.
     */
   def renderNodeById(
       id: NodeId,
@@ -520,24 +599,104 @@ class Renderer(
       // walk is what asks for the other one. A caller wanting bytes to put in a
       // client's DOM wholesale wants `Document`.
       form: SlotForm = SlotForm.Patch
-  ): Option[String] =
+  ): Option[NodeBytes] =
     members
       .memberAt(id, states)
       .map(renderMember(_, states, form))
-      .orElse(renderIndexed(id, states, uiState, form))
+      .orElse(renderIndexedBytes(id, states, uiState, form))
 
-  private def renderIndexed(
+  private def renderIndexedBytes(
       id: NodeId,
       states: Map[String, EntityState],
       uiState: Map[String, String],
       form: SlotForm
-  ): Option[String] =
+  ): Option[NodeBytes] =
     allIndexed
       .get(id)
       .filter(_ => hasOwnRendering(id))
-      .flatMap { case (node, prefix) =>
-        render(node, id, prefix, states, uiState, form)
+      .collect { case (c: LayoutNode.Component, _) =>
+        componentOwn(c, id, states, form)
       }
+
+  /** One own-rendering component's bytes in the requested form, with its input
+    * digest. The patch form renders ON DEMAND here — the document walk no
+    * longer produces patch bytes for anyone (ADR 0029) — and the render cache
+    * keeps this at once per generation.
+    */
+  private def componentOwn(
+      c: LayoutNode.Component,
+      id: NodeId,
+      states: Map[String, EntityState],
+      form: SlotForm
+  ): NodeBytes = {
+    val resolved = resolveTemplate(structuralVars(id), c.slots, states)
+    val out = new java.lang.StringBuilder(Renderer.NodeBytesHint)
+    val wrapped = !noWrapCards(c.card)
+    if (wrapped) {
+      out
+        .append("""<div class="fh-cell""")
+        .append(Renderer.cellClasses(c.cell))
+        .append("""" id="""")
+        .append(id)
+        .append('"')
+      if (!form.isPatch) out.append(Datastar.signalsAttr(resolved.signals))
+      out.append('>')
+    }
+    executeInto(out, templateOf(c.card), resolved, Map.empty, form)
+    if (wrapped) out.append("</div>")
+    NodeBytes(
+      out.toString,
+      Digest.of(leafPatchInputs(c, id, resolved).canonical)
+    )
+  }
+
+  /** A leaf's patch inputs (ADR 0029): everything its own rendering depends on.
+    * No children entry, because a leaf's bytes carry none.
+    */
+  private def leafPatchInputs(
+      c: LayoutNode.Component,
+      id: NodeId,
+      r: Resolved
+  ): PatchInputs =
+    PatchInputs(
+      templates.fingerprint,
+      c.card,
+      id,
+      Renderer.cellClasses(c.cell),
+      (r.vars -- r.signalSlots).toList.sortBy(_._1)
+    )
+
+  /** A member's patch inputs: its own resolution plus, per region, each child's
+    * own input digest — a nested member, whose bytes are its inputs by this
+    * same induction — or the nested set's bytes themselves, hashed: a nested
+    * set renders in the document form whatever form encloses it, so there is no
+    * child input digest to inherit, but the bytes were materialized at resolve
+    * time and this costs a hash, not a render. Member CHILDREN have no ids (the
+    * member is the whole subtree's patch target), so they recurse with the
+    * empty id.
+    */
+  private def memberPatchInputs(
+      id: String,
+      cell: Option[Cell],
+      rm: ResolvedMember
+  ): PatchInputs =
+    PatchInputs(
+      templates.fingerprint,
+      rm.cardName,
+      id,
+      Renderer.cellClasses(cell),
+      (rm.resolved.vars -- rm.resolved.signalSlots).toList.sortBy(_._1),
+      rm.regions.toList.flatMap { case (region, kids) =>
+        kids.map {
+          case ResolvedChild.NestedSet(html) =>
+            region -> Digest.of(html)
+          case ResolvedChild.Node(childCell, n) =>
+            region -> Digest.of(
+              memberPatchInputs("", childCell, n).canonical
+            )
+        }
+      }
+    )
 
   /** `s_<sid>__c` — what a state group's host holds, and so what a flip removes
     * or places. The same scheme the build-phase hoist uses, so a branch's
@@ -562,7 +721,7 @@ class Renderer(
   def renderMembers(
       groupId: SetId,
       states: Map[String, EntityState]
-  ): List[(NodeId, String)] =
+  ): List[(NodeId, NodeBytes)] =
     members
       .membersOf(groupId, states)
       .toList
@@ -570,13 +729,15 @@ class Renderer(
 
   /** What a wholesale FILL carries, for EITHER kind of container: a candidate
     * set's members, or a state group's one active branch. Both are "what is in
-    * this host", so they answer here rather than at each fill site.
+    * this host", so they answer here rather than at each fill site. A state
+    * group's digest is unused — its fill claims nothing (its root has no
+    * rendering of its own), so the legacy byte digest there is harmless.
     */
   def renderHost(
       container: NodeId,
       states: Map[String, EntityState],
       uiState: Map[String, String] = Map.empty
-  ): List[(NodeId, String)] =
+  ): List[(NodeId, NodeBytes)] =
     members.setContainer(container) match {
       case Some(setId) => renderMembers(setId, states)
       case None        =>
@@ -584,7 +745,8 @@ class Renderer(
           .resolveActiveByState(container, states)
           .flatMap(surfaces.bakeGroup(container).lift)
           .flatMap(sid =>
-            renderSurface(sid, states, uiState).map(surfaceContentId(sid) -> _)
+            renderSurface(sid, states, uiState)
+              .map(surfaceContentId(sid) -> NodeBytes.of(_))
           )
           .toList
     }
@@ -609,7 +771,7 @@ class Renderer(
       id: NodeId,
       states: Map[String, EntityState],
       uiState: Map[String, String] = Map.empty
-  ): Option[String] = renderNodeById(id, states, uiState)
+  ): Option[NodeBytes] = renderNodeById(id, states, uiState)
 
   /** The backend-injected structural template vars for one node — the ids an
     * author never composes.
@@ -839,42 +1001,19 @@ class Renderer(
       .flatMap(e => states.get(e).map(e -> _.contentVersion))
       .toMap
 
-  /** One node's bytes, in the requested form.
-    *
-    * The patch form comes out of the trace's `own` rather than from a second
-    * field on [[Traced]], because `own` is where it was always going: it holds
-    * exactly the nodes that HAVE a patch rendering, and its bytes are what the
-    * digests are taken from, so reading it here is what makes "what
-    * `renderNodeById` returns" and "what `holds` recorded" the same string by
-    * construction instead of by two code paths agreeing.
-    *
-    * `None` for a node with no rendering of its own — which [[renderIndexed]]
-    * has already excluded, so it does not arise.
-    */
-  private def render(
-      node: LayoutNode,
-      id: NodeId,
-      idPrefix: String,
-      states: Map[String, EntityState],
-      uiState: Map[String, String],
-      form: SlotForm
-  ): Option[String] = {
-    val t = traced(node, id, idPrefix, states, uiState)
-    if (form.isPatch) t.own.get(id).map(_.html) else Some(t.html)
-  }
-
-  /** The composed rendering, and every node's OWN html inside it.
+  /** The composed rendering, and every node's OWN fingerprint inside it.
     *
     * The walk already computes both — a child is rendered before the parent it
     * is spliced into — so the trace is a matter of not discarding it. Anything
-    * needing per-node bytes after a wholesale render (a fill recording what it
-    * put in a host, the page seeding the log for its open surfaces) would
+    * needing per-node digests after a wholesale render (a fill recording what
+    * it put in a host, the page seeding the log for its open surfaces) would
     * otherwise walk the whole subtree a SECOND time, node by node.
     *
     * `own` carries an entry only for nodes that have a rendering of their own
-    * ([[hasOwnRendering]]) — the same set that may be a log key — and its bytes
-    * are what [[renderNodeById]] would return for that id, which is what makes
-    * the digests comparable at all.
+    * ([[hasOwnRendering]]) — the same set that may be a log key. Since ADR 0029
+    * it carries the node's INPUT digest rather than its patch bytes: the bytes
+    * are what [[renderNodeById]] produces on demand, and equal digest ⟺ equal
+    * bytes is the property `DigestPropertySuite` enforces.
     */
   private[runtime] case class Traced(
       html: String,
@@ -935,23 +1074,12 @@ class Renderer(
         // ONE walk, both forms — see [[Traced]]. Only the form differs between
         // the two calls, so a node with no signal slot anywhere under it does
         // the second not at all.
-        // Resolved ONCE for both forms — the transforms, the signal names and
-        // the bindings do not depend on which form is being produced, and
-        // re-deriving them for the patch render was the bulk of what a signal
-        // slot cost a first paint.
+        // Resolved ONCE — the transforms, the signal names and the bindings do
+        // not depend on the form (the patch form is never rendered here; its
+        // fingerprint comes from these inputs, ADR 0029).
         val tpl = templateOf(c.card)
         val resolved = resolveTemplate(vars, c.slots, states)
         val ownRendering = hasOwnRendering(id)
-        // The patch form is what `own` is fingerprinted from, and `own` is the
-        // only thing that reads one — so it is needed exactly where there is an
-        // `own`: a node with its own rendering whose slots carry a signal.
-        // Structure renders ONCE.
-        //
-        // The children passed here are the document ones on purpose, not a
-        // patch-form set: a node with its own rendering has no regions
-        // (`CardDef.isStructure` IS "has regions"), so there is nothing to
-        // compose.
-        val twoForms = ownRendering && declaresSignals(c)
         // EVERY node is a cell — containers included. The backend owns the id'd
         // `.fh-cell` wrapper, so templates never carry `id="{{id}}"` themselves
         // and authored `cell` classes (fh-cols-*, …) ride on it.
@@ -1109,28 +1237,21 @@ class Renderer(
           }
         }
 
-        val start = out.length
         wrapper(out, SlotForm.Document)
         val childOwns = bodyInto(out, SlotForm.Document)
         if (wrapped) out.append("</div>")
-        val end = out.length
 
-        // What this node contributes to the trace: its whole (wrapped) patch
-        // rendering when it is a LEAF, and nothing when it is structure.
-        // Mirrors `renderNodeById` exactly — wrapper included, and in the PATCH
-        // form, which is what that method produces.
+        // What this node contributes to the trace: its patch FINGERPRINT when
+        // it is a LEAF, and nothing when it is structure. The fingerprint is
+        // the node's render INPUTS (ADR 0029) — the walk does not render the
+        // patch form at all, so there is no second execute and no slice: a
+        // signalled leaf and a plain one cost the same here. The bytes those
+        // inputs stand for are what [[renderNodeById]] produces on demand, and
+        // the biconditional equal digest ⟺ equal bytes is
+        // [[DigestPropertySuite]]'s to hold.
         val own = Option.when(ownRendering)(
           Painted(
-            if (twoForms) {
-              val buf = new java.lang.StringBuilder(Renderer.NodeBytesHint)
-              wrapper(buf, SlotForm.Patch)
-              bodyInto(buf, SlotForm.Patch)
-              if (wrapped) buf.append("</div>")
-              buf.toString
-            } else
-              // No signal slot: the forms are byte-identical, so the patch
-              // fingerprint IS the document bytes just written.
-              out.substring(start, end),
+            Digest.of(leafPatchInputs(c, id, resolved).canonical),
             resolved.signals
           )
         )
@@ -1160,11 +1281,10 @@ class Renderer(
         // The set wrapper and every member's DOCUMENT bytes go into the walk's
         // one buffer — a member String here would be this buffer's bytes
         // copied out and copied back in (issue #237). Each member's patch
-        // fingerprint comes off the same pass: rendered separately only where
-        // the forms actually differ (a signal slot somewhere in the subtree),
-        // otherwise SLICED from the document bytes just written — the same
-        // trick a static node's non-signal `own` uses, and one full member
-        // render saved on every signal-less member, which is most of them.
+        // fingerprint is its render INPUTS (ADR 0029), computed from the
+        // resolution in hand — no second form is rendered for ANY member,
+        // signalled or not; the bytes stand for themselves only when a patch
+        // actually sends them ([[renderMember]]).
         out
           .append("""<div class="fh-cell fh-group""")
           .append(Renderer.cellClasses(s.cell))
@@ -1173,23 +1293,13 @@ class Renderer(
           .append("\">")
         val painted = resolved.foldLeft(Map.empty[NodeId, Painted]) {
           case (acc, (m, rm)) =>
-            val sigs = memberSignalsOf(rm)
-            val start = out.length
+            // The DOCUMENT bytes go into the walk's buffer; the fingerprint is
+            // the member's inputs.
             renderResolvedMemberInto(out, m, rm, SlotForm.Document)
-            val end = out.length
-            val patch =
-              if (sigs.isEmpty)
-                // No signal slot anywhere in the member's subtree: the seed
-                // attr is absent either way ([[Datastar.signalsAttr]] of
-                // nothing is "") and there is no value to withhold, so the
-                // two forms are byte-identical.
-                out.substring(start, end)
-              else {
-                val buf = new java.lang.StringBuilder(Renderer.NodeBytesHint)
-                renderResolvedMemberInto(buf, m, rm, SlotForm.Patch)
-                buf.toString
-              }
-            acc + (m.id -> Painted(patch, sigs))
+            acc + (m.id -> Painted(
+              Digest.of(memberPatchInputs(m.id, m.node.cell, rm).canonical),
+              memberSignalsOf(rm)
+            ))
         }
         out.append("</div>")
         painted
@@ -1204,7 +1314,7 @@ class Renderer(
     setElement(
       id,
       cell,
-      members.membersOf(id, states).map(renderMember(_, states, form))
+      members.membersOf(id, states).map(renderMember(_, states, form).html)
     )
 
   /** The group root is itself a cell (a first-class layout item in its
@@ -1236,31 +1346,48 @@ class Renderer(
 
   /** Render ONE set member by its entity — the by-key accessor into the graph.
     * `None` when the set id is unknown/not a set or the entity is not a current
-    * member.
+    * member. The document form is the default — an insert has to carry the
+    * values — while the digest is the member's input fingerprint either way
+    * (ADR 0029): it describes the PATCH bytes, which is what makes it
+    * comparable with what the walk recorded.
     */
   def renderMemberById(
       setId: SetId,
       entityId: String,
-      states: Map[String, EntityState]
-  ): Option[String] =
+      states: Map[String, EntityState],
+      form: SlotForm = SlotForm.Document
+  ): Option[NodeBytes] =
     members
       .membersOf(setId, states)
       .find(_.key == MemberKey.Entity(entityId))
-      .map(renderMember(_, states, SlotForm.Document))
+      .map(renderMember(_, states, form))
 
-  /** A materialised member's own bytes.
+  /** A materialised member's own bytes, with its input digest.
     *
     * Every member gets the SAME id'd `.fh-cell` wrapper as a static component,
     * so it is an addressable patch target (in-place morph / insert / remove)
     * rather than only ever re-rendered as part of the whole group — which is
     * why the wrap here is UNCONDITIONAL (a `wrapAsCell = false` card has no
     * member morph target and is not usable as a set clause).
+    *
+    * The digest is the member's INPUT digest (ADR 0029) — the same function the
+    * document walk's per-member `Painted` computes — so a refill's `Held`
+    * record and the walk's fingerprint agree by construction, and a member
+    * whose inputs did not move is suppressed without a byte comparison.
     */
   private def renderMember(
       m: Member,
       states: Map[String, EntityState],
       form: SlotForm
-  ): String = renderResolvedMember(m, resolveMember(m, states), form)
+  ): NodeBytes = {
+    val rm = resolveMember(m, states)
+    val out = new java.lang.StringBuilder(Renderer.NodeBytesHint)
+    renderResolvedMemberInto(out, m, rm, form)
+    NodeBytes(
+      out.toString,
+      Digest.of(memberPatchInputs(m.id, m.node.cell, rm).canonical)
+    )
+  }
 
   /** A member's card, resolved — and, recursively, every unaddressed node under
     * it. The counterpart of [[Resolved]] for the tree a member renders as ONE
@@ -1352,22 +1479,12 @@ class Renderer(
     * why the wrap here is UNCONDITIONAL (a `wrapAsCell = false` card has no
     * member morph target and is not usable as a set clause).
     */
-  private def renderResolvedMember(
-      m: Member,
-      rm: ResolvedMember,
-      form: SlotForm
-  ): String = {
-    val out = new java.lang.StringBuilder(Renderer.NodeBytesHint)
-    renderResolvedMemberInto(out, m, rm, form)
-    out.toString
-  }
-
   /** The member's whole wrapped rendering, written into the CALLER's buffer.
     *
     * The document walk appends members straight into its one buffer — a member
-    * String would be that buffer's bytes copied out and copied back in. Only
-    * the patch path materializes ([[renderResolvedMember]] above), because a
-    * member's patch bytes ARE its cache entry.
+    * String would be that buffer's bytes copied out and copied back in. Bytes
+    * materialize only where they are the product ([[renderMember]]), which
+    * pairs them with the member's input digest.
     */
   private def renderResolvedMemberInto(
       out: java.lang.StringBuilder,
@@ -1831,14 +1948,6 @@ class Renderer(
             resolveSlot(entity, src, states)
       }
     case _: LayoutNode.SetNode => Map.empty
-  }
-
-  /** Whether a node's own slots carry a signal — STRUCTURAL, resolving nothing.
-    * What a walk asks before paying for a second template execute.
-    */
-  private def declaresSignals(node: LayoutNode): Boolean = node match {
-    case c: LayoutNode.Component => c.slots.values.exists(Renderer.isSignalSlot)
-    case _: LayoutNode.SetNode   => false
   }
 
   /** Resolve a non-literal slot's value against its producing entity's state.

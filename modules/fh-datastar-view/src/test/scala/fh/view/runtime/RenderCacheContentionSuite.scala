@@ -132,7 +132,7 @@ class RenderCacheContentionSuite extends ServerHarness {
         states: Map[String, EntityState],
         uiState: Map[String, String],
         form: SlotForm
-    ): Option[String] = {
+    ): Option[NodeBytes] = {
       val _ = counts
         .computeIfAbsent(id, _ => new AtomicInteger(0))
         .incrementAndGet()
@@ -251,7 +251,9 @@ class RenderCacheContentionSuite extends ServerHarness {
     for {
       cache <- RenderCache.create
       _ <- (1L to 50L).toList.traverse_(n =>
-        cache("c_0_bar_0", renderer, v(n))(IO.pure(s"<b>$n</b>"))
+        cache("c_0_bar_0", renderer, v(n))(
+          IO.pure(NodeBytes(s"<b>$n</b>", Digest.of(s"<b>$n</b>")))
+        )
       )
       afterChurn <- cache.generations
       nodes <- cache.size
@@ -273,7 +275,8 @@ class RenderCacheContentionSuite extends ServerHarness {
     */
   test("a straggler does not evict the generation that overtook it") {
     val runs = new AtomicInteger(0)
-    def render(html: String) = IO(runs.incrementAndGet()).as(html)
+    def render(html: String) =
+      IO(runs.incrementAndGet()).as(NodeBytes(html, Digest.of(html)))
 
     for {
       cache <- RenderCache.create
@@ -298,7 +301,8 @@ class RenderCacheContentionSuite extends ServerHarness {
     */
   test("a newer generation does replace an older one") {
     val runs = new AtomicInteger(0)
-    def render(html: String) = IO(runs.incrementAndGet()).as(html)
+    def render(html: String) =
+      IO(runs.incrementAndGet()).as(NodeBytes(html, Digest.of(html)))
 
     for {
       cache <- RenderCache.create
@@ -319,7 +323,8 @@ class RenderCacheContentionSuite extends ServerHarness {
     val two =
       (a: Long, b: Long) => RenderInputs(Map("sensor.a" -> a, "sensor.b" -> b))
     val runs = new AtomicInteger(0)
-    def render(html: String) = IO(runs.incrementAndGet()).as(html)
+    def render(html: String) =
+      IO(runs.incrementAndGet()).as(NodeBytes(html, Digest.of(html)))
 
     for {
       cache <- RenderCache.create
@@ -338,7 +343,8 @@ class RenderCacheContentionSuite extends ServerHarness {
   /** An entity APPEARING changes what the node reads, not how fresh it is. */
   test("a different entity set is not ordered against the entry") {
     val runs = new AtomicInteger(0)
-    def render(html: String) = IO(runs.incrementAndGet()).as(html)
+    def render(html: String) =
+      IO(runs.incrementAndGet()).as(NodeBytes(html, Digest.of(html)))
 
     for {
       cache <- RenderCache.create
@@ -367,11 +373,15 @@ class RenderCacheContentionSuite extends ServerHarness {
 
     for {
       cache <- RenderCache.create
-      old <- cache(Live, before, at(1L))(IO.pure("<b>old</b>"))
+      old <- cache(Live, before, at(1L))(
+        IO.pure(NodeBytes("<b>old</b>", Digest.of("<b>old</b>")))
+      )
       first <- cache.generations
       // Same node, same inputs, DIFFERENT renderer: a hit would serve the old
       // dashboard's bytes, so it must render again.
-      fresh <- cache(Live, after, at(1L))(IO.pure("<b>new</b>"))
+      fresh <- cache(Live, after, at(1L))(
+        IO.pure(NodeBytes("<b>new</b>", Digest.of("<b>new</b>")))
+      )
       afterSwap <- cache.generations
     } yield {
       assertEquals(old.html, "<b>old</b>")

@@ -186,7 +186,7 @@ class RendererSuite extends munit.FunSuite {
   test(
     "entity-bound component is wrapped in the id'd morph target; slots escaped"
   ) {
-    val html = renderer(card).renderNodeById("c", states).get
+    val html = renderer(card).renderNodeById("c", states).get.html
     // backend-owned morph target wraps the pure-content template
     assert(
       html.startsWith("""<div class="fh-cell" id="c"><div>"""),
@@ -214,12 +214,14 @@ class RendererSuite extends munit.FunSuite {
     assert(
       r.renderNodeById("c", Map("sensor.t" -> st("sensor.t", "21.46")))
         .get
+        .html
         .contains("<span>21.5</span>")
     )
     // ...but "unavailable" never enters CEL (which would error) — shown raw.
     assert(
       r.renderNodeById("c", Map("sensor.t" -> st("sensor.t", "unavailable")))
         .get
+        .html
         .contains("<span>unavailable</span>")
     )
   }
@@ -242,6 +244,7 @@ class RendererSuite extends munit.FunSuite {
     assert(
       r.renderNodeById("c", Map("sensor.t" -> st("sensor.t", "unavailable")))
         .get
+        .html
         .contains("<span>unavailable!</span>"),
       clue = "transform should run, not be bypassed"
     )
@@ -263,6 +266,7 @@ class RendererSuite extends munit.FunSuite {
       renderer(actionNode("scene.movie"))
         .renderNodeById("c", Map.empty)
         .get
+        .html
         .contains("""href="scene/turn_on""""),
       clue = "scene domain -> scene/turn_on"
     )
@@ -270,6 +274,7 @@ class RendererSuite extends munit.FunSuite {
       renderer(actionNode("light.x"))
         .renderNodeById("c", Map.empty)
         .get
+        .html
         .contains("""href="homeassistant/toggle""""),
       clue = "other domain -> homeassistant/toggle"
     )
@@ -306,26 +311,44 @@ class RendererSuite extends munit.FunSuite {
 
     val frozen = renderer(node(Reads.Once))
     val a =
-      frozen.renderNodeById("c", Map("sensor.t" -> st("sensor.t", "one"))).get
+      frozen
+        .renderNodeById("c", Map("sensor.t" -> st("sensor.t", "one")))
+        .get
+        .html
     val b =
-      frozen.renderNodeById("c", Map("sensor.t" -> st("sensor.t", "two"))).get
+      frozen
+        .renderNodeById("c", Map("sensor.t" -> st("sensor.t", "two")))
+        .get
+        .html
     assert(a.contains("""href="one""""), clue = a)
     assertEquals(b, a) // memoized: the changed state is ignored
 
     val live = renderer(node(Reads.Live))
     val c1 =
-      live.renderNodeById("c", Map("sensor.t" -> st("sensor.t", "one"))).get
+      live
+        .renderNodeById("c", Map("sensor.t" -> st("sensor.t", "one")))
+        .get
+        .html
     val c2 =
-      live.renderNodeById("c", Map("sensor.t" -> st("sensor.t", "two"))).get
+      live
+        .renderNodeById("c", Map("sensor.t" -> st("sensor.t", "two")))
+        .get
+        .html
     assert(c1.contains("""href="one""""), clue = c1)
     assert(c2.contains("""href="two""""), clue = c2) // re-resolved
 
     // `onRender` re-resolves like `live`...
     val onRender = renderer(node(Reads.OnRender))
     val d1 =
-      onRender.renderNodeById("c", Map("sensor.t" -> st("sensor.t", "one"))).get
+      onRender
+        .renderNodeById("c", Map("sensor.t" -> st("sensor.t", "one")))
+        .get
+        .html
     val d2 =
-      onRender.renderNodeById("c", Map("sensor.t" -> st("sensor.t", "two"))).get
+      onRender
+        .renderNodeById("c", Map("sensor.t" -> st("sensor.t", "two")))
+        .get
+        .html
     assert(d1.contains("""href="one""""), clue = d1)
     assert(d2.contains("""href="two""""), clue = d2)
 
@@ -338,7 +361,7 @@ class RendererSuite extends munit.FunSuite {
   }
 
   test("missing entity renders empty slots rather than throwing") {
-    val html = renderer(card).renderNodeById("c", Map.empty).get
+    val html = renderer(card).renderNodeById("c", Map.empty).get.html
     assertEquals(
       html,
       """<div class="fh-cell" id="c"><div><span></span> </div></div>"""
@@ -365,7 +388,7 @@ class RendererSuite extends munit.FunSuite {
     // its children, so a patch would re-send them. The child is the target.
     assertEquals(r.renderNodeById("c_0", Map.empty), None)
     assertEquals(
-      r.renderNodeById("c_0_0", Map.empty).get,
+      r.renderNodeById("c_0_0", Map.empty).get.html,
       """<div class="fh-cell" id="c_0_0"><button>Go</button></div>"""
     )
   }
@@ -390,7 +413,7 @@ class RendererSuite extends munit.FunSuite {
     assertEquals(d.validate(), Nil)
     val r = Renderer.create(d)
     assertEquals(
-      r.renderNodeById("c", Map.empty).get,
+      r.renderNodeById("c", Map.empty).get.html,
       """<a class="tab" data-tab="c"><span>42</span></a>"""
     )
   }
@@ -455,7 +478,7 @@ class RendererSuite extends munit.FunSuite {
       cell = Some(Cell(classes = List("fh-cols-3", "hero")))
     )
     assertEquals(
-      renderer(sized).renderNodeById("c", Map.empty).get,
+      renderer(sized).renderNodeById("c", Map.empty).get.html,
       """<div class="fh-cell fh-cols-3 hero" id="c"><button>Go</button></div>"""
     )
 
@@ -481,7 +504,8 @@ class RendererSuite extends munit.FunSuite {
           "light.a",
           Map("light.a" -> st("light.a", "on"))
         )
-        .get,
+        .get
+        .html,
       """<div class="fh-cell fh-cols-4" id="c_light_a"><button>L</button></div>"""
     )
   }
@@ -598,12 +622,15 @@ class RendererSuite extends munit.FunSuite {
     val r = renderer(g)
     val wrap =
       (inner: String) => s"""<div class="fh-cell" id="c">$inner</div>"""
-    assertEquals(r.renderNodeById("c", Map.empty).get, wrap("""<i>0</i>"""))
+    assertEquals(
+      r.renderNodeById("c", Map.empty).get.html,
+      wrap("""<i>0</i>""")
+    )
     val off = Map("light.x" -> st("light.x", "off", "brightness" -> Json.Null))
-    assertEquals(r.renderNodeById("c", off).get, wrap("""<i>0</i>"""))
+    assertEquals(r.renderNodeById("c", off).get.html, wrap("""<i>0</i>"""))
     val on =
       Map("light.x" -> st("light.x", "on", "brightness" -> Json.fromInt(200)))
-    assertEquals(r.renderNodeById("c", on).get, wrap("""<i>200</i>"""))
+    assertEquals(r.renderNodeById("c", on).get.html, wrap("""<i>200</i>"""))
   }
 
   test("a set dispatches per clause and wraps each member on its own") {
@@ -734,7 +761,7 @@ class RendererSuite extends munit.FunSuite {
       card = "btn",
       slots = Map("label" -> SlotSource(transform = "\"Hi\""))
     )
-    val html = renderer(node).renderNodeById("c", Map.empty).get
+    val html = renderer(node).renderNodeById("c", Map.empty).get.html
     assert(html.contains("<button>Hi</button>"), clue = html)
   }
 
@@ -870,7 +897,10 @@ class RendererSuite extends munit.FunSuite {
     // inner node ids are surface-namespaced and individually re-renderable
     assert(html.contains("""id="s_detail__c""""), clue = html)
     assert(
-      r.renderNodeById("s_detail__c", states).get.contains("<span>42</span>")
+      r.renderNodeById("s_detail__c", states)
+        .get
+        .html
+        .contains("<span>42</span>")
     )
     // the surface's entity drives ONLY the surface index, not the main page
     assert(
@@ -1398,7 +1428,7 @@ class RendererSuite extends munit.FunSuite {
     // THE contract, and the reason the whole design exists: a live tick patches
     // the header and carries NOTHING of the panel. A change to the title cannot
     // re-render what the tabs host holds.
-    val patch = rr.renderNodeById("c_bar_0", states).get
+    val patch = rr.renderNodeById("c_bar_0", states).get.html
     assertEquals(
       patch,
       """<div class="fh-cell" id="c_bar_0"><span>Live</span></div>"""
@@ -1459,7 +1489,7 @@ class RendererSuite extends munit.FunSuite {
       "light.b" -> st("light.b", "off")
     )
     assertEquals(
-      r.renderMemberById(setId("c"), "light.a", states).get,
+      r.renderMemberById(setId("c"), "light.a", states).get.html,
       """<div class="fh-cell" id="c_light_a"><div><span>on</span> </div></div>"""
     )
     // fails the query -> not a member
@@ -1687,7 +1717,7 @@ class RendererSuite extends munit.FunSuite {
       Renderer
         .create(declared)
         .renderNodeById("c_0", states)
-        .exists(_.contains("A0"))
+        .exists(_.html.contains("A0"))
     )
   }
 
@@ -1734,8 +1764,8 @@ class RendererSuite extends munit.FunSuite {
     val states = Map("sensor.a" -> st("sensor.a", "A0"))
     // The head is the patch target and its bytes are its own...
     val head = r.renderNodeById("c_head_0", states)
-    assert(head.exists(_.contains("A0")), clue = head)
-    assert(!head.exists(_.contains("m")), clue = head)
+    assert(head.exists(_.html.contains("A0")), clue = head)
+    assert(!head.exists(_.html.contains("m")), clue = head)
     // ...and the host, being structure, is not a patch target at all.
     assertEquals(r.renderNodeById("c", states), None)
   }
@@ -1931,7 +1961,7 @@ class RendererSuite extends munit.FunSuite {
     // The container holds regions, so it is not rendered by id...
     assertEquals(r.renderNodeById("c", states), None)
     // ...and the live bar's patch is its own cell, with the live value.
-    val patch = r.renderNodeById("c_bar_0", states).get
+    val patch = r.renderNodeById("c_bar_0", states).get.html
     assert(patch.contains("""id="c_bar_0""""), clue = patch)
     assert(patch.contains("21"), clue = patch)
     // What it is NOT — the point of the whole design.

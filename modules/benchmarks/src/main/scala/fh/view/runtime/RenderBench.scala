@@ -106,7 +106,7 @@ class RenderBench {
   private var simpleProbes: List[Transform.Simple] = null
   private var engineShapes: List[Transform.Compiled] = null
   private var entityTemplate: com.github.mustachejava.Mustache = null
-  private var painted: List[String] = null
+  // (removed: the `painted` fixture fed the retired holdsSeed cell)
 
   @Setup(Level.Trial)
   def setup(): Unit = {
@@ -167,7 +167,6 @@ class RenderBench {
     entityTemplate = Templates
       .from(Dashboard(cards, tree(Leaves, 4, signals = true)))
       .components("entity")
-    painted = signalled.renderPageTraced(st).own.values.map(_.html).toList
   }
 
   /** The baseline: a whole page, no signal slots. */
@@ -317,10 +316,13 @@ class RenderBench {
     }
   }
 
-  /** Seeding `holds`: one SHA-256 per painted node, on every page open. */
-  @Benchmark
-  def holdsSeed(bh: Blackhole): Unit =
-    painted.foreach(h => bh.consume(Digest.of(h)))
+  /** Seeding `holds` used to be one SHA-256 over each painted node's patch
+    * BYTES, on every page open — that cell existed to price it. ADR 0029
+    * dissolved the pass: the digest is computed from the render INPUTS inside
+    * the walk itself (it is in [[page]] and [[pageSignals]]), and seeding
+    * `holds` reads what the walk already produced. There is nothing left to
+    * measure here that the page cells do not already carry.
+    */
 }
 
 object RenderBench {

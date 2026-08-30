@@ -168,7 +168,7 @@ class SessionLifecycleSuite extends ServerHarness {
         val body = renderer.renderNodeById("c_0", snapshot.entities)
         assertEquals(
           held.flatMap(_.get("c_0")),
-          body.map(Held.of),
+          body.map(nb => Held(Some(nb.digest))),
           clue = held
         )
         assertEquals(

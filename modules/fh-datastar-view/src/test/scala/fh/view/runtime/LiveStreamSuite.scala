@@ -347,13 +347,16 @@ class LiveStreamSuite extends ServerHarness {
             _ <- sessions.register(conn, session)
             renderer <- ref.get.map(_.rendererOf.get)
             live <- server.liveSlug("dashboard")
-            painted = Held.of(
-              renderer
-                .renderNodeById(
-                  "s_det__c_0",
-                  Map("sensor.a" -> es("sensor.a", "cold"))
-                )
-                .get
+            painted = Held(
+              Some(
+                renderer
+                  .renderNodeById(
+                    "s_det__c_0",
+                    Map("sensor.a" -> es("sensor.a", "cold"))
+                  )
+                  .get
+                  .digest
+              )
             )
             node = NodeId.derived("s_det__c_0")
             // Nothing is claimed for a surface nobody has opened.
@@ -499,7 +502,7 @@ class LiveStreamSuite extends ServerHarness {
     val leaf: NodeId = "s_then__c_0"
     assertEquals(
       patch.establishes.get(leaf),
-      r.renderNodeById(leaf, armed).map(Held.of)
+      r.renderNodeById(leaf, armed).map(nb => Held(Some(nb.digest)))
     )
     // And the branch ROOT gets nothing: it has no rendering of its own, so a
     // claim there could never be resolved.
@@ -532,7 +535,12 @@ class LiveStreamSuite extends ServerHarness {
     // earlier connect on tab 0 would have left behind.
     val log = FragmentLog("w23").touched(host, 5L)
     val holds: Map[NodeId, Held] =
-      Map(host -> Held.of(r.renderNodeById(host, states).get))
+      Map(
+        host -> r
+          .renderNodeById(host, states)
+          .map(nb => Held(Some(nb.digest)))
+          .get
+      )
     val owed = resumeNow(
       r,
       log,
@@ -583,7 +591,7 @@ class LiveStreamSuite extends ServerHarness {
       (r.surfaceNodeIds("det") ++ r.surfaceNodeIds("t1")).toList.sorted
     val seeded = FragmentLog("w18")
     val held = ids.flatMap { id =>
-      r.renderLogged(id, before, mine).map(h => id -> Held.of(h))
+      r.renderLogged(id, before, mine).map(nb => id -> Held(Some(nb.digest)))
     }.toMap
 
     // (1) A change inside TAB 0's panel. Invisible to this viewer, and its

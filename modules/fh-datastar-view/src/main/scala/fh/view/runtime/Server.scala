@@ -1109,7 +1109,7 @@ class Server(
             val claim = resumed.fold(store.version)(_ => covered)
             val record = resumed.fold(
               session.holds.set(painted.own.map { case (id, p) =>
-                id -> Held(Some(Digest.of(p.html)), p.signals)
+                id -> Held(Some(p.digest), p.signals)
               })
             )(patches =>
               session.holds.update(
@@ -1198,7 +1198,7 @@ class Server(
                   // would suppress the frame a value's return needs.
                   val painted = r.renderBodyTraced(store.entities, uiState)
                   session.holds.set(painted.own.map { case (id, p) =>
-                    id -> Held(Some(Digest.of(p.html)), p.signals)
+                    id -> Held(Some(p.digest), p.signals)
                   }) *>
                     session.position.set(store.version) *>
                     session.told
@@ -1773,7 +1773,7 @@ class Server(
         renderer.surfaces.openPopup(uiState)
       )
       _ <- session.holds.set(painted.own.map { case (id, p) =>
-        id -> Held(Some(Digest.of(p.html)), p.signals)
+        id -> Held(Some(p.digest), p.signals)
       })
       _ <- session.position.set(store.version)
       // The page renders the cursor into its own signals, so the document

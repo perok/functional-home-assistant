@@ -123,7 +123,7 @@ class SignalSlotSuite extends ServerHarness {
   }
 
   test("the patch form carries neither the value nor the seed") {
-    val patch = renderer.renderNodeById(leaf, at("21.4")).get
+    val patch = renderer.renderNodeById(leaf, at("21.4")).get.html
     assertEquals(patch.contains("21.4"), false, clue = patch)
     assertEquals(patch.contains("data-signals"), false, clue = patch)
     // The BINDING stays: it is what the frame feeds, and a morph that dropped
@@ -131,7 +131,7 @@ class SignalSlotSuite extends ServerHarness {
     assert(patch.contains("data-text=\"$_e.sensor.a.state\""), clue = patch)
   }
 
-  test("a node with no signal slot renders one form, by reference") {
+  test("a node's fingerprint covers its bytes and ignores signal values") {
     val plain = Dashboard(
       Map("plain" -> CardDef("<b>{{value}}</b>", slots = List("value"))),
       LayoutNode.Component(
@@ -142,36 +142,34 @@ class SignalSlotSuite extends ServerHarness {
         )
       )
     )
-    // Not merely equal — the SAME reference, which is the guard on the cost: a
-    // subtree that opted into nothing must not pay for a second template
-    // execute. Asserted on ONE walk, because that is the only place the two
-    // forms can share a string; two separate calls build two strings whatever
-    // the slots say.
-    //
-    // The second form is read off `own`, which is the only place it exists:
-    // `Traced` carries no `patch` of its own, so STRUCTURE cannot have one at
-    // all. That is why there is no companion test for "a container over a
-    // signalled leaf renders once" — it is not a behaviour to check, it is
-    // unrepresentable.
-    // The walk writes the node's bytes ONCE into its buffer, so `own` is a
-    // SLICE of that buffer rather than the same String object the old
-    // string-splice walk reused — reference identity is unrepresentable now.
-    // What the guard still holds: byte equality (no second form) and, by
-    // construction, one template execute (the walk builds no second rendering
-    // of a signal-free node).
+    // Since ADR 0029 the walk produces NO patch bytes at all: `own` carries
+    // the node's INPUT digest, and the bytes those inputs stand for are what
+    // [[renderNodeById]] renders on demand. Equal digest ⟺ equal bytes is the
+    // biconditional [[DigestPropertySuite]] holds over generated shapes; these
+    // are its example-level anchors.
     val free = Renderer.create(plain).renderBodyTraced(at("21.4"))
     val freeId = free.own.keys.head
-    assert(
-      free.own(freeId).html == free.html,
-      clue = "a signal-free node rendered twice"
+    val freePatch =
+      Renderer.create(plain).renderNodeById(freeId, at("21.4")).get
+    assertEquals(freePatch.digest, free.own(freeId).digest)
+    // A signal-free node's patch bytes carry its value — nothing is withheld.
+    assert(freePatch.html.contains("21.4"), clue = freePatch.html)
+    // A SIGNALLED node's fingerprint does not move when only the signal VALUE
+    // moves: the digest excludes exactly what the patch form withholds.
+    val at1 = renderer.renderBodyTraced(at("21.4"))
+    val at2 = renderer.renderBodyTraced(at("99.9"))
+    val signalledId = at1.own.keys.head
+    assertEquals(at2.own(signalledId).digest, at1.own(signalledId).digest)
+    // The document carries the value inline; the patch bytes withhold it.
+    assert(at1.html.contains("21.4"), clue = at1.html)
+    assertEquals(
+      renderer
+        .renderNodeById(signalledId, at("99.9"))
+        .get
+        .html
+        .contains("99.9"),
+      false
     )
-    // ...and the same walk over the signal card really does produce two.
-    val signalled = renderer.renderBodyTraced(at("21.4"))
-    val signalledId = signalled.own.keys.head
-    val signalledPatch = signalled.own(signalledId).html
-    assert(signalled.html ne signalledPatch)
-    assert(signalled.html.contains("21.4"), clue = signalled.html)
-    assertEquals(signalledPatch.contains("21.4"), false, signalledPatch)
   }
 
   // ---------------------------------------------------------------------------
@@ -186,7 +184,7 @@ class SignalSlotSuite extends ServerHarness {
       states: Map[String, EntityState]
   ): Map[NodeId, Held] =
     r.renderPageTraced(states).own.map { case (id, p) =>
-      id -> Held(Some(Digest.of(p.html)), p.signals)
+      id -> Held(Some(p.digest), p.signals)
     }
 
   private def resumeFrom(
@@ -406,7 +404,7 @@ class SignalSlotSuite extends ServerHarness {
       r,
       log,
       r.renderPageTraced(lit(40)).own.map { case (id, p) =>
-        id -> Held(Some(Digest.of(p.html)), p.signals)
+        id -> Held(Some(p.digest), p.signals)
       },
       lit(41),
       1L,
@@ -615,7 +613,7 @@ class SignalSlotSuite extends ServerHarness {
       .touched(NodeId.derived("c_0"), 1L)
       .touched(NodeId.derived("c_1"), 1L)
     val held = r.renderPageTraced(both("1", "2")).own.map { case (id, p) =>
-      id -> Held(Some(Digest.of(p.html)), p.signals)
+      id -> Held(Some(p.digest), p.signals)
     }
     val out =
       resumeNow(r, log, held, both("9", "8"), 1L, Set.empty, Map.empty)
@@ -809,7 +807,7 @@ class SignalSlotSuite extends ServerHarness {
     // departure fills the host wholesale instead of emitting a delta.
     val _ = r.members.syncMembers(Nil, on, on)
     val held = r.renderPageTraced(on).own.map { case (id, p) =>
-      id -> Held(Some(Digest.of(p.html)), p.signals)
+      id -> Held(Some(p.digest), p.signals)
     }
     val seededLog = List("c_light_a", "c_light_b")
       .foldLeft(FragmentLog("test"))((l, id) =>
