@@ -18,7 +18,7 @@ import io.circe.Json
   */
 class TransformsSuite extends munit.CatsEffectSuite {
 
-  test("a state direct transform renders exactly what CEL would") {
+  test("a state fast-path transform renders exactly what CEL would") {
     // The fast path skips the engine for the plain `state` read (issue #237).
     // It is only safe while the two render EVERY state shape identically, so
     // this compares them rather than asserting expected output: the oracle is
@@ -33,9 +33,9 @@ class TransformsSuite extends munit.CatsEffectSuite {
       "locks path with \"quotes\""
     )
     val expr = "state"
-    val direct = fh.view.model.Transform
-      .direct(expr)
-      .getOrElse(fail(s"$expr should be recognised as direct"))
+    val simple = fh.view.model.Transform
+      .simple(expr)
+      .getOrElse(fail(s"$expr should be recognised as simple"))
     states.foreach { state =>
       val entity = EntityState("sensor.a", state, Map.empty[String, Json])
       val viaEngine = fh.view.model.Transform.run(
@@ -46,29 +46,64 @@ class TransformsSuite extends munit.CatsEffectSuite {
         "dashboard"
       )
       assertEquals(
-        fh.view.model.Transform.runDirect(direct, entity),
-        viaEngine,
+        fh.view.model.Transform.runSimple(simple, entity),
+        Some(viaEngine),
         clue = state
       )
     }
   }
 
-  test("only the state shape is direct; everything else goes to CEL") {
-    // The guard against this growing into a second implementation of the
-    // language. Each of these READS like a direct shape and is not one.
-    List(
+  test("the closed set is recognised; near-misses go to the engine") {
+    // The catalog is closed over the strings the shipped library bakes — each
+    // of these IS one, byte-for-byte:
+    val canonical = List(
+      "state",
+      "  state  ",
+      "'brightness' in attr ? attr['brightness'] : null",
+      "('friendly_name' in attr ? attr['friendly_name'] : entity_id)",
+      "state + ('unit_of_measurement' in attr ? ' ' + " +
+        "attr['unit_of_measurement'] : '')",
       "state + ' W'",
+      "'lit' + state",
+      "state == 'on' ? 'Open' : 'Closed'",
+      "state == 'locked' ? 'lock/unlock' : 'lock/lock'",
+      // the slider's baked percent and fill (min 1, max 255)
+      "cel.bind(v, 'brightness' in attr ? attr['brightness'] : null, " +
+        "v != null ? str(math.round((double(v) - 1.0) * 100.0 / (255.0 - 1.0))) " +
+        "+ ' %' : '0 %')",
+      "str(cel.bind(v, 'brightness' in attr ? attr['brightness'] : null, " +
+        "v != null ? 100.0 - ((double(v) - 1.0) * 100.0 / (255.0 - 1.0)) " +
+        ": 100.0)) + '%'"
+    )
+    canonical.foreach(e =>
+      assert(fh.view.model.Transform.simple(e).isDefined, clue = e)
+    )
+    // The guard against this growing into a second implementation of the
+    // language. Each of these READS like a member of the set and is not one:
+    // a different fallback, a bare read, an int literal where a float is
+    // spliced, a half-formed enum — all engine work.
+    List(
       "stater",
       "'state'",
       "str(state)",
       "attr",
-      "state == 'on' ? 'Open' : 'Closed'",
-      "'friendly_name' in attr ? attr['friendly_name'] : entity_id"
+      "attr['brightness']",
+      "str(attr['brightness'])",
+      "'friendly_name' in attr ? attr['friendly_name'] : entity_id",
+      "'friendly_name' in attr ? attr['friendly_name'] : ''",
+      "state + \" W\"",
+      "state + 1.0",
+      "state == 'on' ? 'Open'",
+      "state == 5 ? 'Open' : 'Closed'",
+      "cel.bind(v, 'brightness' in attr ? attr['brightness'] : null, " +
+        "v != null ? str(math.round((double(v) - 1) * 100.0 / (255 - 1))) " +
+        "+ ' %' : '0 %')",
+      "str(cel.bind(v, 'brightness' in attr ? attr['brightness'] : null, " +
+        "v != null ? 100.0 - ((double(v) - 1.0) * 100.0 / (255.0 - 1.0)) " +
+        ": 100.0)) + ' %'"
     ).foreach(e =>
-      assertEquals(fh.view.model.Transform.direct(e), None, clue = e)
+      assertEquals(fh.view.model.Transform.simple(e), None, clue = e)
     )
-    // ...and the one that IS, including surrounding whitespace.
-    assert(fh.view.model.Transform.direct("  state  ").isDefined)
   }
 
   // The expression the shipped `c.tap.service("light/toggle")` emits: the action

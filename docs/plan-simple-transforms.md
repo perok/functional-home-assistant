@@ -115,20 +115,35 @@ number text (16, → stringifier decision in Dec. #2), one half-away step, error
 - Signal/slot semantics, Mustache, the renderer's node walk, candidate sets: untouched (the
   change is inside the transform step, same dispatch shape).
 
-### Phase 2 — re-target the catalog
+### Phase 2 — re-target the catalog ✅ done (2026-08-29)
 
-- `Transform.Direct` (`State`, `Attr`) → `Transform.Simple` with the full closed form set,
-  recognized over the CEL-canonical strings the re-authored library emits: the raw reads
-  (`state` / `attr["x"]`), fallback-to-id, unit suffix, literal prefix/suffix, range percent and
-  range fill, and the `state == 'on' ? ... : ...` enum. `Transforms.run` tries `simple` first and
-  falls back to the CEL engine; `runSimple: Option[String]` returns `None` on an unmodeled value
-  type so the engine's bytes (error text included) win — a safe fast path, never a different
-  answer.
-- **Parity suite in `testFull`, CEL as oracle:** each recognized string run both ways over the
-  sweep (whole/half/fractional/off-a-hair plus absent/empty/null), byte-equal per value, with the
-  `Percent`/`Fill` batteries. `TransformsSuite`'s guard moves to the new boundary (near-misses
-  resolve to `None`/engine). Benchmarks swap the `jsonata` cells for `simple` vs `cel` cells;
-  `RenderBench.TransformFill` is corrected to the true shipped bytes.
+- **`Transform.Direct` is now `Transform.Simple`** with the closed form set,
+  recognized over the CEL-canonical strings the re-authored library emits: the
+  raw `state` read, the guarded attribute read (`'x' in attr ? attr['x'] : null`,
+  whose fast path returns `""` for the absent key — the engine's NullValue arm,
+  byte-identical), the parenthesized fallback-to-id name, the unit suffix, a
+  literal prefix/suffix, the `state == 'x' ? 'a' : 'b'` enum, and the slider's
+  range percent and fill (the Pkl-spliced `min`/`max` float literals are parsed
+  out of the string; the repeat-occurrence guard checks the spliced min really
+  appears twice). The fill colour and more-info's comprehension stay on the
+  engine — they genuinely need the language.
+- **`Transforms.run` tries `simple` first**; `runSimple: Option[String]`
+  returns `None` on an unmodeled VALUE (a non-numeric position, a non-string
+  unit) so the engine's bytes — error text included — win. A parity battery in
+  TransformSuite runs every recognized form both ways over the hostile sweep
+  (min edge, off-a-hair negative, fractional, absent, empty-string, odd types,
+  a list-valued attr) and asserts byte-equality per value; TransformsSuite's
+  boundary test pins the near-misses (the bare unparenthesized name form, an
+  int literal where a float is spliced, a half-formed enum) to `None`.
+- **No wire byte moved**: recognition is over the strings the library already
+  bakes, so the snapshots are untouched by construction.
+- **Benchmarks**: the retired-engine cells are gone; `RenderBench.simple`
+  measures the production dispatch (fast tier + fallback) against the
+  `cel` engine-only baseline and the `direct` raw-read floor. Measured
+  (1200 evals/op): `simple` 1001 µs / 968.9 kB vs `cel` 1592 µs / 1074.2 kB —
+  **-37% CPU / -10% allocation** on the mixed workload (4 of 6 shapes fast);
+  the fast reads land at ~61 B vs ~895 B per engine eval, while percent/fill
+  stay numToString-heavy on both paths. `direct`: 24 ns / 61 B per read.
 
 ## Inventory of shipped transform strings (unchanged surface, now the re-author list)
 
@@ -158,6 +173,46 @@ engine (they genuinely need the language) in both worlds.
   row. `Transform`/`Transforms` scaladocs state the catalog + parity contract.
 - A new ADR lands *after* the swap (engine choice + CEL-native semantics + the fast-path
   catalog), per the repo routine.
+
+## Phase 3 (candidate — discuss before building): the structured transform surface
+
+Phase 2's recognition is byte-anchored on purpose (the canonical spellings are
+ours and the wire snapshots pin them), but its tier selection is sensitive to
+expression spelling by construction. Two follow-ups are on the table, in
+increasing order of ambition:
+
+1. **Recognition over the parsed CEL AST** (lightest). We already parse every
+   transform at validate; matching the AST structurally —
+   `Ternary(In(attr,'x'), Index(attr,'x'), Null)` rather than the bytes —
+   survives cosmetic edits while staying just as strict. Cost: coupling the
+   recognizer to cel-java's AST API. A contained swap inside `Transform.simple`;
+   nothing else changes.
+2. **A structured transform surface — our own micro-engine** (the leaning):
+   author structured params instead of strings, e.g.
+   `simpleTransform: { value: 'attr.brightness', op: 'round(2)', prefix: null,
+   postfix: '%' }`. Do the important cases fit one format? Mostly, with four
+   additions:
+
+   | Shipped shape | Structured form |
+   |---|---|
+   | raw `state` / guarded attr read | `{ value: 'state' \| 'attr.x' }` — presence semantics become IMPLICIT in the structure, so the author can never write an unguarded read |
+   | fallback-to-id name | `+ fallback: 'entity_id'` |
+   | unit suffix | `+ append: { attr: 'unit_of_measurement', sep: ' ' }` (append-if-present) |
+   | literal prefix/suffix | `prefix` / `postfix` |
+   | state enum | `{ map: { locked: 'lock/unlock' }, default: 'lock/lock' }` |
+   | range percent / fill | `{ value: 'attr.brightness', range: [1, 255], kind: 'percent' \| 'fill' }` |
+   | fill colour, attr lines | out — engine, by design |
+
+   The fork to decide: **(a)** structure as AUTHORING SUGAR only — the Pkl
+   components take structured params and GENERATE the canonical CEL string
+   (byte-stable by construction — a generator cannot reformat), wire unchanged,
+   recognition unchanged; or **(b)** structure ON THE WIRE as the fast path —
+   the renderer evaluates the structure directly, recognition disappears, but
+   the wire then carries two value systems (structured for simple slots, CEL
+   strings for the rest) and decode/validate/editor grow accordingly. (b) is
+   the shape decision #4 rejected in Phase 1 — it deserves a fresh look only
+   if the recognition-tier sensitivity actually bites in practice, or when the
+   editor wants to offer structured transform editing anyway.
 
 ## Out of scope
 

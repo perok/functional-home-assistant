@@ -54,52 +54,149 @@ object Transform {
   /** A compiled CEL program (see [[Cel]]). */
   type Compiled = Cel.Program
 
-  /** The transform shapes that read a value and apply nothing to it.
+  /** The closed set of transform shapes evaluated WITHOUT the engine — the fast
+    * tier beside it (ADR 0027, plan Phase 2).
     *
-    * They are worth separating because an ENGINE charges for being an engine: a
-    * general evaluator converts the entity into its own value model on every
-    * evaluation. On the renderer's warm path one evaluation of the six shipped
-    * shapes costs ~0.9 kB of cel-java's planner runtime (`benchmarks/
-    * RenderBench.cel`), against ~45 B for a direct read (`benchmarks/
-    * RenderBench.direct`) — so on the shape that applies nothing, the fast path
-    * saves the whole engine cost, not a fraction (issue #237). `Transforms.run`
-    * resolves them at startup and never sends them to an engine.
+    * An engine charges for being an engine: a general evaluator converts the
+    * entity into its own value model on every evaluation. On the renderer's
+    * warm path one evaluation of the six shipped shapes costs ~0.9 kB of
+    * cel-java's planner runtime (`benchmarks/RenderBench.cel`), against ~45 B
+    * for a direct read (`benchmarks/RenderBench.direct`) — so every shape the
+    * library ships that CAN be read as data, should be. The set is closed over
+    * the CEL-canonical strings the Pkl library bakes: the raw `state` read, the
+    * guarded attribute read, the fallback-to-id name, the unit suffix, a
+    * literal prefix/suffix, the state enum, and the slider's range percent and
+    * fill (the spliced min/max literals ride IN the string, so recognition
+    * parses them out). The fill colour and more-info's comprehension stay on
+    * the engine — they genuinely need the language.
     *
-    * Phase 1 recognises only the bare `state` read: it is the
-    * guaranteed-present one (the fast path survives for every plain state
-    * slot). An `attr` read is ship-shaped GUARDED (`'x' in attr ? attr['x'] :
-    * …`), and guards need the engine — correctness first, the `Direct.Attr`
-    * fast path re-targets in Phase 2 (the benchmark keeps pricing the read
-    * mechanism).
-    *
-    * `None` for everything else, which is the honest answer: anything with an
-    * operator, a function or a conditional goes to the engine, and this must
-    * never grow into a second implementation of the language.
+    * The catalog is a RECOGNITION over those strings, never a second
+    * implementation of the language: [[runSimple]] returns `None` for any value
+    * it cannot model (a non-numeric position, a non-string unit) and
+    * [[Transforms.run]] falls back to the engine, whose bytes — error text
+    * included — always win. A parity battery in TransformSuite runs each
+    * recognized form both ways over the hostile sweep, so the fast path is only
+    * ever an optimisation, never a different answer.
     */
-  enum Direct {
+  enum Simple {
     case State
     case Attr(name: String)
+    case AttrOrId(name: String)
+    case UnitSuffix(name: String)
+    case Prefix(literal: String)
+    case Suffix(literal: String)
+    case Enum(equalTo: String, thenValue: String, otherwise: String)
+    case Percent(name: String, min: Double, max: Double)
+    case Fill(name: String, min: Double, max: Double)
   }
 
-  /** Recognise a [[Direct]] shape. Deliberately strict — a leading/trailing
-    * space is already handled by the trim, but anything else at all (`state `
-    * with an operator after it, `state == 'on' ? … : …`) is not the one shape
-    * and must go to the engine.
+  // The canonical strings, one anchored shape each. The attribute name is
+  // matched twice (in the presence test and the read) and must agree; the
+  // range literals are the Pkl-spliced float forms (`1.0`, `255.0`).
+  private val AttrShape =
+    """^'([^']+)' in attr \? attr\['([^']+)'\] : null$""".r
+  private val AttrOrIdShape =
+    """^\('([^']+)' in attr \? attr\['([^']+)'\] : entity_id\)$""".r
+  private val UnitSuffixShape =
+    """^state \+ \('([^']+)' in attr \? ' ' \+ attr\['([^']+)'\] : ''\)$""".r
+  private val PrefixShape = """^'([^']*)' \+ state$""".r
+  private val SuffixShape = """^state \+ '([^']*)'$""".r
+  private val EnumShape = """^state == '([^']*)' \? '([^']*)' : '([^']*)'$""".r
+  private val PercentShape =
+    """^cel\.bind\(v, '([^']+)' in attr \? attr\['([^']+)'\] : null, v != null \? str\(math\.round\(\(double\(v\) - ([0-9]+\.[0-9]+)\) \* 100\.0 / \(([0-9]+\.[0-9]+) - ([0-9]+\.[0-9]+)\)\)\) \+ ' %' : '0 %'\)$""".r
+  private val FillShape =
+    """^str\(cel\.bind\(v, '([^']+)' in attr \? attr\['([^']+)'\] : null, v != null \? 100\.0 - \(\(double\(v\) - ([0-9]+\.[0-9]+)\) \* 100\.0 / \(([0-9]+\.[0-9]+) - ([0-9]+\.[0-9]+)\)\) : 100\.0\)\) \+ '%'$""".r
+
+  /** Recognise a [[Simple]] shape. Deliberately strict: the trimmed string must
+    * be one of the canonical forms byte-for-byte (a double-quoted literal, a
+    * bare attr read, a second operator — anything else at all — is engine work,
+    * and this must never grow into a second implementation of the language).
+    * The range literals must parse as the floats Pkl splices, with a
+    * non-degenerate range.
     */
-  def direct(src: String): Option[Direct] = src.trim match {
-    case "state" => Some(Direct.State)
-    case _       => None
+  def simple(src: String): Option[Simple] = src.trim match {
+    case "state"                                 => Some(Simple.State)
+    case AttrShape(guard, read) if guard == read =>
+      Some(Simple.Attr(guard))
+    case AttrOrIdShape(guard, read) if guard == read =>
+      Some(Simple.AttrOrId(guard))
+    case UnitSuffixShape(guard, read) if guard == read =>
+      Some(Simple.UnitSuffix(guard))
+    case PrefixShape(lit)                => Some(Simple.Prefix(lit))
+    case SuffixShape(lit)                => Some(Simple.Suffix(lit))
+    case EnumShape(eq, thenV, otherwise) =>
+      Some(Simple.Enum(eq, thenV, otherwise))
+    case PercentShape(guard, read, min, max, min2)
+        if guard == read && min == min2 =>
+      range(min, max).map(Simple.Percent(guard, _, _))
+    case FillShape(guard, read, min, max, min2)
+        if guard == read && min == min2 =>
+      range(min, max).map(Simple.Fill(guard, _, _))
+    case _ => None
   }
 
-  /** Evaluate a [[Direct]] shape without the engine, stringified exactly as
+  private def range(min: String, max: String): Option[(Double, Double)] = {
+    val (dmin, dmax) = (min.toDouble, max.toDouble)
+    // A degenerate range divides by zero; the engine would render the IEEE
+    // result ("Infinity"/"NaN") and so could the fast path, but no shipped
+    // shape can produce one — treat it as not-a-shape rather than model it.
+    if (!dmin.isNaN && !dmax.isNaN && dmax != dmin) Some((dmin, dmax)) else None
+  }
+
+  /** Evaluate a [[Simple]] shape without the engine, stringified exactly as
     * [[run]] would — the SAME rendering, so the two cannot drift in how they
-    * render a state, a number or an absent value.
+    * render a state, a number, a list or an absent value. `None` for a value
+    * the shape cannot model (a non-numeric position, a non-string unit): the
+    * caller falls back to the engine, whose bytes — error text included — win.
     */
-  def runDirect(d: Direct, entity: EntityState): String = d match {
-    case Direct.State      => entity.state
-    case Direct.Attr(name) =>
-      asString(entity.javaAttributes.get(name))
-  }
+  def runSimple(s: Simple, entity: EntityState): Option[String] =
+    s match {
+      case Simple.State      => Some(entity.state)
+      case Simple.Attr(name) =>
+        Some(asString(entity.javaAttributes.get(name)))
+      case Simple.AttrOrId(name) =>
+        val v = entity.javaAttributes.get(name)
+        Some(if v == null then entity.entityId else asString(v))
+      case Simple.UnitSuffix(name) =>
+        entity.javaAttributes.get(name) match {
+          case u: String => Some(entity.state + " " + u)
+          case null      => Some(entity.state)
+          case _ => None // the engine errors on `' ' + nonString`; let it
+        }
+      case Simple.Prefix(lit)                => Some(lit + entity.state)
+      case Simple.Suffix(lit)                => Some(entity.state + lit)
+      case Simple.Enum(eq, thenV, otherwise) =>
+        Some(if entity.state == eq then thenV else otherwise)
+      case Simple.Percent(name, min, max) =>
+        entity.javaAttributes.get(name) match {
+          case null                => Some("0 %")
+          case n: java.lang.Number =>
+            Some(
+              numToString(
+                roundAway((n.doubleValue - min) * 100.0 / (max - min))
+              ) +
+                " %"
+            )
+          case _ => None // `double(nonNumeric)` errors in the engine; let it
+        }
+      case Simple.Fill(name, min, max) =>
+        entity.javaAttributes.get(name) match {
+          case null                => Some("100%")
+          case n: java.lang.Number =>
+            Some(
+              numToString(
+                100.0 - (n.doubleValue - min) * 100.0 / (max - min)
+              ) + "%"
+            )
+          case _ => None
+        }
+    }
+
+  /** [[math.round]]'s away-from-zero, as a Double — the rounding the engine's
+    * `math.round` applies before `str` renders it.
+    */
+  private def roundAway(d: Double): Double =
+    BigDecimal(d).setScale(0, BigDecimal.RoundingMode.HALF_UP).toDouble
 
   /** Compile a CEL expression (build/validate time). */
   def parse(src: String): Either[String, Compiled] = Cel.parse(src)

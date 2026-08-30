@@ -33,8 +33,8 @@ import java.util.concurrent.TimeUnit
   * opening a dashboard re-walks and re-renders every node. This says where that
   * time goes, because the three places it can go have different fixes:
   *
-  *   - '''Transforms''' ([[jsonata]] / [[cel]]) — one engine eval per live
-  *     slot: the retired JSONata reference against the shipped CEL engine.
+  *   - '''Transforms''' ([[simple]] / [[cel]]) — one evaluation per live slot:
+  *     the fast catalog's dispatch against the engine-only baseline.
   *   - '''Mustache''' ([[mustache]]) — one `Template.execute` per node, context
   *     map included. The fix would be partials: one execution for the page.
   *   - '''Composition''' — a child renders to a `String` and each ancestor
@@ -96,9 +96,7 @@ class RenderBench {
   private var set: Renderer = null
   private var shared: Renderer = null
   private var st: Map[String, EntityState] = null
-  private var jsonataProbes: List[Jsonata.Compiled] = null
-  private var jsonataComplexExpr: Jsonata.Compiled = null
-  private var jsonataTrivialProbes: List[Jsonata.Compiled] = null
+  private var transforms: Transforms = null
   private var celProbes: List[Transform.Compiled] = null
   private var celComplex: Transform.Compiled = null
   private var entityTemplate: com.samskivert.mustache.Template = null
@@ -117,13 +115,6 @@ class RenderBench {
     shared = Renderer.create(
       Dashboard(cards, tree(Leaves, 4, signals = true, distinct = Distinct))
     )
-    def jparse(src: String): Jsonata.Compiled =
-      Jsonata
-        .parse(src)
-        .fold(
-          e => sys.error(s"jsonata won't compile: $src [$e]"),
-          identity
-        )
     def cparse(src: String): Transform.Compiled =
       Transform
         .parse(src)
@@ -131,9 +122,28 @@ class RenderBench {
           e => sys.error(s"cel won't compile: $src [$e]"),
           identity
         )
-    jsonataProbes = Jsonata.LiveTransforms.map(jparse)
-    jsonataComplexExpr = jparse(Jsonata.TransformComplex)
-    jsonataTrivialProbes = Jsonata.TrivialTransforms.map(jparse)
+    // The production dispatch: Transforms pre-compiles every shape and
+    // resolves the fast tier once, so [[simple]] measures exactly what the
+    // renderer's warm path does per evaluation.
+    transforms = Transforms.from(
+      Dashboard(
+        cards ++ ProbeTransforms.zipWithIndex.map { case (_, i) =>
+          s"probe$i" -> CardDef(s"{{v}}", slots = List("v"))
+        },
+        LayoutNode.Component(
+          "col",
+          regions = LayoutNode.kids(
+            (tree(Leaves, 4, signals = true) :: ProbeTransforms.zipWithIndex
+              .map { case (t, i) =>
+                LayoutNode.Component(
+                  s"probe$i",
+                  Map("v" -> SlotSource(transform = t))
+                )
+              })*
+          )
+        )
+      )
+    )
     celProbes = CelShapes.LiveTransforms.map(cparse)
     celComplex = cparse(CelShapes.TransformComplex)
     entityTemplate = Templates
@@ -188,17 +198,19 @@ class RenderBench {
   @Benchmark
   def pageShared(bh: Blackhole): Unit = bh.consume(shared.renderPageTraced(st))
 
-  /** The RETIRED JSONata engine ([[Jsonata]], bench-only) at the count one page
-    * performs, `Reads.Once` slots excluded (the renderer memoises those, which
-    * is the state a warm server is in). The six shapes are the ones the shipped
-    * components actually stuck on hot slots before the CEL swap.
+  /** The FAST TIER through the production dispatch ([[Transforms.run]]): the
+    * five shipped shapes the catalog recognises evaluate without the engine
+    * (~45 B), the fill colour (and any unrecognized value) falls back to the
+    * engine for that shape. The gap against [[cel]] is what the catalog saves
+    * per page, and against [[direct]] it prices the dispatch on top of the raw
+    * read. `Reads.Once` slots excluded — the renderer memoises those.
     */
   @Benchmark
-  def jsonata(bh: Blackhole): Unit = {
+  def simple(bh: Blackhole): Unit = {
     var i = 0
     while (i < Leaves) {
       val e = st(entityId(i))
-      jsonataProbes.foreach(p => bh.consume(Jsonata.run(p, e, "dashboard")))
+      LiveTransforms.foreach(t => bh.consume(transforms.run(t, e, "dashboard")))
       i += 1
     }
   }
@@ -208,22 +220,11 @@ class RenderBench {
     * uses it, but authors are not limited to the shipped shapes, so its cost is
     * what guarding against "someone writes something worse" has to swallow.
     */
-  @Benchmark
-  def jsonataComplex(bh: Blackhole): Unit = {
-    var i = 0
-    while (i < Leaves) {
-      val e = st(entityId(i))
-      bh.consume(Jsonata.run(jsonataComplexExpr, e, "dashboard"))
-      i += 1
-    }
-  }
-
   /** The SHIPPED engine ([[fh.view.model.Transform]]) at the same count and
     * shapes: each compiled once via `Transform.parse` and evaluated per entity
-    * through `Transform.run` — exactly what the renderer does on the hot path
-    * (compile-once/eval-many, planner runtime, one activation per eval). The
-    * gap against [[jsonata]] is what the swap bought at the eval the benchmark
-    * measures.
+    * through `Transform.run` — the engine-only baseline the fast tier is
+    * measured against. The gap against [[simple]] is what the catalog saves per
+    * evaluation.
     */
   @Benchmark
   def cel(bh: Blackhole): Unit = {
@@ -235,9 +236,6 @@ class RenderBench {
     }
   }
 
-  /** The same hostile ceiling as [[jsonataComplex]], as the shipped engine — on
-    * the fixture that exercises longest/complex each hit (see [[CelSpike]]).
-    */
   @Benchmark
   def celComplex(bh: Blackhole): Unit = {
     var i = 0
@@ -248,43 +246,23 @@ class RenderBench {
     }
   }
 
-  /** The same three TRIVIAL reads — a bare `$state` and two bare `$attr.<name>`
-    * — through the RETIRED engine. All three are shapes [[Transform.Direct]]
-    * recognises, so the SHIPPED runtime resolves them at startup and never
-    * sends them to an engine: this prices the retired engine on the shapes the
-    * renderer no longer visits, and [[direct]] prices the shipped fast path.
-    * There is deliberately no engine figure for the trivial shapes in
-    * production — an engine would still cost in the kB-per-eval range whether
-    * or not a function is called; that is the entire reason
-    * [[Transform.Direct]] exists (issue #237).
-    */
-  @Benchmark
-  def jsonataTrivial(bh: Blackhole): Unit = {
-    var i = 0
-    while (i < Leaves) {
-      val e = st(entityId(i))
-      jsonataTrivialProbes.foreach(p =>
-        bh.consume(Jsonata.run(p, e, "dashboard"))
-      )
-      i += 1
-    }
-  }
-
   /** The hand-rolled fast path for the two TRIVIAL shapes — a bare `state` and
-    * a guarded attribute read — which is what the renderer ships INSTEAD of an
-    * engine for them ([[Transform.Direct]]). Same count and same three reads as
-    * [[jsonataTrivial]], with the engine removed, so the gap between the two is
-    * what deciding-to-use-an-engine cost on those shapes, and the gap against
-    * [[cel]] is the floor the engines are compared against.
+    * a guarded attribute read — which is what the catalog ships INSTEAD of an
+    * engine for them ([[Transform.Simple]]). Same count and same three reads as
+    * [[simple]], with the dispatch removed, so the gap between the two is what
+    * recognizing-and-dispatching costs, and the gap against [[cel]] is the
+    * floor the engines are compared against.
     */
   @Benchmark
   def direct(bh: Blackhole): Unit = {
     var i = 0
     while (i < Leaves) {
       val e = st(entityId(i))
-      bh.consume(Transform.runDirect(Transform.Direct.State, e))
-      bh.consume(Transform.runDirect(Transform.Direct.Attr("friendly_name"), e))
-      bh.consume(Transform.runDirect(Transform.Direct.Attr("brightness"), e))
+      bh.consume(Transform.runSimple(Transform.Simple.State, e))
+      bh.consume(
+        Transform.runSimple(Transform.Simple.Attr("friendly_name"), e)
+      )
+      bh.consume(Transform.runSimple(Transform.Simple.Attr("brightness"), e))
       i += 1
     }
   }
@@ -326,8 +304,8 @@ object RenderBench {
   // The transform shapes the shipped components use today, in the exact CEL
   // bytes they ship (single-sourced from [[CelShapes]] — the renderer's probe
   // dashboards must compile under the shipped engine, which no longer speaks
-  // JSONata). The JSONata counterparts these replaced live on [[Jsonata]] as
-  // the reference the jsonata cells and [[CelSpike]] run.
+  // in the mix. The JSONata counterparts these replaced live on [[Jsonata]] as
+  // the reference the divergence gate ([[CelSpike]]) runs.
   final val TransformName = CelShapes.TransformName
   final val TransformUnit = CelShapes.TransformUnit
   final val TransformFill = CelShapes.TransformFill
@@ -335,6 +313,21 @@ object RenderBench {
   final val TransformFillColor = CelShapes.TransformFillColor
   final val TransformAttrLines = CelShapes.TransformAttrLines
   final val TransformComplex = CelShapes.TransformComplex
+
+  /** The shapes [[RenderBench.simple]] runs through the production dispatch
+    * ([[Transforms.run]]): the six live shapes, each precompiled into the warm
+    * map — plus [[TransformComplex]] for [[RenderBench.celComplex]], which the
+    * catalog deliberately does not recognise.
+    */
+  final val LiveTransforms = List(
+    TransformName,
+    TransformUnit,
+    TransformFill,
+    TransformPercent,
+    TransformFillColor,
+    TransformAttrLines
+  )
+  final val ProbeTransforms = LiveTransforms :+ TransformComplex
 
   /** A tap's action as the builder bakes it for one entity (ADR 0016): a
     * build-time literal per entity, so the card's action hole stays filled but
