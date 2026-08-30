@@ -68,29 +68,28 @@ const sliderSpec: Mapping<String, SliderSpec> = new {
 // arms must be the SAME type (CEL has no `? x : null`), so the absent arm is
 // `''`.
 //
-// The sources are written multi-line for the READER; [[celSource]] flattens
-// them for the wire, where the string is shipped, hashed, and parsed. (Pkl's
-// `replaceAll` is a LITERAL replace — no regex — so the flattening splits and
-// rejoins instead of matching the whitespace.)
-const local function celSource(src: String): String =
-  src.split("\n").map((l) -> l.trim()).join(" ")
+// The sources ship AS WRITTEN, minus two mechanical normalizations: Pkl
+// multi-line strings DEDENT by the closing delimiter's indentation, and
+// `.trim()` removes the edge newline — CEL treats the rest (the interior
+// newlines and indentation) as insignificant, and the string's bytes are
+// hashed and snapshot-compared verbatim, so what the reader sees, minus the
+// shared indent, is what runs. (The ramp needs a REGULAR multi-line string
+// because raw strings do not interpolate; the rgb shape is raw because it
+// reads no values.)
 
-const local sliderFillColourRgb: String = celSource(
+const local sliderFillColourRgb: String =
   #"""
   cel.bind(rgb, 'rgb_color' in attr ? attr['rgb_color'] : null,
     rgb != null && size(rgb) == 3
       ? 'rgb(' + str(rgb[0]) + ',' + str(rgb[1]) + ',' + str(rgb[2]) + ')'
       : '')
-  """#)
+  """#.trim()
 
 // The ramp over the axis's own range: `minK`/`maxK` are the kelvin bounds the
 // slider's range input is already baked from. Whole kelvin integers, so
 // `\(minK).0` is the exact double literal CEL needs (its double overloads
-// have no (Long, int) operand — the same fact `double(k)` answers). This one
-// is a REGULAR multi-line string because raw strings do not interpolate; the
-// CEL text carries no backslash or double quote, so nothing else could need
-// escaping.
-const local function sliderFillColourRamp(minK: Int, maxK: Int): String = celSource(
+// have no (Long, int) operand — the same fact `double(k)` answers).
+const local function sliderFillColourRamp(minK: Int, maxK: Int): String =
   """
   cel.bind(k, 'color_temp_kelvin' in attr ? attr['color_temp_kelvin'] : null,
     k != null
@@ -102,7 +101,7 @@ const local function sliderFillColourRamp(minK: Int, maxK: Int): String = celSou
           + ',' + str(math.round(166.0 + 60.0 * t))
           + ',' + str(math.round(87.0 + 168.0 * t)) + ')')
       : '')
-  """)
+  """.trim()
 
 // The dragged position as a percentage of the card's own range, in JS — the
 // client-side twin of `percentExpr`'s CEL, spliced into the template so the
