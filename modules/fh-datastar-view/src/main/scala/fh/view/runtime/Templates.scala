@@ -57,7 +57,9 @@ object Templates {
   // 2. `encode` — see the comment below.
   val factory: DefaultMustacheFactory = {
     val f = new DefaultMustacheFactory() {
-      override def createMustacheVisitor(): MustacheVisitor = new FhVisitor(this)
+      override def createMustacheVisitor(): MustacheVisitor = new FhVisitor(
+        this
+      )
       // jmustache's exact escaping, written in RUNS: `Writer.write(int)`
       // allocates a one-char array per character (java.io.Writer's default),
       // which made every escaped value pay for its own length; a run between
@@ -132,7 +134,14 @@ object Templates {
         inlined += variable
         val _ = list.add(new FhRegionCode(tc, df, mustache, variable))
       } else {
-        val _ = list.add(new com.github.mustachejava.codes.IterableCode(tc, df, mustache, variable))
+        val _ = list.add(
+          new com.github.mustachejava.codes.IterableCode(
+            tc,
+            df,
+            mustache,
+            variable
+          )
+        )
       }
     }
   }
@@ -149,7 +158,10 @@ object Templates {
       body: JavaMustache,
       name: String
   ) extends com.github.mustachejava.codes.IterableCode(tc, df, body, name) {
-    override def execute(writer: Writer, scopes: java.util.List[AnyRef]): Writer = {
+    override def execute(
+        writer: Writer,
+        scopes: java.util.List[AnyRef]
+    ): Writer = {
       var walked: Writer = null
       var i = scopes.size() - 1
       while walked == null && i >= 0 do
@@ -171,9 +183,9 @@ object Templates {
   /** Compile one template by name. Returns the template plus the region names
     * the visitor made inline for it — read off the compiled CODE TREE, because
     * the factory caches by name and only the first compile would ever run the
-    * visitor; the name is also uniquified so that cache can never hand a
-    * later compile a previous dashboard's template (a live reload renames
-    * nothing and changes templates).
+    * visitor; the name is also uniquified so that cache can never hand a later
+    * compile a previous dashboard's template (a live reload renames nothing and
+    * changes templates).
     */
   def compile(name: String, template: String): (JavaMustache, Set[String]) = {
     val tpl = factory.compile(
@@ -210,10 +222,9 @@ object Templates {
     new ThreadLocal[scala.collection.mutable.ArrayStack[
       com.github.mustachejava.util.InternalArrayList[AnyRef]
     ]]:
-      override def initialValue()
-          : scala.collection.mutable.ArrayStack[
-            com.github.mustachejava.util.InternalArrayList[AnyRef]
-          ] = scala.collection.mutable.ArrayStack.empty
+      override def initialValue(): scala.collection.mutable.ArrayStack[
+        com.github.mustachejava.util.InternalArrayList[AnyRef]
+      ] = scala.collection.mutable.ArrayStack.empty
 
   /** Execute `tpl` with the single scope against `writer` — the call the whole
     * runtime uses (Renderer.executeInto, the chrome, the bench's engine cell).
@@ -236,9 +247,9 @@ object Templates {
   private def stringReader(s: String): Reader = new StringReader(s)
 
   def from(dashboard: Dashboard): Templates = {
-    val compiled = dashboard.cards.view
-      .map { case (name, cd) => name -> compile(name, cd.template) }
-      .toMap
+    val compiled = dashboard.cards.view.map { case (name, cd) =>
+      name -> compile(name, cd.template)
+    }.toMap
     new Templates(
       compiled.view.mapValues(_._1).toMap,
       compiled.view.mapValues(_._2).toMap
