@@ -1,0 +1,105 @@
+/// The simple tier: the EXPLICIT fast path for slot values (plan Phase 3).
+///
+/// A slot's value is either a CEL expression (`Slot.transform`, the engine
+/// tier) or one of these structures (`Slot.simple`, the fast tier) — the field
+/// IS the tier selection; nothing recognizes expression spelling. One
+/// structure per shipped shape, each an ATOMIC form over one read: anything
+/// beyond them (a second operator, rounding, cross-entity reads) is CEL,
+/// explicitly, which is what keeps this from growing back into a
+/// micro-language.
+///
+/// Every case is defined by its idiomatic CEL spelling, documented on the
+/// class; the parity suite in TransformSuite pins the rendered bytes EQUAL to
+/// that expression over the hostile sweep, so the fast path is a faithful
+/// implementation of the documented expression, never a second answer. Where
+/// the engine would ERROR on a mistyped value, the structure renders its
+/// absent-value form instead — the documented divergence, itself pinned in
+/// the suite.
+module core.simple
+
+/// Idiomatic CEL: `state`.
+class SimpleState {
+  kind = "state"
+}
+
+/// Idiomatic CEL: `'name' in attr ? attr['name'] : null` — an absent
+/// attribute renders `""` (the slot's `default` then applies).
+class SimpleAttr {
+  kind = "attr"
+  name: String
+}
+
+/// Idiomatic CEL: `('name' in attr ? attr['name'] : entity_id)` — the "name"
+/// shape.
+class SimpleAttrOrId {
+  kind = "attrOrId"
+  name: String
+}
+
+/// Idiomatic CEL: `state + ('name' in attr ? ' ' + attr['name'] : state)`.
+/// A unit that is present but not a String renders the state alone — the
+/// documented divergence from the engine's `' ' + nonString` error.
+class SimpleUnit {
+  kind = "unit"
+  name: String
+}
+
+/// Idiomatic CEL: `'literal' + state`.
+class SimplePrefix {
+  kind = "prefix"
+  literal: String
+}
+
+/// Idiomatic CEL: `state + 'literal'`.
+class SimpleSuffix {
+  kind = "suffix"
+  literal: String
+}
+
+/// Idiomatic CEL: `state == 'equalTo' ? 'thenValue' : 'otherwise'`.
+class SimpleEnum {
+  kind = "enum"
+  equalTo: String
+  thenValue: String
+  otherwise: String
+}
+
+/// Idiomatic CEL: the guarded read as a percentage of `[min, max]`, rounded
+/// half-away-from-zero — the engine's own `math.round`. The numeric domain
+/// mirrors `double()` (a number, or a string that parses as one); absent or
+/// unparseable renders `"0 %"` — the documented divergence.
+class SimplePercent {
+  kind = "percent"
+  name: String
+  min: Number
+  max: Number
+}
+
+/// Idiomatic CEL: percent's complement for a right-anchored track; absent or
+/// unparseable renders `"100%"`.
+class SimpleFill {
+  kind = "fill"
+  name: String
+  min: Number
+  max: Number
+}
+
+typealias Simple =
+  SimpleState|SimpleAttr|SimpleAttrOrId|SimpleUnit|SimplePrefix|
+  SimpleSuffix|SimpleEnum|SimplePercent|SimpleFill
+
+// The constructors. `const` because components call them from class bodies;
+// parameters are suffixed so none shadows the property it initialises (the
+// `name = name` recursion).
+const function state(): Simple = new SimpleState {}
+const function attr(attrName: String): Simple = new SimpleAttr { name = attrName }
+const function attrOrId(attrName: String): Simple = new SimpleAttrOrId { name = attrName }
+const function unit(attrName: String): Simple = new SimpleUnit { name = attrName }
+const function prefix(lit: String): Simple = new SimplePrefix { literal = lit }
+const function suffix(lit: String): Simple = new SimpleSuffix { literal = lit }
+const function enumOf(eq: String, thenV: String, elseV: String): Simple =
+  new SimpleEnum { equalTo = eq; thenValue = thenV; otherwise = elseV }
+const function percent(attrName: String, minV: Number, maxV: Number): Simple =
+  new SimplePercent { name = attrName; min = minV; max = maxV }
+const function fill(attrName: String, minV: Number, maxV: Number): Simple =
+  new SimpleFill { name = attrName; min = minV; max = maxV }

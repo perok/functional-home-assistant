@@ -3,7 +3,7 @@
 ///
 /// A slot is either a bare String (a constant literal) or a [[Slot]] object: a
 /// live CEL transform over the card's entity ([[Slot.transform]], the engine
-/// tier) or an opted-in [[Simple]] structure ([[Slot.simple]], the fast tier —
+/// tier) or an opted-in [[simpleMod.Simple]] structure ([[Slot.simple]], the fast tier —
 /// the field IS the tier selection; nothing recognizes expression spelling).
 /// The builders are the reason a third-party card can look like a shipped one:
 /// `labelSlot` falls back to friendly_name, `valueSlot` appends the entity's
@@ -11,17 +11,19 @@
 module core.slot
 
 import "../hass.pkl"
+import "simple.pkl" as simpleMod
 
 /// The object form of a slot (fh.view.model.SlotSource): a CEL expression
 /// over the card's entity. [[Slot.reads]] says when it is read.
 class Slot {
   entityId: String? = null
   transform: String = "state"
-  /// The EXPLICIT fast-tier opt-in (plan Phase 3): one of the [[Simple]]
-  /// structures, evaluated by hand-rolled reads with its idiomatic CEL as the
-  /// documented definition. Setting this IS the tier selection — mutually
-  /// exclusive with authoring `transform` (the backend rejects both).
-  simple: Simple? = null
+  /// The EXPLICIT fast-tier opt-in (plan Phase 3): one of the
+  /// [[simpleMod.Simple]] structures, evaluated by hand-rolled reads with its
+  /// idiomatic CEL as the documented definition. Setting this IS the tier
+  /// selection — mutually exclusive with authoring `transform` (the backend
+  /// rejects both).
+  simple: simpleMod.Simple? = null
   default: String? = null
   bypassUnavailable: Boolean = true
   /// WHEN this value is read, and whether reading it is a reason to re-render.
@@ -113,7 +115,7 @@ const function signalRef(name: String): String = "{{" + name + "__signal}}"
 
 /// [[valueSlot]] as a text signal slot — the same value, carried as a signal.
 /// The card must place `signalBind("value")`.
-const function signalValueSlot(value: (String|Expr|Simple)?): Slot =
+const function signalValueSlot(value: (String|Expr|simpleMod.Simple)?): Slot =
   (valueSlot(value)) { signal = asText }
 
 /// A live value expression for a display field that also accepts a plain
@@ -131,96 +133,6 @@ function expr(s: String): Expr = new { transform = s }
 /// Mirrors jsonnet `entityOf` (components.libsonnet:102-105).
 function exprOf(eo: hass.Entity, s: String): Expr = new { entityId = eo.entity_id; transform = s }
 
-/// ---- the simple tier: the EXPLICIT fast path (plan Phase 3) ----
-///
-/// One structure per shipped shape, each an ATOMIC form over one read —
-/// anything beyond them (a second operator, rounding, cross-entity reads) is
-/// CEL, explicitly, which is what keeps this from growing back into a
-/// micro-language. Every case is defined by its idiomatic CEL spelling,
-/// documented on the class; the parity suite in TransformSuite pins the
-/// rendered bytes EQUAL to that expression over the hostile sweep, so the fast
-/// path is a faithful implementation of the documented expression, never a
-/// second answer. Where the engine would ERROR on a mistyped value, the
-/// structure renders its absent-value form instead — the documented
-/// divergence, itself pinned in the suite.
-class SimpleState {
-  /// Idiomatic CEL: `state`.
-  kind = "state"
-}
-class SimpleAttr {
-  /// Idiomatic CEL: `'name' in attr ? attr['name'] : null` — an absent
-  /// attribute renders `""` (the slot's `default` then applies).
-  kind = "attr"
-  name: String
-}
-class SimpleAttrOrId {
-  /// Idiomatic CEL: `('name' in attr ? attr['name'] : entity_id)` — the
-  /// "name" shape.
-  kind = "attrOrId"
-  name: String
-}
-class SimpleUnit {
-  /// Idiomatic CEL: `state + ('name' in attr ? ' ' + attr['name'] : state)`.
-  /// A unit that is present but not a String renders the state alone — the
-  /// documented divergence from the engine's `' ' + nonString` error.
-  kind = "unit"
-  name: String
-}
-class SimplePrefix {
-  /// Idiomatic CEL: `'literal' + state`.
-  kind = "prefix"
-  literal: String
-}
-class SimpleSuffix {
-  /// Idiomatic CEL: `state + 'literal'`.
-  kind = "suffix"
-  literal: String
-}
-class SimpleEnum {
-  /// Idiomatic CEL: `state == 'equalTo' ? 'thenValue' : 'otherwise'`.
-  kind = "enum"
-  equalTo: String
-  thenValue: String
-  otherwise: String
-}
-class SimplePercent {
-  /// Idiomatic CEL: the guarded read as a percentage of `[min, max]`, rounded
-  /// half-away-from-zero — the engine's own `math.round`. The numeric domain
-  /// mirrors `double()` (a number, or a string that parses as one); absent or
-  /// unparseable renders `"0 %"` — the documented divergence.
-  kind = "percent"
-  name: String
-  min: Number
-  max: Number
-}
-class SimpleFill {
-  /// Idiomatic CEL: percent's complement for a right-anchored track; absent or
-  /// unparseable renders `"100%"`.
-  kind = "fill"
-  name: String
-  min: Number
-  max: Number
-}
-typealias Simple =
-  SimpleState|SimpleAttr|SimpleAttrOrId|SimpleUnit|SimplePrefix|
-  SimpleSuffix|SimpleEnum|SimplePercent|SimpleFill
-
-// The constructors. `const` because components call them from class bodies;
-// parameters are suffixed so none shadows the property it initialises (the
-// `name = name` recursion).
-const function state(): Simple = new SimpleState {}
-const function attr(attrName: String): Simple = new SimpleAttr { name = attrName }
-const function attrOrId(attrName: String): Simple = new SimpleAttrOrId { name = attrName }
-const function unit(attrName: String): Simple = new SimpleUnit { name = attrName }
-const function prefix(lit: String): Simple = new SimplePrefix { literal = lit }
-const function suffix(lit: String): Simple = new SimpleSuffix { literal = lit }
-const function enumOf(eq: String, thenV: String, elseV: String): Simple =
-  new SimpleEnum { equalTo = eq; thenValue = thenV; otherwise = elseV }
-const function percent(attrName: String, minV: Number, maxV: Number): Simple =
-  new SimplePercent { name = attrName; min = minV; max = maxV }
-const function fill(attrName: String, minV: Number, maxV: Number): Simple =
-  new SimpleFill { name = attrName; min = minV; max = maxV }
-
 // Auto-appended unit for a value display: the entity's unit_of_measurement,
 // space-separated, when it has one. The append is a guarded CEL conditional
 // spliced onto the value expression with a `+` (presence is a real boolean;
@@ -232,9 +144,9 @@ const UNIT_EXPR =
 // name, not "unavailable"); Simple -> the opted-in structure (same bypass
 // semantics as Expr); String -> literal; null -> the entity's
 // friendly_name (falling back to its id) baked as a literal.
-const function labelSlot(entity: hass.Entity?, label: (String|Expr|Simple)?): Slot|String =
+const function labelSlot(entity: hass.Entity?, label: (String|Expr|simpleMod.Simple)?): Slot|String =
   if (label is Expr) new Slot { entityId = label.entityId; transform = label.transform; bypassUnavailable = false }
-  else if (label is Simple) new Slot { simple = label; bypassUnavailable = false }
+  else if (label is simpleMod.Simple) new Slot { simple = label; bypassUnavailable = false }
   else if (label != null) label
   else if (entity != null) entity.friendly_name ?? entity.entity_id
   else ""
@@ -243,9 +155,9 @@ const function labelSlot(entity: hass.Entity?, label: (String|Expr|Simple)?): Sl
 // Expr -> your expression verbatim (you own the unit); Simple -> the opted-in
 // structure verbatim (you own everything — no unit is auto-appended; [[unit]]
 // is the unit shape).
-const function valueSlot(value: (String|Expr|Simple)?): Slot =
+const function valueSlot(value: (String|Expr|simpleMod.Simple)?): Slot =
   if (value is Expr) new Slot { entityId = value.entityId; transform = value.transform }
-  else if (value is Simple) new Slot { simple = value }
+  else if (value is simpleMod.Simple) new Slot { simple = value }
   else new Slot {
     transform =
       (if (value == null) "state"
@@ -256,8 +168,8 @@ const function valueSlot(value: (String|Expr|Simple)?): Slot =
 // secondary (only built when authored): String -> an attribute, guarded (no
 // unit); Expr -> live; Simple -> the opted-in structure. Empty default keeps
 // the mustache section collapsed when blank.
-const function secondarySlot(secondary: String|Expr|Simple): Slot =
-  if (secondary is Simple) new Slot { simple = secondary; default = "" }
+const function secondarySlot(secondary: String|Expr|simpleMod.Simple): Slot =
+  if (secondary is simpleMod.Simple) new Slot { simple = secondary; default = "" }
   else new Slot {
     entityId = if (secondary is Expr) secondary.entityId else null
     transform =
