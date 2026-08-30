@@ -460,7 +460,19 @@ class Renderer(
     // connect would patch it — same render, so the two are byte-identical and
     // the later patch is a no-op morph.
     val _ = chrome.put("popups", dialog.fold("")(_.html))
-    val page = themeStyleTag + chromeTemplate.execute(chrome)
+    // The style, the chrome and the body go into ONE pre-sized buffer. Not
+    // mustache's own `execute(ctx)`: that renders into a `StringWriter` over a
+    // 16-char `StringBuffer`, which grew five times writing a body this size
+    // under a lock nothing shared, copied the buffer once on `toString`, and
+    // then `+` copied the whole page AGAIN to prepend the style tag.
+    val page = {
+      val out = new java.lang.StringBuilder(
+        themeStyleTag.length + body.html.length + 4096
+      )
+      val _ = out.append(themeStyleTag)
+      chromeTemplate.execute(chrome, appendTo(out))
+      out.toString
+    }
     // The whole page is never a patch target — a repaint replaces `#dashboard`
     // wholesale — so it has no second form of its own. Its NODES do, and those
     // are in `own`.
@@ -959,7 +971,15 @@ class Renderer(
         // Wrapper and body go into ONE buffer, so the body is written where it
         // is going rather than built and then copied in.
         def rendered(form: SlotForm): String = {
-          val out = new java.lang.StringBuilder(Renderer.NodeBytesHint)
+          // Pre-sized: the children's bytes are KNOWN here, and a builder that
+          // grows copies its whole contents on every doubling — for a container
+          // that is its subtree, once per level of the tree (issue #237).
+          val out = new java.lang.StringBuilder(
+            Renderer.NodeBytesHint + childrenHtml.valuesIterator
+              .flatMap(_.iterator)
+              .map(_.length)
+              .sum
+          )
           val wrapped = !noWrapCards(c.card)
           if (wrapped) {
             out
@@ -1048,10 +1068,23 @@ class Renderer(
       id: SetId,
       cell: Option[Cell],
       members: Seq[String]
-  ): String =
-    s"""<div class="fh-cell fh-group${Renderer.cellClasses(
-        cell
-      )}" id="$id">${members.mkString}</div>"""
+  ): String = {
+    // Appends, not `mkString` inside an interpolation: `mkString` builds one
+    // String and the interpolation copies it whole again — twice the group's
+    // bytes per set render (issue #237).
+    val out = new java.lang.StringBuilder(
+      160 + members.foldLeft(0)(_ + _.length)
+    )
+    out
+      .append("""<div class="fh-cell fh-group""")
+      .append(Renderer.cellClasses(cell))
+      .append("""" id="""")
+      .append(id)
+      .append("\">")
+    members.foreach(out.append)
+    out.append("</div>")
+    out.toString
+  }
 
   /** Render ONE set member by its entity — the by-key accessor into the graph.
     * `None` when the set id is unknown/not a set or the entity is not a current
@@ -1308,7 +1341,15 @@ class Renderer(
       states: Map[String, EntityState],
       form: SlotForm
   ): String = {
-    val out = new java.lang.StringBuilder(Renderer.NodeBytesHint)
+    // Pre-sized to the children's known bytes, as [[traced]]'s walk does — the
+    // patch path executes the same templates and would grow its buffer the
+    // same way.
+    val out = new java.lang.StringBuilder(
+      Renderer.NodeBytesHint + childrenHtml.valuesIterator
+        .flatMap(_.iterator)
+        .map(_.length)
+        .sum
+    )
     executeInto(
       out,
       tpl,
@@ -1859,8 +1900,11 @@ object Renderer {
     }
 
   /** A rough starting size for one node's rendered bytes. Only a hint: too
-    * small costs a copy, too large wastes a little, and neither is a bug.
+    * small costs a copy, too large wastes a little, and neither is a bug. A
+    * shipped leaf card lands around 1-2 kB with its wrapper and seed, so 512
+    * made every leaf grow twice; a container is sized past this from its
+    * children's real bytes.
     */
-  private val NodeBytesHint = 512
+  private val NodeBytesHint = 1024
 
 }
