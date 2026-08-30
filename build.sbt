@@ -232,6 +232,10 @@ lazy val `fh-datastar-view` = project
       "net.harawata" % "appdirs" % "1.5.0",
       // mustache templating for runtime value injection (pure Java)
       "com.samskivert" % "jmustache" % "1.16",
+      // mustache.java (spullara) — migration candidate; both engines live here
+      // only for the comparison suite that pins their outputs byte-equal
+      // before the swap (issue #237 investigation).
+      "com.github.spullara.mustache.java" % "compiler" % "0.9.14",
       // CEL for per-slot value transforms (compile-once/eval-many planner
       // runtime; bundles the extension libraries — string/list/math/bindings/
       // comprehensions — in the same jar).
