@@ -299,12 +299,15 @@ case class CardDef(
     css: String = ""
 ) derives ConfiguredDecoder {
 
-  /** The hole this card's template places for `name` — a section for an eager
-    * region (its children are spliced), a raw var for a baked one (a surface's
-    * bytes are substituted whole).
+  /** The hole this card's template places for `name` — a section whose body
+    * pastes each child's bytes. The two fills differ in WHO fills it, not in
+    * how it is spelled: an eager region takes the node's own children, a baked
+    * one the bytes of the surface the viewer's selection names — but both are
+    * region loops over `{{{html}}}`, which is what lets the document walk
+    * thread both into one buffer (issue #237).
     */
   def holeOf(name: String, r: Region): String =
-    if (r.fill == Region.Baked) "{{{" + name + "}}}" else "{{#" + name + "}}"
+    "{{#" + name + "}}{{{html}}}{{/" + name + "}}"
 
   /** Whether this card holds content it does not own — the LEAF/STRUCTURE
     * split. Structure is never a patch target.

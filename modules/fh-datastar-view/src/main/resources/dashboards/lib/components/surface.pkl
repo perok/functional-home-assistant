@@ -58,7 +58,7 @@ class TabButton extends nodes.Node {
 class Tabs extends nodes.Node {
   card = "tabs"
   // The bar is BeerCSS's `.tabs` element (its children are [[TabButton]]
-  // anchors); the panel host + `{{{panel}}}` hole live below it.
+  // anchors); the panel host + `{{#panel}}` region live below it.
   // `data-signals` seeds the active-tab signal to the baked tab's index
   // (`{{bakeIndex}}`, injected by the renderer — on a refresh that IS the URL's
   // `ui.<id>`, which is how the seed round-trips). `data-effect` mirrors every
@@ -93,8 +93,8 @@ class Tabs extends nodes.Node {
   // and costs its own bytes instead of every button's.
   //
   // The bar reads `{{bakeIndex}}` for its signal seed, which the TEMPLATE is
-  // given (`Renderer.traced` composes with `vars = structuralVars ++ bakeIndex
-  // ++ baked`), so it is on the template itself and costs no extra bytes.
+  // given (`Renderer.traced` composes with `vars = structuralVars ++ bakeIndex`),
+  // so it is on the template itself and costs no extra bytes.
   //
   // `{{hostId}}` replaces the hand-derived `{{id}}_panel`: it resolves to
   // `Surface.hostId`, the same string the backend addresses, so Pkl and Scala
@@ -105,7 +105,7 @@ class Tabs extends nodes.Node {
       ["panel"] = new nodes.Region { fill = "baked" }
     }
     template = """
-      <div class="fh-col"><div class="tabs" data-signals__ifmissing="{ ui_{{id}}: {{bakeIndex}}, \(tapMod.pendingSeedEntry("{{id}}")) }" \(tapMod.pendingClear("{{id}}")) \(tapMod.pendingFail("{{id}}"))>{{#children}}{{{html}}}{{/children}}</div><div id="{{hostId}}" class="tab-panel" data-effect="fhUrl('ui.{{id}}', $ui_{{id}})">{{{panel}}}</div></div>
+      <div class="fh-col"><div class="tabs" data-signals__ifmissing="{ ui_{{id}}: {{bakeIndex}}, \(tapMod.pendingSeedEntry("{{id}}")) }" \(tapMod.pendingClear("{{id}}")) \(tapMod.pendingFail("{{id}}"))>{{#children}}{{{html}}}{{/children}}</div><div id="{{hostId}}" class="tab-panel" data-effect="fhUrl('ui.{{id}}', $ui_{{id}})">{{#panel}}{{{html}}}{{/panel}}</div></div>
       """
     // The panel host is a patch target that must not be a box: the selected
     // tab's own layout is what should reach the surrounding column.
@@ -196,16 +196,16 @@ const local function stateActivation(p: pred.Predicate): surfaceMod.StateActivat
 class If extends nodes.Node {
   card = "ifhost"
   // Pure structure: one BAKED region, `branch` (the selected member's rendered
-  // content, injected by the backend like the tabs `panel` — not a declared
+  // content, filled by the backend like the tabs `panel` — not a declared
   // slot). No markup of its own — an If has no presentation, so there is
   // nothing about it that could change without its content changing.
   // `fh-ifhost` exists so the layout can collapse an unmatched conditional. With
-  // no matching branch the bake hole is the empty string, and without the class
+  // no matching branch the bake region fills with nothing, and without the class
   // the surrounding `fh-cols-full` cell still claimed a full-width flex line —
   // one band of dead vertical space per hidden `If`. See `theme.layoutCss`.
   cardDef = new nodes.CardDef {
     regions = new Mapping { ["branch"] = new nodes.Region { fill = "baked" } }
-    template = #"<div class="fh-ifhost" id="{{hostId}}">{{{branch}}}</div>"#
+    template = #"<div class="fh-ifhost" id="{{hostId}}">{{#branch}}{{{html}}}{{/branch}}</div>"#
   }
   // A conditional SECTION, sized like one; its content's own layout stays the
   // branch `Row`'s business. (Layout transparency was considered and dropped:
@@ -221,7 +221,7 @@ class If extends nodes.Node {
   // Selection is first-match in `bakeIndex` order: `then` is member 0 with the
   // authored condition; `else` — present only when non-empty — is member 1
   // with the always-true predicate. BOTH members carry the SAME `bakeAs`
-  // ("branch"): the backend reads a group's bake var off its first member.
+  // ("branch"): the backend reads a group's bake region off its first member.
   inlineSurfaces = new Mapping {
     ["then"] = new surfaceMod.SurfaceDef {
       content = new layout.Row { children = `then` }

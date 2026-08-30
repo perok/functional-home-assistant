@@ -47,7 +47,8 @@ class RendererSuite extends munit.FunSuite {
       """<div class="fh-row">{{#children}}{{{html}}}{{/children}}</div>""",
       regions = Map("children" -> Region())
     ),
-    // Tabs container: tabbar row of buttons (children) + panel host (baked via {{{panel}}}).
+    // Tabs container: tabbar row of buttons (children) + panel host (baked
+    // region `{{#panel}}`, filled by the walk from the selected surface).
     // `data-signals` seeds the active-tab signal to the baked tab index ({{bakeIndex}}).
     // Shaped like the shipped `Tabs`: the card is STRUCTURE — a bar region
     // holding the buttons and a baked panel region — so it is never a patch
@@ -58,7 +59,7 @@ class RendererSuite extends munit.FunSuite {
     "tabs" -> CardDef(
       template = """<div class="fh-col"><div class="fh-row tabbar">""" +
         """{{#children}}{{{html}}}{{/children}}</div>""" +
-        """<div id="{{hostId}}" class="tab-panel" data-signals="{ tab_{{id}}: {{bakeIndex}} }">{{{panel}}}</div></div>""",
+        """<div id="{{hostId}}" class="tab-panel" data-signals="{ tab_{{id}}: {{bakeIndex}} }">{{#panel}}{{{html}}}{{/panel}}</div></div>""",
       regions = Map("children" -> Region(), "panel" -> Region(Region.Baked))
     ),
     // "A tab bar with the current temperature in its header": the live header
@@ -67,7 +68,7 @@ class RendererSuite extends munit.FunSuite {
     // to aim.
     "tabsLive" -> CardDef(
       template = """<div><div class="tabs">{{#bar}}{{{html}}}{{/bar}}</div>""" +
-        """<div id="{{hostId}}" data-signals="{ tab_{{id}}: {{bakeIndex}} }">{{{panel}}}</div></div>""",
+        """<div id="{{hostId}}" data-signals="{ tab_{{id}}: {{bakeIndex}} }">{{#panel}}{{{html}}}{{/panel}}</div></div>""",
       regions = Map("bar" -> Region(), "panel" -> Region(Region.Baked))
     ),
     "tabsBar" -> CardDef("""<span>{{title}}</span>""", slots = List("title"))
@@ -75,7 +76,7 @@ class RendererSuite extends munit.FunSuite {
 
   // A tabs group as `c.tabs` + the hoist produce it: a `tabs` component whose
   // children are the tab buttons, and whose panel host (`{{id}}_panel`) is
-  // filled via `{{{panel}}}` baked from the first default-open surface. The
+  // filled via the `{{#panel}}` region, baked from the first default-open surface. The
   // surfaces carry `bakeInto:"c"`, `bakeAs:"panel"` (so `hostId` derives to
   // `c_panel` = idBase + '_panel', the hoist invariant) — every surface is
   // chrome-less.
@@ -88,7 +89,7 @@ class RendererSuite extends munit.FunSuite {
     Dashboard(
       cards,
       // The `tabs` card: children are the tab buttons; the panel host is in the
-      // template at `{{id}}_panel`; the default tab is injected via `{{{panel}}}`.
+      // template at `{{id}}_panel`; the default tab fills the `{{#panel}}` region.
       LayoutNode.Component(
         "tabs",
         regions = LayoutNode.kids(
@@ -897,7 +898,7 @@ class RendererSuite extends munit.FunSuite {
 
     // renderBody renders the `tabs` component (id "c") whose template contains a
     // panel host `<div id="c_panel" class="tab-panel" data-signals="{ tab_c: 0 }">`.
-    // The first tab's content is baked in via {{{panel}}} (surface-namespaced ids,
+    // The first tab's content fills the {{#panel}} region (surface-namespaced ids,
     // matching a later switch-back — byte-identical HTML).
     val body = rr.renderBody(states)
     assert(
@@ -1003,9 +1004,11 @@ class RendererSuite extends munit.FunSuite {
     def dash(card: CardDef) =
       Dashboard(Map("box" -> card), LayoutNode.Component("box"))
 
-    // The two fills place DIFFERENT holes, so each has to be checked against
-    // its own spelling — a single "does the name appear" test would pass both
-    // of these while neither renders.
+    // The hole is the same section spelling for both fills — what differs is
+    // WHO fills it (the node's children, or the surface the viewer's selection
+    // names) — so the check is presence. The likeliest real mistake is the raw
+    // var the baked region was spelled with before it became a region: it
+    // renders nothing now that the walk fills a section.
     val eagerMissing = dash(
       CardDef("<div>nothing</div>", regions = Map("kids" -> Region()))
     )
@@ -1018,24 +1021,26 @@ class RendererSuite extends munit.FunSuite {
 
     val bakedWrongHole = dash(
       CardDef(
-        // A SECTION where the baked region needs a raw var: the likeliest
+        // A raw var where the baked region needs a section: the likeliest
         // real mistake, and it renders nothing.
-        "<div>{{#panel}}{{{html}}}{{/panel}}</div>",
+        "<div>{{{panel}}}</div>",
         regions = Map("panel" -> Region(Region.Baked))
       )
     )
     assert(
       bakedWrongHole
         .validate()
-        .exists(e => e.contains("panel") && e.contains("{{{panel}}}")),
+        .exists(e =>
+          e.contains("panel") && e.contains("{{#panel}}{{{html}}}{{/panel}}")
+        ),
       clue = bakedWrongHole.validate()
     )
 
-    // Non-vacuous: both spellings, placed correctly, are accepted.
+    // Non-vacuous: the section spelling, placed for both fills, is accepted.
     assertEquals(
       dash(
         CardDef(
-          """<div>{{#kids}}{{{html}}}{{/kids}}<i id="{{hostId}}">{{{panel}}}</i></div>""",
+          """<div>{{#kids}}{{{html}}}{{/kids}}<i id="{{hostId}}">{{#panel}}{{{html}}}{{/panel}}</i></div>""",
           regions = Map("kids" -> Region(), "panel" -> Region(Region.Baked))
         )
       ).validate(),
@@ -1478,14 +1483,15 @@ class RendererSuite extends munit.FunSuite {
   private def entityIs(id: String, state: String): Predicate =
     Predicate.Cmp("state", Op.Eq, Json.fromString(state), entity = Some(id))
 
-  // The If host: a plain component card with one {{{branch}}} bake hole — no
+  // The If host: a plain component card with one {{#branch}} bake region — no
   // tab bar, no signal, no ui state; the backend never required them.
   private val ifCards =
     // Mirrors lib/components.pkl's `If`: one baked region and no markup of its
     // own. The cell wrapper (which the backend owns) is the node's id'd
     // element; the region's id is `Surface.hostId`.
     cards + ("ifhost" -> CardDef(
-      template = """<div id="{{hostId}}">{{{branch}}}</div>""",
+      template =
+        """<div id="{{hostId}}">{{#branch}}{{{html}}}{{/branch}}</div>""",
       regions = Map("branch" -> Region(Region.Baked))
     ))
 

@@ -195,7 +195,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
       "tabs" -> CardDef(
         template = """<div class="tabs">""" +
           """{{#children}}{{{html}}}{{/children}}</div>""" +
-          """<div id="{{hostId}}" data-signals="{ tab_{{id}}: {{bakeIndex}} }">{{{panel}}}</div>""",
+          """<div id="{{hostId}}" data-signals="{ tab_{{id}}: {{bakeIndex}} }">{{#panel}}{{{html}}}{{/panel}}</div>""",
         regions = Map("children" -> Region(), "panel" -> Region(Region.Baked))
       )
     )
@@ -366,6 +366,9 @@ trait ServerHarness extends munit.CatsEffectSuite {
       regions = Map("children" -> Region())
     ),
     // Pure structure — one baked region — like lib/components.pkl's `If`.
+    // Left at the PRE-REGION spelling on purpose: a template that does not
+    // place the section keeps the string-splice fallback, and these suites
+    // pin that the fallback renders the same bytes.
     "ifhost" -> CardDef(
       template = """<div id="{{hostId}}">{{{branch}}}</div>""",
       regions = Map("branch" -> Region(Region.Baked))
@@ -600,7 +603,8 @@ trait ServerHarness extends munit.CatsEffectSuite {
       // A bar-less tabs host: pure structure — nothing about it can
       // change without its content changing.
       "tabs" -> CardDef(
-        template = """<div id="{{hostId}}" class="tabs">{{{panel}}}</div>""",
+        template =
+          """<div id="{{hostId}}" class="tabs">{{#panel}}{{{html}}}{{/panel}}</div>""",
         regions = Map("panel" -> Region(Region.Baked))
       )
     ),
@@ -908,7 +912,8 @@ trait ServerHarness extends munit.CatsEffectSuite {
       ),
       "card" -> CardDef("<span>{{state}}</span>", slots = List("state")),
       "tabs" -> CardDef(
-        template = """<div id="{{hostId}}" class="tabs">{{{panel}}}</div>""",
+        template =
+          """<div id="{{hostId}}" class="tabs">{{#panel}}{{{html}}}{{/panel}}</div>""",
         regions = Map("panel" -> Region(Region.Baked))
       )
     ),
