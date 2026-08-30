@@ -5,7 +5,6 @@ import com.github.mustachejava.Mustache as JavaMustache
 import com.github.mustachejava.DefaultMustacheVisitor
 import com.github.mustachejava.MustacheVisitor
 import com.github.mustachejava.TemplateContext
-import com.samskivert.mustache.Mustache
 import fh.view.model.{CardDef, Dashboard, NodeId}
 
 import java.io.{Reader, StringReader, Writer}
@@ -30,21 +29,11 @@ class Templates private (
 
 object Templates {
 
-  // jmustache, the REFERENCE engine: `MustacheEngineParitySuite` renders every
-  // template through it and through [[factory]] and demands byte equality, so
-  // the engine we ship can never drift from the engine we tested against. The
-  // flags are the configuration the runtime was authored against:
-  // `emptyStringIsFalse` makes `{{#x}}…{{/x}}` sections vanish when `x`
-  // resolves to "" — so optional pieces (secondary, tap) render only when
-  // present; `defaultValue("")` renders a missing key as empty.
-  val compiler: Mustache.Compiler =
-    Mustache
-      .compiler()
-      .escapeHTML(true)
-      .defaultValue("")
-      .emptyStringIsFalse(true)
-
-  // mustache.java (spullara), the engine the runtime executes. Two seams are
+  // mustache.java (spullara), the engine the runtime executes. Its section
+  // truthiness skips a `{{#x}}…{{/x}}` section when `x` resolves to "" — the
+  // emptyStringIsFalse semantics the runtime was authored against — so optional
+  // pieces (secondary, tap) render only when present, and a missing key renders
+  // as empty; both are pinned in [[TemplatesBehaviourSuite]]. Two seams are
   // ours, both deliberate:
   //
   // 1. The ObjectHandler: the renderer's context ([[Renderer.NodeContext]])
