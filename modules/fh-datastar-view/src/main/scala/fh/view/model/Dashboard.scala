@@ -87,8 +87,16 @@ case class SlotSource(
     entityId: Option[String] = None,
     // The value expression — CEL over state/attr/domain/entity_id/dashboard_slug,
     // compiled at build time (validated below) and reused by the renderer.
-    // Defaults to the entity's raw state.
+    // Defaults to the entity's raw state. A slot that instead opts into the
+    // simple tier sets [[simple]] and leaves this untouched — the two are
+    // mutually exclusive (validated).
     transform: String = "state",
+    // The EXPLICIT fast-tier opt-in (plan Phase 3): a [[Transform.Simple]]
+    // value evaluated by hand-rolled reads, with the case's idiomatic CEL as
+    // its documented definition. Setting this field IS the tier selection —
+    // nothing recognizes expression spelling. Engine tier: leave this absent
+    // and author `transform`.
+    simple: Option[Transform.Simple] = None,
     // Used when the transform yields "" (e.g. brightness when a light is off).
     // Keeps numeric signal initialisers like `{bri: {{x}}}` valid.
     default: Option[String] = None,
@@ -108,7 +116,14 @@ case class SlotSource(
     // re-render (ADR 0017). The value says WHERE it lands — see [[SignalBind]]
     // — and the card's template must place `{{{<slot>__bind}}}`.
     signal: Option[SignalBind] = None
-)
+) {
+
+  /** The transform's IDENTITY, for every place the renderer keys a value by its
+    * transform (signal names, the once-cache): the CEL string for an
+    * engine-tier slot, the simple structure's key for an opted-in one.
+    */
+  def valueKey: String = simple.fold(transform)(Transform.Simple.key)
+}
 
 /** When a slot's value is read, and whether reading it is a reason to
   * re-render.
@@ -976,6 +991,22 @@ case class Dashboard(
       slots.toList.sortBy(_._1).flatMap { case (name, src) =>
         val transformError =
           if (src.literal.isDefined) None
+          else if (src.simple.isDefined)
+            if (src.transform != "state")
+              Some(
+                s"$nodeId: slot '$name' opts into the simple tier and also " +
+                  "authored a CEL transform — pick one; the simple value IS " +
+                  "the transform"
+              )
+            else
+              src.simple.collect {
+                case p: Transform.Simple.Percent if p.max == p.min =>
+                  s"$nodeId: slot '$name' has a degenerate percent range " +
+                    s"(${p.min}..${p.max}) — it would divide by zero"
+                case f: Transform.Simple.Fill if f.max == f.min =>
+                  s"$nodeId: slot '$name' has a degenerate fill range " +
+                    s"(${f.min}..${f.max}) — it would divide by zero"
+              }
           else
             Transform.parse(src.transform).left.toOption.map { err =>
               val at =
@@ -1532,7 +1563,7 @@ case class Dashboard(
           .flatMap(_.clauses)
           .flatMap(c => slotsOf(c.node))
     (slotsOf(card) ++ surfaces.values.flatMap(s => slotsOf(s.content))).toList
-      .filter(_.literal.isEmpty)
+      .filter(s => s.literal.isEmpty && s.simple.isEmpty)
       .map(_.transform)
       .distinct
 

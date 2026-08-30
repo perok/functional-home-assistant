@@ -174,45 +174,40 @@ engine (they genuinely need the language) in both worlds.
 - A new ADR lands *after* the swap (engine choice + CEL-native semantics + the fast-path
   catalog), per the repo routine.
 
-## Phase 3 (candidate — discuss before building): the structured transform surface
+## Phase 3 (decided 2026-08-30, building on `simple-transform-surface`): the structured transform surface
 
-Phase 2's recognition is byte-anchored on purpose (the canonical spellings are
-ours and the wire snapshots pin them), but its tier selection is sensitive to
-expression spelling by construction. Two follow-ups are on the table, in
-increasing order of ambition:
+Fork (b) is chosen, sharpened by review: **the tier is an explicit opt-in on
+the wire, and there is NO recognition machinery at all** — no regex, and no
+engine fallback either. A slot carries either a CEL string (`transform`) or a
+`Simple` structure (`simple`); the field IS the tier selection, and the two are
+mutually exclusive (validated). The nine cases are the Phase-2 eval set,
+unchanged, still atomic forms over one read: anything beyond them is CEL,
+explicitly — the composite `{value, op, prefix, postfix}` micro-format is
+deliberately NOT built.
 
-1. **Recognition over the parsed CEL AST** (lightest). We already parse every
-   transform at validate; matching the AST structurally —
-   `Ternary(In(attr,'x'), Index(attr,'x'), Null)` rather than the bytes —
-   survives cosmetic edits while staying just as strict. Cost: coupling the
-   recognizer to cel-java's AST API. A contained swap inside `Transform.simple`;
-   nothing else changes.
-2. **A structured transform surface — our own micro-engine** (the leaning):
-   author structured params instead of strings, e.g.
-   `simpleTransform: { value: 'attr.brightness', op: 'round(2)', prefix: null,
-   postfix: '%' }`. Do the important cases fit one format? Mostly, with four
-   additions:
-
-   | Shipped shape | Structured form |
-   |---|---|
-   | raw `state` / guarded attr read | `{ value: 'state' \| 'attr.x' }` — presence semantics become IMPLICIT in the structure, so the author can never write an unguarded read |
-   | fallback-to-id name | `+ fallback: 'entity_id'` |
-   | unit suffix | `+ append: { attr: 'unit_of_measurement', sep: ' ' }` (append-if-present) |
-   | literal prefix/suffix | `prefix` / `postfix` |
-   | state enum | `{ map: { locked: 'lock/unlock' }, default: 'lock/lock' }` |
-   | range percent / fill | `{ value: 'attr.brightness', range: [1, 255], kind: 'percent' \| 'fill' }` |
-   | fill colour, attr lines | out — engine, by design |
-
-   The fork to decide: **(a)** structure as AUTHORING SUGAR only — the Pkl
-   components take structured params and GENERATE the canonical CEL string
-   (byte-stable by construction — a generator cannot reformat), wire unchanged,
-   recognition unchanged; or **(b)** structure ON THE WIRE as the fast path —
-   the renderer evaluates the structure directly, recognition disappears, but
-   the wire then carries two value systems (structured for simple slots, CEL
-   strings for the rest) and decode/validate/editor grow accordingly. (b) is
-   the shape decision #4 rejected in Phase 1 — it deserves a fresh look only
-   if the recognition-tier sensitivity actually bites in practice, or when the
-   editor wants to offer structured transform editing anyway.
+- **Each case is DEFINED by its idiomatic CEL spelling**, documented on the
+  case (scaladoc + the Pkl classes in `core/slot.pkl`); the parity battery in
+  TransformSuite evaluates that spelling through the engine and pins
+  **byte-equality** with the fast read over the hostile sweep — the mapping
+  similarity check, as a test suite.
+- **No engine fallback**: the opted-in tier owns its values. Where the engine
+  would error on a mistyped value (`double("on")`, `' ' + 5`), the structure
+  renders its absent-value form (`0 %`/`100%`, the state alone) — the
+  documented divergence, itself pinned in the suite's divergence table. The
+  numeric domain of percent/fill mirrors `double()` (string numbers included),
+  so plausible values still agree byte-for-byte.
+- **Naming** keys on the structure (`Simple.key`, e.g. `attr:brightness`,
+  `percent:brightness:1.0:255.0`) — signal names for opted-in slots are
+  structure-derived, not CEL-derived.
+- **Validate stays the gate**: exclusivity (both tiers authored → error) and
+  the degenerate-range check that `range()` used to own.
+- **Authoring**: `core/slot.pkl` gains the nine wire classes + `const`
+  constructors (`state()`, `attr(x)`, `attrOrId(x)`, `unit(x)`, `prefix(l)`,
+  `suffix(l)`, `enumOf(eq, then, else)`, `percent(x, min, max)`,
+  `fill(x, min, max)`) and `Slot.simple`; `labelSlot`/`valueSlot`/
+  `secondarySlot` accept a Simple alongside `String`/`Expr`. Re-authoring the
+  components' canonical-string splices onto the constructors is the remaining
+  half of the phase (wire snapshots move then, deliberately).
 
 ## Out of scope
 
