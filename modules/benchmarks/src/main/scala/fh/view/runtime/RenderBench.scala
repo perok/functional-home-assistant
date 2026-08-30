@@ -94,6 +94,7 @@ class RenderBench {
   private var narrow: Renderer = null
   private var flat: Renderer = null
   private var set: Renderer = null
+  private var setPlain: Renderer = null
   private var shared: Renderer = null
   private var st: Map[String, EntityState] = null
   private var transforms: Transforms = null
@@ -117,6 +118,8 @@ class RenderBench {
     flat =
       Renderer.create(Dashboard(cards, tree(Leaves, Leaves, signals = true)))
     set = Renderer.create(Dashboard(cards, setTree(Leaves)))
+    setPlain =
+      Renderer.create(Dashboard(cards, setTree(Leaves, signals = false)))
     shared = Renderer.create(
       Dashboard(cards, tree(Leaves, 4, signals = true, distinct = Distinct))
     )
@@ -200,6 +203,16 @@ class RenderBench {
     */
   @Benchmark
   def pageSet(bh: Blackhole): Unit = bh.consume(set.renderPageTraced(st))
+
+  /** [[pageSet]] with signal-less members — every member's two forms are
+    * byte-identical, so the patch fingerprint is a slice of the document bytes
+    * and the second render per member dies. The gap against [[pageSet]] is what
+    * the slice saves where it applies; [[pageSet]] is the worst case where
+    * every member carries a signal slot and nothing can be shared.
+    */
+  @Benchmark
+  def pageSetPlain(bh: Blackhole): Unit =
+    bh.consume(setPlain.renderPageTraced(st))
 
   /** The same 200 leaves over only 40 DISTINCT entities — each shown five
     * times, which is what a real dashboard looks like once a light appears in
@@ -448,8 +461,13 @@ object RenderBench {
   /** The same leaves, as one candidate set: every entity a candidate, each with
     * a single unguarded clause rendering the same card. Membership is therefore
     * total, so this measures the RENDER path rather than predicate evaluation.
+    *
+    * `signals` toggles the member leaves' signal slots: `true` is the worst
+    * case (every member carries a signal slot, so its patch fingerprint needs
+    * its own render), `false` the signal-less case where the two forms are
+    * byte-identical and the fingerprint is sliced from the document bytes.
     */
-  def setTree(leaves: Int): LayoutNode =
+  def setTree(leaves: Int, signals: Boolean = true): LayoutNode =
     LayoutNode.Component(
       "col",
       regions = LayoutNode.kids(
@@ -458,7 +476,7 @@ object RenderBench {
           members = List
             .tabulate(leaves)(i =>
               entityId(i) -> LayoutNode.SetMember(
-                List(LayoutNode.SetClause(node = leaf(signals = true)(i)))
+                List(LayoutNode.SetClause(node = leaf(signals)(i)))
               )
             )
             .toMap

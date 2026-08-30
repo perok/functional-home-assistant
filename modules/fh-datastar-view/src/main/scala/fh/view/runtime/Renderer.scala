@@ -1123,25 +1123,40 @@ class Renderer(
             .map(m => m -> resolveMember(m, states))
         // The set wrapper and every member's DOCUMENT bytes go into the walk's
         // one buffer — a member String here would be this buffer's bytes
-        // copied out and copied back in (issue #237). Only the member's PATCH
-        // rendering materializes, below, because those bytes are its cache
-        // entry.
+        // copied out and copied back in (issue #237). Each member's patch
+        // fingerprint comes off the same pass: rendered separately only where
+        // the forms actually differ (a signal slot somewhere in the subtree),
+        // otherwise SLICED from the document bytes just written — the same
+        // trick a static node's non-signal `own` uses, and one full member
+        // render saved on every signal-less member, which is most of them.
         out
           .append("""<div class="fh-cell fh-group""")
           .append(Renderer.cellClasses(s.cell))
           .append("""" id="""")
           .append(setId)
           .append("\">")
-        resolved.foreach((m, rm) =>
-          renderResolvedMemberInto(out, m, rm, SlotForm.Document)
-        )
+        val painted = resolved.foldLeft(Map.empty[NodeId, Painted]) {
+          case (acc, (m, rm)) =>
+            val sigs = memberSignalsOf(rm)
+            val start = out.length
+            renderResolvedMemberInto(out, m, rm, SlotForm.Document)
+            val end = out.length
+            val patch =
+              if (sigs.isEmpty)
+                // No signal slot anywhere in the member's subtree: the seed
+                // attr is absent either way ([[Datastar.signalsAttr]] of
+                // nothing is "") and there is no value to withhold, so the
+                // two forms are byte-identical.
+                out.substring(start, end)
+              else {
+                val buf = new java.lang.StringBuilder(Renderer.NodeBytesHint)
+                renderResolvedMemberInto(buf, m, rm, SlotForm.Patch)
+                buf.toString
+              }
+            acc + (m.id -> Painted(patch, sigs))
+        }
         out.append("</div>")
-        resolved.map { (m, rm) =>
-          m.id -> Painted(
-            renderResolvedMember(m, rm, SlotForm.Patch),
-            memberSignalsOf(rm)
-          )
-        }.toMap
+        painted
     }
 
   private def renderSet(
