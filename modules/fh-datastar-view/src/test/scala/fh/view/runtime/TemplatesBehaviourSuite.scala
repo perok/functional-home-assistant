@@ -10,9 +10,8 @@ import com.github.mustachejava.DefaultMustacheFactory
   * what remains is the smaller set of behaviours the runtime DEPENDS on, now
   * asserted against expected bytes rather than against another engine: the
   * escape set (with the newline pin, whose raw-engine half is the reason the
-  * override exists), missing keys rendering empty, `emptyStringIsFalse`
-  * section truthiness, and the region-loop shapes every container template
-  * uses.
+  * override exists), missing keys rendering empty, `emptyStringIsFalse` section
+  * truthiness, and the region-loop shapes every container template uses.
   */
 class TemplatesBehaviourSuite extends munit.FunSuite:
 
@@ -95,7 +94,10 @@ class TemplatesBehaviourSuite extends munit.FunSuite:
   // --------------------------------------------------- section truthiness
 
   test("empty string section: skipped (emptyStringIsFalse semantics)") {
-    assertEquals(render("""<span>A{{#c}}X{{/c}}B</span>""", "c" -> ""), "<span>AB</span>")
+    assertEquals(
+      render("""<span>A{{#c}}X{{/c}}B</span>""", "c" -> ""),
+      "<span>AB</span>"
+    )
   }
 
   test("non-empty string section: renders once with value as context") {
