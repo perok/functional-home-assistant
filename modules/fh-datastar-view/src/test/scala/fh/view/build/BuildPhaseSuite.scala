@@ -489,7 +489,7 @@ class BuildPhaseSuite extends munit.FunSuite {
       // dashboards were only ever valid because nothing checked.
       cards = Map(
         "ok" -> CardDef(
-          "<i>{{{branch}}}</i>",
+          "<i>{{#branch}}{{{html}}}{{/branch}}</i>",
           regions = Map("branch" -> Region(Region.Baked))
         )
       ),
@@ -523,7 +523,7 @@ class BuildPhaseSuite extends munit.FunSuite {
       // dashboards were only ever valid because nothing checked.
       cards = Map(
         "ok" -> CardDef(
-          "<i>{{{branch}}}</i>",
+          "<i>{{#branch}}{{{html}}}{{/branch}}</i>",
           regions = Map("branch" -> Region(Region.Baked))
         )
       ),
@@ -562,9 +562,9 @@ class BuildPhaseSuite extends munit.FunSuite {
       assertEquals(dash(c).validate(), Nil, clue = c)
   }
 
-  /** `bakeAs` names the template var a surface's content is substituted into,
-    * which since regions IS a region name — so the two can be checked against
-    * each other rather than agreeing by convention.
+  /** `bakeAs` names the template region a surface's content fills, which since
+    * regions IS a region name — so the two can be checked against each other
+    * rather than agreeing by convention.
     *
     * Naming a region the host does not declare fails exactly the way
     * `danglingBakes` describes for a missing NODE: the host renders its wrapper
@@ -586,7 +586,7 @@ class BuildPhaseSuite extends munit.FunSuite {
       )
     )
     val hasBranch = CardDef(
-      "<i>{{{branch}}}</i>",
+      "<i>{{#branch}}{{{html}}}{{/branch}}</i>",
       regions = Map("branch" -> Region(Region.Baked))
     )
 
@@ -603,8 +603,10 @@ class BuildPhaseSuite extends munit.FunSuite {
         .exists(_.contains("it declares none")),
       clue = dash(CardDef("<i></i>"), "branch").validate()
     )
-    // An EAGER region of the right name is still wrong: a surface fills a hole
-    // lazily, and `{{#branch}}` is not the hole it substitutes into.
+    // An EAGER region of the right name is still wrong: a surface fills a
+    // hole lazily, and an eager region is filled by the node's own children —
+    // the fills are told apart by the region's declared kind, not by the
+    // spelling, which is the same section for both.
     assert(
       dash(
         CardDef(

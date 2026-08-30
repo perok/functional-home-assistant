@@ -717,51 +717,43 @@ class Renderer(
       .map(_.hostId)
       .getOrElse(elementId(id))
 
-  /** `(baked, structural, trace)` for a component that owns a bake group: the
-    * SELECTED member as its `{{{bakeAs}}}` var, so the host renders the active
-    * panel on first paint, plus `bakeIndex` so a tabs template can seed its
-    * signal. Selection dispatches on activation mode — [[resolveActive]] for
-    * user groups, [[resolveActiveByState]] for state groups.
+  /** `(bakeIndex vars, selection)` for a component that owns a bake group: the
+    * index so a tabs template can seed its signal, plus the member the viewer's
+    * selection names — its `bakeAs` region is filled from it. Selection
+    * dispatches on activation mode — [[resolveActive]] for user groups,
+    * [[resolveActiveByState]] for state groups.
     *
-    * Baking happens exactly as a later open/switch/flip would wrap it, so first
-    * paint and switch-back are byte-identical and the first live patch is a
-    * no-op morph. No bake group leaves all three empty; absent Mustache vars
-    * render as empty anyway.
+    * The selection is filled LAZILY, by the walk: the region's callback renders
+    * the member's surface into the host's buffer only when the template
+    * actually reaches the hole, and its trace joins the walk's own collection
+    * on the way past. A state group with no matching branch selects nothing,
+    * and the hole renders empty — the same bytes the empty var used to produce.
     */
   private def resolveBakeTraced(
       id: NodeId,
       uiState: Map[String, String],
       states: Map[String, EntityState]
-  ): (Map[String, String], Map[String, String], Map[NodeId, Painted]) = {
+  ): (Map[String, String], Option[(String, String)]) = {
     val group = surfaces.bakeGroup(id)
     def bakeMember(
         idx: Int
-    ): (Map[String, String], Map[String, String], Map[NodeId, Painted]) = {
+    ): (Map[String, String], Option[(String, String)]) = {
       val sid = group(idx)
-      val s = dashboard.surfaces(sid)
-      // A baked member's nodes are part of what this render puts on screen, so
-      // its trace joins this one's — that is how a page load fingerprints the
-      // surfaces it baked without walking them again.
-      val member = renderSurfaceTraced(sid, states, uiState)
       (
-        Map(s.bakeAs.getOrElse("") -> member.fold("")(_.html)),
         Map("bakeIndex" -> idx.toString),
-        member.fold(Map.empty[NodeId, Painted])(_.own)
+        dashboard.surfaces(sid).bakeAs.map(as => as -> sid)
       )
     }
-    if (group.isEmpty) (Map.empty, Map.empty, Map.empty)
+    if (group.isEmpty) (Map.empty, None)
     else
       activeBakeIndex(id, uiState, states) match {
         case Some(idx) => bakeMember(idx)
         case None      =>
-          // A state group with no matching branch: the host's {{{bakeAs}}} var
-          // is explicitly the empty string (all members share one bakeAs — they
-          // bake into one hole), so the wrapper renders empty instead of
-          // leaving the var absent-but-meaningful.
-          val as = group.headOption
-            .flatMap(sid => dashboard.surfaces.get(sid).flatMap(_.bakeAs))
-            .getOrElse("")
-          (Map(as -> ""), Map.empty, Map.empty)
+          // A state group with no matching branch: nothing selects, so the
+          // region section renders empty — which is what the empty string the
+          // var used to get produced too. A group's members share one bakeAs
+          // (they bake into one hole), so per-member naming never diverges.
+          (Map.empty, None)
       }
   }
 
@@ -934,11 +926,12 @@ class Renderer(
   ): Map[NodeId, Painted] =
     node match {
       case c: LayoutNode.Component =>
-        val (baked, bakeIndex, bakedTrace) =
-          resolveBakeTraced(id, uiState, states)
+        val (bakeIndex, bakeSel) = resolveBakeTraced(id, uiState, states)
         // ONE var map for the whole template: a region's contents are other
         // nodes, so nothing here needs a narrower view than the card's own.
-        val vars = structuralVars(id) ++ bakeIndex ++ baked
+        // The baked member is NOT a var any more — its region is filled by the
+        // walk, below.
+        val vars = structuralVars(id) ++ bakeIndex
         // ONE walk, both forms — see [[Traced]]. Only the form differs between
         // the two calls, so a node with no signal slot anywhere under it does
         // the second not at all.
@@ -1017,9 +1010,11 @@ class Renderer(
             buf: java.lang.StringBuilder,
             form: SlotForm
         ): Map[NodeId, Painted] = {
-          // A leaf (no regions): the template runs against the bare context —
-          // no walk, no builders, nothing to collect.
-          if c.regions.isEmpty then
+          // A leaf (no regions, no bake): the template runs against the bare
+          // context — no walk, no builders, nothing to collect. A bake owner
+          // with no AUTHORED regions (an `If` host) is not a leaf: its hole is
+          // a region all the same, filled from the selection.
+          if c.regions.isEmpty && bakeSel.isEmpty then
             Templates.run(
               tpl,
               appendTo(buf),
@@ -1046,8 +1041,25 @@ class Renderer(
                     t.html
                   }
               }.toMap
+            // A baked member whose hole the visitor did NOT inline (a template
+            // that writes the region differently) keeps the string splice —
+            // the surface rendered isolated, its trace joined exactly as the
+            // pre-walk bake did. Slower, never different bytes.
+            val bakedFallback
+                : (Map[String, List[String]], Map[NodeId, Painted]) =
+              bakeSel match {
+                case Some((region, sid)) if !inline.contains(region) =>
+                  renderSurfaceTraced(sid, states, uiState)
+                    .map(t => (Map(region -> List(t.html)), t.own))
+                    .getOrElse((Map.empty, Map.empty))
+                case _ => (Map.empty, Map.empty)
+              }
             // The walk the region codes consult: children traced INTO `buf`,
-            // whose own-bytes join this node's through `owns`.
+            // whose own-bytes join this node's through `owns`. A BAKED region
+            // walks the selected surface the same way — its nodes keep their
+            // surface-derived ids, and its trace joins `owns` on the way past,
+            // which is how a page load fingerprints the surfaces it baked
+            // without walking them twice.
             val walk: Map[String, java.io.Writer => Map[NodeId, Painted]] =
               inline.view.collect {
                 case region if c.regions.contains(region) =>
@@ -1064,13 +1076,36 @@ class Renderer(
                     }
                     Map.empty[NodeId, Painted]
                   }
+                case region if bakeSel.exists(_._1 == region) =>
+                  val sid = bakeSel.get._2
+                  region -> { (_: java.io.Writer) =>
+                    dashboard.surfaces.get(sid).foreach { s =>
+                      val prefix = Renderer.surfacePrefix(sid)
+                      owns += tracedInto(
+                        buf,
+                        s.content,
+                        LayoutNode.rootId(prefix, s.content),
+                        prefix,
+                        states,
+                        uiState
+                      )
+                    }
+                    Map.empty[NodeId, Painted]
+                  }
               }.toMap
             Templates.run(
               tpl,
               appendTo(buf),
-              NodeContext(resolved, childrenHtml, form, walk)
+              NodeContext(
+                resolved,
+                childrenHtml ++ bakedFallback._1,
+                form,
+                walk
+              )
             )
-            owns.result().foldLeft(Map.empty[NodeId, Painted])(_ ++ _)
+            owns
+              .result()
+              .foldLeft(bakedFallback._2)(_ ++ _)
           }
         }
 
@@ -1099,9 +1134,10 @@ class Renderer(
             resolved.signals
           )
         )
-        childOwns ++ bakedTrace ++ own.fold(Map.empty[NodeId, Painted])(p =>
-          Map(id -> p)
-        )
+        // The baked surface's trace is already in `childOwns` — the walk
+        // collected it, or the fallback joined it — so `own` is the only
+        // addition here.
+        childOwns ++ own.fold(Map.empty[NodeId, Painted])(p => Map(id -> p))
       // A container root composes its members and so has no own rendering; the
       // members do, and they are what a fill must fingerprint.
       case s: LayoutNode.SetNode =>
