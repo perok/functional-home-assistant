@@ -395,7 +395,7 @@ class Renderer(
     val chrome =
       if (dashboard.theme.chrome.nonEmpty) dashboard.theme.chrome
       else """<main class="container" id="dashboard">{{{body}}}</main>"""
-    Templates.compile("chrome", chrome)
+    Templates.compile("chrome", chrome)._1
   }
 
   /** Without the page shell and without the theme ([[themeStyleTag]] sits
@@ -889,32 +889,51 @@ class Renderer(
       own: Map[NodeId, Painted]
   )
 
+  /** A static floor on the nodes a subtree renders, for sizing its buffer: the
+    * structure plus every region child. A set counts its candidates and members
+    * — its live membership is bounded by both.
+    */
+  private def nodeCount(node: LayoutNode): Int = node match {
+    case c: LayoutNode.Component =>
+      1 + c.regions.values.view.map(_.map(nodeCount).sum).sum
+    case s: LayoutNode.SetNode =>
+      1 + math.max(s.candidates.size, s.members.size)
+  }
+
   private def traced(
       node: LayoutNode,
       id: NodeId,
       idPrefix: String,
       states: Map[String, EntityState],
       uiState: Map[String, String]
-  ): Traced =
+  ): Traced = {
+    // One buffer for the whole subtree: children write where they land, and
+    // the subtree's bytes are copied out ONCE (issue #237 point 1). Sized to
+    // the subtree's node count — a builder that grows instead pays amortized
+    // doubling across the whole page, which is precisely the copy this walk
+    // exists to remove.
+    val out = new java.lang.StringBuilder(
+      Renderer.NodeBytesHint * nodeCount(node)
+    )
+    val own = tracedInto(out, node, id, idPrefix, states, uiState)
+    Traced(out.toString, own)
+  }
+
+  /** Renders the node's DOCUMENT bytes into `out` — appending, never
+    * truncating, so a page is one buffer from the root down — and returns the
+    * subtree's `own` trace: the patch bytes of every own-rendering node under
+    * it, this node included.
+    */
+  private def tracedInto(
+      out: java.lang.StringBuilder,
+      node: LayoutNode,
+      id: NodeId,
+      idPrefix: String,
+      states: Map[String, EntityState],
+      uiState: Map[String, String]
+  ): Map[NodeId, Painted] =
     node match {
       case c: LayoutNode.Component =>
-        // Per REGION, because each hole is spliced with its own children and a
-        // child's step names the region it sits in.
-        val kidsByRegion: Map[String, List[Traced]] =
-          c.regions.map { case (region, nodes) =>
-            region -> nodes.zipWithIndex.map { case (child, i) =>
-              val step = LayoutNode.Step(region, i)
-              traced(
-                child,
-                LayoutNode.childId(idPrefix, id, step, child),
-                idPrefix,
-                states,
-                uiState
-              )
-            }
-          }
-        val kids = kidsByRegion.toList.sortBy(_._1).flatMap(_._2)
-        val childrenHtml = kidsByRegion.view.mapValues(_.map(_.html)).toMap
         val (baked, bakeIndex, bakedTrace) =
           resolveBakeTraced(id, uiState, states)
         // ONE var map for the whole template: a region's contents are other
@@ -970,46 +989,118 @@ class Renderer(
         //
         // Wrapper and body go into ONE buffer, so the body is written where it
         // is going rather than built and then copied in.
-        def rendered(form: SlotForm): String = {
-          // Pre-sized: the children's bytes are KNOWN here, and a builder that
-          // grows copies its whole contents on every doubling — for a container
-          // that is its subtree, once per level of the tree (issue #237).
-          val out = new java.lang.StringBuilder(
-            Renderer.NodeBytesHint + childrenHtml.valuesIterator
-              .flatMap(_.iterator)
-              .map(_.length)
-              .sum
-          )
-          val wrapped = !noWrapCards(c.card)
+        val wrapped = !noWrapCards(c.card)
+        // Regions whose loops the visitor made INLINE (body exactly
+        // `{{{html}}}`): their children are traced INTO this node's buffer at
+        // the hole position and no child String exists. Any other region keeps
+        // the string splice, rendered isolated exactly as before — a template
+        // written differently loses speed, never bytes.
+        val inline = templates.inlineRegions.getOrElse(c.card, Set.empty)
+
+        def childId(region: String, i: Int, child: LayoutNode) =
+          LayoutNode.childId(idPrefix, id, LayoutNode.Step(region, i), child)
+
+        def wrapper(buf: java.lang.StringBuilder, form: SlotForm): Unit =
           if (wrapped) {
-            out
+            buf
               .append("""<div class="fh-cell""")
               .append(Renderer.cellClasses(c.cell))
               .append("""" id="""")
               .append(id)
               .append('"')
             if (!form.isPatch)
-              out.append(Datastar.signalsAttr(resolved.signals))
-            out.append('>')
+              buf.append(Datastar.signalsAttr(resolved.signals))
+            buf.append('>')
           }
-          executeInto(out, tpl, resolved, childrenHtml, form)
-          if (wrapped) out.append("</div>")
-          out.toString
+
+        def bodyInto(
+            buf: java.lang.StringBuilder,
+            form: SlotForm
+        ): Map[NodeId, Painted] = {
+          // A leaf (no regions): the template runs against the bare context —
+          // no walk, no builders, nothing to collect.
+          if c.regions.isEmpty then
+            Templates.run(
+              tpl,
+              appendTo(buf),
+              NodeContext(resolved, Map.empty, form)
+            )
+            Map.empty[NodeId, Painted]
+          else {
+            val owns = List.newBuilder[Map[NodeId, Painted]]
+            // The mustache path's children: only the NON-inline regions, and
+            // only when the card has any.
+            val childrenHtml: Map[String, List[String]] =
+              c.regions.view.collect {
+                case (region, nodes) if !inline.contains(region) =>
+                  region -> nodes.zipWithIndex.map { case (child, i) =>
+                    val t =
+                      traced(
+                        child,
+                        childId(region, i, child),
+                        idPrefix,
+                        states,
+                        uiState
+                      )
+                    owns += t.own
+                    t.html
+                  }
+              }.toMap
+            // The walk the region codes consult: children traced INTO `buf`,
+            // whose own-bytes join this node's through `owns`.
+            val walk: Map[String, java.io.Writer => Map[NodeId, Painted]] =
+              inline.view.collect {
+                case region if c.regions.contains(region) =>
+                  region -> { (_: java.io.Writer) =>
+                    c.regions(region).zipWithIndex.foreach { case (child, i) =>
+                      owns += tracedInto(
+                        buf,
+                        child,
+                        childId(region, i, child),
+                        idPrefix,
+                        states,
+                        uiState
+                      )
+                    }
+                    Map.empty[NodeId, Painted]
+                  }
+              }.toMap
+            Templates.run(
+              tpl,
+              appendTo(buf),
+              NodeContext(resolved, childrenHtml, form, walk)
+            )
+            owns.result().foldLeft(Map.empty[NodeId, Painted])(_ ++ _)
+          }
         }
-        val wrapped = rendered(SlotForm.Document)
+
+        val start = out.length
+        wrapper(out, SlotForm.Document)
+        val childOwns = bodyInto(out, SlotForm.Document)
+        if (wrapped) out.append("</div>")
+        val end = out.length
+
         // What this node contributes to the trace: its whole (wrapped) patch
         // rendering when it is a LEAF, and nothing when it is structure.
         // Mirrors `renderNodeById` exactly — wrapper included, and in the PATCH
         // form, which is what that method produces.
         val own = Option.when(ownRendering)(
           Painted(
-            if (twoForms) rendered(SlotForm.Patch) else wrapped,
+            if (twoForms) {
+              val buf = new java.lang.StringBuilder(Renderer.NodeBytesHint)
+              wrapper(buf, SlotForm.Patch)
+              bodyInto(buf, SlotForm.Patch)
+              if (wrapped) buf.append("</div>")
+              buf.toString
+            } else
+              // No signal slot: the forms are byte-identical, so the patch
+              // fingerprint IS the document bytes just written.
+              out.substring(start, end),
             resolved.signals
           )
         )
-        Traced(
-          wrapped,
-          kids.foldLeft(bakedTrace)(_ ++ _.own) ++ own.map(id -> _)
+        childOwns ++ bakedTrace ++ own.fold(Map.empty[NodeId, Painted])(p =>
+          Map(id -> p)
         )
       // A container root composes its members and so has no own rendering; the
       // members do, and they are what a fill must fingerprint.
@@ -1030,21 +1121,25 @@ class Renderer(
           members
             .membersOf(setId, states)
             .map(m => m -> resolveMember(m, states))
-        Traced(
-          setElement(
-            setId,
-            s.cell,
-            resolved.map((m, rm) =>
-              renderResolvedMember(m, rm, SlotForm.Document)
-            )
-          ),
-          resolved.map { (m, rm) =>
-            m.id -> Painted(
-              renderResolvedMember(m, rm, SlotForm.Patch),
-              memberSignalsOf(rm)
-            )
-          }.toMap
+        // The set wrapper appends into the walk's buffer; only the member
+        // Strings are materialized (a member is a patch target with its own
+        // bytes) — one copy each, none for the wrapper (issue #237).
+        out
+          .append("""<div class="fh-cell fh-group""")
+          .append(Renderer.cellClasses(s.cell))
+          .append("""" id="""")
+          .append(setId)
+          .append("\">")
+        resolved.foreach((m, rm) =>
+          out.append(renderResolvedMember(m, rm, SlotForm.Document))
         )
+        out.append("</div>")
+        resolved.map { (m, rm) =>
+          m.id -> Painted(
+            renderResolvedMember(m, rm, SlotForm.Patch),
+            memberSignalsOf(rm)
+          )
+        }.toMap
     }
 
   private def renderSet(
@@ -1380,7 +1475,13 @@ class Renderer(
   private case class NodeContext(
       resolved: Resolved,
       childrenHtml: Map[String, List[String]],
-      form: SlotForm
+      form: SlotForm,
+      // Region name -> trace that region's children into the writer. Set only
+      // by the document walk ([[tracedInto]]) for regions whose loops are
+      // inline-eligible; the region codes consult it and fall back to the
+      // string splice when absent (patch renders, members).
+      regionWalk: Map[String, java.io.Writer => Map[NodeId, Painted]] =
+        Map.empty
   ) extends Templates.FhScope {
 
     /** One list per REGION, under the region's own name, so a template's
