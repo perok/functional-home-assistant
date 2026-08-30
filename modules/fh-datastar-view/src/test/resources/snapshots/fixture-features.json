@@ -300,7 +300,7 @@
                     "default" : "currentcolor",
                     "reads" : "live",
                     "signal" : "style:background",
-                    "transform" : "cel.bind(rgb, 'rgb_color' in attr ? attr['rgb_color'] : null, cel.bind(k, 'color_temp_kelvin' in attr ? attr['color_temp_kelvin'] : null, (rgb != null && size(rgb) == 3) ? 'rgb(' + str(rgb[0]) + ',' + str(rgb[1]) + ',' + str(rgb[2]) + ')' : (k != null ? cel.bind(t, (double(k) - 2000.0) < 0.0 ? 0.0 : ((double(k) - 2000.0) > 4500.0 ? 1.0 : (double(k) - 2000.0) / 4500.0), 'rgb(' + str(math.round(255.0 - 54.0 * t)) + ',' + str(math.round(166.0 + 60.0 * t)) + ',' + str(math.round(87.0 + 168.0 * t)) + ')') : '')))"
+                    "transform" : "''"
                   },
                   "icon" : "mdi-lightbulb",
                   "key" : "brightness",

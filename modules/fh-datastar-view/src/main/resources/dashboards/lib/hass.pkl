@@ -163,6 +163,14 @@ open class LightEntity extends Entity {
 
   hidden supportsColour: Boolean =
     colourModes.toList().any((m) -> hassLight.COLOUR_MODES.contains(m))
+  /// Whether this light reports `rgb_color` live: a colour-mode light does,
+  /// and HA CONVERTS a colour-temperature light's temperature into the colour
+  /// representations, so those arrive together with the kelvin. The build-time
+  /// fact a fill-colour expression needs to know which of its branches are
+  /// dead (verified against the live set along with the rest of
+  /// [[volatileAttrs]]).
+  hidden reportsRgbColour: Boolean =
+    supportsColour || colourModes.toList().contains("color_temp")
   hidden supportsBrightness: Boolean =
     colourModes.toList().any((m) -> hassLight.DIMMABLE_MODES.contains(m))
   hidden supportsColourTemp: Boolean = colourTemp != null
@@ -194,8 +202,8 @@ open class LightEntity extends Entity {
     }
     // A colour-TEMP light reports the colour representations too — HA converts
     // the temperature into them, so all four arrive together. That is why this
-    // is not simply `supportsColour`.
-    when (supportsColour || colourModes.toList().contains("color_temp")) {
+    // is not simply `supportsColour` (see [[reportsRgbColour]]).
+    when (reportsRgbColour) {
       ["hs_color"] = "List<Float>"
       ["rgb_color"] = "List<Int>"
       ["xy_color"] = "List<Float>"
