@@ -85,18 +85,13 @@ case class SlotSource(
     // — the multi-entity card. With neither, the transform runs against an empty
     // state (the constant case).
     entityId: Option[String] = None,
-    // The value expression — CEL over state/attr/domain/entity_id/dashboard_slug,
-    // compiled at build time (validated below) and reused by the renderer.
-    // Defaults to the entity's raw state. A slot that instead opts into the
-    // simple tier sets [[simple]] and leaves this untouched — the two are
-    // mutually exclusive (validated).
-    transform: String = "state",
-    // The EXPLICIT fast-tier opt-in (plan Phase 3): a [[Transform.Simple]]
-    // value evaluated by hand-rolled reads, with the case's idiomatic CEL as
-    // its documented definition. Setting this field IS the tier selection —
-    // nothing recognizes expression spelling. Engine tier: leave this absent
-    // and author `transform`.
-    simple: Option[Transform.Simple] = None,
+    // The value — ONE wire fact with two forms: a CEL string over
+    // state/attr/domain/entity_id/dashboard_slug (the engine tier; compiled at
+    // build time and reused by the renderer), or an opted-in
+    // [[Transform.Simple]] structure as a JSON object (the fast tier — the
+    // object form IS the tier selection, plan Phase 3 / ADR 0028). Defaults to
+    // the entity's raw state.
+    transform: String | Transform.Simple = "state",
     // Used when the transform yields "" (e.g. brightness when a light is off).
     // Keeps numeric signal initialisers like `{bri: {{x}}}` valid.
     default: Option[String] = None,
@@ -122,7 +117,10 @@ case class SlotSource(
     * transform (signal names, the once-cache): the CEL string for an
     * engine-tier slot, the simple structure's key for an opted-in one.
     */
-  def valueKey: String = simple.fold(transform)(Transform.Simple.key)
+  def valueKey: String = transform match {
+    case s: String            => s
+    case sm: Transform.Simple => Transform.Simple.key(sm)
+  }
 }
 
 /** When a slot's value is read, and whether reading it is a reason to
@@ -168,6 +166,15 @@ object SlotSource:
     */
   given Decoder[SlotSource] =
     Decoder[String].map(s => SlotSource(literal = Some(s))).or(objDecoder)
+
+  /** A slot's transform is ONE wire fact with two forms: a bare JSON string (a
+    * CEL expression — the engine tier) or an object (the opted-in
+    * [[Transform.Simple]] structure — the fast tier, `kind`-discriminated).
+    */
+  given Decoder[String | Transform.Simple] =
+    Decoder[String].or(
+      summon[Decoder[Transform.Simple]].map[Transform.Simple | String](identity)
+    )
 
 /** WHERE a signal slot's value lands in the DOM — the Datastar attribute the
   * renderer emits for it (ADR 0017).
@@ -991,27 +998,28 @@ case class Dashboard(
       slots.toList.sortBy(_._1).flatMap { case (name, src) =>
         val transformError =
           if (src.literal.isDefined) None
-          else if (src.simple.isDefined)
-            if (src.transform != "state")
-              Some(
-                s"$nodeId: slot '$name' opts into the simple tier and also " +
-                  "authored a CEL transform — pick one; the simple value IS " +
-                  "the transform"
-              )
-            else
-              src.simple.collect {
-                case p: Transform.Simple.Percent if p.max == p.min =>
+          else
+            src.transform match {
+              // The fast tier: structure checks only — the degenerate-range
+              // rule the recognizer's `range()` used to own.
+              case p: Transform.Simple.Percent if p.max == p.min =>
+                Some(
                   s"$nodeId: slot '$name' has a degenerate percent range " +
                     s"(${p.min}..${p.max}) — it would divide by zero"
-                case f: Transform.Simple.Fill if f.max == f.min =>
+                )
+              case f: Transform.Simple.Fill if f.max == f.min =>
+                Some(
                   s"$nodeId: slot '$name' has a degenerate fill range " +
                     s"(${f.min}..${f.max}) — it would divide by zero"
-              }
-          else
-            Transform.parse(src.transform).left.toOption.map { err =>
-              val at =
-                locateTransform(src.transform).fold("")(loc => s" (at $loc)")
-              s"$nodeId: slot '$name' has an invalid transform$at: $err"
+                )
+              // The engine tier: the expression must compile.
+              case t: String =>
+                Transform.parse(t).left.toOption.map { err =>
+                  val at =
+                    locateTransform(t).fold("")(loc => s" (at $loc)")
+                  s"$nodeId: slot '$name' has an invalid transform$at: $err"
+                }
+              case _: Transform.Simple => None
             }
         transformError.toList ++ signalErrors(nodeId, cardName, name, src)
       }
@@ -1562,9 +1570,12 @@ case class Dashboard(
         s.members.values.toList
           .flatMap(_.clauses)
           .flatMap(c => slotsOf(c.node))
+    // The CEL half of the two-tier union — the Simple objects have no string
+    // to compile (plan Phase 3 / ADR 0028).
     (slotsOf(card) ++ surfaces.values.flatMap(s => slotsOf(s.content))).toList
-      .filter(s => s.literal.isEmpty && s.simple.isEmpty)
+      .filter(_.literal.isEmpty)
       .map(_.transform)
+      .collect { case t: String => t }
       .distinct
 
   /** Parse this dashboard into a [[Dashboard.Validated]] proof: the same checks

@@ -367,7 +367,7 @@ facts {
     // get. A TOKEN, not the literal behind it: the value is the theme's to move.
     // The fill is OPTED IN: the two-armed state enum of the simple tier
     // (annotated local = the runtime-checked downcast from the union).
-    local fillEnum: simpleMod.SimpleEnum = row.headSlots["fill"].simple!!
+    local fillEnum: simpleMod.SimpleEnum = row.headSlots["fill"].transform!!
     fillEnum.equalTo == "on"
     fillEnum.thenValue == "0%"
     fillEnum.otherwise == "100%"
@@ -377,7 +377,8 @@ facts {
     cssMod.baseCss.contains("--fh-default-color:rgb(189, 189, 176)")
     // A percentage of an axis it does not have reads 0 % forever, so the row
     // reads out its state instead — and nothing drags the readout.
-    row.headSlots["state"].transform == "state"
+// The state readout opted in as the raw-state shape.
+    row.headSlots["state"].transform is simpleMod.SimpleState
     !row.slots.containsKey("dragPercent")
     // The markup is ONE template shared by every slider, so the two shapes are
     // sections of it rather than two cards.
@@ -392,7 +393,7 @@ facts {
     !dim.slots.containsKey("toggle")
     // The percent READOUT rides the "state" slot (shownReadout), opted in as
     // the simple tier's percent over the light's own 1..255 range.
-    local statePercent: simpleMod.SimplePercent = dim.headSlots["state"].simple!!
+    local statePercent: simpleMod.SimplePercent = dim.headSlots["state"].transform!!
     statePercent.name == "brightness"
     statePercent.min == 1
     statePercent.max == 255

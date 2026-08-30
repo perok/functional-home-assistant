@@ -14,7 +14,7 @@ import fh.view.model.{Dashboard, Transform}
   * setup, rather than mid render or by silently blanking a value.
   *
   * Two tiers, selected EXPLICITLY by the slot ([[SlotSource.simple]] — there is
-  * no recognition of expression spelling, plan Phase 3): a slot carrying a
+  * no recognition of expression spelling, ADR 0028): a slot carrying a
   * [[Transform.Simple]] value is evaluated by hand-rolled reads
   * ([[Transform.runSimple]] — total, its documented divergences included); a
   * slot carrying a CEL string goes to the engine. Neither path falls back to

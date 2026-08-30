@@ -23,9 +23,11 @@ It worked, and no wire byte moved. Three costs followed from the design itself:
 
 ## The decision
 
-1. **The tier is a field, not a spelling.** A slot carries either a CEL string
-   (`SlotSource.transform`) or a `Simple` structure (`SlotSource.simple`) — mutually exclusive,
-   rejected by validate if both are authored. There is no recognition machinery at all.
+1. **The tier is the transform's FORM, not a spelling.** A slot's `transform`
+   is ONE wire fact with two forms: a bare JSON string (a CEL expression — the
+   engine tier) or a `Simple` structure as a JSON object (the fast tier). The
+   form IS the tier selection; there is no recognition machinery at all, and
+   nothing else on the slot describes its tier.
 2. **The catalog is unchanged and stays closed.** The same nine atomic forms over one read
    (`state`, `attr`, `attrOrId`, `unit`, `prefix`, `suffix`, `enum`, `percent`, `fill`). The
    composite `{value, op, prefix, postfix}` micro-format was considered and rejected: it reopens
@@ -49,13 +51,18 @@ It worked, and no wire byte moved. Three costs followed from the design itself:
    `slot.pkl`'s own auto-unit value and guarded secondary read. The slider's `percentExpr`/
    `valueExpr`/`minExpr`/`maxExpr` stay CEL strings deliberately — they are the splice surface for
    composed readouts, which no atomic shape covers.
-7. **Validate stays the one gate.** Double-tier slots and degenerate ranges (the check the
-   recognizer's `range()` used to own) are build errors, located like bad CEL.
+7. **Validate stays the one gate.** A Simple structure is checked structurally
+   — degenerate ranges (the check the recognizer's `range()` used to own) are
+   build errors — and a CEL string must compile, located like any bad
+   expression. Both tiers are validated by the same pass.
 
 ## Consequences
 
-- **The wire changed once, deliberately**: an opted-in slot carries the structure as an object
-  beside the untouched `transform: "state"` default. Snapshots regenerated and read.
+- **The wire changed once, deliberately**: an opted-in slot carries the
+  structure AS its `transform` — an object where a CEL string used to sit.
+  (The first cut shipped the structure as a parallel `simple` field beside the
+  untouched string default; review collapsed it into the one union fact, the
+  shape the design always named.) Snapshots regenerated and read.
 - **Rendered bytes are unchanged for every well-typed value.** The only visible change is the
   documented one: a mistyped value now renders the absent-value form instead of the engine's error
   text — visible diagnosis traded for tier ownership, pinned in the suite.

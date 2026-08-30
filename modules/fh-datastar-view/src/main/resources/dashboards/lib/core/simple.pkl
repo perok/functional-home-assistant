@@ -1,4 +1,4 @@
-/// The simple tier: the EXPLICIT fast path for slot values (plan Phase 3).
+/// The simple tier: the EXPLICIT fast path for slot values (ADR 0028).
 ///
 /// A slot's value is either a CEL expression (`Slot.transform`, the engine
 /// tier) or one of these structures (`Slot.simple`, the fast tier) — the field

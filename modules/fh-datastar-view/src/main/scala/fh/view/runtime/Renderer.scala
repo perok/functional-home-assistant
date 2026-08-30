@@ -11,6 +11,7 @@ import fh.view.model.{
   NodeId,
   Reads,
   SetId,
+  Transform,
   SignalBind,
   SignalId,
   SlotSource,
@@ -1579,12 +1580,11 @@ class Renderer(
     // resolves.
     if (source.bypassUnavailable && st.unavailable) st.state
     else {
-      // The slot's own tier: an opted-in Simple value never touches the
-      // engine, a CEL string never leaves it — no recognition, no fallback
-      // (plan Phase 3).
-      val out = source.simple match {
-        case Some(s) => transforms.run(s, st)
-        case None    => transforms.run(source.transform, st, dashboard.slug)
+      // ONE wire fact, two forms: the Simple object never touches the engine,
+      // the CEL string never leaves it — the form IS the tier (ADR 0028).
+      val out = source.transform match {
+        case sm: Transform.Simple => transforms.run(sm, st)
+        case t: String            => transforms.run(t, st, dashboard.slug)
       }
       if (out.nonEmpty) out else source.default.getOrElse("")
     }

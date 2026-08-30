@@ -117,7 +117,7 @@ class Button extends nodes.Node {
       // produce, and `"false"` would read as ON. Opted in
       // ([[simpleMod.enumOf]]).
       ["lit"] = new slotMod.Slot {
-        simple = simpleMod.enumOf("on", "lit", "")
+        transform = simpleMod.enumOf("on", "lit", "")
         default = ""
         bypassUnavailable = false
         signal = slotMod.asClass("lit")
@@ -221,7 +221,7 @@ class Toggle extends nodes.Node {
     // signal immediately, so the switch flips optimistically and the frame that
     // follows either confirms it or puts it back.
     ["checked"] = new slotMod.Slot {
-      simple = simpleMod.enumOf("on", "on", "")
+      transform = simpleMod.enumOf("on", "on", "")
       default = ""
       bypassUnavailable = false
       signal = slotMod.asBind

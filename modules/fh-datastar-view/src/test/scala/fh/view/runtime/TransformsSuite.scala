@@ -27,7 +27,7 @@ class TransformsSuite extends munit.CatsEffectSuite {
 
   test("the opted-in state tier renders exactly what CEL would") {
     // The simple tier is entered by the slot's `simple` field, never by
-    // recognising spelling (plan Phase 3). It is only safe while it renders
+    // recognising spelling (ADR 0028). It is only safe while it renders
     // EVERY state shape identically to the engine, so this compares them
     // rather than asserting expected output: the oracle is CEL itself.
     val states = List(
@@ -74,7 +74,7 @@ class TransformsSuite extends munit.CatsEffectSuite {
         "card" -> Json.fromString("c"),
         "slots" -> Json.obj(
           "v" -> Json.obj(
-            "simple" -> Json.obj(
+            "transform" -> Json.obj(
               "kind" -> Json.fromString("suffix"),
               "literal" -> Json.fromString(" W")
             )
@@ -85,10 +85,12 @@ class TransformsSuite extends munit.CatsEffectSuite {
     DashboardBuild.decode(simpleWire).map { validated =>
       validated.dashboard.card match {
         case c: LayoutNode.Component =>
-          assertEquals(
-            c.slots("v").simple,
-            Some(Transform.Simple.Suffix(" W"))
-          )
+          // The transform IS the union: an object decodes straight into the
+          // Simple case — no parallel field.
+          c.slots("v").transform match {
+            case Transform.Simple.Suffix(" W") => ()
+            case other => fail(s"expected the opted-in suffix, got $other")
+          }
         case other => fail(s"unexpected node: $other")
       }
       assertEquals(
@@ -103,29 +105,13 @@ class TransformsSuite extends munit.CatsEffectSuite {
     }
   }
 
-  test("a slot cannot opt into simple and author CEL too") {
-    val both = dashboard("kitchen").copy(
-      card = LayoutNode.Component(
-        card = "c",
-        slots = Map(
-          "onclick" -> SlotSource(
-            transform = "state + ' W'",
-            simple = Some(Transform.Simple.Suffix(" W"))
-          )
-        )
-      )
-    )
-    val errs = both.validated().fold(identity, _ => Nil)
-    assert(errs.exists(_.contains("pick one")), clue = errs)
-  }
-
   test("a degenerate percent range is rejected at validate") {
     val bad = dashboard("kitchen").copy(
       card = LayoutNode.Component(
         card = "c",
         slots = Map(
           "onclick" -> SlotSource(
-            simple = Some(Transform.Simple.Percent("brightness", 1.0, 1.0))
+            transform = Transform.Simple.Percent("brightness", 1.0, 1.0)
           )
         )
       )

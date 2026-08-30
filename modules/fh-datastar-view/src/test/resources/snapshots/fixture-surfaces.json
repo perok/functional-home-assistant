@@ -50,11 +50,10 @@
                                             "bypassUnavailable" : true,
                                             "reads" : "live",
                                             "signal" : "text",
-                                            "simple" : {
+                                            "transform" : {
                                               "kind" : "unit",
                                               "name" : "unit_of_measurement"
-                                            },
-                                            "transform" : "state"
+                                            }
                                           }
                                         }
                                       },
@@ -112,11 +111,10 @@
                           "bypassUnavailable" : true,
                           "reads" : "live",
                           "signal" : "text",
-                          "simple" : {
+                          "transform" : {
                             "kind" : "unit",
                             "name" : "unit_of_measurement"
-                          },
-                          "transform" : "state"
+                          }
                         }
                       }
                     }
@@ -155,11 +153,10 @@
                           "bypassUnavailable" : true,
                           "reads" : "live",
                           "signal" : "text",
-                          "simple" : {
+                          "transform" : {
                             "kind" : "unit",
                             "name" : "unit_of_measurement"
-                          },
-                          "transform" : "state"
+                          }
                         }
                       }
                     }
@@ -256,11 +253,10 @@
                                             "bypassUnavailable" : true,
                                             "reads" : "live",
                                             "signal" : "text",
-                                            "simple" : {
+                                            "transform" : {
                                               "kind" : "unit",
                                               "name" : "unit_of_measurement"
-                                            },
-                                            "transform" : "state"
+                                            }
                                           }
                                         }
                                       },
@@ -318,11 +314,10 @@
                           "bypassUnavailable" : true,
                           "reads" : "live",
                           "signal" : "text",
-                          "simple" : {
+                          "transform" : {
                             "kind" : "unit",
                             "name" : "unit_of_measurement"
-                          },
-                          "transform" : "state"
+                          }
                         }
                       }
                     }
@@ -371,11 +366,10 @@
                           "bypassUnavailable" : true,
                           "reads" : "live",
                           "signal" : "text",
-                          "simple" : {
+                          "transform" : {
                             "kind" : "unit",
                             "name" : "unit_of_measurement"
-                          },
-                          "transform" : "state"
+                          }
                         }
                       }
                     }

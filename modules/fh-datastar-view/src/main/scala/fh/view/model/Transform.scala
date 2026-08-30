@@ -57,12 +57,11 @@ object Transform {
   type Compiled = Cel.Program
 
   /** The closed set of transform shapes evaluated WITHOUT the engine — the fast
-    * tier beside it (ADR 0027, plan Phase 3). Opted into EXPLICITLY: a slot
-    * carries a [[Simple]] value in its `simple` field ([[SlotSource]]), and
-    * that field — not any recognition of expression spelling — is the whole
-    * tier selection. There is no recognition machinery: a CEL string is engine
-    * work, a Simple value is fast-path work, and nothing infers one from the
-    * other.
+    * tier beside it (ADR 0027, ADR 0028). Opted into EXPLICITLY: a slot carries
+    * a [[Simple]] value in its `simple` field ([[SlotSource]]), and that field
+    * — not any recognition of expression spelling — is the whole tier
+    * selection. There is no recognition machinery: a CEL string is engine work,
+    * a Simple value is fast-path work, and nothing infers one from the other.
     *
     * An engine charges for being an engine: a general evaluator converts the
     * entity into its own value model on every evaluation. On the renderer's

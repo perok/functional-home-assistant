@@ -287,7 +287,7 @@ class TransformSuite extends munit.FunSuite {
     assertEquals(run(expr, "off", entity = "light.kitchen"), "100")
   }
 
-  // ---- the simple tier's definition suite (plan Phase 3) ----
+  // ---- the simple tier's definition suite (ADR 0028) ----
   //
   // Each [[Transform.Simple]] case is DEFINED by its idiomatic CEL spelling —
   // the constants below, mirrored in the case's scaladoc. The engine's output

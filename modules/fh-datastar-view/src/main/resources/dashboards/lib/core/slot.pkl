@@ -17,13 +17,11 @@ import "simple.pkl" as simpleMod
 /// over the card's entity. [[Slot.reads]] says when it is read.
 class Slot {
   entityId: String? = null
-  transform: String = "state"
-  /// The EXPLICIT fast-tier opt-in (plan Phase 3): one of the
-  /// [[simpleMod.Simple]] structures, evaluated by hand-rolled reads with its
-  /// idiomatic CEL as the documented definition. Setting this IS the tier
-  /// selection — mutually exclusive with authoring `transform` (the backend
-  /// rejects both).
-  simple: simpleMod.Simple? = null
+  /// The value — ONE fact, two forms (ADR 0028): a CEL string over the card's
+  /// entity (the engine tier) or an opted-in [[simpleMod.Simple]] structure
+  /// (the fast tier — the object form IS the tier selection; nothing
+  /// recognizes expression spelling). Defaults to the raw state.
+  transform: (String|simpleMod.Simple) = "state"
   default: String? = null
   bypassUnavailable: Boolean = true
   /// WHEN this value is read, and whether reading it is a reason to re-render.
@@ -146,7 +144,7 @@ const UNIT_EXPR =
 // friendly_name (falling back to its id) baked as a literal.
 const function labelSlot(entity: hass.Entity?, label: (String|Expr|simpleMod.Simple)?): Slot|String =
   if (label is Expr) new Slot { entityId = label.entityId; transform = label.transform; bypassUnavailable = false }
-  else if (label is simpleMod.Simple) new Slot { simple = label; bypassUnavailable = false }
+  else if (label is simpleMod.Simple) new Slot { transform = label; bypassUnavailable = false }
   else if (label != null) label
   else if (entity != null) entity.friendly_name ?? entity.entity_id
   else ""
@@ -159,8 +157,8 @@ const function labelSlot(entity: hass.Entity?, label: (String|Expr|simpleMod.Sim
 // unit is auto-appended; [[simpleMod.unit]] is the unit shape).
 const function valueSlot(value: (String|Expr|simpleMod.Simple)?): Slot =
   if (value is Expr) new Slot { entityId = value.entityId; transform = value.transform }
-  else if (value is simpleMod.Simple) new Slot { simple = value }
-  else if (value == null) new Slot { simple = simpleMod.unit("unit_of_measurement") }
+  else if (value is simpleMod.Simple) new Slot { transform = value }
+  else if (value == null) new Slot { transform = simpleMod.unit("unit_of_measurement") }
   else new Slot {
     transform =
       "('" + value + "' in attr ? attr['" + value + "'] : '')" +
@@ -177,5 +175,5 @@ const function secondarySlot(secondary: String|Expr|simpleMod.Simple): Slot =
     transform = secondary.transform
     default = ""
   }
-  else if (secondary is simpleMod.Simple) new Slot { simple = secondary; default = "" }
-  else new Slot { simple = simpleMod.attr(secondary); default = "" }
+  else if (secondary is simpleMod.Simple) new Slot { transform = secondary; default = "" }
+  else new Slot { transform = simpleMod.attr(secondary); default = "" }

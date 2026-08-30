@@ -3,7 +3,7 @@ package fh.view.runtime
 import fh.view.model.Transform
 import io.circe.Json
 
-/** Divergence gate for the CEL engine swap (plan Phase 0, kept for Phase 1).
+/** Divergence gate for the CEL engine swap (ADR 0027).
   *
   * Pairing the shipped-intended JSONata shapes against the SHIPPED CEL bytes,
   * this sweeps BOTH the benchmark's real-world fixture and a curated margin set
