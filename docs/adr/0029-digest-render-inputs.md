@@ -1,12 +1,12 @@
 # ADR 0029 — A node's fingerprint digests its render INPUTS, not its output bytes
 
-- **Status:** Proposed
+- **Status:** Rejected after measurement
 - **Date:** 2026-08-30
 - **Scope:** `modules/fh-datastar-view`
 - **Refines:** ADR 0012 (each session renders what it is owed — the render
   cache and `RenderInputs`) and ADR 0017 (signal slots — the patch form and
   `holds`).
-- **Implements:** issue #230.
+- **Implements:** issue #230 (the issue stays OPEN; see "What survives").
 
 ## Context
 
@@ -20,116 +20,80 @@ thrown away:
 id -> Held(Some(Digest.of(p.html)), p.signals)   // Server.scala (×3), Patches.scala (×1)
 ```
 
-The #253 visitor walk and the #254 member walk removed the *copying* around
-those renders; the renders themselves remain. On the 200-leaf `pageSignals`
-fixture the walk still executes every signalled leaf's template twice per
-paint — once to send, once to hash.
+Issue #230's proposal: the render is a pure function of its inputs, so hash
+the inputs (`Digest.of(cardName, shownVars, cellClasses, id, childDigests)`)
+and the second render disappears. This ADR is the measurement that proposal
+asked for before being written — and the number came back the wrong way.
 
-Two facts make the second render pure waste:
+## Why it was tried
 
-1. **The patch form contains no signal values** (ADR 0017 withholds them —
-   they ride the signal frame). So a patch rendering is a pure function of
-   things the walk already holds by the time the digest is wanted: the card,
-   the resolved vars (with signal-slot values blanked exactly as the patch
-   form blanks them), the cell classes and the id. For a pure-signal leaf the
-   patch bytes are *constant across value ticks* — re-rendering them to
-   discover "unchanged" is the definition of the waste.
-2. **The render cache is already input-keyed** (ADR 0012): `RenderInputs` —
-   the content versions of the entities the node reads — decide WHEN to
-   re-render. The digest is a second, different question — WHAT the bytes
-   are — and answering it today costs a render.
+- The patch form withholds signal slot VALUES (ADR 0017), so for a
+  pure-signal leaf the patch bytes are constant across value ticks —
+  re-rendering them to discover "unchanged" looks like pure waste.
+- The render cache is already input-keyed (ADR 0012); extending input-keying
+  to the digest itself appeared to remove the second render entirely.
 
-## The decision
+The implementation was built and is preserved in the branch history: the walk
+computed an input digest per leaf and per member (a recursive one for
+members, whose bytes carry their children's), `Painted` carried a digest
+instead of bytes, and the whole thing was gated by a hedgehog property suite
+holding equal digest ⟺ equal bytes over generated shapes.
 
-**`Digest` of a node's own rendering is computed from its render inputs, not
-from its output bytes.**
+## What the bench said
 
-```scala
-Digest.ofPatch(PatchInputs(templateGen, cardName, id, cellClasses, shownVars))
-```
+`RenderBench`, `-f 1 -wi 4 -i 3 -prof gc`, exact allocation, interleaved
+against `main` at identical parameters:
 
-- `Painted(html: String, signals)` becomes `Painted(digest: Digest, signals)`.
-  The document walk (and the member walk's per-member `Painted`) computes the
-  digest from the inputs in hand and never renders the patch form. The
-  `twoForms` machinery in the walk — the second execute, and the #254
-  no-signals slice — both die: the digest covers every member and leaf
-  uniformly, signalled or not.
-- The four record sites read `p.digest` directly.
-- `RenderCache`'s entries keep their html (the morph's bytes) but their
-  digest is the SAME input digest, not `Digest.of(html)`: what the cache
-  stores and what `holds` recorded must be comparable, and they are
-  comparable only if both sides name their bytes the same way.
+| cell | main | input digest | Δ |
+|---|---|---|---|
+| `page` (200 plain leaves) | 2,223,937 B/op | 2,622,634 B/op | **+17.9%** |
+| `pageFlat` (200 signalled leaves, one container) | 4,666,644 | 5,261,698 | **+12.7%** |
+| `pageNarrow` (200 signalled leaves, binary tree) | 5,302,695 | 6,033,703 | **+13.8%** |
+| `pageSet` (signalled members) | 4,889,556 | 5,671,944 | **+16.0%** |
 
-### What the inputs must cover
+A hybrid variant — input digest ONLY where the patch form differs (signalled
+nodes), byte digest of the document slice elsewhere — still measured
+`pageFlat` +12.8%, `pageNarrow` +14.1%, `pageSet` +16.0%: the regressions are
+exactly on the cells the proposal was meant to improve.
 
-Equal inputs ⟺ equal bytes is the whole contract, so every input of the
-patch rendering is enumerated, exhaustively:
+## Why it lost
 
-- **`templateGen` — the renderer's template generation** (the dashboard
-  content version the renderer was built from). This input is NOT in issue
-  #230's list, and it is the one that bites: the render cache evicts on a
-  renderer swap (`_.renderer eq renderer`), but a session's `holds` survives
-  a swap — re-evaluation replaces the renderer under live connections. With
-  byte digests a swapped template's new bytes simply digest differently; with
-  input digests, same card, same vars, same id ⇒ same digest ⇒ **a client
-  keeps stale bytes forever across a dashboard change**, silently. The
-  generation token is one string in the hash and the failure is closed.
-- **`cardName`** — template identity within one renderer.
-- **`id`** — the node's id, spelled in the wrapper.
-- **`cellClasses`** — the wrapper's class attribute.
-- **`shownVars`** — the resolved vars as the PATCH FORM sees them: signal
-  slot values blanked (`resolved.vars -- resolved.signalSlots`), which is
-  exactly the rule `NodeContext.fhGet` applies. Deliberately NOT the full
-  vars: including a signal value would digest differently on every value
-  tick — the spurious-morph storm ADR 0017 exists to prevent, reintroduced
-  through the fingerprint.
+The async-profiler allocation profile of `pageFlat` names the reason
+directly: the top allocation section is `PatchInputs.canonical` — the
+canonicalization itself.
 
-No children input: `own` exists only for nodes with an own rendering
-([[hasOwnRendering]] — leaves), and `renderInputs` already refuses to cache
-nodes whose bytes carry children. A leaf's own markup names no child bytes.
+- **The canonical input string is as large as the bytes it stands for.** A
+  leaf's patch rendering is a tiny template over a dozen vars; the
+  canonical form (length-prefixed template generation, card, id, classes and
+  every var) is comparable in size, and building it costs a growing
+  StringBuilder plus the escaping-adjacent copies the byte digest gets for
+  free from a slice that already exists.
+- **The var-map surgery is not free.** Blanking signal slots (`vars --
+  signalSlots`), sorting, and the per-child recursion for members each
+  allocate a fresh map/list per node per paint.
+- **The second render it replaces is cheap for small templates.** Issue
+  #230's own estimate (~5% of `pageSignals`) was the correct order of
+  magnitude; hashing a tiny template's bytes costs less than stringifying
+  its inputs.
 
-### What changes in the consumers
+The idea's economics only work where the patch bytes are LARGE relative to
+their inputs. A card's patch fragment is the smallest rendering in the
+system — the opposite regime.
 
-- **`render(..., SlotForm.Patch)`** (the `renderNodeById` engine) can no
-  longer read its bytes out of the trace — `own.html` is gone. It renders on
-  demand, as it did before the trace existed; the cache keeps it at once per
-  generation. The property the old shape bought — "what `renderNodeById`
-  returns and what `holds` recorded are the same string BY CONSTRUCTION" —
-  is deliberately traded for "equal digest ⟺ equal bytes, PROPERTY-TESTED".
-  The doc comments on `render` and `Traced` move with it.
-- **The morph path** is unchanged in shape (`Patches.morph` → cache →
-  digest-vs-`holds`) and switches digest source in the same commit.
-- **Members** (`#254`'s `Painted`): the per-member patch render — both the
-  slice case and the signalled case — collapses into the input digest. A
-  member's real patch bytes still come from `renderMember` on demand, as
-  they already do for every patch that sends them.
+## What survives
 
-### What makes it safe
-
-- **Both paths switch together, in one commit.** A walk recording input
-  digests while the cache digests bytes would make every node look changed
-  on the first tick — the spurious-morph storm, byte for byte.
-- **A property test asserts the biconditional** — equal digest ⟺ equal
-  bytes — over GENERATED node shapes (varied cards, slots, signal-slot
-  declarations, cell classes, ids; values that include the escape set and
-  mustache-looking text), never over a fixed example. This is the only test
-  that catches a missed input, and a missed input fails SILENTLY and
-  PERMANENTLY: two different renderings hash the same, so a client keeps
-  stale bytes forever with nothing to report it.
-- The `RenderBench` cells to watch: `pageSignals` (200 signalled leaves —
-  the second execute disappears from the walk) and `pageSet` (per-member
-  renders collapse).
-
-## Consequences
-
-- The walk stops rendering the patch form; a first paint renders each leaf
-  ONCE. The digest costs a hash of a small structured string.
-- A template's bytes are never materialized just to be hashed.
-- `Digest`'s meaning changes — ADR 0012's cache correctness argument and
-  ADR 0017's `holds` discipline now lean on the enumerated input list and
-  the property test instead of on "it is the bytes' own hash". The property
-  test is the contract's enforcement, not a nicety.
-- The one-way door: a deployed mix of old-digest clients and new-digest
-  servers cannot exist (digests are server-internal state held per session
-  in memory), so no wire migration is needed — the switch is atomic per
-  process.
+- **The hedgehog property suite** (`DigestPropertySuite`): the walk's
+  recorded digest and the live path's rendered bytes must agree, node for
+  node, over generated shapes. The walk and the live path stopped sharing
+  one string when the walk started threading one buffer (#253, #254); this
+  pins the agreement that "what `holds` recorded" and "what a morph sends"
+  still match, and it caught two real divergences during the attempt.
+- **The finding that a digest-input scheme must include a template
+  generation token**: the render cache evicts on renderer identity, but a
+  session's `holds` survives a live re-evaluation — without it, a client
+  keeps stale bytes across a dashboard change, silently. If the input-digest
+  idea is ever revisited (for LARGE fragments), that token is a hard
+  requirement, and the shrink-failure mode demands a property test first.
+- **The wire contract is untouched**: `holds` still records `Digest.of(patch
+  bytes)`; issue #230 stays open for the day fragments are large enough to
+  change the economics.

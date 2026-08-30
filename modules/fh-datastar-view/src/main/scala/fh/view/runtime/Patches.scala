@@ -255,8 +255,8 @@ private[runtime] object Patches {
     * exactly what `renderMemberById` renders. Loud rather than caching an empty
     * string forever if those ever drift apart.
     */
-  private def mustRender(bytes: Option[NodeBytes], id: NodeId): NodeBytes =
-    bytes.getOrElse(
+  private def mustRender(html: Option[String], id: NodeId): String =
+    html.getOrElse(
       throw new IllegalStateException(
         s"'$id' has a render key but no rendering"
       )
@@ -562,7 +562,7 @@ private[runtime] object Patches {
           gid,
           renderer
             .renderHost(gid, states, uiState)
-            .map(_._2.html)
+            .map(_._2)
             .reduceOption(_ + _),
           entries.map(_._1).sorted.headOption
         ).map(
@@ -634,20 +634,18 @@ private[runtime] object Patches {
       val members = renderer.renderHost(gid, states, uiState)
       Addressed(
         Patch.Insert(
-          members.map(_._2.html).mkString,
+          members.map(_._2).mkString,
           PatchMode.Inner,
           renderer.hostId(gid)
         ),
         // A SET host's contents are one resolvable node per member, so the
         // fill can say what it put in each and the next tick can tell
-        // "unchanged" from "never told". The digest is the member's INPUT
-        // digest (ADR 0029) — the same one the document walk recorded, so a
-        // member whose inputs did not move is suppressed. A state group's is
-        // one composed subtree under a root with no rendering of its own — a
-        // digest there could never be resolved, so it claims nothing and pays
-        // a redundant patch instead.
+        // "unchanged" from "never told". A state group's is one composed
+        // subtree under a root with no rendering of its own — a digest there
+        // could never be resolved, so it claims nothing and pays a redundant
+        // patch instead.
         if (asSet.isDefined)
-          members.map { case (id, nb) => id -> Held(Some(nb.digest)) }.toMap
+          members.map { case (id, html) => id -> Held.of(html) }.toMap
         else Map.empty,
         if (asSet.isDefined) Set(gid)
         else hostEvicts(renderer, renderer.hostId(gid))
@@ -801,7 +799,7 @@ private[runtime] object Patches {
           IO(mustRender(renderer.renderNodeById(id, states, uiState), id))
         ).map(Some(_))
       case None =>
-        IO(renderer.renderNodeById(id, states, uiState))
+        IO(renderer.renderNodeById(id, states, uiState).map(NodeBytes.of))
     }
 
   /** ONE anchor rule for both the live add path and the resume replay, because
@@ -865,7 +863,7 @@ private[runtime] object Patches {
           Addressed(
             Patch.Insert(t.html, PatchMode.Inner, host),
             t.own.map { case (id, p) =>
-              id -> Held(Some(p.digest), p.signals)
+              id -> Held(Some(Digest.of(p.html)), p.signals)
             },
             (renderer.surfaces.surfacesAt(host) ++ arriving)
               .flatMap(renderer.surfaceNodeIds)

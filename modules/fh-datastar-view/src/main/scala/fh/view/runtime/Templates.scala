@@ -24,12 +24,7 @@ class Templates private (
     // Per card: the region names whose loops the walk can render INLINE — the
     // visitor wraps only `{{#name}}` sections whose body is exactly `{{{html}}}`.
     // A card absent here has no inline regions and renders exactly as before.
-    val inlineRegions: Map[String, Set[String]],
-    // A digest over every card's name and template text — the template
-    // GENERATION this renderer was built from. A node's patch fingerprint
-    // includes it (see [[PatchInputs]]), so held digests cannot survive a
-    // renderer swap unnoticed.
-    val fingerprint: String
+    val inlineRegions: Map[String, Set[String]]
 )
 
 object Templates {
@@ -246,22 +241,7 @@ object Templates {
     }.toMap
     new Templates(
       compiled.view.mapValues(_._1).toMap,
-      compiled.view.mapValues(_._2).toMap,
-      // The renderer's template generation: a digest of every card's name and
-      // text, so a node's patch fingerprint ([[Digest.of]] over
-      // [[PatchInputs]]) changes when ANY template does. This is what makes a
-      // held digest invalid across a renderer swap — the render cache evicts
-      // on identity (`_.renderer eq renderer`), but a session's `holds`
-      // survives a live re-evaluation, and without this token a client whose
-      // card's template changed would digest the same and keep stale bytes
-      // forever.
-      Digest
-        .of(
-          dashboard.cards.view
-            .map { case (name, cd) => s"$name\u0000${cd.template}" }
-            .mkString("\u0001")
-        )
-        .value
+      compiled.view.mapValues(_._2).toMap
     )
   }
 }

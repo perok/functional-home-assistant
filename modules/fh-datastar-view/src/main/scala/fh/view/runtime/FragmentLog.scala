@@ -54,11 +54,6 @@ private[runtime] object Digest {
     }
     new String(out)
   }
-
-  /** The string a digest serializes as — for building canonical input strings
-    * ([[Renderer.PatchInputs]]) outside the file the alias is transparent in.
-    */
-  extension (d: Digest) def value: String = d
 }
 
 /** What one client has, for one node: the digest of the bytes it was last sent,

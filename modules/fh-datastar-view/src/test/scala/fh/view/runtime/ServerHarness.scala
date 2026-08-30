@@ -248,7 +248,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
         states: Map[String, EntityState],
         uiState: Map[String, String],
         form: SlotForm
-    ): Option[NodeBytes] = {
+    ): Option[String] = {
       count.incrementAndGet()
       super.renderNodeById(id, states, uiState, form)
     }
@@ -336,7 +336,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
           log.touched(id, 0L),
           renderer
             .renderLogged(id, states)
-            .fold(holds)(nb => holds + (id -> Held(Some(nb.digest))))
+            .fold(holds)(html => holds + (id -> Held.of(html)))
         )
     }
 

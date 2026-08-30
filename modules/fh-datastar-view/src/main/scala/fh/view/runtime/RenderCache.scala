@@ -135,7 +135,7 @@ private[runtime] final class RenderCache(
     * a signature that makes the cost invisible.
     */
   def apply(id: NodeId, renderer: Renderer, inputs: RenderInputs)(
-      render: IO[NodeBytes]
+      render: IO[String]
   ): IO[NodeBytes] =
     Deferred[IO, Either[Throwable, NodeBytes]].flatMap { mine =>
       // Only a WAITER is cancelable, and that is what `poll` marks. Note what
@@ -169,15 +169,17 @@ private[runtime] final class RenderCache(
     }
 
   /** A render that reaches its one caller and is never cached. */
-  private def fresh(render: IO[NodeBytes]): IO[Either[Throwable, NodeBytes]] =
-    render.attempt
+  private def fresh(render: IO[String]): IO[Either[Throwable, NodeBytes]] =
+    render.map(html => NodeBytes(html, Digest.of(html))).attempt
 
   private def fill(
       id: NodeId,
       gen: RenderCache.Gen,
-      render: IO[NodeBytes]
+      render: IO[String]
   ): IO[Either[Throwable, NodeBytes]] =
-    render.attempt
+    render
+      .map(html => NodeBytes(html, Digest.of(html)))
+      .attempt
       // A failure must not stay in the map: a `Left` left behind poisons that
       // node until its inputs move. Evicting first and completing after is the
       // order that matters — the next caller retries, while the waiters already

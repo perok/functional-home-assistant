@@ -50,9 +50,7 @@ class RenderCacheSuite extends munit.FunSuite {
   private class Gated(html: String, latch: CountDownLatch[IO]) {
     val runs = new AtomicInteger(0)
 
-    def render: IO[NodeBytes] = IO(runs.incrementAndGet()) *> latch.await.as(
-      NodeBytes(html, Digest.of(html))
-    )
+    def render: IO[String] = IO(runs.incrementAndGet()) *> latch.await.as(html)
     def release: IO[Unit] = latch.release
 
     /** Both fibers race for the same key, and the one a test calls "the waiter"
@@ -89,12 +87,8 @@ class RenderCacheSuite extends munit.FunSuite {
     val runs = new AtomicInteger(0)
     val (a, b, n) = (for {
       cache <- RenderCache.create
-      a <- cache(id, r, v1)(IO {
-        runs.incrementAndGet(); NodeBytes("<i>1</i>", Digest.of("<i>1</i>"))
-      })
-      b <- cache(id, r, v1)(IO {
-        runs.incrementAndGet(); NodeBytes("<i>2</i>", Digest.of("<i>2</i>"))
-      })
+      a <- cache(id, r, v1)(IO { runs.incrementAndGet(); "<i>1</i>" })
+      b <- cache(id, r, v1)(IO { runs.incrementAndGet(); "<i>2</i>" })
       n <- cache.size
     } yield (a, b, n)).timeout(10.seconds).unsafeRunSync()
 
@@ -112,13 +106,9 @@ class RenderCacheSuite extends munit.FunSuite {
     // that never come.
     val (a, b, sizes) = (for {
       cache <- RenderCache.create
-      a <- cache(id, r, v1)(
-        IO.pure(NodeBytes("<i>1</i>", Digest.of("<i>1</i>")))
-      )
+      a <- cache(id, r, v1)(IO.pure("<i>1</i>"))
       n1 <- cache.size
-      b <- cache(id, r, v2)(
-        IO.pure(NodeBytes("<i>2</i>", Digest.of("<i>2</i>")))
-      )
+      b <- cache(id, r, v2)(IO.pure("<i>2</i>"))
       n2 <- cache.size
     } yield (a.html, b.html, (n1, n2))).timeout(10.seconds).unsafeRunSync()
 
@@ -135,12 +125,8 @@ class RenderCacheSuite extends munit.FunSuite {
     // some entity happened to move.
     val (before, after, size) = (for {
       cache <- RenderCache.create
-      before <- cache(id, r, v1)(
-        IO.pure(NodeBytes("<i>old</i>", Digest.of("<i>old</i>")))
-      )
-      after <- cache(id, aRenderer, v1)(
-        IO.pure(NodeBytes("<i>new</i>", Digest.of("<i>new</i>")))
-      )
+      before <- cache(id, r, v1)(IO.pure("<i>old</i>"))
+      after <- cache(id, aRenderer, v1)(IO.pure("<i>new</i>"))
       size <- cache.size
     } yield (before.html, after.html, size)).timeout(10.seconds).unsafeRunSync()
 
@@ -158,20 +144,16 @@ class RenderCacheSuite extends munit.FunSuite {
       g <- gated("unused")
       cache <- RenderCache.create
       doomed <- cache(id, r, v1)(
-        g.render *> IO.raiseError[NodeBytes](new RuntimeException("late"))
+        g.render *> IO.raiseError[String](new RuntimeException("late"))
       ).attempt.start
       // The doomed generation must OWN the key before the newer one takes it,
       // or this tests nothing.
       _ <- g.started
-      _ <- cache(id, r, v2)(
-        IO.pure(NodeBytes("<i>current</i>", Digest.of("<i>current</i>")))
-      )
+      _ <- cache(id, r, v2)(IO.pure("<i>current</i>"))
       _ <- g.release
       _ <- doomed.joinWithNever
       n <- cache.size
-      still <- cache(id, r, v2)(
-        IO.pure(NodeBytes("never runs", Digest.of("never runs")))
-      )
+      still <- cache(id, r, v2)(IO.pure("never runs"))
     } yield (n, still.html)).timeout(10.seconds).unsafeRunSync()
 
     assertEquals(n, 1)
@@ -186,7 +168,7 @@ class RenderCacheSuite extends munit.FunSuite {
       cache <- RenderCache.create
       // One producer that fails, four waiters queued behind it.
       producer <- cache(id, r, v1)(
-        g.render *> IO.raiseError[NodeBytes](boom)
+        g.render *> IO.raiseError[String](boom)
       ).attempt.start
       // BEFORE the waiters exist. Without it they race the producer for the
       // key, and a "waiter" that wins the CAS renders its own string — which
@@ -197,7 +179,7 @@ class RenderCacheSuite extends munit.FunSuite {
       waiters <- List
         .fill(4)(
           cache(id, r, v1)(
-            IO(late.incrementAndGet()) *> IO.raiseError[NodeBytes](boom)
+            IO(late.incrementAndGet()) *> IO.raiseError[String](boom)
           ).attempt
         )
         .parSequence
@@ -225,11 +207,9 @@ class RenderCacheSuite extends munit.FunSuite {
     val out = (for {
       cache <- RenderCache.create
       _ <- cache(id, r, v1)(
-        IO.raiseError[NodeBytes](new RuntimeException("transient"))
+        IO.raiseError[String](new RuntimeException("transient"))
       ).attempt
-      good <- cache(id, r, v1)(
-        IO.pure(NodeBytes("<b>recovered</b>", Digest.of("<b>recovered</b>")))
-      )
+      good <- cache(id, r, v1)(IO.pure("<b>recovered</b>"))
     } yield good.html).timeout(10.seconds).unsafeRunSync()
 
     assertEquals(out, "<b>recovered</b>")
@@ -241,17 +221,13 @@ class RenderCacheSuite extends munit.FunSuite {
       cache <- RenderCache.create
       producer <- cache(id, r, v1)(g.render).start
       _ <- g.started
-      waiter <- cache(id, r, v1)(
-        IO.pure(NodeBytes("never runs", Digest.of("never runs")))
-      ).start
+      waiter <- cache(id, r, v1)(IO.pure("never runs")).start
       _ <- IO.sleep(100.millis)
       _ <- waiter.cancel
       _ <- g.release
       p <- producer.joinWithNever
       // The cancelled waiter must not have taken the entry with it.
-      again <- cache(id, r, v1)(
-        IO.pure(NodeBytes("never runs either", Digest.of("never runs either")))
-      )
+      again <- cache(id, r, v1)(IO.pure("never runs either"))
       n <- cache.size
     } yield (p.html, again.html, n)).timeout(10.seconds).unsafeRunSync()
 
@@ -275,9 +251,7 @@ class RenderCacheSuite extends munit.FunSuite {
       cache <- RenderCache.create
       producer <- cache(id, r, v1)(g.render).start
       _ <- g.started
-      waiter <- cache(id, r, v1)(
-        IO.pure(NodeBytes("never runs", Digest.of("never runs")))
-      ).start
+      waiter <- cache(id, r, v1)(IO.pure("never runs")).start
       _ <- IO.sleep(100.millis)
       _ <- producer.cancel.start
       _ <- IO.sleep(50.millis) *> g.release
