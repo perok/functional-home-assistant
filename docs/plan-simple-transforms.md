@@ -201,13 +201,17 @@ deliberately NOT built.
   structure-derived, not CEL-derived.
 - **Validate stays the gate**: exclusivity (both tiers authored → error) and
   the degenerate-range check that `range()` used to own.
-- **Authoring**: `core/slot.pkl` gains the nine wire classes + `const`
-  constructors (`state()`, `attr(x)`, `attrOrId(x)`, `unit(x)`, `prefix(l)`,
-  `suffix(l)`, `enumOf(eq, then, else)`, `percent(x, min, max)`,
-  `fill(x, min, max)`) and `Slot.simple`; `labelSlot`/`valueSlot`/
-  `secondarySlot` accept a Simple alongside `String`/`Expr`. Re-authoring the
-  components' canonical-string splices onto the constructors is the remaining
-  half of the phase (wire snapshots move then, deliberately).
+- **Authoring**: `core/simple.pkl` (module-as-namespace, the `c.tap` pattern, re-exported through
+  the facade as `c.simple`) — the nine wire classes + `const` constructors (`state()`, `attr(x)`,
+  `attrOrId(x)`, `unit(x)`, `prefix(l)`, `suffix(l)`, `enumOf(eq, then, else)`,
+  `percent(x, min, max)`, `fill(x, min, max)`) and `Slot.simple`; `labelSlot`/`valueSlot`/
+  `secondarySlot` accept a Simple alongside `String`/`Expr`.
+- **Re-authoring ✅ done (2026-08-30)**: the slider's `value`/`percent`/`fill` slots and default
+  state readout, `control`'s two enums, and `slot.pkl`'s auto-unit value + guarded secondary read
+  now opt in; the slider's `percentExpr`/`valueExpr`/`minExpr`/`maxExpr` stay CEL strings as the
+  documented splice surface. Snapshots regenerated and read: simple slots carry the structure
+  beside the untouched `transform` default (16 unit, attr/fill/state/percent shapes across the
+  fixtures). ADR 0028 records the decision.
 
 ## Out of scope
 

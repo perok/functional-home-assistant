@@ -16,8 +16,11 @@ class; the backend knows it as a template plus a list of slot names it expects.
 **Node** — one placed instance of a card in a dashboard's layout tree. Nodes nest.
 
 **Slot** — one named value a card's markup needs, filled per node. Either a **literal** (a constant
-string baked at build time) or a **transform** (a CEL expression evaluated against live entity
-state). "Slot" is the value; the template hole it fills has the same name.
+string baked at build time) or a **transform** evaluated against live entity state — a CEL
+expression (the engine tier), or an opted-in **simple** structure (`simpleMod.attr(...)`, the fast
+tier: the closed set of atomic reads, each defined by its idiomatic CEL spelling and pinned
+byte-equal to it). The tier is the slot's own field; nothing infers one from expression spelling.
+"Slot" is the value; the template hole it fills has the same name.
 
 **Signal slot** — a slot whose value is pushed to the browser as a Datastar signal instead of being
 baked into re-rendered HTML, so it can change without the card being re-rendered at all. ADR 0017.

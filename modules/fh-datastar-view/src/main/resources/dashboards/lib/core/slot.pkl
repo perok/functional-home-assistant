@@ -151,29 +151,31 @@ const function labelSlot(entity: hass.Entity?, label: (String|Expr|simpleMod.Sim
   else if (entity != null) entity.friendly_name ?? entity.entity_id
   else ""
 
-// value: null -> state (+ unit); String -> that attribute, guarded (+ unit);
-// Expr -> your expression verbatim (you own the unit); Simple -> the opted-in
-// structure verbatim (you own everything — no unit is auto-appended; [[unit]]
-// is the unit shape).
+// value: null -> the state with the entity's unit appended, OPTED IN
+// ([[simpleMod.unit]] — the auto-unit shape); String -> that attribute guarded
+// plus the unit — TWO reads (the attribute and the unit), so no Simple shape
+// covers it and it stays CEL; Expr -> your expression verbatim (you own the
+// unit); Simple -> the opted-in structure verbatim (you own everything — no
+// unit is auto-appended; [[simpleMod.unit]] is the unit shape).
 const function valueSlot(value: (String|Expr|simpleMod.Simple)?): Slot =
   if (value is Expr) new Slot { entityId = value.entityId; transform = value.transform }
   else if (value is simpleMod.Simple) new Slot { simple = value }
+  else if (value == null) new Slot { simple = simpleMod.unit("unit_of_measurement") }
   else new Slot {
     transform =
-      (if (value == null) "state"
-       else "('" + value + "' in attr ? attr['" + value + "'] : '')") +
+      "('" + value + "' in attr ? attr['" + value + "'] : '')" +
       " + (" + UNIT_EXPR + ")"
   }
 
-// secondary (only built when authored): String -> an attribute, guarded (no
-// unit); Expr -> live; Simple -> the opted-in structure. Empty default keeps
-// the mustache section collapsed when blank.
+// secondary (only built when authored): String -> that attribute, guarded, no
+// unit — now opted in ([[simpleMod.attr]]); Expr -> live; Simple -> the
+// opted-in structure. Empty default keeps the mustache section collapsed when
+// blank.
 const function secondarySlot(secondary: String|Expr|simpleMod.Simple): Slot =
-  if (secondary is simpleMod.Simple) new Slot { simple = secondary; default = "" }
-  else new Slot {
-    entityId = if (secondary is Expr) secondary.entityId else null
-    transform =
-      if (secondary is Expr) secondary.transform
-      else "'" + secondary + "' in attr ? attr['" + secondary + "'] : \"\""
+  if (secondary is Expr) new Slot {
+    entityId = secondary.entityId
+    transform = secondary.transform
     default = ""
   }
+  else if (secondary is simpleMod.Simple) new Slot { simple = secondary; default = "" }
+  else new Slot { simple = simpleMod.attr(secondary); default = "" }

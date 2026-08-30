@@ -1,6 +1,6 @@
 package fh.view.build
 
-import fh.view.model.{CardDef, Dashboard, LayoutNode, Op, Predicate}
+import fh.view.model.{CardDef, Dashboard, LayoutNode, Op, Predicate, Transform}
 import fh.view.testkit.{FixtureEntity, HouseFixture, PklFixture, PklWorkspace}
 import io.circe.Json
 
@@ -1577,9 +1577,11 @@ class PklBuildSuite extends munit.FunSuite {
     assertEquals(rowOf(slider).slots("key").literal, Some("position"))
     assertEquals(rowOf(slider).slots("min").literal, Some("0"))
     assertEquals(rowOf(slider).slots("max").literal, Some("100"))
+    // The live position is OPTED IN: the guarded read as structure, presence
+    // implicit (plan Phase 3).
     assertEquals(
-      rowOf(slider).slots("value").transform,
-      "'current_position' in attr ? attr['current_position'] : null"
+      rowOf(slider).slots("value").simple,
+      Some(Transform.Simple.Attr("current_position"))
     )
   }
 
@@ -1607,10 +1609,11 @@ class PklBuildSuite extends munit.FunSuite {
     assertEquals(slots("min").literal, Some("1"))
     assertEquals(slots("max").literal, Some("255"))
     // The live position is the one that stays live — it reads state, not
-    // identity — but it names the attribute directly instead of looking it up.
+    // identity — but it names the attribute directly instead of looking it up,
+    // as the opted-in guarded read.
     assertEquals(
-      slots("value").transform,
-      "'brightness' in attr ? attr['brightness'] : null"
+      slots("value").simple,
+      Some(Transform.Simple.Attr("brightness"))
     )
     assertEquals(slots("value").default, Some("0"))
     assertEquals(slots("value").bypassUnavailable, false)
@@ -1670,17 +1673,15 @@ class PklBuildSuite extends munit.FunSuite {
       members.map(rowOf(_).slots("key").literal),
       List(Some("brightness"), Some("position"))
     )
-    // …and reads out its LEVEL rather than its state, off its own range.
-    assert(
-      rowOf(members.head).slots("state").transform.contains("""+ ' %'"""),
-      clue = rowOf(members.head).slots("state").transform
+    // …and reads out its LEVEL rather than its state, off its own range —
+    // opted in as the simple tier's percent over each member's axis range.
+    assertEquals(
+      rowOf(members.head).slots("state").simple,
+      Some(Transform.Simple.Percent("brightness", 1.0, 255.0))
     )
-    assert(
-      rowOf(members(1))
-        .slots("state")
-        .transform
-        .contains("attr['current_position']"),
-      clue = rowOf(members(1)).slots("state").transform
+    assertEquals(
+      rowOf(members(1)).slots("state").simple,
+      Some(Transform.Simple.Percent("current_position", 0.0, 100.0))
     )
     // …and because that reading IS the position, a drag moves it locally too —
     // the flag the template's section reads. The head, reading out nothing, has
@@ -2092,10 +2093,10 @@ class PklBuildSuite extends munit.FunSuite {
     // the bounds are the LIGHT's, not the light domain's brightness 1..255
     assertEquals(rowOf(s).slots("min").literal, Some("2000"))
     assertEquals(rowOf(s).slots("max").literal, Some("6535"))
-    // and the handle tracks the value it writes, not brightness
+    // and the handle tracks the value it writes, not brightness — opted in
     assertEquals(
-      rowOf(s).slots("value").transform,
-      "'color_temp_kelvin' in attr ? attr['color_temp_kelvin'] : null"
+      rowOf(s).slots("value").simple,
+      Some(Transform.Simple.Attr("color_temp_kelvin"))
     )
   }
 

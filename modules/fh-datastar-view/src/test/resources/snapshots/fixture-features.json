@@ -36,7 +36,11 @@
                                 "bypassUnavailable" : true,
                                 "reads" : "live",
                                 "signal" : "text",
-                                "transform" : "state + ('unit_of_measurement' in attr ? ' ' + attr['unit_of_measurement'] : '')"
+                                "simple" : {
+                                  "kind" : "unit",
+                                  "name" : "unit_of_measurement"
+                                },
+                                "transform" : "state"
                               }
                             }
                           },
@@ -94,7 +98,11 @@
               "bypassUnavailable" : true,
               "reads" : "live",
               "signal" : "text",
-              "transform" : "state + ('unit_of_measurement' in attr ? ' ' + attr['unit_of_measurement'] : '')"
+              "simple" : {
+                "kind" : "unit",
+                "name" : "unit_of_measurement"
+              },
+              "transform" : "state"
             }
           }
         },
@@ -117,7 +125,11 @@
               "bypassUnavailable" : true,
               "reads" : "live",
               "signal" : "text",
-              "transform" : "state + ('unit_of_measurement' in attr ? ' ' + attr['unit_of_measurement'] : '')"
+              "simple" : {
+                "kind" : "unit",
+                "name" : "unit_of_measurement"
+              },
+              "transform" : "state"
             }
           }
         },
@@ -154,7 +166,11 @@
                                 "bypassUnavailable" : true,
                                 "reads" : "live",
                                 "signal" : "text",
-                                "transform" : "state + ('unit_of_measurement' in attr ? ' ' + attr['unit_of_measurement'] : '')"
+                                "simple" : {
+                                  "kind" : "unit",
+                                  "name" : "unit_of_measurement"
+                                },
+                                "transform" : "state"
                               }
                             }
                           },
@@ -182,7 +198,11 @@
                                       "bypassUnavailable" : true,
                                       "reads" : "live",
                                       "signal" : "text",
-                                      "transform" : "state + ('unit_of_measurement' in attr ? ' ' + attr['unit_of_measurement'] : '')"
+                                      "simple" : {
+                                        "kind" : "unit",
+                                        "name" : "unit_of_measurement"
+                                      },
+                                      "transform" : "state"
                                     }
                                   }
                                 }
@@ -246,7 +266,11 @@
               "bypassUnavailable" : true,
               "reads" : "live",
               "signal" : "text",
-              "transform" : "state + ('unit_of_measurement' in attr ? ' ' + attr['unit_of_measurement'] : '')"
+              "simple" : {
+                "kind" : "unit",
+                "name" : "unit_of_measurement"
+              },
+              "transform" : "state"
             }
           }
         },
@@ -293,7 +317,13 @@
                     "default" : "100%",
                     "reads" : "live",
                     "signal" : "style:--_end",
-                    "transform" : "str(cel.bind(v, 'brightness' in attr ? attr['brightness'] : null, v != null ? 100.0 - ((double(v) - 1.0) * 100.0 / (255.0 - 1.0)) : 100.0)) + '%'"
+                    "simple" : {
+                      "kind" : "fill",
+                      "max" : 255,
+                      "min" : 1,
+                      "name" : "brightness"
+                    },
+                    "transform" : "state"
                   },
                   "fillColor" : {
                     "bypassUnavailable" : false,
@@ -311,6 +341,9 @@
                     "bypassUnavailable" : true,
                     "reads" : "live",
                     "signal" : "text",
+                    "simple" : {
+                      "kind" : "state"
+                    },
                     "transform" : "state"
                   },
                   "value" : {
@@ -318,7 +351,11 @@
                     "default" : "0",
                     "reads" : "live",
                     "signal" : "attr:value",
-                    "transform" : "'brightness' in attr ? attr['brightness'] : null"
+                    "simple" : {
+                      "kind" : "attr",
+                      "name" : "brightness"
+                    },
+                    "transform" : "state"
                   }
                 }
               }
@@ -357,7 +394,11 @@
                         "bypassUnavailable" : true,
                         "reads" : "live",
                         "signal" : "text",
-                        "transform" : "state + ('unit_of_measurement' in attr ? ' ' + attr['unit_of_measurement'] : '')"
+                        "simple" : {
+                          "kind" : "unit",
+                          "name" : "unit_of_measurement"
+                        },
+                        "transform" : "state"
                       }
                     }
                   },
@@ -392,7 +433,11 @@
                         "bypassUnavailable" : true,
                         "reads" : "live",
                         "signal" : "text",
-                        "transform" : "state + ('unit_of_measurement' in attr ? ' ' + attr['unit_of_measurement'] : '')"
+                        "simple" : {
+                          "kind" : "unit",
+                          "name" : "unit_of_measurement"
+                        },
+                        "transform" : "state"
                       }
                     }
                   },
@@ -676,7 +721,11 @@
                                     "bypassUnavailable" : true,
                                     "reads" : "live",
                                     "signal" : "text",
-                                    "transform" : "state + ('unit_of_measurement' in attr ? ' ' + attr['unit_of_measurement'] : '')"
+                                    "simple" : {
+                                      "kind" : "unit",
+                                      "name" : "unit_of_measurement"
+                                    },
+                                    "transform" : "state"
                                   }
                                 }
                               },
@@ -734,7 +783,11 @@
                   "bypassUnavailable" : true,
                   "reads" : "live",
                   "signal" : "text",
-                  "transform" : "state + ('unit_of_measurement' in attr ? ' ' + attr['unit_of_measurement'] : '')"
+                  "simple" : {
+                    "kind" : "unit",
+                    "name" : "unit_of_measurement"
+                  },
+                  "transform" : "state"
                 }
               }
             },

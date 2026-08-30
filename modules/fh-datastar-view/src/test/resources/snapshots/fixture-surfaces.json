@@ -50,7 +50,11 @@
                                             "bypassUnavailable" : true,
                                             "reads" : "live",
                                             "signal" : "text",
-                                            "transform" : "state + ('unit_of_measurement' in attr ? ' ' + attr['unit_of_measurement'] : '')"
+                                            "simple" : {
+                                              "kind" : "unit",
+                                              "name" : "unit_of_measurement"
+                                            },
+                                            "transform" : "state"
                                           }
                                         }
                                       },
@@ -108,7 +112,11 @@
                           "bypassUnavailable" : true,
                           "reads" : "live",
                           "signal" : "text",
-                          "transform" : "state + ('unit_of_measurement' in attr ? ' ' + attr['unit_of_measurement'] : '')"
+                          "simple" : {
+                            "kind" : "unit",
+                            "name" : "unit_of_measurement"
+                          },
+                          "transform" : "state"
                         }
                       }
                     }
@@ -147,7 +155,11 @@
                           "bypassUnavailable" : true,
                           "reads" : "live",
                           "signal" : "text",
-                          "transform" : "state + ('unit_of_measurement' in attr ? ' ' + attr['unit_of_measurement'] : '')"
+                          "simple" : {
+                            "kind" : "unit",
+                            "name" : "unit_of_measurement"
+                          },
+                          "transform" : "state"
                         }
                       }
                     }
@@ -244,7 +256,11 @@
                                             "bypassUnavailable" : true,
                                             "reads" : "live",
                                             "signal" : "text",
-                                            "transform" : "state + ('unit_of_measurement' in attr ? ' ' + attr['unit_of_measurement'] : '')"
+                                            "simple" : {
+                                              "kind" : "unit",
+                                              "name" : "unit_of_measurement"
+                                            },
+                                            "transform" : "state"
                                           }
                                         }
                                       },
@@ -302,7 +318,11 @@
                           "bypassUnavailable" : true,
                           "reads" : "live",
                           "signal" : "text",
-                          "transform" : "state + ('unit_of_measurement' in attr ? ' ' + attr['unit_of_measurement'] : '')"
+                          "simple" : {
+                            "kind" : "unit",
+                            "name" : "unit_of_measurement"
+                          },
+                          "transform" : "state"
                         }
                       }
                     }
@@ -351,7 +371,11 @@
                           "bypassUnavailable" : true,
                           "reads" : "live",
                           "signal" : "text",
-                          "transform" : "state + ('unit_of_measurement' in attr ? ' ' + attr['unit_of_measurement'] : '')"
+                          "simple" : {
+                            "kind" : "unit",
+                            "name" : "unit_of_measurement"
+                          },
+                          "transform" : "state"
                         }
                       }
                     }
