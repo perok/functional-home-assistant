@@ -92,7 +92,10 @@ object Templates {
   /** Compile one template by name — names make the factory's cache per template
     * instead of per call site.
     */
-  def compile(name: String, template: String): com.github.mustachejava.Mustache =
+  def compile(
+      name: String,
+      template: String
+  ): com.github.mustachejava.Mustache =
     factory.compile(stringReader(template), name)
 
   // One scope, zero allocation on the steady state: mustache.java wraps the
@@ -126,8 +129,8 @@ object Templates {
 
   def from(dashboard: Dashboard): Templates =
     new Templates(
-      dashboard.cards.view
-        .map { case (name, cd) => name -> compile(name, cd.template) }
-        .toMap
+      dashboard.cards.view.map { case (name, cd) =>
+        name -> compile(name, cd.template)
+      }.toMap
     )
 }

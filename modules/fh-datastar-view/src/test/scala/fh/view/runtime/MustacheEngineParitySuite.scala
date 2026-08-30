@@ -11,9 +11,9 @@ import com.samskivert.mustache.Mustache
   * Both engines claim spec compliance, but today's output depends on
   * jmustache's CONFIG, not just the spec: `defaultValue("")` and
   * `emptyStringIsFalse` are non-standard flags, and escaping entity sets vary
-  * by engine. So compliance claims are not trusted here — every difference
-  * this suite turns up is a migration cost to weigh, and a clean run is what
-  * makes the swap safe.
+  * by engine. So compliance claims are not trusted here — every difference this
+  * suite turns up is a migration cost to weigh, and a clean run is what makes
+  * the swap safe.
   */
 class MustacheEngineParitySuite extends munit.FunSuite:
 
@@ -41,7 +41,9 @@ class MustacheEngineParitySuite extends munit.FunSuite:
     names.foreach(n => list.add(java.util.Collections.singletonMap("html", n)))
     list
 
-  private def parity(tpl: String)(vars: (String, AnyRef)*)(using munit.Location) =
+  private def parity(tpl: String)(vars: (String, AnyRef)*)(using
+      munit.Location
+  ) =
     val ctx = new java.util.HashMap[String, AnyRef]()
     vars.foreach((k, v) => ctx.put(k, v))
     val a = jmustache(tpl, ctx)
@@ -70,9 +72,23 @@ class MustacheEngineParitySuite extends munit.FunSuite:
     val raw = new DefaultMustacheFactory()
       .compile(new java.io.StringReader("{{v}}"), "t")
     val w = new java.io.StringWriter
-    raw.execute(w, java.util.Collections.singletonMap[String, AnyRef]("v", "a\nb"))
-    assertEquals(w.toString, "a&#10;b", clue = "raw engine behavior moved — reread the override")
-    assertEquals(spullaraRender("{{v}}", java.util.Collections.singletonMap[String, AnyRef]("v", "a\nb")), "a\nb", clue = "our encode override regressed")
+    raw.execute(
+      w,
+      java.util.Collections.singletonMap[String, AnyRef]("v", "a\nb")
+    )
+    assertEquals(
+      w.toString,
+      "a&#10;b",
+      clue = "raw engine behavior moved — reread the override"
+    )
+    assertEquals(
+      spullaraRender(
+        "{{v}}",
+        java.util.Collections.singletonMap[String, AnyRef]("v", "a\nb")
+      ),
+      "a\nb",
+      clue = "our encode override regressed"
+    )
   }
 
   test("raw holes: {{{x}}} never escapes") {
@@ -184,8 +200,14 @@ class MustacheEngineParitySuite extends munit.FunSuite:
     // Every template the two engines must agree on must at least COMPILE on
     // both; this catches tag-syntax support gaps cheaply before byte checks.
     val tpls = List(
-      "{{x}}", "{{{x}}}", "{{#x}}a{{/x}}", "{{^x}}a{{/x}}", "{{!c}}",
-      "{{#a}}{{#b}}x{{/b}}{{/a}}", "plain text", ""
+      "{{x}}",
+      "{{{x}}}",
+      "{{#x}}a{{/x}}",
+      "{{^x}}a{{/x}}",
+      "{{!c}}",
+      "{{#a}}{{#b}}x{{/b}}{{/a}}",
+      "plain text",
+      ""
     )
     tpls.foreach { tpl =>
       val ctx = new java.util.HashMap[String, AnyRef]()
