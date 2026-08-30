@@ -11,6 +11,7 @@ import fh.view.model.{
   NodeId,
   Reads,
   SetId,
+  Transform,
   SignalBind,
   SignalId,
   SlotSource,
@@ -1414,7 +1415,7 @@ class Renderer(
           // one. That is why the memo asks only about `once`.
           if (source.reads == Reads.Once)
             identityCache.computeIfAbsent(
-              (srcEntity.getOrElse(""), source.transform),
+              (srcEntity.getOrElse(""), source.valueKey),
               _ => resolveSlot(srcEntity, source, states)
             )
           else resolveSlot(srcEntity, source, states)
@@ -1437,7 +1438,7 @@ class Renderer(
           id,
           slot,
           src.entityId.orElse(subject),
-          src.transform,
+          src.valueKey,
           kind
         )
       )
@@ -1546,7 +1547,7 @@ class Renderer(
         case (slot, src) if Renderer.isSignalSlot(src) =>
           val entity = src.entityId.orElse(subject)
           val kind = Renderer.signalBind(src).getOrElse(SignalBind.Text)
-          Renderer.signalName(id, slot, entity, src.transform, kind) ->
+          Renderer.signalName(id, slot, entity, src.valueKey, kind) ->
             resolveSlot(entity, src, states)
       }
     case _: LayoutNode.SetNode => Map.empty
@@ -1579,7 +1580,12 @@ class Renderer(
     // resolves.
     if (source.bypassUnavailable && st.unavailable) st.state
     else {
-      val out = transforms.run(source.transform, st, dashboard.slug)
+      // ONE wire fact, two forms: the Simple object never touches the engine,
+      // the CEL string never leaves it — the form IS the tier (ADR 0028).
+      val out = source.transform match {
+        case sm: Transform.Simple => transforms.run(sm, st)
+        case t: String            => transforms.run(t, st, dashboard.slug)
+      }
       if (out.nonEmpty) out else source.default.getOrElse("")
     }
   }

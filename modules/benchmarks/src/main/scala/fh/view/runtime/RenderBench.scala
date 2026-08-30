@@ -99,6 +99,11 @@ class RenderBench {
   private var transforms: Transforms = null
   private var celProbes: List[Transform.Compiled] = null
   private var celComplex: Transform.Compiled = null
+  // The explicit fast tier's probes and the two shipped shapes that stay on
+  // the engine (fill colour, attribute comprehension) — the same 4-of-6 mix a
+  // shipped page dispatches.
+  private var simpleProbes: List[Transform.Simple] = null
+  private var engineShapes: List[Transform.Compiled] = null
   private var entityTemplate: com.samskivert.mustache.Template = null
   private var painted: List[String] = null
 
@@ -146,6 +151,16 @@ class RenderBench {
     )
     celProbes = CelShapes.LiveTransforms.map(cparse)
     celComplex = cparse(CelShapes.TransformComplex)
+    simpleProbes = List(
+      Transform.Simple.AttrOrId("friendly_name"),
+      Transform.Simple.UnitSuffix("unit_of_measurement"),
+      Transform.Simple.Fill("brightness", 1.0, 255.0),
+      Transform.Simple.Percent("brightness", 1.0, 255.0)
+    )
+    engineShapes =
+      List(CelShapes.TransformFillColor, CelShapes.TransformAttrLines).map(
+        cparse
+      )
     entityTemplate = Templates
       .from(Dashboard(cards, tree(Leaves, 4, signals = true)))
       .components("entity")
@@ -198,11 +213,12 @@ class RenderBench {
   @Benchmark
   def pageShared(bh: Blackhole): Unit = bh.consume(shared.renderPageTraced(st))
 
-  /** The FAST TIER through the production dispatch ([[Transforms.run]]): the
-    * five shipped shapes the catalog recognises evaluate without the engine
-    * (~45 B), the fill colour (and any unrecognized value) falls back to the
-    * engine for that shape. The gap against [[cel]] is what the catalog saves
-    * per page, and against [[direct]] it prices the dispatch on top of the raw
+  /** The EXPLICIT fast tier through the production dispatch
+    * ([[Transforms.run]]): the four opted-in [[Transform.Simple]] shapes
+    * evaluate without the engine (~45 B); the fill colour and the attribute
+    * comprehension stay on the engine, exactly the shipped mix (4 of 6). The
+    * gap against [[cel]] (all six on the engine) is what the tier saves per
+    * page, and against [[direct]] it prices the dispatch on top of the raw
     * read. `Reads.Once` slots excluded — the renderer memoises those.
     */
   @Benchmark
@@ -210,7 +226,8 @@ class RenderBench {
     var i = 0
     while (i < Leaves) {
       val e = st(entityId(i))
-      LiveTransforms.foreach(t => bh.consume(transforms.run(t, e, "dashboard")))
+      simpleProbes.foreach(s => bh.consume(transforms.run(s, e)))
+      engineShapes.foreach(t => bh.consume(Transform.run(t, e, "dashboard")))
       i += 1
     }
   }
@@ -374,13 +391,16 @@ object RenderBench {
         "cls" -> SlotSource(literal = Some("fh-tile")),
         // Literal now (entity.pkl): the entity's icon is a registry fact.
         "icon" -> SlotSource(literal = Some("mdi:lightbulb")),
-        "name" -> SlotSource(transform = TransformName),
+        "name" -> SlotSource(
+          // Opted in (ADR 0028): the shipped entity card's name shape.
+          transform = Transform.Simple.AttrOrId("friendly_name")
+        ),
         "state" -> SlotSource(
-          transform = TransformUnit,
+          transform = Transform.Simple.UnitSuffix("unit_of_measurement"),
           signal = Option.when(signals)(SignalBind.Text)
         ),
         "fill" -> SlotSource(
-          transform = TransformFill,
+          transform = Transform.Simple.Fill("brightness", 1.0, 255.0),
           signal = Option.when(signals)(SignalBind.Style("--_end"))
         ),
         "fillColor" -> SlotSource(

@@ -5,6 +5,7 @@
 module components.slider
 
 import "../core/icon.pkl" as icons
+import "../core/simple.pkl" as simpleMod
 import "../core/node.pkl" as nodes
 import "../core/slot.pkl" as slotMod
 import "../core/tap.pkl" as tapMod
@@ -390,6 +391,14 @@ class Slider extends nodes.Node {
   hidden valueExpr: String =
     if (valueAttr != null) "'\(valueAttr!!)' in attr ? attr['\(valueAttr!!)'] : null"
     else "'\(spec.value)' in attr ? attr['\(spec.value)'] : null"
+  // The attribute the axis reads, as a NAME — what the opted-in Simple shapes
+  // ([[simpleMod.percent]]/[[simpleMod.fill]]/[[simpleMod.attr]]) take, and
+  // what [[valueExpr]] spells out for authors composing their own expression.
+  hidden valueAttrName: String = valueAttr ?? spec.value
+  // The axis range as NUMBERS for the Simple shapes ([[minExpr]]/[[maxExpr]]
+  // are their float-literal spelling for spliced CEL).
+  hidden rangeMin: Number = min ?? spec.min
+  hidden rangeMax: Number = max ?? spec.max
   // Float literals: CEL's `/` on two ints is INTEGER division, so the range
   // arithmetic below needs doubles to divide as JSONata's number type did. And
   // because an attribute POSITION arrives as a Long, the range arithmetic
@@ -465,11 +474,10 @@ class Slider extends nodes.Node {
   // [[Expr]] is left alone: it may well be about something else entirely.
   hidden shownReadout: (Readout|slotMod.Expr) =
     if (toggleOnly && readout == "percent") "state" else readout
-  // The track fill, as the `--_end` percentage — see the `fill` slot. A
-  // toggle-only row has no position to express, so it fills all or nothing.
-  hidden fillExpr: String =
-    if (toggleOnly) #"state == 'on' ? '0%' : '100%'"#
-    else "str(cel.bind(v, \(valueExpr), v != null ? 100.0 - ((double(v) - \(minExpr)) * 100.0 / (\(maxExpr) - \(minExpr))) : 100.0)) + '%'"
+  // The track fill, as the `--_end` percentage — see the `fill` slot, which
+  // opts in ([[simpleMod.fill]] / the toggle-only [[simpleMod.enumOf]]).
+  // (`percentExpr` above stays a string deliberately: it is the documented
+  // splice surface for composed readouts, which no atomic Simple shape covers.)
   // No `inlineSurfaces` here any more: every tap this card can make is an
   // action NODE now, and each carries its own (see [[sliderAction]]). Copying
   // them up to the slider as well would declare the same surface twice, under
@@ -512,8 +520,13 @@ class Slider extends nodes.Node {
         if (shownReadout is slotMod.Expr)
           new slotMod.Slot { entityId = shownReadout.entityId; transform = shownReadout.transform; signal = slotMod.asText }
         else if (shownReadout == "percent")
-          new slotMod.Slot { transform = percentExpr; default = "0 %"; bypassUnavailable = false; signal = slotMod.asText }
-        else new slotMod.Slot { signal = slotMod.asText }
+          new slotMod.Slot {
+            transform = simpleMod.percent(valueAttrName, rangeMin, rangeMax)
+            default = "0 %"
+            bypassUnavailable = false
+            signal = slotMod.asText
+          }
+        else new slotMod.Slot { transform = simpleMod.state(); signal = slotMod.asText }
     }
     // The range input's numeric position: opt OUT of bypass so an unavailable
     // entity falls back to `default` ("0") rather than "unavailable".
@@ -537,7 +550,10 @@ class Slider extends nodes.Node {
     // `DatastarMorphContractSuite`, "data-bind makes a co-located
     // data-attr:value inert from the start". The live position is [[slideSig]].
     ["value"] = new slotMod.Slot {
-      transform = valueExpr
+      // The guarded position read, opted in ([[simpleMod.attr]] — presence is
+      // the structure; an absent position renders "" and [[default]] takes
+      // over).
+      transform = simpleMod.attr(valueAttrName)
       default = "0"
       bypassUnavailable = false
       signal = slotMod.asAttr("value")
@@ -557,7 +573,14 @@ class Slider extends nodes.Node {
     // — the binding reads the signal bare, so the unit is decided in the
     // transform and nowhere else.
     ["fill"] = new slotMod.Slot {
-      transform = fillExpr
+      // Opted in: a toggle-only row has no position to express, so it maps the
+      // state all-or-nothing ([[simpleMod.enumOf]]); every other axis reads the
+      // position as the distance from the RIGHT edge
+      // ([[simpleMod.fill]] — 100 - value% of the range, unrounded; see the
+      // NOT-rounded note above for why the complement stays full-precision).
+      transform =
+        if (toggleOnly) simpleMod.enumOf("on", "0%", "100%")
+        else simpleMod.fill(valueAttrName, rangeMin, rangeMax)
       default = "100%"
       bypassUnavailable = false
       signal = slotMod.asStyle("--_end")

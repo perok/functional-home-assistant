@@ -10,6 +10,7 @@ import "../../main/resources/dashboards/lib/components.pkl" as c
 import "../../main/resources/dashboards/lib/core/node.pkl" as nodes
 import "../../main/resources/dashboards/lib/core/css.pkl" as cssMod
 import "../../main/resources/dashboards/lib/core/slot.pkl" as slotMod
+import "../../main/resources/dashboards/lib/core/simple.pkl" as simpleMod
 import "../../main/resources/dashboards/lib/core/text.pkl" as textMod
 import "../../main/resources/dashboards/lib/query.pkl" as q
 import "../../main/resources/dashboards/lib/hass.pkl" as hass
@@ -364,14 +365,20 @@ facts {
     // — a light with no brightness reports no colour either (`onoff` is a
     // light's SOLE mode when present), so the default is the only paint it can
     // get. A TOKEN, not the literal behind it: the value is the theme's to move.
-    row.headSlots["fill"].transform == #"state == 'on' ? '0%' : '100%'"#
+    // The fill is OPTED IN: the two-armed state enum of the simple tier
+    // (annotated local = the runtime-checked downcast from the union).
+    local fillEnum: simpleMod.SimpleEnum = row.headSlots["fill"].transform!!
+    fillEnum.equalTo == "on"
+    fillEnum.thenValue == "0%"
+    fillEnum.otherwise == "100%"
     row.headSlots["fillColor"].default == "var(--fh-default-color)"
     // ...and the token is one the contract actually defines. A `var()` naming
     // nothing paints TRANSPARENT, and only a browser would ever say so.
     cssMod.baseCss.contains("--fh-default-color:rgb(189, 189, 176)")
     // A percentage of an axis it does not have reads 0 % forever, so the row
     // reads out its state instead — and nothing drags the readout.
-    row.headSlots["state"].transform == "state"
+// The state readout opted in as the raw-state shape.
+    row.headSlots["state"].transform is simpleMod.SimpleState
     !row.slots.containsKey("dragPercent")
     // The markup is ONE template shared by every slider, so the two shapes are
     // sections of it rather than two cards.
@@ -384,7 +391,12 @@ facts {
     !dim.toggleOnly
     !(c.slider(kitchen)).toggleOnly
     !dim.slots.containsKey("toggle")
-    dim.headSlots["state"].transform.contains("attr['brightness']")
+    // The percent READOUT rides the "state" slot (shownReadout), opted in as
+    // the simple tier's percent over the light's own 1..255 range.
+    local statePercent: simpleMod.SimplePercent = dim.headSlots["state"].transform!!
+    statePercent.name == "brightness"
+    statePercent.min == 1
+    statePercent.max == 255
     dim.headSlots["dragPercent"] == "1"
   }
 

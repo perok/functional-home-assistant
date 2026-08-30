@@ -4,6 +4,7 @@ import fh.view.runtime.EntityState
 import io.circe.Json
 
 class TransformSuite extends munit.FunSuite {
+  import Transform.Simple
 
   private def compile(src: String): Transform.Compiled =
     Transform.parse(src).fold(e => fail(e), identity)
@@ -286,26 +287,28 @@ class TransformSuite extends munit.FunSuite {
     assertEquals(run(expr, "off", entity = "light.kitchen"), "100")
   }
 
-  // ---- the fast catalog's parity battery (plan Phase 2) ----
+  // ---- the simple tier's definition suite (ADR 0028) ----
   //
-  // Each recognized [[Transform.Simple]] shape runs both ways — fast path and
-  // engine — over the hostile sweep (min edge, off-a-hair, fractional, absent,
-  // empty-string, odd types), and the bytes must be EQUAL per value. Where the
-  // fast path declines the value (`runSimple` → None) the fallback IS the
-  // engine, so equality is the thing to prove, not an expectation to meet.
+  // Each [[Transform.Simple]] case is DEFINED by its idiomatic CEL spelling —
+  // the constants below, mirrored in the case's scaladoc. The engine's output
+  // on that spelling over the hostile sweep is the truth runSimple must render
+  // byte-for-byte. Where the two diverge — the engine ERRORS on a mistyped
+  // value where the simple tier renders its absent-value form — the divergence
+  // is itself pinned here and documented on the case: the opted-in tier owns
+  // its values, there is no fallback.
 
-  /** The parity harness: recognition, both evaluations, byte-equality. */
-  private def parity(src: String, probes: List[EntityState]): Unit = {
-    val compiled = compile(src)
-    val shape = Transform.simple(src).getOrElse(fail(s"not recognised: $src"))
+  /** The agreement harness: both evaluations over the sweep, byte-equality. */
+  private def agree(
+      shape: Transform.Simple,
+      cel: String,
+      probes: List[EntityState]
+  ): Unit = {
+    val compiled = compile(cel)
     probes.foreach { e =>
-      val viaEngine = Transform.run(compiled, e, "dashboard")
-      val viaFast =
-        Transform.runSimple(shape, e).getOrElse(viaEngine) // None → engine
       assertEquals(
-        viaFast,
-        viaEngine,
-        clue = s"[$src] state=${e.state} attrs=${e.attributes}"
+        Transform.runSimple(shape, e),
+        Transform.run(compiled, e, "dashboard"),
+        clue = s"[$cel] state=${e.state} attrs=${e.attributes}"
       )
     }
   }
@@ -318,8 +321,8 @@ class TransformSuite extends munit.FunSuite {
 
   private def d(v: Double): Json = Json.fromDouble(v).get
 
-  // The exact strings the shipped library bakes (slider.pkl, entity.pkl,
-  // slot.pkl, tap.pkl), with the slider's light-axis config (min 1, max 255).
+  // The slider's light-axis config (min 1, max 255), as every battery below
+  // bakes it.
   private val percentExpr =
     "cel.bind(v, 'brightness' in attr ? attr['brightness'] : null, " +
       "v != null ? str(math.round((double(v) - 1.0) * 100.0 / (255.0 - 1.0))) " +
@@ -329,7 +332,7 @@ class TransformSuite extends munit.FunSuite {
       "v != null ? 100.0 - ((double(v) - 1.0) * 100.0 / (255.0 - 1.0)) " +
       ": 100.0)) + '%'"
 
-  test("parity: state, attr read, and the fallback-to-id name") {
+  test("definition: state, attr read, and the fallback-to-id name") {
     val probes = List(
       es("on"),
       es("on", "friendly_name" -> Json.fromString("Hall")),
@@ -341,41 +344,75 @@ class TransformSuite extends munit.FunSuite {
       ), // exotic value: both paths String.valueOf it
       es("off", "brightness" -> Json.fromInt(200))
     )
-    parity("state", probes)
-    parity("'brightness' in attr ? attr['brightness'] : null", probes)
-    parity(
+    agree(Simple.State, "state", probes)
+    agree(
+      Simple.Attr("brightness"),
+      "'brightness' in attr ? attr['brightness'] : null",
+      probes
+    )
+    agree(
+      Simple.AttrOrId("friendly_name"),
       "('friendly_name' in attr ? attr['friendly_name'] : entity_id)",
       probes
     )
   }
 
-  test("parity: unit suffix, literal prefix/suffix, and the state enum") {
+  test("definition: unit suffix, literal prefix/suffix, and the state enum") {
     val probes = List(
       es("on"),
       es("on", "unit_of_measurement" -> Json.fromString("°C")),
       es("on", "unit_of_measurement" -> Json.fromString("")),
-      // A non-string unit is where the fast path DECLINES — the engine errors
-      // on `' ' + long` and its error text is the contract.
-      es("on", "unit_of_measurement" -> Json.fromInt(5)),
       es("21.44"),
       es("locked")
     )
-    parity(
+    agree(
+      Simple.UnitSuffix("unit_of_measurement"),
       "state + ('unit_of_measurement' in attr ? ' ' + " +
         "attr['unit_of_measurement'] : '')",
       probes
     )
-    parity("state + ' W'", probes)
-    parity("'lit: ' + state", probes)
-    parity("state == 'on' ? 'Open' : 'Closed'", probes)
-    parity("state == 'locked' ? 'lock/unlock' : 'lock/lock'", probes)
+    agree(Simple.Prefix("lit: "), "'lit: ' + state", probes)
+    agree(Simple.Suffix(" W"), "state + ' W'", probes)
+    agree(
+      Simple.Enum("on", "Open", "Closed"),
+      "state == 'on' ? 'Open' : 'Closed'",
+      probes
+    )
+    agree(
+      Simple.Enum("locked", "lock/unlock", "lock/lock"),
+      "state == 'locked' ? 'lock/unlock' : 'lock/lock'",
+      probes
+    )
   }
 
-  test("parity: the slider's range percent and fill over the hostile sweep") {
+  test("divergence: the unit tier treats a non-string unit as absent") {
+    // The engine errors on `' ' + 5` (its error text is NOT part of the
+    // simple contract); the opted-in tier renders the state alone.
+    val e = es("on", "unit_of_measurement" -> Json.fromInt(5))
+    assertEquals(
+      Transform.runSimple(Simple.UnitSuffix("unit_of_measurement"), e),
+      "on"
+    )
+    assert(
+      Transform
+        .run(
+          compile(
+            "state + ('unit_of_measurement' in attr ? ' ' + " +
+              "attr['unit_of_measurement'] : '')"
+          ),
+          e,
+          "dashboard"
+        )
+        .startsWith("cel error:")
+    )
+  }
+
+  test(
+    "definition: the slider's range percent and fill over the hostile sweep"
+  ) {
     // min edge, off-a-hair below it, exact .5-adjacent fractions, the full
-    // range, beyond it, absent, empty-string, odd types — the values the
-    // bench's Fill/Percent batteries swept, plus the recogniser's spliced
-    // literals checked at both ends.
+    // range, beyond it, absent, and the string-number form `double()`
+    // accepts — the values the bench's Fill/Percent batteries swept.
     val brightnesses: List[Json] = List(
       d(-0.27), // raw = -0.5±ulp: the rounding mode's knife edge
       Json.fromInt(0), // below min: the negative arm
@@ -388,21 +425,59 @@ class TransformSuite extends munit.FunSuite {
       d(129.27),
       Json.fromInt(254),
       Json.fromInt(255), // the max edge: exactly 100 %
-      Json.fromInt(256) // beyond max
+      Json.fromInt(256), // beyond max
+      Json.fromString("128") // the engine's double() accepts string numbers
     )
     val probes: List[EntityState] =
       brightnesses.map(b => es("on", "brightness" -> b)) ++
         List(
           es("on"), // absent position: '0 %' / '100%'
-          es("on", "brightness" -> Json.fromString("")),
-          // A non-numeric position: both paths decline-or-error identically.
-          es("on", "brightness" -> Json.fromString("on")),
-          // A string NUMBER: the engine's double() accepts it; the fast path
-          // declines and falls back — bytes must still agree.
-          es("on", "brightness" -> Json.fromString("128")),
           es("on", "brightness" -> Json.Null) // null attr is dropped as absent
         )
-    parity(percentExpr, probes)
-    parity(fillExpr, probes)
+    agree(Simple.Percent("brightness", 1.0, 255.0), percentExpr, probes)
+    agree(Simple.Fill("brightness", 1.0, 255.0), fillExpr, probes)
+  }
+
+  test(
+    "divergence: percent/fill render the absent form on unparseable values"
+  ) {
+    // The engine errors on `double("")` / `double("on")`; the opted-in tier
+    // renders the absent-value form — the same behaviour an absent attribute
+    // gets, documented on the cases.
+    val empty = es("on", "brightness" -> Json.fromString(""))
+    val text = es("on", "brightness" -> Json.fromString("on"))
+    assertEquals(
+      Transform.runSimple(Simple.Percent("brightness", 1.0, 255.0), empty),
+      "0 %"
+    )
+    assertEquals(
+      Transform.runSimple(Simple.Fill("brightness", 1.0, 255.0), text),
+      "100%"
+    )
+    assert(
+      Transform
+        .run(compile(percentExpr), empty, "dashboard")
+        .startsWith("cel error:")
+    )
+  }
+
+  test("the simple key is injective across structures and stable") {
+    assertEquals(Transform.Simple.key(Simple.State), "state")
+    assertEquals(
+      Transform.Simple.key(Simple.Attr("brightness")),
+      "attr:brightness"
+    )
+    assertNotEquals(
+      Transform.Simple.key(Simple.Attr("x")),
+      Transform.Simple.key(Simple.AttrOrId("x"))
+    )
+    assertNotEquals(
+      Transform.Simple.key(Simple.Percent("x", 1.0, 2.0)),
+      Transform.Simple.key(Simple.Fill("x", 1.0, 2.0))
+    )
+    assertEquals(
+      Transform.Simple.key(Simple.Percent("x", 1.0, 255.0)),
+      Transform.Simple.key(Simple.Percent("x", 1.0, 255.0))
+    )
   }
 }

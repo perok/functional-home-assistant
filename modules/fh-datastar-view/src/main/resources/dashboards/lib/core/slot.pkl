@@ -1,20 +1,27 @@
 /// Slot values — what a card puts in a template hole, and the shared builders
 /// that shape the common ones the same way every card does.
 ///
-/// A slot is either a bare String (a constant literal) or a [[Slot]] object (a
-/// live CEL transform over the card's entity). The builders are the reason
-/// a third-party card can look like a shipped one: `labelSlot` falls back to
-/// friendly_name, `valueSlot` appends the entity's unit, `secondarySlot` keeps
-/// the mustache section collapsed when blank.
+/// A slot is either a bare String (a constant literal) or a [[Slot]] object: a
+/// live CEL transform over the card's entity ([[Slot.transform]], the engine
+/// tier) or an opted-in [[simpleMod.Simple]] structure ([[Slot.simple]], the fast tier —
+/// the field IS the tier selection; nothing recognizes expression spelling).
+/// The builders are the reason a third-party card can look like a shipped one:
+/// `labelSlot` falls back to friendly_name, `valueSlot` appends the entity's
+/// unit, `secondarySlot` keeps the mustache section collapsed when blank.
 module core.slot
 
 import "../hass.pkl"
+import "simple.pkl" as simpleMod
 
 /// The object form of a slot (fh.view.model.SlotSource): a CEL expression
 /// over the card's entity. [[Slot.reads]] says when it is read.
 class Slot {
   entityId: String? = null
-  transform: String = "state"
+  /// The value — ONE fact, two forms (ADR 0028): a CEL string over the card's
+  /// entity (the engine tier) or an opted-in [[simpleMod.Simple]] structure
+  /// (the fast tier — the object form IS the tier selection; nothing
+  /// recognizes expression spelling). Defaults to the raw state.
+  transform: (String|simpleMod.Simple) = "state"
   default: String? = null
   bypassUnavailable: Boolean = true
   /// WHEN this value is read, and whether reading it is a reason to re-render.
@@ -106,7 +113,7 @@ const function signalRef(name: String): String = "{{" + name + "__signal}}"
 
 /// [[valueSlot]] as a text signal slot — the same value, carried as a signal.
 /// The card must place `signalBind("value")`.
-const function signalValueSlot(value: (String|Expr)?): Slot =
+const function signalValueSlot(value: (String|Expr|simpleMod.Simple)?): Slot =
   (valueSlot(value)) { signal = asText }
 
 /// A live value expression for a display field that also accepts a plain
@@ -132,33 +139,41 @@ const UNIT_EXPR =
   #"'unit_of_measurement' in attr ? ' ' + attr['unit_of_measurement'] : ''"#
 
 // label: Expr -> live (still resolving when unavailable, so a label shows the
-// name, not "unavailable"); String -> literal; null -> the entity's
+// name, not "unavailable"); Simple -> the opted-in structure (same bypass
+// semantics as Expr); String -> literal; null -> the entity's
 // friendly_name (falling back to its id) baked as a literal.
-const function labelSlot(entity: hass.Entity?, label: (String|Expr)?): Slot|String =
+const function labelSlot(entity: hass.Entity?, label: (String|Expr|simpleMod.Simple)?): Slot|String =
   if (label is Expr) new Slot { entityId = label.entityId; transform = label.transform; bypassUnavailable = false }
+  else if (label is simpleMod.Simple) new Slot { transform = label; bypassUnavailable = false }
   else if (label != null) label
   else if (entity != null) entity.friendly_name ?? entity.entity_id
   else ""
 
-// value: null -> state (+ unit); String -> that attribute, guarded (+ unit);
-// Expr -> your expression verbatim (you own the unit).
-const function valueSlot(value: (String|Expr)?): Slot =
+// value: null -> the state with the entity's unit appended, OPTED IN
+// ([[simpleMod.unit]] — the auto-unit shape); String -> that attribute guarded
+// plus the unit — TWO reads (the attribute and the unit), so no Simple shape
+// covers it and it stays CEL; Expr -> your expression verbatim (you own the
+// unit); Simple -> the opted-in structure verbatim (you own everything — no
+// unit is auto-appended; [[simpleMod.unit]] is the unit shape).
+const function valueSlot(value: (String|Expr|simpleMod.Simple)?): Slot =
   if (value is Expr) new Slot { entityId = value.entityId; transform = value.transform }
+  else if (value is simpleMod.Simple) new Slot { transform = value }
+  else if (value == null) new Slot { transform = simpleMod.unit("unit_of_measurement") }
   else new Slot {
     transform =
-      (if (value == null) "state"
-       else "('" + value + "' in attr ? attr['" + value + "'] : '')") +
+      "('" + value + "' in attr ? attr['" + value + "'] : '')" +
       " + (" + UNIT_EXPR + ")"
   }
 
-// secondary (only built when authored): String -> an attribute, guarded (no
-// unit); Expr -> live. Empty default keeps the mustache section collapsed when
+// secondary (only built when authored): String -> that attribute, guarded, no
+// unit — now opted in ([[simpleMod.attr]]); Expr -> live; Simple -> the
+// opted-in structure. Empty default keeps the mustache section collapsed when
 // blank.
-const function secondarySlot(secondary: String|Expr): Slot =
-  new Slot {
-    entityId = if (secondary is Expr) secondary.entityId else null
-    transform =
-      if (secondary is Expr) secondary.transform
-      else "'" + secondary + "' in attr ? attr['" + secondary + "'] : \"\""
+const function secondarySlot(secondary: String|Expr|simpleMod.Simple): Slot =
+  if (secondary is Expr) new Slot {
+    entityId = secondary.entityId
+    transform = secondary.transform
     default = ""
   }
+  else if (secondary is simpleMod.Simple) new Slot { transform = secondary; default = "" }
+  else new Slot { transform = simpleMod.attr(secondary); default = "" }

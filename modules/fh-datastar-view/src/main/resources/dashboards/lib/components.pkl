@@ -24,6 +24,7 @@ module components
 import "hass.pkl"
 import "core/node.pkl" as nodes
 import "core/slot.pkl" as slotMod
+import "core/simple.pkl" as simpleMod
 import "core/text.pkl" as coreTextMod
 import "core/tap.pkl" as tapMod
 import "core/surface.pkl" as surfaceMod
@@ -46,6 +47,10 @@ import "recipes.pkl" as recipesMod
 /// What a click DOES: `c.tap.toggle`, `c.tap.service("lock/lock")`,
 /// `c.tap.navigate("under")`, `c.tap.openPopup("detail")`.
 hidden tap: tapMod = tapMod
+
+/// The simple tier's explicit fast-path constructors for slot values:
+/// `c.simple.attr("brightness")`, `c.simple.percent("brightness", 1, 255)`.
+hidden simple: simpleMod = simpleMod
 
 /// Light-domain composition: `c.light.controls(l)`, `c.light.effectPills(l.effects)`.
 hidden light: lightMod = lightMod

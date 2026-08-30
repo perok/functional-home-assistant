@@ -1,7 +1,14 @@
 package fh.view.runtime
 
 import fh.view.build.DashboardBuild
-import fh.view.model.{CardDef, Dashboard, LayoutNode, Reads, SlotSource}
+import fh.view.model.{
+  CardDef,
+  Dashboard,
+  LayoutNode,
+  Reads,
+  SlotSource,
+  Transform
+}
 import io.circe.Json
 
 /** How a dashboard's slug reaches the action URL a tap builds (ADR 0023).
@@ -18,11 +25,11 @@ import io.circe.Json
   */
 class TransformsSuite extends munit.CatsEffectSuite {
 
-  test("a state fast-path transform renders exactly what CEL would") {
-    // The fast path skips the engine for the plain `state` read (issue #237).
-    // It is only safe while the two render EVERY state shape identically, so
-    // this compares them rather than asserting expected output: the oracle is
-    // the CEL engine itself.
+  test("the opted-in state tier renders exactly what CEL would") {
+    // The simple tier is entered by the slot's `simple` field, never by
+    // recognising spelling (ADR 0028). It is only safe while it renders
+    // EVERY state shape identically to the engine, so this compares them
+    // rather than asserting expected output: the oracle is CEL itself.
     val states = List(
       "on",
       "off",
@@ -32,78 +39,85 @@ class TransformsSuite extends munit.CatsEffectSuite {
       "ø 😀",
       "locks path with \"quotes\""
     )
-    val expr = "state"
-    val simple = fh.view.model.Transform
-      .simple(expr)
-      .getOrElse(fail(s"$expr should be recognised as simple"))
+    val t = Transforms.from(
+      dashboard("kitchen").copy(
+        card = LayoutNode.Component(
+          card = "c",
+          slots = Map("onclick" -> SlotSource(transform = "state"))
+        )
+      )
+    )
     states.foreach { state =>
       val entity = EntityState("sensor.a", state, Map.empty[String, Json])
-      val viaEngine = fh.view.model.Transform.run(
-        fh.view.model.Transform
-          .parse(expr)
-          .getOrElse(fail(s"could not compile $expr")),
-        entity,
-        "dashboard"
-      )
       assertEquals(
-        fh.view.model.Transform.runSimple(simple, entity),
-        Some(viaEngine),
+        t.run(Transform.Simple.State, entity),
+        t.run("state", entity, "dashboard"),
         clue = state
       )
     }
   }
 
-  test("the closed set is recognised; near-misses go to the engine") {
-    // The catalog is closed over the strings the shipped library bakes — each
-    // of these IS one, byte-for-byte:
-    val canonical = List(
-      "state",
-      "  state  ",
-      "'brightness' in attr ? attr['brightness'] : null",
-      "('friendly_name' in attr ? attr['friendly_name'] : entity_id)",
-      "state + ('unit_of_measurement' in attr ? ' ' + " +
-        "attr['unit_of_measurement'] : '')",
-      "state + ' W'",
-      "'lit' + state",
-      "state == 'on' ? 'Open' : 'Closed'",
-      "state == 'locked' ? 'lock/unlock' : 'lock/lock'",
-      // the slider's baked percent and fill (min 1, max 255)
-      "cel.bind(v, 'brightness' in attr ? attr['brightness'] : null, " +
-        "v != null ? str(math.round((double(v) - 1.0) * 100.0 / (255.0 - 1.0))) " +
-        "+ ' %' : '0 %')",
-      "str(cel.bind(v, 'brightness' in attr ? attr['brightness'] : null, " +
-        "v != null ? 100.0 - ((double(v) - 1.0) * 100.0 / (255.0 - 1.0)) " +
-        ": 100.0)) + '%'"
+  test("the simple tier decodes from the wire's explicit opt-in") {
+    // `"simple"` rides beside `transform` as the slot's own object; its `kind`
+    // discriminator picks the case. A decoded simple slot dispatches without
+    // the engine.
+    val simpleWire = Json.obj(
+      "slug" -> Json.fromString("k"),
+      "cards" -> Json.obj(
+        "c" -> Json.obj(
+          "template" -> Json.fromString("<b>{{v}}</b>"),
+          "slots" -> Json.arr(Json.fromString("v"))
+        )
+      ),
+      "card" -> Json.obj(
+        "kind" -> Json.fromString("component"),
+        "card" -> Json.fromString("c"),
+        "slots" -> Json.obj(
+          "v" -> Json.obj(
+            "transform" -> Json.obj(
+              "kind" -> Json.fromString("suffix"),
+              "literal" -> Json.fromString(" W")
+            )
+          )
+        )
+      )
     )
-    canonical.foreach(e =>
-      assert(fh.view.model.Transform.simple(e).isDefined, clue = e)
+    DashboardBuild.decode(simpleWire).map { validated =>
+      validated.dashboard.card match {
+        case c: LayoutNode.Component =>
+          // The transform IS the union: an object decodes straight into the
+          // Simple case — no parallel field.
+          c.slots("v").transform match {
+            case Transform.Simple.Suffix(" W") => ()
+            case other => fail(s"expected the opted-in suffix, got $other")
+          }
+        case other => fail(s"unexpected node: $other")
+      }
+      assertEquals(
+        Transforms
+          .fromValidated(validated)
+          .run(
+            Transform.Simple.Suffix(" W"),
+            state
+          ),
+        "on W"
+      )
+    }
+  }
+
+  test("a degenerate percent range is rejected at validate") {
+    val bad = dashboard("kitchen").copy(
+      card = LayoutNode.Component(
+        card = "c",
+        slots = Map(
+          "onclick" -> SlotSource(
+            transform = Transform.Simple.Percent("brightness", 1.0, 1.0)
+          )
+        )
+      )
     )
-    // The guard against this growing into a second implementation of the
-    // language. Each of these READS like a member of the set and is not one:
-    // a different fallback, a bare read, an int literal where a float is
-    // spliced, a half-formed enum — all engine work.
-    List(
-      "stater",
-      "'state'",
-      "str(state)",
-      "attr",
-      "attr['brightness']",
-      "str(attr['brightness'])",
-      "'friendly_name' in attr ? attr['friendly_name'] : entity_id",
-      "'friendly_name' in attr ? attr['friendly_name'] : ''",
-      "state + \" W\"",
-      "state + 1.0",
-      "state == 'on' ? 'Open'",
-      "state == 5 ? 'Open' : 'Closed'",
-      "cel.bind(v, 'brightness' in attr ? attr['brightness'] : null, " +
-        "v != null ? str(math.round((double(v) - 1) * 100.0 / (255 - 1))) " +
-        "+ ' %' : '0 %')",
-      "str(cel.bind(v, 'brightness' in attr ? attr['brightness'] : null, " +
-        "v != null ? 100.0 - ((double(v) - 1.0) * 100.0 / (255.0 - 1.0)) " +
-        ": 100.0)) + ' %'"
-    ).foreach(e =>
-      assertEquals(fh.view.model.Transform.simple(e), None, clue = e)
-    )
+    val errs = bad.validated().fold(identity, _ => Nil)
+    assert(errs.exists(_.contains("degenerate")), clue = errs)
   }
 
   // The expression the shipped `c.tap.service("light/toggle")` emits: the action

@@ -1,9 +1,9 @@
 # ADR 0027 — Transforms are CEL: the engine swap and what it kept
 
 - **Status:** Accepted
-- **Date:** 2026-08-29 (decision and Phase-0 gate in
-  `docs/plan-simple-transforms.md`; this ADR lands after the swap, per the
-  repo routine)
+- **Date:** 2026-08-29 (decision and Phase-0 gate pinned first, in the
+  since-deleted `docs/plan-simple-transforms.md` — its decisions live here and
+  in ADR 0028; this ADR lands after the swap, per the repo routine)
 - **Scope:** `model/Transform.scala`, `runtime/Cel.scala`, `runtime/Transforms.scala`,
   `runtime/StateStore.scala` (null-attr rule), the Pkl library's transform strings,
   `modules/benchmarks` (engine cells + divergence gate)
@@ -20,10 +20,11 @@ against ~1.8 kB for cel-java's planner runtime on the same shapes — and JSONat
 brought a second value model to keep an intuition about: falsy `""`,
 null-on-missing-key, HALF_EVEN rounding, a 15-significant-digit `$string`.
 
-Phase 0 (`docs/plan-simple-transforms.md`) pinned the divergence map first: a
-golden divergence gate (`CelSpike`) sweeping both engines over the benchmark
-fixture plus a hostile margin, asserting the SET of byte differences — so the
-swap's output delta was known before anything rode on it.
+Phase 0 pinned the divergence map first: a golden divergence gate
+(`sbt 'benchmarks/Compile/runMain fh.view.runtime.CelSpike'`) sweeping both
+engines over the benchmark fixture plus a hostile margin, asserting the SET of
+byte differences — so the swap's output delta was known before anything rode
+on it.
 
 ## The decision
 
@@ -98,15 +99,14 @@ and the `jsonata` bench cells.
   shapes the library bakes that CAN be read as data — the raw `state` read,
   the guarded attribute read, the fallback-to-id name, the unit suffix, a
   literal prefix/suffix, the state enum, the slider's range percent and fill —
-  are recognized over the canonical strings and evaluated without the engine;
-  `runSimple` returns `None` on any value it cannot model so the engine's
-  bytes, error text included, always win, and a parity battery runs every form
-  both ways over a hostile sweep. Measured through the production dispatch
-  (`RenderBench.simple`, 1200 evals/op): 1001 µs / 968.9 kB against the
-  engine-only `cel` cell's 1592 µs / 1074.2 kB — -37% CPU, -10% allocation on
-  the mixed workload, with pure reads at ~61 B against ~895 B per engine eval.
-  Recognition must never grow into a second implementation of the language;
-  near-misses are pinned to `None` by test.
+  are evaluated without the engine. Measured through the production dispatch
+  (`RenderBench.simple`, 1200 evals/op) at the recognition stage: 1001 µs /
+  968.9 kB against the engine-only `cel` cell's 1592 µs / 1074.2 kB — -37%
+  CPU, -10% allocation on the mixed workload, with pure reads at ~61 B against
+  ~895 B per engine eval. **The tier's SELECTION has since moved from
+  recognition to explicit opt-in — the slot's own field, no spelling to
+  match, no engine fallback: ADR 0028 owns that decision and the definition
+  suite that pins each shape to its idiomatic CEL.**
 - **cel-java's compile-time optimizers were measured and declined.** The
   codelab's pairing (`ConstantFoldingOptimizer` + `SubexpressionOptimizer`,
   wired via `CelOptimizerFactory` between compile and `createProgram`) ran

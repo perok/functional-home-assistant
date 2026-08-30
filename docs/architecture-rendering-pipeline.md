@@ -802,8 +802,11 @@ entity nothing on the page was reading and still be right — there is no frame 
 **A display signal is named by what it READS**, `_e.<domain>.<object_id>.<transform>`, so one entity
 on three cards is one signal and one frame entry rather than three copies equal by construction
 (ADR 0017). The `<transform>` segment is the bare word `state` when the slot reads the state plain —
-the shape that covers most slots — and a short hash of the expression for anything computed
-(`Renderer.transformSegment`); the slot NAME is deliberately not used, so cards sharing a reading
+the shape that covers most slots — a short hash of the expression for anything computed, or the
+opted-in simple structure's key (`attr:brightness`, `percent:brightness:1.0:255.0` —
+`Transform.Simple.key`) for the fast tier
+(`Renderer.transformSegment` / `SlotSource.valueKey`); the slot NAME is deliberately not used, so
+cards sharing a reading
 share a signal whatever they call the hole. Dots are PATH separators — the bundle rewrites
 `$_e.light.a.state` into bracket
 indexing, and `datastar-patch-signals` deep-merges — so a frame carries a nested structure and never

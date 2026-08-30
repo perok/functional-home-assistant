@@ -1,6 +1,6 @@
 package fh.view.build
 
-import fh.view.model.{CardDef, Dashboard, LayoutNode, Op, Predicate}
+import fh.view.model.{CardDef, Dashboard, LayoutNode, Op, Predicate, Transform}
 import fh.view.testkit.{FixtureEntity, HouseFixture, PklFixture, PklWorkspace}
 import io.circe.Json
 
@@ -1522,7 +1522,7 @@ class PklBuildSuite extends munit.FunSuite {
     val value = node.slots("value")
     assertEquals(value.entityId, Some("sensor.power"))
     assertEquals(value.literal, None)
-    assertEquals(value.transform, "state")
+    assertEquals(value.valueKey, "state")
     // A plain expr (no exprOf) still inherits the card's entity (no entityId).
     val plain = probeComponent(
       """light: hass.LightEntity = new { entity_id = "light.kitchen" }
@@ -1545,7 +1545,7 @@ class PklBuildSuite extends munit.FunSuite {
         |node = c.button("Toggle", c.tap.toggle).entity(light)""".stripMargin
     )
     assert(!toggle.slots.contains("href"), clue = toggle.slots)
-    assert(toggle.slots("onclick").transform.contains("@post"))
+    assert(toggle.slots("onclick").valueKey.contains("@post"))
   }
 
   test("Row cssClass emits a literal `class` slot") {
@@ -1577,10 +1577,12 @@ class PklBuildSuite extends munit.FunSuite {
     assertEquals(rowOf(slider).slots("key").literal, Some("position"))
     assertEquals(rowOf(slider).slots("min").literal, Some("0"))
     assertEquals(rowOf(slider).slots("max").literal, Some("100"))
-    assertEquals(
-      rowOf(slider).slots("value").transform,
-      "'current_position' in attr ? attr['current_position'] : null"
-    )
+    // The live position is OPTED IN: the guarded read as structure, presence
+    // implicit (ADR 0028).
+    rowOf(slider).slots("value").transform match {
+      case Transform.Simple.Attr("current_position") => ()
+      case other => fail(s"expected the opted-in guarded read, got $other")
+    }
   }
 
   test("a slider in a QUERY bakes its config, with no $lookup($domain)") {
@@ -1607,16 +1609,17 @@ class PklBuildSuite extends munit.FunSuite {
     assertEquals(slots("min").literal, Some("1"))
     assertEquals(slots("max").literal, Some("255"))
     // The live position is the one that stays live — it reads state, not
-    // identity — but it names the attribute directly instead of looking it up.
-    assertEquals(
-      slots("value").transform,
-      "'brightness' in attr ? attr['brightness'] : null"
-    )
+    // identity — but it names the attribute directly instead of looking it up,
+    // as the opted-in guarded read.
+    slots("value").transform match {
+      case Transform.Simple.Attr("brightness") => ()
+      case other => fail(s"expected the opted-in guarded read, got $other")
+    }
     assertEquals(slots("value").default, Some("0"))
     assertEquals(slots("value").bypassUnavailable, false)
     // Not one $lookup anywhere in the member.
     assert(
-      !slots.values.exists(_.transform.contains("$lookup")),
+      !slots.values.exists(_.valueKey.contains("$lookup")),
       clue = slots.view.mapValues(_.transform).toMap
     )
   }
@@ -1670,18 +1673,16 @@ class PklBuildSuite extends munit.FunSuite {
       members.map(rowOf(_).slots("key").literal),
       List(Some("brightness"), Some("position"))
     )
-    // …and reads out its LEVEL rather than its state, off its own range.
-    assert(
-      rowOf(members.head).slots("state").transform.contains("""+ ' %'"""),
-      clue = rowOf(members.head).slots("state").transform
-    )
-    assert(
-      rowOf(members(1))
-        .slots("state")
-        .transform
-        .contains("attr['current_position']"),
-      clue = rowOf(members(1)).slots("state").transform
-    )
+    // …and reads out its LEVEL rather than its state, off its own range —
+    // opted in as the simple tier's percent over each member's axis range.
+    rowOf(members.head).slots("state").transform match {
+      case Transform.Simple.Percent("brightness", 1.0, 255.0) => ()
+      case other => fail(s"expected the opted-in percent, got $other")
+    }
+    rowOf(members(1)).slots("state").transform match {
+      case Transform.Simple.Percent("current_position", 0.0, 100.0) => ()
+      case other => fail(s"expected the opted-in percent, got $other")
+    }
     // …and because that reading IS the position, a drag moves it locally too —
     // the flag the template's section reads. The head, reading out nothing, has
     // no such slot, so its `data-on:input` paints the fill alone.
@@ -1716,7 +1717,7 @@ class PklBuildSuite extends munit.FunSuite {
     // A plain slider is STRUCTURE too — its own slots are just the absent
     // group modifier; everything the row shows is on the row.
     assertEquals(plain.slots.keySet, Set.empty[String])
-    assertEquals(rowOf(plain).slots("state").transform, "state")
+    assertEquals(rowOf(plain).slots("state").valueKey, "state")
     // The badge is the entity's OWN icon, baked as a literal — here the light
     // domain's default, since this probe entity declares none.
     assertEquals(rowOf(plain).slots("icon").literal, Some("mdi-lightbulb"))
@@ -1740,12 +1741,12 @@ class PklBuildSuite extends munit.FunSuite {
     )
     val state = rowOf(own).slots("state")
     assert(
-      state.transform.contains("attr['brightness']"),
-      clue = state.transform
+      state.valueKey.contains("attr['brightness']"),
+      clue = state.valueKey
     )
     assert(
-      state.transform.endsWith("""+ ' · ' + state"""),
-      clue = state.transform
+      state.valueKey.endsWith("""+ ' · ' + state"""),
+      clue = state.valueKey
     )
     // …and it can read a DIFFERENT entity, like every other Expr slot.
     val other = probeComponent(
@@ -1755,7 +1756,7 @@ class PklBuildSuite extends munit.FunSuite {
         |""".stripMargin
     )
     assertEquals(rowOf(other).slots("state").entityId, Some("sensor.w"))
-    assertEquals(rowOf(other).slots("state").transform, """state + ' W'""")
+    assertEquals(rowOf(other).slots("state").valueKey, """state + ' W'""")
     // The subject is unchanged — only the readout looks elsewhere.
     assertEquals(rowOf(other).slots("entity_id").literal, Some("light.lys"))
   }
@@ -2092,11 +2093,11 @@ class PklBuildSuite extends munit.FunSuite {
     // the bounds are the LIGHT's, not the light domain's brightness 1..255
     assertEquals(rowOf(s).slots("min").literal, Some("2000"))
     assertEquals(rowOf(s).slots("max").literal, Some("6535"))
-    // and the handle tracks the value it writes, not brightness
-    assertEquals(
-      rowOf(s).slots("value").transform,
-      "'color_temp_kelvin' in attr ? attr['color_temp_kelvin'] : null"
-    )
+    // and the handle tracks the value it writes, not brightness — opted in
+    rowOf(s).slots("value").transform match {
+      case Transform.Simple.Attr("color_temp_kelvin") => ()
+      case other => fail(s"expected the opted-in guarded read, got $other")
+    }
   }
 
   test("lightControls emits one control per capability the light has") {
@@ -2127,9 +2128,9 @@ class PklBuildSuite extends munit.FunSuite {
     assert(
       pills(1)
         .slots("onclick")
-        .transform
+        .valueKey
         .contains("'effect' + \"/\" + 'Color%20loop'"),
-      clue = pills(1).slots("onclick").transform
+      clue = pills(1).slots("onclick").valueKey
     )
     // The fill colour is AXIS-AWARE, asserted as EXACT bytes — the transform
     // string ships and hashes exactly as written (multi-line, Pkl-dedented by
@@ -2139,14 +2140,14 @@ class PklBuildSuite extends munit.FunSuite {
     // own 2000..6535 range, whose span literal is the baked max-min (4535.0),
     // not a hard-coded constant.
     assertEquals(
-      rowOf(kids(0)).slots("fillColor").transform,
+      rowOf(kids(0)).slots("fillColor").valueKey,
       """cel.bind(rgb, 'rgb_color' in attr ? attr['rgb_color'] : null,
         |  rgb != null && size(rgb) == 3
         |    ? 'rgb(' + str(rgb[0]) + ',' + str(rgb[1]) + ',' + str(rgb[2]) + ')'
         |    : '')""".stripMargin
     )
     assertEquals(
-      rowOf(kids(1)).slots("fillColor").transform,
+      rowOf(kids(1)).slots("fillColor").valueKey,
       """cel.bind(k, 'color_temp_kelvin' in attr ? attr['color_temp_kelvin'] : null,
         |  k != null
         |    ? cel.bind(t,
