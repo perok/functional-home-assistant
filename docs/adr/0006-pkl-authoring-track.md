@@ -255,6 +255,13 @@ slot key remains `"class"`.
 - `override` and `class` are reserved words (hence `cssClass`).
 - Module properties referenced from class bodies must be `const`
   (`const local` for helpers).
+- `String.replaceAll` is a LITERAL replace — no regex. To flatten a
+  multi-line embedded language source (slider.pkl's CEL), `split`/`trim`/`join`
+  instead of matching `\n\s+`.
+- Raw strings (`#"…"#`) do not interpolate — a `\(x)` inside one ships as the
+  literal characters. An embedded source that needs values takes a regular
+  multi-line string (`"""…"""`), which is safe as long as the text carries no
+  backslash or `"""` (the baked CEL ramp reads neither).
 - Amending a null-defaulted `Listing` is an error — assign `= new Listing {…}`.
 - A doc comment in an entry (no `module` clause) attaches to the first import,
   which Pkl rejects — use plain `//` comments in entries.

@@ -32,47 +32,77 @@ const sliderSpec: Mapping<String, SliderSpec> = new {
   ["fan"] = new { action = "fan/set_percentage"; key = "percentage"; min = 0; max = 100; value = "percentage" }
 }
 
-// The slider fill colour from the entity's own light attributes: an explicit
-// `rgb_color` wins, else `color_temp_kelvin` interpolated over the mired-free
-// 2000K..6500K span between a warm amber and a cool white — the same ramp HA's
-// own temperature picker shows. Null for every entity that reports neither
-// (covers, fans, a light that is off), which the slot's default turns back into
-// `currentcolor`.
+// The slider fill colour paints WHAT THE SLIDER DRIVES — the axis decides, as
+// a build-time specialization of [[Slider.fillColorExpr]]:
+//
+//   - a temperature axis (`c.slider(l.colourTemp)`) gets the warm→cool ramp
+//     interpolated over the axis's OWN kelvin range — the same `min`/`max`
+//     the range input is baked from, so the fill shows where in the slider's
+//     span the current temperature sits;
+//   - an entity axis (a light's brightness, a cover's position) on a
+//     colour-capable light gets the light's current `rgb_color` — the fill
+//     doubles as a colour indicator, whichever the axis actually writes;
+//   - everything else bakes the constant `''`, and the slot's default hands
+//     the paint back to the theme (`currentcolor`, or the toggle-only
+//     `--fh-default-color`).
+//
+// GUARDS, and what the build-time facts actually prove: the dump knows what a
+// light reports ([[hass.LightEntity.reportsRgbColour]] and the colour-temp
+// mode are HA-guaranteed predictors of the live attribute set), so the shape
+// is chosen once. But capability is a build-time fact while STATE PRESENCE is
+// a runtime one — a light can go `unavailable` and a live update can replace
+// its state with one carrying no colour attrs at all, and in CEL a read of a
+// missing map key THROWS (an engine error on the card, where the slot default
+// is a graceful fallback). So every shape keeps one `in attr` presence test on
+// its bind. What the store contract DOES prove away is the value's nullness
+// behind a present key ([[StateStore.toJavaObject]] never emits JSON-null
+// values), which is why there is no second `!= null` — and `size(rgb) == 3`
+// stays as one cheap call between "ignore a lying integration's short list"
+// and a CEL indexing error.
 //
 // CEL has no variable-binding operator, so the intermediates (the rgb list,
 // the kelvin, the ramp position) ride the `cel.bind` extension's:
 // `cel.bind(<name>, <value>, <body>)` runs body with the name bound. A kelvin
 // value arrives as a Long and CEL's double overloads have no (Long, double)
 // operand, so every arithmetic read coerces `double(k)` first. Both ternary
-// arms must be the SAME type (CEL has no `? x : null`), so the kelvin-absent
-// arm is `''`.
+// arms must be the SAME type (CEL has no `? x : null`), so the absent arm is
+// `''`.
 //
-// WHICH of these a given slider gets is a BUILD-TIME decision: the dump knows
-// what each light reports ([[hass.LightEntity.reportsRgbColour]] and the
-// colour-temp mode are HA-guaranteed predictors of the live attribute set), so
-// [[Slider.fillColorExpr]] bakes only the branches that can ever fire — a
-// colour-only light never sees the kelvin bind, a brightness-only light bakes
-// the constant `''` and pays the engine nothing for a colour it can never
-// have. The pieces below are the three live shapes.
-const local sliderFillColourFull: String =
-  #"cel.bind(rgb, 'rgb_color' in attr ? attr['rgb_color'] : null, "#
-  + #"cel.bind(k, 'color_temp_kelvin' in attr ? attr['color_temp_kelvin'] : null, "#
-  + #"(rgb != null && size(rgb) == 3) "#
-  + #"? 'rgb(' + str(rgb[0]) + ',' + str(rgb[1]) + ',' + str(rgb[2]) + ')' : "#
-  + #"(k != null ? cel.bind(t, (double(k) - 2000.0) < 0.0 ? 0.0 : "#
-  + #"((double(k) - 2000.0) > 4500.0 ? 1.0 : (double(k) - 2000.0) / 4500.0), "#
-  + #"'rgb(' + str(math.round(255.0 - 54.0 * t)) + ',' + str(math.round(166.0 + 60.0 * t)) "#
-  + #"+ ',' + str(math.round(87.0 + 168.0 * t)) + ')') : '')))"#
-const local sliderFillColourRgb: String =
-  #"cel.bind(rgb, 'rgb_color' in attr ? attr['rgb_color'] : null, "#
-  + #"(rgb != null && size(rgb) == 3) "#
-  + #"? 'rgb(' + str(rgb[0]) + ',' + str(rgb[1]) + ',' + str(rgb[2]) + ')' : '')"#
-const local sliderFillColourKelvin: String =
-  #"cel.bind(k, 'color_temp_kelvin' in attr ? attr['color_temp_kelvin'] : null, "#
-  + #"k != null ? cel.bind(t, (double(k) - 2000.0) < 0.0 ? 0.0 : "#
-  + #"((double(k) - 2000.0) > 4500.0 ? 1.0 : (double(k) - 2000.0) / 4500.0), "#
-  + #"'rgb(' + str(math.round(255.0 - 54.0 * t)) + ',' + str(math.round(166.0 + 60.0 * t)) "#
-  + #"+ ',' + str(math.round(87.0 + 168.0 * t)) + ')') : '')"#
+// The sources are written multi-line for the READER; [[celSource]] flattens
+// them for the wire, where the string is shipped, hashed, and parsed. (Pkl's
+// `replaceAll` is a LITERAL replace — no regex — so the flattening splits and
+// rejoins instead of matching the whitespace.)
+const local function celSource(src: String): String =
+  src.split("\n").map((l) -> l.trim()).join(" ")
+
+const local sliderFillColourRgb: String = celSource(
+  #"""
+  cel.bind(rgb, 'rgb_color' in attr ? attr['rgb_color'] : null,
+    rgb != null && size(rgb) == 3
+      ? 'rgb(' + str(rgb[0]) + ',' + str(rgb[1]) + ',' + str(rgb[2]) + ')'
+      : '')
+  """#)
+
+// The ramp over the axis's own range: `minK`/`maxK` are the kelvin bounds the
+// slider's range input is already baked from. Whole kelvin integers, so
+// `\(minK).0` is the exact double literal CEL needs (its double overloads
+// have no (Long, int) operand — the same fact `double(k)` answers). This one
+// is a REGULAR multi-line string because raw strings do not interpolate; the
+// CEL text carries no backslash or double quote, so nothing else could need
+// escaping.
+const local function sliderFillColourRamp(minK: Int, maxK: Int): String = celSource(
+  """
+  cel.bind(k, 'color_temp_kelvin' in attr ? attr['color_temp_kelvin'] : null,
+    k != null
+      ? cel.bind(t,
+          (double(k) - \(minK).0) < 0.0 ? 0.0 :
+          ((double(k) - \(minK).0) > \(maxK - minK).0
+            ? 1.0 : (double(k) - \(minK).0) / \(maxK - minK).0),
+          'rgb(' + str(math.round(255.0 - 54.0 * t))
+          + ',' + str(math.round(166.0 + 60.0 * t))
+          + ',' + str(math.round(87.0 + 168.0 * t)) + ')')
+      : '')
+  """)
 
 // The dragged position as a percentage of the card's own range, in JS — the
 // client-side twin of `percentExpr`'s CEL, spliced into the template so the
@@ -342,13 +372,14 @@ class Slider extends nodes.Node {
     if (entity is hass.LightEntity)
       entity.colourModes.toList().contains("color_temp")
     else false
-  // The fill-colour expression, SPECIALIZED to what this light can ever
-  // report — the build-time half of the branch elimination; see the piece
-  // definitions above for the three live shapes.
+  // The fill-colour expression, chosen from the AXIS this slider drives —
+  // see the piece definitions above for the two live shapes. A temperature
+  // axis gets the ramp over the very `min`/`max` the range input is baked
+  // from; an entity axis on a colour-capable light gets the light's current
+  // colour; everything else bakes the constant `''`.
   hidden fillColorExpr: String =
-    if (reportsRgb && reportsKelvin) sliderFillColourFull
+    if (on is hass.ColourTemp && reportsKelvin) sliderFillColourRamp(min!!, max!!)
     else if (reportsRgb) sliderFillColourRgb
-    else if (reportsKelvin) sliderFillColourKelvin
     else "''"
   // The CEL pieces of the `fill` computation, honouring the same two config
   // tiers as the input's own slots: author override → build-time spec literal.
@@ -534,13 +565,11 @@ class Slider extends nodes.Node {
     }
     // The fill COLOUR, on the `<span>`'s own style attribute — NOT the
     // wrapper's, which beer.min.js overwrites wholesale (`style.cssText = …`)
-    // every time it repaints the fill. WHAT the light reports is a build-time
-    // fact ([[hass.LightEntity.reportsRgbColour]] + the colour-temp mode
-    // predict the live attribute set exactly), so the expression is
-    // specialized above: only the branches that can ever fire are baked, and
-    // a light that reports neither colour (a cover, a fan, a
-    // brightness-only light) bakes the constant `''` and hands the paint to
-    // the slot default.
+    // every time it repaints the fill. The fill paints WHAT THIS SLIDER
+    // DRIVES ([[fillColorExpr]]): a temperature slider the warm→cool ramp
+    // over its own range, an entity-axis slider on a colour-capable light the
+    // light's current colour — and nothing otherwise, where the slot default
+    // hands the paint back to the theme.
     ["fillColor"] = new slotMod.Slot {
       transform = fillColorExpr
       // A toggle-only row has no colour of its own to report (HA allows `onoff`

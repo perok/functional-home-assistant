@@ -2131,6 +2131,27 @@ class PklBuildSuite extends munit.FunSuite {
         .contains("'effect' + \"/\" + 'Color%20loop'"),
       clue = pills(1).slots("onclick").transform
     )
+    // The fill colour is AXIS-AWARE, asserted as EXACT bytes — the transform
+    // string is shipped and hashed, so its shape is a contract: the
+    // brightness slider on this colour-capable light bakes the rgb read; the
+    // colour-temperature slider bakes the ramp over the LIGHT's own
+    // 2000..6535 range, whose span literal is the baked max-min (4535.0), not
+    // a hard-coded constant.
+    assertEquals(
+      rowOf(kids(0)).slots("fillColor").transform,
+      "cel.bind(rgb, 'rgb_color' in attr ? attr['rgb_color'] : null, " +
+        "rgb != null && size(rgb) == 3 ? 'rgb(' + str(rgb[0]) + ',' + " +
+        "str(rgb[1]) + ',' + str(rgb[2]) + ')' : '')"
+    )
+    assertEquals(
+      rowOf(kids(1)).slots("fillColor").transform,
+      "cel.bind(k, 'color_temp_kelvin' in attr ? attr['color_temp_kelvin'] : null, " +
+        "k != null ? cel.bind(t, (double(k) - 2000.0) < 0.0 ? 0.0 : " +
+        "((double(k) - 2000.0) > 4535.0 ? 1.0 : (double(k) - 2000.0) / 4535.0), " +
+        "'rgb(' + str(math.round(255.0 - 54.0 * t)) + ',' + " +
+        "str(math.round(166.0 + 60.0 * t)) + ',' + " +
+        "str(math.round(87.0 + 168.0 * t)) + ')') : '')"
+    )
   }
 
   test("a switch-only light gets a tappable card and NO sliders") {
