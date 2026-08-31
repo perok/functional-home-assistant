@@ -23,11 +23,62 @@ import java.util.concurrent.TimeUnit
   * {{{
   * sbt 'benchmarks/Jmh/run -f 1 -wi 2 -i 2 .*RenderBench.*'  # quick look
   * sbt 'benchmarks/Jmh/run -f 2 -wi 5 -i 5 .*RenderBench.*'  # with error bars
+  * sbt 'benchmarks/Jmh/run -f 2 -wi 5 -i 5 -prof gc .*RenderBench.*'  # + bytes
   * }}}
   *
   * Read the Error column before believing a gap. On a shared machine it runs
   * ±20%, which is wide enough to swallow anything under about 1.5x — the
   * signal-slot result below clears it, the composition one does not.
+  *
+  * '''Run `-prof gc` as well as the timing.''' The server's target is a
+  * Raspberry Pi 4, where allocation rate and peak live bytes decide more than
+  * microseconds do — and the two do not rank the same work.
+  * `gc.alloc.rate.norm` is bytes per op, and the composition result below is
+  * significant in bytes while being inside the noise in time.
+  *
+  * ==Baseline==
+  *
+  * `-f 2 -wi 5 -i 5 -prof gc`, one machine, so read the RATIOS not the
+  * absolutes. Recorded as the starting point for the streaming/sharing work, so
+  * a later change has something honest to be measured against.
+  *
+  * {{{
+  *                        us/op          B/op     what it is
+  * page                   691.3     1,311,117     200 leaves, no signal slots
+  * pageSignals          1,380.7     3,410,220     the SHIPPED shape
+  * pageFlat             1,311.2     3,265,511     same leaves, one container
+  * pageNarrow           1,414.3     3,669,106     same leaves, ~8 levels
+  * pageSet              1,365.9     3,685,170     as candidate-set members
+  * pageSetPlain           712.9     1,548,305     …signal-less members
+  * pageShared           1,395.7     3,394,786     200 leaves, 40 entities
+  * simple               1,001.6       942,479     transforms, production dispatch
+  * cel                  1,500.7     1,059,835     …all six on the engine
+  * celComplex             231.4       328,002     the hostile expression
+  * mustache               136.6       404,801     200 executions + contexts
+  * holdsSeed               81.8       145,537     200 SHA-256 over leaf html
+  * direct                  10.9        27,200     raw reads, no dispatch
+  * wire                    53.2       236,759     structural tick, 10 clients
+  * wireCommon              33.7       103,252     common tick, 10 clients
+  * wireCommonShared         3.1        10,335     …encoded once, 10 reuse
+  * wireTick                18.9        45,303     the slug-shared render
+  * }}}
+  *
+  * Two things to take from it.
+  *
+  * '''The document is 128 kB and costs 3.4 MB to produce''' — 26x its own size,
+  * on `pageSignals`, the shipped shape. The assembly (the body string, the page
+  * string, the byte chunk, the `own` map's 200 leaf strings — 99 kB, 77% of the
+  * document, held a second time) is roughly 0.6 MB of that. The other ~2.8 MB
+  * is the WALK: transforms, mustache contexts, slot resolution, signal seeds.
+  * So streaming the document to the socket attacks peak live bytes — the ~500
+  * kB a concurrent page open holds, which is what multiplies by open tabs — and
+  * only about a fifth of the churn. Both are real; they are not the same target
+  * and a change should say which one it is for.
+  *
+  * '''Sharing a frame is 10x in both''' ([[wireCommon]] vs
+  * [[wireCommonShared]]) — 33.7 to 3.1 us and 103 kB to 10 kB, linear in the
+  * client count. That linearity says the per-client cost on the common tick is
+  * ENTIRELY the encode.
   *
   * ==Why it exists==
   *

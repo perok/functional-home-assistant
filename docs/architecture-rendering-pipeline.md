@@ -790,15 +790,19 @@ answer — a hit yields the bytes the render would have — only who pays for it
 of what the render reads, not all of it: an entity reached only through a signal slot is left out,
 because its value is not in the patch form and so cannot move these bytes (ADR 0012).
 
+**All of this section is the PATCH path.** The document path is a different shape and is described
+in §6a: it consults no cache, shares nothing, and does not stream.
+
 **The render is shared per slug; the WIRE is not.** A batch's events are `SseFrame`s — the SSE text
 already encoded to bytes (`Datastar`), served by `SseFrame.frameStreamEncoder` instead of http4s's
 `ServerSentEvent.encoder`. That moves the encode from the socket to where the event is built, which
 makes the process-wide constants (keepalive, recover marker, reload patch) encode once instead of
 once per emission per connection — but it shares nothing on the live path, because `Patches.resume`
 runs per session: what a client is owed depends on its own `holds`, permissions and selections, so a
-value tick still costs one encode per client, exactly as the http4s encoder did. The only place a
-fan-out saving could come from is a frame minted where the render already is — per slug, in
-`RenderCache` — and nothing does that today. See "Known open questions".
+value tick still costs one encode per client, exactly as the http4s encoder did — and the frames
+are byte-identical, so that is duplicated work: measured at 10x in both time and allocation for ten
+clients. It is NOT the `RenderCache` that would fix it, though that is the obvious guess: the cache
+is keyed per node, and the common tick is signals-only and has no node. See "Known open questions".
 
 **The digest is asked of the PATCH FORM**, and that is what puts a moving value on the cheap side of
 it. A signal slot's value is not in those bytes at all (ADR 0017) — the element carries only its
@@ -858,6 +862,43 @@ thing wall time still decides is how long a session lingers.
 
 ---
 
+## 6a. The document path — materialised, not streamed
+
+A page open is the other half of the system and it shares nothing with §6. It consults no
+`RenderCache` (by construction — see the open question on issue #130), it holds no per-client
+record to diff against, and **it does not stream**: the whole document is built as one `String`
+and handed to `Ok`, which sets a `Content-Length`.
+
+```
+Renderer.renderPageTraced        body walk -> java.lang.StringBuilder -> body.html : String
+                                 chrome template splices body.html into a 2nd StringBuilder
+                                 out.toString                                       (copy)
+                                 Traced(page, own)   own = 200 leaf Strings, digested then dropped
+Server.renderPage                session.holds.set(own.map(Digest.of))
+Server.page(...)                 head + body + scripts concatenated                 (copy)
+Ok(string)                       stringEncoder -> one Chunk[Byte], Content-Length   (copy)
+```
+
+The walk itself is already push-based — `Renderer.executeInto` takes a `Writer`, and a region is a
+`Writer => Unit` in `regionWalk`. What makes the result a `String` is only the `StringBuilder` the
+top of the walk writes into, plus two places that need random access to bytes already written: the
+chrome template takes `body.html` as a mustache VALUE, and `Traced.own` is built by slicing the
+shared buffer (which is what lets a signal-less member's fingerprint be a slice rather than a second
+render — §5). Both are what a streaming version has to answer for; the walk is not.
+
+**Measured** (`RenderBench.pageSignals`, 200 leaves, the shipped card shape, `-prof gc`): the
+document is **128 kB** and costs **1.38 ms and 3.41 MB** to produce — 26x its own size in
+allocation. `own` alone is 99 kB, 77% of the document held a second time and used only to compute
+200 digests. Assembly is ~0.6 MB of the 3.41 MB; the rest is the walk (transforms 0.94 MB, mustache
+contexts 0.40 MB, slot resolution, signal seeds).
+
+So the two memory targets here are **not the same** and a change should say which it is for:
+
+| target | what it is | what moves it |
+|---|---|---|
+| peak live bytes | ~500 kB per concurrent page open, multiplying by open tabs | streaming the walk to the socket |
+| allocation churn | 3.41 MB per page open, driving GC on a Pi 4 | the walk — transforms, contexts; not the assembly |
+
 ## 7. Where each box lives
 
 Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
@@ -901,6 +942,7 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 | a document on its way out | `src/js/shell.ts` · the `pagehide` listener → `fh-leaving`; `lib/core/css.pkl` hides `.fh-offline` under it, so an aborted stream cannot paint an outage on the page being left |
 | a stylesheet the first paint does not need | `model/Dashboard.scala` · `Theme.deferredStylesheets` (the icon font); `runtime/Server.scala` · `page`'s `rel=preload` + `<noscript>` pair. In `headFingerprint` like any other `<link>`, and prefetched by `AssetCache` like any other theme URL |
 | the actual rendering | `runtime/Renderer.scala` · `renderNodeById`, `renderHost` |
+| the document render | `runtime/Renderer.scala` · `renderPageTraced`, `renderBodyTraced`, `tracedInto`, `executeInto` (the `Writer`), `appendTo` (the `StringBuilder` that ends the streaming); `runtime/Server.scala` · `renderPage`, `page`. Materialised, not streamed — §6a |
 | what keys a render | `runtime/Renderer.scala` · `renderInputs`, `activeBakeIndex` |
 | the member graph | `runtime/MemberGraph.scala` · `Member`, `MemberIndex`, `syncMembers`, `membersOf`, `innerSetId` |
 | which branch is showing, and to whom | `runtime/SurfaceGraph.scala` · `bakeGroup`, `resolveActive` (per viewer) / `resolveActiveByState` (per slug), `selectedSurfaces`, `visibleNode`, `visibleSurface`, `userSurfaceOf`, `rootOf` |
@@ -966,6 +1008,33 @@ Live list — delete an entry when it is answered, and say where the answer land
   page whose HTML is 257 kB, 0.2 ms for the shipped starter. Ten coincident loads of the big one
   cost 57 ms of CPU while shipping 2.5 MB, so the render is ~2 % of the work it feeds. Real, and
   not urgent. `reloadRepaints` is N × the same body render and fires on a manual dashboard edit.
+
+- **The document does not stream, and the server's target is a Raspberry Pi 4.** §6a has the
+  shape and the numbers: 128 kB of document, ~500 kB live per concurrent open across four
+  materialisations, 3.41 MB allocated. The walk is already push-based, so the primitive fits —
+  `fs2.io.readOutputStream(chunkSize)(os => …)` gives a `Stream[IO, Byte]` from a function handed
+  an `OutputStream`, which is what a `Writer` threaded through `executeInto` would write to, with
+  memory bounded by the chunk rather than by the page. Three things must be answered first, and
+  none is in the walk: (1) the chrome template takes the body as a mustache VALUE, so it must
+  become a region-walk hole or a compile-time prefix/suffix split; (2) `Traced.own` is sliced out
+  of the shared buffer, which a stream cannot do — a digest fed incrementally as a node's bytes
+  pass would replace it, and the page-open path only ever digests, though `Renderer.render`'s
+  patch form reads `own.html` for real; (3) `session.holds` is set BEFORE the response today, and
+  a stream that aborts mid-body would otherwise claim bytes the DOM never got — the exact
+  staleness ADR 0011 guards, so holds must be committed on successful completion. Note this
+  attacks PEAK, not churn: about a fifth of the 3.41 MB.
+
+- **A frame is encoded once per client, and the common tick's frames are identical.**
+  `Patches.resume` runs per session, so ten tabs on one dashboard each encode the same
+  `datastar-patch-signals` bytes. Measured at **10x in both time and allocation** (`wireCommon`
+  33.7 µs / 103 kB against `wireCommonShared` 3.1 µs / 10 kB, ten clients), linear in the client
+  count — which says the per-client cost on that tick is entirely the encode. This is what
+  PR #265 aimed at and did not hit: it attached the memo to `Addressed`, which is per-session.
+  Not simply the `RenderCache`: that is keyed per NODE and holds `NodeBytes`, so a MORPH frame
+  could hang off it, but the common tick is signals-only and has no node — that half wants a
+  small memo scoped to one doorbell tick, keyed on the patch. Frames are also not
+  unconditionally identical (`Held.signals` is per-client, and different tabs see different
+  surfaces), so the memo must be a lookup, never an assumption.
 
 - **A morph-only client profile** —
   [issue #133](https://github.com/perok/functional-home-assistant/issues/133). ADR 0017 keeps the
