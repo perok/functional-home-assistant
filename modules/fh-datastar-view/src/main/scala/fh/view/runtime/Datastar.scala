@@ -2,8 +2,8 @@ package fh.view.runtime
 
 import fh.view.model.{SignalBind, SignalId}
 import io.circe.Json
-import org.http4s.{EntityEncoder, ServerSentEvent}
-import org.http4s.EntityEncoder
+import org.http4s.{EntityEncoder, MediaType, ServerSentEvent}
+import org.http4s.headers.`Content-Type`
 
 import java.nio.charset.StandardCharsets.UTF_8
 
@@ -18,21 +18,24 @@ enum PatchMode(val wire: String):
   case After extends PatchMode("after")
   case Remove extends PatchMode("remove")
 
-/** One SSE event, encoded to its WIRE BYTES once — at construction.
+/** One SSE event, encoded to its WIRE BYTES at construction rather than per
+  * connection inside http4s's `ServerSentEvent.encoder`
+  * (`_.map(_.renderString).through(utf8.encode)`).
   *
-  * http4s's SSE encoder (`ServerSentEvent.encoder`) rendered every event per
-  * connection: `renderString` built the event text into a growing
-  * `StringWriter` and UTF-8 encoded it, per client per frame — but the bytes
-  * are identical for every client that receives a given frame (a tick's patches
-  * and cursor are minted once per slug in the changelog, and every session's
-  * `encode` is offered the same ones). So the encoding happens HERE, where the
-  * event is born, and the socket writes what is already in hand.
+  * '''This does not, on its own, share anything.''' A live batch's frames are
+  * built inside [[Patches.resume]], which runs per session — what a client is
+  * owed depends on its own `holds`, permissions and selections — so a value
+  * tick still costs one encode per client, exactly as the http4s encoder did.
+  * What moving the encode here buys is the CONSTANT frames: the keep-alive
+  * comment, the recover marker and the reload patch are encoded once for the
+  * process instead of once per emission per socket. Any real fan-out saving has
+  * to come from a frame minted where the RENDER already is — per slug, in
+  * [[RenderCache]] — and nothing does that today.
   *
-  * Byte-identical to the old path BY CONSTRUCTION: the bytes are the same
-  * `renderString` output, UTF-8, and the response's entity encoder is the same
-  * `entityBody` + `text/event-stream` pair the old implicit was built from (the
-  * cursor and keep-alive streams interleave with nothing else on the socket, so
-  * framing is the only contract).
+  * Byte-identical to the http4s path BY CONSTRUCTION: the bytes are the same
+  * `renderString` output, UTF-8, and [[SseFrame.frameStreamEncoder]] is the
+  * same `entityBody` + `text/event-stream` pair the http4s implicit is built
+  * from.
   */
 private[view] final case class SseFrame(bytes: Array[Byte]):
 
@@ -86,19 +89,20 @@ private[view] object SseFrame:
   /** SSE response encoder for a frame stream — the http4s implicit it replaces
     * was `entityBodyEncoder.contramap(_.through(ServerSentEvent.encoder))
     * .withContentType(text/event-stream)`; same shape, minus the per-connection
-    * render + UTF-8. Available wherever frames are served (Server + tests).
+    * render + UTF-8, since the frames are already bytes. Header-identical.
+    *
+    * In the COMPANION, so implicit search finds it for any
+    * `EntityEncoder[F, Stream[F, SseFrame]]` with no import. http4s puts its
+    * own in `EntityEncoder`'s companion because it owns that type; `SseFrame`
+    * is the part of the type we own, so ours goes here.
     */
-  implicit def sseFrameStreamEncoder[F[_]]
-      : EntityEncoder[F, fs2.Stream[F, SseFrame]] =
+  given frameStreamEncoder[F[_]]: EntityEncoder[F, fs2.Stream[F, SseFrame]] =
     EntityEncoder
       .entityBodyEncoder[F]
       .contramap[fs2.Stream[F, SseFrame]](
         _.flatMap(f => fs2.Stream.chunk(fs2.Chunk.array(f.bytes)))
       )
-      .withContentType(
-        org.http4s.headers
-          .`Content-Type`(org.http4s.MediaType.`text/event-stream`)
-      )
+      .withContentType(`Content-Type`(MediaType.`text/event-stream`))
 
 /** Datastar SSE protocol framing.
   *

@@ -6,7 +6,6 @@ import cats.syntax.traverseFilter.*
 import fh.view.model.{DomId, NodeId, SetId, SignalId}
 import fh.view.model.DomId.selector
 import io.circe.Json
-import org.http4s.ServerSentEvent
 
 /** One DOM patch the diff pass wants to send, rendered to a Datastar SSE event
   * at the edge ([[Patch.toSse]]). The diff does not yield a uniform "HTML to
@@ -76,19 +75,7 @@ private[runtime] case class Addressed(
     establishes: Map[NodeId, Held] = Map.empty,
     // Roots: a host and everything under it ([[NodeAncestry]]).
     invalidates: Set[NodeId] = Set.empty
-) {
-
-  /** The event's wire bytes, encoded ONCE per `Addressed` — here, at first use,
-    * rather than per connection inside the SSE encoder. [[Patches.resume]]
-    * builds fresh `Addressed` per client, so on the live path this is one
-    * encode per client per frame — the same count the old per-connection
-    * encoder had — but each encode is cheaper ([[Datastar.collapse]] runs a
-    * precompiled scan, and a merge product encodes its joined frame once per
-    * batch instead of once per source frame). The bytes are the same
-    * `renderString` output the old encoder produced, so the wire is identical.
-    */
-  lazy val wire: SseFrame = patch.toSse
-}
+)
 
 /** The pure core, lifted out of [[Server]] so it is testable without a booted
   * server (no HA stub, no `Supervisor`, no SSE plumbing). Two paths meet here,
@@ -933,18 +920,17 @@ private[runtime] object Patches {
     * its own target and cannot join, and a morph after an insert may target the
     * element that insert created, so nothing may be reordered across one.
     *
-    * The merge builds a fresh `Addressed` for each joined frame, so a single
-    * frame rides the SHARED wire ([[Addressed.wire]] — the common tick: one
-    * signals frame, no join) and only a joined frame encodes per client.
+    * Encoding happens after the merge, so a joined frame is rendered once
+    * rather than once per source patch. This list is one client's, so every
+    * frame here is that client's own — see [[SseFrame]] for what is and is not
+    * shared across connections.
     */
   def encode(patches: List[Addressed]): List[SseFrame] =
     patches
-      .foldLeft(List.empty[Addressed]) {
-        case (
-              Addressed(Patch.Morph(before), _, _) :: rest,
-              a @ Addressed(Patch.Morph(next), _, _)
-            ) =>
-          Addressed(Patch.Morph(before + next)) :: rest
+      .map(_.patch)
+      .foldLeft(List.empty[Patch]) {
+        case (Patch.Morph(before) :: rest, Patch.Morph(next)) =>
+          Patch.Morph(before + next) :: rest
         // Adjacent signal frames merge for the same reason morphs do — one
         // event instead of two, with identical effect, since a
         // `datastar-patch-signals` payload is merged into the client's store
@@ -957,15 +943,12 @@ private[runtime] object Patches {
         // Put an element patch between them and they stay two events, which is
         // required: a client echoing the cursor must have applied what came
         // before it (ADR 0011).
-        case (
-              Addressed(Patch.Signals(before), _, _) :: rest,
-              a @ Addressed(Patch.Signals(next), _, _)
-            ) =>
-          Addressed(Patch.Signals(before ++ next)) :: rest
+        case (Patch.Signals(before) :: rest, Patch.Signals(next)) =>
+          Patch.Signals(before ++ next) :: rest
         case (acc, one) => one :: acc
       }
       .reverse
-      .map(_.wire)
+      .map(_.toSse)
 
   /** Put `content` in a STATE group's host — one patch, whatever the client's
     * DOM currently holds there.

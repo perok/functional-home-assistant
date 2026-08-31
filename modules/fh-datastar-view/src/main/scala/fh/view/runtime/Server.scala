@@ -18,7 +18,7 @@ import fh.view.build.{
 import fh.view.FHError
 import fh.view.auth.{AuthGate, Requirement}
 import fh.view.model.{Dashboard, DomId, NodeId, Permission, SignalId}
-import fs2.{Chunk, Stream}
+import fs2.Stream
 import fs2.concurrent.{Signal, SignallingRef}
 import io.circe.{Decoder, Json}
 import org.http4s.*
@@ -97,22 +97,6 @@ class Server(
     // reason it is a parameter.
     lingerWindow: FiniteDuration = Server.LingerWindow
 ) {
-
-  /** The SSE response encoder: frames to a byte stream, `text/event-stream`.
-    *
-    * The http4s implicit it replaces was `entityBodyEncoder.contramap(
-    * _.through(ServerSentEvent.encoder)).withContentType(text/event-stream)` —
-    * the same shape, minus the per-connection render + UTF-8: the frames are
-    * already bytes ([[SseFrame]]), so the body just unwraps them.
-    * Header-identical.
-    */
-  private implicit val sseFrameEntity: EntityEncoder[IO, Stream[IO, SseFrame]] =
-    EntityEncoder
-      .entityBodyEncoder[IO]
-      .contramap[Stream[IO, SseFrame]](
-        _.flatMap(f => Stream.chunk(Chunk.array(f.bytes)))
-      )
-      .withContentType(`Content-Type`(MediaType.`text/event-stream`))
 
   val routes: HttpRoutes[IO] = HttpRoutes.of[IO] {
     // Resolved per REQUEST, not at construction: the entrypoint can rename or

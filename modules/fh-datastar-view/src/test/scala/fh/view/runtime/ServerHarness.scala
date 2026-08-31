@@ -632,48 +632,42 @@ trait ServerHarness extends munit.CatsEffectSuite {
     )
   )
 
+  /** One Datastar protocol line out of an event's `data` field.
+    *
+    * A SERVER-BUILT event carries the `data: ` prefix on its continuation lines
+    * (the multi-line data field is assembled as wire text); a DECODED one, and
+    * an [[SseFrame]] read back through its own parser, do not. Tolerating both
+    * lets these accessors read an event straight off `sharedPatches` as well as
+    * one off the stream — which is why the two extensions below can share it.
+    */
+  private def dataLine(data: Option[String], key: String): Option[String] =
+    data.toList
+      .flatMap(_.linesIterator)
+      .map(l => if (l.startsWith("data: ")) l.drop("data: ".length) else l)
+      .collectFirst {
+        case l if l.startsWith(s"$key ") => l.drop(key.length + 1)
+      }
+
   extension (e: ServerSentEvent) {
-    private def line(key: String): Option[String] =
-      e.data.toList
-        .flatMap(_.linesIterator)
-        // A SERVER-BUILT event carries the `data: ` prefix on its continuation
-        // lines (the multi-line data field is assembled as wire text); a
-        // DECODED one does not. Tolerating both lets these accessors read an
-        // event straight off `sharedPatches` as well as one off the stream.
-        .map(l => if (l.startsWith("data: ")) l.drop("data: ".length) else l)
-        .collectFirst {
-          case l if l.startsWith(s"$key ") => l.drop(key.length + 1)
-        }
 
     /** Datastar's default when the event names none. */
-    def mode: String = line("mode").getOrElse("outer")
-    def selector: Option[String] = line("selector")
-    def elements: Option[String] = line("elements")
-    def signals: Option[String] = line("signals")
+    def mode: String = dataLine(e.data, "mode").getOrElse("outer")
+    def selector: Option[String] = dataLine(e.data, "selector")
+    def elements: Option[String] = dataLine(e.data, "elements")
+    def signals: Option[String] = dataLine(e.data, "signals")
     def name: String = e.eventType.getOrElse("")
   }
 
-  /** The same accessors for FRAMES — the unit-built events the harness feeds to
-    * assertions. The frame's fields are parsed from its wire text, so the
-    * accessor semantics are identical to the decoded-event path above.
-    */
   extension (e: SseFrame) {
-    private def line(key: String): Option[String] =
-      e.render.linesIterator
-        .map(l => if (l.startsWith("data: ")) l.drop("data: ".length) else l)
-        .collectFirst {
-          case l if l.startsWith(s"$key ") => l.drop(key.length + 1)
-        }
-
-    def mode: String = line("mode").getOrElse("outer")
-    def selector: Option[String] = line("selector")
-    def elements: Option[String] = line("elements")
-    def signals: Option[String] = line("signals")
+    def mode: String = dataLine(e.data, "mode").getOrElse("outer")
+    def selector: Option[String] = dataLine(e.data, "selector")
+    def elements: Option[String] = dataLine(e.data, "elements")
+    def signals: Option[String] = dataLine(e.data, "signals")
     def name: String = e.eventType.getOrElse("")
   }
 
   def events(out: List[Addressed]): List[SseFrame] =
-    out.map(_.wire)
+    out.map(_.patch.toSse)
 
   val PopupSig = Server.UiSignalPrefix + Dashboard.PopupHostId
 
