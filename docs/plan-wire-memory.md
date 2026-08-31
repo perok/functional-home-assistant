@@ -252,6 +252,15 @@ rather than by the page. `Ok(stream)` then chunk-encodes it. (Not `readInputStre
    `Digest.of(p.html)` sites were not redundant; they relocated. What is really won is the 99 kB
    of RETENTION, roughly a fifth of the ~500 kB a concurrent open holds live.
 
+   **It does NOT clear the blocker on its own, which the commit message
+   overstated.** The blocker splits in two: STORING a digest rather than the
+   html (done, and genuinely required — a stream never materialises html to
+   store), and COMPUTING it without a buffer (not done — all four sites are
+   still `Digest.ofRange(out, start, end)`, which needs bytes already written).
+   Step 3 has to make the digest INCREMENTAL, fed as the writer emits, before
+   anything can stream. Until then this stands on its own 99 kB of peak, and is
+   a fair REVERT candidate if step 3 is abandoned.
+
    **A rejected optimisation, recorded so it is not re-tried**: hashing the slice in place via
    `CharBuffer.wrap` + `CharsetEncoder`, to avoid cutting the String out. It cost **+83 kB and
    +17% time** — it allocates a fresh `ByteBuffer` per node, where `String.getBytes` is
@@ -278,15 +287,47 @@ into a 500, since headers are already gone. The render is pure and runs on a `Da
 so a throw should be impossible — but "should be" is not a guarantee, and a truncated document is a
 worse failure than a 500. Decide deliberately.
 
+### Step 3 is ATOMIC — the digest and the stream cannot land separately
+
+Tempting sequencing: make the digest incremental first (clearing blocker 2 properly), then swap
+the response to a stream. **That order costs time and cannot be landed on its own.**
+
+Digesting as the walk writes means encoding to UTF-8 as it goes. Today the walk fills a
+`StringBuilder` and encodes ONCE, at the response; an incremental digest would therefore pay a
+SECOND encode — which is measured, and is exactly why `Digest.ofRange`'s `CharBuffer` version cost
++83 kB and +17% (above). In the streaming design the encode IS the write, so the digest is a free
+tap on bytes already passing through the encoder.
+
+So step 3 is one change: the sink, the encode, the digest tap and the `holds` finalizer together.
+
+**Size**, so it is not started casually: 16 signatures in `Renderer` take
+`java.lang.StringBuilder`, and 5 sites use POSITION slicing (`out.length` /
+`out.substring`) — the latter being what the digest tap replaces. The mechanical part dominates
+and the risky part is small, but it cannot be verified in halves: a half-migrated walk neither
+streams nor digests.
+
+### `holds`, decided
+
+- **Commit `holds` in the stream's finalizer, on successful completion only.** Unclaimed reads as
+  "unknown, send it", which is the safe direction the design already leans on; the cost is one
+  repaint for a client whose page was truncated, whose DOM genuinely is unknown.
+- **`told` does NOT move.** A truncated page then has `told` set and `holds` empty, so a resume
+  finds no holds and repaints — safe by construction, and `told` keeps the meaning ADR 0011 gives
+  it ("what we announced") rather than being fused with a second fact.
+- A throw mid-walk is a DEVELOPER error, not a case to design around: the render is pure over a
+  `Dashboard.Validated`, and an aborted chunked response is a network error to the browser, which
+  reacts on its own. Log it loudly at the finalizer; do not build machinery for it.
+
 ### Staging
 
-1. Digest incrementally; `own` stops carrying html on the page path. **Standalone win** — removes
-   99 kB of retention with no streaming at all, and is a prerequisite for (3).
-2. Chrome as a region-walk hole (or prefix/suffix split).
-3. Thread the `Writer` from `readOutputStream` through `renderPageTraced`; `holds` commits on
-   completion.
+1. ~~Chrome hole~~ **DONE** — `FhValueCode`, −246 kB churn.
+2. ~~`own` carries the digest~~ **DONE** — −99 kB peak; churn and time flat. Half of blocker 2:
+   the SHAPE is right, the COMPUTATION is still buffer-slicing.
+3. **The atomic one, not started**: the sink, the UTF-8 encode, the digest tap and the `holds`
+   finalizer, together — see above for why it cannot be halved.
 
-Step 1 is worth doing on its own merits and should be measured on its own.
+Steps 1 and 2 stand on their own and were measured on their own. Step 2 is a fair revert if 3 is
+abandoned; step 1 is worth keeping regardless.
 
 ## Thread B — share the frame
 
