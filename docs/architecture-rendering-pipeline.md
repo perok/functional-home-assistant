@@ -887,9 +887,9 @@ shared buffer (which is what lets a signal-less member's fingerprint be a slice 
 render — §5). Both are what a streaming version has to answer for; the walk is not.
 
 **Measured** (`RenderBench.pageServe`, 200 leaves, the shipped card shape, `-prof gc`): the document
-is **128 kB** and costs **1.50 ms and 3.76 MB** to serve — 29x its own size in allocation. `own`
+is **128 kB** and costs **1.52 ms and 3.78 MB** to serve — 29x its own size in allocation. `own`
 alone is 99 kB, 77% of the document held a second time and used only to compute 200 digests. The
-digest pass and the UTF-8 encode — what `pageServe` adds over `pageSignals` — are 281 kB of it; the
+digest pass and the UTF-8 encode — what `pageServe` adds over `pageSignals` — are 257 kB of it; the
 rest is the walk (transforms 0.96 MB, mustache contexts 0.39 MB, slot resolution, signal seeds).
 
 So the two memory targets here are **not the same** and a change should say which it is for:
@@ -897,7 +897,7 @@ So the two memory targets here are **not the same** and a change should say whic
 | target | what it is | what moves it |
 |---|---|---|
 | peak live bytes | ~500 kB per concurrent page open, multiplying by open tabs | streaming the walk to the socket |
-| allocation churn | 3.76 MB per page open, driving GC on a Pi 4 | the walk — transforms, contexts; streaming is only ~10% of it |
+| allocation churn | 3.78 MB per page open, driving GC on a Pi 4 | the walk — transforms, contexts; streaming is only ~10% of it |
 
 ## 7. Where each box lives
 
@@ -1011,7 +1011,7 @@ Live list — delete an entry when it is answered, and say where the answer land
 
 - **The document does not stream, and the server's target is a Raspberry Pi 4.** §6a has the
   shape and the numbers: 128 kB of document, ~500 kB live per concurrent open across four
-  materialisations, 3.41 MB allocated. The walk is already push-based, so the primitive fits —
+  materialisations, 3.78 MB allocated. The walk is already push-based, so the primitive fits —
   `fs2.io.readOutputStream(chunkSize)(os => …)` gives a `Stream[IO, Byte]` from a function handed
   an `OutputStream`, which is what a `Writer` threaded through `executeInto` would write to, with
   memory bounded by the chunk rather than by the page. Three things must be answered first, and
@@ -1022,10 +1022,10 @@ Live list — delete an entry when it is answered, and say where the answer land
   patch form reads `own.html` for real; (3) `session.holds` is set BEFORE the response today, and
   a stream that aborts mid-body would otherwise claim bytes the DOM never got — the exact
   staleness ADR 0011 guards, so holds must be committed on successful completion. Note this
-  attacks PEAK, not churn: about a fifth of the 3.41 MB.
+  attacks PEAK, not churn: roughly 10% of the 3.78 MB.
 
 - **What an extra client on a tick actually costs, and where it goes.** `resumeSignalsFanout`
-  minus `resumeSignals` over nine: **68 µs and 115 kB** per further client, against 263 µs for the
+  minus `resumeSignals` over nine: **70 µs and 117 kB** per further client, against 262 µs for the
   first — so the `RenderCache` removes about three quarters of it and is earning its place. What
   remains is unprofiled: the changelog read, the visibility narrowing, the per-node cache lookup
   and digest compare, the signal diff against `Held.signals`.

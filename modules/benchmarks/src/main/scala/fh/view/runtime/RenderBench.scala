@@ -47,37 +47,40 @@ import java.util.concurrent.TimeUnit
   * {{{
   *                        us/op          B/op     what it is
   * -- the document ------------------------------------------------------
-  * pageServe            1,501.8     3,763,994     render + digest + UTF-8
-  * pageSignals          1,471.5     3,483,377     …render only, SHIPPED shape
-  * page                   729.5     1,312,181     same leaves, no signal slots
-  * pageFlat             1,357.9     3,338,353     same leaves, one container
-  * pageNarrow           1,419.3     3,745,228     same leaves, ~8 levels
-  * pageSet              1,399.6     3,733,062     as candidate-set members
-  * pageSetPlain           749.0     1,536,014     …signal-less members
-  * pageShared           1,455.7     3,472,725     200 leaves, 40 entities
+  * pageServe            1,521.0     3,782,170     render + digest + UTF-8
+  * pageSignals          1,425.3     3,524,973     …render only, SHIPPED shape
+  * page                   697.9     1,317,925     same leaves, no signal slots
+  * pageFlat             1,458.6     3,356,670     same leaves, one container
+  * pageNarrow           1,512.2     3,774,825     same leaves, ~8 levels
+  * pageSet              1,338.5     3,769,906     as candidate-set members
+  * pageSetPlain           763.8     1,553,136     …signal-less members
+  * pageShared           1,339.5     3,474,212     200 leaves, 40 entities
   * -- a live tick, the REAL path ----------------------------------------
   * resumeSignals          261.7       442,296     1 client, signal-only tick
   * resumeSignalsPure      101.4       138,575     …on a card the key protects
   * resumeMorphs           231.5       430,638     1 client, bytes moved
   * resumeSignalsFanout    892.3     1,491,181     10 clients, one cache
   * -- pieces ------------------------------------------------------------
-  * simple                 963.6       961,679     transforms, production dispatch
-  * cel                  1,428.9     1,054,202     …all six on the engine
-  * celComplex             253.5       340,802     the hostile expression
-  * mustache               121.6       392,001     200 executions + contexts
-  * holdsSeed               90.0       145,537     200 SHA-256 over leaf html
-  * direct                  11.3        27,200     raw reads, no dispatch
-  * wireTick                19.0        46,394     a bare 3-node render
-  * wire                    52.0       239,669     structural tick, 10 clients
-  * wireCommon              32.0       106,852     the encode, 10 clients
-  * wireCommonShared         3.3        10,575     …encoded once, 10 reuse
+  * simple               1,065.5       960,912     transforms, production dispatch
+  * cel                  1,596.1     1,058,235     …all six on the engine
+  * celComplex             268.7       328,002     the hostile expression
+  * mustache               133.8       392,001     200 executions + contexts
+  * holdsSeed               90.1       145,534     200 SHA-256 over leaf html
+  * direct                  11.7        27,200     raw reads, no dispatch
+  * wireTick                19.3        46,647     a bare 3-node render
+  * wire                    53.5       239,874     structural tick, 10 clients
+  * wireCommon              33.3       107,412     the encode, 10 clients
+  * wireCommonShared         3.2        10,747     …encoded once, 10 reuse
   * }}}
+  *
+  * ONE run, so the rows are comparable with each other; across runs the same
+  * row moves ±20% and only the ratios carry.
   *
   * Four things to take from it.
   *
   * '''The document is 128 kB and costs 3.8 MB to serve''' — 29x its own size.
   * `pageServe` against `pageSignals` isolates what streaming would remove from
-  * the churn: 281 kB, the digest pass and the UTF-8 encode. Add `Server.page`'s
+  * the churn: 257 kB, the digest pass and the UTF-8 encode. Add `Server.page`'s
   * head concatenation (not reachable from here) and it is roughly 10%. The rest
   * is the WALK — transforms 0.96 MB, mustache contexts 0.39 MB, slot
   * resolution, signal seeds — which streaming does not touch at all. '''What
@@ -85,15 +88,15 @@ import java.util.concurrent.TimeUnit
   * four materialisations, which is what multiplies by open tabs. Churn and peak
   * are different targets and a change should say which it is for.
   *
-  * '''An extra client on a tick costs 68 us and 115 kB''' —
-  * `resumeSignalsFanout` minus `resumeSignals`, over nine. Against 263 us for
+  * '''An extra client on a tick costs 70 us and 117 kB''' —
+  * `resumeSignalsFanout` minus `resumeSignals`, over nine. Against 262 us for
   * the first client, so the [[RenderCache]] is removing about three quarters of
   * each further client's work. It is earning its place.
   *
   * '''Sharing the encoded frame is a much smaller prize than it looks.'''
   * [[wireCommon]] vs [[wireCommonShared]] is 10x — but that measures the encode
-  * in ISOLATION. One encode is 3.3 us and ~10.7 kB, against a marginal client
-  * cost of 68 us and 115 kB: about '''5% of the time and 9% of the bytes'''.
+  * in ISOLATION. One encode is 3.2 us and ~10.7 kB, against a marginal client
+  * cost of 70 us and 117 kB: about '''5% of the time and 9% of the bytes'''.
   * The other 95% is the decision — the changelog read, the visibility
   * narrowing, the per-node cache lookup and digest compare, the signal diff. Do
   * not quote the 10x as if it were a tick-level number.

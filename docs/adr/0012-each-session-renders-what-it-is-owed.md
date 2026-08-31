@@ -70,10 +70,10 @@ Measured, one client and a twenty-entity tick (`RenderBench.resumeSignals` again
 
 | | us/op | B/op |
 |---|---:|---:|
-| shipped card — name reads `friendly_name` | 229.0 | 443,962 |
-| same card, name as a literal | 99.2 | 139,507 |
+| shipped card — name reads `friendly_name` | 261.7 | 442,296 |
+| same card, name as a literal | 101.4 | 138,575 |
 
-**2.3x the time and 3.2x the bytes, for one slot.** That is the largest single cost on the
+**2.6x the time and 3.2x the bytes, for one slot.** That is the largest single cost on the
 live path — an order of magnitude more than encoding the frame — and the argument for fixing
 it is this ADR's own, applied one level down: key on the *attributes* the node's byte slots
 read rather than on the entities. `Transform.Simple` names its attribute outright (ADR 0028);

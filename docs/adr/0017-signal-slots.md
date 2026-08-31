@@ -69,12 +69,12 @@ Each form is load-bearing:
   currently thrown away, and that is a defect, not the shape of the trade.** A suppressed morph
   is still RENDERED, because rendering it is how we discover its bytes did not move — so a
   signals tick costs the server slightly *more* than one whose bytes moved
-  (`RenderBench.resumeSignals` 229 µs against `resumeMorphs` 208 µs).
+  (`RenderBench.resumeSignals` 262 µs against `resumeMorphs` 232 µs).
 
   It does not have to. The `RenderCache` key is meant to exclude entities that reach a node only
   through signal slots (ADR 0012), and where it does, the entry stands and nothing re-renders:
-  the same tick on a card whose name is a literal is **99 µs and 140 kB against 229 µs and
-  444 kB** (`resumeSignalsPure`). But the key holds a per-entity `contentVersion`, so a single
+  the same tick on a card whose name is a literal is **101 µs and 139 kB against 262 µs and
+  442 kB** (`resumeSignalsPure`). But the key holds a per-entity `contentVersion`, so a single
   byte-reading slot — the shipped card's name, reading `friendly_name` — puts the entity back in
   the key and every brightness change re-renders the node. The fix is a finer-grained key; see
   ADR 0012 and `docs/plan-wire-memory.md`.

@@ -15,17 +15,17 @@ signals tick was not faster:
 
 | thread | target | mechanism | size |
 |---|---|---|---|
-| C — narrow the cache key | per-client work on every live tick | key on the ATTRIBUTES a node reads as bytes, not the entity | **130 µs + 304 kB** per client per tick |
+| C — narrow the cache key | per-client work on every live tick | key on the ATTRIBUTES a node reads as bytes, not the entity | **160 µs + 304 kB** per client per tick |
 | A — stream the document | **peak live bytes** per concurrent page open | thread a `Writer` through the walk to the socket | ~380 kB of ~500 kB peak |
-| B — share the frame | per-client work on a live tick | memo the encoded frame across sessions | 3.3 µs + 10.7 kB per client per tick |
+| B — share the frame | per-client work on a live tick | memo the encoded frame across sessions | 3.2 µs + 10.7 kB per client per tick |
 
 ## Measured starting point
 
 `RenderBench`, `-f 2 -wi 5 -i 5 -prof gc`. The table lives in `RenderBench`'s own scaladoc and is
 the thing to re-run, not to copy around. What matters here:
 
-- The document is **128 kB** and costs **3.76 MB** to serve (`pageServe`) — 29x its own size.
-- `pageServe` minus `pageSignals` is **281 kB**: the digest pass and the UTF-8 encode, which is the
+- The document is **128 kB** and costs **3.78 MB** to serve (`pageServe`) — 29x its own size.
+- `pageServe` minus `pageSignals` is **257 kB**: the digest pass and the UTF-8 encode, which is the
   churn streaming directly removes. Add `Server.page`'s head concatenation (unmeasured, ~130 kB)
   and it is roughly **10%**.
 - `Traced.own` is a further **99 kB** held live: 77% of the document a second time, and on the
@@ -35,14 +35,14 @@ the thing to re-run, not to copy around. What matters here:
 
 **So thread A buys peak, not churn.** ~10% of the allocation, but most of the ~500 kB a concurrent
 page open holds live across four materialisations — which is the number that multiplies by open
-tabs, and the one that matters on a Pi. Anyone hoping to fix the 3.76 MB is looking at the walk,
+tabs, and the one that matters on a Pi. Anyone hoping to fix the 3.78 MB is looking at the walk,
 which is a different plan (issue #130, and the transform memo recorded as a dead end in
 `RenderBench`).
 
 Two findings from benching the real tick path, both of which change what is worth doing:
 
-- **An extra client on a tick costs 68 us and 115 kB** (`resumeSignalsFanout` − `resumeSignals`,
-  over nine), against 263 us for the first. The `RenderCache` is removing about three quarters of
+- **An extra client on a tick costs 70 us and 117 kB** (`resumeSignalsFanout` − `resumeSignals`,
+  over nine), against 262 us for the first. The `RenderCache` is removing about three quarters of
   each further client's work — it is earning its place.
 - **A signals tick costs more than a bytes tick and should cost half.** That is thread C below,
   and it is the biggest thing here. ADR 0017 and ADR 0012 both now say so.
@@ -57,9 +57,9 @@ is the design and it works — when it applies:
 
 | | us/op | B/op |
 |---|---:|---:|
-| `resumeSignals` — shipped card | 229.0 | 443,962 |
-| `resumeSignalsPure` — same card, name as a literal | 99.2 | 139,507 |
-| `resumeMorphs` — bytes really moved | 207.6 | 430,597 |
+| `resumeSignals` — shipped card | 261.7 | 442,296 |
+| `resumeSignalsPure` — same card, name as a literal | 101.4 | 138,575 |
+| `resumeMorphs` — bytes really moved | 231.5 | 430,638 |
 
 **It does not apply to the shipped card, and one slot is why.** `renderInputs` keys on a per-entity
 `contentVersion`, which `StateStore.update` bumps whenever anything about the entity moves. ADR
@@ -150,8 +150,8 @@ Step 1 is worth doing on its own merits and should be measured on its own.
 `datastar-patch-signals` bytes. In isolation that duplication is 10x in time and allocation
 (`wireCommon` vs `wireCommonShared`).
 
-**In context it is a much smaller prize, and that is the number to trust.** One encode is 3.3 us
-and ~10.7 kB against a marginal client cost of 68 us and 115 kB — **about 5% of the time and 9% of
+**In context it is a much smaller prize, and that is the number to trust.** One encode is 3.2 us
+and ~10.7 kB against a marginal client cost of 70 us and 117 kB — **about 5% of the time and 9% of
 the bytes**. The other 95% is the decision: `log.since`, visibility filtering, the per-node cache
 lookup and digest compare, the signal diff against `Held.signals`.
 
