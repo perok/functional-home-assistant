@@ -11,6 +11,8 @@ import fh.view.model.{
   SlotSource,
   Transform
 }
+import cats.effect.unsafe.implicits.global
+import cats.syntax.traverse.*
 import io.circe.Json
 import org.openjdk.jmh.annotations.*
 import org.openjdk.jmh.infra.Blackhole
@@ -44,41 +46,64 @@ import java.util.concurrent.TimeUnit
   *
   * {{{
   *                        us/op          B/op     what it is
-  * page                   691.3     1,311,117     200 leaves, no signal slots
-  * pageSignals          1,380.7     3,410,220     the SHIPPED shape
-  * pageFlat             1,311.2     3,265,511     same leaves, one container
-  * pageNarrow           1,414.3     3,669,106     same leaves, ~8 levels
-  * pageSet              1,365.9     3,685,170     as candidate-set members
-  * pageSetPlain           712.9     1,548,305     …signal-less members
-  * pageShared           1,395.7     3,394,786     200 leaves, 40 entities
-  * simple               1,001.6       942,479     transforms, production dispatch
-  * cel                  1,500.7     1,059,835     …all six on the engine
-  * celComplex             231.4       328,002     the hostile expression
-  * mustache               136.6       404,801     200 executions + contexts
-  * holdsSeed               81.8       145,537     200 SHA-256 over leaf html
-  * direct                  10.9        27,200     raw reads, no dispatch
-  * wire                    53.2       236,759     structural tick, 10 clients
-  * wireCommon              33.7       103,252     common tick, 10 clients
-  * wireCommonShared         3.1        10,335     …encoded once, 10 reuse
-  * wireTick                18.9        45,303     the slug-shared render
+  * -- the document ------------------------------------------------------
+  * pageServe            1,501.8     3,763,994     render + digest + UTF-8
+  * pageSignals          1,471.5     3,483,377     …render only, SHIPPED shape
+  * page                   729.5     1,312,181     same leaves, no signal slots
+  * pageFlat             1,357.9     3,338,353     same leaves, one container
+  * pageNarrow           1,419.3     3,745,228     same leaves, ~8 levels
+  * pageSet              1,399.6     3,733,062     as candidate-set members
+  * pageSetPlain           749.0     1,536,014     …signal-less members
+  * pageShared           1,455.7     3,472,725     200 leaves, 40 entities
+  * -- a live tick, the REAL path ----------------------------------------
+  * resumeSignals          263.5       439,924     1 client, signal-only tick
+  * resumeMorphs           226.5       427,930     1 client, bytes moved
+  * resumeSignalsFanout    879.3     1,470,548     10 clients, one cache
+  * -- pieces ------------------------------------------------------------
+  * simple                 963.6       961,679     transforms, production dispatch
+  * cel                  1,428.9     1,054,202     …all six on the engine
+  * celComplex             253.5       340,802     the hostile expression
+  * mustache               121.6       392,001     200 executions + contexts
+  * holdsSeed               90.0       145,537     200 SHA-256 over leaf html
+  * direct                  11.3        27,200     raw reads, no dispatch
+  * wireTick                19.0        46,394     a bare 3-node render
+  * wire                    52.0       239,669     structural tick, 10 clients
+  * wireCommon              32.0       106,852     the encode, 10 clients
+  * wireCommonShared         3.3        10,575     …encoded once, 10 reuse
   * }}}
   *
-  * Two things to take from it.
+  * Four things to take from it.
   *
-  * '''The document is 128 kB and costs 3.4 MB to produce''' — 26x its own size,
-  * on `pageSignals`, the shipped shape. The assembly (the body string, the page
-  * string, the byte chunk, the `own` map's 200 leaf strings — 99 kB, 77% of the
-  * document, held a second time) is roughly 0.6 MB of that. The other ~2.8 MB
-  * is the WALK: transforms, mustache contexts, slot resolution, signal seeds.
-  * So streaming the document to the socket attacks peak live bytes — the ~500
-  * kB a concurrent page open holds, which is what multiplies by open tabs — and
-  * only about a fifth of the churn. Both are real; they are not the same target
-  * and a change should say which one it is for.
+  * '''The document is 128 kB and costs 3.8 MB to serve''' — 29x its own size.
+  * `pageServe` against `pageSignals` isolates what streaming would remove from
+  * the churn: 281 kB, the digest pass and the UTF-8 encode. Add `Server.page`'s
+  * head concatenation (not reachable from here) and it is roughly 10%. The rest
+  * is the WALK — transforms 0.96 MB, mustache contexts 0.39 MB, slot
+  * resolution, signal seeds — which streaming does not touch at all. '''What
+  * streaming buys is PEAK''': the ~500 kB a concurrent open holds live across
+  * four materialisations, which is what multiplies by open tabs. Churn and peak
+  * are different targets and a change should say which it is for.
   *
-  * '''Sharing a frame is 10x in both''' ([[wireCommon]] vs
-  * [[wireCommonShared]]) — 33.7 to 3.1 us and 103 kB to 10 kB, linear in the
-  * client count. That linearity says the per-client cost on the common tick is
-  * ENTIRELY the encode.
+  * '''An extra client on a tick costs 68 us and 115 kB''' —
+  * `resumeSignalsFanout` minus `resumeSignals`, over nine. Against 263 us for
+  * the first client, so the [[RenderCache]] is removing about three quarters of
+  * each further client's work. It is earning its place.
+  *
+  * '''Sharing the encoded frame is a much smaller prize than it looks.'''
+  * [[wireCommon]] vs [[wireCommonShared]] is 10x — but that measures the encode
+  * in ISOLATION. One encode is 3.3 us and ~10.7 kB, against a marginal client
+  * cost of 68 us and 115 kB: about '''5% of the time and 9% of the bytes'''.
+  * The other 95% is the decision — the changelog read, the visibility
+  * narrowing, the per-node cache lookup and digest compare, the signal diff. Do
+  * not quote the 10x as if it were a tick-level number.
+  *
+  * '''A signals tick costs the server slightly MORE than a bytes tick''' —
+  * `resumeSignals` 263 us against `resumeMorphs` 226 us. Not a defect in ADR
+  * 0017 — a suppressed morph still has to be RENDERED to discover its bytes did
+  * not move, and the signal values are diffed on top. The win is on the WIRE
+  * and in the client's DOM, never in server CPU, and `pageSignals` against
+  * `page` (a first paint, where signal slots are a straight cost) is not where
+  * to look for it.
   *
   * ==Why it exists==
   *
@@ -166,6 +191,11 @@ class RenderBench {
   // half.
   private var wireNodeIds: List[NodeId] = null
   private var wireRot = 0
+  // The pull benches' fixture: what one client holds after a page open, and
+  // the node each of the tick's entities is shown on.
+  private var heldAfterPaint: Map[NodeId, Held] = null
+  private var tickNodeIds: Vector[NodeId] = null
+  private var tickEntities: Vector[String] = null
 
   @Setup(Level.Trial)
   def setup(): Unit = {
@@ -234,6 +264,45 @@ class RenderBench {
       .tabulate(3)(i => entityId(i))
       .flatMap(e => signalled.componentsFor(e).toList)
       .take(3)
+    // What a client holds the instant its document finished painting — the
+    // same seed `Server.renderPage` sets, so a pull below starts from a real
+    // client's record rather than an empty one. An empty `holds` reads as
+    // "unknown, send it" and would make every pull a morph, which is exactly
+    // the case the suppression exists to avoid measuring.
+    val paint = signalled.renderPageTraced(st)
+    heldAfterPaint = paint.own.map { case (id, p) =>
+      id -> Held(Some(Digest.of(p.html)), p.signals)
+    }
+    tickEntities = Vector.tabulate(TickEntities)(entityId)
+    tickNodeIds = tickEntities.flatMap(signalled.componentsFor(_).toList)
+    checkTickShapes()
+  }
+
+  /** The two pull fixtures assert what they are, because the thing that makes
+    * them different is a property of the CARD, not of this file: `signalTick`
+    * moves only attributes the shipped card carries as signals, and if a slot
+    * ever stops being a signal slot that tick starts producing morphs and
+    * [[resumeSignals]] silently becomes a second [[resumeMorphs]] — still
+    * green, still fast, and measuring the wrong thing.
+    *
+    * Checked once per trial, before any measurement, so the failure is a dead
+    * benchmark rather than a plausible number.
+    */
+  private def checkTickShapes(): Unit = {
+    def kinds(moved: Map[String, EntityState]): List[Patch] =
+      pull(moved, clients = 1).head.map(_.patch)
+    val sig = kinds(signalTick(1))
+    if (sig.exists(_.isInstanceOf[Patch.Morph]))
+      sys.error(
+        s"signalTick must suppress every morph; got ${sig.map(_.getClass.getSimpleName)}"
+      )
+    if (!sig.exists(_.isInstanceOf[Patch.Signals]))
+      sys.error("signalTick produced no signals frame — nothing is measured")
+    val bytes = kinds(byteTick(2))
+    if (!bytes.exists(_.isInstanceOf[Patch.Morph]))
+      sys.error(
+        "byteTick must produce morphs; the name slot is not in the bytes"
+      )
   }
 
   /** The baseline: a whole page, no signal slots. */
@@ -436,6 +505,140 @@ class RenderBench {
     wireRot += 1
   }
 
+  /** '''The whole cost of SERVING a document''', not just rendering one.
+    *
+    * [[pageSignals]] and friends stop at `renderPageTraced`, which is the
+    * render. Serving it also digests every painted node to seed the client's
+    * `holds` and encodes the result to UTF-8 for the response body — two more
+    * passes over the page's bytes, and the second is a full copy that only
+    * exists because the response is a `String` rather than a stream. This is
+    * the number the streaming work has to beat.
+    *
+    * `Server.page`'s head/chrome concatenation — one more full copy — is NOT in
+    * here: it is an instance method on a booted `Server`, so a benchmark cannot
+    * reach it without standing up a `StateStore`, a `Sessions` and an HA stub.
+    * Read this as a floor on the serve cost, not the whole of it.
+    */
+  @Benchmark
+  def pageServe(bh: Blackhole): Unit = {
+    val t = signalled.renderPageTraced(st)
+    t.own.foreach { case (_, p) => bh.consume(Digest.of(p.html)) }
+    bh.consume(t.html.getBytes(UTF_8))
+  }
+
+  /** '''One client's real pull''' — [[Patches.resume]], not `renderNodeById`.
+    *
+    * [[wireTick]] measures a bare render of nodes someone already decided to
+    * send. The pull is what DECIDES: read the changelog from this client's
+    * cursor, narrow to what it can see, render each candidate through the
+    * slug's [[RenderCache]], and compare against what this client already
+    * holds. That comparison is the whole point of the design and none of it was
+    * benchmarked.
+    *
+    * This is the SIGNALS tick, which is the frequent one (ADR 0017): the moved
+    * attribute reaches only signal slots, so every node's patch-form bytes are
+    * unchanged, every morph is suppressed, and the batch is one
+    * `datastar-patch-signals` frame. The work is therefore all decision and no
+    * output — the case the whole suppression machinery exists for.
+    */
+  @Benchmark
+  def resumeSignals(bh: Blackhole): Unit =
+    bh.consume(pull(signalTick(wireRot), clients = 1))
+
+  /** [[resumeSignals]] fanned to [[WireClients]] connections off ONE ring of
+    * the doorbell, through ONE [[RenderCache]] — a house with ten tabs open.
+    *
+    * The gap against [[resumeSignals]] is what a tick actually costs per extra
+    * client, and it is the number the cache exists to hold down: the render is
+    * paid once and every further client should be paying only for its own
+    * decision and its own frame. Ten times [[resumeSignals]] would mean the
+    * cache is buying nothing.
+    */
+  @Benchmark
+  def resumeSignalsFanout(bh: Blackhole): Unit =
+    bh.consume(pull(signalTick(wireRot), clients = WireClients))
+
+  /** The same pull when the movement is in the BYTES — a `friendly_name`
+    * change, which no slot carries as a signal — so every candidate really is a
+    * morph and nothing is suppressed.
+    *
+    * Against [[resumeSignals]] this is what ADR 0017 buys on the live path,
+    * measured where its argument actually lives. ([[pageSignals]] against
+    * [[page]] prices signal slots on a FIRST PAINT, which is the case ADR 0017
+    * is not about and where it is a straight cost.)
+    */
+  @Benchmark
+  def resumeMorphs(bh: Blackhole): Unit =
+    bh.consume(pull(byteTick(wireRot), clients = 1))
+
+  /** One doorbell ring, `clients` sessions, one shared cache — the real shape
+    * of a tick. Each client resumes from the version before this one against
+    * its own `holds`, which is what makes the suppression decision per client.
+    */
+  private def pull(
+      moved: Map[String, EntityState],
+      clients: Int
+  ): List[List[Addressed]] = {
+    wireRot += 1
+    val at = wireRot.toLong
+    val log = tickNodeIds.foldLeft(FragmentLog("bench"))(_.touched(_, at))
+    val io = for {
+      cache <- RenderCache.create
+      out <- (1 to clients).toList.traverse { _ =>
+        Patches.resume(
+          signalled,
+          cache,
+          log,
+          heldAfterPaint,
+          moved,
+          at,
+          Set.empty,
+          Map.empty
+        )
+      }
+    } yield out
+    io.unsafeRunSync()
+  }
+
+  /** A tick that moves ONLY what signal slots read (`brightness`, and the state
+    * word), so the patch form is byte-identical and the morph is suppressed.
+    */
+  private def signalTick(rot: Int): Map[String, EntityState] =
+    tickEntities.zipWithIndex.foldLeft(st) { case (acc, (e, i)) =>
+      acc.updated(
+        e,
+        EntityState(
+          e,
+          if ((rot + i) % 2 == 0) "on" else "off",
+          Map(
+            // UNCHANGED: this is the only attribute the bytes carry.
+            "friendly_name" -> Json.fromString(s"Tile number $i"),
+            "brightness" -> Json.fromInt(1 + (rot * 7 + i * 13) % 254),
+            "unit_of_measurement" -> Json.fromString("lx")
+          )
+        )
+      )
+    }
+
+  /** A tick that moves the NAME, which no slot carries as a signal — so every
+    * candidate's bytes really move and every morph is sent.
+    */
+  private def byteTick(rot: Int): Map[String, EntityState] =
+    tickEntities.zipWithIndex.foldLeft(st) { case (acc, (e, i)) =>
+      acc.updated(
+        e,
+        EntityState(
+          e,
+          "on",
+          Map(
+            "friendly_name" -> Json.fromString(s"Tile $rot number $i"),
+            "brightness" -> Json.fromInt(128),
+            "unit_of_measurement" -> Json.fromString("lx")
+          )
+        )
+      )
+    }
+
   /** '''The tick that decides it, unshared.''' The COMMON value tick on a
     * signal-slot dashboard: one entity moved, its digest stood still, so no
     * morph goes out — just a `datastar-patch-signals` frame carrying the two
@@ -558,6 +761,12 @@ object RenderBench {
     * tabs open. The per-client cost multiplies by exactly this.
     */
   final val WireClients = 10
+
+  /** Entities one tick moves. A real `state_changed` burst is a handful, not
+    * the whole house: a light group answering one tap, a few sensors on the
+    * same poll. Twenty of two hundred leaves.
+    */
+  final val TickEntities = 20
 
   /** Distinct entities behind [[RenderBench.pageShared]]'s leaves. */
   final val Distinct = 40

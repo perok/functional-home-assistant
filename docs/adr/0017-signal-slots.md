@@ -64,6 +64,15 @@ Each form is load-bearing:
   carries the value instead. That suppression *is* the feature, and it is why the tests here assert
   what is **not** on the wire — a broken implementation still updates the card, because the morph it
   was meant to replace is still being sent.
+
+  **The saving is bytes and the client's DOM, never server CPU.** A suppressed morph is still
+  rendered, because rendering it is how we discover its bytes did not move, and the signal values
+  are diffed on top of that — so a signals tick costs the server slightly *more* than one whose
+  bytes moved (`RenderBench.resumeSignals` 263 µs against `resumeMorphs` 226 µs). This is not a
+  regression to fix; it is the shape of the trade, and it is worth stating because the obvious
+  reading of "the morph disappears" is that the work disappeared with it. On a first paint signal
+  slots are a straight cost with no suppression to offset them at all (`pageSignals` against
+  `page`, roughly 2x) — that is the case this ADR is not about.
 - **An element seeds its own signal.** The document form's `data-signals` means a first paint, a
   host fill or a `?prev=` reconnect repaint needs no frame to be correct. `data-signals`
   overwrites by default in the pinned bundle (`__ifmissing` is opt-in), so re-seeding on a later

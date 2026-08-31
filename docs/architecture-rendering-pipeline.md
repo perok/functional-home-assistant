@@ -886,18 +886,18 @@ chrome template takes `body.html` as a mustache VALUE, and `Traced.own` is built
 shared buffer (which is what lets a signal-less member's fingerprint be a slice rather than a second
 render — §5). Both are what a streaming version has to answer for; the walk is not.
 
-**Measured** (`RenderBench.pageSignals`, 200 leaves, the shipped card shape, `-prof gc`): the
-document is **128 kB** and costs **1.38 ms and 3.41 MB** to produce — 26x its own size in
-allocation. `own` alone is 99 kB, 77% of the document held a second time and used only to compute
-200 digests. Assembly is ~0.6 MB of the 3.41 MB; the rest is the walk (transforms 0.94 MB, mustache
-contexts 0.40 MB, slot resolution, signal seeds).
+**Measured** (`RenderBench.pageServe`, 200 leaves, the shipped card shape, `-prof gc`): the document
+is **128 kB** and costs **1.50 ms and 3.76 MB** to serve — 29x its own size in allocation. `own`
+alone is 99 kB, 77% of the document held a second time and used only to compute 200 digests. The
+digest pass and the UTF-8 encode — what `pageServe` adds over `pageSignals` — are 281 kB of it; the
+rest is the walk (transforms 0.96 MB, mustache contexts 0.39 MB, slot resolution, signal seeds).
 
 So the two memory targets here are **not the same** and a change should say which it is for:
 
 | target | what it is | what moves it |
 |---|---|---|
 | peak live bytes | ~500 kB per concurrent page open, multiplying by open tabs | streaming the walk to the socket |
-| allocation churn | 3.41 MB per page open, driving GC on a Pi 4 | the walk — transforms, contexts; not the assembly |
+| allocation churn | 3.76 MB per page open, driving GC on a Pi 4 | the walk — transforms, contexts; streaming is only ~10% of it |
 
 ## 7. Where each box lives
 
@@ -1024,17 +1024,25 @@ Live list — delete an entry when it is answered, and say where the answer land
   staleness ADR 0011 guards, so holds must be committed on successful completion. Note this
   attacks PEAK, not churn: about a fifth of the 3.41 MB.
 
-- **A frame is encoded once per client, and the common tick's frames are identical.**
-  `Patches.resume` runs per session, so ten tabs on one dashboard each encode the same
-  `datastar-patch-signals` bytes. Measured at **10x in both time and allocation** (`wireCommon`
-  33.7 µs / 103 kB against `wireCommonShared` 3.1 µs / 10 kB, ten clients), linear in the client
-  count — which says the per-client cost on that tick is entirely the encode. This is what
-  PR #265 aimed at and did not hit: it attached the memo to `Addressed`, which is per-session.
-  Not simply the `RenderCache`: that is keyed per NODE and holds `NodeBytes`, so a MORPH frame
-  could hang off it, but the common tick is signals-only and has no node — that half wants a
-  small memo scoped to one doorbell tick, keyed on the patch. Frames are also not
-  unconditionally identical (`Held.signals` is per-client, and different tabs see different
-  surfaces), so the memo must be a lookup, never an assumption.
+- **What an extra client on a tick actually costs, and where it goes.** `resumeSignalsFanout`
+  minus `resumeSignals` over nine: **68 µs and 115 kB** per further client, against 263 µs for the
+  first — so the `RenderCache` removes about three quarters of it and is earning its place. What
+  remains is unprofiled: the changelog read, the visibility narrowing, the per-node cache lookup
+  and digest compare, the signal diff against `Held.signals`.
+
+  Encoding the frame is **~5% of that time and ~9% of those bytes**. Sharing it across clients
+  measures 10x in isolation (`wireCommon` vs `wireCommonShared`) and that number should not be
+  quoted at tick level — it is what PR #265 aimed at, attaching the memo to `Addressed`, which is
+  per-session, so it shared nothing. If it is ever done it is **not** the `RenderCache`: that is
+  keyed per NODE, and the common tick is signals-only and has no node. Frames are also not
+  unconditionally identical (`Held.signals` is per-client, different tabs see different surfaces),
+  so it must be a lookup, never an assumption. Low priority; the other 95% is the target.
+
+- **A signals tick costs the server slightly MORE than a bytes tick** — `resumeSignals` 263 µs
+  against `resumeMorphs` 226 µs. Not a defect in ADR 0017 and arguably what it already implies: a
+  suppressed morph still has to be RENDERED to discover its bytes did not move, and the signal
+  values are diffed on top. The win is wire bytes and the client's DOM, never server CPU — now
+  written up in ADR 0017, which framed the win correctly but never said the render is still paid.
 
 - **A morph-only client profile** —
   [issue #133](https://github.com/perok/functional-home-assistant/issues/133). ADR 0017 keeps the
