@@ -856,7 +856,7 @@ class ServerRoutesSuite extends ServerHarness {
         PatchMode.Append,
         Some("#popups")
       )
-      .renderString
+      .render
     assert(open.contains("data: selector #popups"), clue = open)
     assert(open.contains("data: mode append"), clue = open)
     assert(
@@ -870,7 +870,7 @@ class ServerRoutesSuite extends ServerHarness {
     val inner =
       Datastar
         .patch("<i>e</i>", PatchMode.Inner, Some("#dashboard"))
-        .renderString
+        .render
     assert(inner.contains("data: selector #dashboard"), clue = inner)
     assert(inner.contains("data: mode inner"), clue = inner)
   }

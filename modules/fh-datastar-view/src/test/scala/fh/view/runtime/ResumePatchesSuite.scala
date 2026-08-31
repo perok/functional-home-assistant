@@ -64,7 +64,7 @@ class ResumePatchesSuite extends munit.FunSuite {
     RenderCache.create
       .flatMap(Patches.resume(renderer, _, log, Map.empty, states, v))
       .unsafeRunSync()
-      .map(_.patch.toSse.renderString)
+      .map(_.patch.toSse.render)
 
   private val empty = FragmentLog("test")
 

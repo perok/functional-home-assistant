@@ -204,7 +204,7 @@ class SignalSlotSuite extends ServerHarness {
     assertEquals(
       out.map(_.patch),
       List(frame(sig("sensor.a") -> "21.5")),
-      clue = events(out).map(_.renderString)
+      clue = events(out).map(_.render)
     )
     // The whole point, stated as the absence it is: no card was re-sent.
     assertEquals(elementPatches(events(out)), Nil)
@@ -214,7 +214,7 @@ class SignalSlotSuite extends ServerHarness {
     val r = renderer
     val out = resumeFrom(r, at("21.4"), at("21.4", name = "Landing"))
     val morphs = out.map(_.patch).collect { case m: Patch.Morph => m }
-    assertEquals(morphs.size, 1, clue = events(out).map(_.renderString))
+    assertEquals(morphs.size, 1, clue = events(out).map(_.render))
     assert(morphs.head.html.contains("Landing"), clue = morphs.head.html)
     // ...and no frame rides along, because the reading did not move.
     assertEquals(out.map(_.patch).collect { case s: Patch.Signals => s }, Nil)
@@ -422,7 +422,7 @@ class SignalSlotSuite extends ServerHarness {
           sig("light.a", fillPct) -> "41%"
         )
       ),
-      clue = events(out).map(_.renderString)
+      clue = events(out).map(_.render)
     )
     // `tint` did not move, so it is not in the frame even though its node was.
     assertEquals(elementPatches(events(out)), Nil)
@@ -481,7 +481,7 @@ class SignalSlotSuite extends ServerHarness {
     assertEquals(
       out.map(_.patch),
       List(frame(sig("sensor.a") -> "21.5")),
-      clue = events(out).map(_.renderString)
+      clue = events(out).map(_.render)
     )
     // Both nodes bind the same path, so both are live off that one entry —
     // the saving is real only if neither had to be re-sent to get the value.
@@ -627,7 +627,7 @@ class SignalSlotSuite extends ServerHarness {
           sig("sensor.b") -> "8"
         )
       ),
-      clue = events(out).map(_.renderString)
+      clue = events(out).map(_.render)
     )
   }
 
@@ -657,7 +657,7 @@ class SignalSlotSuite extends ServerHarness {
     assertEquals(
       out.map(_.patch),
       List(frame(sig("sensor.a") -> "21.6")),
-      clue = events(out).map(_.renderString)
+      clue = events(out).map(_.render)
     )
   }
 
@@ -732,7 +732,7 @@ class SignalSlotSuite extends ServerHarness {
               """{"a":{"state":"21.6"},"b":{"state":"48"}}}}"""
           )
         ),
-        clue = first.map(_.renderString)
+        clue = first.map(_.render)
       )
       assertEquals(position, 3L)
       assertEquals(again, Nil)
@@ -764,7 +764,7 @@ class SignalSlotSuite extends ServerHarness {
         Addressed(cursor)
       )
     )
-    assertEquals(withMorph.size, 3, clue = withMorph.map(_.renderString))
+    assertEquals(withMorph.size, 3, clue = withMorph.map(_.render))
     assertEquals(withMorph.last.data, Some(cursor.toSse.data.get))
   }
 
@@ -841,7 +841,7 @@ class SignalSlotSuite extends ServerHarness {
     assertEquals(
       out.map(_.patch),
       List(Patch.Remove(r.elementId("c_light_a"))),
-      clue = events(out).map(_.renderString)
+      clue = events(out).map(_.render)
     )
   }
 
@@ -1020,7 +1020,7 @@ class SignalSlotSuite extends ServerHarness {
     assertEquals(
       out.map(_.patch),
       List(frame(sig("sensor.a", tintRead) -> "blue")),
-      clue = events(out).map(_.renderString)
+      clue = events(out).map(_.render)
     )
     // The structural element itself is what must not move: a morph aimed at it
     // would re-send the region's content as a side effect of a colour change.

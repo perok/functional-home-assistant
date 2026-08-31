@@ -7,7 +7,6 @@ import cats.syntax.all.*
 import cats.effect.std.Queue
 import fh.view.model.NodeId
 import fs2.concurrent.SignallingRef
-import org.http4s.ServerSentEvent
 
 /** Who owns a session right now, as ONE value rather than parallel
   * "adopted?"/"connected?"/"dropped?" flags — they are the same fact, and a
@@ -123,7 +122,7 @@ enum Tenure derives CanEqual {
 case class Session(
     slug: String,
     open: Ref[IO, Set[String]],
-    control: Queue[IO, ServerSentEvent],
+    control: Queue[IO, SseFrame],
     holds: Ref[IO, Map[NodeId, Held]],
     haDown: Ref[IO, Option[Boolean]],
     position: Ref[IO, Long],
@@ -190,7 +189,7 @@ object Session {
   def create(slug: String): IO[Session] =
     for {
       o <- Ref[IO].of(Set.empty[String])
-      q <- Queue.unbounded[IO, ServerSentEvent]
+      q <- Queue.unbounded[IO, SseFrame]
       h <- Ref[IO].of(Map.empty[NodeId, Held])
       // `None`, not `Some(false)`: a session minted by a stream (a bookmarked
       // SSE URL, a restart) has told this client nothing, and must not assume

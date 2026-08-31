@@ -4,7 +4,7 @@ import cats.effect.{IO, Resource}
 import cats.syntax.all.*
 import com.comcast.ip4s.{host, port}
 import com.microsoft.playwright.Page
-import fh.view.runtime.{AssetCache, Datastar, PatchMode, Server}
+import fh.view.runtime.{AssetCache, Datastar, PatchMode, Server, SseFrame}
 import fs2.Stream
 import org.http4s.*
 import org.http4s.dsl.io.*
@@ -642,13 +642,13 @@ class DatastarMorphContractSuite extends BrowserSuite {
 
   private def served(
       body: String,
-      patches: List[ServerSentEvent]
+      patches: List[SseFrame]
   ): Resource[IO, (Page, Uri)] =
     servedWith(body, patches, HttpRoutes.empty[IO])
 
   private def servedWith(
       body: String,
-      patches: List[ServerSentEvent],
+      patches: List[SseFrame],
       extra: HttpRoutes[IO]
   ): Resource[IO, (Page, Uri)] =
     for {
@@ -772,7 +772,7 @@ class DatastarMorphContractSuite extends BrowserSuite {
       |}).observe(document, {subtree: true, childList: true, characterData: true});""".stripMargin
 
   private def fillOrder(
-      patches: List[ServerSentEvent]
+      patches: List[SseFrame]
   ): IO[(String, List[String], List[String])] =
     served("""<div id="host"></div>""", patches).use { case (p, uri) =>
       def strings(js: String) = IO

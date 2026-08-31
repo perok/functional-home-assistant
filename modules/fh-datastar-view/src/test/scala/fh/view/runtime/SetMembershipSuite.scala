@@ -510,7 +510,7 @@ class SetMembershipSuite extends ServerHarness {
     } yield out)
       .timeout(30.seconds)
       .map { case (forA, forB) =>
-        val bytes = events(forB).map(_.renderString)
+        val bytes = events(forB).map(_.render)
         assert(
           bytes.exists(_.contains("""id="s_c_t1__c"""")),
           clue = bytes
@@ -519,8 +519,8 @@ class SetMembershipSuite extends ServerHarness {
         // A is looking at tab 0 and must not receive it; B, who IS looking at
         // it, must — the second half is what stops this passing vacuously.
         assert(
-          !events(forA).map(_.renderString).exists(_.contains("s_c_t1__c")),
-          clue = events(forA).map(_.renderString)
+          !events(forA).map(_.render).exists(_.contains("s_c_t1__c")),
+          clue = events(forA).map(_.render)
         )
       }
   }
@@ -568,7 +568,7 @@ class SetMembershipSuite extends ServerHarness {
       .timeout(30.seconds)
       .map { patches =>
         val bytes = events(patches)
-        assertEquals(patches.size, 1, clue = bytes.map(_.renderString))
+        assertEquals(patches.size, 1, clue = bytes.map(_.render))
         // one child morph, surface-namespaced id — not the whole surface group.
         assertEquals(
           bytes.head.elements,
@@ -703,8 +703,8 @@ class SetMembershipSuite extends ServerHarness {
     } yield out)
       .timeout(30.seconds)
       .map { case (forWatching, forElsewhere) =>
-        val seen = events(forWatching).map(_.renderString)
-        val unseen = events(forElsewhere).map(_.renderString)
+        val seen = events(forWatching).map(_.render)
+        val unseen = events(forElsewhere).map(_.render)
         // The viewer WITH the tab open gets the departure. Without this half
         // the assertion below would pass just as well if nobody got anything.
         assert(

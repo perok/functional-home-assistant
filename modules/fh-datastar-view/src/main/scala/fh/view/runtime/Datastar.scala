@@ -2,7 +2,10 @@ package fh.view.runtime
 
 import fh.view.model.{SignalBind, SignalId}
 import io.circe.Json
-import org.http4s.ServerSentEvent
+import org.http4s.{EntityEncoder, ServerSentEvent}
+import org.http4s.EntityEncoder
+
+import java.nio.charset.StandardCharsets.UTF_8
 
 /** `datastar-patch-elements` patch modes (the `data: mode …` value). */
 enum PatchMode(val wire: String):
@@ -14,6 +17,88 @@ enum PatchMode(val wire: String):
   case Before extends PatchMode("before")
   case After extends PatchMode("after")
   case Remove extends PatchMode("remove")
+
+/** One SSE event, encoded to its WIRE BYTES once — at construction.
+  *
+  * http4s's SSE encoder (`ServerSentEvent.encoder`) rendered every event per
+  * connection: `renderString` built the event text into a growing
+  * `StringWriter` and UTF-8 encoded it, per client per frame — but the bytes
+  * are identical for every client that receives a given frame (a tick's patches
+  * and cursor are minted once per slug in the changelog, and every session's
+  * `encode` is offered the same ones). So the encoding happens HERE, where the
+  * event is born, and the socket writes what is already in hand.
+  *
+  * Byte-identical to the old path BY CONSTRUCTION: the bytes are the same
+  * `renderString` output, UTF-8, and the response's entity encoder is the same
+  * `entityBody` + `text/event-stream` pair the old implicit was built from (the
+  * cursor and keep-alive streams interleave with nothing else on the socket, so
+  * framing is the only contract).
+  */
+private[view] final case class SseFrame(bytes: Array[Byte]):
+
+  /** The wire text — tests and diagnostics read this rather than re-derive. */
+  def render: String = new String(bytes, UTF_8)
+
+  /** The event's fields, parsed back out of the wire text — the assertion
+    * surface for tests and diagnostics. The hot path only ever touches `bytes`;
+    * nothing on it reads these.
+    */
+  private lazy val parsed: (Option[String], Option[String], Option[String]) = {
+    var lines = List.empty[String]
+    var ev = Option.empty[String]
+    var com = Option.empty[String]
+    val cursor = render.linesIterator
+    cursor.foreach { l =>
+      if (l.startsWith("data: ")) lines = l.drop("data: ".length) :: lines
+      else if (l.startsWith("event: ")) ev = Some(l.drop("event: ".length))
+      else if (l.startsWith(": ")) com = Some(l.drop(2))
+    }
+    (
+      Option.unless(lines.isEmpty)(lines.reverse.mkString("\n")),
+      ev,
+      com
+    )
+  }
+
+  def data: Option[String] = parsed._1
+  def eventType: Option[String] = parsed._2
+  def comment: Option[String] = parsed._3
+
+  // Bytes, not the default case-class identity: two frames carrying the same
+  // event ARE equal (a shared wire and a per-client re-encode of the same
+  // patch must compare equal in tests).
+  override def equals(that: Any): Boolean = that match
+    case f: SseFrame => java.util.Arrays.equals(bytes, f.bytes)
+    case _           => false
+
+  override def hashCode: Int = java.util.Arrays.hashCode(bytes)
+
+private[view] object SseFrame:
+
+  /** From an http4s event — the ONE encoding, verbatim. */
+  def of(event: ServerSentEvent): SseFrame =
+    SseFrame(event.renderString.getBytes(UTF_8))
+
+  /** A comment-only keep-alive (`: text\n\n`). */
+  def comment(text: String): SseFrame =
+    SseFrame(s": $text\n\n".getBytes(UTF_8))
+
+  /** SSE response encoder for a frame stream — the http4s implicit it replaces
+    * was `entityBodyEncoder.contramap(_.through(ServerSentEvent.encoder))
+    * .withContentType(text/event-stream)`; same shape, minus the per-connection
+    * render + UTF-8. Available wherever frames are served (Server + tests).
+    */
+  implicit def sseFrameStreamEncoder[F[_]]
+      : EntityEncoder[F, fs2.Stream[F, SseFrame]] =
+    EntityEncoder
+      .entityBodyEncoder[F]
+      .contramap[fs2.Stream[F, SseFrame]](
+        _.flatMap(f => fs2.Stream.chunk(fs2.Chunk.array(f.bytes)))
+      )
+      .withContentType(
+        org.http4s.headers
+          .`Content-Type`(org.http4s.MediaType.`text/event-stream`)
+      )
 
 /** Datastar SSE protocol framing.
   *
@@ -34,7 +119,7 @@ object Datastar {
     * newlines/indentation — multiline templates are just authoring sugar; the
     * wire form must be one line. (Attribute values already never span lines.)
     */
-  def patchElements(fragment: String): ServerSentEvent =
+  def patchElements(fragment: String): SseFrame =
     patch(fragment)
 
   /** A `datastar-patch-elements` event with an explicit `mode` and optional
@@ -48,7 +133,7 @@ object Datastar {
       fragment: String,
       mode: PatchMode = PatchMode.Outer,
       selector: Option[String] = None
-  ): ServerSentEvent =
+  ): SseFrame =
     sse(
       "datastar-patch-elements",
       selector.map(s => s"selector $s").toList ++
@@ -65,7 +150,7 @@ object Datastar {
     * candidate set path relies on that idempotency (a duplicate/late remove is
     * harmless).
     */
-  def remove(selector: String): ServerSentEvent =
+  def remove(selector: String): SseFrame =
     sse(
       "datastar-patch-elements",
       List("mode remove", s"selector $selector")
@@ -79,22 +164,35 @@ object Datastar {
     * logical line carries its own prefix. Every line must itself be single-line
     * (HTML fragments are collapsed first).
     */
-  private def sse(eventType: String, lines: List[String]): ServerSentEvent =
-    ServerSentEvent(
-      data = Some(lines.mkString("\ndata: ")),
-      eventType = Some(eventType)
+  private def sse(eventType: String, lines: List[String]): SseFrame =
+    SseFrame.of(
+      ServerSentEvent(
+        data = Some(lines.mkString("\ndata: ")),
+        eventType = Some(eventType)
+      )
     )
 
-  /** Collapse runs of whitespace containing a newline into a single space. */
+  /** Collapse runs of whitespace containing a newline into a single space.
+    *
+    * The match REQUIRES a newline (`\r?\n`), so a fragment without one — the
+    * renderer's own output, which is built single-line — skips the scan
+    * entirely. Multi-line templates are just authoring sugar; the wire form
+    * must be one line. (Attribute values already never span lines.)
+    */
+  private val LineRun = java.util.regex.Pattern.compile("\\s*\\r?\\n\\s*")
+
   private def collapse(html: String): String =
-    html.replaceAll("\\s*\\r?\\n\\s*", " ").trim
+    if (html.indexOf('\n') < 0) html.trim
+    else LineRun.matcher(html).replaceAll(" ").trim
 
   /** A `datastar-patch-signals` event carrying a JSON object of signal updates.
     */
-  def patchSignals(signalsJson: String): ServerSentEvent =
-    ServerSentEvent(
-      data = Some(s"signals $signalsJson"),
-      eventType = Some("datastar-patch-signals")
+  def patchSignals(signalsJson: String): SseFrame =
+    SseFrame.of(
+      ServerSentEvent(
+        data = Some(s"signals $signalsJson"),
+        eventType = Some("datastar-patch-signals")
+      )
     )
 
   /** Signal-slot values as the [[patchSignals]] payload. Sorted, so one frame's

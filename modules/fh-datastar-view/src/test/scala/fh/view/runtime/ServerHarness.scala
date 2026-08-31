@@ -346,8 +346,8 @@ trait ServerHarness extends munit.CatsEffectSuite {
   // what the patches CARRY is asserted on the patches themselves.
   def logged(log: FragmentLog): Map[NodeId, Long] = log.fragments
 
-  def elementPatches(batch: List[ServerSentEvent]): List[String] =
-    batch.map(_.renderString).filterNot(_.contains("datastar-patch-signals"))
+  def elementPatches(batch: List[SseFrame]): List[String] =
+    batch.map(_.render).filterNot(_.contains("datastar-patch-signals"))
 
   // An empty conjunction is vacuously true, and reads no entity — so an `else`
   // member is an ordinary condition with no subject to supply.
@@ -447,7 +447,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
       } yield ()
 
     /** What this viewer is owed since its last pull, claimed as it goes. */
-    private def drain: IO[List[ServerSentEvent]] =
+    private def drain: IO[List[SseFrame]] =
       (cache.get, store.current, holds.get, position.get, RenderCache.create)
         .flatMapN { (log, now, held, from, rc) =>
           Patches
@@ -464,7 +464,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
             }
         }
 
-    private def sharedBatch(next: EntityState): IO[List[ServerSentEvent]] =
+    private def sharedBatch(next: EntityState): IO[List[SseFrame]] =
       (record(next) *> drain).timeout(30.seconds)
 
     def step(next: EntityState): IO[List[String]] =
@@ -480,7 +480,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
 
     /** Everything a batch emits, cursor signal included. */
     def stepRaw(next: EntityState): IO[List[String]] =
-      sharedBatch(next).map(_.map(_.renderString))
+      sharedBatch(next).map(_.map(_.render))
 
     def cacheNow: IO[Map[NodeId, Long]] =
       cache.get.map(logged).timeout(30.seconds)
@@ -653,8 +653,27 @@ trait ServerHarness extends munit.CatsEffectSuite {
     def name: String = e.eventType.getOrElse("")
   }
 
-  def events(out: List[Addressed]): List[ServerSentEvent] =
-    out.map(_.patch.toSse)
+  /** The same accessors for FRAMES — the unit-built events the harness feeds to
+    * assertions. The frame's fields are parsed from its wire text, so the
+    * accessor semantics are identical to the decoded-event path above.
+    */
+  extension (e: SseFrame) {
+    private def line(key: String): Option[String] =
+      e.render.linesIterator
+        .map(l => if (l.startsWith("data: ")) l.drop("data: ".length) else l)
+        .collectFirst {
+          case l if l.startsWith(s"$key ") => l.drop(key.length + 1)
+        }
+
+    def mode: String = line("mode").getOrElse("outer")
+    def selector: Option[String] = line("selector")
+    def elements: Option[String] = line("elements")
+    def signals: Option[String] = line("signals")
+    def name: String = e.eventType.getOrElse("")
+  }
+
+  def events(out: List[Addressed]): List[SseFrame] =
+    out.map(_.wire)
 
   val PopupSig = Server.UiSignalPrefix + Dashboard.PopupHostId
 
@@ -673,6 +692,9 @@ trait ServerHarness extends munit.CatsEffectSuite {
       .toList
 
   def isCursor(e: ServerSentEvent): Boolean =
+    e.signals.exists(_.contains(Server.StoreVersionSignal))
+
+  def isCursor(e: SseFrame): Boolean =
     e.signals.exists(_.contains(Server.StoreVersionSignal))
 
   def domEvents(

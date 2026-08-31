@@ -33,7 +33,7 @@ private[runtime] enum Patch:
   case Remove(target: DomId)
   case Signals(values: Map[SignalId, Json])
 
-  def toSse: ServerSentEvent = this match
+  def toSse: SseFrame = this match
     case Patch.Morph(html)                => Datastar.patchElements(html)
     case Patch.Insert(html, mode, target) =>
       Datastar.patch(html, mode, Some(target.selector))
@@ -76,7 +76,18 @@ private[runtime] case class Addressed(
     establishes: Map[NodeId, Held] = Map.empty,
     // Roots: a host and everything under it ([[NodeAncestry]]).
     invalidates: Set[NodeId] = Set.empty
-)
+) {
+
+  /** The event's wire bytes, encoded ONCE — here, because an `Addressed` lives
+    * in the slug-shared changelog and every session's [[Patches.encode]] is
+    * offered the same ones. The per-connection encoder used to re-render and
+    * re-UTF-8 the identical event per client per frame; the socket now writes
+    * what is already in hand. A merge product ([[Patches.encode]]) is a fresh
+    * `Addressed` per client, so ITS wire encodes per client — the price of
+    * joining, still one encoding per batch rather than one per source frame.
+    */
+  lazy val wire: SseFrame = patch.toSse
+}
 
 /** The pure core, lifted out of [[Server]] so it is testable without a booted
   * server (no HA stub, no `Supervisor`, no SSE plumbing). Two paths meet here,
@@ -920,13 +931,19 @@ private[runtime] object Patches {
     * survives is the barrier rule: an [[Patch.Insert]]/[[Patch.Remove]] names
     * its own target and cannot join, and a morph after an insert may target the
     * element that insert created, so nothing may be reordered across one.
+    *
+    * The merge builds a fresh `Addressed` for each joined frame, so a single
+    * frame rides the SHARED wire ([[Addressed.wire]] — the common tick: one
+    * signals frame, no join) and only a joined frame encodes per client.
     */
-  def encode(patches: List[Addressed]): List[ServerSentEvent] =
+  def encode(patches: List[Addressed]): List[SseFrame] =
     patches
-      .map(_.patch)
-      .foldLeft(List.empty[Patch]) {
-        case (Patch.Morph(before) :: rest, Patch.Morph(next)) =>
-          Patch.Morph(before + next) :: rest
+      .foldLeft(List.empty[Addressed]) {
+        case (
+              Addressed(Patch.Morph(before), _, _) :: rest,
+              a @ Addressed(Patch.Morph(next), _, _)
+            ) =>
+          Addressed(Patch.Morph(before + next)) :: rest
         // Adjacent signal frames merge for the same reason morphs do — one
         // event instead of two, with identical effect, since a
         // `datastar-patch-signals` payload is merged into the client's store
@@ -939,12 +956,15 @@ private[runtime] object Patches {
         // Put an element patch between them and they stay two events, which is
         // required: a client echoing the cursor must have applied what came
         // before it (ADR 0011).
-        case (Patch.Signals(before) :: rest, Patch.Signals(next)) =>
-          Patch.Signals(before ++ next) :: rest
+        case (
+              Addressed(Patch.Signals(before), _, _) :: rest,
+              a @ Addressed(Patch.Signals(next), _, _)
+            ) =>
+          Addressed(Patch.Signals(before ++ next)) :: rest
         case (acc, one) => one :: acc
       }
       .reverse
-      .map(_.toSse)
+      .map(_.wire)
 
   /** Put `content` in a STATE group's host — one patch, whatever the client's
     * DOM currently holds there.

@@ -392,16 +392,16 @@ class StateSurfaceSuite extends ServerHarness {
       .map { case (without, evts) =>
         assert(
           !events(without).exists(
-            _.renderString.contains("s_det__c_0_branch")
+            _.render.contains("s_det__c_0_branch")
           ),
-          clue = events(without).map(_.renderString)
+          clue = events(without).map(_.render)
         )
         val patches = evts.filterNot(isCursor)
         assertEquals(patches.size, 1, clue = patches)
         assertEquals(patches.head.selector, Some("#s_det__c_0_branch"))
         assert(
           patches.head.elements.exists(_.contains("""id="s_d_else__c"""")),
-          clue = patches.head.renderString
+          clue = patches.head.render
         )
       }
   }
