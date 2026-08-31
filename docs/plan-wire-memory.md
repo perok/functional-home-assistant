@@ -235,7 +235,30 @@ rather than by the page. `Ok(stream)` then chunk-encodes it. (Not `readInputStre
    Time is unchanged within noise (1425 → 1380 ± 132 µs), which is what an allocation change
    should look like.
 
-2. **`Traced.own` is sliced out of the shared buffer.** A stream cannot re-read bytes it has
+2. ~~**`Traced.own` is sliced out of the shared buffer.**~~ **DONE, and smaller than projected.**
+   `Painted` carries the DIGEST; the one caller wanting real bytes (`Renderer.render`) always
+   wants the walk ROOT's, so `Traced.rootOwn` carries just that and no flag was needed.
+
+   **Peak only — churn and time are neutral**, which the plan did not predict:
+
+   | | before | after |
+   |---|---:|---:|
+   | `pageServe` | 3,540,607 B / 1374 µs | 3,540,901 B / 1385 µs |
+   | `pageSignals` | 3,278,496 B / 1380 µs | 3,442,448 B / 1485 µs |
+
+   `pageSignals` rising while `pageServe` stays flat is the whole story: the digest pass MOVED
+   into the walk from `Server.renderPage`'s loop, so it is now inside a benchmark that used to
+   exclude it (+164 kB against `holdsSeed`'s 145 kB for 200 digests — the same work). The four
+   `Digest.of(p.html)` sites were not redundant; they relocated. What is really won is the 99 kB
+   of RETENTION, roughly a fifth of the ~500 kB a concurrent open holds live.
+
+   **A rejected optimisation, recorded so it is not re-tried**: hashing the slice in place via
+   `CharBuffer.wrap` + `CharsetEncoder`, to avoid cutting the String out. It cost **+83 kB and
+   +17% time** — it allocates a fresh `ByteBuffer` per node, where `String.getBytes` is
+   intrinsified for a compact string. `Digest.ofRange` does the substring and calls `of`; the
+   copy is transient, which is all that was ever needed.
+
+3. **`session.holds` is committed BEFORE the response today.** A stream cannot re-read bytes it has
    flushed. This is load-bearing, not incidental: the slice is what lets a signal-less member's
    patch fingerprint be a slice of the document rather than a second render (§5, and
    `pageSetPlain` prices it). Fix: feed a `MessageDigest` incrementally as a node's bytes pass, so
@@ -245,7 +268,7 @@ rather than by the page. `Ok(stream)` then chunk-encodes it. (Not `readInputStre
    a traced walk. That caller needs the html, so `Traced` either grows a variant or the digest is
    computed alongside rather than instead.
 
-3. **`session.holds` is committed BEFORE the response today.** A stream that aborts mid-body would
+   A stream that aborts mid-body would
    leave `holds` claiming bytes the DOM never received — the exact permanent staleness ADR 0011
    guards against, and the reason `told` exists. Fix: commit holds in the stream's finalizer, on
    successful completion only. Worth checking against ADR 0011 before writing code.

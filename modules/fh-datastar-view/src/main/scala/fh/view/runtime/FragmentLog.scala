@@ -40,10 +40,28 @@ private[runtime] object Digest {
     * should: it runs a handful of times at startup over package zips, and its
     * output is a manifest checksum rather than a change detector.
     */
-  def of(html: String): Digest = {
+  def of(html: String): Digest = hex(digestOf(html))
+
+  /** The digest of a SLICE of a buffer.
+    *
+    * Cuts the String out and hashes it, which is what [[of]] does — MEASURED
+    * against a `CharBuffer.wrap` + `CharsetEncoder` version that avoids the
+    * copy: that one allocated a fresh `ByteBuffer` per node and cost the page
+    * +83 kB and +17% TIME, because `String.getBytes` is intrinsified for a
+    * compact string and a hand-rolled encode is not. The substring is transient
+    * — it dies at the end of this call, where the trace used to hold it for the
+    * life of the page — so the churn is unchanged and the retention is gone.
+    */
+  def ofRange(buf: CharSequence, from: Int, until: Int): Digest =
+    of(buf.subSequence(from, until).toString)
+
+  private def digestOf(html: String): Array[Byte] = {
     val md = digester.get()
     md.reset()
-    val bytes = md.digest(html.getBytes(StandardCharsets.UTF_8))
+    md.digest(html.getBytes(StandardCharsets.UTF_8))
+  }
+
+  private def hex(bytes: Array[Byte]): Digest = {
     val out = new Array[Char](32)
     var i = 0
     while (i < 16) {

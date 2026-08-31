@@ -30,7 +30,13 @@ import scala.jdk.CollectionConverters.*
   * pass over the painted ids.
   */
 private[runtime] case class Painted(
-    html: String,
+    // The DIGEST of this node's patch-form bytes, not the bytes. Every reader
+    // wanted the fingerprint and threw the html away immediately, and holding
+    // it meant a page kept 99 kB of a 128 kB document a second time — the
+    // leaves, sliced out of the buffer that already held them. The one caller
+    // that needs real bytes ([[Renderer.render]], one node) asks for the walk
+    // ROOT's, which [[Traced.rootOwn]] carries.
+    digest: Digest,
     signals: Map[SignalId, String]
 )
 
@@ -970,7 +976,7 @@ class Renderer(
       form: SlotForm
   ): Option[String] = {
     val t = traced(node, id, idPrefix, states, uiState)
-    if (form.isPatch) t.own.get(id).map(_.html) else Some(t.html)
+    if (form.isPatch) t.rootOwn else Some(t.html)
   }
 
   /** The composed rendering, and every node's OWN html inside it.
@@ -988,7 +994,12 @@ class Renderer(
     */
   private[runtime] case class Traced(
       html: String,
-      own: Map[NodeId, Painted]
+      own: Map[NodeId, Painted],
+      // The walk ROOT's own patch-form bytes, where it has any. Only
+      // [[Renderer.render]] wants real bytes out of a trace, and it always
+      // wants the root's — so this is the whole of what `own` used to carry
+      // html for, and every other node keeps only its digest.
+      rootOwn: Option[String] = None
   )
 
   /** A static floor on the nodes a subtree renders, for sizing its buffer: the
@@ -1010,10 +1021,9 @@ class Renderer(
       uiState: Map[String, String]
   ): Traced = {
     val own = new java.util.HashMap[NodeId, Painted]()
-    Traced(
-      tracedHtml(node, id, idPrefix, states, uiState, own),
-      own.asScala.toMap
-    )
+    val root = new Array[String](1)
+    val html = tracedHtml(node, id, idPrefix, states, uiState, own, root)
+    Traced(html, own.asScala.toMap, Option(root(0)))
   }
 
   /** A subtree's DOCUMENT bytes, with its trace written into the CALLER's
@@ -1032,7 +1042,10 @@ class Renderer(
       idPrefix: String,
       states: Map[String, EntityState],
       uiState: Map[String, String],
-      trace: java.util.HashMap[NodeId, Painted]
+      trace: java.util.HashMap[NodeId, Painted],
+      // One slot for the WALK ROOT's own patch bytes — see [[Traced.rootOwn]].
+      // `null` for a page, whose root is structure and has none.
+      rootOwn: Array[String] | Null = null
   ): String = {
     val out = new java.lang.StringBuilder(
       Renderer.NodeBytesHint * (node match {
@@ -1040,7 +1053,7 @@ class Renderer(
         case _                       => nodeCount(node)
       })
     )
-    tracedInto(out, node, id, idPrefix, states, uiState, trace)
+    tracedInto(out, node, id, idPrefix, states, uiState, trace, rootOwn, id)
     out.toString
   }
 
@@ -1062,7 +1075,11 @@ class Renderer(
       idPrefix: String,
       states: Map[String, EntityState],
       uiState: Map[String, String],
-      trace: java.util.HashMap[NodeId, Painted]
+      trace: java.util.HashMap[NodeId, Painted],
+      // Where to leave the ROOT's own patch bytes, and which id that is. Only
+      // the root's are kept; every other node contributes a digest alone.
+      rootOwn: Array[String] | Null = null,
+      rootId: NodeId | Null = null
   ): Unit =
     node match {
       case c: LayoutNode.Component =>
@@ -1252,21 +1269,26 @@ class Renderer(
         // rendering when it is a LEAF, and nothing when it is structure.
         // Mirrors `renderNodeById` exactly — wrapper included, and in the PATCH
         // form, which is what that method produces.
-        val own = Option.when(plan.ownRendering)(
-          Painted(
-            if (twoForms) {
-              val buf = new java.lang.StringBuilder(Renderer.NodeBytesHint)
-              wrapper(buf, SlotForm.Patch)
-              bodyInto(buf, SlotForm.Patch)
-              if (wrapped) buf.append("</div>")
-              buf.toString
-            } else
-              // No signal slot: the forms are byte-identical, so the patch
-              // fingerprint IS the document bytes just written.
-              out.substring(start, end),
-            resolved.signals
-          )
-        )
+        val own = Option.when(plan.ownRendering) {
+          // The trace keeps the DIGEST, never the bytes — every reader wanted
+          // the fingerprint. The one exception is the walk ROOT, whose bytes
+          // `renderNodeById` returns, and only then.
+          val isRoot = rootOwn != null && id == rootId
+          if (twoForms) {
+            val buf = new java.lang.StringBuilder(Renderer.NodeBytesHint)
+            wrapper(buf, SlotForm.Patch)
+            bodyInto(buf, SlotForm.Patch)
+            if (wrapped) buf.append("</div>")
+            if (isRoot) rootOwn.nn(0) = buf.toString
+            Painted(Digest.ofRange(buf, 0, buf.length), resolved.signals)
+          } else {
+            // No signal slot: the forms are byte-identical, so the patch
+            // fingerprint IS the document bytes just written — digested in
+            // place rather than cut out of the buffer first.
+            if (isRoot) rootOwn.nn(0) = out.substring(start, end)
+            Painted(Digest.ofRange(out, start, end), resolved.signals)
+          }
+        }
         // The baked surface's trace is already in `trace` — the walk put it
         // there, or the fallback did — so `own` is the only addition here.
         own.foreach(trace.put(id, _))
@@ -1308,19 +1330,20 @@ class Renderer(
           val start = out.length
           renderResolvedMemberInto(out, m, rm, SlotForm.Document)
           val end = out.length
-          val patch =
+          val digest =
             if (sigs.isEmpty)
               // No signal slot anywhere in the member's subtree: the seed
               // attr is absent either way ([[Datastar.signalsAttr]] of
               // nothing is "") and there is no value to withhold, so the
-              // two forms are byte-identical.
-              out.substring(start, end)
+              // two forms are byte-identical — digested in place rather than
+              // cut out of the buffer first.
+              Digest.ofRange(out, start, end)
             else {
               val buf = new java.lang.StringBuilder(Renderer.NodeBytesHint)
               renderResolvedMemberInto(buf, m, rm, SlotForm.Patch)
-              buf.toString
+              Digest.ofRange(buf, 0, buf.length)
             }
-          trace.put(m.id, Painted(patch, sigs))
+          trace.put(m.id, Painted(digest, sigs))
         }
         out.append("</div>")
     }

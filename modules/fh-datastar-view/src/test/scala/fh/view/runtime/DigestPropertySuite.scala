@@ -89,9 +89,14 @@ class DigestPropertySuite extends HedgehogSuite {
       signal <- genSignal.forAll
     } yield {
       val r = Renderer.create(dashboard(signal))
-      val recorded = r.renderBodyTraced(at(v)).own.values.head.html
-      val rendered = r.renderNodeById(NodeId.derived("c"), at(v)).get
-      recorded ==== rendered
+      // The trace records the DIGEST now, so the property is asserted where
+      // the code actually uses it: the fingerprint the walk wrote must be the
+      // one the live path's bytes hash to.
+      val recorded = r.renderBodyTraced(at(v)).own.values.head.digest
+      val rendered =
+        Digest.of(r.renderNodeById(NodeId.derived("c"), at(v)).get)
+      assert(recorded == rendered)
+      success
     }
   }
 
@@ -102,9 +107,10 @@ class DigestPropertySuite extends HedgehogSuite {
     } yield {
       val r = Renderer.create(setDashboard(signal))
       val mid = NodeId.derived(r.members.memberIdOf(setId("c"), "alpha"))
-      val recorded = r.renderBodyTraced(at(v)).own.get(mid).get.html
-      val rendered = r.renderNodeById(mid, at(v)).get
-      recorded ==== rendered
+      val recorded = r.renderBodyTraced(at(v)).own.get(mid).get.digest
+      val rendered = Digest.of(r.renderNodeById(mid, at(v)).get)
+      assert(recorded == rendered)
+      success
     }
   }
 }

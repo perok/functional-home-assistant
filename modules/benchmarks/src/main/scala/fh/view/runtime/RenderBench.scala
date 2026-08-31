@@ -274,7 +274,14 @@ class RenderBench {
     entityTemplate = Templates
       .from(Dashboard(cards, tree(Leaves, 4, signals = true)))
       .components("entity")
-    painted = signalled.renderPageTraced(st).own.values.map(_.html).toList
+    // The trace holds digests now, so the leaf BYTES for [[holdsSeed]] come
+    // from the live path that still produces them.
+    painted = signalled
+      .renderPageTraced(st)
+      .own
+      .keys
+      .flatMap(signalled.renderNodeById(_, st))
+      .toList
     // The first leaves' own node ids — one per leaf, in fixture order — for
     // the tick render: `componentsFor` maps the entity to the node that
     // shows it.
@@ -289,14 +296,14 @@ class RenderBench {
     // the case the suppression exists to avoid measuring.
     val paint = signalled.renderPageTraced(st)
     heldAfterPaint = paint.own.map { case (id, p) =>
-      id -> Held(Some(Digest.of(p.html)), p.signals)
+      id -> Held(Some(p.digest), p.signals)
     }
     tickEntities = Vector.tabulate(TickEntities)(entityId)
     tickNodeIds = tickEntities.flatMap(signalled.componentsFor(_).toList)
     pure = Renderer.create(Dashboard(cards, tree(Leaves, 4, signalOnly = true)))
     val purePaint = pure.renderPageTraced(st)
     heldPure = purePaint.own.map { case (id, p) =>
-      id -> Held(Some(Digest.of(p.html)), p.signals)
+      id -> Held(Some(p.digest), p.signals)
     }
     pureNodeIds = tickEntities.flatMap(pure.componentsFor(_).toList)
     liveCache = RenderCache.create.unsafeRunSync()
@@ -563,7 +570,11 @@ class RenderBench {
   @Benchmark
   def pageServe(bh: Blackhole): Unit = {
     val t = signalled.renderPageTraced(st)
-    t.own.foreach { case (_, p) => bh.consume(Digest.of(p.html)) }
+    // No digest pass here any more, and its absence IS the change: the walk
+    // fingerprints each node as it writes it, so `Server.renderPage` seeds
+    // `holds` straight from the trace instead of re-hashing every leaf's html.
+    // What is left of the serve is the UTF-8 encode of the response body.
+    bh.consume(t.own.size)
     bh.consume(t.html.getBytes(UTF_8))
   }
 
