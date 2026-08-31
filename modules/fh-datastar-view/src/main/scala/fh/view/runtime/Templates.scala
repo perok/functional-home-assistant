@@ -86,9 +86,10 @@ object Templates {
     /** Region name -> render that region's children INTO the writer. Present
       * only where the document walk can supply it ([[Renderer.tracedInto]]);
       * absent for patch renders and the member walk, which keep the
-      * string-splice path.
+      * string-splice path. The walk's trace lands in the caller's shared
+      * accumulator, so nothing comes back.
       */
-    def regionWalk: Map[String, Writer => Map[NodeId, Painted]]
+    def regionWalk: Map[String, Writer => Unit]
 
   private class FhObjectHandler
       extends com.github.mustachejava.reflect.SimpleObjectHandler() {

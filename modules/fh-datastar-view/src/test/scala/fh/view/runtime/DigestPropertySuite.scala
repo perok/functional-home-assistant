@@ -101,12 +101,9 @@ class DigestPropertySuite extends HedgehogSuite {
       signal <- genSignal.forAll
     } yield {
       val r = Renderer.create(setDashboard(signal))
-      val recorded = r.renderBodyTraced(at(v)).own.values.head.html
-      val rendered =
-        r.renderNodeById(
-          NodeId.derived(r.members.memberIdOf(setId("c"), "alpha")),
-          at(v)
-        ).get
+      val mid = NodeId.derived(r.members.memberIdOf(setId("c"), "alpha"))
+      val recorded = r.renderBodyTraced(at(v)).own.get(mid).get.html
+      val rendered = r.renderNodeById(mid, at(v)).get
       recorded ==== rendered
     }
   }
