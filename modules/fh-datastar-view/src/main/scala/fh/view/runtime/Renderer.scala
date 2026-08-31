@@ -927,11 +927,6 @@ class Renderer(
     node match {
       case c: LayoutNode.Component =>
         val (bakeIndex, bakeSel) = resolveBakeTraced(id, uiState, states)
-        // ONE var map for the whole template: a region's contents are other
-        // nodes, so nothing here needs a narrower view than the card's own.
-        // The baked member is NOT a var any more — its region is filled by the
-        // walk, below.
-        val vars = structuralVars(id) ++ bakeIndex
         // ONE walk, both forms — see [[Traced]]. Only the form differs between
         // the two calls, so a node with no signal slot anywhere under it does
         // the second not at all.
@@ -939,9 +934,14 @@ class Renderer(
         // the bindings do not depend on which form is being produced, and
         // re-deriving them for the patch render was the bulk of what a signal
         // slot cost a first paint.
-        val tpl = templateOf(c.card)
-        val resolved = resolveTemplate(vars, c.slots, states)
-        val ownRendering = hasOwnRendering(id)
+        //
+        // Everything about the node that a paint cannot change comes from the
+        // PLAN ([[NodePlan]]) — the card's template, the structural vars, the
+        // constant slot values, the bindings and signal names — so a paint
+        // resolves only the entity-derived slots and assembles one map.
+        val plan = planOf(id, id, c, states)
+        val resolved = resolvePlanned(plan, states, bakeIndex)
+        val tpl = plan.tpl
         // The patch form is what `own` is fingerprinted from, and `own` is the
         // only thing that reads one — so it is needed exactly where there is an
         // `own`: a node with its own rendering whose slots carry a signal.
@@ -951,7 +951,7 @@ class Renderer(
         // patch-form set: a node with its own rendering has no regions
         // (`CardDef.isStructure` IS "has regions"), so there is nothing to
         // compose.
-        val twoForms = ownRendering && declaresSignals(c)
+        val twoForms = plan.ownRendering && plan.declaresSignals
         // EVERY node is a cell — containers included. The backend owns the id'd
         // `.fh-cell` wrapper, so templates never carry `id="{{id}}"` themselves
         // and authored `cell` classes (fh-cols-*, …) ride on it.
@@ -982,13 +982,13 @@ class Renderer(
         //
         // Wrapper and body go into ONE buffer, so the body is written where it
         // is going rather than built and then copied in.
-        val wrapped = !noWrapCards(c.card)
+        val wrapped = plan.wrapped
         // Regions whose loops the visitor made INLINE (body exactly
         // `{{{html}}}`): their children are traced INTO this node's buffer at
         // the hole position and no child String exists. Any other region keeps
         // the string splice, rendered isolated exactly as before — a template
         // written differently loses speed, never bytes.
-        val inline = templates.inlineRegions.getOrElse(c.card, Set.empty)
+        val inline = plan.inline
 
         def childId(region: String, i: Int, child: LayoutNode) =
           LayoutNode.childId(idPrefix, id, LayoutNode.Step(region, i), child)
@@ -1119,7 +1119,7 @@ class Renderer(
         // rendering when it is a LEAF, and nothing when it is structure.
         // Mirrors `renderNodeById` exactly — wrapper included, and in the PATCH
         // form, which is what that method produces.
-        val own = Option.when(ownRendering)(
+        val own = Option.when(plan.ownRendering)(
           Painted(
             if (twoForms) {
               val buf = new java.lang.StringBuilder(Renderer.NodeBytesHint)
@@ -1301,18 +1301,20 @@ class Renderer(
   private def resolveMember(
       m: Member,
       states: Map[String, EntityState]
-  ): ResolvedMember =
+  ): ResolvedMember = {
+    val plan = planOf(m.id, m.id, m.node, states)
     ResolvedMember(
       m.node.card,
-      templateOf(m.node.card),
+      plan.tpl,
       // `structuralVars(m.id)` for every node in the subtree, member and
       // children alike: the children have no ids of their own, so their signals
       // are minted in the MEMBER's namespace and seeded on its wrapper.
-      resolveTemplate(structuralVars(m.id), m.node.slots, states),
+      resolvePlanned(plan, states, Map.empty),
       Renderer.perRegion(m.node.regions)((child, step) =>
         resolveChild(m, child, List(step), m.clause, states)
       )
     )
+  }
 
   private def resolveChild(
       m: Member,
@@ -1322,12 +1324,16 @@ class Renderer(
       states: Map[String, EntityState]
   ): ResolvedChild = node match {
     case c: LayoutNode.Component =>
+      // A member's children have no ids of their own, so their plan key is the
+      // member's id plus the position under it — the same map a member's
+      // structural vars are built from, one plan per authored position.
+      val plan = planOf(s"$m.id\u0000${path.mkString("/")}", m.id, c, states)
       ResolvedChild.Node(
         c.cell,
         ResolvedMember(
           c.card,
-          templateOf(c.card),
-          resolveTemplate(structuralVars(m.id), c.slots, states),
+          plan.tpl,
+          resolvePlanned(plan, states, Map.empty),
           Renderer.perRegion(c.regions)((child, step) =>
             resolveChild(m, child, path :+ step, clauseIdx, states)
           )
@@ -1480,23 +1486,6 @@ class Renderer(
       case (acc, ResolvedChild.NestedSet(_)) => acc
     }
 
-  private def renderTemplate(
-      cardName: String,
-      injected: Map[String, String],
-      slots: Map[String, SlotSource],
-      childrenHtml: Map[String, List[String]],
-      states: Map[String, EntityState],
-      form: SlotForm
-  ): String =
-    renderTemplateOf(
-      templateOf(cardName),
-      injected,
-      slots,
-      childrenHtml,
-      states,
-      form
-    )
-
   /** Unreachable `None` by construction: `Dashboard.validate` resolves every
     * card reference before a Renderer is built.
     */
@@ -1513,7 +1502,7 @@ class Renderer(
     * The forms differ in one step and one only — a signal slot's value is
     * withheld from the patch form — so resolution happens once and
     * [[executeResolved]] is run per form. Before this split, asking for both
-    * forms of a node re-ran the whole of [[resolveTemplate]] for the second:
+    * forms of a node re-ran the whole of [[resolvePlanned]] for the second:
     * every JSONata transform again, every signal name again, to arrive at the
     * same map and blank two entries in it. On a page of leaves with signal
     * slots that duplicated transform evaluation was the single largest cost of
@@ -1538,56 +1527,21 @@ class Renderer(
       signals: Map[SignalId, String]
   )
 
-  /** Render an already-resolved template with the card's slot resolution, so a
-    * card's markup and its parts can never disagree about what a slot means.
-    *
-    * `form` picks which rendering a SIGNAL slot gets, and changes nothing else
-    * (see [[SlotForm]]). A card with no signal slot renders identically either
-    * way, which is what lets the callers skip the second execute entirely.
-    */
-  private def renderTemplateOf(
-      tpl: Mustache,
-      injected: Map[String, String],
-      slots: Map[String, SlotSource],
-      childrenHtml: Map[String, List[String]],
-      states: Map[String, EntityState],
-      form: SlotForm
-  ): String = {
-    // Pre-sized to the children's known bytes, as [[traced]]'s walk does — the
-    // patch path executes the same templates and would grow its buffer the
-    // same way.
-    val out = new java.lang.StringBuilder(
-      Renderer.NodeBytesHint + childrenHtml.valuesIterator
-        .flatMap(_.iterator)
-        .map(_.length)
-        .sum
-    )
-    executeInto(
-      out,
-      tpl,
-      resolveTemplate(injected, slots, states),
-      childrenHtml,
-      form
-    )
-    out.toString
-  }
-
   /** The template context, READ IN PLACE.
     *
-    * jmustache resolves a name against whatever object it is handed; for a
-    * `java.util.Map` that meant copying every var into a fresh `HashMap` per
-    * node, which is pure waste when the values are already in a map. A
-    * `CustomContext` is one small object that answers `get` from the maps that
-    * already exist.
+    * mustache.java resolves a name against whatever object it is handed; for a
+    * `java.util.Map` that means iterating its `entrySet` per lookup (a get-only
+    * map answers every name empty — that cost a probe suite to find). A context
+    * is one small object that answers `get` from the maps that already exist.
     *
     * It is also where the PATCH form withholds a signal slot's value, which is
     * why there is no second map: blanking used to be `signalSlots.foldLeft(
     * vars)(_.updated(_, ""))`, a whole new `HashMap` per signal slot per node,
     * to change two entries.
     *
-    * `null` for an unknown name is what jmustache expects, and
-    * `Templates.compiler`'s `defaultValue("")` turns it into the empty string —
-    * the same behaviour a `Map` context gave for a missing key.
+    * `null` for an unknown name is what mustache.java expects, and the engine
+    * factory's `defaultValue("")` turns it into the empty string — the same
+    * behaviour a `Map` context gave for a missing key.
     */
   private case class NodeContext(
       resolved: Resolved,
@@ -1644,45 +1598,254 @@ class Renderer(
       override def close(): Unit = ()
     }
 
-  /** [[Resolved.vars]] and the signal slots, for one card. Pure of `form`. */
-  private def resolveTemplate(
-      injected: Map[String, String],
-      slots: Map[String, SlotSource],
+  /** Everything about one component node that a PAINT cannot change, derived
+    * once and reused every paint after: the card's template, the structural
+    * vars, the constant slot values (literals, and identity-derived `once`
+    * slots), the pre-resolved entity of every entity-derived slot whose
+    * inheritance chain is constant, the signal bindings and their names.
+    *
+    * This is the "hold a reference, not a re-derivation" end of the trade: a
+    * paint used to rebuild the whole slot resolution per node — a builder, two
+    * lists, an Option, three more collections for the signal half — to arrive
+    * at values that mostly had not moved. The plan is one small object per
+    * node, the same one-per-node bound the render cache keeps (one generation
+    * per node), and a paint resolves only what can actually change: the `live`
+    * slot values, the signal values, the bake selection.
+    *
+    * Lifetime: one renderer generation — the dashboard is immutable for it, so
+    * the map never needs invalidation; a hot reload builds a new renderer and
+    * with it a new plan map. The node is held by IDENTITY and checked on
+    * lookup, because a dynamic set's clause can hand a DIFFERENT node for the
+    * same member id as state moves (the first clause whose `when` holds wins):
+    * a lookup that fails the identity check recomputes — the cost the node had
+    * before plans existed, never different bytes.
+    */
+  private case class NodePlan(
+      node: LayoutNode.Component,
+      tpl: Mustache,
+      structural: Map[String, String],
+      constants: Map[String, String],
+      dynamic: List[(String, Option[String], SlotSource)],
+      bindings: Map[String, String],
+      signalSlots: List[String],
+      signalNameBySlot: Map[String, SignalId],
+      subjectDynamic: Boolean,
+      ownRendering: Boolean,
+      declaresSignals: Boolean,
+      wrapped: Boolean,
+      inline: Set[String]
+  )
+
+  private val nodePlans =
+    new java.util.concurrent.ConcurrentHashMap[String, NodePlan]()
+
+  /** The plan for `node` under key `key`, built on first paint and reused
+    * after. `structuralId` is the id the node's structural vars name — its own
+    * for a static component, the MEMBER's for a member or a member's child
+    * (children have no ids of their own), which is also why the cache key is
+    * separate: a child's key is its member's id plus its position under it.
+    */
+  private def planOf(
+      key: String,
+      structuralId: NodeId,
+      node: LayoutNode.Component,
       states: Map[String, EntityState]
-  ): Resolved = {
+  ): NodePlan = {
+    val cached = nodePlans.get(key)
+    if (cached != null && (cached.node eq node)) cached
+    else {
+      val p = buildPlan(structuralId, node, states)
+      nodePlans.put(key, p)
+      p
+    }
+  }
+
+  private def buildPlan(
+      id: NodeId,
+      c: LayoutNode.Component,
+      states: Map[String, EntityState]
+  ): NodePlan = {
+    val slots = c.slots
     // The card's subject entity: the `entity_id` slot resolved against its
     // OWN entity (it DEFINES the subject, so it never inherits it). Normally
-    // a literal; a transform form (indirection) grounds on its own entityId.
+    // a literal — a constant the plan holds. A transform form (indirection)
+    // grounds on its own entityId and CAN change per paint; that one shape is
+    // the only thing a plan cannot precompute, and [[resolveDirect]] owns the
+    // whole node then. `Some(subject)` below means "constant, and here it is".
+    val subjectConst: Option[Option[String]] =
+      slots.get(Dashboard.SubjectSlot) match {
+        case None                           => Some(None)
+        case Some(s) if s.literal.isDefined => Some(s.literal)
+        case Some(_)                        => None
+      }
+    val constB = Map.newBuilder[String, String]
+    val dynB = List.newBuilder[(String, Option[String], SlotSource)]
+    val dynInhB = List.newBuilder[(String, SlotSource)]
+    slots.foreach { case (slot, source) =>
+      source.literal match {
+        // A constant literal: used verbatim, reading no entity and running no
+        // transform — the cheap path for a hardcoded label/action.
+        case Some(text) => constB += ((slot, text))
+        case None       =>
+          subjectConst match {
+            case Some(subject) =>
+              // A slot's entity is its own `entityId`, or the subject when it
+              // leaves it unset (slot-level inheritance — the card's entity, or
+              // the matched entity in a set clause). The `entity_id` slot
+              // itself never inherits — it is the subject.
+              val srcEntity =
+                if (slot == Dashboard.SubjectSlot) source.entityId
+                else source.entityId.orElse(subject)
+              // `once` is identity-derived — its transform reads only
+              // `$domain`/`$entity_id` (a service action, the slider's domain
+              // config), both immutable for the life of the entity. So its
+              // value never changes and the PLAN holds it; the shared memo is
+              // seeded exactly as the first paint seeded it, so the two paths
+              // agree and cross-pollinate. `$entity_id` is in the key (the
+              // action URL embeds it), so two entities never collide.
+              //
+              // `live` and `onRender` both re-resolve; they differ in whether
+              // the entity is SUBSCRIBED, which is `liveEntities`' business,
+              // not this one. That is why the memo asks only about `once`.
+              if (source.reads == Reads.Once)
+                constB += ((
+                  slot,
+                  identityCache.computeIfAbsent(
+                    (srcEntity.getOrElse(""), source.valueKey),
+                    _ => resolveSlot(srcEntity, source, states)
+                  )
+                ))
+              else dynB += ((slot, srcEntity, source))
+            // A dynamic subject makes every inheritance chain a per-paint
+            // question; [[resolveDirect]] runs the node and the plan holds
+            // nothing per-slot (and seeds no memo under a key that could be
+            // wrong).
+            case None => dynInhB += ((slot, source))
+          }
+      }
+    }
+    // A signal slot contributes one extra var — the binding attribute the card
+    // places — and, in the patch form, withholds its value. The binding is
+    // present in BOTH forms: it is what the seeded signal feeds, and a morph
+    // that dropped it would leave the element inert. A signal slot is always
+    // non-literal and `live` ([[Renderer.signalBind]]), so its NAME is
+    // constant per node and only its VALUE is per-paint.
+    val named = subjectConst match {
+      case Some(subject) =>
+        slots.toList.flatMap { case (slot, src) =>
+          Renderer.signalBind(src).map { kind =>
+            (
+              slot,
+              kind,
+              Renderer.signalName(
+                id,
+                slot,
+                src.entityId.orElse(subject),
+                src.valueKey,
+                kind
+              )
+            )
+          }
+        }
+      case None => Nil
+    }
+    NodePlan(
+      node = c,
+      tpl = templateOf(c.card),
+      structural = structuralVars(id),
+      constants = constB.result(),
+      dynamic = dynB.result(),
+      bindings = named.flatMap { case (slot, kind, signal) =>
+        List(
+          s"${slot}__bind" -> Datastar.binding(signal, kind),
+          // The bare NAME, for the one thing a canned attribute cannot cover:
+          // a card composing the signal into an expression of its own (the
+          // slider's action URL reads its bound position). Not a binding, so
+          // it does not compromise the plain form — but a card that uses it is
+          // relying on a signal existing, which a plain-form client has not
+          // got.
+          s"${slot}__signal" -> signal
+        )
+      }.toMap,
+      signalSlots = named.map(_._1),
+      signalNameBySlot = named.map { case (slot, _, signal) =>
+        slot -> signal
+      }.toMap,
+      subjectDynamic = subjectConst.isEmpty,
+      ownRendering = hasOwnRendering(id),
+      declaresSignals = slots.values.exists(Renderer.isSignalSlot),
+      wrapped = !noWrapCards(c.card),
+      inline = templates.inlineRegions.getOrElse(c.card, Set.empty)
+    )
+  }
+
+  /** One paint's resolution from the plan: the constants, the per-paint entity
+    * values, the bake index, and the signal values captured as they resolve — a
+    * signal slot is always a `live` slot ([[Renderer.signalBind]]), so its
+    * value is in hand exactly once and no read-back lookup is needed.
+    * `bakeIndex` is the one structural input a paint can change (the client's
+    * selection), so it rides the builder rather than the plan.
+    */
+  private def resolvePlanned(
+      plan: NodePlan,
+      states: Map[String, EntityState],
+      bakeIndex: Map[String, String]
+  ): Resolved =
+    if (plan.subjectDynamic) resolveDirect(plan, states, bakeIndex)
+    else {
+      // ONE map, built once. `structural ++ bakeIndex ++ constants ++ dynamic
+      // ++ bindings` read well but allocated an intermediate `HashMap` per
+      // `++`, per node — the builder is the whole assembly.
+      val b = Map.newBuilder[String, String]
+      b.sizeHint(
+        plan.structural.size + bakeIndex.size + plan.constants.size +
+          plan.dynamic.size + plan.bindings.size
+      )
+      b ++= plan.structural
+      if (bakeIndex.nonEmpty) b ++= bakeIndex
+      b ++= plan.constants
+      val signals =
+        if (plan.signalNameBySlot.isEmpty) None
+        else Some(Map.newBuilder[SignalId, String])
+      plan.dynamic.foreach { case (slot, srcEntity, source) =>
+        val value = resolveSlot(srcEntity, source, states)
+        b += ((slot, value))
+        plan.signalNameBySlot
+          .get(slot)
+          .foreach(sig => signals.foreach(_ += ((sig, value))))
+      }
+      b ++= plan.bindings
+      Resolved(
+        b.result(),
+        plan.signalSlots,
+        signals.fold(Map.empty[SignalId, String])(_.result())
+      )
+    }
+
+  /** The straight per-paint resolution, kept for the one shape a plan cannot
+    * precompute: a card whose `entity_id` slot is itself a transform, so the
+    * subject — and with it every slot's inherited entity, every signal name and
+    * binding — can change per paint. Everything else goes through
+    * [[resolvePlanned]].
+    */
+  private def resolveDirect(
+      plan: NodePlan,
+      states: Map[String, EntityState],
+      bakeIndex: Map[String, String]
+  ): Resolved = {
+    val injected = plan.structural ++ bakeIndex
+    val slots = plan.node.slots
     val subject: Option[String] =
       slots.get(Dashboard.SubjectSlot).map { s =>
         s.literal.getOrElse(resolveSlot(s.entityId, s, states))
       }
     val resolved = slots.map { case (slot, source) =>
       val value = source.literal match {
-        // A constant literal: used verbatim, reading no entity and running no
-        // transform — the cheap path for a hardcoded label/action.
         case Some(text) => text
         case None       =>
-          // A slot's entity is its own `entityId`, or the subject when it
-          // leaves it unset (slot-level inheritance — the card's entity, or
-          // the matched entity in a set clause). The `entity_id` slot
-          // itself never inherits — it is the subject.
           val srcEntity =
             if (slot == Dashboard.SubjectSlot) source.entityId
             else source.entityId.orElse(subject)
-          // `once` is identity-derived — its transform reads only
-          // `$domain`/`$entity_id` (a service action, the slider's domain
-          // config), both immutable for the life of the entity. So its value
-          // never changes: resolve it ONCE per (entity, transform) and reuse
-          // forever. This is what keeps the set render path slick — a candidate
-          // set re-renders every matched card on every event, but those cards'
-          // action/config slots become a cache lookup, not a JSONata eval.
-          // `$entity_id` is in the key (the action URL embeds it), so two
-          // entities never collide.
-          //
-          // `live` and `onRender` both re-resolve; they differ in whether the
-          // entity is SUBSCRIBED, which is `liveEntities`' business, not this
-          // one. That is why the memo asks only about `once`.
           if (source.reads == Reads.Once)
             identityCache.computeIfAbsent(
               (srcEntity.getOrElse(""), source.valueKey),
@@ -1692,10 +1855,6 @@ class Renderer(
       }
       slot -> value
     }
-    // A signal slot contributes one extra var — the binding attribute the card
-    // places — and, in the patch form, withholds its value. The binding is
-    // present in BOTH forms: it is what the seeded signal feeds, and a morph
-    // that dropped it would leave the element inert.
     val signalled = slots.toList.flatMap { case (slot, src) =>
       Renderer.signalBind(src).map((slot, src, _))
     }
@@ -1716,17 +1875,9 @@ class Renderer(
     val bindings = named.flatMap { case (slot, kind, signal) =>
       List(
         s"${slot}__bind" -> Datastar.binding(signal, kind),
-        // The bare NAME, for the one thing a canned attribute cannot cover: a
-        // card composing the signal into an expression of its own (the
-        // slider's action URL reads its bound position). Not a binding, so it
-        // does not compromise the plain form — but a card that uses it is
-        // relying on a signal existing, which a plain-form client has not got.
         s"${slot}__signal" -> signal
       )
     }
-    // ONE map, built once. `injected ++ resolved ++ bindings` read well but
-    // allocated an intermediate `HashMap` per `++`, per node — and this is the
-    // hottest allocation site the walk owns (issue #237).
     val vars = Map.newBuilder[String, String]
     vars.sizeHint(injected.size + resolved.size + bindings.size)
     vars ++= injected
@@ -1735,17 +1886,10 @@ class Renderer(
     Resolved(
       vars.result(),
       named.map(_._1),
-      // `resolved(slot)` is the slot's value, already computed above — the
-      // same `resolveSlot` on the same entity that a separate pass would redo.
       named.map { case (slot, _, signal) => signal -> resolved(slot) }.toMap
     )
   }
 
-  /** One form of an already-resolved card. The patch form withholds a signal
-    * slot's VALUE and nothing else — the binding stays, in both forms, because
-    * it is what the seeded signal feeds and a morph that dropped it would leave
-    * the element inert.
-    */
   /** Render one card INTO the caller's buffer.
     *
     * Into, rather than returning a `String`, because the caller is about to
@@ -1754,8 +1898,8 @@ class Renderer(
     * node's rendering contains its entire subtree. One copy per node per level
     * of nesting, for a wrapper of about forty bytes (issue #237).
     *
-    * Not jmustache's own `execute(ctx)` for the same reason: that allocates a
-    * `StringWriter` over a `StringBuffer` of default capacity 16, so a
+    * Not mustache.java's own `execute(ctx)` for the same reason: that allocates
+    * a `StringWriter` over a `StringBuffer` of default capacity 16, so a
     * ~400-byte fragment grew its array five times, under a lock nothing shared.
     */
   private def executeInto(
@@ -2119,11 +2263,6 @@ object Renderer {
   private def cellClasses(cell: Option[Cell]): String =
     cell.map(_.classes).filter(_.nonEmpty).fold("")(_.mkString(" ", " ", ""))
 
-  /** Build the jmustache context at the Java boundary: the string slot/param
-    * context plus, when present, a `children` list of `{html}` maps for
-    * container templates (`{{#children}}{{{html}}}{{/children}}`). Kept here so
-    * the rest of the renderer works in plain `Map[String, String]`.
-    */
   /** Render each region's children, keeping them under their region's name and
     * handing each child the [[LayoutNode.Step]] that reaches it. Every walk
     * that produces `childrenHtml` goes through here, so "which region am I in"
