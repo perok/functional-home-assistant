@@ -452,18 +452,45 @@ class Renderer(
     * is the exception — with no entry, the first live tick would hand the
     * client its own surface straight back.
     */
+  /** A floor on the document's bytes, for sizing the one buffer it is written
+    * into — the theme's style tag, a rough per-node figure, and slack for the
+    * shell around it. A builder that grows instead pays amortized doubling
+    * across the whole page, which is the copy this walk exists to remove.
+    */
+  private[runtime] def pageBytesHint: Int =
+    themeStyleTag.length + Renderer.NodeBytesHint * nodeCount(dashboard.card) +
+      4096
+
   private[runtime] def renderPageTraced(
       states: Map[String, EntityState],
       uiState: Map[String, String] = Map.empty,
       popup: Option[String] = None
   ): Traced = {
+    val pageOut = Sink.buffer(pageBytesHint)
+    val own = renderPageInto(pageOut, states, uiState, popup)
+    // The whole page is never a patch target — a repaint replaces `#dashboard`
+    // wholesale — so it has no second form of its own. Its NODES do, and those
+    // are in `own`.
+    Traced(pageOut.result, own)
+  }
+
+  /** The page walked straight into `out`, returning only the per-node trace.
+    *
+    * This is the whole document path, and it takes the buffer rather than
+    * owning one so the SERVER's shell — head, banners, closing scripts — can be
+    * the same bytes: `Server.pageInto` writes around this as a writer hole,
+    * where it used to interpolate the finished body into a document String and
+    * pay a second full copy of the page. [[renderPageTraced]] wraps it for the
+    * callers that want the bytes back as a value.
+    */
+  private[runtime] def renderPageInto(
+      out: Sink,
+      states: Map[String, EntityState],
+      uiState: Map[String, String] = Map.empty,
+      popup: Option[String] = None
+  ): Map[NodeId, Painted] = {
     val own = new java.util.HashMap[NodeId, Painted]()
-    val pageOut = new java.lang.StringBuilder(
-      themeStyleTag.length + Renderer.NodeBytesHint * nodeCount(
-        dashboard.card
-      ) +
-        4096
-    )
+    val pageOut = out
     // The body and the restored dialog are WRITER HOLES, not values: each is
     // walked straight into the page buffer when the chrome reaches its hole.
     // Building them as Strings first cost a full copy of the document each,
@@ -496,11 +523,8 @@ class Renderer(
     val scope = new Renderer.PageScope(
       Map("body" -> bodyInto) ++ dialogInto.map("popups" -> _)
     )
-    Templates.run(chromeTemplate, appendTo(pageOut), scope)
-    // The whole page is never a patch target — a repaint replaces `#dashboard`
-    // wholesale — so it has no second form of its own. Its NODES do, and those
-    // are in `own`.
-    Traced(pageOut.toString, own.asScala.toMap)
+    Templates.run(chromeTemplate, pageOut, scope)
+    own.asScala.toMap
   }
 
   /** Bare content, with no wrapper: every surface is chrome-less, because the
@@ -524,7 +548,7 @@ class Renderer(
     * chrome's hole empty.
     */
   private def surfaceWalk(
-      out: java.lang.StringBuilder,
+      out: Sink,
       surfaceId: String,
       states: Map[String, EntityState],
       uiState: Map[String, String],
@@ -1047,14 +1071,14 @@ class Renderer(
       // `null` for a page, whose root is structure and has none.
       rootOwn: Array[String] | Null = null
   ): String = {
-    val out = new java.lang.StringBuilder(
+    val out = Sink.buffer(
       Renderer.NodeBytesHint * (node match {
         case c: LayoutNode.Component => planOf(id, id, c, states).nodeCount
         case _                       => nodeCount(node)
       })
     )
     tracedInto(out, node, id, idPrefix, states, uiState, trace, rootOwn, id)
-    out.toString
+    out.result
   }
 
   /** Renders the node's DOCUMENT bytes into `out` — appending, never
@@ -1069,7 +1093,7 @@ class Renderer(
     * learns it here: children write where they land, the root converts once.
     */
   private def tracedInto(
-      out: java.lang.StringBuilder,
+      out: Sink,
       node: LayoutNode,
       id: NodeId,
       idPrefix: String,
@@ -1150,7 +1174,7 @@ class Renderer(
         def childId(region: String, i: Int, child: LayoutNode) =
           LayoutNode.childId(idPrefix, id, LayoutNode.Step(region, i), child)
 
-        def wrapper(buf: java.lang.StringBuilder, form: SlotForm): Unit =
+        def wrapper(buf: Sink, form: SlotForm): Unit =
           if (wrapped) {
             buf
               .append("""<div class="fh-cell""")
@@ -1164,7 +1188,7 @@ class Renderer(
           }
 
         def bodyInto(
-            buf: java.lang.StringBuilder,
+            buf: Sink,
             form: SlotForm
         ): Unit = {
           // A leaf (no regions, no bake): the template runs against the bare
@@ -1174,7 +1198,7 @@ class Renderer(
           if c.regions.isEmpty && bakeSel.isEmpty then
             Templates.run(
               tpl,
-              appendTo(buf),
+              buf,
               NodeContext(resolved, Map.empty, form)
             )
           else {
@@ -1253,41 +1277,50 @@ class Renderer(
               }.toMap
             Templates.run(
               tpl,
-              appendTo(buf),
+              buf,
               NodeContext(resolved, childrenHtml ++ bakedHtml, form, walk)
             )
           }
         }
 
-        val start = out.length
-        wrapper(out, SlotForm.Document)
-        bodyInto(out, SlotForm.Document)
-        if (wrapped) out.append("</div>")
-        val end = out.length
+        // The trace keeps the DIGEST, never the bytes — every reader wanted
+        // the fingerprint. The one exception is the walk ROOT, whose bytes
+        // `renderNodeById` returns, and only then.
+        val isRoot = rootOwn != null && id == rootId
+        def documentInto(o: Sink): Unit = {
+          wrapper(o, SlotForm.Document)
+          bodyInto(o, SlotForm.Document)
+          if (wrapped) { val _ = o.append("</div>") }
+        }
+        // No signal slot: the two forms are byte-identical, so the patch
+        // fingerprint IS the document bytes about to be written, and the sink
+        // fingerprints the run as it passes rather than the walk cutting it
+        // back out afterwards. That is the whole of what a streaming page
+        // needs from its destination, and a buffer still slices.
+        val inlineDigest: Digest | Null =
+          if (plan.ownRendering && !twoForms) {
+            val (d, bytes) = out.digesting(isRoot)(documentInto)
+            if (isRoot) rootOwn.nn(0) = bytes.nn
+            d
+          } else {
+            documentInto(out)
+            null
+          }
 
         // What this node contributes to the trace: its whole (wrapped) patch
         // rendering when it is a LEAF, and nothing when it is structure.
         // Mirrors `renderNodeById` exactly — wrapper included, and in the PATCH
         // form, which is what that method produces.
         val own = Option.when(plan.ownRendering) {
-          // The trace keeps the DIGEST, never the bytes — every reader wanted
-          // the fingerprint. The one exception is the walk ROOT, whose bytes
-          // `renderNodeById` returns, and only then.
-          val isRoot = rootOwn != null && id == rootId
           if (twoForms) {
-            val buf = new java.lang.StringBuilder(Renderer.NodeBytesHint)
+            val buf = Sink.buffer(Renderer.NodeBytesHint)
             wrapper(buf, SlotForm.Patch)
             bodyInto(buf, SlotForm.Patch)
-            if (wrapped) buf.append("</div>")
-            if (isRoot) rootOwn.nn(0) = buf.toString
-            Painted(Digest.ofRange(buf, 0, buf.length), resolved.signals)
-          } else {
-            // No signal slot: the forms are byte-identical, so the patch
-            // fingerprint IS the document bytes just written — digested in
-            // place rather than cut out of the buffer first.
-            if (isRoot) rootOwn.nn(0) = out.substring(start, end)
-            Painted(Digest.ofRange(out, start, end), resolved.signals)
-          }
+            if (wrapped) { val _ = buf.append("</div>") }
+            val bytes = buf.result
+            if (isRoot) rootOwn.nn(0) = bytes
+            Painted(Digest.of(bytes), resolved.signals)
+          } else Painted(inlineDigest.nn, resolved.signals)
         }
         // The baked surface's trace is already in `trace` — the walk put it
         // there, or the fallback did — so `own` is the only addition here.
@@ -1327,21 +1360,23 @@ class Renderer(
           .append("\">")
         resolved.foreach { case (m, rm) =>
           val sigs = memberSignalsOf(rm)
-          val start = out.length
-          renderResolvedMemberInto(out, m, rm, SlotForm.Document)
-          val end = out.length
           val digest =
             if (sigs.isEmpty)
               // No signal slot anywhere in the member's subtree: the seed
               // attr is absent either way ([[Datastar.signalsAttr]] of
               // nothing is "") and there is no value to withhold, so the
-              // two forms are byte-identical — digested in place rather than
-              // cut out of the buffer first.
-              Digest.ofRange(out, start, end)
+              // two forms are byte-identical — the sink fingerprints the run
+              // as it writes it.
+              out
+                .digesting(false)(
+                  renderResolvedMemberInto(_, m, rm, SlotForm.Document)
+                )
+                ._1
             else {
-              val buf = new java.lang.StringBuilder(Renderer.NodeBytesHint)
+              renderResolvedMemberInto(out, m, rm, SlotForm.Document)
+              val buf = Sink.buffer(Renderer.NodeBytesHint)
               renderResolvedMemberInto(buf, m, rm, SlotForm.Patch)
-              Digest.ofRange(buf, 0, buf.length)
+              Digest.of(buf.result)
             }
           trace.put(m.id, Painted(digest, sigs))
         }
@@ -1373,7 +1408,7 @@ class Renderer(
     // Appends, not `mkString` inside an interpolation: `mkString` builds one
     // String and the interpolation copies it whole again — twice the group's
     // bytes per set render (issue #237).
-    val out = new java.lang.StringBuilder(
+    val out = Sink.buffer(
       160 + members.foldLeft(0)(_ + _.length)
     )
     out
@@ -1384,7 +1419,7 @@ class Renderer(
       .append("\">")
     members.foreach(out.append)
     out.append("</div>")
-    out.toString
+    out.result
   }
 
   /** Render ONE set member by its entity — the by-key accessor into the graph.
@@ -1516,9 +1551,9 @@ class Renderer(
       rm: ResolvedMember,
       form: SlotForm
   ): String = {
-    val out = new java.lang.StringBuilder(Renderer.NodeBytesHint)
+    val out = Sink.buffer(Renderer.NodeBytesHint)
     renderResolvedMemberInto(out, m, rm, form)
-    out.toString
+    out.result
   }
 
   /** The member's whole wrapped rendering, written into the CALLER's buffer.
@@ -1529,7 +1564,7 @@ class Renderer(
     * member's patch bytes ARE its cache entry.
     */
   private def renderResolvedMemberInto(
-      out: java.lang.StringBuilder,
+      out: Sink,
       m: Member,
       rm: ResolvedMember,
       form: SlotForm
@@ -1561,7 +1596,7 @@ class Renderer(
     * is the whole subtree's patch target.)
     */
   private def memberBodyInto(
-      out: java.lang.StringBuilder,
+      out: Sink,
       rm: ResolvedMember,
       form: SlotForm
   ): Unit = {
@@ -1593,13 +1628,13 @@ class Renderer(
             region -> kids.map {
               case ResolvedChild.NestedSet(html) => html
               case ResolvedChild.Node(cell, n)   =>
-                val child = new java.lang.StringBuilder(Renderer.NodeBytesHint)
+                val child = Sink.buffer(Renderer.NodeBytesHint)
                 child
                   .append("""<div class="fh-cell""")
                   .append(Renderer.cellClasses(cell))
                   .append("""">""")
                 memberBodyInto(child, n, form)
-                child.append("</div>").toString
+                child.append("</div>").result
             }
         }.toMap
     executeInto(out, rm.tpl, rm.resolved, childrenHtml, form, walk)
@@ -1616,13 +1651,13 @@ class Renderer(
       .mapValues(_.map {
         case ResolvedChild.NestedSet(html) => html
         case ResolvedChild.Node(cell, n)   =>
-          val child = new java.lang.StringBuilder(Renderer.NodeBytesHint)
+          val child = Sink.buffer(Renderer.NodeBytesHint)
           child
             .append("""<div class="fh-cell""")
             .append(Renderer.cellClasses(cell))
             .append("""">""")
           memberBodyInto(child, n, form)
-          child.append("</div>").toString
+          child.append("</div>").result
       })
       .toMap
 
@@ -1790,25 +1825,6 @@ class Renderer(
               )
       }
   }
-
-  /** A `Writer` over a `StringBuilder` — no lock, no second buffer, no copy on
-    * `toString`'s way out. `Writer`'s other methods all funnel through these.
-    */
-  private def appendTo(sb: java.lang.StringBuilder): java.io.Writer =
-    new java.io.Writer {
-      override def write(cbuf: Array[Char], off: Int, len: Int): Unit = {
-        val _ = sb.append(cbuf, off, len)
-      }
-      override def write(str: String): Unit = { val _ = sb.append(str) }
-      // The 3-arg String form is Writer's other default that allocates a
-      // copy per call; appending the slice directly keeps bulk writers (the
-      // escaping runs, template literals) allocation-free.
-      override def write(str: String, off: Int, len: Int): Unit = {
-        val _ = sb.append(str, off, off + len)
-      }
-      override def flush(): Unit = ()
-      override def close(): Unit = ()
-    }
 
   /** Everything about one component node that a PAINT cannot change, derived
     * once and reused every paint after: the card's template, the structural
@@ -2124,7 +2140,7 @@ class Renderer(
     * ~400-byte fragment grew its array five times, under a lock nothing shared.
     */
   private def executeInto(
-      out: java.lang.StringBuilder,
+      out: Sink,
       tpl: Mustache,
       r: Resolved,
       childrenHtml: Map[String, List[String]],
@@ -2137,7 +2153,7 @@ class Renderer(
   ): Unit =
     Templates.run(
       tpl,
-      appendTo(out),
+      out,
       NodeContext(r, childrenHtml, form, regionWalk)
     )
 
@@ -2517,6 +2533,6 @@ object Renderer {
     * made every leaf grow twice; a container is sized past this from its
     * children's real bytes.
     */
-  private val NodeBytesHint = 1024
+  private[runtime] val NodeBytesHint = 1024
 
 }

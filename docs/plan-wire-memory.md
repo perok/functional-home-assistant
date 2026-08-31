@@ -287,26 +287,71 @@ into a 500, since headers are already gone. The render is pure and runs on a `Da
 so a throw should be impossible — but "should be" is not a guarantee, and a truncated document is a
 worse failure than a 500. Decide deliberately.
 
-### Step 3 is ATOMIC — the digest and the stream cannot land separately
+### Step 3, attempted: the sink landed, the stream did not
 
-Tempting sequencing: make the digest incremental first (clearing blocker 2 properly), then swap
-the response to a stream. **That order costs time and cannot be landed on its own.**
+The walk now writes into a `Sink` (`fh/view/runtime/Sink.scala`) instead of a bare
+`StringBuilder`, and `Server.pageInto` writes the document shell around a WRITER HOLE the walk
+fills, so head + body + tail are one buffer. `Renderer.renderPageInto` is the whole document path
+and takes its destination from the caller. That is the seam a stream needs, and it removed a real
+copy on the way — see the numbers below.
 
-Digesting as the walk writes means encoding to UTF-8 as it goes. Today the walk fills a
-`StringBuilder` and encodes ONCE, at the response; an incremental digest would therefore pay a
-SECOND encode — which is measured, and is exactly why `Digest.ofRange`'s `CharBuffer` version cost
-+83 kB and +17% (above). In the streaming design the encode IS the write, so the digest is a free
-tap on bytes already passing through the encoder.
+**The response is still a String, and `fs2.io.readOutputStream` is why.**
 
-So step 3 is one change: the sink, the encode, the digest tap and the `holds` finalizer together.
+The encode was never the blocker; the earlier entry in this plan had that wrong. Two things
+replaced it:
 
-**Size**, so it is not started casually: 16 signatures in `Renderer` take
-`java.lang.StringBuilder`, and 5 sites use POSITION slicing (`out.length` /
-`out.substring`) — the latter being what the digest tap replaces. The mechanical part dominates
-and the risky part is small, but it cannot be verified in halves: a half-migrated walk neither
-streams nor digests.
+- **The digest does not want encoded bytes.** A node's own fingerprint is a digest of a contiguous
+  run of the walk's output, and the cheapest way to get one is to slice the run out of the buffer
+  and let `String.getBytes` (intrinsified) encode it — which is what `Sink.digesting` does, in one
+  place instead of the five that open-coded a pair of `length` reads. A streaming sink would catch
+  the run in a per-node buffer instead. Either way there is exactly ONE encode. No incremental
+  digest over encoder output is needed, and none should be written: that was the `CharBuffer`
+  version, at +83 kB and +17%.
 
-### `holds`, decided
+- **`readOutputStream` is a blocking pipe, and this path may not block.** It is the only
+  push-to-pull bridge for a walk shaped like this one, and it puts `IO.blocking` on the page
+  route. `ServerHarness` runs every session test under `TestControl`, whose single-threaded ticker
+  cannot interleave a real parked thread — so the reader parks in
+  `fs2.io.internal.PipedStreamBuffer.read` and never wakes.
+
+  Measured, not predicted: **18 of 720 tests timed out at 31 s**, nondeterministically (a different
+  five per run). A thread dump found 8 leaked readers on a clean JVM and 836 `io-compute` threads
+  spawned to replace the ones cats-effect had converted to blockers; on a poisoned long-lived sbt
+  server it was 41 and climbing across runs. `ServerHarness`'s own doc comment already states the
+  invariant this breaks — *"Checked against Server/Sessions/StateStore/Patches/Renderer/
+  FragmentLog: no IO.blocking … on the live path"* — which is what should have been read first.
+
+  The second argument is independent and points the same way: on the target device a parked
+  thread's stack costs more resident memory than the page buffer it would save. Two threads per
+  in-flight page open is a worse trade than ~500 kB of transient heap.
+
+**So streaming needs the walk to be PULL-based** — emitting a chunk per node rather than pushing
+into a writer — which is a different and much larger change than this step. The natural shape is
+`Pull[IO, Byte, Unit]` over the recursion, buffering one node at a time, which is already the
+granularity `Sink.digesting` works at. Not attempted here; it wants its own plan.
+
+### What step 3 did land
+
+The win is the document SHELL, and **the bench cannot see it** (see "What the bench had to learn
+first"). `Server.page` built the whole document as one interpolated String with the finished body
+spliced into it — a full copy of the page, on top of `renderPageTraced`'s own `toString`. So a page
+open held three ~132 kB copies at peak where it now holds two, and allocated one fewer. That is
+accounting off the deleted interpolation, not a measurement, and it is labelled as such.
+
+What the bench CAN see is that the `Sink` costs nothing, which is what it was run for
+(`-f 3 -wi 6 -i 8 -prof gc`, 24 samples):
+
+| | before | after | |
+|---|---:|---:|---|
+| `pageServe` | 3,540,901 B / 1385 µs | 3,503,141 B / 1469 ± 99 µs | −38 kB, time flat |
+| `pageSignals` | 3,442,448 B / 1485 µs | 3,405,273 B / 1507 ± 92 µs | −37 kB, time flat |
+
+The ~37 kB is the `appendTo` adapter — a `java.io.Writer` allocated per `Templates.run`, i.e. once
+per node — which the sink replaces by BEING the writer.
+
+### `holds`, decided — and now moot
+
+Recorded because it is the right answer whenever streaming is attempted again:
 
 - **Commit `holds` in the stream's finalizer, on successful completion only.** Unclaimed reads as
   "unknown, send it", which is the safe direction the design already leans on; the cost is one
@@ -318,16 +363,17 @@ streams nor digests.
   `Dashboard.Validated`, and an aborted chunked response is a network error to the browser, which
   reacts on its own. Log it loudly at the finalizer; do not build machinery for it.
 
+With the buffered sink, `holds` is committed where it always was and none of this applies yet.
+
 ### Staging
 
 1. ~~Chrome hole~~ **DONE** — `FhValueCode`, −246 kB churn.
 2. ~~`own` carries the digest~~ **DONE** — −99 kB peak; churn and time flat. Half of blocker 2:
    the SHAPE is right, the COMPUTATION is still buffer-slicing.
-3. **The atomic one, not started**: the sink, the UTF-8 encode, the digest tap and the `holds`
-   finalizer, together — see above for why it cannot be halved.
+3. **The sink** — **DONE**; **the stream** — **BLOCKED**, see above.
 
-Steps 1 and 2 stand on their own and were measured on their own. Step 2 is a fair revert if 3 is
-abandoned; step 1 is worth keeping regardless.
+Steps 1 and 2 stand on their own and were measured on their own. Step 2 is a fair revert if the
+stream is abandoned for good; steps 1 and 3's sink are worth keeping regardless.
 
 ## Thread B — share the frame
 
@@ -358,8 +404,10 @@ so the same holes are not re-dug:
 
 - **The document path stopped at the render.** `pageSignals` measures `renderPageTraced` and
   nothing after it, so the digest pass and the UTF-8 encode — the parts streaming removes — were
-  invisible. `pageServe` covers them. `Server.page`'s head concatenation is still outside, because
-  it is an instance method on a booted server; `pageServe` is a floor, not the whole serve.
+  invisible. `pageServe` covers them. The document SHELL is still outside — `Server.pageInto` is an
+  instance method on a booted server, so a benchmark cannot reach it without standing up a
+  `StateStore`, a `Sessions` and an HA stub. `pageServe` is a floor, not the whole serve, and the
+  one change that removed a full copy of the document is exactly the one it cannot see.
 - **The patch path was never benchmarked at all.** `wireTick` renders nodes someone already decided
   to send; the pull is what DECIDES, and `Patches.resume` — the changelog read, the visibility
   narrowing, the cache lookup, the digest compare — had no benchmark. `resumeSignals` /

@@ -662,7 +662,7 @@ class Server(
       // server can compare) costs the same bytes on every reconnect instead.
       //
       // This is concept 1 of the two disconnect concepts
-      // (see [[Server.page]]): the backend knows when it can't reach HA, so it
+      // (see [[Server.pageInto]]): the backend knows when it can't reach HA, so it
       // emits the `haDown` signal directly rather than the client inferring it
       // from a stalled beat. Concept 2 (browser<->server transport) stays
       // client-side — only the browser can observe its own dropped SSE.
@@ -1757,22 +1757,6 @@ class Server(
       _ <- sessions.register(conn, session)
       _ <- reapAfter(conn, session, Tenure.Fresh, adoptionWindow)
       store <- stateStore.current
-      // ONE render, used twice: the bytes go to the browser and the
-      // per-node trace seeds `holds`. Fingerprinting separately means
-      // walking the open surfaces a second time, node by node, to
-      // re-derive what the page just composed.
-      //
-      // Every painted node, not just the open surfaces' — the document
-      // contains all of it, so recording less would be a claim that is
-      // merely narrower, not safer.
-      painted = renderer.renderPageTraced(
-        store.entities,
-        uiState,
-        renderer.surfaces.openPopup(uiState)
-      )
-      _ <- session.holds.set(painted.own.map { case (id, p) =>
-        id -> Held(Some(p.digest), p.signals)
-      })
       _ <- session.position.set(store.version)
       // The page renders the cursor into its own signals, so the document
       // IS an announcement — and the first one. Without this a client
@@ -1797,10 +1781,40 @@ class Server(
           )
         )
       )
-      resp <- Ok(
-        page(
+      // The document goes into ONE buffer, head and tail included: `pageInto`
+      // writes the shell around a WRITER HOLE the walk fills, where it used
+      // to build the body as a String and splice it into an interpolated
+      // document — a second full copy of the page, on top of the walk's own.
+      //
+      // ONE walk, used twice: the bytes go to the browser and the per-node
+      // trace seeds `holds`. Fingerprinting separately means walking the open
+      // surfaces a second time, node by node, to re-derive what the page just
+      // composed.
+      //
+      // Deliberately NOT streamed to the response. `fs2.io.readOutputStream`
+      // is the only push-to-pull bridge for a walk shaped like this one, and
+      // it is a BLOCKING PIPE: it puts `IO.blocking` on the page path, which
+      // deadlocks `ServerHarness`'s `TestControl` runtime — its single-threaded
+      // ticker cannot interleave a real parked thread, and the readers pile up
+      // in `PipedStreamBuffer.read` until the suite times out. The invariant
+      // that harness states about this path ("no IO.blocking") is load-bearing,
+      // not incidental. Streaming needs the walk to be PULL-based.
+      page = {
+        val out = Sink.buffer(renderer.pageBytesHint)
+        var own = Map.empty[NodeId, Painted]
+        pageInto(
+          out,
           slug,
-          painted.html,
+          // Every painted node, not just the open surfaces' — the document
+          // contains all of it, so recording less would be a claim that is
+          // merely narrower, not safer.
+          sink =>
+            own = renderer.renderPageInto(
+              sink,
+              store.entities,
+              uiState,
+              renderer.surfaces.openPopup(uiState)
+            ),
           renderer.themeColorTags,
           renderer.stylesheets.map(assets.rewrite),
           renderer.deferredStylesheets.map(assets.rewrite),
@@ -1812,7 +1826,12 @@ class Server(
           editMode,
           haDown = !live
         )
-      )
+        (out.result, own)
+      }
+      _ <- session.holds.set(page._2.map { case (id, p) =>
+        id -> Held(Some(p.digest), p.signals)
+      })
+      resp <- Ok(page._1)
     } yield resp.withContentType(`Content-Type`(MediaType.text.html))
   }
 
@@ -1875,9 +1894,14 @@ class Server(
     * the shared SSE stream therefore resolve correctly for both kinds of client
     * with no per-connection rewriting.
     */
-  private def page(
+  private def pageInto(
+      out: Sink,
       slug: String,
-      body: String,
+      // The dashboard itself, as a WRITER HOLE rather than a value: the
+      // document's own bytes are two literals around it, and holding the body
+      // as a String to splice between them is the one copy of the whole page
+      // that survived the walk becoming a single buffer.
+      bodyInto: Sink => Unit,
       themeColorTags: String,
       stylesheets: List[String],
       deferredStylesheets: List[String],
@@ -1894,7 +1918,7 @@ class Server(
       // report that. The stream still pushes the value on connect, because the
       // window between this render and that connect is real.
       haDown: Boolean
-  ): String = {
+  ): Unit = {
     // The theme's inline scripts come LAST of the three, but they are classic
     // scripts among deferred module ones, so they still run first — which is
     // what they are for (a document-level listener the first paint already
@@ -2026,7 +2050,7 @@ class Server(
          |  </div>
          |  <div class="fh-offline fh-offline-ha" $hidden role="status" aria-live="polite" data-show="$ha && $$_sse == 0">Home Assistant unavailable — reconnecting…</div>
          |</div>""".stripMargin
-    s"""<!doctype html>
+    val _ = out.append(s"""<!doctype html>
        |<html lang="en">
        |<head>
        |  <meta charset="utf-8">
@@ -2039,18 +2063,20 @@ class Server(
        |  <script>${Server.swRegisterCall}</script>
        |$links
        |  <script type="module" src="${assets.rewrite(
-        Server.DatastarCdn
-      )}"></script>
+                           Server.DatastarCdn
+                         )}"></script>
        |</head>
        |<body data-init="@get('sse/dashboard/$slug/patch${restore.query}', ${Server.SseRetry})">
        |<script>fhConn('${Server.escapeJsString(restore.conn)}')</script>
        |$connBanner
-       |$body
+       |""".stripMargin)
+    bodyInto(out)
+    val _ = out.append(s"""
        |$editAssets
        |<script>${Server.scrollCall(slug)}</script>
        |</body>
        |</html>
-       |""".stripMargin
+       |""".stripMargin)
   }
 }
 
@@ -2769,7 +2795,7 @@ object Server {
   /** The Datastar signal name carrying upstream-HA liveness, PUSHED by the
     * server (it owns `healthy`). `true` means the backend can't reach Home
     * Assistant; the HA disconnect banner renders `data-show` off it (see
-    * [[Server.page]]). Concept 1 of the two disconnect concepts — the
+    * [[Server.pageInto]]). Concept 1 of the two disconnect concepts — the
     * browser<->server transport (concept 2) is derived client-side instead.
     *
     * `_`-prefixed because the server never reads it from a request body — it
@@ -2783,7 +2809,7 @@ object Server {
     * by `shell.ts` from the `datastar-fetch` events whose element is `<body>`.
     * Concept 2 of the two disconnect concepts (see [[HaDownSignal]]), and the
     * client owns it end to end — the server only names the event and classifies
-    * `detail.type` into `_sse` in [[Server.page]].
+    * `detail.type` into `_sse` in [[Server.pageInto]].
     *
     * A name shared with the TypeScript, like `fhUrl`/`fhConn`: change one and
     * the banner stops updating, silently, on a page that otherwise works.
