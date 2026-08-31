@@ -16,7 +16,7 @@ signals tick was not faster:
 | thread | target | mechanism | size |
 |---|---|---|---|
 | C — narrow the cache key | the render on every live tick | compare the resolved byte-slot VALUES before rendering | **DONE: 160 µs + 291 kB per tick per slug** |
-| A — stream the document | **peak live bytes** per concurrent page open | thread a `Writer` through the walk to the socket | ~380 kB of ~500 kB peak |
+| A — stream the document | **peak live bytes** per concurrent page open, and time to first byte | thread a `Writer` through the walk to the socket | **DONE: peak is now one node; the `<head>` goes out before the body is walked** |
 | B — share the frame | per-client work on a live tick | memo the encoded frame across sessions | 3.2 µs + 10.7 kB per client per tick |
 
 ## Measured starting point
@@ -287,56 +287,94 @@ into a 500, since headers are already gone. The render is pure and runs on a `Da
 so a throw should be impossible — but "should be" is not a guarantee, and a truncated document is a
 worse failure than a 500. Decide deliberately.
 
-### Step 3, attempted: the sink landed, the stream did not
+### Step 3 — LANDED, in two commits
 
-The walk now writes into a `Sink` (`fh/view/runtime/Sink.scala`) instead of a bare
+**The sink** (`fh/view/runtime/Sink.scala`). The walk writes into a `Sink` instead of a bare
 `StringBuilder`, and `Server.pageInto` writes the document shell around a WRITER HOLE the walk
-fills, so head + body + tail are one buffer. `Renderer.renderPageInto` is the whole document path
-and takes its destination from the caller. That is the seam a stream needs, and it removed a real
-copy on the way — see the numbers below.
+fills. `Renderer.renderPageInto` is the whole document path and takes its destination from the
+caller, which is what lets the same walk serve a buffer (tests, `renderPageTraced`) and the wire.
 
-**The response is still a String, and `fs2.io.readOutputStream` is why.**
+`Sink` also names a rule that had been open-coded wherever it applied: a node's own fingerprint is
+a digest of a CONTIGUOUS RUN of the walk's output, which is what lets a signal-less member's patch
+fingerprint be a slice rather than a second render. `digesting` is that, once. `appendTo` — a
+`java.io.Writer` allocated per `Templates.run`, i.e. once per node — is gone, because the sink IS
+the writer.
 
-The encode was never the blocker; the earlier entry in this plan had that wrong. Two things
-replaced it:
+**The stream.** `Server.renderPage` hands the response body to `fs2.io.readOutputStream` and the
+walk runs on its blocking thread, writing UTF-8 straight through. `holds` moves into the stream's
+finalizer, on success only; `told` does not move.
 
-- **The digest does not want encoded bytes.** A node's own fingerprint is a digest of a contiguous
-  run of the walk's output, and the cheapest way to get one is to slice the run out of the buffer
-  and let `String.getBytes` (intrinsified) encode it — which is what `Sink.digesting` does, in one
-  place instead of the five that open-coded a pair of `length` reads. A streaming sink would catch
-  the run in a per-node buffer instead. Either way there is exactly ONE encode. No incremental
-  digest over encoder output is needed, and none should be written: that was the `CharBuffer`
-  version, at +83 kB and +17%.
+### The encode was never the blocker
 
-- **`readOutputStream` is a blocking pipe, and this path may not block.** It is the only
-  push-to-pull bridge for a walk shaped like this one, and it puts `IO.blocking` on the page
-  route. `ServerHarness` runs every session test under `TestControl`, whose single-threaded ticker
-  cannot interleave a real parked thread — so the reader parks in
-  `fs2.io.internal.PipedStreamBuffer.read` and never wakes.
+The earlier entry in this plan had that wrong, and the correction is worth keeping because it
+would otherwise be re-derived. A node's fingerprint wants a contiguous run, and the cheapest way
+to hash one is to slice it and let `String.getBytes` (intrinsified) encode it — which is what both
+sinks do, `Buffer` by slicing the run it still holds and `Streaming` by catching it in a per-node
+buffer on the way past. There is exactly ONE encode either way. No incremental digest over encoder
+output is wanted, and none should be written: that was the `CharBuffer` version, at +83 kB and
++17%.
 
-  Measured, not predicted: **18 of 720 tests timed out at 31 s**, nondeterministically (a different
-  five per run). A thread dump found 8 leaked readers on a clean JVM and 836 `io-compute` threads
-  spawned to replace the ones cats-effect had converted to blockers; on a poisoned long-lived sbt
-  server it was 41 and climbing across runs. `ServerHarness`'s own doc comment already states the
-  invariant this breaks — *"Checked against Server/Sessions/StateStore/Patches/Renderer/
-  FragmentLog: no IO.blocking … on the live path"* — which is what should have been read first.
+### What it cost the tests, measured
 
-  The second argument is independent and points the same way: on the target device a parked
-  thread's stack costs more resident memory than the page buffer it would save. Two threads per
-  in-flight page open is a worse trade than ~500 kB of transient heap.
+`readOutputStream` is a pipe with two mutually-blocking sides — the walk's writer and fs2's reader
+— and `TestControl` ticks one fiber on one thread, running `IO.blocking` INLINE on it. So under
+simulated time whichever side is ticked first parks the only thread and the other never runs. The
+first attempt hung **18 of 720 tests** at their 31 s timeout, a different subset per run: the
+scheduler is seeded-random and the pipe buffer is 8 kB, so a small enough page finishes before the
+writer ever blocks.
 
-**So streaming needs the walk to be PULL-based** — emitting a chunk per node rather than pushing
-into a writer — which is a different and much larger change than this step. The natural shape is
-`Pull[IO, Byte, Unit]` over the recursion, buffering one node at a time, which is already the
-granularity `Sink.digesting` works at. Not attempted here; it wants its own plan.
+I recorded that as a blocker on the DESIGN. It is a blocker on the HARNESS, and measuring what the
+harness actually buys settled it: every sleep in the affected suites is 5-300 ms, the window they
+exercise is `adoptionWindow = 50.millis`, and the twelve `30.seconds` are `.timeout` guards.
+Simulated time was accelerating poll loops, not skipping real waits. So `ServerHarness` grew
+`simulateTime`, and the five suites that fetch a document set it false.
 
-### What step 3 did land
+**Also retracted: "a parked thread costs a Pi more than the page buffer."** It is two threads per
+IN-FLIGHT PAGE OPEN — rare and short-lived — and the 836 `io-compute` threads in the dump were the
+deadlock's symptom, not a steady-state cost.
+
+**Per SUITE, not per test, and that is forced.** A per-test opt-out looks tighter (25 of 56 tests
+name a document fetch directly) but is wrong: `AckedResumeSuite` and `SurfaceTapSuite` fetch inside
+a shared helper, so a per-test scan mis-classifies them — and a mis-classified test does not fail,
+it HANGS. Worse than what it replaces.
+
+**The flake this bought, measured against the parent commit on the same machine back to back:**
+
+| | 12 runs of the five suites | 5 runs of `testFull` |
+|---|---|---|
+| parent (`TestControl`) | 12/12 | 5/5 |
+| streaming (real clock) | **11/12** | 13/15 |
+
+So roughly **1 in 12** for that suite group. Accepted deliberately rather than papered over.
+
+### The flake is NOT slowness, and that matters
+
+Every failure ran its FULL guard — 15.344 s against a 15 s timeout, 30.007 s against 30 s, 31.0 s
+against 31 s. That is not "a bit slow under load", it is *the event never arrived*. So raising the
+guards would hide it rather than fix it, and it should not be done.
+
+All the failures are poll loops of the shape
+`Stream.repeatEval(seen.get <* IO.sleep(10.millis)).timeout(...)`. Under `TestControl` such a loop
+resolves the instant every fiber is blocked; on a real clock it waits for the thing to actually
+happen. **If real scheduling exposes a lost wakeup that simulated time hides, that is a
+production-relevant race, not a test annoyance** — a Pi is a real clock. That is the next thing to
+chase, and it is why this was landed rather than reverted: the flake is now a reproducible handle
+on something that was previously invisible.
+
+Note that `ServerHarness`'s own comment claims the OPPOSITE direction — that `TestControl` is the
+unreliable one for topology tests and `testReal` is the remedy. One of the two is wrong about this
+codebase, and finding out which is part of the same chase.
+
+Open question kept with it: **is this the same flake as the ambient one below?** Signatures match
+(always a munit timeout, never an assertion; `SessionLifecycleSuite` appears in both lists). What
+argues against: the parent is 12/12 and 5/5 on the same suites on the same machine minutes apart,
+where the ambient flake was ~3 failures in ~8 `testFull` runs. Not resolved.
+
+### What the sink bought, and what the bench can see
 
 The win is the document SHELL, and **the bench cannot see it** (see "What the bench had to learn
 first"). `Server.page` built the whole document as one interpolated String with the finished body
-spliced into it — a full copy of the page, on top of `renderPageTraced`'s own `toString`. So a page
-open held three ~132 kB copies at peak where it now holds two, and allocated one fewer. That is
-accounting off the deleted interpolation, not a measurement, and it is labelled as such.
+spliced into it — a full copy of the page, on top of `renderPageTraced`'s own `toString`.
 
 What the bench CAN see is that the `Sink` costs nothing, which is what it was run for
 (`-f 3 -wi 6 -i 8 -prof gc`, 24 samples):
@@ -346,14 +384,15 @@ What the bench CAN see is that the `Sink` costs nothing, which is what it was ru
 | `pageServe` | 3,540,901 B / 1385 µs | 3,503,141 B / 1469 ± 99 µs | −38 kB, time flat |
 | `pageSignals` | 3,442,448 B / 1485 µs | 3,405,273 B / 1507 ± 92 µs | −37 kB, time flat |
 
-The ~37 kB is the `appendTo` adapter — a `java.io.Writer` allocated per `Templates.run`, i.e. once
-per node — which the sink replaces by BEING the writer.
+The ~37 kB is the per-node `appendTo` adapter. Both rows are the BUFFERED sink — `renderPageTraced`
+is what they call, and it still builds a String on purpose. **The streaming path has no benchmark
+at all**, because `Server.renderPage` needs a booted server. Its two wins are therefore argued, not
+measured: peak drops from the document to one node, and the browser gets the `<head>` while the
+body is still being walked. Someone should build the harness that measures both.
 
-### `holds`, decided — and now moot
+### `holds`, as landed
 
-Recorded because it is the right answer whenever streaming is attempted again:
-
-- **Commit `holds` in the stream's finalizer, on successful completion only.** Unclaimed reads as
+- **Committed in the stream's finalizer, on successful completion only.** Unclaimed reads as
   "unknown, send it", which is the safe direction the design already leans on; the cost is one
   repaint for a client whose page was truncated, whose DOM genuinely is unknown.
 - **`told` does NOT move.** A truncated page then has `told` set and `holds` empty, so a resume
@@ -361,19 +400,16 @@ Recorded because it is the right answer whenever streaming is attempted again:
   it ("what we announced") rather than being fused with a second fact.
 - A throw mid-walk is a DEVELOPER error, not a case to design around: the render is pure over a
   `Dashboard.Validated`, and an aborted chunked response is a network error to the browser, which
-  reacts on its own. Log it loudly at the finalizer; do not build machinery for it.
-
-With the buffered sink, `holds` is committed where it always was and none of this applies yet.
+  reacts on its own. Logged at the finalizer; no machinery built for it.
 
 ### Staging
 
 1. ~~Chrome hole~~ **DONE** — `FhValueCode`, −246 kB churn.
-2. ~~`own` carries the digest~~ **DONE** — −99 kB peak; churn and time flat. Half of blocker 2:
-   the SHAPE is right, the COMPUTATION is still buffer-slicing.
-3. **The sink** — **DONE**; **the stream** — **BLOCKED**, see above.
+2. ~~`own` carries the digest~~ **DONE** — −99 kB peak; churn and time flat.
+3. ~~The sink~~ **DONE**; ~~the stream~~ **DONE**.
 
-Steps 1 and 2 stand on their own and were measured on their own. Step 2 is a fair revert if the
-stream is abandoned for good; steps 1 and 3's sink are worth keeping regardless.
+Thread A is finished. What is left is not part of it: the flake chase above, and a benchmark that
+can reach the streaming path.
 
 ## Thread B — share the frame
 
@@ -465,12 +501,30 @@ has been green. Cross-project test parallelism, browser-driver startup, and some
 Not part of this plan's threads. Whoever picks it up: do not re-run the parallelism experiment,
 and do not trust "716 green" from a single run.
 
+**Thread A added a second flake with the same signature, and whether they are the SAME thing is
+open** — see "The flake is NOT slowness". Both are always a munit timeout and never an assertion,
+and `SessionLifecycleSuite` appears in both lists. What argues against: the parent commit measured
+12/12 and 5/5 on the same suites on the same machine minutes apart, where this ambient one showed
+~3 failures in ~8 `testFull` runs. The new one has the advantage of being REPRODUCIBLE on demand
+(run the five real-clock suites in a loop), which the ambient one never was — so it is the better
+handle on the shared cause, if there is one.
+
 ## Open
 
 - ~~Thread C's CEL attribute extraction is the undesigned part.~~ *Answered by the spike above:
   a recording `attr` map reads the exact set through CEL's own contract, and it beats static
   analysis on conditionals and dynamic keys. It also turned out not to be needed — comparing
   resolved values (option 1) needs no read set at all.*
-- Does thread A's step 1 (incremental digest) pay for itself alone? Measure before doing 2 and 3.
+- ~~Does thread A's step 1 pay for itself alone?~~ *Moot: every step landed and was measured on
+  its own as it went.*
+- **The real-clock flake, and it is the most interesting thing left here.** Every failure runs its
+  full timeout guard, so the event never arrived rather than arriving late; simulated time hid it
+  because a poll loop under `TestControl` resolves the moment every fiber is blocked. If real
+  scheduling exposes a lost wakeup, a Pi has a real clock too. Reproduce with the five suites that
+  set `simulateTime = false`, in a loop.
+- **Nothing benchmarks the streaming path.** `pageServe` and `pageSignals` both call
+  `renderPageTraced`, which is the BUFFERED sink; `Server.renderPage` needs a booted server to
+  reach. Its two claimed wins — peak of one node, `<head>` before the body — are argued, not
+  measured.
 - `session.control` is an **unbounded** `Queue[IO, SseFrame]` holding pre-encoded byte arrays. Not
   part of either thread, but it is a memory risk on the target hardware and nothing bounds it.
