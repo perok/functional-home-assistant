@@ -70,28 +70,66 @@ identical and suppress the morph.
 
 That is why a signals tick currently costs *more* than a bytes tick rather than half of one.
 
-### The fix
+### The fix — compare the resolved VALUES, do not predict the inputs
 
-Key on the **attributes** the node's byte slots read, not on the entities. This is ADR 0012's own
-argument one level down: it already refuses to key on an entity whose movement cannot change the
-bytes; the same is true of an attribute.
+Two shapes were considered. **Take the first.**
 
-- `Transform.Simple` names its attribute outright (ADR 0028) — `AttrOrId("friendly_name")`,
-  `Fill("brightness", …)`. Trivial to read off.
-- A **CEL** transform does not. Its attribute references would have to be extracted at parse
-  time, which is the part that has not been designed and is where the risk is. `Transform.parse`
-  is the place to look.
-- Fallback where extraction cannot answer: keep the entity version, i.e. today's behaviour. The
-  change is then strictly an improvement and never a correctness risk — a key that is too wide
-  wastes a render, which ADR 0012 already records as the loud, safe direction to fail in.
+**1. Memoise the resolved byte-slot values (chosen).** Before rendering a node, resolve only the
+slots that travel as BYTES and compare them to what the cache entry was built from. Identical ⇒
+the bytes are identical ⇒ reuse them and re-stamp the entry under the new `RenderInputs`, without
+mustache, without composing the `.fh-cell` wrapper, without the digest.
 
-`RenderInputs.isAtLeast` is a partial order over the key's shape and will need to keep working
-across the change; ADR 0012 explains why different key sets are deliberately unordered.
+Why this one:
+
+- **It needs no static analysis at all**, so CEL and `Transform.Simple` are handled by the same
+  code. You do not predict what the transform reads; you run it and look at what came out.
+- **The cost is one evaluation per byte slot**, and on the shipped `entityCard` that is exactly
+  ONE — the name, an `AttrOrId` (ADR 0028's fast tier, no engine). The signal slots have to be
+  evaluated on a signals tick anyway, to know what to put in the frame. So the added cost is
+  approximately nothing and the saving is approximately all of the ~8 µs per node.
+- It degrades gracefully: a byte slot on a CEL transform pays that evaluation per tick, still far
+  below a full node render.
+
+**2. Track the attributes each evaluation actually read (not chosen, but available).** Key on
+`(entity, attribute) -> value` for what the byte slots read, so an unchanged read set skips even
+the transform evaluation.
+
+Spiked, because the question was whether this could be done through CEL's API rather than by
+guessing. **It can, and it is more precise than static analysis.** `Cel.EntityResolver` hands CEL
+`entity.javaAttributes` as `attr`, and CEL indexes a `java.util.Map` through `get`/`containsKey` —
+so wrapping that map in a recorder captures the exact read set through CEL's own contract.
+Measured on the shipped shapes:
+
+```
+src        = state == 'on' ? string(attr['brightness']) : string(attr['color_temp_kelvin'])
+attributes = [brightness]                    ← only the branch actually taken
+
+src        = string(attr[state == 'on' ? 'brightness' : 'rgb_color'])
+attributes = [brightness]                    ← a dynamic key; no static pass can see this
+
+src        = <the shipped fill colour>
+attributes = [rgb_color, color_temp_kelvin]  ← both, cel.bind evaluates both bindings
+```
+
+`dev.cel.common.navigation.CelNavigableAst` is on the classpath too, but a static pass is strictly
+worse here: it must over-approximate a conditional to both branches and cannot see a dynamic key
+at all.
+
+Using a recorded read set as a key is sound by the usual dynamic-dependency argument — CEL is
+pure, so if every input the previous evaluation read is unchanged, it takes the same path and
+reads the same set. Keep this in reserve for the day a byte slot's transform is expensive enough
+to matter; it is strictly more machinery for a saving option 1 mostly already gets.
 
 ### Watch out for
 
+`RenderInputs.isAtLeast` is a partial ORDER over entity versions, and it is what stops a straggler
+displacing fresher bytes (ADR 0012). Resolved values are not ordered, so option 1 must not replace
+the key with them — the value comparison is a **pre-check that skips the render**, while
+`RenderInputs` stays version-based and keeps ordering generations. Re-stamp the reused bytes under
+the new `RenderInputs`; do not leave the entry on the old one.
+
 The reverse index must stay WIDE (ADR 0012): a signal has to make its node a candidate or no frame
-is ever computed for it. Only the cache key narrows. Getting these the wrong way round fails
+is ever computed for it. Only the render is skipped. Getting these the wrong way round fails
 asymmetrically and the dangerous direction is silent.
 
 ## Thread A — stream the document
@@ -204,7 +242,10 @@ failure mode is not a crash, it is a result.
 
 ## Open
 
-- Thread C's CEL attribute extraction is the undesigned part. Spike it before committing to C.
+- ~~Thread C's CEL attribute extraction is the undesigned part.~~ *Answered by the spike above:
+  a recording `attr` map reads the exact set through CEL's own contract, and it beats static
+  analysis on conditionals and dynamic keys. It also turned out not to be needed — comparing
+  resolved values (option 1) needs no read set at all.*
 - Does thread A's step 1 (incremental digest) pay for itself alone? Measure before doing 2 and 3.
 - `session.control` is an **unbounded** `Queue[IO, SseFrame]` holding pre-encoded byte arrays. Not
   part of either thread, but it is a memory risk on the target hardware and nothing bounds it.
