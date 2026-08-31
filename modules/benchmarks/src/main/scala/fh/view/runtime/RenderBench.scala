@@ -337,18 +337,22 @@ class RenderBench {
   def holdsSeed(bh: Blackhole): Unit =
     painted.foreach(h => bh.consume(Digest.of(h)))
 
-  /** The WIRE half of one value tick, fanned to [[WireClients]] open
-    * connections: three morphs and a signals frame go through
-    * [[Patches.encode]] (adjacent-morph merge, the collapse at the Datastar
-    * edge) and then the per-connection encode — `renderString` + UTF-8, which
-    * is what http4s's SSE encoder does per event per socket.
+  /** The WIRE half of a STRUCTURAL tick, fanned to [[WireClients]] open
+    * connections, each owed DIFFERENT nodes: three morphs and a signals frame
+    * through [[Patches.encode]] (adjacent-morph merge, the collapse at the
+    * Datastar edge) and the per-connection encode — `renderString` + UTF-8,
+    * which is what http4s's SSE encoder does per event per socket.
     *
-    * This is the cost a page render never measures: it happens once per CLIENT
-    * per frame, where the render happens once per SLUG. The gap against
-    * [[wireTick]] says how much of a busy house's tick is wire bookkeeping vs
-    * the render itself, and it is the number that decides whether byte-level
-    * frames (pre-encoded node bytes shared across connections) would buy
-    * anything.
+    * The gap against [[wireTick]] says how much of a busy house's tick is wire
+    * bookkeeping vs the render itself.
+    *
+    * '''It does not say whether SHARING a frame across connections would buy
+    * anything''', though it was once read that way. Every client here is owed a
+    * different slice, so there is nothing to share by construction, and both
+    * the shared and unshared worlds cost exactly this. That question is
+    * [[wireCommon]] vs [[wireCommonShared]] — and note this fixture is also the
+    * rarer tick: on a signal-slot dashboard the digest stands still and the
+    * common tick sends ONE signals frame with no morph at all (ADR 0017).
     */
   @Benchmark
   def wire(bh: Blackhole): Unit = {
@@ -380,6 +384,87 @@ class RenderBench {
     }
     wireRot += 1
   }
+
+  /** '''The tick that decides it, unshared.''' The COMMON value tick on a
+    * signal-slot dashboard: one entity moved, its digest stood still, so no
+    * morph goes out — just a `datastar-patch-signals` frame carrying the two
+    * signal entries, with the cursor merged into it by [[Patches.encode]]
+    * (adjacent signal frames join, which is every batch nothing separates).
+    *
+    * Every client is owed the SAME values, which is the case sharing is about
+    * and the case [[wire]] deliberately is not: ten tabs on one dashboard, the
+    * same tab selected. The cursor is the same for all of them too — it names
+    * the version the doorbell rang at, not anything per-client. So all
+    * [[WireClients]] frames here are byte-identical and the whole encode is
+    * duplicated work.
+    *
+    * Against [[wireCommonShared]] this is the ceiling on what minting the frame
+    * once per slug could buy. Measured, `-f 2 -wi 5 -i 5`, ten clients:
+    *
+    * {{{
+    * wireCommon        32.459 ± 3.372 us/op   each client encodes
+    * wireCommonShared   3.140 ± 0.459 us/op   encoded once, ten reuse
+    * wireTick          18.368 ± 2.022 us/op   the slug-shared render
+    * }}}
+    *
+    * 10.3x, and linear in the client count — 3.2 us per encode, ten of them —
+    * which says the per-client cost on this path is ENTIRELY the encode.
+    * Nothing else is in it. The 29 us of duplicated work is more than the whole
+    * slug-shared render of the same tick, and it grows with every open tab
+    * while the render does not.
+    */
+  @Benchmark
+  def wireCommon(bh: Blackhole): Unit = {
+    val eid = entityId(wireRot % Leaves)
+    var c = 0
+    while (c < WireClients) {
+      Patches.encode(commonTick(eid)).foreach(e => bh.consume(e.bytes))
+      c += 1
+    }
+    wireRot += 1
+  }
+
+  /** '''The same tick, shared.''' One encode for the slug; every client is
+    * handed the frame already in hand.
+    *
+    * The gap against [[wireCommon]] is what a per-slug frame memo could save,
+    * MINUS the lookup such a memo would cost per client — which this does not
+    * model, so the real saving is smaller than the gap. Read it as an upper
+    * bound: if the bound is not worth having, the memo certainly is not.
+    */
+  @Benchmark
+  def wireCommonShared(bh: Blackhole): Unit = {
+    val eid = entityId(wireRot % Leaves)
+    val shared = Patches.encode(commonTick(eid))
+    var c = 0
+    while (c < WireClients) {
+      shared.foreach(e => bh.consume(e.bytes))
+      c += 1
+    }
+    wireRot += 1
+  }
+
+  /** One client's patches for the common tick — built fresh per call, because
+    * `Patches.resume` builds them fresh per session and the point of the pair
+    * above is which half of that survives sharing.
+    */
+  private def commonTick(eid: String): List[Addressed] =
+    List(
+      Addressed(
+        Patch.Signals(
+          Map(
+            SignalId.derived(s"_e.$eid.state") -> Json.fromString("on"),
+            SignalId.derived(s"_e.$eid.style.background") ->
+              Json.fromString("#ffb46b")
+          )
+        )
+      ),
+      Addressed(
+        Patch.Signals(
+          Map(SignalId.derived("_v.store") -> Json.fromLong(wireRot.toLong))
+        )
+      )
+    )
 
   /** The RENDER half of the same tick: one node's patch bytes against a state
     * snapshot the tick just moved — a cache-missing `renderNodeById`, which is
