@@ -375,7 +375,7 @@ class RenderBench {
           )
         )
       )
-      events.foreach(e => bh.consume(e.renderString.getBytes(UTF_8)))
+      events.foreach(e => bh.consume(e.bytes))
       c += 1
     }
     wireRot += 1

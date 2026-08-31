@@ -78,13 +78,14 @@ private[runtime] case class Addressed(
     invalidates: Set[NodeId] = Set.empty
 ) {
 
-  /** The event's wire bytes, encoded ONCE — here, because an `Addressed` lives
-    * in the slug-shared changelog and every session's [[Patches.encode]] is
-    * offered the same ones. The per-connection encoder used to re-render and
-    * re-UTF-8 the identical event per client per frame; the socket now writes
-    * what is already in hand. A merge product ([[Patches.encode]]) is a fresh
-    * `Addressed` per client, so ITS wire encodes per client — the price of
-    * joining, still one encoding per batch rather than one per source frame.
+  /** The event's wire bytes, encoded ONCE per `Addressed` — here, at first use,
+    * rather than per connection inside the SSE encoder. [[Patches.resume]]
+    * builds fresh `Addressed` per client, so on the live path this is one
+    * encode per client per frame — the same count the old per-connection
+    * encoder had — but each encode is cheaper ([[Datastar.collapse]] runs a
+    * precompiled scan, and a merge product encodes its joined frame once per
+    * batch instead of once per source frame). The bytes are the same
+    * `renderString` output the old encoder produced, so the wire is identical.
     */
   lazy val wire: SseFrame = patch.toSse
 }
