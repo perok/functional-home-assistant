@@ -249,7 +249,7 @@ lazy val `fh-datastar-view` = project
       // TestControl.executeEmbed: simulated time for ServerHarness suites
       // (issue #109 item 3) so IO.sleep-based polling in test bodies costs
       // nothing in wall clock instead of needing to be sped up.
-      "org.typelevel" %% "cats-effect-testkit" % "3.7.0" % Test,
+      "org.typelevel" %% "cats-effect-testkit" % "3.7.1" % Test,
       // Browser smoke tests (docs/plan-playwright-smoke-tests.md): drives a
       // real Chromium in-JVM against the fixture-backed TestServer.
       "com.microsoft.playwright" % "playwright" % "1.62.0" % Test
