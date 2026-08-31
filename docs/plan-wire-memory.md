@@ -9,12 +9,15 @@ bytes decide more there than microseconds do, and the pipeline that #237 has bee
 never measured in bytes at all. `docs/architecture-rendering-pipeline.md` §6a now describes the
 document path; this plan is what to do about it.
 
-Two independent threads, and they must not be conflated because they attack different numbers:
+Three independent threads, which must not be conflated because they attack different numbers.
+**Do C first** — it is the largest by an order of magnitude and was found last, by asking why a
+signals tick was not faster:
 
-| thread | target | mechanism |
-|---|---|---|
-| A — stream the document | **peak live bytes** per concurrent page open | thread a `Writer` through the walk to the socket |
-| B — share the frame | per-client work on a live tick | memo the encoded frame across sessions |
+| thread | target | mechanism | size |
+|---|---|---|---|
+| C — narrow the cache key | per-client work on every live tick | key on the ATTRIBUTES a node reads as bytes, not the entity | **130 µs + 304 kB** per client per tick |
+| A — stream the document | **peak live bytes** per concurrent page open | thread a `Writer` through the walk to the socket | ~380 kB of ~500 kB peak |
+| B — share the frame | per-client work on a live tick | memo the encoded frame across sessions | 3.3 µs + 10.7 kB per client per tick |
 
 ## Measured starting point
 
@@ -41,11 +44,55 @@ Two findings from benching the real tick path, both of which change what is wort
 - **An extra client on a tick costs 68 us and 115 kB** (`resumeSignalsFanout` − `resumeSignals`,
   over nine), against 263 us for the first. The `RenderCache` is removing about three quarters of
   each further client's work — it is earning its place.
-- **A signals tick costs the server slightly MORE than a bytes tick** (263 us vs 226 us). Not a
-  defect in ADR 0017 — a suppressed morph still has to be rendered to discover its bytes did not
-  move, and signals are diffed on top. ADR 0017's win is wire bytes and the client's DOM, not
-  server CPU. Now stated in ADR 0017, which framed the win correctly but never said the render is
-  still paid for.
+- **A signals tick costs more than a bytes tick and should cost half.** That is thread C below,
+  and it is the biggest thing here. ADR 0017 and ADR 0012 both now say so.
+
+## Thread C — narrow the cache key
+
+**Do this one first.**
+
+A signals tick ought to be the cheap one: the node's bytes cannot have moved, so ADR 0012 keeps
+the entity out of the `RenderCache` key, the previous entry stands, and nothing re-renders. That
+is the design and it works — when it applies:
+
+| | us/op | B/op |
+|---|---:|---:|
+| `resumeSignals` — shipped card | 229.0 | 443,962 |
+| `resumeSignalsPure` — same card, name as a literal | 99.2 | 139,507 |
+| `resumeMorphs` — bytes really moved | 207.6 | 430,597 |
+
+**It does not apply to the shipped card, and one slot is why.** `renderInputs` keys on a per-entity
+`contentVersion`, which `StateStore.update` bumps whenever anything about the entity moves. ADR
+0012's exclusion therefore only bites where an entity reaches a node *exclusively* through signal
+slots. The shipped `entityCard`'s name reads `friendly_name` as bytes, so the entity is in the key,
+so every brightness change moves it, misses, and re-renders the node — to discover the bytes are
+identical and suppress the morph.
+
+That is why a signals tick currently costs *more* than a bytes tick rather than half of one.
+
+### The fix
+
+Key on the **attributes** the node's byte slots read, not on the entities. This is ADR 0012's own
+argument one level down: it already refuses to key on an entity whose movement cannot change the
+bytes; the same is true of an attribute.
+
+- `Transform.Simple` names its attribute outright (ADR 0028) — `AttrOrId("friendly_name")`,
+  `Fill("brightness", …)`. Trivial to read off.
+- A **CEL** transform does not. Its attribute references would have to be extracted at parse
+  time, which is the part that has not been designed and is where the risk is. `Transform.parse`
+  is the place to look.
+- Fallback where extraction cannot answer: keep the entity version, i.e. today's behaviour. The
+  change is then strictly an improvement and never a correctness risk — a key that is too wide
+  wastes a render, which ADR 0012 already records as the loud, safe direction to fail in.
+
+`RenderInputs.isAtLeast` is a partial order over the key's shape and will need to keep working
+across the change; ADR 0012 explains why different key sets are deliberately unordered.
+
+### Watch out for
+
+The reverse index must stay WIDE (ADR 0012): a signal has to make its node a candidate or no frame
+is ever computed for it. Only the cache key narrows. Getting these the wrong way round fails
+asymmetrically and the dangerous direction is silent.
 
 ## Thread A — stream the document
 
@@ -142,9 +189,22 @@ suppress every morph and produce a signals frame, `byteTick` must produce morphs
 a signal slot is a property of the shipped card, so without the check a card change would quietly
 turn `resumeSignals` into a second `resumeMorphs` — still green, still fast, measuring nothing.
 
+## What the bench had to be fixed for, twice
+
+The first version of the pull benches created a **fresh `RenderCache` per op**. In production the
+cache is the slug's and outlives every tick (`LiveSlug.cache`), so that made every node of every
+tick a cold miss — pricing a render the running server would often not do, and hiding the one
+thing worth knowing. It also made `resumeSignals` and `resumeMorphs` come out equal, which is
+what prompted "why isn't a signals tick faster?" and led to thread C. The fixture also had to
+start moving `contentVersion` per tick, since `StateStore.update` stamps it and a fixture leaving
+it at 0 would hit the cache forever and price nothing.
+
+Both were bugs that produced *plausible* numbers. Worth remembering when adding a bench here: the
+failure mode is not a crash, it is a result.
+
 ## Open
 
+- Thread C's CEL attribute extraction is the undesigned part. Spike it before committing to C.
 - Does thread A's step 1 (incremental digest) pay for itself alone? Measure before doing 2 and 3.
-- Is the marginal per-client tick cost worth attacking directly, ahead of thread B?
 - `session.control` is an **unbounded** `Queue[IO, SseFrame]` holding pre-encoded byte arrays. Not
   part of either thread, but it is a memory risk on the target hardware and nothing bounds it.

@@ -65,14 +65,24 @@ Each form is load-bearing:
   what is **not** on the wire — a broken implementation still updates the card, because the morph it
   was meant to replace is still being sent.
 
-  **The saving is bytes and the client's DOM, never server CPU.** A suppressed morph is still
-  rendered, because rendering it is how we discover its bytes did not move, and the signal values
-  are diffed on top of that — so a signals tick costs the server slightly *more* than one whose
-  bytes moved (`RenderBench.resumeSignals` 263 µs against `resumeMorphs` 226 µs). This is not a
-  regression to fix; it is the shape of the trade, and it is worth stating because the obvious
-  reading of "the morph disappears" is that the work disappeared with it. On a first paint signal
-  slots are a straight cost with no suppression to offset them at all (`pageSignals` against
-  `page`, roughly 2x) — that is the case this ADR is not about.
+  **The saving is bytes on the wire and work in the client's DOM. The server's saving is
+  currently thrown away, and that is a defect, not the shape of the trade.** A suppressed morph
+  is still RENDERED, because rendering it is how we discover its bytes did not move — so a
+  signals tick costs the server slightly *more* than one whose bytes moved
+  (`RenderBench.resumeSignals` 229 µs against `resumeMorphs` 208 µs).
+
+  It does not have to. The `RenderCache` key is meant to exclude entities that reach a node only
+  through signal slots (ADR 0012), and where it does, the entry stands and nothing re-renders:
+  the same tick on a card whose name is a literal is **99 µs and 140 kB against 229 µs and
+  444 kB** (`resumeSignalsPure`). But the key holds a per-entity `contentVersion`, so a single
+  byte-reading slot — the shipped card's name, reading `friendly_name` — puts the entity back in
+  the key and every brightness change re-renders the node. The fix is a finer-grained key; see
+  ADR 0012 and `docs/plan-wire-memory.md`.
+
+  Worth stating plainly because the obvious reading of "the morph disappears" is that the work
+  disappeared with it. On a first paint signal slots are a straight cost with no suppression to
+  offset them at all (`pageSignals` against `page`, roughly 2x) — that is the case this ADR is
+  not about.
 - **An element seeds its own signal.** The document form's `data-signals` means a first paint, a
   host fill or a `?prev=` reconnect repaint needs no frame to be correct. `data-signals`
   overwrites by default in the pinned bundle (`__ifmissing` is opt-in), so re-seeding on a later

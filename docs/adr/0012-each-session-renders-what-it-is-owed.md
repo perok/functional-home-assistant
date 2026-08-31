@@ -57,6 +57,29 @@ for it — so the two lists are both real and neither derives the other. Getting
 way round fails asymmetrically, and only one way is loud: the wide list in the key wastes a
 render, the narrow list in the reverse index silently stops signal frames.
 
+**The narrowing is per ENTITY, and that is not far enough.** The key holds
+`contentVersion`, which `StateStore.update` stamps whenever an entity's content moved *at
+all* — a brightness change included. So the exclusion above only bites where an entity
+reaches a node **exclusively** through signal slots. One byte-reading slot re-admits it, and
+from then on every signal-only change to that entity moves the key, misses the cache, and
+re-renders the node to discover its bytes are identical.
+
+The shipped `entityCard` has exactly one such slot: the name, which reads `friendly_name`.
+Measured, one client and a twenty-entity tick (`RenderBench.resumeSignals` against
+`resumeSignalsPure`, the same dashboard with the name held as a literal):
+
+| | us/op | B/op |
+|---|---:|---:|
+| shipped card — name reads `friendly_name` | 229.0 | 443,962 |
+| same card, name as a literal | 99.2 | 139,507 |
+
+**2.3x the time and 3.2x the bytes, for one slot.** That is the largest single cost on the
+live path — an order of magnitude more than encoding the frame — and the argument for fixing
+it is this ADR's own, applied one level down: key on the *attributes* the node's byte slots
+read rather than on the entities. `Transform.Simple` names its attribute outright (ADR 0028);
+a CEL transform would need its attribute references extracted at parse time, which is the
+part that has not been designed. Tracked in `docs/plan-wire-memory.md`.
+
 The cache used to hold one generation per SELECTION as well, because a node could be both cached and the
 owner of a bake group: its own bytes then carried the viewer's chosen tab, so two viewers
 on two tabs were owed different bytes for one node and evicted each other every frame.

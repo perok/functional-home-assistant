@@ -1038,11 +1038,16 @@ Live list — delete an entry when it is answered, and say where the answer land
   unconditionally identical (`Held.signals` is per-client, different tabs see different surfaces),
   so it must be a lookup, never an assumption. Low priority; the other 95% is the target.
 
-- **A signals tick costs the server slightly MORE than a bytes tick** — `resumeSignals` 263 µs
-  against `resumeMorphs` 226 µs. Not a defect in ADR 0017 and arguably what it already implies: a
-  suppressed morph still has to be RENDERED to discover its bytes did not move, and the signal
-  values are diffed on top. The win is wire bytes and the client's DOM, never server CPU — now
-  written up in ADR 0017, which framed the win correctly but never said the render is still paid.
+- **A signals tick costs MORE than a bytes tick, and one slot is why.** `resumeSignals` 262 µs /
+  442 kB against `resumeMorphs` 232 µs / 431 kB — the suppressed morph is still RENDERED, because
+  rendering it is how we discover its bytes did not move. It does not have to be:
+  `resumeSignalsPure`, the same tick on a card whose name is a literal, is **101 µs / 139 kB**.
+  The `RenderCache` key holds a per-entity `contentVersion`, so ADR 0012's exclusion only bites
+  where an entity reaches a node *exclusively* through signal slots, and the shipped
+  `entityCard`'s name reads `friendly_name` as bytes — which re-admits it, so every brightness
+  change re-renders the node. **This is the largest single cost on the live path**, an order of
+  magnitude above encoding the frame. Fix is a finer-grained key: ADR 0012 has the argument,
+  `docs/plan-wire-memory.md` thread C has the shape.
 
 - **A morph-only client profile** —
   [issue #133](https://github.com/perok/functional-home-assistant/issues/133). ADR 0017 keeps the

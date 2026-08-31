@@ -56,9 +56,10 @@ import java.util.concurrent.TimeUnit
   * pageSetPlain           749.0     1,536,014     …signal-less members
   * pageShared           1,455.7     3,472,725     200 leaves, 40 entities
   * -- a live tick, the REAL path ----------------------------------------
-  * resumeSignals          263.5       439,924     1 client, signal-only tick
-  * resumeMorphs           226.5       427,930     1 client, bytes moved
-  * resumeSignalsFanout    879.3     1,470,548     10 clients, one cache
+  * resumeSignals          261.7       442,296     1 client, signal-only tick
+  * resumeSignalsPure      101.4       138,575     …on a card the key protects
+  * resumeMorphs           231.5       430,638     1 client, bytes moved
+  * resumeSignalsFanout    892.3     1,491,181     10 clients, one cache
   * -- pieces ------------------------------------------------------------
   * simple                 963.6       961,679     transforms, production dispatch
   * cel                  1,428.9     1,054,202     …all six on the engine
@@ -97,13 +98,20 @@ import java.util.concurrent.TimeUnit
   * narrowing, the per-node cache lookup and digest compare, the signal diff. Do
   * not quote the 10x as if it were a tick-level number.
   *
-  * '''A signals tick costs the server slightly MORE than a bytes tick''' —
-  * `resumeSignals` 263 us against `resumeMorphs` 226 us. Not a defect in ADR
-  * 0017 — a suppressed morph still has to be RENDERED to discover its bytes did
-  * not move, and the signal values are diffed on top. The win is on the WIRE
-  * and in the client's DOM, never in server CPU, and `pageSignals` against
-  * `page` (a first paint, where signal slots are a straight cost) is not where
-  * to look for it.
+  * '''A signals tick costs MORE than a bytes tick, and it should cost half.'''
+  * `resumeSignals` 262 us against `resumeMorphs` 232 us — the suppressed morph
+  * is still RENDERED, because rendering it is how we discover its bytes did not
+  * move. It does not have to be: [[resumeSignalsPure]] is the same tick on a
+  * card whose name is a literal, and it is '''101 us and 139 kB against 262 us
+  * and 442 kB''' — 2.6x the time and 3.2x the bytes, for ONE byte-reading slot.
+  *
+  * The cache key holds a per-entity `contentVersion`, which moves whenever
+  * anything about the entity moves, so ADR 0012's exclusion only bites where an
+  * entity reaches a node exclusively through signal slots. The shipped
+  * `entityCard`'s name reads `friendly_name`, which re-admits it. '''This is
+  * the largest single cost on the live path''' — an order of magnitude above
+  * encoding the frame — and the fix is a finer-grained key (ADR 0012,
+  * `docs/plan-wire-memory.md`).
   *
   * ==Why it exists==
   *
@@ -196,6 +204,13 @@ class RenderBench {
   private var heldAfterPaint: Map[NodeId, Held] = null
   private var tickNodeIds: Vector[NodeId] = null
   private var tickEntities: Vector[String] = null
+  // The signal-only variant: same dashboard, name held as a literal, so no
+  // slot reads the entity as bytes and the cache key cannot move.
+  private var pure: Renderer = null
+  private var heldPure: Map[NodeId, Held] = null
+  private var pureNodeIds: Vector[NodeId] = null
+  // The SLUG's cache, not the op's — see [[pull]].
+  private var liveCache: RenderCache = null
 
   @Setup(Level.Trial)
   def setup(): Unit = {
@@ -275,6 +290,13 @@ class RenderBench {
     }
     tickEntities = Vector.tabulate(TickEntities)(entityId)
     tickNodeIds = tickEntities.flatMap(signalled.componentsFor(_).toList)
+    pure = Renderer.create(Dashboard(cards, tree(Leaves, 4, signalOnly = true)))
+    val purePaint = pure.renderPageTraced(st)
+    heldPure = purePaint.own.map { case (id, p) =>
+      id -> Held(Some(Digest.of(p.html)), p.signals)
+    }
+    pureNodeIds = tickEntities.flatMap(pure.componentsFor(_).toList)
+    liveCache = RenderCache.create.unsafeRunSync()
     checkTickShapes()
   }
 
@@ -289,20 +311,36 @@ class RenderBench {
     * benchmark rather than a plausible number.
     */
   private def checkTickShapes(): Unit = {
-    def kinds(moved: Map[String, EntityState]): List[Patch] =
-      pull(moved, clients = 1).head.map(_.patch)
-    val sig = kinds(signalTick(1))
+    def kinds(
+        r: Renderer,
+        held: Map[NodeId, Held],
+        ids: Vector[NodeId],
+        tick: Int => Map[String, EntityState]
+    ): List[Patch] = {
+      wireRot += 1
+      pull(r, held, ids, tick(wireRot), 1).head.map(_.patch)
+    }
+    val sig = kinds(signalled, heldAfterPaint, tickNodeIds, signalTick)
     if (sig.exists(_.isInstanceOf[Patch.Morph]))
       sys.error(
         s"signalTick must suppress every morph; got ${sig.map(_.getClass.getSimpleName)}"
       )
     if (!sig.exists(_.isInstanceOf[Patch.Signals]))
       sys.error("signalTick produced no signals frame — nothing is measured")
-    val bytes = kinds(byteTick(2))
+    val bytes = kinds(signalled, heldAfterPaint, tickNodeIds, byteTick)
     if (!bytes.exists(_.isInstanceOf[Patch.Morph]))
       sys.error(
         "byteTick must produce morphs; the name slot is not in the bytes"
       )
+    // The signal-only card must reach the SAME conclusion as the shipped one:
+    // the point of it is that it gets there without re-rendering, not that it
+    // sends something different. A divergence here would mean the literal name
+    // changed what the tick MEANS, and the comparison would be meaningless.
+    val purest = kinds(pure, heldPure, pureNodeIds, signalTick)
+    if (purest.exists(_.isInstanceOf[Patch.Morph]))
+      sys.error("resumeSignalsPure must suppress every morph too")
+    if (!purest.exists(_.isInstanceOf[Patch.Signals]))
+      sys.error("resumeSignalsPure produced no signals frame")
   }
 
   /** The baseline: a whole page, no signal slots. */
@@ -542,8 +580,35 @@ class RenderBench {
     * output — the case the whole suppression machinery exists for.
     */
   @Benchmark
-  def resumeSignals(bh: Blackhole): Unit =
-    bh.consume(pull(signalTick(wireRot), clients = 1))
+  def resumeSignals(bh: Blackhole): Unit = {
+    wireRot += 1
+    bh.consume(
+      pull(signalled, heldAfterPaint, tickNodeIds, signalTick(wireRot), 1)
+    )
+  }
+
+  /** '''The same tick on a card the cache key can actually protect''' — every
+    * slot that reads the entity is a signal slot, so the entity is not in
+    * `renderInputs` at all (ADR 0012) and a signal-only change cannot move the
+    * key. The entry from the previous tick stands and nothing re-renders.
+    *
+    * The gap against [[resumeSignals]] is the cost of ONE non-signal slot. The
+    * shipped `entityCard` has one — the name, which reads `friendly_name` as
+    * bytes — and that is enough to put the entity back in the key, so a
+    * brightness change re-renders the whole node to discover its bytes are
+    * identical. `contentVersion` is per ENTITY and moves when anything about it
+    * moves; nothing in the key can say that what moved reaches only a signal.
+    *
+    * So this is not an exotic fixture, it is the same dashboard with the name
+    * held as a literal — and the difference between the two is what a
+    * finer-grained key would be worth. It is the number to read before anything
+    * else on this path.
+    */
+  @Benchmark
+  def resumeSignalsPure(bh: Blackhole): Unit = {
+    wireRot += 1
+    bh.consume(pull(pure, heldPure, pureNodeIds, signalTick(wireRot), 1))
+  }
 
   /** [[resumeSignals]] fanned to [[WireClients]] connections off ONE ring of
     * the doorbell, through ONE [[RenderCache]] — a house with ten tabs open.
@@ -555,8 +620,18 @@ class RenderBench {
     * cache is buying nothing.
     */
   @Benchmark
-  def resumeSignalsFanout(bh: Blackhole): Unit =
-    bh.consume(pull(signalTick(wireRot), clients = WireClients))
+  def resumeSignalsFanout(bh: Blackhole): Unit = {
+    wireRot += 1
+    bh.consume(
+      pull(
+        signalled,
+        heldAfterPaint,
+        tickNodeIds,
+        signalTick(wireRot),
+        WireClients
+      )
+    )
+  }
 
   /** The same pull when the movement is in the BYTES — a `friendly_name`
     * change, which no slot carries as a signal — so every candidate really is a
@@ -568,40 +643,63 @@ class RenderBench {
     * is not about and where it is a straight cost.)
     */
   @Benchmark
-  def resumeMorphs(bh: Blackhole): Unit =
-    bh.consume(pull(byteTick(wireRot), clients = 1))
+  def resumeMorphs(bh: Blackhole): Unit = {
+    wireRot += 1
+    bh.consume(
+      pull(signalled, heldAfterPaint, tickNodeIds, byteTick(wireRot), 1)
+    )
+  }
 
-  /** One doorbell ring, `clients` sessions, one shared cache — the real shape
-    * of a tick. Each client resumes from the version before this one against
-    * its own `holds`, which is what makes the suppression decision per client.
+  /** One doorbell ring, `clients` sessions — the real shape of a tick. Each
+    * client resumes from the version before this one against its own `holds`,
+    * which is what makes the suppression decision per client.
+    *
+    * '''The cache is the slug's and OUTLIVES the op''', because in production
+    * it does: `LiveSlug.cache` is created once and every tick reads it. A
+    * `RenderCache.create` per op — which this did at first — makes every node
+    * of every tick a cold miss, so it prices a render the running server would
+    * often not do, and it hides the one thing worth knowing here (whether a
+    * signals tick moves the cache key). It also made `resumeSignals` and
+    * `resumeMorphs` come out the same, which is what sent us looking.
+    *
+    * `contentVersion` moves per tick for the same reason: `StateStore.update`
+    * stamps it whenever `sameContent` says an entity moved, so a fixture that
+    * left it at 0 would hit the cache forever and price nothing.
     */
   private def pull(
+      renderer: Renderer,
+      held: Map[NodeId, Held],
+      nodeIds: Vector[NodeId],
       moved: Map[String, EntityState],
       clients: Int
   ): List[List[Addressed]] = {
-    wireRot += 1
     val at = wireRot.toLong
-    val log = tickNodeIds.foldLeft(FragmentLog("bench"))(_.touched(_, at))
-    val io = for {
-      cache <- RenderCache.create
-      out <- (1 to clients).toList.traverse { _ =>
+    val log = nodeIds.foldLeft(FragmentLog("bench"))(_.touched(_, at))
+    (1 to clients).toList
+      .traverse { _ =>
         Patches.resume(
-          signalled,
-          cache,
+          renderer,
+          liveCache,
           log,
-          heldAfterPaint,
+          held,
           moved,
           at,
           Set.empty,
           Map.empty
         )
       }
-    } yield out
-    io.unsafeRunSync()
+      .unsafeRunSync()
   }
 
   /** A tick that moves ONLY what signal slots read (`brightness`, and the state
     * word), so the patch form is byte-identical and the morph is suppressed.
+    *
+    * `contentVersion = rot` because `StateStore.update` stamps it whenever an
+    * entity's content moved at all — a brightness change included. That is
+    * exactly why this tick still MISSES the cache on the shipped card: the
+    * node's key holds the entity (its name slot reads it as bytes), the version
+    * under it moved, and nothing in the key can tell that the attribute which
+    * moved reaches only signal slots. See [[resumeSignalsPure]].
     */
   private def signalTick(rot: Int): Map[String, EntityState] =
     tickEntities.zipWithIndex.foldLeft(st) { case (acc, (e, i)) =>
@@ -615,7 +713,8 @@ class RenderBench {
             "friendly_name" -> Json.fromString(s"Tile number $i"),
             "brightness" -> Json.fromInt(1 + (rot * 7 + i * 13) % 254),
             "unit_of_measurement" -> Json.fromString("lx")
-          )
+          ),
+          contentVersion = rot.toLong
         )
       )
     }
@@ -634,7 +733,8 @@ class RenderBench {
             "friendly_name" -> Json.fromString(s"Tile $rot number $i"),
             "brightness" -> Json.fromInt(128),
             "unit_of_measurement" -> Json.fromString("lx")
-          )
+          ),
+          contentVersion = rot.toLong
         )
       )
     }
@@ -834,7 +934,18 @@ object RenderBench {
     )
   )
 
-  def leaf(signals: Boolean, distinct: Int = Int.MaxValue)(
+  /** @param signalOnly
+    *   hold the NAME as a literal, so no slot reads the entity as bytes and the
+    *   entity drops out of `renderInputs` entirely (ADR 0012). Not a shipped
+    *   shape — the shipped card's name reads `friendly_name` — but the
+    *   difference between the two is exactly what one byte-reading slot costs
+    *   the cache key, which is what [[RenderBench.resumeSignalsPure]] prices.
+    */
+  def leaf(
+      signals: Boolean,
+      distinct: Int = Int.MaxValue,
+      signalOnly: Boolean = false
+  )(
       i: Int
   ): LayoutNode.Component =
     LayoutNode.Component(
@@ -844,10 +955,13 @@ object RenderBench {
         "cls" -> SlotSource(literal = Some("fh-tile")),
         // Literal now (entity.pkl): the entity's icon is a registry fact.
         "icon" -> SlotSource(literal = Some("mdi:lightbulb")),
-        "name" -> SlotSource(
-          // Opted in (ADR 0028): the shipped entity card's name shape.
-          transform = Transform.Simple.AttrOrId("friendly_name")
-        ),
+        "name" ->
+          (if (signalOnly) SlotSource(literal = Some(s"Tile number $i"))
+           else
+             SlotSource(
+               // Opted in (ADR 0028): the shipped entity card's name shape.
+               transform = Transform.Simple.AttrOrId("friendly_name")
+             )),
         "state" -> SlotSource(
           transform = Transform.Simple.UnitSuffix("unit_of_measurement"),
           signal = Option.when(signals)(SignalBind.Text)
@@ -879,8 +993,9 @@ object RenderBench {
   def tree(
       leaves: Int,
       branching: Int,
-      signals: Boolean,
-      distinct: Int = Int.MaxValue
+      signals: Boolean = true,
+      distinct: Int = Int.MaxValue,
+      signalOnly: Boolean = false
   ): LayoutNode = {
     def stack(items: List[LayoutNode]): LayoutNode =
       if (items.sizeIs == 1) items.head
@@ -893,7 +1008,7 @@ object RenderBench {
             )
             .toList
         )
-    stack(List.tabulate(leaves)(leaf(signals, distinct)))
+    stack(List.tabulate(leaves)(leaf(signals, distinct, signalOnly)))
   }
 
   /** The same leaves, as one candidate set: every entity a candidate, each with
