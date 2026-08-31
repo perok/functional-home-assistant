@@ -850,29 +850,41 @@ class Renderer(
     * against a 5.45 µs render per node (`RenderBench.byteSlotResolve` against
     * `tickRender`).
     *
-    * '''`None` means "cannot answer cheaply, render as before", never
-    * "unchanged".''' Three shapes take it, and only the first is common:
+    * '''`None` means "cannot answer cheaply", never "unchanged".''' Exactly two
+    * shapes take it, and both are ordinary rather than defects:
     *
-    *   - no own rendering — structure, which is never cached anyway;
+    *   - a MEMBER, which is not in `allIndexed` at all — its bytes are its
+    *     whole subtree's, resolved through [[ResolvedMember]];
     *   - a DYNAMIC SUBJECT, where the subject decides every slot's inherited
     *     entity, its signal names and its bindings, so the byte slots alone do
-    *     not determine the bytes ([[resolveDirect]] owns that node);
-    *   - a node under a bake selection, whose markup reads a selection these
-    *     values do not carry. That cannot arise today — a node reading its own
-    *     selection holds regions, which makes it structure, which is never
-    *     cached (ADR 0012) — and is CHECKED rather than assumed because the
-    *     failure mode is permanently stale bytes rather than a wasted render.
+    *     not determine the bytes ([[resolveDirect]] owns that node).
+    *
+    * A bake selection would be a third, because such a node's markup reads a
+    * selection these values do not carry — but it cannot happen, and this
+    * RAISES rather than degrading quietly if it ever does. A node reading its
+    * own selection holds regions, which makes it structure, and structure has
+    * no own rendering and is never cached (ADR 0012). The two conditions are
+    * therefore mutually exclusive, and a `None` here would be indistinguishable
+    * from the honest ones above while producing permanently stale bytes. Asking
+    * `bakeGroup` is a map lookup, not a resolution, so the check is cheaper
+    * than the fallback it replaced.
     */
   private[runtime] def byteSlotValues(
       id: NodeId,
-      states: Map[String, EntityState],
-      uiState: Map[String, String]
+      states: Map[String, EntityState]
   ): Option[Map[String, String]] =
     allIndexed.get(id).flatMap {
       case (c: LayoutNode.Component, _) if hasOwnRendering(id) =>
+        if (surfaces.bakeGroup(id).nonEmpty)
+          sys.error(
+            s"node $id has its own rendering AND a bake group; ADR 0012 holds " +
+              "these are exclusive (a bake owner holds regions, so it is " +
+              "structure and is never cached). The render cache's byte-value " +
+              "pre-check cannot see a selection, so this must be fixed rather " +
+              "than tolerated."
+          )
         val plan = planOf(id, id, c, states)
         if (plan.subjectDynamic) None
-        else if (resolveBakeTraced(id, uiState, states)._1.nonEmpty) None
         else {
           val b = Map.newBuilder[String, String]
           plan.dynamic.foreach { case (slot, srcEntity, source) =>

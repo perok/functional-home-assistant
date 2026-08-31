@@ -798,7 +798,7 @@ private[runtime] object Patches {
           id,
           renderer,
           inputs,
-          renderer.byteSlotValues(id, states, uiState)
+          renderer.byteSlotValues(id, states)
         )(
           IO(mustRender(renderer.renderNodeById(id, states, uiState), id))
         ).map(Some(_))
