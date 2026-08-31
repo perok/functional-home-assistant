@@ -1541,8 +1541,41 @@ class Renderer(
     *   values this resolution already holds: the transform, the subject and the
     *   signal name are all the same ones.
     */
+  /** One paint's resolution — LAYERS, not a merged map.
+    *
+    * The plan's constant layers ride by reference; only what a paint can
+    * actually change is built fresh, and only as large as it is. The old
+    * per-paint builder assembled ONE immutable map per node per paint
+    * (structural, bake, constants, live values, bindings — a `Map.newBuilder`
+    * and five `++=` per node); the layers carry the same precedence without the
+    * assembly: `fhGet` resolves a name through them in the order the builder
+    * used to apply it, last-wins become first-asked.
+    *
+    * @param structural
+    *   constants from the node's position (ids, inherited entity)
+    * @param constants
+    *   literal and identity-`once` slot values
+    * @param bindings
+    *   the `__bind`/`__signal` strings (constant subject)
+    * @param paint
+    *   the live slot values — empty when the card has none
+    * @param bake
+    *   the client's bake selection (empty off bake groups)
+    * @param liveBindings
+    *   the direct path's `__bind`/`__signal` strings — the subject is dynamic
+    *   there, so the names cannot be precomputed
+    * @param signalSlots
+    *   slots withheld (blanked) in the patch form
+    * @param signals
+    *   the seed values, captured as they resolve
+    */
   private case class Resolved(
-      vars: Map[String, String],
+      structural: Map[String, String],
+      constants: Map[String, String],
+      bindings: Map[String, String],
+      paint: Map[String, String],
+      bake: Map[String, String],
+      liveBindings: Map[String, String],
       signalSlots: List[String],
       signals: Map[SignalId, String]
   )
@@ -1595,7 +1628,34 @@ class Renderer(
           list
         case _ =>
           if (form.isPatch && resolved.signalSlots.contains(name)) ""
-          else resolved.vars.getOrElse(name, null)
+          else
+            // The layers, in the precedence the old merged map encoded by
+            // construction (its builder order, last-wins): a name answers
+            // from the first layer that has it. `getOrElse` is by-name, so
+            // the chain stops at the hit — the usual cost is two or three
+            // failed lookups on maps smaller than the name being looked up.
+            resolved.bindings
+              .getOrElse(
+                name,
+                resolved.liveBindings
+                  .getOrElse(
+                    name,
+                    resolved.paint
+                      .getOrElse(
+                        name,
+                        resolved.constants
+                          .getOrElse(
+                            name,
+                            resolved.bake
+                              .getOrElse(
+                                name,
+                                resolved.structural
+                                  .getOrElse(name, null)
+                              )
+                          )
+                      )
+                  )
+              )
       }
   }
 
@@ -1815,37 +1875,37 @@ class Renderer(
       plan: NodePlan,
       states: Map[String, EntityState],
       bakeIndex: Map[String, String]
-  ): Resolved =
+  ): Resolved = {
     if (plan.subjectDynamic) resolveDirect(plan, states, bakeIndex)
-    else {
-      // ONE map, built once. `structural ++ bakeIndex ++ constants ++ dynamic
-      // ++ bindings` read well but allocated an intermediate `HashMap` per
-      // `++`, per node — the builder is the whole assembly.
-      val b = Map.newBuilder[String, String]
-      b.sizeHint(
-        plan.structural.size + bakeIndex.size + plan.constants.size +
-          plan.dynamic.size + plan.bindings.size
-      )
-      b ++= plan.structural
-      if (bakeIndex.nonEmpty) b ++= bakeIndex
-      b ++= plan.constants
-      val signals =
-        if (plan.signalNameBySlot.isEmpty) None
-        else Some(Map.newBuilder[SignalId, String])
-      plan.dynamic.foreach { case (slot, srcEntity, source) =>
-        val value = resolveSlot(srcEntity, source, states)
-        b += ((slot, value))
-        plan.signalNameBySlot
-          .get(slot)
-          .foreach(sig => signals.foreach(_ += ((sig, value))))
-      }
-      b ++= plan.bindings
-      Resolved(
-        b.result(),
-        plan.signalSlots,
-        signals.fold(Map.empty[SignalId, String])(_.result())
-      )
+    // The only map a paint builds: the LIVE slot values. A card without any
+    // (the common static case) builds nothing at all — the constants, the
+    // structural vars and the binding strings ride the plan by reference, and
+    // the name the template asks for is answered from whichever layer holds
+    // it ([[NodeContext.fhGet]]). The old assembly built one merged map per
+    // node per paint to say the same thing.
+    val paintB = Map.newBuilder[String, String]
+    paintB.sizeHint(plan.dynamic.size)
+    val signalB =
+      if (plan.signalNameBySlot.isEmpty) None
+      else Some(Map.newBuilder[SignalId, String])
+    plan.dynamic.foreach { case (slot, srcEntity, source) =>
+      val value = resolveSlot(srcEntity, source, states)
+      paintB += ((slot, value))
+      plan.signalNameBySlot
+        .get(slot)
+        .foreach(sig => signalB.foreach(_ += ((sig, value))))
     }
+    Resolved(
+      plan.structural,
+      plan.constants,
+      plan.bindings,
+      paint = paintB.result(),
+      bake = bakeIndex,
+      liveBindings = Map.empty,
+      plan.signalSlots,
+      signalB.fold(Map.empty[SignalId, String])(_.result())
+    )
+  }
 
   /** The straight per-paint resolution, kept for the one shape a plan cannot
     * precompute: a card whose `entity_id` slot is itself a transform, so the
@@ -1903,13 +1963,17 @@ class Renderer(
         s"${slot}__signal" -> signal
       )
     }
-    val vars = Map.newBuilder[String, String]
-    vars.sizeHint(injected.size + resolved.size + bindings.size)
-    vars ++= injected
-    vars ++= resolved
-    vars ++= bindings
+    // Same layers as the planned path ([[NodeContext.fhGet]] resolves the
+    // chain) — but here the slot map IS the paint layer (every slot resolves
+    // per paint: the subject can move) and the binding strings are per-paint
+    // too, so they ride `liveBindings` instead of the plan.
     Resolved(
-      vars.result(),
+      structural = plan.structural,
+      constants = plan.constants,
+      bindings = plan.bindings,
+      paint = resolved,
+      bake = bakeIndex,
+      liveBindings = bindings.toMap,
       named.map(_._1),
       named.map { case (slot, _, signal) => signal -> resolved(slot) }.toMap
     )
