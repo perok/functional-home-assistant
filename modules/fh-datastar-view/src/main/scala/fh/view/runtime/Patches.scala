@@ -794,7 +794,12 @@ private[runtime] object Patches {
   ): IO[Option[NodeBytes]] =
     renderer.renderInputs(id, states) match {
       case Some(inputs) =>
-        cache(id, renderer, inputs)(
+        cache(
+          id,
+          renderer,
+          inputs,
+          renderer.byteSlotValues(id, states, uiState)
+        )(
           IO(mustRender(renderer.renderNodeById(id, states, uiState), id))
         ).map(Some(_))
       case None =>

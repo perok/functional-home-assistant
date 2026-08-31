@@ -832,6 +832,58 @@ class Renderer(
         )
       )
 
+  /** The values of the slots that travel as BYTES — the render cache's
+    * pre-check.
+    *
+    * [[renderInputs]] keys on a per-entity `contentVersion`, which moves
+    * whenever ANYTHING about that entity moves. So a change reaching only
+    * signal slots still moves the key, misses, and re-renders the node to
+    * discover its bytes are identical — which on the shipped `entityCard` is
+    * every brightness tick, because one slot (the name) reads the entity as
+    * bytes and re-admits it to the key. These values answer the question
+    * directly instead: equal values, equal bytes, so the entry's bytes stand.
+    *
+    * '''Only the byte slots, and that is the whole point.''' Building the full
+    * [[Resolved]] would resolve every slot — the signal ones included, and on
+    * the shipped card that is where the CEL transform lives — and hand most of
+    * the saving back while still looking like a saving. Measured at 0.28 µs
+    * against a 5.45 µs render per node (`RenderBench.byteSlotResolve` against
+    * `tickRender`).
+    *
+    * '''`None` means "cannot answer cheaply, render as before", never
+    * "unchanged".''' Three shapes take it, and only the first is common:
+    *
+    *   - no own rendering — structure, which is never cached anyway;
+    *   - a DYNAMIC SUBJECT, where the subject decides every slot's inherited
+    *     entity, its signal names and its bindings, so the byte slots alone do
+    *     not determine the bytes ([[resolveDirect]] owns that node);
+    *   - a node under a bake selection, whose markup reads a selection these
+    *     values do not carry. That cannot arise today — a node reading its own
+    *     selection holds regions, which makes it structure, which is never
+    *     cached (ADR 0012) — and is CHECKED rather than assumed because the
+    *     failure mode is permanently stale bytes rather than a wasted render.
+    */
+  private[runtime] def byteSlotValues(
+      id: NodeId,
+      states: Map[String, EntityState],
+      uiState: Map[String, String]
+  ): Option[Map[String, String]] =
+    allIndexed.get(id).flatMap {
+      case (c: LayoutNode.Component, _) if hasOwnRendering(id) =>
+        val plan = planOf(id, id, c, states)
+        if (plan.subjectDynamic) None
+        else if (resolveBakeTraced(id, uiState, states)._1.nonEmpty) None
+        else {
+          val b = Map.newBuilder[String, String]
+          plan.dynamic.foreach { case (slot, srcEntity, source) =>
+            if (!plan.signalSlots.contains(slot))
+              b += ((slot, resolveSlot(srcEntity, source, states)))
+          }
+          Some(b.result())
+        }
+      case _ => None
+    }
+
   private def versions(
       entities: List[String],
       states: Map[String, EntityState]

@@ -65,19 +65,17 @@ Each form is load-bearing:
   what is **not** on the wire — a broken implementation still updates the card, because the morph it
   was meant to replace is still being sent.
 
-  **The saving is bytes on the wire and work in the client's DOM. The server's saving is
-  currently thrown away, and that is a defect, not the shape of the trade.** A suppressed morph
-  is still RENDERED, because rendering it is how we discover its bytes did not move — so a
-  signals tick costs the server slightly *more* than one whose bytes moved
-  (`RenderBench.resumeSignals` 262 µs against `resumeMorphs` 232 µs).
+  **The saving is on the wire AND on the server, but the server half had to be claimed
+  separately.** A suppressed morph is still RENDERED — rendering it is how we discover its bytes
+  did not move — so for a long time a signals tick cost the server slightly MORE than one whose
+  bytes moved (262 µs against 232 µs). The `RenderCache` key is supposed to exclude entities
+  reaching a node only through signal slots (ADR 0012), but it holds a per-entity
+  `contentVersion`, and the shipped card's name reads `friendly_name` as bytes — one slot, enough
+  to re-admit the entity and re-render the node on every brightness tick.
 
-  It does not have to. The `RenderCache` key is meant to exclude entities that reach a node only
-  through signal slots (ADR 0012), and where it does, the entry stands and nothing re-renders:
-  the same tick on a card whose name is a literal is **101 µs and 139 kB against 262 µs and
-  442 kB** (`resumeSignalsPure`). But the key holds a per-entity `contentVersion`, so a single
-  byte-reading slot — the shipped card's name, reading `friendly_name` — puts the entity back in
-  the key and every brightness change re-renders the node. The fix is a finer-grained key; see
-  ADR 0012 and `docs/plan-wire-memory.md`.
+  Fixed by comparing the resolved byte-slot values before rendering (ADR 0012):
+  `RenderBench.resumeSignals` is now **101.7 µs / 151 kB against `resumeMorphs`' 255 µs / 439 kB**.
+  A signals tick is now the cheap one, which is what this ADR always claimed.
 
   Worth stating plainly because the obvious reading of "the morph disappears" is that the work
   disappeared with it. On a first paint signal slots are a straight cost with no suppression to

@@ -133,8 +133,20 @@ private[runtime] final class RenderCache(
     * `Semaphore` sized to the cores, `IO.evalOn` onto a sized pool, or
     * `IO.cede` to break it up — see the `scala-fp` skill. What is not a tool is
     * a signature that makes the cost invisible.
+    *
+    * @param byteValues
+    *   the slots that travel as BYTES, resolved ([[Renderer.byteSlotValues]]).
+    *   Equal values mean equal bytes, so an entry carrying the same ones is
+    *   reused even though its `inputs` differ — which is every node of a
+    *   signal-only tick. `None` where the caller could not answer cheaply, and
+    *   the behaviour is then exactly what it was before.
     */
-  def apply(id: NodeId, renderer: Renderer, inputs: RenderInputs)(
+  def apply(
+      id: NodeId,
+      renderer: Renderer,
+      inputs: RenderInputs,
+      byteValues: Option[Map[String, String]] = None
+  )(
       render: IO[String]
   ): IO[NodeBytes] =
     Deferred[IO, Either[Throwable, NodeBytes]].flatMap { mine =>
@@ -149,8 +161,31 @@ private[runtime] final class RenderCache(
             // whole entry goes rather than a bucket of it: nothing a previous
             // dashboard rendered is worth keeping under any selection.
             val here = current.filter(_.renderer eq renderer).map(_.gen)
+            // Equal BYTE VALUES mean equal bytes, whatever the entity versions
+            // say — which is the whole of a signal-only tick, where the key
+            // moved and the bytes did not. Compared only where both sides could
+            // answer: a `None` on either is "unknown", never "equal".
+            val sameBytes = here.filter(g =>
+              byteValues.isDefined && g.byteValues == byteValues
+            )
             here.filter(_.inputs == inputs) match {
               case Some(gen) => (current, poll(gen.slot.get))
+              // The bytes are known-identical, so the entry's slot is served
+              // rather than a render started. A STRAGGLER still installs
+              // nothing: re-stamping under its older `inputs` would downgrade
+              // the generation and hand the next caller a key that looks stale
+              // — the eviction the rule below exists to prevent — and it is
+              // served the same bytes either way.
+              case None if sameBytes.isDefined =>
+                val gen = sameBytes.get
+                if (gen.inputs.isAtLeast(inputs)) (current, poll(gen.slot.get))
+                else
+                  (
+                    Some(
+                      RenderCache.Entry(renderer, gen.copy(inputs = inputs))
+                    ),
+                    poll(gen.slot.get)
+                  )
               case None if here.exists(_.inputs.isAtLeast(inputs)) =>
                 // A STRAGGLER: what is here was rendered from a snapshot at or
                 // ahead of this caller's on every entity it reads. Installing
@@ -159,7 +194,7 @@ private[runtime] final class RenderCache(
                 // leave the map alone — cancelable, since nothing waits on it.
                 (current, poll(fresh(render)))
               case None =>
-                val gen = RenderCache.Gen(inputs, mine)
+                val gen = RenderCache.Gen(inputs, byteValues, mine)
                 (Some(RenderCache.Entry(renderer, gen)), fill(id, gen, render))
             }
           }
@@ -222,6 +257,12 @@ private[runtime] object RenderCache {
     */
   private[runtime] case class Gen(
       inputs: RenderInputs,
+      // The byte slots these bytes were rendered from, where the caller could
+      // resolve them. Two generations carrying the same ones carry the same
+      // bytes, which is what lets a signal-only tick reuse an entry whose
+      // `inputs` have moved. `None` disables the reuse for that generation
+      // rather than asserting anything.
+      byteValues: Option[Map[String, String]],
       slot: Deferred[IO, Either[Throwable, NodeBytes]]
   )
 
