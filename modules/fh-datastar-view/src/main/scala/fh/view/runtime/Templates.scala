@@ -91,6 +91,15 @@ object Templates {
       */
     def regionWalk: Map[String, Writer => Unit]
 
+    /** Raw VARIABLE name -> write that hole's bytes INTO the writer, the same
+      * trick [[regionWalk]] plays for a section. `{{{body}}}` in a theme's
+      * chrome is the customer: the page used to build the whole body as a
+      * String so mustache could splice it, which is a full copy of the document
+      * for a hole that is written once. Empty everywhere else, and an absent
+      * name falls back to the ordinary value lookup, so a theme is unaffected.
+      */
+    def writerHoles: Map[String, Writer => Unit] = Map.empty
+
   private class FhObjectHandler
       extends com.github.mustachejava.reflect.SimpleObjectHandler() {
     override def get(name: String, scope: AnyRef): AnyRef = scope match
@@ -108,6 +117,22 @@ object Templates {
   private class FhVisitor(df: DefaultMustacheFactory)
       extends DefaultMustacheVisitor(df) {
     val inlined = scala.collection.mutable.Set.empty[String]
+
+    /** The variable counterpart of [[FhRegionCode]]: an UNENCODED `{{{name}}}`
+      * whose bytes the caller would rather write than hand over as a String.
+      * Encoded holes are left alone — escaping is the whole point of them, and
+      * nothing that needs escaping is large enough for this to matter.
+      */
+    override def value(
+        tc: TemplateContext,
+        variable: String,
+        encoded: Boolean
+    ): Unit =
+      if encoded then super.value(tc, variable, encoded)
+      else {
+        val _ = list.add(new FhValueCode(tc, df, variable))
+      }
+
     override def iterable(
         tc: TemplateContext,
         variable: String,
@@ -133,6 +158,36 @@ object Templates {
           )
         )
       }
+    }
+  }
+
+  /** A raw `{{{name}}}` whose scope offers a writer for it: the bytes go
+    * straight into the writer instead of being built as a String and spliced.
+    * Falls back to the standard `ValueCode` when no scope offers one, which is
+    * every hole but the chrome's body today.
+    */
+  private class FhValueCode(
+      tc: TemplateContext,
+      df: DefaultMustacheFactory,
+      name: String
+  ) extends com.github.mustachejava.codes.ValueCode(tc, df, name, false) {
+    override def execute(
+        writer: Writer,
+        scopes: java.util.List[AnyRef]
+    ): Writer = {
+      var wrote: Writer = null
+      var i = scopes.size() - 1
+      while wrote == null && i >= 0 do
+        scopes.get(i) match
+          case s: FhScope if s.writerHoles.contains(name) =>
+            val _ = s.writerHoles(name)(writer)
+            wrote = writer
+          case _ => i -= 1
+      // Same trailing-literal rule as [[FhRegionCode]]: the parser folds the
+      // text after the tag into this code's `appended`, so skipping
+      // appendText drops it.
+      if wrote != null then appendText(wrote)
+      else super.execute(writer, scopes)
     }
   }
 

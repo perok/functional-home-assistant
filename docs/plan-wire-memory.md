@@ -214,10 +214,26 @@ rather than by the page. `Ok(stream)` then chunk-encodes it. (Not `readInputStre
 
 ### The three things in the way
 
-1. **The chrome template takes the body as a mustache VALUE.** `renderPageTraced` puts `body.html`
-   into a `HashMap` and lets the chrome template splice it. That forces the body to exist as a
-   `String`. Fix: make the body a region-walk hole like every other region, or split the chrome
-   template into prefix/suffix at compile time in `Templates` and write around the walk.
+1. ~~**The chrome template takes the body as a mustache VALUE.**~~ **DONE.** Neither of the two
+   options guessed at here was needed. `Templates` already had `FhRegionCode` for a `{{#region}}`
+   SECTION; the symmetric hook for a raw `{{{name}}}` VARIABLE is
+   `DefaultMustacheVisitor.value`, so `FhValueCode` + `FhScope.writerHoles` lets the body and the
+   restored dialog write themselves into the page buffer. **The authoring contract does not
+   change** — a theme keeps `{{{body}}}`/`{{{popups}}}` exactly as written, which the
+   region-section option would have broken. Encoded `{{name}}` holes are left alone; escaping is
+   their point and nothing escaped is large enough to matter.
+
+   Measured, and about twice the projection, because removing the body `String` removes TWO
+   copies (its own `toString` and the splice into the page buffer) rather than one:
+
+   | | before | after | |
+   |---|---:|---:|---|
+   | `pageSignals` | 3,524,973 B | **3,278,496 B** | −246 kB (7.0%) |
+   | `pageServe` | 3,782,170 B | **3,540,607 B** | −242 kB (6.4%) |
+   | `pageSet` | 3,769,906 B | 3,519,046 B | −251 kB |
+
+   Time is unchanged within noise (1425 → 1380 ± 132 µs), which is what an allocation change
+   should look like.
 
 2. **`Traced.own` is sliced out of the shared buffer.** A stream cannot re-read bytes it has
    flushed. This is load-bearing, not incidental: the slice is what lets a signal-less member's

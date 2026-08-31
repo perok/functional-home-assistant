@@ -451,33 +451,50 @@ class Renderer(
       uiState: Map[String, String] = Map.empty,
       popup: Option[String] = None
   ): Traced = {
-    val body = renderBodyTraced(states, uiState)
-    val dialog = popup.flatMap(renderSurfaceTraced(_, states, uiState))
-    // A plain map: this runs once per PAGE, so the per-node context machinery
-    // below would be ceremony for nothing.
-    val chrome = new java.util.HashMap[String, AnyRef](2)
-    val _ = chrome.put("body", body.html)
+    val own = new java.util.HashMap[NodeId, Painted]()
+    val pageOut = new java.lang.StringBuilder(
+      themeStyleTag.length + Renderer.NodeBytesHint * nodeCount(
+        dashboard.card
+      ) +
+        4096
+    )
+    // The body and the restored dialog are WRITER HOLES, not values: each is
+    // walked straight into the page buffer when the chrome reaches its hole.
+    // Building them as Strings first cost a full copy of the document each,
+    // for holes written exactly once — 128 kB of the ~3.8 MB a page open
+    // allocates, and two of the four live copies it held at peak.
+    val root = dashboard.card
+    val bodyInto: java.io.Writer => Unit = _ =>
+      tracedInto(
+        pageOut,
+        root,
+        LayoutNode.rootId("", root),
+        "",
+        states,
+        uiState,
+        own
+      )
+    val dialogInto: Option[java.io.Writer => Unit] =
+      popup.flatMap(sid => surfaceWalk(pageOut, sid, states, uiState, own))
+    // The style, the chrome, the body and the dialog go into ONE buffer, and
+    // the two big holes write themselves into it. Not mustache's own
+    // `execute(ctx)`: that renders into a `StringWriter` over a 16-char
+    // `StringBuffer`, which grew five times writing a body this size under a
+    // lock nothing shared, copied the buffer once on `toString`, and then `+`
+    // copied the whole page AGAIN to prepend the style tag.
+    val _ = pageOut.append(themeStyleTag)
     // The dialog a refresh is restoring, baked into the host exactly as the
     // connect would patch it — same render, so the two are byte-identical and
-    // the later patch is a no-op morph.
-    val _ = chrome.put("popups", dialog.fold("")(_.html))
-    // The style, the chrome and the body go into ONE pre-sized buffer. Not
-    // mustache's own `execute(ctx)`: that renders into a `StringWriter` over a
-    // 16-char `StringBuffer`, which grew five times writing a body this size
-    // under a lock nothing shared, copied the buffer once on `toString`, and
-    // then `+` copied the whole page AGAIN to prepend the style tag.
-    val page = {
-      val out = new java.lang.StringBuilder(
-        themeStyleTag.length + body.html.length + 4096
-      )
-      val _ = out.append(themeStyleTag)
-      chromeTemplate.execute(appendTo(out), chrome)
-      out.toString
-    }
+    // the later patch is a no-op morph. A theme whose chrome has no `popups`
+    // hole simply never calls the walk.
+    val scope = new Renderer.PageScope(
+      Map("body" -> bodyInto) ++ dialogInto.map("popups" -> _)
+    )
+    Templates.run(chromeTemplate, appendTo(pageOut), scope)
     // The whole page is never a patch target — a repaint replaces `#dashboard`
     // wholesale — so it has no second form of its own. Its NODES do, and those
     // are in `own`.
-    Traced(page, body.own ++ dialog.fold(Map.empty[NodeId, Painted])(_.own))
+    Traced(pageOut.toString, own.asScala.toMap)
   }
 
   /** Bare content, with no wrapper: every surface is chrome-less, because the
@@ -494,6 +511,34 @@ class Renderer(
   /** [[renderSurface]] with the per-node trace — what a FILL uses, so the log
     * learns what the fill put in each node without re-rendering the subtree.
     */
+  /** A surface as a WRITER HOLE for the page's chrome — the same walk
+    * [[renderSurfaceTraced]] runs, tracing into the page's own buffer and
+    * accumulator instead of building a String for mustache to splice. `None`
+    * for a surface this dashboard does not have, which is what leaves the
+    * chrome's hole empty.
+    */
+  private def surfaceWalk(
+      out: java.lang.StringBuilder,
+      surfaceId: String,
+      states: Map[String, EntityState],
+      uiState: Map[String, String],
+      trace: java.util.HashMap[NodeId, Painted]
+  ): Option[java.io.Writer => Unit] =
+    // The writer is IGNORED, exactly as the region walks ignore theirs: the
+    // page's bytes go to one buffer, and mustache's writer is that buffer.
+    dashboard.surfaces.get(surfaceId).map { sfc => (_: java.io.Writer) =>
+      val prefix = Renderer.surfacePrefix(surfaceId)
+      tracedInto(
+        out,
+        sfc.content,
+        LayoutNode.rootId(prefix, sfc.content),
+        prefix,
+        states,
+        uiState,
+        trace
+      )
+    }
+
   private[runtime] def renderSurfaceTraced(
       surfaceId: String,
       states: Map[String, EntityState],
@@ -2168,6 +2213,20 @@ class Renderer(
 }
 
 object Renderer {
+
+  /** The chrome template's scope: nothing to resolve, two holes to write.
+    *
+    * A page has no slots, no signals and no regions of its own — the body and
+    * the restored dialog are the whole of it — so this answers every NAME with
+    * `null` (which the factory's `defaultValue("")` turns into the empty
+    * string, the same as an absent map key) and offers the two writers instead.
+    */
+  private final class PageScope(holes: Map[String, java.io.Writer => Unit])
+      extends Templates.FhScope {
+    def fhGet(name: String): AnyRef = null
+    def regionWalk: Map[String, java.io.Writer => Unit] = Map.empty
+    override def writerHoles: Map[String, java.io.Writer => Unit] = holes
+  }
 
   /** Build a renderer from a (validated) dashboard, compiling its template and
     * transform libraries up front. The single construction point so call sites
