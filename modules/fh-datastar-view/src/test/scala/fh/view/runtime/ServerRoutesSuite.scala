@@ -41,6 +41,10 @@ import scala.concurrent.duration.*
   */
 class ServerRoutesSuite extends ServerHarness {
 
+  // This suite opens DOCUMENTS, and the page route streams its body through a
+  // blocking pipe that simulated time cannot host — see [[ServerHarness.simulateTime]].
+  override protected def simulateTime: Boolean = false
+
   /** [[Patches.resume]] run against a FRESH cache — these contracts are about
     * which patches come out, and a per-call cache keeps one from depending on
     * what another test rendered. Mirrors `resume`'s own parameter list so a

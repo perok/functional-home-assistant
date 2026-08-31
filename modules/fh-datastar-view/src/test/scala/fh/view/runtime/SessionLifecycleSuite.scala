@@ -37,6 +37,10 @@ import scala.concurrent.duration.*
   */
 class SessionLifecycleSuite extends ServerHarness {
 
+  // This suite opens DOCUMENTS, and the page route streams its body through a
+  // blocking pipe that simulated time cannot host — see [[ServerHarness.simulateTime]].
+  override protected def simulateTime: Boolean = false
+
   test("a first load resumes from the document instead of repainting it") {
     val dash = mixedTabsDash
     val initial = Map(

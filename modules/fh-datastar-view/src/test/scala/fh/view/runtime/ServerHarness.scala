@@ -73,10 +73,33 @@ trait ServerHarness extends munit.CatsEffectSuite {
   )(body: => IO[Unit])(using loc: munit.Location): Unit =
     super.test(name)(body)
 
+  /** Whether this suite's `test` bodies run under simulated time at all.
+    *
+    * A suite that FETCHES A DOCUMENT must set this `false`. The page route
+    * streams its body through `fs2.io.readOutputStream`, which has two
+    * mutually-blocking sides — the render's writer and fs2's reader — and
+    * `TestControl` ticks one fiber on one thread, executing `IO.blocking`
+    * INLINE on it. So whichever side is ticked first parks the only thread and
+    * the other never runs. The symptom is a test that hangs to its timeout,
+    * with readers left parked in `fs2.io.internal.PipedStreamBuffer.read`, and
+    * it is nondeterministic: which tests hang depends on the tick order, so
+    * this is set per SUITE rather than per test.
+    *
+    * The cost was measured before choosing it over reshaping the server: every
+    * sleep in these suites is 5-300 ms and the window they exercise is 50 ms
+    * (`adoptionWindow`) — the twelve `30.seconds` are `.timeout` guards. So
+    * simulated time was accelerating poll loops here, not skipping real waits.
+    * What it DOES give up is determinism, for the reason [[testReal]] gives, so
+    * a suite that opts out is one to re-run a few times before trusting.
+    */
+  protected def simulateTime: Boolean = true
+
   @targetName("testIO")
   protected def test(
       name: String
-  )(body: => IO[Unit])(using loc: munit.Location): Unit = {
+  )(body: => IO[Unit])(using loc: munit.Location): Unit = if (!simulateTime)
+    testReal(name)(body)
+  else {
     import cats.effect.kernel.Outcome
 
     super.test(name)(
