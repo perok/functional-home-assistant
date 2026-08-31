@@ -120,13 +120,42 @@ pure, so if every input the previous evaluation read is unchanged, it takes the 
 reads the same set. Keep this in reserve for the day a byte slot's transform is expensive enough
 to matter; it is strictly more machinery for a saving option 1 mostly already gets.
 
-### Watch out for
+### Where it goes
 
-`RenderInputs.isAtLeast` is a partial ORDER over entity versions, and it is what stops a straggler
-displacing fresher bytes (ADR 0012). Resolved values are not ordered, so option 1 must not replace
-the key with them — the value comparison is a **pre-check that skips the render**, while
-`RenderInputs` stays version-based and keeps ordering generations. Re-stamp the reused bytes under
-the new `RenderInputs`; do not leave the entry on the old one.
+`RenderCache.apply`'s `modify` already branches three ways on the entry present. The value check is
+a **fourth branch, inserted second**, and the order is the design:
+
+```
+1. inputs == inputs        -> hit, await the slot                    (today)
+2. byte values match       -> NEW
+     a. here.isAtLeast(inputs)  -> serve here's slot, install nothing
+     b. otherwise               -> install Gen(inputs, here.slot), serve it
+3. here.isAtLeast(inputs)  -> straggler: render fresh, install nothing (today)
+4. otherwise               -> render and install                      (today)
+```
+
+2a is the subtle one and is why the check cannot simply re-stamp. A straggler whose values happen
+to match must **not** install: re-stamping under its older `RenderInputs` would downgrade the
+generation and hand the next caller a key that looks stale, which is exactly the eviction the
+straggler rule exists to prevent. Serving the same slot costs it nothing — it is better off than
+branch 3, which renders.
+
+2b reuses the *existing* `Deferred` rather than rendering into a new one, so the bytes are shared
+rather than recomputed and the digest is not taken twice.
+
+`Gen` grows the resolved byte values alongside `inputs`; `apply` takes them as a parameter, since
+only the caller can resolve them.
+
+### The seam that makes it cheap
+
+`Renderer` already splits resolving from executing — `Resolved` is produced once by
+`resolveTemplate`, and `executeResolved` runs per FORM (ADR 0012's "the two render forms" row).
+The pre-check wants the resolve and not the execute, which is the split that already exists. What
+does not exist yet is resolving *only the byte slots*: `Resolved` covers every slot. Check whether
+that can be narrowed cheaply before assuming the saving — if resolution turns out to dominate the
+~8 µs rather than mustache + wrapper + digest, thread C shrinks and option 2's read-set tracking
+becomes the interesting one after all. **Measure the resolve/execute split first**; it decides how
+much of thread C is real.
 
 The reverse index must stay WIDE (ADR 0012): a signal has to make its node a candidate or no frame
 is ever computed for it. Only the render is skipped. Getting these the wrong way round fails
