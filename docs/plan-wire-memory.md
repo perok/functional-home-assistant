@@ -146,16 +146,35 @@ rather than recomputed and the digest is not taken twice.
 `Gen` grows the resolved byte values alongside `inputs`; `apply` takes them as a parameter, since
 only the caller can resolve them.
 
+### Measured before building it
+
+| | us/op | B/op | |
+|---|---:|---:|---|
+| `byteSlotResolve` | 5.5 | 21,412 | the pre-check, 20 nodes |
+| `tickRender` | 109.0 | 297,510 | the `renderNodeById` it replaces, same 20 nodes |
+
+**19.7x cheaper in time, 13.9x in allocation** — 0.28 µs against 5.45 µs per node, so the check
+costs about 5% of the render it avoids. It cross-checks against the pull numbers:
+`resumeSignals − resumeSignalsPure` is 141.5 µs, against `tickRender` 109 µs plus the digest
+(~9 µs), the remainder being the cache-install machinery. So the fixture is measuring the thing it
+claims to.
+
+Projected: `resumeSignals` 236 µs → ~100 µs and 442 kB → ~161 kB. Re-measure after building it;
+the projection is arithmetic, not a result.
+
 ### The seam that makes it cheap
 
 `Renderer` already splits resolving from executing — `Resolved` is produced once by
 `resolveTemplate`, and `executeResolved` runs per FORM (ADR 0012's "the two render forms" row).
 The pre-check wants the resolve and not the execute, which is the split that already exists. What
-does not exist yet is resolving *only the byte slots*: `Resolved` covers every slot. Check whether
-that can be narrowed cheaply before assuming the saving — if resolution turns out to dominate the
-~8 µs rather than mustache + wrapper + digest, thread C shrinks and option 2's read-set tracking
-becomes the interesting one after all. **Measure the resolve/execute split first**; it decides how
-much of thread C is real.
+does not exist yet is resolving *only the byte slots*: `Resolved` covers every slot.
+
+**That narrowing is the whole trade, and the benchmark above is written to protect it.** A
+pre-check that built a full `Resolved` would resolve every slot — including the shipped card's CEL
+`fillColor`, the expensive one — and hand most of the saving straight back. `byteSlotResolve`
+deliberately does not go through the `Resolved` seam for exactly that reason, and its scaladoc says
+so, because the tempting "simplification" during implementation is to reuse `Resolved` and the
+resulting number would still look fine.
 
 The reverse index must stay WIDE (ADR 0012): a signal has to make its node a candidate or no frame
 is ever computed for it. Only the render is skipped. Getting these the wrong way round fails
@@ -268,6 +287,32 @@ it at 0 would hit the cache forever and price nothing.
 
 Both were bugs that produced *plausible* numbers. Worth remembering when adding a bench here: the
 failure mode is not a crash, it is a result.
+
+## An aside worth not re-deriving: `testFull` flakes under parallelism
+
+Three different suites timed out across ~8 `testFull` runs — `PklDashboardBehaviourSuite`,
+`AddonBootstrapSuite`, `SessionLifecycleSuite` — each passing in isolation, each a 30 s munit
+timeout rather than an assertion failure. All three evaluate Pkl, which made "pkl is not
+thread-safe" the obvious suspect. **It is not, and these were checked:**
+
+- The `Evaluator` is built fresh per call and `close()`d in a `finally` — no shared instance.
+- The module cache dir is per-test in the suites (`box.cache`), not the shared appdirs one.
+- Concurrent evaluation does **not** serialize: 8 evaluations on 8 threads took 7 ms against
+  11 ms sequential (22 cores). Cold engine build is 769 ms, warm evaluation 1 ms — pkl is
+  EXPENSIVE the first time, not unsafe.
+- `DashboardBuild` already runs evaluation inside `IO.blocking`, so it is not stealing compute
+  threads.
+- `LibPackage.build` is pure and writes nothing shared.
+
+What is left is contention: sbt has no `Test / fork` and no `parallelExecution` setting, so every
+suite shares one JVM and runs concurrently — including six Playwright suites. Three `testFull`
+runs with `parallelExecution := false` were green 3/3, against 3 failures in ~8 parallel runs.
+Suggestive, **not conclusive**: at a ~37% parallel failure rate, three clean serial runs happen by
+luck about a quarter of the time. Every `--exclude-tags=Slow` run (which drops the browser suites)
+was green.
+
+Not part of this plan's threads, and not worth fixing blind. If it becomes annoying, the cheap
+lever is capping test parallelism or keeping the browser suites off the same rung.
 
 ## Open
 

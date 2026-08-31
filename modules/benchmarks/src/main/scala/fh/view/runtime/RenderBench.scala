@@ -742,6 +742,48 @@ class RenderBench {
       )
     }
 
+  /** '''What thread C's pre-check would COST''', for the tick's twenty nodes.
+    *
+    * The check resolves only the slots that travel as BYTES and compares them
+    * to what the cache entry was built from. On the shipped `entityCard` that
+    * is exactly one slot — the name, an `AttrOrId` through the production
+    * dispatch ([[Transforms.run]], ADR 0028's fast tier, no engine). The signal
+    * slots are NOT in it: they are resolved on a signals tick regardless, to
+    * fill the frame.
+    *
+    * Against [[tickRender]] — the render this replaces, same twenty nodes —
+    * this is the whole trade, and it is the number that says whether thread C
+    * is worth building. It deliberately does NOT go through the (private)
+    * `Resolved` seam: a pre-check that built the full `Resolved` would resolve
+    * every slot and give most of the saving back, which is exactly the risk
+    * worth pricing before writing any of it.
+    */
+  @Benchmark
+  def byteSlotResolve(bh: Blackhole): Unit = {
+    val moved = signalTick(wireRot)
+    var i = 0
+    while (i < tickEntities.size) {
+      val e = moved(tickEntities(i))
+      bh.consume(transforms.run(NameSlot, e))
+      i += 1
+    }
+  }
+
+  /** The render [[byteSlotResolve]] would replace: a cache-missing
+    * `renderNodeById` for the same twenty nodes, which is what a signals tick
+    * pays today per client for every node it then suppresses.
+    *
+    * [[wireTick]] is the same call at three nodes; this one is sized to the
+    * tick so the two halves of the trade are directly comparable.
+    */
+  @Benchmark
+  def tickRender(bh: Blackhole): Unit = {
+    val moved = signalTick(wireRot)
+    tickNodeIds.foreach(id =>
+      bh.consume(signalled.renderNodeById(id, moved, Map.empty))
+    )
+  }
+
   /** '''The tick that decides it, unshared.''' The COMMON value tick on a
     * signal-slot dashboard: one entity moved, its digest stood still, so no
     * morph goes out — just a `datastar-patch-signals` frame carrying the two
@@ -870,6 +912,13 @@ object RenderBench {
     * same poll. Twenty of two hundred leaves.
     */
   final val TickEntities = 20
+
+  /** The shipped `entityCard`'s one BYTE slot — the name. Every other slot on
+    * it is either a literal or travels as a signal, which is precisely why one
+    * slot is what re-admits the entity to the cache key (ADR 0012).
+    */
+  final val NameSlot: Transform.Simple =
+    Transform.Simple.AttrOrId("friendly_name")
 
   /** Distinct entities behind [[RenderBench.pageShared]]'s leaves. */
   final val Distinct = 40
