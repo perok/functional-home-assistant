@@ -531,8 +531,7 @@ private[runtime] object Patches {
     // Only what this client can SEE. A mutation inside a surface it does not
     // have open would patch an id its DOM lacks — a silent no-op, so this only
     // ever costs bytes, but it is one client's worth of another client's tab on
-    // every frame. This is where the audience tag used to do its work, asked
-    // now of the container itself.
+    // every frame. Visibility is asked of the container itself.
     val owed = all.copy(
       moved = all.moved.filter { case (_, m) =>
         renderer.surfaces.visibleNode(m.container, open, states)

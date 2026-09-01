@@ -49,8 +49,8 @@ private[runtime] object Digest {
     * copy: that one allocated a fresh `ByteBuffer` per node and cost the page
     * +83 kB and +17% TIME, because `String.getBytes` is intrinsified for a
     * compact string and a hand-rolled encode is not. The substring is transient
-    * — it dies at the end of this call, where the trace used to hold it for the
-    * life of the page — so the churn is unchanged and the retention is gone.
+    * — it dies at the end of this call rather than being retained for the life
+    * of the page — so it costs churn and nothing else.
     */
   def ofRange(buf: CharSequence, from: Int, until: Int): Digest =
     of(buf.subSequence(from, until).toString)

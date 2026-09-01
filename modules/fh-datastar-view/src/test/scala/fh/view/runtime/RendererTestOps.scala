@@ -3,11 +3,10 @@ package fh.view.runtime
 /** The convenience forms of the render entry points, for tests that want the
   * bytes back as a `String`.
   *
-  * These used to live on [[Renderer]] itself and no production caller ever
-  * reached them: the server streams the document through
-  * [[Renderer.renderPageInto]] and patches through
-  * [[Renderer.renderBodyTraced]]. Kept here so that stays visible — a method on
-  * the renderer reads as part of the shipped path, and these are not.
+  * They live OUTSIDE [[Renderer]] because no production caller reaches them —
+  * the server streams the document through [[Renderer.renderPageInto]] and
+  * patches through [[Renderer.renderBodyTraced]] — and a method on the renderer
+  * would read as part of the shipped path.
   *
   * They wrap the production methods rather than re-implementing them, so a test
   * written against one is still exercising the walk the server runs. What it is
