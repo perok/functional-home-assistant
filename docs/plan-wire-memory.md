@@ -417,30 +417,36 @@ the same bytes and the same trace.
 2. ~~`own` carries the digest~~ **DONE** — −99 kB peak; churn and time flat.
 3. ~~The sink~~ **DONE**; ~~the stream~~ **DONE**.
 
-Thread A is finished, benchmark included. What is left is not part of it: the flake chase above,
-and the `digesting` question below.
+Thread A is finished, benchmark included. What is left is not part of it: the flake chase above.
 
-**`Sink.Streaming.digesting` is unbenchmarked and possibly unnecessary.** It fires on an
-own-rendering node with no signal slots (`Renderer.scala`, `!twoForms`) and on signal-less set
-members, which the code notes is most of them — but every leaf in every `RenderBench` fixture
-declares signals, so no benchmark reaches it. That is why an earlier scratch-buffer change there
-measured exactly zero.
+**`Sink.Streaming.digesting` was the last open question, and it is answered: it costs nothing.**
+It is the one operation the two sinks implement differently, and it fires on an own-rendering node
+with no signal slots (`!twoForms`) and on signal-less set members. No fixture reached it for a long
+time — every leaf of `signalled` declares signals — which is why an earlier scratch-buffer change
+there measured exactly zero. But `plain` (`signals = false`) was already in the file, so isolating
+the operation took one arm, not a new fixture:
 
-Two of the reasons `Sink.scala` gives for the current implementation do not hold:
+| | us/op | B/op |
+|---|---:|---:|
+| `page` — buffered, `digesting` fires | 657 ±119 | 1,365,741 |
+| `pageWalkStreamPlain` — streamed, `digesting` fires | 613 ± 83 | 1,146,828 |
+
+Streaming is 219 kB (16%) cheaper there — the same ratio as the 609 kB (17%) it saves where
+`digesting` is never called. The per-node scratch buffer is not a price, so the sealed type earns
+itself and there is nothing to reclaim.
+
+Two reasons `Sink.scala` gave for that implementation were nonetheless false, and are rewritten:
 
 - *"Those bytes are downstream of here, so reaching them means encoding a second time."* The
   encode is already downstream — `Server.renderPage` owns the whole chain and puts an
-  `OutputStreamWriter` in it. A `DigestOutputStream` under that writer digests bytes being
-  encoded anyway.
+  `OutputStreamWriter` in it. What actually rules out a `DigestOutputStream` is that bounding a
+  run in the BYTE stream needs both writers flushed per leaf, against a `BufferedWriter` worth
+  729 kB. (Runs do not nest — `hasOwnRendering` ⟺ not structure ⟺ no regions — so one
+  `MessageDigest` would otherwise have sufficed.)
 - *"A buffer slices the run it just appended and copies nothing."* `Digest.ofRange` is
   `of(buf.subSequence(from, until).toString)` — it copies, deliberately, for the reason its own
   doc gives. **Both** sinks copy the node once, so `Streaming`'s extra cost over `Buffer` is one
   scratch `StringBuilder`, not an extra copy.
-
-What does hold, and is the real trade: bounding a run in the BYTE stream needs a flush of both
-writers at each boundary, which is a flush per leaf and defeats the `BufferedWriter` above. Runs do
-not nest (`hasOwnRendering` ⟺ not structure ⟺ no regions), so one `MessageDigest` would suffice.
-Decide it with a fixture that actually reaches `digesting`.
 
 ## Thread B — share the frame
 
@@ -553,8 +559,8 @@ handle on the shared cause, if there is one.
   because a poll loop under `TestControl` resolves the moment every fiber is blocked. If real
   scheduling exposes a lost wakeup, a Pi has a real clock too. Reproduce with the five suites that
   set `simulateTime = false`, in a loop.
-- **Does `Sink.Streaming.digesting` earn the sealed type?** Nothing benchmarks it and nothing
-  reaches it in a fixture — see the note under Thread A's staging for what the current
-  justification gets wrong and what the real trade is.
+- **Peak is still measured by nothing.** It is the reason streaming was built, and every number
+  quoted here — issue #237's included — is CHURN. JMH does not report peak live bytes, so the
+  ~500 kB a concurrent open no longer holds across four materialisations remains an argument.
 - `session.control` is an **unbounded** `Queue[IO, SseFrame]` holding pre-encoded byte arrays. Not
   part of either thread, but it is a memory risk on the target hardware and nothing bounds it.

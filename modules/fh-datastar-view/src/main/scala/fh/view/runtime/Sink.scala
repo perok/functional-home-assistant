@@ -84,12 +84,14 @@ private[runtime] object Sink {
     * and already puts an `OutputStreamWriter` in it, so a `DigestOutputStream`
     * under that writer would fingerprint bytes being encoded anyway — and runs
     * never nest (`hasOwnRendering` ⟺ not structure ⟺ no regions), so one
-    * `MessageDigest` would do. What kills it is that bounding a run in the BYTE
-    * stream needs both writers flushed at each boundary: a flush per leaf,
+    * `MessageDigest` would do. What rules it out is that bounding a run in the
+    * BYTE stream needs both writers flushed at each boundary: a flush per leaf,
     * against a `BufferedWriter` worth 729 kB of churn.
     *
-    * Untested by measurement either way — no benchmark fixture reaches
-    * `digesting` at all, because every leaf in all of them declares signals.
+    * And there is nothing here to win back. `RenderBench.pageWalkStreamPlain`
+    * is this method on every leaf, against `page` which is the buffer's version
+    * of the same tree: streaming is 219 kB CHEAPER, the same ratio it saves
+    * where `digesting` is never called. The scratch buffer is not a price.
     */
   final class Streaming(w: java.io.Writer) extends Sink {
     override def write(cbuf: Array[Char], off: Int, len: Int): Unit =

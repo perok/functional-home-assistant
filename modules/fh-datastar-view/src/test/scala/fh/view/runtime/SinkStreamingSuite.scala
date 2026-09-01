@@ -94,6 +94,51 @@ class SinkStreamingSuite extends munit.FunSuite {
     )
   }
 
+  /** PEAK, which is the reason the streaming path exists and which no benchmark
+    * reports — `-prof gc` measures churn, and the two are different targets.
+    *
+    * Measured with no production change, because the sink already tells us:
+    * `Sink.Streaming.digesting` hands each completed run downstream as ONE
+    * `write`, so the largest write an unbuffered destination ever sees IS the
+    * high-water mark of the scratch buffer. Against `Sink.Buffer`, whose peak
+    * is the finished document by construction.
+    *
+    * This is the sink's own high-water mark, not the JVM's. The buffered path
+    * additionally holds the result `String` and its encoded copy; those make
+    * its real peak worse, never better, so the gap below is a floor.
+    */
+  test("the streamed peak is one node, the buffered peak is the document") {
+    val runs = scala.collection.mutable.ArrayBuffer.empty[Int]
+    val direct = new java.io.Writer {
+      override def write(cbuf: Array[Char], off: Int, len: Int): Unit = {
+        val _ = runs += len
+      }
+      override def write(str: String): Unit = { val _ = runs += str.length }
+      override def flush(): Unit = ()
+      override def close(): Unit = ()
+    }
+    // No BufferedWriter here on purpose: it would coalesce the runs and hide
+    // the very quantity being measured.
+    val own = renderer.renderPageInto(Sink.streaming(direct), noStates)
+    val document = Sink.buffer(renderer.pageBytesHint)
+    val _ = renderer.renderPageInto(document, noStates)
+
+    val peak = runs.max
+    val whole = document.result.length
+    assert(own.nonEmpty, "the walk painted nothing")
+    assert(
+      peak * 4 < whole,
+      s"streamed peak $peak is not meaningfully below the document $whole — " +
+        "either the fixture is too shallow or a run is being held whole"
+    )
+    // Printed rather than pinned to a constant: the RATIO is the claim, and a
+    // fixture change should move the numbers without failing the test.
+    println(
+      s"[peak] streamed high-water $peak B, document $whole B, " +
+        s"ratio ${whole / peak}x"
+    )
+  }
+
   test("streaming and buffering produce the same document and the same trace") {
     val (rec, streamOwn) = streamed()
 

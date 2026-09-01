@@ -118,6 +118,23 @@ import java.util.concurrent.TimeUnit
   * That row is here to map onto issue #237's whole-page-open numbers, not to
   * compare sinks with.
   *
+  * '''`Sink.Streaming.digesting` costs nothing''', which was the open question
+  * about whether the sealed type earns itself. It is the ONE operation the two
+  * sinks implement differently, and it fires only on an own-rendering node with
+  * no signal slots — every leaf of [[plain]], no leaf of [[signalled]]. So
+  * [[page]] against [[pageWalkStreamPlain]] is that operation, isolated:
+  *
+  * {{{
+  *                            us/op          B/op
+  * page                     657 ±119     1,365,741   buffered, digesting fires
+  * pageWalkStreamPlain      613 ± 83     1,146,828   streamed, digesting fires
+  * }}}
+  *
+  * Streaming is 219 kB (16%) cheaper there — the same ratio as the 609 kB (17%)
+  * it saves on [[signalled]], where `digesting` is never called at all. The
+  * per-node scratch buffer is not a price; the saving survives it intact. Note
+  * the ±0.6 B error: this pair is fully deterministic, unlike the time.
+  *
   * '''An extra client on a tick costs 70 us and 117 kB''' —
   * `resumeSignalsFanout` minus `resumeSignals`, over nine. Against 262 us for
   * the first client, so the [[RenderCache]] is removing about three quarters of
@@ -630,6 +647,38 @@ class RenderBench {
       Server.PageChunkBytes
     )
     val own = signalled.renderPageInto(Sink.streaming(w), st)
+    w.flush()
+    bh.consume(own.size)
+    bh.consume(sink.count)
+  }
+
+  /** '''The one arm that reaches `Sink.Streaming.digesting`''' — the only
+    * operation the two sinks implement differently, and until now the only one
+    * nothing measured.
+    *
+    * It fires on an own-rendering node with NO signal slots (`!twoForms`),
+    * which is every leaf of [[plain]] and no leaf of [[signalled]] — so every
+    * streamed arm above walks past it and [[page]] exercises only the BUFFER's
+    * version. That is why an earlier scratch-buffer change here measured
+    * exactly zero: it optimised a branch the fixture never took.
+    *
+    * Read against [[page]], which is the same tree through `Sink.Buffer`. The
+    * gap is `digesting` and nothing else: a buffer bounds the run by two
+    * offsets and cuts a String out of it, a stream catches the run in a scratch
+    * `StringBuilder` on the way past. Both copy it once.
+    *
+    * Read against [[pageWalkStream]] for the other half — the same sink on a
+    * tree where `digesting` is never called — so the two comparisons together
+    * separate the sink's cost from this operation's.
+    */
+  @Benchmark
+  def pageWalkStreamPlain(bh: Blackhole): Unit = {
+    val sink = new RenderBench.CountingOutputStream
+    val w = new java.io.BufferedWriter(
+      new java.io.OutputStreamWriter(sink, UTF_8),
+      Server.PageChunkBytes
+    )
+    val own = plain.renderPageInto(Sink.streaming(w), st)
     w.flush()
     bh.consume(own.size)
     bh.consume(sink.count)
