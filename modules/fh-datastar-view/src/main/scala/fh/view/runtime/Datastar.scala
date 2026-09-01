@@ -272,7 +272,7 @@ object Datastar {
     val out = new Array[(Array[String], A)](values.size)
     var i = 0
     values.foreach { case (k, v) =>
-      out(i) = ((k: String).split('.'), v)
+      out(i) = (k.segments, v)
       i += 1
     }
     java.util.Arrays.sort(
@@ -330,6 +330,121 @@ object Datastar {
       sb.append('"')
       sb.toString
 
+  /** A node's seed with its VALUES cut out: `chunks` is the literal text either
+    * side of each hole, `order` the signal filling each one, so `chunks` is
+    * always one longer than `order`.
+    *
+    * A node's signal NAMES are fixed by its plan — only the values move — so
+    * the nesting, the sort and the path split are all plan-time work that
+    * [[signalsAttr]] was redoing on every paint. Rendering a seed is then one
+    * append per chunk and one escape per value.
+    *
+    * Not reachable for every seed: a member's is MERGED across its regions, and
+    * a card whose subject is a transform has no fixed names at all
+    * (`Renderer.resolveDirect`). Those keep [[signalsAttr]].
+    */
+  final class SignalSeed private[runtime] (
+      val chunks: Array[String],
+      val order: Array[SignalId]
+  )
+
+  /** Most nodes carry no signals at all, and every one of them wants the same
+    * empty seed — one object for the process rather than two arrays per plan.
+    */
+  private val emptySeed = new SignalSeed(Array(""), Array.empty)
+
+  /** The seed shape for a node whose signals are `names` — plan-time. */
+  def seedFor(names: Iterable[SignalId]): SignalSeed =
+    if (names.isEmpty) emptySeed
+    else {
+      // The values ARE the names here: the walk emits them in the order a
+      // paint's values will be needed, and each one ends a chunk.
+      val paths = pathsOf(names.map(n => n -> n).toMap)
+      val chunks = Array.newBuilder[String]
+      val order = Array.newBuilder[SignalId]
+      val sb = new java.lang.StringBuilder(64)
+      sb.append(" data-signals=\"")
+      seedInto(sb, chunks, order, paths, 0, paths.length, 0)
+      sb.append('"')
+      chunks += sb.toString
+      new SignalSeed(chunks.result(), order.result())
+    }
+
+  /** [[nestJsInto]] with the leaf VALUES cut out into `order` and the literal
+    * text between them accumulated into `chunks`.
+    */
+  private def seedInto(
+      sb: java.lang.StringBuilder,
+      chunks: scala.collection.mutable.Builder[String, Array[String]],
+      order: scala.collection.mutable.Builder[SignalId, Array[SignalId]],
+      paths: Array[(Array[String], SignalId)],
+      from: Int,
+      until: Int,
+      depth: Int
+  ): Unit = {
+    sb.append('{')
+    var i = from
+    while (i < until) {
+      val segment = paths(i)._1(depth)
+      var j = i + 1
+      while (j < until && paths(j)._1(depth) == segment) j += 1
+      if (i > from) { val _ = sb.append(", ") }
+      sb.append(segment).append(": ")
+      if (paths(i)._1.length == depth + 1) {
+        sb.append('\'')
+        chunks += sb.toString
+        order += paths(i)._2
+        sb.setLength(0)
+        sb.append('\'')
+      } else seedInto(sb, chunks, order, paths, i, j, depth + 1)
+      i = j
+    }
+    val _ = sb.append('}')
+  }
+
+  /** Render `seed` with `values`, straight into `out`.
+    *
+    * Falls back to [[signalsAttr]] unless the values are exactly the signals
+    * the seed was built for. The names cannot drift for a planned node — but a
+    * mismatch would silently emit a seed of the wrong SHAPE, so this is checked
+    * rather than assumed, and the check is one integer compare plus the lookups
+    * the render needs anyway.
+    */
+  def seedAttrInto(
+      out: java.lang.Appendable,
+      seed: SignalSeed,
+      values: Map[SignalId, String]
+  ): Unit = {
+    val n = seed.order.length
+    // Resolved BEFORE anything is written, so a mismatch falls back without
+    // having to unwind a destination that may be a stream.
+    val resolved =
+      if (values.isEmpty || values.size != n) null
+      else {
+        val vs = new Array[String](n)
+        var i = 0
+        while (i < n && vs != null) {
+          values.get(seed.order(i)) match {
+            case Some(v) => vs(i) = v; i += 1
+            case None    => i = n + 1
+          }
+        }
+        if (i == n) vs else null
+      }
+    if (values.isEmpty) ()
+    else if (resolved eq null) { val _ = out.append(signalsAttr(values)) }
+    else {
+      out.append(seed.chunks(0))
+      var k = 0
+      while (k < n) {
+        escapeJsInto(out, resolved(k))
+        out.append(seed.chunks(k + 1))
+        k += 1
+      }
+      ()
+    }
+  }
+
   /** The seed's JS object literal, nested for the same reason [[nest]] is —
     * `data-signals` is compiled as an EXPRESSION, so `{a.b: 'x'}` is not even
     * valid syntax, let alone the same store shape a frame patches.
@@ -350,7 +465,7 @@ object Datastar {
       val segment = paths(i)._1(depth)
       var j = i + 1
       while (j < until && paths(j)._1(depth) == segment) j += 1
-      if (i > from) sb.append(", ")
+      if (i > from) { val _ = sb.append(", ") }
       sb.append(segment).append(": ")
       if (paths(i)._1.length == depth + 1) {
         sb.append('\'')
@@ -396,7 +511,7 @@ object Datastar {
     * One pass rather than five `String.replace` calls, each of which copied the
     * whole value again for a value that usually contains none of these.
     */
-  private def escapeJsInto(sb: java.lang.StringBuilder, s: String): Unit = {
+  private def escapeJsInto(sb: java.lang.Appendable, s: String): Unit = {
     val n = s.length
     var i = 0
     var start = 0

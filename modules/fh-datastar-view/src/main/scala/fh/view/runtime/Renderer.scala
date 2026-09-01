@@ -1152,7 +1152,7 @@ class Renderer(
               .append(id)
               .append('"')
             if (!form.isPatch)
-              buf.append(Datastar.signalsAttr(resolved.signals))
+              Datastar.seedAttrInto(buf, plan.signalSeed, resolved.signals)
             buf.append('>')
           }
 
@@ -1826,6 +1826,9 @@ class Renderer(
       bindings: Map[String, String],
       signalSlots: List[String],
       signalNameBySlot: Map[String, SignalId],
+      // The node's `data-signals` attribute with its values cut out. Fixed by
+      // the plan, because the NAMES are; see [[Datastar.SignalSeed]].
+      signalSeed: Datastar.SignalSeed,
       subjectDynamic: Boolean,
       ownRendering: Boolean,
       declaresSignals: Boolean,
@@ -1969,6 +1972,7 @@ class Renderer(
       signalNameBySlot = named.map { case (slot, _, signal) =>
         slot -> signal
       }.toMap,
+      signalSeed = Datastar.seedFor(named.map(_._3)),
       subjectDynamic = subjectConst.isEmpty,
       ownRendering = hasOwnRendering(id),
       declaresSignals = slots.values.exists(Renderer.isSignalSlot),

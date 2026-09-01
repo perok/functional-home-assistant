@@ -149,7 +149,10 @@ object SignalId {
       * and `Datastar` nests by it; with the split spelled out at the far end,
       * the two could drift and the failure would be silent — a signal patched
       * under a key nothing is bound to.
+      *
+      * An `Array`, not a `List`: `Datastar.pathsOf` sorts these and indexes
+      * into them, and this runs once per signal per node.
       */
-    def segments: List[String] = (id: String).split('.').toList
+    def segments: Array[String] = (id: String).split('.')
   }
 }

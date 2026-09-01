@@ -179,4 +179,50 @@ class DatastarNestSuite extends munit.FunSuite {
     assert(!attr.contains("&#39;"), clue = attr)
     assert(attr.contains("""\'"""), clue = attr)
   }
+
+  test("a precomputed seed renders what signalsAttr would") {
+    // The fast path the renderer takes: the seed is built from the NAMES once
+    // and a paint only fills values. It must be byte-identical to building the
+    // whole attribute from the map, for every shape and every value.
+    val cases = for {
+      size <- 1 to 4
+      window <- shapes.sliding(size).toList ++ orderingSets
+      offset <- values.indices
+    } yield (window, values.drop(offset) ++ values.take(offset))
+
+    cases.foreach { case (paths, vs) =>
+      val distinct = paths.distinct
+      val signals = signalsOf(distinct, vs)
+      if (signals.size == distinct.size) {
+        val seed = Datastar.seedFor(signals.keys)
+        val sb = new java.lang.StringBuilder
+        Datastar.seedAttrInto(sb, seed, signals)
+        assertEquals(
+          sb.toString,
+          Datastar.signalsAttr(signals),
+          clue = distinct
+        )
+      }
+    }
+  }
+
+  test("a seed handed the wrong signals falls back instead of lying") {
+    // The guard: a seed's SHAPE is fixed, so filling it with names it was not
+    // built for would emit a well-formed attribute nesting the wrong paths.
+    val built = signalsOf(rows("_e.a.b.c", "_e.a.b.d"), List("1", "2"))
+    val other = signalsOf(rows("x.y", "z"), List("3", "4"))
+    val seed = Datastar.seedFor(built.keys)
+
+    val sameSize = new java.lang.StringBuilder
+    Datastar.seedAttrInto(sameSize, seed, other)
+    assertEquals(sameSize.toString, Datastar.signalsAttr(other))
+
+    val fewer = new java.lang.StringBuilder
+    Datastar.seedAttrInto(fewer, seed, built.take(1))
+    assertEquals(fewer.toString, Datastar.signalsAttr(built.take(1)))
+
+    val none = new java.lang.StringBuilder
+    Datastar.seedAttrInto(none, seed, Map.empty)
+    assertEquals(none.toString, "")
+  }
 }
