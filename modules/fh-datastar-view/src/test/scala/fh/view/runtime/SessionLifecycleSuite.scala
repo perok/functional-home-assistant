@@ -190,10 +190,11 @@ class SessionLifecycleSuite extends ServerHarness {
     */
 
   // Two live streams racing through one session is server topology, not
-  // Temporal logic — under the mocked scheduler a rare interleaving parked
-  // join(A) forever on a completion single-threaded execution never
-  // delivers (typelevel/cats-effect#4104's exact scope warning). On the
-  // production runtime the same coordination resolves in microseconds.
+  // Temporal logic, so this runs on the real runtime.
+  //
+  // The `join` below is the guard on where `sseStream` applies its displacement
+  // `interruptWhen`: inside `Server.untilRevoked`'s merge, the response body
+  // never ends and this hangs to its timeout.
   testReal("a second stream for one session displaces the first") {
     (for {
       store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "warm")))
@@ -710,8 +711,19 @@ class SessionLifecycleSuite extends ServerHarness {
             )
             conn = url.query.params(Server.ConnSignal)
             first <- routes.run(Request[IO](Method.GET, url))
-            reading <- first.body.compile.drain.start
-            _ <- awaitTenure(conn, Tenure.Held(1))
+            // The stream's FIRST BYTE, not its tenure, is what says the body is
+            // running. `adoptOrMint` sets `Held(1)` in the handler above, so
+            // awaiting that tenure is satisfied before this fiber has run at
+            // all — and cancelling then skips the bracket that registers the
+            // stream, so the release that hands the session to its LINGER never
+            // happens and the wait below never ends.
+            opened <- Deferred[IO, Unit]
+            reading <- first.body
+              .evalTap(_ => opened.complete(()).void)
+              .compile
+              .drain
+              .start
+            _ <- opened.get
             // The client hangs up.
             _ <- reading.cancel
             _ <- awaitTenure(conn, Tenure.Lingering(1))

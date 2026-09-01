@@ -223,6 +223,10 @@ open class AuthGate(
     * `Stream.never` rather than `Stream.emit(true)`: `Server.untilRevoked`
     * halts on either side, so what is wanted is a side that never speaks and
     * never ENDS — an empty or finite stream would cut the connection instead.
+    *
+    * Because it never ends, it is also what a mistake on the other side hangs
+    * on: interrupting the events branch inside that merge leaves this one
+    * running alone. `Server.untilRevoked` carries the rule.
     */
   private def revocationOf(
       req: Request[IO],

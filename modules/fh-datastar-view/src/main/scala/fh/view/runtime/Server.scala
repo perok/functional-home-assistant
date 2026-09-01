@@ -670,7 +670,7 @@ class Server(
         Datastar.patchSignals(s"""{"${Server.HaDownSignal}":${!h}}""")
 
       control = Stream.fromQueueUnterminated(session.control)
-      reloads = reloadRepaints(session, uiState)
+      reloads = reloadRepaints(session, uiState, rendererOpt)
       // Emit `haDown` on connect (the initial `discrete` value) and on every
       // health transition.
       // ...and only when it differs from what this client was last told. The
@@ -747,7 +747,7 @@ class Server(
       // Conditional on still owning it, because a displaced stream releases
       // after its successor has already taken over and must not put a live
       // session out to pasture on its way out.
-      stream = (Stream.bracket(sessions.register(conn, session))(_ =>
+      stream = Stream.bracket(sessions.register(conn, session))(_ =>
         session
           .release(epoch)
           .flatMap(_.traverse_(reapAfter(conn, session, _, lingerWindow)))
@@ -761,14 +761,7 @@ class Server(
             Datastar.patchSignals(s"""{"${Server.ConnSignal}":"$conn"}""")
           )
           .toList
-      ) ++ live))
-        // A second live stream for one session DISPLACES the first. Two streams
-        // sharing one `holds` map is the one way this record can go wrong on
-        // its own: each would record bytes the other sent, and each would then
-        // suppress a change the client never received. Sending to a socket
-        // nobody reads is merely wasteful; claiming a digest for it is
-        // permanent staleness.
-        .interruptWhen(session.tenure.discrete.map(_ != Tenure.Held(epoch)))
+      ) ++ live)
       // The 404 gate is on THIS stream's own (single) lookup, not in the route:
       // a route-side registry read and this one could disagree (a slug
       // removed between them) and answer a 200 empty-body SSE instead of a
@@ -777,7 +770,26 @@ class Server(
       // session `adoptOrMint` created is unreferenced garbage.
       resp <- liveOpt match
         case None    => NotFound()
-        case Some(_) => Ok(Server.untilRevoked(allowed)(stream))
+        case Some(_) =>
+          Ok(
+            Server
+              .untilRevoked(allowed)(stream)
+              // A second live stream for one session DISPLACES the first. Two
+              // streams sharing one `holds` map is the one way this record can
+              // go wrong on its own: each would record bytes the other sent,
+              // and each would then suppress a change the client never
+              // received. Sending to a socket nobody reads is merely wasteful;
+              // claiming a digest for it is permanent staleness.
+              //
+              // OUTSIDE `untilRevoked`, never on the stream handed to it: fs2
+              // interruption is scoped, so interrupting a branch of that merge
+              // ends the branch without the merge learning it completed, and
+              // the revocation branch is `Stream.never`. The response body then
+              // never ends.
+              .interruptWhen(
+                session.tenure.discrete.map(_ != Tenure.Held(epoch))
+              )
+          )
     } yield resp
 
   /** The error page's recovery stream ([[errorPage]]): the slug's
@@ -1149,20 +1161,36 @@ class Server(
     * [[headPatches]]. `zipWithPrevious` is what makes both comparable — the
     * decision is "did the head change across this swap", not "does it differ
     * from some baseline".
+    *
+    * The baseline the pairs start from is `served`, so the first comparison is
+    * against the renderer this connection was actually built on rather than
+    * against whatever happened to be current when this branch subscribed.
     */
   private def reloadRepaints(
       session: Session,
-      uiState: Map[String, String]
+      uiState: Map[String, String],
+      // The renderer the HANDLER read, before the opening block — what this
+      // connection is being served from, and so the reference point for "has
+      // it been replaced".
+      //
+      // Seeded rather than taken from the subscription, because this stream is
+      // merged AFTER the opening block and `discrete` hands a late subscriber
+      // only the CURRENT value. Dropping that first element treats "nothing
+      // has changed" and "it changed while nobody was subscribed" as the same
+      // thing, and the second is a client left on a dashboard that no longer
+      // exists, with no reload coming.
+      served: Option[Renderer]
   ): Stream[IO, SseFrame] =
     Stream
       .eval(liveFor(session.slug))
       .unNone
       .flatMap { live =>
-        live.renderer.discrete.zipWithPrevious
+        (Stream.emit(served) ++ live.renderer.discrete.map(
+          _.rendererOf
+        )).zipWithPrevious
           .drop(1)
-          .map { case (previous, current) =>
-            (previous.flatMap(_.rendererOf), current.rendererOf)
-          }
+          .collect { case (Some(previous), current) => (previous, current) }
+          .filterNot(Server.sameRenderer)
           .evalMap {
             case (_, None) | (None, _) =>
               // A swap that involved a failed dashboard: the page either
@@ -1381,7 +1409,12 @@ class Server(
               // [[FHError.handle]], so this route answers the same status when
               // a suite exercises it directly — the shape [[pushResponse]] and
               // [[guardSystemPkl]] already use.
-              .handleErrorWith { case e: FHError => FHError.logged(e) }
+              // `recoverWith`, not `handleErrorWith`: only an `FHError` is
+              // answerable here and everything else must keep propagating.
+              // `handleErrorWith` takes a TOTAL function, so this block under
+              // it is a non-exhaustive match — a `MatchError` replacing the
+              // real exception on any other failure.
+              .recoverWith { case e: FHError => FHError.logged(e) }
           )
       }
   }
@@ -3013,13 +3046,33 @@ object Server {
     *
     * `mergeHaltBoth`, not `mergeHaltR`: a rule that never breaks leaves the
     * right side running forever, and halting only on IT would keep a stream
-    * alive after its own events had finished — a displaced session's stream
-    * would never close, which is a hang rather than a leak.
+    * alive after its own events had finished.
+    *
+    * '''Do not interrupt `events`; interrupt what this returns.''' A merge
+    * learns that a branch is DONE, never that it was INTERRUPTED — fs2
+    * interruption is scoped and ends the branch beneath the merge. The right
+    * side is [[fh.view.auth.AuthGate]]'s `Stream.never`, so the merge then
+    * waits forever and the response body never ends.
     */
   private[runtime] def untilRevoked(allowed: Stream[IO, Boolean])(
       events: Stream[IO, SseFrame]
   ): Stream[IO, SseFrame] =
     events.mergeHaltBoth(allowed.find(!_).as(reloadPatch))
+
+  /** Whether a swap actually replaced the renderer. A seeded comparison has to
+    * answer this, where `drop(1)` answered it by position: the first pair is
+    * the connection's own renderer against whatever is current, and those are
+    * normally the same object.
+    *
+    * Reference equality on purpose — a rebuild installs a NEW instance even
+    * when it evaluates to identical bytes, and that still wants the repaint.
+    */
+  private[runtime] val sameRenderer
+      : ((Option[Renderer], Option[Renderer])) => Boolean = {
+    case (None, None)       => true
+    case (Some(a), Some(b)) => a eq b
+    case _                  => false
+  }
 
   private[runtime] val reloadPatch: SseFrame =
     Datastar.patchSignals(s"""{"$ReloadSignal":true}""")

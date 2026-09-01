@@ -54,7 +54,13 @@ class SurfaceTapSuite extends ServerHarness {
           "dashboard",
           sessions,
           TestAuth.openGate,
-          adoptionWindow = 50.millis
+          // Long enough that the assertions are not racing it. The tap MINTS a
+          // `Fresh` session and schedules its reap this far out, so every read
+          // below happens inside the same window the test uses to let the
+          // FIRST session be reaped — and on a loaded machine 50 ms was not
+          // enough, leaving `sessions.get(conn)` empty and the test blaming the
+          // tap for a session the reaper had taken.
+          adoptionWindow = 2.seconds
         )
         .use { server =>
           val routes = server.routes.orNotFound

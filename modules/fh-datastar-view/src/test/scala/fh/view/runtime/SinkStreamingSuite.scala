@@ -1,8 +1,7 @@
 package fh.view.runtime
 
-import fh.view.model.{CardDef, Dashboard, NodeId, Region}
+import fh.view.model.{CardDef, Dashboard, NodeId, Region, Theme}
 import fh.view.testkit.DashboardBuilders.{col, component, lit}
-import fh.view.testkit.TestIds.given
 
 import java.nio.charset.StandardCharsets.UTF_8
 
@@ -46,6 +45,11 @@ class SinkStreamingSuite extends munit.FunSuite {
   // "it is smaller than one chunk" would be indistinguishable.
   private val Leaves = 400
 
+  // A theme with a REAL stylesheet, because the shell writes it in a single
+  // `append` and a fixture without one cannot catch the peak measurement
+  // counting that write as if it were a per-connection cost.
+  private val theme = Theme(styles = ".x{color:red}\n" * 200)
+
   private val renderer = Renderer.create(
     Dashboard(
       cards,
@@ -53,7 +57,8 @@ class SinkStreamingSuite extends munit.FunSuite {
         (1 to Leaves).map(i =>
           component("leaf", "v" -> lit(s"value-$i-" + "x" * 40))
         )*
-      )
+      ),
+      theme = theme
     )
   )
 
@@ -98,16 +103,27 @@ class SinkStreamingSuite extends munit.FunSuite {
     * reports — `-prof gc` measures churn, and the two are different targets.
     *
     * Measured with no production change, because the sink already tells us:
-    * `Sink.Streaming.digesting` hands each completed run downstream as ONE
-    * `write`, so the largest write an unbuffered destination ever sees IS the
-    * high-water mark of the scratch buffer. Against `Sink.Buffer`, whose peak
-    * is the finished document by construction.
+    * `Sink.Streaming.digesting` renders a node into a scratch buffer and hands
+    * the finished run down as ONE `write`, so an unbuffered destination sees
+    * each transient at its full size. Against `Sink.Buffer`, whose peak is the
+    * finished document by construction.
     *
-    * This is the sink's own high-water mark, not the JVM's. The buffered path
-    * additionally holds the result `String` and its encoded copy; those make
-    * its real peak worse, never better, so the gap below is a floor.
+    * '''A classification, not a ratio.''' document/node is just the leaf count,
+    * so a ratio improves as the fixture grows and asserts nothing. The claim is
+    * that every write is one of two things, and neither grows with the
+    * document:
+    *
+    *   - a node run, bounded by the largest single node's rendering, asked of
+    *     the renderer rather than assumed; or
+    *   - the shell's one-shot `themeStyleTag` — a big WRITE and not a peak: one
+    *     shared `val` per renderer, reused by every connection, so it never
+    *     multiplies by open tabs. The fixture carries a real stylesheet so this
+    *     case is exercised rather than assumed away.
+    *
+    * This is the sink's high-water mark, not the JVM's. The buffered path also
+    * holds the result `String` and its encoded copy, so the gap is a floor.
     */
-  test("the streamed peak is one node, the buffered peak is the document") {
+  test("every streamed write is one node or the shared shell, never the page") {
     val runs = scala.collection.mutable.ArrayBuffer.empty[Int]
     val direct = new java.io.Writer {
       override def write(cbuf: Array[Char], off: Int, len: Int): Unit = {
@@ -123,19 +139,30 @@ class SinkStreamingSuite extends munit.FunSuite {
     val document = Sink.buffer(renderer.pageBytesHint)
     val _ = renderer.renderPageInto(document, noStates)
 
-    val peak = runs.max
-    val whole = document.result.length
     assert(own.nonEmpty, "the walk painted nothing")
+    // What a node's rendering costs, from the renderer — so the bound moves
+    // with the fixture instead of being a number copied out of a past run.
+    val largestNode =
+      own.keys.toList
+        .flatMap(renderer.renderNodeById(_, noStates))
+        .map(_.length)
+        .max
+    val shell = renderer.themeStyleTag.length
     assert(
-      peak * 4 < whole,
-      s"streamed peak $peak is not meaningfully below the document $whole — " +
-        "either the fixture is too shallow or a run is being held whole"
+      shell > largestNode,
+      s"fixture's stylesheet ($shell B) is too small to test the exclusion"
     )
-    // Printed rather than pinned to a constant: the RATIO is the claim, and a
-    // fixture change should move the numbers without failing the test.
+
+    val unexplained = runs.filter(r => r > largestNode && r != shell)
+    assert(
+      unexplained.isEmpty,
+      s"writes of ${unexplained.distinct.sorted} B are neither a node " +
+        s"(<= $largestNode) nor the shared stylesheet ($shell) — something " +
+        "is accumulating across nodes"
+    )
     println(
-      s"[peak] streamed high-water $peak B, document $whole B, " +
-        s"ratio ${whole / peak}x"
+      s"[peak] largest node $largestNode B, shared shell $shell B, " +
+        s"document ${document.result.length} B"
     )
   }
 
