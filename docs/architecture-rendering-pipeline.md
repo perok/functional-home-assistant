@@ -1072,20 +1072,16 @@ Live list — delete an entry when it is answered, and say where the answer land
   cost 57 ms of CPU while shipping 2.5 MB, so the render is ~2 % of the work it feeds. Real, and
   not urgent. `reloadRepaints` is N × the same body render and fires on a manual dashboard edit.
 
-- **The document does not stream, and the server's target is a Raspberry Pi 4.** §6a has the
-  shape and the numbers: 128 kB of document, ~500 kB live per concurrent open across four
-  materialisations, 3.78 MB allocated. The walk is already push-based, so the primitive fits —
-  `fs2.io.readOutputStream(chunkSize)(os => …)` gives a `Stream[IO, Byte]` from a function handed
-  an `OutputStream`, which is what a `Writer` threaded through `executeInto` would write to, with
-  memory bounded by the chunk rather than by the page. Three things must be answered first, and
-  none is in the walk: (1) the chrome template takes the body as a mustache VALUE, so it must
-  become a region-walk hole or a compile-time prefix/suffix split; (2) `Traced.own` is sliced out
-  of the shared buffer, which a stream cannot do — a digest fed incrementally as a node's bytes
-  pass would replace it, and the page-open path only ever digests, though `Renderer.render`'s
-  patch form reads `own.html` for real; (3) `session.holds` is set BEFORE the response today, and
-  a stream that aborts mid-body would otherwise claim bytes the DOM never got — the exact
-  staleness ADR 0011 guards, so holds must be committed on successful completion. Note this
-  attacks PEAK, not churn: roughly 10% of the 3.78 MB.
+- ~~**The document does not stream, and the server's target is a Raspberry Pi 4.**~~ *Closed by
+  §6a.* The walk writes through a `Sink` straight to the response body; the peak a page open holds
+  is one node, not the document, and `holds` is committed in the stream's finalizer on success.
+  Churn fell 672 kB (19%), not the ~10% the entry projected.
+
+- **`session.control` is an unbounded `Queue[IO, SseFrame]`, holding pre-encoded byte arrays.**
+  Nothing bounds it, so a session whose stream is gone but whose linger has not expired accumulates
+  every frame addressed to it. That is the peak the streaming work did not touch, and it is on the
+  same Pi 4. What it should do when full is the open part — dropping the oldest is wrong (a patch
+  is a delta), so the answer is probably to drop the session and let it repaint from `holds`.
 
 - **What an extra client on a tick actually costs, and where it goes.** `resumeSignalsFanout`
   minus `resumeSignals` over nine: **70 µs and 117 kB** per further client, against 262 µs for the
