@@ -224,12 +224,9 @@ open class AuthGate(
     * halts on either side, so what is wanted is a side that never speaks and
     * never ENDS — an empty or finite stream would cut the connection instead.
     *
-    * Because it never ends, it is also what a mistake on the OTHER side hangs
-    * on. Ending that side by interrupting it inside the merge does not end the
-    * merge (fs2 interruption is scoped), leaving this branch as the only one
-    * still running — a live-forever response body. `Server.untilRevoked`'s doc
-    * carries the case; the rule is to interrupt the stream it returns, never
-    * the events it is given.
+    * Because it never ends, it is also what a mistake on the other side hangs
+    * on: interrupting the events branch inside that merge leaves this one
+    * running alone. `Server.untilRevoked` carries the rule.
     */
   private def revocationOf(
       req: Request[IO],

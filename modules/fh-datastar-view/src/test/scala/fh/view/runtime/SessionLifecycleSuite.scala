@@ -192,13 +192,9 @@ class SessionLifecycleSuite extends ServerHarness {
   // Two live streams racing through one session is server topology, not
   // Temporal logic, so this runs on the real runtime.
   //
-  // It flaked at ~20-30% for a long time, and the cause was NOT the mocked
-  // scheduler this comment used to blame: it was a real bug in `sseStream`,
-  // where the displacement `interruptWhen` sat inside the merge in
-  // `Server.untilRevoked` and so never ended the response body. The tell was
-  // that the tenure reached `Held(2)` and stayed there — the signal was
-  // delivered and latched, so nothing looked like a lost wakeup. Keep the
-  // `join`: it is what fails if that interrupt moves back inside.
+  // The `join` below is the guard on where `sseStream` applies its displacement
+  // `interruptWhen`: inside `Server.untilRevoked`'s merge, the response body
+  // never ends and this hangs to its timeout.
   testReal("a second stream for one session displaces the first") {
     (for {
       store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "warm")))

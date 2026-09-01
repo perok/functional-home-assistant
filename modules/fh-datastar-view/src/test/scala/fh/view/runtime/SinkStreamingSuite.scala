@@ -108,19 +108,17 @@ class SinkStreamingSuite extends munit.FunSuite {
     * each transient at its full size. Against `Sink.Buffer`, whose peak is the
     * finished document by construction.
     *
-    * '''The assertion is a classification, not a ratio.''' A ratio would be
-    * fixture arithmetic — document/node is just the leaf count, so adding
-    * leaves would "improve" it. What is actually claimed is that every write is
-    * one of two things, and neither grows with the document:
+    * '''A classification, not a ratio.''' document/node is just the leaf count,
+    * so a ratio improves as the fixture grows and asserts nothing. The claim is
+    * that every write is one of two things, and neither grows with the
+    * document:
     *
-    *   - a node run, bounded by the largest single node's rendering, which is
-    *     asked of the renderer rather than assumed; or
-    *   - the shell's one-shot `themeStyleTag`, which is a shared `val` written
-    *     straight through. It is a big WRITE and not a peak at all: one copy
-    *     exists for the life of the renderer and every connection reuses it, so
-    *     it never multiplies by open tabs. Counting it as peak was the flaw
-    *     this test was rewritten to remove, and the fixture now carries a real
-    *     stylesheet so the case is exercised rather than assumed away.
+    *   - a node run, bounded by the largest single node's rendering, asked of
+    *     the renderer rather than assumed; or
+    *   - the shell's one-shot `themeStyleTag` — a big WRITE and not a peak: one
+    *     shared `val` per renderer, reused by every connection, so it never
+    *     multiplies by open tabs. The fixture carries a real stylesheet so this
+    *     case is exercised rather than assumed away.
     *
     * This is the sink's high-water mark, not the JVM's. The buffered path also
     * holds the result `String` and its encoded copy, so the gap is a floor.

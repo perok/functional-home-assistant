@@ -102,16 +102,14 @@ import java.util.concurrent.TimeUnit
   * }}}
   *
   * '''Streaming buys 672 kB of churn per page open''' — 19% — for 137 µs, or
-  * 12%. Both halves are now measured with an error narrow enough to read, which
-  * they never were through fs2 (note the ±44 here against the ±904 one row
-  * down). That is on top of the PEAK it was built for: the ~500 kB a concurrent
-  * open otherwise holds live across four materialisations, which is what
-  * multiplies by open tabs, and which nothing here measures.
+  * 12%. Read those two rows and not the fs2 one: ±44 against ±904 is the
+  * difference between a gap you can read and one you cannot. Streaming also
+  * buys PEAK — the ~500 kB a concurrent open otherwise holds live across four
+  * materialisations, which multiplies by open tabs — and nothing here measures
+  * that (`SinkStreamingSuite` does).
   *
   * '''The writer buffer's win is churn, and only churn''' — 729 kB, against a
-  * time difference that is inside the error. Measured through fs2 the buffer
-  * looked worth 369 µs as well; with the pipe removed that gap is gone, so the
-  * earlier reading was the pipe's noise, not the buffer.
+  * time difference inside the error.
   *
   * '''The pipe costs ~1,000 µs and ~358 kB''' (`pageStreamBuffered` minus
   * `pageWalkStream`) and is not a choice — ember pulls every body through it.
@@ -653,14 +651,13 @@ class RenderBench {
   }
 
   /** '''The one arm that reaches `Sink.Streaming.digesting`''' — the only
-    * operation the two sinks implement differently, and until now the only one
-    * nothing measured.
+    * operation the two sinks implement differently.
     *
     * It fires on an own-rendering node with NO signal slots (`!twoForms`),
     * which is every leaf of [[plain]] and no leaf of [[signalled]] — so every
-    * streamed arm above walks past it and [[page]] exercises only the BUFFER's
-    * version. That is why an earlier scratch-buffer change here measured
-    * exactly zero: it optimised a branch the fixture never took.
+    * other streamed arm walks past it and [[page]] reaches only the BUFFER's
+    * version. A change to `digesting` measured against a `signalled` fixture
+    * therefore measures nothing at all.
     *
     * Read against [[page]], which is the same tree through `Sink.Buffer`. The
     * gap is `digesting` and nothing else: a buffer bounds the run by two
