@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.runtime.RendererTestOps.*
+
 import api.homeassistant.HomeAssistantApi
 import cats.data.NonEmptyList
 import cats.effect.IO

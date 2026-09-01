@@ -1814,7 +1814,16 @@ class Server(
       body = fs2.io
         .readOutputStream[IO](Server.PageChunkBytes) { os =>
           IO.blocking {
-            val w = new java.io.OutputStreamWriter(os, UTF_8)
+            // BUFFERED, and measurably: the walk writes in thousands of small
+            // pieces, and each one is a `synchronized` call into
+            // `OutputStreamWriter`'s `StreamEncoder`. That class buffers the
+            // ENCODE at 8 kB but not the CALL, so without this the page open
+            // churns 3.96 MB against 3.22 MB with it, at 2476 us against 2107
+            // (`RenderBench.pageStream` vs `pageStreamBuffered`).
+            val w = new java.io.BufferedWriter(
+              new java.io.OutputStreamWriter(os, UTF_8),
+              Server.PageChunkBytes
+            )
             var own = Map.empty[NodeId, Painted]
             pageInto(
               Sink.streaming(w),

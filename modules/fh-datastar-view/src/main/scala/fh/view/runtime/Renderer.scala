@@ -405,18 +405,11 @@ class Renderer(
     Templates.compile("chrome", chrome)._1
   }
 
-  /** Without the page shell and without the theme ([[themeStyleTag]] sits
-    * outside it): what a repaint or navigate `inner`-patches into `#dashboard`.
-    */
-  def renderBody(
-      states: Map[String, EntityState],
-      uiState: Map[String, String] = Map.empty
-  ): String =
-    renderBodyTraced(states, uiState).html
-
-  /** [[renderBody]] with the per-node trace — including every surface BAKED
-    * into it, which is what a page load needs to seed the log for the surfaces
-    * the client can already see.
+  /** The body — no page shell, no theme ([[themeStyleTag]] sits outside it):
+    * what a repaint or navigate `inner`-patches into `#dashboard`, with the
+    * per-node trace, including every surface BAKED into it, which is what a
+    * page load needs to seed the log for the surfaces the client can already
+    * see.
     */
   private[runtime] def renderBodyTraced(
       states: Map[String, EntityState],
@@ -430,28 +423,6 @@ class Renderer(
       uiState
     )
 
-  /** The style sits BEFORE the chrome, so every patch target inside it can be
-    * repainted without re-sending the CSS.
-    *
-    * A restored `popup` is BAKED into the host's `{{{popups}}}` hole, the way a
-    * selected tab panel is baked into its owner: otherwise the dialog cannot
-    * appear until the stream connects and patches it in, which a refresh sees
-    * as the dashboard painting first and the dialog popping in late. A theme
-    * whose chrome has no hole renders without it — the var is optional in the
-    * contract, and the patch still arrives.
-    */
-  def renderPage(
-      states: Map[String, EntityState],
-      uiState: Map[String, String] = Map.empty,
-      popup: Option[String] = None
-  ): String = renderPageTraced(states, uiState, popup).html
-
-  /** The page is the one render that must tell the log what it did. Every other
-    * node starts with NO entry, which reads as "you are up to date" and is
-    * true: the document was server-rendered from current state. An open surface
-    * is the exception — with no entry, the first live tick would hand the
-    * client its own surface straight back.
-    */
   /** A floor on the document's bytes, for sizing the one buffer it is written
     * into — the theme's style tag, a rough per-node figure, and slack for the
     * shell around it. A builder that grows instead pays amortized doubling
@@ -461,27 +432,28 @@ class Renderer(
     themeStyleTag.length + Renderer.NodeBytesHint * nodeCount(dashboard.card) +
       4096
 
-  private[runtime] def renderPageTraced(
-      states: Map[String, EntityState],
-      uiState: Map[String, String] = Map.empty,
-      popup: Option[String] = None
-  ): Traced = {
-    val pageOut = Sink.buffer(pageBytesHint)
-    val own = renderPageInto(pageOut, states, uiState, popup)
-    // The whole page is never a patch target — a repaint replaces `#dashboard`
-    // wholesale — so it has no second form of its own. Its NODES do, and those
-    // are in `own`.
-    Traced(pageOut.result, own)
-  }
-
   /** The page walked straight into `out`, returning only the per-node trace.
+    * '''This is the document path''' — the only one there is.
     *
-    * This is the whole document path, and it takes the buffer rather than
-    * owning one so the SERVER's shell — head, banners, closing scripts — can be
-    * the same bytes: `Server.pageInto` writes around this as a writer hole,
-    * where it used to interpolate the finished body into a document String and
-    * pay a second full copy of the page. [[renderPageTraced]] wraps it for the
-    * callers that want the bytes back as a value.
+    * It takes the sink rather than owning one so the SERVER's shell — head,
+    * banners, closing scripts — can be the same bytes: `Server.pageInto` writes
+    * around this as a writer hole, where it used to interpolate the finished
+    * body into a document String and pay a second full copy of the page.
+    *
+    * The style sits BEFORE the chrome, so every patch target inside it can be
+    * repainted without re-sending the CSS. A restored `popup` is BAKED into the
+    * host's `{{{popups}}}` hole, the way a selected tab panel is baked into its
+    * owner: otherwise the dialog cannot appear until the stream connects and
+    * patches it in, which a refresh sees as the dashboard painting first and
+    * the dialog popping in late. A theme whose chrome has no hole renders
+    * without it — the var is optional in the contract, and the patch still
+    * arrives.
+    *
+    * The trace is what the page owes the log. Every other node starts with NO
+    * entry, which reads as "you are up to date" and is true: the document was
+    * server-rendered from current state. An open surface is the exception —
+    * with no entry, the first live tick would hand the client its own surface
+    * straight back.
     */
   private[runtime] def renderPageInto(
       out: Sink,

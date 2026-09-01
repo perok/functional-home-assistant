@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.runtime.RendererTestOps.*
+
 import fh.view.model.{
   CardDef,
   Dashboard,
@@ -79,16 +81,27 @@ import java.util.concurrent.TimeUnit
   * Four things to take from it.
   *
   * '''The document is 128 kB and costs 3.8 MB to serve''' — 29x its own size.
-  * `pageServe` against `pageSignals` isolates what streaming would remove from
-  * the churn: 257 kB, the digest pass and the UTF-8 encode. The document SHELL
-  * is not reachable from here either way — `Server.pageInto` is an instance
-  * method on a booted server — and it used to concatenate the whole page a
-  * further time, which is the copy the sink removed. Counting that, roughly
-  * 10%. The rest is the WALK — transforms 0.96 MB, mustache contexts 0.39 MB,
+  * Most of that is the WALK — transforms 0.96 MB, mustache contexts 0.39 MB,
   * slot resolution, signal seeds — which streaming does not touch at all.
   * '''What streaming buys is PEAK''': the ~500 kB a concurrent open holds live
   * across four materialisations, which is what multiplies by open tabs. Churn
   * and peak are different targets and a change should say which it is for.
+  *
+  * The four serve rows are the A/B, and only one of them is real. `pageServe`
+  * pays NO fs2 at all, which no served response does — http4s hands even a
+  * buffered body out as a `Stream[IO, Byte]` and pulls it. [[pageServeStream]]
+  * is that path honestly, and [[pageStreamBuffered]] is what ships:
+  *
+  * {{{
+  *                        us/op          B/op
+  * pageServe            1,368.5     3,538,993   no fs2 — the floor, not a path
+  * pageServeStream      2,870.0*    3,488,457   * error +-3248, unusable
+  * pageStream           2,476.5     3,958,823   streamed, unbuffered writer
+  * pageStreamBuffered   2,107.5     3,216,739   SHIPPED
+  * }}}
+  *
+  * Streaming is the CHEAPEST in churn once the writer is buffered, and the
+  * regression it seemed to carry was that buffer's absence, not the pipe.
   *
   * '''An extra client on a tick costs 70 us and 117 kB''' —
   * `resumeSignalsFanout` minus `resumeSignals`, over nine. Against 262 us for
@@ -575,8 +588,33 @@ class RenderBench {
     bh.consume(t.html.getBytes(UTF_8))
   }
 
-  /** '''The SHIPPED serve''' — the walk streaming into a response body that is
-    * being pulled, which is what `Server.renderPage` does.
+  /** '''The buffered serve as http4s would really serve it''' — and the only
+    * fair comparison for [[pageStream]].
+    *
+    * [[pageServe]] stops at the byte array, but a response body is an fs2
+    * `Stream[IO, Byte]` whatever produced it: ember pulls the buffered page
+    * through the same chunking machinery it pulls a streamed one through. So
+    * the fs2 cost is NOT what streaming adds — it is paid either way, and only
+    * the way the bytes ENTER the stream differs (a pipe and a second fiber,
+    * against one chunk already in hand).
+    */
+  @Benchmark
+  def pageServeStream(bh: Blackhole): Unit = {
+    val t = signalled.renderPageTraced(st)
+    bh.consume(t.own.size)
+    val n = fs2.Stream
+      .chunk(fs2.Chunk.array(t.html.getBytes(UTF_8)))
+      .covary[cats.effect.IO]
+      .chunkLimit(Server.PageChunkBytes)
+      .unchunks
+      .compile
+      .count
+      .unsafeRunSync()
+    bh.consume(n)
+  }
+
+  /** '''The streamed serve WITHOUT the writer buffer''' — kept only to price
+    * the buffer. [[pageStreamBuffered]] is what `Server.renderPage` ships.
     *
     * The webserver's half is simulated rather than stood up: `readOutputStream`
     * is the exact bridge the route uses, and `.compile.count` is a consumer
@@ -585,19 +623,16 @@ class RenderBench {
     * `Server.pageInto` is an instance method on a booted `Server` — so this is
     * the body only, and the shell is a further ~4 kB of literals either way.
     *
-    * '''What this can and cannot show.''' `gc.alloc.rate.norm` is CHURN, and
-    * streaming is WORSE on it — measured 3.91 MB/op against [[pageServe]]'s
-    * 3.56 MB, at 2425 µs against 1262 µs. Both are the price of the machinery,
-    * not of the walk: an fs2 pipe, a `Chunk[Byte]` per hand-off, a
-    * `StreamEncoder`, and a fiber on each side of the pipe. The win the change
-    * was made for is PEAK live bytes, which multiplies by concurrent tabs on a
-    * Pi and which nothing in JMH measures — no value holding the document is
-    * ever created. So these two rows price what streaming COSTS; the benefit is
-    * structural and sits outside them.
+    * Unbuffered this is the WORST of the four: 2476 µs and 3.96 MB, against
+    * 2107 µs and 3.22 MB with the buffer. The gap is not the pipe — it is that
+    * the walk writes in thousands of small pieces and each is a `synchronized`
+    * call into `StreamEncoder`, which buffers the encode at 8 kB but not the
+    * call.
     *
-    * Chunk size is not the lever: at `1 << 20` (one hand-off for the page
-    * instead of sixteen) the time was 2275 µs — inside the run-to-run error —
-    * and churn rose to 5.81 MB, because the buffer itself is the allocation.
+    * Chunk size is NOT the lever, measured before the buffer was found: at
+    * `1 << 20` (one hand-off for the page instead of sixteen) the time was 2275
+    * µs — inside the run-to-run error — and churn ROSE to 5.81 MB, because the
+    * big buffer is itself the allocation.
     */
   @Benchmark
   def pageStream(bh: Blackhole): Unit = {
@@ -605,6 +640,44 @@ class RenderBench {
       .readOutputStream[cats.effect.IO](Server.PageChunkBytes) { os =>
         cats.effect.IO.blocking {
           val w = new java.io.OutputStreamWriter(os, UTF_8)
+          val own = signalled.renderPageInto(Sink.streaming(w), st)
+          w.flush()
+          own.size
+        }.void
+      }
+      .compile
+      .count
+      .unsafeRunSync()
+    bh.consume(n)
+  }
+
+  /** '''The SHIPPED serve''' — [[pageStream]] plus the `BufferedWriter` that
+    * `Server.renderPage` puts in front of the encoder.
+    *
+    * The walk writes in THOUSANDS of small pieces — a tag, an id, a slot value
+    * — and every one of them is a `synchronized` call into
+    * `OutputStreamWriter`'s `StreamEncoder`, against a plain array copy when
+    * the sink is a `StringBuilder`. `OutputStreamWriter` buffers the ENCODE at
+    * 8 kB but not the CALL, and this collapses the calls.
+    *
+    * '''It makes streaming the CHEAPEST of the four in churn''': 3.22 MB, below
+    * even [[pageServeStream]]'s 3.49 MB. So the +417 kB that streaming appeared
+    * to cost was never the pipe — it was the unbuffered writer, and the
+    * peak-memory win no longer has a churn price attached. Time is still worse
+    * than buffered (2107 µs against ~1400 µs of walk), and that gap is the
+    * pipe: measured in isolation over a 128 kB body it is ~2.0 µs/kB against
+    * ~0.13 µs/kB, plus ~85 µs against ~11 µs fixed. It scales with the document
+    * rather than amortising.
+    */
+  @Benchmark
+  def pageStreamBuffered(bh: Blackhole): Unit = {
+    val n = fs2.io
+      .readOutputStream[cats.effect.IO](Server.PageChunkBytes) { os =>
+        cats.effect.IO.blocking {
+          val w = new java.io.BufferedWriter(
+            new java.io.OutputStreamWriter(os, UTF_8),
+            Server.PageChunkBytes
+          )
           val own = signalled.renderPageInto(Sink.streaming(w), st)
           w.flush()
           own.size

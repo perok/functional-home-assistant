@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.runtime.RendererTestOps.*
+
 import cats.effect.unsafe.implicits.global
 import cats.syntax.traverse.*
 import fh.view.model.{
