@@ -1282,11 +1282,14 @@ class Renderer(
         // form, which is what that method produces.
         val own = Option.when(plan.ownRendering) {
           if (twoForms) {
-            val buf = Sink.buffer(Renderer.NodeBytesHint)
-            wrapper(buf, SlotForm.Patch)
-            bodyInto(buf, SlotForm.Patch)
-            if (wrapped) { val _ = buf.append("</div>") }
-            val bytes = buf.result
+            // Borrowed: these bytes are copied out by `result` and the buffer
+            // itself is wanted by nobody.
+            val bytes = Sink.scratched { buf =>
+              wrapper(buf, SlotForm.Patch)
+              bodyInto(buf, SlotForm.Patch)
+              if (wrapped) { val _ = buf.append("</div>") }
+              buf.result
+            }
             if (isRoot) rootOwn.nn(0) = bytes
             Painted(Digest.of(bytes), resolved.signals)
           } else Painted(inlineDigest.nn, resolved.signals)
@@ -1343,9 +1346,10 @@ class Renderer(
                 ._1
             else {
               renderResolvedMemberInto(out, m, rm, SlotForm.Document)
-              val buf = Sink.buffer(Renderer.NodeBytesHint)
-              renderResolvedMemberInto(buf, m, rm, SlotForm.Patch)
-              Digest.of(buf.result)
+              Digest.of(Sink.scratched { buf =>
+                renderResolvedMemberInto(buf, m, rm, SlotForm.Patch)
+                buf.result
+              })
             }
           trace.put(m.id, Painted(digest, sigs))
         }
@@ -1520,9 +1524,10 @@ class Renderer(
       rm: ResolvedMember,
       form: SlotForm
   ): String = {
-    val out = Sink.buffer(Renderer.NodeBytesHint)
-    renderResolvedMemberInto(out, m, rm, form)
-    out.result
+    Sink.scratched { out =>
+      renderResolvedMemberInto(out, m, rm, form)
+      out.result
+    }
   }
 
   /** The member's whole wrapped rendering, written into the CALLER's buffer.
@@ -1597,13 +1602,14 @@ class Renderer(
             region -> kids.map {
               case ResolvedChild.NestedSet(html) => html
               case ResolvedChild.Node(cell, n)   =>
-                val child = Sink.buffer(Renderer.NodeBytesHint)
-                child
-                  .append("""<div class="fh-cell""")
-                  .append(Renderer.cellClasses(cell))
-                  .append("""">""")
-                memberBodyInto(child, n, form)
-                child.append("</div>").result
+                Sink.scratched { child =>
+                  child
+                    .append("""<div class="fh-cell""")
+                    .append(Renderer.cellClasses(cell))
+                    .append("""">""")
+                  memberBodyInto(child, n, form)
+                  child.append("</div>").result
+                }
             }
         }.toMap
     executeInto(out, rm.tpl, rm.resolved, childrenHtml, form, walk)
@@ -1620,13 +1626,14 @@ class Renderer(
       .mapValues(_.map {
         case ResolvedChild.NestedSet(html) => html
         case ResolvedChild.Node(cell, n)   =>
-          val child = Sink.buffer(Renderer.NodeBytesHint)
-          child
-            .append("""<div class="fh-cell""")
-            .append(Renderer.cellClasses(cell))
-            .append("""">""")
-          memberBodyInto(child, n, form)
-          child.append("</div>").result
+          Sink.scratched { child =>
+            child
+              .append("""<div class="fh-cell""")
+              .append(Renderer.cellClasses(cell))
+              .append("""">""")
+            memberBodyInto(child, n, form)
+            child.append("</div>").result
+          }
       })
       .toMap
 

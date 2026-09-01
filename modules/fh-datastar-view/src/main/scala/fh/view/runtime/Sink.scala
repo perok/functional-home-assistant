@@ -67,6 +67,12 @@ private[runtime] object Sink {
     }
 
     def result: String = sb.toString
+
+    private[runtime] def reset(): Unit = sb.setLength(0)
+
+    private[runtime] def capacity: Int = sb.capacity
+
+    private[runtime] def trim(): Unit = sb.trimToSize()
   }
 
   /** A sink that hands its bytes straight to `w` — the page's destination,
@@ -108,9 +114,7 @@ private[runtime] object Sink {
     def digesting(
         keepBytes: Boolean
     )(f: Sink => Unit): (Digest, String | Null) = {
-      val buf = Sink.buffer(Renderer.NodeBytesHint)
-      f(buf)
-      val bytes = buf.result
+      val bytes = Sink.scratched { buf => f(buf); buf.result }
       w.write(bytes)
       (Digest.of(bytes), if (keepBytes) bytes else null)
     }
@@ -119,6 +123,58 @@ private[runtime] object Sink {
   def buffer(sizeHint: Int): Sink.Buffer = new Sink.Buffer(
     new java.lang.StringBuilder(sizeHint)
   )
+
+  /** Run `f` against a buffer BORROWED for the call rather than allocated for
+    * it, and only for a run whose bytes `f` copies out before returning.
+    *
+    * A node's patch form is rendered into a throwaway buffer purely to
+    * fingerprint it, once per own-rendering node — 2 kB of `char[]` per node
+    * (plus its `toString`) for bytes nobody keeps, which async-profiler put at
+    * a quarter of a page open. One buffer per THREAD serves the whole walk.
+    *
+    * Per thread and not per renderer because sessions render concurrently and
+    * `renderPageInto` is otherwise pure — the same reason `Digest.digester` is
+    * a `ThreadLocal`.
+    *
+    * '''Nested borrows get their own buffer.''' No current path nests —
+    * instrumenting the borrow across the whole suite counts zero — so the guard
+    * is not carrying today's walk. It is what keeps "never render into a
+    * scratch while holding one" from being an unwritten precondition: sharing
+    * one builder would splice two nodes' bytes together, and the result is
+    * still well-formed HTML, so nothing downstream would notice.
+    */
+  def scratched[A](f: Sink.Buffer => A): A = scratch.get().nn.use(f)
+
+  private final class Scratch {
+    private val buf = Sink.buffer(Renderer.NodeBytesHint)
+    private var busy = false
+
+    def use[A](f: Sink.Buffer => A): A =
+      if (busy) f(Sink.buffer(Renderer.NodeBytesHint))
+      else {
+        busy = true
+        try {
+          buf.reset()
+          f(buf)
+        } finally {
+          busy = false
+          // One outsized node would otherwise pin its buffer on this thread
+          // for the life of the process. Emptied BEFORE trimming, because
+          // `trimToSize` trims to the current LENGTH — called on a full buffer
+          // it is a no-op, which is what the first version of this did.
+          if (buf.capacity > MaxScratchChars) { buf.reset(); buf.trim() }
+        }
+      }
+  }
+
+  /** Above this a scratch buffer is released rather than kept — big enough that
+    * an ordinary card never trips it, small enough that a pathological one does
+    * not sit on the heap per render thread.
+    */
+  private val MaxScratchChars = 64 * 1024
+
+  private val scratch: ThreadLocal[Scratch] =
+    ThreadLocal.withInitial(() => new Scratch)
 
   def streaming(w: java.io.Writer): Sink = new Sink.Streaming(w)
 }

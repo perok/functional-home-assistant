@@ -955,6 +955,15 @@ holes (`Datastar.SignalSeed`): a further **−12.6%**, to 1,791 kB, and 1,275 µ
 `page`, which carries no signal slots, stayed put. The live tick barely moved (151 kB → 148 kB): a
 signals FRAME carries a few signals, where the SEED is per node.
 
+**The per-node scratch buffer is borrowed, not allocated.** An own-rendering node's PATCH form is
+rendered into a throwaway buffer purely to fingerprint it — `char[1024]` plus a `toString` per node,
+for bytes nobody keeps, which the profiler put at a quarter of a page open. `Sink.scratched` lends
+one buffer per THREAD to the whole walk instead (per thread because sessions render concurrently and
+the walk is otherwise pure — the same reason `Digest.digester` is a `ThreadLocal`). `pageWalkStream`
+**1,322 kB -> 1,113 kB, −15.8%**; time unchanged. Nested borrows fall back to allocating, which no
+current path needs — instrumenting the borrow across the suite counts zero — so the guard exists to
+keep "never render into a scratch while holding one" from being an unwritten precondition.
+
 Comparing page rows across runs needs care. `gc.alloc.rate.norm` is deterministic WITHIN a run
 (±200 B) but drifts ~**2.6%** between them — `page` came back anywhere from 1,295 kB to 1,329 kB in
 one session with nothing on its path changing — so any claim under ~3% has to come from two arms
