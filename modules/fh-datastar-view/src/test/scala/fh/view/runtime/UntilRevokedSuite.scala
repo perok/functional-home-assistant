@@ -24,7 +24,7 @@ class UntilRevokedSuite extends munit.CatsEffectSuite {
 
   private val always: Stream[IO, Boolean] = Stream(true) ++ Stream.never[IO]
 
-  private def event(id: String) = ServerSentEvent(data = Some(id))
+  private def event(id: String) = SseFrame.of(ServerSentEvent(data = Some(id)))
 
   /** The case `SessionLifecycleSuite` exercises through two HTTP requests: the
     * events end on their own (a displaced session interrupts them) while the

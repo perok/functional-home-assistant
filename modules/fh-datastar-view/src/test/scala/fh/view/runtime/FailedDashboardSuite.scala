@@ -901,7 +901,7 @@ class FailedDashboardSuite extends ServerHarness {
       .timeout(15.seconds)
 
   private def isMarker(e: ServerSentEvent): Boolean =
-    e.comment == Server.recoverOpenMarker.comment
+    e.comment.contains("recover-open")
 
   /** The negative half of an SSE-opening test: nothing reload-triggering may
     * arrive in a window that would cover any immediate-reload bug.

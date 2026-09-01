@@ -4,8 +4,10 @@ import fh.view.model.{
   CardDef,
   Dashboard,
   LayoutNode,
+  NodeId,
   Region,
   SignalBind,
+  SignalId,
   SlotSource,
   Transform
 }
@@ -13,6 +15,7 @@ import io.circe.Json
 import org.openjdk.jmh.annotations.*
 import org.openjdk.jmh.infra.Blackhole
 
+import java.nio.charset.StandardCharsets.UTF_8
 import java.util.concurrent.TimeUnit
 
 /** What a page open costs, split into the parts we can act on separately.
@@ -107,6 +110,11 @@ class RenderBench {
   private var engineShapes: List[Transform.Compiled] = null
   private var entityTemplate: com.github.mustachejava.Mustache = null
   private var painted: List[String] = null
+  // The wire bench's inputs: three real node bytes (morph payloads) and the
+  // signal ids a value tick patches, plus the tick's node ids for the render
+  // half.
+  private var wireNodeIds: List[NodeId] = null
+  private var wireRot = 0
 
   @Setup(Level.Trial)
   def setup(): Unit = {
@@ -168,6 +176,13 @@ class RenderBench {
       .from(Dashboard(cards, tree(Leaves, 4, signals = true)))
       .components("entity")
     painted = signalled.renderPageTraced(st).own.values.map(_.html).toList
+    // The first leaves' own node ids — one per leaf, in fixture order — for
+    // the tick render: `componentsFor` maps the entity to the node that
+    // shows it.
+    wireNodeIds = List
+      .tabulate(3)(i => entityId(i))
+      .flatMap(e => signalled.componentsFor(e).toList)
+      .take(3)
   }
 
   /** The baseline: a whole page, no signal slots. */
@@ -321,6 +336,79 @@ class RenderBench {
   @Benchmark
   def holdsSeed(bh: Blackhole): Unit =
     painted.foreach(h => bh.consume(Digest.of(h)))
+
+  /** The WIRE half of one value tick, fanned to [[WireClients]] open
+    * connections: three morphs and a signals frame go through
+    * [[Patches.encode]] (adjacent-morph merge, the collapse at the Datastar
+    * edge) and then the per-connection encode — `renderString` + UTF-8, which
+    * is what http4s's SSE encoder does per event per socket.
+    *
+    * This is the cost a page render never measures: it happens once per CLIENT
+    * per frame, where the render happens once per SLUG. The gap against
+    * [[wireTick]] says how much of a busy house's tick is wire bookkeeping vs
+    * the render itself, and it is the number that decides whether byte-level
+    * frames (pre-encoded node bytes shared across connections) would buy
+    * anything.
+    */
+  @Benchmark
+  def wire(bh: Blackhole): Unit = {
+    var c = 0
+    while (c < WireClients) {
+      val rot = wireRot + c
+      val h1 = painted(rot % painted.size)
+      val h2 = painted((rot + 7) % painted.size)
+      val h3 = painted((rot + 13) % painted.size)
+      val eid = s"light.tile_${rot % Leaves}"
+      val events = Patches.encode(
+        List(
+          Addressed(Patch.Morph(h1)),
+          Addressed(Patch.Morph(h2)),
+          Addressed(Patch.Morph(h3)),
+          Addressed(
+            Patch.Signals(
+              Map(
+                SignalId.derived(s"_e.$eid.state") -> Json.fromString("on"),
+                SignalId.derived(s"_e.$eid.style.background") ->
+                  Json.fromString("#ffb46b")
+              )
+            )
+          )
+        )
+      )
+      events.foreach(e => bh.consume(e.bytes))
+      c += 1
+    }
+    wireRot += 1
+  }
+
+  /** The RENDER half of the same tick: one node's patch bytes against a state
+    * snapshot the tick just moved — a cache-missing `renderNodeById`, which is
+    * what a live tick renders per slug when the entity actually changed.
+    *
+    * Against [[wire]] this prices the whole per-tick budget: the render is the
+    * slug-shared half, the wire the per-connection half.
+    */
+  @Benchmark
+  def wireTick(bh: Blackhole): Unit = {
+    val rot = wireRot % Leaves
+    val eid = entityId(rot)
+    val moved = st.updated(
+      eid,
+      EntityState(
+        eid,
+        if (rot % 2 == 0) "on" else "off",
+        Map(
+          "friendly_name" -> Json.fromString(s"Tile number $rot"),
+          "brightness" -> Json.fromInt(rot * 13 % 254),
+          "unit_of_measurement" -> Json.fromString("lx")
+        )
+      )
+    )
+    wireNodeIds.foreach { id =>
+      bh.consume(signalled.renderNodeById(id, moved, Map.empty))
+    }
+    wireRot += 1
+  }
 }
 
 object RenderBench {
@@ -329,6 +417,11 @@ object RenderBench {
     * to the ones already recorded on issue #130.
     */
   final val Leaves = 200
+
+  /** Open connections the [[RenderBench.wire]] tick fans to — a house with ten
+    * tabs open. The per-client cost multiplies by exactly this.
+    */
+  final val WireClients = 10
 
   /** Distinct entities behind [[RenderBench.pageShared]]'s leaves. */
   final val Distinct = 40

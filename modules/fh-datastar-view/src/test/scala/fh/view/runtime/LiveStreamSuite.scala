@@ -396,7 +396,7 @@ class LiveStreamSuite extends ServerHarness {
         // Not vacuous: the claim did not exist until the fill made it.
         assert(!beforeFill, clue = "nothing claimed before the surface opened")
         assert(afterFill, clue = "the fill must claim the node it painted")
-        assertEquals(same, Nil, clue = events(same).map(_.renderString))
+        assertEquals(same, Nil, clue = events(same).map(_.render))
       }
   }
 
@@ -548,22 +548,22 @@ class LiveStreamSuite extends ServerHarness {
     // bytes for a tab-1 viewer and had to be re-sent per viewer. The bar reads
     // entities and nothing else now, so those bytes are already right.
     assert(
-      !owed.exists(_.patch.toSse.renderString.contains(host: String)),
+      !owed.exists(_.patch.toSse.render.contains(host: String)),
       clue = (
         "one rendering fits every viewer, so there is nothing to correct",
-        owed.map(_.patch.toSse.renderString)
+        owed.map(_.patch.toSse.render)
       )
     )
     // What IS owed is this viewer's own panel — which is per-viewer because it
     // is a different SURFACE, not because one node has two renderings.
     assert(
-      owed.exists(_.patch.toSse.renderString.contains("s_t1__c")),
-      clue = owed.map(_.patch.toSse.renderString)
+      owed.exists(_.patch.toSse.render.contains("s_t1__c")),
+      clue = owed.map(_.patch.toSse.render)
     )
     // And nothing owed carries a selection at all.
     assert(
-      !owed.exists(_.patch.toSse.renderString.contains("active-")),
-      clue = owed.map(_.patch.toSse.renderString)
+      !owed.exists(_.patch.toSse.render.contains("active-")),
+      clue = owed.map(_.patch.toSse.render)
     )
   }
 
@@ -599,10 +599,10 @@ class LiveStreamSuite extends ServerHarness {
       mine
     )
     assert(
-      !owed.exists(_.patch.toSse.renderString.contains("s_t0__c")),
-      clue = owed.map(_.patch.toSse.renderString)
+      !owed.exists(_.patch.toSse.render.contains("s_t0__c")),
+      clue = owed.map(_.patch.toSse.render)
     )
-    assert(!owed.exists(_.patch.toSse.renderString.contains("A1")), clue = owed)
+    assert(!owed.exists(_.patch.toSse.render.contains("A1")), clue = owed)
 
     // (2) ...and the guard is not vacuous: a change in ITS OWN panel does
     //     arrive. Without this the test would pass by sending nothing, ever.
@@ -617,8 +617,8 @@ class LiveStreamSuite extends ServerHarness {
       mine
     )
     assert(
-      mineOwed.exists(_.patch.toSse.renderString.contains("B1")),
-      clue = mineOwed.map(_.patch.toSse.renderString)
+      mineOwed.exists(_.patch.toSse.render.contains("B1")),
+      clue = mineOwed.map(_.patch.toSse.render)
     )
   }
 
@@ -690,8 +690,8 @@ class LiveStreamSuite extends ServerHarness {
       Map.empty
     )
     assert(
-      !owed.exists(_.patch.toSse.renderString.contains("A1")),
-      clue = owed.map(_.patch.toSse.renderString)
+      !owed.exists(_.patch.toSse.render.contains("A1")),
+      clue = owed.map(_.patch.toSse.render)
     )
   }
 

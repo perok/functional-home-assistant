@@ -474,7 +474,7 @@ class ResumeSuite extends ServerHarness {
             _ <- post("/sse/popup/close")
             emitted <- session.control.tryTakeN(None)
             open <- session.open.get
-          } yield (emitted.map(_.renderString), open)
+          } yield (emitted.map(_.render), open)
         }
     } yield out)
       .timeout(30.seconds)

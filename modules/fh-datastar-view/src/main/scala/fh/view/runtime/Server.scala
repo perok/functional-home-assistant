@@ -18,7 +18,7 @@ import fh.view.build.{
 import fh.view.FHError
 import fh.view.auth.{AuthGate, Requirement}
 import fh.view.model.{Dashboard, DomId, NodeId, Permission, SignalId}
-import fs2.Stream
+import fs2.{Chunk, Stream}
 import fs2.concurrent.{Signal, SignallingRef}
 import io.circe.{Decoder, Json}
 import org.http4s.*
@@ -29,8 +29,6 @@ import org.http4s.headers.{
   `If-None-Match`,
   ETag
 }
-import org.http4s.ServerSentEvent
-
 import org.typelevel.ci.CIString
 
 import java.nio.charset.StandardCharsets.UTF_8
@@ -99,6 +97,22 @@ class Server(
     // reason it is a parameter.
     lingerWindow: FiniteDuration = Server.LingerWindow
 ) {
+
+  /** The SSE response encoder: frames to a byte stream, `text/event-stream`.
+    *
+    * The http4s implicit it replaces was `entityBodyEncoder.contramap(
+    * _.through(ServerSentEvent.encoder)).withContentType(text/event-stream)` —
+    * the same shape, minus the per-connection render + UTF-8: the frames are
+    * already bytes ([[SseFrame]]), so the body just unwraps them.
+    * Header-identical.
+    */
+  private implicit val sseFrameEntity: EntityEncoder[IO, Stream[IO, SseFrame]] =
+    EntityEncoder
+      .entityBodyEncoder[IO]
+      .contramap[Stream[IO, SseFrame]](
+        _.flatMap(f => Stream.chunk(Chunk.array(f.bytes)))
+      )
+      .withContentType(`Content-Type`(MediaType.`text/event-stream`))
 
   val routes: HttpRoutes[IO] = HttpRoutes.of[IO] {
     // Resolved per REQUEST, not at construction: the entrypoint can rename or
@@ -815,7 +829,7 @@ class Server(
     */
   private def recoverTransitions(
       live: Server.LiveSlug
-  ): Stream[IO, ServerSentEvent] =
+  ): Stream[IO, SseFrame] =
     live.renderer.discrete.zipWithPrevious.map {
       // The connection marker: the stream's FIRST element, sent once it has
       // subscribed under the CURRENT state — a comment under `Failed`, or an
@@ -854,7 +868,7 @@ class Server(
     * cursor up too), so it drives its own; both read the same interval and the
     * same [[Server.keepAliveComment]].
     */
-  private val keepAliveComments: Stream[IO, ServerSentEvent] =
+  private val keepAliveComments: Stream[IO, SseFrame] =
     Stream.awakeEvery[IO](Server.KeepAliveInterval).as(Server.keepAliveComment)
 
   /** One session's pull: what THIS client is owed from `position + 1`, rendered
@@ -880,7 +894,7 @@ class Server(
       live: Server.LiveSlug,
       session: Session,
       version: Long
-  ): IO[List[ServerSentEvent]] =
+  ): IO[List[SseFrame]] =
     session.position.get.flatMap { position =>
       if (version <= position) IO.pure(Nil)
       else
@@ -1004,7 +1018,7 @@ class Server(
       req: Request[IO],
       uiState: Map[String, String],
       open: Set[String]
-  ): IO[List[ServerSentEvent]] =
+  ): IO[List[SseFrame]] =
     (
       OptionT.liftF(live.doorbell.get),
       OptionT(live.renderer.get.map(_.rendererOf)),
@@ -1155,7 +1169,7 @@ class Server(
   private def reloadRepaints(
       session: Session,
       uiState: Map[String, String]
-  ): Stream[IO, ServerSentEvent] =
+  ): Stream[IO, SseFrame] =
     Stream
       .eval(liveFor(session.slug))
       .unNone
@@ -2824,8 +2838,8 @@ object Server {
     * the proof a test can await that the stream subscribed under the current
     * state.
     */
-  private[runtime] val recoverOpenMarker: ServerSentEvent =
-    ServerSentEvent(comment = Some("recover-open"))
+  private[runtime] val recoverOpenMarker: SseFrame =
+    SseFrame.comment("recover-open")
 
   /** The page shell's own JavaScript, read from the frontend bundle
     * (`src/js/shell.ts` -> vite -> managed resources).
@@ -2910,7 +2924,7 @@ object Server {
   private[runtime] def headPatches(
       renderer: Renderer,
       slug: String
-  ): List[ServerSentEvent] =
+  ): List[SseFrame] =
     List(
       Datastar.patchElements(renderer.themeStyleTag),
       Datastar.patchElements(titleTag(renderer.title, slug))
@@ -2947,11 +2961,11 @@ object Server {
     * would never close, which is a hang rather than a leak.
     */
   private[runtime] def untilRevoked(allowed: Stream[IO, Boolean])(
-      events: Stream[IO, ServerSentEvent]
-  ): Stream[IO, ServerSentEvent] =
+      events: Stream[IO, SseFrame]
+  ): Stream[IO, SseFrame] =
     events.mergeHaltBoth(allowed.find(!_).as(reloadPatch))
 
-  private[runtime] val reloadPatch: ServerSentEvent =
+  private[runtime] val reloadPatch: SseFrame =
     Datastar.patchSignals(s"""{"$ReloadSignal":true}""")
 
   /** What a reconnecting browser claims its DOM already holds. Every field is
@@ -3120,7 +3134,7 @@ object Server {
       renderer: Renderer,
       logId: String,
       version: Long
-  ): ServerSentEvent =
+  ): SseFrame =
     Datastar.patchSignals(cursorJson(renderer, logId, version).noSpaces)
 
   /** A connect's last event: the cursor, PLUS what this connection's DOM is
@@ -3138,7 +3152,7 @@ object Server {
       open: Set[String],
       logId: String,
       version: Long
-  ): ServerSentEvent =
+  ): SseFrame =
     Datastar.patchSignals(
       cursorJson(renderer, logId, version)
         .deepMerge(selectionJson(renderer, open))
@@ -3148,7 +3162,7 @@ object Server {
   /** Just how far this client has got — the only part of the cursor a live
     * batch moves.
     */
-  private[runtime] def versionSignal(version: Long): ServerSentEvent =
+  private[runtime] def versionSignal(version: Long): SseFrame =
     versionPatch(version).toSse
 
   /** [[versionSignal]] as a PATCH rather than a wire event, so a batch that
@@ -3317,8 +3331,8 @@ object Server {
   /** The keepalive itself: an SSE comment, carrying no data, no event type and
     * no signal — just bytes on the wire. See [[KeepAliveInterval]].
     */
-  private[runtime] val keepAliveComment: ServerSentEvent =
-    ServerSentEvent(comment = Some("keepalive"))
+  private[runtime] val keepAliveComment: SseFrame =
+    SseFrame.comment("keepalive")
 
   /** Datastar client bundle. Pinned — verify against current Datastar docs when
     * upgrading (SSE event names / `data-*` attribute syntax change across
