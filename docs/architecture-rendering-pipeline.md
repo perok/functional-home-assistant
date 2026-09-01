@@ -254,9 +254,18 @@ GET /sse/dashboard/:slug/patch
       for versions the changelog describes; the snapshot's version for a
       repaint, which painted all of it
   then stream: pulls ▸ control ▸ reloads ▸ haDown ▸ keepAlive
-    // no subscription to acquire, so no window to nest around: the doorbell
-    // hands a new watcher its current value, so a frame recorded before this
-    // stream existed still wakes it
+    // PULLS have no window to nest around: the doorbell hands a new watcher
+    // its current value, and the pull USES it, so a frame recorded before this
+    // stream existed still wakes it.
+    //
+    // RELOADS are the branch where that does not follow. They are merged after
+    // the opening block, so they subscribe once the cursor is already out, and
+    // `renderer.discrete` gives a late subscriber only the CURRENT value —
+    // which says nothing about whether it moved. So the comparison is seeded
+    // with the renderer the HANDLER read, and the first pair asks "is what is
+    // current still what I served you". Reading it off the subscription
+    // instead cannot tell "unchanged" from "changed while nobody was looking",
+    // and the second leaves a client on a dashboard that no longer exists.
   the whole response, AFTER untilRevoked wraps it, is interruptWhen'd on this
     stream's tenure: a later stream displaces it by taking the next epoch
     // NEVER on the stream handed to untilRevoked. fs2 interruption is scoped,
@@ -703,7 +712,8 @@ Three properties hold it up, and each fails silently if broken:
 
 Mutation is in place, in an `AtomicReference` on the renderer, and that is not incidental. Three
 things key on renderer IDENTITY — `publisherFor` rotates the changelog on a renderer emission,
-`reloadRepaints` repaints every connection on one, and `RenderCache` compares renderers with `eq`.
+`reloadRepaints` repaints every connection on one (and decides what counts as "one" with `eq`,
+`Server.sameRenderer`), and `RenderCache` compares renderers with `eq`.
 A membership change that produced a NEW renderer would rotate the log, repaint every browser and
 flush the cache on exactly the case the graph exists to make cheap. Mutating in place keeps all
 three keyed on the dashboard, for free.
