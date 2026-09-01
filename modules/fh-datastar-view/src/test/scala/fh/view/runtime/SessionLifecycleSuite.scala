@@ -711,8 +711,19 @@ class SessionLifecycleSuite extends ServerHarness {
             )
             conn = url.query.params(Server.ConnSignal)
             first <- routes.run(Request[IO](Method.GET, url))
-            reading <- first.body.compile.drain.start
-            _ <- awaitTenure(conn, Tenure.Held(1))
+            // The stream's FIRST BYTE, not its tenure, is what says the body is
+            // running. `adoptOrMint` sets `Held(1)` in the handler above, so
+            // awaiting that tenure is satisfied before this fiber has run at
+            // all — and cancelling then skips the bracket that registers the
+            // stream, so the release that hands the session to its LINGER never
+            // happens and the wait below never ends.
+            opened <- Deferred[IO, Unit]
+            reading <- first.body
+              .evalTap(_ => opened.complete(()).void)
+              .compile
+              .drain
+              .start
+            _ <- opened.get
             // The client hangs up.
             _ <- reading.cancel
             _ <- awaitTenure(conn, Tenure.Lingering(1))
