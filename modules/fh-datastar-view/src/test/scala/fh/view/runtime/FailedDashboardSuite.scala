@@ -144,13 +144,13 @@ class FailedDashboardSuite extends ServerHarness {
                 .timeout(15.seconds) *>
               // Break it: the connected session must be sent a reload, since the
               // error document has no #dashboard to patch and no head to patch.
-              ref.set(failed) *> awaitReload(seen) *>
+              ref.set(failed) *> awaitReloads(seen, 1) *>
               // Recover it: the same reload, from the error page back to the
               // dashboard.
               ref.set(
                 Server.RendererState.Ready(Renderer.create(liveLeafDash))
               ) *>
-              awaitReload(seen)
+              awaitReloads(seen, 2)
           }
           reloads <- seen.get
         } yield {
@@ -281,7 +281,7 @@ class FailedDashboardSuite extends ServerHarness {
             awaitMarker(seen) *>
             assertNothing(seen) *>
             ref.set(flip) *>
-            awaitReload(seen)
+            awaitReloads(seen, 1)
         }
         reloads <- seen.get
       } yield {
@@ -311,7 +311,7 @@ class FailedDashboardSuite extends ServerHarness {
                 .compile
                 .drain
             ) *>
-              awaitReload(seen)
+              awaitReloads(seen, 1)
           }
           reloads <- seen.get
         } yield {
@@ -361,7 +361,7 @@ class FailedDashboardSuite extends ServerHarness {
               .compile
               .drain
           ) *>
-            awaitReload(seen)
+            awaitReloads(seen, 1)
         }
         reloads <- seen.get
       } yield {
@@ -879,12 +879,20 @@ class FailedDashboardSuite extends ServerHarness {
       |    card = c.title("second")
       |  }""".stripMargin
 
-  private def awaitReload(
-      seen: Ref[IO, Vector[ServerSentEvent]]
+  /** Blocks until `seen` holds at least `atLeast` reload events.
+    *
+    * COUNTS rather than asking whether one exists, because `seen` accumulates:
+    * a second call after a reload has already landed is answered by that first
+    * one on its first poll, and waits for nothing. The test then races the
+    * event it meant to wait for — green alone, red under load.
+    */
+  private def awaitReloads(
+      seen: Ref[IO, Vector[ServerSentEvent]],
+      atLeast: Int
   ): IO[Unit] =
     fs2.Stream
       .repeatEval(seen.get <* IO.sleep(10.millis))
-      .find(_.exists(reloadEvent))
+      .find(_.count(reloadEvent) >= atLeast)
       .compile
       .drain
       .timeout(15.seconds)
