@@ -670,7 +670,7 @@ class Server(
         Datastar.patchSignals(s"""{"${Server.HaDownSignal}":${!h}}""")
 
       control = Stream.fromQueueUnterminated(session.control)
-      reloads = reloadRepaints(session, uiState)
+      reloads = reloadRepaints(session, uiState, rendererOpt)
       // Emit `haDown` on connect (the initial `discrete` value) and on every
       // health transition.
       // ...and only when it differs from what this client was last told. The
@@ -1161,20 +1161,36 @@ class Server(
     * [[headPatches]]. `zipWithPrevious` is what makes both comparable — the
     * decision is "did the head change across this swap", not "does it differ
     * from some baseline".
+    *
+    * The baseline the pairs start from is `served`, so the first comparison is
+    * against the renderer this connection was actually built on rather than
+    * against whatever happened to be current when this branch subscribed.
     */
   private def reloadRepaints(
       session: Session,
-      uiState: Map[String, String]
+      uiState: Map[String, String],
+      // The renderer the HANDLER read, before the opening block — what this
+      // connection is being served from, and so the reference point for "has
+      // it been replaced".
+      //
+      // Seeded rather than taken from the subscription, because this stream is
+      // merged AFTER the opening block and `discrete` hands a late subscriber
+      // only the CURRENT value. Dropping that first element treats "nothing
+      // has changed" and "it changed while nobody was subscribed" as the same
+      // thing, and the second is a client left on a dashboard that no longer
+      // exists, with no reload coming.
+      served: Option[Renderer]
   ): Stream[IO, SseFrame] =
     Stream
       .eval(liveFor(session.slug))
       .unNone
       .flatMap { live =>
-        live.renderer.discrete.zipWithPrevious
+        (Stream.emit(served) ++ live.renderer.discrete.map(
+          _.rendererOf
+        )).zipWithPrevious
           .drop(1)
-          .map { case (previous, current) =>
-            (previous.flatMap(_.rendererOf), current.rendererOf)
-          }
+          .collect { case (Some(previous), current) => (previous, current) }
+          .filterNot(Server.sameRenderer)
           .evalMap {
             case (_, None) | (None, _) =>
               // A swap that involved a failed dashboard: the page either
@@ -3042,6 +3058,21 @@ object Server {
       events: Stream[IO, SseFrame]
   ): Stream[IO, SseFrame] =
     events.mergeHaltBoth(allowed.find(!_).as(reloadPatch))
+
+  /** Whether a swap actually replaced the renderer. A seeded comparison has to
+    * answer this, where `drop(1)` answered it by position: the first pair is
+    * the connection's own renderer against whatever is current, and those are
+    * normally the same object.
+    *
+    * Reference equality on purpose — a rebuild installs a NEW instance even
+    * when it evaluates to identical bytes, and that still wants the repaint.
+    */
+  private[runtime] val sameRenderer
+      : ((Option[Renderer], Option[Renderer])) => Boolean = {
+    case (None, None)       => true
+    case (Some(a), Some(b)) => a eq b
+    case _                  => false
+  }
 
   private[runtime] val reloadPatch: SseFrame =
     Datastar.patchSignals(s"""{"$ReloadSignal":true}""")
