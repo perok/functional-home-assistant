@@ -791,7 +791,7 @@ of what the render reads, not all of it: an entity reached only through a signal
 because its value is not in the patch form and so cannot move these bytes (ADR 0012).
 
 **All of this section is the PATCH path.** The document path is a different shape and is described
-in §6a: it consults no cache, shares nothing, and does not stream.
+in §6a: it consults no cache, shares nothing, and streams straight to the client.
 
 **The render is shared per slug; the WIRE is not.** A batch's events are `SseFrame`s — the SSE text
 already encoded to bytes (`Datastar`), served by `SseFrame.frameStreamEncoder` instead of http4s's
@@ -862,40 +862,49 @@ thing wall time still decides is how long a session lingers.
 
 ---
 
-## 6a. The document path — materialised, not streamed
+## 6a. The document path — streamed to the client as it is walked
 
 A page open is the other half of the system and it shares nothing with §6. It consults no
-`RenderCache` (by construction — see the open question on issue #130), it holds no per-client
-record to diff against, and **it does not stream**: the whole document is built as one `String`
-and handed to `Ok`, which sets a `Content-Length`.
+`RenderCache` (by construction — see the open question on issue #130) and it holds no per-client
+record to diff against. What it does do is **write the document at the client**: the walk runs on a
+blocking thread whose writes are the response body, so the browser has the `<head>` before the body
+has finished rendering, and no copy of the page exists on this machine.
 
 ```
-Server.renderPage    Sink.buffer(renderer.pageBytesHint)                  ONE buffer
-Server.pageInto      head + banners        -> the sink
-  Renderer.renderPageInto   chrome + body + restored dialog -> the same sink
-                            (body and dialog are WRITER HOLES, not values)
-                            own = per-node Digest, sliced from the run just written
-Server.pageInto      scripts + closing tags -> the same sink
-                     sink.result                                          (one copy)
-Server.renderPage    session.holds.set(own)
-Ok(string)           stringEncoder -> one Chunk[Byte], Content-Length     (copy)
+Server.renderPage    fs2.io.readOutputStream(8 kB) -> the response body
+  IO.blocking          OutputStreamWriter(os, UTF-8) -> Sink.Streaming
+    Server.pageInto      head + banners        -> the wire
+      Renderer.renderPageInto  chrome + body + restored dialog -> the wire
+                               (body and dialog are WRITER HOLES, not values)
+                               own = per-node Digest; a node whose two forms
+                               agree is caught in a per-node buffer on the way
+                               past (Sink.Streaming.digesting)
+    Server.pageInto      scripts + closing tags -> the wire
+  onFinalize(Succeeded)  session.holds.set(own)
 ```
 
 The walk is push-based — `Renderer.executeInto` takes a `Writer`, a region is a `Writer => Unit` in
 `regionWalk`, and `Sink` IS the writer the whole document goes through, shell included. Two things
-still make the result a `String`:
+follow, and both are load-bearing:
 
-- **`Sink.digesting` needs random access to bytes already written.** A node's own fingerprint is a
-  digest of a contiguous run of the walk's output, and slicing that run out of the buffer is what
-  lets a signal-less member's fingerprint be a slice rather than a second render (§5). A streaming
-  sink would catch the run in a per-node buffer instead — bounded, but not free.
-- **There is no non-blocking push-to-pull bridge.** `fs2.io.readOutputStream` is a blocking pipe,
-  and `IO.blocking` on this route deadlocks `ServerHarness`'s `TestControl` runtime, whose
-  single-threaded ticker cannot interleave a parked thread (measured: readers left parked in
-  `PipedStreamBuffer.read`, tests timing out nondeterministically). Streaming needs the walk to be
-  PULL-based — a chunk per node — which is a larger change than threading a writer.
+- **`digesting` is what differs between a page and a patch.** A node's own fingerprint is a digest
+  of a contiguous run of the walk's output, and that run is what lets a signal-less member's
+  fingerprint be a slice rather than a second render (§5). `Sink.Buffer` slices it and copies
+  nothing; `Sink.Streaming` has already let those bytes go, so it catches the run in a per-node
+  buffer. The peak a page render holds is therefore ONE NODE, not the document.
+- **`holds` is committed in the stream's finalizer, on success only** — the render has not happened
+  when the response is built, so what the page painted is only known once the last byte is out. An
+  abandoned or truncated page leaves `holds` empty, which reads as "unknown, send it", and the
+  first tick repaints. `told` deliberately does not move with it (ADR 0011).
 
-**Measured** (`RenderBench.pageServe`, 200 leaves, the shipped card shape, `-prof gc`): the document
+**`IO.blocking` on this route is deliberate, and it constrains the tests, not the server.**
+`readOutputStream` is a pipe with two mutually-blocking sides — this writer, and fs2's reader —
+and `TestControl` ticks one fiber on one thread, running `IO.blocking` inline on it. So under
+simulated time whichever side is ticked first parks the only thread. Suites that fetch a document
+therefore set `ServerHarness.simulateTime = false`; the note there records what that costs (little:
+the windows they exercise are 50 ms) and what it gives up (determinism).
+
+**Measured before the stream landed** (`RenderBench.pageServe`, 200 leaves, the shipped card shape, `-prof gc`): the document
 is **128 kB** and costs **1.52 ms and 3.78 MB** to serve — 29x its own size in allocation. `own`
 alone is 99 kB, 77% of the document held a second time and used only to compute 200 digests. The
 digest pass and the UTF-8 encode — what `pageServe` adds over `pageSignals` — are 257 kB of it; the
@@ -905,8 +914,13 @@ So the two memory targets here are **not the same** and a change should say whic
 
 | target | what it is | what moves it |
 |---|---|---|
-| peak live bytes | ~500 kB per concurrent page open, multiplying by open tabs | streaming the walk to the socket |
-| allocation churn | 3.78 MB per page open, driving GC on a Pi 4 | the walk — transforms, contexts; streaming is only ~10% of it |
+| peak live bytes | was ~500 kB per concurrent page open, multiplying by open tabs | **streaming — done**; the peak is now one node |
+| allocation churn | 3.78 MB per page open, driving GC on a Pi 4 | the walk — transforms, contexts; streaming was only ~10% of it |
+
+A third target the stream also serves, and the one it is most visibly for: **time to first byte**.
+The browser used to get nothing until the whole document was assembled; it now has the `<head>` —
+stylesheets, module scripts, `<base href>` — while the body is still being walked, so subresource
+fetches overlap the render instead of queueing behind it.
 
 ## 7. Where each box lives
 

@@ -37,6 +37,10 @@ import scala.concurrent.duration.*
   */
 class SessionLifecycleSuite extends ServerHarness {
 
+  // This suite opens DOCUMENTS, and the page route streams its body through a
+  // blocking pipe that simulated time cannot host — see [[ServerHarness.simulateTime]].
+  override protected def simulateTime: Boolean = false
+
   test("a first load resumes from the document instead of repainting it") {
     val dash = mixedTabsDash
     val initial = Map(
@@ -224,6 +228,17 @@ class SessionLifecycleSuite extends ServerHarness {
             // Nothing ends this stream but displacement: it is the keepalive
             // path, with no client hanging up.
             drained <- first.body.compile.drain.start
+            // Wait for that fiber to have REGISTERED before displacing it.
+            // `adoptOrMint` bumps the epoch in the handler, but
+            // `sessions.register` is bracketed to the stream body — so without
+            // this the second request can adopt while the first has not yet
+            // taken its tenure, and the displacement it is here to prove never
+            // has an incumbent to displace. `liveStreams` is exactly that seam.
+            _ <- sessions.liveStreams
+              .find(_ > 0)
+              .compile
+              .drain
+              .timeout(5.seconds)
             second <- routes.run(Request[IO](Method.GET, url))
             live <- second.body.compile.drain.start
             // The join is the assertion. Without displacement the first stream

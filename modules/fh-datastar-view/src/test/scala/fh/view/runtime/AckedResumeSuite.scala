@@ -34,6 +34,10 @@ import scala.concurrent.duration.*
   */
 class AckedResumeSuite extends ServerHarness {
 
+  // This suite opens DOCUMENTS, and the page route streams its body through a
+  // blocking pipe that simulated time cannot host — see [[ServerHarness.simulateTime]].
+  override protected def simulateTime: Boolean = false
+
   private def dash = liveLeafDash
 
   /** One browser: the document, then whatever its stream is told. */

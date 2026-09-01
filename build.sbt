@@ -273,7 +273,11 @@ lazy val `fh-datastar-view` = project
 // runtime needs no widened API to be measurable.
 lazy val benchmarks = project
   .in(file("modules/benchmarks"))
-  .dependsOn(`fh-datastar-view`)
+  // Also on the TEST config: `RendererTestOps` is where the buffered
+  // convenience forms of the render entry points live now that no production
+  // caller reaches them, and the page benchmarks are the other caller. One copy
+  // of that shim, not a second one here.
+  .dependsOn(`fh-datastar-view` % "compile->compile;compile->test")
   .enablePlugins(JmhPlugin)
   .settings(
     commonSettings,

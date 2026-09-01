@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.runtime.RendererTestOps.*
+
 import api.homeassistant.HomeAssistantApi
 import cats.data.NonEmptyList
 import cats.effect.IO
@@ -40,6 +42,10 @@ import scala.concurrent.duration.*
   * Nothing here drives the live stream — that starts with [[SharedPassSuite]].
   */
 class ServerRoutesSuite extends ServerHarness {
+
+  // This suite opens DOCUMENTS, and the page route streams its body through a
+  // blocking pipe that simulated time cannot host — see [[ServerHarness.simulateTime]].
+  override protected def simulateTime: Boolean = false
 
   /** [[Patches.resume]] run against a FRESH cache — these contracts are about
     * which patches come out, and a per-call cache keeps one from depending on

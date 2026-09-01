@@ -1757,6 +1757,11 @@ class Server(
       _ <- sessions.register(conn, session)
       _ <- reapAfter(conn, session, Tenure.Fresh, adoptionWindow)
       store <- stateStore.current
+      // Where the walk leaves its trace. The render has not happened yet — it
+      // happens as the RESPONSE BODY IS PULLED — so what the page painted is
+      // only known once the last byte is out, which is why `holds` is
+      // committed in the stream's finalizer below rather than here.
+      ownRef <- IO.ref(Map.empty[NodeId, Painted])
       _ <- session.position.set(store.version)
       // The page renders the cursor into its own signals, so the document
       // IS an announcement — and the first one. Without this a client
@@ -1781,57 +1786,98 @@ class Server(
           )
         )
       )
-      // The document goes into ONE buffer, head and tail included: `pageInto`
-      // writes the shell around a WRITER HOLE the walk fills, where it used
-      // to build the body as a String and splice it into an interpolated
-      // document — a second full copy of the page, on top of the walk's own.
+      // The document is ONE stream of writes, shell included: `pageInto`
+      // writes the head and the closing tags around a WRITER HOLE the walk
+      // fills, where it used to build the body as a String and splice it into
+      // an interpolated document — a full copy of the page that had to exist
+      // before a single byte could go out.
       //
       // ONE walk, used twice: the bytes go to the browser and the per-node
       // trace seeds `holds`. Fingerprinting separately means walking the open
       // surfaces a second time, node by node, to re-derive what the page just
       // composed.
       //
-      // Deliberately NOT streamed to the response. `fs2.io.readOutputStream`
-      // is the only push-to-pull bridge for a walk shaped like this one, and
-      // it is a BLOCKING PIPE: it puts `IO.blocking` on the page path, which
-      // deadlocks `ServerHarness`'s `TestControl` runtime — its single-threaded
-      // ticker cannot interleave a real parked thread, and the readers pile up
-      // in `PipedStreamBuffer.read` until the suite times out. The invariant
-      // that harness states about this path ("no IO.blocking") is load-bearing,
-      // not incidental. Streaming needs the walk to be PULL-based.
-      page = {
-        val out = Sink.buffer(renderer.pageBytesHint)
-        var own = Map.empty[NodeId, Painted]
-        pageInto(
-          out,
-          slug,
-          // Every painted node, not just the open surfaces' — the document
-          // contains all of it, so recording less would be a claim that is
-          // merely narrower, not safer.
-          sink =>
-            own = renderer.renderPageInto(
-              sink,
-              store.entities,
-              uiState,
-              renderer.surfaces.openPopup(uiState)
-            ),
-          renderer.themeColorTags,
-          renderer.stylesheets.map(assets.rewrite),
-          renderer.deferredStylesheets.map(assets.rewrite),
-          renderer.scripts.map(assets.rewrite),
-          renderer.inlineScripts,
-          renderer.title,
-          Server.ingressPrefixOf(req),
-          restore,
-          editMode,
-          haDown = !live
-        )
-        (out.result, own)
-      }
-      _ <- session.holds.set(page._2.map { case (id, p) =>
-        id -> Held(Some(p.digest), p.signals)
-      })
-      resp <- Ok(page._1)
+      // The document is WRITTEN AT THE CLIENT, never assembled here. The walk
+      // runs on a blocking thread whose writes ARE this response's body, so
+      // the peak a render holds is one node rather than the whole page, and
+      // the browser has the `<head>` — stylesheets, module scripts, base href
+      // — before the body has finished rendering. On a Pi both of those are
+      // worth more than the microseconds the bridge costs.
+      //
+      // `IO.blocking` HERE IS DELIBERATE and it is the reason `ServerHarness`
+      // runs the tests that fetch a document on the real runtime rather than
+      // under `TestControl` (see `testReal` there): `TestControl` ticks one
+      // fiber on one thread, and `readOutputStream` has two mutually-blocking
+      // sides — this writer, and fs2's reader — so under simulated time
+      // whichever is ticked first parks the only thread and the other never
+      // runs. That is a harness limitation, not a defect in this path.
+      body = fs2.io
+        .readOutputStream[IO](Server.PageChunkBytes) { os =>
+          IO.blocking {
+            // BUFFERED, and measurably: the walk writes in thousands of small
+            // pieces, and each one is a `synchronized` call into
+            // `OutputStreamWriter`'s `StreamEncoder`. That class buffers the
+            // ENCODE at 8 kB but not the CALL, so without this the page open
+            // churns 3.60 MB against 2.87 MB with it — 729 kB, and no time
+            // (`RenderBench.pageWalkStreamUnbuffered` vs `pageWalkStream`).
+            val w = new java.io.BufferedWriter(
+              new java.io.OutputStreamWriter(os, UTF_8),
+              Server.PageChunkBytes
+            )
+            var own = Map.empty[NodeId, Painted]
+            pageInto(
+              Sink.streaming(w),
+              slug,
+              // Every painted node, not just the open surfaces' — the
+              // document contains all of it, so recording less would be a
+              // claim that is merely narrower, not safer.
+              sink =>
+                own = renderer.renderPageInto(
+                  sink,
+                  store.entities,
+                  uiState,
+                  renderer.surfaces.openPopup(uiState)
+                ),
+              renderer.themeColorTags,
+              renderer.stylesheets.map(assets.rewrite),
+              renderer.deferredStylesheets.map(assets.rewrite),
+              renderer.scripts.map(assets.rewrite),
+              renderer.inlineScripts,
+              renderer.title,
+              Server.ingressPrefixOf(req),
+              restore,
+              editMode,
+              haDown = !live
+            )
+            // Flush, do not close: `readOutputStream` owns the stream and
+            // closes it when this effect completes, which is what ends the
+            // body.
+            w.flush()
+            own
+          }.flatMap(ownRef.set)
+        }
+        // `holds` is "bytes this client was sent", so it is committed once
+        // they HAVE been — on success only. An abandoned or truncated page
+        // leaves it empty, which reads as "unknown, send it", and the first
+        // tick repaints. `told` deliberately does NOT move with it: it was set
+        // above and keeps the one meaning ADR 0011 gives it.
+        //
+        // A throw mid-walk is a developer error — the walk is pure over a
+        // `Validated` — so there is nothing to build for it beyond saying so
+        // loudly. The client sees a chunked response that ends early and
+        // reacts to that on its own.
+        .onFinalizeCase {
+          case Resource.ExitCase.Succeeded =>
+            ownRef.get.flatMap(own =>
+              session.holds.set(own.map { case (id, p) =>
+                id -> Held(Some(p.digest), p.signals)
+              })
+            )
+          case Resource.ExitCase.Errored(e) =>
+            IO.println(s"[warn] page render for '$slug' failed mid-walk: $e")
+          case Resource.ExitCase.Canceled => IO.unit
+        }
+      resp <- Ok(body)
     } yield resp.withContentType(`Content-Type`(MediaType.text.html))
   }
 
@@ -3249,6 +3295,13 @@ object Server {
     */
   val SseRetry: String =
     s"{retry:'always',filterSignals:{include:'$SseInclude',exclude:'(?!)'}}"
+
+  /** How much of a streamed document is in flight at once. Matched to
+    * `OutputStreamWriter`'s own encoder buffer, which pushes to the
+    * `OutputStream` every 8 kB regardless — a larger chunk here would only make
+    * the pipe wait for writes that already happened.
+    */
+  private[runtime] val PageChunkBytes = 8192
 
   /** How often an idle SSE connection is given something to carry.
     *

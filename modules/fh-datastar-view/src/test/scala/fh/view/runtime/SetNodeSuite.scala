@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.runtime.RendererTestOps.*
+
 import fh.view.model.{
   CardDef,
   Dashboard,

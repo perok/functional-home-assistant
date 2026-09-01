@@ -22,6 +22,10 @@ import scala.concurrent.duration.*
   */
 class SurfaceTapSuite extends ServerHarness {
 
+  // This suite opens DOCUMENTS, and the page route streams its body through a
+  // blocking pipe that simulated time cannot host — see [[ServerHarness.simulateTime]].
+  override protected def simulateTime: Boolean = false
+
   /** [[liveLeafDash]] with a popup surface to open. */
   private def popupDash: Dashboard =
     liveLeafDash.copy(surfaces =
