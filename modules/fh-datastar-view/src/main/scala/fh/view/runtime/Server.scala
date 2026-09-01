@@ -1818,8 +1818,8 @@ class Server(
             // pieces, and each one is a `synchronized` call into
             // `OutputStreamWriter`'s `StreamEncoder`. That class buffers the
             // ENCODE at 8 kB but not the CALL, so without this the page open
-            // churns 3.96 MB against 3.22 MB with it, at 2476 us against 2107
-            // (`RenderBench.pageStream` vs `pageStreamBuffered`).
+            // churns 3.60 MB against 2.87 MB with it — 729 kB, and no time
+            // (`RenderBench.pageWalkStreamUnbuffered` vs `pageWalkStream`).
             val w = new java.io.BufferedWriter(
               new java.io.OutputStreamWriter(os, UTF_8),
               Server.PageChunkBytes

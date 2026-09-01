@@ -12,8 +12,9 @@ package fh.view.runtime
   * They wrap the production methods rather than re-implementing them, so a test
   * written against one is still exercising the walk the server runs. What it is
   * NOT exercising is the server's SINK: these buffer, and a page open streams
-  * ([[Sink.Streaming]] differs from [[Sink.Buffer]] at `digesting`). The suites
-  * that fetch a page through the real route are what cover that.
+  * ([[Sink.Streaming]] differs from [[Sink.Buffer]] at `digesting`).
+  * `SinkStreamingSuite` is what pins the two to the same bytes and the same
+  * trace, so a test written here is not silently asserting about one of them.
   */
 private[runtime] object RendererTestOps {
 

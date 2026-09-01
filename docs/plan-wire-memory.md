@@ -385,10 +385,19 @@ What the bench CAN see is that the `Sink` costs nothing, which is what it was ru
 | `pageSignals` | 3,442,448 B / 1485 µs | 3,405,273 B / 1507 ± 92 µs | −37 kB, time flat |
 
 The ~37 kB is the per-node `appendTo` adapter. Both rows are the BUFFERED sink — `renderPageTraced`
-is what they call, and it still builds a String on purpose. **The streaming path has no benchmark
-at all**, because `Server.renderPage` needs a booted server. Its two wins are therefore argued, not
-measured: peak drops from the document to one node, and the browser gets the `<head>` while the
-body is still being walked. Someone should build the harness that measures both.
+is what they call, and it still builds a String on purpose.
+
+**The streaming path is now measured, and it did not need a booted server to do it.** The walk is
+pure over a `Writer`: `renderPageInto` takes the sink and returns the trace, with no `IO` in it. So
+`RenderBench.pageWalkStream` writes through the shipped `BufferedWriter`/`OutputStreamWriter` chain
+into a counting discard, and `pageServe` is the buffered A/B — **672 kB of churn saved per page
+open (19%) for 137 µs (12%)**, both with errors narrow enough to read. The earlier attempts wrapped
+the walk in `fs2.io.readOutputStream`, which charged the sink for a pipe that a buffered body pays
+too and added an error wider than the gap (±3248 µs on 2870).
+
+`SinkStreamingSuite` covers the rest: that the document leaves in chunks none of which exceeds
+`PageChunkBytes` (the peak claim, as an assertion), and that the streamed and buffered sinks produce
+the same bytes and the same trace.
 
 ### `holds`, as landed
 
@@ -408,8 +417,30 @@ body is still being walked. Someone should build the harness that measures both.
 2. ~~`own` carries the digest~~ **DONE** — −99 kB peak; churn and time flat.
 3. ~~The sink~~ **DONE**; ~~the stream~~ **DONE**.
 
-Thread A is finished. What is left is not part of it: the flake chase above, and a benchmark that
-can reach the streaming path.
+Thread A is finished, benchmark included. What is left is not part of it: the flake chase above,
+and the `digesting` question below.
+
+**`Sink.Streaming.digesting` is unbenchmarked and possibly unnecessary.** It fires on an
+own-rendering node with no signal slots (`Renderer.scala`, `!twoForms`) and on signal-less set
+members, which the code notes is most of them — but every leaf in every `RenderBench` fixture
+declares signals, so no benchmark reaches it. That is why an earlier scratch-buffer change there
+measured exactly zero.
+
+Two of the reasons `Sink.scala` gives for the current implementation do not hold:
+
+- *"Those bytes are downstream of here, so reaching them means encoding a second time."* The
+  encode is already downstream — `Server.renderPage` owns the whole chain and puts an
+  `OutputStreamWriter` in it. A `DigestOutputStream` under that writer digests bytes being
+  encoded anyway.
+- *"A buffer slices the run it just appended and copies nothing."* `Digest.ofRange` is
+  `of(buf.subSequence(from, until).toString)` — it copies, deliberately, for the reason its own
+  doc gives. **Both** sinks copy the node once, so `Streaming`'s extra cost over `Buffer` is one
+  scratch `StringBuilder`, not an extra copy.
+
+What does hold, and is the real trade: bounding a run in the BYTE stream needs a flush of both
+writers at each boundary, which is a flush per leaf and defeats the `BufferedWriter` above. Runs do
+not nest (`hasOwnRendering` ⟺ not structure ⟺ no regions), so one `MessageDigest` would suffice.
+Decide it with a fixture that actually reaches `digesting`.
 
 ## Thread B — share the frame
 
@@ -522,9 +553,8 @@ handle on the shared cause, if there is one.
   because a poll loop under `TestControl` resolves the moment every fiber is blocked. If real
   scheduling exposes a lost wakeup, a Pi has a real clock too. Reproduce with the five suites that
   set `simulateTime = false`, in a loop.
-- **Nothing benchmarks the streaming path.** `pageServe` and `pageSignals` both call
-  `renderPageTraced`, which is the BUFFERED sink; `Server.renderPage` needs a booted server to
-  reach. Its two claimed wins — peak of one node, `<head>` before the body — are argued, not
-  measured.
+- **Does `Sink.Streaming.digesting` earn the sealed type?** Nothing benchmarks it and nothing
+  reaches it in a fixture — see the note under Thread A's staging for what the current
+  justification gets wrong and what the real trade is.
 - `session.control` is an **unbounded** `Queue[IO, SseFrame]` holding pre-encoded byte arrays. Not
   part of either thread, but it is a memory risk on the target hardware and nothing bounds it.

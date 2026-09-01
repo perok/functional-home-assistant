@@ -20,8 +20,13 @@ private[runtime] sealed abstract class Sink extends java.io.Writer {
     * This is the whole reason the sink is a type rather than a `Writer`. A
     * node's own digest is a digest of a CONTIGUOUS RUN of the walk's output,
     * and how you get one depends on whether that output is still reachable: a
-    * buffer slices the run it just appended and copies nothing, while a stream
+    * buffer still has the run and can bound it by two offsets, while a stream
     * has already let those bytes go and has to catch the run on the way past.
+    *
+    * Both then COPY the run once — `Digest.ofRange` cuts a String out of the
+    * buffer for the same reason `Streaming` builds one, and its own doc records
+    * the measurement that says to. So the difference between the two is the
+    * scratch buffer, not an extra copy.
     */
   def digesting(keepBytes: Boolean)(f: Sink => Unit): (Digest, String | Null)
 
@@ -31,8 +36,8 @@ private[runtime] sealed abstract class Sink extends java.io.Writer {
 
 private[runtime] object Sink {
 
-  /** A sink over a `StringBuilder` — no lock, no second buffer, no copy on the
-    * way out, and `digesting` is a slice of bytes already in hand.
+  /** A sink over a `StringBuilder` — no lock, no second buffer, and no copy on
+    * the way out.
     */
   final class Buffer(private val sb: java.lang.StringBuilder) extends Sink {
     override def write(cbuf: Array[Char], off: Int, len: Int): Unit = {
@@ -74,11 +79,17 @@ private[runtime] object Sink {
     * becomes the largest single own-rendering subtree instead of the document
     * and the copies made of it.
     *
-    * Deliberately NOT an incremental digest over the encoded bytes. Those bytes
-    * are downstream of here, so reaching them means encoding a second time, and
-    * a hand-rolled encode measured +83 kB and +17% against `String.getBytes`,
-    * which is intrinsified. One buffered node is cheaper than one extra encode
-    * of the page.
+    * NOT an incremental digest over the encoded bytes, and the reason is the
+    * BUFFERING rather than the encode. `Server.renderPage` owns the whole chain
+    * and already puts an `OutputStreamWriter` in it, so a `DigestOutputStream`
+    * under that writer would fingerprint bytes being encoded anyway — and runs
+    * never nest (`hasOwnRendering` ⟺ not structure ⟺ no regions), so one
+    * `MessageDigest` would do. What kills it is that bounding a run in the BYTE
+    * stream needs both writers flushed at each boundary: a flush per leaf,
+    * against a `BufferedWriter` worth 729 kB of churn.
+    *
+    * Untested by measurement either way — no benchmark fixture reaches
+    * `digesting` at all, because every leaf in all of them declares signals.
     */
   final class Streaming(w: java.io.Writer) extends Sink {
     override def write(cbuf: Array[Char], off: Int, len: Int): Unit =
