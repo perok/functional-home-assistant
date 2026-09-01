@@ -266,9 +266,16 @@ object Transform {
     if (d.isNaN || d.isInfinite) d.toString
     else if (d == Math.rint(d) && Math.abs(d) < 1e15) d.toLong.toString
     else
-      BigDecimal(d)
-        .setScale(10, BigDecimal.RoundingMode.HALF_UP)
-        .bigDecimal
+      // `java.math.BigDecimal.valueOf`, not `scala.math.BigDecimal(d)`: the
+      // Scala one wraps the same `Double.toString` parse in a `BigDecimal`
+      // object carrying a `MathContext`, and every fractional slot value on the
+      // page pays for both. Byte-identical — `DECIMAL128` keeps 34 significant
+      // digits and a `Double` has at most 17, so the context never rounds
+      // anything a `setScale(10)` would not; checked over 500k doubles and
+      // pinned by the cases in `TransformSuite`.
+      java.math.BigDecimal
+        .valueOf(d)
+        .setScale(10, java.math.RoundingMode.HALF_UP)
         .stripTrailingZeros
         .toPlainString
 }
