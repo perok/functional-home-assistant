@@ -71,7 +71,7 @@ flowchart TB
   APPL <-.->|holds| SESS
   GATE --> OPEN
   GATE --> ACT
-  GATE -.->|interruptWhen: a logout or an HA revocation<br/>cuts a stream already running| SSE
+  GATE -.->|untilRevoked: a logout or an HA revocation sends _reload,<br/>then the merge ends the stream — a goodbye, not a cut| SSE
   ACT --> SESS
   SESS -->|per-connection control queue| MERGE
   ACT -.->|hostFill claims into holds| SESS
@@ -254,9 +254,24 @@ GET /sse/dashboard/:slug/patch
       for versions the changelog describes; the snapshot's version for a
       repaint, which painted all of it
   then stream: pulls ▸ control ▸ reloads ▸ haDown ▸ keepAlive
-    // no subscription to acquire, so no window to nest around: the doorbell
-    // hands a new watcher its current value, so a frame recorded before this
-    // stream existed still wakes it
+    // PULLS have no window to nest around: the doorbell hands a new watcher
+    // its current value, and the pull USES it, so a frame recorded before this
+    // stream existed still wakes it.
+    //
+    // RELOADS are the branch where that does not follow. They are merged after
+    // the opening block, so they subscribe once the cursor is already out, and
+    // `renderer.discrete` gives a late subscriber only the CURRENT value —
+    // which says nothing about whether it moved. So the comparison is seeded
+    // with the renderer the HANDLER read, and the first pair asks "is what is
+    // current still what I served you". Reading it off the subscription
+    // instead cannot tell "unchanged" from "changed while nobody was looking",
+    // and the second leaves a client on a dashboard that no longer exists.
+  the whole response, AFTER untilRevoked wraps it, is interruptWhen'd on this
+    stream's tenure: a later stream displaces it by taking the next epoch
+    // NEVER on the stream handed to untilRevoked. fs2 interruption is scoped,
+    // so interrupting a branch of that merge ends the branch without the merge
+    // learning it completed, and the other branch is AuthGate's Stream.never —
+    // the response body then never ends and the displaced client hangs.
 
 on disconnect
   release the session into a LINGER (Tenure.Lingering), but only if this stream
@@ -697,7 +712,8 @@ Three properties hold it up, and each fails silently if broken:
 
 Mutation is in place, in an `AtomicReference` on the renderer, and that is not incidental. Three
 things key on renderer IDENTITY — `publisherFor` rotates the changelog on a renderer emission,
-`reloadRepaints` repaints every connection on one, and `RenderCache` compares renderers with `eq`.
+`reloadRepaints` repaints every connection on one (and decides what counts as "one" with `eq`,
+`Server.sameRenderer`), and `RenderCache` compares renderers with `eq`.
 A membership change that produced a NEW renderer would rotate the log, repaint every browser and
 flush the cache on exactly the case the graph exists to make cheap. Mutating in place keeps all
 three keyed on the dashboard, for free.
@@ -872,7 +888,8 @@ has finished rendering, and no copy of the page exists on this machine.
 
 ```
 Server.renderPage    fs2.io.readOutputStream(8 kB) -> the response body
-  IO.blocking          OutputStreamWriter(os, UTF-8) -> Sink.Streaming
+  IO.blocking          BufferedWriter(8 kB)          -> collapses the CALLS
+                         OutputStreamWriter(os, UTF-8) -> Sink.Streaming
     Server.pageInto      head + banners        -> the wire
       Renderer.renderPageInto  chrome + body + restored dialog -> the wire
                                (body and dialog are WRITER HOLES, not values)
@@ -884,14 +901,23 @@ Server.renderPage    fs2.io.readOutputStream(8 kB) -> the response body
 ```
 
 The walk is push-based — `Renderer.executeInto` takes a `Writer`, a region is a `Writer => Unit` in
-`regionWalk`, and `Sink` IS the writer the whole document goes through, shell included. Two things
-follow, and both are load-bearing:
+`regionWalk`, and `Sink` IS the writer the whole document goes through, shell included. Three things
+follow, and all are load-bearing:
 
 - **`digesting` is what differs between a page and a patch.** A node's own fingerprint is a digest
   of a contiguous run of the walk's output, and that run is what lets a signal-less member's
-  fingerprint be a slice rather than a second render (§5). `Sink.Buffer` slices it and copies
-  nothing; `Sink.Streaming` has already let those bytes go, so it catches the run in a per-node
-  buffer. The peak a page render holds is therefore ONE NODE, not the document.
+  fingerprint be a slice rather than a second render (§5). `Sink.Buffer` bounds the run by two
+  offsets; `Sink.Streaming` has already let those bytes go, so it catches the run in a per-node
+  buffer. Both then copy it once — `Digest.ofRange` cuts a String out of the buffer for the same
+  measured reason `Streaming` builds one — so the difference between the sinks is that scratch
+  buffer, not an extra copy. It costs nothing: on a tree where `digesting` fires on every leaf the
+  streamed walk is 219 kB CHEAPER than the buffered one (`RenderBench.pageWalkStreamPlain` against
+  `page`). The peak a page render holds is ONE NODE, not the document.
+
+- **The `BufferedWriter` is not decoration.** The walk writes in thousands of small pieces and each
+  is a `synchronized` call into `OutputStreamWriter`'s `StreamEncoder`, which buffers the ENCODE at
+  8 kB but not the CALL. Collapsing those calls is worth 729 kB of churn per page open, and no
+  time (`pageWalkStreamUnbuffered` against `pageWalkStream`).
 - **`holds` is committed in the stream's finalizer, on success only** — the render has not happened
   when the response is built, so what the page painted is only known once the last byte is out. An
   abandoned or truncated page leaves `holds` empty, which reads as "unknown, send it", and the
@@ -904,18 +930,32 @@ simulated time whichever side is ticked first parks the only thread. Suites that
 therefore set `ServerHarness.simulateTime = false`; the note there records what that costs (little:
 the windows they exercise are 50 ms) and what it gives up (determinism).
 
-**Measured before the stream landed** (`RenderBench.pageServe`, 200 leaves, the shipped card shape, `-prof gc`): the document
-is **128 kB** and costs **1.52 ms and 3.78 MB** to serve — 29x its own size in allocation. `own`
-alone is 99 kB, 77% of the document held a second time and used only to compute 200 digests. The
-digest pass and the UTF-8 encode — what `pageServe` adds over `pageSignals` — are 257 kB of it; the
-rest is the walk (transforms 0.96 MB, mustache contexts 0.39 MB, slot resolution, signal seeds).
+**Measured** (`RenderBench`, 200 leaves, the shipped card shape, `-f 1 -wi 5 -i 5 -prof gc`, one
+run — read the ratios, not the absolutes):
+
+| | us/op | B/op | |
+|---|---:|---:|---|
+| `pageServe` | 1,167 ±125 | 3,547,273 | buffered walk + encode |
+| `pageWalkStream` | 1,305 ± 44 | 2,874,617 | streamed walk — SHIPPED |
+| `pageWalkStreamUnbuffered` | 1,327 ±256 | 3,603,954 | …without the writer buffer |
+| `pageStreamBuffered` | 2,318 ±904 | 3,232,255 | end to end, through fs2 |
+
+The document is **128 kB**, so serving it costs ~22x its own size in allocation. Most of that is
+the walk (transforms 0.96 MB, mustache contexts 0.39 MB, slot resolution, signal seeds), which no
+sink can touch.
+
+**Compare the two WALK rows and nothing else.** `renderPageInto` is pure over a `Writer`, and ember
+hands a buffered body out as a `Stream[IO, Byte]` just as it does a streamed one — so pricing the
+sinks through `readOutputStream` charges one of them for machinery both pay, and buries the result
+under an error wider than the gap (±904 against ±44). `pageStreamBuffered` is kept only because
+issue #237's numbers are whole page opens.
 
 So the two memory targets here are **not the same** and a change should say which it is for:
 
 | target | what it is | what moves it |
 |---|---|---|
-| peak live bytes | was ~500 kB per concurrent page open, multiplying by open tabs | **streaming — done**; the peak is now one node |
-| allocation churn | 3.78 MB per page open, driving GC on a Pi 4 | the walk — transforms, contexts; streaming was only ~10% of it |
+| peak live bytes | was ~500 kB per concurrent page open, multiplying by open tabs | **streaming — done**; the peak is one node, asserted in `SinkStreamingSuite` |
+| allocation churn | ~3.5 MB per page open, driving GC on a Pi 4 | the walk — transforms, contexts. Streaming is 672 kB of it (19%), not the ~10% first projected |
 
 A third target the stream also serves, and the one it is most visibly for: **time to first byte**.
 The browser used to get nothing until the whole document was assembled; it now has the `<head>` —
@@ -965,7 +1005,7 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 | a document on its way out | `src/js/shell.ts` · the `pagehide` listener → `fh-leaving`; `lib/core/css.pkl` hides `.fh-offline` under it, so an aborted stream cannot paint an outage on the page being left |
 | a stylesheet the first paint does not need | `model/Dashboard.scala` · `Theme.deferredStylesheets` (the icon font); `runtime/Server.scala` · `page`'s `rel=preload` + `<noscript>` pair. In `headFingerprint` like any other `<link>`, and prefetched by `AssetCache` like any other theme URL |
 | the actual rendering | `runtime/Renderer.scala` · `renderNodeById`, `renderHost` |
-| the document render | `runtime/Renderer.scala` · `renderPageInto`, `renderPageTraced`, `renderBodyTraced`, `tracedInto`, `executeInto`; `runtime/Sink.scala` · the one buffer the whole document is written through, and `digesting`, which fingerprints a node from the run it just wrote; `runtime/Server.scala` · `renderPage`, `pageInto` (the shell, around a writer hole). Materialised, not streamed — §6a |
+| the document render | `runtime/Renderer.scala` · `renderPageInto`, `renderBodyTraced`, `tracedInto`, `executeInto`; `runtime/Sink.scala` · the `Writer` the whole document goes through — `Streaming` for a page, `Buffer` for a patch — and `digesting`, which fingerprints a node from the run it just wrote; `runtime/Server.scala` · `renderPage`, `pageInto` (the shell, around a writer hole). Streamed to the client as it is walked — §6a |
 | what keys a render | `runtime/Renderer.scala` · `renderInputs`, `activeBakeIndex` |
 | the member graph | `runtime/MemberGraph.scala` · `Member`, `MemberIndex`, `syncMembers`, `membersOf`, `innerSetId` |
 | which branch is showing, and to whom | `runtime/SurfaceGraph.scala` · `bakeGroup`, `resolveActive` (per viewer) / `resolveActiveByState` (per slug), `selectedSurfaces`, `visibleNode`, `visibleSurface`, `userSurfaceOf`, `rootOf` |

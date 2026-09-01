@@ -228,18 +228,18 @@ class SessionLifecycleSuite extends ServerHarness {
             first <- routes.run(Request[IO](Method.GET, url))
             // Nothing ends this stream but displacement: it is the keepalive
             // path, with no client hanging up.
-            drained <- first.body.compile.drain.start
-            // Wait for that fiber to have REGISTERED before displacing it.
-            // `adoptOrMint` bumps the epoch in the handler, but
-            // `sessions.register` is bracketed to the stream body — so without
-            // this the second request can adopt while the first has not yet
-            // taken its tenure, and the displacement it is here to prove never
-            // has an incumbent to displace. `liveStreams` is exactly that seam.
-            _ <- sessions.liveStreams
-              .find(_ > 0)
+            // A BYTE is what says this stream is running, and displacing a
+            // stream that has not started proves nothing. Registration is
+            // bracketed to the body, and the body emits only once that bracket
+            // has acquired — where every tenure this could await instead is
+            // already set by `adoptOrMint`, up in the handler.
+            opened <- Deferred[IO, Unit]
+            drained <- first.body
+              .evalTap(_ => opened.complete(()).void)
               .compile
               .drain
-              .timeout(5.seconds)
+              .start
+            _ <- opened.get.timeout(5.seconds)
             second <- routes.run(Request[IO](Method.GET, url))
             live <- second.body.compile.drain.start
             // The join is the assertion. Without displacement the first stream
