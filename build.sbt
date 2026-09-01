@@ -14,7 +14,7 @@ val commonSettings = Seq(
   //  ScalacOptions.fatalWarnings
   // ),
   libraryDependencies ++= Seq(
-    "org.typelevel" %% "cats-effect" % "3.7.0",
+    "org.typelevel" %% "cats-effect" % "3.7.1",
     "io.scalaland" %% "chimney" % "1.11.0",
     "com.lihaoyi" %% "pprint" % "0.9.6"
   )
@@ -78,7 +78,7 @@ lazy val `ha-api` = project // todo add api layer here as well
     libraryDependencies ++= Seq(
       "com.disneystreaming.smithy4s" %% "smithy4s-core" % smithy4sVersion.value,
       "com.disneystreaming.smithy4s" %% "smithy4s-http4s" % smithy4sVersion.value,
-      "org.typelevel" %% "cats-effect" % "3.7.0"
+      "org.typelevel" %% "cats-effect" % "3.7.1"
     ),
     libraryDependencies ++= Seq(
       "io.circe" %% "circe-core" % "0.14.16",
@@ -249,7 +249,7 @@ lazy val `fh-datastar-view` = project
       // TestControl.executeEmbed: simulated time for ServerHarness suites
       // (issue #109 item 3) so IO.sleep-based polling in test bodies costs
       // nothing in wall clock instead of needing to be sped up.
-      "org.typelevel" %% "cats-effect-testkit" % "3.7.0" % Test,
+      "org.typelevel" %% "cats-effect-testkit" % "3.7.1" % Test,
       // Browser smoke tests (docs/plan-playwright-smoke-tests.md): drives a
       // real Chromium in-JVM against the fixture-backed TestServer.
       "com.microsoft.playwright" % "playwright" % "1.62.0" % Test
