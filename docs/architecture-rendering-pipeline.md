@@ -870,21 +870,30 @@ record to diff against, and **it does not stream**: the whole document is built 
 and handed to `Ok`, which sets a `Content-Length`.
 
 ```
-Renderer.renderPageTraced        body walk -> java.lang.StringBuilder -> body.html : String
-                                 chrome template splices body.html into a 2nd StringBuilder
-                                 out.toString                                       (copy)
-                                 Traced(page, own)   own = 200 leaf Strings, digested then dropped
-Server.renderPage                session.holds.set(own.map(Digest.of))
-Server.page(...)                 head + body + scripts concatenated                 (copy)
-Ok(string)                       stringEncoder -> one Chunk[Byte], Content-Length   (copy)
+Server.renderPage    Sink.buffer(renderer.pageBytesHint)                  ONE buffer
+Server.pageInto      head + banners        -> the sink
+  Renderer.renderPageInto   chrome + body + restored dialog -> the same sink
+                            (body and dialog are WRITER HOLES, not values)
+                            own = per-node Digest, sliced from the run just written
+Server.pageInto      scripts + closing tags -> the same sink
+                     sink.result                                          (one copy)
+Server.renderPage    session.holds.set(own)
+Ok(string)           stringEncoder -> one Chunk[Byte], Content-Length     (copy)
 ```
 
-The walk itself is already push-based — `Renderer.executeInto` takes a `Writer`, and a region is a
-`Writer => Unit` in `regionWalk`. What makes the result a `String` is only the `StringBuilder` the
-top of the walk writes into, plus two places that need random access to bytes already written: the
-chrome template takes `body.html` as a mustache VALUE, and `Traced.own` is built by slicing the
-shared buffer (which is what lets a signal-less member's fingerprint be a slice rather than a second
-render — §5). Both are what a streaming version has to answer for; the walk is not.
+The walk is push-based — `Renderer.executeInto` takes a `Writer`, a region is a `Writer => Unit` in
+`regionWalk`, and `Sink` IS the writer the whole document goes through, shell included. Two things
+still make the result a `String`:
+
+- **`Sink.digesting` needs random access to bytes already written.** A node's own fingerprint is a
+  digest of a contiguous run of the walk's output, and slicing that run out of the buffer is what
+  lets a signal-less member's fingerprint be a slice rather than a second render (§5). A streaming
+  sink would catch the run in a per-node buffer instead — bounded, but not free.
+- **There is no non-blocking push-to-pull bridge.** `fs2.io.readOutputStream` is a blocking pipe,
+  and `IO.blocking` on this route deadlocks `ServerHarness`'s `TestControl` runtime, whose
+  single-threaded ticker cannot interleave a parked thread (measured: readers left parked in
+  `PipedStreamBuffer.read`, tests timing out nondeterministically). Streaming needs the walk to be
+  PULL-based — a chunk per node — which is a larger change than threading a writer.
 
 **Measured** (`RenderBench.pageServe`, 200 leaves, the shipped card shape, `-prof gc`): the document
 is **128 kB** and costs **1.52 ms and 3.78 MB** to serve — 29x its own size in allocation. `own`
@@ -942,7 +951,7 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 | a document on its way out | `src/js/shell.ts` · the `pagehide` listener → `fh-leaving`; `lib/core/css.pkl` hides `.fh-offline` under it, so an aborted stream cannot paint an outage on the page being left |
 | a stylesheet the first paint does not need | `model/Dashboard.scala` · `Theme.deferredStylesheets` (the icon font); `runtime/Server.scala` · `page`'s `rel=preload` + `<noscript>` pair. In `headFingerprint` like any other `<link>`, and prefetched by `AssetCache` like any other theme URL |
 | the actual rendering | `runtime/Renderer.scala` · `renderNodeById`, `renderHost` |
-| the document render | `runtime/Renderer.scala` · `renderPageTraced`, `renderBodyTraced`, `tracedInto`, `executeInto` (the `Writer`), `appendTo` (the `StringBuilder` that ends the streaming); `runtime/Server.scala` · `renderPage`, `page`. Materialised, not streamed — §6a |
+| the document render | `runtime/Renderer.scala` · `renderPageInto`, `renderPageTraced`, `renderBodyTraced`, `tracedInto`, `executeInto`; `runtime/Sink.scala` · the one buffer the whole document is written through, and `digesting`, which fingerprints a node from the run it just wrote; `runtime/Server.scala` · `renderPage`, `pageInto` (the shell, around a writer hole). Materialised, not streamed — §6a |
 | what keys a render | `runtime/Renderer.scala` · `renderInputs`, `activeBakeIndex` |
 | the member graph | `runtime/MemberGraph.scala` · `Member`, `MemberIndex`, `syncMembers`, `membersOf`, `innerSetId` |
 | which branch is showing, and to whom | `runtime/SurfaceGraph.scala` · `bakeGroup`, `resolveActive` (per viewer) / `resolveActiveByState` (per slug), `selectedSurfaces`, `visibleNode`, `visibleSurface`, `userSurfaceOf`, `rootOf` |

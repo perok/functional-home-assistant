@@ -159,17 +159,22 @@ class SignalSlotSuite extends ServerHarness {
     // What the guard still holds: byte equality (no second form) and, by
     // construction, one template execute (the walk builds no second rendering
     // of a signal-free node).
-    val free = Renderer.create(plain).renderBodyTraced(at("21.4"))
+    val freeR = Renderer.create(plain)
+    val free = freeR.renderBodyTraced(at("21.4"))
     val freeId = free.own.keys.head
+    // The trace holds digests now, so "the two forms are the same bytes" is
+    // asserted as the same fingerprint: a signal-free node's patch form IS its
+    // document bytes, which is what lets the walk skip the second render.
     assert(
-      free.own(freeId).html == free.html,
+      free.own(freeId).digest == Digest.of(free.html),
       clue = "a signal-free node rendered twice"
     )
-    // ...and the same walk over the signal card really does produce two.
+    // ...and the same walk over the signal card really does produce two forms.
     val signalled = renderer.renderBodyTraced(at("21.4"))
     val signalledId = signalled.own.keys.head
-    val signalledPatch = signalled.own(signalledId).html
-    assert(signalled.html ne signalledPatch)
+    val signalledPatch = renderer.renderNodeById(signalledId, at("21.4")).get
+    assert(signalled.own(signalledId).digest == Digest.of(signalledPatch))
+    assert(signalled.own(signalledId).digest != Digest.of(signalled.html))
     assert(signalled.html.contains("21.4"), clue = signalled.html)
     assertEquals(signalledPatch.contains("21.4"), false, signalledPatch)
   }
@@ -186,7 +191,7 @@ class SignalSlotSuite extends ServerHarness {
       states: Map[String, EntityState]
   ): Map[NodeId, Held] =
     r.renderPageTraced(states).own.map { case (id, p) =>
-      id -> Held(Some(Digest.of(p.html)), p.signals)
+      id -> Held(Some(p.digest), p.signals)
     }
 
   private def resumeFrom(
@@ -406,7 +411,7 @@ class SignalSlotSuite extends ServerHarness {
       r,
       log,
       r.renderPageTraced(lit(40)).own.map { case (id, p) =>
-        id -> Held(Some(Digest.of(p.html)), p.signals)
+        id -> Held(Some(p.digest), p.signals)
       },
       lit(41),
       1L,
@@ -615,7 +620,7 @@ class SignalSlotSuite extends ServerHarness {
       .touched(NodeId.derived("c_0"), 1L)
       .touched(NodeId.derived("c_1"), 1L)
     val held = r.renderPageTraced(both("1", "2")).own.map { case (id, p) =>
-      id -> Held(Some(Digest.of(p.html)), p.signals)
+      id -> Held(Some(p.digest), p.signals)
     }
     val out =
       resumeNow(r, log, held, both("9", "8"), 1L, Set.empty, Map.empty)
@@ -809,7 +814,7 @@ class SignalSlotSuite extends ServerHarness {
     // departure fills the host wholesale instead of emitting a delta.
     val _ = r.members.syncMembers(Nil, on, on)
     val held = r.renderPageTraced(on).own.map { case (id, p) =>
-      id -> Held(Some(Digest.of(p.html)), p.signals)
+      id -> Held(Some(p.digest), p.signals)
     }
     val seededLog = List("c_light_a", "c_light_b")
       .foldLeft(FragmentLog("test"))((l, id) =>

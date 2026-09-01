@@ -214,12 +214,60 @@ rather than by the page. `Ok(stream)` then chunk-encodes it. (Not `readInputStre
 
 ### The three things in the way
 
-1. **The chrome template takes the body as a mustache VALUE.** `renderPageTraced` puts `body.html`
-   into a `HashMap` and lets the chrome template splice it. That forces the body to exist as a
-   `String`. Fix: make the body a region-walk hole like every other region, or split the chrome
-   template into prefix/suffix at compile time in `Templates` and write around the walk.
+1. ~~**The chrome template takes the body as a mustache VALUE.**~~ **DONE.** Neither of the two
+   options guessed at here was needed. `Templates` already had `FhRegionCode` for a `{{#region}}`
+   SECTION; the symmetric hook for a raw `{{{name}}}` VARIABLE is
+   `DefaultMustacheVisitor.value`, so `FhValueCode` + `FhScope.writerHoles` lets the body and the
+   restored dialog write themselves into the page buffer. **The authoring contract does not
+   change** — a theme keeps `{{{body}}}`/`{{{popups}}}` exactly as written, which the
+   region-section option would have broken. Encoded `{{name}}` holes are left alone; escaping is
+   their point and nothing escaped is large enough to matter.
 
-2. **`Traced.own` is sliced out of the shared buffer.** A stream cannot re-read bytes it has
+   Measured, and about twice the projection, because removing the body `String` removes TWO
+   copies (its own `toString` and the splice into the page buffer) rather than one:
+
+   | | before | after | |
+   |---|---:|---:|---|
+   | `pageSignals` | 3,524,973 B | **3,278,496 B** | −246 kB (7.0%) |
+   | `pageServe` | 3,782,170 B | **3,540,607 B** | −242 kB (6.4%) |
+   | `pageSet` | 3,769,906 B | 3,519,046 B | −251 kB |
+
+   Time is unchanged within noise (1425 → 1380 ± 132 µs), which is what an allocation change
+   should look like.
+
+2. ~~**`Traced.own` is sliced out of the shared buffer.**~~ **DONE, and smaller than projected.**
+   `Painted` carries the DIGEST; the one caller wanting real bytes (`Renderer.render`) always
+   wants the walk ROOT's, so `Traced.rootOwn` carries just that and no flag was needed.
+
+   **Peak only — churn and time are neutral**, which the plan did not predict:
+
+   | | before | after |
+   |---|---:|---:|
+   | `pageServe` | 3,540,607 B / 1374 µs | 3,540,901 B / 1385 µs |
+   | `pageSignals` | 3,278,496 B / 1380 µs | 3,442,448 B / 1485 µs |
+
+   `pageSignals` rising while `pageServe` stays flat is the whole story: the digest pass MOVED
+   into the walk from `Server.renderPage`'s loop, so it is now inside a benchmark that used to
+   exclude it (+164 kB against `holdsSeed`'s 145 kB for 200 digests — the same work). The four
+   `Digest.of(p.html)` sites were not redundant; they relocated. What is really won is the 99 kB
+   of RETENTION, roughly a fifth of the ~500 kB a concurrent open holds live.
+
+   **It does NOT clear the blocker on its own, which the commit message
+   overstated.** The blocker splits in two: STORING a digest rather than the
+   html (done, and genuinely required — a stream never materialises html to
+   store), and COMPUTING it without a buffer (not done — all four sites are
+   still `Digest.ofRange(out, start, end)`, which needs bytes already written).
+   Step 3 has to make the digest INCREMENTAL, fed as the writer emits, before
+   anything can stream. Until then this stands on its own 99 kB of peak, and is
+   a fair REVERT candidate if step 3 is abandoned.
+
+   **A rejected optimisation, recorded so it is not re-tried**: hashing the slice in place via
+   `CharBuffer.wrap` + `CharsetEncoder`, to avoid cutting the String out. It cost **+83 kB and
+   +17% time** — it allocates a fresh `ByteBuffer` per node, where `String.getBytes` is
+   intrinsified for a compact string. `Digest.ofRange` does the substring and calls `of`; the
+   copy is transient, which is all that was ever needed.
+
+3. **`session.holds` is committed BEFORE the response today.** A stream cannot re-read bytes it has
    flushed. This is load-bearing, not incidental: the slice is what lets a signal-less member's
    patch fingerprint be a slice of the document rather than a second render (§5, and
    `pageSetPlain` prices it). Fix: feed a `MessageDigest` incrementally as a node's bytes pass, so
@@ -229,7 +277,7 @@ rather than by the page. `Ok(stream)` then chunk-encodes it. (Not `readInputStre
    a traced walk. That caller needs the html, so `Traced` either grows a variant or the digest is
    computed alongside rather than instead.
 
-3. **`session.holds` is committed BEFORE the response today.** A stream that aborts mid-body would
+   A stream that aborts mid-body would
    leave `holds` claiming bytes the DOM never received — the exact permanent staleness ADR 0011
    guards against, and the reason `told` exists. Fix: commit holds in the stream's finalizer, on
    successful completion only. Worth checking against ADR 0011 before writing code.
@@ -239,15 +287,93 @@ into a 500, since headers are already gone. The render is pure and runs on a `Da
 so a throw should be impossible — but "should be" is not a guarantee, and a truncated document is a
 worse failure than a 500. Decide deliberately.
 
+### Step 3, attempted: the sink landed, the stream did not
+
+The walk now writes into a `Sink` (`fh/view/runtime/Sink.scala`) instead of a bare
+`StringBuilder`, and `Server.pageInto` writes the document shell around a WRITER HOLE the walk
+fills, so head + body + tail are one buffer. `Renderer.renderPageInto` is the whole document path
+and takes its destination from the caller. That is the seam a stream needs, and it removed a real
+copy on the way — see the numbers below.
+
+**The response is still a String, and `fs2.io.readOutputStream` is why.**
+
+The encode was never the blocker; the earlier entry in this plan had that wrong. Two things
+replaced it:
+
+- **The digest does not want encoded bytes.** A node's own fingerprint is a digest of a contiguous
+  run of the walk's output, and the cheapest way to get one is to slice the run out of the buffer
+  and let `String.getBytes` (intrinsified) encode it — which is what `Sink.digesting` does, in one
+  place instead of the five that open-coded a pair of `length` reads. A streaming sink would catch
+  the run in a per-node buffer instead. Either way there is exactly ONE encode. No incremental
+  digest over encoder output is needed, and none should be written: that was the `CharBuffer`
+  version, at +83 kB and +17%.
+
+- **`readOutputStream` is a blocking pipe, and this path may not block.** It is the only
+  push-to-pull bridge for a walk shaped like this one, and it puts `IO.blocking` on the page
+  route. `ServerHarness` runs every session test under `TestControl`, whose single-threaded ticker
+  cannot interleave a real parked thread — so the reader parks in
+  `fs2.io.internal.PipedStreamBuffer.read` and never wakes.
+
+  Measured, not predicted: **18 of 720 tests timed out at 31 s**, nondeterministically (a different
+  five per run). A thread dump found 8 leaked readers on a clean JVM and 836 `io-compute` threads
+  spawned to replace the ones cats-effect had converted to blockers; on a poisoned long-lived sbt
+  server it was 41 and climbing across runs. `ServerHarness`'s own doc comment already states the
+  invariant this breaks — *"Checked against Server/Sessions/StateStore/Patches/Renderer/
+  FragmentLog: no IO.blocking … on the live path"* — which is what should have been read first.
+
+  The second argument is independent and points the same way: on the target device a parked
+  thread's stack costs more resident memory than the page buffer it would save. Two threads per
+  in-flight page open is a worse trade than ~500 kB of transient heap.
+
+**So streaming needs the walk to be PULL-based** — emitting a chunk per node rather than pushing
+into a writer — which is a different and much larger change than this step. The natural shape is
+`Pull[IO, Byte, Unit]` over the recursion, buffering one node at a time, which is already the
+granularity `Sink.digesting` works at. Not attempted here; it wants its own plan.
+
+### What step 3 did land
+
+The win is the document SHELL, and **the bench cannot see it** (see "What the bench had to learn
+first"). `Server.page` built the whole document as one interpolated String with the finished body
+spliced into it — a full copy of the page, on top of `renderPageTraced`'s own `toString`. So a page
+open held three ~132 kB copies at peak where it now holds two, and allocated one fewer. That is
+accounting off the deleted interpolation, not a measurement, and it is labelled as such.
+
+What the bench CAN see is that the `Sink` costs nothing, which is what it was run for
+(`-f 3 -wi 6 -i 8 -prof gc`, 24 samples):
+
+| | before | after | |
+|---|---:|---:|---|
+| `pageServe` | 3,540,901 B / 1385 µs | 3,503,141 B / 1469 ± 99 µs | −38 kB, time flat |
+| `pageSignals` | 3,442,448 B / 1485 µs | 3,405,273 B / 1507 ± 92 µs | −37 kB, time flat |
+
+The ~37 kB is the `appendTo` adapter — a `java.io.Writer` allocated per `Templates.run`, i.e. once
+per node — which the sink replaces by BEING the writer.
+
+### `holds`, decided — and now moot
+
+Recorded because it is the right answer whenever streaming is attempted again:
+
+- **Commit `holds` in the stream's finalizer, on successful completion only.** Unclaimed reads as
+  "unknown, send it", which is the safe direction the design already leans on; the cost is one
+  repaint for a client whose page was truncated, whose DOM genuinely is unknown.
+- **`told` does NOT move.** A truncated page then has `told` set and `holds` empty, so a resume
+  finds no holds and repaints — safe by construction, and `told` keeps the meaning ADR 0011 gives
+  it ("what we announced") rather than being fused with a second fact.
+- A throw mid-walk is a DEVELOPER error, not a case to design around: the render is pure over a
+  `Dashboard.Validated`, and an aborted chunked response is a network error to the browser, which
+  reacts on its own. Log it loudly at the finalizer; do not build machinery for it.
+
+With the buffered sink, `holds` is committed where it always was and none of this applies yet.
+
 ### Staging
 
-1. Digest incrementally; `own` stops carrying html on the page path. **Standalone win** — removes
-   99 kB of retention with no streaming at all, and is a prerequisite for (3).
-2. Chrome as a region-walk hole (or prefix/suffix split).
-3. Thread the `Writer` from `readOutputStream` through `renderPageTraced`; `holds` commits on
-   completion.
+1. ~~Chrome hole~~ **DONE** — `FhValueCode`, −246 kB churn.
+2. ~~`own` carries the digest~~ **DONE** — −99 kB peak; churn and time flat. Half of blocker 2:
+   the SHAPE is right, the COMPUTATION is still buffer-slicing.
+3. **The sink** — **DONE**; **the stream** — **BLOCKED**, see above.
 
-Step 1 is worth doing on its own merits and should be measured on its own.
+Steps 1 and 2 stand on their own and were measured on their own. Step 2 is a fair revert if the
+stream is abandoned for good; steps 1 and 3's sink are worth keeping regardless.
 
 ## Thread B — share the frame
 
@@ -278,8 +404,10 @@ so the same holes are not re-dug:
 
 - **The document path stopped at the render.** `pageSignals` measures `renderPageTraced` and
   nothing after it, so the digest pass and the UTF-8 encode — the parts streaming removes — were
-  invisible. `pageServe` covers them. `Server.page`'s head concatenation is still outside, because
-  it is an instance method on a booted server; `pageServe` is a floor, not the whole serve.
+  invisible. `pageServe` covers them. The document SHELL is still outside — `Server.pageInto` is an
+  instance method on a booted server, so a benchmark cannot reach it without standing up a
+  `StateStore`, a `Sessions` and an HA stub. `pageServe` is a floor, not the whole serve, and the
+  one change that removed a full copy of the document is exactly the one it cannot see.
 - **The patch path was never benchmarked at all.** `wireTick` renders nodes someone already decided
   to send; the pull is what DECIDES, and `Patches.resume` — the changelog read, the visibility
   narrowing, the cache lookup, the digest compare — had no benchmark. `resumeSignals` /

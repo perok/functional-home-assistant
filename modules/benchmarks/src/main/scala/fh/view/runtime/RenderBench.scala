@@ -80,13 +80,15 @@ import java.util.concurrent.TimeUnit
   *
   * '''The document is 128 kB and costs 3.8 MB to serve''' — 29x its own size.
   * `pageServe` against `pageSignals` isolates what streaming would remove from
-  * the churn: 257 kB, the digest pass and the UTF-8 encode. Add `Server.page`'s
-  * head concatenation (not reachable from here) and it is roughly 10%. The rest
-  * is the WALK — transforms 0.96 MB, mustache contexts 0.39 MB, slot
-  * resolution, signal seeds — which streaming does not touch at all. '''What
-  * streaming buys is PEAK''': the ~500 kB a concurrent open holds live across
-  * four materialisations, which is what multiplies by open tabs. Churn and peak
-  * are different targets and a change should say which it is for.
+  * the churn: 257 kB, the digest pass and the UTF-8 encode. The document SHELL
+  * is not reachable from here either way — `Server.pageInto` is an instance
+  * method on a booted server — and it used to concatenate the whole page a
+  * further time, which is the copy the sink removed. Counting that, roughly
+  * 10%. The rest is the WALK — transforms 0.96 MB, mustache contexts 0.39 MB,
+  * slot resolution, signal seeds — which streaming does not touch at all.
+  * '''What streaming buys is PEAK''': the ~500 kB a concurrent open holds live
+  * across four materialisations, which is what multiplies by open tabs. Churn
+  * and peak are different targets and a change should say which it is for.
   *
   * '''An extra client on a tick costs 70 us and 117 kB''' —
   * `resumeSignalsFanout` minus `resumeSignals`, over nine. Against 262 us for
@@ -274,7 +276,14 @@ class RenderBench {
     entityTemplate = Templates
       .from(Dashboard(cards, tree(Leaves, 4, signals = true)))
       .components("entity")
-    painted = signalled.renderPageTraced(st).own.values.map(_.html).toList
+    // The trace holds digests now, so the leaf BYTES for [[holdsSeed]] come
+    // from the live path that still produces them.
+    painted = signalled
+      .renderPageTraced(st)
+      .own
+      .keys
+      .flatMap(signalled.renderNodeById(_, st))
+      .toList
     // The first leaves' own node ids — one per leaf, in fixture order — for
     // the tick render: `componentsFor` maps the entity to the node that
     // shows it.
@@ -289,14 +298,14 @@ class RenderBench {
     // the case the suppression exists to avoid measuring.
     val paint = signalled.renderPageTraced(st)
     heldAfterPaint = paint.own.map { case (id, p) =>
-      id -> Held(Some(Digest.of(p.html)), p.signals)
+      id -> Held(Some(p.digest), p.signals)
     }
     tickEntities = Vector.tabulate(TickEntities)(entityId)
     tickNodeIds = tickEntities.flatMap(signalled.componentsFor(_).toList)
     pure = Renderer.create(Dashboard(cards, tree(Leaves, 4, signalOnly = true)))
     val purePaint = pure.renderPageTraced(st)
     heldPure = purePaint.own.map { case (id, p) =>
-      id -> Held(Some(Digest.of(p.html)), p.signals)
+      id -> Held(Some(p.digest), p.signals)
     }
     pureNodeIds = tickEntities.flatMap(pure.componentsFor(_).toList)
     liveCache = RenderCache.create.unsafeRunSync()
@@ -555,15 +564,20 @@ class RenderBench {
     * exists because the response is a `String` rather than a stream. This is
     * the number the streaming work has to beat.
     *
-    * `Server.page`'s head/chrome concatenation — one more full copy — is NOT in
-    * here: it is an instance method on a booted `Server`, so a benchmark cannot
-    * reach it without standing up a `StateStore`, a `Sessions` and an HA stub.
-    * Read this as a floor on the serve cost, not the whole of it.
+    * The document SHELL is NOT in here: `Server.pageInto` is an instance method
+    * on a booted `Server`, so a benchmark cannot reach it without standing up a
+    * `StateStore`, a `Sessions` and an HA stub. Read this as a floor on the
+    * serve cost, not the whole of it — and note that the shell is where the
+    * sink's own win landed, so this benchmark cannot see it.
     */
   @Benchmark
   def pageServe(bh: Blackhole): Unit = {
     val t = signalled.renderPageTraced(st)
-    t.own.foreach { case (_, p) => bh.consume(Digest.of(p.html)) }
+    // No digest pass here any more, and its absence IS the change: the walk
+    // fingerprints each node as it writes it, so `Server.renderPage` seeds
+    // `holds` straight from the trace instead of re-hashing every leaf's html.
+    // What is left of the serve is the UTF-8 encode of the response body.
+    bh.consume(t.own.size)
     bh.consume(t.html.getBytes(UTF_8))
   }
 

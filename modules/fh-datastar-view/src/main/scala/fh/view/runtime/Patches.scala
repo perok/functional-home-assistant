@@ -867,7 +867,7 @@ private[runtime] object Patches {
           Addressed(
             Patch.Insert(t.html, PatchMode.Inner, host),
             t.own.map { case (id, p) =>
-              id -> Held(Some(Digest.of(p.html)), p.signals)
+              id -> Held(Some(p.digest), p.signals)
             },
             (renderer.surfaces.surfacesAt(host) ++ arriving)
               .flatMap(renderer.surfaceNodeIds)
