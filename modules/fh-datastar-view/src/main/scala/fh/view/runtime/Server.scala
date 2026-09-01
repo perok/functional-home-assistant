@@ -747,7 +747,7 @@ class Server(
       // Conditional on still owning it, because a displaced stream releases
       // after its successor has already taken over and must not put a live
       // session out to pasture on its way out.
-      stream = (Stream.bracket(sessions.register(conn, session))(_ =>
+      stream = Stream.bracket(sessions.register(conn, session))(_ =>
         session
           .release(epoch)
           .flatMap(_.traverse_(reapAfter(conn, session, _, lingerWindow)))
@@ -761,14 +761,7 @@ class Server(
             Datastar.patchSignals(s"""{"${Server.ConnSignal}":"$conn"}""")
           )
           .toList
-      ) ++ live))
-        // A second live stream for one session DISPLACES the first. Two streams
-        // sharing one `holds` map is the one way this record can go wrong on
-        // its own: each would record bytes the other sent, and each would then
-        // suppress a change the client never received. Sending to a socket
-        // nobody reads is merely wasteful; claiming a digest for it is
-        // permanent staleness.
-        .interruptWhen(session.tenure.discrete.map(_ != Tenure.Held(epoch)))
+      ) ++ live)
       // The 404 gate is on THIS stream's own (single) lookup, not in the route:
       // a route-side registry read and this one could disagree (a slug
       // removed between them) and answer a 200 empty-body SSE instead of a
@@ -777,7 +770,34 @@ class Server(
       // session `adoptOrMint` created is unreferenced garbage.
       resp <- liveOpt match
         case None    => NotFound()
-        case Some(_) => Ok(Server.untilRevoked(allowed)(stream))
+        case Some(_) =>
+          Ok(
+            Server
+              .untilRevoked(allowed)(stream)
+              // A second live stream for one session DISPLACES the first. Two
+              // streams sharing one `holds` map is the one way this record can
+              // go wrong on its own: each would record bytes the other sent,
+              // and each would then suppress a change the client never
+              // received. Sending to a socket nobody reads is merely wasteful;
+              // claiming a digest for it is permanent staleness.
+              //
+              // OUTSIDE `untilRevoked`, and that placement is load-bearing.
+              // fs2 interruption is SCOPED: interrupting the inner stream tore
+              // that branch down — its finalizers ran — without the `merge`
+              // inside `untilRevoked` ever learning the branch had completed.
+              // The other branch is the revocation side, which is
+              // `Stream.never` by design, so nothing else ever ended it and the
+              // response body hung forever with the client already displaced.
+              // Interrupting the merged stream tears down both branches.
+              //
+              // The symptom was a ~20-30% flake in `SessionLifecycleSuite`'s
+              // displacement test, always at its full timeout guard: the
+              // tenure reached `Held(2)` and STAYED there, so it never looked
+              // like a lost wakeup.
+              .interruptWhen(
+                session.tenure.discrete.map(_ != Tenure.Held(epoch))
+              )
+          )
     } yield resp
 
   /** The error page's recovery stream ([[errorPage]]): the slug's
@@ -3013,8 +3033,16 @@ object Server {
     *
     * `mergeHaltBoth`, not `mergeHaltR`: a rule that never breaks leaves the
     * right side running forever, and halting only on IT would keep a stream
-    * alive after its own events had finished — a displaced session's stream
-    * would never close, which is a hang rather than a leak.
+    * alive after its own events had finished.
+    *
+    * '''It does not follow that anything ending `events` ends this stream.''' A
+    * merge learns that a branch is DONE; it does not learn that a branch was
+    * INTERRUPTED, because fs2 interruption is scoped and tears the branch down
+    * beneath the merge. So an `interruptWhen` applied to `events` here would
+    * hang: that branch would stop, the right side is
+    * [[fh.view.auth.AuthGate]]'s deliberate `Stream.never`, and the merge would
+    * wait on it forever. Interrupt the stream this RETURNS instead — see the
+    * displacement interrupt in `sseStream`, which was that bug.
     */
   private[runtime] def untilRevoked(allowed: Stream[IO, Boolean])(
       events: Stream[IO, SseFrame]
