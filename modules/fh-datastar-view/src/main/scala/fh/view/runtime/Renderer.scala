@@ -1994,6 +1994,17 @@ class Renderer(
       bakeIndex: Map[String, String]
   ): Resolved = {
     if (plan.subjectDynamic) resolveDirect(plan, states, bakeIndex)
+    else resolvePlannedSubject(plan, states, bakeIndex)
+  }
+
+  /** [[resolvePlanned]] for the constant-subject case, which is every card but
+    * the indirection one.
+    */
+  private def resolvePlannedSubject(
+      plan: NodePlan,
+      states: Map[String, EntityState],
+      bakeIndex: Map[String, String]
+  ): Resolved = {
     // The only map a paint builds: the LIVE slot values. A card without any
     // (the common static case) builds nothing at all — the constants, the
     // structural vars and the binding strings ride the plan by reference, and
