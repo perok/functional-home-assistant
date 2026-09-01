@@ -555,30 +555,65 @@ class RenderBench {
     wireRot += 1
   }
 
-  /** '''The whole cost of SERVING a document''', not just rendering one.
+  /** '''The BUFFERED serve — the path that no longer ships.'''
     *
-    * [[pageSignals]] and friends stop at `renderPageTraced`, which is the
-    * render. Serving it also digests every painted node to seed the client's
-    * `holds` and encodes the result to UTF-8 for the response body — two more
-    * passes over the page's bytes, and the second is a full copy that only
-    * exists because the response is a `String` rather than a stream. This is
-    * the number the streaming work has to beat.
+    * Kept as the comparison point for [[pageStream]], which is what
+    * `Server.renderPage` actually does now. `renderPageTraced` builds the page
+    * as one `String`; serving it that way then encodes that String to UTF-8 for
+    * the response body, which is a full copy of the document.
     *
-    * The document SHELL is NOT in here: `Server.pageInto` is an instance method
-    * on a booted `Server`, so a benchmark cannot reach it without standing up a
-    * `StateStore`, a `Sessions` and an HA stub. Read this as a floor on the
-    * serve cost, not the whole of it — and note that the shell is where the
-    * sink's own win landed, so this benchmark cannot see it.
+    * Read the two together in ONE run or not at all — across runs the same row
+    * moves ±20%, which is wider than the gap between them.
     */
   @Benchmark
   def pageServe(bh: Blackhole): Unit = {
     val t = signalled.renderPageTraced(st)
-    // No digest pass here any more, and its absence IS the change: the walk
-    // fingerprints each node as it writes it, so `Server.renderPage` seeds
-    // `holds` straight from the trace instead of re-hashing every leaf's html.
-    // What is left of the serve is the UTF-8 encode of the response body.
+    // No digest pass, and its absence IS the earlier change: the walk
+    // fingerprints each node as it writes it, so `holds` is seeded straight
+    // from the trace instead of re-hashing every leaf's html.
     bh.consume(t.own.size)
     bh.consume(t.html.getBytes(UTF_8))
+  }
+
+  /** '''The SHIPPED serve''' — the walk streaming into a response body that is
+    * being pulled, which is what `Server.renderPage` does.
+    *
+    * The webserver's half is simulated rather than stood up: `readOutputStream`
+    * is the exact bridge the route uses, and `.compile.count` is a consumer
+    * pulling every byte, so the pipe hand-off and the incremental UTF-8 encode
+    * are both priced. What is NOT here is the document shell —
+    * `Server.pageInto` is an instance method on a booted `Server` — so this is
+    * the body only, and the shell is a further ~4 kB of literals either way.
+    *
+    * '''What this can and cannot show.''' `gc.alloc.rate.norm` is CHURN, and
+    * streaming is WORSE on it — measured 3.91 MB/op against [[pageServe]]'s
+    * 3.56 MB, at 2425 µs against 1262 µs. Both are the price of the machinery,
+    * not of the walk: an fs2 pipe, a `Chunk[Byte]` per hand-off, a
+    * `StreamEncoder`, and a fiber on each side of the pipe. The win the change
+    * was made for is PEAK live bytes, which multiplies by concurrent tabs on a
+    * Pi and which nothing in JMH measures — no value holding the document is
+    * ever created. So these two rows price what streaming COSTS; the benefit is
+    * structural and sits outside them.
+    *
+    * Chunk size is not the lever: at `1 << 20` (one hand-off for the page
+    * instead of sixteen) the time was 2275 µs — inside the run-to-run error —
+    * and churn rose to 5.81 MB, because the buffer itself is the allocation.
+    */
+  @Benchmark
+  def pageStream(bh: Blackhole): Unit = {
+    val n = fs2.io
+      .readOutputStream[cats.effect.IO](Server.PageChunkBytes) { os =>
+        cats.effect.IO.blocking {
+          val w = new java.io.OutputStreamWriter(os, UTF_8)
+          val own = signalled.renderPageInto(Sink.streaming(w), st)
+          w.flush()
+          own.size
+        }.void
+      }
+      .compile
+      .count
+      .unsafeRunSync()
+    bh.consume(n)
   }
 
   /** '''One client's real pull''' — [[Patches.resume]], not `renderNodeById`.
