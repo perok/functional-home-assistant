@@ -292,8 +292,8 @@ as standing review criteria, not a one-time cleanup that's now "done".
   evaluation) separate from the `os.*`/`IO`/network shell, and prefer extracting pure logic out of
   a class that's only reachable today via a full-boot test harness (e.g. `Server`'s pure diff core
   in `Patches`) — that's usually the biggest testability win available. Mutation stays where
-  performance genuinely demands it (`Renderer.identityCache`, per-slug diff caches, jmustache Java
-  interop) — this is not a blanket "no mutable state" rule.
+  performance genuinely demands it (`Renderer.identityCache`, per-slug diff caches, mustache.java
+  Java interop) — this is not a blanket "no mutable state" rule.
 - **Name recurring implicit concepts.** If the same shape (a `(String, String)` tuple, a
   hand-rebuilt URI/path string, a re-derived precondition) shows up re-interpolated or re-checked
   in several places (`PackageRef` in `fh.view.build` is the existing example — one value type now

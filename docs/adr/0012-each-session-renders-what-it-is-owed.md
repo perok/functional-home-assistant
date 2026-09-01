@@ -57,6 +57,35 @@ for it — so the two lists are both real and neither derives the other. Getting
 way round fails asymmetrically, and only one way is loud: the wide list in the key wastes a
 render, the narrow list in the reverse index silently stops signal frames.
 
+**The narrowing is per ENTITY, and that is not far enough.** The key holds
+`contentVersion`, which `StateStore.update` stamps whenever an entity's content moved *at
+all* — a brightness change included. So the exclusion above only bites where an entity
+reaches a node **exclusively** through signal slots. One byte-reading slot re-admits it, and
+from then on every signal-only change to that entity moves the key, misses the cache, and
+re-renders the node to discover its bytes are identical.
+
+The shipped `entityCard` has exactly one such slot: the name, which reads `friendly_name`.
+Measured, one client and a twenty-entity tick (`RenderBench.resumeSignals` against
+`resumeSignalsPure`, the same dashboard with the name held as a literal):
+
+| | us/op | B/op |
+|---|---:|---:|
+| shipped card — name reads `friendly_name` | 261.7 | 442,296 |
+| same card, name as a literal | 101.4 | 138,575 |
+
+**2.6x the time and 3.2x the bytes, for one slot.** That is the largest single cost on the
+live path — an order of magnitude more than encoding the frame.
+
+The fix is not to predict the inputs more finely but to **compare the resolved byte-slot
+VALUES** before rendering: identical values mean identical bytes, so the entry's bytes are
+reused and re-stamped without mustache, wrapper or digest. It needs no static analysis, so CEL
+and `Transform.Simple` go through the same path, and on the shipped card there is exactly one
+byte slot to resolve (the name, an `AttrOrId` off ADR 0028's fast tier) — the signal slots are
+evaluated on a signals tick regardless. Note the values must NOT become the key:
+`RenderInputs.isAtLeast` is a partial order over versions and is what stops a straggler
+displacing fresher bytes, so this is a pre-check that skips the render, not a new key.
+Designed in `docs/plan-wire-memory.md`.
+
 The cache used to hold one generation per SELECTION as well, because a node could be both cached and the
 owner of a bake group: its own bytes then carried the viewer's chosen tab, so two viewers
 on two tabs were owed different bytes for one node and evicted each other every frame.

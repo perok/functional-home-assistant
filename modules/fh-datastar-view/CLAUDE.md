@@ -165,7 +165,9 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   build fails the build.
 - **Runtime phase** (`fh.view.runtime`, `ServerApp` / `sbt dashboardServe`): evaluates the **same
   entrypoint in memory on startup** (so pkl-core *is* on the startup path — but never on the live
-  hot path), pre-compiles the Mustache templates (jmustache, `Templates`), seeds all entity state from
+  hot path), pre-compiles the Mustache templates (mustache.java — `com.github.spullara.mustache.java`,
+  not jmustache; its `execute(Writer, ctx)` is what lets `Renderer` push into a caller's buffer —
+  `Templates`), seeds all entity state from
   `/api/states` and keeps it live from the `state_changed` WS stream (`StateStore`, a `Ref` +
   fs2 `Topic`, full attributes; publishes only on real change). On each change it re-renders the
   affected components (`Renderer`, reverse index `entityId -> generated id`) plus the

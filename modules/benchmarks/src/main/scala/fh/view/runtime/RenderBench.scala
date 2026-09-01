@@ -11,6 +11,8 @@ import fh.view.model.{
   SlotSource,
   Transform
 }
+import cats.effect.unsafe.implicits.global
+import cats.syntax.traverse.*
 import io.circe.Json
 import org.openjdk.jmh.annotations.*
 import org.openjdk.jmh.infra.Blackhole
@@ -23,11 +25,96 @@ import java.util.concurrent.TimeUnit
   * {{{
   * sbt 'benchmarks/Jmh/run -f 1 -wi 2 -i 2 .*RenderBench.*'  # quick look
   * sbt 'benchmarks/Jmh/run -f 2 -wi 5 -i 5 .*RenderBench.*'  # with error bars
+  * sbt 'benchmarks/Jmh/run -f 2 -wi 5 -i 5 -prof gc .*RenderBench.*'  # + bytes
   * }}}
   *
   * Read the Error column before believing a gap. On a shared machine it runs
   * ±20%, which is wide enough to swallow anything under about 1.5x — the
   * signal-slot result below clears it, the composition one does not.
+  *
+  * '''Run `-prof gc` as well as the timing.''' The server's target is a
+  * Raspberry Pi 4, where allocation rate and peak live bytes decide more than
+  * microseconds do — and the two do not rank the same work.
+  * `gc.alloc.rate.norm` is bytes per op, and the composition result below is
+  * significant in bytes while being inside the noise in time.
+  *
+  * ==Baseline==
+  *
+  * `-f 2 -wi 5 -i 5 -prof gc`, one machine, so read the RATIOS not the
+  * absolutes. Recorded as the starting point for the streaming/sharing work, so
+  * a later change has something honest to be measured against.
+  *
+  * {{{
+  *                        us/op          B/op     what it is
+  * -- the document ------------------------------------------------------
+  * pageServe            1,521.0     3,782,170     render + digest + UTF-8
+  * pageSignals          1,425.3     3,524,973     …render only, SHIPPED shape
+  * page                   697.9     1,317,925     same leaves, no signal slots
+  * pageFlat             1,458.6     3,356,670     same leaves, one container
+  * pageNarrow           1,512.2     3,774,825     same leaves, ~8 levels
+  * pageSet              1,338.5     3,769,906     as candidate-set members
+  * pageSetPlain           763.8     1,553,136     …signal-less members
+  * pageShared           1,339.5     3,474,212     200 leaves, 40 entities
+  * -- a live tick, the REAL path ----------------------------------------
+  * resumeSignals          261.7       442,296     1 client, signal-only tick
+  * resumeSignalsPure      101.4       138,575     …on a card the key protects
+  * resumeMorphs           231.5       430,638     1 client, bytes moved
+  * resumeSignalsFanout    892.3     1,491,181     10 clients, one cache
+  * -- pieces ------------------------------------------------------------
+  * simple               1,065.5       960,912     transforms, production dispatch
+  * cel                  1,596.1     1,058,235     …all six on the engine
+  * celComplex             268.7       328,002     the hostile expression
+  * mustache               133.8       392,001     200 executions + contexts
+  * holdsSeed               90.1       145,534     200 SHA-256 over leaf html
+  * direct                  11.7        27,200     raw reads, no dispatch
+  * wireTick                19.3        46,647     a bare 3-node render
+  * wire                    53.5       239,874     structural tick, 10 clients
+  * wireCommon              33.3       107,412     the encode, 10 clients
+  * wireCommonShared         3.2        10,747     …encoded once, 10 reuse
+  * }}}
+  *
+  * ONE run, so the rows are comparable with each other; across runs the same
+  * row moves ±20% and only the ratios carry.
+  *
+  * Four things to take from it.
+  *
+  * '''The document is 128 kB and costs 3.8 MB to serve''' — 29x its own size.
+  * `pageServe` against `pageSignals` isolates what streaming would remove from
+  * the churn: 257 kB, the digest pass and the UTF-8 encode. Add `Server.page`'s
+  * head concatenation (not reachable from here) and it is roughly 10%. The rest
+  * is the WALK — transforms 0.96 MB, mustache contexts 0.39 MB, slot
+  * resolution, signal seeds — which streaming does not touch at all. '''What
+  * streaming buys is PEAK''': the ~500 kB a concurrent open holds live across
+  * four materialisations, which is what multiplies by open tabs. Churn and peak
+  * are different targets and a change should say which it is for.
+  *
+  * '''An extra client on a tick costs 70 us and 117 kB''' —
+  * `resumeSignalsFanout` minus `resumeSignals`, over nine. Against 262 us for
+  * the first client, so the [[RenderCache]] is removing about three quarters of
+  * each further client's work. It is earning its place.
+  *
+  * '''Sharing the encoded frame is a much smaller prize than it looks.'''
+  * [[wireCommon]] vs [[wireCommonShared]] is 10x — but that measures the encode
+  * in ISOLATION. One encode is 3.2 us and ~10.7 kB, against a marginal client
+  * cost of 70 us and 117 kB: about '''5% of the time and 9% of the bytes'''.
+  * The other 95% is the decision — the changelog read, the visibility
+  * narrowing, the per-node cache lookup and digest compare, the signal diff. Do
+  * not quote the 10x as if it were a tick-level number.
+  *
+  * '''A signals tick costs MORE than a bytes tick, and it should cost half.'''
+  * `resumeSignals` 262 us against `resumeMorphs` 232 us — the suppressed morph
+  * is still RENDERED, because rendering it is how we discover its bytes did not
+  * move. It does not have to be: [[resumeSignalsPure]] is the same tick on a
+  * card whose name is a literal, and it is '''101 us and 139 kB against 262 us
+  * and 442 kB''' — 2.6x the time and 3.2x the bytes, for ONE byte-reading slot.
+  *
+  * The cache key holds a per-entity `contentVersion`, which moves whenever
+  * anything about the entity moves, so ADR 0012's exclusion only bites where an
+  * entity reaches a node exclusively through signal slots. The shipped
+  * `entityCard`'s name reads `friendly_name`, which re-admits it. '''This is
+  * the largest single cost on the live path''' — an order of magnitude above
+  * encoding the frame — and the fix is a finer-grained key (ADR 0012,
+  * `docs/plan-wire-memory.md`).
   *
   * ==Why it exists==
   *
@@ -115,6 +202,18 @@ class RenderBench {
   // half.
   private var wireNodeIds: List[NodeId] = null
   private var wireRot = 0
+  // The pull benches' fixture: what one client holds after a page open, and
+  // the node each of the tick's entities is shown on.
+  private var heldAfterPaint: Map[NodeId, Held] = null
+  private var tickNodeIds: Vector[NodeId] = null
+  private var tickEntities: Vector[String] = null
+  // The signal-only variant: same dashboard, name held as a literal, so no
+  // slot reads the entity as bytes and the cache key cannot move.
+  private var pure: Renderer = null
+  private var heldPure: Map[NodeId, Held] = null
+  private var pureNodeIds: Vector[NodeId] = null
+  // The SLUG's cache, not the op's — see [[pull]].
+  private var liveCache: RenderCache = null
 
   @Setup(Level.Trial)
   def setup(): Unit = {
@@ -183,6 +282,68 @@ class RenderBench {
       .tabulate(3)(i => entityId(i))
       .flatMap(e => signalled.componentsFor(e).toList)
       .take(3)
+    // What a client holds the instant its document finished painting — the
+    // same seed `Server.renderPage` sets, so a pull below starts from a real
+    // client's record rather than an empty one. An empty `holds` reads as
+    // "unknown, send it" and would make every pull a morph, which is exactly
+    // the case the suppression exists to avoid measuring.
+    val paint = signalled.renderPageTraced(st)
+    heldAfterPaint = paint.own.map { case (id, p) =>
+      id -> Held(Some(Digest.of(p.html)), p.signals)
+    }
+    tickEntities = Vector.tabulate(TickEntities)(entityId)
+    tickNodeIds = tickEntities.flatMap(signalled.componentsFor(_).toList)
+    pure = Renderer.create(Dashboard(cards, tree(Leaves, 4, signalOnly = true)))
+    val purePaint = pure.renderPageTraced(st)
+    heldPure = purePaint.own.map { case (id, p) =>
+      id -> Held(Some(Digest.of(p.html)), p.signals)
+    }
+    pureNodeIds = tickEntities.flatMap(pure.componentsFor(_).toList)
+    liveCache = RenderCache.create.unsafeRunSync()
+    checkTickShapes()
+  }
+
+  /** The two pull fixtures assert what they are, because the thing that makes
+    * them different is a property of the CARD, not of this file: `signalTick`
+    * moves only attributes the shipped card carries as signals, and if a slot
+    * ever stops being a signal slot that tick starts producing morphs and
+    * [[resumeSignals]] silently becomes a second [[resumeMorphs]] — still
+    * green, still fast, and measuring the wrong thing.
+    *
+    * Checked once per trial, before any measurement, so the failure is a dead
+    * benchmark rather than a plausible number.
+    */
+  private def checkTickShapes(): Unit = {
+    def kinds(
+        r: Renderer,
+        held: Map[NodeId, Held],
+        ids: Vector[NodeId],
+        tick: Int => Map[String, EntityState]
+    ): List[Patch] = {
+      wireRot += 1
+      pull(r, held, ids, tick(wireRot), 1).head.map(_.patch)
+    }
+    val sig = kinds(signalled, heldAfterPaint, tickNodeIds, signalTick)
+    if (sig.exists(_.isInstanceOf[Patch.Morph]))
+      sys.error(
+        s"signalTick must suppress every morph; got ${sig.map(_.getClass.getSimpleName)}"
+      )
+    if (!sig.exists(_.isInstanceOf[Patch.Signals]))
+      sys.error("signalTick produced no signals frame — nothing is measured")
+    val bytes = kinds(signalled, heldAfterPaint, tickNodeIds, byteTick)
+    if (!bytes.exists(_.isInstanceOf[Patch.Morph]))
+      sys.error(
+        "byteTick must produce morphs; the name slot is not in the bytes"
+      )
+    // The signal-only card must reach the SAME conclusion as the shipped one:
+    // the point of it is that it gets there without re-rendering, not that it
+    // sends something different. A divergence here would mean the literal name
+    // changed what the tick MEANS, and the comparison would be meaningless.
+    val purest = kinds(pure, heldPure, pureNodeIds, signalTick)
+    if (purest.exists(_.isInstanceOf[Patch.Morph]))
+      sys.error("resumeSignalsPure must suppress every morph too")
+    if (!purest.exists(_.isInstanceOf[Patch.Signals]))
+      sys.error("resumeSignalsPure produced no signals frame")
   }
 
   /** The baseline: a whole page, no signal slots. */
@@ -385,6 +546,244 @@ class RenderBench {
     wireRot += 1
   }
 
+  /** '''The whole cost of SERVING a document''', not just rendering one.
+    *
+    * [[pageSignals]] and friends stop at `renderPageTraced`, which is the
+    * render. Serving it also digests every painted node to seed the client's
+    * `holds` and encodes the result to UTF-8 for the response body — two more
+    * passes over the page's bytes, and the second is a full copy that only
+    * exists because the response is a `String` rather than a stream. This is
+    * the number the streaming work has to beat.
+    *
+    * `Server.page`'s head/chrome concatenation — one more full copy — is NOT in
+    * here: it is an instance method on a booted `Server`, so a benchmark cannot
+    * reach it without standing up a `StateStore`, a `Sessions` and an HA stub.
+    * Read this as a floor on the serve cost, not the whole of it.
+    */
+  @Benchmark
+  def pageServe(bh: Blackhole): Unit = {
+    val t = signalled.renderPageTraced(st)
+    t.own.foreach { case (_, p) => bh.consume(Digest.of(p.html)) }
+    bh.consume(t.html.getBytes(UTF_8))
+  }
+
+  /** '''One client's real pull''' — [[Patches.resume]], not `renderNodeById`.
+    *
+    * [[wireTick]] measures a bare render of nodes someone already decided to
+    * send. The pull is what DECIDES: read the changelog from this client's
+    * cursor, narrow to what it can see, render each candidate through the
+    * slug's [[RenderCache]], and compare against what this client already
+    * holds. That comparison is the whole point of the design and none of it was
+    * benchmarked.
+    *
+    * This is the SIGNALS tick, which is the frequent one (ADR 0017): the moved
+    * attribute reaches only signal slots, so every node's patch-form bytes are
+    * unchanged, every morph is suppressed, and the batch is one
+    * `datastar-patch-signals` frame. The work is therefore all decision and no
+    * output — the case the whole suppression machinery exists for.
+    */
+  @Benchmark
+  def resumeSignals(bh: Blackhole): Unit = {
+    wireRot += 1
+    bh.consume(
+      pull(signalled, heldAfterPaint, tickNodeIds, signalTick(wireRot), 1)
+    )
+  }
+
+  /** '''The same tick on a card the cache key can actually protect''' — every
+    * slot that reads the entity is a signal slot, so the entity is not in
+    * `renderInputs` at all (ADR 0012) and a signal-only change cannot move the
+    * key. The entry from the previous tick stands and nothing re-renders.
+    *
+    * The gap against [[resumeSignals]] is the cost of ONE non-signal slot. The
+    * shipped `entityCard` has one — the name, which reads `friendly_name` as
+    * bytes — and that is enough to put the entity back in the key, so a
+    * brightness change re-renders the whole node to discover its bytes are
+    * identical. `contentVersion` is per ENTITY and moves when anything about it
+    * moves; nothing in the key can say that what moved reaches only a signal.
+    *
+    * So this is not an exotic fixture, it is the same dashboard with the name
+    * held as a literal — and the difference between the two is what a
+    * finer-grained key would be worth. It is the number to read before anything
+    * else on this path.
+    */
+  @Benchmark
+  def resumeSignalsPure(bh: Blackhole): Unit = {
+    wireRot += 1
+    bh.consume(pull(pure, heldPure, pureNodeIds, signalTick(wireRot), 1))
+  }
+
+  /** [[resumeSignals]] fanned to [[WireClients]] connections off ONE ring of
+    * the doorbell, through ONE [[RenderCache]] — a house with ten tabs open.
+    *
+    * The gap against [[resumeSignals]] is what a tick actually costs per extra
+    * client, and it is the number the cache exists to hold down: the render is
+    * paid once and every further client should be paying only for its own
+    * decision and its own frame. Ten times [[resumeSignals]] would mean the
+    * cache is buying nothing.
+    */
+  @Benchmark
+  def resumeSignalsFanout(bh: Blackhole): Unit = {
+    wireRot += 1
+    bh.consume(
+      pull(
+        signalled,
+        heldAfterPaint,
+        tickNodeIds,
+        signalTick(wireRot),
+        WireClients
+      )
+    )
+  }
+
+  /** The same pull when the movement is in the BYTES — a `friendly_name`
+    * change, which no slot carries as a signal — so every candidate really is a
+    * morph and nothing is suppressed.
+    *
+    * Against [[resumeSignals]] this is what ADR 0017 buys on the live path,
+    * measured where its argument actually lives. ([[pageSignals]] against
+    * [[page]] prices signal slots on a FIRST PAINT, which is the case ADR 0017
+    * is not about and where it is a straight cost.)
+    */
+  @Benchmark
+  def resumeMorphs(bh: Blackhole): Unit = {
+    wireRot += 1
+    bh.consume(
+      pull(signalled, heldAfterPaint, tickNodeIds, byteTick(wireRot), 1)
+    )
+  }
+
+  /** One doorbell ring, `clients` sessions — the real shape of a tick. Each
+    * client resumes from the version before this one against its own `holds`,
+    * which is what makes the suppression decision per client.
+    *
+    * '''The cache is the slug's and OUTLIVES the op''', because in production
+    * it does: `LiveSlug.cache` is created once and every tick reads it. A
+    * `RenderCache.create` per op — which this did at first — makes every node
+    * of every tick a cold miss, so it prices a render the running server would
+    * often not do, and it hides the one thing worth knowing here (whether a
+    * signals tick moves the cache key). It also made `resumeSignals` and
+    * `resumeMorphs` come out the same, which is what sent us looking.
+    *
+    * `contentVersion` moves per tick for the same reason: `StateStore.update`
+    * stamps it whenever `sameContent` says an entity moved, so a fixture that
+    * left it at 0 would hit the cache forever and price nothing.
+    */
+  private def pull(
+      renderer: Renderer,
+      held: Map[NodeId, Held],
+      nodeIds: Vector[NodeId],
+      moved: Map[String, EntityState],
+      clients: Int
+  ): List[List[Addressed]] = {
+    val at = wireRot.toLong
+    val log = nodeIds.foldLeft(FragmentLog("bench"))(_.touched(_, at))
+    (1 to clients).toList
+      .traverse { _ =>
+        Patches.resume(
+          renderer,
+          liveCache,
+          log,
+          held,
+          moved,
+          at,
+          Set.empty,
+          Map.empty
+        )
+      }
+      .unsafeRunSync()
+  }
+
+  /** A tick that moves ONLY what signal slots read (`brightness`, and the state
+    * word), so the patch form is byte-identical and the morph is suppressed.
+    *
+    * `contentVersion = rot` because `StateStore.update` stamps it whenever an
+    * entity's content moved at all — a brightness change included. That is
+    * exactly why this tick still MISSES the cache on the shipped card: the
+    * node's key holds the entity (its name slot reads it as bytes), the version
+    * under it moved, and nothing in the key can tell that the attribute which
+    * moved reaches only signal slots. See [[resumeSignalsPure]].
+    */
+  private def signalTick(rot: Int): Map[String, EntityState] =
+    tickEntities.zipWithIndex.foldLeft(st) { case (acc, (e, i)) =>
+      acc.updated(
+        e,
+        EntityState(
+          e,
+          if ((rot + i) % 2 == 0) "on" else "off",
+          Map(
+            // UNCHANGED: this is the only attribute the bytes carry.
+            "friendly_name" -> Json.fromString(s"Tile number $i"),
+            "brightness" -> Json.fromInt(1 + (rot * 7 + i * 13) % 254),
+            "unit_of_measurement" -> Json.fromString("lx")
+          ),
+          contentVersion = rot.toLong
+        )
+      )
+    }
+
+  /** A tick that moves the NAME, which no slot carries as a signal — so every
+    * candidate's bytes really move and every morph is sent.
+    */
+  private def byteTick(rot: Int): Map[String, EntityState] =
+    tickEntities.zipWithIndex.foldLeft(st) { case (acc, (e, i)) =>
+      acc.updated(
+        e,
+        EntityState(
+          e,
+          "on",
+          Map(
+            "friendly_name" -> Json.fromString(s"Tile $rot number $i"),
+            "brightness" -> Json.fromInt(128),
+            "unit_of_measurement" -> Json.fromString("lx")
+          ),
+          contentVersion = rot.toLong
+        )
+      )
+    }
+
+  /** '''What thread C's pre-check would COST''', for the tick's twenty nodes.
+    *
+    * The check resolves only the slots that travel as BYTES and compares them
+    * to what the cache entry was built from. On the shipped `entityCard` that
+    * is exactly one slot — the name, an `AttrOrId` through the production
+    * dispatch ([[Transforms.run]], ADR 0028's fast tier, no engine). The signal
+    * slots are NOT in it: they are resolved on a signals tick regardless, to
+    * fill the frame.
+    *
+    * Against [[tickRender]] — the render this replaces, same twenty nodes —
+    * this is the whole trade, and it is the number that says whether thread C
+    * is worth building. It deliberately does NOT go through the (private)
+    * `Resolved` seam: a pre-check that built the full `Resolved` would resolve
+    * every slot and give most of the saving back, which is exactly the risk
+    * worth pricing before writing any of it.
+    */
+  @Benchmark
+  def byteSlotResolve(bh: Blackhole): Unit = {
+    val moved = signalTick(wireRot)
+    var i = 0
+    while (i < tickEntities.size) {
+      val e = moved(tickEntities(i))
+      bh.consume(transforms.run(NameSlot, e))
+      i += 1
+    }
+  }
+
+  /** The render [[byteSlotResolve]] would replace: a cache-missing
+    * `renderNodeById` for the same twenty nodes, which is what a signals tick
+    * pays today per client for every node it then suppresses.
+    *
+    * [[wireTick]] is the same call at three nodes; this one is sized to the
+    * tick so the two halves of the trade are directly comparable.
+    */
+  @Benchmark
+  def tickRender(bh: Blackhole): Unit = {
+    val moved = signalTick(wireRot)
+    tickNodeIds.foreach(id =>
+      bh.consume(signalled.renderNodeById(id, moved, Map.empty))
+    )
+  }
+
   /** '''The tick that decides it, unshared.''' The COMMON value tick on a
     * signal-slot dashboard: one entity moved, its digest stood still, so no
     * morph goes out — just a `datastar-patch-signals` frame carrying the two
@@ -508,6 +907,19 @@ object RenderBench {
     */
   final val WireClients = 10
 
+  /** Entities one tick moves. A real `state_changed` burst is a handful, not
+    * the whole house: a light group answering one tap, a few sensors on the
+    * same poll. Twenty of two hundred leaves.
+    */
+  final val TickEntities = 20
+
+  /** The shipped `entityCard`'s one BYTE slot — the name. Every other slot on
+    * it is either a literal or travels as a signal, which is precisely why one
+    * slot is what re-admits the entity to the cache key (ADR 0012).
+    */
+  final val NameSlot: Transform.Simple =
+    Transform.Simple.AttrOrId("friendly_name")
+
   /** Distinct entities behind [[RenderBench.pageShared]]'s leaves. */
   final val Distinct = 40
 
@@ -574,7 +986,18 @@ object RenderBench {
     )
   )
 
-  def leaf(signals: Boolean, distinct: Int = Int.MaxValue)(
+  /** @param signalOnly
+    *   hold the NAME as a literal, so no slot reads the entity as bytes and the
+    *   entity drops out of `renderInputs` entirely (ADR 0012). Not a shipped
+    *   shape — the shipped card's name reads `friendly_name` — but the
+    *   difference between the two is exactly what one byte-reading slot costs
+    *   the cache key, which is what [[RenderBench.resumeSignalsPure]] prices.
+    */
+  def leaf(
+      signals: Boolean,
+      distinct: Int = Int.MaxValue,
+      signalOnly: Boolean = false
+  )(
       i: Int
   ): LayoutNode.Component =
     LayoutNode.Component(
@@ -584,10 +1007,13 @@ object RenderBench {
         "cls" -> SlotSource(literal = Some("fh-tile")),
         // Literal now (entity.pkl): the entity's icon is a registry fact.
         "icon" -> SlotSource(literal = Some("mdi:lightbulb")),
-        "name" -> SlotSource(
-          // Opted in (ADR 0028): the shipped entity card's name shape.
-          transform = Transform.Simple.AttrOrId("friendly_name")
-        ),
+        "name" ->
+          (if (signalOnly) SlotSource(literal = Some(s"Tile number $i"))
+           else
+             SlotSource(
+               // Opted in (ADR 0028): the shipped entity card's name shape.
+               transform = Transform.Simple.AttrOrId("friendly_name")
+             )),
         "state" -> SlotSource(
           transform = Transform.Simple.UnitSuffix("unit_of_measurement"),
           signal = Option.when(signals)(SignalBind.Text)
@@ -619,8 +1045,9 @@ object RenderBench {
   def tree(
       leaves: Int,
       branching: Int,
-      signals: Boolean,
-      distinct: Int = Int.MaxValue
+      signals: Boolean = true,
+      distinct: Int = Int.MaxValue,
+      signalOnly: Boolean = false
   ): LayoutNode = {
     def stack(items: List[LayoutNode]): LayoutNode =
       if (items.sizeIs == 1) items.head
@@ -633,7 +1060,7 @@ object RenderBench {
             )
             .toList
         )
-    stack(List.tabulate(leaves)(leaf(signals, distinct)))
+    stack(List.tabulate(leaves)(leaf(signals, distinct, signalOnly)))
   }
 
   /** The same leaves, as one candidate set: every entity a candidate, each with
