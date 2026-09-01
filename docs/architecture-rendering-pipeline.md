@@ -1102,11 +1102,16 @@ Live list — delete an entry when it is answered, and say where the answer land
   is one node, not the document, and `holds` is committed in the stream's finalizer on success.
   Churn fell 672 kB (19%), not the ~10% the entry projected.
 
-- **`session.control` is an unbounded `Queue[IO, SseFrame]`, holding pre-encoded byte arrays.**
-  Nothing bounds it, so a session whose stream is gone but whose linger has not expired accumulates
-  every frame addressed to it. That is the peak the streaming work did not touch, and it is on the
-  same Pi 4. What it should do when full is the open part — dropping the oldest is wrong (a patch
-  is a delta), so the answer is probably to drop the session and let it repaint from `holds`.
+- **`session.control` is an unbounded `Queue[IO, SseFrame]`, and the bound is incidental.** Nothing
+  in the type stops it growing; what stops it in practice is that only `swapHost` writes to it — a
+  SURFACE TAP, never a tick. So a session whose stream has dropped accumulates one frame per tap
+  the client still manages to POST (the fetch works when the SSE does not), for as long as the
+  linger lasts, and the reaper drops the queue with the session. That is small, and it is a
+  property of today's three call sites rather than of the queue.
+
+  Worth bounding anyway if a fourth writer ever appears, and the answer is not "drop the oldest" —
+  a patch is a delta, so a dropped one leaves the DOM permanently wrong. Dropping the SESSION and
+  letting it repaint from `holds` is the recovery that already exists.
 
 - **What an extra client on a tick actually costs, and where it goes.** `resumeSignalsFanout`
   minus `resumeSignals` over nine: **70 µs and 117 kB** per further client, against 262 µs for the
