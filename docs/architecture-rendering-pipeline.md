@@ -790,6 +790,16 @@ answer — a hit yields the bytes the render would have — only who pays for it
 of what the render reads, not all of it: an entity reached only through a signal slot is left out,
 because its value is not in the patch form and so cannot move these bytes (ADR 0012).
 
+**The render is shared per slug; the WIRE is not.** A batch's events are `SseFrame`s — the SSE text
+already encoded to bytes (`Datastar`), served by `SseFrame.frameStreamEncoder` instead of http4s's
+`ServerSentEvent.encoder`. That moves the encode from the socket to where the event is built, which
+makes the process-wide constants (keepalive, recover marker, reload patch) encode once instead of
+once per emission per connection — but it shares nothing on the live path, because `Patches.resume`
+runs per session: what a client is owed depends on its own `holds`, permissions and selections, so a
+value tick still costs one encode per client, exactly as the http4s encoder did. The only place a
+fan-out saving could come from is a frame minted where the render already is — per slug, in
+`RenderCache` — and nothing does that today. See "Known open questions".
+
 **The digest is asked of the PATCH FORM**, and that is what puts a moving value on the cheap side of
 it. A signal slot's value is not in those bytes at all (ADR 0017) — the element carries only its
 `data-text` binding — so the node's digest stands still while the value moves, the morph is
@@ -879,7 +889,8 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 | the two render forms | `runtime/Renderer.scala` · `SlotForm`, `Resolved` (resolved once), `resolveTemplate` / `executeResolved` (run per form), `Traced.own` (the patch form lives here, and only for a node that has one) |
 | a signal's name, and a node's values | `runtime/Renderer.scala` · `signalName`, `isSignalSlot`, `signalsFor` |
 | the signals frame | `runtime/Patches.scala` · `signalFrame`, `Patch.Signals`; `runtime/Datastar.scala` · `signalsJson`, `signalsAttr`, `textBinding` |
-| SSE stream | `runtime/Server.scala` · `sseStream` |
+| SSE stream | `runtime/Server.scala` · `sseStream` (the merged per-connection `Stream[IO, SseFrame]`), served by `Ok(...)` through `SseFrame.frameStreamEncoder` |
+| the wire bytes | `runtime/Datastar.scala` · `SseFrame` (encoded at construction), `SseFrame.frameStreamEncoder` (frames → entity body, `text/event-stream`); `runtime/Patches.scala` · `encode` (merge adjacent, then render) |
 | opening paint | `runtime/Server.scala` · `openingPatches` |
 | sessions + surface actions | `runtime/Sessions.scala`; `runtime/Server.scala` · `withSession`, `sessionFor`, `openSurface`, `swapHost`; `runtime/Patches.scala` · `hostFill`, `hostEvicts`; `runtime/SurfaceGraph.scala` · `committedSelection` |
 | a document establishes a session | `runtime/Server.scala` · `pageResponse`, `adoptOrMint`; `runtime/Sessions.scala` · `Session.adopt` |
