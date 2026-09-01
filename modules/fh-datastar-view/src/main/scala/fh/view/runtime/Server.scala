@@ -1821,9 +1821,9 @@ class Server(
       )
       // The document is ONE stream of writes, shell included: `pageInto`
       // writes the head and the closing tags around a WRITER HOLE the walk
-      // fills, where it used to build the body as a String and splice it into
-      // an interpolated document — a full copy of the page that had to exist
-      // before a single byte could go out.
+      // fills. Building the body as a String and splicing it into an
+      // interpolated document instead is a full copy of the page, and it has to
+      // exist before a single byte can go out.
       //
       // ONE walk, used twice: the bytes go to the browser and the per-node
       // trace seeds `holds`. Fingerprinting separately means walking the open

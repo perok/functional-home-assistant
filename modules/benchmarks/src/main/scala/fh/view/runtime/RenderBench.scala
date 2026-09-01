@@ -46,6 +46,9 @@ import java.util.concurrent.TimeUnit
   * absolutes. Recorded as the starting point for the streaming/sharing work, so
   * a later change has something honest to be measured against.
   *
+  * '''These are the STARTING numbers, not the current ones.''' Two rows have
+  * since moved and are marked; the paragraphs below carry what they moved to.
+  *
   * {{{
   *                        us/op          B/op     what it is
   * -- the document ------------------------------------------------------
@@ -58,10 +61,10 @@ import java.util.concurrent.TimeUnit
   * pageSetPlain           763.8     1,553,136     …signal-less members
   * pageShared           1,339.5     3,474,212     200 leaves, 40 entities
   * -- a live tick, the REAL path ----------------------------------------
-  * resumeSignals          261.7       442,296     1 client, signal-only tick
+  * resumeSignals          261.7       442,296     MOVED -> 102 us / 151 kB
   * resumeSignalsPure      101.4       138,575     …on a card the key protects
   * resumeMorphs           231.5       430,638     1 client, bytes moved
-  * resumeSignalsFanout    892.3     1,491,181     10 clients, one cache
+  * resumeSignalsFanout    892.3     1,491,181     MOVED with resumeSignals
   * -- pieces ------------------------------------------------------------
   * simple               1,065.5       960,912     transforms, production dispatch
   * cel                  1,596.1     1,058,235     …all six on the engine

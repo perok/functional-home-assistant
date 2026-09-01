@@ -786,11 +786,18 @@ class SessionLifecycleSuite extends ServerHarness {
             )
             conn = url.query.params(Server.ConnSignal)
             first <- routes.run(Request[IO](Method.GET, url))
-            reading <- first.body.compile.drain.start
-            _ <- (IO.sleep(5.millis) *> sessions
-              .get(conn)
-              .flatMap(_.traverse(_.tenure.get)))
-              .iterateUntil(_.contains(Tenure.Held(1)))
+            // The first BYTE, not the tenure — `adoptOrMint` sets `Held(1)` in
+            // the handler, so a tenure barrier is satisfied before this fiber
+            // has run at all, and cancelling then skips the bracket that
+            // registers the stream. The session is never handed to its linger
+            // and the reap below never comes.
+            opened <- Deferred[IO, Unit]
+            reading <- first.body
+              .evalTap(_ => opened.complete(()).void)
+              .compile
+              .drain
+              .start
+            _ <- opened.get.timeout(5.seconds)
             _ <- reading.cancel
             // Registered while it lingers — that IS the point of the window —
             // and gone once it closes.

@@ -8,9 +8,8 @@ package fh.view.runtime
   * none of them. Only one operation actually differs between the two, and it is
   * [[digesting]].
   *
-  * A `Writer`, because mustache executes against one — making the sink the
-  * writer removes the adapter object the walk used to allocate at every
-  * `Templates.run`.
+  * A `Writer`, because mustache executes against one: the sink IS the writer,
+  * so no adapter object is allocated at every `Templates.run`.
   */
 private[runtime] sealed abstract class Sink extends java.io.Writer {
 
