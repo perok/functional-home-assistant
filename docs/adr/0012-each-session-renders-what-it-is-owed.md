@@ -87,7 +87,7 @@ displacing fresher bytes, so this is a pre-check that skips the render, not a ne
 `resumeSignals` went 261.7 µs / 442 kB to 101.7 µs / 151 kB, landing on `resumeSignalsPure`'s
 105.9 µs — the shipped card now costs what a card the key already protected costs. The saving is
 one render per tick per SLUG, not per client: the clients behind the first were already sharing its
-render. `docs/plan-wire-memory.md` has the numbers.
+render. `RenderBench`'s `resumeSignals` / `resumeSignalsPure` pair is where those numbers come from.
 
 The cache used to hold one generation per SELECTION as well, because a node could be both cached and the
 owner of a bake group: its own bytes then carried the viewer's chosen tab, so two viewers

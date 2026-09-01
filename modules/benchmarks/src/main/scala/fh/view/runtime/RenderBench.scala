@@ -146,20 +146,15 @@ import java.util.concurrent.TimeUnit
   * narrowing, the per-node cache lookup and digest compare, the signal diff. Do
   * not quote the 10x as if it were a tick-level number.
   *
-  * '''A signals tick costs MORE than a bytes tick, and it should cost half.'''
-  * `resumeSignals` 262 us against `resumeMorphs` 232 us — the suppressed morph
-  * is still RENDERED, because rendering it is how we discover its bytes did not
-  * move. It does not have to be: [[resumeSignalsPure]] is the same tick on a
-  * card whose name is a literal, and it is '''101 us and 139 kB against 262 us
-  * and 442 kB''' — 2.6x the time and 3.2x the bytes, for ONE byte-reading slot.
-  *
-  * The cache key holds a per-entity `contentVersion`, which moves whenever
-  * anything about the entity moves, so ADR 0012's exclusion only bites where an
-  * entity reaches a node exclusively through signal slots. The shipped
-  * `entityCard`'s name reads `friendly_name`, which re-admits it. '''This is
-  * the largest single cost on the live path''' — an order of magnitude above
-  * encoding the frame — and the fix is a finer-grained key (ADR 0012,
-  * `docs/plan-wire-memory.md`).
+  * '''A signals tick is the cheap one, and [[resumeSignalsPure]] is what says
+  * so.''' `resumeSignals` is 102 us / 151 kB against `resumeSignalsPure`'s 106
+  * us — the shipped card, whose name reads `friendly_name`, now costs what a
+  * card with a literal name costs. It did not: rendering a morph is how we
+  * discover its bytes did not move, and the shipped name re-admitted the entity
+  * to the cache key on every tick, so a signals tick cost 262 us / 442 kB —
+  * MORE than `resumeMorphs`. `Patches.bytes` now hands the cache the resolved
+  * byte-slot values and an entry carrying the same ones is reused (ADR 0012).
+  * Keep this pair: it is the only thing that would catch the regression.
   *
   * ==Why it exists==
   *

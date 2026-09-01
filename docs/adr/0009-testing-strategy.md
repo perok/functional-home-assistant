@@ -193,6 +193,57 @@ A diff in one of those suites is a design question — say what moved and why it
 test to update. `PklBuildSuite`'s wire-format snapshots are the same rule one layer down, for the
 AUTHORING wire.
 
+### 7. Time is simulated per SUITE, and the real clock is a bug detector
+
+`ServerHarness.simulateTime` decides whether a suite runs under `TestControl`. A suite that
+FETCHES A DOCUMENT must set it false: the page route streams its body through
+`fs2.io.readOutputStream`, a pipe with two mutually-blocking sides, and `TestControl` ticks one
+fiber on one thread — so whichever side is ticked first parks the only thread. The first attempt at
+streaming hung 18 of 720 tests at their guards, a different subset per run.
+
+**Per suite, not per test, and that is forced.** A per-test opt-out looks tighter, but suites reach
+a document fetch through shared helpers (`AckedResumeSuite`, `SurfaceTapSuite`), so a per-test scan
+mis-classifies them — and a mis-classified test does not fail, it HANGS. What simulated time was
+buying here is only poll-loop acceleration: every sleep in the affected suites is 5–300 ms and the
+windows they exercise are `adoptionWindow`-sized.
+
+**The real clock then found two production bugs that simulated time had been hiding**, which is the
+reason to keep it rather than raise the guards:
+
+- a displacement `interruptWhen` applied INSIDE `Server.untilRevoked`'s merge, so the response body
+  of a displaced client never ended;
+- `reloadRepaints` inferring transitions with `.drop(1)`, which discarded a renderer swap that
+  landed before its subscription — a client left on a dashboard that no longer exists.
+
+So: **a suite failure that runs its FULL timeout guard is "the event never arrived", not "slow
+under load".** Raising the guard hides it. Chase it.
+
+**A barrier must wait on a BYTE.** Every stream barrier in `SessionLifecycleSuite` originally
+waited on session state — `awaitTenure(Held(1))`, `sessions.liveStreams` — and `adoptOrMint` sets
+that in the request HANDLER, so all of them are satisfied before the response body has run a step.
+Cancel or displace at that point and the bracketed registration never happened. The first byte off
+the stream is the only evidence the body is live.
+
+**Reproducing any of this needs a small machine.** These races appear at CI's core count and not on
+a 22-core box; `-XX:ActiveProcessorCount=2` in a root `.jvmopts` is what makes them reproducible
+(1-in-10 rather than never). Note that `-D` on the sbt command line, `SBT_OPTS` and `-J` all fail
+to reach the test JVM — the long-lived sbt server captures its options at startup, and `.jvmopts`
+is the one that lands.
+
+**An ambient `testFull` flake predates all of this and is still unexplained.** Three suites have
+timed out across `testFull` runs — `PklDashboardBehaviourSuite`, `AddonBootstrapSuite`,
+`SessionLifecycleSuite` — each passing in isolation, each a munit timeout rather than an assertion.
+All evaluate Pkl, which makes thread-safety the obvious suspect. **It was checked and it is not
+that**, and neither is suite parallelism:
+
+- the `Evaluator` is per call and `close()`d; module cache dirs are per test;
+- concurrent evaluation does not serialize (8 evaluations on 8 threads: 7 ms against 11 ms
+  sequential). Pkl is expensive COLD (769 ms engine build, 1 ms warm), not unsafe;
+- `fh-datastar-view / Test / parallelExecution` and `Test / fork` are already **false**, so any
+  experiment that "makes the suites serial" changes nothing and proves nothing.
+
+Do not re-run those experiments, and do not trust a single green `testFull`.
+
 ## Consequences
 
 - **No test touches live HA.** `sbt 'fh-datastar-view/testFull'` is fully
