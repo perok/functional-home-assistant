@@ -436,9 +436,9 @@ class Renderer(
     * '''This is the document path''' — the only one there is.
     *
     * It takes the sink rather than owning one so the SERVER's shell — head,
-    * banners, closing scripts — can be the same bytes: `Server.pageInto` writes
-    * around this as a writer hole, where it used to interpolate the finished
-    * body into a document String and pay a second full copy of the page.
+    * banners, closing scripts — is the same bytes: `Server.pageInto` writes
+    * around this as a writer hole. Interpolating a finished body into a
+    * document String instead costs a second full copy of the page.
     *
     * The style sits BEFORE the chrome, so every patch target inside it can be
     * repainted without re-sending the CSS. A restored `popup` is BAKED into the
@@ -775,7 +775,7 @@ class Renderer(
     * the member's surface into the host's buffer only when the template
     * actually reaches the hole, and its trace joins the walk's own collection
     * on the way past. A state group with no matching branch selects nothing,
-    * and the hole renders empty — the same bytes the empty var used to produce.
+    * and the hole renders empty.
     */
   private def resolveBakeTraced(
       id: NodeId,
@@ -798,8 +798,7 @@ class Renderer(
         case Some(idx) => bakeMember(idx)
         case None      =>
           // A state group with no matching branch: nothing selects, so the
-          // region section renders empty — which is what the empty string the
-          // var used to get produced too. A group's members share one bakeAs
+          // region section renders empty. A group's members share one bakeAs
           // (they bake into one hole), so per-member naming never diverges.
           (Map.empty, None)
       }
@@ -993,8 +992,7 @@ class Renderer(
       own: Map[NodeId, Painted],
       // The walk ROOT's own patch-form bytes, where it has any. Only
       // [[Renderer.render]] wants real bytes out of a trace, and it always
-      // wants the root's — so this is the whole of what `own` used to carry
-      // html for, and every other node keeps only its digest.
+      // wants the root's, so every other node keeps only its digest.
       rootOwn: Option[String] = None
   )
 
@@ -1057,12 +1055,11 @@ class Renderer(
     * truncating, so a page is one buffer from the root down — and puts every
     * own-rendering node's patch bytes into `trace`, this node included.
     *
-    * `trace` is an ACCUMULATOR, on purpose. The walk used to return each
-    * level's own-map and merge upward (`_ ++ _` per child, a fresh immutable
-    * map per node), which allocated a `Map2`/`Map3` and a tuple per node per
-    * paint and re-copied every ancestor's accumulated map k times for k
-    * children. Bytes learned this lesson first (the one-buffer walk); the trace
-    * learns it here: children write where they land, the root converts once.
+    * `trace` is an ACCUMULATOR, on purpose: children write where they land and
+    * the root converts once. Returning a per-level own-map and merging upward
+    * (`_ ++ _` per child) instead allocates a `Map2`/`Map3` and a tuple per
+    * node per paint, and re-copies every ancestor's map k times for k children
+    * — the same reason the bytes go through one buffer.
     */
   private def tracedInto(
       out: Sink,
@@ -1683,12 +1680,12 @@ class Renderer(
   /** One paint's resolution — LAYERS, not a merged map.
     *
     * The plan's constant layers ride by reference; only what a paint can
-    * actually change is built fresh, and only as large as it is. The old
-    * per-paint builder assembled ONE immutable map per node per paint
-    * (structural, bake, constants, live values, bindings — a `Map.newBuilder`
-    * and five `++=` per node); the layers carry the same precedence without the
-    * assembly: `fhGet` resolves a name through them in the order the builder
-    * used to apply it, last-wins become first-asked.
+    * actually change is built fresh, and only as large as it is. Assembling one
+    * immutable map per node per paint instead (structural, bake, constants,
+    * live values, bindings — a `Map.newBuilder` and five `++=` per node) buys
+    * nothing the layers do not already give: `fhGet` resolves a name through
+    * them in the order such a builder would apply it, last-wins read as
+    * first-asked.
     *
     * @param structural
     *   constants from the node's position (ids, inherited entity)
@@ -1727,13 +1724,13 @@ class Renderer(
     * is one small object that answers `get` from the maps that already exist.
     *
     * It is also where the PATCH form withholds a signal slot's value, which is
-    * why there is no second map: blanking used to be `signalSlots.foldLeft(
-    * vars)(_.updated(_, ""))`, a whole new `HashMap` per signal slot per node,
-    * to change two entries.
+    * why there is no second map: blanking through the map
+    * (`signalSlots.foldLeft(vars)(_.updated(_, ""))`) is a whole new `HashMap`
+    * per signal slot per node, to change two entries.
     *
     * `null` for an unknown name is what mustache.java expects, and the engine
-    * factory's `defaultValue("")` turns it into the empty string — the same
-    * behaviour a `Map` context gave for a missing key.
+    * factory's `defaultValue("")` turns it into the empty string, matching what
+    * a `Map` context gives for a missing key.
     */
   private case class NodeContext(
       resolved: Resolved,
@@ -1804,13 +1801,13 @@ class Renderer(
     * slots), the pre-resolved entity of every entity-derived slot whose
     * inheritance chain is constant, the signal bindings and their names.
     *
-    * This is the "hold a reference, not a re-derivation" end of the trade: a
-    * paint used to rebuild the whole slot resolution per node — a builder, two
-    * lists, an Option, three more collections for the signal half — to arrive
-    * at values that mostly had not moved. The plan is one small object per
-    * node, the same one-per-node bound the render cache keeps (one generation
-    * per node), and a paint resolves only what can actually change: the `live`
-    * slot values, the signal values, the bake selection.
+    * This is the "hold a reference, not a re-derivation" end of the trade. The
+    * plan is one small object per node — the same one-per-node bound the render
+    * cache keeps — and a paint resolves only what can actually change: the
+    * `live` slot values, the signal values, the bake selection. Rebuilding the
+    * whole slot resolution per paint instead costs a builder, two lists, an
+    * Option and three more collections for the signal half, to arrive at values
+    * that mostly have not moved.
     *
     * Lifetime: one renderer generation — the dashboard is immutable for it, so
     * the map never needs invalidation; a hot reload builds a new renderer and

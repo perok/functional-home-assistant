@@ -93,10 +93,10 @@ object Templates {
 
     /** Raw VARIABLE name -> write that hole's bytes INTO the writer, the same
       * trick [[regionWalk]] plays for a section. `{{{body}}}` in a theme's
-      * chrome is the customer: the page used to build the whole body as a
-      * String so mustache could splice it, which is a full copy of the document
-      * for a hole that is written once. Empty everywhere else, and an absent
-      * name falls back to the ordinary value lookup, so a theme is unaffected.
+      * chrome is the customer: handing mustache the body as a String to splice
+      * is a full copy of the document for a hole that is written once. Empty
+      * everywhere else, and an absent name falls back to the ordinary value
+      * lookup, so a theme is unaffected.
       */
     def writerHoles: Map[String, Writer => Unit] = Map.empty
 
