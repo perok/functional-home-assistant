@@ -76,15 +76,18 @@ Measured, one client and a twenty-entity tick (`RenderBench.resumeSignals` again
 **2.6x the time and 3.2x the bytes, for one slot.** That is the largest single cost on the
 live path — an order of magnitude more than encoding the frame.
 
-The fix is not to predict the inputs more finely but to **compare the resolved byte-slot
-VALUES** before rendering: identical values mean identical bytes, so the entry's bytes are
+**Fixed** (`Renderer.byteSlotValues` + a fourth branch in `RenderCache.apply`): not by predicting
+the inputs more finely but by **comparing the resolved byte-slot VALUES** before rendering — identical values mean identical bytes, so the entry's bytes are
 reused and re-stamped without mustache, wrapper or digest. It needs no static analysis, so CEL
 and `Transform.Simple` go through the same path, and on the shipped card there is exactly one
 byte slot to resolve (the name, an `AttrOrId` off ADR 0028's fast tier) — the signal slots are
 evaluated on a signals tick regardless. Note the values must NOT become the key:
 `RenderInputs.isAtLeast` is a partial order over versions and is what stops a straggler
 displacing fresher bytes, so this is a pre-check that skips the render, not a new key.
-Designed in `docs/plan-wire-memory.md`.
+`resumeSignals` went 261.7 µs / 442 kB to 101.7 µs / 151 kB, landing on `resumeSignalsPure`'s
+105.9 µs — the shipped card now costs what a card the key already protected costs. The saving is
+one render per tick per SLUG, not per client: the clients behind the first were already sharing its
+render. `docs/plan-wire-memory.md` has the numbers.
 
 The cache used to hold one generation per SELECTION as well, because a node could be both cached and the
 owner of a bake group: its own bytes then carried the viewer's chosen tab, so two viewers

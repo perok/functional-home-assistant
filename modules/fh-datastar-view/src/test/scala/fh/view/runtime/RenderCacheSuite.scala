@@ -117,6 +117,89 @@ class RenderCacheSuite extends munit.FunSuite {
     assertEquals(sizes, (1, 1))
   }
 
+  test("moved inputs with UNCHANGED byte values do not render again") {
+    // The thread-C case, and the common tick: a signal-only change moves the
+    // entity's contentVersion — so `inputs` move — while the slots that travel
+    // as BYTES do not. Re-rendering to discover the bytes are identical is
+    // exactly what the pre-check exists to skip.
+    val name = Some(Map("name" -> "Lamp"))
+    val (a, b, renders, size) = (for {
+      runs <- IO(new AtomicInteger(0))
+      cache <- RenderCache.create
+      count = (html: String) => IO(runs.incrementAndGet()).as(html)
+      a <- cache(id, r, v1, name)(count("<i>1</i>"))
+      b <- cache(id, r, v2, name)(count("<i>2</i>"))
+      n <- cache.size
+    } yield (a.html, b.html, runs.get(), n)).timeout(10.seconds).unsafeRunSync()
+
+    assertEquals(renders, 1)
+    // The FIRST generation's bytes, not a re-render: equal byte values mean
+    // equal bytes, so the second call is served what the first produced.
+    assertEquals(a, "<i>1</i>")
+    assertEquals(b, "<i>1</i>")
+    assertEquals(size, 1)
+  }
+
+  test("moved inputs with MOVED byte values render, as before") {
+    // The guard on the test above: the pre-check must not swallow a real
+    // change. Same moved inputs, different byte values.
+    val (a, b, renders) = (for {
+      runs <- IO(new AtomicInteger(0))
+      cache <- RenderCache.create
+      count = (html: String) => IO(runs.incrementAndGet()).as(html)
+      a <- cache(id, r, v1, Some(Map("name" -> "Lamp")))(count("<i>1</i>"))
+      b <- cache(id, r, v2, Some(Map("name" -> "Lantern")))(count("<i>2</i>"))
+    } yield (a.html, b.html, runs.get())).timeout(10.seconds).unsafeRunSync()
+
+    assertEquals(renders, 2)
+    assertEquals(a, "<i>1</i>")
+    assertEquals(b, "<i>2</i>")
+  }
+
+  test("byte values are compared only when BOTH sides have them") {
+    // `None` means "could not answer cheaply", never "unchanged" — a node with
+    // a dynamic subject, or one under a bake selection. Either side absent must
+    // fall back to the old behaviour rather than treat two unknowns as equal.
+    val (renders, htmls) = (for {
+      runs <- IO(new AtomicInteger(0))
+      cache <- RenderCache.create
+      count = (html: String) => IO(runs.incrementAndGet()).as(html)
+      a <- cache(id, r, v1, None)(count("<i>1</i>"))
+      b <- cache(id, r, v2, None)(count("<i>2</i>"))
+      c <- cache(id, r, v1, Some(Map("k" -> "v")))(count("<i>3</i>"))
+    } yield (runs.get(), (a.html, b.html, c.html)))
+      .timeout(10.seconds)
+      .unsafeRunSync()
+
+    assertEquals(renders, 3)
+    assertEquals(htmls, ("<i>1</i>", "<i>2</i>", "<i>3</i>"))
+  }
+
+  test("a STRAGGLER with matching byte values is served without installing") {
+    // Branch 2a. The straggler is owed the same bytes — equal values, equal
+    // bytes — so it renders nothing. But it must not INSTALL: re-stamping the
+    // entry under its older inputs would downgrade the generation and hand the
+    // next caller a key that looks stale, which is the eviction the straggler
+    // rule exists to prevent. Proven by the newer inputs still hitting after.
+    val vals = Some(Map("name" -> "Lamp"))
+    val (renders, straggler, afterwards) = (for {
+      runs <- IO(new AtomicInteger(0))
+      cache <- RenderCache.create
+      count = (html: String) => IO(runs.incrementAndGet()).as(html)
+      _ <- cache(id, r, v2, vals)(count("<i>current</i>"))
+      // Arrives late, from an older snapshot.
+      old <- cache(id, r, v1, vals)(count("<i>stale</i>"))
+      // If the straggler had installed, this would be a miss and render.
+      now <- cache(id, r, v2, vals)(count("<i>never runs</i>"))
+    } yield (runs.get(), old.html, now.html))
+      .timeout(10.seconds)
+      .unsafeRunSync()
+
+    assertEquals(renders, 1)
+    assertEquals(straggler, "<i>current</i>")
+    assertEquals(afterwards, "<i>current</i>")
+  }
+
   test("a renderer swap invalidates every key, unchanged inputs included") {
     // The reason the generation is the RENDERER and not the inputs alone: a
     // dashboard edit changes the markup while the entity versions it reads stay

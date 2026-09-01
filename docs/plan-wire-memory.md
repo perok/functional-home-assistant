@@ -15,7 +15,7 @@ signals tick was not faster:
 
 | thread | target | mechanism | size |
 |---|---|---|---|
-| C — narrow the cache key | per-client work on every live tick | key on the ATTRIBUTES a node reads as bytes, not the entity | **160 µs + 304 kB** per client per tick |
+| C — narrow the cache key | the render on every live tick | compare the resolved byte-slot VALUES before rendering | **DONE: 160 µs + 291 kB per tick per slug** |
 | A — stream the document | **peak live bytes** per concurrent page open | thread a `Writer` through the walk to the socket | ~380 kB of ~500 kB peak |
 | B — share the frame | per-client work on a live tick | memo the encoded frame across sessions | 3.2 µs + 10.7 kB per client per tick |
 
@@ -47,9 +47,28 @@ Two findings from benching the real tick path, both of which change what is wort
 - **A signals tick costs more than a bytes tick and should cost half.** That is thread C below,
   and it is the biggest thing here. ADR 0017 and ADR 0012 both now say so.
 
-## Thread C — narrow the cache key
+## Thread C — narrow the cache key — **LANDED**
 
-**Do this one first.**
+Measured after the change, against the same benchmarks:
+
+| | before | after | |
+|---|---:|---:|---|
+| `resumeSignals` | 261.7 µs / 442 kB | **101.7 µs / 151 kB** | 2.6x time, 2.9x bytes |
+| `resumeSignalsPure` | 101.4 µs / 139 kB | 105.9 µs / 142 kB | unchanged, as it must be |
+| `resumeMorphs` | 231.5 µs / 431 kB | 255.0 µs / 439 kB | unchanged (within noise) |
+| `resumeSignalsFanout` | 892.3 µs / 1,491 kB | 751.3 µs / 1,246 kB | |
+
+**`resumeSignals` now equals `resumeSignalsPure`**, which is the result that says the mechanism is
+the intended one rather than an accident: the shipped card costs what the card the key already
+protected costs. `resumeMorphs` unchanged says the bytes-moved path did not regress.
+
+**The saving is PER TICK PER SLUG, not per client** — my earlier framing of it as per-client was
+wrong. The fanout improved by 141 µs, about the same absolute amount as the single client's 160 µs,
+because clients 2..10 were already hitting the cache: they shared the first client's render. What
+thread C removes is that FIRST render, once per tick. The marginal client is still ~72 µs and is
+untouched by this, and remains the thing to attack next if the tick path matters more.
+
+### The original diagnosis, kept for the argument
 
 A signals tick ought to be the cheap one: the node's bytes cannot have moved, so ADR 0012 keeps
 the entity out of the `RenderCache` key, the previous entry stands, and nothing re-renders. That
@@ -304,15 +323,19 @@ thread-safe" the obvious suspect. **It is not, and these were checked:**
   threads.
 - `LibPackage.build` is pure and writes nothing shared.
 
-What is left is contention: sbt has no `Test / fork` and no `parallelExecution` setting, so every
-suite shares one JVM and runs concurrently — including six Playwright suites. Three `testFull`
-runs with `parallelExecution := false` were green 3/3, against 3 failures in ~8 parallel runs.
-Suggestive, **not conclusive**: at a ~37% parallel failure rate, three clean serial runs happen by
-luck about a quarter of the time. Every `--exclude-tags=Slow` run (which drops the browser suites)
-was green.
+**The cause is still unknown, and the obvious next guess was checked and is also wrong.** Suite
+parallelism is not it: `fh-datastar-view / Test / parallelExecution` is already **false** and
+`Test / fork` is **false** (`sbt 'print fh-datastar-view/Test/parallelExecution'`). So suites in
+this module already run one at a time, and the three "serial" `testFull` runs that came back 3/3
+green were run with the setting flipped to the value it already had — they prove nothing at all.
 
-Not part of this plan's threads, and not worth fixing blind. If it becomes annoying, the cheap
-lever is capping test parallelism or keeping the browser suites off the same rung.
+What is known: the failure is always a 30 s munit timeout, never an assertion; every affected
+suite evaluates Pkl; and every `--exclude-tags=Slow` run (which drops the six Playwright suites)
+has been green. Cross-project test parallelism, browser-driver startup, and something inside the
+`testReal` harness are all still open.
+
+Not part of this plan's threads. Whoever picks it up: do not re-run the parallelism experiment,
+and do not trust "716 green" from a single run.
 
 ## Open
 
