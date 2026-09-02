@@ -755,8 +755,50 @@ object LayoutNode:
 
   /** Slug an arbitrary string (an entity id, a surface id) into a valid HTML id
     * fragment — also a valid Datastar signal-name fragment.
+    *
+    * Hand-rolled rather than `s.replaceAll("[^A-Za-z0-9_]", "_")`, which is the
+    * same rule and reads better. `String.replaceAll` COMPILES ITS PATTERN on
+    * every call, and `MemberGraph.memberId` runs this once per set member per
+    * paint: 13.4% of a candidate-set page open, nearly all of it
+    * `Pattern.compile` (`RenderBench.pageSet`, async-profiler).
+    *
+    * The scan-first shape also returns `s` itself when nothing needs replacing
+    * — which is every region name — so the common call allocates nothing at
+    * all.
     */
-  def sanitize(s: String): String = s.replaceAll("[^A-Za-z0-9_]", "_")
+  def sanitize(s: String): String = {
+    var i = 0
+    while (i < s.length && safeIdChar(s.charAt(i))) i += 1
+    if (i == s.length) s
+    else {
+      val out = new java.lang.StringBuilder(s.length)
+      val _ = out.append(s, 0, i)
+      while (i < s.length) {
+        val c = s.charAt(i)
+        if (safeIdChar(c)) {
+          val _ = out.append(c)
+          i += 1
+        } else {
+          val _ = out.append('_')
+          // A supplementary code point is ONE character to the regex this
+          // replaces, so its surrogate PAIR collapses to one `_`. Stepping by
+          // `char` instead gave an emoji two, which no test would have caught
+          // — every id here happens to be ASCII today.
+          i +=
+            (if (
+               Character.isHighSurrogate(c) && i + 1 < s.length &&
+               Character.isLowSurrogate(s.charAt(i + 1))
+             ) 2
+             else 1)
+        }
+      }
+      out.toString
+    }
+  }
+
+  private def safeIdChar(c: Char): Boolean =
+    (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+      (c >= '0' && c <= '9') || c == '_'
 
   /** One set member's id: its set's id plus the member's key, slugged.
     *
