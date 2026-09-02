@@ -106,17 +106,25 @@ jobs:
         with:
           pkl-version: "0.32.1"
 
+      # `--check` rewrites nothing and fails on any diff it would make (#115).
+      # The linter rules are the half that has no compiler warning behind it —
+      # the -Werror gate cannot see a dropped `IO` or a `.map(_ => x)`. Scoped
+      # to fh-datastar-view: home/home-codegen need live-HA codegen and do not
+      # compile here, same as the Test step.
+      #
+      # SEQUENTIAL, and it has to stay that way: the parallel block below is
+      # built around exactly ONE sbt step (see the `--server=false` note on the
+      # fh script step). A second sbt client in there talks to the same server
+      # in the same project dir, so the two commands serialize while both jobs
+      # hold a runner slot — measured at 4m29s against 5m01s for the same tree,
+      # with the 10-minute job timeout only a couple of minutes away. Run here
+      # instead, where it also warms the server the Test step then reuses.
+      - name: Scalafix check
+        run: sbt 'fh-datastar-view/scalafixAll --check'
+
       - parallel:
           - name: Fmt check
             run: scalafmt --test
-
-          # `--check` rewrites nothing and fails on any diff it would make
-          # (#115). The linter rules are the half that has no compiler warning
-          # behind it — the -Werror gate above cannot see a dropped `IO` or a
-          # `.map(_ => x)`. Scoped to fh-datastar-view: home/home-codegen need
-          # live-HA codegen and do not compile here, same as the Test step.
-          - name: Scalafix check
-            run: sbt 'fh-datastar-view/scalafixAll --check'
 
           # Unit tests for the `@fh-dashboard` authoring library (facts +
           # examples). Pure Pkl — no HA, no JVM, no dump. The report dir is
