@@ -298,6 +298,36 @@ class MemberGraphSuite extends munit.FunSuite {
     )
   }
 
+  /** `sanitize` IS this regex — it is hand-rolled only because
+    * `String.replaceAll` recompiles its pattern per call, and that ran once per
+    * member per paint. So the regex is the specification and this holds the two
+    * to equality, rather than asserting a handful of outputs the implementation
+    * would agree with either way.
+    */
+  test("sanitize is exactly the character class it replaced") {
+    val Regex = "[^A-Za-z0-9_]"
+    val alphabet =
+      ('a' to 'e') ++ ('A' to 'B') ++ ('0' to '2') ++
+        List('_', '.', '-', ' ', ':', '/', '@', '+', 'é', '☃', ' ')
+    // Supplementary code points are the case a per-`char` loop gets wrong: the
+    // regex matches a surrogate PAIR as one character, so it yields ONE `_`.
+    // Lone surrogates are one character each, for the same reason.
+    val astral = List("😀", "a😀b", "😀😀", "\uD83D", "\uDE00", "a\uD83Db")
+    val corpus =
+      List("", "_", "light.kitchen", "  ", "...", "ÆØÅ", "a" * 40) ++
+        astral ++
+        alphabet.map(_.toString) ++
+        alphabet.combinations(2).map(_.mkString).toList ++
+        alphabet.map(c => s"light.$c$c" + "_1")
+    corpus.foreach(s =>
+      assertEquals(
+        LayoutNode.sanitize(s),
+        s.replaceAll(Regex, "_"),
+        s"sanitize diverged on [$s]"
+      )
+    )
+  }
+
   private val g0 = graphOf(set(List("light.kitchen_1")))
 
   test("a set nested in a member is enumerated, and inherits its tile's tree") {

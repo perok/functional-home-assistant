@@ -29,6 +29,10 @@ concurrency:
 
 env:
   IMAGE: ghcr.io/perok/fh-dashboard
+  # Compiler warnings are errors here and advisory locally (#115) — sbt-tpolecat
+  # reads this variable itself, and build.sbt's default is the other arm. Set it
+  # locally the same way to reproduce a warning CI failed on.
+  SBT_TPOLECAT_CI: "1"
 
 jobs:
   ci:
@@ -117,12 +121,29 @@ jobs:
                 --junit-reports target/pkl/test-reports \
                 modules/fh-datastar-view/src/test/pkl/*.test.pkl
 
-          - name: Test
+          # ONE sbt invocation, and the parallel block must keep exactly one
+          # (see the `--server=false` note on the fh script step). Two sbt
+          # clients here talk to the same server in the same project dir and
+          # serialize while both hold a runner slot; a SEQUENTIAL scalafix step
+          # before the block is worse still, because it leaves the server warm
+          # so the browser suites start immediately and race scala-cli's
+          # compile — six runs of that produced four Playwright timeouts on
+          # three different tests, none of them reproducible locally.
+          #
+          # Tests FIRST in the chain: sbt aborts the rest on failure, so this
+          # order always leaves the junit XML that `Publish Test Report`
+          # requires. `--check` rewrites nothing and fails on any diff it would
+          # make (#115) — the linter half, which the -Werror gate cannot see.
+          - name: Test + scalafix check
             env:
               # Out of the build tree, so the upload path does not depend on
               # sbt's working directory for a forked test.
               FH_VISUAL_FAILURES_DIR: ${{ runner.temp }}/visual-failures
-            run: sbt 'fh-datastar-view/testFull'
+            # ONE quoted argument with `;`, not two arguments: sbt 2's thin
+            # client JOINS its argv into a single command string, so
+            # `sbt 'a' 'b'` is parsed as the one command `a b` and dies with
+            # "Expected whitespace character".
+            run: sbt 'fh-datastar-view/testFull; fh-datastar-view/scalafixAll --check'
 
           # The fh laptop script's own suite (in-process, gated on
           # SCALA_TEST_MODE; no instance needed) — also compile-checks the

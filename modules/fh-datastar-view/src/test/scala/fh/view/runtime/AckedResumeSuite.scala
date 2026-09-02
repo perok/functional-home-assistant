@@ -2,9 +2,7 @@ package fh.view.runtime
 
 import api.homeassistant.HomeAssistantApi
 import cats.effect.IO
-import cats.syntax.all.*
 import fh.view.testkit.FakeHomeAssistant
-import fh.view.testkit.TestIds.given
 import fh.view.testkit.TestAuth
 import fs2.concurrent.SignallingRef
 import org.http4s.*

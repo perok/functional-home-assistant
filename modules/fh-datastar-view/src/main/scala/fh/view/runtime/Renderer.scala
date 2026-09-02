@@ -1152,8 +1152,8 @@ class Renderer(
               .append(id)
               .append('"')
             if (!form.isPatch)
-              buf.append(Datastar.signalsAttr(resolved.signals))
-            buf.append('>')
+              Datastar.seedAttrInto(buf, plan.signalSeed, resolved.signals)
+            val _ = buf.append('>')
           }
 
         def bodyInto(
@@ -1282,11 +1282,14 @@ class Renderer(
         // form, which is what that method produces.
         val own = Option.when(plan.ownRendering) {
           if (twoForms) {
-            val buf = Sink.buffer(Renderer.NodeBytesHint)
-            wrapper(buf, SlotForm.Patch)
-            bodyInto(buf, SlotForm.Patch)
-            if (wrapped) { val _ = buf.append("</div>") }
-            val bytes = buf.result
+            // Borrowed: these bytes are copied out by `result` and the buffer
+            // itself is wanted by nobody.
+            val bytes = Sink.scratched { buf =>
+              wrapper(buf, SlotForm.Patch)
+              bodyInto(buf, SlotForm.Patch)
+              if (wrapped) { val _ = buf.append("</div>") }
+              buf.result
+            }
             if (isRoot) rootOwn.nn(0) = bytes
             Painted(Digest.of(bytes), resolved.signals)
           } else Painted(inlineDigest.nn, resolved.signals)
@@ -1343,13 +1346,14 @@ class Renderer(
                 ._1
             else {
               renderResolvedMemberInto(out, m, rm, SlotForm.Document)
-              val buf = Sink.buffer(Renderer.NodeBytesHint)
-              renderResolvedMemberInto(buf, m, rm, SlotForm.Patch)
-              Digest.of(buf.result)
+              Digest.of(Sink.scratched { buf =>
+                renderResolvedMemberInto(buf, m, rm, SlotForm.Patch)
+                buf.result
+              })
             }
           trace.put(m.id, Painted(digest, sigs))
         }
-        out.append("</div>")
+        val _ = out.append("</div>")
     }
 
   private def renderSet(
@@ -1380,14 +1384,14 @@ class Renderer(
     val out = Sink.buffer(
       160 + members.foldLeft(0)(_ + _.length)
     )
-    out
+    val _ = out
       .append("""<div class="fh-cell fh-group""")
       .append(Renderer.cellClasses(cell))
       .append("""" id="""")
       .append(id)
       .append("\">")
     members.foreach(out.append)
-    out.append("</div>")
+    val _ = out.append("</div>")
     out.result
   }
 
@@ -1520,9 +1524,10 @@ class Renderer(
       rm: ResolvedMember,
       form: SlotForm
   ): String = {
-    val out = Sink.buffer(Renderer.NodeBytesHint)
-    renderResolvedMemberInto(out, m, rm, form)
-    out.result
+    Sink.scratched { out =>
+      renderResolvedMemberInto(out, m, rm, form)
+      out.result
+    }
   }
 
   /** The member's whole wrapped rendering, written into the CALLER's buffer.
@@ -1547,10 +1552,12 @@ class Renderer(
       .append("""" id="""")
       .append(m.id)
       .append('"')
-    if (!form.isPatch) out.append(Datastar.signalsAttr(memberSignalsOf(rm)))
-    out.append('>')
+    if (!form.isPatch) {
+      val _ = out.append(Datastar.signalsAttr(memberSignalsOf(rm)))
+    }
+    val _ = out.append('>')
     memberBodyInto(out, rm, form)
-    out.append("</div>")
+    val _ = out.append("</div>")
   }
 
   /** The member's own markup — everything inside its wrapper.
@@ -1597,13 +1604,14 @@ class Renderer(
             region -> kids.map {
               case ResolvedChild.NestedSet(html) => html
               case ResolvedChild.Node(cell, n)   =>
-                val child = Sink.buffer(Renderer.NodeBytesHint)
-                child
-                  .append("""<div class="fh-cell""")
-                  .append(Renderer.cellClasses(cell))
-                  .append("""">""")
-                memberBodyInto(child, n, form)
-                child.append("</div>").result
+                Sink.scratched { child =>
+                  val _ = child
+                    .append("""<div class="fh-cell""")
+                    .append(Renderer.cellClasses(cell))
+                    .append("""">""")
+                  memberBodyInto(child, n, form)
+                  child.append("</div>").result
+                }
             }
         }.toMap
     executeInto(out, rm.tpl, rm.resolved, childrenHtml, form, walk)
@@ -1620,13 +1628,14 @@ class Renderer(
       .mapValues(_.map {
         case ResolvedChild.NestedSet(html) => html
         case ResolvedChild.Node(cell, n)   =>
-          val child = Sink.buffer(Renderer.NodeBytesHint)
-          child
-            .append("""<div class="fh-cell""")
-            .append(Renderer.cellClasses(cell))
-            .append("""">""")
-          memberBodyInto(child, n, form)
-          child.append("</div>").result
+          Sink.scratched { child =>
+            val _ = child
+              .append("""<div class="fh-cell""")
+              .append(Renderer.cellClasses(cell))
+              .append("""">""")
+            memberBodyInto(child, n, form)
+            child.append("</div>").result
+          }
       })
       .toMap
 
@@ -1764,34 +1773,27 @@ class Renderer(
           list
         case _ =>
           if (form.isPatch && resolved.signalSlots.contains(name)) ""
-          else
+          else {
             // The layers, in the precedence the old merged map encoded by
-            // construction (its builder order, last-wins): a name answers
-            // from the first layer that has it. `getOrElse` is by-name, so
-            // the chain stops at the hit — the usual cost is two or three
-            // failed lookups on maps smaller than the name being looked up.
-            resolved.bindings
-              .getOrElse(
-                name,
-                resolved.liveBindings
-                  .getOrElse(
-                    name,
-                    resolved.paint
-                      .getOrElse(
-                        name,
-                        resolved.constants
-                          .getOrElse(
-                            name,
-                            resolved.bake
-                              .getOrElse(
-                                name,
-                                resolved.structural
-                                  .getOrElse(name, null)
-                              )
-                          )
-                      )
-                  )
-              )
+            // construction (its builder order, last-wins): a name answers from
+            // the first layer that has it, and the chain stops at the hit.
+            //
+            // FLAT, not nested `getOrElse`s. A by-name default that reads
+            // `name` and `this` is a CAPTURING lambda, so nesting them
+            // allocated one per layer per lookup — up to five, per hole, per
+            // node, and the profile showed exactly that: 5.7% of a page open
+            // in `NodeContext$$Lambda` under `DirectMethodHandle`
+            // (`RenderBench.page`, async-profiler). Each default is the
+            // constant `null` now, which is non-capturing and therefore the
+            // JVM's one cached instance.
+            var v: String | Null = resolved.bindings.getOrElse(name, null)
+            if (v == null) v = resolved.liveBindings.getOrElse(name, null)
+            if (v == null) v = resolved.paint.getOrElse(name, null)
+            if (v == null) v = resolved.constants.getOrElse(name, null)
+            if (v == null) v = resolved.bake.getOrElse(name, null)
+            if (v == null) v = resolved.structural.getOrElse(name, null)
+            v
+          }
       }
   }
 
@@ -1826,6 +1828,9 @@ class Renderer(
       bindings: Map[String, String],
       signalSlots: List[String],
       signalNameBySlot: Map[String, SignalId],
+      // The node's `data-signals` attribute with its values cut out. Fixed by
+      // the plan, because the NAMES are; see [[Datastar.SignalSeed]].
+      signalSeed: Datastar.SignalSeed,
       subjectDynamic: Boolean,
       ownRendering: Boolean,
       declaresSignals: Boolean,
@@ -1969,6 +1974,7 @@ class Renderer(
       signalNameBySlot = named.map { case (slot, _, signal) =>
         slot -> signal
       }.toMap,
+      signalSeed = Datastar.seedFor(named.map(_._3)),
       subjectDynamic = subjectConst.isEmpty,
       ownRendering = hasOwnRendering(id),
       declaresSignals = slots.values.exists(Renderer.isSignalSlot),
@@ -1994,6 +2000,17 @@ class Renderer(
       bakeIndex: Map[String, String]
   ): Resolved = {
     if (plan.subjectDynamic) resolveDirect(plan, states, bakeIndex)
+    else resolvePlannedSubject(plan, states, bakeIndex)
+  }
+
+  /** [[resolvePlanned]] for the constant-subject case, which is every card but
+    * the indirection one.
+    */
+  private def resolvePlannedSubject(
+      plan: NodePlan,
+      states: Map[String, EntityState],
+      bakeIndex: Map[String, String]
+  ): Resolved = {
     // The only map a paint builds: the LIVE slot values. A card without any
     // (the common static case) builds nothing at all — the constants, the
     // structural vars and the binding strings ride the plan by reference, and
@@ -2118,7 +2135,7 @@ class Renderer(
       // Set only where the caller can produce a region's bytes inline — the
       // document walk for a node's own regions, [[memberBodyInto]] for a
       // member's; the region codes fall back to the string splice when absent.
-      regionWalk: Map[String, java.io.Writer => Unit] = Map.empty
+      regionWalk: Map[String, java.io.Writer => Unit]
   ): Unit =
     Templates.run(
       tpl,
@@ -2162,32 +2179,60 @@ class Renderer(
       )
       .getOrElse(Map.empty)
 
-  /** One node's OWN slots, children excluded — the static-tree answer. */
+  /** One node's OWN slots, children excluded — the static-tree answer.
+    *
+    * Through the node's [[NodePlan]], which already holds every static half of
+    * this: which slots carry a signal, and what each one's signal is NAMED. A
+    * live tick asks this per candidate node, and re-deriving it there was
+    * re-resolving the subject, rebuilding each name and running `collect` over
+    * every slot to reach the two that move — 9.4% of a signals tick's
+    * allocation (`RenderBench.resumeSignals`, async-profiler).
+    */
   private def signalsOfSlots(
       id: NodeId,
       node: LayoutNode,
       states: Map[String, EntityState]
   ): Map[SignalId, String] = node match {
     case c: LayoutNode.Component =>
-      val subject = c.slots
-        .get(Dashboard.SubjectSlot)
-        .map(s => s.literal.getOrElse(resolveSlot(s.entityId, s, states)))
-      c.slots.collect {
-        case (slot, src) if Renderer.isSignalSlot(src) =>
-          val entity = src.entityId.orElse(subject)
-          val kind = Renderer.signalBind(src).getOrElse(SignalBind.Text)
-          Renderer.signalName(id, slot, entity, src.valueKey, kind) ->
-            resolveSlot(entity, src, states)
+      val plan = planOf(id, id, c, states)
+      // A dynamic subject is the shape a plan holds nothing per-slot for: the
+      // subject, and with it every name, is a per-paint question. Its
+      // `signalNameBySlot` is empty for that reason and NOT because the node
+      // has no signals, so it has to be asked directly.
+      if (plan.subjectDynamic) directSignalsOfSlots(id, c, states)
+      else if (plan.signalNameBySlot.isEmpty) Map.empty
+      else {
+        val b = Map.newBuilder[SignalId, String]
+        b.sizeHint(plan.signalNameBySlot.size)
+        // Only the signal slots, not every dynamic one: a signal slot is
+        // always non-literal and `live`, so it is always in `dynamic`.
+        plan.dynamic.foreach { case (slot, srcEntity, source) =>
+          plan.signalNameBySlot
+            .get(slot)
+            .foreach(sig =>
+              b += ((sig, resolveSlot(srcEntity, source, states)))
+            )
+        }
+        b.result()
       }
     case _: LayoutNode.SetNode => Map.empty
   }
 
-  /** Whether a node's own slots carry a signal — STRUCTURAL, resolving nothing.
-    * What a walk asks before paying for a second template execute.
-    */
-  private def declaresSignals(node: LayoutNode): Boolean = node match {
-    case c: LayoutNode.Component => c.slots.values.exists(Renderer.isSignalSlot)
-    case _: LayoutNode.SetNode   => false
+  private def directSignalsOfSlots(
+      id: NodeId,
+      c: LayoutNode.Component,
+      states: Map[String, EntityState]
+  ): Map[SignalId, String] = {
+    val subject = c.slots
+      .get(Dashboard.SubjectSlot)
+      .map(s => s.literal.getOrElse(resolveSlot(s.entityId, s, states)))
+    c.slots.collect {
+      case (slot, src) if Renderer.isSignalSlot(src) =>
+        val entity = src.entityId.orElse(subject)
+        val kind = Renderer.signalBind(src).getOrElse(SignalBind.Text)
+        Renderer.signalName(id, slot, entity, src.valueKey, kind) ->
+          resolveSlot(entity, src, states)
+    }
   }
 
   /** Resolve a non-literal slot's value against its producing entity's state.

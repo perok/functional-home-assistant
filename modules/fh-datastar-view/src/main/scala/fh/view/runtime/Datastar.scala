@@ -216,9 +216,8 @@ object Datastar {
     * every producer today builds values with `Json.fromString`.
     */
   def signalsJson(values: Map[SignalId, Json]): String =
-    nest(
-      values.toList.map((k, v) => k.segments -> v)
-    ).noSpaces
+    if (values.isEmpty) "{}"
+    else nest(pathsOf(values), 0, values.size, 0).noSpaces
 
   /** A dotted signal path is NESTED, never emitted as one flat key.
     *
@@ -232,22 +231,79 @@ object Datastar {
     * Nesting is also what makes a partial patch safe: the same recursion
     * assigns only at leaves, so one entity's frame leaves its siblings alone.
     *
-    * Keys are sorted at every level so a frame's bytes are deterministic.
+    * Keys are sorted at every level so a frame's bytes are deterministic. The
+    * rows arrive sorted by whole path ([[pathsOf]]) and this walks them by
+    * index, which is the same order a per-level sort produces — a segment
+    * comparison decides before any deeper one is reached. Grouping per level
+    * instead (`groupBy.toList.sortBy.collect`) rebuilds a `HashMap`, two
+    * `List`s and a `ListBuffer` at EVERY level of EVERY node: half a page
+    * open's allocation on a card whose one signal is four segments deep
+    * (async-profiler over `RenderBench.pageSignals`).
     */
-  private def nest(entries: List[(List[String], Json)]): Json =
-    Json.obj(
-      entries
-        .groupBy(_._1.head)
-        .toList
-        .sortBy(_._1)
-        .map { case (segment, rows) =>
-          val deeper =
-            rows.collect { case (_ :: rest, v) if rest.nonEmpty => rest -> v }
-          // A path that is both a leaf and a prefix cannot arise from
-          // `Renderer.signalName` — every path it mints has the same depth.
-          segment -> (if (deeper.isEmpty) rows.head._2 else nest(deeper))
-        }*
+  private def nest(
+      paths: Array[(Array[String], Json)],
+      from: Int,
+      until: Int,
+      depth: Int
+  ): Json = {
+    val fields = List.newBuilder[(String, Json)]
+    var i = from
+    while (i < until) {
+      val segment = paths(i)._1(depth)
+      var j = i + 1
+      while (j < until && paths(j)._1(depth) == segment) j += 1
+      // A path that is both a leaf and a prefix cannot arise from
+      // `Renderer.signalName` — every path it mints has the same depth.
+      val value =
+        if (paths(i)._1.length == depth + 1) paths(i)._2
+        else nest(paths, i, j, depth + 1)
+      fields += (segment -> value)
+      i = j
+    }
+    Json.obj(fields.result()*)
+  }
+
+  /** The signals as `(segments, value)` rows, sorted by path — the input both
+    * nesting walks index into.
+    */
+  private def pathsOf[A](
+      values: Map[SignalId, A]
+  ): Array[(Array[String], A)] = {
+    val out = new Array[(Array[String], A)](values.size)
+    var i = 0
+    values.foreach { case (k, v) =>
+      out(i) = (k.segments, v)
+      i += 1
+    }
+    java.util.Arrays.sort(
+      out,
+      pathOrder.asInstanceOf[java.util.Comparator[(Array[String], A)]]
     )
+    out
+  }
+
+  /** Lexicographic over SEGMENTS, not over the dotted string.
+    *
+    * The two agree almost everywhere — `.` sorts below every alphanumeric, so
+    * comparing whole strings usually reproduces the segment order — and that
+    * near-miss is the trap. They diverge exactly when a segment contains a
+    * character BELOW `.` (0x2E): `a-b.c` against `a.b` sorts one way by segment
+    * and the other by string, because `-` (0x2D) beats the separator. The wire
+    * bytes are asserted, so sorting the cheaper way would be a rare, silent
+    * reordering. Pinned in `DatastarNestSuite`.
+    */
+  private val pathOrder: java.util.Comparator[(Array[String], Any)] =
+    (x, y) => {
+      val a = x._1
+      val b = y._1
+      var i = 0
+      var r = 0
+      while (r == 0 && i < a.length && i < b.length) {
+        r = a(i).compareTo(b(i))
+        i += 1
+      }
+      if (r != 0) r else a.length - b.length
+    }
 
   /** The same values as a `data-signals` ATTRIBUTE — the inline seed that lets
     * an element carry its own signals, so a first paint, a host fill or a
@@ -268,28 +324,158 @@ object Datastar {
       // LEADING SPACE, like `Renderer.cellClasses`: this is spliced straight
       // after a quoted attribute value, and `id="c"data-signals=…` is a parse
       // error browsers only recover from by accident.
-      s""" data-signals="${nestJs(
-          values.toList.map((k, v) => k.segments -> v)
-        )}""""
+      val sb = new java.lang.StringBuilder(32 + values.size * 48)
+      sb.append(" data-signals=\"")
+      nestJsInto(sb, pathsOf(values), 0, values.size, 0)
+      sb.append('"')
+      sb.toString
+
+  /** A node's seed with its VALUES cut out: `chunks` is the literal text either
+    * side of each hole, `order` the signal filling each one, so `chunks` is
+    * always one longer than `order`.
+    *
+    * A node's signal NAMES are fixed by its plan — only the values move — so
+    * the nesting, the sort and the path split are all plan-time work that
+    * [[signalsAttr]] was redoing on every paint. Rendering a seed is then one
+    * append per chunk and one escape per value.
+    *
+    * Not reachable for every seed: a member's is MERGED across its regions, and
+    * a card whose subject is a transform has no fixed names at all
+    * (`Renderer.resolveDirect`). Those keep [[signalsAttr]].
+    */
+  final class SignalSeed private[runtime] (
+      val chunks: Array[String],
+      val order: Array[SignalId]
+  )
+
+  /** Most nodes carry no signals at all, and every one of them wants the same
+    * empty seed — one object for the process rather than two arrays per plan.
+    */
+  private val emptySeed = new SignalSeed(Array(""), Array.empty)
+
+  /** The seed shape for a node whose signals are `names` — plan-time. */
+  def seedFor(names: Iterable[SignalId]): SignalSeed =
+    if (names.isEmpty) emptySeed
+    else {
+      // The values ARE the names here: the walk emits them in the order a
+      // paint's values will be needed, and each one ends a chunk.
+      val paths = pathsOf(names.map(n => n -> n).toMap)
+      val chunks = Array.newBuilder[String]
+      val order = Array.newBuilder[SignalId]
+      val sb = new java.lang.StringBuilder(64)
+      sb.append(" data-signals=\"")
+      seedInto(sb, chunks, order, paths, 0, paths.length, 0)
+      sb.append('"')
+      chunks += sb.toString
+      new SignalSeed(chunks.result(), order.result())
+    }
+
+  /** [[nestJsInto]] with the leaf VALUES cut out into `order` and the literal
+    * text between them accumulated into `chunks`.
+    */
+  private def seedInto(
+      sb: java.lang.StringBuilder,
+      chunks: scala.collection.mutable.Builder[String, Array[String]],
+      order: scala.collection.mutable.Builder[SignalId, Array[SignalId]],
+      paths: Array[(Array[String], SignalId)],
+      from: Int,
+      until: Int,
+      depth: Int
+  ): Unit = {
+    sb.append('{')
+    var i = from
+    while (i < until) {
+      val segment = paths(i)._1(depth)
+      var j = i + 1
+      while (j < until && paths(j)._1(depth) == segment) j += 1
+      if (i > from) { val _ = sb.append(", ") }
+      sb.append(segment).append(": ")
+      if (paths(i)._1.length == depth + 1) {
+        sb.append('\'')
+        chunks += sb.toString
+        order += paths(i)._2
+        sb.setLength(0)
+        sb.append('\'')
+      } else seedInto(sb, chunks, order, paths, i, j, depth + 1)
+      i = j
+    }
+    val _ = sb.append('}')
+  }
+
+  /** Render `seed` with `values`, straight into `out`.
+    *
+    * Falls back to [[signalsAttr]] unless the values are exactly the signals
+    * the seed was built for. The names cannot drift for a planned node — but a
+    * mismatch would silently emit a seed of the wrong SHAPE, so this is checked
+    * rather than assumed, and the check is one integer compare plus the lookups
+    * the render needs anyway.
+    */
+  def seedAttrInto(
+      out: java.lang.Appendable,
+      seed: SignalSeed,
+      values: Map[SignalId, String]
+  ): Unit = {
+    val n = seed.order.length
+    // Resolved BEFORE anything is written, so a mismatch falls back without
+    // having to unwind a destination that may be a stream.
+    val resolved =
+      if (values.isEmpty || values.size != n) null
+      else {
+        val vs = new Array[String](n)
+        var i = 0
+        while (i < n && vs != null) {
+          values.get(seed.order(i)) match {
+            case Some(v) => vs(i) = v; i += 1
+            case None    => i = n + 1
+          }
+        }
+        if (i == n) vs else null
+      }
+    if (values.isEmpty) ()
+    else if (resolved eq null) { val _ = out.append(signalsAttr(values)) }
+    else {
+      out.append(seed.chunks(0))
+      var k = 0
+      while (k < n) {
+        escapeJsInto(out, resolved(k))
+        out.append(seed.chunks(k + 1))
+        k += 1
+      }
+      ()
+    }
+  }
 
   /** The seed's JS object literal, nested for the same reason [[nest]] is —
     * `data-signals` is compiled as an EXPRESSION, so `{a.b: 'x'}` is not even
     * valid syntax, let alone the same store shape a frame patches.
+    *
+    * Written INTO the caller's builder, over the same once-sorted rows [[nest]]
+    * walks. See [[nest]] for why the per-level grouping went.
     */
-  private def nestJs(entries: List[(List[String], String)]): String =
-    entries
-      .groupBy(_._1.head)
-      .toList
-      .sortBy(_._1)
-      .map { case (segment, rows) =>
-        val deeper = rows.collect {
-          case (_ :: rest, v) if rest.nonEmpty => rest -> v
-        }
-        val value =
-          if (deeper.isEmpty) s"'${escapeJs(rows.head._2)}'" else nestJs(deeper)
-        s"$segment: $value"
-      }
-      .mkString("{", ", ", "}")
+  private def nestJsInto(
+      sb: java.lang.StringBuilder,
+      paths: Array[(Array[String], String)],
+      from: Int,
+      until: Int,
+      depth: Int
+  ): Unit = {
+    sb.append('{')
+    var i = from
+    while (i < until) {
+      val segment = paths(i)._1(depth)
+      var j = i + 1
+      while (j < until && paths(j)._1(depth) == segment) j += 1
+      if (i > from) { val _ = sb.append(", ") }
+      sb.append(segment).append(": ")
+      if (paths(i)._1.length == depth + 1) {
+        sb.append('\'')
+        escapeJsInto(sb, paths(i)._2)
+        sb.append('\'')
+      } else nestJsInto(sb, paths, i, j, depth + 1)
+      i = j
+    }
+    val _ = sb.append('}')
+  }
 
   /** The binding attribute for a signal slot — what `<slot>__bind` renders to
     * (ADR 0017). `""` where a value is not signal-backed, which is what keeps
@@ -314,17 +500,39 @@ object Datastar {
     // class name is written as it appears in CSS and nowhere else.
     case SignalBind.Class(name) => s"""data-class:$name="$$$signal""""
 
-  /** Backslash and single quote — everything a single-quoted JS string literal
-    * can be broken by. The attribute is double-quoted, so `"` needs no JS
-    * escape; [[escapeHtmlAttr]] handles it.
+  /** Both escapes of a seeded value, in ONE pass, straight into the builder.
+    *
+    * The value sits in a JS string literal which sits in an HTML attribute, so
+    * both apply: `\` and `'` are what a single-quoted JS literal can be broken
+    * by, and `&`, `<`, `"` are the attribute's. A bare `'` is deliberately NOT
+    * turned into `&#39;` — that decodes back to `'` and closes the literal
+    * early, which is the trap this method exists to avoid.
+    *
+    * One pass rather than five `String.replace` calls, each of which copied the
+    * whole value again for a value that usually contains none of these.
     */
-  private def escapeJs(s: String): String =
-    escapeHtmlAttr(s.replace("\\", "\\\\").replace("'", "\\'"))
-
-  /** `'` is deliberately NOT escaped: the delimiters of the JS string literals
-    * above have to survive into the browser, and a value's own quote was
-    * already backslashed by [[escapeJs]] before this runs.
-    */
-  private def escapeHtmlAttr(s: String): String =
-    s.replace("&", "&amp;").replace("<", "&lt;").replace("\"", "&quot;")
+  private def escapeJsInto(sb: java.lang.Appendable, s: String): Unit = {
+    val n = s.length
+    var i = 0
+    var start = 0
+    def flush(upto: Int): Unit =
+      if (upto > start) { val _ = sb.append(s, start, upto) }
+    while (i < n) {
+      val replacement = s.charAt(i) match {
+        case '\\' => "\\\\"
+        case '\'' => "\\'"
+        case '&'  => "&amp;"
+        case '<'  => "&lt;"
+        case '"'  => "&quot;"
+        case _    => null
+      }
+      if (replacement ne null) {
+        flush(i)
+        sb.append(replacement)
+        start = i + 1
+      }
+      i += 1
+    }
+    flush(n)
+  }
 }

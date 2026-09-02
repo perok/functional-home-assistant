@@ -7,6 +7,11 @@ addSbtPlugin("nl.gn0s1s" % "sbt-dotenv" % "3.3.0")
 
 addSbtPlugin("org.scalameta" % "sbt-scalafmt" % "2.6.1")
 
+// Scalafix (#115). Runs the compiler's own -Wunused findings back into the
+// sources (`scalafixAll RemoveUnused`) instead of hand-deleting imports, which
+// is what made the warning gate affordable to turn on.
+addSbtPlugin("ch.epfl.scala" % "sbt-scalafix" % "0.14.7")
+
 // Fat jar for the HA add-on image (home-addon/Dockerfile). 2.3.x is
 // cross-published for sbt 2.x.
 addSbtPlugin("com.eed3si9n" % "sbt-assembly" % "2.3.1")

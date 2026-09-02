@@ -2,26 +2,13 @@ package fh.view.runtime
 
 import api.homeassistant.HomeAssistantApi
 import cats.effect.IO
-import cats.effect.kernel.{Deferred, Ref}
+import cats.effect.kernel.Ref
 import cats.syntax.all.*
-import fh.view.model.{
-  Activation,
-  CardDef,
-  Dashboard,
-  LayoutNode,
-  NodeId,
-  Op,
-  Predicate,
-  SlotSource,
-  Surface,
-  Theme
-}
+import fh.view.model.{Dashboard, LayoutNode, SlotSource, Surface}
 import fh.view.testkit.FakeHomeAssistant
 import fh.view.testkit.TestIds.given
 import fh.view.testkit.TestAuth
 import fs2.concurrent.SignallingRef
-import io.circe.Json
-import org.http4s.headers.{`Cache-Control`, `If-None-Match`, ETag}
 
 import scala.concurrent.duration.*
 

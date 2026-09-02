@@ -404,7 +404,7 @@ class UiSmokeSuite extends SmokeSuite {
         _ <- ts.awaitLive()
         before <- IO.blocking(slider.inputValue())
         _ <- IO.blocking(
-          page.route("**/sse/action/**", route => held.add(route))
+          page.route("**/sse/action/**", route => { val _ = held.add(route) })
         )
         _ <- IO.blocking(slider.focus())
         _ <- IO.blocking(slider.press("End"))

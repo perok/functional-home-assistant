@@ -321,8 +321,7 @@
                   "fillColor" : {
                     "bypassUnavailable" : false,
                     "default" : "currentcolor",
-                    "reads" : "live",
-                    "signal" : "style:background",
+                    "reads" : "once",
                     "transform" : "''"
                   },
                   "icon" : "mdi-lightbulb",

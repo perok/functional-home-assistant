@@ -6,7 +6,6 @@ import cats.effect.std.MapRef
 import fh.view.model.NodeId
 
 import java.util.concurrent.ConcurrentHashMap
-import scala.jdk.CollectionConverters.*
 
 /** One rendered node: its bytes and their digest, computed together so nothing
   * hashes the same HTML twice. Distinct from [[Rendered]], which is a PATCH

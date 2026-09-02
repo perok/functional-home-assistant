@@ -1,7 +1,7 @@
 package fh.view.runtime
 
 import fh.view.model.*
-import fh.view.testkit.TestIds.{setId, given}
+import fh.view.testkit.TestIds.setId
 import hedgehog.*
 import hedgehog.munit.HedgehogSuite
 
@@ -96,7 +96,6 @@ class DigestPropertySuite extends HedgehogSuite {
       val rendered =
         Digest.of(r.renderNodeById(NodeId.derived("c"), at(v)).get)
       assert(recorded == rendered)
-      success
     }
   }
 
@@ -110,7 +109,6 @@ class DigestPropertySuite extends HedgehogSuite {
       val recorded = r.renderBodyTraced(at(v)).own.get(mid).get.digest
       val rendered = Digest.of(r.renderNodeById(mid, at(v)).get)
       assert(recorded == rendered)
-      success
     }
   }
 }

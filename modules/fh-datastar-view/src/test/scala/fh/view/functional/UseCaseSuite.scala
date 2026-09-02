@@ -457,7 +457,7 @@ class UseCaseSuite extends munit.CatsEffectSuite {
     import org.pkl.core.http.HttpClient
     import org.pkl.core.packages.PackageResolver
     import org.pkl.core.project.{Project, ProjectDependenciesResolver}
-    import org.pkl.core.{EvaluatorBuilder, ModuleSource, SecurityManagers}
+    import org.pkl.core.{EvaluatorBuilder, ModuleSource}
 
     val http = HttpClient
       .builder()

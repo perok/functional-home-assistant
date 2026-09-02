@@ -83,9 +83,43 @@ import java.util.concurrent.TimeUnit
   *
   * What to take from it.
   *
-  * '''The document is 128 kB and costs 3.5 MB to serve''' — 27x its own size.
-  * Most of that is the WALK — transforms 0.96 MB, mustache contexts 0.39 MB,
-  * slot resolution, signal seeds — which the SINK cannot touch.
+  * '''The document is 128 kB and costs 2.2 MB to serve''' — 17x its own size.
+  * Most of that is the WALK — transforms, mustache contexts, slot resolution —
+  * which the SINK cannot touch.
+  *
+  * '''Half of what it used to cost was the signal SEED, and profiling is the
+  * only reason anyone knows.''' `-prof gc` says how much; it never says where.
+  * async-profiler over [[pageSignals]] put '''49%''' of a page open in
+  * `Datastar.nestJs` + `SignalId.segments` — a per-level
+  * `groupBy.toList.sortBy.collect` run once per LEVEL per NODE, over a
+  * single-element list, for a name four segments deep. Sorting the rows once by
+  * path and walking them by index took `pageSignals` from 3,399 kB to 2,044 kB
+  * ('''−40%'''); precomputing the whole seed per node ([[Datastar.SignalSeed]])
+  * took it to '''1,791 kB''', a further −12.6%, and the time from 1,275 µs to
+  * 836 µs. [[page]], which has no signal slots, stayed put — the control that
+  * says the change reached only what it meant to.
+  *
+  * '''Then the scratch buffers went.''' The patch form each own-rendering node
+  * renders only to be fingerprinted was allocating `char[1024]` plus a
+  * `toString` per node; [[Sink.scratched]] lends one per thread to the whole
+  * walk. [[pageWalkStream]] '''1,322 kB -> 1,113 kB, −15.8%''', time unchanged.
+  *
+  * '''Profile [[pageWalkStream]], not [[pageSignals]].''' `pageSignals` buffers
+  * the whole document, which production does not — that alone is ~19% of its
+  * allocation profile (`RendererTestOps.renderPageTraced`). It is a fine A/B
+  * arm; it is a misleading answer to "where does a page open go".
+  *
+  * '''Read a page row against its own A/B, not against a number written
+  * here.''' `gc.alloc.rate.norm` is deterministic WITHIN a run (±200 B) and
+  * drifts about '''2.6%''' BETWEEN runs on this box — [[page]] came back
+  * anywhere from 1,295 kB to 1,329 kB across one session with no change to its
+  * path. So a claim under ~3% needs the two arms measured back to back, which
+  * is what the numbers above are; anything smaller is not a result.
+  *
+  * The lesson is the method, not the number: issue #237's "where the bytes
+  * plausibly go" was read off the code and named `resolveTemplate` and
+  * `executeResolved`, neither of which registers today. Profile before
+  * choosing.
   *
   * '''The sink is the variable; fs2 is not.''' `renderPageInto` is pure over a
   * `Writer`, and http4s hands a buffered body out as a `Stream[IO, Byte]` just
@@ -749,6 +783,11 @@ class RenderBench {
     * unchanged, every morph is suppressed, and the batch is one
     * `datastar-patch-signals` frame. The work is therefore all decision and no
     * output — the case the whole suppression machinery exists for.
+    *
+    * Reading an allocation profile of this: `signalTick` is ~9% of it and is
+    * THIS METHOD'S fixture, not production — it mints the moved states each op,
+    * which a real tick receives. Subtract it before taking any percentage here
+    * as a share of a real tick.
     */
   @Benchmark
   def resumeSignals(bh: Blackhole): Unit = {

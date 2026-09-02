@@ -5,10 +5,9 @@ import com.github.mustachejava.Mustache as JavaMustache
 import com.github.mustachejava.DefaultMustacheVisitor
 import com.github.mustachejava.MustacheVisitor
 import com.github.mustachejava.TemplateContext
-import fh.view.model.{CardDef, Dashboard, NodeId}
+import fh.view.model.Dashboard
 
 import java.io.{Reader, StringReader, Writer}
-import scala.jdk.CollectionConverters.*
 
 /** The shared template library, pre-compiled once at startup, never on the hot
   * path. Templates escape their `{{slot}}` values because HA values contain
@@ -264,12 +263,12 @@ object Templates {
   // push/pop of scope descent is balanced, and the list returns to the pool —
   // allocation-free steady state, correct at any depth.
   private val scopePool =
-    new ThreadLocal[scala.collection.mutable.ArrayStack[
+    new ThreadLocal[scala.collection.mutable.Stack[
       com.github.mustachejava.util.InternalArrayList[AnyRef]
     ]]:
-      override def initialValue(): scala.collection.mutable.ArrayStack[
+      override def initialValue(): scala.collection.mutable.Stack[
         com.github.mustachejava.util.InternalArrayList[AnyRef]
-      ] = scala.collection.mutable.ArrayStack.empty
+      ] = scala.collection.mutable.Stack.empty
 
   /** Execute `tpl` with the single scope against `writer` — the call the whole
     * runtime uses (Renderer.executeInto, the chrome, the bench's engine cell).

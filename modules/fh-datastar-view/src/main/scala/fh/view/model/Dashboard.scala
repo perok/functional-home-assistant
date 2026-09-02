@@ -116,8 +116,14 @@ case class SlotSource(
   /** The transform's IDENTITY, for every place the renderer keys a value by its
     * transform (signal names, the once-cache): the CEL string for an
     * engine-tier slot, the simple structure's key for an opted-in one.
+    *
+    * A `lazy val`, because the `Simple` arm BUILDS a string
+    * ([[Transform.Simple.key]]) and this is read once per signal slot per node
+    * on every live tick — 4.3% of a signals tick's allocation as a `def`
+    * (`RenderBench.resumeSignals`, async-profiler). A `SlotSource` is
+    * immutable, so the first answer is the only answer.
     */
-  def valueKey: String = transform match {
+  lazy val valueKey: String = transform match {
     case s: String            => s
     case sm: Transform.Simple => Transform.Simple.key(sm)
   }
@@ -306,7 +312,7 @@ case class CardDef(
     * region loops over `{{{html}}}`, which is what lets the document walk
     * thread both into one buffer (issue #237).
     */
-  def holeOf(name: String, r: Region): String =
+  def holeOf(name: String): String =
     "{{#" + name + "}}{{{html}}}{{/" + name + "}}"
 
   /** Whether this card holds content it does not own — the LEAF/STRUCTURE
@@ -553,7 +559,7 @@ object LayoutNode:
       * source instead. `None` ⇒ no subject (a container, a button with no
       * entity).
       */
-    def subjectEntity: Option[String] =
+    lazy val subjectEntity: Option[String] =
       slots.get(Dashboard.SubjectSlot).flatMap(_.literal)
 
     /** The entities whose live state this component depends on. A slot
@@ -563,7 +569,7 @@ object LayoutNode:
       * morph-wrapper decision (see `Renderer`). Empty ⇒ static HTML, never
       * patched.
       */
-    def liveEntities: List[String] =
+    lazy val liveEntities: List[String] =
       slots.values.toList
         .filter(s => s.reads == Reads.Live && s.literal.isEmpty)
         .flatMap(s => s.entityId.orElse(subjectEntity))
@@ -583,7 +589,7 @@ object LayoutNode:
       * render, while the narrow list in the reverse index silently stops signal
       * frames.
       */
-    def liveEntitiesAsBytes: List[String] =
+    lazy val liveEntitiesAsBytes: List[String] =
       slots.values.toList
         .filter(s =>
           s.reads == Reads.Live && s.literal.isEmpty && s.signal.isEmpty
@@ -749,8 +755,50 @@ object LayoutNode:
 
   /** Slug an arbitrary string (an entity id, a surface id) into a valid HTML id
     * fragment — also a valid Datastar signal-name fragment.
+    *
+    * Hand-rolled rather than `s.replaceAll("[^A-Za-z0-9_]", "_")`, which is the
+    * same rule and reads better. `String.replaceAll` COMPILES ITS PATTERN on
+    * every call, and `MemberGraph.memberId` runs this once per set member per
+    * paint: 13.4% of a candidate-set page open, nearly all of it
+    * `Pattern.compile` (`RenderBench.pageSet`, async-profiler).
+    *
+    * The scan-first shape also returns `s` itself when nothing needs replacing
+    * — which is every region name — so the common call allocates nothing at
+    * all.
     */
-  def sanitize(s: String): String = s.replaceAll("[^A-Za-z0-9_]", "_")
+  def sanitize(s: String): String = {
+    var i = 0
+    while (i < s.length && safeIdChar(s.charAt(i))) i += 1
+    if (i == s.length) s
+    else {
+      val out = new java.lang.StringBuilder(s.length)
+      val _ = out.append(s, 0, i)
+      while (i < s.length) {
+        val c = s.charAt(i)
+        if (safeIdChar(c)) {
+          val _ = out.append(c)
+          i += 1
+        } else {
+          val _ = out.append('_')
+          // A supplementary code point is ONE character to the regex this
+          // replaces, so its surrogate PAIR collapses to one `_`. Stepping by
+          // `char` instead gave an emoji two, which no test would have caught
+          // — every id here happens to be ASCII today.
+          i +=
+            (if (
+               Character.isHighSurrogate(c) && i + 1 < s.length &&
+               Character.isLowSurrogate(s.charAt(i + 1))
+             ) 2
+             else 1)
+        }
+      }
+      out.toString
+    }
+  }
+
+  private def safeIdChar(c: Char): Boolean =
+    (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+      (c >= '0' && c <= '9') || c == '_'
 
   /** One set member's id: its set's id plus the member's key, slugged.
     *
@@ -1246,9 +1294,9 @@ case class Dashboard(
     val regionHoleErrors: List[String] =
       cards.toList.sortBy(_._1).flatMap { case (name, cd) =>
         cd.regions.toList.sortBy(_._1).collect {
-          case (r, region) if !cd.template.contains(cd.holeOf(r, region)) =>
+          case (r, region) if !cd.template.contains(cd.holeOf(r)) =>
             s"card '$name': declares region '$r' (${region.fill}) but its " +
-              s"`template` places no ${cd.holeOf(r, region)} hole for it — " +
+              s"`template` places no ${cd.holeOf(r)} hole for it — " +
               "nothing would ever appear there"
         }
       }

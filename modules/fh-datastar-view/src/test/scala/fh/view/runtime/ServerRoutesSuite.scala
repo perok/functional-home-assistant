@@ -5,20 +5,7 @@ import fh.view.runtime.RendererTestOps.*
 import api.homeassistant.HomeAssistantApi
 import cats.data.NonEmptyList
 import cats.effect.IO
-import cats.effect.kernel.{Deferred, Ref}
-import fh.view.model.{
-  Activation,
-  CardDef,
-  Dashboard,
-  LayoutNode,
-  NodeId,
-  Op,
-  Predicate,
-  Region,
-  SlotSource,
-  Surface,
-  Theme
-}
+import fh.view.model.{CardDef, Dashboard, LayoutNode, Region, Surface, Theme}
 import fh.view.testkit.FakeHomeAssistant
 import fh.view.testkit.TestIds.given
 import fh.view.testkit.TestAuth
@@ -715,7 +702,7 @@ class ServerRoutesSuite extends ServerHarness {
         )
         .use { server =>
           val routes = server.routes.orNotFound
-          val uri = Uri.unsafeFromString("/system/pkl/dump.pkl")
+          val uri = uri"/system/pkl/dump.pkl"
           for {
             ok <- routes.run(Request[IO](Method.GET, uri))
             okTag = ok.headers.get[ETag].map(_.tag)

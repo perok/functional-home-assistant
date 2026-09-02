@@ -54,13 +54,25 @@ object Cel {
 
   // ---- the two registered helpers ----
 
-  private def numToString(d: Double): String =
+  /** How a number becomes bytes, for BOTH tiers. ADR 0028 defines each
+    * `Transform.Simple` case by an idiomatic CEL spelling and has
+    * `TransformSuite` assert byte-equality against it; this is the function on
+    * both sides of that equality, so it has exactly one definition.
+    */
+  private[view] def numToString(d: Double): String =
     if (d.isNaN || d.isInfinite) d.toString
     else if (d == Math.rint(d) && Math.abs(d) < 1e15) d.toLong.toString
     else
-      BigDecimal(d)
-        .setScale(10, BigDecimal.RoundingMode.HALF_UP)
-        .bigDecimal
+      // `java.math.BigDecimal.valueOf`, not `scala.math.BigDecimal(d)`: the
+      // Scala one wraps the same `Double.toString` parse in a `BigDecimal`
+      // object carrying a `MathContext`, and every fractional slot value on the
+      // page pays for both. Byte-identical — `DECIMAL128` keeps 34 significant
+      // digits and a `Double` has at most 17, so the context never rounds
+      // anything a `setScale(10)` would not; checked over 500k doubles and
+      // pinned by the cases in `TransformSuite`.
+      java.math.BigDecimal
+        .valueOf(d)
+        .setScale(10, java.math.RoundingMode.HALF_UP)
         .stripTrailingZeros
         .toPlainString
 
@@ -68,12 +80,6 @@ object Cel {
     * engine applies to a bare result, so `str(v)` and a bare `v` never part.
     */
   private def stringLike(v: Any): String = v match
-    case n if isNullValue(n)   => ""
-    case s: String             => s
-    case b: java.lang.Boolean  => b.toString
-    case l: java.lang.Long     => l.toString
-    case i: java.lang.Integer  => i.toString
-    case n: java.lang.Number   => numToString(n.doubleValue)
     case xs: java.util.List[?] =>
       val it = xs.iterator()
       val sb = new java.lang.StringBuilder("[")
@@ -86,7 +92,9 @@ object Cel {
         ()
       }
       sb.append("]").toString
-    case other => other.toString
+    // The list case is the ONLY thing `str(x)` adds: a bare list result renders
+    // as Java's `[a, b]`, `str` as `[a,b]`, and that difference is deliberate.
+    case scalar => stringify(scalar)
 
   /** `num(x)` — `$number`'s replacement. A numeric String parses to Double and
     * a Number passes through; anything else is an evaluation error (a card
@@ -239,8 +247,13 @@ object Cel {
   /** Stringify a CEL result the way a string-coercing operator would, so a bare
     * number and a `str(...)` number land identically on the slot. Null becomes
     * "" so the slot's `default` can take over.
+    *
+    * Also what the `Transform.Simple` fast tier renders its direct reads with
+    * ([[Transform.runSimple]]): the tier is only sound while it produces
+    * exactly the engine's bytes, and the cheapest way to keep that true is for
+    * there to be one function rather than two that agree today.
     */
-  private def stringify(result: Any): String = result match
+  private[view] def stringify(result: Any): String = result match
     case n if isNullValue(n)  => ""
     case s: String            => s
     case b: java.lang.Boolean => b.toString

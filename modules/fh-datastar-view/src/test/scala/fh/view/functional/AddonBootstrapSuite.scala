@@ -192,7 +192,7 @@ class AddonBootstrapSuite extends munit.FunSuite {
 
     // Recovery: deleting the machine-era consumer opts into a fresh, package-form
     // re-seed — then it evaluates.
-    os.remove(box.ws / "PklProject")
+    val _ = os.remove(box.ws / "PklProject")
     val _ =
       AddonBootstrap.run(box.ws, bundled, box.cache, LoopbackUrl)
     val _ = DumpPackage.seedFromText(

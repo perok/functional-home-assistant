@@ -120,7 +120,7 @@ class ControlSmokeSuite extends SmokeSuite {
     // they are NOT gated — both bind straight to the busy signal and flip in
     // the same Datastar frame. Only the spinner waits, on a derived signal.
     withPage(scene, fakeConfig = FakeConfig(callDelay = 2.seconds)) {
-      (page, ts) =>
+      (page, _) =>
         val toggle = page.locator(
           "button",
           new com.microsoft.playwright.Page.LocatorOptions()
@@ -219,7 +219,7 @@ class ControlSmokeSuite extends SmokeSuite {
     withPage(
       Scene.of(SmokeDashboard.busyIcon),
       fakeConfig = FakeConfig(callDelay = 2.seconds)
-    ) { (page, ts) =>
+    ) { (page, _) =>
       val icon = page.locator(".slider-actions button")
       def spinning: IO[Boolean] =
         IO.blocking(

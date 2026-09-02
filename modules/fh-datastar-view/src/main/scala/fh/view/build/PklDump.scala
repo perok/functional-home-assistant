@@ -1,5 +1,6 @@
 package fh.view.build
 
+import cats.syntax.all.*
 import io.circe.{Json, JsonObject}
 
 /** Renders the transformed [[RegistryDump]] JSON as the typed `dump.pkl`
@@ -504,7 +505,7 @@ object PklDump {
       eo("id_hidden")
         .flatMap(_.asBoolean)
         .filter(identity)
-        .map(_ => "  id_hidden = true")
+        .as("  id_hidden = true")
       // Capability VALUES are not assigned here — they are declared with their
       // value as the default on the entity's OWN class, so `new {}` carries
       // them. Capability PREDICATES are assigned, because they are declared on

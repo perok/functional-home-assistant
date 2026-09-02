@@ -940,9 +940,34 @@ run — read the ratios, not the absolutes):
 | `pageWalkStreamUnbuffered` | 1,327 ±256 | 3,603,954 | …without the writer buffer |
 | `pageStreamBuffered` | 2,318 ±904 | 3,232,255 | end to end, through fs2 |
 
-The document is **128 kB**, so serving it costs ~22x its own size in allocation. Most of that is
-the walk (transforms 0.96 MB, mustache contexts 0.39 MB, slot resolution, signal seeds), which no
-sink can touch.
+The document is **128 kB**, so serving it costs ~15x its own size in allocation (those rows predate
+the signal-seed work below; `pageServe` is 1.94 MB now). Most of what remains is the walk —
+transforms, mustache contexts, slot resolution — which no sink can touch.
+
+**The seed was half of it, and only a profiler could say so.** `-prof gc` reports how much a page
+allocates, never where, and issue #237's guess — read off the code — named the slot resolution.
+async-profiler over `pageSignals` put **49%** of a page open in `Datastar.nestJs` plus
+`SignalId.segments`: a `groupBy.toList.sortBy.collect` per LEVEL per NODE, over a single-element
+list, for a signal name four segments deep. The rows are now sorted once by path and walked by
+index (`Datastar.pathsOf`), which took `pageSignals` from 3,399 kB to 2,044 kB (**−40%**). The names
+are then fixed by the node's plan, so the seed itself is precomputed as literal chunks around value
+holes (`Datastar.SignalSeed`): a further **−12.6%**, to 1,791 kB, and 1,275 µs to 836 µs end to end.
+`page`, which carries no signal slots, stayed put. The live tick barely moved (151 kB → 148 kB): a
+signals FRAME carries a few signals, where the SEED is per node.
+
+**The per-node scratch buffer is borrowed, not allocated.** An own-rendering node's PATCH form is
+rendered into a throwaway buffer purely to fingerprint it — `char[1024]` plus a `toString` per node,
+for bytes nobody keeps, which the profiler put at a quarter of a page open. `Sink.scratched` lends
+one buffer per THREAD to the whole walk instead (per thread because sessions render concurrently and
+the walk is otherwise pure — the same reason `Digest.digester` is a `ThreadLocal`). `pageWalkStream`
+**1,322 kB -> 1,113 kB, −15.8%**; time unchanged. Nested borrows fall back to allocating, which no
+current path needs — instrumenting the borrow across the suite counts zero — so the guard exists to
+keep "never render into a scratch while holding one" from being an unwritten precondition.
+
+Comparing page rows across runs needs care. `gc.alloc.rate.norm` is deterministic WITHIN a run
+(±200 B) but drifts ~**2.6%** between them — `page` came back anywhere from 1,295 kB to 1,329 kB in
+one session with nothing on its path changing — so any claim under ~3% has to come from two arms
+measured back to back.
 
 **Compare the two WALK rows and nothing else.** `renderPageInto` is pure over a `Writer`, and ember
 hands a buffered body out as a `Stream[IO, Byte]` just as it does a streamed one — so pricing the
@@ -955,7 +980,7 @@ So the two memory targets here are **not the same** and a change should say whic
 | target | what it is | what moves it |
 |---|---|---|
 | peak live bytes | was ~500 kB per concurrent page open, multiplying by open tabs | **streaming — done**; the peak is one node, asserted in `SinkStreamingSuite` |
-| allocation churn | ~3.5 MB per page open, driving GC on a Pi 4 | the walk — transforms, contexts. Streaming is 672 kB of it (19%), not the ~10% first projected |
+| allocation churn | ~1.9 MB per page open, driving GC on a Pi 4 | the walk — transforms, contexts. Streaming was 672 kB of the old 3.5 MB (19%); the signal-seed work took another 1.6 MB (47%) across two steps |
 
 A third target the stream also serves, and the one it is most visibly for: **time to first byte**.
 The browser used to get nothing until the whole document was assembled; it now has the `<head>` —
@@ -1036,8 +1061,14 @@ Live list — delete an entry when it is answered, and say where the answer land
   against the current snapshot from that session's own cursor — but that is an invariant worth
   writing down and testing rather than relying on.
 
-- **Carrying the converted attribute map across a tick.** See TODO2.md — `EntityState.javaAttributes`
-  is rebuilt per state change even when attributes did not move.
+- ~~**Carrying the converted attribute map across a tick.**~~ *Measured, and the answer is no.*
+  `EntityState.javaAttributes` is rebuilt per state change even when attributes did not move, and
+  that rebuild is **3.4%** of a signals tick's allocation (`RenderBench.resumeSignals` under
+  async-profiler). The fix wants an `Attributes` type owning the JSON map and its derived Java view
+  so that a delta touching no attribute returns the same instance — a hand-written `equals` on the
+  core state type plus ~45 call sites reading `attributes` as a bare `Map`. That is a large change
+  for 3.4%, and the same profile named items worth three and six times as much. Reopen only if a
+  profile puts it somewhere else.
 
 - **Fills bypass the `RenderCache` entirely** —
   [issue #224](https://github.com/perok/functional-home-assistant/issues/224). `arrivingFill` and
@@ -1077,11 +1108,16 @@ Live list — delete an entry when it is answered, and say where the answer land
   is one node, not the document, and `holds` is committed in the stream's finalizer on success.
   Churn fell 672 kB (19%), not the ~10% the entry projected.
 
-- **`session.control` is an unbounded `Queue[IO, SseFrame]`, holding pre-encoded byte arrays.**
-  Nothing bounds it, so a session whose stream is gone but whose linger has not expired accumulates
-  every frame addressed to it. That is the peak the streaming work did not touch, and it is on the
-  same Pi 4. What it should do when full is the open part — dropping the oldest is wrong (a patch
-  is a delta), so the answer is probably to drop the session and let it repaint from `holds`.
+- **`session.control` is an unbounded `Queue[IO, SseFrame]`, and the bound is incidental.** Nothing
+  in the type stops it growing; what stops it in practice is that only `swapHost` writes to it — a
+  SURFACE TAP, never a tick. So a session whose stream has dropped accumulates one frame per tap
+  the client still manages to POST (the fetch works when the SSE does not), for as long as the
+  linger lasts, and the reaper drops the queue with the session. That is small, and it is a
+  property of today's three call sites rather than of the queue.
+
+  Worth bounding anyway if a fourth writer ever appears, and the answer is not "drop the oldest" —
+  a patch is a delta, so a dropped one leaves the DOM permanently wrong. Dropping the SESSION and
+  letting it repaint from `holds` is the recovery that already exists.
 
 - **What an extra client on a tick actually costs, and where it goes.** `resumeSignalsFanout`
   minus `resumeSignals` over nine: **70 µs and 117 kB** per further client, against 262 µs for the

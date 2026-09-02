@@ -3,7 +3,6 @@ package fh.view.runtime
 import api.homeassistant.HomeAssistantApi
 import cats.effect.{IO, Ref, Resource}
 import cats.effect.std.{Queue, Supervisor}
-import cats.syntax.all.*
 import fh.view.build.{PklDump, Site, SystemPkl}
 import fh.view.model.Dashboard
 import fh.view.testkit.{FakeHomeAssistant, HouseFixture, PklWorkspace}
@@ -186,14 +185,14 @@ class FailedDashboardSuite extends ServerHarness {
         _ <- IO.blocking(os.write.over(ws / Site.EntryFile, kitchenSite()))
         _ <- ServerApp.reloadSite(ws, site, imports)
         ready <- ref.get
-        fixedPage <- serve(ws, fake, refs)
+        fixedPage <- serve(fake, refs)
         // Break it again — the ref must become Failed and serve the error page.
         _ <- IO.blocking(
           os.write.over(ws / Site.EntryFile, "this is not valid pkl")
         )
         _ <- ServerApp.reloadSite(ws, site, imports)
         broken <- ref.get
-        brokenPage <- serve(ws, fake, refs)
+        brokenPage <- serve(fake, refs)
       } yield {
         assert(ready.isInstanceOf[Server.RendererState.Ready], clue = ready)
         assert(fixedPage._1 == Status.Ok, clue = fixedPage)
@@ -778,7 +777,6 @@ class FailedDashboardSuite extends ServerHarness {
     * sees after the ref moved.
     */
   private def serve(
-      ws: os.Path,
       fake: FakeHomeAssistant,
       refs: Map[String, SignallingRef[IO, Server.RendererState]]
   ): IO[(Status, String)] =

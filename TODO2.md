@@ -29,17 +29,15 @@ query-scoped dynamic re-renders, column layout — were removed; git history has
 - [ ] Discover NEW dashboard files at runtime: the watcher re-evaluates known entries but a new
       top-level `.pkl` needs a server restart. Watch the dashboards dir for creates, add a
       renderer for each new slug.
-- [ ] Carry the converted attribute map across a tick: `EntityState.javaAttributes` (the JSONata
-      `$attr` view) is a `lazy val` on a value that is rebuilt on EVERY state change, so an
-      entity whose frame moved only `state` re-converts an attribute map that did not change.
-      The clean fix is to name the concept — an `Attributes` type owning the JSON map and its
-      lazily-derived Java view, where `merge` returns the SAME instance when the delta touches no
-      attributes, making a stale view unrepresentable. Deferred, not dismissed: measured on a live
-      instance (1069 entities) the whole Java-side duplication is ~0.8 MB of a 28 MB live set, and
-      the conversion is a small-map rebuild on entities that are actually rendered — neither the
-      RAM nor the CPU symptom points here. Cost is the reason to wait: `attributes` is read as a
-      bare `Map` at ~45 sites (mostly tests), and the cheap version instead needs a hidden field
-      plus a hand-written `equals` on the core state type. Do it when something measures it.
+- [x] ~~Carry the converted attribute map across a tick~~ — **measured, and the answer is no.**
+      `EntityState.javaAttributes` is a `lazy val` on a value rebuilt on EVERY state change, so an
+      entity whose frame moved only `state` re-converts an attribute map that did not change. This
+      entry said "do it when something measures it"; something has. Under async-profiler the
+      re-conversion is **3.4%** of a signals tick's allocation (`RenderBench.resumeSignals`),
+      against a fix that needs an `Attributes` type, a hand-written `equals` on the core state
+      type, and ~45 call sites reading `attributes` as a bare `Map`. The same profile named
+      `Patches.signalFrame` at 19% and `Renderer.signalsOfSlots` at 9%, both since taken. Reopen
+      only if a profile puts it somewhere else.
 - [ ] An overlay to drop a pushed dashboard: `POST /dashboard/:slug` (`Server.push`) installs a
       slug that nothing ever reclaims — deliberately, since only the developer knows when they
       are done with it, but a pushed slug costs a renderer, a fragment log and a publisher fiber

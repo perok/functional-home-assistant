@@ -2,7 +2,7 @@ package fh.view.runtime
 
 import api.homeassistant.HomeAssistantApi
 import cats.effect.IO
-import cats.effect.kernel.{Deferred, Ref}
+import cats.effect.kernel.Ref
 import cats.effect.std.Supervisor
 import cats.effect.testkit.TestControl
 import cats.syntax.all.*
@@ -16,8 +16,7 @@ import fh.view.model.{
   Predicate,
   Region,
   SlotSource,
-  Surface,
-  Theme
+  Surface
 }
 import fh.view.testkit.FakeHomeAssistant
 import fh.view.testkit.DashboardBuilders.st
@@ -26,7 +25,6 @@ import fh.view.testkit.TestAuth
 import fs2.concurrent.SignallingRef
 import io.circe.Json
 import org.http4s.*
-import org.http4s.headers.{`Cache-Control`, `If-None-Match`, ETag}
 import org.http4s.implicits.*
 
 import java.util.concurrent.atomic.AtomicInteger
