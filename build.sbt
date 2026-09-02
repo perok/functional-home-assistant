@@ -1,18 +1,41 @@
 import FHCodegenPlugin.autoImport.*
 import smithy4s.codegen.Smithy4sCodegenPlugin
-import org.typelevel.scalacoptions.ScalacOptions
 
 val http4sVersion = "0.23.34"
 val MUnitFramework = new TestFramework("munit.Framework")
 
+// Warnings are advisory while you work and fatal where the flag says so (#115).
+// sbt-tpolecat defaults to `CiMode` — fatal — in EVERY invocation, which is why
+// this build used to cancel it by excluding `warnError` outright; that made the
+// warnings unenforceable anywhere, and #285 (a missing `else` that blanked a
+// card) was named by `-Wvalue-discard` and shipped regardless.
+//
+// The DEFAULT is advisory and the flag is `SBT_TPOLECAT_CI` — the plugin's own
+// env var, so nothing here re-reads the environment; `cicd.yml` sets it in the
+// job env, which is the one place to look to know what CI enforces. It is not
+// inferred from a generic `CI`, so a local run only becomes fatal when someone
+// asks for it:
+//
+//   SBT_TPOLECAT_CI=1 sbt clean compile   # a fresh server, exactly like CI
+//   sbt tpolecatCiMode <task>             # in an already-running server
+//
+// The second form is the one that works day to day: the env is read when the
+// build LOADS, so exporting the variable at a shell that talks to a running sbt
+// server changes nothing.
+//
+// `ThisBuild`, not `commonSettings`: the key is a tpolecat BUILD setting, and a
+// project-scoped copy is simply never read (measured — the mode stayed
+// `CiMode`).
+ThisBuild / tpolecatDefaultOptionsMode := org.typelevel.sbt.tpolecat.DevMode
+
+// Scalafix's other half of #115: `sbt scalafixAll` applies `.scalafix.conf`.
+// `RemoveUnused` reads the compiler's own -Wunused findings out of semanticdb,
+// so it deletes exactly what the gate would fail on.
+ThisBuild / semanticdbEnabled := true
+ThisBuild / scalafixDependencies += "org.typelevel" %% "typelevel-scalafix" % "0.5.0"
+
 val commonSettings = Seq(
   scalaVersion := "3.8.4",
-  tpolecatExcludeOptions ++= Set(
-    ScalacOptions.warnError
-  ),
-  // Test / tpolecatExcludeOptions ++= Set(
-  //  ScalacOptions.fatalWarnings
-  // ),
   libraryDependencies ++= Seq(
     "org.typelevel" %% "cats-effect" % "3.7.1",
     "io.scalaland" %% "chimney" % "1.11.0",
@@ -138,6 +161,20 @@ lazy val `home-codegen` =
     //   -> run scalafmt on src_managed folder
     .settings(
       commonSettings,
+      // The one project the warning gate does not apply to: every source here
+      // is written by `fhTaskCodeGen` and wiped by the next run, so a warning
+      // is a bug report against the GENERATOR and there is nothing in this
+      // directory to fix. It has one today — two HA devices whose names differ
+      // only in case mint objects that collide on a case-insensitive
+      // filesystem. CI never compiles this project (it needs a live HA), so
+      // this only keeps a local `SBT_TPOLECAT_CI=1` run honest.
+      tpolecatExcludeOptions += org.typelevel.scalacoptions.ScalacOptions.warnError,
+      // Scalafix skips it for a blunter reason: generated names carry `:`
+      // (`hci0-(DC:A6:32:2D:13:3A).scala`), and scalafix turns a relative path
+      // into a URI, so those files abort the whole run with
+      // `URISyntaxException: Illegal character in scheme name`.
+      Compile / scalafix / unmanagedSources := Nil,
+      Test / scalafix / unmanagedSources := Nil,
       fhCodegenPluginProject := `fh-codegen-plugin`,
       // Credentials come from `.env` (SERVER/SECRET), read at run time — see
       // `FHApi.fromEnv`. These placeholders only satisfy the task's signature.

@@ -306,7 +306,7 @@ case class CardDef(
     * region loops over `{{{html}}}`, which is what lets the document walk
     * thread both into one buffer (issue #237).
     */
-  def holeOf(name: String, r: Region): String =
+  def holeOf(name: String): String =
     "{{#" + name + "}}{{{html}}}{{/" + name + "}}"
 
   /** Whether this card holds content it does not own — the LEAF/STRUCTURE
@@ -1246,9 +1246,9 @@ case class Dashboard(
     val regionHoleErrors: List[String] =
       cards.toList.sortBy(_._1).flatMap { case (name, cd) =>
         cd.regions.toList.sortBy(_._1).collect {
-          case (r, region) if !cd.template.contains(cd.holeOf(r, region)) =>
+          case (r, region) if !cd.template.contains(cd.holeOf(r)) =>
             s"card '$name': declares region '$r' (${region.fill}) but its " +
-              s"`template` places no ${cd.holeOf(r, region)} hole for it — " +
+              s"`template` places no ${cd.holeOf(r)} hole for it — " +
               "nothing would ever appear there"
         }
       }

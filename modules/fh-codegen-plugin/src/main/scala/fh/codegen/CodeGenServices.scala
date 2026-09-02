@@ -1,6 +1,5 @@
 package fh.codegen
 
-import fh.util.*
 import cats.syntax.all.*
 import perok.ha.*
 import scala.util.chaining.*
@@ -115,9 +114,8 @@ class CodeGenServices(
       (domain, services2)
     }
     .filter(_._2.nonEmpty)
-    .map { (domain, servicesInDomain) =>
+    .map { (_, servicesInDomain) =>
       servicesInDomain.mkString("\n")
-
     }
     .pipe { domains =>
       s"""

@@ -3,7 +3,6 @@ package api.homeassistant.ws
 import api.homeassistant.ws.protocol.client.CommandPhase
 import api.homeassistant.ws.testkit.FakeHaSocket
 import cats.effect.{IO, Resource}
-import cats.syntax.all.*
 import fs2.Stream
 import io.circe.Json
 import io.circe.syntax.*

@@ -37,8 +37,8 @@ class IngressSuite extends munit.CatsEffectSuite {
 
   private def req(from: Ipv4Address, userId: Option[String]) =
     userId
-      .foldLeft(Request[IO](Method.GET, Uri.unsafeFromString("/d/kitchen")))(
-        (r, id) => r.putHeaders(Header.Raw(Ingress.UserIdHeader, id))
+      .foldLeft(Request[IO](Method.GET, uri"/d/kitchen"))((r, id) =>
+        r.putHeaders(Header.Raw(Ingress.UserIdHeader, id))
       )
       .withAttribute(
         Request.Keys.ConnectionInfo,

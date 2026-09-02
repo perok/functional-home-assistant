@@ -6,7 +6,7 @@ import cats.syntax.all.*
 import io.circe.Json
 import io.circe.parser.parse
 import io.circe.syntax.*
-import org.http4s.client.websocket.{WSClient, WSConnection, WSFrame, WSRequest}
+import org.http4s.client.websocket.{WSClient, WSConnection, WSFrame}
 
 /** A Home Assistant WebSocket stub at the FRAME level: a `WSClient[IO]` the
   * REAL [[api.homeassistant.ws.HAWSApiLowLevel]] connects through.

@@ -1153,7 +1153,7 @@ class Renderer(
               .append('"')
             if (!form.isPatch)
               Datastar.seedAttrInto(buf, plan.signalSeed, resolved.signals)
-            buf.append('>')
+            val _ = buf.append('>')
           }
 
         def bodyInto(
@@ -1353,7 +1353,7 @@ class Renderer(
             }
           trace.put(m.id, Painted(digest, sigs))
         }
-        out.append("</div>")
+        val _ = out.append("</div>")
     }
 
   private def renderSet(
@@ -1384,14 +1384,14 @@ class Renderer(
     val out = Sink.buffer(
       160 + members.foldLeft(0)(_ + _.length)
     )
-    out
+    val _ = out
       .append("""<div class="fh-cell fh-group""")
       .append(Renderer.cellClasses(cell))
       .append("""" id="""")
       .append(id)
       .append("\">")
     members.foreach(out.append)
-    out.append("</div>")
+    val _ = out.append("</div>")
     out.result
   }
 
@@ -1552,10 +1552,12 @@ class Renderer(
       .append("""" id="""")
       .append(m.id)
       .append('"')
-    if (!form.isPatch) out.append(Datastar.signalsAttr(memberSignalsOf(rm)))
-    out.append('>')
+    if (!form.isPatch) {
+      val _ = out.append(Datastar.signalsAttr(memberSignalsOf(rm)))
+    }
+    val _ = out.append('>')
     memberBodyInto(out, rm, form)
-    out.append("</div>")
+    val _ = out.append("</div>")
   }
 
   /** The member's own markup — everything inside its wrapper.
@@ -1603,7 +1605,7 @@ class Renderer(
               case ResolvedChild.NestedSet(html) => html
               case ResolvedChild.Node(cell, n)   =>
                 Sink.scratched { child =>
-                  child
+                  val _ = child
                     .append("""<div class="fh-cell""")
                     .append(Renderer.cellClasses(cell))
                     .append("""">""")
@@ -1627,7 +1629,7 @@ class Renderer(
         case ResolvedChild.NestedSet(html) => html
         case ResolvedChild.Node(cell, n)   =>
           Sink.scratched { child =>
-            child
+            val _ = child
               .append("""<div class="fh-cell""")
               .append(Renderer.cellClasses(cell))
               .append("""">""")
@@ -2140,7 +2142,7 @@ class Renderer(
       // Set only where the caller can produce a region's bytes inline — the
       // document walk for a node's own regions, [[memberBodyInto]] for a
       // member's; the region codes fall back to the string splice when absent.
-      regionWalk: Map[String, java.io.Writer => Unit] = Map.empty
+      regionWalk: Map[String, java.io.Writer => Unit]
   ): Unit =
     Templates.run(
       tpl,
@@ -2202,14 +2204,6 @@ class Renderer(
             resolveSlot(entity, src, states)
       }
     case _: LayoutNode.SetNode => Map.empty
-  }
-
-  /** Whether a node's own slots carry a signal — STRUCTURAL, resolving nothing.
-    * What a walk asks before paying for a second template execute.
-    */
-  private def declaresSignals(node: LayoutNode): Boolean = node match {
-    case c: LayoutNode.Component => c.slots.values.exists(Renderer.isSignalSlot)
-    case _: LayoutNode.SetNode   => false
   }
 
   /** Resolve a non-literal slot's value against its producing entity's state.

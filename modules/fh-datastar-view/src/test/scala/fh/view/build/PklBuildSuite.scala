@@ -181,7 +181,7 @@ class PklBuildSuite extends munit.FunSuite {
     * content when a probe imports the dump.
     */
   private def copyLib(tmp: os.Path): Unit = {
-    PklWorkspace.bootstrap(tmp)
+    val _ = PklWorkspace.bootstrap(tmp)
     // The WHOLE tree, not a named subset: the library is a graph of modules
     // across `core/`, `components/` and the roots, and a probe that copied only
     // the files it names would fail on whatever those import.
@@ -330,7 +330,7 @@ class PklBuildSuite extends munit.FunSuite {
     // must fail LOUDLY with pkl's own error naming the package — and the
     // previous lockfile must survive the failure (resolve-before-write).
     writeThirdPartyManifest(tmp, port, "2.0.0")
-    os.mtime.set(tmp / "PklProject", System.currentTimeMillis() + 1000)
+    val _ = os.mtime.set(tmp / "PklProject", System.currentTimeMillis() + 1000)
     val result = evalProj(tmp, "probe.pkl")
     assert(result.isLeft, clue = result)
     assert(result.left.exists(_.contains("thirdparty")), clue = result)

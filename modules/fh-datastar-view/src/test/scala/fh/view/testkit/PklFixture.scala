@@ -56,7 +56,7 @@ object PklFixture {
       dump: Json = HouseFixture.transformedDump
   ): Built = {
     val tmp = os.temp.dir()
-    PklWorkspace.bootstrap(tmp, PklDump.render(dump))
+    val _ = PklWorkspace.bootstrap(tmp, PklDump.render(dump))
 
     val entryFile = s"$slug.pkl"
     // .over: bootstrap may already have seeded a starter `site.pkl` into

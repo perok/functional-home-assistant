@@ -30,7 +30,7 @@ class SinkScratchSuite extends munit.FunSuite {
     val outer = Sink.scratched { a =>
       a.append("outer-head|")
       val inner = Sink.scratched { b => b.append("inner"); b.result }
-      a.append(inner).append("|outer-tail")
+      val _ = a.append(inner).append("|outer-tail")
       a.result
     }
     assertEquals(outer, "outer-head|inner|outer-tail")

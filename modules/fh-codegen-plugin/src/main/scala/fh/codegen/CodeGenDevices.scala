@@ -34,7 +34,6 @@ class CodeGenDevices(
     devices.view
       .filterNot((_, device) => device.name.isEmpty)
       .mapValues { device =>
-        val areaId = device.area_id
         val id = device.id
         val name = device.name_by_user.getOrElse(device.name)
 
