@@ -56,15 +56,19 @@ object LibPackage {
     * bootstrapped package-form workspace).
     */
   def effectivePin(dashboardsDir: os.Path): Option[String] =
-    scala.util
-      .Try(
-        org.pkl.core.project.Project
-          .loadFromPath((dashboardsDir / "PklProject").toNIO)
-      )
-      .toOption
-      .flatMap(p => Option(p.getDependencies.remoteDependencies.get(Name)))
-      .map(_.getPackageUri.toString)
-      .flatMap(uri => PackageRef.parse(uri).map(_.version))
+    // `loadFromPath` EVALUATES the manifest — `pkl.Project` is one of the two
+    // stdlib modules #226's race was caught inside — so it takes the same claim.
+    PklBuild.serialized(
+      scala.util
+        .Try(
+          org.pkl.core.project.Project
+            .loadFromPath((dashboardsDir / "PklProject").toNIO)
+        )
+        .toOption
+        .flatMap(p => Option(p.getDependencies.remoteDependencies.get(Name)))
+        .map(_.getPackageUri.toString)
+        .flatMap(uri => PackageRef.parse(uri).map(_.version))
+    )
 
   /** The lib's BASE version, from the `version = "…"` line of its `PklProject`
     * text — the ONE place a human-declared version lives (decoupled from the

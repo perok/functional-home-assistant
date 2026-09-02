@@ -487,36 +487,38 @@ class UseCaseSuite extends munit.CatsEffectSuite {
           |}
           |""".stripMargin
     )
-    val laptopProject = Project.loadFromPath((laptop / "PklProject").toNIO)
-    val resolver = new ProjectDependenciesResolver(
-      laptopProject,
-      PackageResolver.getInstance(
-        // The manifest's own allowedResources, exactly as production derives
-        // it — a laptop resolving from the instance goes over plain http.
-        fh.view.build.PklBuild.securityManagerFor(laptopProject),
-        http,
-        laptopCache.toNIO
-      ),
-      new java.io.PrintWriter(new java.io.StringWriter)
-    )
-    val out =
-      new java.io.FileOutputStream(
-        (laptop / "PklProject.deps.json").toNIO.toFile
+    fh.view.build.PklBuild.serialized {
+      val laptopProject = Project.loadFromPath((laptop / "PklProject").toNIO)
+      val resolver = new ProjectDependenciesResolver(
+        laptopProject,
+        PackageResolver.getInstance(
+          // The manifest's own allowedResources, exactly as production derives
+          // it — a laptop resolving from the instance goes over plain http.
+          fh.view.build.PklBuild.securityManagerFor(laptopProject),
+          http,
+          laptopCache.toNIO
+        ),
+        new java.io.PrintWriter(new java.io.StringWriter)
       )
-    try resolver.resolve().writeTo(out)
-    finally out.close()
+      val out =
+        new java.io.FileOutputStream(
+          (laptop / "PklProject.deps.json").toNIO.toFile
+        )
+      try resolver.resolve().writeTo(out)
+      finally out.close()
 
-    val evaluator = EvaluatorBuilder
-      .preconfigured()
-      .setHttpClient(http)
-      .setModuleCacheDir(laptopCache.toNIO)
-      .applyFromProject(laptopProject)
-      .build()
-    try
-      evaluator
-        .evaluate(ModuleSource.path((laptop / "mine.pkl").toNIO))
-        .getProperties
-    finally evaluator.close()
+      val evaluator = EvaluatorBuilder
+        .preconfigured()
+        .setHttpClient(http)
+        .setModuleCacheDir(laptopCache.toNIO)
+        .applyFromProject(laptopProject)
+        .build()
+      try
+        evaluator
+          .evaluate(ModuleSource.path((laptop / "mine.pkl").toNIO))
+          .getProperties
+      finally evaluator.close()
+    }
   }
 
   // ---------------------------------------------------------------- persona 3

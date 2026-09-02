@@ -230,19 +230,36 @@ a 22-core box; `-XX:ActiveProcessorCount=2` in a root `.jvmopts` is what makes t
 to reach the test JVM — the long-lived sbt server captures its options at startup, and `.jvmopts`
 is the one that lands.
 
-**An ambient `testFull` flake predates all of this and is still unexplained.** Three suites have
-timed out across `testFull` runs — `PklDashboardBehaviourSuite`, `AddonBootstrapSuite`,
-`SessionLifecycleSuite` — each passing in isolation, each a munit timeout rather than an assertion.
-All evaluate Pkl, which makes thread-safety the obvious suspect. **It was checked and it is not
-that**, and neither is suite parallelism:
+**Suites run CONCURRENTLY, and there are two distinct ambient flakes.** `Test / fork` is false but
+`Test / parallelExecution` is sbt's default **true** — measured, `show
+fh-datastar-view/Test/parallelExecution` — so sbt runs up to one suite per core in the one JVM.
+(An earlier version of this section asserted both were false and told the reader that making the
+suites serial "proves nothing". That was wrong, and it is why the two flakes below went unseparated
+for so long.) On a 22-core box that is far more concurrency than CI's two, so the two machines
+reproduce DIFFERENT things, and neither is a superset of the other:
 
-- the `Evaluator` is per call and `close()`d; module cache dirs are per test;
-- concurrent evaluation does not serialize (8 evaluations on 8 threads: 7 ms against 11 ms
-  sequential). Pkl is expensive COLD (769 ms engine build, 1 ms warm), not unsafe;
-- `fh-datastar-view / Test / parallelExecution` and `Test / fork` are already **false**, so any
-  experiment that "makes the suites serial" changes nothing and proves nothing.
+- **A pkl-core race — diagnosed, #226.** pkl's stdlib ASTs are Truffle nodes that specialize as
+  they warm and are shared process-wide, so a per-call `Evaluator` does not isolate them; two
+  threads evaluating at once can catch one mid-rewrite, surfacing as an NPE inside `pkl.semver` /
+  `pkl.Project`. Measured 3 failures in 8 runs parallel, 0 in ~10 serial. `PklBuild.serialized`
+  now holds one process-wide claim, and **every path that reaches Truffle takes it** — the two
+  test-side evaluators and `LibPackage.effectivePin` (`Project.loadFromPath` evaluates) included.
+- **A `PklDashboardBehaviourSuite` tab flake — still unexplained, and probably a real race.** The
+  tab tests fail as an ASSERTION ("never saw 'Outside Temperature' after the opening block"), and
+  what arrives on the stream is the opening block plus `_haDown` frames and nothing else, for the
+  full 10 s guard. Measured on main at 22 cores: **4 failures in 12 parallel, 1 in 8 SERIAL**
+  (`set LocalProject("fh-datastar-view")/Test/parallelExecution := false`). Serial still fails, so
+  concurrency raises the rate but is not the mechanism — which also means this is not #226 (it
+  reproduces with the pkl claim held) and not a harness artifact of running suites side by side.
+  It does need the whole run: `PklDashboardBehaviourSuite` + `RenderCacheSuite` alone is 8/8 green.
+  Chase it in the SERVER, on the flip/tab-fill path, not in the harness.
 
-Do not re-run those experiments, and do not trust a single green `testFull`.
+What still holds from the earlier investigation: the `Evaluator` is per call and `close()`d, module
+cache dirs are per test, and concurrent evaluation does not serialize (8 evaluations on 8 threads:
+7 ms against 11 ms sequential) — pkl is expensive COLD (769 ms engine build, 1 ms warm). Those
+measurements say nothing about the stdlib ASTs, which is where #226's race actually lives.
+
+Do not trust a single green `testFull`.
 
 ## Consequences
 
