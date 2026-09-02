@@ -458,18 +458,33 @@ class DatastarMorphContractSuite extends BrowserSuite {
     val serverNull =
       """<button id="nul" data-on:click="@post('/nullify')">n</button>"""
 
+    // ONE patch carrying both, which is what makes the barrier below sound:
+    // `probe` moving is then PROOF that the null landed, because the two
+    // arrived in the same frame. Splitting them would put the check back on
+    // wall-clock luck — a POST's response having been received says nothing
+    // about Datastar having applied it, and that race is what made this test
+    // fail on CI (`server: null DELETED the signal`, obtained `1:"v"`).
     val routes = HttpRoutes.of[IO] { case POST -> Root / "nullify" =>
       Ok(
-        fs2.Stream.emit(Datastar.patchSignals("""{"s": null}""")).covary[IO]
+        fs2.Stream
+          .emit(Datastar.patchSignals("""{"s": null, "probe": 1}"""))
+          .covary[IO]
       ).map(_.withContentType(`Content-Type`(MediaType.`text/event-stream`)))
     }
 
     def attr(p: Page, id: String) =
       IO.blocking(Option(p.locator(id).getAttribute("disabled")))
     def click(p: Page, id: String) = IO.blocking(p.locator(id).click())
-    val settle = IO.sleep(300.millis)
 
-    def run(body: String) =
+    // `#r` renders `probe + ':' + JSON.stringify(s)`, so it is the page's own
+    // report of the state this test drives — and therefore the barrier, in
+    // place of the `IO.sleep(300.millis)` that used to stand here. ADR 0009
+    // bans sleeps outright and Playwright's own docs call fixed timers
+    // debug-only; a bounded `eventually` is the sanctioned form.
+    def awaitR(p: Page, expected: String) =
+      eventually(text(p, "#r"))(_ == expected).void
+
+    def run(body: String, nullIsServerSent: Boolean) =
       servedWith(body, Nil, routes).use { case (p, uri) =>
         for {
           errs <- IO(scala.collection.mutable.ListBuffer.empty[String])
@@ -483,19 +498,38 @@ class DatastarMorphContractSuite extends BrowserSuite {
           _ <- eventually(text(p, "#done"))(_ == "yes")
 
           start <- attr(p, "#i")
-          blank <- click(p, "#empty") *> settle *> attr(p, "#i")
-          _ <- click(p, "#val") *> settle
-          // (1) An expression EVALUATING to null, signal untouched.
-          byExpr <- click(p, "#hide") *> settle *> attr(p, "#j")
+          blank <- click(p, "#empty") *> awaitR(p, """0:""""") *> attr(p, "#i")
+          _ <- click(p, "#val") *> awaitR(p, """0:"v"""")
+          // (1) An expression EVALUATING to null, signal untouched. The signal
+          // DOES move here (to "HIDE"), so `#r` is a real barrier and the
+          // "untouched" read below is taken after the page has acted rather
+          // than before it — which is the whole failure mode a bare retrying
+          // assertion has when the expected state is the UNCHANGED one.
+          byExpr <- click(p, "#hide") *> awaitR(p, """0:"HIDE"""") *> attr(
+            p,
+            "#j"
+          )
           untouched <- attr(p, "#i")
-          _ <- click(p, "#val") *> settle
+          _ <- click(p, "#val") *> awaitR(p, """0:"v"""")
           // (3) Assign/patch null, then read `s` through an effect driven by a
           // DIFFERENT signal — anything bound to `s` is orphaned by the delete.
-          _ <- click(p, "#nul") *> settle
-          readBack <- click(p, "#probe") *> settle *> text(p, "#r")
-          orphaned <- click(p, "#empty") *> settle *> attr(p, "#i")
+          //
+          // `probe` reaching 1 is the barrier, and how it gets there differs by
+          // arm ON PURPOSE: the client sets it in the same synchronous handler
+          // that nulls `s`, the server ships both in one patch. Either way
+          // "probe moved" implies "the null landed", which a sleep never did.
+          _ <- click(p, "#nul")
+          _ <- if (nullIsServerSent) IO.unit else click(p, "#probe")
+          readBack <- eventually(text(p, "#r"))(_.startsWith("1:"))
+          // Bump probe again rather than sleeping: `s` is already "" here, so
+          // the `#empty` click moves nothing observable of its own, and probe
+          // reaching 2 is the proof that the click was processed at all.
+          orphaned <- click(p, "#empty") *> click(p, "#probe") *>
+            awaitR(p, """2:""""") *> attr(p, "#i")
           quiet <- IO(errs.toList)
-          _ <- click(p, "#boom") *> settle
+          // The control asserts an error DOES arrive, so polling for it is the
+          // assertion; a timeout here is the failure.
+          _ <- click(p, "#boom") *> eventually(IO(errs.toList))(_.nonEmpty)
           control <- IO(errs.toList)
         } yield (
           start,
@@ -510,8 +544,8 @@ class DatastarMorphContractSuite extends BrowserSuite {
       }
 
     for {
-      fromClient <- run(page(clientNull))
-      fromServer <- run(page(serverNull))
+      fromClient <- run(page(clientNull), nullIsServerSent = false)
+      fromServer <- run(page(serverNull), nullIsServerSent = true)
     } yield List(("client", fromClient), ("server", fromServer)).foreach {
       case (
             who,
@@ -554,6 +588,53 @@ class DatastarMorphContractSuite extends BrowserSuite {
     }
   }
 
+  test("__ifmissing loses to an earlier READER, and a parent's seed cannot") {
+    // The mechanism behind the `ui.<id>` param going missing on a slow load
+    // (`UiSmokeSuite."tabs: a tap the server REFUSES"`), read out of the pinned
+    // bundle rather than guessed:
+    //
+    //   - the store proxy's `get` CREATES a missing key:
+    //     `(!x(r,o) || r[o]()==null) && (r[o]=he(""), K(t+o,""), …)`
+    //   - `__ifmissing`'s merge then declines, because the key now exists:
+    //     `Nt=(e,t,n,r,s)=> … s && x(n,t) || (n[t]=e)`
+    //
+    // So ANY expression that reads the signal before the seed applies wins the
+    // key, and the seed never lands — the signal is `''` for the life of the
+    // page. Document order decides it, which is why the tabs bar seeds for its
+    // buttons but a LATER SIBLING reading the same signal is a hazard.
+    //
+    // Forced here by DOM order instead of by load, so it is a fact rather than
+    // a flake.
+    val page =
+      """<div id="early" data-text="'r=' + JSON.stringify($sibling)"></div>
+        |<div data-signals__ifmissing="{ sibling: 7 }"></div>
+        |<div data-signals__ifmissing="{ nested: 7 }">
+        |  <div id="inner" data-text="'r=' + JSON.stringify($nested)"></div>
+        |</div>
+        |<div id="late" data-text="'r=' + JSON.stringify($sibling)"></div>""".stripMargin
+
+    served(page, Nil).use { case (p, uri) =>
+      for {
+        _ <- IO.blocking(p.navigate(uri.renderString))
+        _ <- eventually(text(p, "#done"))(_ == "yes")
+        sibling <- text(p, "#late")
+        nested <- text(p, "#inner")
+      } yield {
+        assertEquals(
+          sibling,
+          """r=""""",
+          "a reader BEFORE the seed takes the key, and __ifmissing then declines — " +
+            "the seed value is lost for the life of the page"
+        )
+        assertEquals(
+          nested,
+          "r=7",
+          "a seed on an ANCESTOR is applied before its descendants read, so it always wins"
+        )
+      }
+    }
+  }
+
   test("data-bind makes a co-located data-attr:value inert from the start") {
     // What a range input's position actually obeys, measured rather than
     // reasoned from the HTML spec — which is how the claim this replaces got
@@ -572,13 +653,23 @@ class DatastarMorphContractSuite extends BrowserSuite {
       """<div data-signals="{ a: '20', b: '80' }"></div>
         |<input id="both" type="range" min="0" max="100" data-attr:value="$a" data-bind="b" />
         |<input id="attr" type="range" min="0" max="100" data-attr:value="$a" />
-        |<button id="bumpA" data-on:click="$a = '55'">a</button>""".stripMargin
+        |<button id="bumpA" data-on:click="$a = '55'">a</button>
+        |<button id="bumpB" data-on:click="$a = '56'">b</button>""".stripMargin
 
     def prop(p: Page, id: String) =
       IO.blocking(p.locator(id).evaluate("el => el.value").toString)
     def attrOf(p: Page, id: String) =
       IO.blocking(Option(p.locator(id).getAttribute("value")))
-    val settle = IO.sleep(300.millis)
+
+    // The ATTRIBUTE is what each bump provably moves — on both inputs, since
+    // that is the very thing this test says gets written and then ignored. So
+    // it is the barrier, in place of a sleep.
+    //
+    // `bumpB` exists because the second bump used to re-send `'55'`: an
+    // unchanged signal, so Datastar wrote nothing and the sleep was waiting for
+    // an event that could never arrive. That assertion could not have failed.
+    def awaitAttr(p: Page, id: String, expected: String) =
+      eventually(attrOf(p, id))(_.contains(expected)).void
 
     served(page, Nil).use { case (p, uri) =>
       for {
@@ -590,20 +681,16 @@ class DatastarMorphContractSuite extends BrowserSuite {
         // The attribute IS written on both — it simply loses on the bound one.
         bothAttr <- attrOf(p, "#both")
         // A later server write to the committed signal: still no movement.
-        bothAfter <- IO.blocking(p.locator("#bumpA").click()) *> settle *> prop(
-          p,
-          "#both"
-        )
+        bothAfter <- IO.blocking(p.locator("#bumpA").click()) *>
+          awaitAttr(p, "#attr", "55") *> prop(p, "#both")
         // On the UNBOUND input the same write does move it, so the assertions
         // above cannot pass because `data-attr:value` is broken in general.
         attrAfter <- prop(p, "#attr")
         // ...until the value has been set through the IDL, which is the dirty
         // flag doing what the spec says.
         _ <- IO.blocking(p.locator("#attr").fill("10"))
-        attrDirty <- IO.blocking(p.locator("#bumpA").click()) *> settle *> prop(
-          p,
-          "#attr"
-        )
+        attrDirty <- IO.blocking(p.locator("#bumpB").click()) *>
+          awaitAttr(p, "#attr", "56") *> prop(p, "#attr")
       } yield {
         assertEquals(
           bothStart,

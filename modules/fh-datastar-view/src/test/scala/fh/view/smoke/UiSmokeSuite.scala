@@ -14,6 +14,19 @@ class UiSmokeSuite extends SmokeSuite {
 
   private val scene = Scene.of(SmokeDashboard.dashboard)
 
+  /** The page's LIVE `location.href`, not `page.url()`.
+    *
+    * `page.url()` is a value cached in the Playwright client and refreshed from
+    * navigation events. `history.replaceState` — which is the entire mechanism
+    * of the URL mirror (`fhUrl`, ADR 0005) — updates it only via
+    * `navigatedWithinDocument`, and under load that lags: measured with the
+    * browser CPU throttled, `page.url()` still read the bare URL while the page
+    * had already replaced it twice with `?ui.c_5=0`. Every URL assertion here
+    * is about the mirror, so every one of them has to ask the PAGE.
+    */
+  private def href(page: Page): IO[String] =
+    IO.blocking(page.evaluate("() => location.href").toString)
+
   test("tabs: the bar swaps the panel, no reload") {
     withPage(scene) { (page, _) =>
       val panel = page.locator(".tab-panel")
@@ -55,7 +68,8 @@ class UiSmokeSuite extends SmokeSuite {
             .containsText("13.1")
         )
         _ <- IO.blocking(assertThat(panel).containsText("Hallway"))
-      } yield assertEquals(page.url(), deepLink)
+        live <- href(page)
+      } yield assertEquals(live, deepLink)
     }
   }
 
@@ -81,7 +95,7 @@ class UiSmokeSuite extends SmokeSuite {
         // shortly after connect, independent of any tap. Read `before` only
         // once that first paint has landed, or this assertion races the
         // page's own initialization rather than the refused commit.
-        before <- eventually(IO.blocking(page.url()))(_.contains("ui."))
+        before <- eventually(href(page))(_.contains("ui."))
         _ <- IO.blocking(
           page.route(
             "**/sse/surface/**",
@@ -110,14 +124,29 @@ class UiSmokeSuite extends SmokeSuite {
         _ <- IO.blocking(assertThat(panel).containsText("Living Room"))
         // …and the URL still names the tab that is actually on screen. This is
         // the assertion the old design failed.
-        _ <- IO(assertEquals(page.url(), before))
+        stillBefore <- href(page)
+        _ <- IO(assertEquals(stillBefore, before))
         // The press is not left asserting a tab it never got.
         _ <- IO.blocking(assertThat(climateTab).not().hasClass(active))
+        // …and the refusal SAYS so. `Server.WrongSlugBody` states the rule this
+        // route exists for — "a tap that does nothing and says nothing is the
+        // failure this whole route was fixed for" — but nothing asserted it,
+        // and the shell's listener has been dead before: `closest` throws a
+        // SyntaxError on an unescaped `data-on:click`, which killed the toast
+        // silently. A reverted highlight alone is indistinguishable from a
+        // press that never registered.
+        _ <- IO.blocking(
+          assertThat(page.locator(".fh-toast")).containsText("404")
+        )
         // Control: unblocked, the same tap does everything.
         _ <- IO.blocking(page.unroute("**/sse/surface/**"))
         _ <- IO.blocking(climateTab.click())
         _ <- IO.blocking(assertThat(panel).containsText("Hallway"))
-      } yield assert(page.url() != before, clue = page.url())
+        // Not a bare read: the panel's text and the URL are written by two
+        // different things — the morph, then the panel's `data-effect` calling
+        // `fhUrl` — and nothing orders them.
+        after <- eventually(href(page))(_ != before)
+      } yield assert(after != before, clue = after)
     }
   }
 
