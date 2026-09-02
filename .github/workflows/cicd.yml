@@ -106,6 +106,9 @@ jobs:
         with:
           pkl-version: "0.32.1"
 
+      - name: SBT boot
+        run: sbt about
+
       - parallel:
           - name: Fmt check
             run: scalafmt --test
@@ -134,7 +137,7 @@ jobs:
           # order always leaves the junit XML that `Publish Test Report`
           # requires. `--check` rewrites nothing and fails on any diff it would
           # make (#115) — the linter half, which the -Werror gate cannot see.
-          - name: Test + scalafix check
+          - name: Test
             env:
               # Out of the build tree, so the upload path does not depend on
               # sbt's working directory for a forked test.
@@ -143,7 +146,10 @@ jobs:
             # client JOINS its argv into a single command string, so
             # `sbt 'a' 'b'` is parsed as the one command `a b` and dies with
             # "Expected whitespace character".
-            run: sbt 'fh-datastar-view/testFull; fh-datastar-view/scalafixAll --check'
+            run: sbt 'fh-datastar-view/testFull'
+
+          - name: scalafix check
+            run: sbt 'fh-datastar-view/scalafixAll --check'
 
           # The fh laptop script's own suite (in-process, gated on
           # SCALA_TEST_MODE; no instance needed) — also compile-checks the
