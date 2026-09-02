@@ -118,9 +118,48 @@ const local function indicatorOn(sig: String): String =
 const busySig: String = "_{{id}}__busy"
 const busyChangeSig: String = "_{{id}}__busy_change"
 
+/// The FAILED signal, the other half of [[busySig]].
+///
+/// `data-indicator` clears on either outcome, so a refused action looked
+/// exactly like a successful one: the dim and the spinner went away and the
+/// control sat there as if nothing had been asked. The shell's toast is the
+/// only thing that says otherwise, and it is global, transient and gone in 4s
+/// — a press whose toast has expired is indistinguishable from one that never
+/// happened.
+///
+/// Held on the CONTROL that was pressed, which is also what makes the outcome
+/// assertable: after a click a test waits for "not busy and not error", or for
+/// "error", instead of inferring it from something unrelated on the page.
+const errorSig: String = "_{{id}}__error"
+
+/// Sets [[errorSig]] when THIS element's action is refused, and clears it when
+/// this element starts another — so a retry drops the state without needing a
+/// separate clear on the click expression.
+///
+/// `evt.detail.el === el` is the whole filter: the pinned bundle dispatches
+/// `datastar-fetch` on `document` for EVERY fetch, the SSE stream included
+/// (`re=(e,t,n)=>document.dispatchEvent(new CustomEvent(j,{detail:{type:e,el:t,
+/// argsRaw:n}}))`, with `at="started"`, `ct="finished"`, `Sn="error"`), so an
+/// unfiltered listener would light every control on the page when the stream
+/// blipped. `pendingFail` sets the same precedent for a tab group.
+///
+/// `finished` is deliberately NOT a clear: it fires after `error` too, in the
+/// `finally`, and clearing there would erase the state a frame after setting
+/// it.
+const local function failedOn(sig: String): String =
+  #"data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($\#(sig) = true) : evt.detail.type === 'started' && ($\#(sig) = false))""#
+
+/// The failed LOOK, beside [[inFlightClass]]. `fh-error` is the runtime's to
+/// emit and the base stylesheet's to paint (`core/css.pkl`), like the busy
+/// classes — a theme may restyle it, never drop it.
+const local function failedClass(sig: String): String =
+  #"data-class:fh-error="$\#(sig)""#
+
 const busyGuard: String = guardOn(busySig)
-const busyAttrs: String = indicatorOn(busySig)
-const busyClass: String = inFlightClass(busySig)
+// Both halves ride the SAME splice sites the busy ones already have, so every
+// card that guards a tap reports a refusal without a template change.
+const busyAttrs: String = indicatorOn(busySig) + " " + failedOn(errorSig)
+const busyClass: String = inFlightClass(busySig) + " " + failedClass(errorSig)
 
 /// How long an action may take before it is worth SAYING it is taking a
 /// while. Below this, the spinner never appears at all.

@@ -113,6 +113,45 @@ class ControlSmokeSuite extends SmokeSuite {
     }
   }
 
+  test("a REFUSED call leaves the error state on the control that asked") {
+    // The gap this closes: `data-indicator` clears on either outcome, so a
+    // refused action ended looking exactly like a successful one — the dim went
+    // away and the control sat there as if nothing had been asked. The shell's
+    // toast is global and gone in 4s, so it cannot be what a later reader (or a
+    // test) asks about.
+    //
+    // It is also what makes an action's outcome a thing to WAIT on: "not busy
+    // and not error" is a state of the control that was pressed, rather than
+    // something unrelated on the page that happens to move afterwards.
+    withPage(scene, fakeConfig = FakeConfig(failCalls = true)) { (page, ts) =>
+      val toggle = page.locator(
+        "button",
+        new com.microsoft.playwright.Page.LocatorOptions()
+          .setHasText("Toggle Kitchen")
+      )
+      def hasClass(c: String): IO[Boolean] =
+        IO.blocking(
+          toggle
+            .evaluate(s"el => el.classList.contains('$c')")
+            .asInstanceOf[Boolean]
+        )
+      for {
+        _ <- ts.awaitLive()
+        clean <- hasClass("fh-error")
+        _ <- IO(assert(!clean, "idle before anything was asked"))
+        _ <- IO.blocking(toggle.click())
+        // The refusal lands ON the control…
+        _ <- eventually(hasClass("fh-error"))(identity)
+        // …and it is not still claiming to be in flight: the two states are
+        // distinct, which is the whole point of holding the second one.
+        _ <- eventually(hasClass("fh-disabled"))(b => !b)
+        // The global toast still fires — this is additional to it, not a
+        // replacement.
+        _ <- IO.blocking(assertThat(page.locator(".fh-toast")).isVisible())
+      } yield ()
+    }
+  }
+
   test(
     "the guard look is immediate: fh-disabled and fh-loading land with the tap and clear with the response"
   ) {
