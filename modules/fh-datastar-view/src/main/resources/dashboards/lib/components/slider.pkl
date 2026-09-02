@@ -378,9 +378,22 @@ class Slider extends nodes.Node {
   // from; an entity axis on a colour-capable light gets the light's current
   // colour; everything else bakes the constant `''`.
   hidden fillColorExpr: String =
-    if (on is hass.ColourTemp && reportsKelvin) sliderFillColourRamp(min!!, max!!)
-    else if (reportsRgb) sliderFillColourRgb
-    else "''"
+    if (fillColourMoves) (
+      if (on is hass.ColourTemp && reportsKelvin) sliderFillColourRamp(min!!, max!!)
+      else sliderFillColourRgb
+    ) else "''"
+  /// Whether this slider's fill colour can CHANGE — the light reports a colour
+  /// the ramp or the rgb shape can read.
+  ///
+  /// Where it cannot, [[fillColorExpr]] is the constant `''` and the slot's
+  /// `default` paints the fill. That constant was still a live signal slot:
+  /// a CEL program compiled and evaluated per node per paint to produce an
+  /// empty string, a `data-style:background` binding on the element, an entry
+  /// in the element's seed and a slot in every signals frame — all for a value
+  /// that cannot move. A light whose only colour mode is brightness is the
+  /// COMMON case, so this was the majority path.
+  hidden fillColourMoves: Boolean =
+    (on is hass.ColourTemp && reportsKelvin) || reportsRgb
   // The CEL pieces of the `fill` computation, honouring the same two config
   // tiers as the input's own slots: author override → build-time spec literal.
   //
@@ -604,7 +617,12 @@ class Slider extends nodes.Node {
       // Bound to the span's OWN `background`, which is also why this one has to
       // be a signal: it moves with a light's colour, and leaving it as bytes
       // would re-render the card on exactly the ticks the other three avoid.
-      signal = slotMod.asStyle("background")
+      //
+      // Only where it MOVES, though ([[fillColourMoves]]) — a constant is
+      // neither a signal nor a re-read, and `once` is the mode for a value that
+      // is a function of which entity this is rather than of its state.
+      signal = if (fillColourMoves) slotMod.asStyle("background") else null
+      reads = if (fillColourMoves) "live" else "once"
     }
     // Whether a DRAG should also move the readout — only a percent one is a
     // function of the position; `"state"` is on/off and any [[Expr]] is the
