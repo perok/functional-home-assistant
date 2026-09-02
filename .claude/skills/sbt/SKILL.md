@@ -26,32 +26,36 @@ My own notes to you.
   `SBT_TPOLECAT_CI=1` only reaches a server that has not started yet, which is
   the same reason `-D`/env vars never reach the tests.
 
-## Squeezing the box down to CI's shape
+## Reproducing a CI-only flake locally
 
-A timing flake that only ever fails on GitHub usually needs the runner's
-CORE COUNT, not its OS. This box has 22 cores; the runner has a handful.
+**Ask first WHICH process is slow.** A smoke-suite flake lives in CHROMIUM, and
+throttling the JVM does not touch it — nine `testFull` runs at
+`ActiveProcessorCount=2`, some with competing CPU hogs, all passed while
+`UiSmokeSuite` was failing on CI. The browser is a separate process.
+
+**Browser (the smoke suites):** `FH_SMOKE_CPU_THROTTLE=20` applies CDP
+`Emulation.setCPUThrottlingRate` in `SmokeSuite.withPage`. This reproduced a
+CI-only failure in 3 of 4 runs, which is what made it fixable at all.
+`FH_SMOKE_TRACE_URL=1` alongside it records every `history.replaceState`, which
+is how the URL mirror was cleared of blame.
+
+**JVM (everything else):** `.jvmopts` in the repo root, `-XX:ActiveProcessorCount=2`.
 
 ```bash
-sbt shutdown                                   # the flag is read at server START
-echo '-XX:ActiveProcessorCount=2' > .jvmopts   # repo ROOT
-sbt 'fh-datastar-view/testFull'
-rm .jvmopts && sbt shutdown                    # put it back
+sbt shutdown                                   # BOTH forms are read at server START
+echo '-XX:ActiveProcessorCount=2' > .jvmopts
+FH_SMOKE_CPU_THROTTLE=20 sbt 'fh-datastar-view/testFull'
+rm .jvmopts && sbt shutdown
 ```
 
-Three things this cost real time to learn:
+Three things that make either one silently do nothing:
 
-- **`.jvmopts` is the only channel that works.** `-J`, `SBT_OPTS` and `-D` do
-  NOT reach the long-lived server — same trap as env vars and test flags.
-- **It only takes effect on a fresh server.** Without the `shutdown` you are
-  measuring the old JVM and will believe a false negative. Confirm with
-  `tr '\0' '\n' < /proc/<sbt-pid>/cmdline | grep ActiveProcessorCount`.
-- **DELETE it when done.** It is gitignored now, but a stale one silently
-  throttles every later build and benchmark on this checkout — including
-  `Jmh/run`, where it quietly invalidates the numbers.
-
-Fewer cores is not the whole of CI, though: there the sbt step runs
-alongside `pkl test` and `scala-cli test` in the parallel block. To emulate
-that, run background CPU hogs next to the suite. Measured limit of this
-technique — nine local `testFull` runs (plain, 2-core, 2-core + load) all
-passed while `UiSmokeSuite` was failing on CI, so it reproduces LOAD but not
-whatever else the runner does differently.
+- **`sbt shutdown` first, always.** Env vars AND `.jvmopts` reach only a server
+  that has not started yet. Forgetting this produced a clean run that proved
+  nothing — twice, in one session; the second time the trace read
+  `"not-traced"` and gave it away.
+- **`.jvmopts` is the only JVM channel.** `-J`, `SBT_OPTS` and `-D` do not
+  reach the long-lived server.
+- **Delete `.jvmopts` when done.** It is gitignored now, but a stale one
+  throttles every later build and every `Jmh/run`, invalidating benchmark
+  numbers rather than failing.

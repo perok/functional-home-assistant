@@ -87,6 +87,25 @@ abstract class SmokeSuite extends BrowserSuite {
       _ <- Resource.eval(IO.blocking(page.onPageError { err =>
         pageErrors += err
       }))
+      _ <- Resource.eval(IO.blocking {
+        if (sys.env.contains("FH_SMOKE_TRACE_URL")) {
+          val _ = page.addInitScript(
+            """window.__rs = [];
+              |const o = history.replaceState.bind(history);
+              |history.replaceState = (a,b,u) => { window.__rs.push(String(u)); return o(a,b,u); };
+              |""".stripMargin
+          )
+        }
+      })
+      _ <- Resource.eval(IO.blocking {
+        val rate = sys.env.getOrElse("FH_SMOKE_CPU_THROTTLE", "0").toDouble
+        if (rate > 1.0) {
+          val cdp = page.context().newCDPSession(page)
+          val p = new com.google.gson.JsonObject()
+          p.addProperty("rate", rate)
+          val _ = cdp.send("Emulation.setCPUThrottlingRate", p)
+        }
+      })
       _ <- Resource.eval(IO.blocking(page.navigate(uri.renderString)))
     } yield (page, ts)
 

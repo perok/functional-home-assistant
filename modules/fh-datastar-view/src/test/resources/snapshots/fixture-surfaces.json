@@ -175,7 +175,7 @@
                 "card" : "tab",
                 "kind" : "component",
                 "slots" : {
-                  "active" : "($_@@NODE_ID@@__pending || $ui_@@NODE_ID@@) == 0",
+                  "active" : "String(($_@@NODE_ID@@__pending || $ui_@@NODE_ID@@)) === '0'",
                   "label" : "Temp",
                   "onclick" : {
                     "bypassUnavailable" : false,
@@ -188,7 +188,7 @@
                 "card" : "tab",
                 "kind" : "component",
                 "slots" : {
-                  "active" : "($_@@NODE_ID@@__pending || $ui_@@NODE_ID@@) == 1",
+                  "active" : "String(($_@@NODE_ID@@__pending || $ui_@@NODE_ID@@)) === '1'",
                   "label" : "Light",
                   "onclick" : {
                     "bypassUnavailable" : false,
