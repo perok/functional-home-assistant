@@ -99,6 +99,16 @@ import java.util.concurrent.TimeUnit
   * 836 µs. [[page]], which has no signal slots, stayed put — the control that
   * says the change reached only what it meant to.
   *
+  * '''Then the scratch buffers went.''' The patch form each own-rendering node
+  * renders only to be fingerprinted was allocating `char[1024]` plus a
+  * `toString` per node; [[Sink.scratched]] lends one per thread to the whole
+  * walk. [[pageWalkStream]] '''1,322 kB -> 1,113 kB, −15.8%''', time unchanged.
+  *
+  * '''Profile [[pageWalkStream]], not [[pageSignals]].''' `pageSignals` buffers
+  * the whole document, which production does not — that alone is ~19% of its
+  * allocation profile (`RendererTestOps.renderPageTraced`). It is a fine A/B
+  * arm; it is a misleading answer to "where does a page open go".
+  *
   * '''Read a page row against its own A/B, not against a number written
   * here.''' `gc.alloc.rate.norm` is deterministic WITHIN a run (±200 B) and
   * drifts about '''2.6%''' BETWEEN runs on this box — [[page]] came back
