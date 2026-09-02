@@ -559,7 +559,7 @@ object LayoutNode:
       * source instead. `None` ⇒ no subject (a container, a button with no
       * entity).
       */
-    def subjectEntity: Option[String] =
+    lazy val subjectEntity: Option[String] =
       slots.get(Dashboard.SubjectSlot).flatMap(_.literal)
 
     /** The entities whose live state this component depends on. A slot
@@ -569,7 +569,7 @@ object LayoutNode:
       * morph-wrapper decision (see `Renderer`). Empty ⇒ static HTML, never
       * patched.
       */
-    def liveEntities: List[String] =
+    lazy val liveEntities: List[String] =
       slots.values.toList
         .filter(s => s.reads == Reads.Live && s.literal.isEmpty)
         .flatMap(s => s.entityId.orElse(subjectEntity))
@@ -589,7 +589,7 @@ object LayoutNode:
       * render, while the narrow list in the reverse index silently stops signal
       * frames.
       */
-    def liveEntitiesAsBytes: List[String] =
+    lazy val liveEntitiesAsBytes: List[String] =
       slots.values.toList
         .filter(s =>
           s.reads == Reads.Live && s.literal.isEmpty && s.signal.isEmpty
