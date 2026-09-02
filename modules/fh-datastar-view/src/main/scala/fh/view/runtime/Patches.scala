@@ -722,32 +722,38 @@ private[runtime] object Patches {
       states: Map[String, EntityState],
       ids: List[NodeId]
   ): List[Addressed] = {
-    val moved = ids.flatMap { id =>
+    // ONE pass building exactly the two maps the frame is made of. The shape
+    // this replaced went through a filtered Map, a List of pairs, a second
+    // List of (id, pair), a `toMap` and a `groupMap` — five intermediates for
+    // two results, and 19% of a signals tick's allocation
+    // (`RenderBench.resumeSignals`, async-profiler).
+    //
+    // The trap that shape existed to avoid is gone by construction rather than
+    // by care: mapping a node's signal Map to `(id, pair)` rebuilt a MAP, and
+    // every pair shared the node id, so all but one of a node's signals was
+    // silently dropped — invisible on a card with one signal slot, fatal on
+    // the slider's four. Nothing here maps a Map to pairs.
+    val payload = Map.newBuilder[SignalId, io.circe.Json]
+    val heldB = Map.newBuilder[NodeId, Held]
+    var anyMoved = false
+    ids.foreach { id =>
       val held = holds.get(id).fold(Map.empty[SignalId, String])(_.signals)
-      renderer
-        .signalsFor(id, states)
-        .filterNot { case (name, value) => held.get(name).contains(value) }
-        // `.toList` FIRST, and it is load-bearing: mapping a Map to pairs
-        // rebuilds a Map, and every pair here shares the node id — so all but
-        // one of a node's signals was silently dropped. Invisible on a card
-        // with one signal slot, fatal on the slider's four.
-        .toList
-        .map(id -> _)
+      val nodeB = Map.newBuilder[SignalId, String]
+      var nodeMoved = false
+      renderer.signalsFor(id, states).foreach { case (name, value) =>
+        if (!held.get(name).contains(value)) {
+          payload += ((name, io.circe.Json.fromString(value)))
+          nodeB += ((name, value))
+          nodeMoved = true
+        }
+      }
+      if (nodeMoved) {
+        heldB += ((id, Held(signals = nodeB.result())))
+        anyMoved = true
+      }
     }
-    Option
-      .when(moved.nonEmpty)(
-        Addressed(
-          Patch.Signals(
-            moved.map { case (_, (name, value)) =>
-              name -> io.circe.Json.fromString(value)
-            }.toMap
-          ),
-          moved.groupMap(_._1)(_._2).map { case (id, kvs) =>
-            id -> Held(signals = kvs.toMap)
-          }
-        )
-      )
-      .toList
+    if (!anyMoved) Nil
+    else List(Addressed(Patch.Signals(payload.result()), heldB.result()))
   }
 
   /** Render one node and send it only if it is not what this viewer already

@@ -116,8 +116,14 @@ case class SlotSource(
   /** The transform's IDENTITY, for every place the renderer keys a value by its
     * transform (signal names, the once-cache): the CEL string for an
     * engine-tier slot, the simple structure's key for an opted-in one.
+    *
+    * A `lazy val`, because the `Simple` arm BUILDS a string
+    * ([[Transform.Simple.key]]) and this is read once per signal slot per node
+    * on every live tick — 4.3% of a signals tick's allocation as a `def`
+    * (`RenderBench.resumeSignals`, async-profiler). A `SlotSource` is
+    * immutable, so the first answer is the only answer.
     */
-  def valueKey: String = transform match {
+  lazy val valueKey: String = transform match {
     case s: String            => s
     case sm: Transform.Simple => Transform.Simple.key(sm)
   }

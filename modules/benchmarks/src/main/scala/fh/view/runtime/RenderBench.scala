@@ -783,6 +783,11 @@ class RenderBench {
     * unchanged, every morph is suppressed, and the batch is one
     * `datastar-patch-signals` frame. The work is therefore all decision and no
     * output — the case the whole suppression machinery exists for.
+    *
+    * Reading an allocation profile of this: `signalTick` is ~9% of it and is
+    * THIS METHOD'S fixture, not production — it mints the moved states each op,
+    * which a real tick receives. Subtract it before taking any percentage here
+    * as a share of a real tick.
     */
   @Benchmark
   def resumeSignals(bh: Blackhole): Unit = {
