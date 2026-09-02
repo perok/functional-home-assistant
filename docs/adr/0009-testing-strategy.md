@@ -244,15 +244,20 @@ reproduce DIFFERENT things, and neither is a superset of the other:
   `pkl.Project`. Measured 3 failures in 8 runs parallel, 0 in ~10 serial. `PklBuild.serialized`
   now holds one process-wide claim, and **every path that reaches Truffle takes it** — the two
   test-side evaluators and `LibPackage.effectivePin` (`Project.loadFromPath` evaluates) included.
-- **A `PklDashboardBehaviourSuite` tab flake — still unexplained, and probably a real race.** The
-  tab tests fail as an ASSERTION ("never saw 'Outside Temperature' after the opening block"), and
-  what arrives on the stream is the opening block plus `_haDown` frames and nothing else, for the
-  full 10 s guard. Measured on main at 22 cores: **4 failures in 12 parallel, 1 in 8 SERIAL**
-  (`set LocalProject("fh-datastar-view")/Test/parallelExecution := false`). Serial still fails, so
-  concurrency raises the rate but is not the mechanism — which also means this is not #226 (it
-  reproduces with the pkl claim held) and not a harness artifact of running suites side by side.
-  It does need the whole run: `PklDashboardBehaviourSuite` + `RenderCacheSuite` alone is 8/8 green.
-  Chase it in the SERVER, on the flip/tab-fill path, not in the harness.
+- **A `PklDashboardBehaviourSuite` tab flake — #293, a test whose premise the harness does not
+  guarantee.** The three tests with an off-then-on trigger fail as an ASSERTION ("never saw
+  'Outside Temperature' after the opening block"), 4 runs in 12 at 22 cores. `fake.emit` offers to
+  a queue and returns, so both events can be in flight before the connection's pull runs — and the
+  pull coalesces deliberately (`doorbell.discrete`), so a pull that sees only the settled `on`
+  diffs against what the client already has and correctly sends nothing. Spacing the two emits by
+  300 ms is 0 failures in 12 at the same load. **A barrier must wait on the CONSEQUENCE**, here the
+  `off` render reaching this connection, and that gate belongs in `TestServer` beside `awaitLive` —
+  a sleep is what this ADR's anti-flake rules forbid.
+
+  Two things this cost, worth not repeating: `_haDown:false` reads like evidence the feed dropped
+  and is not (`session.haDown` starts `None`, so the first health emit always fires on a fresh
+  connection), and "it still fails serially" was taken to mean the race was in the server — the
+  coalescing window simply does not need suite parallelism, only load.
 
 What still holds from the earlier investigation: the `Evaluator` is per call and `close()`d, module
 cache dirs are per test, and concurrent evaluation does not serialize (8 evaluations on 8 threads:
