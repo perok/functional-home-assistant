@@ -139,9 +139,11 @@ jobs:
               # Out of the build tree, so the upload path does not depend on
               # sbt's working directory for a forked test.
               FH_VISUAL_FAILURES_DIR: ${{ runner.temp }}/visual-failures
-            run: |
-              sbt 'fh-datastar-view/testFull' \
-                  'fh-datastar-view/scalafixAll --check'
+            # ONE quoted argument with `;`, not two arguments: sbt 2's thin
+            # client JOINS its argv into a single command string, so
+            # `sbt 'a' 'b'` is parsed as the one command `a b` and dies with
+            # "Expected whitespace character".
+            run: sbt 'fh-datastar-view/testFull; fh-datastar-view/scalafixAll --check'
 
           # The fh laptop script's own suite (in-process, gated on
           # SCALA_TEST_MODE; no instance needed) — also compile-checks the
