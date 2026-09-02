@@ -108,3 +108,9 @@ jmh-result.*
 # they must never be committed; GitHub push protection caught one).
 *.jfr
 *-AverageTime/
+
+# Local JVM tuning for the sbt server — the one channel that reaches it
+# (`-J`/`SBT_OPTS`/`-D` do not). Used to throttle cores when chasing a flake
+# that only fails on CI; see the `sbt` skill. Committing one would silently
+# throttle everyone's build AND every benchmark run.
+.jvmopts
