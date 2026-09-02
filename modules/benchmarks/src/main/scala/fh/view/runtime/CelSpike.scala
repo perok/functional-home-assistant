@@ -130,7 +130,7 @@ object CelSpike {
 
   def main(args: Array[String]): Unit = {
     val fixture =
-      RenderBench.states(12).toList.zipWithIndex.map { case ((id, e), i) =>
+      RenderBench.states(12).toList.zipWithIndex.map { case ((_, e), i) =>
         Probe(s"fixture[$i]", e)
       }
     val probesByShape: Map[String, List[Probe]] = Map(

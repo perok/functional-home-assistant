@@ -13,7 +13,6 @@ import org.http4s.headers.`Content-Type`
 import org.http4s.implicits.*
 
 import scala.concurrent.duration.*
-import scala.jdk.CollectionConverters.*
 
 /** The TWO Datastar behaviours the leaf/structure split rests on
   * (docs/adr/0012-each-session-renders-what-it-is-owed.md). Not a general morph

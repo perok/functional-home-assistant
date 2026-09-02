@@ -4,24 +4,11 @@ import api.homeassistant.HomeAssistantApi
 import cats.effect.IO
 import cats.effect.kernel.{Deferred, Ref}
 import cats.syntax.all.*
-import fh.view.model.{
-  Activation,
-  CardDef,
-  Dashboard,
-  LayoutNode,
-  NodeId,
-  Op,
-  Predicate,
-  SlotSource,
-  Surface,
-  Theme
-}
 import fh.view.testkit.FakeHomeAssistant
 import fh.view.testkit.TestIds.given
 import fh.view.testkit.TestAuth
 import fs2.concurrent.SignallingRef
 import org.http4s.*
-import org.http4s.headers.{`Cache-Control`, `If-None-Match`, ETag}
 import org.http4s.implicits.*
 
 import java.util.concurrent.atomic.AtomicInteger

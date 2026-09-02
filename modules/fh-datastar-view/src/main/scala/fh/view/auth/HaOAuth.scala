@@ -6,6 +6,7 @@ import fh.view.FHError
 import io.circe.{Json, parser}
 import org.http4s.client.Client
 import org.http4s.{Method, Request, Status, UrlForm, Uri}
+import org.http4s.syntax.literals.*
 
 /** What HA hands back from `/auth/token`. `refreshToken` is present on the
   * authorization-code grant and absent on a refresh (HA reissues only the
@@ -41,7 +42,7 @@ object HaOAuth {
     * do mDNS at all.
     */
   val MdnsFallback: Uri =
-    Uri.unsafeFromString("http://homeassistant.local:8123")
+    uri"http://homeassistant.local:8123"
 
   /** The host `home-addon/run.sh` dials HA at under the supervisor. It is a
     * container-internal name, so it resolves for this process and for nothing a
@@ -61,7 +62,7 @@ object HaOAuth {
     * and nothing better is known.
     */
   val AddonCoreFallback: Uri =
-    Uri.unsafeFromString("http://homeassistant:8123")
+    uri"http://homeassistant:8123"
 
   /** Where THIS process reaches HA core DIRECTLY — `/auth/token`,
     * `/auth/revoke`, and the short-lived websocket that asks HA who a freshly

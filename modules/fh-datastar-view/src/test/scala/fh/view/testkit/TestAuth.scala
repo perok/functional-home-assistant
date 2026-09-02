@@ -1,7 +1,5 @@
 package fh.view.testkit
 
-import fh.view.testkit.TestAuth
-
 import api.homeassistant.ws.domain.HaUser
 import cats.effect.IO
 import cats.effect.unsafe.implicits.global

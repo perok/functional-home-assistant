@@ -2,7 +2,6 @@ package fh.view.runtime
 
 import api.homeassistant.HomeAssistantApi
 import cats.effect.IO
-import cats.effect.kernel.{Deferred, Ref}
 import fh.view.model.{
   CardDef,
   Dashboard,
@@ -17,7 +16,6 @@ import fh.view.testkit.TestIds.given
 import fh.view.testkit.TestAuth
 import fs2.concurrent.SignallingRef
 import org.http4s.*
-import org.http4s.headers.{`Cache-Control`, `If-None-Match`, ETag}
 import org.http4s.implicits.*
 
 import scala.concurrent.duration.*

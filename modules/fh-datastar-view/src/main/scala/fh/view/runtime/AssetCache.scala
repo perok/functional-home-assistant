@@ -198,7 +198,9 @@ object AssetCache {
     Uri
       .fromString(url)
       .liftTo[IO]
-      .flatMap(client.expect[Array[Byte]](_)(EntityDecoder.byteArrayDecoder))
+      .flatMap(
+        client.expect[Array[Byte]](_)(using EntityDecoder.byteArrayDecoder)
+      )
 
   private def write(path: os.Path, bytes: Array[Byte]): IO[Unit] =
     IO.blocking(os.write.over(path, bytes, createFolders = true))

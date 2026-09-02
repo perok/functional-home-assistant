@@ -153,7 +153,7 @@ class RenderCacheContentionSuite extends ServerHarness {
       dash: Dashboard,
       queries: List[String],
       frames: Int,
-      node: NodeId = "c_0"
+      node: NodeId
   ): IO[Double] = {
     val renderer = new PerNode(dash)
     liveWorldOf(renderer, initial) { world =>

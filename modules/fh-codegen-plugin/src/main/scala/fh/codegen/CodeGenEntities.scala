@@ -8,12 +8,7 @@ class CodeGenEntities(
     entities: Map[EntityId, Entity]
 ) {
 
-  private val listOfAll = entities.values.toList
-
   val refererenceOverview = entities.view.mapValues { entity =>
-    val collision =
-      listOfAll.count(_.bestName == entity.bestName) > 1
-    // val name = if collision then s"${entity.entity_id}" else entity.bestName
     val name = ReadableEntityId.name(entity.entity_id)
 
     ThingReference(

@@ -165,8 +165,8 @@ object AddonBootstrap {
     // catch consumer-manifest edits by mtime, but a refreshed base manifest
     // doesn't move the consumer's mtime. Delete — resolution is offline-cheap
     // against the warm cache.
-    if (os.exists(dashboardsDir / "PklProject.deps.json"))
-      os.remove(dashboardsDir / "PklProject.deps.json")
+    val lockfile = dashboardsDir / "PklProject.deps.json"
+    if (os.exists(lockfile)) { val _ = os.remove(lockfile) }
 
     log.result()
   }

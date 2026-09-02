@@ -1,7 +1,7 @@
 package fh.view.runtime
 
 import fh.view.model.{CardDef, Dashboard, Region, SlotSource}
-import fh.view.testkit.DashboardBuilders.{col, component, lit, st}
+import fh.view.testkit.DashboardBuilders.{col, component, st}
 
 /** A card whose SUBJECT is itself resolved per paint — `entity_id` given as a
   * transform rather than a literal, so which entity the card is about can

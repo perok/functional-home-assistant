@@ -74,7 +74,7 @@ abstract class SmokeSuite extends BrowserSuite {
     viewport.foreach { case (w, h) =>
       contextOptions.setViewportSize(new ViewportSize(w, h))
     }
-    if (touch) contextOptions.setHasTouch(true)
+    if (touch) { val _ = contextOptions.setHasTouch(true) }
     val resource = for {
       served <- TestServer.served(scene.dashboard, scene.entities, fakeConfig)
       (ts, uri) = served

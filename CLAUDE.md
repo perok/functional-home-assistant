@@ -182,20 +182,31 @@ matter, say so and stop; do not act on it.
 - The HA URL and bearer token live in a gitignored **`.env`** at the repo root (`SERVER`/`SECRET`),
   read at run time by `FHApi.fromEnv`. `build.sbt`'s `haUrl`/`haSecret` are `"TODO"` placeholders.
   Treat the `.env` value as a real credential.
-- `sbt-tpolecat` enforces strict compiler options; `warnError` is excluded so warnings don't fail the build.
+- `sbt-tpolecat` enforces strict compiler options, advisory locally and fatal in CI — see "Read the
+  compiler's warnings" below. `home-codegen` is the one project exempt: its sources are generated.
 - Generated package root is `ha.generated` (set in `Plugin.scala` as `AbsolutePosition(outputDir, List("ha", "generated"))`).
 
 ## Read the compiler's warnings
 
-`-Wunused:privates`/`locals`/`params`/`imports` are ON (sbt-tpolecat), and
-`warnError` is excluded so warnings do NOT fail the build — which means they are
-easy to never see. Two consequences worth knowing:
+`-Wunused:privates`/`locals`/`params`/`imports` and `-Wvalue-discard` are ON
+(sbt-tpolecat). **A warning is advisory locally and an ERROR in CI** — the mode
+is `DevMode` by default and CI sets `SBT_TPOLECAT_CI` (`build.sbt`,
+`cicd.yml`) — so an unfixed warning does not block your loop but does block the
+merge. Three consequences worth knowing:
 
+- **Reproduce a CI warning failure with `sbt tpolecatCiMode <task>`.** Exporting
+  the env var at a shell that talks to a running sbt server does nothing; the
+  build reads it at LOAD.
 - **The compiler already finds dead private members.** Do not grep for them.
   Grep is still needed for unused PUBLIC API, which the compiler cannot prove.
 - **When filtering test/compile output, do not filter out `[warn]`.** A run
   reduced to `grep "==> X|Total"` hides exactly the signal that would have said
   a helper became unreachable.
+
+**`sbt scalafixAll` fixes most of them for you** (`.scalafix.conf`):
+`RemoveUnused` deletes exactly the imports and locals the gate would fail on,
+and the Typelevel rules catch what no warning covers — a built-then-dropped
+`IO` above all. CI runs `fh-datastar-view/scalafixAll --check`.
 
 ## Before calling a change done
 
