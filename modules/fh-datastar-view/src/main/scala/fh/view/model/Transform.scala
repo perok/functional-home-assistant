@@ -198,10 +198,10 @@ object Transform {
     s match {
       case Simple.State      => entity.state
       case Simple.Attr(name) =>
-        asString(entity.javaAttributes.get(name))
+        Cel.stringify(entity.javaAttributes.get(name))
       case Simple.AttrOrId(name) =>
         val v = entity.javaAttributes.get(name)
-        if v == null then entity.entityId else asString(v)
+        if v == null then entity.entityId else Cel.stringify(v)
       case Simple.UnitSuffix(name) =>
         entity.javaAttributes.get(name) match {
           case u: String => entity.state + " " + u
@@ -214,13 +214,13 @@ object Transform {
       case Simple.Percent(name, min, max) =>
         Simple.num(entity.javaAttributes.get(name)) match {
           case Some(v) =>
-            numToString(roundAway((v - min) * 100.0 / (max - min))) + " %"
+            Cel.numToString(roundAway((v - min) * 100.0 / (max - min))) + " %"
           case None => "0 %"
         }
       case Simple.Fill(name, min, max) =>
         Simple.num(entity.javaAttributes.get(name)) match {
           case Some(v) =>
-            numToString(100.0 - (v - min) * 100.0 / (max - min)) + "%"
+            Cel.numToString(100.0 - (v - min) * 100.0 / (max - min)) + "%"
           case None => "100%"
         }
     }
@@ -248,34 +248,4 @@ object Transform {
   // (The attribute JSON -> Java conversion lives on EntityState.javaAttributes,
   // cached per state version, so it runs once per entity rather than per eval.)
 
-  // Direct-result rendering, kept byte-identical to `Cel.stringify` — the fast
-  // path is only sound while it renders exactly what the engine would. Numbers
-  // render via the same 10-digit numToString, so a bare `state`-adjacent value
-  // never shows more precision than the engine.
-  private def asString(result: Any): String =
-    result match
-      case null                 => ""
-      case s: String            => s
-      case b: java.lang.Boolean => b.toString
-      case n: java.lang.Long    => n.toString
-      case n: java.lang.Integer => n.toString
-      case n: java.lang.Number  => numToString(n.doubleValue)
-      case other                => String.valueOf(other)
-
-  private def numToString(d: Double): String =
-    if (d.isNaN || d.isInfinite) d.toString
-    else if (d == Math.rint(d) && Math.abs(d) < 1e15) d.toLong.toString
-    else
-      // `java.math.BigDecimal.valueOf`, not `scala.math.BigDecimal(d)`: the
-      // Scala one wraps the same `Double.toString` parse in a `BigDecimal`
-      // object carrying a `MathContext`, and every fractional slot value on the
-      // page pays for both. Byte-identical — `DECIMAL128` keeps 34 significant
-      // digits and a `Double` has at most 17, so the context never rounds
-      // anything a `setScale(10)` would not; checked over 500k doubles and
-      // pinned by the cases in `TransformSuite`.
-      java.math.BigDecimal
-        .valueOf(d)
-        .setScale(10, java.math.RoundingMode.HALF_UP)
-        .stripTrailingZeros
-        .toPlainString
 }
