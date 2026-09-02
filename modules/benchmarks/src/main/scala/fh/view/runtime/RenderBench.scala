@@ -94,9 +94,17 @@ import java.util.concurrent.TimeUnit
   * `groupBy.toList.sortBy.collect` run once per LEVEL per NODE, over a
   * single-element list, for a name four segments deep. Sorting the rows once by
   * path and walking them by index took `pageSignals` from 3,399 kB to 2,044 kB
-  * ('''−40%''') and its time from 1,275 µs to 1,000 µs. [[page]], which has no
-  * signal slots, did not move by a single byte — which is how you know the
-  * change reached only what it meant to.
+  * ('''−40%'''); precomputing the whole seed per node ([[Datastar.SignalSeed]])
+  * took it to '''1,791 kB''', a further −12.6%, and the time from 1,275 µs to
+  * 836 µs. [[page]], which has no signal slots, stayed put — the control that
+  * says the change reached only what it meant to.
+  *
+  * '''Read a page row against its own A/B, not against a number written
+  * here.''' `gc.alloc.rate.norm` is deterministic WITHIN a run (±200 B) and
+  * drifts about '''2.6%''' BETWEEN runs on this box — [[page]] came back
+  * anywhere from 1,295 kB to 1,329 kB across one session with no change to its
+  * path. So a claim under ~3% needs the two arms measured back to back, which
+  * is what the numbers above are; anything smaller is not a result.
   *
   * The lesson is the method, not the number: issue #237's "where the bytes
   * plausibly go" was read off the code and named `resolveTemplate` and
