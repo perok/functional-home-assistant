@@ -35,7 +35,7 @@ ThisBuild / semanticdbEnabled := true
 ThisBuild / scalafixDependencies += "org.typelevel" %% "typelevel-scalafix" % "0.5.0"
 
 val commonSettings = Seq(
-  scalaVersion := "3.8.4",
+  scalaVersion := "3.9.0",
   libraryDependencies ++= Seq(
     "org.typelevel" %% "cats-effect" % "3.7.1",
     "io.scalaland" %% "chimney" % "1.11.0",
