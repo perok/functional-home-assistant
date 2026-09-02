@@ -83,9 +83,25 @@ import java.util.concurrent.TimeUnit
   *
   * What to take from it.
   *
-  * '''The document is 128 kB and costs 3.5 MB to serve''' — 27x its own size.
-  * Most of that is the WALK — transforms 0.96 MB, mustache contexts 0.39 MB,
-  * slot resolution, signal seeds — which the SINK cannot touch.
+  * '''The document is 128 kB and costs 2.2 MB to serve''' — 17x its own size.
+  * Most of that is the WALK — transforms, mustache contexts, slot resolution —
+  * which the SINK cannot touch.
+  *
+  * '''Half of what it used to cost was the signal SEED, and profiling is the
+  * only reason anyone knows.''' `-prof gc` says how much; it never says where.
+  * async-profiler over [[pageSignals]] put '''49%''' of a page open in
+  * `Datastar.nestJs` + `SignalId.segments` — a per-level
+  * `groupBy.toList.sortBy.collect` run once per LEVEL per NODE, over a
+  * single-element list, for a name four segments deep. Sorting the rows once by
+  * path and walking them by index took `pageSignals` from 3,399 kB to 2,044 kB
+  * ('''−40%''') and its time from 1,275 µs to 1,000 µs. [[page]], which has no
+  * signal slots, did not move by a single byte — which is how you know the
+  * change reached only what it meant to.
+  *
+  * The lesson is the method, not the number: issue #237's "where the bytes
+  * plausibly go" was read off the code and named `resolveTemplate` and
+  * `executeResolved`, neither of which registers today. Profile before
+  * choosing.
   *
   * '''The sink is the variable; fs2 is not.''' `renderPageInto` is pure over a
   * `Writer`, and http4s hands a buffered body out as a `Stream[IO, Byte]` just
