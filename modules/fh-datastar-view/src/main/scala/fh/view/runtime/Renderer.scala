@@ -2186,24 +2186,60 @@ class Renderer(
       )
       .getOrElse(Map.empty)
 
-  /** One node's OWN slots, children excluded — the static-tree answer. */
+  /** One node's OWN slots, children excluded — the static-tree answer.
+    *
+    * Through the node's [[NodePlan]], which already holds every static half of
+    * this: which slots carry a signal, and what each one's signal is NAMED. A
+    * live tick asks this per candidate node, and re-deriving it there was
+    * re-resolving the subject, rebuilding each name and running `collect` over
+    * every slot to reach the two that move — 9.4% of a signals tick's
+    * allocation (`RenderBench.resumeSignals`, async-profiler).
+    */
   private def signalsOfSlots(
       id: NodeId,
       node: LayoutNode,
       states: Map[String, EntityState]
   ): Map[SignalId, String] = node match {
     case c: LayoutNode.Component =>
-      val subject = c.slots
-        .get(Dashboard.SubjectSlot)
-        .map(s => s.literal.getOrElse(resolveSlot(s.entityId, s, states)))
-      c.slots.collect {
-        case (slot, src) if Renderer.isSignalSlot(src) =>
-          val entity = src.entityId.orElse(subject)
-          val kind = Renderer.signalBind(src).getOrElse(SignalBind.Text)
-          Renderer.signalName(id, slot, entity, src.valueKey, kind) ->
-            resolveSlot(entity, src, states)
+      val plan = planOf(id, id, c, states)
+      // A dynamic subject is the shape a plan holds nothing per-slot for: the
+      // subject, and with it every name, is a per-paint question. Its
+      // `signalNameBySlot` is empty for that reason and NOT because the node
+      // has no signals, so it has to be asked directly.
+      if (plan.subjectDynamic) directSignalsOfSlots(id, c, states)
+      else if (plan.signalNameBySlot.isEmpty) Map.empty
+      else {
+        val b = Map.newBuilder[SignalId, String]
+        b.sizeHint(plan.signalNameBySlot.size)
+        // Only the signal slots, not every dynamic one: a signal slot is
+        // always non-literal and `live`, so it is always in `dynamic`.
+        plan.dynamic.foreach { case (slot, srcEntity, source) =>
+          plan.signalNameBySlot
+            .get(slot)
+            .foreach(sig =>
+              b += ((sig, resolveSlot(srcEntity, source, states)))
+            )
+        }
+        b.result()
       }
     case _: LayoutNode.SetNode => Map.empty
+  }
+
+  private def directSignalsOfSlots(
+      id: NodeId,
+      c: LayoutNode.Component,
+      states: Map[String, EntityState]
+  ): Map[SignalId, String] = {
+    val subject = c.slots
+      .get(Dashboard.SubjectSlot)
+      .map(s => s.literal.getOrElse(resolveSlot(s.entityId, s, states)))
+    c.slots.collect {
+      case (slot, src) if Renderer.isSignalSlot(src) =>
+        val entity = src.entityId.orElse(subject)
+        val kind = Renderer.signalBind(src).getOrElse(SignalBind.Text)
+        Renderer.signalName(id, slot, entity, src.valueKey, kind) ->
+          resolveSlot(entity, src, states)
+    }
   }
 
   /** Resolve a non-literal slot's value against its producing entity's state.

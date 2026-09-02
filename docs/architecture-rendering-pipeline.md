@@ -1061,8 +1061,14 @@ Live list — delete an entry when it is answered, and say where the answer land
   against the current snapshot from that session's own cursor — but that is an invariant worth
   writing down and testing rather than relying on.
 
-- **Carrying the converted attribute map across a tick.** See TODO2.md — `EntityState.javaAttributes`
-  is rebuilt per state change even when attributes did not move.
+- ~~**Carrying the converted attribute map across a tick.**~~ *Measured, and the answer is no.*
+  `EntityState.javaAttributes` is rebuilt per state change even when attributes did not move, and
+  that rebuild is **3.4%** of a signals tick's allocation (`RenderBench.resumeSignals` under
+  async-profiler). The fix wants an `Attributes` type owning the JSON map and its derived Java view
+  so that a delta touching no attribute returns the same instance — a hand-written `equals` on the
+  core state type plus ~45 call sites reading `attributes` as a bare `Map`. That is a large change
+  for 3.4%, and the same profile named items worth three and six times as much. Reopen only if a
+  profile puts it somewhere else.
 
 - **Fills bypass the `RenderCache` entirely** —
   [issue #224](https://github.com/perok/functional-home-assistant/issues/224). `arrivingFill` and

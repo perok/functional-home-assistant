@@ -46,13 +46,16 @@ case class EntityState(
     */
   def unavailable: Boolean = EntityState.unavailableStates(state)
 
-  /** The attributes as plain Java values for JSONata's `$attr.*` navigation,
-    * converted **once per state version** and reused across every
-    * slot/transform on this entity (a card with three `$attr` slots converts
-    * the map once, not three times). A fresh `EntityState` is built on every
-    * change, so this cache invalidates naturally. Numbers stay numeric (so
-    * `$attr.brightness` arithmetic works), nested objects/arrays recurse, null
-    * fields drop out.
+  /** The attributes as plain Java values — what CEL binds as `attr` and what
+    * the `Transform.Simple` fast tier reads directly. Converted **once per
+    * state version** and reused across every slot on this entity (a card with
+    * three attribute slots converts the map once, not three times). A fresh
+    * `EntityState` is built on every change, so this cache invalidates
+    * naturally — and re-converts, which is measured: 3.4% of a signals tick's
+    * allocation (`RenderBench.resumeSignals`), the number that says carrying it
+    * across a tick is not worth the type it would take. Numbers stay numeric
+    * (so `attr['brightness']` arithmetic works), nested objects/arrays recurse,
+    * null fields drop out.
     */
   lazy val javaAttributes: java.util.Map[String, Any] =
     EntityState.toJavaObject(attributes)
@@ -92,10 +95,9 @@ object EntityState {
   def sameContent(a: EntityState, b: EntityState): Boolean =
     a.state == b.state && a.attributes == b.attributes
 
-  /** Convert a circe attribute map to a Java map for JSONata. Kept here (with
-    * the cached [[EntityState.javaAttributes]]) rather than in [[Transform]],
-    * so the conversion happens once per state, not once per transform
-    * evaluation.
+  /** Convert a circe attribute map to a Java map. Kept here (with the cached
+    * [[EntityState.javaAttributes]]) rather than in `Transform`, so the
+    * conversion happens once per state, not once per transform evaluation.
     */
   private[runtime] def toJavaObject(
       attrs: Map[String, Json]
