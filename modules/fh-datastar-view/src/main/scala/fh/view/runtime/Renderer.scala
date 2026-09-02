@@ -1553,7 +1553,13 @@ class Renderer(
       .append(m.id)
       .append('"')
     if (!form.isPatch) {
-      val _ = out.append(Datastar.signalsAttr(memberSignalsOf(rm)))
+      // Through the BAKED seed, like every static node since #286. The static
+      // tree got `Datastar.SignalSeed` then and members did not, so a member
+      // kept splitting each signal name on every paint and re-deriving the
+      // nesting: `SignalId.segments` + `signalsAttr` were 12.5% of a
+      // candidate-set page open (`RenderBench.pageSet`, async-profiler).
+      val values = memberSignalsOf(rm)
+      Datastar.seedAttrInto(out, memberSeedOf(m, values), values)
     }
     val _ = out.append('>')
     memberBodyInto(out, rm, form)
@@ -1645,6 +1651,39 @@ class Renderer(
     * signals — which is why [[ResolvedChild.NestedSet]] holds no resolution to
     * descend into.
     */
+  /** A member's seed shape, held per member id.
+    *
+    * The NAMES a member's wrapper seeds are a function of its node tree — its
+    * own card's signal slots plus its children's, all of them plan-time facts —
+    * so only the VALUES are per paint. Held by node IDENTITY and rechecked on
+    * lookup, exactly like [[nodePlans]]: a set's clause can hand a different
+    * node for the same member id as state moves, and that recomputes rather
+    * than seeding the wrong shape.
+    *
+    * A stale seed cannot go wrong even so: `Datastar.seedAttrInto` falls back
+    * to building the attribute when the values are not exactly the signals the
+    * seed was built for.
+    */
+  private val memberSeeds =
+    new java.util.concurrent.ConcurrentHashMap[
+      String,
+      (LayoutNode.Component, Datastar.SignalSeed)
+    ]()
+
+  private def memberSeedOf(
+      m: Member,
+      values: Map[SignalId, String]
+  ): Datastar.SignalSeed = {
+    val key: String = m.id
+    val cached = memberSeeds.get(key)
+    if (cached != null && (cached._1 eq m.node)) cached._2
+    else {
+      val seed = Datastar.seedFor(values.keys)
+      memberSeeds.put(key, (m.node, seed))
+      seed
+    }
+  }
+
   private def memberSignalsOf(rm: ResolvedMember): Map[SignalId, String] =
     rm.regions.values.flatten.foldLeft(rm.resolved.signals) {
       case (acc, ResolvedChild.Node(_, n))   => acc ++ memberSignalsOf(n)
