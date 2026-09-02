@@ -1773,34 +1773,27 @@ class Renderer(
           list
         case _ =>
           if (form.isPatch && resolved.signalSlots.contains(name)) ""
-          else
+          else {
             // The layers, in the precedence the old merged map encoded by
-            // construction (its builder order, last-wins): a name answers
-            // from the first layer that has it. `getOrElse` is by-name, so
-            // the chain stops at the hit — the usual cost is two or three
-            // failed lookups on maps smaller than the name being looked up.
-            resolved.bindings
-              .getOrElse(
-                name,
-                resolved.liveBindings
-                  .getOrElse(
-                    name,
-                    resolved.paint
-                      .getOrElse(
-                        name,
-                        resolved.constants
-                          .getOrElse(
-                            name,
-                            resolved.bake
-                              .getOrElse(
-                                name,
-                                resolved.structural
-                                  .getOrElse(name, null)
-                              )
-                          )
-                      )
-                  )
-              )
+            // construction (its builder order, last-wins): a name answers from
+            // the first layer that has it, and the chain stops at the hit.
+            //
+            // FLAT, not nested `getOrElse`s. A by-name default that reads
+            // `name` and `this` is a CAPTURING lambda, so nesting them
+            // allocated one per layer per lookup — up to five, per hole, per
+            // node, and the profile showed exactly that: 5.7% of a page open
+            // in `NodeContext$$Lambda` under `DirectMethodHandle`
+            // (`RenderBench.page`, async-profiler). Each default is the
+            // constant `null` now, which is non-capturing and therefore the
+            // JVM's one cached instance.
+            var v: String | Null = resolved.bindings.getOrElse(name, null)
+            if (v == null) v = resolved.liveBindings.getOrElse(name, null)
+            if (v == null) v = resolved.paint.getOrElse(name, null)
+            if (v == null) v = resolved.constants.getOrElse(name, null)
+            if (v == null) v = resolved.bake.getOrElse(name, null)
+            if (v == null) v = resolved.structural.getOrElse(name, null)
+            v
+          }
       }
   }
 
