@@ -5,7 +5,6 @@ import cats.effect.IO
 import fh.view.model.{CardDef, Dashboard, Region, Theme}
 import fh.view.testkit.DashboardBuilders.{col, component, lit}
 import fh.view.testkit.FakeHomeAssistant
-import fh.view.testkit.TestIds.given
 import fh.view.testkit.TestAuth
 import fs2.concurrent.SignallingRef
 import org.http4s.*
