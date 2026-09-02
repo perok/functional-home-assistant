@@ -31,6 +31,25 @@ import scala.util.control.NonFatal
   */
 object PklBuild {
 
+  private object Truffle
+
+  /** Run `thunk` with the process's ONE claim on pkl-core.
+    *
+    * pkl's stdlib modules are Truffle ASTs that specialize as they warm, and
+    * they are shared process-wide — a fresh `Evaluator` per call does not give
+    * them out fresh. Two threads evaluating at once can catch a node
+    * mid-rewrite, which surfaces as an NPE from `pkl.semver`/`pkl.Project` deep
+    * inside a `let`, naming a stdlib line rather than anything the caller wrote
+    * (#226, pkl-core 0.32.1).
+    *
+    * Every production path is already serial, so this costs nothing there; it
+    * is a guarantee, not a change. Coverage is by call site, not by type:
+    * anything that builds an evaluator OR loads a `PklProject` has to come
+    * through here — today `LibPackage.effectivePin` and the two test-side
+    * evaluators, none of which route through this object otherwise.
+    */
+  def serialized[A](thunk: => A): A = Truffle.synchronized(thunk)
+
   /** Evaluate `entryFile` (relative to `dashboardsDir`). Returns the evaluated
     * JSON + import set, or an error string (Pkl errors carry their own
     * file:line carets, so the message is passed through verbatim).
@@ -43,7 +62,7 @@ object PklBuild {
   def eval(
       dashboardsDir: os.Path,
       entryFile: String
-  ): Either[String, SourceEval.Result] = {
+  ): Either[String, SourceEval.Result] = serialized {
     val entry = dashboardsDir / os.SubPath(entryFile)
     try {
       val project = loadProject(dashboardsDir)
@@ -96,11 +115,12 @@ object PklBuild {
     * built with `HttpClient.dummyClient`) and reads the cache through
     * `package:`/`projectpackage:`, both of which pkl already allows by default.
     */
-  def securityManagerFor(project: Project): org.pkl.core.SecurityManager = {
-    val builder = EvaluatorBuilder.preconfigured()
-    builder.applyFromProject(project)
-    securityManagerFrom(builder)
-  }
+  def securityManagerFor(project: Project): org.pkl.core.SecurityManager =
+    serialized {
+      val builder = EvaluatorBuilder.preconfigured()
+      builder.applyFromProject(project)
+      securityManagerFrom(builder)
+    }
 
   /** The same manager, from a builder that has already had `applyFromProject`
     * run on it — so pkl decides the two lists exactly once.
@@ -308,11 +328,13 @@ object PklBuild {
     * "read" only withholds a hint.
     */
   def fileImports(dashboardsDir: os.Path, entryFile: String): Set[os.Path] =
-    importSet(
-      dashboardsDir,
-      dashboardsDir / os.SubPath(entryFile),
-      Try(loadProject(dashboardsDir)).toOption.flatten
-    )
+    serialized {
+      importSet(
+        dashboardsDir,
+        dashboardsDir / os.SubPath(entryFile),
+        Try(loadProject(dashboardsDir)).toOption.flatten
+      )
+    }
 
   private def importSet(
       dashboardsDir: os.Path,
