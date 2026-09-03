@@ -18,7 +18,7 @@ class EntityCard extends nodes.Node {
   cardDef = new nodes.CardDef {
     template = """
       <article class="card entity{{#tappable}} tappable{{/tappable}}"{{#tappable}}
-        data-on:click="{{#busy}}\(tapMod.busyGuard){{/busy}}{{{onclick}}}"{{/tappable}}{{#busy}} \(tapMod.busyAttrs){{/busy}}{{#busyVisual}} \(tapMod.busyClass){{/busyVisual}}>
+        data-on:click="{{{fh_guard_click}}}{{{onclick}}}"{{/tappable}} {{{fh_guard}}}>
         <header>{{#icon}}{{#busy}}<span class="fh-icon-shape"{{#busyVisual}} \(tapMod.busyShapeClass){{/busyVisual}}>{{/busy}}<i class="mdi {{icon}}"></i>{{#busy}}</span>{{/busy}}{{/icon}}\(textMod.hole("label"))</header>
         <span class="state \(textMod.BOX)">\(textMod.liveRun("value"))</span>{{#secondary}}
         <span class="secondary \(textMod.BOX)">\(textMod.run("secondary"))</span>{{/secondary}}

@@ -37,9 +37,9 @@ class TapAction {
   /// The opt-out is the flag itself: a tap with `busy = false` renders
   /// byte-identical to before this field existed.
   busy: Boolean = false
-  /// Whether the guard's in-flight window also shows the theme's busy LOOK
-  /// ([[busyClass]] — the `fh-disabled` dim and the `fh-loading` spinner,
-  /// both bound to the same Datastar signal). Independent of [[busy]]:
+  /// Whether the guard's in-flight window also shows the busy LOOK — the
+  /// `fh-disabled` dim and the `fh-loading` cursor, which the renderer binds
+  /// to the same signal as the guard. Independent of [[busy]]:
   /// `busy = true, busyVisual = false` still swallows a re-click, it just
   /// never dims or spins — for a control whose action answers fast, where
   /// any busy flicker reads as noise. The dim is IMMEDIATE (it is the
@@ -73,24 +73,27 @@ class TapAction {
 // skill, both verified against the pinned bundle rather than the vendored docs.
 const noSignals = #"{filterSignals:{exclude:'.*'}}"#
 
-/// The busy pieces a card splices onto a guarded tap's element, keeping the
-/// `_<nodeId>__busy` signal name in ONE place (`{{id}}` stays a Mustache token
-/// inside them — the renderer fills it per node). Splice them ONLY when the
-/// tap has `busy = true`:
-///
-///   data-on:click="{{#busy}}\(tapMod.busyGuard){{/busy}}{{{onclick}}}"
-///   {{#busy}}\(tapMod.busyAttrs){{/busy}}{{#busyVisual}} \(tapMod.busyClass){{/busyVisual}}
-///
-/// `busyGuard` makes the click expression a no-op while the signal is truthy
-/// (the anti-spam); `busyAttrs` arms the indicator that drives the signal and
-/// the guard. `busyClass` is the IMMEDIATE visual — `fh-disabled` (dim) and
-/// `fh-loading` (cursor) land the instant the tap does, because "your tap
-/// landed and this control is inert now" is exactly what a tap should answer.
-/// The SPINNER is the delayed half and lives in `busyShapeClass`.
-/// A card splices it only when the tap also has `busyVisual = true`.
-/// One guarded element per node, so the name is never shared — a sibling's
-/// `finished` would otherwise clear an in-flight busy (see
-/// `docs/adr/0019-an-action-in-flight.md`).
+// WHAT A CARD WRITES FOR A GUARDED TAP — two holes, and nothing else:
+//
+//   data-on:click="{{{fh_guard_click}}}{{{onclick}}}"
+//   {{{fh_guard}}}{{#busyVisual}}{{#glyph}} \(tapMod.busyShapeClass){{/glyph}}{{/busyVisual}}
+//
+// The renderer fills both (`Renderer.guardAttrs`/`guardClick`): the re-click
+// guard, the indicator that drives the busy signal, the node id an action sends
+// so a refusal can find its way home, the handler that records one, and the
+// dim. Both holes are always present and render EMPTY when the tap is not
+// guarded, so there is no `{{#busy}}` section to get wrong — whether anything is
+// emitted is the renderer's answer, not the template's.
+//
+// This is deliberately not something an author composes. Every guarded tap
+// needs all of it, the signal names have to agree with what the server patches
+// on a refusal (ADR 0024), and a third-party component should not have to know
+// either fact. Declare `busy = true` on the tap; place the holes; done.
+//
+// The SPINNER stays a card's to place, and is the only piece that does: its
+// class is the THEME's (`busySpin` in the registry, BeerCSS's shape mask) and it
+// must sit on the element hosting the glyph, which only the template knows.
+
 /// The IN-FLIGHT LOOK, for any signal that is truthy while something is
 /// outstanding. Parameterised because the look is one fact and the state is
 /// not: an ADR 0019 `busy` boolean and an ADR 0025 pending VALUE both wear it,
@@ -113,12 +116,13 @@ const local function guardOn(sig: String): String = "$" + sig + " ? '' : "
 const local function indicatorOn(sig: String): String =
   #"data-indicator="\#(sig)""#
 
-/// The two busy signal names. A tap's own, and the slider's separate
-/// value-commit one — see [[busyGuardChange]] for why that must not be shared.
-const busySig: String = "_{{id}}__busy"
+/// The slider's value-commit busy signal — see [[busyGuardChange]] for why it
+/// must not be shared with the tap's own. A tap's `_<id>__busy` has no name
+/// here any more: the renderer emits everything that reads it, so a second
+/// spelling in this module would be a copy to keep in sync.
 const busyChangeSig: String = "_{{id}}__busy_change"
 
-/// The FAILED signal, the other half of [[busySig]].
+/// The FAILED signal, the other half of a tap's busy state.
 ///
 /// `data-indicator` clears on either outcome, so a refused action looked
 /// exactly like a successful one: the dim and the spinner went away and the
@@ -146,11 +150,10 @@ const errorSig: String = "_{{id}}__error"
 ///
 /// Two halves, and each rides exactly where it can be answered:
 ///
-/// [[nodeQuery]] is for a GUARDED tap (`busy = true`), because `busy` is what
-/// splices [[busyAttrs]] and `busyAttrs` is what puts `data-fh-node` on the
-/// element. One flag governs both, so the parameter cannot be sent by an
-/// element that has no id to send — a tab anchor is not a cell and never
-/// carries one.
+/// [[nodeQuery]] is for a GUARDED tap (`busy = true`), because that same flag
+/// is what makes the renderer emit `data-fh-node` on the control. One flag
+/// governs both, so the parameter cannot be sent by an element that has no id
+/// to send — a tab anchor is not guarded and never carries one.
 ///
 /// [[groupQuery]] is for a surface open that answers a SELECTION, so the server
 /// can end the pending ask (see [[pendingSignal]]). Nothing carries both: a
@@ -201,13 +204,6 @@ const local function failedOn(sig: String): String =
 /// classes — a theme may restyle it, never drop it.
 const local function failedClass(sig: String): String =
   #"data-class:fh-error="$\#(sig)""#
-
-const busyGuard: String = guardOn(busySig)
-// Both halves ride the SAME splice sites the busy ones already have, so every
-// card that guards a tap reports a refusal without a template change.
-const busyAttrs: String =
-  indicatorOn(busySig) + " " + failedOn(errorSig) + #" data-fh-node="{{id}}""#
-const busyClass: String = inFlightClass(busySig) + " " + failedClass(errorSig)
 
 /// How long an action may take before it is worth SAYING it is taking a
 /// while. Below this, the spinner never appears at all.

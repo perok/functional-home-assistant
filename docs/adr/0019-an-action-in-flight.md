@@ -56,6 +56,30 @@ and not only on server patches; and the `-filter` companion is mandatory, since
 unfiltered every HA state patch on the page would arm a timer on every guarded
 element.
 
+**A card declares the guard; the renderer writes it.** A component author sets
+`busy = true` on the tap and places two holes — `{{{fh_guard_click}}}` in the
+click expression, `{{{fh_guard}}}` beside it — and the renderer fills them with
+the indicator, the node id, the refusal handler, the re-click guard and the
+looks (`Renderer.guardAttrs`/`guardClick`). Both are always present and render
+empty when the tap is not guarded, so there is no `{{#busy}}` section and no
+signal name in any template.
+
+That is a contract question, not a tidiness one: third parties write components
+here, and the previous shape asked each of them to splice four pieces in the
+right places and to know that the signal names must match what the server
+patches on a refusal (ADR 0024). A contract nobody places is a contract nobody
+can misplace.
+
+The holes are on the CONTROL rather than attributes on the enclosing `.fh-cell`,
+which was tried first and does not work: `data-indicator` keys on
+`evt.detail.el === el` — the element that MADE the fetch — so an indicator on
+the cell arms a signal nothing ever sets. Moving the click to the cell would fix
+the identity and grow every control's hit area to its whole grid cell.
+
+The spinner is the one piece a card still places, because its class is the
+theme's (`busySpin`) and it must sit on the element hosting the glyph, which
+only the template knows.
+
 **A rejection clears the guard and says so on the control.** `finished` fires on
 a failed fetch too, so a refusal can never leave a control stuck — but that also
 made a refused action look exactly like a successful one, the dim gone and the

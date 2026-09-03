@@ -36,6 +36,13 @@ class RendererSuite extends munit.FunSuite {
       slots = List("state")
     ),
     "btn" -> CardDef("""<button>{{label}}</button>""", slots = List("label")),
+    // The two holes a guarded card places, and nothing else — the shape every
+    // shipped control now uses.
+    "guarded" -> CardDef(
+      """<button data-on:click="{{{fh_guard_click}}}{{{onclick}}}" """ +
+        """{{{fh_guard}}}>{{label}}</button>""",
+      slots = List("label", "onclick", "busy", "busyVisual")
+    ),
     "gauge" -> CardDef("""<i>{{bri}}</i>""", slots = List("bri")),
     "act" -> CardDef(
       """<a href="{{{action}}}">go</a>""",
@@ -198,6 +205,61 @@ class RendererSuite extends munit.FunSuite {
     assert(html.contains("&amp;"), clue = html)
     assert(html.contains("°C"), clue = html)
     assert(!html.contains("2 < 3"), clue = html)
+  }
+
+  /** The in-flight contract a card no longer spells out.
+    *
+    * These assertions used to live in `components.test.pkl`, checking that each
+    * template CONTAINED `data-indicator` and `data-class:fh-disabled`. They
+    * moved here with the code: a card places `{{{fh_guard}}}` and the renderer
+    * decides what that means, so the Pkl side can only assert the hole is there
+    * — what fills it is this file's to state.
+    */
+  private def guardedButton(busy: String, busyVisual: String): String = {
+    val node = LayoutNode.Component(
+      card = "guarded",
+      slots = Map(
+        "label" -> lit("Go"),
+        "onclick" -> lit("@post('x')"),
+        "busy" -> lit(busy),
+        "busyVisual" -> lit(busyVisual)
+      )
+    )
+    renderer(node).renderNodeById("c", Map.empty).get
+  }
+
+  test("a guarded tap gets the whole contract, keyed on its own node id") {
+    val html = guardedButton(busy = "1", busyVisual = "1")
+    // Armed: the indicator drives the busy signal, and the guard reads it.
+    assert(html.contains("""data-indicator="_c__busy""""), clue = html)
+    assert(html.contains("""$_c__busy ? '' : @post('x')"""), clue = html)
+    // Reportable: the id an action sends, so a refusal can find its way back
+    // to this control (ADR 0024), and the handler that records one.
+    assert(html.contains("""data-fh-node="c""""), clue = html)
+    assert(html.contains("$_c__error = 'Command failed ("), clue = html)
+    // Visible: the dim, the cursor, and the refusal outline.
+    assert(html.contains("""data-class:fh-disabled="$_c__busy""""), clue = html)
+    assert(html.contains("""data-class:fh-error="$_c__error""""), clue = html)
+  }
+
+  test("busyVisual=false keeps the guard and drops only the look") {
+    val html = guardedButton(busy = "1", busyVisual = "")
+    assert(html.contains("""data-indicator="_c__busy""""), clue = html)
+    assert(html.contains("""$_c__busy ? '' : """), clue = html)
+    assert(!html.contains("data-class:fh-disabled"), clue = html)
+    assert(!html.contains("data-class:fh-error"), clue = html)
+  }
+
+  test("an unguarded tap renders as if the contract did not exist") {
+    // The opt-out is the flag, and it has to cost nothing: a card that places
+    // the holes but declares no guard must emit exactly what it emitted before
+    // the holes existed — no stray attributes, no empty artefacts.
+    val html = guardedButton(busy = "", busyVisual = "1")
+    assert(html.contains("""data-on:click="@post('x')""""), clue = html)
+    assert(!html.contains("data-indicator"), clue = html)
+    assert(!html.contains("data-fh-node"), clue = html)
+    assert(!html.contains("__error"), clue = html)
+    assert(!html.contains("data-class:fh-"), clue = html)
   }
 
   test("unavailable entity bypasses the transform and shows its raw state") {

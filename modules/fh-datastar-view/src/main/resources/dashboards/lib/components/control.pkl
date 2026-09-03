@@ -40,12 +40,12 @@ class Button extends nodes.Node {
     // `lit` tints the control while its entity is on — a CLASS signal slot, so
     // the state costs a frame and never a re-render. Absent unless asked for.
     //
-    // A GLYPH button additionally takes `busyShapeClass` while its call is in
+    // A GLYPH button additionally places `busyShapeClass` while its call is in
     // flight: BeerCSS paints a morphing shape around the icon, which is the
     // in-flight affordance an icon has instead of a label going dim. A labelled
-    // button gets `busyClass` alone, as it always did.
+    // button gets only what `{{{fh_guard}}}` brings.
     template = """
-      {{#href}}<a class="button {{#round}}circle small{{/round}}{{^round}}card{{/round}}{{#hasLit}} {{lit}}{{/hasLit}}"{{#hasLit}} \(slotMod.signalBind("lit")){{/hasLit}} href="{{{href}}}">{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</a>{{/href}}{{^href}}<button class="{{#round}}circle small{{/round}}{{^round}}card{{/round}}{{#hasLit}} {{lit}}{{/hasLit}}"{{#hasLit}} \(slotMod.signalBind("lit")){{/hasLit}} data-on:click="{{#busy}}\(tapMod.busyGuard){{/busy}}{{{onclick}}}"{{#busy}} \(tapMod.busyAttrs){{/busy}}{{#busyVisual}} \(tapMod.busyClass){{#glyph}} \(tapMod.busyShapeClass){{/glyph}}{{/busyVisual}}>{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</button>{{/href}}
+      {{#href}}<a class="button {{#round}}circle small{{/round}}{{^round}}card{{/round}}{{#hasLit}} {{lit}}{{/hasLit}}"{{#hasLit}} \(slotMod.signalBind("lit")){{/hasLit}} href="{{{href}}}">{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</a>{{/href}}{{^href}}<button class="{{#round}}circle small{{/round}}{{^round}}card{{/round}}{{#hasLit}} {{lit}}{{/hasLit}}"{{#hasLit}} \(slotMod.signalBind("lit")){{/hasLit}} data-on:click="{{{fh_guard_click}}}{{{onclick}}}" {{{fh_guard}}}{{#busyVisual}}{{#glyph}} \(tapMod.busyShapeClass){{/glyph}}{{/busyVisual}}>{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</button>{{/href}}
       """
     // `label` stays declared — every button has one, even when it is the empty
     // string an icon-only button carries. `glyph`/`round`/`lit` do not: they are
@@ -175,7 +175,7 @@ class Toggle extends nodes.Node {
       <article class="card row toggle">
         <span class="max \(textMod.BOX)">\(textMod.run("label"))</span>
         <label class="switch">
-          <input type="checkbox" value="on" {{#checked}}checked{{/checked}} \(slotMod.signalBind("checked")) data-on:click="{{#busy}}\(tapMod.busyGuard){{/busy}}{{{onclick}}}"{{#busy}} \(tapMod.busyAttrs){{/busy}}{{#busyVisual}} \(tapMod.busyClass){{/busyVisual}} />
+          <input type="checkbox" value="on" {{#checked}}checked{{/checked}} \(slotMod.signalBind("checked")) data-on:click="{{{fh_guard_click}}}{{{onclick}}}" {{{fh_guard}}} />
           <span></span>
         </label>
       </article>
@@ -264,7 +264,7 @@ class Pill extends nodes.Node {
     // A chip is already pill-shaped, so unlike [[Button]] there is no round
     // variant: a glyph-only chip is a chip with a glyph in it.
     template = """
-      {{#href}}<a class="chip" href="{{{href}}}">{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</a>{{/href}}{{^href}}<button class="chip" data-on:click="{{#busy}}\(tapMod.busyGuard){{/busy}}{{{onclick}}}"{{#busy}} \(tapMod.busyAttrs){{/busy}}{{#busyVisual}} \(tapMod.busyClass){{#glyph}} \(tapMod.busyShapeClass){{/glyph}}{{/busyVisual}}>{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</button>{{/href}}
+      {{#href}}<a class="chip" href="{{{href}}}">{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</a>{{/href}}{{^href}}<button class="chip" data-on:click="{{{fh_guard_click}}}{{{onclick}}}" {{{fh_guard}}}{{#busyVisual}}{{#glyph}} \(tapMod.busyShapeClass){{/glyph}}{{/busyVisual}}>{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</button>{{/href}}
       """
     slots { "label" }
   }

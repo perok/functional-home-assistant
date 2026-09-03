@@ -1874,6 +1874,7 @@ class Renderer(
       ownRendering: Boolean,
       declaresSignals: Boolean,
       wrapped: Boolean,
+      guard: Renderer.Guard,
       inline: Set[String],
       nodeCount: Int
   )
@@ -1991,11 +1992,15 @@ class Renderer(
         }
       case None => Nil
     }
+    // Once: a builder's `result()` is not specified to be repeatable, and the
+    // guard reads the same constants the plan holds.
+    val constants = constB.result()
+    val guard = Renderer.guardOf(constants)
     NodePlan(
       node = c,
       tpl = templateOf(c.card),
       structural = structuralVars(id),
-      constants = constB.result(),
+      constants = constants,
       dynamic = dynB.result(),
       bindings = named.flatMap { case (slot, kind, signal) =>
         List(
@@ -2008,7 +2013,11 @@ class Renderer(
           // got.
           s"${slot}__signal" -> signal
         )
-      }.toMap,
+      }.toMap
+        // The in-flight contract, filled for the card rather than spliced by it.
+        // Both are always PRESENT and empty when the tap is not guarded, so a
+        // template needs no section around them.
+        ++ Renderer.guardHoles(id, guard),
       signalSlots = named.map(_._1),
       signalNameBySlot = named.map { case (slot, _, signal) =>
         slot -> signal
@@ -2018,6 +2027,7 @@ class Renderer(
       ownRendering = hasOwnRendering(id),
       declaresSignals = slots.values.exists(Renderer.isSignalSlot),
       wrapped = !noWrapCards(c.card),
+      guard = guard,
       inline = templates.inlineRegions.getOrElse(c.card, Set.empty),
       // The subtree floor once, not per paint: `tracedHtml` sizes its buffer
       // with it, and recomputing it per paint walked the whole subtree per
@@ -2563,6 +2573,97 @@ object Renderer {
     * (leading space included), `""` when absent/empty. Validated by
     * `Dashboard.validate` to be plain class tokens.
     */
+  /** Whether a node's tap is guarded, and whether the guard shows.
+    *
+    * Three states rather than two booleans because only three combinations
+    * exist: not guarded, guarded silently, guarded visibly. "Not guarded but
+    * visible" is not a thing, and a pair of flags would let it be written.
+    */
+  private[runtime] enum Guard:
+    case Off, Silent, Visible
+
+  /** A node is guarded when its `busy` slot resolved to something truthy — that
+    * slot IS the declaration (ADR 0019's opt-in flag), and a card sets it from
+    * its tap. Read from the plan's constants, so this is answered once per node
+    * and never per paint.
+    */
+  private[runtime] def guardOf(constants: Map[String, String]): Guard =
+    if (!truthy(constants.get(Dashboard.BusySlot))) Guard.Off
+    else if (truthy(constants.get(Dashboard.BusyVisualSlot))) Guard.Visible
+    else Guard.Silent
+
+  /** Mustache's own notion of truth, which is what decided this before the
+    * renderer did: a section renders for anything but absent/empty/`false`, so
+    * a slot that used to gate `{{#busy}}` has to be read the same way or a card
+    * would mean one thing to a template and another to the cell.
+    */
+  private def truthy(v: Option[String]): Boolean =
+    v.exists(s => s.nonEmpty && s != "false")
+
+  /** **The whole in-flight and error contract for one node, as one hole a card
+    * places** (`{{{fh_guard}}}`): the indicator that drives the busy signal,
+    * the node id an action sends so a refusal can find its way home (ADR 0024),
+    * the handler that records one, and the two looks.
+    *
+    * It is built here rather than spliced in a card because none of it is a
+    * decision a card gets to make: every guarded tap needs all of it, and the
+    * signal names have to agree with what the server patches. An author — ours
+    * or a third party's — declares `busy = true` on the tap and writes two
+    * holes; they never name a signal, and there is no `{{#busy}}` section to
+    * get wrong, because whether anything is emitted is answered here.
+    *
+    * It is a HOLE rather than an attribute on the enclosing `.fh-cell`, and the
+    * pinned bundle is what forces that: `data-indicator` keys on
+    * `evt.detail.el === el`, the element that MADE the fetch. The fetch comes
+    * from the control's own `@post`, so an indicator on the cell would arm a
+    * signal nothing ever sets. Moving the click to the cell would fix the
+    * identity and break something worse — a control's hit area would grow to
+    * its whole grid cell.
+    */
+  private[runtime] def guardAttrs(id: String, guard: Guard): String =
+    if (guard == Guard.Off) ""
+    else {
+      val busy = s"$$_${id}__busy"
+      val error = s"_${id}__error"
+      val look =
+        if (guard == Guard.Visible)
+          s""" data-class:fh-disabled="$busy" data-class:fh-loading="$busy"""" +
+            s""" data-class:fh-error="$$$error""""
+        else ""
+      s"""data-indicator="_${id}__busy" data-fh-node="$id"""" +
+        s""" data-on:datastar-fetch__document="evt.detail.el === el && """ +
+        s"""(evt.detail.type === 'error' ? ($$$error = 'Command failed (' + """ +
+        s"""evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($$$error = ''))"""" +
+        look
+    }
+
+  /** The re-click guard, as the prefix a card puts in front of its click
+    * expression (`{{{fh_guard_click}}}`). Empty when the tap is not guarded, so
+    * the card writes one hole instead of a `{{#busy}}` section.
+    *
+    * Separate from [[guardAttrs]] because it lands INSIDE an attribute value
+    * rather than beside it — and it has to be a hole at all for the same reason
+    * the node id does: a slot's value is inserted raw, so a guard composed into
+    * the click expression itself would carry a literal `{{id}}`.
+    */
+  private[runtime] def guardClick(id: String, guard: Guard): String =
+    if (guard == Guard.Off) "" else s"$$_${id}__busy ? '' : "
+
+  /** The two holes' names, which are what a card template writes. `fh_`
+    * prefixed so nothing can collide with a slot an author named.
+    */
+  val GuardHole: String = "fh_guard"
+  val GuardClickHole: String = "fh_guard_click"
+
+  private[runtime] def guardHoles(
+      id: NodeId,
+      guard: Guard
+  ): Map[String, String] =
+    Map(
+      GuardHole -> guardAttrs(id, guard),
+      GuardClickHole -> guardClick(id, guard)
+    )
+
   private def cellClasses(cell: Option[Cell]): String =
     cell.map(_.classes).filter(_.nonEmpty).fold("")(_.mkString(" ", " ", ""))
 
