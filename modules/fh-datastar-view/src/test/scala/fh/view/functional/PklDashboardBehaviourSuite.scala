@@ -520,7 +520,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
           // commit signal the drag would have used.
           assert(
             html.contains(
-              "data-on:click=\"$_c_0_head_0__busy_change ? '' : @post('sse/action/fixture-plug/light/toggle/light.plug'"
+              "data-on:click=\"$_c_0_head_0__busy_change ? '' : @post('sse/action/fixture-plug/light/toggle/light.plug?node='"
             ),
             clue = html
           )

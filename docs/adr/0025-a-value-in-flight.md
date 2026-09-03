@@ -80,10 +80,13 @@ count stops growing.
 **Failure ends it two ways, and neither is a timeout.** A pending value dies
 when it is *refused*, or when *nothing can answer it*:
 
-- **Refused** — the server sent a status, and it was 4xx (ADR 0024). Datastar
-  dispatches its `error` type from `onopen`, so that event fires precisely when
-  a response with a status arrived. `tap.pkl`'s `pendingFail` keys on it and
-  nothing else.
+- **Refused** — the server answered, and the answer was no. It says so in
+  signals on a 200 (ADR 0024), clearing the pending value itself: the group id
+  rides in the action's query string precisely so it can. The client keeps a
+  second writer for the responses a signal patch cannot reach — a non-200, whose
+  body the bundle never parses — and that is `tap.pkl`'s `pendingFail`, keyed on
+  Datastar's `error` type, dispatched from `onopen` and therefore firing
+  precisely when a response with a status arrived.
 - **Unanswerable** — the commit rides the SSE stream, so a stream that is DOWN
   is the exact statement that no commit is coming. `pendingClear`'s second
   disjunct is the shell's own `_sse` counter, already maintained for the
@@ -350,11 +353,11 @@ signal slot place a bind pushed it onto an attribute where it does nothing. A
 slot kind meaning "expression-only" would say what is true; today a reader has to
 be told.
 
-**A stale document's tap could self-heal instead of toasting.** ADR 0024 turned
-two silent 204s into 4xx statuses so the shell's toast fires. Against the teapot
-essay that is arguably the wrong shape for the STALE DOCUMENT case — a tap naming
-a surface id this build renamed, today a 404 and a "Command failed (404)" toast
-that tells the user nothing actionable. Answered as 200 plus a `_reload` frame
+**A stale document's tap could self-heal instead of toasting.** ADR 0024's
+refusals are now 200 carrying signals, so the toast at least names what went
+wrong. The STALE DOCUMENT case could do better still — a tap naming a surface id
+this build renamed gets a message the user cannot act on. Answered as 200 plus a
+`_reload` frame
 (ADR 0018's mechanism, and `Server.reloadPatch` already exists) the tap would
 reload and land on the popup it asked for, because the URL already carries the
 selection (ADR 0005).
@@ -366,7 +369,7 @@ themselves:
 |---|---|---|
 | unknown surface id | the document predates a rebuild that renamed ids | rare and transient: a live page is REPAINTED with the new ids on the swap (verified — a pushed dashboard updated a pill's `onclick` before it could be clicked), and a page that missed the repaint reloads on reconnect via the head hash. The window is the milliseconds between rebuild and repaint |
 | slug nobody serves | the dashboard was deleted, or failed to build, while a page was open | rare, and already owned by ADR 0018: a failed slug gets the error page and a reload repaint |
-| `conn` on another dashboard | no honest client produces it | effectively never — this one really is "a bug", the one use the essay grants a 4xx |
+| `conn` on another dashboard | no honest client produces it | effectively never |
 
 So the reload is POLISH on the rarest path, not a correction: a tap that reloads
 the whole page on a transient condition is a worse failure than one that says

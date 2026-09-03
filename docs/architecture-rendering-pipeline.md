@@ -334,12 +334,22 @@ client-only feedback around the `@post` — see `docs/adr/0019-an-action-in-flig
   browser and a programmatic `change` is swallowed by the guard. The busy class
   rides the `.slider.max` track wrapper (and the head badge, whose icon spins
   during the commit).
-- **Failure toast, in the shell.** `shell.ts` listens for
-  `datastar-fetch:error` whose element sits under a `[data-on\:click]` (the
+- **A refusal is signals on a 200, not a status** (ADR 0024). Every refused
+  action — HA rejecting the call, an entity this dashboard does not name, an
+  unknown surface, a `conn` on another slug — goes through `Server.actionRefused`
+  and answers 200 with a `datastar-patch-signals` body: `_<node>__error` on the
+  control that was pressed, `_<group>__pending` cleared, `_toast` carrying HA's
+  own message. The two ids ride in the action's query string, read off
+  `data-fh-node` at click time. The bundle parses a response body only on
+  exactly 200 (`if (M !== 200) { … return }`), which is why a 4xx could never
+  have carried any of this.
+- **Failure toast, in the shell.** `<body>`'s signal-patch handler calls
+  `window.fhToast` when `_toast` is written, showing a themed `fh-toast`.
+  `shell.ts` also keeps a `datastar-fetch:error` listener for what a signal
+  patch cannot reach — a response that is not 200 at all, whose detail carries
+  only `status` — filtered to elements under a `[data-on\:click]` (the
   escaped-colon selector; the persistent stream's errors arrive with `el` =
-  `<body>` and are already the `_sse`/haDown banners' job) and shows a themed
-  `fh-toast`. The error detail carries only `status`, so the toast is generic —
-  surfacing HA's actual rejection text is a deferred backend step.
+  `<body>` and are already the `_sse`/haDown banners' job).
 - **Connection banner, the same split the other way.** `shell.ts` also
   re-dispatches the `datastar-fetch` events whose element IS `<body>` as
   `fh-stream`, and the banner's debounced `data-on` binds that. The filter
@@ -348,9 +358,9 @@ client-only feedback around the `@post` — see `docs/adr/0019-an-action-in-flig
   followed. Both directions have bitten — a rejected click raising
   "Reconnecting…" on a live connection, and a stream frame landing during a
   failing tap putting the banner away again.
-- **The feedback layer never blocks the patch path.** The POST answers
+- **The feedback layer never blocks the patch path.** A call that WORKS answers
   `NoContent` and the state change flows back over the persistent stream; a
-  rejected call (400) only toasts.
+  rejected one answers signals and never touches the stream.
 
 ### A state change arrives — once, globally
 

@@ -81,10 +81,12 @@ class UiSmokeSuite extends SmokeSuite {
     // deep link to a panel this page never showed. Now the press only says what
     // it ASKED for, and a refusal ends the ask.
     //
-    // The failure is a STATUS, not a dropped connection, because that is what
-    // this route can actually produce (ADR 0024's 4xx) and it is the case
-    // Datastar reports as `error` — dispatched from `onopen`, so a response is
-    // what makes it fire.
+    // The failure is a 404 rather than a dropped connection, which exercises
+    // the CLIENT half of the refusal path: this server answers its own
+    // refusals with 200 carrying signals (ADR 0024), so what is left for
+    // `pendingFail` is the non-200 nobody here produces — a proxy, an auth
+    // redirect, a route that is gone. It is the case Datastar reports as
+    // `error`, dispatched from `onopen`, so a response is what makes it fire.
     withPage(scene) { (page, ts) =>
       val panel = page.locator(".tab-panel")
       val climateTab =
@@ -128,10 +130,10 @@ class UiSmokeSuite extends SmokeSuite {
         _ <- IO(assertEquals(stillBefore, before))
         // The press is not left asserting a tab it never got.
         _ <- IO.blocking(assertThat(climateTab).not().hasClass(active))
-        // …and the refusal SAYS so. `Server.WrongSlugBody` states the rule this
-        // route exists for — "a tap that does nothing and says nothing is the
-        // failure this whole route was fixed for" — but nothing asserted it,
-        // and the shell's listener has been dead before: `closest` throws a
+        // …and the refusal SAYS so. "A tap that does nothing and says nothing
+        // is the failure this whole route was fixed for" — but nothing
+        // asserted it, and the shell's listener has been dead before: `closest`
+        // throws a
         // SyntaxError on an unescaped `data-on:click`, which killed the toast
         // silently. A reverted highlight alone is indistinguishable from a
         // press that never registered.

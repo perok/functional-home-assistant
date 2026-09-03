@@ -22,14 +22,29 @@ class ControlSmokeSuite extends SmokeSuite {
 
   private val scene = Scene.of(SmokeDashboard.dashboard)
 
+  /** The BUTTON, not the text inside it. `getByText` resolves to the element
+    * holding the text run, and the busy/error classes ride the button — so a
+    * state check aimed at the text node silently never sees them.
+    */
+  private def toggleControl(
+      page: com.microsoft.playwright.Page
+  ): com.microsoft.playwright.Locator =
+    page.locator(
+      "button",
+      new com.microsoft.playwright.Page.LocatorOptions()
+        .setHasText("Toggle Kitchen")
+    )
+
   private def clickToggle(page: com.microsoft.playwright.Page): IO[Unit] =
-    IO.blocking(page.getByText("Toggle Kitchen").click())
+    IO.blocking(toggleControl(page).click())
 
   test("clicking a control calls the service back into HA") {
     withPage(scene) { (page, ts) =>
       for {
         _ <- clickToggle(page)
-        calls <- eventually(ts.fake.recordedCalls)(_.nonEmpty)
+        calls <- awaitAction(toggleControl(page))(
+          eventually(ts.fake.recordedCalls)(_.nonEmpty)
+        )
       } yield assertEquals(
         calls,
         Vector(
@@ -56,7 +71,9 @@ class ControlSmokeSuite extends SmokeSuite {
       for {
         _ <- ts.awaitLive()
         _ <- clickToggle(page)
-        _ <- eventually(ts.fake.recordedCalls)(_.nonEmpty)
+        _ <- awaitAction(toggleControl(page))(
+          eventually(ts.fake.recordedCalls)(_.nonEmpty)
+        )
         _ <- ts.fake.emit(HouseFixture.kitchenLight.entityId, "off", Map.empty)
         _ <- IO.blocking(assertThat(kitchenState).hasText("off"))
       } yield ()
@@ -110,6 +127,83 @@ class ControlSmokeSuite extends SmokeSuite {
           _ <- eventually(busy)(b => !b)
           after <- ts.fake.recordedCalls
         } yield assertEquals(after.size, 1)
+    }
+  }
+
+  test("a refusal ENDS the wait, instead of burning the timeout") {
+    // What the error state buys a test, and the reason it is worth holding on
+    // the control rather than only in a toast. A test that clicks and then
+    // waits for a consequence cannot otherwise learn that the consequence is
+    // never coming — it waits out the full deadline and reports "never saw X",
+    // which is true and points nowhere near the cause.
+    //
+    // The elapsed-time assertion is the real one: without it this test passes
+    // on a helper that just waits and fails like any other, which is exactly
+    // the behaviour being replaced.
+    withPage(scene, fakeConfig = FakeConfig(failCalls = true)) { (page, ts) =>
+      // A consequence that CANNOT arrive, so the only way out is the refusal.
+      val neverHappens = eventually(IO.pure(false))(identity)
+      for {
+        _ <- ts.awaitLive()
+        _ <- clickToggle(page)
+        t0 <- IO.monotonic
+        outcome <- awaitAction(toggleControl(page))(neverHappens).attempt
+        t1 <- IO.monotonic
+      } yield {
+        val why = outcome.left.map(_.getMessage).left.getOrElse("")
+        assert(outcome.isLeft, "a refused action must not report success")
+        assert(why.contains("REFUSED"), clue = why)
+        // …and it says what HA said, not just that something went wrong.
+        assert(why.contains("call_service rejected by the fake"), clue = why)
+        assert(
+          t1 - t0 < BrowserSuite.AssertionTimeout,
+          s"took ${t1 - t0}, which is the timeout it was meant to skip"
+        )
+      }
+    }
+  }
+
+  test("a REFUSED call leaves the error state on the control that asked") {
+    // The gap this closes: `data-indicator` clears on either outcome, so a
+    // refused action ended looking exactly like a successful one — the dim went
+    // away and the control sat there as if nothing had been asked. The shell's
+    // toast is global and gone in 4s, so it cannot be what a later reader (or a
+    // test) asks about.
+    //
+    // It is also what makes an action's outcome a thing to WAIT on: "not busy
+    // and not error" is a state of the control that was pressed, rather than
+    // something unrelated on the page that happens to move afterwards.
+    //
+    // This exercises the SERVER's writer specifically, and cannot accidentally
+    // pass on the client's: a refused action answers 200, so Datastar dispatches
+    // no `error` event at all and `failedOn` never runs. What paints the outline
+    // is the signal patch, keyed on the node id the tap sent.
+    withPage(scene, fakeConfig = FakeConfig(failCalls = true)) { (page, ts) =>
+      val toggle = page.locator(
+        "button",
+        new com.microsoft.playwright.Page.LocatorOptions()
+          .setHasText("Toggle Kitchen")
+      )
+      def hasClass(c: String): IO[Boolean] =
+        IO.blocking(
+          toggle
+            .evaluate(s"el => el.classList.contains('$c')")
+            .asInstanceOf[Boolean]
+        )
+      for {
+        _ <- ts.awaitLive()
+        clean <- hasClass("fh-error")
+        _ <- IO(assert(!clean, "idle before anything was asked"))
+        _ <- IO.blocking(toggle.click())
+        // The refusal lands ON the control…
+        _ <- eventually(hasClass("fh-error"))(identity)
+        // …and it is not still claiming to be in flight: the two states are
+        // distinct, which is the whole point of holding the second one.
+        _ <- eventually(hasClass("fh-disabled"))(b => !b)
+        // The global toast still fires — this is additional to it, not a
+        // replacement.
+        _ <- IO.blocking(assertThat(page.locator(".fh-toast")).isVisible())
+      } yield ()
     }
   }
 
@@ -312,10 +406,14 @@ class ControlSmokeSuite extends SmokeSuite {
     }
   }
 
-  test("a rejected action surfaces a toast and clears busy") {
-    // The fake's call_service RAISES; the server answers the action POST with
-    // 400, and the shell's datastar-fetch listener turns that error into a
-    // toast (the click-filter keeps the SSE stream's own errors out of it).
+  test("a rejected action toasts WHAT went wrong, and clears busy") {
+    // The fake's call_service RAISES; the server answers 200 patching `_toast`
+    // with the message it got, and the shell's signal-patch handler shows it.
+    //
+    // The assertion is on HA's own words rather than "Command failed (400)",
+    // and that is the point of the shape: the bundle parses a response body
+    // only on 200, so a 4xx could never have carried this text — the old toast
+    // could only ever repeat a status code back at the user.
     withPage(scene, fakeConfig = FakeConfig(failCalls = true)) { (page, _) =>
       val toggle = page.locator(
         "button",
@@ -331,7 +429,8 @@ class ControlSmokeSuite extends SmokeSuite {
       for {
         _ <- IO.blocking(toggle.click())
         _ <- IO.blocking(
-          assertThat(page.locator(".fh-toast")).hasText("Command failed (400)")
+          assertThat(page.locator(".fh-toast"))
+            .hasText("call_service rejected by the fake")
         )
         // `finished` fires even on a rejected fetch, so busy clears here too —
         // an error must not leave the button stuck in the guarded state.

@@ -106,14 +106,21 @@ class AuthGateBehaviourSuite extends FunctionalSuite {
           s"sse/action/${ts.slug}/light/toggle/${kitchen.entityId}",
           as = None
         )
-        elsewhere <- ts.post(
-          s"sse/action/${ts.slug}/lock/unlock/lock.front_door",
+        elsewhere <- ts.postResult(
+          s"sse/action/${ts.slug}/lock/unlock/lock.front_door?node=c_0",
           as = None
         )
         calls <- ts.fake.recordedCalls
       } yield {
         assertEquals(onDashboard, Status.NoContent)
-        assertEquals(elsewhere, Status.Forbidden)
+        // A refusal is 200 carrying signals, not a status (ADR 0024) — so the
+        // assertion is on what it SAID, which is also what the page shows.
+        assertEquals(elsewhere._1, Status.Ok)
+        assert(
+          elsewhere._2.contains("_c_0__error") &&
+            elsewhere._2.contains("lock.front_door is not on this dashboard"),
+          s"the refusal said nothing the page can show: ${elsewhere._2}"
+        )
         // Refused BEFORE Home Assistant hears about it, not merely reported as
         // an error afterwards.
         assert(

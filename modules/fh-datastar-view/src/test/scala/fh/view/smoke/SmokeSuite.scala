@@ -134,6 +134,62 @@ abstract class SmokeSuite extends BrowserSuite {
       .lastOrError
       .timeout(timeout)
 
+  /** Wait for what a click was supposed to CAUSE, and give up the moment the
+    * control says it was refused instead.
+    *
+    * The failure it removes is a timeout that blames the wrong thing. A test
+    * that clicks and then waits for a consequence has no way to learn that the
+    * consequence is never coming: it burns its full timeout and reports "never
+    * saw X", which is true and says nothing about why. The cause is usually
+    * three layers away, and finding it has cost whole debugging sessions here.
+    *
+    * `_<id>__error` is what makes the shortcut possible (ADR 0019/0024): a
+    * refusal now LANDS on the control that was pressed, carrying HA's own
+    * message, so "this will never happen" is an observable state rather than an
+    * inference from silence. The refusal watcher has no timeout of its own on
+    * purpose — it must resolve only when a refusal actually appears, so the
+    * race is decided by whichever really occurs, not by whichever deadline
+    * lands first.
+    *
+    * Use it wherever a click is followed by "and then the page does X". A test
+    * ABOUT refusal wants the plain `fh-error` assertion instead — this one
+    * treats a refusal as the thing that went wrong.
+    */
+  def awaitAction[A](control: com.microsoft.playwright.Locator)(
+      outcome: IO[A]
+  ): IO[A] = {
+    // The control holds the STATE; the toast holds the words. Both come from
+    // the same refusal frame, so reading them together turns "never saw X"
+    // into the message HA actually gave.
+    val refused: IO[String] =
+      fs2.Stream
+        .repeatEval(
+          IO.blocking(
+            control.evaluate(
+              """el => el.classList.contains('fh-error')
+                |  ? ((el.dataset.fhNode || '?') + ': ' +
+                |     (document.querySelector('.fh-toast')?.textContent || 'no message'))
+                |  : null""".stripMargin
+            )
+          ).map(Option(_).map(_.toString)) <* IO.sleep(20.millis)
+        )
+        .unNone
+        .head
+        .compile
+        .lastOrError
+
+    IO.race(outcome, refused).flatMap {
+      case Left(a)    => IO.pure(a)
+      case Right(why) =>
+        IO.raiseError(
+          new AssertionError(
+            s"the action was REFUSED, so what this test waited for was never " +
+              s"going to happen — $why"
+          )
+        )
+    }
+  }
+
   /** Quiesce a page before a screenshot ([[ComponentVisualSuite]]): wait for
     * web fonts (the vendored Material Symbols glyphs) to finish loading, and
     * kill CSS transitions/animations so a screenshot can never land

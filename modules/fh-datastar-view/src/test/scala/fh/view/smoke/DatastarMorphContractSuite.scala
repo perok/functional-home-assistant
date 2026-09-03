@@ -269,11 +269,12 @@ class DatastarMorphContractSuite extends BrowserSuite {
     // something: the SAME body, the same route, the same assertion — so a
     // failure here is about the STATUS and cannot be a malformed frame.
     //
-    // Consequence: an error's own body is not a channel. A tap that fails has
-    // to be recovered from by the client (clearing its pending signal off the
-    // `datastar-fetch` error event), not by bytes the server sends back. It
-    // also confirms ADR 0019's "the response body is unreachable here" for the
-    // error path, by a second route.
+    // Consequence, and it is the load-bearing one: a non-200's body is not a
+    // channel, so a refusal that wants to SAY anything has to answer 200. That
+    // is why every refused action does (ADR 0024) — the signals reporting it
+    // could not survive any other status. What is left on the client is the
+    // remainder this test describes: a response nobody here sends, recoverable
+    // only from its status.
     val page =
       """<button id="ok" data-on:click="@post('/allow')">ok</button>
         |<button id="no" data-on:click="@post('/refuse')">no</button>
