@@ -1100,21 +1100,14 @@ Live list — delete an entry when it is answered, and say where the answer land
   for 3.4%, and the same profile named items worth three and six times as much. Reopen only if a
   profile puts it somewhere else.
 
-- **Fills bypass the `RenderCache` entirely** —
-  [issue #224](https://github.com/perok/functional-home-assistant/issues/224). `arrivingFill` and
-  `branchPatch` take no cache and `Patches.resume` runs per session, so a flip renders its whole
-  surface subtree once per connection — the exact N-sessions-one-render waste `Patches.bytes` exists
-  to prevent. Not an oversight: a fill's content is a composed subtree, which `renderInputs` refuses
-  a key for by design, so the fix is composing a fill from per-node cached leaves rather than one
-  fresh walk. Orthogonal to render FORM — that was checked and changes nothing here (PR #222).
-
-  Two corrections worth having before anyone picks it up. **"Fills already run in `IO`, so this
-  needs no walk surgery" is wrong**: `Patches.resume` is effectful but `renderSurfaceTraced` is a
-  pure walk, so reading the cache per leaf is the same shape of change as #130 — what makes this
-  the better pickup is BLAST RADIUS, since `renderHost` is the walk's one production caller where
-  #130's three entry points reach every test that renders a page. And the saving is proportional to
-  sessions pulling from the SAME snapshot, which the straggler rule says they often do not, so the
-  first artifact is a fill benchmark: `RenderBench` has no fill entry point at all.
+- ~~**Fills bypass the `RenderCache` entirely.**~~ *Measured, and the answer is no*
+  ([issue #224](https://github.com/perok/functional-home-assistant/issues/224), closed). They still
+  do — `renderHost` takes no cache and `Patches.resume` runs per session — but the only fill several
+  sessions can ever share is a state-group FLIP (a tab switch is one client's own selection, a
+  refill is per reconnect), and `RenderBench.resumeFlip` prices the whole of it at **~730 µs of CPU
+  per flip at ten clients**, against 93.9 µs for one. A flip is an alarm arming; at one a minute
+  that is 0.001% of a core, while `resumeSignalsFanout` spends 424 µs per TICK on the path that runs
+  continuously. Reopen only if a profile of a real deployment puts a fill on it.
 
 - **The document walk and the repaint bypass the `RenderCache` entirely** —
   [issue #130](https://github.com/perok/functional-home-assistant/issues/130), measured and
