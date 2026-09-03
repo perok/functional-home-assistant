@@ -1404,26 +1404,23 @@ class Server(
                       f(session, renderer, uiState) *> NoContent()
                   }
               }
-              // Recovered HERE rather than left to the app-level
-              // [[FHError.handle]], so this route answers the same way when a
-              // suite exercises it directly — the shape [[pushResponse]] and
-              // [[guardSystemPkl]] already use. What differs is the ANSWER for
-              // a 4xx: a tap is an action, so "this cannot be done" is
-              // [[actionRefused]]'s 200 of signals rather than the status the
-              // raise site picked.
+              // A 4xx is answered HERE, because a tap is an action and "this
+              // cannot be done" is [[actionRefused]]'s 200 of signals rather
+              // than the status the raise site picked.
               //
-              // A 5xx keeps its status, and that is the line: it is not a
-              // refusal at all but OUR bug, and dressing one as "the operation
-              // failed" both tells the user something untrue and puts an
-              // internal message on their page. It stays a hard error, logged.
-              // `recoverWith`, not `handleErrorWith`: only an `FHError` is
-              // answerable here and everything else must keep propagating.
-              // `handleErrorWith` takes a TOTAL function, so this block under
-              // it is a non-exhaustive match — a `MatchError` replacing the
-              // real exception on any other failure.
+              // Nothing at or above 500 is recovered, and the guard is what
+              // says so rather than a branch that re-implements the boundary:
+              // a 5xx is not a refusal at all but OUR bug, so it belongs to
+              // [[FHError.handle]], which already logs it and answers 500.
+              // Dressing one as "the operation failed" would tell the user
+              // something untrue and put an internal message on their page.
+              // `recoverWith`, not `handleErrorWith`: everything else must keep
+              // propagating, and `handleErrorWith` takes a TOTAL function, so
+              // this block under it would be a non-exhaustive match — a
+              // `MatchError` replacing the real exception on any other failure.
               .recoverWith {
-                case e: FHError if e.status >= 500 => FHError.logged(e)
-                case e: FHError => actionRefused(req, e.message)
+                case e: FHError if e.status < 500 =>
+                  actionRefused(req, e.message)
               }
           )
       }

@@ -67,9 +67,9 @@ class ActionConcurrencySuite extends ServerHarness {
         .use { server =>
           val app = server.routes.orNotFound
           for {
-            // Started in order and spaced enough that the ORDER is a fact
-            // about the test rather than a race: what is being measured is
-            // how many survive, not who wins a tie.
+            // Started in order, and their ARRIVAL order at HA is deliberately
+            // not asserted below — see the set comparison for what measuring
+            // it taught.
             f1 <- app.run(setBrightness(10)).start
             _ <- IO.sleep(50.millis)
             f2 <- app.run(setBrightness(120)).start
@@ -86,9 +86,17 @@ class ActionConcurrencySuite extends ServerHarness {
       // told anything about the others.
       assertEquals(statuses, List.fill(3)(Status.NoContent))
       // …and every one of them drove the device.
+      //
+      // A SET, because the first version of this asserted the order and went
+      // red under a full-suite run while passing alone: three overlapping asks
+      // issued 50 ms apart do NOT reliably reach HA in the order they were
+      // made, because each is its own fiber and a loaded machine can run them
+      // in any order. That is the reordering hazard the coalescing proposal
+      // exists to remove, observed here rather than argued for — and it is
+      // also why asserting order would be pinning a race.
       assertEquals(
-        calls.map(_.serviceData.noSpaces).toList,
-        List(
+        calls.map(_.serviceData.noSpaces).toSet,
+        Set(
           """{"brightness":10}""",
           """{"brightness":120}""",
           """{"brightness":200}"""

@@ -22,14 +22,29 @@ class ControlSmokeSuite extends SmokeSuite {
 
   private val scene = Scene.of(SmokeDashboard.dashboard)
 
+  /** The BUTTON, not the text inside it. `getByText` resolves to the element
+    * holding the text run, and the busy/error classes ride the button — so a
+    * state check aimed at the text node silently never sees them.
+    */
+  private def toggleControl(
+      page: com.microsoft.playwright.Page
+  ): com.microsoft.playwright.Locator =
+    page.locator(
+      "button",
+      new com.microsoft.playwright.Page.LocatorOptions()
+        .setHasText("Toggle Kitchen")
+    )
+
   private def clickToggle(page: com.microsoft.playwright.Page): IO[Unit] =
-    IO.blocking(page.getByText("Toggle Kitchen").click())
+    IO.blocking(toggleControl(page).click())
 
   test("clicking a control calls the service back into HA") {
     withPage(scene) { (page, ts) =>
       for {
         _ <- clickToggle(page)
-        calls <- eventually(ts.fake.recordedCalls)(_.nonEmpty)
+        calls <- awaitAction(toggleControl(page))(
+          eventually(ts.fake.recordedCalls)(_.nonEmpty)
+        )
       } yield assertEquals(
         calls,
         Vector(
@@ -56,7 +71,9 @@ class ControlSmokeSuite extends SmokeSuite {
       for {
         _ <- ts.awaitLive()
         _ <- clickToggle(page)
-        _ <- eventually(ts.fake.recordedCalls)(_.nonEmpty)
+        _ <- awaitAction(toggleControl(page))(
+          eventually(ts.fake.recordedCalls)(_.nonEmpty)
+        )
         _ <- ts.fake.emit(HouseFixture.kitchenLight.entityId, "off", Map.empty)
         _ <- IO.blocking(assertThat(kitchenState).hasText("off"))
       } yield ()
@@ -110,6 +127,39 @@ class ControlSmokeSuite extends SmokeSuite {
           _ <- eventually(busy)(b => !b)
           after <- ts.fake.recordedCalls
         } yield assertEquals(after.size, 1)
+    }
+  }
+
+  test("a refusal ENDS the wait, instead of burning the timeout") {
+    // What the error state buys a test, and the reason it is worth holding on
+    // the control rather than only in a toast. A test that clicks and then
+    // waits for a consequence cannot otherwise learn that the consequence is
+    // never coming — it waits out the full deadline and reports "never saw X",
+    // which is true and points nowhere near the cause.
+    //
+    // The elapsed-time assertion is the real one: without it this test passes
+    // on a helper that just waits and fails like any other, which is exactly
+    // the behaviour being replaced.
+    withPage(scene, fakeConfig = FakeConfig(failCalls = true)) { (page, ts) =>
+      // A consequence that CANNOT arrive, so the only way out is the refusal.
+      val neverHappens = eventually(IO.pure(false))(identity)
+      for {
+        _ <- ts.awaitLive()
+        _ <- clickToggle(page)
+        t0 <- IO.monotonic
+        outcome <- awaitAction(toggleControl(page))(neverHappens).attempt
+        t1 <- IO.monotonic
+      } yield {
+        val why = outcome.left.map(_.getMessage).left.getOrElse("")
+        assert(outcome.isLeft, "a refused action must not report success")
+        assert(why.contains("REFUSED"), clue = why)
+        // …and it says what HA said, not just that something went wrong.
+        assert(why.contains("call_service rejected by the fake"), clue = why)
+        assert(
+          t1 - t0 < BrowserSuite.AssertionTimeout,
+          s"took ${t1 - t0}, which is the timeout it was meant to skip"
+        )
+      }
     }
   }
 

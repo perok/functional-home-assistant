@@ -47,7 +47,11 @@ class ActionSignalNamesSuite extends CatsEffectSuite {
        |}
        |""".stripMargin
 
-  private def firstMatch(re: scala.util.matching.Regex, html: String, what: String): String =
+  private def firstMatch(
+      re: scala.util.matching.Regex,
+      html: String,
+      what: String
+  ): String =
     re.findFirstMatchIn(html)
       .map(_.group(1))
       .getOrElse(fail(s"the page carries no $what — the markup moved"))
@@ -71,7 +75,8 @@ class ActionSignalNamesSuite extends CatsEffectSuite {
                 s"?${Server.NodeParam}=$nodeId&${Server.GroupParam}=$groupId"
             )
           )
-          val names = Server.actionSignals(req, "refused").asObject.get.keys.toSet
+          val names =
+            Server.actionSignals(req, "refused").asObject.get.keys.toSet
 
           // Every name the server would patch is one this page reads. `$<name>`
           // rather than the bare name: an expression READING it is the thing
@@ -93,7 +98,10 @@ class ActionSignalNamesSuite extends CatsEffectSuite {
           // function no build emitted.
           assert(names.contains(Server.ToastSignal), clue = names)
           assert(html.contains(s"$$${Server.ToastSignal} = ''"), clue = html)
-          assert(html.contains("window.fhToast="), clue = "the shell must define fhToast")
+          assert(
+            html.contains("window.fhToast="),
+            clue = "the shell must define fhToast"
+          )
         }
       }
       .timeout(60.seconds)
