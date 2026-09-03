@@ -56,9 +56,21 @@ and not only on server patches; and the `-filter` companion is mandatory, since
 unfiltered every HA state patch on the page would arm a timer on every guarded
 element.
 
-**A rejection clears the guard and shows a toast.** `finished` fires on a failed
-fetch too, so an error can never leave a control stuck. `shell.ts` turns
-`datastar-fetch:error` into `.fh-toast`.
+**A rejection clears the guard and says so on the control.** `finished` fires on
+a failed fetch too, so a refusal can never leave a control stuck — but that also
+made a refused action look exactly like a successful one, the dim gone and the
+control sitting there as if nothing had been asked. So the node keeps a second
+signal, `_<id>__error`: set on refusal, cleared when the same control starts
+another action. It is what gives an action an ASSERTABLE outcome — "not busy and
+not error" is a state of the thing that was pressed, rather than something
+unrelated on the page that happens to move afterwards.
+
+The server is its main writer, and names the node from the id the tap sends
+(`?node=`, read off `data-fh-node` at click time): a refused action answers 200
+carrying signals (ADR 0024), so the message HA gave lands on the control and in
+`.fh-toast`. `shell.ts` keeps the `datastar-fetch:error` listener for the
+remainder a signal patch cannot reach — a response that is not 200, where the
+bundle drops the body unread and only a status survives.
 
 ## Consequences
 

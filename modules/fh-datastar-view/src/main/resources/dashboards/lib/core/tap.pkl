@@ -130,7 +130,38 @@ const busyChangeSig: String = "_{{id}}__busy_change"
 /// Held on the CONTROL that was pressed, which is also what makes the outcome
 /// assertable: after a click a test waits for "not busy and not error", or for
 /// "error", instead of inferring it from something unrelated on the page.
+///
+/// TWO writers, for two different facts. The SERVER patches it when the service
+/// call it made was refused — a 200 carrying `datastar-patch-signals`, keyed on
+/// the node id the tap sends ([[actionQuery]]), so the message HA gave lands on
+/// the control instead of a status code. [[failedOn]] is the client's half, and
+/// covers what a signal patch cannot reach: a response that is not 200 at all
+/// (an access refusal, a dead route), where the body is never parsed.
 const errorSig: String = "_{{id}}__error"
+
+/// **What every action tells the server about itself**, so a refusal can be
+/// reported ON the things that asked: the node id of the control that was
+/// pressed, and the selection group waiting for the answer where there is one
+/// (a tab bar — see [[pendingSignal]]).
+///
+/// Spliced onto the END of a route by every builder below, which is what makes
+/// "an action reports its refusal" one rule rather than a habit each one
+/// follows. Append `, <options>)` after it for a `@post` that takes options,
+/// `)` for one that does not.
+///
+/// The node id is read off the DOM at click time rather than interpolated,
+/// because a click expression is a transform's OUTPUT and is inserted raw —
+/// Mustache never sees it, so `{{id}}` inside it would stay a literal. It
+/// reaches the element through [[busyAttrs]]. An element with no node id (a tab
+/// anchor, which is not a cell) sends an empty one and the server simply has no
+/// control to paint; the group still lands.
+///
+/// QUERY parameters, not path segments: the value-carrying action route already
+/// ends `…/<entity>/<key>/<value>`, so a positional id would make the two forms
+/// ambiguous.
+const local function actionQuery(group: String?): String =
+  #"?node=' + (el.dataset.fhNode || '')"# +
+    (if (group == null) "" else #" + '&group=\#(group)'"#)
 
 /// Sets [[errorSig]] when THIS element's action is refused, and clears it when
 /// this element starts another — so a retry drops the state without needing a
@@ -141,11 +172,15 @@ const errorSig: String = "_{{id}}__error"
 /// (`re=(e,t,n)=>document.dispatchEvent(new CustomEvent(j,{detail:{type:e,el:t,
 /// argsRaw:n}}))`, with `at="started"`, `ct="finished"`, `Sn="error"`), so an
 /// unfiltered listener would light every control on the page when the stream
-/// blipped. `pendingFail` sets the same precedent for a tab group.
+/// blipped.
 ///
 /// `finished` is deliberately NOT a clear: it fires after `error` too, in the
 /// `finally`, and clearing there would erase the state a frame after setting
 /// it.
+///
+/// The `started` half also clears what the SERVER set, which is why the two
+/// writers do not need to coordinate: a press is what ends the previous
+/// press's verdict, whoever wrote it.
 const local function failedOn(sig: String): String =
   #"data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($\#(sig) = true) : evt.detail.type === 'started' && ($\#(sig) = false))""#
 
@@ -158,7 +193,8 @@ const local function failedClass(sig: String): String =
 const busyGuard: String = guardOn(busySig)
 // Both halves ride the SAME splice sites the busy ones already have, so every
 // card that guards a tap reports a refusal without a template change.
-const busyAttrs: String = indicatorOn(busySig) + " " + failedOn(errorSig)
+const busyAttrs: String =
+  indicatorOn(busySig) + " " + failedOn(errorSig) + #" data-fh-node="{{id}}""#
 const busyClass: String = inFlightClass(busySig) + " " + failedClass(errorSig)
 
 /// How long an action may take before it is worth SAYING it is taking a
@@ -231,9 +267,15 @@ const busyShapeClass: String = busySpinner("_{{id}}__busy")
 /// dispatch. The boolean comes from the indicator plugin, so the attr plugin's
 /// `true`→`setAttribute`/`false`→`removeAttribute` toggle works exactly.
 const busyGuardChange: String = guardOn(busyChangeSig)
+// The error half is NOT keyed on the change signal: a refusal is a fact about
+// the NODE, and the server names the node (`?node=`), so the commit and the
+// slider's other taps report through the one [[errorSig]]. Only "in flight"
+// needs the separate name.
 const busyAttrsChange: String =
-  indicatorOn(busyChangeSig) + #" data-attr:disabled="$\#(busyChangeSig)""#
-const busyClassChange: String = inFlightClass(busyChangeSig)
+  indicatorOn(busyChangeSig) + #" data-attr:disabled="$\#(busyChangeSig)""# + " " +
+    failedOn(errorSig) + #" data-fh-node="{{id}}""#
+const busyClassChange: String =
+  inFlightClass(busyChangeSig) + " " + failedClass(errorSig)
 /// [[busyShapeClass]]'s commit-signal twin, for the slider's head badge —
 /// the track carries no icon of its own, so the badge is what spins for the
 /// whole commit window.
@@ -243,7 +285,7 @@ const local function serviceOnclick(route: String): String =
   #""@post('sse/action/""# +
     #" + dashboard_slug + "/" + "# +
     "(" + route + ")" +
-    #" + "/" + entity_id + "', "# +
+    #" + "/" + entity_id + ""# + actionQuery(null) + #", "# +
     noSignals +
     #")""#
 
@@ -273,13 +315,21 @@ const local function clickSlot(transformExpr: String, live: Boolean): slotMod.Sl
 // this click asked for — spliced inside the produced expression rather than
 // before it, since the whole click expression is one string. It runs FIRST so
 // the display moves on the press rather than on the response.
-const local function openSurfaceOnclick(surfaceId: String, head: String): slotMod.Slot =
+//
+// `group` is the selection group this open answers, when there is one: the
+// server names it in a refusal so the pending ask ENDS there ([[pendingClear]]).
+// Null for a popup, which has no selection anyone displays.
+const local function openSurfaceOnclick(
+  surfaceId: String,
+  head: String,
+  group: String?
+): slotMod.Slot =
   clickSlot(
     // The closing quote is spliced as `"` rather than a multi-line raw string
     // — `#"""#` would open a multi-line block and swallow the rest of the
     // module.
     "\"" + head + #"@post('sse/surface/""# +
-      #" + dashboard_slug + "/open/"# + surfaceId + #"')""#,
+      #" + dashboard_slug + "/open/"# + surfaceId + actionQuery(group) + #")""#,
     false
   )
 
@@ -319,8 +369,12 @@ const function pendingSeedEntry(groupId: String): String =
 /// transport is what would have carried the answer. When the stream returns,
 /// the connect states the committed selections again ([[SurfaceGraph]]
 /// `committedSelections`), so the display lands on truth rather than on a
-/// guess. A REFUSAL — a status the server actually sent, on a working stream —
-/// is the remaining case, and [[pendingFail]] has it.
+/// guess. A REFUSAL is the remaining case, and it has TWO writers for the same
+/// reason [[errorSig]] does: the server clears this signal itself in the frame
+/// that reports the refusal (`Server.actionSignals`, which is why the group id
+/// rides in [[actionQuery]]), and [[pendingFail]] covers what a signal patch
+/// cannot reach — a response that is not 200 at all, whose body the bundle
+/// never parses.
 ///
 /// This effect READS AND WRITES the same signal, which is the shape that loops.
 /// It settles because the assignment falsifies its own guard, and
@@ -329,8 +383,10 @@ const function pendingClear(groupId: String): String =
   let (sig = pendingSignal(groupId))
     #"data-effect="$\#(sig) !== '' && ($ui_\#(groupId) == $\#(sig) || $_sse > 0) && ($\#(sig) = '')""#
 
-/// The refusal case: the server answered, and the answer was no (ADR 0024's
-/// 4xx statuses). Nothing will commit, so the ask ends here.
+/// The refusal a signal patch cannot carry: a response that is not 200, where
+/// Datastar drops the body unread. An action this server refuses answers 200
+/// and clears the pending itself; what lands here is a proxy, an auth redirect,
+/// a route that is gone — and the ask is just as over.
 ///
 /// Keyed on the `error` type and nothing else, which the pinned bundle makes
 /// exact rather than approximate: that type is dispatched from `onopen`, so it
@@ -360,7 +416,7 @@ const function pendingOrCommitted(groupId: String): String =
 /// (ADR 0024's open half). Public only because the bar is built in
 /// `components/surface.pkl`, which cannot reach a `const local`.
 const function selectSurface(surfaceId: String, groupId: String, value: String): slotMod.Slot =
-  openSurfaceOnclick(surfaceId, "$" + pendingSignal(groupId) + " = '" + value + "'; ")
+  openSurfaceOnclick(surfaceId, "$" + pendingSignal(groupId) + " = '" + value + "'; ", groupId)
 
 /// Explicit "<domain>/<service>" override, e.g. service("lock/lock").
 const function service(action: String): TapAction =
@@ -419,7 +475,7 @@ const function byDomain(e: hass.Entity): TapAction? =
 const local function serviceValueOnclick(action: String, key: String, value: String): String =
   #""@post('sse/action/""# +
     #" + dashboard_slug + "/" + '"# + action + #"' + "/" + entity_id + "/" + '"# + key +
-    #"' + "/" + '"# + value.replaceAll(" ", "%20") + #"' + "', "# + noSignals + #")""#
+    #"' + "/" + '"# + value.replaceAll(" ", "%20") + #"' + ""# + actionQuery(null) + #", "# + noSignals + #")""#
 
 /// A service call carrying ONE static value: `serviceValue("light/turn_on",
 /// "effect", "colorloop")`. The entity comes from the card the tap sits on, so
@@ -444,7 +500,10 @@ function navigate(slug: String): TapAction = new {
 /// signal stops claiming it in the same frame, so the two cannot disagree.
 function closePopup(): TapAction =
   new {
-    onclick = clickSlot(#""@post('sse/popup/""# + #" + dashboard_slug + "/close')""#, false)
+    onclick = clickSlot(
+      #""@post('sse/popup/""# + #" + dashboard_slug + "/close"# + actionQuery(null) + #")""#,
+      false
+    )
   }
 
 /// Open the surface REGISTERED under `surfaceId` (a top-level `surfaces` entry).
@@ -456,7 +515,7 @@ function closePopup(): TapAction =
 // committed `ui_popups` still arrives, which is what a refresh restores from.
 function openPopup(surfaceId: String): TapAction =
   new {
-    onclick = openSurfaceOnclick(surfaceId, "")
+    onclick = openSurfaceOnclick(surfaceId, "", null)
   }
 
 /// Open an INLINE popup: `content` is wrapped in a [[Popup]] dialog and stashed
@@ -476,7 +535,7 @@ function openPopup(surfaceId: String): TapAction =
 // the same widened type or it rejects exactly the case `children` was widened
 // for.
 function openPopupInline(body: nodes.LayoutNode): TapAction = new {
-  onclick = openSurfaceOnclick("\(nodes.NODE_ID)_self", "")
+  onclick = openSurfaceOnclick("\(nodes.NODE_ID)_self", "", null)
   inlineSurfaces = new Mapping {
     ["self"] = new surfaceMod.SurfaceDef { content = new surfaceMod.Popup { children { body } } }
   }

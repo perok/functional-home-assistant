@@ -205,8 +205,11 @@ class SurfaceTapSuite extends ServerHarness {
             .flatMap(r => r.bodyText.compile.string.map(r.status -> _))
         }
     } yield out).timeout(30.seconds).map { case (status, body) =>
-      assertEquals(status, Status.NotFound)
+      // 200 carrying signals: a refused action reports itself as page state,
+      // not as a status the body of which nothing would ever read (ADR 0024).
+      assertEquals(status, Status.Ok)
       assert(body.contains("gone"), clue = body)
+      assert(body.contains(Server.ToastSignal), clue = body)
     }
   }
 
@@ -214,7 +217,9 @@ class SurfaceTapSuite extends ServerHarness {
     // A `conn` is minted per document and a document is one dashboard, so no
     // honest client produces this. Re-registering would unroute whatever live
     // page owns it, and answering 204 would be the silence this whole route
-    // was fixed for — hence a status the shell can toast.
+    // was fixed for — hence a refusal the page can show. It rides in the BODY
+    // (`_toast`, and the group/node the tap named), because the bundle parses a
+    // response body only on 200.
     (for {
       store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "warm")))
       ref <- SignallingRef[IO].of(
@@ -239,16 +244,21 @@ class SurfaceTapSuite extends ServerHarness {
               .run(
                 Request[IO](
                   Method.POST,
-                  uri"/sse/surface/dashboard/open/det"
+                  uri"/sse/surface/dashboard/open/det?group=tabs"
                 ).withEntity(s"""{"${Server.ConnSignal}":"shared"}""")
               )
-              .map(_.status)
+              .flatMap(r => r.bodyText.compile.string.map(r.status -> _))
             // ...and the page that does own it is left alone.
             untouched <- sessions.get("shared").map(_.exists(_.slug == "other"))
           } yield (status, untouched)
         }
-    } yield out).timeout(30.seconds).map { case (status, untouched) =>
-      assertEquals(status, Status.Conflict)
+    } yield out).timeout(30.seconds).map { case ((status, body), untouched) =>
+      assertEquals(status, Status.Ok)
+      assert(body.contains(Server.WrongSlugMessage), clue = body)
+      // The ask ENDS here, and the server is what says so: the tab's pending
+      // selection is cleared in the same frame, since there is no status left
+      // for the client to infer it from.
+      assert(body.contains("_tabs__pending"), clue = body)
       assert(untouched)
     }
   }

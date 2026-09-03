@@ -123,6 +123,11 @@ class ControlSmokeSuite extends SmokeSuite {
     // It is also what makes an action's outcome a thing to WAIT on: "not busy
     // and not error" is a state of the control that was pressed, rather than
     // something unrelated on the page that happens to move afterwards.
+    //
+    // This exercises the SERVER's writer specifically, and cannot accidentally
+    // pass on the client's: a refused action answers 200, so Datastar dispatches
+    // no `error` event at all and `failedOn` never runs. What paints the outline
+    // is the signal patch, keyed on the node id the tap sent.
     withPage(scene, fakeConfig = FakeConfig(failCalls = true)) { (page, ts) =>
       val toggle = page.locator(
         "button",
@@ -351,10 +356,14 @@ class ControlSmokeSuite extends SmokeSuite {
     }
   }
 
-  test("a rejected action surfaces a toast and clears busy") {
-    // The fake's call_service RAISES; the server answers the action POST with
-    // 400, and the shell's datastar-fetch listener turns that error into a
-    // toast (the click-filter keeps the SSE stream's own errors out of it).
+  test("a rejected action toasts WHAT went wrong, and clears busy") {
+    // The fake's call_service RAISES; the server answers 200 patching `_toast`
+    // with the message it got, and the shell's signal-patch handler shows it.
+    //
+    // The assertion is on HA's own words rather than "Command failed (400)",
+    // and that is the point of the shape: the bundle parses a response body
+    // only on 200, so a 4xx could never have carried this text — the old toast
+    // could only ever repeat a status code back at the user.
     withPage(scene, fakeConfig = FakeConfig(failCalls = true)) { (page, _) =>
       val toggle = page.locator(
         "button",
@@ -370,7 +379,8 @@ class ControlSmokeSuite extends SmokeSuite {
       for {
         _ <- IO.blocking(toggle.click())
         _ <- IO.blocking(
-          assertThat(page.locator(".fh-toast")).hasText("Command failed (400)")
+          assertThat(page.locator(".fh-toast"))
+            .hasText("call_service rejected by the fake")
         )
         // `finished` fires even on a rejected fetch, so busy clears here too —
         // an error must not leave the button stuck in the guarded state.
