@@ -3,14 +3,18 @@ package fh.view.runtime
 import fh.view.runtime.RendererTestOps.*
 
 import fh.view.model.{
+  Activation,
   CardDef,
   Dashboard,
   LayoutNode,
   NodeId,
+  Op,
+  Predicate,
   Region,
   SignalBind,
   SignalId,
   SlotSource,
+  Surface,
   Transform
 }
 import cats.effect.unsafe.implicits.global
@@ -291,6 +295,11 @@ class RenderBench {
   private var pureNodeIds: Vector[NodeId] = null
   // The SLUG's cache, not the op's — see [[pull]].
   private var liveCache: RenderCache = null
+  // The FILL fixture: a state group whose branch a flip re-supplies wholesale.
+  private var flipped: Renderer = null
+  private var flipStates: Map[String, EntityState] = null
+  private var flipCache: RenderCache = null
+  private var flipRot = 0
 
   @Setup(Level.Trial)
   def setup(): Unit = {
@@ -384,6 +393,12 @@ class RenderBench {
     }
     pureNodeIds = tickEntities.flatMap(pure.componentsFor(_).toList)
     liveCache = RenderCache.create.unsafeRunSync()
+    flipped = Renderer.create(flipDash())
+    // Disarmed, so the `else` branch is the one the fill supplies.
+    flipStates =
+      st + (FlipEntity -> EntityState(FlipEntity, "disarmed", Map.empty))
+    flipCache = RenderCache.create.unsafeRunSync()
+    checkFillShape()
     checkTickShapes()
   }
 
@@ -428,6 +443,21 @@ class RenderBench {
       sys.error("resumeSignalsPure must suppress every morph too")
     if (!purest.exists(_.isInstanceOf[Patch.Signals]))
       sys.error("resumeSignalsPure produced no signals frame")
+  }
+
+  /** [[resumeFlip]] is only a fill bench if the pull actually fills. A branch
+    * whose condition does not match, or a cursor the mutation is behind, gives
+    * an empty batch that still runs and still reports a number.
+    */
+  private def checkFillShape(): Unit = {
+    val one = pullFlip(1).head
+    val filled = one.collect { case Addressed(Patch.Insert(html, _, _), _, _) =>
+      html
+    }
+    if (filled.sizeIs != 1)
+      sys.error(s"resumeFlip must emit exactly one host fill; got $one")
+    if (!filled.head.contains("fh-entity"))
+      sys.error("resumeFlip's fill carries no cards — the branch is empty")
   }
 
   /** The baseline: a whole page, no signal slots. */
@@ -841,6 +871,56 @@ class RenderBench {
         WireClients
       )
     )
+  }
+
+  /** '''A flip, pulled by every open connection.''' A state group's branch
+    * changed, so each session re-supplies that host wholesale for its own
+    * selection — the one path that renders a SUBTREE per connection rather than
+    * a node, and the one that goes through no `RenderCache`
+    * ([[https://github.com/perok/functional-home-assistant/issues/224 issue
+    * #224]]).
+    *
+    * [[WireClients]] of them, because the waste this prices is per connection:
+    * one client's flip is a fair cost, ten clients rendering identical bytes is
+    * the thing worth removing. Against [[resumeFlipOne]] the gap IS the
+    * duplication.
+    */
+  @Benchmark
+  def resumeFlip(bh: Blackhole): Unit = {
+    flipRot += 1
+    bh.consume(pullFlip(WireClients))
+  }
+
+  /** The same flip for ONE connection — the floor the fanout is measured
+    * against, and what a single-viewer house actually pays.
+    */
+  @Benchmark
+  def resumeFlipOne(bh: Blackhole): Unit = {
+    flipRot += 1
+    bh.consume(pullFlip(1))
+  }
+
+  /** One flip, replayed from a cursor before it, for `clients` connections.
+    *
+    * The log carries the mutation alone: a flip is recorded structurally
+    * (`Mutation.Placed` on the group, keyed by the arriving SURFACE), and that
+    * is the whole of what a resuming client is owed for it. `holds` is empty
+    * because a client that just missed a flip knows nothing about what is
+    * inside the host it is about to be handed.
+    */
+  private def pullFlip(clients: Int): List[List[Addressed]] = {
+    val at = flipRot.toLong
+    val log = FragmentLog("bench").placed(
+      FlipContainer,
+      MemberKey.Surface("else"),
+      flipped.surfaceContentId("else"),
+      at
+    )
+    (1 to clients).toList
+      .traverse(_ =>
+        Patches.resume(flipped, flipCache, log, Map.empty, flipStates, at)
+      )
+      .unsafeRunSync()
   }
 
   /** The same pull when the movement is in the BYTES — a `friendly_name`
@@ -1281,6 +1361,74 @@ object RenderBench {
         )
     stack(List.tabulate(leaves)(leaf(signals, distinct, signalOnly)))
   }
+
+  /** Leaves in EACH branch of the flip fixture. Smaller than [[Leaves]] on
+    * purpose: a state group holds a section of a dashboard, not the whole page,
+    * and the number that matters for a fill is what one host contains.
+    */
+  final val FlipLeaves = 20
+
+  /** The entity whose state chooses the branch — an alarm, the shipped shape
+    * for a state-activated surface.
+    */
+  final val FlipEntity = "alarm.house"
+
+  /** A state group under the root column: an `ifhost` whose one baked region
+    * holds whichever branch the state picks, each branch a real subtree of
+    * [[FlipLeaves]] entity cards.
+    *
+    * This is the fixture the FILL benches need and nothing else here had — the
+    * page benches are one tree with no surfaces in it, so a wholesale host
+    * re-supply was unmeasured (issue #224).
+    */
+  def flipDash(signals: Boolean = true): Dashboard =
+    Dashboard(
+      cards = cards + ("ifhost" -> CardDef(
+        template = """<div id="{{hostId}}">{{{branch}}}</div>""",
+        regions = Map("branch" -> Region(Region.Baked))
+      )),
+      card = LayoutNode.Component(
+        "col",
+        regions = LayoutNode.kids(LayoutNode.Component("ifhost"))
+      ),
+      surfaces = Map(
+        "then" -> branchSurface(
+          tree(FlipLeaves, 4, signals),
+          0,
+          Predicate.Cmp(
+            "state",
+            Op.Eq,
+            Json.fromString("armed"),
+            entity = Some(FlipEntity)
+          )
+        ),
+        // An empty conjunction is vacuously true and reads no entity, which is
+        // what an `else` branch is.
+        "else" -> branchSurface(
+          tree(FlipLeaves, 4, signals),
+          1,
+          Predicate.And(Nil)
+        )
+      )
+    )
+
+  /** The host the two branches bake into is the root column's only child, so
+    * its id is `c_0` by the same derivation every other node here uses.
+    */
+  final val FlipContainer: NodeId = NodeId.derived("c_0")
+
+  private def branchSurface(
+      content: LayoutNode,
+      index: Int,
+      condition: Predicate
+  ): Surface =
+    Surface(
+      content,
+      bakeInto = Some(FlipContainer),
+      bakeAs = Some("branch"),
+      bakeIndex = Some(index),
+      activation = Activation.State(condition)
+    )
 
   /** The same leaves, as one candidate set: every entity a candidate, each with
     * a single unguarded clause rendering the same card. Membership is therefore
