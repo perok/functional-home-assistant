@@ -300,6 +300,10 @@ class RenderBench {
   private var flipStates: Map[String, EntityState] = null
   private var flipCache: RenderCache = null
   private var flipRot = 0
+  // The PUBLISHER fixture. One store to ingest into, and a rotation counter
+  // shared by every bench on this path so no two calls present the same frame.
+  private var store: StateStore = null
+  private var pubRot = 0
 
   @Setup(Level.Trial)
   def setup(): Unit = {
@@ -398,7 +402,9 @@ class RenderBench {
     flipStates =
       st + (FlipEntity -> EntityState(FlipEntity, "disarmed", Map.empty))
     flipCache = RenderCache.create.unsafeRunSync()
+    store = StateStore.inMemory(flipStates).unsafeRunSync()
     checkFillShape()
+    checkPublishShape()
     checkTickShapes()
   }
 
@@ -921,6 +927,151 @@ class RenderBench {
         Patches.resume(flipped, flipCache, log, Map.empty, flipStates, at)
       )
       .unsafeRunSync()
+  }
+
+  /** '''The publisher half of a frame''' — `Patches.plan` + `Patches.record`,
+    * the pass `Server.recordFrame` runs ONCE PER SLUG however many browsers are
+    * connected.
+    *
+    * Everything else on this class prices the SESSION half, which scales with
+    * tabs. This one scales with the HA EVENT RATE, so it is what a busy house
+    * pays on a Pi whether anybody is looking or not, and until now nothing
+    * measured it.
+    *
+    * No rendering happens here and none should: the pass decides WHICH nodes a
+    * frame touched (the reverse index), what a candidate set's membership
+    * became, and which state groups flipped. A number that moves with the leaf
+    * count is the reverse index; one that moves with the CANDIDATE count is the
+    * membership rebuild.
+    */
+  @Benchmark
+  def publish(bh: Blackhole): Unit = {
+    pubRot += 1
+    val (changes, after) = publishFrame(st, pubRot)
+    bh.consume(publishPass(signalled, changes, after))
+  }
+
+  /** The same frame against a dashboard that is one candidate set, so
+    * `MemberGraph.syncMembers` rebuilds a touched container's whole member list
+    * — O(candidates), which the tree fixture never pays.
+    */
+  @Benchmark
+  def publishSet(bh: Blackhole): Unit = {
+    pubRot += 1
+    val (changes, after) = publishFrame(st, pubRot)
+    bh.consume(publishPass(set, changes, after))
+  }
+
+  /** The same frame plus the entity that CHOOSES a branch, so the pass also
+    * walks the state groups (`affectedStateGroups`, `activeStateSurfaces`).
+    *
+    * Alternating armed/disarmed means every call really flips, which is the
+    * worst case rather than the common one — a condition that holds still
+    * leaves after the first comparison.
+    */
+  @Benchmark
+  def publishFlip(bh: Blackhole): Unit = {
+    pubRot += 1
+    val (moved, after) = publishFrame(flipStates, pubRot)
+    val was = after(FlipEntity)
+    val now = was.copy(state = if (pubRot % 2 == 0) "armed" else "disarmed")
+    bh.consume(
+      publishPass(
+        flipped,
+        StateChange(FlipEntity, Some(was), now) :: moved,
+        after.updated(FlipEntity, now)
+      )
+    )
+  }
+
+  /** '''The ingest''' — `StateStore.update`, once per `subscribe_entities`
+    * frame, before any of the above runs. Also per event rather than per tab.
+    */
+  @Benchmark
+  def storeIngest(bh: Blackhole): Unit = {
+    pubRot += 1
+    val (changes, _) = publishFrame(flipStates, pubRot)
+    bh.consume(
+      store.update(changes.map(c => Ingest.Replace(c.current))).unsafeRunSync()
+    )
+  }
+
+  /** The same batch when nothing in it actually moved.
+    *
+    * '''This is the reconnect path, not a corner.''' A new subscription
+    * re-sends every entity as a `Replace`, and `StateStore`'s dedup is what
+    * makes that cheap — the doc says so and nothing measured it. The store is
+    * seeded with exactly these values, so every invocation takes the dedup
+    * branch rather than only the ones after the first.
+    */
+  @Benchmark
+  def storeIngestDedup(bh: Blackhole): Unit =
+    bh.consume(store.update(dedupIngests).unsafeRunSync())
+
+  /** One frame as the feed delivers it: [[TickEntities]] entities whose content
+    * really moved, carrying the values they moved FROM — `beforeSnapshot`
+    * rewinds through `previous`, so a change that lied about it would hand the
+    * membership diff an instant that never existed.
+    */
+  private def publishFrame(
+      base: Map[String, EntityState],
+      rot: Int
+  ): (List[StateChange], Map[String, EntityState]) = {
+    val moved = tickEntities.toList.map { id =>
+      val prev = base(id)
+      val next = prev.copy(
+        state = if (rot % 2 == 0) "on" else "off",
+        attributes = prev.attributes
+          .updated("brightness", Json.fromInt(1 + (rot * 13) % 254))
+      )
+      StateChange(id, Some(prev), next)
+    }
+    (moved, moved.foldLeft(base)((m, c) => m.updated(c.entityId, c.current)))
+  }
+
+  /** `Server.recordFrame` with the `Ref`s and the nobody-is-watching gate taken
+    * off: the four pure steps a frame costs, in their production order.
+    *
+    * A fresh log per call, because `record` is a fold over one and a log that
+    * grew across iterations would price its own history rather than the frame.
+    */
+  private def publishPass(
+      renderer: Renderer,
+      changes: List[StateChange],
+      states: Map[String, EntityState]
+  ): FragmentLog = {
+    val before = Patches.beforeSnapshot(states, changes)
+    val membership = renderer.members.syncMembers(changes, before, states)
+    val req = Patches.plan(
+      renderer,
+      states,
+      before,
+      membership,
+      pubRot.toLong,
+      changes,
+      Set.empty
+    )
+    Patches.record(renderer, FragmentLog("bench"), req)
+  }
+
+  /** The batch [[storeIngestDedup]] replays — the store's own seeded values, so
+    * nothing in it can be a change.
+    */
+  private def dedupIngests: List[Ingest] =
+    tickEntities.toList.map(id => Ingest.Replace(flipStates(id)))
+
+  /** [[publish]] is only a selection bench if the selection selects. A frame
+    * whose entities reach no node records an empty log, which still runs and
+    * still reports a number.
+    */
+  private def checkPublishShape(): Unit = {
+    val (changes, after) = publishFrame(st, 1)
+    val plain = publishPass(signalled, changes, after)
+    if (plain.fragments.isEmpty)
+      sys.error("publish selected no nodes — the reverse index found nothing")
+    val members = publishPass(set, changes, after)
+    if (members.fragments.isEmpty && members.mutations.isEmpty)
+      sys.error("publishSet recorded neither a fragment nor a membership move")
   }
 
   /** The same pull when the movement is in the BYTES — a `friendly_name`
