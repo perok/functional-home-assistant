@@ -597,7 +597,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
         )
         live <- site.liveFor("dashboard").map(_.get)
         server = new Server(
-          HomeAssistantApi.fromWs(fake),
+          ServiceCalls.asInstance(HomeAssistantApi.fromWs(fake)),
           store,
           site,
           sessions,
@@ -891,7 +891,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
       clients <- Ref[IO].of(List.empty[LiveClient])
       _ <- Server
         .resource(
-          HomeAssistantApi.fromWs(fake),
+          ServiceCalls.asInstance(HomeAssistantApi.fromWs(fake)),
           store,
           Map("dashboard" -> ref),
           "dashboard",

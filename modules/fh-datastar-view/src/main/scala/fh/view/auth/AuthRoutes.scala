@@ -124,10 +124,18 @@ final class AuthRoutes(
           "Home Assistant returned no refresh token for the login."
         )
       )
-      // The ONE thing the user's own token is used for: asking HA who it
-      // belongs to. Nothing afterwards acts on HA as this user.
       user <- identify(tokens.accessToken)
-      id <- sessions.create(user, refresh, base)
+      // Read AFTER the exchange, so the stored expiry cannot outlast the real
+      // one — the round trip is time the token has already spent.
+      mintedAt <- IO.realTimeInstant
+      id <- sessions.create(
+        user,
+        refresh,
+        base,
+        Some(
+          HaAccess(tokens.accessToken, mintedAt.plusSeconds(tokens.expiresIn))
+        )
+      )
       resp <- SeeOther(Location(Uri.unsafeFromString(next)))
     } yield resp.addCookie(AuthSessions.cookie(id, isSecure(req)))
 

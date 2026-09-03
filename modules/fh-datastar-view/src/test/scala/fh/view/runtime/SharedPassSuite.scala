@@ -75,7 +75,7 @@ class SharedPassSuite extends ServerHarness {
       fake <- FakeHomeAssistant.create(Nil)
       out <- Server
         .resource(
-          HomeAssistantApi.fromWs(fake),
+          ServiceCalls.asInstance(HomeAssistantApi.fromWs(fake)),
           store,
           Map("dashboard" -> ref),
           "dashboard",
@@ -173,7 +173,7 @@ class SharedPassSuite extends ServerHarness {
       fake <- FakeHomeAssistant.create(Nil)
       text <- Server
         .resource(
-          HomeAssistantApi.fromWs(fake),
+          ServiceCalls.asInstance(HomeAssistantApi.fromWs(fake)),
           store,
           Map("dashboard" -> ref),
           "dashboard",
@@ -231,7 +231,7 @@ class SharedPassSuite extends ServerHarness {
       fake <- FakeHomeAssistant.create(Nil)
       _ <- Server
         .resource(
-          HomeAssistantApi.fromWs(fake),
+          ServiceCalls.asInstance(HomeAssistantApi.fromWs(fake)),
           store,
           Map("dashboard" -> ref),
           "dashboard",
@@ -317,7 +317,7 @@ class SharedPassSuite extends ServerHarness {
       // so the render count below is entirely the shared pass's doing.
       _ <- Server
         .resource(
-          HomeAssistantApi.fromWs(fake),
+          ServiceCalls.asInstance(HomeAssistantApi.fromWs(fake)),
           store,
           Map("dashboard" -> ref),
           "dashboard",

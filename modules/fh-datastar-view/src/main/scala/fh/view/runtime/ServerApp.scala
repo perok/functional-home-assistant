@@ -26,6 +26,7 @@ import fh.view.auth.{
   IngressUsers,
   AuthRoutes,
   AuthSessions,
+  HaAccess,
   HaOAuth,
   RefreshOutcome,
   SessionStore
@@ -266,18 +267,24 @@ object ServerApp extends IOApp {
           haCoreUrl,
           org.http4s.jdkhttpclient.JdkHttpClient[IO](httpClient)
         )
-        // The ONE use of somebody else's token: a short-lived connection opened
-        // with it, asked who it belongs to, then closed. Deliberately NOT the
-        // shared feed, which stays on the machine token — and for the same
-        // reason not the feed's ADDRESS either: the supervisor proxy takes only
-        // the add-on's own token (see `HaOAuth.coreWs`).
+        // A connection that IS somebody else — short-lived, opened with their
+        // token, closed after one exchange. Deliberately NOT the shared feed,
+        // which stays on the machine token — and for the same reason not the
+        // feed's ADDRESS either: the supervisor proxy takes only the add-on's
+        // own token (see `HaOAuth.coreWs`).
+        //
+        // Two callers, one expression: asking who a login belongs to
+        // (`identify`), and acting as that person when they press a button
+        // (`ServiceCalls.asUser`). Writing the address ranking twice is how the
+        // two would drift.
+        connectAs = (token: String) =>
+          FHApi.from(
+            haCoreUrl,
+            token,
+            HaOAuth.coreWs(haCoreUrl, haEnv.server, haEnv.serverWs)
+          )
         identify = (token: String) =>
-          FHApi
-            .from(
-              haCoreUrl,
-              token,
-              HaOAuth.coreWs(haCoreUrl, haEnv.server, haEnv.serverWs)
-            )
+          connectAs(token)
             .use(_.currentUser)
             .handleErrorWith(e =>
               FHError
@@ -326,7 +333,11 @@ object ServerApp extends IOApp {
           gate,
           assets,
           systemPkl,
-          dumpRefresh = Some(refreshDump)
+          dumpRefresh = Some(refreshDump),
+          // A tap is the user's, not the add-on's (issue #198). A request with
+          // no login session still falls back to the feed's own identity, which
+          // is what an unauthenticated deployment and ingress both have.
+          actions = ServiceCalls.asUser(_, connectAs, authSessions, oauth)
         )
         // The editor surface (/edit + /lsp/pkl). The pkl-lsp jar backs the LSP
         // subprocess; None just disables completion/diagnostics (the editor and
@@ -544,13 +555,22 @@ object ServerApp extends IOApp {
             case RefreshOutcome.Renewed(tokens) =>
               // Re-read the user too, not just the token: a role change is
               // exactly the thing a periodic check is here to notice.
-              identify(tokens.accessToken).flatMap(user =>
-                sessions.renew(
-                  id,
-                  user,
-                  tokens.refreshToken.getOrElse(session.refresh)
-                )
-              )
+              (identify(tokens.accessToken), IO.realTimeInstant).flatMapN {
+                (user, at) =>
+                  sessions.renew(
+                    id,
+                    user,
+                    tokens.refreshToken.getOrElse(session.refresh),
+                    // The re-check already minted one; keeping it means a tap
+                    // arriving soon after does not mint a second.
+                    Some(
+                      HaAccess(
+                        tokens.accessToken,
+                        at.plusSeconds(tokens.expiresIn)
+                      )
+                    )
+                  )
+              }
           }
           .handleErrorWith(e =>
             IO.consoleForIO.errorln(
@@ -579,7 +599,13 @@ object ServerApp extends IOApp {
       gate: AuthGate,
       assets: AssetCache = AssetCache.empty,
       systemPkl: SystemPkl = SystemPkl.empty,
-      dumpRefresh: Option[IO[DumpRefresh.Result]] = None
+      dumpRefresh: Option[IO[DumpRefresh.Result]] = None,
+      // Who a tap is attributed to at HA (issue #198). Defaulted to the
+      // instance's own identity so a caller with no login wiring — every test
+      // harness — keeps today's behaviour; production hands in the per-user
+      // form, which needs the OAuth client and the session registry that only
+      // `run` has built.
+      actions: HomeAssistantApi[IO] => ServiceCalls = ServiceCalls.asInstance
   ): Resource[IO, Server] =
     for {
       sessions <- Sessions.create.toResource
@@ -590,7 +616,8 @@ object ServerApp extends IOApp {
         gate,
         assets,
         systemPkl,
-        dumpRefresh
+        dumpRefresh,
+        actions
       )
     } yield server
 
