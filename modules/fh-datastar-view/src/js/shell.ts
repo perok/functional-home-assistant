@@ -16,6 +16,7 @@
 
 declare global {
   interface Window {
+    fhToast: (text: string) => void
     fhUrl: (key: string, value: string | null) => void
     fhConn: (id: string) => void
     fhScroll: (slug: string) => void
@@ -188,11 +189,17 @@ addEventListener("pagehide", () => {
 let toastTimer: ReturnType<typeof setTimeout> | undefined
 
 /**
- * Toast a rejected action POST (`status >= 400`) as a transient bar.
+ * Toast a refused action as a transient bar.
  *
  * The LOOK is theme-owned (`.fh-toast` in each theme's `styles`); this owns
  * presence only. A later toast replaces an earlier one instead of stacking,
  * and each dismisses itself after ~4s.
+ *
+ * Exposed as `window.fhToast` because the SERVER is the caller now: a refused
+ * action answers 200 patching `_toast`, and the `<body>`'s signal-patch handler
+ * calls this with HA's own message. `showToast` stays the local name for the
+ * one case a signal cannot reach — a response that is not 200 at all, whose
+ * body Datastar never parses.
  */
 function showToast(text: string): void {
   let el = document.querySelector<HTMLElement>(".fh-toast")
@@ -211,16 +218,22 @@ function showToast(text: string): void {
   }, 4000)
 }
 
+window.fhToast = showToast
+
 /**
  * The action-failure half of this page's Datastar fetch events. Datastar
  * dispatches a `datastar-fetch` CustomEvent on `document` for every fetch its
  * attributes make, `detail = {type, el, argsRaw}` (verified against the pinned
  * v1.0.2 bundle: `re = (e,t,n) => document.dispatchEvent(new CustomEvent(j,
- * {detail:{type:e, el:t, argsRaw:n}}))`). A click action that HA rejects lands
- * as `type === 'error'`, and `argsRaw` carries only `{status}` — never the
- * response body — so the backend's `{success:false,error}` message is
- * unreachable here (surfacing the real text is a Phase-2 `datastar-signals`
- * frame; see `docs/adr/0019-an-action-in-flight.md`).
+ * {detail:{type:e, el:t, argsRaw:n}}))`).
+ *
+ * This is the REMAINDER, not the main path: a refused action answers 200
+ * carrying `_toast` with HA's own message, and `<body>`'s signal-patch handler
+ * shows that. What lands here is a response that is not 200 at all — an auth
+ * redirect, a route that is gone, a proxy in the way — where the bundle drops
+ * the body unread (`if (M !== 200) { … return }`) and `argsRaw` carries only
+ * `{status}`. So a status code is all this branch can ever say, which is
+ * exactly right for the failures that have no message to give.
  *
  * The filter is the whole point. The persistent SSE stream is ALSO a Datastar
  * fetch (the `@get` on `<body>`), and ITS errors are already the `_sse` /

@@ -149,6 +149,13 @@ const local colSpans: String = new Listing {
 const local busyCss: String = """
   .fh-disabled{opacity:.5}
   .fh-loading{cursor:progress}
+  /* The REFUSED state, and the reason it exists: `data-indicator` clears on
+     either outcome, so a rejected action left the control looking exactly like
+     a successful one. It stays until the next press on this control, unlike
+     the toast, which is global and gone in 4s. An outline rather than a
+     background so it reads on a card, a chip and a slider track alike, and
+     never repaints what the control is showing. */
+  .fh-error{outline:2px solid var(--fh-error);outline-offset:2px;border-radius:inherit}
   .fh-busy-spin{display:inline-flex;align-items:center;justify-content:center;
   inline-size:2.25rem;block-size:2.25rem;box-sizing:border-box;border-radius:50%;
   border:.125rem solid var(--fh-accent);border-block-start-color:transparent;
