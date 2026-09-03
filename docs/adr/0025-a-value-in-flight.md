@@ -82,21 +82,35 @@ when it is *refused*, or when *nothing can answer it*:
 
 - **Refused** — the server answered, and the answer was no. It says so in
   signals on a 200 (ADR 0024), clearing the pending value itself: the group id
-  rides in the action's query string precisely so it can. The client keeps a
-  second writer for the responses a signal patch cannot reach — a non-200, whose
-  body the bundle never parses — and that is `tap.pkl`'s `pendingFail`, keyed on
-  Datastar's `error` type, dispatched from `onopen` and therefore firing
-  precisely when a response with a status arrived.
+  rides in the action's query string precisely so it can. This is the only one
+  of the three that ends ONE ask, because it is the only one that knows which.
 - **Unanswerable** — the commit rides the SSE stream, so a stream that is DOWN
-  is the exact statement that no commit is coming. `pendingClear`'s second
-  disjunct is the shell's own `_sse` counter, already maintained for the
-  offline banner.
+  is the exact statement that no commit is coming. The shell's `_sse` counter,
+  already maintained for the offline banner, is the whole test.
+- **Unreadable** — a response arrived that was not 200, so Datastar dropped its
+  body unread and nothing in it can clear anything. A proxy, an auth redirect, a
+  route that is gone.
 
-Between them they are total, because the two are not independent: a POST that
-gets no response at all failed because the transport did, and that is the same
-transport the answer would have come on. There is no third case where a request
-vanishes while its stream stays healthy — and a deadline, which is what an
-earlier draft used, would only have been a worse-informed guess at exactly this.
+**The last two are page-wide facts, so they are one rule on the page**
+(`Server.PendingSweep`), not a copy on every tab bar. Neither knows or needs to
+know which group asked: a dead stream ends every outstanding ask by definition,
+and the per-group version reached for exactly these same two shell-owned signals
+to say so — it was one rule already, spelled once per group. `@setAll('',
+{include:/__pending$/})` states it once. The bundle's `setAll` PEEKS while it
+writes, so the sweep neither takes a dependency on every pending signal nor
+retriggers itself.
+
+Busy signals are deliberately not swept with them. `finished` is dispatched in
+the bundle's `finally` and the indicator plugin clears on a counter, so a busy
+state cannot outlive its fetch — a sweep would be guarding against something
+that cannot happen.
+
+Between them they are total: a request either gets an answer (refused, or the
+commit arrives), or gets a response nothing can read, or gets nothing at all —
+and the last case is a dead transport, which is the same transport the answer
+would have ridden. There is no case where a request vanishes while its stream
+stays healthy, and a deadline, which is what an earlier draft used, would only
+have been a worse-informed guess at exactly this.
 
 **So a connect restates the selections.** `SurfaceGraph.committedSelections`
 gives the whole `ui_*` picture from a session's open set, and `openingSignals`
@@ -308,23 +322,23 @@ restore makes it fail.
 
 A live list, not a backlog — delete an entry when it is answered.
 
-**`_sse` in card logic is disliked, and the whole area should be revisited to
-simplify it.** The maintainer's call, recorded here rather than acted on. Two
-cards now reach into the page shell's own connection counter by literal name
-(`core/tap.pkl`'s `pendingClear`, `components/slider.pkl`'s `restoreOnFailure`),
-which quietly promotes a private per-connection signal into a contract the
-authoring layer depends on — rename it in `shell.ts` and selections and sliders
-stop rolling back. Two things make it worth revisiting as one piece rather than
-patching:
+**One card still reads `_sse` by literal name**, and it is the slider's
+dead-stream rollback. The tabs half is gone — that rule moved to the page shell,
+where the counter already lives — so what is left is the single case that could
+not follow it, for a reason worth stating rather than working around:
 
-- The same rule — *an ask has ended when it is refused OR nothing can answer it*
-  — is spelled out twice, in two modules, with different text. Deduplicating it
-  into one `tap.pkl` function was considered and deliberately NOT done, because
-  it restructures exactly the `_sse` usage that is up for rework. The
-  duplication is evidence for the revisit, not something to fix ahead of it.
-- Naming `_sse` as a Scala-side constant was tried and reverted. It is not the
-  problem: the problem is that card logic reads a transport-health counter at
-  all, and a constant would have made that look intentional.
+- The sweep can only SET a constant, and this fix is arithmetic: recompute the
+  thumb, the fill and the readout from the committed value.
+- "The reconnect will restate truth" is false here, uniquely. `holds` says this
+  DOM already has the correct `_<id>__value`, and it does — what is wrong is
+  `_<id>__slide`, which is client-owned and the server does not track. So the
+  server correctly sends nothing on reconnect and the thumb keeps lying.
+
+That makes it a genuine exception rather than a pattern, which is the important
+part: it should not be read as licence for a component author to reach for the
+transport counter. If the in-flight contract moves onto the renderer-emitted
+cell, this is the one piece that stays hand-wired, because it is intra-node —
+the state lives on one element INSIDE a node.
 
 **The slider's dead-stream rollback is untested.** `UiSmokeSuite` drives the
 slider's REFUSAL path (a real 404) and the tabs' dead-stream path (a blocked

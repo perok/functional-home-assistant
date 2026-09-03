@@ -105,7 +105,7 @@ class Tabs extends nodes.Node {
       ["panel"] = new nodes.Region { fill = "baked" }
     }
     template = """
-      <div class="fh-col"><div class="tabs" data-signals__ifmissing="{ ui_{{id}}: {{bakeIndex}}, \(tapMod.pendingSeedEntry("{{id}}")) }" \(tapMod.pendingClear("{{id}}")) \(tapMod.pendingFail("{{id}}"))>{{#children}}{{{html}}}{{/children}}</div><div id="{{hostId}}" class="tab-panel" data-effect="fhUrl('ui.{{id}}', $ui_{{id}})">{{#panel}}{{{html}}}{{/panel}}</div></div>
+      <div class="fh-col"><div class="tabs" data-signals__ifmissing="{ ui_{{id}}: {{bakeIndex}}, \(tapMod.pendingSeedEntry("{{id}}")) }" \(tapMod.pendingClear("{{id}}"))>{{#children}}{{{html}}}{{/children}}</div><div id="{{hostId}}" class="tab-panel" data-effect="fhUrl('ui.{{id}}', $ui_{{id}})">{{#panel}}{{{html}}}{{/panel}}</div></div>
       """
     // The panel host is a patch target that must not be a box: the selected
     // tab's own layout is what should reach the surrounding column.
