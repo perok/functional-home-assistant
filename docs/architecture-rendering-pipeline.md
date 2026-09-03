@@ -343,6 +343,13 @@ client-only feedback around the `@post` — see `docs/adr/0019-an-action-in-flig
   `data-fh-node` at click time. The bundle parses a response body only on
   exactly 200 (`if (M !== 200) { … return }`), which is why a 4xx could never
   have carried any of this.
+- **Nothing is coming, so no ask is outstanding — one rule, in the shell.**
+  `Server.PendingSweep` clears every `*__pending` signal on a dead stream
+  (`_sse > 0`) or a non-200 response, via `@setAll('', {include:/__pending$/})`.
+  Both are page-wide facts, so neither knows nor needs which group asked; a
+  refusal the server SENDS is different and names its own group. Busy signals
+  are not swept — the bundle dispatches `finished` in a `finally` and the
+  indicator clears on a counter, so a busy state cannot outlive its fetch.
 - **Failure toast, in the shell.** `<body>`'s signal-patch handler calls
   `window.fhToast` when `_toast` is written, showing a themed `fh-toast`.
   `shell.ts` also keeps a `datastar-fetch:error` listener for what a signal

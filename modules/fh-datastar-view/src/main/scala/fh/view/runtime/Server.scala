@@ -2174,6 +2174,7 @@ class Server(
          |     data-on-signal-patch-filter="{include:/^${Server.ToastSignal}$$/}"
          |     data-on-signal-patch="$$${Server.ToastSignal} && (fhToast($$${Server.ToastSignal}), $$${Server.ToastSignal} = '')"
          |     data-on:${Server.StreamEvent}__document__debounce.600ms="$$_sse = $sseLatched">
+         |  <div $hidden ${Server.PendingSweep}></div>
          |  <div class="fh-offline fh-offline-sse" $hidden role="status" aria-live="assertive" data-show="$$_sse > 0">
          |    <span $hidden data-show="$$_sse < 2">Reconnecting to the dashboard…</span>
          |    <span $hidden data-show="$$_sse >= 2">Dashboard connection lost. <button class="fh-offline-action" data-on:click="window.location.reload()">Reload</button></span>
@@ -2913,6 +2914,42 @@ object Server {
     * it never rides a request back.
     */
   val ToastSignal: String = "_toast"
+
+  /** **Nothing is coming, so no ask is still outstanding** — ONE rule for the
+    * whole page, on the shell, replacing the copy each selection group used to
+    * carry (ADR 0025).
+    *
+    * A pending value says "this client has asked for X and is waiting". Two
+    * things end that wait without an answer, and neither is specific to any one
+    * group: the stream the answer would have ridden is DOWN (`_sse`, which this
+    * shell already maintains for the banner), or a response arrived that was
+    * not 200, whose body Datastar drops unread so nothing in it can clear
+    * anything. A refusal this server sends is NOT here — it answers 200 naming
+    * the group it ended (ADR 0024), which is strictly better because it ends
+    * only that one.
+    *
+    * `@setAll(value, filter)` is what makes it one line: the pinned bundle
+    * enumerates the store through the same include/exclude filter
+    * `data-on-signal-patch-filter` uses, and PEEKS while it writes
+    * (`apply(e,t,n){H();…;_()}` — `H`/`_` are start/stopPeeking), so this
+    * neither registers a dependency on every pending signal nor re-triggers
+    * itself.
+    *
+    * Clearing every group rather than one is not a loss of precision that
+    * mattered: the per-group version keyed on the same two page-wide facts, so
+    * a stream outage already cleared all of them, one attribute at a time.
+    *
+    * Busy signals are deliberately NOT swept. `finished` is dispatched in the
+    * bundle's `finally` and the indicator plugin decrements a counter to clear
+    * (verified in the pinned source), so a busy state cannot outlive its fetch
+    * — sweeping it would be guarding against something that cannot happen.
+    */
+  val PendingSweep: String = {
+    val clear = """@setAll('', {include:/__pending$/})"""
+    s"""data-on-signal-patch-filter="{include:/^_sse$$/}" """ +
+      s"""data-on-signal-patch="$$_sse > 0 && $clear" """ +
+      s"""data-on:datastar-fetch__document="evt.detail.type === 'error' && $clear""""
+  }
 
   /** A node/group id as it arrives from a caller — an untrusted CLAIM that
     * becomes a SIGNAL NAME, so its shape is checked rather than trusted.

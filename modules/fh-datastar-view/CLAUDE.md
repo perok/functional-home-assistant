@@ -219,7 +219,10 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   clearing `_<group>__pending`, and setting `_toast` to HA's own message. Both ids ride in the
   action's query string (`?node=&group=`), read off `data-fh-node` at click time. The bundle parses
   a response body only on exactly 200, so a 4xx could never carry any of it; the client-side
-  `failedOn`/`pendingFail` handlers remain for the genuine non-200 remainder.
+  `failedOn` handler remains for the genuine non-200 remainder. The other two ways an ask ends —
+  a dead stream, and a non-200 whose body is dropped unread — are page-wide facts and live as ONE
+  rule on the shell (`Server.PendingSweep`, an `@setAll` over `/__pending$/`), not as a copy on
+  every tab bar.
 - Cards (`lib/components/`, re-exported by `lib/components.pkl` — ADR 0015): `fhgrid`/`fhrow`/`fhcol` containers, `sectionTitle`, `entityCard`,
   `button`, `pill`, `slider` — each is a typed card class carrying its own `cardDef` (Mustache template +
   declared slots), and the emitted `cards` registry is derived by `pkl:reflect`; slots are checked

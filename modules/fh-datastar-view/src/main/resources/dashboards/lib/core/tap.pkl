@@ -375,45 +375,20 @@ const function pendingSeedEntry(groupId: String): String =
 /// them apart; comparing to the committed value can. `==` is loose on purpose —
 /// the seed is a number and a committed index arrives as a string.
 ///
-/// The other half is `_sse`, the shell's connection-health counter: the commit
-/// travels on the SSE stream, so a stream that is DOWN is the exact statement
-/// that no commit is coming. This is not a timeout and there is no deadline —
-/// a POST that fails outright fails because the transport did, and the same
-/// transport is what would have carried the answer. When the stream returns,
-/// the connect states the committed selections again ([[SurfaceGraph]]
-/// `committedSelections`), so the display lands on truth rather than on a
-/// guess. A REFUSAL is the remaining case, and it has TWO writers for the same
-/// reason [[errorSig]] does: the server clears this signal itself in the frame
-/// that reports the refusal (`Server.actionSignals`, which is why the group id
-/// rides in [[groupQuery]]), and [[pendingFail]] covers what a signal patch
-/// cannot reach — a response that is not 200 at all, whose body the bundle
-/// never parses.
+/// This is the ONLY per-group half. The other ways an ask ends carry no
+/// group-specific reasoning at all, so they are one rule on the shell rather
+/// than a copy on every tab bar (`Server.PendingSweep`): a dead stream and a
+/// non-200 response are page-wide facts, and the per-group version was reading
+/// exactly those same page-wide signals. A refusal this server SENDS is
+/// different again — it names the group it ended (`Server.actionSignals`, which
+/// is why the group id rides in [[groupQuery]]) and so ends only that one.
 ///
 /// This effect READS AND WRITES the same signal, which is the shape that loops.
 /// It settles because the assignment falsifies its own guard, and
 /// `DatastarMorphContractSuite` MEASURES that rather than assuming it.
 const function pendingClear(groupId: String): String =
   let (sig = pendingSignal(groupId))
-    #"data-effect="$\#(sig) !== '' && ($ui_\#(groupId) == $\#(sig) || $_sse > 0) && ($\#(sig) = '')""#
-
-/// The refusal a signal patch cannot carry: a response that is not 200, where
-/// Datastar drops the body unread. An action this server refuses answers 200
-/// and clears the pending itself; what lands here is a proxy, an auth redirect,
-/// a route that is gone — and the ask is just as over.
-///
-/// Keyed on the `error` type and nothing else, which the pinned bundle makes
-/// exact rather than approximate: that type is dispatched from `onopen`, so it
-/// fires precisely when a RESPONSE with a status arrived. A request that got no
-/// response at all is not this case — it is a dead transport, which
-/// [[pendingClear]]'s `_sse` half owns.
-///
-/// `datastar-fetch` is dispatched on `document` and does not bubble, hence
-/// `__document` — a `data-on` modifier verified in the pinned bundle
-/// (`n.has("window") ? s = window : n.has("document") && (s = document)`),
-/// which also names the event argument `evt`.
-const function pendingFail(groupId: String): String =
-  let (sig = pendingSignal(groupId))
-    #"data-on:datastar-fetch__document="evt.detail.type === 'error' && ($\#(sig) = '')""#
+    #"data-effect="$\#(sig) !== '' && $ui_\#(groupId) == $\#(sig) && ($\#(sig) = '')""#
 
 /// What a control reads to show a selection: the pending value while one is
 /// outstanding, the committed one otherwise. `''` is falsy, so no pending means
