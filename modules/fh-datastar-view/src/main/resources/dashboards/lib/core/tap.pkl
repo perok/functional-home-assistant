@@ -37,9 +37,9 @@ class TapAction {
   /// The opt-out is the flag itself: a tap with `busy = false` renders
   /// byte-identical to before this field existed.
   busy: Boolean = false
-  /// Whether the guard's in-flight window also shows the theme's busy LOOK
-  /// ([[busyClass]] — the `fh-disabled` dim and the `fh-loading` spinner,
-  /// both bound to the same Datastar signal). Independent of [[busy]]:
+  /// Whether the guard's in-flight window also shows the busy LOOK — the
+  /// `fh-disabled` dim and the `fh-loading` cursor, which [[guard]] binds to
+  /// the same Datastar signal as the guard itself. Independent of [[busy]]:
   /// `busy = true, busyVisual = false` still swallows a re-click, it just
   /// never dims or spins — for a control whose action answers fast, where
   /// any busy flicker reads as noise. The dim is IMMEDIATE (it is the
@@ -73,24 +73,28 @@ class TapAction {
 // skill, both verified against the pinned bundle rather than the vendored docs.
 const noSignals = #"{filterSignals:{exclude:'.*'}}"#
 
-/// The busy pieces a card splices onto a guarded tap's element, keeping the
-/// `_<nodeId>__busy` signal name in ONE place (`{{id}}` stays a Mustache token
-/// inside them — the renderer fills it per node). Splice them ONLY when the
-/// tap has `busy = true`:
-///
-///   data-on:click="{{#busy}}\(tapMod.busyGuard){{/busy}}{{{onclick}}}"
-///   {{#busy}}\(tapMod.busyAttrs){{/busy}}{{#busyVisual}} \(tapMod.busyClass){{/busyVisual}}
-///
-/// `busyGuard` makes the click expression a no-op while the signal is truthy
-/// (the anti-spam); `busyAttrs` arms the indicator that drives the signal and
-/// the guard. `busyClass` is the IMMEDIATE visual — `fh-disabled` (dim) and
-/// `fh-loading` (cursor) land the instant the tap does, because "your tap
-/// landed and this control is inert now" is exactly what a tap should answer.
-/// The SPINNER is the delayed half and lives in `busyShapeClass`.
-/// A card splices it only when the tap also has `busyVisual = true`.
-/// One guarded element per node, so the name is never shared — a sibling's
-/// `finished` would otherwise clear an in-flight busy (see
-/// `docs/adr/0019-an-action-in-flight.md`).
+// WHAT A CARD WRITES FOR A GUARDED TAP — two splices, and nothing else:
+//
+//   data-on:click="\(tapMod.guardClick){{{onclick}}}"
+//   \(tapMod.guard){{#busyVisual}}{{#glyph}} \(tapMod.busyShapeClass){{/glyph}}{{/busyVisual}}
+//
+// [[guard]] and [[guardClick]] carry their own `{{#busy}}` sections, so a card
+// places them UNCONDITIONALLY and an author writes no section of their own.
+// Whether anything is emitted is answered by the tap's `busy` flag, which is
+// the declaration; an unguarded tap renders byte-identical to before the guard
+// existed.
+//
+// Between them they are the whole contract: the re-click guard, the indicator
+// that drives the busy signal, the node id an action sends so a refusal can find
+// its way home, the handler that records one, and the dim. An author composes
+// none of it — every guarded tap needs all of it, and the signal names have to
+// agree with what the server patches on a refusal (ADR 0024), which is not a
+// fact a third-party component should have to know.
+//
+// The SPINNER stays a card's to place, and is the only piece that does: its
+// class is the THEME's (`busySpin` in the registry, BeerCSS's shape mask) and it
+// must sit on the element hosting the glyph, which only the template knows.
+
 /// The IN-FLIGHT LOOK, for any signal that is truthy while something is
 /// outstanding. Parameterised because the look is one fact and the state is
 /// not: an ADR 0019 `busy` boolean and an ADR 0025 pending VALUE both wear it,
@@ -147,9 +151,9 @@ const errorSig: String = "_{{id}}__error"
 /// Two halves, and each rides exactly where it can be answered:
 ///
 /// [[nodeQuery]] is for a GUARDED tap (`busy = true`), because `busy` is what
-/// splices [[busyAttrs]] and `busyAttrs` is what puts `data-fh-node` on the
+/// opens [[guard]]'s section and `guard` is what puts `data-fh-node` on the
 /// element. One flag governs both, so the parameter cannot be sent by an
-/// element that has no id to send — a tab anchor is not a cell and never
+/// element that has no id to send — a tab anchor is not guarded and never
 /// carries one.
 ///
 /// [[groupQuery]] is for a surface open that answers a SELECTION, so the server
@@ -202,12 +206,36 @@ const local function failedOn(sig: String): String =
 const local function failedClass(sig: String): String =
   #"data-class:fh-error="$\#(sig)""#
 
-const busyGuard: String = guardOn(busySig)
-// Both halves ride the SAME splice sites the busy ones already have, so every
-// card that guards a tap reports a refusal without a template change.
-const busyAttrs: String =
-  indicatorOn(busySig) + " " + failedOn(errorSig) + #" data-fh-node="{{id}}""#
-const busyClass: String = inFlightClass(busySig) + " " + failedClass(errorSig)
+/// **The whole in-flight and error contract for one control, as one splice a
+/// card places** — see the block at the top of this module for what a card
+/// writes.
+///
+/// It carries its OWN `{{#busy}}`/`{{#busyVisual}}` sections, which is the
+/// point: a card places it unconditionally, and the tap's flags decide whether
+/// anything is emitted. The alternative — an author wrapping three separate
+/// splices in the right sections — is three places to be subtly wrong in every
+/// component anyone writes, and one of them (the signal name) is load-bearing
+/// against what the server patches on a refusal.
+///
+/// The leading spaces are INSIDE the sections, so an unguarded tap emits
+/// nothing at all rather than a stray space.
+///
+/// `busyVisual` is only ever set together with `busy` (the card sets both from
+/// the tap), so the two sections are siblings rather than nested.
+const guard: String =
+  "{{#busy}} " + indicatorOn(busySig) + " " + failedOn(errorSig)
+    + #" data-fh-node="{{id}}""# + "{{/busy}}"
+    + "{{#busyVisual}} " + inFlightClass(busySig) + " " + failedClass(errorSig)
+    + "{{/busyVisual}}"
+
+/// [[guard]]'s other half, for INSIDE the click expression: the prefix that
+/// makes a re-click a no-op while the first is still in flight.
+///
+/// Separate because it lands inside an attribute VALUE rather than beside it —
+/// and it must be spliced into the TEMPLATE rather than composed into the
+/// click expression, because a tap's expression is a transform's output and is
+/// inserted raw, so a `{{id}}` in it would never be filled.
+const guardClick: String = "{{#busy}}" + guardOn(busySig) + "{{/busy}}"
 
 /// How long an action may take before it is worth SAYING it is taking a
 /// while. Below this, the spinner never appears at all.

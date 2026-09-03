@@ -336,9 +336,9 @@ not follow it, for a reason worth stating rather than working around:
 
 That makes it a genuine exception rather than a pattern, which is the important
 part: it should not be read as licence for a component author to reach for the
-transport counter. If the in-flight contract moves onto the renderer-emitted
-cell, this is the one piece that stays hand-wired, because it is intra-node —
-the state lives on one element INSIDE a node.
+transport counter. However far the in-flight contract is collapsed into one
+splice (ADR 0019), this is the one piece that stays hand-wired, because it is
+intra-node — the state lives on one element INSIDE a node.
 
 **The slider's dead-stream rollback is untested.** `UiSmokeSuite` drives the
 slider's REFUSAL path (a real 404) and the tabs' dead-stream path (a blocked
