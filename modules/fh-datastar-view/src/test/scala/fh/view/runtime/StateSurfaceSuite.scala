@@ -9,6 +9,7 @@ import fh.view.testkit.FakeHomeAssistant
 import fh.view.testkit.TestIds.given
 import fh.view.testkit.TestAuth
 import fs2.concurrent.SignallingRef
+import io.circe.Json
 
 import scala.concurrent.duration.*
 
@@ -115,6 +116,37 @@ class StateSurfaceSuite extends ServerHarness {
       assert(!cache.contains("c_0"), clue = cache)
       assert(!moved.contains("c_0"), clue = moved)
     }
+  }
+
+  /** '''A fill claims what it put in each node.''' Re-supplying a host makes
+    * everything under it unknown, which is right — but a fill that then claimed
+    * NOTHING left the arriving branch unknown too, so the next tick that made
+    * one of its nodes a candidate re-sent bytes this client had just been
+    * handed.
+    *
+    * Asserted on the consequence rather than on the record: a wire with a
+    * pointless morph on it is what anyone would actually notice, and it stays
+    * true however the claim is represented.
+    */
+  test("a flip's fill claims its nodes, so an unchanged one is not re-sent") {
+    for {
+      h <- SharedHarness.create(
+        ifDash(),
+        Map(
+          "alarm.h" -> es("alarm.h", "armed"),
+          "sensor.a" -> es("sensor.a", "A0"),
+          "sensor.b" -> es("sensor.b", "B0")
+        )
+      )
+      flip <- h.step(es("alarm.h", "disarmed"))
+      _ = assert(flip.exists(_.contains("B0")), clue = flip)
+      // sensor.b's CONTENT moves — so the branch's node is a candidate on the
+      // next tick — while the bytes it renders do not, because the card reads
+      // `state` and this moved an attribute.
+      quiet <- h.step(
+        EntityState("sensor.b", "B0", Map("noise" -> Json.fromInt(1)))
+      )
+    } yield assertEquals(quiet, Nil, clue = quiet)
   }
 
   /** '''A flip that happens while a client is away must survive the

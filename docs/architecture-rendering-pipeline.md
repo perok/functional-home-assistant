@@ -554,6 +554,15 @@ which no prefix of the container's id reaches, so the patch names the surfaces a
 own id is the right root — a set has no card and no declared region, so it is the one container
 that is neither.
 
+**And then it CLAIMS what it put there** (`Renderer.HostContent.claims`). Forgetting alone left the
+arriving branch unknown as well as the departing one, so the next tick that made any node in it a
+candidate re-sent bytes the client had just been handed. The two container kinds claim different
+ids and that is why the renderer decides it rather than the fill site: a set's members are separate
+renders, so each part is itself a claimable node and its bytes are hashed; a state group's branch is
+ONE walk whose part is a composed subtree under a root with no rendering of its own, so it claims
+the walk's per-node digests (`Traced.claims`) — which cost nothing, the walk having produced them
+already.
+
 ---
 
 ## 4a. Cards, nodes and regions — what a patch may target
@@ -1098,6 +1107,14 @@ Live list — delete an entry when it is answered, and say where the answer land
   to prevent. Not an oversight: a fill's content is a composed subtree, which `renderInputs` refuses
   a key for by design, so the fix is composing a fill from per-node cached leaves rather than one
   fresh walk. Orthogonal to render FORM — that was checked and changes nothing here (PR #222).
+
+  Two corrections worth having before anyone picks it up. **"Fills already run in `IO`, so this
+  needs no walk surgery" is wrong**: `Patches.resume` is effectful but `renderSurfaceTraced` is a
+  pure walk, so reading the cache per leaf is the same shape of change as #130 — what makes this
+  the better pickup is BLAST RADIUS, since `renderHost` is the walk's one production caller where
+  #130's three entry points reach every test that renders a page. And the saving is proportional to
+  sessions pulling from the SAME snapshot, which the straggler rule says they often do not, so the
+  first artifact is a fill benchmark: `RenderBench` has no fill entry point at all.
 
 - **The document walk and the repaint bypass the `RenderCache` entirely** —
   [issue #130](https://github.com/perok/functional-home-assistant/issues/130), measured and

@@ -599,7 +599,7 @@ class SignalSlotSuite extends ServerHarness {
     val page = r.renderPage(states)
     assertEquals(page.contains("sensor.unseen"), false, clue = page)
     // ...so the fill has to carry both the binding and the value.
-    val fill = r.renderSurface("panel", states).get
+    val fill = r.renderSurfaceTraced("panel", states).map(_.html).get
     assert(fill.contains("data-text=\"$_e.sensor.unseen.state\""), clue = fill)
     assert(
       fill.contains("data-signals=\"{_e: {sensor: {unseen: {state: '7'"),

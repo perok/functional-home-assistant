@@ -522,7 +522,10 @@ class RendererSuite extends munit.FunSuite {
     val baked = r.renderPage(Map.empty, popup = Some("det"))
     assert(
       baked.contains(
-        s"""<div id="popups">${r.renderSurface("det", Map.empty).get}</div>"""
+        s"""<div id="popups">${r
+            .renderSurfaceTraced("det", Map.empty)
+            .map(_.html)
+            .get}</div>"""
       ),
       clue = baked
     )
@@ -865,7 +868,7 @@ class RendererSuite extends munit.FunSuite {
     )
     val r = Renderer.create(d)
     val states = Map("sensor.t" -> EntityState("sensor.t", "42", Map.empty))
-    val html = r.renderSurface("detail", states).get
+    val html = r.renderSurfaceTraced("detail", states).map(_.html).get
     assert(!html.contains("<dialog"), clue = html)
     assert(!html.contains("surface/close"), clue = html)
     assert(html.contains("<span>42</span>"), clue = html)
@@ -884,7 +887,7 @@ class RendererSuite extends munit.FunSuite {
       Set("s_detail__c")
     )
     // unknown surface -> None
-    assertEquals(r.renderSurface("nope", states), None)
+    assertEquals(r.renderSurfaceTraced("nope", states).map(_.html), None)
   }
 
   test(
@@ -915,7 +918,7 @@ class RendererSuite extends munit.FunSuite {
     assert(!body.contains("<span>BB</span>"), clue = body)
 
     // An inline-mounted surface renders bare — no chrome wrapper, no <dialog>, no ✕.
-    val panelB = rr.renderSurface("c_t1", states).get
+    val panelB = rr.renderSurfaceTraced("c_t1", states).map(_.html).get
     assert(
       panelB.startsWith("""<div class="fh-cell" id="s_c_t1__c">"""),
       clue = panelB
