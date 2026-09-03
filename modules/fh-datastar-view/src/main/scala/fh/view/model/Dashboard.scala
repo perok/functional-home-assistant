@@ -1666,18 +1666,6 @@ object Dashboard:
     */
   val SubjectSlot: String = "entity_id"
 
-  /** The two slots that say a node's tap is GUARDED, and whether the guard
-    * shows (ADR 0019). They are read by the RENDERER rather than placed by a
-    * card: the in-flight and error contract rides the `.fh-cell` the renderer
-    * emits, so an author declares the intent and never the wiring.
-    *
-    * A card still declares them as slots, because that is how a value reaches a
-    * node at all — but nothing places them in a template any more, which is the
-    * point: a contract nobody splices is a contract nobody can misplace.
-    */
-  val BusySlot: String = "busy"
-  val BusyVisualSlot: String = "busyVisual"
-
   /** A dashboard PROVEN valid: every card reference resolves, every slot is
     * satisfied, and every slot transform compiled (kept in `transforms`, so the
     * renderer looks them up instead of recompiling or defending against a bad

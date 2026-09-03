@@ -304,10 +304,11 @@ The CQRS split (action POST is no-content; the result arrives later over the
 stream, ADR 0005) leaves a click visibly answerless, so the card layer adds
 client-only feedback around the `@post` — see `docs/adr/0019-an-action-in-flight.md`:
 
-- **Busy, per node — written by the RENDERER, not the card.** A card places two
-  holes (`{{{fh_guard_click}}}`, `{{{fh_guard}}}`) and declares `busy = true`;
-  `Renderer.guardAttrs`/`guardClick` fill them, and fill them with nothing when
-  the tap is not guarded. What lands is `data-indicator="_<id>__busy"`
+- **Busy, per node — one splice the card places, not four.** A card declares
+  `busy = true` on the tap and splices `tapMod.guardClick` into its click
+  expression and `tapMod.guard` beside it. Both carry their own `{{#busy}}`
+  section, so the card places them unconditionally and an unguarded tap emits
+  nothing. What lands is `data-indicator="_<id>__busy"`
   (the value form — the pinned bundle splits attribute KEYS on `__`, so the
   keyed form would arm a differently-named signal), `data-fh-node`, the refusal
   handler, `data-class:fh-disabled="$<id>__busy"`, and a click wrapped in

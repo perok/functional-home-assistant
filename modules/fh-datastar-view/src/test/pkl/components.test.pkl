@@ -436,11 +436,8 @@ facts {
     local none = c.cardsWith(c.modules, new Mapping {})
     !none["entityCard"].template.contains("data-class:fh-busy-spin")
     !none["entityCard"].template.contains("@@CLASSBIND")
-    // The guard and its immediate dim are NOT a theme's to decline — and no
-    // longer a CARD's to place either: the template carries the hole and the
-    // renderer fills it (`Renderer.guardAttrs`), so what a theme cannot decline
-    // is now something it cannot even reach.
-    none["entityCard"].template.contains("{{{fh_guard}}}")
+    // The guard and its immediate dim are NOT a theme's to decline.
+    none["entityCard"].template.contains("data-class:fh-disabled")
   }
 
   ["`informative` reads the card's OWN entity"] {
@@ -506,10 +503,9 @@ facts {
     // this module's own. What the slider adds is only WHERE they sit.
     acts.toList().every((a) -> a.card == "button")
     acts.toList().every((a) -> a.slots["round"] == "1")
-    // Each declares the guard by carrying the hole; the renderer fills it with
-    // the node's OWN id, which is what makes the two distinct.
-    // `RendererSuite` owns what the fill contains.
-    c.cards["button"].template.contains("{{{fh_guard}}}")
+    // Each declares the guard, and the template names the node's own id — the
+    // renderer fills `{{id}}` per node, which is what makes the two distinct.
+    c.cards["button"].template.contains(#"data-indicator="_{{id}}__busy""#)
     // `lit(false)` drops the class signal rather than binding a constant: a
     // button that does not mean "this entity is on" should not light up.
     acts[0].slots.containsKey("lit")

@@ -149,7 +149,7 @@ The `{{temperature}}` part is what a browser sees on first load. The
 
 ## Making a card clickable
 
-Set a tap on your node, and place two holes in the template:
+Set a tap on your node, and place two pieces in the template:
 
 ```pkl
 hidden tapAction: tapMod.TapAction
@@ -169,25 +169,29 @@ slots {
 card does it. An absent slot and an empty one mean the same thing here, but
 `when` reads better.
 
+```pkl
+import "@fh-dashboard/core/tap.pkl" as tapMod
+```
+
 ```html
-<button data-on:click="{{{fh_guard_click}}}{{{onclick}}}" {{{fh_guard}}}>
+<button data-on:click="\(tapMod.guardClick){{{onclick}}}"\(tapMod.guard)>
   {{label}}
 </button>
 ```
 
 That is the whole thing. You do not write any signal names, and you do not need
-an `{{#busy}}` section around anything.
+an `{{#busy}}` section around anything — the two pieces bring their own, so you
+place them whether or not this particular card guards its tap.
 
-The server fills those two holes for you with everything a working control
-needs:
+Between them they give you everything a working control needs:
 
 - a second click is ignored while the first is still in flight
 - the control dims while it waits
 - if the action is refused, the control gets a red outline and a message
 - the outline clears the next time you press it
 
-If the tap is not a guarded one, both holes come out empty and your card renders
-exactly as if none of this existed.
+If the tap is not a guarded one, both pieces come out empty and your card
+renders exactly as if none of this existed.
 
 **One exception.** If your card has an icon and you want it to spin during a
 slow action, you place that yourself:
