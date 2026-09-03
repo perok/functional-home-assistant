@@ -43,7 +43,9 @@ class ActionConcurrencySuite extends ServerHarness {
       )
     )
 
-  test("overlapping asks for one entity ALL reach HA, and each answers itself") {
+  test(
+    "overlapping asks for one entity ALL reach HA, and each answers itself"
+  ) {
     (for {
       store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "warm")))
       ref <- SignallingRef[IO].of(

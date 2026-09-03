@@ -133,35 +133,41 @@ const busyChangeSig: String = "_{{id}}__busy_change"
 ///
 /// TWO writers, for two different facts. The SERVER patches it when the service
 /// call it made was refused — a 200 carrying `datastar-patch-signals`, keyed on
-/// the node id the tap sends ([[actionQuery]]), so the message HA gave lands on
+/// the node id the tap sends ([[nodeQuery]]), so the message HA gave lands on
 /// the control instead of a status code. [[failedOn]] is the client's half, and
 /// covers what a signal patch cannot reach: a response that is not 200 at all
 /// (an access refusal, a dead route), where the body is never parsed.
 const errorSig: String = "_{{id}}__error"
 
-/// **What every action tells the server about itself**, so a refusal can be
-/// reported ON the things that asked: the node id of the control that was
-/// pressed, and the selection group waiting for the answer where there is one
-/// (a tab bar — see [[pendingSignal]]).
+/// **What an action tells the server about itself**, so a refusal can be
+/// reported ON the thing that asked. Spliced onto the END of a route, so append
+/// `, <options>)` after it for a `@post` that takes options, `)` for one that
+/// does not.
 ///
-/// Spliced onto the END of a route by every builder below, which is what makes
-/// "an action reports its refusal" one rule rather than a habit each one
-/// follows. Append `, <options>)` after it for a `@post` that takes options,
-/// `)` for one that does not.
+/// Two halves, and each rides exactly where it can be answered:
+///
+/// [[nodeQuery]] is for a GUARDED tap (`busy = true`), because `busy` is what
+/// splices [[busyAttrs]] and `busyAttrs` is what puts `data-fh-node` on the
+/// element. One flag governs both, so the parameter cannot be sent by an
+/// element that has no id to send — a tab anchor is not a cell and never
+/// carries one.
+///
+/// [[groupQuery]] is for a surface open that answers a SELECTION, so the server
+/// can end the pending ask (see [[pendingSignal]]). Nothing carries both: a
+/// service call has no selection, a tab has no node.
 ///
 /// The node id is read off the DOM at click time rather than interpolated,
 /// because a click expression is a transform's OUTPUT and is inserted raw —
-/// Mustache never sees it, so `{{id}}` inside it would stay a literal. It
-/// reaches the element through [[busyAttrs]]. An element with no node id (a tab
-/// anchor, which is not a cell) sends an empty one and the server simply has no
-/// control to paint; the group still lands.
+/// Mustache never sees it, so `{{id}}` inside it would stay a literal. A card
+/// building its own action URL in a TEMPLATE writes `{{id}}` directly (the
+/// slider's commit), the same two spellings `dashboardSlug` already has.
 ///
 /// QUERY parameters, not path segments: the value-carrying action route already
 /// ends `…/<entity>/<key>/<value>`, so a positional id would make the two forms
 /// ambiguous.
-const local function actionQuery(group: String?): String =
-  #"?node=' + (el.dataset.fhNode || '')"# +
-    (if (group == null) "" else #" + '&group=\#(group)'"#)
+const local nodeQuery: String = #"?node=' + (el.dataset.fhNode || '')"#
+
+const local function groupQuery(group: String): String = "?group=\(group)'"
 
 /// Sets [[errorSig]] when THIS element's action is refused, and clears it when
 /// this element starts another — so a retry drops the state without needing a
@@ -181,8 +187,14 @@ const local function actionQuery(group: String?): String =
 /// The `started` half also clears what the SERVER set, which is why the two
 /// writers do not need to coordinate: a press is what ends the previous
 /// press's verdict, whoever wrote it.
+///
+/// The value is a MESSAGE, matching what the server patches — one signal, one
+/// type. A status code is all this half has to say (the bundle drops a non-200
+/// body unread), but "what went wrong, as text" is what anything reading the
+/// signal can rely on. `''` rather than `false` for the same reason: falsy
+/// either way, and the class binding cannot tell them apart, but a reader can.
 const local function failedOn(sig: String): String =
-  #"data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($\#(sig) = true) : evt.detail.type === 'started' && ($\#(sig) = false))""#
+  #"data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($\#(sig) = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($\#(sig) = ''))""#
 
 /// The failed LOOK, beside [[inFlightClass]]. `fh-error` is the runtime's to
 /// emit and the base stylesheet's to paint (`core/css.pkl`), like the busy
@@ -285,7 +297,7 @@ const local function serviceOnclick(route: String): String =
   #""@post('sse/action/""# +
     #" + dashboard_slug + "/" + "# +
     "(" + route + ")" +
-    #" + "/" + entity_id + ""# + actionQuery(null) + #", "# +
+    #" + "/" + entity_id + ""# + nodeQuery + #", "# +
     noSignals +
     #")""#
 
@@ -329,7 +341,8 @@ const local function openSurfaceOnclick(
     // — `#"""#` would open a multi-line block and swallow the rest of the
     // module.
     "\"" + head + #"@post('sse/surface/""# +
-      #" + dashboard_slug + "/open/"# + surfaceId + actionQuery(group) + #")""#,
+      #" + dashboard_slug + "/open/"# + surfaceId +
+      (if (group == null) "'" else groupQuery(group)) + #")""#,
     false
   )
 
@@ -372,7 +385,7 @@ const function pendingSeedEntry(groupId: String): String =
 /// guess. A REFUSAL is the remaining case, and it has TWO writers for the same
 /// reason [[errorSig]] does: the server clears this signal itself in the frame
 /// that reports the refusal (`Server.actionSignals`, which is why the group id
-/// rides in [[actionQuery]]), and [[pendingFail]] covers what a signal patch
+/// rides in [[groupQuery]]), and [[pendingFail]] covers what a signal patch
 /// cannot reach — a response that is not 200 at all, whose body the bundle
 /// never parses.
 ///
@@ -475,7 +488,7 @@ const function byDomain(e: hass.Entity): TapAction? =
 const local function serviceValueOnclick(action: String, key: String, value: String): String =
   #""@post('sse/action/""# +
     #" + dashboard_slug + "/" + '"# + action + #"' + "/" + entity_id + "/" + '"# + key +
-    #"' + "/" + '"# + value.replaceAll(" ", "%20") + #"' + ""# + actionQuery(null) + #", "# + noSignals + #")""#
+    #"' + "/" + '"# + value.replaceAll(" ", "%20") + #"' + ""# + nodeQuery + #", "# + noSignals + #")""#
 
 /// A service call carrying ONE static value: `serviceValue("light/turn_on",
 /// "effect", "colorloop")`. The entity comes from the card the tap sits on, so
@@ -501,7 +514,7 @@ function navigate(slug: String): TapAction = new {
 function closePopup(): TapAction =
   new {
     onclick = clickSlot(
-      #""@post('sse/popup/""# + #" + dashboard_slug + "/close"# + actionQuery(null) + #")""#,
+      #""@post('sse/popup/""# + #" + dashboard_slug + "/close')""#,
       false
     )
   }
