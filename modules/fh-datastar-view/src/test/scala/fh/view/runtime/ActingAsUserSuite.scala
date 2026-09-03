@@ -198,13 +198,13 @@ class ActingAsUserSuite extends munit.CatsEffectSuite {
       _ <- toggle(w, Some(id))
       after <- w.sessions.get(id).map(_.map(_.verifiedAt))
     } yield
-    // `verifiedAt` means "when HA last confirmed this user's ROLE", and
-    // minting a token confirms nothing about it — the periodic sweep
-    // re-reads the user, and that is what may move this. Stamping it here
-    // would push the sweep further out on every button press, so the
-    // busiest dashboard would be the one whose demoted admin kept access
-    // longest.
-    assertEquals(after, before, clue = (before, after))
+      // `verifiedAt` means "when HA last confirmed this user's ROLE", and
+      // minting a token confirms nothing about it — the periodic sweep
+      // re-reads the user, and that is what may move this. Stamping it here
+      // would push the sweep further out on every button press, so the
+      // busiest dashboard would be the one whose demoted admin kept access
+      // longest.
+      assertEquals(after, before, clue = (before, after))
   }
 
   /** Not a behaviour of the code so much as a property of the shape it stores:
@@ -212,7 +212,9 @@ class ActingAsUserSuite extends munit.CatsEffectSuite {
     * demand and does not expire. Keeping the short-lived one beside it widens
     * nothing.
     */
-  test("the stored access token expires; the refresh token it came from does not") {
+  test(
+    "the stored access token expires; the refresh token it came from does not"
+  ) {
     for {
       w <- wiring(haStub(renewed))
       id <- w.sessions.create(user, "r1", Uri.unsafeFromString(MintedClient))

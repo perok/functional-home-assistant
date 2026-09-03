@@ -4,7 +4,13 @@ import api.homeassistant.HomeAssistantApi
 import cats.effect.{IO, Resource}
 import cats.syntax.all.*
 import fh.view.FHError
-import fh.view.auth.{AuthSession, AuthSessions, HaAccess, HaOAuth, RefreshOutcome}
+import fh.view.auth.{
+  AuthSession,
+  AuthSessions,
+  HaAccess,
+  HaOAuth,
+  RefreshOutcome
+}
 import io.circe.Json
 import org.http4s.{Request, Uri}
 
@@ -103,7 +109,9 @@ object ServiceCalls {
       */
     private def tokenFor(id: String, session: AuthSession): IO[String] =
       IO.realTimeInstant.flatMap { now =>
-        session.access.filter(_.expiresAt.isAfter(now.plusSeconds(Margin))) match {
+        session.access.filter(
+          _.expiresAt.isAfter(now.plusSeconds(Margin))
+        ) match {
           case Some(a) => IO.pure(a.token)
           case None    => mint(id, session)
         }
