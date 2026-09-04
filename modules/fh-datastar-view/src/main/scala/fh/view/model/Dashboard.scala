@@ -1004,6 +1004,44 @@ case class Dashboard(
     (walk(card) ++ surfaces.values.toList.flatMap(s => walk(s.content))).toSet
   }
 
+  /** Every entity a change to which could make this dashboard render
+    * differently — what the live subscription has to ask HA for.
+    *
+    * A SUPERSET of [[referencedEntities]], and the difference is the whole
+    * reason it is a separate value rather than a reuse. That one answers "does
+    * this dashboard NAME this entity", the bound an action POST is held to (ADR
+    * 0023), so it walks what is rendered. This one answers "could this entity
+    * wake us", so it also walks what merely DECIDES:
+    *
+    *   - a set clause's `when` guard, which may name an entity the member does
+    *     not render ("show the hall light while the hall sensor is on")
+    *   - a surface's [[Activation.State]] condition — the entity a flip hangs
+    *     on, rendered nowhere
+    *
+    * Subscribing to the narrower set would leave a dashboard that paints
+    * correctly and then never reacts: the flip and the membership change are
+    * exactly the two things whose deciding entity can be off-screen.
+    */
+  lazy val watchedEntities: Set[String] = {
+    def deciders(n: LayoutNode): List[String] = n match {
+      case c: LayoutNode.Component => c.allChildren.flatMap(deciders)
+      case set: LayoutNode.SetNode =>
+        set.members.values.toList
+          .flatMap(_.clauses)
+          .flatMap(cl =>
+            cl.when.toList.flatMap(Predicate.referencedEntities) ++
+              deciders(cl.node)
+          )
+    }
+
+    referencedEntities ++ deciders(card) ++ surfaces.values.toList.flatMap(s =>
+      deciders(s.content) ++ (s.activation match {
+        case Activation.State(c) => Predicate.referencedEntities(c)
+        case _: Activation.User  => Nil
+      })
+    )
+  }
+
   /** Validate that every card reference resolves, supplies the params/slots the
     * card's template declares, and that each slot's `transform` is compilable
     * JSONata. Returns human-readable errors (empty = valid).

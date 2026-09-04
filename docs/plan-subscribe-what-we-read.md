@@ -109,8 +109,12 @@ renderer, the union recomputes, the subscription rotates.
 
 ## Open questions
 
-- Does anything else depend on the store holding the whole house? Believed not — `RegistryDump`
-  builds from its own full fetch on the build path, not from this subscription — but the audit is
-  step 0 and is not yet done.
-- Entities that LEAVE the set keep their last value in the store. Harmless (nothing reads them) but
-  it makes the store's contents no longer "the house". Prune on narrow, or document?
+- ~~Does anything else depend on the store holding the whole house?~~ **No.** Every read is
+  `Server`'s, and each is keyed by entities a renderer names (`entitiesForNode`, the render
+  states, the session's snapshot). `RegistryDump.snapshot` takes its OWN unfiltered
+  `subscribe_entities` on the build path, and must keep doing so: the dump is what an author
+  writes the next dashboard against, so it has to offer entities nothing references yet.
+- Entities that LEAVE the set keep their last value in the store. Harmless (nothing reads them)
+  but it makes the store's contents no longer "the house". Prune on narrow, or document?
+- **Not yet verified against a live instance.** Every test is against the fake. What HA does with
+  a mid-connection re-subscribe carrying a different `entity_ids` is the thing to watch.

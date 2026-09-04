@@ -133,7 +133,9 @@ The same thing as §1, in words, because the diagram cannot show ordering and li
 
 ```
 open ONE WebSocket to Home Assistant, subscribe_entities
-  the opening frame IS the full entity set, so there is no separate seeding step
+  the opening frame IS the subscribed set in full, so there is no separate seeding step
+  UNFILTERED at boot — nothing is built yet, so nothing knows which entities matter,
+  and it is this frame that fills the store the boot waits for
 create ONE StateStore              // for every dashboard, not one each
 evaluate the ONE entrypoint        // site.pkl -> slug -> dashboard (ADR 0021);
                                    // decoded PER SLUG, and neither a broken
