@@ -26,6 +26,14 @@ import org.typelevel.otel4s.trace.Tracer
   * value put there before an async boundary is on the wrong thread after it,
   * which fails in the direction that is worst — silently, and usually with
   * SOMEBODY's trace id rather than none.
+  *
+  * The same objection sinks `opentelemetry-logback-appender`, which is the
+  * obvious way to send these records to a collector: it reads OpenTelemetry
+  * JAVA's `Context.current()`, and otel4s keeps the current span in an
+  * `IOLocal` that never populates it. Bridging is possible but is a
+  * `makeCurrent()`/`close()` pair around every call — the thread-local hazard
+  * again. Shipping log records, if it is ever wanted, belongs HERE, against
+  * otel4s' own `LoggerProvider`.
   */
 final class TracedLogger(
     underlying: SelfAwareStructuredLogger[IO],
