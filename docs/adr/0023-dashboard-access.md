@@ -221,6 +221,15 @@ layout and every surface once and cannot grow at runtime. A failed dashboard has
 no renderer, names nothing, and therefore permits no action; that matters
 because a failed dashboard's page is a diagnostics dump.
 
+**`referencedEntities` is the bound, and it is not the same set as
+`watchedEntities`** (ADR 0030), which is what the upstream subscription asks HA
+for. That one is WIDER: it also walks what merely decides — a clause's `when`
+guard, a surface's `Activation.State` — entities a dashboard reads and renders
+nowhere. The two answer different questions and must not be merged in either
+direction: narrowing the subscription to this set would leave a dashboard that
+never reacts, and widening this set to that one would let a dashboard ACT on an
+entity it only reads, which is exactly what the bound exists to prevent.
+
 The slug cannot be authored: a dashboard module does not know its own (the
 entrypoint supplies it as a key, and `fh push --slug` can rename it), so the
 renderer supplies it. Two spellings, one fact, and each names the mechanism

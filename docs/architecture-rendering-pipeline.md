@@ -28,11 +28,11 @@ what its viewer has selected).
 
 ```mermaid
 flowchart TB
-  HA["Home Assistant · WebSocket<br/>subscribe_entities"]
+  HA["Home Assistant · WebSocket<br/>subscribe_entities entity_ids<br/>ONLY what the dashboards read"]
 
   subgraph GLOBAL["GLOBAL — exactly one per process, for ALL dashboards"]
     direction TB
-    PUMP["HaFeed.pump<br/>ONE HA WebSocket, one subscribe_entities<br/>one HA frame = one fs2 chunk"]
+    PUMP["HaFeed.pump<br/>ONE HA WebSocket, one subscribe_entities<br/>re-opened when the wanted set moves<br/>one HA frame = one fs2 chunk"]
     STORE["StateStore.update<br/>ONE store for every dashboard<br/>ONE Ref.modify per frame<br/>version++ only if content really moved<br/>each moved entity stamped with it"]
     CH["changes topic · list of StateChange<br/>unbounded — the feed must never backpressure"]
   end
@@ -173,6 +173,8 @@ flowchart LR
   REG -->|discrete| RECON["sharedPatchPublishers<br/>toAdd / toCancel"]
   RECON -->|toAdd| START["start that slug's recorder"]
   RECON -->|toCancel| STOP["cancel it"]
+  REG -->|discrete| NARROW["ServerApp.narrowFeed<br/>union of watchedEntities"]
+  NARROW --> RESUB["HaFeed re-subscribes<br/>switchMap, new entity_ids"]
 
   classDef ok fill:#dcfce7,stroke:#15803d,color:#0f172a
   classDef store fill:#fef3c7,stroke:#b45309,color:#0f172a
@@ -180,7 +182,7 @@ flowchart LR
   class REG store
 ```
 
-Three properties worth stating, because each is silent when broken:
+Four properties worth stating, because each is silent when broken:
 
 - **Installing a slug IS starting its recorder**, and removing one IS stopping
   it. A removed slug cannot leave a fiber diffing every state batch forever.
@@ -193,6 +195,12 @@ Three properties worth stating, because each is silent when broken:
   `SignallingRef`, which rotates its log identity and repaints every open
   browser. The comparison is per slug, so one author's edit repaints one
   dashboard.
+- **The registry also decides what HA is asked for.** The upstream
+  `subscribe_entities` carries the union of the registered slugs'
+  `watchedEntities` (ADR 0030), so installing, removing or rebuilding a
+  dashboard rotates the subscription. An entity no dashboard reads never reaches
+  the process at all — which is why the store's contents are the dashboards'
+  entities, not the house's.
 
 ### A browser opens a dashboard
 
