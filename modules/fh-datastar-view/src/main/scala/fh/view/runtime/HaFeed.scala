@@ -8,6 +8,7 @@ import fh.view.FHError
 import cats.effect.{Deferred, IO, Resource}
 import fs2.Stream
 import fs2.concurrent.{Signal, SignallingRef}
+import org.typelevel.log4cats.slf4j.Slf4jLogger
 
 import scala.concurrent.duration.*
 
@@ -40,6 +41,8 @@ final case class HaFeed(
 )
 
 object HaFeed {
+
+  private val log = Slf4jLogger.getLogger[IO]
 
   /** A RATE limit, not a backoff, and deliberately flat. Exponential backoff
     * assumes retries are expensive or the peer is shared; this is one WebSocket
@@ -128,7 +131,7 @@ object HaFeed {
       // cannot lose one.
       .map(describe)
       .changes
-      .evalMap(reason => IO.println(s"[ha-feed] attempt ended: $reason"))
+      .evalMap(reason => log.info(s"attempt ended: $reason"))
       .concurrently(logConnectivity(connection))
       .compile
       .drain
@@ -155,7 +158,7 @@ object HaFeed {
           "connected; subscribed to entity feed"
         case (Some(true), false) => "connection lost; retrying"
       }
-      .evalMap(msg => IO.println(s"[ha-feed] $msg"))
+      .evalMap(msg => log.info(msg))
       .drain
 
   private def describe(outcome: Either[Throwable, Unit]): String =

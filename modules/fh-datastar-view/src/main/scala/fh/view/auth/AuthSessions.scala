@@ -8,6 +8,7 @@ import fs2.io.file.{Files, Path, PosixPermissions}
 import io.circe.syntax.*
 import io.circe.{Decoder, Encoder, parser}
 import org.http4s.{Request, RequestCookie, ResponseCookie, SameSite, Uri}
+import org.typelevel.log4cats.slf4j.Slf4jLogger
 
 import java.nio.file.FileAlreadyExistsException
 import java.time.Instant
@@ -246,6 +247,8 @@ object AuthSessions {
   */
 final class SessionStore(path: os.Path) {
 
+  private val log = Slf4jLogger.getLogger[IO]
+
   private val file = Path.fromNioPath(path.toNIO)
 
   def write(sessions: Map[String, AuthSession]): IO[Unit] =
@@ -266,9 +269,7 @@ final class SessionStore(path: os.Path) {
     ).handleErrorWith { e =>
       // A workspace we cannot write to must not take the server down: the
       // sessions still work, they just will not survive a restart.
-      IO.consoleForIO.errorln(
-        s"[warn] could not persist sessions to $path: ${e.getMessage}"
-      )
+      log.warn(s"could not persist sessions to $path: ${e.getMessage}")
     }
 
   /** What the last run left.
@@ -292,9 +293,9 @@ final class SessionStore(path: os.Path) {
             IO.fromEither(parser.decode[Map[String, AuthSession]](raw))
           )
           .onError { e =>
-            IO.consoleForIO.errorln(
-              s"""[fatal] $path exists but cannot be read as sessions: ${e.getMessage}
-                 |[fatal] it may predate the stored-client_id format. Delete $path and log in again.""".stripMargin
+            log.error(
+              s"""$path exists but cannot be read as sessions: ${e.getMessage}
+                 |it may predate the stored-client_id format. Delete $path and log in again.""".stripMargin
             )
           },
         IO.pure(Map.empty)

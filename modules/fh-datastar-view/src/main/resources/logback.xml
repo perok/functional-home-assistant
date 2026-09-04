@@ -1,0 +1,21 @@
+<!-- The add-on's logs are whatever this writes to stdout: the supervisor
+     captures the container's stream and shows it in the add-on's Log tab.
+     Hence STDOUT rather than a file, and hence a short pattern — the panel is
+     narrow and every wasted column pushes the message off the right. -->
+<configuration>
+  <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+    <encoder>
+      <pattern>%d{HH:mm:ss.SSS} %-5level %logger{24} - %msg%n</pattern>
+    </encoder>
+  </appender>
+
+  <!-- http4s and its stack log through the same slf4j that was on the
+       classpath unbound until now. At INFO they are quiet; at DEBUG ember
+       logs a line per connection, which on a long-lived SSE stream is a
+       flood. Raised deliberately rather than left to inherit the root. -->
+  <logger name="org.http4s" level="WARN"/>
+
+  <root level="INFO">
+    <appender-ref ref="STDOUT"/>
+  </root>
+</configuration>

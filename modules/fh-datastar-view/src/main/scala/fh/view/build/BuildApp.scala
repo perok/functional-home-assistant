@@ -4,6 +4,7 @@ import cats.effect.{ExitCode, IO, IOApp}
 import cats.effect.std.Env
 import cats.syntax.all.*
 import fh.api.FHApi
+import org.typelevel.log4cats.slf4j.Slf4jLogger
 
 /** Build phase entry point.
   *
@@ -26,6 +27,8 @@ import fh.api.FHApi
   * bootstrapped workspace.
   */
 object BuildApp extends IOApp {
+
+  private val log = Slf4jLogger.getLogger[IO]
 
   // Paths are relative to the module directory (the forked `run` working dir).
   private val defaultDashboardsDir = "dashboard-local-dev"
@@ -60,7 +63,7 @@ object BuildApp extends IOApp {
             loopbackUrl = "http://127.0.0.1:8080"
           )
         )
-        .flatMap(_.traverse_(IO.println))
+        .flatMap(_.traverse_(log.info(_)))
 
       result <- FHApi.fromEnv.use(
         DashboardBuild.evaluate(_, dashboardsDir, Site.EntryFile, Some(bundled))
@@ -86,7 +89,7 @@ object BuildApp extends IOApp {
       }
 
       _ <- IO.blocking(os.write.over(outputPath, siteJson.spaces2))
-      _ <- IO.println(
+      _ <- log.info(
         s"Wrote site artifact (${decoded.slugs.mkString(", ")}) to $outputPath"
       )
     } yield ExitCode.Success

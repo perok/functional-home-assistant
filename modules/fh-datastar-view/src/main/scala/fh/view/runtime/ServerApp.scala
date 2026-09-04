@@ -36,6 +36,7 @@ import fh.view.model.Dashboard
 import fs2.Stream
 import fs2.concurrent.{Signal, SignallingRef}
 import org.http4s.ember.server.EmberServerBuilder
+import org.typelevel.log4cats.slf4j.Slf4jLogger
 import fs2.io.file.{Watcher, Path}
 
 /** Runtime phase entry point.
@@ -47,6 +48,8 @@ import fs2.io.file.{Watcher, Path}
   * set.
   */
 object ServerApp extends IOApp {
+
+  private val log = Slf4jLogger.getLogger[IO]
 
   // All relative to the module directory (the forked `run` working dir).
   //
@@ -502,10 +505,10 @@ object ServerApp extends IOApp {
           prepared.built.traverse_ { case (slug, renderer) =>
             // Built, but maybe not sound: report what still serves and only
             // misbehaves (a popup with nowhere to go).
-            renderer.warnings.traverse_(w => IO.println(s"[warn] '$slug': $w"))
+            renderer.warnings.traverse_(w => log.warn(s"'$slug': $w"))
           } *>
             prepared.failed.traverse_ { case (slug, message) =>
-              IO.println(s"Dashboard '$slug' failed to build: $message")
+              log.error(s"Dashboard '$slug' failed to build: $message")
             }
         }
 
@@ -567,7 +570,7 @@ object ServerApp extends IOApp {
           )
           .flatMap {
             case RefreshOutcome.Dead =>
-              IO.consoleForIO.println(
+              log.info(
                 s"[auth] session for ${session.user.name} is no longer valid at HA; signing out"
               ) *> sessions.remove(id)
             case RefreshOutcome.Renewed(tokens) =>
@@ -591,7 +594,7 @@ object ServerApp extends IOApp {
               }
           }
           .handleErrorWith(e =>
-            IO.consoleForIO.errorln(
+            log.warn(
               s"[auth] could not re-check a session (leaving it alone): ${e.getMessage}"
             )
           )
@@ -837,7 +840,7 @@ object ServerApp extends IOApp {
               c.describe._1
           }
           _ <- IO.whenA(changes.nonEmpty)(
-            IO.println(s"Dashboards reloaded (${reloaded.mkString(", ")})")
+            log.info(s"Dashboards reloaded (${reloaded.mkString(", ")})")
           )
         } yield ()
     }
@@ -846,7 +849,7 @@ object ServerApp extends IOApp {
     * serving, one that broke, one that recovered, one that is gone.
     */
   private def report(changes: List[Server.Change]): IO[Unit] =
-    changes.traverse_(_.describe._2.traverse_(IO.println))
+    changes.traverse_(_.describe._2.traverse_(log.info(_)))
 
   /** One full dump refresh: fetch + render the live dump, validate-then-swap
     * ([[DumpRefresh.refresh]]), and on a swap hot-reload every renderer (the
@@ -862,23 +865,25 @@ object ServerApp extends IOApp {
     RegistryDump
       .fetch(api)
       .flatTap(
-        PklDump.warnings(_).traverse_(w => IO.println(s"dump warning: $w"))
+        PklDump.warnings(_).traverse_(w => log.warn(s"dump warning: $w"))
       )
       .map(PklDump.render)
       .flatMap(DumpRefresh.refresh(_, dashboardsDir))
       .flatTap {
         case DumpRefresh.Unchanged =>
-          IO.println("dump refresh: home unchanged")
+          // Debug, not info: this is the answer for most registry events, so
+          // at info it would be the only thing in the log.
+          log.debug("dump refresh: home unchanged")
         case DumpRefresh.Swapped(version, seedLog) =>
-          seedLog.traverse_(IO.println) *>
-            IO.println(s"dump refreshed -> $version") *> reload
+          seedLog.traverse_(log.info(_)) *>
+            log.info(s"dump refreshed -> $version") *> reload
         case DumpRefresh.Rejected(errors) =>
-          IO.println(
-            "WARNING: dump refresh rejected — the new dump breaks dashboards " +
+          log.warn(
+            "dump refresh rejected — the new dump breaks dashboards " +
               "that build today; keeping the current dump:"
           ) *>
             errors.traverse_ { case (slug, err) =>
-              IO.println(s"  '$slug': $err")
+              log.warn(s"  '$slug': $err")
             }
       }
 
@@ -935,7 +940,7 @@ object ServerApp extends IOApp {
   ): Stream[IO, Unit] = {
     val runRefresh = refresh.attempt.flatMap {
       case Left(err) =>
-        IO.println(s"registry-driven dump refresh failed: ${err.getMessage}")
+        log.error(err)("registry-driven dump refresh failed")
       case Right(_) => IO.unit
     }
 
@@ -991,7 +996,7 @@ object ServerApp extends IOApp {
               loopbackUrl = s"http://127.0.0.1:${config.loopbackPort}"
             )
         )
-        .flatMap(_.traverse_(IO.println))
+        .flatMap(_.traverse_(log.info(_)))
     } yield bundled
 
   /** Read `name` from the environment, falling back to `default` when unset.
@@ -1023,7 +1028,7 @@ object ServerApp extends IOApp {
         IO.blocking(os.exists(path)).flatMap {
           case true  => IO.pure(Some(path))
           case false =>
-            IO.println(s"pkl-lsp: PKL_LSP_JAR=$p does not exist").as(None)
+            log.warn(s"pkl-lsp: PKL_LSP_JAR=$p does not exist").as(None)
         }
       case None =>
         val cache = os.pwd / ".pkl-lsp" / s"pkl-lsp-$PklLspVersion.jar"
@@ -1033,10 +1038,9 @@ object ServerApp extends IOApp {
             downloadPklLsp(client, cache).attempt.flatMap {
               case Right(_)  => IO.pure(Some(cache))
               case Left(err) =>
-                IO.println(
-                  s"pkl-lsp: could not obtain jar (${err.getMessage}); " +
-                    "LSP features disabled"
-                ).as(None)
+                log
+                  .warn(err)("pkl-lsp: could not obtain jar; LSP disabled")
+                  .as(None)
             }
         }
     }
@@ -1048,7 +1052,7 @@ object ServerApp extends IOApp {
       client: java.net.http.HttpClient,
       dest: os.Path
   ): IO[Unit] =
-    IO.println(s"pkl-lsp: downloading $PklLspUrl") *>
+    log.info(s"pkl-lsp: downloading $PklLspUrl") *>
       IO.blocking {
         os.makeDir.all(dest / os.up)
         val tmp = dest / os.up / (dest.last + ".part")
@@ -1064,5 +1068,5 @@ object ServerApp extends IOApp {
           throw new RuntimeException(s"HTTP ${resp.statusCode()}")
         }
         os.move.over(tmp, dest)
-      } *> IO.println(s"pkl-lsp: cached at $dest")
+      } *> log.info(s"pkl-lsp: cached at $dest")
 }

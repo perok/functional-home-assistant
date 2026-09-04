@@ -33,6 +33,7 @@ import org.http4s.headers.{
   ETag
 }
 import org.typelevel.ci.CIString
+import org.typelevel.log4cats.slf4j.Slf4jLogger
 
 import java.nio.charset.StandardCharsets.UTF_8
 
@@ -685,7 +686,7 @@ class Server(
       // Warn on any off ui-state value.
       _ <- Server
         .cursorAnomaly(req)
-        .traverse_(w => IO.println(s"[warn] $w"))
+        .traverse_(w => Server.log.warn(w))
       _ <- rendererOpt.traverse_ { r =>
         warnAnomalies(r, uiState) *>
           session.open.set(
@@ -1565,7 +1566,7 @@ class Server(
   ): IO[Unit] =
     renderer.surfaces
       .uiStateAnomalies(uiState)
-      .traverse_(w => IO.println(s"[warn] $w"))
+      .traverse_(w => Server.log.warn(w))
 
   /** Datastar reads live updates from the persistent SSE stream, so a service
     * call that WORKS returns no content.
@@ -2009,7 +2010,7 @@ class Server(
               })
             )
           case Resource.ExitCase.Errored(e) =>
-            IO.println(s"[warn] page render for '$slug' failed mid-walk: $e")
+            Server.log.warn(e)(s"page render for '$slug' failed mid-walk")
           case Resource.ExitCase.Canceled => IO.unit
         }
       resp <- Ok(body)
@@ -2265,6 +2266,8 @@ class Server(
 }
 
 object Server {
+
+  private val log = Slf4jLogger.getLogger[IO]
 
   /** One slug's live state: either a `Ready` renderer (serving, recording,
     * hot-swappable) or a `Failed` dashboard (a build/eval error — still
