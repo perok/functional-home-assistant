@@ -43,6 +43,11 @@ schema:
   # `options:` above so the default lives in exactly one place — run.sh —
   # rather than being stated twice and drifting.
   max_heap: str?
+  # JVM STARTING heap ("64M" by default). Exposed beside `max_heap` because
+  # it is the end that actually decides the idle footprint, and because a
+  # heap raised at one end and not the other is the mismatch that makes the
+  # collector grow and shrink repeatedly on a slow box.
+  min_heap: str?
   # Enable Native Memory Tracking, then read the breakdown with
   #   docker exec addon_<slug> jcmd 1 VM.native_memory summary
   # It costs a few percent and needs a restart to take effect, which is why

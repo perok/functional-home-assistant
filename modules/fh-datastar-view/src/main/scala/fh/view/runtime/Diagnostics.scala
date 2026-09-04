@@ -116,21 +116,93 @@ object Diagnostics {
     * happily with a broken operation name or signature. Asserting this one is
     * defined is what actually pins the mechanism.
     */
-  private[runtime] def nmtText: IO[Option[String]] = IO {
+  private[runtime] def nmtText: IO[Option[String]] =
+    diagnosticCommand("vmNativeMemory", Array("summary"))
+
+  /** One `jcmd` command, run in process.
+    *
+    * The platform registers a DIAGNOSTIC COMMAND MBean whose operations are the
+    * jcmd commands, named in camel case — `VM.native_memory` is
+    * `vmNativeMemory`, `Thread.print` is `threadPrint`. Every one of them takes
+    * a single `String[]` of arguments, which is why the signature below is
+    * spelled out rather than inferred: the MBean is dynamic, so a wrong
+    * operation name or argument type is found at RUN time, not compile time.
+    */
+  private def diagnosticCommand(
+      operation: String,
+      args: Array[String]
+  ): IO[Option[String]] = IO {
     val server = ManagementFactory.getPlatformMBeanServer
     val name = new ObjectName("com.sun.management:type=DiagnosticCommand")
-    // Matched rather than cast: the MBean is a DYNAMIC one, so its return type
-    // is `Object` and nothing but this pattern says we expect text back.
+    // Matched rather than cast: the operation's declared return type is
+    // `Object` and nothing but this pattern says we expect text back.
     server.invoke(
       name,
-      "vmNativeMemory",
-      Array[Object](Array("summary")),
+      operation,
+      Array[Object](args),
       Array(classOf[Array[String]].getName)
     ) match {
       case text: String => Some(text)
       case _            => None
     }
   }.handleError(_ => None)
+
+  /** A JVM thread dump — the same text `jcmd <pid> Thread.print` prints, via
+    * the same `DiagnosticCommand` MBean [[nmtText]] uses.
+    *
+    * Not folded into [[report]]: it is large, it is meant to be read rather
+    * than parsed, and producing it pauses every thread — which is not a price
+    * to pay for asking how much memory is in use.
+    */
+  def threadDump: IO[String] =
+    diagnosticCommand("threadPrint", Array("-l")).map(
+      _.getOrElse("thread dump unavailable")
+    )
+
+  /** A cats-effect fiber dump — the same snapshot the runtime prints on
+    * SIGUSR1.
+    *
+    * The JVM's thread dump cannot answer this. Almost all of this server's work
+    * runs as FIBERS multiplexed over a handful of carrier threads, so a thread
+    * dump taken while a dashboard is stuck shows a work-stealing pool sitting
+    * idle and says nothing about which fiber is parked or where. This is the
+    * one that names it.
+    *
+    * Read through cats-effect's own MBean rather than off the `IORuntime`, for
+    * the plain reason that `IO.runtime` is `private[effect]` — and the
+    * alternative, `IORuntime.global`, is worse than inaccessible: when no
+    * global has been installed it CREATES one, so a diagnostic endpoint would
+    * spin up a second thread pool as a side effect of being asked a question.
+    *
+    * The object name carries an incrementing id
+    * (`…:type=LiveFiberSnapshotTrigger-3`), so it is matched by pattern; a
+    * runtime that registered no trigger simply has no match, which is reported
+    * rather than raised.
+    */
+  def fiberDump: IO[String] = IO {
+    val server = ManagementFactory.getPlatformMBeanServer
+    val pattern =
+      new ObjectName(
+        "cats.effect.unsafe.metrics:type=LiveFiberSnapshotTrigger-*"
+      )
+    server
+      .queryNames(pattern, null)
+      .asScalaSet
+      .toList
+      .sortBy(_.toString) match {
+      case Nil =>
+        "no fiber monitor is registered on this runtime"
+      case triggers =>
+        triggers
+          .flatMap(name =>
+            server.invoke(name, "liveFiberSnapshot", null, null) match {
+              case lines: Array[?] => lines.toList.map(String.valueOf)
+              case other           => List(String.valueOf(other))
+            }
+          )
+          .mkString("\n")
+    }
+  }.handleError(e => s"fiber dump unavailable: ${e.getMessage}")
 
   /** The container figure, from cgroup v2. `None` off Linux, or wherever the
     * files are not readable — a local `dashboardServe` on a laptop reports the
@@ -183,6 +255,13 @@ object Diagnostics {
     private def asScalaList: List[A] = {
       val builder = List.newBuilder[A]
       list.forEach(a => builder += a)
+      builder.result()
+    }
+
+  extension [A](set: java.util.Set[A])
+    private def asScalaSet: Set[A] = {
+      val builder = Set.newBuilder[A]
+      set.forEach(a => builder += a)
       builder.result()
     }
 }

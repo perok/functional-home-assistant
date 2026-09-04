@@ -1,6 +1,9 @@
 package fh.view.runtime
 
+import cats.effect.IO
 import io.circe.Json
+
+import scala.concurrent.duration.*
 
 /** The memory report `GET /system/diagnostics` answers with.
   *
@@ -134,6 +137,51 @@ class DiagnosticsSuite extends munit.CatsEffectSuite {
           )
       }
     }
+  }
+
+  test("the thread dump is a real one, not the unavailable placeholder") {
+    // Same MBean as NMT, so the same trap applies: a wrong operation name
+    // would fall into `handleError` and return a plausible-looking string.
+    // Asserted on content the JVM's own dump always has.
+    Diagnostics.threadDump.map { dump =>
+      assert(dump.contains("\"main\""), s"no main thread in dump: $dump")
+      assert(dump.contains("java.lang.Thread.State"), "no thread states")
+    }
+  }
+
+  test("the thread dump includes lock info, which is what finds a deadlock") {
+    // `-l` is the whole reason a thread dump beats a stack trace: without it
+    // there is no ownable-synchronizer section and a deadlock is invisible.
+    Diagnostics.threadDump.map(dump =>
+      assert(
+        dump.contains("Locked ownable synchronizers") ||
+          dump.contains("locked <"),
+        "no lock information — was the -l argument dropped?"
+      )
+    )
+  }
+
+  test("the fiber dump names fibers, not threads") {
+    // The suite runs on a cats-effect runtime, so the monitor's MBean is
+    // registered and this exercises the real path. A SUSPENDED fiber is parked
+    // first, because that is what the monitor tracks and what makes the dump
+    // non-trivial — an idle runtime can legitimately report almost nothing, so
+    // dumping one would pass no matter what this returned.
+    IO.sleep(1.hour)
+      .start
+      .flatMap(parked => Diagnostics.fiberDump.guarantee(parked.cancel))
+      .map { dump =>
+        assert(
+          !dump.startsWith("fiber dump unavailable"),
+          s"the MBean call failed: $dump"
+        )
+        assert(
+          !dump.startsWith("no fiber monitor"),
+          "no LiveFiberSnapshotTrigger was registered — the ObjectName " +
+            s"pattern probably no longer matches: $dump"
+        )
+        assert(dump.trim.nonEmpty, "the dump was empty with a fiber parked")
+      }
   }
 
   test("a malformed cgroup file is reported as unknown rather than raising") {

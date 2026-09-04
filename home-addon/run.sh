@@ -105,6 +105,10 @@ if [ -f /data/options.json ]; then
   if [ -n "$HEAP_OPT" ]; then
     JAVA_MAX_HEAP="$HEAP_OPT"
   fi
+  MIN_OPT="$(jq -r '.min_heap // empty' /data/options.json)"
+  if [ -n "$MIN_OPT" ]; then
+    JAVA_MIN_HEAP="$MIN_OPT"
+  fi
   if [ "$(jq -r '.memory_tracking' /data/options.json)" = "true" ]; then
     JAVA_NMT=-XX:NativeMemoryTracking=summary
   fi

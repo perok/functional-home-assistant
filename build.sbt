@@ -254,6 +254,9 @@ lazy val `fh-datastar-view` = project
       "org.http4s" %% "http4s-core" % http4sVersion,
       "org.http4s" %% "http4s-dsl" % http4sVersion,
       "org.http4s" %% "http4s-ember-server" % http4sVersion,
+      // `EntityEncoder[IO, Json]`, so a route answers `Ok(json)` and gets the
+      // content type from the encoder instead of restating it per route.
+      "org.http4s" %% "http4s-circe" % http4sVersion,
       "io.circe" %% "circe-core" % "0.14.16",
       "io.circe" %% "circe-parser" % "0.14.16",
       // filesystem paths/IO for the build phase (was transitive via sjsonnet)
