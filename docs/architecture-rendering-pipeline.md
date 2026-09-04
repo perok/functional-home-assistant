@@ -554,6 +554,15 @@ which no prefix of the container's id reaches, so the patch names the surfaces a
 own id is the right root — a set has no card and no declared region, so it is the one container
 that is neither.
 
+**And then it CLAIMS what it put there** (`Renderer.HostContent.claims`). Forgetting alone left the
+arriving branch unknown as well as the departing one, so the next tick that made any node in it a
+candidate re-sent bytes the client had just been handed. The two container kinds claim different
+ids and that is why the renderer decides it rather than the fill site: a set's members are separate
+renders, so each part is itself a claimable node and its bytes are hashed; a state group's branch is
+ONE walk whose part is a composed subtree under a root with no rendering of its own, so it claims
+the walk's per-node digests (`Traced.claims`) — which cost nothing, the walk having produced them
+already.
+
 ---
 
 ## 4a. Cards, nodes and regions — what a patch may target
@@ -1091,13 +1100,14 @@ Live list — delete an entry when it is answered, and say where the answer land
   for 3.4%, and the same profile named items worth three and six times as much. Reopen only if a
   profile puts it somewhere else.
 
-- **Fills bypass the `RenderCache` entirely** —
-  [issue #224](https://github.com/perok/functional-home-assistant/issues/224). `arrivingFill` and
-  `branchPatch` take no cache and `Patches.resume` runs per session, so a flip renders its whole
-  surface subtree once per connection — the exact N-sessions-one-render waste `Patches.bytes` exists
-  to prevent. Not an oversight: a fill's content is a composed subtree, which `renderInputs` refuses
-  a key for by design, so the fix is composing a fill from per-node cached leaves rather than one
-  fresh walk. Orthogonal to render FORM — that was checked and changes nothing here (PR #222).
+- ~~**Fills bypass the `RenderCache` entirely.**~~ *Measured, and the answer is no*
+  ([issue #224](https://github.com/perok/functional-home-assistant/issues/224), closed). They still
+  do — `renderHost` takes no cache and `Patches.resume` runs per session — but the only fill several
+  sessions can ever share is a state-group FLIP (a tab switch is one client's own selection, a
+  refill is per reconnect), and `RenderBench.resumeFlip` prices the whole of it at **~730 µs of CPU
+  per flip at ten clients**, against 93.9 µs for one. A flip is an alarm arming; at one a minute
+  that is 0.001% of a core, while `resumeSignalsFanout` spends 424 µs per TICK on the path that runs
+  continuously. Reopen only if a profile of a real deployment puts a fill on it.
 
 - **The document walk and the repaint bypass the `RenderCache` entirely** —
   [issue #130](https://github.com/perok/functional-home-assistant/issues/130), measured and
