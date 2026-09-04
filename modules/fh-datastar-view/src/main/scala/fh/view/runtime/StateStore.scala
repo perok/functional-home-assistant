@@ -248,6 +248,13 @@ class StateStore private (
     * as a [[Ingest.Replace]], and only the ones that actually moved during the
     * outage produce a change, so every connected browser catches up over its
     * live SSE stream with no per-client tracking.
+    *
+    * The saving is DOWNSTREAM, not in this fold, which walks every ingest
+    * either way: `RenderBench.storeIngestDedup` prices an all-deduped batch at
+    * within a few hundred bytes of one where everything moved. What an empty
+    * `changes` buys is the frame behind it — no `topic.publish1`, and a
+    * `version` that stays put, so no client's cursor goes stale and no
+    * publisher pass runs at all.
     */
   private[runtime] def update(ingests: Iterable[Ingest]): IO[Unit] =
     ref

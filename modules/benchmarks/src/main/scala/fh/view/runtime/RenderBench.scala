@@ -304,6 +304,14 @@ class RenderBench {
   // shared by every bench on this path so no two calls present the same frame.
   private var store: StateStore = null
   private var pubRot = 0
+  // Built in setup, not per invocation: an alloc profile said building the
+  // frame was 37% of what `publish` reported, i.e. the harness pricing itself.
+  // Two is enough to alternate, and alternating is a real change on every
+  // entity every call.
+  private var pubFrames: Vector[Frame] = null
+  private var flipFrames: Vector[Frame] = null
+  private var pubIngests: Vector[List[Ingest]] = null
+  private var dedupBatch: List[Ingest] = null
 
   @Setup(Level.Trial)
   def setup(): Unit = {
@@ -403,6 +411,12 @@ class RenderBench {
       st + (FlipEntity -> EntityState(FlipEntity, "disarmed", Map.empty))
     flipCache = RenderCache.create.unsafeRunSync()
     store = StateStore.inMemory(flipStates).unsafeRunSync()
+    pubFrames = Vector(publishFrame(st, 0), publishFrame(st, 1))
+    flipFrames =
+      Vector(publishFrame(flipStates, 0), publishFrame(flipStates, 1))
+    pubIngests =
+      flipFrames.map(_.changes.map(c => Ingest.Replace(c.current): Ingest))
+    dedupBatch = dedupIngests
     checkFillShape()
     checkPublishShape()
     checkTickShapes()
@@ -947,8 +961,7 @@ class RenderBench {
   @Benchmark
   def publish(bh: Blackhole): Unit = {
     pubRot += 1
-    val (changes, after) = publishFrame(st, pubRot)
-    bh.consume(publishPass(signalled, changes, after))
+    bh.consume(publishPass(signalled, pubFrames(pubRot % 2)))
   }
 
   /** The same frame against a dashboard that is one candidate set, so
@@ -958,8 +971,7 @@ class RenderBench {
   @Benchmark
   def publishSet(bh: Blackhole): Unit = {
     pubRot += 1
-    val (changes, after) = publishFrame(st, pubRot)
-    bh.consume(publishPass(set, changes, after))
+    bh.consume(publishPass(set, pubFrames(pubRot % 2)))
   }
 
   /** The same frame plus the entity that CHOOSES a branch, so the pass also
@@ -972,14 +984,16 @@ class RenderBench {
   @Benchmark
   def publishFlip(bh: Blackhole): Unit = {
     pubRot += 1
-    val (moved, after) = publishFrame(flipStates, pubRot)
-    val was = after(FlipEntity)
+    val frame = flipFrames(pubRot % 2)
+    val was = frame.states(FlipEntity)
     val now = was.copy(state = if (pubRot % 2 == 0) "armed" else "disarmed")
     bh.consume(
       publishPass(
         flipped,
-        StateChange(FlipEntity, Some(was), now) :: moved,
-        after.updated(FlipEntity, now)
+        Frame(
+          StateChange(FlipEntity, Some(was), now) :: frame.changes,
+          frame.states.updated(FlipEntity, now)
+        )
       )
     )
   }
@@ -990,10 +1004,7 @@ class RenderBench {
   @Benchmark
   def storeIngest(bh: Blackhole): Unit = {
     pubRot += 1
-    val (changes, _) = publishFrame(flipStates, pubRot)
-    bh.consume(
-      store.update(changes.map(c => Ingest.Replace(c.current))).unsafeRunSync()
-    )
+    bh.consume(store.update(pubIngests(pubRot % 2)).unsafeRunSync())
   }
 
   /** The same batch when nothing in it actually moved.
@@ -1003,20 +1014,39 @@ class RenderBench {
     * makes that cheap — the doc says so and nothing measured it. The store is
     * seeded with exactly these values, so every invocation takes the dedup
     * branch rather than only the ones after the first.
+    *
+    * It prices HALF the claim, and the smaller half: against [[storeIngest]] it
+    * says the fold costs the same either way. Dedup's actual payoff is the
+    * frame that then does not happen ([[publish]] and everything downstream of
+    * it), which no bench here reaches.
     */
   @Benchmark
   def storeIngestDedup(bh: Blackhole): Unit =
-    bh.consume(store.update(dedupIngests).unsafeRunSync())
+    bh.consume(store.update(dedupBatch).unsafeRunSync())
 
-  /** One frame as the feed delivers it: [[TickEntities]] entities whose content
-    * really moved, carrying the values they moved FROM — `beforeSnapshot`
-    * rewinds through `previous`, so a change that lied about it would hand the
-    * membership diff an instant that never existed.
+  /** The CONTROL for the two above: an empty batch, so everything they report
+    * beyond this number is the batch and everything at or below it is the
+    * `Ref.modify` and the `unsafeRunSync` round trip.
+    *
+    * Without it the pair reads as "an ingest costs 10 µs", when most of that is
+    * the harness entering the runtime once per invocation — which production
+    * does not do per frame.
+    */
+  @Benchmark
+  def storeIngestEmpty(bh: Blackhole): Unit =
+    bh.consume(store.update(Nil).unsafeRunSync())
+
+  /** [[TickEntities]] entities whose content really moved, carrying the values
+    * they moved FROM — `beforeSnapshot` rewinds through `previous`, so a change
+    * that lied about it would hand the membership diff an instant that never
+    * existed.
+    *
+    * Setup-only: see [[pubFrames]].
     */
   private def publishFrame(
       base: Map[String, EntityState],
       rot: Int
-  ): (List[StateChange], Map[String, EntityState]) = {
+  ): Frame = {
     val moved = tickEntities.toList.map { id =>
       val prev = base(id)
       val next = prev.copy(
@@ -1026,7 +1056,10 @@ class RenderBench {
       )
       StateChange(id, Some(prev), next)
     }
-    (moved, moved.foldLeft(base)((m, c) => m.updated(c.entityId, c.current)))
+    Frame(
+      moved,
+      moved.foldLeft(base)((m, c) => m.updated(c.entityId, c.current))
+    )
   }
 
   /** `Server.recordFrame` with the `Ref`s and the nobody-is-watching gate taken
@@ -1035,11 +1068,8 @@ class RenderBench {
     * A fresh log per call, because `record` is a fold over one and a log that
     * grew across iterations would price its own history rather than the frame.
     */
-  private def publishPass(
-      renderer: Renderer,
-      changes: List[StateChange],
-      states: Map[String, EntityState]
-  ): FragmentLog = {
+  private def publishPass(renderer: Renderer, frame: Frame): FragmentLog = {
+    val Frame(changes, states) = frame
     val before = Patches.beforeSnapshot(states, changes)
     val membership = renderer.members.syncMembers(changes, before, states)
     val req = Patches.plan(
@@ -1065,11 +1095,11 @@ class RenderBench {
     * still reports a number.
     */
   private def checkPublishShape(): Unit = {
-    val (changes, after) = publishFrame(st, 1)
-    val plain = publishPass(signalled, changes, after)
+    val frame = pubFrames(1)
+    val plain = publishPass(signalled, frame)
     if (plain.fragments.isEmpty)
       sys.error("publish selected no nodes — the reverse index found nothing")
-    val members = publishPass(set, changes, after)
+    val members = publishPass(set, frame)
     if (members.fragments.isEmpty && members.mutations.isEmpty)
       sys.error("publishSet recorded neither a fragment nor a membership move")
   }
@@ -1334,6 +1364,14 @@ class RenderBench {
 }
 
 object RenderBench {
+
+  /** One frame as the feed delivers it: the changes, and the states they leave
+    * behind. Paired because a pass needs both and they must agree.
+    */
+  final case class Frame(
+      changes: List[StateChange],
+      states: Map[String, EntityState]
+  )
 
   /** A discard that still counts, so the walk's bytes cannot be optimised away.
     *
