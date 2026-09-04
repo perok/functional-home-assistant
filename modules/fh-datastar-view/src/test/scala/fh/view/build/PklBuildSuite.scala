@@ -1,6 +1,7 @@
 package fh.view.build
 
 import fh.view.model.{CardDef, Dashboard, LayoutNode, Op, Predicate, Transform}
+import fh.view.testkit.DashboardBuilders.{asComponent, asSetNode}
 import fh.view.testkit.{FixtureEntity, HouseFixture, PklFixture, PklWorkspace}
 import io.circe.Json
 
@@ -1078,7 +1079,7 @@ class PklBuildSuite extends munit.FunSuite {
       .as[LayoutNode]
       .toOption
       .get
-      .asInstanceOf[LayoutNode.Component]
+      .asComponent
   }
 
   test("a clause node NAMES its candidate, and bakes its label") {
@@ -1095,7 +1096,7 @@ class PklBuildSuite extends munit.FunSuite {
       .clauses
       .head
       .node
-      .asInstanceOf[LayoutNode.Component]
+      .asComponent
     assertEquals(node.slots("entity_id").literal, Some("light.taklys"))
     assertEquals(node.slots("label").literal, Some("Taklys"))
   }
@@ -1126,7 +1127,7 @@ class PklBuildSuite extends munit.FunSuite {
       .as[LayoutNode]
       .toOption
       .get
-      .asInstanceOf[LayoutNode.SetNode]
+      .asSetNode
   }
 
   // Two lights in `stue`, one in `bad`, plus a motion sensor to gate them on.
@@ -1176,7 +1177,7 @@ class PklBuildSuite extends munit.FunSuite {
       clause.when,
       Some(Predicate.Cmp("state", Op.Eq, Json.fromString("on")))
     )
-    val node = clause.node.asInstanceOf[LayoutNode.Component]
+    val node = clause.node.asComponent
     assertEquals(node.subjectEntity, Some("light.taklys"))
     // Every entity the set can be woken by: its candidates, nothing else here.
     assertEquals(set.liveEntities.sorted, set.candidates.sorted)
@@ -1413,7 +1414,7 @@ class PklBuildSuite extends munit.FunSuite {
       .clauses
       .head
       .node
-      .asInstanceOf[LayoutNode.Component]
+      .asComponent
     assertEquals(node.cell.map(_.classes), Some(List("fh-cols-full")))
     // The SET's own cell is a layout builder on the built node, so the two
     // cannot be confused for each other.
@@ -1429,7 +1430,7 @@ class PklBuildSuite extends munit.FunSuite {
         .clauses
         .head
         .node
-        .asInstanceOf[LayoutNode.Component]
+        .asComponent
         .cell,
       None
     )
@@ -1601,7 +1602,7 @@ class PklBuildSuite extends munit.FunSuite {
         .clauses
         .head
         .node
-        .asInstanceOf[LayoutNode.Component]
+        .asComponent
     ).slots
     assertEquals(slots("entity_id").literal, Some("light.taklys"))
     assertEquals(slots("action").literal, Some("light/turn_on"))
@@ -1941,7 +1942,7 @@ class PklBuildSuite extends munit.FunSuite {
       .as[LayoutNode]
       .toOption
       .get
-      .asInstanceOf[LayoutNode.Component]
+      .asComponent
 
     // Outer container is a column; exactly one area column (bad is skipped).
     assertEquals(node.card, "fhcol")
@@ -2230,7 +2231,7 @@ class PklBuildSuite extends munit.FunSuite {
       .as[LayoutNode]
       .toOption
       .get
-      .asInstanceOf[LayoutNode.Component]
+      .asComponent
     assertEquals(rowOf(node).slots("min").literal, Some("2000"))
     assertEquals(rowOf(node).slots("max").literal, Some("6535"))
   }

@@ -1,5 +1,7 @@
 package fh.view.smoke
 
+import fh.view.smoke.BrowserSuite.asJsBoolean
+
 import cats.effect.IO
 import com.microsoft.playwright.assertions.PlaywrightAssertions.assertThat
 import fh.view.testkit.{
@@ -97,7 +99,7 @@ class ControlSmokeSuite extends SmokeSuite {
           IO.blocking(
             toggle
               .evaluate("el => el.classList.contains('fh-disabled')")
-              .asInstanceOf[Boolean]
+              .asJsBoolean
           )
         for {
           // Idle before anything was clicked...
@@ -188,7 +190,7 @@ class ControlSmokeSuite extends SmokeSuite {
         IO.blocking(
           toggle
             .evaluate(s"el => el.classList.contains('$c')")
-            .asInstanceOf[Boolean]
+            .asJsBoolean
         )
       for {
         _ <- ts.awaitLive()
@@ -224,13 +226,13 @@ class ControlSmokeSuite extends SmokeSuite {
           IO.blocking(
             toggle
               .evaluate("el => el.classList.contains('fh-disabled')")
-              .asInstanceOf[Boolean]
+              .asJsBoolean
           )
         def loading: IO[Boolean] =
           IO.blocking(
             toggle
               .evaluate("el => el.classList.contains('fh-loading')")
-              .asInstanceOf[Boolean]
+              .asJsBoolean
           )
         for {
           _ <- IO.blocking(toggle.click())
@@ -264,14 +266,14 @@ class ControlSmokeSuite extends SmokeSuite {
           IO.blocking(
             wrapper
               .evaluate("el => el.classList.contains('fh-disabled')")
-              .asInstanceOf[Boolean]
+              .asJsBoolean
           )
         def disabled: IO[Boolean] = IO.blocking(slider.isDisabled())
         def badgeSpinning: IO[Boolean] =
           IO.blocking(
             badge
               .evaluate("el => el.classList.contains('loading-indicator')")
-              .asInstanceOf[Boolean]
+              .asJsBoolean
           )
         for {
           _ <- IO.blocking(assert(!slider.isDisabled()))
@@ -319,7 +321,7 @@ class ControlSmokeSuite extends SmokeSuite {
         IO.blocking(
           icon
             .evaluate("el => el.classList.contains('loading-indicator')")
-            .asInstanceOf[Boolean]
+            .asJsBoolean
         )
       for {
         idle <- spinning
@@ -424,7 +426,7 @@ class ControlSmokeSuite extends SmokeSuite {
         IO.blocking(
           toggle
             .evaluate("el => el.classList.contains('fh-disabled')")
-            .asInstanceOf[Boolean]
+            .asJsBoolean
         )
       for {
         _ <- IO.blocking(toggle.click())

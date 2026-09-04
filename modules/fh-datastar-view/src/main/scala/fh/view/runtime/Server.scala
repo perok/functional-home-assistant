@@ -2,7 +2,7 @@ package fh.view.runtime
 
 import scala.util.chaining.*
 import api.homeassistant.HomeAssistantApi
-import cats.data.OptionT
+import cats.data.{NonEmptyList, OptionT}
 import cats.effect.{IO, Resource}
 import cats.effect.kernel.Ref
 import cats.effect.std.Supervisor
@@ -2391,6 +2391,38 @@ object Server {
 
     def changes: Stream[IO, Map[String, LiveSlug]] =
       entries.discrete.map(_.view.mapValues(_.live).toMap)
+
+    /** The union of what every registered dashboard reads — the entity set the
+      * upstream subscription is narrowed to ([[HaFeed]]).
+      *
+      * Two levels of liveness, and both matter: the SLUG SET moves on a reload
+      * or a `push`, and one slug's renderer is swapped in place by an edit or a
+      * dump refresh. `switchMap` re-derives the inner signal when the first
+      * moves; the inner one is the product of the renderers, so it re-emits
+      * when the second does.
+      *
+      * A failed dashboard contributes nothing: it renders no entity, and its
+      * error page reads none.
+      *
+      * Empty means EMPTY — no dashboards, so nothing is owed any state. It must
+      * not be confused with "unfiltered", which is what `None` means one layer
+      * up; that distinction is the whole reason this returns a bare `Set`.
+      */
+    def watchedEntities: Stream[IO, Set[String]] =
+      changes.switchMap { slugs =>
+        NonEmptyList.fromList(slugs.values.toList) match {
+          case None       => Stream.emit(Set.empty[String])
+          case Some(live) =>
+            live
+              .traverse(l =>
+                l.renderer.map(
+                  _.rendererOf.fold(Set.empty[String])(_.watchedEntities)
+                )
+              )
+              .discrete
+              .map(_.reduceLeft(_ ++ _))
+        }
+      }.changes
 
     /** Install a dashboard the developer PUSHED (ADR 0010): a swap for a slug
       * already registered (which repaints its open connections), otherwise a

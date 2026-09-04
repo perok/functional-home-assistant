@@ -332,6 +332,13 @@ class Renderer(
   def references(entityId: String): Boolean =
     dashboard.referencedEntities.contains(entityId)
 
+  /** Every entity a change to which could make this dashboard render
+    * differently — what the live subscription asks HA for. WIDER than
+    * [[references]]; see [[Dashboard.watchedEntities]] for why they are two
+    * values and not one.
+    */
+  def watchedEntities: Set[String] = dashboard.watchedEntities
+
   def surfaceComponentsFor(surfaceId: String, entityId: String): Set[NodeId] =
     surfaceIndexes
       .get(surfaceId)

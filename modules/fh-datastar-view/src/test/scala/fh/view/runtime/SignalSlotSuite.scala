@@ -16,7 +16,7 @@ import fh.view.model.{
 }
 import api.homeassistant.HomeAssistantApi
 import cats.effect.IO
-import fh.view.testkit.DashboardBuilders.st
+import fh.view.testkit.DashboardBuilders.{asComponent, st}
 import fh.view.testkit.FakeHomeAssistant
 import fs2.concurrent.SignallingRef
 import fh.view.testkit.TestIds.given
@@ -991,8 +991,7 @@ class SignalSlotSuite extends ServerHarness {
     // `tint` as bytes could only reach the DOM by patching the section, which
     // would carry the region's whole content back with it.
     val bytes = structural.copy(card =
-      structural.card
-        .asInstanceOf[LayoutNode.Component]
+      structural.card.asComponent
         .copy(slots =
           Map(
             "entity_id" -> SlotSource(literal = Some("sensor.a")),
