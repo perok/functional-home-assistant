@@ -18,7 +18,10 @@ class SubscribeEntitiesSuite extends munit.FunSuite {
     // encoder's `"entity_ids":null` would fail the whole command — and the
     // dashboard would go dark with an error that names the filter, not the
     // encoder.
-    assertEquals(wire(subscribe_entities(None)), """{"type":"subscribe_entities"}""")
+    assertEquals(
+      wire(subscribe_entities(None)),
+      """{"type":"subscribe_entities"}"""
+    )
   }
 
   test("a filtered subscription sends the ids") {

@@ -1,5 +1,7 @@
 package fh.view.smoke
 
+import fh.view.smoke.BrowserSuite.{asJsInt, asJsStrings}
+
 import cats.effect.{IO, Resource}
 import cats.syntax.all.*
 import com.comcast.ip4s.{host, port}
@@ -399,9 +401,9 @@ class DatastarMorphContractSuite extends BrowserSuite {
 
         // (5) It SETTLED. A self-referential effect that looped would still be
         // running; the count is small and stops growing.
-        runs <- IO.blocking(p.evaluate("window.__runs").asInstanceOf[Int])
+        runs <- IO.blocking(p.evaluate("window.__runs").asJsInt)
         _ <- IO.sleep(300.millis)
-        later <- IO.blocking(p.evaluate("window.__runs").asInstanceOf[Int])
+        later <- IO.blocking(p.evaluate("window.__runs").asJsInt)
         _ <- IO {
           assertEquals(
             later,
@@ -862,9 +864,7 @@ class DatastarMorphContractSuite extends BrowserSuite {
       patches: List[SseFrame]
   ): IO[(String, List[String], List[String])] =
     served("""<div id="host"></div>""", patches).use { case (p, uri) =>
-      def strings(js: String) = IO
-        .blocking(p.evaluate(js).asInstanceOf[java.util.List[String]])
-        .map(scala.jdk.CollectionConverters.ListHasAsScala(_).asScala.toList)
+      def strings(js: String) = IO.blocking(p.evaluate(js).asJsStrings)
       for {
         _ <- IO.blocking(p.addInitScript(recorder))
         _ <- IO.blocking(p.navigate(uri.renderString))

@@ -4,12 +4,12 @@ import io.circe.Json
 
 /** [[Dashboard.watchedEntities]] — what the live subscription asks HA for.
   *
-  * Every test here is about the gap between it and [[Dashboard.referencedEntities]],
-  * because that gap is the only reason the two are separate values. The
-  * entities in question DECIDE something and are rendered nowhere, so a
-  * subscription built from the narrower set would produce a dashboard that
-  * paints correctly and then silently stops reacting — the failure mode no
-  * rendering test can see, since the first paint is right.
+  * Every test here is about the gap between it and
+  * [[Dashboard.referencedEntities]], because that gap is the only reason the
+  * two are separate values. The entities in question DECIDE something and are
+  * rendered nowhere, so a subscription built from the narrower set would
+  * produce a dashboard that paints correctly and then silently stops reacting —
+  * the failure mode no rendering test can see, since the first paint is right.
   */
 class WatchedEntitiesSuite extends munit.FunSuite {
 
@@ -42,7 +42,12 @@ class WatchedEntitiesSuite extends munit.FunSuite {
         candidates = List("light.banner"),
         members = Map(
           "light.banner" -> LayoutNode.SetMember(
-            List(LayoutNode.SetClause(Some(onEntity(hall)), tileNode("light.banner")))
+            List(
+              LayoutNode.SetClause(
+                Some(onEntity(hall)),
+                tileNode("light.banner")
+              )
+            )
           )
         )
       )
@@ -52,7 +57,10 @@ class WatchedEntitiesSuite extends munit.FunSuite {
     assert(dash.watchedEntities.contains("light.banner"))
     // The contrast IS the test: the action bound must not grow, or a dashboard
     // that merely reads an entity could act on it (ADR 0023).
-    assert(!dash.referencedEntities.contains(hall), clue = dash.referencedEntities)
+    assert(
+      !dash.referencedEntities.contains(hall),
+      clue = dash.referencedEntities
+    )
   }
 
   test("the entities a Count reads are watched") {
