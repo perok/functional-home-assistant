@@ -16,7 +16,7 @@ import fh.view.model.{
 }
 import api.homeassistant.HomeAssistantApi
 import cats.effect.IO
-import fh.view.testkit.DashboardBuilders.st
+import fh.view.testkit.DashboardBuilders.{asComponent, st}
 import fh.view.testkit.FakeHomeAssistant
 import fs2.concurrent.SignallingRef
 import fh.view.testkit.TestIds.given
@@ -599,7 +599,7 @@ class SignalSlotSuite extends ServerHarness {
     val page = r.renderPage(states)
     assertEquals(page.contains("sensor.unseen"), false, clue = page)
     // ...so the fill has to carry both the binding and the value.
-    val fill = r.renderSurface("panel", states).get
+    val fill = r.renderSurfaceTraced("panel", states).map(_.html).get
     assert(fill.contains("data-text=\"$_e.sensor.unseen.state\""), clue = fill)
     assert(
       fill.contains("data-signals=\"{_e: {sensor: {unseen: {state: '7'"),
@@ -697,7 +697,7 @@ class SignalSlotSuite extends ServerHarness {
       fake <- FakeHomeAssistant.create(Nil)
       out <- Server
         .resource(
-          HomeAssistantApi.fromWs(fake),
+          ServiceCalls.asInstance(HomeAssistantApi.fromWs(fake)),
           store,
           Map("dashboard" -> ref),
           "dashboard",
@@ -991,8 +991,7 @@ class SignalSlotSuite extends ServerHarness {
     // `tint` as bytes could only reach the DOM by patching the section, which
     // would carry the region's whole content back with it.
     val bytes = structural.copy(card =
-      structural.card
-        .asInstanceOf[LayoutNode.Component]
+      structural.card.asComponent
         .copy(slots =
           Map(
             "entity_id" -> SlotSource(literal = Some("sensor.a")),

@@ -275,10 +275,13 @@ object Datastar {
       out(i) = (k.segments, v)
       i += 1
     }
-    java.util.Arrays.sort(
-      out,
-      pathOrder.asInstanceOf[java.util.Comparator[(Array[String], A)]]
-    )
+    // ONE comparator for every element type, because it only ever reads `._1`.
+    // A `def` with the type parameter would be cast-free, but it hides a
+    // singleton behind a call and pays a type parameter for a value that does
+    // not depend on it.
+    val order =
+      pathOrder.asInstanceOf[PathOrder[A]] // scalafix:ok DisableSyntax
+    java.util.Arrays.sort(out, order)
     out
   }
 
@@ -292,7 +295,9 @@ object Datastar {
     * bytes are asserted, so sorting the cheaper way would be a rare, silent
     * reordering. Pinned in `DatastarNestSuite`.
     */
-  private val pathOrder: java.util.Comparator[(Array[String], Any)] =
+  private type PathOrder[A] = java.util.Comparator[(Array[String], A)]
+
+  private val pathOrder: PathOrder[Any] =
     (x, y) => {
       val a = x._1
       val b = y._1

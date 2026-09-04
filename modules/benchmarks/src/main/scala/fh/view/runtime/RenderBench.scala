@@ -3,14 +3,18 @@ package fh.view.runtime
 import fh.view.runtime.RendererTestOps.*
 
 import fh.view.model.{
+  Activation,
   CardDef,
   Dashboard,
   LayoutNode,
   NodeId,
+  Op,
+  Predicate,
   Region,
   SignalBind,
   SignalId,
   SlotSource,
+  Surface,
   Transform
 }
 import cats.effect.unsafe.implicits.global
@@ -291,6 +295,24 @@ class RenderBench {
   private var pureNodeIds: Vector[NodeId] = null
   // The SLUG's cache, not the op's — see [[pull]].
   private var liveCache: RenderCache = null
+  // The FILL fixture: a state group whose branch a flip re-supplies wholesale.
+  private var flipped: Renderer = null
+  private var flipStates: Map[String, EntityState] = null
+  private var flipCache: RenderCache = null
+  private var flipRot = 0
+  // The PUBLISHER fixture. One store to ingest into, and a rotation counter
+  // shared by every bench on this path so no two calls present the same frame.
+  private var store: StateStore = null
+  private var pubRot = 0
+  // Built in setup, not per invocation: an alloc profile said building the
+  // frame was 37% of what `publish` reported, i.e. the harness pricing itself.
+  // Two is enough to alternate, and alternating is a real change on every
+  // entity every call.
+  private var pubFrames: Vector[Frame] = null
+  private var flipFrames: Vector[Frame] = null
+  private var idleFrames: Vector[Frame] = null
+  private var pubIngests: Vector[List[Ingest]] = null
+  private var dedupBatch: List[Ingest] = null
 
   @Setup(Level.Trial)
   def setup(): Unit = {
@@ -384,6 +406,21 @@ class RenderBench {
     }
     pureNodeIds = tickEntities.flatMap(pure.componentsFor(_).toList)
     liveCache = RenderCache.create.unsafeRunSync()
+    flipped = Renderer.create(flipDash())
+    // Disarmed, so the `else` branch is the one the fill supplies.
+    flipStates =
+      st + (FlipEntity -> EntityState(FlipEntity, "disarmed", Map.empty))
+    flipCache = RenderCache.create.unsafeRunSync()
+    store = StateStore.inMemory(flipStates).unsafeRunSync()
+    pubFrames = Vector(publishFrame(st, 0), publishFrame(st, 1))
+    flipFrames =
+      Vector(publishFrame(flipStates, 0), publishFrame(flipStates, 1))
+    idleFrames = Vector(idleFrame(st, 0), idleFrame(st, 1))
+    pubIngests =
+      flipFrames.map(_.changes.map(c => Ingest.Replace(c.current): Ingest))
+    dedupBatch = dedupIngests
+    checkFillShape()
+    checkPublishShape()
     checkTickShapes()
   }
 
@@ -428,6 +465,21 @@ class RenderBench {
       sys.error("resumeSignalsPure must suppress every morph too")
     if (!purest.exists(_.isInstanceOf[Patch.Signals]))
       sys.error("resumeSignalsPure produced no signals frame")
+  }
+
+  /** [[resumeFlip]] is only a fill bench if the pull actually fills. A branch
+    * whose condition does not match, or a cursor the mutation is behind, gives
+    * an empty batch that still runs and still reports a number.
+    */
+  private def checkFillShape(): Unit = {
+    val one = pullFlip(1).head
+    val filled = one.collect { case Addressed(Patch.Insert(html, _, _), _, _) =>
+      html
+    }
+    if (filled.sizeIs != 1)
+      sys.error(s"resumeFlip must emit exactly one host fill; got $one")
+    if (!filled.head.contains("fh-entity"))
+      sys.error("resumeFlip's fill carries no cards — the branch is empty")
   }
 
   /** The baseline: a whole page, no signal slots. */
@@ -843,6 +895,279 @@ class RenderBench {
     )
   }
 
+  /** '''A flip, pulled by every open connection.''' A state group's branch
+    * changed, so each session re-supplies that host wholesale for its own
+    * selection — the one path that renders a SUBTREE per connection rather than
+    * a node, and the one that goes through no `RenderCache`
+    * ([[https://github.com/perok/functional-home-assistant/issues/224 issue
+    * #224]]).
+    *
+    * [[WireClients]] of them, because the waste this prices is per connection:
+    * one client's flip is a fair cost, ten clients rendering identical bytes is
+    * the thing worth removing. Against [[resumeFlipOne]] the gap IS the
+    * duplication.
+    */
+  @Benchmark
+  def resumeFlip(bh: Blackhole): Unit = {
+    flipRot += 1
+    bh.consume(pullFlip(WireClients))
+  }
+
+  /** The same flip for ONE connection — the floor the fanout is measured
+    * against, and what a single-viewer house actually pays.
+    */
+  @Benchmark
+  def resumeFlipOne(bh: Blackhole): Unit = {
+    flipRot += 1
+    bh.consume(pullFlip(1))
+  }
+
+  /** One flip, replayed from a cursor before it, for `clients` connections.
+    *
+    * The log carries the mutation alone: a flip is recorded structurally
+    * (`Mutation.Placed` on the group, keyed by the arriving SURFACE), and that
+    * is the whole of what a resuming client is owed for it. `holds` is empty
+    * because a client that just missed a flip knows nothing about what is
+    * inside the host it is about to be handed.
+    */
+  private def pullFlip(clients: Int): List[List[Addressed]] = {
+    val at = flipRot.toLong
+    val log = FragmentLog("bench").placed(
+      FlipContainer,
+      MemberKey.Surface("else"),
+      flipped.surfaceContentId("else"),
+      at
+    )
+    (1 to clients).toList
+      .traverse(_ =>
+        Patches.resume(flipped, flipCache, log, Map.empty, flipStates, at)
+      )
+      .unsafeRunSync()
+  }
+
+  /** '''The publisher half of a frame''' — `Patches.plan` + `Patches.record`,
+    * the pass `Server.recordFrame` runs ONCE PER SLUG however many browsers are
+    * connected.
+    *
+    * Everything else on this class prices the SESSION half, which scales with
+    * tabs. This one scales with the HA EVENT RATE, so it is what a busy house
+    * pays on a Pi whether anybody is looking or not, and until now nothing
+    * measured it.
+    *
+    * No rendering happens here and none should: the pass decides WHICH nodes a
+    * frame touched (the reverse index), what a candidate set's membership
+    * became, and which state groups flipped. A number that moves with the leaf
+    * count is the reverse index; one that moves with the CANDIDATE count is the
+    * membership rebuild.
+    */
+  @Benchmark
+  def publish(bh: Blackhole): Unit = {
+    pubRot += 1
+    bh.consume(publishPass(signalled, pubFrames(pubRot % 2)))
+  }
+
+  /** The same frame against a dashboard that is one candidate set, so
+    * `MemberGraph.syncMembers` rebuilds a touched container's whole member list
+    * — O(candidates), which the tree fixture never pays.
+    */
+  @Benchmark
+  def publishSet(bh: Blackhole): Unit = {
+    pubRot += 1
+    bh.consume(publishPass(set, pubFrames(pubRot % 2)))
+  }
+
+  /** '''The question a pre-filter would answer''': what a frame costs when the
+    * dashboard reads none of it. Against [[publish]] and [[publishSet]] this is
+    * the floor a "does any slug care?" test could drop the pass to — and the
+    * gap between them is all a pre-filter could ever save.
+    */
+  @Benchmark
+  def publishIdle(bh: Blackhole): Unit = {
+    pubRot += 1
+    bh.consume(publishPass(signalled, idleFrames(pubRot % 2)))
+  }
+
+  /** The same idle frame against the candidate-set dashboard, where
+    * `syncMembers` walks every set whether or not this frame touched one.
+    */
+  @Benchmark
+  def publishIdleSet(bh: Blackhole): Unit = {
+    pubRot += 1
+    bh.consume(publishPass(set, idleFrames(pubRot % 2)))
+  }
+
+  /** The same frame plus the entity that CHOOSES a branch, so the pass also
+    * walks the state groups (`affectedStateGroups`, `activeStateSurfaces`).
+    *
+    * Alternating armed/disarmed means every call really flips, which is the
+    * worst case rather than the common one — a condition that holds still
+    * leaves after the first comparison.
+    */
+  @Benchmark
+  def publishFlip(bh: Blackhole): Unit = {
+    pubRot += 1
+    val frame = flipFrames(pubRot % 2)
+    val was = frame.states(FlipEntity)
+    val now = was.copy(state = if (pubRot % 2 == 0) "armed" else "disarmed")
+    bh.consume(
+      publishPass(
+        flipped,
+        Frame(
+          StateChange(FlipEntity, Some(was), now) :: frame.changes,
+          frame.states.updated(FlipEntity, now)
+        )
+      )
+    )
+  }
+
+  /** '''The ingest''' — `StateStore.update`, once per `subscribe_entities`
+    * frame, before any of the above runs. Also per event rather than per tab.
+    */
+  @Benchmark
+  def storeIngest(bh: Blackhole): Unit = {
+    pubRot += 1
+    // Re-stamped per invocation and NOT hoisted into setup: `stale` drops a
+    // Replace that is not strictly newer, so a fixed pair of frames would be
+    // applied once and refused forever after. The 20 copies are counted.
+    val at = BaseInstant.plusSeconds(pubRot.toLong)
+    bh.consume(
+      store
+        .update(pubIngests(pubRot % 2).map {
+          case Ingest.Replace(s) =>
+            Ingest.Replace(s.copy(lastUpdated = Some(at)))
+          case other => other
+        })
+        .unsafeRunSync()
+    )
+  }
+
+  /** The same batch when nothing in it actually moved.
+    *
+    * '''This is the reconnect path, not a corner.''' A new subscription
+    * re-sends every entity as a `Replace`, and `StateStore`'s dedup is what
+    * makes that cheap — the doc says so and nothing measured it. The store is
+    * seeded with exactly these values, so every invocation takes that path
+    * rather than only the ones after the first.
+    *
+    * The values carry the timestamps they were seeded with, and that is the
+    * point: a steady HA re-sends the same `last_updated`, so
+    * `EntityState.stale` refuses each Replace ABOVE the dedup and the batch
+    * costs about what [[storeIngestEmpty]] does. Strip the timestamps off the
+    * fixture and it takes a path production never takes — which is what an
+    * earlier reading of this bench measured and blamed on the store.
+    *
+    * Even so it prices only the smaller half of the claim. Dedup's real payoff
+    * is the frame that then does not happen ([[publish]] and everything
+    * downstream of it), which no bench here reaches.
+    */
+  @Benchmark
+  def storeIngestDedup(bh: Blackhole): Unit =
+    bh.consume(store.update(dedupBatch).unsafeRunSync())
+
+  /** The CONTROL for the two above: an empty batch, so everything they report
+    * beyond this number is the batch and everything at or below it is the
+    * `Ref.modify` and the `unsafeRunSync` round trip.
+    *
+    * Without it the pair reads as "an ingest costs 10 µs", when most of that is
+    * the harness entering the runtime once per invocation — which production
+    * does not do per frame.
+    */
+  @Benchmark
+  def storeIngestEmpty(bh: Blackhole): Unit =
+    bh.consume(store.update(Nil).unsafeRunSync())
+
+  /** [[TickEntities]] entities whose content really moved, carrying the values
+    * they moved FROM — `beforeSnapshot` rewinds through `previous`, so a change
+    * that lied about it would hand the membership diff an instant that never
+    * existed.
+    *
+    * Setup-only: see [[pubFrames]].
+    */
+  private def publishFrame(
+      base: Map[String, EntityState],
+      rot: Int
+  ): Frame = {
+    val moved = tickEntities.toList.map { id =>
+      val prev = base(id)
+      val next = prev.copy(
+        state = if (rot % 2 == 0) "on" else "off",
+        attributes = prev.attributes
+          .updated("brightness", Json.fromInt(1 + (rot * 13) % 254))
+      )
+      StateChange(id, Some(prev), next)
+    }
+    Frame(
+      moved,
+      moved.foldLeft(base)((m, c) => m.updated(c.entityId, c.current))
+    )
+  }
+
+  /** `Server.recordFrame` with the `Ref`s and the nobody-is-watching gate taken
+    * off: the four pure steps a frame costs, in their production order.
+    *
+    * A fresh log per call, because `record` is a fold over one and a log that
+    * grew across iterations would price its own history rather than the frame.
+    */
+  private def publishPass(renderer: Renderer, frame: Frame): FragmentLog = {
+    val Frame(changes, states) = frame
+    val before = Patches.beforeSnapshot(states, changes)
+    val membership = renderer.members.syncMembers(changes, before, states)
+    val req = Patches.plan(
+      renderer,
+      states,
+      before,
+      membership,
+      pubRot.toLong,
+      changes,
+      Set.empty
+    )
+    Patches.record(renderer, FragmentLog("bench"), req)
+  }
+
+  /** The batch [[storeIngestDedup]] replays — the store's own seeded values, so
+    * nothing in it can be a change.
+    */
+  private def dedupIngests: List[Ingest] =
+    tickEntities.toList.map(id => Ingest.Replace(flipStates(id)))
+
+  /** A frame of entities NO dashboard names — the house talking about itself.
+    *
+    * The ids are outside [[entityId]]'s range on purpose, so nothing in the
+    * reverse index, no candidate list and no condition can match them. On a
+    * real instance this is most of the traffic: 1070 entities exist and a
+    * dashboard reads a few dozen.
+    */
+  private def idleFrame(base: Map[String, EntityState], rot: Int): Frame = {
+    val moved = List.tabulate(TickEntities) { i =>
+      val id = s"sensor.unwatched_$i"
+      val next = EntityState(
+        id,
+        if (rot % 2 == 0) "on" else "off",
+        Map("brightness" -> Json.fromInt(1 + (rot * 13) % 254)),
+        lastUpdated = Some(BaseInstant.plusSeconds(rot.toLong + 1))
+      )
+      StateChange(id, Some(next.copy(state = "idle")), next)
+    }
+    Frame(
+      moved,
+      moved.foldLeft(base)((m, c) => m.updated(c.entityId, c.current))
+    )
+  }
+
+  /** [[publish]] is only a selection bench if the selection selects. A frame
+    * whose entities reach no node records an empty log, which still runs and
+    * still reports a number.
+    */
+  private def checkPublishShape(): Unit = {
+    val frame = pubFrames(1)
+    val plain = publishPass(signalled, frame)
+    if (plain.fragments.isEmpty)
+      sys.error("publish selected no nodes — the reverse index found nothing")
+    val members = publishPass(set, frame)
+    if (members.fragments.isEmpty && members.mutations.isEmpty)
+      sys.error("publishSet recorded neither a fragment nor a membership move")
+  }
+
   /** The same pull when the movement is in the BYTES — a `friendly_name`
     * change, which no slot carries as a signal — so every candidate really is a
     * morph and nothing is suppressed.
@@ -1104,6 +1429,14 @@ class RenderBench {
 
 object RenderBench {
 
+  /** One frame as the feed delivers it: the changes, and the states they leave
+    * behind. Paired because a pass needs both and they must agree.
+    */
+  final case class Frame(
+      changes: List[StateChange],
+      states: Map[String, EntityState]
+  )
+
   /** A discard that still counts, so the walk's bytes cannot be optimised away.
     *
     * `OutputStream.nullOutputStream()` would discard them, but it gives nothing
@@ -1282,6 +1615,74 @@ object RenderBench {
     stack(List.tabulate(leaves)(leaf(signals, distinct, signalOnly)))
   }
 
+  /** Leaves in EACH branch of the flip fixture. Smaller than [[Leaves]] on
+    * purpose: a state group holds a section of a dashboard, not the whole page,
+    * and the number that matters for a fill is what one host contains.
+    */
+  final val FlipLeaves = 20
+
+  /** The entity whose state chooses the branch — an alarm, the shipped shape
+    * for a state-activated surface.
+    */
+  final val FlipEntity = "alarm.house"
+
+  /** A state group under the root column: an `ifhost` whose one baked region
+    * holds whichever branch the state picks, each branch a real subtree of
+    * [[FlipLeaves]] entity cards.
+    *
+    * This is the fixture the FILL benches need and nothing else here had — the
+    * page benches are one tree with no surfaces in it, so a wholesale host
+    * re-supply was unmeasured (issue #224).
+    */
+  def flipDash(signals: Boolean = true): Dashboard =
+    Dashboard(
+      cards = cards + ("ifhost" -> CardDef(
+        template = """<div id="{{hostId}}">{{{branch}}}</div>""",
+        regions = Map("branch" -> Region(Region.Baked))
+      )),
+      card = LayoutNode.Component(
+        "col",
+        regions = LayoutNode.kids(LayoutNode.Component("ifhost"))
+      ),
+      surfaces = Map(
+        "then" -> branchSurface(
+          tree(FlipLeaves, 4, signals),
+          0,
+          Predicate.Cmp(
+            "state",
+            Op.Eq,
+            Json.fromString("armed"),
+            entity = Some(FlipEntity)
+          )
+        ),
+        // An empty conjunction is vacuously true and reads no entity, which is
+        // what an `else` branch is.
+        "else" -> branchSurface(
+          tree(FlipLeaves, 4, signals),
+          1,
+          Predicate.And(Nil)
+        )
+      )
+    )
+
+  /** The host the two branches bake into is the root column's only child, so
+    * its id is `c_0` by the same derivation every other node here uses.
+    */
+  final val FlipContainer: NodeId = NodeId.derived("c_0")
+
+  private def branchSurface(
+      content: LayoutNode,
+      index: Int,
+      condition: Predicate
+  ): Surface =
+    Surface(
+      content,
+      bakeInto = Some(FlipContainer),
+      bakeAs = Some("branch"),
+      bakeIndex = Some(index),
+      activation = Activation.State(condition)
+    )
+
   /** The same leaves, as one candidate set: every entity a candidate, each with
     * a single unguarded clause rendering the same card. Membership is therefore
     * total, so this measures the RENDER path rather than predicate evaluation.
@@ -1308,13 +1709,23 @@ object RenderBench {
       )
     )
 
+  /** Every fixture state carries one, because a real feed always does (measured
+    * against the live instance: 0 of 1070 entities without a `last_updated`). A
+    * store fixture without them takes paths production never takes —
+    * `EntityState.stale` short-circuits on the timestamp, so a `Replace` that
+    * has none reaches a dedup it would otherwise never see.
+    */
+  final val BaseInstant: java.time.Instant =
+    java.time.Instant.parse("2026-09-04T06:00:00Z")
+
   def states(leaves: Int): Map[String, EntityState] =
     List
       .tabulate(leaves) { i =>
         entityId(i) -> EntityState(
           entityId(i),
           if (i % 3 == 0) "off" else "on",
-          Map(
+          lastUpdated = Some(BaseInstant),
+          attributes = Map(
             "friendly_name" -> Json.fromString(s"Tile number $i"),
             "brightness" -> Json.fromInt(1 + (i * 7) % 254),
             "unit_of_measurement" -> Json.fromString("lx"),

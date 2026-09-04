@@ -37,7 +37,10 @@ env:
 jobs:
   ci:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # A runaway guard, not a budget: a green run is ~6 min wall. Kept well
+    # clear of that because a timeout CANCELS the job, which skips
+    # `Publish Test Report` and so leaves no test XML to diagnose from.
+    timeout-minutes: 20
     permissions:
       contents: read
       checks: write # For mikepenz/action-junit-report
@@ -181,7 +184,10 @@ jobs:
           if-no-files-found: ignore
           retention-days: 1
 
+      # Gated like the upload below, and for the same reason: cd is this jar's
+      # only consumer, and cd never runs for a pull request.
       - name: Assemble fat jar
+        if: github.event_name != 'pull_request'
         run: sbt 'fh-datastar-view/assembly'
 
       - name: Upload jar for cd

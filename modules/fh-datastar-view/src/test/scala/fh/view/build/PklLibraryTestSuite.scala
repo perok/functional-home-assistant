@@ -56,10 +56,11 @@ class PklLibraryTestSuite extends munit.FunSuite {
 
   modules.foreach { module =>
     test(s"pkl test ${module.last}") {
-      val evaluator = EvaluatorBuilder.preconfigured().build()
-      val results =
+      val results = fh.view.build.PklBuild.serialized {
+        val evaluator = EvaluatorBuilder.preconfigured().build()
         try evaluator.evaluateTest(ModuleSource.path(module.toNIO), Overwrite)
         finally evaluator.close()
+      }
       if (results.failed()) fail(report(results))
     }
   }

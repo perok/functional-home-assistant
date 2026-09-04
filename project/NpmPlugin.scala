@@ -67,13 +67,23 @@ object NpmPlugin extends AutoPlugin {
         // fails when package.json has drifted from it, which is what is wanted
         // here and in CI alike. It also clears node_modules first, so there is
         // never a half-updated tree to reason about.
+        //
+        // `--prefer-offline` because npm otherwise revalidates every package
+        // against the registry even with a warm cache, so a slow registry is
+        // paid in full for downloads it already has. The lockfile pins the
+        // versions, so serving them from cache cannot change what installs.
         stamped(
           dir / "target" / "npm-install.stamp",
           Seq(dir / "package.json", dir / "package-lock.json"),
           force = !installed.exists
         ) {
           log.info(s"npm ci ($dir)")
-          npm("ci", dir, log, "npm ci failed")
+          npm(
+            "ci --prefer-offline --no-audit --fund=false",
+            dir,
+            log,
+            "npm ci failed"
+          )
         }
       }
     },

@@ -208,9 +208,21 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   signal `_<group>__pending` — what it ASKED for — and `swapHost` commits `ui_<group>` for what it
   actually did, which is what the URL mirror follows. A selection display reads
   `$_<group>__pending || $ui_<group>`, so the press is still instant while the committed value can
-  never claim a panel this DOM does not have. Pending clears by the commit catching up, or on a 2s
-  deadline when none is coming. This does NOT replace ADR 0019's `busy` for service taps — a
+  never claim a panel this DOM does not have. Pending clears by the commit catching up, by the
+  server clearing it in a refusal, or when the stream that would have carried the commit is down.
+  This does NOT replace ADR 0019's `busy` for service taps — a
   service call has no committed selection to catch up to; the two mechanisms coexist deliberately.
+  **A refused action answers 200 carrying `datastar-patch-signals`, never 4xx** (ADR 0024): the
+  request was served and the OPERATION failed, which is page state. One helper (`actionRefused`)
+  answers every refusal — HA rejecting a call, an entity this dashboard does not name, an unknown
+  surface, a `conn` on another slug — patching `_<node>__error` on the control that was pressed,
+  clearing `_<group>__pending`, and setting `_toast` to HA's own message. Both ids ride in the
+  action's query string (`?node=&group=`), read off `data-fh-node` at click time. The bundle parses
+  a response body only on exactly 200, so a 4xx could never carry any of it; the client-side
+  `failedOn` handler remains for the genuine non-200 remainder. The other two ways an ask ends —
+  a dead stream, and a non-200 whose body is dropped unread — are page-wide facts and live as ONE
+  rule on the shell (`Server.PendingSweep`, an `@setAll` over `/__pending$/`), not as a copy on
+  every tab bar.
 - Cards (`lib/components/`, re-exported by `lib/components.pkl` — ADR 0015): `fhgrid`/`fhrow`/`fhcol` containers, `sectionTitle`, `entityCard`,
   `button`, `pill`, `slider` — each is a typed card class carrying its own `cardDef` (Mustache template +
   declared slots), and the emitted `cards` registry is derived by `pkl:reflect`; slots are checked

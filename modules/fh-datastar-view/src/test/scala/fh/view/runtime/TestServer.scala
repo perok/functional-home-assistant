@@ -49,6 +49,12 @@ final class TestServer(
   /** Await `n` subscribers on the store's change topic — a readiness gate for
     * tests that consume `store.changes` directly (topics only reach current
     * subscribers).
+    *
+    * '''`n` counts the recorder too.''' A `TestServer` has a per-slug recorder
+    * already subscribed, so a test adding a subscriber of its own must wait for
+    * TWO — waiting for one is answered by the recorder, and an emit can then
+    * land before the test's own stream is attached. It fails as a timeout on a
+    * `take(1)` that never completes, not as a wrong value.
     */
   def awaitChangeSubscribers(n: Int): IO[Unit] =
     store.changeSubscribers.filter(_ >= n).head.compile.drain
@@ -147,21 +153,31 @@ final class TestServer(
     )
 
   /** POST an action route (e.g. `sse/action/<slug>/light/toggle/light.kitchen`)
-    * and return its status. The body is a fire-and-forget SSE ack the test
-    * ignores; the observable effect is the recorded [[ServiceCall]].
+    * and return its status. An action that WORKS says so with 204 and nothing
+    * else; the observable effect is the recorded [[ServiceCall]].
     */
   def post(
       path: String,
       as: Option[String] = Some(auth.defaultSession)
   ): IO[Status] =
+    postResult(path, as).map(_._1)
+
+  /** [[post]] keeping the body too, which is where a REFUSAL now lives: a
+    * refused action answers 200 carrying the signals that report it (ADR 0024),
+    * so a suite asserting on a refusal has to read what was said, not only that
+    * something was.
+    */
+  def postResult(
+      path: String,
+      as: Option[String] = Some(auth.defaultSession)
+  ): IO[(Status, String)] =
     run(
       Request[IO](
         Method.POST,
         Uri.unsafeFromString("/" + path.stripPrefix("/"))
       ),
       as
-    )
-      .map(_.status)
+    ).flatMap(resp => bodyOf(resp).map(resp.status -> _))
 
   private val patchUri: Uri =
     Uri.unsafeFromString(s"/sse/dashboard/$slug/patch")

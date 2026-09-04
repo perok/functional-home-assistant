@@ -77,24 +77,37 @@ is gone for good lands back on "tap again" — the behaviour before this change,
 reached after 10 seconds instead of immediately. The fix therefore has no worse
 case than the bug it replaces, which is why it needs no retry of its own.
 
-**3. A tap that cannot be served says so.** 204 was indistinguishable from
-success. Anything left that a tap cannot do answers 4xx, which the shell already
-turns into a toast (ADR 0019).
+**3. A tap that cannot be served says so — as page state, not as a status.**
+204 was indistinguishable from success. Every refusal now answers **200 carrying
+`datastar-patch-signals`**: HA rejecting the service call, this dashboard not
+naming the entity, a surface id this build no longer has, a `conn` held by
+another slug. One function answers all of them (`Server.actionRefused`), so
+"an action reports its refusal" is a rule rather than a habit each route
+follows.
 
-Datastar's own guidance argues against this shape — *"if you get a client error
-or server error when you control both sides then it's a bug"*, answer 200 and
-render the error ([I'm a teapot](https://data-star.dev/essays/im_a_teapot)) —
-and it is right about the case that matters most here: a tap naming a surface
-this build renamed is a stale DOCUMENT, and a toast saying "failed" is not
-something the user can act on. A 200 carrying a reload would land them on the
-popup they asked for, since the URL already names it.
+The request WAS served: the route ran, reached its answer, and produced one.
+What failed is the OPERATION, which is a fact about the page — so it travels as
+page state, the same way every other fact about the page does. This is Datastar's
+own argument (*"if you get a client error or server error when you control both
+sides then it's a bug"* — [I'm a teapot](https://data-star.dev/essays/im_a_teapot)),
+and the pinned bundle leaves no alternative anyway: it parses a response body
+`if (M !== 200) { … return }`, so a 4xx body is dropped unread and a bare status
+is everything a client can learn from one. A 4xx could therefore never carry the
+message HA gave; the toast could only repeat a number back at the user.
 
-That is a better answer and it is not this ADR's, because it is a behaviour
-change rather than the removal of a silence; `docs/adr/0025-a-value-in-flight.md`
-carries it. What is decided here is only that a tap must not be able to fail
-without saying anything, which 4xx achieves today. Note the same essay is why an
-error BODY cannot carry the correction — non-2xx frames are dropped, pinned by
-`DatastarMorphContractSuite`.
+Three signals, each the state of one thing the refusal touched — the control
+that was pressed (`_<node>__error`), the selection waiting on it
+(`_<group>__pending`, cleared), and the shell's toast (`_toast`, now HA's own
+words). Both ids are the client's claim about itself, in the query string, and
+nothing is authorized off them: they say which control to paint, and a wrong one
+paints the wrong control on the caller's own page.
+
+A status still exists for what is genuinely not an answer — an auth redirect, a
+route that is gone, a proxy in the way. Those reach the client as Datastar's
+`error` event with only `{status}`, and the two client-side halves
+(`tap.pkl`'s `failedOn` and `pendingFail`) exist for exactly that remainder.
+Note that the same bundle behaviour is why an error BODY cannot carry a
+correction — non-2xx frames are dropped, pinned by `DatastarMorphContractSuite`.
 
 This makes `withSession` obey a rule it used to be the exception to: ADR 0018's
 seam table already says `rendererFor` answers `None -> 404 for non-HTML

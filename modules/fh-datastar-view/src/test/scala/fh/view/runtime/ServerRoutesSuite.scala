@@ -150,7 +150,7 @@ class ServerRoutesSuite extends ServerHarness {
       fake <- FakeHomeAssistant.create(Nil)
       body <- Server
         .resource(
-          HomeAssistantApi.fromWs(fake),
+          ServiceCalls.asInstance(HomeAssistantApi.fromWs(fake)),
           store,
           Map(dash.slug -> ref),
           dash.slug,
@@ -182,7 +182,7 @@ class ServerRoutesSuite extends ServerHarness {
       fake <- FakeHomeAssistant.create(Nil)
       resp <- Server
         .resource(
-          HomeAssistantApi.fromWs(fake),
+          ServiceCalls.asInstance(HomeAssistantApi.fromWs(fake)),
           store,
           Map("home" -> ref),
           "home",
@@ -589,7 +589,7 @@ class ServerRoutesSuite extends ServerHarness {
       fake <- FakeHomeAssistant.create(Nil)
       out <- Server
         .resource(
-          HomeAssistantApi.fromWs(fake),
+          ServiceCalls.asInstance(HomeAssistantApi.fromWs(fake)),
           store,
           Map("home" -> ref),
           "home",
@@ -634,7 +634,7 @@ class ServerRoutesSuite extends ServerHarness {
       fake <- FakeHomeAssistant.create(Nil)
       out <- Server
         .resource(
-          HomeAssistantApi.fromWs(fake),
+          ServiceCalls.asInstance(HomeAssistantApi.fromWs(fake)),
           store,
           Map("home" -> ref),
           "home",
@@ -691,7 +691,7 @@ class ServerRoutesSuite extends ServerHarness {
       fake <- FakeHomeAssistant.create(Nil)
       out <- Server
         .resource(
-          HomeAssistantApi.fromWs(fake),
+          ServiceCalls.asInstance(HomeAssistantApi.fromWs(fake)),
           store,
           Map("home" -> ref),
           "home",

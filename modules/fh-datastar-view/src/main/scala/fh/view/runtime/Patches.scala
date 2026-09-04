@@ -555,19 +555,18 @@ private[runtime] object Patches {
       .toList
       .sortBy(_._1)
       .flatMap { case (gid, entries) =>
+        val content = renderer.renderHost(gid, states, uiState)
         branchPatch(
           renderer,
           gid,
-          renderer
-            .renderHost(gid, states, uiState)
-            .map(_._2)
-            .reduceOption(_ + _),
+          content.parts.map(_._2).reduceOption(_ + _),
           entries.map(_._1).sorted.headOption
         ).map(
           // A branch's content ids are `s_<surface>__…`, which no prefix of the
           // container's id reaches — so the host says which nodes it holds.
           Addressed(
             _,
+            content.claims,
             invalidates = hostEvicts(renderer, renderer.hostId(gid))
           )
         )
@@ -629,22 +628,14 @@ private[runtime] object Patches {
     // having only because it replaced a whole-BODY repaint.
     val refills = owed.refill.sorted.map { gid =>
       val asSet = renderer.members.setContainer(gid)
-      val members = renderer.renderHost(gid, states, uiState)
+      val content = renderer.renderHost(gid, states, uiState)
       Addressed(
         Patch.Insert(
-          members.map(_._2).mkString,
+          content.parts.map(_._2).mkString,
           PatchMode.Inner,
           renderer.hostId(gid)
         ),
-        // A SET host's contents are one resolvable node per member, so the
-        // fill can say what it put in each and the next tick can tell
-        // "unchanged" from "never told". A state group's is one composed
-        // subtree under a root with no rendering of its own — a digest there
-        // could never be resolved, so it claims nothing and pays a redundant
-        // patch instead.
-        if (asSet.isDefined)
-          members.map { case (id, html) => id -> Held.of(html) }.toMap
-        else Map.empty,
+        content.claims,
         if (asSet.isDefined) Set(gid)
         else hostEvicts(renderer, renderer.hostId(gid))
       )
@@ -871,9 +862,7 @@ private[runtime] object Patches {
         (
           Addressed(
             Patch.Insert(t.html, PatchMode.Inner, host),
-            t.own.map { case (id, p) =>
-              id -> Held(Some(p.digest), p.signals)
-            },
+            t.claims,
             (renderer.surfaces.surfacesAt(host) ++ arriving)
               .flatMap(renderer.surfaceNodeIds)
           ),

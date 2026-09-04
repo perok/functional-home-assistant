@@ -48,8 +48,14 @@ load-bearing:
 No add-on and no crypto library is needed. `auth/current_user` answers for
 whichever access token authenticated *that* connection, so the login flow opens
 a one-shot WS with the user's freshly-exchanged token and closes it
-(`ServerApp`'s `identify`). It is the only use of somebody else's token, and the
-shared feed never sees one.
+(`ServerApp`'s `identify`).
+
+That per-connection identity is also why an ACTION opens its own socket (issue
+#198): HA attributes a `call_service` to whoever owns the connection, so the
+shared feed — which stays on the machine token and never sees a user's — makes
+every tap the add-on's. `ServerApp`'s `connectAs` is the one expression both
+uses share, because WHERE a per-user credential is accepted is a third address
+and writing that ranking twice is how the two would drift.
 
 **The cookie is an opaque handle; the state lives server-side.** A v4 UUID —
 no identity, no token, no claims — `HttpOnly`, `SameSite=Lax`, `Path=/`,
@@ -58,14 +64,17 @@ window). Because it is a bearer id rather than a payload there is nothing to
 sign or encrypt, which is what removed an earlier sealed-cookie design, its key
 file, and the whole `javax.crypto` surface with it.
 
-`AuthSessions` holds `id -> {user, refresh, verifiedAt, clientId}` in a
+`AuthSessions` holds `id -> {user, refresh, verifiedAt, clientId, access}` in a
 `SignallingRef`, deliberately a SEPARATE registry from the runtime's
 `Sessions`: that one is keyed by `conn` and is a TAB, this one is keyed by a
 cookie and is a PERSON, and merging two distinct facts into one shape fakes one
-with the other. The HA refresh token is kept for exactly one purpose — the
-periodic re-check that this user still exists and still holds this role. It
-never reaches the browser, so a stolen cookie is a session rather than an HA
-credential. `clientId` rides along because HA accepts a refresh only under the
+with the other. The HA refresh token is kept for two purposes — the periodic
+re-check that this user still exists and still holds this role, and minting the
+short-lived `access` token an ACTION goes out under (issue #198, `ServiceCalls`).
+Neither ever reaches the browser, so a stolen cookie is a session rather than an
+HA credential, and storing `access` beside `refresh` widens nothing: `refresh`
+is already there and is strictly the more powerful of the two, since it mints
+these on demand and does not expire. `clientId` rides along because HA accepts a refresh only under the
 EXACT client_id string the login sent (`_async_handle_refresh_token` compares
 it raw), and that string is derived per request — direct IP, hostname and the
 ingress prefix are three different clients as far as HA is concerned — so it
@@ -221,6 +230,15 @@ layout and every surface once and cannot grow at runtime. A failed dashboard has
 no renderer, names nothing, and therefore permits no action; that matters
 because a failed dashboard's page is a diagnostics dump.
 
+**`referencedEntities` is the bound, and it is not the same set as
+`watchedEntities`** (ADR 0030), which is what the upstream subscription asks HA
+for. That one is WIDER: it also walks what merely decides — a clause's `when`
+guard, a surface's `Activation.State` — entities a dashboard reads and renders
+nowhere. The two answer different questions and must not be merged in either
+direction: narrowing the subscription to this set would leave a dashboard that
+never reacts, and widening this set to that one would let a dashboard ACT on an
+entity it only reads, which is exactly what the bound exists to prevent.
+
 The slug cannot be authored: a dashboard module does not know its own (the
 entrypoint supplies it as a key, and `fh push --slug` can rename it), so the
 renderer supplies it. Two spellings, one fact, and each names the mechanism
@@ -370,9 +388,20 @@ probing later as an optimisation, not assumed.
 - `/system/pkl/*` stays ungated in this change (issue #166): pkl-lsp consumes
   it and it is not confirmed that it can send a header. The bearer carrier
   lands here, so the follow-up is only a matter of applying it.
-- `.fh/sessions.json` and `.fh/user_secret.json` hold HA refresh tokens inside a
-  workspace users keep in git. Both are gitignored and `0600`, and that they
-  live there at all is tracked as issue #165.
+- `.fh/sessions.json` and `.fh/user_secret.json` hold HA refresh tokens — and
+  now the short-lived access tokens minted from them — inside a workspace users
+  keep in git. Both are gitignored and `0600`, and that they live there at all
+  is tracked as issue #165.
+- **An action costs a connect and an auth handshake.** One socket per button
+  press is the shape that needs no lifecycle at all, which is why it is first;
+  the two cheaper answers (a pooled socket per logged-in person, or the REST API
+  with the token on the request) are the same decision made once this one is
+  known to work. Issue #198 has the comparison.
+- **Ingress taps are still the add-on's.** Behind the Supervisor proxy HA has
+  authenticated the user and forwards who they are, but never gives this server
+  a token for them — so there is nothing to act as, and `ServiceCalls` falls
+  back to the instance's own identity. Closing that means a login on the ingress
+  route too, which is exactly the second login this design exists to avoid.
 - **The browser-facing HA URL is not the one this server dials**, and under the
   add-on the difference is fatal rather than cosmetic: `home-addon/run.sh` dials
   `http://supervisor/core`, which resolves for this process and for nothing a

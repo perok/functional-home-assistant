@@ -1,8 +1,8 @@
 package fh.view.runtime
 
-import scala.util.chaining.*
 import api.homeassistant.HomeAssistantApi
-import cats.data.OptionT
+import scala.util.chaining.*
+import cats.data.{NonEmptyList, OptionT}
 import cats.effect.{IO, Resource}
 import cats.effect.kernel.Ref
 import cats.effect.std.Supervisor
@@ -53,7 +53,10 @@ import scala.concurrent.duration.*
   * one at runtime (ADR 0010).
   */
 class Server(
-    api: HomeAssistantApi[IO],
+    // Not the whole API: writing is all the server does to HA directly (it
+    // READS through the store), and who a write is attributed to is a live
+    // question — see [[ServiceCalls]].
+    actions: ServiceCalls,
     stateStore: StateStore,
     // Every dashboard this instance currently serves and which one answers `/`
     // ([[Server.LiveSite]]) — one hot-swappable renderer STATE per slug, paired
@@ -266,7 +269,7 @@ class Server(
     case req @ POST -> Root / "sse" / "action" / slug / domain / service / entityId =>
       gate.handleRequirement(req, Requirement.FromDashboard(Some(slug)))(
         actionResponse(req, slug, entityId)(
-          callService(domain, service, entityId, Json.obj())
+          callService(domain, service, entityId, Json.obj(), req)
         )
       )
 
@@ -278,7 +281,8 @@ class Server(
             domain,
             service,
             entityId,
-            Json.obj(dataKey -> Server.parseValue(dataValue))
+            Json.obj(dataKey -> Server.parseValue(dataValue)),
+            req
           )
         )
       )
@@ -322,9 +326,7 @@ class Server(
       (permission, user) =>
         if (permission.mayAct(user, entityId)) handler
         else
-          Forbidden(
-            s"""{"success":false,"error":"$entityId is not on this dashboard"}"""
-          )
+          actionRefused(req, s"$entityId is not on this dashboard")
     }
 
   /** The shared shape of the `/system/pkl/` routes: their `SystemPkl` calls
@@ -1389,7 +1391,7 @@ class Server(
       .flatMap {
         // A malformed request says nothing a caller did not already send us.
         case None =>
-          BadRequest("""{"success":false,"error":"missing conn"}""")
+          actionRefused(req, "missing conn")
         case Some((conn, uiState)) =>
           gate.handleRequirement(req, Requirement.FromDashboard(Some(slug)))(
             rendererFor(slug)
@@ -1400,21 +1402,29 @@ class Server(
                   )
                 case Some(renderer) =>
                   sessionFor(slug, conn, renderer, uiState).flatMap {
-                    case None          => Conflict(Server.WrongSlugBody)
+                    case None => actionRefused(req, Server.WrongSlugMessage)
                     case Some(session) =>
                       f(session, renderer, uiState) *> NoContent()
                   }
               }
-              // Recovered HERE rather than left to the app-level
-              // [[FHError.handle]], so this route answers the same status when
-              // a suite exercises it directly — the shape [[pushResponse]] and
-              // [[guardSystemPkl]] already use.
-              // `recoverWith`, not `handleErrorWith`: only an `FHError` is
-              // answerable here and everything else must keep propagating.
-              // `handleErrorWith` takes a TOTAL function, so this block under
-              // it is a non-exhaustive match — a `MatchError` replacing the
-              // real exception on any other failure.
-              .recoverWith { case e: FHError => FHError.logged(e) }
+              // A 4xx is answered HERE, because a tap is an action and "this
+              // cannot be done" is [[actionRefused]]'s 200 of signals rather
+              // than the status the raise site picked.
+              //
+              // Nothing at or above 500 is recovered, and the guard is what
+              // says so rather than a branch that re-implements the boundary:
+              // a 5xx is not a refusal at all but OUR bug, so it belongs to
+              // [[FHError.handle]], which already logs it and answers 500.
+              // Dressing one as "the operation failed" would tell the user
+              // something untrue and put an internal message on their page.
+              // `recoverWith`, not `handleErrorWith`: everything else must keep
+              // propagating, and `handleErrorWith` takes a TOTAL function, so
+              // this block under it would be a non-exhaustive match — a
+              // `MatchError` replacing the real exception on any other failure.
+              .recoverWith {
+                case e: FHError if e.status < 500 =>
+                  actionRefused(req, e.message)
+              }
           )
       }
   }
@@ -1514,29 +1524,78 @@ class Server(
       .uiStateAnomalies(uiState)
       .traverse_(w => IO.println(s"[warn] $w"))
 
-  /** Datastar reads live updates from the persistent SSE stream, so an action
-    * POST just triggers the service and returns no content.
+  /** Datastar reads live updates from the persistent SSE stream, so a service
+    * call that WORKS returns no content.
+    *
+    * One that fails answers **200 carrying signals**, not 4xx. The request was
+    * served — this route reached HA and got an answer — and what failed is the
+    * operation, which is a fact about the page and therefore travels as page
+    * state. The pinned bundle makes that the only workable shape: it parses a
+    * response body `if (M !== 200) { … return }`, so an error body is dropped
+    * unread and a status is all the client can ever learn from a 4xx. Datastar
+    * argues the same from the other side ("if you get a client error when you
+    * control both sides then it's a bug"); ADR 0024 named this answer and
+    * deferred it, and this is it arriving.
+    *
+    * The signals go to the control that was pressed ([[Server.nodeParam]]) and
+    * to the shell's toast, so the message HA actually gave — "entity not
+    * found", not "(400)" — is what both show.
     */
   private def callService(
       domain: String,
       service: String,
       entityId: String,
-      serviceData: Json
+      serviceData: Json,
+      req: Request[IO]
   ): IO[Response[IO]] =
-    api.callService(domain, service, entityId, serviceData).attempt.flatMap {
-      case Right(_)  => NoContent()
-      case Left(err) =>
-        BadRequest(
-          Json
-            .obj(
-              "success" -> Json.False,
-              "error" -> Json.fromString(
-                Option(err.getMessage).getOrElse(err.toString)
-              )
-            )
-            .noSpaces
-        )
-    }
+    actions
+      .call(req, domain, service, entityId, serviceData)
+      .attempt
+      .flatMap {
+        case Right(_)  => NoContent()
+        case Left(err) =>
+          // NOT retried, deliberately. A `call_service` is not idempotent — a
+          // toggle run twice is back where it started — and a failure arriving
+          // here cannot say whether HA ran it, so the safe answer is to tell
+          // the person and let them press again.
+          actionRefused(req, Option(err.getMessage).getOrElse(err.toString))
+      }
+
+  /** **What every refused action answers**, whatever refused it: HA rejecting
+    * the service call, this dashboard not naming the entity (ADR 0023), a
+    * surface id this build no longer has, a `conn` held by another slug.
+    *
+    * 200 carrying `datastar-patch-signals`, never 4xx. The request WAS served —
+    * the route ran and produced an answer — and what failed is the operation,
+    * which is a fact about the page and travels as page state. The pinned
+    * bundle leaves no alternative: it parses a body `if (M !== 200) { … return
+    * }`, so a 4xx body is dropped unread and a bare status is all a client can
+    * learn from one. ADR 0024 named this answer, argued it was the better one,
+    * and deferred it; this is it arriving.
+    *
+    * Three signals, each the state of one thing the refusal touched:
+    *
+    *   - `_<node>__error` — the CONTROL that was pressed keeps the message, so
+    *     a refusal is visible on the thing that asked rather than only in a
+    *     toast that expires.
+    *   - `_<group>__pending` cleared — the ask ENDED, so a selection that was
+    *     waiting on it stops claiming a panel this DOM does not have (ADR
+    *     0025). Server-sent, which is what let `pendingFail` go: the client was
+    *     inferring this from a status it will no longer see.
+    *   - `_toast` — the shell's transient bar, now carrying HA's own words
+    *     rather than a status code.
+    *
+    * Both ids are the CLIENT's claim about itself, in the query string
+    * ([[Server.actionSignals]] validates their shape before they become signal
+    * names). Nothing is authorized off them: they say which control to paint,
+    * and a wrong one paints the wrong control on the caller's own page.
+    */
+  private def actionRefused(
+      req: Request[IO],
+      message: String
+  ): IO[Response[IO]] =
+    Ok(Server.actionSignals(req, message).noSpaces)
+      .map(_.withContentType(`Content-Type`(MediaType.application.json)))
 
   /** Edit-mode "debug this node": the live state of every entity a rendered
     * node binds, as a JSON array of `{ entity_id, state, attributes }`. Backs
@@ -2119,10 +2178,13 @@ class Server(
       )
     )
     val connBanner =
-      s"""<div data-signals="{${Server.HaDownSignal}: $haDown, _sse: 0, ${Server.ReloadSignal}: false, $popupSignalName: '$popupSeed', ${Server.ConnSignal}: '${Server
+      s"""<div data-signals="{${Server.HaDownSignal}: $haDown, _sse: 0, ${Server.ToastSignal}: '', ${Server.ReloadSignal}: false, $popupSignalName: '$popupSeed', ${Server.ConnSignal}: '${Server
           .escapeJsString(restore.conn)}'}"
          |     data-effect="$$${Server.ReloadSignal} && window.location.reload(); fhUrl('$popupParamName', $$$popupSignalName)"
+         |     data-on-signal-patch-filter="{include:/^${Server.ToastSignal}$$/}"
+         |     data-on-signal-patch="$$${Server.ToastSignal} && (fhToast($$${Server.ToastSignal}), $$${Server.ToastSignal} = '')"
          |     data-on:${Server.StreamEvent}__document__debounce.600ms="$$_sse = $sseLatched">
+         |  <div $hidden ${Server.PendingSweep}></div>
          |  <div class="fh-offline fh-offline-sse" $hidden role="status" aria-live="assertive" data-show="$$_sse > 0">
          |    <span $hidden data-show="$$_sse < 2">Reconnecting to the dashboard…</span>
          |    <span $hidden data-show="$$_sse >= 2">Dashboard connection lost. <button class="fh-offline-action" data-on:click="window.location.reload()">Reload</button></span>
@@ -2339,6 +2401,38 @@ object Server {
 
     def changes: Stream[IO, Map[String, LiveSlug]] =
       entries.discrete.map(_.view.mapValues(_.live).toMap)
+
+    /** The union of what every registered dashboard reads — the entity set the
+      * upstream subscription is narrowed to ([[HaFeed]]).
+      *
+      * Two levels of liveness, and both matter: the SLUG SET moves on a reload
+      * or a `push`, and one slug's renderer is swapped in place by an edit or a
+      * dump refresh. `switchMap` re-derives the inner signal when the first
+      * moves; the inner one is the product of the renderers, so it re-emits
+      * when the second does.
+      *
+      * A failed dashboard contributes nothing: it renders no entity, and its
+      * error page reads none.
+      *
+      * Empty means EMPTY — no dashboards, so nothing is owed any state. It must
+      * not be confused with "unfiltered", which is what `None` means one layer
+      * up; that distinction is the whole reason this returns a bare `Set`.
+      */
+    def watchedEntities: Stream[IO, Set[String]] =
+      changes.switchMap { slugs =>
+        NonEmptyList.fromList(slugs.values.toList) match {
+          case None       => Stream.emit(Set.empty[String])
+          case Some(live) =>
+            live
+              .traverse(l =>
+                l.renderer.map(
+                  _.rendererOf.fold(Set.empty[String])(_.watchedEntities)
+                )
+              )
+              .discrete
+              .map(_.reduceLeft(_ ++ _))
+        }
+      }.changes
 
     /** Install a dashboard the developer PUSHED (ADR 0010): a swap for a slug
       * already registered (which repaints its open connections), otherwise a
@@ -2562,7 +2656,7 @@ object Server {
     * like the ones present at startup.
     */
   def resource(
-      api: HomeAssistantApi[IO],
+      actions: ServiceCalls,
       stateStore: StateStore,
       renderers: Map[String, SignallingRef[IO, RendererState]],
       defaultSlug: String,
@@ -2582,7 +2676,7 @@ object Server {
       .toResource
       .flatMap(
         withSite(
-          api,
+          actions,
           stateStore,
           _,
           sessions,
@@ -2600,7 +2694,7 @@ object Server {
     * the reload path writes the same registry the routes read.
     */
   def withSite(
-      api: HomeAssistantApi[IO],
+      actions: ServiceCalls,
       stateStore: StateStore,
       site: LiveSite,
       sessions: Sessions,
@@ -2615,7 +2709,7 @@ object Server {
     for {
       supervisor <- Supervisor[IO]
       server = new Server(
-        api,
+        actions,
         stateStore,
         site,
         sessions,
@@ -2646,10 +2740,16 @@ object Server {
       gate: AuthGate,
       assets: AssetCache = AssetCache.empty,
       systemPkl: SystemPkl = SystemPkl.empty,
-      dumpRefresh: Option[IO[DumpRefresh.Result]] = None
+      dumpRefresh: Option[IO[DumpRefresh.Result]] = None,
+      // WHO an action is attributed to, given the feed's own connection
+      // ([[ServiceCalls]]). A function rather than a value because the feed
+      // owns the api and this is the one place it is in hand; the default is
+      // the instance's own identity, which is what a deployment with no login
+      // has and what the tests want.
+      actions: HomeAssistantApi[IO] => ServiceCalls = ServiceCalls.asInstance
   ): Resource[IO, Server] =
     withSite(
-      feed.api,
+      actions(feed.api),
       feed.store,
       site,
       sessions,
@@ -2844,13 +2944,87 @@ object Server {
     */
   val ConnSignal: String = "conn"
 
-  /** A tap whose `conn` belongs to another dashboard — see [[sessionFor]]. A
-    * 4xx rather than a silent no-op so the shell's `datastar-fetch` listener
-    * toasts it: a tap that does nothing and says nothing is the failure this
-    * whole route was fixed for.
+  /** A tap whose `conn` belongs to another dashboard — see [[sessionFor]]. It
+    * is REFUSED rather than silently dropped: a tap that does nothing and says
+    * nothing is the failure this whole route was fixed for.
     */
-  private[runtime] val WrongSlugBody: String =
-    """{"success":false,"error":"connection belongs to another dashboard"}"""
+  private[runtime] val WrongSlugMessage: String =
+    "connection belongs to another dashboard"
+
+  /** The query parameters an action carries about ITSELF: which control was
+    * pressed, and which selection group (if any) is waiting on the answer.
+    * Filled from the DOM at click time — see `core/tap.pkl`.
+    */
+  val NodeParam: String = "node"
+  val GroupParam: String = "group"
+
+  /** The shell's toast signal. `_`-prefixed like every client-only signal, so
+    * it never rides a request back.
+    */
+  val ToastSignal: String = "_toast"
+
+  /** **Nothing is coming, so no ask is still outstanding** — ONE rule for the
+    * whole page, on the shell, replacing the copy each selection group used to
+    * carry (ADR 0025).
+    *
+    * A pending value says "this client has asked for X and is waiting". Two
+    * things end that wait without an answer, and neither is specific to any one
+    * group: the stream the answer would have ridden is DOWN (`_sse`, which this
+    * shell already maintains for the banner), or a response arrived that was
+    * not 200, whose body Datastar drops unread so nothing in it can clear
+    * anything. A refusal this server sends is NOT here — it answers 200 naming
+    * the group it ended (ADR 0024), which is strictly better because it ends
+    * only that one.
+    *
+    * `@setAll(value, filter)` is what makes it one line: the pinned bundle
+    * enumerates the store through the same include/exclude filter
+    * `data-on-signal-patch-filter` uses, and PEEKS while it writes
+    * (`apply(e,t,n){H();…;_()}` — `H`/`_` are start/stopPeeking), so this
+    * neither registers a dependency on every pending signal nor re-triggers
+    * itself.
+    *
+    * Clearing every group rather than one is not a loss of precision that
+    * mattered: the per-group version keyed on the same two page-wide facts, so
+    * a stream outage already cleared all of them, one attribute at a time.
+    *
+    * Busy signals are deliberately NOT swept. `finished` is dispatched in the
+    * bundle's `finally` and the indicator plugin decrements a counter to clear
+    * (verified in the pinned source), so a busy state cannot outlive its fetch
+    * — sweeping it would be guarding against something that cannot happen.
+    */
+  val PendingSweep: String = {
+    val clear = """@setAll('', {include:/__pending$/})"""
+    s"""data-on-signal-patch-filter="{include:/^_sse$$/}" """ +
+      s"""data-on-signal-patch="$$_sse > 0 && $clear" """ +
+      s"""data-on:datastar-fetch__document="evt.detail.type === 'error' && $clear""""
+  }
+
+  /** A node/group id as it arrives from a caller — an untrusted CLAIM that
+    * becomes a SIGNAL NAME, so its shape is checked rather than trusted.
+    * `Dashboard.sanitize` already guarantees real ids are `[A-Za-z0-9_]`, which
+    * makes the check exact rather than a guess at what is dangerous.
+    */
+  private val IdClaim = "[A-Za-z0-9_]{1,128}".r
+
+  private def idParam(req: Request[IO], name: String): Option[String] =
+    req.uri.query.params.get(name).filter(IdClaim.matches)
+
+  /** The signal frame a refused action answers with — see
+    * [[Server.actionRefused]] for why it is a 200 body at all.
+    */
+  private[runtime] def actionSignals(
+      req: Request[IO],
+      message: String
+  ): Json = {
+    val text = Json.fromString(message)
+    Json.fromFields(
+      idParam(req, NodeParam).map(id => s"_${id}__error" -> text).toList ++
+        idParam(req, GroupParam).map(id =>
+          s"_${id}__pending" -> Json.fromString("")
+        ) ++
+        List(ToastSignal -> text)
+    )
+  }
 
   /** The namespace the resume cursor lives under, and the reason it is
     * `_`-prefixed: Datastar's default request filter is `exclude: /(^|\.)_/`,

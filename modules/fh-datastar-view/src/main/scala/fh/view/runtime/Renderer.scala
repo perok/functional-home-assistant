@@ -40,6 +40,24 @@ private[runtime] case class Painted(
     signals: Map[SignalId, String]
 )
 
+/** What is in a host, from [[Renderer.renderHost]]: the parts to splice, and
+  * what each node inside them now holds — so the next tick can tell "unchanged"
+  * from "never told".
+  *
+  * `claims` is built HERE rather than at the fill site because only this knows
+  * which of the two shapes produced the parts, and they claim different ids. A
+  * candidate set's members are separate renders, so each part IS a claimable
+  * node and its bytes are hashed. A state group's branch is ONE walk whose part
+  * is the composed subtree under a root with no rendering of its own — hashing
+  * that would claim an id no later render can resolve — so it claims the walk's
+  * own per-node digests instead ([[Renderer.Traced]]), which cost nothing
+  * because the walk produced them anyway.
+  */
+private[runtime] case class HostContent(
+    parts: List[(NodeId, String)],
+    claims: Map[NodeId, Held]
+)
+
 /** Which of a signal slot's two renderings a walk is producing (ADR 0017).
   *
   * The distinction exists only for slots with `signal = true`; every other slot
@@ -314,6 +332,13 @@ class Renderer(
   def references(entityId: String): Boolean =
     dashboard.referencedEntities.contains(entityId)
 
+  /** Every entity a change to which could make this dashboard render
+    * differently — what the live subscription asks HA for. WIDER than
+    * [[references]]; see [[Dashboard.watchedEntities]] for why they are two
+    * values and not one.
+    */
+  def watchedEntities: Set[String] = dashboard.watchedEntities
+
   def surfaceComponentsFor(surfaceId: String, entityId: String): Set[NodeId] =
     surfaceIndexes
       .get(surfaceId)
@@ -499,20 +524,6 @@ class Renderer(
     own.asScala.toMap
   }
 
-  /** Bare content, with no wrapper: every surface is chrome-less, because the
-    * host it swaps into and any frame around it live in `theme.chrome` rather
-    * than per-surface.
-    */
-  def renderSurface(
-      surfaceId: String,
-      states: Map[String, EntityState],
-      uiState: Map[String, String] = Map.empty
-  ): Option[String] =
-    renderSurfaceTraced(surfaceId, states, uiState).map(_.html)
-
-  /** [[renderSurface]] with the per-node trace — what a FILL uses, so the log
-    * learns what the fill put in each node without re-rendering the subtree.
-    */
   /** A surface as a WRITER HOLE for the page's chrome — the same walk
     * [[renderSurfaceTraced]] runs, tracing into the page's own buffer and
     * accumulator instead of building a String for mustache to splice. `None`
@@ -541,6 +552,11 @@ class Renderer(
       )
     }
 
+  /** Bare content with no wrapper — every surface is chrome-less, because the
+    * host it swaps into and any frame around it live in `theme.chrome` rather
+    * than per-surface — plus the per-node trace, which is what a FILL claims so
+    * the log learns what it put in each node without re-walking the subtree.
+    */
   private[runtime] def renderSurfaceTraced(
       surfaceId: String,
       states: Map[String, EntityState],
@@ -619,22 +635,33 @@ class Renderer(
   /** What a wholesale FILL carries, for EITHER kind of container: a candidate
     * set's members, or a state group's one active branch. Both are "what is in
     * this host", so they answer here rather than at each fill site.
+    *
+    * A state group's branch is walked with its trace kept, because the walk
+    * produces it either way ([[Traced]]) and the fill is the only thing that
+    * can tell the client's record what it just put in each node.
     */
-  def renderHost(
+  private[runtime] def renderHost(
       container: NodeId,
       states: Map[String, EntityState],
       uiState: Map[String, String] = Map.empty
-  ): List[(NodeId, String)] =
+  ): HostContent =
     members.setContainer(container) match {
-      case Some(setId) => renderMembers(setId, states)
-      case None        =>
+      case Some(setId) =>
+        val parts = renderMembers(setId, states)
+        HostContent(
+          parts,
+          parts.map { case (id, html) => id -> Held.of(html) }.toMap
+        )
+      case None =>
         surfaces
           .resolveActiveByState(container, states)
           .flatMap(surfaces.bakeGroup(container).lift)
           .flatMap(sid =>
-            renderSurface(sid, states, uiState).map(surfaceContentId(sid) -> _)
+            renderSurfaceTraced(sid, states, uiState).map(t =>
+              HostContent(List(surfaceContentId(sid) -> t.html), t.claims)
+            )
           )
-          .toList
+          .getOrElse(HostContent(Nil, Map.empty))
     }
 
   /** Every LOG KEY must be resolvable here, because the log holds a digest
@@ -994,7 +1021,15 @@ class Renderer(
       // [[Renderer.render]] wants real bytes out of a trace, and it always
       // wants the root's, so every other node keeps only its digest.
       rootOwn: Option[String] = None
-  )
+  ) {
+
+    /** What a client holds once this walk's bytes are in its DOM — every fill
+      * records the same thing, so it is derived here rather than spelled out at
+      * each one.
+      */
+    def claims: Map[NodeId, Held] =
+      own.map { case (id, p) => id -> Held(Some(p.digest), p.signals) }
+  }
 
   /** A static floor on the nodes a subtree renders, for sizing its buffer: the
     * structure plus every region child. A set counts its candidates and members
@@ -1553,7 +1588,13 @@ class Renderer(
       .append(m.id)
       .append('"')
     if (!form.isPatch) {
-      val _ = out.append(Datastar.signalsAttr(memberSignalsOf(rm)))
+      // Through the BAKED seed, like every static node since #286. The static
+      // tree got `Datastar.SignalSeed` then and members did not, so a member
+      // kept splitting each signal name on every paint and re-deriving the
+      // nesting: `SignalId.segments` + `signalsAttr` were 12.5% of a
+      // candidate-set page open (`RenderBench.pageSet`, async-profiler).
+      val values = memberSignalsOf(rm)
+      Datastar.seedAttrInto(out, memberSeedOf(m, values), values)
     }
     val _ = out.append('>')
     memberBodyInto(out, rm, form)
@@ -1645,6 +1686,39 @@ class Renderer(
     * signals — which is why [[ResolvedChild.NestedSet]] holds no resolution to
     * descend into.
     */
+  /** A member's seed shape, held per member id.
+    *
+    * The NAMES a member's wrapper seeds are a function of its node tree — its
+    * own card's signal slots plus its children's, all of them plan-time facts —
+    * so only the VALUES are per paint. Held by node IDENTITY and rechecked on
+    * lookup, exactly like [[nodePlans]]: a set's clause can hand a different
+    * node for the same member id as state moves, and that recomputes rather
+    * than seeding the wrong shape.
+    *
+    * A stale seed cannot go wrong even so: `Datastar.seedAttrInto` falls back
+    * to building the attribute when the values are not exactly the signals the
+    * seed was built for.
+    */
+  private val memberSeeds =
+    new java.util.concurrent.ConcurrentHashMap[
+      String,
+      (LayoutNode.Component, Datastar.SignalSeed)
+    ]()
+
+  private def memberSeedOf(
+      m: Member,
+      values: Map[SignalId, String]
+  ): Datastar.SignalSeed = {
+    val key: String = m.id
+    val cached = memberSeeds.get(key)
+    if (cached != null && (cached._1 eq m.node)) cached._2
+    else {
+      val seed = Datastar.seedFor(values.keys)
+      memberSeeds.put(key, (m.node, seed))
+      seed
+    }
+  }
+
   private def memberSignalsOf(rm: ResolvedMember): Map[SignalId, String] =
     rm.regions.values.flatten.foldLeft(rm.resolved.signals) {
       case (acc, ResolvedChild.Node(_, n))   => acc ++ memberSignalsOf(n)

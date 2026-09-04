@@ -157,12 +157,23 @@ const local rollbackToCommitted: String =
       "Math.round(\(posFrom(committed))) + ' %'{{/dragPercent}}"
 
 /// The two ways an ask ends with no commit coming (ADR 0025), both answered by
-/// [[rollbackToCommitted]]: a REFUSAL is a status the server actually sent
-/// (Datastar dispatches `error` from `onopen`, so it fires only when a response
-/// arrived), and `_sse` is the shell's own counter for the stream the commit
-/// would have ridden. Neither is a timeout.
-const local restoreOnFailure: String =
-  #"data-on:datastar-fetch__document="evt.detail.type === 'error' && (\#(rollbackToCommitted))" data-effect="$_sse > 0 && (\#(rollbackToCommitted))""#
+/// [[rollbackToCommitted]]: the stream the commit would have ridden is DOWN
+/// (`_sse`, the shell's own counter), or the server REFUSED — which it says by
+/// patching this node's error signal, since a refused action answers 200
+/// carrying signals rather than a status (ADR 0024). Neither is a timeout.
+///
+/// They are two attributes on two ELEMENTS, and that is not cosmetic. The
+/// refusal half reads a signal, so it would want the input's one
+/// `data-on-signal-patch` — already spent on [[adoptCommitted]] — and merging
+/// them breaks the slider: `failedOn` clears the error signal when the NEXT
+/// commit starts, so a merged handler would take its else-branch mid-flight and
+/// snap the thumb back to the committed value under the finger that just moved
+/// it. On the track wrapper the two never meet.
+const local restoreOnDeadStream: String =
+  #"data-effect="$_sse > 0 && (\#(rollbackToCommitted))""#
+
+const local restoreOnRefusal: String =
+  #"data-on-signal-patch-filter="{include:/^\#(tapMod.errorSig)$/}" data-on-signal-patch="$\#(tapMod.errorSig) && (\#(rollbackToCommitted))""#
 
 // A slider config slot (action/key/min/max): author override, else the spec
 // literal (stringified — the backend slot decoder rejects numbers).
@@ -259,16 +270,16 @@ class SliderHead extends nodes.Node {
           {{#state}}<span class="state" \(slotMod.signalBind("state"))>{{state}}</span>{{/state}}
           <div class="slider-actions">{{#actions}}{{{html}}}{{/actions}}</div>
         </div>
-        <div class="slider max" style="--_start: 0%;--_end: {{fill}}" \(slotMod.signalBind("fill")){{#busyVisual}} \(tapMod.busyClassChange){{/busyVisual}}>
+        <div class="slider max" style="--_start: 0%;--_end: {{fill}}" \(slotMod.signalBind("fill")) \(restoreOnRefusal){{#busyVisual}} \(tapMod.busyClassChange){{/busyVisual}}>
           {{^toggle}}<input type="range" min="{{min}}" max="{{max}}" value="{{value}}"
             \(slotMod.signalBind("value"))
             data-signals__ifmissing="{ \(slideSig): '{{value}}' }"
             data-bind="\(slideSig)"
             \(adoptCommitted)
-            \(restoreOnFailure)
+            \(restoreOnDeadStream)
             \(tapMod.busyAttrsChange)
             data-on:input="$\(slotMod.signalRef("fill")) = (100 - \(dragPos)) + '%'{{#dragPercent}}; $\(slotMod.signalRef("state")) = Math.round(\(dragPos)) + ' %'{{/dragPercent}}"
-            data-on:change="\(tapMod.busyGuardChange)@post('sse/action/{{dashboardSlug}}/{{{action}}}/{{{entity_id}}}/{{key}}/' + $\(slideSig), \(tapMod.noSignals))" />{{/toggle}}
+            data-on:change="\(tapMod.busyGuardChange)@post('sse/action/{{dashboardSlug}}/{{{action}}}/{{{entity_id}}}/{{key}}/' + $\(slideSig) + '?node={{id}}', \(tapMod.noSignals))" />{{/toggle}}
           <span style="background:{{fillColor}}" \(slotMod.signalBind("fillColor"))></span>
           {{#toggle}}<button type="button" class="slider-toggle" aria-label="{{label}}"
             \(slotMod.signalBind("value"))

@@ -105,7 +105,7 @@ class Tabs extends nodes.Node {
       ["panel"] = new nodes.Region { fill = "baked" }
     }
     template = """
-      <div class="fh-col"><div class="tabs" data-signals__ifmissing="{ ui_{{id}}: {{bakeIndex}}, \(tapMod.pendingSeedEntry("{{id}}")) }" \(tapMod.pendingClear("{{id}}")) \(tapMod.pendingFail("{{id}}"))>{{#children}}{{{html}}}{{/children}}</div><div id="{{hostId}}" class="tab-panel" data-effect="fhUrl('ui.{{id}}', $ui_{{id}})">{{#panel}}{{{html}}}{{/panel}}</div></div>
+      <div class="fh-col"><div class="tabs" data-signals__ifmissing="{ ui_{{id}}: {{bakeIndex}}, \(tapMod.pendingSeedEntry("{{id}}")) }" \(tapMod.pendingClear("{{id}}"))>{{#children}}{{{html}}}{{/children}}</div><div id="{{hostId}}" class="tab-panel" data-effect="fhUrl('ui.{{id}}', $ui_{{id}})">{{#panel}}{{{html}}}{{/panel}}</div></div>
       """
     // The panel host is a patch target that must not be a box: the selected
     // tab's own layout is what should reach the surrounding column.
@@ -151,9 +151,20 @@ class Tabs extends nodes.Node {
         // The highlight follows the PENDING value while a tap is outstanding
         // and the committed one otherwise, so the press still feels instant
         // without the client ever asserting a selection the server has not
-        // made. `==` is loose: pending is a string, committed a number until
-        // the first swap.
-        active = "\(tapMod.pendingOrCommitted(nodes.NODE_ID)) == \(i)"
+        // made.
+        //
+        // Compared as STRINGS with `===`, and the coercion is the point. The
+        // two sides really are different types — pending is a string, committed
+        // a number until the first swap — which is why this was `==`. But loose
+        // `==` also makes `'' == 0` TRUE, and `''` is exactly what this signal
+        // holds if anything reads it before `__ifmissing` seeds it
+        // (`DatastarMorphContractSuite` pins that hazard). Under `==` that state
+        // highlights tab 0 and looks perfectly correct while the selection is
+        // in fact unset; under `===` it highlights nothing, which is visible.
+        //
+        // `String(x) === "0"` and not `Number(x) === 0`, because `Number('')`
+        // is 0 and would rebuild the very mask this removes.
+        active = "String(\(tapMod.pendingOrCommitted(nodes.NODE_ID))) === '\(i)'"
         onclick = tapMod.selectSurface(
           "\(nodes.NODE_ID)_t\(i)",
           nodes.NODE_ID,

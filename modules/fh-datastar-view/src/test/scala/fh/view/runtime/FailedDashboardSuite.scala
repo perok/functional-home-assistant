@@ -51,7 +51,7 @@ class FailedDashboardSuite extends ServerHarness {
       sessions <- Sessions.create.toResource
       fake <- FakeHomeAssistant.create(Nil).toResource
       server <- Server.resource(
-        HomeAssistantApi.fromWs(fake),
+        ServiceCalls.asInstance(HomeAssistantApi.fromWs(fake)),
         store,
         Map("dashboard" -> ref),
         "dashboard",
@@ -103,13 +103,17 @@ class FailedDashboardSuite extends ServerHarness {
             uri"/sse/action/dashboard/light/toggle/light.kitchen"
           )
         )
+        body <- resp.bodyText.compile.string
         calls <- fake.recordedCalls
       } yield {
         // An action is bounded by the entities its dashboard names (ADR 0023),
         // and a failed dashboard has no renderer and therefore names none. It
         // is refused rather than forwarded — which matters because a failed
         // dashboard is exactly the one whose page is a diagnostics dump.
-        assertEquals(resp.status, Status.Forbidden)
+        // The refusal is 200 carrying signals (ADR 0024), so what proves it is
+        // the message, not the status.
+        assertEquals(resp.status, Status.Ok)
+        assert(body.contains("is not on this dashboard"), clue = body)
         assertEquals(calls.map(_.service), Vector.empty, clue = calls)
       }
     }
@@ -457,7 +461,7 @@ class FailedDashboardSuite extends ServerHarness {
         sessions <- Sessions.create
         out <- Server
           .withSite(
-            HomeAssistantApi.fromWs(fake),
+            ServiceCalls.asInstance(HomeAssistantApi.fromWs(fake)),
             store,
             site,
             sessions,
@@ -786,7 +790,7 @@ class FailedDashboardSuite extends ServerHarness {
         .toResource
       sessions <- Sessions.create.toResource
       server <- Server.resource(
-        HomeAssistantApi.fromWs(fake),
+        ServiceCalls.asInstance(HomeAssistantApi.fromWs(fake)),
         store,
         refs,
         "dash",

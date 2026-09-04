@@ -56,9 +56,60 @@ and not only on server patches; and the `-filter` companion is mandatory, since
 unfiltered every HA state patch on the page would arm a timer on every guarded
 element.
 
-**A rejection clears the guard and shows a toast.** `finished` fires on a failed
-fetch too, so an error can never leave a control stuck. `shell.ts` turns
-`datastar-fetch:error` into `.fh-toast`.
+**The guard is ONE splice, and it carries its own condition.** A component
+author sets `busy = true` on the tap and splices `tapMod.guardClick` into the
+click expression and `tapMod.guard` beside it. Between them they bring the
+indicator, the node id, the refusal handler, the re-click guard and the looks.
+Each wraps itself in `{{#busy}}`, so a card places them UNCONDITIONALLY: the
+tap's flag is the declaration, and an unguarded tap renders byte-identical to
+before the guard existed.
+
+That is a contract question, not a tidiness one: third parties write components
+here, and the shape before this asked each of them to splice three pieces into
+the right sections and to know that the signal names must match what the server
+patches on a refusal (ADR 0024). A section nobody writes is a section nobody can
+get wrong.
+
+Both constants live in `tap.pkl`, next to the signal names and the doc comments
+that explain them, rather than being holes the renderer fills. A card's template
+is Mustache, so a Pkl string spliced into one can carry `{{id}}` and be filled
+per node exactly as a renderer-built string would be — which leaves no work for
+Scala to do here, and no second language to read to understand a guarded tap.
+`RenderBench` says the two shapes cost the same (`page` 684.97 ± 39.7 µs vs
+686.63 ± 23.3 µs), so the wire is the only difference and it is ~1.8 KB per
+dashboard.
+
+The one thing that CANNOT be a Pkl string is a tap's click expression itself:
+that is a transform's OUTPUT and is inserted raw, so Mustache never sees it and
+a `{{id}}` inside it would stay literal. Hence `guardClick` is spliced into the
+TEMPLATE around the expression rather than composed into it, and the node id
+travels via `data-fh-node` read off the DOM at click time.
+
+The attributes are on the CONTROL rather than the enclosing `.fh-cell`, which
+was tried and does not work: `data-indicator` keys on `evt.detail.el === el` —
+the element that MADE the fetch — so an indicator on the cell arms a signal
+nothing ever sets. Moving the click to the cell would fix the identity and grow
+every control's hit area to its whole grid cell.
+
+The spinner is the one piece a card places separately, because its class is the
+theme's (`busySpin`) and it must sit on the element hosting the glyph, which
+only the template knows.
+
+**A rejection clears the guard and says so on the control.** `finished` fires on
+a failed fetch too, so a refusal can never leave a control stuck — but that also
+made a refused action look exactly like a successful one, the dim gone and the
+control sitting there as if nothing had been asked. So the node keeps a second
+signal, `_<id>__error`: set on refusal, cleared when the same control starts
+another action. It is what gives an action an ASSERTABLE outcome — "not busy and
+not error" is a state of the thing that was pressed, rather than something
+unrelated on the page that happens to move afterwards.
+
+The server is its main writer, and names the node from the id the tap sends
+(`?node=`, read off `data-fh-node` at click time): a refused action answers 200
+carrying signals (ADR 0024), so the message HA gave lands on the control and in
+`.fh-toast`. `shell.ts` keeps the `datastar-fetch:error` listener for the
+remainder a signal patch cannot reach — a response that is not 200, where the
+bundle drops the body unread and only a status survives.
 
 ## Consequences
 
