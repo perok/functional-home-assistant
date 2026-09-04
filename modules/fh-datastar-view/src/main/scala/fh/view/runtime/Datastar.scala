@@ -275,7 +275,16 @@ object Datastar {
       out(i) = (k.segments, v)
       i += 1
     }
-    java.util.Arrays.sort(out, pathOrder[A])
+    // ONE comparator for every element type, because it only ever reads `._1`.
+    // A `def` with the type parameter would be cast-free, but it hides a
+    // singleton behind a call and pays a type parameter for a value that does
+    // not depend on it.
+    java.util.Arrays.sort(
+      out,
+      pathOrder.asInstanceOf[
+        java.util.Comparator[(Array[String], A)]
+      ] // scalafix:ok DisableSyntax
+    )
     out
   }
 
@@ -289,18 +298,18 @@ object Datastar {
     * bytes are asserted, so sorting the cheaper way would be a rare, silent
     * reordering. Pinned in `DatastarNestSuite`.
     */
-  private def pathOrder[A]: java.util.Comparator[(Array[String], A)] =
-    (x, y) => comparePaths(x._1, y._1)
-
-  private def comparePaths(a: Array[String], b: Array[String]): Int = {
-    var i = 0
-    var r = 0
-    while (r == 0 && i < a.length && i < b.length) {
-      r = a(i).compareTo(b(i))
-      i += 1
+  private val pathOrder: java.util.Comparator[(Array[String], Any)] =
+    (x, y) => {
+      val a = x._1
+      val b = y._1
+      var i = 0
+      var r = 0
+      while (r == 0 && i < a.length && i < b.length) {
+        r = a(i).compareTo(b(i))
+        i += 1
+      }
+      if (r != 0) r else a.length - b.length
     }
-    if (r != 0) r else a.length - b.length
-  }
 
   /** The same values as a `data-signals` ATTRIBUTE — the inline seed that lets
     * an element carry its own signals, so a first paint, a host fill or a
