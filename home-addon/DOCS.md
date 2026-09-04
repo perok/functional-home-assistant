@@ -74,6 +74,96 @@ your regenerated entity dump, and `PklProject`, which binds the
 | Option | Description |
 |---|---|
 | `watch_registry` | Rebuild the entity dump automatically on HA registry changes (default `true`). The swap is validated first and the previous dump is kept as a dated backup. |
+| `max_heap` | JVM max heap as a `-Xmx` value — `"512M"` (the default), `"1G"`. A ceiling, not a reservation. Raise it if a large house or a big workspace runs out. |
+| `min_heap` | JVM starting heap as a `-Xms` value — `"64M"` by default. This is the end that decides the idle footprint; raise it with `max_heap` if the collector is visibly growing and shrinking. |
+| `memory_tracking` | Add the native-memory breakdown to `GET /system/diagnostics` (default `false`). Costs a few percent, and takes effect on restart — the JVM cannot start tracking while running. |
+
+## Memory
+
+The add-on is a JVM, so what the supervisor reports is its heap plus the
+runtime's own overhead — metaspace, JIT code cache, GC structures, thread
+stacks. That overhead is a fixed cost of running Scala on a JVM, not a leak.
+
+Both ends of the heap are set to numbers rather than to fractions of the
+machine: it starts at 64 MB and grows only as the workload needs, up to
+`max_heap` (512 MB by default). So the figure follows the dashboards you run
+rather than the size of the box you run them on, and the garbage collector
+hands memory back once a burst is over. If the add-on restarts with an
+OutOfMemoryError in the log, `max_heap` is the thing to raise.
+
+### Seeing where it actually goes
+
+`GET /system/diagnostics` reports it, as JSON. It needs a Home Assistant
+admin, like the rest of `/system`, and it reports sizes and counts only —
+never dashboard content or who is signed in.
+
+```jsonc
+{
+  "container": {
+    "current": 412844032,   // what the supervisor's percentage is computed from
+    "max": "max",           // add-ons get no memory limit; see below
+    "anon": 331739136,      // memory the add-on actually allocated
+    "file": 81104896        // page cache it is charged for but did not allocate
+  },
+  "jvm": {
+    "heap":    { "used": 48234496, "committed": 67108864, "max": 536870912 },
+    "nonHeap": { "used": 91234816, "committed": 96468992, "max": null },
+    "pools":   { "Metaspace": {}, "Compressed Class Space": {}, "CodeHeap ...": {} },
+    "gc":      [ { "name": "Copy", "count": 41, "ms": 388 } ],
+    "threads": 34,
+    "uptimeMs": 903114
+  },
+  "nmt": null               // the full NMT summary when memory_tracking is on
+}
+```
+
+Two fields answer most questions on their own. **`container.file`** is page
+cache — the add-on is charged for it in the figure the UI shows, but it is not
+the JVM's doing, so subtract it before concluding anything. And
+**`container.max`** is the literal `"max"`: the supervisor puts no memory limit
+on an add-on, which is exactly why the heap is given a number here instead of
+a percentage of "available" memory.
+
+For the native breakdown that the pools do not cover — GC structures, thread
+stacks — set `memory_tracking: true`, restart, and read the `nmt` field.
+
+### When it is stuck rather than large
+
+Two more admin endpoints, both plain text, for the other kind of problem:
+
+- **`GET /system/diagnostics/threads`** — a JVM thread dump, lock information
+  included. What shows a deadlock, or a pool with every thread blocked on the
+  same monitor.
+- **`GET /system/diagnostics/fibers`** — a cats-effect fiber dump. The thread
+  dump *cannot* replace this: almost all of the server's work runs as fibers
+  multiplexed over a handful of carrier threads, so a thread dump taken while a
+  dashboard is stuck shows an idle worker pool and says nothing about which
+  fiber is parked. This is the one that names it.
+
+They are separate from the report above because they are large, meant to be
+read rather than parsed, and because taking a thread dump pauses every thread —
+not a price to pay for asking how much memory is in use.
+
+### If you would rather use a terminal
+
+The image ships `jcmd`, `jmap`, `jstat` and Flight Recorder, so with the SSH
+add-on you can go straight at the process. PID 1 is the base image's init, so
+ask `jcmd -l` for the JVM's:
+
+```sh
+C=$(docker ps --format '{{.Names}}' | grep fh_dashboard)
+docker exec "$C" jcmd -l                      # -> "<pid> /opt/fh-dashboard.jar"
+docker exec "$C" jcmd <pid> GC.heap_info
+```
+
+For a slow page open rather than a large one, record a profile into the
+add-on's `/data` and copy it out:
+
+```sh
+docker exec "$C" jcmd <pid> JFR.start settings=profile duration=60s \
+  filename=/data/fh.jfr
+docker cp "$C":/data/fh.jfr .
+```
 
 ## Direct port (optional)
 

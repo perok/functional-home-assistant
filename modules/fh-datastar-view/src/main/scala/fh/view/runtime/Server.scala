@@ -22,6 +22,9 @@ import fs2.Stream
 import fs2.concurrent.{Signal, SignallingRef}
 import io.circe.{Decoder, Json}
 import org.http4s.*
+// `EntityEncoder[IO, Json]`, so a JSON route answers `Ok(json)` and takes its
+// content type from the encoder rather than restating it.
+import org.http4s.circe.*
 import org.http4s.dsl.io.*
 import org.http4s.headers.{
   `Cache-Control`,
@@ -234,6 +237,39 @@ class Server(
     case req @ POST -> Root / "system" / "push" / slug =>
       gate.handleRequirement(req, Requirement.Admin)(pushResponse(slug, req))
 
+    // What this add-on is spending on the machine ([[Diagnostics]]): the
+    // container's cgroup figure — the one the supervisor's percentage is
+    // computed from — beside the JVM's own heap/pool/GC accounting, so the two
+    // can be read against each other rather than one at a time.
+    //
+    // Admin-only, like the rest of /system. It reports sizes and counts, never
+    // dashboard content or who is logged in.
+    case req @ GET -> Root / "system" / "diagnostics" =>
+      gate.handleRequirement(req, Requirement.Admin)(
+        Diagnostics.report().flatMap(Ok(_))
+      )
+
+    // The two dumps, split off the report above because they are large, TEXT,
+    // and read rather than parsed — and because taking a thread dump pauses
+    // every thread, which is not a price to pay for asking how much memory is
+    // in use.
+    //
+    // `Thread.print` is the JVM's own: what shows a deadlock, or a pool with
+    // every thread blocked on the same monitor.
+    case req @ GET -> Root / "system" / "diagnostics" / "threads" =>
+      gate.handleRequirement(req, Requirement.Admin)(
+        Diagnostics.threadDump.flatMap(plainText)
+      )
+
+    // The cats-effect one, which the JVM's cannot replace: this server's work
+    // runs as FIBERS over a handful of carrier threads, so a thread dump of a
+    // stuck dashboard shows an idle worker pool and says nothing about the
+    // fiber that is actually parked. This names them.
+    case req @ GET -> Root / "system" / "diagnostics" / "fibers" =>
+      gate.handleRequirement(req, Requirement.Admin)(
+        Diagnostics.fiberDump.flatMap(plainText)
+      )
+
     // Recreate the entity dump on demand (the /edit editor's "refresh dump"
     // button): re-fetch from HA, validate every dashboard against the new dump
     // package in a staged copy, and swap the `@fh-home` pin only if nothing that
@@ -341,6 +377,13 @@ class Server(
       case e: FHError => FHError.logged(e)
       case err        => InternalServerError(err.getMessage)
     }
+
+  /** A dump answered as plain text — declared, because a browser shown a thread
+    * dump as `application/octet-stream` downloads it instead of displaying it,
+    * and reading it in the browser is the whole point.
+    */
+  private def plainText(body: String): IO[Response[IO]] =
+    Ok(body).map(_.withContentType(`Content-Type`(MediaType.text.plain)))
 
   /** The current renderer for `slug`, or `None` if no such dashboard is
     * registered. Reads through the registry `Ref`, so it sees slugs pushed

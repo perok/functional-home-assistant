@@ -39,3 +39,17 @@ schema:
   # The swap is validated first: it never lands if it would break a dashboard
   # that builds today, and the previous dump is kept as a dated backup.
   watch_registry: bool?
+  # JVM max heap, as a `-Xmx` value ("512M", "1G"). Deliberately absent from
+  # `options:` above so the default lives in exactly one place — run.sh —
+  # rather than being stated twice and drifting.
+  max_heap: str?
+  # JVM STARTING heap ("64M" by default). Exposed beside `max_heap` because
+  # it is the end that actually decides the idle footprint, and because a
+  # heap raised at one end and not the other is the mismatch that makes the
+  # collector grow and shrink repeatedly on a slow box.
+  min_heap: str?
+  # Enable Native Memory Tracking, then read the breakdown with
+  #   docker exec addon_<slug> jcmd 1 VM.native_memory summary
+  # It costs a few percent and needs a restart to take effect, which is why
+  # it is an option and not something the running server can switch on.
+  memory_tracking: bool?
