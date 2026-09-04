@@ -310,6 +310,7 @@ class RenderBench {
   // entity every call.
   private var pubFrames: Vector[Frame] = null
   private var flipFrames: Vector[Frame] = null
+  private var idleFrames: Vector[Frame] = null
   private var pubIngests: Vector[List[Ingest]] = null
   private var dedupBatch: List[Ingest] = null
 
@@ -414,6 +415,7 @@ class RenderBench {
     pubFrames = Vector(publishFrame(st, 0), publishFrame(st, 1))
     flipFrames =
       Vector(publishFrame(flipStates, 0), publishFrame(flipStates, 1))
+    idleFrames = Vector(idleFrame(st, 0), idleFrame(st, 1))
     pubIngests =
       flipFrames.map(_.changes.map(c => Ingest.Replace(c.current): Ingest))
     dedupBatch = dedupIngests
@@ -974,6 +976,26 @@ class RenderBench {
     bh.consume(publishPass(set, pubFrames(pubRot % 2)))
   }
 
+  /** '''The question a pre-filter would answer''': what a frame costs when the
+    * dashboard reads none of it. Against [[publish]] and [[publishSet]] this is
+    * the floor a "does any slug care?" test could drop the pass to — and the
+    * gap between them is all a pre-filter could ever save.
+    */
+  @Benchmark
+  def publishIdle(bh: Blackhole): Unit = {
+    pubRot += 1
+    bh.consume(publishPass(signalled, idleFrames(pubRot % 2)))
+  }
+
+  /** The same idle frame against the candidate-set dashboard, where
+    * `syncMembers` walks every set whether or not this frame touched one.
+    */
+  @Benchmark
+  def publishIdleSet(bh: Blackhole): Unit = {
+    pubRot += 1
+    bh.consume(publishPass(set, idleFrames(pubRot % 2)))
+  }
+
   /** The same frame plus the entity that CHOOSES a branch, so the pass also
     * walks the state groups (`affectedStateGroups`, `activeStateSurfaces`).
     *
@@ -1107,6 +1129,30 @@ class RenderBench {
     */
   private def dedupIngests: List[Ingest] =
     tickEntities.toList.map(id => Ingest.Replace(flipStates(id)))
+
+  /** A frame of entities NO dashboard names — the house talking about itself.
+    *
+    * The ids are outside [[entityId]]'s range on purpose, so nothing in the
+    * reverse index, no candidate list and no condition can match them. On a
+    * real instance this is most of the traffic: 1070 entities exist and a
+    * dashboard reads a few dozen.
+    */
+  private def idleFrame(base: Map[String, EntityState], rot: Int): Frame = {
+    val moved = List.tabulate(TickEntities) { i =>
+      val id = s"sensor.unwatched_$i"
+      val next = EntityState(
+        id,
+        if (rot % 2 == 0) "on" else "off",
+        Map("brightness" -> Json.fromInt(1 + (rot * 13) % 254)),
+        lastUpdated = Some(BaseInstant.plusSeconds(rot.toLong + 1))
+      )
+      StateChange(id, Some(next.copy(state = "idle")), next)
+    }
+    Frame(
+      moved,
+      moved.foldLeft(base)((m, c) => m.updated(c.entityId, c.current))
+    )
+  }
 
   /** [[publish]] is only a selection bench if the selection selects. A frame
     * whose entities reach no node records an empty log, which still runs and
