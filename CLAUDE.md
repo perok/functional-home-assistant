@@ -247,6 +247,19 @@ well-named call does; a history of what the code used to be or what was tried an
 belongs in the commit message, or in a plan/ADR if it is a decision); a section header over three
 lines of code.
 
+**Write for a competent reader who already knows the stack.** The audience is someone fluent in
+Scala 3, cats-effect, http4s, fs2 and Pkl — not someone being taught them. A comment that
+explains what a library provides, what a standard type is for, or what a well-known idiom
+achieves is aimed at the wrong reader, and unlike the library's own documentation it goes stale.
+
+**The test: if the sentence would be equally true in somebody else's project, delete it.** What
+earns a comment is what is true of THIS codebase and could not be looked up — the obvious choice
+that was rejected and why, an invariant the types do not carry, a trap that actually bit. Detail
+is worth spending there and nowhere else.
+
+The failure mode to watch for is a comment that is individually defensible but collectively
+noise: each line looks like a small kindness, and the ratio is what does the damage.
+
 **Do write:** the reason a non-obvious choice was made over the obvious one; an invariant a reader
 would otherwise have to reconstruct; a trap that has actually bitten (with what it looked like);
 anything that took a spike to learn. One or two lines each — if it needs a paragraph, it is

@@ -1848,13 +1848,7 @@ class Server(
         case Server.RendererState.Failed(message) =>
           errorPage(slug, message, req)
         case Server.RendererState.Ready(renderer) =>
-          // The request's own span. It covers preparing the document, NOT
-          // writing it — the walk is a child started when the body is pulled
-          // (see `renderPage`), so this one closing early is the honest shape
-          // rather than an oversight.
-          tracer
-            .span("dashboard.page", Attribute("fh.slug", slug))
-            .surround(renderPage(slug, renderer, log, conn, req))
+          renderPage(slug, renderer, log, conn, req)
     }
 
   /** The full dashboard document ([[page]]) for a `Ready` slug: mint this
@@ -1915,13 +1909,15 @@ class Server(
       // argument in `recordFrame`.
       _ <- sessions.register(conn, session)
       _ <- reapAfter(conn, session, Tenure.Fresh, adoptionWindow)
-      store <- tracer.span("dashboard.page.store").surround(stateStore.current)
-      // Captured while the prepare span is still current, and handed to the
-      // walk below. The walk cannot simply inherit it: it runs when the
-      // RESPONSE BODY IS PULLED, long after this `for` has returned, so
-      // without carrying the context across it would open its own trace and
-      // the expensive half of a page open would sit in a span unattached to
-      // the request that caused it. That disconnect is precisely what #75
+      store <- tracer
+        .span("dashboard.page.store", Attribute("fh.slug", slug))
+        .surround(stateStore.current)
+      // The REQUEST's span, put here by the http4s middleware, captured while
+      // it is still current and handed to the walk below. The walk cannot
+      // inherit it: it runs when the RESPONSE BODY IS PULLED, after this `for`
+      // has returned, so without carrying the context across it would open its
+      // own trace and the expensive half of a page open would sit unattached
+      // to the request that caused it. That disconnect is exactly what #75
       // describes as making this path invisible.
       parentSpan <- tracer.currentSpanContext
       // Where the walk leaves its trace. The render has not happened yet — it

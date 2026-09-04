@@ -173,18 +173,35 @@ where a slow *page open* went, because the phases a dashboard request goes
 through — reading the entity store, minting the session, and the walk that
 renders and writes the document — take their time separately.
 
-Set `otlp_endpoint` to a collector and each page open reports as a trace:
+Set `otlp_endpoint` to a collector and you get traces and metrics for every
+request in and every call out, under the standard OpenTelemetry `http.*` names
+(the add-on uses the official http4s middleware, so a collector that has never
+heard of this project still understands the data).
 
-- `dashboard.page` — the request, tagged with the slug.
-- `dashboard.page.store` — reading the live entity state.
+On top of those, the spans that are specific to what this add-on does:
+
+- `dashboard.page.store` — reading the live entity state for a page.
 - `dashboard.page.walk` — the render and the write, tagged with the number of
-  nodes painted. This is usually the one worth looking at: the document is
-  rendered *as the response body is streamed*, so its cost is invisible to
-  anything timing the handler.
+  nodes painted. Usually the one worth looking at: the document is rendered
+  *as the response body is streamed*, so its cost is invisible to anything
+  timing the handler.
+- `dashboard.prepare`, with `.dump` and `.eval` beneath it — fetching the
+  entity dump and evaluating every dashboard. Not a request, so no HTTP span
+  covers it, and it runs on every registry-driven refresh rather than only at
+  boot.
+- `ha.entities.apply` — one span per frame of entity state arriving from Home
+  Assistant, tagged with how many entities were in it. This one is
+  high-frequency by nature; if it is more than your collector wants, that is
+  what `OTEL_TRACES_SAMPLER` is for.
 
 Log lines written while serving carry the `trace_id` and `span_id` of the span
 they happened in, so a slow trace and the warning explaining it can be matched
 up.
+
+The request path is kept in spans (it names the dashboard) but the **query
+string is dropped**, because the Home Assistant login redirect arrives as
+`/auth/callback?code=…` and an authorization code must not leave the machine
+in telemetry.
 
 ### If you have no collector
 

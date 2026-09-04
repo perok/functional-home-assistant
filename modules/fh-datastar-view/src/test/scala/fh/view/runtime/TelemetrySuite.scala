@@ -24,11 +24,14 @@ class TelemetrySuite extends munit.CatsEffectSuite {
     // rather than trusting the branch to stay correct.
     unconfigured.traverse_(endpoint =>
       Telemetry
-        .tracerFor("test", endpoint)
-        .use(
-          _.meta.isEnabled.map(on =>
-            assert(!on, s"a tracer was built for endpoint $endpoint")
-          )
+        .resource(endpoint)
+        .use(otel =>
+          otel.tracerProvider
+            .get("test")
+            .flatMap(_.meta.isEnabled)
+            .map(on =>
+              assert(!on, s"a tracer was built for endpoint $endpoint")
+            )
         )
     )
   }
@@ -38,13 +41,14 @@ class TelemetrySuite extends munit.CatsEffectSuite {
     // that quietly skips the work when disabled would mean a page renders on
     // a traced install and not on an untraced one.
     Telemetry
-      .tracerFor("test", None)
-      .use(tracer =>
-        IO.ref(0).flatMap { calls =>
-          tracer
-            .span("did-it-run")
-            .surround(calls.update(_ + 1))
-            .flatMap(_ => calls.get.assertEquals(1))
+      .resource(None)
+      .use(otel =>
+        (otel.tracerProvider.get("test"), IO.ref(0)).flatMapN {
+          (tracer, calls) =>
+            tracer
+              .span("did-it-run")
+              .surround(calls.update(_ + 1))
+              .flatMap(_ => calls.get.assertEquals(1))
         }
       )
   }

@@ -35,8 +35,25 @@ import api.homeassistant.ws.domain.HaUser
 import fh.view.model.Dashboard
 import fs2.Stream
 import fs2.concurrent.{Signal, SignallingRef}
+import cats.effect.MonadCancelThrow
+import org.http4s.client.Client
+import org.http4s.client.middleware.Metrics as ClientMetrics
 import org.http4s.ember.server.EmberServerBuilder
+import org.http4s.otel4s.middleware.metrics.OtelMetrics
+import org.http4s.otel4s.middleware.trace.client.{
+  ClientMiddleware,
+  ClientSpanDataProvider,
+  UriRedactor
+}
+import org.http4s.{Query, Status}
+import org.http4s.otel4s.middleware.trace.redact.{PathRedactor, QueryRedactor}
+import org.http4s.otel4s.middleware.trace.server.{
+  ServerMiddleware,
+  ServerSpanDataProvider
+}
+import org.http4s.server.middleware.Metrics as ServerMetrics
 import org.typelevel.log4cats.slf4j.Slf4jLogger
+import org.typelevel.otel4s.trace.{Tracer, TracerProvider}
 import fs2.io.file.{Watcher, Path}
 
 /** Runtime phase entry point.
@@ -142,6 +159,30 @@ object ServerApp extends IOApp {
       bundledLib <- bootstrap(config)
 
       _ <- (for {
+        // First, so everything below can be instrumented. No-op providers
+        // unless an OTLP endpoint is configured, in which case the SDK is
+        // never built at all ([[Telemetry]]).
+        otel <- Telemetry.resource
+        // One instrumented wrapper for every client this process opens — HA
+        // core over REST, the OAuth exchanges, the theme-asset fetches. An
+        // outbound call is the other half of a slow page open, so a client
+        // that is not wrapped is a hole in exactly the trace being read.
+        traceClient <- ClientMiddleware
+          .builder[IO](
+            // Paths and queries kept: the outbound calls are to HA core and
+            // to theme CDNs, and which one was slow is the whole question.
+            // Credentials ride in headers, not in the URI.
+            ClientSpanDataProvider.openTelemetry(
+              new UriRedactor.OnlyRedactUserInfo {}
+            )
+          )(using MonadCancelThrow[IO], otel.tracerProvider)
+          .build
+          .toResource
+        metricsClient <- OtelMetrics
+          .clientMetricsOps[IO]()(using cats.Monad[IO], otel.meterProvider)
+          .toResource
+        instrument = (client: Client[IO]) =>
+          traceClient.wrapClient(ClientMetrics[IO](metricsClient)(client))
         // Resolve SERVER/SECRET ONCE, eagerly, so a missing credential crashes
         // boot immediately — rather than being swallowed by the feed's
         // background reconnect loop and mistaken for an unreachable HA (which
@@ -163,19 +204,25 @@ object ServerApp extends IOApp {
         wanted <- SignallingRef[IO]
           .of(Option.empty[Set[String]])
           .toResource
+        feedTracer <- otel.tracerProvider
+          .get("fh.view.runtime.HaFeed")
+          .toResource
         feed <- HaFeed.resource(
           FHApi.lowLevelConnectWithClose(haEnv),
-          wanted
+          wanted,
+          feedTracer
         )
         dashboardsDir = config.dashboardsDir
         // Seed the dump and evaluate the entrypoint into every dashboard it
         // names — the source-to-renderer path shared with the test harness so
         // it can't diverge. `bundledLib` pins the FIRST dump on a fresh
         // workspace.
+        buildTracer <- otel.tracerProvider.get("fh.view.build").toResource
         prepared <- prepareRenderers(
           feed,
           dashboardsDir,
-          Some(bundledLib)
+          Some(bundledLib),
+          buildTracer
         ).toResource
         built = prepared.built
         // Serves this home's `dump.pkl` and its resolved package artifacts over
@@ -200,7 +247,7 @@ object ServerApp extends IOApp {
               renderer.stylesheets ++ renderer.deferredStylesheets ++
                 renderer.scripts
             },
-            org.http4s.jdkhttpclient.JdkHttpClient[IO](httpClient)
+            instrument(org.http4s.jdkhttpclient.JdkHttpClient[IO](httpClient))
           )
           .toResource
 
@@ -286,7 +333,7 @@ object ServerApp extends IOApp {
         oauth = new HaOAuth(
           haPublicUrl,
           haCoreUrl,
-          org.http4s.jdkhttpclient.JdkHttpClient[IO](httpClient)
+          instrument(org.http4s.jdkhttpclient.JdkHttpClient[IO](httpClient))
         )
         // A connection that IS somebody else — short-lived, opened with their
         // token, closed after one exchange. Deliberately NOT the shared feed,
@@ -358,7 +405,8 @@ object ServerApp extends IOApp {
           // A tap is the user's, not the add-on's (issue #198). A request with
           // no login session still falls back to the feed's own identity, which
           // is what an unauthenticated deployment and ingress both have.
-          actions = ServiceCalls.asUser(_, connectAs, authSessions, oauth)
+          actions = ServiceCalls.asUser(_, connectAs, authSessions, oauth),
+          tracerProvider = otel.tracerProvider
         )
         // The editor surface (/edit + /lsp/pkl). The pkl-lsp jar backs the LSP
         // subprocess; None just disables completion/diagnostics (the editor and
@@ -394,6 +442,33 @@ object ServerApp extends IOApp {
           oauth,
           identify
         ).compile.drain.background
+        // The conventional `http.server.*` span and metrics, off http4s' own
+        // request/response types (http4s-otel4s-middleware). Hand-rolled
+        // equivalents would carry names only this project understands, and
+        // would have to re-derive route, status and error semantics the
+        // middleware already gets right.
+        //
+        // The path is KEPT: it is the dashboard slug or an editor file name,
+        // which is what says which page was slow, and no secret rides there.
+        //
+        // The query is DROPPED, and that asymmetry is the point: the OAuth
+        // callback arrives as `/auth/callback?code=…`, and an authorization
+        // code in a span that leaves the machine is a credential leak. The
+        // query carries nothing else worth having — `?edit=1`, and the node
+        // and group ids on an action.
+        traceServer <- ServerMiddleware
+          .builder[IO](
+            ServerSpanDataProvider.openTelemetry(
+              new PathRedactor.NeverRedact with QueryRedactor {
+                def redactQuery(query: Query): Query = Query.empty
+              }
+            )
+          )(using MonadCancelThrow[IO], otel.tracerProvider)
+          .build
+          .toResource
+        metricsServer <- OtelMetrics
+          .serverMetricsOps[IO]()(using cats.Monad[IO], otel.meterProvider)
+          .toResource
         _ <- EmberServerBuilder
           .default[IO]
           .withHost(config.bindHost)
@@ -405,10 +480,26 @@ object ServerApp extends IOApp {
             // Each route (or route GROUP — see `AuthGate.require`) declares
             // its own requirement. Inside the error boundary, so a raised
             // FHError still becomes a status.
-            FHError.handle(
-              (authRoutes.routes <+> server.routes <+> editor.routes(
-                wsb
-              )).orNotFound
+            //
+            // Tracing wraps the error boundary and metrics sits inside it,
+            // because `Metrics` takes routes and `FHError.handle` takes an
+            // app. The `errorResponseHandler` is what keeps that ordering
+            // honest: without it a raised `FHError` would be counted as a
+            // 500 while the client was answered 404, and the metric would
+            // disagree with the log about the same request.
+            traceServer.wrapHttpApp(
+              FHError.handle(
+                ServerMetrics[IO](
+                  metricsServer,
+                  errorResponseHandler = {
+                    case e: FHError =>
+                      Status.fromInt(e.status).toOption
+                    case _ => Some(Status.InternalServerError)
+                  }
+                )(
+                  authRoutes.routes <+> server.routes <+> editor.routes(wsb)
+                ).orNotFound
+              )
             )
           )
           .withShutdownTimeout(0.seconds)
@@ -479,38 +570,50 @@ object ServerApp extends IOApp {
   private[runtime] def prepareRenderers(
       feed: HaFeed,
       dashboardsDir: os.Path,
-      bundledLib: Option[LibPackage.Artifacts]
+      bundledLib: Option[LibPackage.Artifacts],
+      tracer: Tracer[IO] = Tracer.noop
   ): IO[Prepared] =
-    // Write the live dump once (so `import "@fh-home/dump.pkl"` resolves) via
-    // the build phase, which owns fetching + packaging the dump.
-    DashboardBuild.prepareDumps(feed.api, dashboardsDir, bundledLib) *>
-      DashboardBuild
-        .evalSite(dashboardsDir)
-        .attempt
-        .flatMap {
-          case Right((site, imports)) =>
-            IO.pure(Prepared(site.dashboards.toMap, site.default, imports))
-          case Left(err) =>
-            // Nothing evaluated, so nothing can be attributed to a slug: serve
-            // the error under the one name `/` will look for.
-            IO.pure(
-              Prepared(
-                Map(Server.DefaultSlug -> Left(Site.messageOf(err))),
-                None,
-                Set(dashboardsDir / Site.EntryFile)
+    // Traced because this is the OTHER thing that can make the add-on feel
+    // slow, and it is not a request so no HTTP span covers it: on a Pi, the
+    // dump fetch and a pkl evaluation of every dashboard are seconds, and they
+    // run again on every registry-driven refresh — not just at boot.
+    tracer.span("dashboard.prepare").surround {
+      // Write the live dump once (so `import "@fh-home/dump.pkl"` resolves) via
+      // the build phase, which owns fetching + packaging the dump.
+      tracer
+        .span("dashboard.prepare.dump")
+        .surround(
+          DashboardBuild.prepareDumps(feed.api, dashboardsDir, bundledLib)
+        ) *>
+        tracer
+          .span("dashboard.prepare.eval")
+          .surround(DashboardBuild.evalSite(dashboardsDir))
+          .attempt
+          .flatMap {
+            case Right((site, imports)) =>
+              IO.pure(Prepared(site.dashboards.toMap, site.default, imports))
+            case Left(err) =>
+              // Nothing evaluated, so nothing can be attributed to a slug: serve
+              // the error under the one name `/` will look for.
+              IO.pure(
+                Prepared(
+                  Map(Server.DefaultSlug -> Left(Site.messageOf(err))),
+                  None,
+                  Set(dashboardsDir / Site.EntryFile)
+                )
               )
-            )
-        }
-        .flatTap { prepared =>
-          prepared.built.traverse_ { case (slug, renderer) =>
-            // Built, but maybe not sound: report what still serves and only
-            // misbehaves (a popup with nowhere to go).
-            renderer.warnings.traverse_(w => log.warn(s"'$slug': $w"))
-          } *>
-            prepared.failed.traverse_ { case (slug, message) =>
-              log.error(s"Dashboard '$slug' failed to build: $message")
-            }
-        }
+          }
+          .flatTap { prepared =>
+            prepared.built.traverse_ { case (slug, renderer) =>
+              // Built, but maybe not sound: report what still serves and only
+              // misbehaves (a popup with nowhere to go).
+              renderer.warnings.traverse_(w => log.warn(s"'$slug': $w"))
+            } *>
+              prepared.failed.traverse_ { case (slug, message) =>
+                log.error(s"Dashboard '$slug' failed to build: $message")
+              }
+          }
+    }
 
   /** How long a session may go unchecked before HA is asked about it again.
     * Matches HA's own access-token life, so a revocation is visible within one
@@ -626,14 +729,14 @@ object ServerApp extends IOApp {
       // harness — keeps today's behaviour; production hands in the per-user
       // form, which needs the OAuth client and the session registry that only
       // `run` has built.
-      actions: HomeAssistantApi[IO] => ServiceCalls = ServiceCalls.asInstance
+      actions: HomeAssistantApi[IO] => ServiceCalls = ServiceCalls.asInstance,
+      // No-op by default, which is what every test harness gets and also what
+      // an install with no collector configured runs on.
+      tracerProvider: TracerProvider[IO] = TracerProvider.noop
   ): Resource[IO, Server] =
     for {
       sessions <- Sessions.create.toResource
-      // No-op unless an OTLP endpoint is configured, so the harnesses that
-      // funnel through here pay nothing and neither does an ordinary install
-      // ([[Telemetry]]).
-      tracer <- Telemetry.tracerFor("fh.view.runtime.Server")
+      tracer <- tracerProvider.get("fh.view.runtime.Server").toResource
       server <- Server.fromFeed(
         feed,
         site,

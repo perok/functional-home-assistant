@@ -10,6 +10,7 @@ val otel4sVersion = "1.1.0"
 // the SDK it plugs into. otel4s' own SDK modules are NOT used: they moved to a
 // separate repo and are still marked experimental.
 val otelJavaVersion = "1.64.0"
+val otelMiddlewareVersion = "0.18.0"
 val MUnitFramework = new TestFramework("munit.Framework")
 
 // Warnings are advisory while you work and fatal where the flag says so (#115).
@@ -270,8 +271,6 @@ lazy val `fh-datastar-view` = project
       "org.http4s" %% "http4s-core" % http4sVersion,
       "org.http4s" %% "http4s-dsl" % http4sVersion,
       "org.http4s" %% "http4s-ember-server" % http4sVersion,
-      // `EntityEncoder[IO, Json]`, so a route answers `Ok(json)` and gets the
-      // content type from the encoder instead of restating it per route.
       "org.http4s" %% "http4s-circe" % http4sVersion,
       "io.circe" %% "circe-core" % "0.14.16",
       "io.circe" %% "circe-parser" % "0.14.16",
@@ -299,19 +298,19 @@ lazy val `fh-datastar-view` = project
       // belongs to the application, not to a library.
       "org.typelevel" %% "log4cats-slf4j" % log4catsVersion,
       "ch.qos.logback" % "logback-classic" % "1.6.3",
-      // Tracing (#75). The exporter is `Runtime`: nothing compiles against it,
-      // it is chosen by autoconfigure at boot, and it is only ever loaded when
-      // an OTLP endpoint is configured — which matters on a Pi, where the
-      // point of an unconfigured install is that it costs nothing.
       "org.typelevel" %% "otel4s-oteljava" % otel4sVersion,
+      "org.http4s" %% "http4s-otel4s-middleware-trace-server" % otelMiddlewareVersion,
+      "org.http4s" %% "http4s-otel4s-middleware-trace-client" % otelMiddlewareVersion,
+      "org.http4s" %% "http4s-otel4s-middleware-metrics" % otelMiddlewareVersion,
+      "org.http4s" %% "http4s-server" % http4sVersion,
+      "org.http4s" %% "http4s-client" % http4sVersion,
+      // Runtime-only on purpose: nothing compiles against it, autoconfigure
+      // picks it at boot, and it stays unloaded unless an endpoint is set.
       "io.opentelemetry" % "opentelemetry-exporter-otlp" % otelJavaVersion % Runtime,
       "org.scalameta" %% "munit" % "1.3.5" % Test,
       // Lets tests return IO[Unit] directly (no unsafeRunSync / global runtime)
       // and adds IO-aware assertions (assertIO, IO#assertEquals).
       "org.typelevel" %% "munit-cats-effect" % "2.2.0" % Test,
-      // A capturing logger, so `TracedLogger`'s hand-written delegations can be
-      // asserted on rather than trusted — a `warn` that calls `info` would fail
-      // nowhere else.
       "org.typelevel" %% "log4cats-testing" % log4catsVersion % Test,
       // Property-based testing for the digest biconditional (ADR 0029):
       // equal input digest ⟺ equal patch bytes must hold over GENERATED node
