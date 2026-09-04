@@ -6,6 +6,7 @@ import io.circe.Json
 
 import java.lang.management.ManagementFactory
 import javax.management.ObjectName
+import scala.util.control.NonFatal
 
 /** What the add-on is spending on the machine, answerable over HTTP.
   *
@@ -185,23 +186,25 @@ object Diagnostics {
       new ObjectName(
         "cats.effect.unsafe.metrics:type=LiveFiberSnapshotTrigger-*"
       )
-    server
-      .queryNames(pattern, null)
-      .asScalaSet
-      .toList
-      .sortBy(_.toString) match {
-      case Nil =>
-        "no fiber monitor is registered on this runtime"
-      case triggers =>
-        triggers
-          .flatMap(name =>
-            server.invoke(name, "liveFiberSnapshot", null, null) match {
-              case lines: Array[?] => lines.toList.map(String.valueOf)
-              case other           => List(String.valueOf(other))
-            }
-          )
-          .mkString("\n")
-    }
+    val triggers =
+      server.queryNames(pattern, null).asScalaSet.toList.sortBy(_.toString)
+    // Guarded PER TRIGGER, because a process can hold several runtimes and one
+    // of them failing must not take the answer down with it. Two ways one
+    // does, both hit for real: a runtime shutting down unregisters its trigger
+    // between the query and the call, and a monitor not backed by a
+    // work-stealing pool has a null `fiberBag` and throws NPE from inside
+    // cats-effect.
+    val sections = triggers.flatMap(name =>
+      try
+        server.invoke(name, "liveFiberSnapshot", null, null) match {
+          case lines: Array[?] => lines.toList.map(String.valueOf)
+          case other           => List(String.valueOf(other))
+        }
+      catch { case NonFatal(_) => Nil }
+    )
+    if (triggers.isEmpty) "no fiber monitor is registered on this runtime"
+    else if (sections.isEmpty) "no fiber monitor could answer"
+    else sections.mkString("\n")
   }.handleError(e => s"fiber dump unavailable: ${e.getMessage}")
 
   /** The container figure, from cgroup v2. `None` off Linux, or wherever the

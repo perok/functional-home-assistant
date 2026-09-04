@@ -177,8 +177,9 @@ class DiagnosticsSuite extends munit.CatsEffectSuite {
         )
         assert(
           !dump.startsWith("no fiber monitor"),
-          "no LiveFiberSnapshotTrigger was registered — the ObjectName " +
-            s"pattern probably no longer matches: $dump"
+          "no trigger answered. Either the ObjectName pattern no longer " +
+            "matches, or every runtime's monitor threw — under the full " +
+            "suite there are several, and only some can answer: " + dump
         )
         assert(dump.trim.nonEmpty, "the dump was empty with a fiber parked")
       }
