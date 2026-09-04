@@ -74,6 +74,42 @@ your regenerated entity dump, and `PklProject`, which binds the
 | Option | Description |
 |---|---|
 | `watch_registry` | Rebuild the entity dump automatically on HA registry changes (default `true`). The swap is validated first and the previous dump is kept as a dated backup. |
+| `max_heap` | JVM max heap as a `-Xmx` value — `"512M"` (the default), `"1G"`. A ceiling, not a reservation. Raise it if a large house or a big workspace runs out. |
+| `memory_tracking` | Turn on Native Memory Tracking so the memory breakdown below is available (default `false`). Costs a few percent; takes effect on restart. |
+
+## Memory
+
+The add-on is a JVM, so what the supervisor reports is its heap plus the
+runtime's own overhead — metaspace, JIT code cache, GC structures, thread
+stacks. That overhead is a fixed cost of running Scala on a JVM, not a leak.
+
+Both ends of the heap are set to numbers rather than to fractions of the
+machine: it starts at 64 MB and grows only as the workload needs, up to
+`max_heap` (512 MB by default). So the figure follows the dashboards you run
+rather than the size of the box you run them on, and the garbage collector
+hands memory back once a burst is over. If the add-on restarts with an
+OutOfMemoryError in the log, `max_heap` is the thing to raise.
+
+To see where the memory actually goes, set `memory_tracking: true`, restart,
+and ask the running process from the host. The container is named after the
+repository it was installed from, so find it rather than guessing, and note
+that PID 1 is the base image's init — `jcmd -l` gives you the JVM's:
+
+```sh
+C=$(docker ps --format '{{.Names}}' | grep fh_dashboard)
+docker exec "$C" jcmd -l                      # -> "<pid> /opt/fh-dashboard.jar"
+docker exec "$C" jcmd <pid> VM.native_memory summary
+docker exec "$C" jcmd <pid> GC.heap_info
+```
+
+For a slow page open rather than a large one, record a profile into the
+add-on's `/data` and copy it out:
+
+```sh
+docker exec "$C" jcmd <pid> JFR.start settings=profile duration=60s \
+  filename=/data/fh.jfr
+docker cp "$C":/data/fh.jfr .
+```
 
 ## Direct port (optional)
 
