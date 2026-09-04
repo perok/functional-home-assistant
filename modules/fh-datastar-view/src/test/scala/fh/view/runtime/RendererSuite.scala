@@ -17,7 +17,7 @@ import fh.view.model.{
   Surface,
   Theme
 }
-import fh.view.testkit.DashboardBuilders.{col, lit, row, st}
+import fh.view.testkit.DashboardBuilders.{asComponent, col, lit, row, st}
 import fh.view.testkit.TestIds.{setId, given}
 import io.circe.Json
 
@@ -1078,7 +1078,7 @@ class RendererSuite extends munit.FunSuite {
     val fromObject = decode(s""","regions":{"children":[$leaf]}""")
       .fold(e => fail(s"decode failed: $e"), identity)
     assertEquals(
-      fromObject.card.asInstanceOf[LayoutNode.Component].regions.keySet,
+      fromObject.card.asComponent.regions.keySet,
       Set(LayoutNode.DefaultRegion)
     )
 
@@ -1088,7 +1088,7 @@ class RendererSuite extends munit.FunSuite {
       decode("")
         .fold(e => fail(s"decode failed: $e"), identity)
         .card
-        .asInstanceOf[LayoutNode.Component]
+        .asComponent
         .regions,
       Map.empty[String, List[LayoutNode]]
     )

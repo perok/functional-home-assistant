@@ -84,6 +84,12 @@ final class FakeHomeAssistant private (
     // How many `subscribe_events` subscriptions have been opened, counting
     // re-subscribes. See [[awaitEventSubscribes]].
     eventSubscribes: SignallingRef[IO, Int],
+    // Every `subscribe_entities` this fake has been asked for, in order, with
+    // the filter it carried. The feed re-subscribes when the set of entities
+    // the dashboards read changes, and this is what makes that visible — the
+    // narrowing is otherwise invisible to a test, since a filtered feed and an
+    // unfiltered one deliver the same fixtures.
+    entitySubscribes: SignallingRef[IO, Vector[Option[List[String]]]],
     // Which CONNECTION generation subscriptions belong to. See [[dropConnection]].
     generation: SignallingRef[IO, Int],
     // The `call_service` response knobs ([[FakeConfig]]): a delay to hold the
@@ -143,7 +149,6 @@ final class FakeHomeAssistant private (
           )
           .flatMap(_ => delayedOrFailedResponse)
           .as(Json.obj())
-          .asInstanceOf[IO[Response]]
 
       // The four registries [[fh.view.build.RegistryDump]] joins against. A
       // fixture declares entities and their attributes, never registry rows, so
@@ -152,17 +157,17 @@ final class FakeHomeAssistant private (
       // in the dump, just with no area/floor/device/category. A test that needs
       // those fills the corresponding list in.
       case _: `config/entity_registry/list` =>
-        IO.pure(List.empty).asInstanceOf[IO[Response]]
+        IO.pure(Nil)
       case _: `config/device_registry/list` =>
-        IO.pure(List.empty).asInstanceOf[IO[Response]]
+        IO.pure(Nil)
       case _: `config/area_registry/list` =>
-        IO.pure(List.empty).asInstanceOf[IO[Response]]
+        IO.pure(Nil)
       case _: `config/floor_registry/list` =>
-        IO.pure(List.empty).asInstanceOf[IO[Response]]
+        IO.pure(Nil)
       // A house with no accounts. Suites that care about users seed them
       // through the dump they build, not through the fake.
       case _: `config/auth/list` =>
-        IO.pure(List.empty).asInstanceOf[IO[Response]]
+        IO.pure(Nil)
 
       case _ => na
     }
@@ -171,16 +176,33 @@ final class FakeHomeAssistant private (
       msg: CommandPhase & CommandResponse.AsStream[Result]
   ): Resource[IO, Stream[IO, Result]] =
     msg match {
-      case _: `subscribe_entities` =>
-        // Real HA opens the feed with the FULL entity set and then sends deltas,
-        // so the stream is "current fixtures as one `a` frame" followed by the
-        // live delta queue `emit` pushes to. Deriving the opening frame from the
-        // same fixtures the dump comes from is what keeps built-against and
-        // served state identical.
+      case s: `subscribe_entities` =>
+        // Real HA opens the feed with the subscribed set in full and then sends
+        // deltas, so the stream is "current fixtures as one `a` frame" followed
+        // by the live delta queue `emit` pushes to. Deriving the opening frame
+        // from the same fixtures the dump comes from is what keeps built-against
+        // and served state identical.
+        //
+        // The filter is APPLIED, not just recorded: a fake that accepted
+        // `entity_ids` and then delivered everything would let a wrong entity
+        // set pass every test here and fail only against a real instance.
+        val only = s.entity_ids.map(_.toSet)
         Resource.eval(
-          forThisConnection(
-            Stream.eval(fullSet) ++ Stream.fromQueueUnterminated(deltas)
-          ).map(_.asInstanceOf[Stream[IO, Result]])
+          entitySubscribes.update(_ :+ s.entity_ids) *>
+            forThisConnection(
+              // The opening frame is sent even when it is empty — an instance
+              // with no fixtures, or a filter that matches none — because it is
+              // what tells the feed it is seeded. Only DELTAS are dropped when
+              // the filter empties them, which is what real HA does: it never
+              // sends an event for an entity you did not subscribe to.
+              Stream.eval(fullSet.map(narrow(_, only))) ++
+                Stream
+                  .fromQueueUnterminated(deltas)
+                  .map(narrow(_, only))
+                  .filter(e =>
+                    e.added.nonEmpty || e.changed.nonEmpty || e.removed.nonEmpty
+                  )
+            )
         )
       case subscribe_events(Some(eventType)) =>
         // Both the store's state_changed feed and arbitrary rawEvents (the
@@ -189,7 +211,6 @@ final class FakeHomeAssistant private (
           queueFor(eventType)
             .flatTap(_ => eventSubscribes.update(_ + 1))
             .flatMap(q => forThisConnection(Stream.fromQueueUnterminated(q)))
-            .map(_.asInstanceOf[Stream[IO, Result]])
         )
       case _ => naR
     }
@@ -198,6 +219,33 @@ final class FakeHomeAssistant private (
   // supplies the supervisor's `awaitClosed`; this is only here to satisfy the
   // trait.
   def awaitClosed: IO[Unit] = IO.never
+
+  /** One frame as a filtered subscription would see it. `None` is unfiltered —
+    * which is also what HA does with an EMPTY `entity_ids`, and the reason the
+    * production code refuses to send one.
+    */
+  private def narrow(
+      e: EntitiesEvent,
+      only: Option[Set[String]]
+  ): EntitiesEvent =
+    only.filter(_.nonEmpty).fold(e) { ids =>
+      EntitiesEvent(
+        added = e.added.filter { case (id, _) => ids(id) },
+        changed = e.changed.filter { case (id, _) => ids(id) },
+        removed = e.removed.filter(ids)
+      )
+    }
+
+  /** Every `subscribe_entities` asked of this fake, in order, with its filter.
+    */
+  def entitySubscriptions: IO[Vector[Option[List[String]]]] =
+    entitySubscribes.get
+
+  /** Wait until at least `n` entity subscriptions have been opened — the
+    * readiness seam for a re-subscribe, which is otherwise racy to observe.
+    */
+  def awaitEntitySubscribes(n: Int): IO[Unit] =
+    entitySubscribes.discrete.filter(_.sizeIs >= n).head.compile.drain
 
   /** The current fixtures as a `subscribe_entities` opening frame: every entity
     * with its complete state, stamped with the current tick so a reconnect's
@@ -292,6 +340,9 @@ object FakeHomeAssistant {
       deltas <- Queue.unbounded[IO, EntitiesEvent]
       clock <- Ref[IO].of(0L)
       eventSubscribes <- SignallingRef[IO].of(0)
+      entitySubscribes <- SignallingRef[IO].of(
+        Vector.empty[Option[List[String]]]
+      )
       generation <- SignallingRef[IO].of(0)
     } yield new FakeHomeAssistant(
       stateRef,
@@ -300,6 +351,7 @@ object FakeHomeAssistant {
       deltas,
       clock,
       eventSubscribes,
+      entitySubscribes,
       generation,
       config
     )
