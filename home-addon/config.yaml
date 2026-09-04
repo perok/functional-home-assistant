@@ -53,3 +53,9 @@ schema:
   # It costs a few percent and needs a restart to take effect, which is why
   # it is an option and not something the running server can switch on.
   memory_tracking: bool?
+  # OTLP collector to send traces to, e.g. "http://192.168.1.50:4318". Empty
+  # (the default) means the OpenTelemetry SDK is never started at all, not
+  # merely that nothing is exported — which is the point on this hardware.
+  # Everything else about the exporter is set through the standard OTEL_*
+  # environment variables rather than an option each.
+  otlp_endpoint: str?

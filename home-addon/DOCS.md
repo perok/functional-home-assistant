@@ -77,6 +77,7 @@ your regenerated entity dump, and `PklProject`, which binds the
 | `max_heap` | JVM max heap as a `-Xmx` value — `"512M"` (the default), `"1G"`. A ceiling, not a reservation. Raise it if a large house or a big workspace runs out. |
 | `min_heap` | JVM starting heap as a `-Xms` value — `"64M"` by default. This is the end that decides the idle footprint; raise it with `max_heap` if the collector is visibly growing and shrinking. |
 | `memory_tracking` | Add the native-memory breakdown to `GET /system/diagnostics` (default `false`). Costs a few percent, and takes effect on restart — the JVM cannot start tracking while running. |
+| `otlp_endpoint` | Send traces to an OpenTelemetry collector, e.g. `"http://192.168.1.50:4318"`. Empty (the default) means tracing is off and the OpenTelemetry SDK is never started. |
 
 ## Memory
 
@@ -164,6 +165,76 @@ docker exec "$C" jcmd <pid> JFR.start settings=profile duration=60s \
   filename=/data/fh.jfr
 docker cp "$C":/data/fh.jfr .
 ```
+
+## Tracing (optional)
+
+`GET /system/diagnostics` says how much the add-on is using. It does not say
+where a slow *page open* went, because the phases a dashboard request goes
+through — reading the entity store, minting the session, and the walk that
+renders and writes the document — take their time separately.
+
+Set `otlp_endpoint` to a collector and you get traces and metrics for every
+request in and every call out, under the standard OpenTelemetry `http.*` names
+(the add-on uses the official http4s middleware, so a collector that has never
+heard of this project still understands the data).
+
+On top of those, the spans that are specific to what this add-on does:
+
+- `dashboard.page.store` — reading the live entity state for a page.
+- `dashboard.page.walk` — the render and the write, tagged with the number of
+  nodes painted. Usually the one worth looking at: the document is rendered
+  *as the response body is streamed*, so its cost is invisible to anything
+  timing the handler.
+- `dashboard.prepare`, with `.dump` and `.eval` beneath it — fetching the
+  entity dump and evaluating every dashboard. Not a request, so no HTTP span
+  covers it, and it runs on every registry-driven refresh rather than only at
+  boot.
+- `ha.entities.apply` — one span per frame of entity state arriving from Home
+  Assistant, tagged with how many entities were in it. This one is
+  high-frequency by nature; if it is more than your collector wants, that is
+  what `OTEL_TRACES_SAMPLER` is for.
+
+Log lines written while serving carry the `trace_id` and `span_id` of the span
+they happened in, so a slow trace and the warning explaining it can be matched
+up.
+
+The request path is kept in spans (it names the dashboard) but the **query
+string is dropped**, because the Home Assistant login redirect arrives as
+`/auth/callback?code=…` and an authorization code must not leave the machine
+in telemetry.
+
+### If you have no collector
+
+You need one container and no configuration. On any machine on the LAN:
+
+```sh
+docker run -p 3000:3000 -p 4317:4317 -p 4318:4318 grafana/otel-lgtm
+```
+
+Then set `otlp_endpoint` to `http://<that machine>:4318` and open Grafana on
+port 3000 — traces land in Tempo. The image bundles Grafana, Tempo, Loki and
+Prometheus behind an OpenTelemetry collector and needs no setup of its own.
+
+Note that 4317/4318 are the collector's **receiving** ports: the add-on pushes
+to them. Nothing scrapes the add-on for traces, and no OpenTelemetry component
+can — a trace is a stream of completed spans rather than a current value, so
+there is no pull protocol for it. (Metrics are the exception, and Prometheus
+scraping is how they would be collected if we ever export any.)
+
+### What it costs
+
+**With no endpoint set, nothing.** The OpenTelemetry SDK is never constructed,
+so the spans are no-op calls and the exporter classes are never loaded.
+
+**With an endpoint set but nothing listening, still nothing that grows.** The
+SDK's batch processor holds a fixed-size queue of 2048 spans and drops on
+overflow rather than blocking or growing — so an unreachable or switched-off
+collector costs dropped spans and a warning, never memory. If you stop the
+collector, you can leave the endpoint set.
+
+Everything else about the exporter — protocol, headers, sampling, extra
+resource attributes — is configured with the standard `OTEL_*` environment
+variables rather than an option per setting.
 
 ## Direct port (optional)
 

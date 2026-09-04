@@ -34,6 +34,8 @@ import org.http4s.headers.{
 }
 import org.typelevel.ci.CIString
 import org.typelevel.log4cats.slf4j.Slf4jLogger
+import org.typelevel.otel4s.Attribute
+import org.typelevel.otel4s.trace.Tracer
 
 import java.nio.charset.StandardCharsets.UTF_8
 
@@ -102,8 +104,23 @@ class Server(
     adoptionWindow: FiniteDuration = Server.AdoptionWindow,
     // How long a session outlives its stream ([[Server.LingerWindow]]). Same
     // reason it is a parameter.
-    lingerWindow: FiniteDuration = Server.LingerWindow
+    lingerWindow: FiniteDuration = Server.LingerWindow,
+    // Spans for the page-open path (#75). The no-op default is what every
+    // test and a standalone construction get, and it is also what the add-on
+    // itself runs on unless an OTLP endpoint is configured ([[Telemetry]]) —
+    // so this parameter changes what is REPORTED, never what is done.
+    tracer: Tracer[IO] = Tracer.noop
 ) {
+
+  /** This class's logger, wrapped so a line written while serving a request
+    * carries that request's trace id ([[TracedLogger]]) — which is what lets a
+    * slow trace and the warning that explains it find each other.
+    *
+    * `logger`, not `log`: `renderPage` already takes a `log: FragmentLog`, and
+    * a field that a parameter shadows in one method and not the others is a
+    * trap rather than a convenience.
+    */
+  private val logger = new TracedLogger(Slf4jLogger.getLogger[IO], tracer)
 
   val routes: HttpRoutes[IO] = HttpRoutes.of[IO] {
     // Resolved per REQUEST, not at construction: the entrypoint can rename or
@@ -686,7 +703,7 @@ class Server(
       // Warn on any off ui-state value.
       _ <- Server
         .cursorAnomaly(req)
-        .traverse_(w => Server.log.warn(w))
+        .traverse_(w => logger.warn(w))
       _ <- rendererOpt.traverse_ { r =>
         warnAnomalies(r, uiState) *>
           session.open.set(
@@ -1566,7 +1583,7 @@ class Server(
   ): IO[Unit] =
     renderer.surfaces
       .uiStateAnomalies(uiState)
-      .traverse_(w => Server.log.warn(w))
+      .traverse_(w => logger.warn(w))
 
   /** Datastar reads live updates from the persistent SSE stream, so a service
     * call that WORKS returns no content.
@@ -1892,7 +1909,17 @@ class Server(
       // argument in `recordFrame`.
       _ <- sessions.register(conn, session)
       _ <- reapAfter(conn, session, Tenure.Fresh, adoptionWindow)
-      store <- stateStore.current
+      store <- tracer
+        .span("dashboard.page.store", Attribute("fh.slug", slug))
+        .surround(stateStore.current)
+      // The REQUEST's span, put here by the http4s middleware, captured while
+      // it is still current and handed to the walk below. The walk cannot
+      // inherit it: it runs when the RESPONSE BODY IS PULLED, after this `for`
+      // has returned, so without carrying the context across it would open its
+      // own trace and the expensive half of a page open would sit unattached
+      // to the request that caused it. That disconnect is exactly what #75
+      // describes as making this path invisible.
+      parentSpan <- tracer.currentSpanContext
       // Where the walk leaves its trace. The render has not happened yet — it
       // happens as the RESPONSE BODY IS PULLED — so what the page painted is
       // only known once the last byte is out, which is why `holds` is
@@ -1990,7 +2017,24 @@ class Server(
             // body.
             w.flush()
             own
-          }.flatMap(ownRef.set)
+          }.flatMap(own =>
+            ownRef.set(own) *>
+              // The node count is the size of what was just painted, and it is
+              // the number the walk's duration has to be read against — 200
+              // nodes in 40 ms and 20 nodes in 40 ms are different findings.
+              tracer.currentSpanOrNoop.flatMap(
+                _.addAttribute(Attribute("fh.nodes", own.size.toLong))
+              )
+          )
+            // Where a page open actually spends its time, and the span #75 was
+            // opened to get: everything above prices the SETUP, while this is
+            // the render plus the write, on a blocking thread, measured on the
+            // machine that is slow rather than on a dev box.
+            .pipe(walk =>
+              tracer.childOrContinue(parentSpan)(
+                tracer.span("dashboard.page.walk").surround(walk)
+              )
+            )
         }
         // `holds` is "bytes this client was sent", so it is committed once
         // they HAVE been — on success only. An abandoned or truncated page
@@ -2010,7 +2054,7 @@ class Server(
               })
             )
           case Resource.ExitCase.Errored(e) =>
-            Server.log.warn(e)(s"page render for '$slug' failed mid-walk")
+            logger.warn(e)(s"page render for '$slug' failed mid-walk")
           case Resource.ExitCase.Canceled => IO.unit
         }
       resp <- Ok(body)
@@ -2266,8 +2310,6 @@ class Server(
 }
 
 object Server {
-
-  private val log = Slf4jLogger.getLogger[IO]
 
   /** One slug's live state: either a `Ready` renderer (serving, recording,
     * hot-swappable) or a `Failed` dashboard (a build/eval error — still
@@ -2750,7 +2792,8 @@ object Server {
       systemPkl: SystemPkl,
       dumpRefresh: Option[IO[DumpRefresh.Result]],
       adoptionWindow: FiniteDuration = AdoptionWindow,
-      lingerWindow: FiniteDuration = LingerWindow
+      lingerWindow: FiniteDuration = LingerWindow,
+      tracer: Tracer[IO] = Tracer.noop
   ): Resource[IO, Server] =
     for {
       supervisor <- Supervisor[IO]
@@ -2766,7 +2809,8 @@ object Server {
         systemPkl,
         dumpRefresh,
         adoptionWindow,
-        lingerWindow
+        lingerWindow,
+        tracer
       )
       _ <- server.sharedPatchPublishers.compile.drain.background
     } yield server
@@ -2792,7 +2836,8 @@ object Server {
       // owns the api and this is the one place it is in hand; the default is
       // the instance's own identity, which is what a deployment with no login
       // has and what the tests want.
-      actions: HomeAssistantApi[IO] => ServiceCalls = ServiceCalls.asInstance
+      actions: HomeAssistantApi[IO] => ServiceCalls = ServiceCalls.asInstance,
+      tracer: Tracer[IO] = Tracer.noop
   ): Resource[IO, Server] =
     withSite(
       actions(feed.api),
@@ -2803,7 +2848,8 @@ object Server {
       assets,
       feed.healthy,
       systemPkl,
-      dumpRefresh
+      dumpRefresh,
+      tracer = tracer
     )
 
   /** The `POST /system/dump/refresh` response body — status plus what a caller

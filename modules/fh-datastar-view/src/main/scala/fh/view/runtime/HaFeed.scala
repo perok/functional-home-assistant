@@ -9,6 +9,8 @@ import cats.effect.{Deferred, IO, Resource}
 import fs2.Stream
 import fs2.concurrent.{Signal, SignallingRef}
 import org.typelevel.log4cats.slf4j.Slf4jLogger
+import org.typelevel.otel4s.Attribute
+import org.typelevel.otel4s.trace.Tracer
 
 import scala.concurrent.duration.*
 
@@ -71,7 +73,8 @@ object HaFeed {
     */
   def resource(
       connect: Connect,
-      wanted: Signal[IO, Option[Set[String]]] = Signal.constant(None)
+      wanted: Signal[IO, Option[Set[String]]] = Signal.constant(None),
+      tracer: Tracer[IO] = Tracer.noop
   ): Resource[IO, HaFeed] =
     for {
       // `.isDefined` IS the `healthy` banner — one toggle, not a second flag.
@@ -81,7 +84,14 @@ object HaFeed {
       seeded <- IO.deferred[Unit].toResource
       store <- StateStore.empty.toResource
       api = HomeAssistantApi.fromWs(routingFacade(connection))
-      _ <- superviseLoop(connect, connection, seeded, store, wanted).background
+      _ <- superviseLoop(
+        connect,
+        connection,
+        seeded,
+        store,
+        wanted,
+        tracer
+      ).background
       // Credentials are validated by the caller, so failing this wait means HA
       // is configured but not answering — a boot error rather than a silent
       // hang inside the reconnect loop.
@@ -117,11 +127,19 @@ object HaFeed {
       connection: SignallingRef[IO, Option[HAWSApiLowLevel[IO]]],
       seeded: Deferred[IO, Unit],
       store: StateStore,
-      wanted: Signal[IO, Option[Set[String]]]
+      wanted: Signal[IO, Option[Set[String]]],
+      tracer: Tracer[IO]
   ): IO[Unit] =
     Stream
       .repeatEval(
-        runConnection(connect, connection, seeded, store, wanted).attempt
+        runConnection(
+          connect,
+          connection,
+          seeded,
+          store,
+          wanted,
+          tracer
+        ).attempt
       )
       .meteredStartImmediately(ReconnectDelay)
       // Why the last attempt ended, deduped: an instance that is down ends
@@ -180,7 +198,8 @@ object HaFeed {
       connection: SignallingRef[IO, Option[HAWSApiLowLevel[IO]]],
       seeded: Deferred[IO, Unit],
       store: StateStore,
-      wanted: Signal[IO, Option[Set[String]]]
+      wanted: Signal[IO, Option[Set[String]]],
+      tracer: Tracer[IO]
   ): IO[Unit] =
     connect
       .use { case (ll, awaitClosed) =>
@@ -191,7 +210,8 @@ object HaFeed {
           wanted,
           store,
           seeded,
-          connection.set(Some(ll))
+          connection.set(Some(ll)),
+          tracer
         )
         // The race covers the WHOLE lifetime, not just the pump: subscribing
         // waits on the wire, so a socket dying there has to end this run too or
@@ -210,10 +230,22 @@ object HaFeed {
   private def pump(
       frames: Stream[IO, EntitiesEvent],
       store: StateStore,
-      seeded: Deferred[IO, Unit]
+      seeded: Deferred[IO, Unit],
+      tracer: Tracer[IO]
   ): Stream[IO, Unit] =
     frames.chunks
-      .evalMap(store.applyEntities)
+      .evalMap(batch =>
+        // One span per BATCH, which is one HA frame — not per entity, because
+        // a frame HA coalesced is one arrival and splitting it would report a
+        // burst as a crowd. High frequency by nature: if this is too much
+        // volume for a collector, that is what OTEL_TRACES_SAMPLER is for.
+        tracer
+          .span(
+            "ha.entities.apply",
+            Attribute("fh.entities", batch.size.toLong)
+          )
+          .surround(store.applyEntities(batch))
+      )
       .evalTap(_ => seeded.complete(()).void)
 
   /** One subscription at a time, re-opened when the set of entities anyone
@@ -240,7 +272,8 @@ object HaFeed {
       wanted: Signal[IO, Option[Set[String]]],
       store: StateStore,
       seeded: Deferred[IO, Unit],
-      established: IO[Unit]
+      established: IO[Unit],
+      tracer: Tracer[IO]
   ): IO[Unit] =
     Stream
       .eval(IO.deferred[Unit])
@@ -256,7 +289,7 @@ object HaFeed {
               Stream
                 .resource(ha.entities(only))
                 .evalTap(_ => established)
-                .flatMap(pump(_, store, seeded)) ++
+                .flatMap(pump(_, store, seeded, tracer)) ++
                 // A subscription that ends ON ITS OWN means the connection is
                 // gone — the transport closes every route when it dies — and
                 // this run must end so the supervisor reconnects. Under
