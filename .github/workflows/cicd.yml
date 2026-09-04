@@ -37,11 +37,9 @@ env:
 jobs:
   ci:
     runs-on: ubuntu-latest
-    # A green run is ~6 min wall, so 10 left no room for a slow dependency
-    # fetch: one registry stall cancelled the job mid-suite and, because the
-    # cancel skips `Publish Test Report`, produced no test XML to look at. This
-    # is a runaway guard, not a budget — a run that needs 15 min is already
-    # telling you something.
+    # A runaway guard, not a budget: a green run is ~6 min wall. Kept well
+    # clear of that because a timeout CANCELS the job, which skips
+    # `Publish Test Report` and so leaves no test XML to diagnose from.
     timeout-minutes: 20
     permissions:
       contents: read
@@ -180,9 +178,8 @@ jobs:
           if-no-files-found: ignore
           retention-days: 1
 
-      # Gated exactly like the upload below, and for the same reason: cd is the
-      # only consumer of this jar and cd never runs for a pull request. On a PR
-      # the assembly proves nothing the compile above has not already proved.
+      # Gated like the upload below, and for the same reason: cd is this jar's
+      # only consumer, and cd never runs for a pull request.
       - name: Assemble fat jar
         if: github.event_name != 'pull_request'
         run: sbt 'fh-datastar-view/assembly'
