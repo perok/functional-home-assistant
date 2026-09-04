@@ -2,6 +2,9 @@ import FHCodegenPlugin.autoImport.*
 import smithy4s.codegen.Smithy4sCodegenPlugin
 
 val http4sVersion = "0.23.34"
+// log4cats already arrives transitively (http4s logs through it); named here
+// so the version the app logs on is chosen rather than inherited.
+val log4catsVersion = "2.8.0"
 val MUnitFramework = new TestFramework("munit.Framework")
 
 // Warnings are advisory while you work and fatal where the flag says so (#115).
@@ -107,11 +110,19 @@ lazy val `ha-api` = project // todo add api layer here as well
       "io.circe" %% "circe-core" % "0.14.16",
       "io.circe" %% "circe-parser" % "0.14.16",
       "org.http4s" %% "http4s-core" % http4sVersion,
-      "org.http4s" %% "http4s-jdk-http-client" % "0.10.0"
+      "org.http4s" %% "http4s-jdk-http-client" % "0.10.0",
+      // Logging. No backend here — this is a library; `fh-datastar-view`
+      // brings the one binding the whole app logs through.
+      "org.typelevel" %% "log4cats-slf4j" % log4catsVersion
     ),
     libraryDependencies ++= Seq(
       "org.scalameta" %% "munit" % "1.3.5" % Test,
-      "org.typelevel" %% "munit-cats-effect" % "2.2.0" % Test
+      "org.typelevel" %% "munit-cats-effect" % "2.2.0" % Test,
+      // Test-only: without a binding on the classpath slf4j prints two
+      // "Failed to load class ... StaticLoggerBinder" lines at the top of
+      // every run of this module's suites. The app's binding is not visible
+      // here, because a library must not impose one.
+      "ch.qos.logback" % "logback-classic" % "1.6.3" % Test
     )
   )
 
@@ -276,6 +287,13 @@ lazy val `fh-datastar-view` = project
       // runtime; bundles the extension libraries — string/list/math/bindings/
       // comprehensions — in the same jar).
       "dev.cel" % "cel" % "0.14.0",
+      // Logging, and the ONE slf4j binding in the build. log4cats and an
+      // unbound slf4j-api were already on the classpath via http4s, which
+      // means http4s' own logging went nowhere; logback lights that up too.
+      // Kept in this module because it assembles the add-on jar — a binding
+      // belongs to the application, not to a library.
+      "org.typelevel" %% "log4cats-slf4j" % log4catsVersion,
+      "ch.qos.logback" % "logback-classic" % "1.6.3",
       "org.scalameta" %% "munit" % "1.3.5" % Test,
       // Lets tests return IO[Unit] directly (no unsafeRunSync / global runtime)
       // and adds IO-aware assertions (assertIO, IO#assertEquals).

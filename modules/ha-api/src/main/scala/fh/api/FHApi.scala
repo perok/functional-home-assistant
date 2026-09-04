@@ -123,13 +123,8 @@ object FHApi {
       httpClient <- IO(HttpClient.newHttpClient()).toResource
       wsClient = JdkWSClient[IO](httpClient)
 
-      wsApi <- HAWSApiLowLevel(
-        wsClient,
-        wsUri,
-        secretToken,
-        // Frame tracing stays a deliberate opt-out of the default quiet, chosen
-        // at the composition root rather than hidden inside the transport.
-        debugFrames = sys.env.contains("FH_WS_DEBUG")
-      )
+      // Frame tracing is a logger level now, not a constructor flag: set
+      // `api.homeassistant.ws.HAWSApiLowLevel` to DEBUG in logback.xml.
+      wsApi <- HAWSApiLowLevel(wsClient, wsUri, secretToken)
     } yield (wsApi, wsApi.awaitClosed)
 }

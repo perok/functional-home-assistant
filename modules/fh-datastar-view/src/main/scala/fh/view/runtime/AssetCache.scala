@@ -7,6 +7,7 @@ import org.http4s.client.Client
 import org.http4s.dsl.io.*
 import org.http4s.headers.`Content-Type`
 import org.typelevel.ci.CIString
+import org.typelevel.log4cats.slf4j.Slf4jLogger
 
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
@@ -73,6 +74,8 @@ final class AssetCache private (
 
 object AssetCache {
 
+  private val log = Slf4jLogger.getLogger[IO]
+
   /** No cache: every rewrite passes through, every serve 404s. The `Server`
     * default, so tests and callers without a cache need no ceremony.
     */
@@ -96,9 +99,15 @@ object AssetCache {
             // rendered HTML works directly and behind the ingress prefix.
             case Right(name) => IO.pure(Some(url -> s"assets/$name"))
             case Left(err)   =>
-              IO.println(
-                s"asset cache: keeping original URL for $url (${err.getMessage})"
-              ).as(None)
+              // WARN, not info: the page keeps the CDN URL, so every dashboard
+              // open now waits on jsdelivr for the script that runs
+              // `data-init` — which reads as "the dashboard feels sluggish"
+              // and nothing else says why (issue #75).
+              log
+                .warn(
+                  s"asset cache: keeping original URL for $url (${err.getMessage})"
+                )
+                .as(None)
           }
         }
         .map(entries => new AssetCache(dir, entries.flatten.toMap))
@@ -174,9 +183,11 @@ object AssetCache {
           cached.attempt.flatMap {
             case Right(_)  => IO.pure(Some(ref -> subName))
             case Left(err) =>
-              IO.println(
-                s"asset cache: keeping ref $ref in $url (${err.getMessage})"
-              ).as(None)
+              log
+                .warn(
+                  s"asset cache: keeping ref $ref in $url (${err.getMessage})"
+                )
+                .as(None)
           }
         }
         .map(_.flatten.toMap)

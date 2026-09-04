@@ -2,6 +2,7 @@ package fh.view
 
 import cats.effect.IO
 import org.http4s.{HttpApp, Response, Status}
+import org.typelevel.log4cats.slf4j.Slf4jLogger
 
 /** A terminal fh error.
   *
@@ -23,6 +24,8 @@ case class FHError(status: Int, message: String)
     extends RuntimeException(message)
 
 object FHError {
+
+  private val log = Slf4jLogger.getLogger[IO]
 
   /** 400 — the caller asked for something incoherent (a bad body, a dashboard
     * that fails validation): the request itself is at fault.
@@ -61,7 +64,7 @@ object FHError {
     */
   def logged(e: FHError): IO[Response[IO]] =
     IO.whenA(e.status >= 500)(
-      IO.consoleForIO.errorln(s"[error] ${e.status}: ${e.message}")
+      log.error(s"${e.status}: ${e.message}")
     ).as(response(e))
 
   /** The boundary: recover any [[FHError]] raised while serving a request into

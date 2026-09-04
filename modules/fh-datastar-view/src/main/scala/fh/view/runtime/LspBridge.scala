@@ -7,6 +7,7 @@ import fs2.io.process.ProcessBuilder
 import org.http4s.Response
 import org.http4s.server.websocket.WebSocketBuilder2
 import org.http4s.websocket.WebSocketFrame
+import org.typelevel.log4cats.slf4j.Slf4jLogger
 
 import java.nio.charset.StandardCharsets
 
@@ -32,6 +33,8 @@ import java.nio.charset.StandardCharsets
   * both halves can see it.
   */
 object LspBridge {
+
+  private val log = Slf4jLogger.getLogger[IO]
 
   /** Build the `GET /lsp/pkl` WebSocket response: spawn pkl-lsp, pump the
     * socket both ways. `workspaceRoot` is informational here — the client sends
@@ -65,7 +68,7 @@ object LspBridge {
               .through(fs2.text.utf8.decode)
               .through(fs2.text.lines)
               .filter(_.nonEmpty)
-              .foreach(l => IO.println(s"[pkl-lsp] $l"))
+              .foreach(l => log.debug(l))
               .drain
 
           proc.stdout
