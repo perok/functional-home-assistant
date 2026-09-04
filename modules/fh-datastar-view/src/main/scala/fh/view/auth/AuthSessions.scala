@@ -12,13 +12,20 @@ import org.http4s.{Request, RequestCookie, ResponseCookie, SameSite, Uri}
 import java.nio.file.FileAlreadyExistsException
 import java.time.Instant
 
+/** An access token and when it stops working. HA sends `expires_in` seconds; a
+  * stored instant is what a later request can actually compare against.
+  */
+final case class HaAccess(token: String, expiresAt: Instant)
+    derives Encoder.AsObject,
+      Decoder
+
 /** One logged-in person, as the server knows them.
   *
   * `refresh` is a Home Assistant refresh token, i.e. a full-HA-access
-  * credential. It is kept for exactly one purpose: the periodic re-check that
-  * this user still exists and still holds this role. It is never sent to the
-  * browser — the cookie is an opaque handle, so a stolen cookie is a session
-  * rather than an HA credential.
+  * credential. It is kept for two purposes: the periodic re-check that this
+  * user still exists and still holds this role, and minting the access token
+  * below. It is never sent to the browser — the cookie is an opaque handle, so
+  * a stolen cookie is a session rather than an HA credential.
   *
   * `verifiedAt` is when HA last confirmed the above, not when the user logged
   * in.
@@ -28,12 +35,23 @@ import java.time.Instant
   * token (`_async_handle_refresh_token`), so only the value login actually sent
   * can renew — and since the browser-facing base is derived per request, it
   * cannot be re-derived at refresh time. Stored, not guessed.
+  *
+  * `access` is a short-lived token that IS this user, kept so an action can act
+  * as them rather than as the add-on (issue #198). It adds nothing to what a
+  * stolen [[SessionStore]] file gives an attacker: `refresh` is already there
+  * and is strictly more powerful, since it mints these on demand and does not
+  * expire.
+  *
+  * `Option` because both "never had one" (a session persisted by an older
+  * build) and "the one we had is spent" end at the same place — mint another —
+  * so they are one absence rather than two states.
   */
 final case class AuthSession(
     user: HaUser,
     refresh: String,
     verifiedAt: Instant,
-    clientId: String
+    clientId: String,
+    access: Option[HaAccess] = None
 ) derives Encoder.AsObject,
       Decoder
 
@@ -63,14 +81,19 @@ final class AuthSessions(
     * `clientId` is the base the login itself went out under — see
     * [[AuthSession.clientId]] for why it is stored rather than re-derived.
     */
-  def create(user: HaUser, refresh: String, clientId: Uri): IO[String] =
+  def create(
+      user: HaUser,
+      refresh: String,
+      clientId: Uri,
+      access: Option[HaAccess] = None
+  ): IO[String] =
     for {
       id <- AuthSessions.randomId
       now <- IO.realTimeInstant
       _ <- ref.update(
         _.updated(
           id,
-          AuthSession(user, refresh, now, clientId.renderString)
+          AuthSession(user, refresh, now, clientId.renderString, access)
         )
       )
       _ <- persist
@@ -79,7 +102,12 @@ final class AuthSessions(
   /** Record a completed re-check: same session, fresh role, fresh clock — and
     * the client it was minted for, unchanged.
     */
-  def renew(id: String, user: HaUser, refresh: String): IO[Unit] =
+  def renew(
+      id: String,
+      user: HaUser,
+      refresh: String,
+      access: Option[HaAccess] = None
+  ): IO[Unit] =
     IO.realTimeInstant.flatMap { now =>
       ref.update { m =>
         // Only if it is still there — a session evicted while its renewal was
@@ -88,10 +116,33 @@ final class AuthSessions(
           .fold(m)(s =>
             m.updated(
               id,
-              s.copy(user = user, refresh = refresh, verifiedAt = now)
+              s.copy(
+                user = user,
+                refresh = refresh,
+                verifiedAt = now,
+                access = access.orElse(s.access)
+              )
             )
           )
       }
+    } *> persist
+
+  /** Store a freshly minted access token (and whatever refresh token came back
+    * with it) WITHOUT touching `verifiedAt`.
+    *
+    * That omission is the whole reason this is not [[renew]]. `verifiedAt` is
+    * "when HA last confirmed this user's ROLE", and the periodic re-check is
+    * what confirms it — by re-reading the user, which minting a token does not
+    * do. Stamping the clock here would push that check further out every time
+    * somebody pressed a button, so a busy dashboard would be the one whose
+    * demoted admin kept their access longest.
+    */
+  def tokenMinted(id: String, refresh: String, access: HaAccess): IO[Unit] =
+    ref.update { m =>
+      m.get(id)
+        .fold(m)(s =>
+          m.updated(id, s.copy(refresh = refresh, access = Some(access)))
+        )
     } *> persist
 
   def remove(id: String): IO[Unit] = ref.update(_ - id) *> persist

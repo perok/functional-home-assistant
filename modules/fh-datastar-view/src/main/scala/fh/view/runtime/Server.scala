@@ -1,7 +1,7 @@
 package fh.view.runtime
 
-import scala.util.chaining.*
 import api.homeassistant.HomeAssistantApi
+import scala.util.chaining.*
 import cats.data.{NonEmptyList, OptionT}
 import cats.effect.{IO, Resource}
 import cats.effect.kernel.Ref
@@ -53,7 +53,10 @@ import scala.concurrent.duration.*
   * one at runtime (ADR 0010).
   */
 class Server(
-    api: HomeAssistantApi[IO],
+    // Not the whole API: writing is all the server does to HA directly (it
+    // READS through the store), and who a write is attributed to is a live
+    // question — see [[ServiceCalls]].
+    actions: ServiceCalls,
     stateStore: StateStore,
     // Every dashboard this instance currently serves and which one answers `/`
     // ([[Server.LiveSite]]) — one hot-swappable renderer STATE per slug, paired
@@ -1545,11 +1548,18 @@ class Server(
       serviceData: Json,
       req: Request[IO]
   ): IO[Response[IO]] =
-    api.callService(domain, service, entityId, serviceData).attempt.flatMap {
-      case Right(_)  => NoContent()
-      case Left(err) =>
-        actionRefused(req, Option(err.getMessage).getOrElse(err.toString))
-    }
+    actions
+      .call(req, domain, service, entityId, serviceData)
+      .attempt
+      .flatMap {
+        case Right(_)  => NoContent()
+        case Left(err) =>
+          // NOT retried, deliberately. A `call_service` is not idempotent — a
+          // toggle run twice is back where it started — and a failure arriving
+          // here cannot say whether HA ran it, so the safe answer is to tell
+          // the person and let them press again.
+          actionRefused(req, Option(err.getMessage).getOrElse(err.toString))
+      }
 
   /** **What every refused action answers**, whatever refused it: HA rejecting
     * the service call, this dashboard not naming the entity (ADR 0023), a
@@ -2646,7 +2656,7 @@ object Server {
     * like the ones present at startup.
     */
   def resource(
-      api: HomeAssistantApi[IO],
+      actions: ServiceCalls,
       stateStore: StateStore,
       renderers: Map[String, SignallingRef[IO, RendererState]],
       defaultSlug: String,
@@ -2666,7 +2676,7 @@ object Server {
       .toResource
       .flatMap(
         withSite(
-          api,
+          actions,
           stateStore,
           _,
           sessions,
@@ -2684,7 +2694,7 @@ object Server {
     * the reload path writes the same registry the routes read.
     */
   def withSite(
-      api: HomeAssistantApi[IO],
+      actions: ServiceCalls,
       stateStore: StateStore,
       site: LiveSite,
       sessions: Sessions,
@@ -2699,7 +2709,7 @@ object Server {
     for {
       supervisor <- Supervisor[IO]
       server = new Server(
-        api,
+        actions,
         stateStore,
         site,
         sessions,
@@ -2730,10 +2740,16 @@ object Server {
       gate: AuthGate,
       assets: AssetCache = AssetCache.empty,
       systemPkl: SystemPkl = SystemPkl.empty,
-      dumpRefresh: Option[IO[DumpRefresh.Result]] = None
+      dumpRefresh: Option[IO[DumpRefresh.Result]] = None,
+      // WHO an action is attributed to, given the feed's own connection
+      // ([[ServiceCalls]]). A function rather than a value because the feed
+      // owns the api and this is the one place it is in hand; the default is
+      // the instance's own identity, which is what a deployment with no login
+      // has and what the tests want.
+      actions: HomeAssistantApi[IO] => ServiceCalls = ServiceCalls.asInstance
   ): Resource[IO, Server] =
     withSite(
-      feed.api,
+      actions(feed.api),
       feed.store,
       site,
       sessions,
