@@ -77,6 +77,7 @@ your regenerated entity dump, and `PklProject`, which binds the
 | `max_heap` | JVM max heap as a `-Xmx` value — `"512M"` (the default), `"1G"`. A ceiling, not a reservation. Raise it if a large house or a big workspace runs out. |
 | `min_heap` | JVM starting heap as a `-Xms` value — `"64M"` by default. This is the end that decides the idle footprint; raise it with `max_heap` if the collector is visibly growing and shrinking. |
 | `memory_tracking` | Add the native-memory breakdown to `GET /system/diagnostics` (default `false`). Costs a few percent, and takes effect on restart — the JVM cannot start tracking while running. |
+| `otlp_endpoint` | Send traces to an OpenTelemetry collector, e.g. `"http://192.168.1.50:4318"`. Empty (the default) means tracing is off and the OpenTelemetry SDK is never started. |
 
 ## Memory
 
@@ -164,6 +165,34 @@ docker exec "$C" jcmd <pid> JFR.start settings=profile duration=60s \
   filename=/data/fh.jfr
 docker cp "$C":/data/fh.jfr .
 ```
+
+## Tracing (optional)
+
+`GET /system/diagnostics` says how much the add-on is using. It does not say
+where a slow *page open* went, because the phases a dashboard request goes
+through — reading the entity store, minting the session, and the walk that
+renders and writes the document — take their time separately.
+
+Set `otlp_endpoint` to a collector and each page open reports as a trace:
+
+- `dashboard.page` — the request, tagged with the slug.
+- `dashboard.page.store` — reading the live entity state.
+- `dashboard.page.walk` — the render and the write, tagged with the number of
+  nodes painted. This is usually the one worth looking at: the document is
+  rendered *as the response body is streamed*, so its cost is invisible to
+  anything timing the handler.
+
+Log lines written while serving carry the `trace_id` and `span_id` of the span
+they happened in, so a slow trace and the warning explaining it can be matched
+up.
+
+Everything else about the exporter — protocol, headers, sampling, extra
+resource attributes — is configured with the standard `OTEL_*` environment
+variables rather than an option per setting.
+
+**With no endpoint set, none of this costs anything**: the OpenTelemetry SDK is
+never constructed, so the spans are no-op calls and the exporter classes are
+never loaded.
 
 ## Direct port (optional)
 

@@ -5,6 +5,11 @@ val http4sVersion = "0.23.34"
 // log4cats already arrives transitively (http4s logs through it); named here
 // so the version the app logs on is chosen rather than inherited.
 val log4catsVersion = "2.8.0"
+val otel4sVersion = "1.1.0"
+// Pinned to what otel4s-oteljava resolves, so the exporter cannot drift from
+// the SDK it plugs into. otel4s' own SDK modules are NOT used: they moved to a
+// separate repo and are still marked experimental.
+val otelJavaVersion = "1.64.0"
 val MUnitFramework = new TestFramework("munit.Framework")
 
 // Warnings are advisory while you work and fatal where the flag says so (#115).
@@ -294,10 +299,20 @@ lazy val `fh-datastar-view` = project
       // belongs to the application, not to a library.
       "org.typelevel" %% "log4cats-slf4j" % log4catsVersion,
       "ch.qos.logback" % "logback-classic" % "1.6.3",
+      // Tracing (#75). The exporter is `Runtime`: nothing compiles against it,
+      // it is chosen by autoconfigure at boot, and it is only ever loaded when
+      // an OTLP endpoint is configured — which matters on a Pi, where the
+      // point of an unconfigured install is that it costs nothing.
+      "org.typelevel" %% "otel4s-oteljava" % otel4sVersion,
+      "io.opentelemetry" % "opentelemetry-exporter-otlp" % otelJavaVersion % Runtime,
       "org.scalameta" %% "munit" % "1.3.5" % Test,
       // Lets tests return IO[Unit] directly (no unsafeRunSync / global runtime)
       // and adds IO-aware assertions (assertIO, IO#assertEquals).
       "org.typelevel" %% "munit-cats-effect" % "2.2.0" % Test,
+      // A capturing logger, so `TracedLogger`'s hand-written delegations can be
+      // asserted on rather than trusted — a `warn` that calls `info` would fail
+      // nowhere else.
+      "org.typelevel" %% "log4cats-testing" % log4catsVersion % Test,
       // Property-based testing for the digest biconditional (ADR 0029):
       // equal input digest ⟺ equal patch bytes must hold over GENERATED node
       // shapes, because a missed input fails silently and permanently.

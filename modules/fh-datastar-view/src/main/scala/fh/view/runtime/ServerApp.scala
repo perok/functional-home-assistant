@@ -630,6 +630,10 @@ object ServerApp extends IOApp {
   ): Resource[IO, Server] =
     for {
       sessions <- Sessions.create.toResource
+      // No-op unless an OTLP endpoint is configured, so the harnesses that
+      // funnel through here pay nothing and neither does an ordinary install
+      // ([[Telemetry]]).
+      tracer <- Telemetry.tracerFor("fh.view.runtime.Server")
       server <- Server.fromFeed(
         feed,
         site,
@@ -638,7 +642,8 @@ object ServerApp extends IOApp {
         assets,
         systemPkl,
         dumpRefresh,
-        actions
+        actions,
+        tracer
       )
     } yield server
 
