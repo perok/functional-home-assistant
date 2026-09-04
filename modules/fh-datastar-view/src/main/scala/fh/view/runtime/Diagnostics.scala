@@ -16,8 +16,8 @@ import javax.management.ObjectName
   * code cache and GC structures). Reported apart, each one invites the wrong
   * conclusion.
   *
-  * Everything here is read IN PROCESS. The alternative — `docker exec … jcmd`
-  * — needs the SSH add-on with protection mode off, so on a stock HAOS install
+  * Everything here is read IN PROCESS. The alternative — `docker exec … jcmd` —
+  * needs the SSH add-on with protection mode off, so on a stock HAOS install
   * the answer is gated behind a thing most people do not have, for a question
   * they are asking from the UI.
   *
@@ -43,8 +43,8 @@ object Diagnostics {
       )
     }
 
-  /** The JVM's own accounting, via the platform MXBeans — no flags, no
-    * agent, and `java.management` has always been in the add-on's jlink set.
+  /** The JVM's own accounting, via the platform MXBeans — no flags, no agent,
+    * and `java.management` has always been in the add-on's jlink set.
     *
     * The pools ARE the breakdown people reach for NMT to get: Metaspace,
     * Compressed Class Space and the three CodeHeaps are memory pools like the
@@ -78,7 +78,9 @@ object Diagnostics {
       "nonHeap" -> usageJson(nonHeap),
       "pools" -> Json.obj(pools*),
       "gc" -> Json.arr(collectors*),
-      "threads" -> Json.fromInt(ManagementFactory.getThreadMXBean.getThreadCount),
+      "threads" -> Json.fromInt(
+        ManagementFactory.getThreadMXBean.getThreadCount
+      ),
       "uptimeMs" -> Json.fromLong(ManagementFactory.getRuntimeMXBean.getUptime)
     )
   }
@@ -89,17 +91,18 @@ object Diagnostics {
       "committed" -> Json.fromLong(usage.getCommitted),
       // -1 for a pool with no ceiling; reported as null rather than as a
       // number that would read as a real limit.
-      "max" -> (if (usage.getMax < 0) Json.Null else Json.fromLong(usage.getMax))
+      "max" -> (if (usage.getMax < 0) Json.Null
+                else Json.fromLong(usage.getMax))
     )
 
   /** The Native Memory Tracking summary, through the platform's own
     * `DiagnosticCommand` MBean — the same text `jcmd VM.native_memory summary`
     * prints, without a jcmd or an attach.
     *
-    * `None` unless the add-on was started with `-XX:NativeMemoryTracking`
-    * (the `memory_tracking` option), because NMT cannot be switched on in a
-    * running JVM. The MBean answers with a sentence saying so rather than
-    * failing, so the "is it on" test is on the TEXT.
+    * `None` unless the add-on was started with `-XX:NativeMemoryTracking` (the
+    * `memory_tracking` option), because NMT cannot be switched on in a running
+    * JVM. The MBean answers with a sentence saying so rather than failing, so
+    * the "is it on" test is on the TEXT.
     */
   private def nmt: IO[Option[String]] =
     nmtText.map(_.filter(_.contains("Native Memory Tracking:")))
@@ -107,11 +110,11 @@ object Diagnostics {
   /** The MBean's answer VERBATIM, whether or not NMT is enabled — `None` only
     * when the call itself failed.
     *
-    * Split out from [[nmt]] for the suite's benefit, and it is not a
-    * gratuitous seam: [[nmt]] answers `None` both when tracking is off and
-    * when the invocation is wrong, so a test written against it alone passes
-    * just as happily with a broken operation name or signature. Asserting
-    * this one is defined is what actually pins the mechanism.
+    * Split out from [[nmt]] for the suite's benefit, and it is not a gratuitous
+    * seam: [[nmt]] answers `None` both when tracking is off and when the
+    * invocation is wrong, so a test written against it alone passes just as
+    * happily with a broken operation name or signature. Asserting this one is
+    * defined is what actually pins the mechanism.
     */
   private[runtime] def nmtText: IO[Option[String]] = IO {
     val server = ManagementFactory.getPlatformMBeanServer

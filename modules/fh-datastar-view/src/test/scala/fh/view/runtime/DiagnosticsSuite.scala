@@ -3,13 +3,13 @@ package fh.view.runtime
 import io.circe.Json
 
 /** The memory report `GET /system/diagnostics` answers with.
- *
- * The cgroup half is asserted through a FIXTURE directory rather than the real
- * `/sys/fs/cgroup`, because the numbers there are the machine's and a test that
- * reads them can only assert that parsing did not throw. The JVM half is
- * asserted on the running JVM, since the whole claim being made is that the
- * platform MXBeans answer with no flag and no agent.
- */
+  *
+  * The cgroup half is asserted through a FIXTURE directory rather than the real
+  * `/sys/fs/cgroup`, because the numbers there are the machine's and a test
+  * that reads them can only assert that parsing did not throw. The JVM half is
+  * asserted on the running JVM, since the whole claim being made is that the
+  * platform MXBeans answer with no flag and no agent.
+  */
 class DiagnosticsSuite extends munit.CatsEffectSuite {
 
   private def cgroupDir(
@@ -25,21 +25,32 @@ class DiagnosticsSuite extends munit.CatsEffectSuite {
   }
 
   private def field(json: Json, path: String*): Json =
-    path.foldLeft(json)((j, key) => j.hcursor.downField(key).focus.getOrElse(Json.Null))
+    path.foldLeft(json)((j, key) =>
+      j.hcursor.downField(key).focus.getOrElse(Json.Null)
+    )
 
   test("an unlimited cgroup reports its limit verbatim, not as a number") {
     // The case that matters: the supervisor gives an add-on no memory limit, so
     // `memory.max` is the literal "max". Reporting that IS the explanation for
     // why a JVM sizing itself as a percentage of available memory sized itself
     // against the whole Pi.
-    val dir = cgroupDir("12660985856", Some("max"), "anon 11912589312\nfile 464429056\n")
+    val dir = cgroupDir(
+      "12660985856",
+      Some("max"),
+      "anon 11912589312\nfile 464429056\n"
+    )
     Diagnostics.report(dir).map { json =>
       assertEquals(field(json, "container", "max"), Json.fromString("max"))
-      assertEquals(field(json, "container", "current"), Json.fromLong(12660985856L))
+      assertEquals(
+        field(json, "container", "current"),
+        Json.fromLong(12660985856L)
+      )
     }
   }
 
-  test("the container figure separates what the JVM allocated from page cache") {
+  test(
+    "the container figure separates what the JVM allocated from page cache"
+  ) {
     // `current` is what the supervisor's percentage is computed from, and it
     // charges the add-on for page cache it did not allocate — so a report that
     // gave only the total would invite blaming the JVM for the file half.
@@ -52,9 +63,9 @@ class DiagnosticsSuite extends munit.CatsEffectSuite {
 
   test("a missing memory.max is absent, not a fabricated limit") {
     val dir = cgroupDir("500", None, "anon 300\nfile 200\n")
-    Diagnostics.report(dir).map(json =>
-      assertEquals(field(json, "container", "max"), Json.Null)
-    )
+    Diagnostics
+      .report(dir)
+      .map(json => assertEquals(field(json, "container", "max"), Json.Null))
   }
 
   test("no cgroup at all still reports the JVM half") {
@@ -76,9 +87,16 @@ class DiagnosticsSuite extends munit.CatsEffectSuite {
       // The claim the endpoint rests on: metaspace and the code cache are
       // ordinary memory pools, so the breakdown people reach for NMT to get is
       // already here without it.
-      val pools = field(json, "jvm", "pools").asObject.map(_.keys.toList).getOrElse(Nil)
-      assert(pools.exists(_.contains("Metaspace")), s"no Metaspace pool in $pools")
-      assert(pools.exists(_.contains("CodeHeap")), s"no CodeHeap pool in $pools")
+      val pools =
+        field(json, "jvm", "pools").asObject.map(_.keys.toList).getOrElse(Nil)
+      assert(
+        pools.exists(_.contains("Metaspace")),
+        s"no Metaspace pool in $pools"
+      )
+      assert(
+        pools.exists(_.contains("CodeHeap")),
+        s"no CodeHeap pool in $pools"
+      )
 
       assert(
         field(json, "jvm", "gc").asArray.exists(_.nonEmpty),
@@ -88,7 +106,9 @@ class DiagnosticsSuite extends munit.CatsEffectSuite {
     }
   }
 
-  test("the DiagnosticCommand MBean answers — which is the whole endpoint's premise") {
+  test(
+    "the DiagnosticCommand MBean answers — which is the whole endpoint's premise"
+  ) {
     // This is the claim that replaces `docker exec … jcmd`: the platform
     // registers a DiagnosticCommand MBean, and `vmNativeMemory` is invokable
     // in process. Asserted on the RAW answer, because the reported field is
