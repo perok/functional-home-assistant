@@ -1004,7 +1004,19 @@ class RenderBench {
   @Benchmark
   def storeIngest(bh: Blackhole): Unit = {
     pubRot += 1
-    bh.consume(store.update(pubIngests(pubRot % 2)).unsafeRunSync())
+    // Re-stamped per invocation and NOT hoisted into setup: `stale` drops a
+    // Replace that is not strictly newer, so a fixed pair of frames would be
+    // applied once and refused forever after. The 20 copies are counted.
+    val at = BaseInstant.plusSeconds(pubRot.toLong)
+    bh.consume(
+      store
+        .update(pubIngests(pubRot % 2).map {
+          case Ingest.Replace(s) =>
+            Ingest.Replace(s.copy(lastUpdated = Some(at)))
+          case other => other
+        })
+        .unsafeRunSync()
+    )
   }
 
   /** The same batch when nothing in it actually moved.
@@ -1012,13 +1024,19 @@ class RenderBench {
     * '''This is the reconnect path, not a corner.''' A new subscription
     * re-sends every entity as a `Replace`, and `StateStore`'s dedup is what
     * makes that cheap — the doc says so and nothing measured it. The store is
-    * seeded with exactly these values, so every invocation takes the dedup
-    * branch rather than only the ones after the first.
+    * seeded with exactly these values, so every invocation takes that path
+    * rather than only the ones after the first.
     *
-    * It prices HALF the claim, and the smaller half: against [[storeIngest]] it
-    * says the fold costs the same either way. Dedup's actual payoff is the
-    * frame that then does not happen ([[publish]] and everything downstream of
-    * it), which no bench here reaches.
+    * The values carry the timestamps they were seeded with, and that is the
+    * point: a steady HA re-sends the same `last_updated`, so
+    * `EntityState.stale` refuses each Replace ABOVE the dedup and the batch
+    * costs about what [[storeIngestEmpty]] does. Strip the timestamps off the
+    * fixture and it takes a path production never takes — which is what an
+    * earlier reading of this bench measured and blamed on the store.
+    *
+    * Even so it prices only the smaller half of the claim. Dedup's real payoff
+    * is the frame that then does not happen ([[publish]] and everything
+    * downstream of it), which no bench here reaches.
     */
   @Benchmark
   def storeIngestDedup(bh: Blackhole): Unit =
@@ -1645,13 +1663,23 @@ object RenderBench {
       )
     )
 
+  /** Every fixture state carries one, because a real feed always does (measured
+    * against the live instance: 0 of 1070 entities without a `last_updated`). A
+    * store fixture without them takes paths production never takes —
+    * `EntityState.stale` short-circuits on the timestamp, so a `Replace` that
+    * has none reaches a dedup it would otherwise never see.
+    */
+  final val BaseInstant: java.time.Instant =
+    java.time.Instant.parse("2026-09-04T06:00:00Z")
+
   def states(leaves: Int): Map[String, EntityState] =
     List
       .tabulate(leaves) { i =>
         entityId(i) -> EntityState(
           entityId(i),
           if (i % 3 == 0) "off" else "on",
-          Map(
+          lastUpdated = Some(BaseInstant),
+          attributes = Map(
             "friendly_name" -> Json.fromString(s"Tile number $i"),
             "brightness" -> Json.fromInt(1 + (i * 7) % 254),
             "unit_of_measurement" -> Json.fromString("lx"),
