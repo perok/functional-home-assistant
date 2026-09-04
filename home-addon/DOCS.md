@@ -186,13 +186,38 @@ Log lines written while serving carry the `trace_id` and `span_id` of the span
 they happened in, so a slow trace and the warning explaining it can be matched
 up.
 
+### If you have no collector
+
+You need one container and no configuration. On any machine on the LAN:
+
+```sh
+docker run -p 3000:3000 -p 4317:4317 -p 4318:4318 grafana/otel-lgtm
+```
+
+Then set `otlp_endpoint` to `http://<that machine>:4318` and open Grafana on
+port 3000 — traces land in Tempo. The image bundles Grafana, Tempo, Loki and
+Prometheus behind an OpenTelemetry collector and needs no setup of its own.
+
+Note that 4317/4318 are the collector's **receiving** ports: the add-on pushes
+to them. Nothing scrapes the add-on for traces, and no OpenTelemetry component
+can — a trace is a stream of completed spans rather than a current value, so
+there is no pull protocol for it. (Metrics are the exception, and Prometheus
+scraping is how they would be collected if we ever export any.)
+
+### What it costs
+
+**With no endpoint set, nothing.** The OpenTelemetry SDK is never constructed,
+so the spans are no-op calls and the exporter classes are never loaded.
+
+**With an endpoint set but nothing listening, still nothing that grows.** The
+SDK's batch processor holds a fixed-size queue of 2048 spans and drops on
+overflow rather than blocking or growing — so an unreachable or switched-off
+collector costs dropped spans and a warning, never memory. If you stop the
+collector, you can leave the endpoint set.
+
 Everything else about the exporter — protocol, headers, sampling, extra
 resource attributes — is configured with the standard `OTEL_*` environment
 variables rather than an option per setting.
-
-**With no endpoint set, none of this costs anything**: the OpenTelemetry SDK is
-never constructed, so the spans are no-op calls and the exporter classes are
-never loaded.
 
 ## Direct port (optional)
 

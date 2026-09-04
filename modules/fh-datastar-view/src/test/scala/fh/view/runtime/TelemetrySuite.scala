@@ -5,10 +5,10 @@ import cats.syntax.all.*
 import org.typelevel.log4cats.testing.StructuredTestingLogger
 import org.typelevel.otel4s.trace.Tracer
 
-/** The two promises this instrumentation makes: it costs nothing when nobody
- * is collecting, and when somebody is, a log line can be tied to the trace it
- * happened in.
- */
+/** The two promises this instrumentation makes: it costs nothing when nobody is
+  * collecting, and when somebody is, a log line can be tied to the trace it
+  * happened in.
+  */
 class TelemetrySuite extends munit.CatsEffectSuite {
 
   // Every unconfigured spelling: absent, empty, and whitespace — the last two
@@ -98,7 +98,10 @@ class TelemetrySuite extends munit.CatsEffectSuite {
       _ <- logger.error(boom)("j")
       logged <- underlying.logged
     } yield {
-      assertEquals(logged.map(_.message).toList, List("a", "b", "c", "d", "e", "f", "g", "h", "i", "j"))
+      assertEquals(
+        logged.map(_.message).toList,
+        List("a", "b", "c", "d", "e", "f", "g", "h", "i", "j")
+      )
       // The five that were given one must still carry it.
       assertEquals(logged.count(_.throwOpt.isDefined), 5)
     }

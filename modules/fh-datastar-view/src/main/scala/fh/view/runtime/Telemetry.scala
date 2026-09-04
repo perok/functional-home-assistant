@@ -5,8 +5,8 @@ import cats.effect.std.Env
 import org.typelevel.otel4s.oteljava.OtelJava
 import org.typelevel.otel4s.trace.{Tracer, TracerProvider}
 
-/** Tracing for the page-open path (#75), and the switch that keeps it free
-  * when nobody is collecting.
+/** Tracing for the page-open path (#75), and the switch that keeps it free when
+  * nobody is collecting.
   *
   * The motivating question was "opening a dashboard feels sluggish" on a
   * Raspberry Pi, which the render benchmark could not answer: it prices the
@@ -46,10 +46,10 @@ object Telemetry {
 
   /** The decision itself, with the environment lifted out.
     *
-    * Split so the two arms can be pinned by a test: reading the variable
-    * inside would make "is tracing off by default" depend on the machine the
-    * suite runs on, and the arm that matters is exactly the one a developer
-    * with a collector configured would stop exercising.
+    * Split so the two arms can be pinned by a test: reading the variable inside
+    * would make "is tracing off by default" depend on the machine the suite
+    * runs on, and the arm that matters is exactly the one a developer with a
+    * collector configured would stop exercising.
     */
   private[runtime] def tracerFor(
       instrument: String,
@@ -61,9 +61,8 @@ object Telemetry {
     }
 
   /** The autoconfigured SDK. `OtelJava.autoConfigured` reads the standard
-    * `OTEL_*` variables, so protocol, headers, sampling and resource
-    * attributes are all configurable without this file growing an option for
-    * each of them.
+    * `OTEL_*` variables, so protocol, headers, sampling and resource attributes
+    * are all configurable without this file growing an option for each of them.
     */
   private def configured: Resource[IO, TracerProvider[IO]] =
     OtelJava.autoConfigured[IO]().map(_.tracerProvider)
