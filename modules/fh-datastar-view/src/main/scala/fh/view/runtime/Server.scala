@@ -234,6 +234,24 @@ class Server(
     case req @ POST -> Root / "system" / "push" / slug =>
       gate.handleRequirement(req, Requirement.Admin)(pushResponse(slug, req))
 
+    // What this add-on is spending on the machine ([[Diagnostics]]): the
+    // container's cgroup figure — the one the supervisor's percentage is
+    // computed from — beside the JVM's own heap/pool/GC accounting, so the two
+    // can be read against each other rather than one at a time.
+    //
+    // Admin-only, like the rest of /system. It reports sizes and counts, never
+    // dashboard content or who is logged in.
+    case req @ GET -> Root / "system" / "diagnostics" =>
+      gate.handleRequirement(req, Requirement.Admin)(
+        Diagnostics
+          .report()
+          .flatMap(json =>
+            Ok(json.spaces2).map(
+              _.putHeaders(`Content-Type`(MediaType.application.json))
+            )
+          )
+      )
+
     // Recreate the entity dump on demand (the /edit editor's "refresh dump"
     // button): re-fetch from HA, validate every dashboard against the new dump
     // package in a staged copy, and swap the `@fh-home` pin only if nothing that

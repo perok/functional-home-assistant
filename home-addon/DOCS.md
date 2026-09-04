@@ -75,7 +75,7 @@ your regenerated entity dump, and `PklProject`, which binds the
 |---|---|
 | `watch_registry` | Rebuild the entity dump automatically on HA registry changes (default `true`). The swap is validated first and the previous dump is kept as a dated backup. |
 | `max_heap` | JVM max heap as a `-Xmx` value — `"512M"` (the default), `"1G"`. A ceiling, not a reservation. Raise it if a large house or a big workspace runs out. |
-| `memory_tracking` | Turn on Native Memory Tracking so the memory breakdown below is available (default `false`). Costs a few percent; takes effect on restart. |
+| `memory_tracking` | Add the native-memory breakdown to `GET /system/diagnostics` (default `false`). Costs a few percent, and takes effect on restart — the JVM cannot start tracking while running. |
 
 ## Memory
 
@@ -90,15 +90,51 @@ rather than the size of the box you run them on, and the garbage collector
 hands memory back once a burst is over. If the add-on restarts with an
 OutOfMemoryError in the log, `max_heap` is the thing to raise.
 
-To see where the memory actually goes, set `memory_tracking: true`, restart,
-and ask the running process from the host. The container is named after the
-repository it was installed from, so find it rather than guessing, and note
-that PID 1 is the base image's init — `jcmd -l` gives you the JVM's:
+### Seeing where it actually goes
+
+`GET /system/diagnostics` reports it, as JSON. It needs a Home Assistant
+admin, like the rest of `/system`, and it reports sizes and counts only —
+never dashboard content or who is signed in.
+
+```jsonc
+{
+  "container": {
+    "current": 412844032,   // what the supervisor's percentage is computed from
+    "max": "max",           // add-ons get no memory limit; see below
+    "anon": 331739136,      // memory the add-on actually allocated
+    "file": 81104896        // page cache it is charged for but did not allocate
+  },
+  "jvm": {
+    "heap":    { "used": 48234496, "committed": 67108864, "max": 536870912 },
+    "nonHeap": { "used": 91234816, "committed": 96468992, "max": null },
+    "pools":   { "Metaspace": {}, "Compressed Class Space": {}, "CodeHeap ...": {} },
+    "gc":      [ { "name": "Copy", "count": 41, "ms": 388 } ],
+    "threads": 34,
+    "uptimeMs": 903114
+  },
+  "nmt": null               // the full NMT summary when memory_tracking is on
+}
+```
+
+Two fields answer most questions on their own. **`container.file`** is page
+cache — the add-on is charged for it in the figure the UI shows, but it is not
+the JVM's doing, so subtract it before concluding anything. And
+**`container.max`** is the literal `"max"`: the supervisor puts no memory limit
+on an add-on, which is exactly why the heap is given a number here instead of
+a percentage of "available" memory.
+
+For the native breakdown that the pools do not cover — GC structures, thread
+stacks — set `memory_tracking: true`, restart, and read the `nmt` field.
+
+### If you would rather use a terminal
+
+The image ships `jcmd`, `jmap`, `jstat` and Flight Recorder, so with the SSH
+add-on you can go straight at the process. PID 1 is the base image's init, so
+ask `jcmd -l` for the JVM's:
 
 ```sh
 C=$(docker ps --format '{{.Names}}' | grep fh_dashboard)
 docker exec "$C" jcmd -l                      # -> "<pid> /opt/fh-dashboard.jar"
-docker exec "$C" jcmd <pid> VM.native_memory summary
 docker exec "$C" jcmd <pid> GC.heap_info
 ```
 
