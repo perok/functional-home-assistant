@@ -288,20 +288,22 @@ document.addEventListener("datastar-fetch", (e: Event) => {
  * `core/css.pkl` — is the whole fix everywhere else, and this is here because
  * WebKit does not apply `touch-action` to the page's own pinch zoom.
  *
- * `gesturestart` is Safari's alone: no other engine fires it, so nothing else
- * ever reaches the listener. Registering it behind the same coarse-pointer
- * query the CSS uses keeps the two halves saying one thing — a desktop keeps
- * every zoom it has.
+ * These three are Safari's alone: no other engine fires a `GestureEvent`, so
+ * nothing else ever reaches the listener. `gesturestart` is what current
+ * WebKit needs; `gesturechange`/`gestureend` are for the versions that begin a
+ * pinch anyway and would otherwise finish it. Registering them behind the same
+ * coarse-pointer query the CSS uses keeps the two halves saying one thing — a
+ * desktop keeps every zoom it has.
  *
  * Not `passive`, because preventing the default IS the point; the default
  * listener option would make the call a no-op with a console warning.
  */
 if (matchMedia("(pointer: coarse)").matches) {
-  document.addEventListener(
-    "gesturestart",
-    (e: Event) => e.preventDefault(),
-    { passive: false }
-  )
+  for (const name of ["gesturestart", "gesturechange", "gestureend"]) {
+    document.addEventListener(name, (e: Event) => e.preventDefault(), {
+      passive: false,
+    })
+  }
 }
 
 export {}
