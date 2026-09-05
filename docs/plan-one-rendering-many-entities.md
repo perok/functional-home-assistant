@@ -8,6 +8,11 @@ The prompt was more-info, which doubles an unscoped set. The answer turned out n
 more-info at all, so this is written as the general question: **when a dashboard says one thing
 about six hundred entities, what does it ship six hundred times, and why?**
 
+**The conclusion is to build none of it.** After the fold fix (#327) evaluation is linear and
+~150–330 ms at real house sizes, and the artifact gzips 30–43×, so the two costs that motivated
+#108 are gone. What replicates and why is recorded below anyway, because it is real, it will be
+noticed again, and the next person should not have to re-measure it.
+
 ## What actually replicates
 
 Measured with in-process pkl-core against a synthetic mixed house — 600 entities over six domains
@@ -44,6 +49,47 @@ A `$ref` table over repeated subtrees — one concept, no holes, provably invert
 attractive cheap option. Measured on the same document: **1.91×**. Almost nothing shares, because
 almost every subtree has an entity id or a name somewhere inside it. **Holes are load-bearing**, and
 any design that avoids them is avoiding the win.
+
+## Is eval the problem? No — measured after the fold fix
+
+The question this investigation was really for. A house shaped like a real instance (mostly
+sensors, some lights, mixed device classes), evaluating the two query shapes `pkl-demo` runs — an
+unscoped `dump.all` set plus the `q.optional(q.prop("device_class"))` battery filter — min of 7
+runs, in-process pkl-core:
+
+| entities | dump + entry, no cards | demo-like, before the fold fix (#327) | after |
+|---|---|---|---|
+| 250 | 52 ms | 91 ms | **69 ms** |
+| 500 | 36 ms | 119 ms | **90 ms** |
+| 1000 | 43 ms | 233 ms | **150 ms** |
+| 2000 | 63 ms | 515 ms | **331 ms** |
+
+Byte-identical output on both sides. Three things this says:
+
+- **The typed dump module is a flat ~50–95 ms tax**, barely moving from 250 entities to 4000. Pkl
+  evaluates the entity classes that are touched, not all of them, so one class per entity is not
+  the cost it looks like.
+- **The fold fix took ~35% off the shape that matters**, and what is left grows linearly: 166 / 317
+  / 779 ms at 1000 / 2000 / 4000 entities is n^1.15, the creep being allocation rather than an
+  algorithmic term. There is no quadratic left to find.
+- **A scoped set is cheap and stays cheap**: 79 / 122 / 219 ms over the same range.
+
+So at any plausible house size an unscoped dashboard evaluates in **~150–330 ms**, most of it the
+per-candidate node building that is the actual work. That is not an edit-loop problem, and it is
+not what the 912 ms in the issue was.
+
+## And the wire compresses away
+
+| | raw | gzip |
+|---|---|---|
+| 1000 entities, demo-like | 1.24 MB | **40.6 KB** |
+| 2000 | 2.44 MB | 64.3 KB |
+| 4000 | 4.85 MB | 111 KB |
+
+30–43×, because repetition is exactly what a compressor is for. Anything that ships this artifact
+over a wire — `fh pull`, the editor — can have the win without a format. **The 15.4× above is
+therefore not a reason to build anything**; it is only interesting if the cost is *heap*, where
+compression does not help and nothing here has measured it.
 
 ## Why: two bakes, one of them deliberate
 
@@ -124,20 +170,19 @@ today's numbers. It buys wire and memory and pays in eval time — the opposite 
 edit loop wants, unless the sentinel render is done once per capability group rather than per
 member.
 
-### B — stop baking what the runtime can read
+### B — stop baking what the runtime can read — **rejected**
 
-Make the default label a live read again — undoing the ADR 0004 paragraph above, with the evidence
-it did not have. Measured effect on its own: the 400 members that carry a domain action collapse
-from 400 distinct trees to **3**. The 200 with a more-info popup do not, because the popup's own
-card bakes its own label; fixing that too is one line in `moreinfo.pkl`.
+Make the default label a live read again, undoing the ADR 0004 paragraph above. Measured effect on
+its own: the 400 members that carry a domain action collapse from 400 distinct trees to **3**.
 
-By itself this shrinks nothing — the wire still repeats the tree — so B is not an alternative to A.
-It is what makes A's shape count 5 instead of 600, and it is worth deciding on its own merits:
-a renamed entity currently shows a stale label until the dump refreshes, and a live label is right
-about that where the bake is wrong.
+**Ruled out by the maintainer, and the reason is the right one:** it moves work from build time to
+run time, which is the wrong direction for this project — what a dashboard can settle during Pkl
+evaluation, it should. ADR 0004's trade stands, now with the wire consequence on the record beside
+it rather than unweighed. Recorded here so the next person measuring the 600-vs-5 gap does not
+re-derive the idea and re-propose it.
 
-Against it: an extra transform per card per render, which is exactly what ADR 0004 traded away, and
-a label that reads blank if the state store has not seeded.
+The consequence for A: the shape count stays 5 rather than 3, and a member still needs a small
+`vars` list rather than nothing at all.
 
 ### C — a subject-parameterized surface
 
@@ -158,32 +203,38 @@ And the payoff is small, because **an unopened surface costs no CPU at all** (AD
 a surface nobody has open is not recorded). The bytes it saves are exactly the bytes A already
 saves. C is worth doing when a detail view must show something the build cannot know — not for this.
 
-## Recommendation
+## Recommendation: build none of them yet
 
-**B then A, and not C.** B is a one-line default with an ADR to rewrite and an argument that stands
-on its own; it is also what shrinks A. Over baked labels, A needs a per-member `vars` list and gets
-15.4×. Over live labels the only per-member value left is the entity id — which `candidates`
-already carries — so a member is reduced to its guards and a rendering index, the hole mechanism
-collapses to the subject alone, and the ceiling is the 28× measured on a homogeneous set.
+The investigation talked itself out of its own designs, which is worth stating plainly rather than
+shipping a proposal the evidence no longer supports.
 
-Before either, one number is missing: **whether memory or eval time is the thing that hurts.** A
-buys wire and memory and costs eval; nothing measured here says the 588 KB is a problem for the
-process holding it. The regression guard #108 asks for is still the honest first move, because it
-makes the answer visible.
+- **B is rejected** — it moves cost to run time.
+- **A's whole payoff is bytes**, and bytes gzip 30–43×. It costs a hole mechanism, a `vars` list, a
+  `validate` rule and a second render per member — paid in *eval* time, the one budget that is
+  actually scarce. That is the wrong currency to spend for a compressible artifact.
+- **C is the most machinery for the least**, and would break the render-key property in §5 of the
+  pipeline doc for bytes A already saves.
+
+What is left of #108 is one number nobody has: **the heap**. `dashboard.json` never reaches a
+browser and now compresses to 40 KB, so wire size is not a cost. Eval is ~150–330 ms and linear. If
+holding ~1.3 MB of decoded model per dashboard is a problem, the answer is backend interning at
+load — the issue's lever 4 — which needs no format, no author-facing change, and no new concept.
+If it is not a problem, #108 is finished and should say so.
 
 ## To decide
 
-1. **Is a live label acceptable again?** It reverses a recorded decision (ADR 0004) and pays a
-   transform per card per render to save 40% of a set's bytes. This is the fork everything else
-   hangs off.
-2. **Where does the subject belong — the node id, or the render key?** C needs the answer; A does
-   not, so answering it can wait.
-3. **Is `dashboard.json` size a real cost, or only a proxy?** It never reaches a browser. If the
-   pain is the 900 ms edit loop, A is the wrong lever and the right one is elsewhere.
+1. **Measure the heap, or declare it a non-issue.** One number closes or opens everything above.
+2. **The regression guard is still worth it** — not for wire size, which turned out not to matter,
+   but because it is what would have made the quadratic visible in 2026-08 instead of in a
+   measurement three months later.
 
 ## Not verified
 
-- Everything is a synthetic house. The real instance's shape count could be higher — 1069 entities
-  across more domains, with device classes splitting sensors further.
+- **The real instance was not measured.** The live HA is unreachable from here and the pinned
+  `@fh-home` package is not in the local cache, so every figure is a synthetic house shaped like
+  one. The real dump has areas, floors, devices and group members that these do not, so its
+  absolute numbers will be higher; the scaling and the A/B ratio should hold.
+- The mild superlinearity at 4000 entities (n^1.15) is attributed to allocation on the evidence
+  that nothing algorithmic remains — not profiled.
 - The sentinel-render trick is reasoned from Pkl's late binding, not spiked.
-- No measurement of what the decoded model costs in heap, which is the whole of A's memory claim.
+- No measurement of what the decoded model costs in heap, which is now the only open question.
