@@ -112,9 +112,8 @@ template path baked it onto every light; it is a live value.)
 
 ### Stage 1c — house-wide lists, declared rather than emitted
 
-The dump carries `lights` / `sensors` / `switches` / `generic` / `all` — the
-same five names `hass.Area` uses per room, so "every light" and "this room's
-lights" read the same and a query's `from` takes either. `hidden`, because they
+The dump carries `all` plus one list per modelled domain — `lights` / `locks` /
+`sensors` / `switches` / `generic`, which partition it. `hidden`, because they
 reference the entities `entities` already holds and rendering them would emit
 the house twice.
 
@@ -128,18 +127,28 @@ matters for exactly the entry that depends on them: `site.pkl` queries the
 lists having never seen this home's dump, so a generator that stopped emitting
 one would fail as `Cannot find property` at eval — on somebody's first boot. A
 declaration with a `List()` default cannot fail that way; a home with no
-switches answers `List()`. Empty assignments are therefore omitted from the
-generated file, and `all` is derived in the base rather than emitted, because
-two sources for one list is how they come to disagree.
+switches answers `List()`. The empty assignment is therefore omitted from the
+generated file.
 
 `extends` rather than `amends`: an amending module may not declare classes
 ("Class needs a `local` modifier"), and a dump is mostly classes. Pkl's own
 error names `extends` as the way out.
 
-The same five names are on `hass.Floor` (derived from its areas) and
-`hass.Device` (type tests over its entities), so all four scopes are one
-vocabulary. Neither needs generator support — a floor's entities ARE its areas'
-entities, and deriving them keeps that impossible to disagree about.
+**Only `all` is generated, per scope.** The per-domain lists are derived from
+it, in the base, by the SELECTORS in `hass.pkl` (`hass.lights(scope)`,
+`hass.locks(scope)`, …) — the same functions an author calls, so a generated
+list and a hand-written filter cannot answer differently. Every smaller scope
+answers `all` alone: `hass.Area` has it filled by the generator, `hass.Floor`
+derives it from its areas, `hass.Device` from its entities, and a domain comes
+out of any of them the one way — `hass.lights(dump.floors.loft.all)`.
+
+The alternative, a `lights`/`locks`/… on every scope, is one list per
+(domain × scope): the same filter written four times over, and a five-place edit
+each time a domain is modelled — three of those places in this generator. A
+selector is one function per domain, it works on any `List<Entity>` including
+one an author has already filtered, and it makes `generic` a single hand-written
+complement instead of four. The house keeps its lists because `dump.lights` is
+the everyday spelling; that is a convenience over `all`, not a second source.
 
 ### Stage 1d — the live-attribute schema, derived and never observed
 
@@ -480,7 +489,7 @@ The recipe, in the order the pieces depend on each other:
 2. **Carry the attributes**: add them to `RegistryDump.CapabilityAttributes` —
    *after* checking them against live `subscribe_entities` deltas, per the rule
    above. Skip any that are live values.
-3. **Vendor the constants** in `lib/hass-<domain>.pkl` + `Ha<Domain>.scala`, and
+3. **Vendor the constants** in `lib/hass/<domain>.pkl` + `Ha<Domain>.scala`, and
    extend `HaLightSuite`'s comparison to the new pair so they cannot drift.
    (Import with an `as` alias — Pkl binds an import to its FILE name, and
    `hass-media-player` is not an identifier.)
@@ -488,14 +497,18 @@ The recipe, in the order the pieces depend on each other:
    Entity` with the co-occurring values as nullable GROUP classes and the
    yes/no capabilities as predicates DERIVED from the raw emitted data. Do not
    bake conclusions into the generator.
-5. **Emit the data** in `PklDump`: a `schemaFields` branch for the always-present
+5. **Select the domain**: one `function <domain>s(scope)` in `hass.pkl`, removed
+   from `generic`'s complement in the same edit — the two together are what keep
+   the lists a partition — and one derived `hidden <domain>s` on
+   `internal/dump-base.pkl`. The generator emits no list: it emits `all`.
+6. **Emit the data** in `PklDump`: a `schemaFields` branch for the always-present
    values, a `schemaGroups` branch for the narrowed group declarations, and the
    attribute names the domain now owns listed in `SchemaModelled` so
    `capabilityDecls` stops declaring them on the per-entity class too.
-6. **Validate in `PklDump.warnings`**: what would make a group half-populated?
+7. **Validate in `PklDump.warnings`**: what would make a group half-populated?
    Report it and omit the group.
-7. **Dispatch**: add the domain to `PklDump.entityType`.
-8. **Test**: a `PklDumpCapabilitySuite` case per group (complete, half,
+8. **Dispatch**: add the domain to `PklDump.entityType`.
+9. **Test**: a `PklDumpCapabilitySuite` case per group (complete, half,
    claimed-but-absent, unmodelled-attribute-still-falls-through) and a
    `PklBuildSuite` probe that evaluates the guarded access for real.
 

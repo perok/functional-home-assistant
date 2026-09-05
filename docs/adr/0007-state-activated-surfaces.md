@@ -141,7 +141,7 @@ c.iff(q.entity(dump.e_alarm).stateIs("armed_away"))          // one entity
   .then(c.title("⚠ Alarm armed"))
   .`else`(c.title("All quiet"))
 
-c.iff(q.from(dump.areas.stue.lights)                          // a named set
+c.iff(q.from(hass.lights(dump.areas.stue.all))                // a named set
         .where(q.eq(q.stateProp, "on")).any())
   .then(c.title("Someone is up"))
 
