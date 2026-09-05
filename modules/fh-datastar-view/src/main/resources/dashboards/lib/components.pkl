@@ -37,6 +37,7 @@ import "components/control.pkl" as control
 import "components/slider.pkl" as sliderMod
 import "components/surface.pkl" as surfaces
 import "components/light.pkl" as lightMod
+import "components/lock.pkl" as lockMod
 import "components/moreinfo.pkl" as moreinfo
 import "recipes.pkl" as recipesMod
 
@@ -54,6 +55,9 @@ hidden simple: simpleMod = simpleMod
 
 /// Light-domain composition: `c.light.controls(l)`, `c.light.effectPills(l.effects)`.
 hidden light: lightMod = lightMod
+
+/// Lock-domain composition: `c.lock.controls(l)`, `c.lock.openLatch(l)`.
+hidden lock: lockMod = lockMod
 
 /// Opinionated whole sections: `c.recipes.floorView(floor)`.
 hidden recipes: recipesMod = recipesMod

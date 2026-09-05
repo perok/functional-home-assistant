@@ -24,6 +24,12 @@ local outside: hass.SensorEntity = new { entity_id = "sensor.outside" }
 // Default-tap fixtures (#106): a domain HA can toggle, one whose service the
 // state picks, one that only presses, and one with no action at all.
 local frontLock: hass.GenericEntity = new { entity_id = "lock.front"; domain = "lock" }
+// The typed lock, with and without the one capability the domain defines.
+local latchLock: hass.LockEntity = new {
+  entity_id = "lock.latch"
+  supported_features = 1
+}
+local plainLock: hass.LockEntity = new { entity_id = "lock.plain" }
 local doorbell: hass.GenericEntity = new { entity_id = "button.doorbell"; domain = "button" }
 
 // Icon fixtures, shaped as PklDump generates them: a capability attribute lives
@@ -540,5 +546,28 @@ facts {
     // ...and the label that stayed behind for the toggle's `aria-label` reads
     // `onRender`: right whenever the card is drawn, never a reason to draw it.
     head.slots["label"] is String || head.slots["label"].reads == "onRender"
+  }
+
+  // ---- lock composition ----
+
+  ["a lock that can open its latch gets a second control; one that cannot does not"] {
+    // The whole of what `c.lock.controls` decides. A lock's tile is the generic
+    // one — the composition exists for the capability the generic card cannot
+    // see.
+    c.lock.controls(latchLock).children.toList().map((n) -> n.card)
+      == List("entityCard", "button")
+    c.lock.controls(plainLock).children.toList().map((n) -> n.card)
+      == List("entityCard")
+  }
+
+  ["the latch posts lock/open, which is not unlocking"] {
+    local latch = c.lock.openLatch(latchLock)
+    latch.slots["onclick"].transform.contains("lock/open")
+    // Aimed at the lock itself: a button carries no subject of its own.
+    latch.slots["entity_id"] == "lock.latch"
+    // The tile beside it still locks/unlocks by state — the two controls are
+    // different actions, not two spellings of one.
+    c.entityCard(latchLock).slots["onclick"].transform
+      .contains(#"state == 'locked' ? 'lock/unlock' : 'lock/lock'"#)
   }
 }

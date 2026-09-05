@@ -19,6 +19,10 @@ module hass
 // light ENTITY rather than as HA's light-domain constants.
 import "hass/light.pkl" as hassLight
 
+// HA's own `lock` domain constants (LockState, LockEntityFeature), vendored —
+// same reasoning as the light import above.
+import "hass/lock.pkl" as hassLock
+
 typealias EntityId = String(matches(Regex(#"[a-z_0-9]+\.[a-z0-9_]+"#)))
 
 abstract class Entity {
@@ -77,6 +81,10 @@ abstract class Entity {
 /// A light's supported colour modes, typed against HA's own `ColorMode` enum —
 /// so `"colour_temp"` is an eval error, not a silently-never-matching string.
 typealias ColorMode = hassLight.ColorMode
+
+/// The states a lock reports — see [[hassLock.LockState]] for why nothing is
+/// typed against it yet.
+typealias LockState = hassLock.LockState
 
 // ---- domain classes ----
 // Each carries its domain literal and its capability PREDICATES, nothing else.
@@ -217,6 +225,51 @@ open class LightEntity extends Entity {
     when (supportsEffects) {
       ["effect"] = "String"
     }
+  }
+}
+
+/// developers.home-assistant.io/docs/core/entity/lock
+///
+/// MODELLED IN PART, and the part is chosen by what a card can currently do:
+///
+///   - the OPEN feature bit, because it decides whether a second control
+///     (`lock/open`, releasing the latch) belongs on the card at all;
+///   - `changed_by`, because it is the one live attribute a lock reports
+///     besides its state.
+///
+/// NOT modelled, each for a stated reason rather than for lack of a doc page:
+///
+///   - **code entry.** A lock reporting `code_format` wants a keypad before
+///     `lock/unlock`, and there is no input primitive in the component layer to
+///     build one from. `code_format` still reaches an author — it falls through
+///     to the per-entity class as an ordinary attribute (ADR 0013) — so a
+///     dashboard can SEE that a lock wants a code even though no shipped card
+///     asks for one.
+///   - **a jammed state that looks different.** `jammed` renders as the value
+///     text and nothing more. Making it look alarming needs a state-dependent
+///     look, and this project resolves an icon at BUILD time (`core/icon.pkl`).
+///   - **a `dump.locks` list.** The house-wide lists are `lights`/`sensors`/
+///     `switches`/`generic`, so a lock arrives in `generic` and a dashboard
+///     reaches it by name or by `q.from(dump.all).where(domain == "lock")`.
+///     Adding a list per modelled domain touches `internal/dump-base.pkl`, the
+///     area classes and the floor classes together; worth doing once for
+///     several domains, not once per domain.
+///   - **confirmation before unlocking.** There is no confirm primitive in
+///     `core/tap.pkl`; adding one is a decision about taps in general, not
+///     about locks, and would land the same way for `siren` and `alarm_control_panel`.
+open class LockEntity extends Entity {
+  domain: "lock" = "lock"
+
+  /// The raw `LockEntityFeature` bitmask, as the dump read it.
+  hidden supported_features: Int = 0
+
+  /// Whether this lock can release its latch (`lock/open`) as well as unlock.
+  hidden supportsOpen: Boolean = supported_features.and(hassLock.OPEN) != 0
+
+  /// A lock reports what moved it last, and nothing else that moves. Its STATE
+  /// is the reading a card shows, and that is not an attribute.
+  volatileAttrs = new {
+    ["changed_by"] = "String"
   }
 }
 

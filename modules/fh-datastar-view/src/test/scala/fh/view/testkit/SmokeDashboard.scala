@@ -7,9 +7,10 @@ import io.circe.Json
   * `theme-beer.pkl` chrome/CSS (unlike [[PklFixture.dummyTheme]] fixtures
   * elsewhere, these tests exist specifically to exercise real CSS/JS in a real
   * browser), plus one of each interaction class a UI/visual smoke test needs
-  * something to click — a popup trigger, a tab bar, and a brightness slider —
-  * over the [[HouseFixture]] entities, so the served state and the dashboard
-  * can never drift (same discipline as [[PklFixture]]).
+  * something to click — a popup trigger, a tab bar, a brightness slider, and a
+  * domain composition (`c.lock.controls`) — over the [[HouseFixture]] entities,
+  * so the served state and the dashboard can never drift (same discipline as
+  * [[PklFixture]]).
   *
   * The theme amend pins the text font (see [[fontPinnedTheme]]) — TEST-ONLY, so
   * [[fh.view.smoke.ComponentVisualSuite]]'s baselines are portable between a
@@ -63,6 +64,7 @@ object SmokeDashboard {
        |    c.entityCard(dump.entities.${HouseFixture.kitchenLight.dumpKey}).tapAction(c.tap.openPopup("detail"))
        |    c.button("Toggle Kitchen", c.tap.service("light/toggle")).entity(dump.entities.${HouseFixture.kitchenLight.dumpKey})
        |    c.slider(dump.entities.${HouseFixture.kitchenLight.dumpKey})
+       |    c.lock.controls(dump.entities.${HouseFixture.frontLock.dumpKey})
        |    (c.tabs) {
        |      tabs {
        |        ["Lights"] { c.entityCard(dump.entities.${HouseFixture.livingRoomLight.dumpKey}) }
