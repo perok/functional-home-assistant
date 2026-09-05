@@ -37,9 +37,10 @@ env:
 jobs:
   ci:
     runs-on: ubuntu-latest
-    # A runaway guard, not a budget: a green run is ~6 min wall. Kept well
-    # clear of that because a timeout CANCELS the job, which skips
-    # `Publish Test Report` and so leaves no test XML to diagnose from.
+    # The OUTER runaway guard, and the one to avoid hitting: a job timeout
+    # CANCELS, which skips `Publish Test Report` and leaves nothing to diagnose
+    # from. The test step therefore carries its own, shorter `timeout` (see
+    # there) so a hang fails a STEP while this cap is still far away.
     timeout-minutes: 20
     permissions:
       contents: read
@@ -146,7 +147,20 @@ jobs:
             # client JOINS its argv into a single command string, so
             # `sbt 'a' 'b'` is parsed as the one command `a b` and dies with
             # "Expected whitespace character".
-            run: sbt 'fh-datastar-view/testFull; fh-datastar-view/scalafixAll --check'
+            #
+            # `timeout` because a background step's stdout NEVER reaches the
+            # downloadable log — green runs included — so the junit XML that
+            # `Publish Test Report` annotates is the only account of what ran.
+            # Letting the JOB cap fire instead cancels the job and skips that
+            # publish, which is how two 20-minute runs produced no evidence at
+            # all. Failing the step here keeps the XML, and it names the suite
+            # the run stopped in.
+            #
+            # 12 min against a ~70-100s green step: this catches a hang, never
+            # a slow runner. `-k 30` because a TERM the thin client does not
+            # act on would otherwise hand the run back to the job cap, which is
+            # the outcome this exists to avoid.
+            run: timeout -k 30 720 sbt 'fh-datastar-view/testFull; fh-datastar-view/scalafixAll --check'
 
           # The fh laptop script's own suite (in-process, gated on
           # SCALA_TEST_MODE; no instance needed) — also compile-checks the
