@@ -258,6 +258,10 @@ lazy val `fh-datastar-view` = project
         MergeStrategy.discard
       // smithy4s ships duplicate smithy manifests; unused at runtime.
       case PathList("META-INF", "smithy", _*) => MergeStrategy.first
+      // OSGi bundle metadata (okhttp, jspecify, the otel exporters) — read by
+      // an OSGi container, and there is none here.
+      case path if path.endsWith("OSGI-INF/MANIFEST.MF") =>
+        MergeStrategy.discard
       case x => (assembly / assemblyMergeStrategy).value(x)
     },
     // The `smoke` package is Playwright-driven and is the slowest part of the
