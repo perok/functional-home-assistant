@@ -418,6 +418,15 @@ gotchas"):
 - `|>` binds looser than call/amend; `Mixin<T>` values and Mixin-returning methods chain
   as pipe stages.
 
+#### What Pkl evaluation costs
+
+`benchmarks/EvalBench` prices a build against a generated house at 250/1000/4000 entities
+(`sbt 'benchmarks/Jmh/run -f 1 -wi 2 -i 3 .*EvalBench.*'`), with its baseline in the scaladoc.
+It is manual, never on the CI path — the point is that "did eval get slower, and does it still
+grow with the house rather than its square" is one command rather than a day of rebuilding
+probes. Run it after touching `query.pkl`'s fold or anything else that runs per candidate;
+`query.pkl`'s own comments carry why that fold is split the way it is.
+
 #### Design docs and plans
 
 The repo-wide rule (plans are deferred, ADRs are rewritten in place, discuss before rewriting)
