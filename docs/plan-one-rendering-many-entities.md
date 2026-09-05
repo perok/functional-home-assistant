@@ -225,9 +225,14 @@ and if the live figure ever disagrees it is one HTTP GET away.
 
 ## What remains
 
-**The regression guard, and only that** — with its justification changed. Not to catch wire size,
-which turned out not to be a cost, but because it is what would have made the quadratic visible in
-2026-08 rather than in a measurement three months later. Everything else in #108 is closed.
+**Nothing.** What #108 called a regression guard is now `benchmarks/EvalBench` — the eval cost at
+250/1000/4000 entities, with its baseline in the scaladoc, run by hand.
+
+It is a benchmark rather than a test on purpose. An assertion needs either an absolute threshold
+to calibrate per machine or four evaluations on every CI run, to catch a bug class that has
+happened once; what actually had value was that the measurement exists at all, since the quadratic
+survived from 2026-08 only because nobody could ask the question cheaply. The reasoning about
+*why* the fold is split lives in `query.pkl`, next to the code that has to keep it true.
 
 ## Not verified
 
@@ -238,4 +243,5 @@ which turned out not to be a cost, but because it is what would have made the qu
 - The mild superlinearity at 4000 entities (n^1.15) is attributed to allocation on the evidence
   that nothing algorithmic remains — not profiled.
 - The sentinel-render trick is reasoned from Pkl's late binding, not spiked.
-- No measurement of what the decoded model costs in heap, which is now the only open question.
+- The heap argument is a proportion against the benchmarks' allocation figures, not a direct
+  measurement of the decoded model's retained size.
