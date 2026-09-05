@@ -1,0 +1,28 @@
+/// Home Assistant's `lock` domain model, vendored.
+///
+/// A verbatim copy of what HA defines in `homeassistant/components/lock/const.py`
+/// — the state vocabulary and the `LockEntityFeature` bit flag — so a dashboard
+/// can name a lock state without spelling a magic string, and so the schema's
+/// `supportsOpen` has a documented source for the bit it tests.
+///
+/// Docs: https://developers.home-assistant.io/docs/core/entity/lock
+///
+/// Safe to vendor for the same reason `hass/light.pkl` is: HA's `*EntityFeature`
+/// IntFlags are append-only, never renumbered, because they are persisted in
+/// entity state attributes and read by the frontend.
+module hass_lock
+
+/// Every state a lock reports. Five of the seven are TRANSIENT — a lock passes
+/// through `locking`/`unlocking`/`opening` on its way somewhere, and reports
+/// `jammed` when it tried to move and could not.
+///
+/// Nothing types against this yet: the query layer compares a state as a plain
+/// String (`q.eq(q.stateProp, "locked")`), so this is here as the vocabulary an
+/// author needs, not as a constraint the build enforces. Typing `stateProp` per
+/// domain is a query-layer decision, not a lock one.
+typealias LockState =
+  "locked"|"unlocked"|"locking"|"unlocking"|"open"|"opening"|"jammed"
+
+/// The lock can release its latch — `lock/open`, distinct from unlocking it.
+/// The only flag the domain defines.
+const OPEN: Int = 1

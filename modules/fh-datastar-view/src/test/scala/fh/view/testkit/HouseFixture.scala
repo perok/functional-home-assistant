@@ -68,6 +68,20 @@ object HouseFixture {
     Map("friendly_name" -> s("Living Room TV"))
   )
 
+  /** A lock that can also release its latch (`LockEntityFeature.OPEN`), so the
+    * one thing `hass.LockEntity` models beyond the domain is exercised rather
+    * than defaulted.
+    */
+  val frontLock: FixtureEntity = FixtureEntity(
+    "lock.front_door",
+    "locked",
+    Map(
+      "friendly_name" -> s("Front Door Lock"),
+      "supported_features" -> n(1),
+      "changed_by" -> s("keypad")
+    )
+  )
+
   /** Every entity, as the seed a [[FakeHomeAssistant]] starts from. */
   val all: List[FixtureEntity] =
     List(
@@ -76,7 +90,8 @@ object HouseFixture {
       outsideTemp,
       hallwayClimate,
       frontDoor,
-      tv
+      tv,
+      frontLock
     )
 
   /** The whole house as a [[fh.view.build.RegistryDump.transform]] output — the

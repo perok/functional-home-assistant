@@ -10,12 +10,17 @@
 /// somebody's first boot. A declaration with a `List()` default cannot fail that
 /// way — an empty house answers `List()`, not an error.
 ///
-/// The names are exactly [[hass.Area]]'s, so "every light" and "this room's
-/// lights" read the same and a query's `from` takes either:
+/// The house is the only scope that carries per-domain lists. A smaller scope
+/// answers `all`, and a domain comes out of it through the selector that owns
+/// that domain (`hass.pkl`), so a query's `from` takes either:
 ///
-///     q.from(dump.lights)              // the house
-///     q.from(dump.areas.stue.lights)   // one room
-///     q.from(dump.floors.loft.lights)  // one floor
+///     q.from(dump.lights)                          // the house
+///     q.from(hass.lights(dump.areas.stue.all))     // one room
+///     q.from(hass.lights(dump.floors.loft.all))    // one floor
+///
+/// Which is why only `all` is generated, per scope: the four domain lists here
+/// are derived from it by the same selectors an author calls, so a generated
+/// list and a hand-written filter cannot answer differently.
 ///
 /// `entities`/`areas`/`floors`/`devices` are NOT declared here: their types are
 /// generated per home (`class Entities { light_taklys: E_light_taklys … }`), so
@@ -29,12 +34,15 @@ open module dumpBase
 
 import "../hass.pkl"
 
+/// Every entity in the home, in entity-id order — the one list the generator
+/// fills, and the one an empty house answers `List()` for.
+hidden all: List<hass.Entity> = List()
+
 /// Every light in the home, in entity-id order. A dashboard wanting another
 /// order sorts the list with plain Pkl before `from`.
-hidden lights: List<hass.LightEntity> = List()
-hidden sensors: List<hass.SensorEntity> = List()
-hidden switches: List<hass.SwitchEntity> = List()
-/// Every entity whose domain has no typed class yet — the complement of the
-/// three above, so `all` is exactly their union.
-hidden generic: List<hass.Entity> = List()
-hidden all: List<hass.Entity> = lights + sensors + switches + generic
+hidden lights: List<hass.LightEntity> = hass.lights(all)
+hidden locks: List<hass.LockEntity> = hass.locks(all)
+hidden sensors: List<hass.SensorEntity> = hass.sensors(all)
+hidden switches: List<hass.SwitchEntity> = hass.switches(all)
+/// Every entity no other list claims, so the five partition `all`.
+hidden generic: List<hass.Entity> = hass.generic(all)

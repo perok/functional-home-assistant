@@ -1,11 +1,16 @@
-/// The domain schema's SCOPE VOCABULARY: an area, a floor and a device answer
-/// the same five names as the dump's house-wide lists, so `q.from(...)` takes
-/// any of them and an author moving between scopes rewrites nothing.
+/// The domain schema's SCOPE VOCABULARY: every scope — the house, an area, a
+/// floor, a device — answers `all`, and a domain is picked out of one by a
+/// SELECTOR, so `q.from(...)` takes any of them and an author moving between
+/// scopes rewrites nothing.
 ///
-/// Worth pinning because three of the four are DERIVED (a floor's from its
-/// areas, a device's by type test over its entities) and one is generated. A
+/// Worth pinning because most of it is DERIVED: a floor's `all` from its areas,
+/// a device's from its entities, and every per-domain list from a selector. A
 /// derivation that drifts from what the generator emits is silent — the list is
 /// simply wrong, never absent.
+///
+/// The other property pinned here is that the selectors PARTITION `all`:
+/// `generic` is a hand-written complement, so the edit that adds a domain and
+/// forgets to remove it from `generic` double-counts, and nothing else notices.
 ///
 /// Outside `lib/` for the usual reason — see `components.test.pkl`.
 amends "pkl:test"
@@ -16,19 +21,19 @@ import "../../main/resources/dashboards/lib/internal/dump-base.pkl" as dumpBase
 const local bulb: hass.LightEntity = new { entity_id = "light.a"; area_id = "stue" }
 const local temp: hass.SensorEntity = new { entity_id = "sensor.t"; area_id = "stue" }
 const local plug: hass.SwitchEntity = new { entity_id = "switch.p"; area_id = "stue" }
+const local door: hass.LockEntity = new { entity_id = "lock.d"; area_id = "stue" }
 const local tv: hass.GenericEntity = new {
   entity_id = "media_player.tv"
   domain = "media_player"
   area_id = "stue"
 }
 
+const local everything: List<hass.Entity> = List(bulb, temp, plug, door, tv)
+
 local class Stue extends hass.Area {
   area_id = "stue"
   area_name = "Stue"
-  lights = List(bulb)
-  sensors = List(temp)
-  switches = List(plug)
-  generic = List(tv)
+  all = everything
 }
 
 local class Loft extends hass.Floor {
@@ -40,35 +45,48 @@ local class Loft extends hass.Floor {
 local class Appliance extends hass.Device {
   device_id = "d1"
   device_name = "Appliance"
-  entities = List(bulb, temp, plug, tv)
+  entities = everything
 }
 
 local stue: Stue = new {}
 local loft: Loft = new {}
 local dev: Appliance = new {}
+local house: dumpBase = new { all = everything }
 
 local ids = (xs: List<hass.Entity>) -> xs.map((e) -> e.entity_id)
 
 facts {
-  ["an area's `all` is the union of its four domain lists"] {
-    ids.apply(stue.all) == List("light.a", "sensor.t", "switch.p", "media_player.tv")
+  ["a selector picks one domain out of any scope"] {
+    ids.apply(hass.lights(stue.all)) == List("light.a")
+    ids.apply(hass.locks(loft.all)) == List("lock.d")
+    ids.apply(hass.sensors(dev.all)) == List("sensor.t")
+    ids.apply(hass.switches(house.all)) == List("switch.p")
+    // The complement: a media_player has no selector, so it lands here.
+    ids.apply(hass.generic(stue.all)) == List("media_player.tv")
   }
 
-  ["a floor answers the same five, derived from its areas"] {
-    ids.apply(loft.lights) == List("light.a")
-    ids.apply(loft.sensors) == List("sensor.t")
-    ids.apply(loft.switches) == List("switch.p")
-    ids.apply(loft.generic) == List("media_player.tv")
+  ["the selectors partition `all` — nothing dropped, nothing counted twice"] {
+    local parts = hass.lights(everything) + hass.locks(everything)
+      + hass.sensors(everything) + hass.switches(everything)
+      + hass.generic(everything)
+    parts.length == everything.length
+    parts.toSet() == everything.toSet()
+  }
+
+  ["a floor's `all` is its areas', and a device's is its entities'"] {
     ids.apply(loft.all) == ids.apply(stue.all)
+    ids.apply(dev.all) == ids.apply(dev.entities)
   }
 
-  ["a device answers the same five, by type test over its entities"] {
-    ids.apply(dev.lights) == List("light.a")
-    ids.apply(dev.sensors) == List("sensor.t")
-    ids.apply(dev.switches) == List("switch.p")
-    // The complement, so nothing in `entities` is dropped or double-counted.
-    ids.apply(dev.generic) == List("media_player.tv")
-    ids.apply(dev.all) == ids.apply(dev.entities)
+  ["the house's per-domain lists are the selectors over its `all`"] {
+    // The everyday spelling (`dump.lights`) and the scoped one
+    // (`hass.lights(area.all)`) must be the same function, not two filters that
+    // agree today.
+    house.lights == hass.lights(house.all)
+    house.locks == hass.locks(house.all)
+    house.sensors == hass.sensors(house.all)
+    house.switches == hass.switches(house.all)
+    house.generic == hass.generic(house.all)
   }
 
   ["an EMPTY scope answers an empty list, never an error"] {
@@ -77,12 +95,13 @@ facts {
     // `Cannot find property` at eval, on a first boot; a declared default
     // cannot fail that way.
     local bare: dumpBase = new {}
+    bare.all.isEmpty
     bare.lights.isEmpty
+    bare.locks.isEmpty
     bare.sensors.isEmpty
     bare.switches.isEmpty
     bare.generic.isEmpty
-    bare.all.isEmpty
     (new Loft { areas = List() }).all.isEmpty
-    (new Appliance { entities = List() }).lights.isEmpty
+    (new Appliance { entities = List() }).all.isEmpty
   }
 }

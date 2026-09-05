@@ -76,32 +76,22 @@ object PklDump {
          |
          |entities: Entities = new {}""".stripMargin
 
-    // The house-wide lists. DECLARED in `@fh-dashboard/internal/dump-base.pkl` (which
-    // this module extends) and merely filled here — so a home with no switches
-    // answers `List()` rather than "Cannot find property", and the starter
-    // dashboard can query them without having seen this dump. `all` is derived
-    // there from the four, so it is not emitted.
+    // The house's entities. DECLARED in `@fh-dashboard/internal/dump-base.pkl`
+    // (which this module extends) and merely filled here — so a home with no
+    // entities answers `List()` rather than "Cannot find property", and the
+    // starter dashboard can query it without having seen this dump. The
+    // per-domain lists are derived THERE, by the same selectors an author
+    // calls, so adding a modelled domain never touches this generator's lists.
     //
-    // Assignments are omitted where the list is empty: the declared default
+    // The assignment is omitted for an empty house: the declared default
     // already says `List()`, and emitting it again is noise in a generated file
     // a person does read.
-    val domainLists = {
-      def list(name: String, pred: String => Boolean) = {
-        val keys = entities.collect {
-          case (key, eo) if str(eo, "domain").exists(pred) => tick(s"e_$key")
-        }
-        Option.when(keys.nonEmpty)(
-          s"$name = List(${keys.mkString(", ")})"
+    val domainLists =
+      Option
+        .when(entities.nonEmpty)(
+          s"all = List(${entities.map { case (key, _) => tick(s"e_$key") }.mkString(", ")})"
         )
-      }
-      val modelled = Set("light", "sensor", "switch")
-      List(
-        list("lights", _ == "light"),
-        list("sensors", _ == "sensor"),
-        list("switches", _ == "switch"),
-        list("generic", d => !modelled.contains(d))
-      ).flatten.mkString("\n")
-    }
+        .getOrElse("")
 
     // One class per area (from the flat map — floor nesting references these).
     // Members = entities whose raw `area_id` matches the area's.
@@ -113,21 +103,13 @@ object PklDump {
       val memberProps = members.map { case (key, _) =>
         s"  ${tick(key)}: ${entityClass(key)} = ${tick(s"e_$key")}"
       }
-      def domainList(name: String, pred: String => Boolean) = {
-        val keys = members.collect {
-          case (key, eo) if str(eo, "domain").exists(pred) => tick(key)
-        }
-        Option.when(keys.nonEmpty)(s"  $name = List(${keys.mkString(", ")})")
-      }
-      val lists = List(
-        domainList("lights", _ == "light"),
-        domainList("sensors", _ == "sensor"),
-        domainList("switches", _ == "switch"),
-        domainList(
-          "generic",
-          d => d != "light" && d != "sensor" && d != "switch"
+      // One list, not one per domain: `hass.Area` carries only `all`, and a
+      // domain is picked out of it by a selector (`hass.lights(area.all)`).
+      val lists = Option
+        .when(members.nonEmpty)(
+          s"  all = List(${members.map { case (key, _) => tick(key) }.mkString(", ")})"
         )
-      ).flatten
+        .toList
       s"""class ${tick(s"Area_$slug")} extends hass.Area {
          |${(areaFields(ao) ++ memberProps ++ lists).mkString("\n")}
          |}""".stripMargin
@@ -253,9 +235,10 @@ object PklDump {
     s"""/// GENERATED from the live HA registry by PklDump — do not edit.
        |/// The entity/area/floor dump, typed against `hass.pkl`.
        |///
-       |/// EXTENDS the shared base so the house-wide lists (`lights`, `sensors`,
-       |/// `switches`, `generic`, `all`) are a declared contract with `List()`
-       |/// defaults, not properties this generator has to remember to emit.
+       |/// EXTENDS the shared base so the house-wide lists (`all`, and the
+       |/// per-domain `lights`/`locks`/`sensors`/`switches`/`generic` derived
+       |/// from it) are a declared contract with `List()` defaults, not
+       |/// properties this generator has to remember to emit.
        |/// `extends` rather than `amends` because an amending module may not
        |/// declare classes, and a dump is mostly classes.
        |extends "@fh-dashboard/internal/dump-base.pkl"
@@ -295,6 +278,7 @@ object PklDump {
   private def entityType(eo: JsonObject): String =
     str(eo, "domain") match {
       case Some("light")  => "hass.LightEntity"
+      case Some("lock")   => "hass.LockEntity"
       case Some("sensor") => "hass.SensorEntity"
       case Some("switch") => "hass.SwitchEntity"
       case Some("number") => "hass.NumberEntity"
@@ -332,7 +316,11 @@ object PklDump {
       "min_color_temp_kelvin",
       "max_color_temp_kelvin",
       "effect_list"
-    )
+    ),
+    // `code_format` is deliberately absent: no shipped card asks for a code, so
+    // it stays an ordinary per-entity attribute an author can read (see
+    // `hass.LockEntity`).
+    "lock" -> Set("supported_features")
   )
 
   /** The generated class name for one entity. */
@@ -356,6 +344,12 @@ object PklDump {
           .flatMap(_.toInt)
           .map(v => s"  supported_features = $v")
         List(modes, features).flatten
+      case Some("lock") =>
+        attrs("supported_features")
+          .flatMap(_.asNumber)
+          .flatMap(_.toInt)
+          .map(v => s"  supported_features = $v")
+          .toList
       case _ => Nil
     }
   }
