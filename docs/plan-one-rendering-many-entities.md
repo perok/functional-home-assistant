@@ -215,18 +215,19 @@ shipping a proposal the evidence no longer supports.
 - **C is the most machinery for the least**, and would break the render-key property in §5 of the
   pipeline doc for bytes A already saves.
 
-What is left of #108 is one number nobody has: **the heap**. `dashboard.json` never reaches a
-browser and now compresses to 40 KB, so wire size is not a cost. Eval is ~150–330 ms and linear. If
-holding ~1.3 MB of decoded model per dashboard is a problem, the answer is backend interning at
-load — the issue's lever 4 — which needs no format, no author-facing change, and no new concept.
-If it is not a problem, #108 is finished and should say so.
+**Nor is the heap an open question.** `modules/benchmarks` already measures allocation per page
+open with `-prof gc`, and `GET /system/diagnostics` (#319) reports the JVM heap beside the
+container's cgroup figure on the live add-on. Against those instruments: one page open allocates
+**1.1–3.8 MB, per open**, where the whole decoded dashboard is of that same order **once**, inside a
+512 MB ceiling with `ExitOnOutOfMemoryError`. Interning the model 15× would save a fraction of a
+percent — below what either instrument resolves. The issue's lever 4 is not worth building either,
+and if the live figure ever disagrees it is one HTTP GET away.
 
-## To decide
+## What remains
 
-1. **Measure the heap, or declare it a non-issue.** One number closes or opens everything above.
-2. **The regression guard is still worth it** — not for wire size, which turned out not to matter,
-   but because it is what would have made the quadratic visible in 2026-08 instead of in a
-   measurement three months later.
+**The regression guard, and only that** — with its justification changed. Not to catch wire size,
+which turned out not to be a cost, but because it is what would have made the quadratic visible in
+2026-08 rather than in a measurement three months later. Everything else in #108 is closed.
 
 ## Not verified
 
