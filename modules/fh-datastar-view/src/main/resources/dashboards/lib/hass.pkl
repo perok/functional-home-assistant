@@ -248,12 +248,6 @@ open class LightEntity extends Entity {
 ///   - **a jammed state that looks different.** `jammed` renders as the value
 ///     text and nothing more. Making it look alarming needs a state-dependent
 ///     look, and this project resolves an icon at BUILD time (`core/icon.pkl`).
-///   - **a `dump.locks` list.** The house-wide lists are `lights`/`sensors`/
-///     `switches`/`generic`, so a lock arrives in `generic` and a dashboard
-///     reaches it by name or by `q.from(dump.all).where(domain == "lock")`.
-///     Adding a list per modelled domain touches `internal/dump-base.pkl`, the
-///     area classes and the floor classes together; worth doing once for
-///     several domains, not once per domain.
 ///   - **confirmation before unlocking.** There is no confirm primitive in
 ///     `core/tap.pkl`; adding one is a decision about taps in general, not
 ///     about locks, and would land the same way for `siren` and `alarm_control_panel`.
@@ -295,17 +289,28 @@ open class GenericEntity extends Entity {}
 
 // ---- registry structure (generated dump.pkl subclasses these) ----
 
+/// Every scope answers ONE name — `all`, in entity-id order — and a domain is
+/// picked out of it by a selector below rather than by a list the scope carries
+/// of its own:
+///
+///     lights(dump.floors.loft.all)   // every light upstairs
+///     locks(dump.areas.stue.all)     // this room's locks
+///
+/// Why not a `lights` on each scope: that is one list per (domain × scope), and
+/// each new modelled domain then widens [[Area]], [[Floor]], [[Device]] and the
+/// generator together — five places to add a lock's list, four of which are the
+/// same filter written again. A selector is one function per domain, and it
+/// works on any `List<Entity>` at all, including one an author has already
+/// filtered. The house-wide lists on `internal/dump-base.pkl` stay, because
+/// `dump.lights` is the everyday spelling and it is derived from these.
 abstract class Area {
   area_id: String
   area_name: String
   floor_id: String? = null
-  // Per-domain member lists for iteration; the generated subclass fills them.
-  // Hidden: authoring convenience only, never rendered into dashboard JSON.
-  hidden lights: List<LightEntity> = List()
-  hidden sensors: List<SensorEntity> = List()
-  hidden switches: List<SwitchEntity> = List()
-  hidden generic: List<Entity> = List()
-  hidden all: List<Entity> = lights + sensors + switches + generic
+  /// Every entity registered to this area, in entity-id order — filled by the
+  /// generated subclass. Hidden: authoring convenience, never rendered into
+  /// dashboard JSON.
+  hidden all: List<Entity> = List()
 }
 
 abstract class Floor {
@@ -316,14 +321,9 @@ abstract class Floor {
   /// dashboard sort floors the way the house is stacked instead of by name.
   level: Int? = null
 
-  // The same five names as [[Area]] and the dump's house-wide lists, so the
-  // three scopes are one vocabulary. DERIVED from `areas` rather than filled by
-  // the generator: a floor's entities are its areas' entities by definition, and
-  // deriving them keeps that impossible to disagree about.
-  hidden lights: List<LightEntity> = areas.flatMap((a) -> a.lights)
-  hidden sensors: List<SensorEntity> = areas.flatMap((a) -> a.sensors)
-  hidden switches: List<SwitchEntity> = areas.flatMap((a) -> a.switches)
-  hidden generic: List<Entity> = areas.flatMap((a) -> a.generic)
+  /// DERIVED, never filled by the generator: a floor's entities are its areas'
+  /// entities by definition, and deriving them keeps that impossible to
+  /// disagree about.
   hidden all: List<Entity> = areas.flatMap((a) -> a.all)
 }
 
@@ -339,18 +339,36 @@ abstract class Device {
   model: String? = null
   hidden entities: List<Entity> = List()
 
-  // The shared five again. `entities` is the raw list the generator fills, and
-  // `all` is its alias — one name for "everything in this scope" wherever you
-  // are. The per-domain ones are type tests over it, which is why a device's
-  // lists need no generator support: a device is a handful of entities, not a
-  // registry join.
+  /// The same name every scope answers, so a selector reads the same over a
+  /// device as over a floor. `entities` is what the generator fills; `all` is
+  /// what an author reaches for.
   hidden all: List<Entity> = entities
-  hidden lights: List<LightEntity> =
-    entities.filter((e) -> e is LightEntity) as List<LightEntity>
-  hidden sensors: List<SensorEntity> =
-    entities.filter((e) -> e is SensorEntity) as List<SensorEntity>
-  hidden switches: List<SwitchEntity> =
-    entities.filter((e) -> e is SwitchEntity) as List<SwitchEntity>
-  hidden generic: List<Entity> = entities.filter((e) ->
-    !(e is LightEntity) && !(e is SensorEntity) && !(e is SwitchEntity))
 }
+
+// ---- domain selectors ------------------------------------------------------
+
+/// One per modelled domain, over any scope's `all`. Each new modelled domain
+/// adds exactly one of these, and `generic` loses that domain in the same edit
+/// — the two together are what keep the five lists a PARTITION of `all`.
+
+function lights(scope: List<Entity>): List<LightEntity> =
+  scope.filter((e) -> e is LightEntity) as List<LightEntity>
+
+function locks(scope: List<Entity>): List<LockEntity> =
+  scope.filter((e) -> e is LockEntity) as List<LockEntity>
+
+function sensors(scope: List<Entity>): List<SensorEntity> =
+  scope.filter((e) -> e is SensorEntity) as List<SensorEntity>
+
+function switches(scope: List<Entity>): List<SwitchEntity> =
+  scope.filter((e) -> e is SwitchEntity) as List<SwitchEntity>
+
+/// The complement of the selectors above — an entity of a domain no selector
+/// claims. A [[NumberEntity]]/[[SelectEntity]] lands here despite having a
+/// typed class: the class types its attributes, while a selector says a
+/// dashboard has a reason to ask for the domain as a GROUP, and nothing has
+/// wanted "every number in the house" yet.
+function generic(scope: List<Entity>): List<Entity> =
+  scope.filter((e) ->
+    !(e is LightEntity) && !(e is LockEntity)
+      && !(e is SensorEntity) && !(e is SwitchEntity))

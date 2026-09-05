@@ -143,7 +143,7 @@ class PklDumpMembersSuite extends munit.FunSuite {
     )
   }
 
-  test("house-wide domain lists reference the entity consts, in id order") {
+  test("the house-wide list references the entity consts, in id order") {
     val src = PklDump.render(
       dump(
         entity("switch.z", "switch"),
@@ -153,22 +153,24 @@ class PklDumpMembersSuite extends munit.FunSuite {
         entity("media_player.tv", "media_player")
       )
     )
-    // Assigned, not declared: the types and the `List()` defaults live in
+    // Assigned, not declared: the type and the `List()` default live in
     // `@fh-dashboard/internal/dump-base.pkl`, which the module extends.
     assert(
       src.contains("""extends "@fh-dashboard/internal/dump-base.pkl""""),
       clue = src
     )
-    assert(src.contains("lights = List(e_light_a, e_light_b)"), clue = src)
-    assert(src.contains("switches = List(e_switch_z)"), clue = src)
-    assert(src.contains("sensors = List(e_sensor_s)"), clue = src)
-    // `generic` is the complement of the modelled domains — a media_player has
-    // no typed class yet, so it lands here and `all` (derived in the base)
-    // stays exactly the union of the four.
-    assert(src.contains("generic = List(e_media_player_tv)"), clue = src)
-    // `all` is derived, so the generator must NOT emit it — two sources for one
-    // list is how they come to disagree.
-    assert(!src.contains("all ="), clue = src)
+    assert(
+      src.contains(
+        "all = List(e_light_a, e_light_b, e_media_player_tv, e_sensor_s, e_switch_z)"
+      ),
+      clue = src
+    )
+    // The per-domain lists are DERIVED in the base, by the same selectors an
+    // author calls. The generator emitting them too is the failure this guards:
+    // two sources for one list is how they come to disagree, and it is also
+    // what made adding a domain a five-place edit.
+    assert(!src.contains("lights ="), clue = src)
+    assert(!src.contains("generic ="), clue = src)
   }
 
   test("an empty house emits no list assignments, and that is the point") {
@@ -179,8 +181,7 @@ class PklDumpMembersSuite extends munit.FunSuite {
     // free to say nothing here, and `PklBuildSuite` proves the starter still
     // builds against a house with no switches in it.
     val src = PklDump.render(dump())
-    assert(!src.contains("lights ="), clue = src)
-    assert(!src.contains("generic ="), clue = src)
+    assert(!src.contains("all ="), clue = src)
     assert(
       src.contains("""extends "@fh-dashboard/internal/dump-base.pkl""""),
       clue = src
