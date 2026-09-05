@@ -282,4 +282,26 @@ document.addEventListener("datastar-fetch", (e: Event) => {
   )
 })
 
+/**
+ * The iOS half of "a dashboard does not zoom under a finger" (#306). The CSS
+ * half — `html{touch-action:pan-x pan-y}` under `(pointer:coarse)`, in
+ * `core/css.pkl` — is the whole fix everywhere else, and this is here because
+ * WebKit does not apply `touch-action` to the page's own pinch zoom.
+ *
+ * `gesturestart` is Safari's alone: no other engine fires it, so nothing else
+ * ever reaches the listener. Registering it behind the same coarse-pointer
+ * query the CSS uses keeps the two halves saying one thing — a desktop keeps
+ * every zoom it has.
+ *
+ * Not `passive`, because preventing the default IS the point; the default
+ * listener option would make the call a no-op with a console warning.
+ */
+if (matchMedia("(pointer: coarse)").matches) {
+  document.addEventListener(
+    "gesturestart",
+    (e: Event) => e.preventDefault(),
+    { passive: false }
+  )
+}
+
 export {}
