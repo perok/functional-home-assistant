@@ -13,14 +13,15 @@ class PklDumpMembersSuite extends munit.FunSuite {
       entityId: String,
       domain: String,
       members: List[String] = Nil,
-      deviceId: Option[String] = None
+      deviceId: Option[String] = None,
+      attributes: (String, Json)*
   ): Json =
     Json.obj(
       "entity_id" -> Json.fromString(entityId),
       "domain" -> Json.fromString(domain),
       "members" -> Json.fromValues(members.map(Json.fromString)),
       "device_id" -> deviceId.fold(Json.Null)(Json.fromString),
-      "attributes" -> Json.obj()
+      "attributes" -> Json.obj(attributes*)
     )
 
   private def dump(entities: Json*): Json =
@@ -73,6 +74,43 @@ class PklDumpMembersSuite extends munit.FunSuite {
     )
     assert(src.contains("const hidden e_number_a: E_number_a"), clue = src)
     assert(src.contains("const hidden e_select_b: E_select_b"), clue = src)
+  }
+
+  test("a lock's feature bitmask is assigned to the schema, not redeclared") {
+    val src = PklDump.render(
+      dump(
+        entity(
+          "lock.front",
+          "lock",
+          attributes = Seq("supported_features" -> Json.fromInt(1))*
+        )
+      )
+    )
+    assert(
+      src.contains("class E_lock_front extends hass.LockEntity"),
+      clue = src
+    )
+    // The domain class declares it, so the entity ASSIGNS it. A redeclaration
+    // on the per-entity class would shadow the schema's field and `supportsOpen`
+    // would read the default forever — the failure `SchemaModelled` exists to
+    // prevent, and one nothing else would catch: both spellings evaluate.
+    assert(src.contains("supported_features = 1"), clue = src)
+    assert(!src.contains("hidden supported_features: Int = 1"), clue = src)
+  }
+
+  test("a lock's code_format stays an ordinary per-entity attribute") {
+    // Deliberately NOT schema-modelled: no shipped card asks for a code, but an
+    // author can still see that this lock wants one.
+    val src = PklDump.render(
+      dump(
+        entity(
+          "lock.keypad",
+          "lock",
+          attributes = Seq("code_format" -> Json.fromString("^\\d{4}$"))*
+        )
+      )
+    )
+    assert(src.contains("""code_format: String = "^\\d{4}$""""), clue = src)
   }
 
   test("no devices in the dump means no Devices namespace at all") {

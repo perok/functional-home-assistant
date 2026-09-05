@@ -295,6 +295,7 @@ object PklDump {
   private def entityType(eo: JsonObject): String =
     str(eo, "domain") match {
       case Some("light")  => "hass.LightEntity"
+      case Some("lock")   => "hass.LockEntity"
       case Some("sensor") => "hass.SensorEntity"
       case Some("switch") => "hass.SwitchEntity"
       case Some("number") => "hass.NumberEntity"
@@ -332,7 +333,11 @@ object PklDump {
       "min_color_temp_kelvin",
       "max_color_temp_kelvin",
       "effect_list"
-    )
+    ),
+    // `code_format` is deliberately absent: no shipped card asks for a code, so
+    // it stays an ordinary per-entity attribute an author can read (see
+    // `hass.LockEntity`).
+    "lock" -> Set("supported_features")
   )
 
   /** The generated class name for one entity. */
@@ -356,6 +361,12 @@ object PklDump {
           .flatMap(_.toInt)
           .map(v => s"  supported_features = $v")
         List(modes, features).flatten
+      case Some("lock") =>
+        attrs("supported_features")
+          .flatMap(_.asNumber)
+          .flatMap(_.toInt)
+          .map(v => s"  supported_features = $v")
+          .toList
       case _ => Nil
     }
   }
