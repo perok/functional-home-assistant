@@ -4,7 +4,8 @@ import cats.effect.IO
 import com.microsoft.playwright.Page
 import com.microsoft.playwright.assertions.PlaywrightAssertions.assertThat
 import fh.view.testkit.{HouseFixture, Scene, ServiceCall, SmokeDashboard}
-import io.circe.Json
+import io.circe.{Decoder, Json}
+import io.circe.parser.decode
 
 /** Signal-driven UI with no server round-trip — tabs, popup, slider — the
   * Datastar attribute wiring (`data-signals`/`data-bind`/`data-class`) that has
@@ -409,6 +410,107 @@ class UiSmokeSuite extends SmokeSuite {
     }
   }
 
+  /** Every `.slider-head`'s own box, its readout's and its badge's, on the page
+    * as laid out — one call, because thirty locator round trips to describe one
+    * screen is thirty chances for the page to move between them.
+    */
+  private def sliderRows(page: Page): IO[List[UiSmokeSuite.RowBox]] =
+    IO.blocking(
+      page
+        .evaluate(
+          """() => JSON.stringify([...document.querySelectorAll('.slider-head')].map(head => {
+            |  const card = head.closest('article.slider-card').getBoundingClientRect();
+            |  const readout = head.querySelector('.state').getBoundingClientRect();
+            |  const badge = head.querySelector('.slider-icon').getBoundingClientRect();
+            |  return {
+            |    cardRight: card.right, headRight: head.getBoundingClientRect().right,
+            |    readoutRight: readout.right,
+            |    badgeWidth: badge.width, badgeHeight: badge.height
+            |  };
+            |}))""".stripMargin
+        )
+        .toString
+    ).flatMap(json => IO.fromEither(decode[List[UiSmokeSuite.RowBox]](json)))
+
+  test(
+    "slider: a label too long for a phone still leaves the readout on the row"
+  ) {
+    // #128. A member row is where this broke: its head is a GRID item, whose
+    // automatic minimum is its min-content width — which `nowrap` makes the
+    // whole label — so the row grew past the card, `overflow:hidden` cut it, and
+    // the reading was not on screen at all (measured 451.8 against a card
+    // ending at 336, at a 360px viewport). A plain row's head is an ordinary
+    // block and was never affected, which is why one long label on its own
+    // showed nothing.
+    //
+    // So the fixture carries every shape a row takes, and the assertion is the
+    // one thing true of all of them: whatever the label, the reading is on the
+    // card it belongs to.
+    withPage(
+      Scene.of(SmokeDashboard.longLabelRows),
+      viewport = Some(360 -> 740)
+    ) { (page, _) =>
+      for {
+        _ <- IO.blocking(assertThat(page.locator(".state").first()).isVisible())
+        rows <- sliderRows(page)
+      } yield {
+        assertEquals(rows.size, 5, clue = "two plain rows, a head, two members")
+        rows.foreach(r =>
+          assert(
+            r.readoutRight <= r.cardRight,
+            clue = (r.readoutRight, r.cardRight)
+          )
+        )
+        // The row itself, not only the reading: a head wider than its card is
+        // the defect, and clipping it is what hid the reading rather than what
+        // was wrong.
+        rows.foreach(r =>
+          assert(
+            r.headRight <= r.cardRight,
+            clue = (r.headRight, r.cardRight)
+          )
+        )
+      }
+    }
+  }
+
+  test("slider: a long label clips itself rather than squeezing the badge") {
+    // #128, the other half. The badge is a circle with a fixed glyph in it, and
+    // as a shrinkable flex item it gave its width to a long label — 2rem
+    // measured down to 1.5rem — which makes the circle an ellipse and leaves
+    // the glyph painting over its own edge.
+    //
+    // Asserted as "the label cannot change the badge": a badge stays square,
+    // and a row whose text overflows has the same one as the row above it whose
+    // text fits. Sizes differ by SHAPE on purpose (a group's head badge is
+    // bigger than a member's), so rows are compared pairwise within a shape,
+    // which the fixture orders as short-then-long.
+    withPage(
+      Scene.of(SmokeDashboard.longLabelRows),
+      viewport = Some(360 -> 740)
+    ) { (page, _) =>
+      for {
+        _ <- IO.blocking(
+          assertThat(page.locator(".slider-icon").first()).isVisible()
+        )
+        rows <- sliderRows(page)
+      } yield {
+        rows.foreach(r =>
+          assertEqualsDouble(
+            r.badgeWidth,
+            r.badgeHeight,
+            0.5,
+            clue = s"an oval badge: ${r.badgeWidth}x${r.badgeHeight}"
+          )
+        )
+        // Rows 0/1 are the two plain sliders, 3/4 the two members — each pair a
+        // fitting label beside an overflowing one.
+        assertEqualsDouble(rows(1).badgeWidth, rows(0).badgeWidth, 0.5)
+        assertEqualsDouble(rows(3).badgeWidth, rows(4).badgeWidth, 0.5)
+      }
+    }
+  }
+
   test("slider: a REFUSED commit puts the thumb back where the device is") {
     // The bug the client/server split exists to fix (ADR 0025). While the drag
     // wrote the server's own `value` slot, a commit that failed produced no
@@ -486,5 +588,29 @@ class UiSmokeSuite extends SmokeSuite {
         )
       )
     }
+  }
+}
+
+object UiSmokeSuite {
+
+  /** One slider row as the browser laid it out — the boxes the #128 layout
+    * assertions are about, measured together (see [[UiSmokeSuite.sliderRows]]).
+    */
+  final case class RowBox(
+      cardRight: Double,
+      headRight: Double,
+      readoutRight: Double,
+      badgeWidth: Double,
+      badgeHeight: Double
+  )
+
+  object RowBox {
+    given Decoder[RowBox] = Decoder.forProduct5(
+      "cardRight",
+      "headRight",
+      "readoutRight",
+      "badgeWidth",
+      "badgeHeight"
+    )(RowBox.apply)
   }
 }
