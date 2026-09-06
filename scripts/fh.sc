@@ -141,11 +141,11 @@ def sha256(bytes: Array[Byte]): String =
     .mkString
 
 // ---------------------------------------------------------------- pkl-core
-// The workspace manifest (`.fh/base.pkl`, reading `.fh/machine.json`) is the
-// single source of the cache dir + the fh.invalid rewrite. Evaluation gets
-// both through `applyFromProject`; only the dependency RESOLVER needs them
-// wired by hand, because `PackageResolver` is a lower-level API where the
-// caller owns the http client — so it reads the SAME
+// The workspace manifest (`.fh/base.pkl`, reading this process's environment
+// then `.fh/machine.json`) is the single source of the cache dir + the
+// fh.invalid rewrite. Evaluation gets both through `applyFromProject`; only the
+// dependency RESOLVER needs them wired by hand, because `PackageResolver` is a
+// lower-level API where the caller owns the http client — so it reads the SAME
 // `evaluatorSettings.http.rewrites` off the loaded project (what the pkl CLI
 // does internally), never a second hand-built copy.
 
@@ -159,6 +159,16 @@ val cacheDir =
     .map(Paths.get(_))
     .getOrElse(org.pkl.core.util.IoUtils.getDefaultModuleCacheDir())
     .toAbsolutePath
+
+/** The cache a LOADED workspace resolves through: what its manifest declares
+  * (base.pkl having already applied env → machine.json), else the default pkl
+  * itself would use — which is what a manifest declaring none MEANS, and the
+  * normal case now that nothing writes a cache path into a workspace. Anywhere
+  * pkl-core is driven by hand (`PackageResolver`, `Analyzer`) needs this
+  * spelled out; `applyFromProject` already does exactly it for evaluation.
+  */
+def cacheDirOf(project: org.pkl.core.project.Project): Path =
+  Option(project.getEvaluatorSettings.moduleCacheDir()).getOrElse(cacheDir)
 
 def loadProject(): org.pkl.core.project.Project =
   val manifest = Paths.get("PklProject")
@@ -220,11 +230,7 @@ def resolveDeps(): IO[Unit] = IO.blocking {
   import org.pkl.core.packages.PackageResolver
   import org.pkl.core.project.ProjectDependenciesResolver
   val project = loadProject()
-  val cache = Option(project.getEvaluatorSettings.moduleCacheDir()).getOrElse(
-    throw Die(
-      s"$basePkl declares no moduleCacheDir — re-run: fh init <instance-url>"
-    )
-  )
+  val cache = cacheDirOf(project)
   val resolver = new ProjectDependenciesResolver(
     project,
     PackageResolver.getInstance(
@@ -853,7 +859,7 @@ def importSet(entry: Path): IO[Option[Set[Path]]] = IO.blocking {
           ModuleKeyFactories.projectpackage,
           ModuleKeyFactories.pkg
         ).asJava,
-        project.getEvaluatorSettings.moduleCacheDir(),
+        cacheDirOf(project),
         project.getDependencies,
         org.pkl.core.http.HttpClient.dummyClient(),
         TraceMode.COMPACT
