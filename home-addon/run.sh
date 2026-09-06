@@ -53,7 +53,21 @@ export FH_ASSETS_DIR=/data/assets-cache
 # Both the authoring lib and the starter are streamed from the jar's own
 # resources (BundledLib / AddonBootstrap.starterSite) — no seed path, no
 # FH_BUNDLED_LIB path.
+#
+# The two values `.fh/base.pkl` reads from the environment. They are set HERE,
+# not written into the dashboards directory, because that directory is meant to
+# be shared — with the author's laptop, with a dev container — and a path or URL
+# written into it is one imposed on every other machine reading it.
+#
+# FH_PKL_CACHE_DIR is REQUIRED, not a preference: the default is pkl's own
+# ~/.pkl/cache, which in this container is /root/.pkl/cache — an image layer, so
+# every add-on update would drop the lib and dump packages the workspace's pins
+# name. /data is the add-on's persistent volume, so the cache survives updates.
 export FH_PKL_CACHE_DIR=/data/pkl-cache
+# The instance the `https://fh.invalid/` rewrite targets. Inert here (every
+# package is a cache hit), and derived from the PORT this script exports rather
+# than hardcoded, so it stays right if that moves.
+export FH_INSTANCE_URL="http://127.0.0.1:${PORT}"
 
 # The heap ceiling is a NUMBER, not a fraction of the machine.
 # `-XX:MaxRAMPercentage` reads the cgroup limit when there is one and the
