@@ -16,8 +16,8 @@ import org.typelevel.otel4s.metrics.{Counter, Histogram, MeterProvider}
   * `fh.page.nodes` and `fh.ha.entities` are ALSO attributes on the spans that
   * carry them, and that is not duplication. A span is sampled — the whole point
   * of `OTEL_TRACES_SAMPLER` on a busy feed — so the attribute answers "what did
-  * THIS page open do" and the instrument answers "what do page opens do",
-  * which sampling would otherwise make a guess.
+  * THIS page open do" and the instrument answers "what do page opens do", which
+  * sampling would otherwise make a guess.
   *
   * ==Why so few==
   *
@@ -55,8 +55,8 @@ object Meters {
     * The map is already the truth. A counter incremented in `register` and
     * decremented in `deregisterIf` would be a second copy of it, and the two
     * would disagree the first time a `conn` is re-registered (a re-minted
-    * session does exactly that) — an off-by-one that never surfaces except as
-    * a metric slowly drifting from reality.
+    * session does exactly that) — an off-by-one that never surfaces except as a
+    * metric slowly drifting from reality.
     */
   def observeSessions(
       provider: MeterProvider[IO],
