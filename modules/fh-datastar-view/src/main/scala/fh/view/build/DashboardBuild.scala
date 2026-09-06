@@ -6,7 +6,8 @@ import cats.syntax.all.*
 import fh.view.FHError
 import fh.view.model.{Dashboard, LayoutNode}
 import io.circe.{Json, JsonObject}
-import org.typelevel.log4cats.slf4j.Slf4jLogger
+import fh.view.runtime.Logging
+import org.typelevel.log4cats.LoggerFactory
 
 /** Turns the Pkl dashboard sources into a validated [[Dashboard]].
   *
@@ -17,8 +18,6 @@ import org.typelevel.log4cats.slf4j.Slf4jLogger
   *     memory** on startup — no artifact file required.
   */
 object DashboardBuild {
-
-  private val log = Slf4jLogger.getLogger[IO]
 
   /** Fetch the live entity dump ONCE and seed it as the `@fh-home` content-
     * versioned package ([[DumpPackage.seedFromText]]), so an entry's
@@ -33,9 +32,11 @@ object DashboardBuild {
   def prepareDumps(
       api: HomeAssistantApi[IO],
       dashboardsDir: os.Path,
-      bundledLib: Option[LibPackage.Artifacts] = None
+      bundledLib: Option[LibPackage.Artifacts] = None,
+      loggerFactory: LoggerFactory[IO] = Logging.console
   ): IO[Unit] =
     RegistryDump.fetch(api).flatMap { dump =>
+      val log = loggerFactory.getLoggerFromName("fh.view.build.DashboardBuild")
       // Generation-time complaints about entities HA reported inconsistently
       // (a half-populated capability group). Reported, never fatal: one odd
       // integration must not stop the house's dump from building.

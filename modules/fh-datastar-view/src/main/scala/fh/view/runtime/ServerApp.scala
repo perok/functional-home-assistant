@@ -52,6 +52,7 @@ import org.http4s.otel4s.middleware.trace.server.{
   ServerSpanDataProvider
 }
 import org.http4s.server.middleware.Metrics as ServerMetrics
+import org.typelevel.log4cats.LoggerFactory
 import org.typelevel.log4cats.slf4j.Slf4jLogger
 import org.typelevel.otel4s.trace.{Tracer, TracerProvider}
 import fs2.io.file.{Watcher, Path}
@@ -158,6 +159,16 @@ object ServerApp extends IOApp {
         // unless an OTLP endpoint is configured, in which case the SDK is
         // never built at all ([[Telemetry]]).
         otel <- Telemetry.resource
+        // Everything below logs through this, so a line carries the span it
+        // was written inside and reaches the collector alongside it
+        // ([[Logging]]).
+        loggerFactory <- Logging.factory(otel).toResource
+        // `appLog`, not `log`: the object already has one, and a field a local
+        // shadows in one method and not the others is a trap. This one exists
+        // because boot's own lines are worth having beside the
+        // `dashboard.prepare` span they bracket; the object's — written by
+        // helpers that also run before the SDK does — are still console-only.
+        appLog = loggerFactory.getLoggerFromName("fh.view.runtime.ServerApp")
         // One instrumented wrapper for every client this process opens — HA
         // core over REST, the OAuth exchanges, the theme-asset fetches. An
         // outbound call is the other half of a slow page open, so a client
@@ -205,7 +216,8 @@ object ServerApp extends IOApp {
         feed <- HaFeed.resource(
           FHApi.lowLevelConnectWithClose(haEnv),
           wanted,
-          feedTracer
+          feedTracer,
+          loggerFactory
         )
         dashboardsDir = config.dashboardsDir
         // Seed the dump and evaluate the entrypoint into every dashboard it
@@ -217,7 +229,8 @@ object ServerApp extends IOApp {
           feed,
           dashboardsDir,
           Some(bundledLib),
-          buildTracer
+          buildTracer,
+          loggerFactory
         ).toResource
         built = prepared.built
         // Serves this home's `dump.pkl` and its resolved package artifacts over
@@ -316,14 +329,14 @@ object ServerApp extends IOApp {
           .map(_.flatMap(org.http4s.Uri.fromString(_).toOption))
           .map(HaOAuth.coreBase(_, haInternalUrl, haEnv.server))
           .toResource
-        _ <- IO
-          .println(
+        _ <- appLog
+          .info(
             s"Home Assistant login redirects go to $haPublicUrl; " +
               s"logins dial $haCoreUrl"
           )
           .toResource
         authSessions <- AuthSessions
-          .create(SessionStore.inWorkspace(dashboardsDir))
+          .create(SessionStore.inWorkspace(dashboardsDir, loggerFactory))
           .toResource
         oauth = new HaOAuth(
           haPublicUrl,
@@ -468,6 +481,14 @@ object ServerApp extends IOApp {
           .default[IO]
           .withHost(config.bindHost)
           .withPort(config.bindPort)
+          // Ember's own lines join the same stream as everything else, which
+          // is the point of building a FACTORY: they carry the span they
+          // happened in and reach the collector with it. `logback.xml` still
+          // holds `org.http4s` at WARN — that ceiling is about volume on a
+          // long-lived SSE stream, not about where the lines go.
+          .withLogger(
+            loggerFactory.getLoggerFromName("org.http4s.ember.server")
+          )
           .withHttpWebSocketApp(wsb =>
             // Any FHError raised while serving becomes its status + message;
             // anything else falls through to Ember's default 500.
@@ -500,8 +521,8 @@ object ServerApp extends IOApp {
           .withShutdownTimeout(0.seconds)
           .build
         defaultSlug <- site.defaultSlug.toResource
-        _ <- IO
-          .println(
+        _ <- appLog
+          .info(
             s"Dashboards serving on http://${config.bindHost}:${config.bindPort} " +
               s"(default '/$defaultSlug', all: ${prepared.states.keys.toList.sorted.mkString(", ")})"
           )
@@ -566,7 +587,8 @@ object ServerApp extends IOApp {
       feed: HaFeed,
       dashboardsDir: os.Path,
       bundledLib: Option[LibPackage.Artifacts],
-      tracer: Tracer[IO] = Tracer.noop
+      tracer: Tracer[IO] = Tracer.noop,
+      loggerFactory: LoggerFactory[IO] = Logging.console
   ): IO[Prepared] =
     // Traced because this is the OTHER thing that can make the add-on feel
     // slow, and it is not a request so no HTTP span covers it: on a Pi, the
@@ -578,7 +600,12 @@ object ServerApp extends IOApp {
       tracer
         .span("dashboard.prepare.dump")
         .surround(
-          DashboardBuild.prepareDumps(feed.api, dashboardsDir, bundledLib)
+          DashboardBuild.prepareDumps(
+            feed.api,
+            dashboardsDir,
+            bundledLib,
+            loggerFactory
+          )
         ) *>
         tracer
           .span("dashboard.prepare.eval")
@@ -727,7 +754,8 @@ object ServerApp extends IOApp {
       actions: HomeAssistantApi[IO] => ServiceCalls = ServiceCalls.asInstance,
       // No-op by default, which is what every test harness gets and also what
       // an install with no collector configured runs on.
-      tracerProvider: TracerProvider[IO] = TracerProvider.noop
+      tracerProvider: TracerProvider[IO] = TracerProvider.noop,
+      loggerFactory: LoggerFactory[IO] = Logging.console
   ): Resource[IO, Server] =
     for {
       sessions <- Sessions.create.toResource
@@ -741,7 +769,8 @@ object ServerApp extends IOApp {
         systemPkl,
         dumpRefresh,
         actions,
-        tracer
+        tracer,
+        loggerFactory
       )
     } yield server
 

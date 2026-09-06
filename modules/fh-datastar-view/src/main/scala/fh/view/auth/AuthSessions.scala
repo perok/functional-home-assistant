@@ -8,7 +8,8 @@ import fs2.io.file.{Files, Path, PosixPermissions}
 import io.circe.syntax.*
 import io.circe.{Decoder, Encoder, parser}
 import org.http4s.{Request, RequestCookie, ResponseCookie, SameSite, Uri}
-import org.typelevel.log4cats.slf4j.Slf4jLogger
+import fh.view.runtime.Logging
+import org.typelevel.log4cats.LoggerFactory
 
 import java.nio.file.FileAlreadyExistsException
 import java.time.Instant
@@ -245,9 +246,12 @@ object AuthSessions {
   * It holds HA refresh tokens, so it is written `0600`. That it lives inside a
   * workspace users keep in git is a known problem, tracked in issue #165.
   */
-final class SessionStore(path: os.Path) {
+final class SessionStore(
+    path: os.Path,
+    loggerFactory: LoggerFactory[IO] = Logging.console
+) {
 
-  private val log = Slf4jLogger.getLogger[IO]
+  private val log = loggerFactory.getLoggerFromClass(classOf[SessionStore])
 
   private val file = Path.fromNioPath(path.toNIO)
 
@@ -314,8 +318,11 @@ object SessionStore {
   /** `.fh/sessions.json` under the workspace — beside `machine.json` and
     * `pins.json`, the directory this instance already owns.
     */
-  def inWorkspace(dashboardsDir: os.Path): SessionStore =
-    new SessionStore(dashboardsDir / ".fh" / "sessions.json")
+  def inWorkspace(
+      dashboardsDir: os.Path,
+      loggerFactory: LoggerFactory[IO] = Logging.console
+  ): SessionStore =
+    new SessionStore(dashboardsDir / ".fh" / "sessions.json", loggerFactory)
 
   /** For tests and for a workspace that has no business persisting (a throwaway
     * boot): keeps everything in memory.

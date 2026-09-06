@@ -103,7 +103,6 @@ JAVA_GC=-XX:+UseSerialGC
 # without a restart — hence an option rather than a runtime toggle. It costs
 # a few percent, so it is off unless asked for.
 JAVA_NMT=
-JAVA_OTEL=
 
 # There is no `default_dashboard` option: the slug served at `/` is `default`
 # in the workspace's own `site.pkl` (ADR 0021), where the dashboards it
@@ -127,7 +126,7 @@ if [ -f /data/options.json ]; then
   if [ "$(jq -r '.memory_tracking' /data/options.json)" = "true" ]; then
     JAVA_NMT=-XX:NativeMemoryTracking=summary
   fi
-  # Tracing is OFF unless there is somewhere to send to: with no endpoint the
+  # Telemetry is OFF unless there is somewhere to send to: with no endpoint the
   # server never builds the OpenTelemetry SDK at all, so an ordinary install
   # pays nothing (see fh.view.runtime.Telemetry). Exported under OTel's own
   # standard names, so everything else — protocol, headers, sampling — is
@@ -137,9 +136,6 @@ if [ -f /data/options.json ]; then
   if [ -n "$OTLP" ]; then
     export OTEL_EXPORTER_OTLP_ENDPOINT="$OTLP"
     export OTEL_SERVICE_NAME="${OTEL_SERVICE_NAME:-fh-dashboard}"
-    # autoconfigure is off by default in the OTel Java SDK and is what reads
-    # the variables above.
-    JAVA_OTEL=-Dotel.java.global-autoconfigure.enabled=true
   fi
 fi
 
@@ -147,8 +143,8 @@ fi
 # add-on — visible, and recovered by s6 — instead of thrashing the GC
 # forever, which is what a bounded heap turns a leak into.
 #
-# $JAVA_NMT and $JAVA_OTEL are deliberately unquoted: each is one flag or
-# nothing, and nothing must vanish rather than become an empty argument.
+# $JAVA_NMT is deliberately unquoted: it is one flag or nothing, and nothing
+# must vanish rather than become an empty argument.
 # shellcheck disable=SC2086
 exec java "-Xms$JAVA_MIN_HEAP" "-Xmx$JAVA_MAX_HEAP" "$JAVA_GC" \
-  -XX:+ExitOnOutOfMemoryError $JAVA_NMT $JAVA_OTEL -jar /opt/fh-dashboard.jar
+  -XX:+ExitOnOutOfMemoryError $JAVA_NMT -jar /opt/fh-dashboard.jar

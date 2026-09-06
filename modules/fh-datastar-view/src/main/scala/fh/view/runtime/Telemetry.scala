@@ -2,8 +2,10 @@ package fh.view.runtime
 
 import cats.effect.{IO, Resource}
 import cats.effect.std.Env
+import org.typelevel.otel4s.logs.LoggerProvider
 import org.typelevel.otel4s.metrics.MeterProvider
 import org.typelevel.otel4s.oteljava.OtelJava
+import org.typelevel.otel4s.oteljava.context.Context
 import org.typelevel.otel4s.trace.TracerProvider
 
 /** Telemetry for the add-on (#75), and the switch that keeps it free when
@@ -29,14 +31,25 @@ import org.typelevel.otel4s.trace.TracerProvider
   */
 object Telemetry {
 
-  /** What the wiring needs, in one value. Both are no-op together or real
+  /** What the wiring needs, in one value. All three are no-op together or real
     * together — there is one endpoint and one SDK, so splitting them would only
     * invite a half-configured state that cannot occur.
     */
   final case class Otel(
       tracerProvider: TracerProvider[IO],
-      meterProvider: MeterProvider[IO]
+      meterProvider: MeterProvider[IO],
+      loggerProvider: LoggerProvider[IO, Context]
   )
+
+  object Otel {
+
+    /** What an unconfigured install, a test and a standalone construction all
+      * get. Named rather than spelled out at each site so "off" is one value
+      * and cannot drift into a half-off one.
+      */
+    val noop: Otel =
+      Otel(TracerProvider.noop, MeterProvider.noop, LoggerProvider.noop)
+  }
 
   /** The endpoint's env var, which is OpenTelemetry's own standard name rather
     * than an `FH_` one — `run.sh` sets it from the `otlp_endpoint` option, and
@@ -63,8 +76,9 @@ object Telemetry {
         // without this file growing an option for each of them.
         OtelJava
           .autoConfigured[IO]()
-          .map(otel => Otel(otel.tracerProvider, otel.meterProvider))
-      case None =>
-        Resource.pure(Otel(TracerProvider.noop, MeterProvider.noop))
+          .map(otel =>
+            Otel(otel.tracerProvider, otel.meterProvider, otel.loggerProvider)
+          )
+      case None => Resource.pure(Otel.noop)
     }
 }

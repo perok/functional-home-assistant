@@ -7,7 +7,7 @@ import fs2.io.process.ProcessBuilder
 import org.http4s.Response
 import org.http4s.server.websocket.WebSocketBuilder2
 import org.http4s.websocket.WebSocketFrame
-import org.typelevel.log4cats.slf4j.Slf4jLogger
+import org.typelevel.log4cats.LoggerFactory
 
 import java.nio.charset.StandardCharsets
 
@@ -34,8 +34,6 @@ import java.nio.charset.StandardCharsets
   */
 object LspBridge {
 
-  private val log = Slf4jLogger.getLogger[IO]
-
   /** Build the `GET /lsp/pkl` WebSocket response: spawn pkl-lsp, pump the
     * socket both ways. `workspaceRoot` is informational here — the client sends
     * the real `workspaceFolders`/document URIs (absolute on-disk paths) in its
@@ -43,9 +41,11 @@ object LspBridge {
     */
   def wsResponse(
       wsb: WebSocketBuilder2[IO],
-      pklLspJar: os.Path
+      pklLspJar: os.Path,
+      loggerFactory: LoggerFactory[IO] = Logging.console
   ): IO[Response[IO]] =
     Queue.unbounded[IO, WebSocketFrame].flatMap { fromClient =>
+      val log = loggerFactory.getLoggerFromName("fh.view.runtime.LspBridge")
       // Client -> server: stash every inbound frame; the process stream drains
       // it into stdin. Ignore close frames (the send stream's finalizer, driven
       // by http4s on socket close, tears the process down).
