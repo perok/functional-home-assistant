@@ -231,6 +231,29 @@ class AddonBootstrapSuite extends munit.FunSuite {
     assert(!os.list(box.ws).exists(_.last.contains(".backup.")))
   }
 
+  test("an unusable cache dir fails the boot instead of every dashboard") {
+    val (box, _) = boot()
+    val before = os.read(box.ws / ".fh" / "machine.json")
+
+    // A regular file where the cache dir has to be. Unusable on every platform,
+    // and unlike a chmod it still holds when the suite runs as root.
+    val blocker = os.temp.dir() / "not-a-dir"
+    os.write(blocker, "")
+    val unusable = blocker / "pkl-cache"
+
+    val e = intercept[RuntimeException](
+      AddonBootstrap.run(box.ws, bundled, unusable, LoopbackUrl)
+    )
+    assert(e.getMessage.contains(unusable.toString), clue = e.getMessage)
+    assert(e.getMessage.contains("FH_PKL_CACHE_DIR"), clue = e.getMessage)
+
+    // And `machine.json` still names the cache the last SUCCESSFUL boot used.
+    // Seeding BEFORE that write is what made this go wrong quietly: the seed
+    // threw, a path from an earlier run survived in the workspace, and the
+    // failure resurfaced as pkl's own I/O error once per dashboard.
+    assertEquals(os.read(box.ws / ".fh" / "machine.json"), before)
+  }
+
   test("a changed lib mints a NEW content version; the old entry survives") {
     // Content-derived versions make drift-under-an-unchanged-version
     // impossible: changed lib bytes hash to a new version, the bootstrap seeds

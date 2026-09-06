@@ -124,7 +124,7 @@ any existing file), which fixes IDE sync as long as the instance is reachable.
 the **same package-form workspace the add-on does** — there is no separate "dev
 mode" and no meaningful difference from the deployed add-on. The bundled library
 is the repo's own `resources/dashboards/lib`, packaged and seeded into a shared
-cross-platform cache (the appdirs data dir the `fh` script also uses), the
+cache (pkl's own `~/.pkl/cache`, which the `fh` script also uses), the
 workspace is a local scratch dir (`dashboard-local-dev`, gitignored), and
 `prepareDumps` seeds the dump package from a dev HA. So a local instance is a
 **first-class `fh` target**: `fh init`/`pull`/`push` work against it exactly as
@@ -441,6 +441,23 @@ own `version`; the authoring layer is where churn lives by design — the runtim
 is a stable renderer of the wire model), and the user's workspace depends on it
 as `package://fh.invalid/fh-dashboard@<version>`, resolved from a **persistent
 package cache** under `/data/pkl-cache` that survives image upgrades.
+
+**Where that cache is, by default, is pkl's own answer**: `AddonBootstrap.defaultCacheDir`
+asks `pkl-core` (`IoUtils.getDefaultModuleCacheDir`) rather than deriving a path, so the
+server, `BuildApp`, a laptop `fh`, the `pkl` CLI and pkl-lsp share `~/.pkl/cache` without
+any of them declaring one. It replaced an appdirs data dir of our own, which was both a
+path pkl-lsp did not share and, because appdirs reads `XDG_DATA_HOME`, a way for a leaked
+environment value to point a container at a home directory it could not access. The add-on
+still overrides it (`FH_PKL_CACHE_DIR=/data/pkl-cache`) and MUST: in that container the
+default is `/root/.pkl/cache`, an image layer, so every update would drop the packages the
+workspace's pins name.
+
+The cache dir is therefore checked FIRST, before anything is written, and an unusable one
+aborts the boot naming the directory. Ordering is load-bearing for the same reason: the
+seed runs AFTER `machine.json` is written, so the workspace can never name a cache this
+process did not use. The other way round, a seed that threw left a path from an earlier run
+standing in `machine.json`, and the failure resurfaced as pkl's own "I/O error loading
+module … AccessDeniedException" once per dashboard, at eval, pointing at nothing.
 
 `AddonBootstrap` (run by the server at startup when `FH_PKL_CACHE_DIR` is set —
 `run.sh` only exports the path) does, idempotently:

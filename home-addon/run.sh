@@ -53,6 +53,11 @@ export FH_ASSETS_DIR=/data/assets-cache
 # Both the authoring lib and the starter are streamed from the jar's own
 # resources (BundledLib / AddonBootstrap.starterSite) — no seed path, no
 # FH_BUNDLED_LIB path.
+#
+# REQUIRED, not a preference: the default is pkl's own ~/.pkl/cache, which in
+# this container is /root/.pkl/cache — an image layer, so every add-on update
+# would drop the lib and dump packages the workspace's pins name. /data is the
+# add-on's persistent volume, so the cache survives updates and restarts.
 export FH_PKL_CACHE_DIR=/data/pkl-cache
 
 # The heap ceiling is a NUMBER, not a fraction of the machine.

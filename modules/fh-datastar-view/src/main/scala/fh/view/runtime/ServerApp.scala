@@ -78,10 +78,10 @@ object ServerApp extends IOApp {
   // `src/main/resources/dashboards`.
   private val defaultDashboardsDir = "dashboard-local-dev"
 
-  // Persistent pkl package cache for a dev run: the cross-platform user data
-  // dir (`~/.local/share/fh/…/pkl-cache` on Linux), shared with `BuildApp` and
-  // the laptop `fh` via one appdirs helper. The add-on overrides it to its
-  // persistent `/data/pkl-cache` via `FH_PKL_CACHE_DIR`.
+  // Persistent pkl package cache for a dev run: pkl's own default
+  // (`~/.pkl/cache`), shared with `BuildApp`, the laptop `fh`, the `pkl` CLI
+  // and pkl-lsp. The add-on overrides it to its persistent `/data/pkl-cache`
+  // via `FH_PKL_CACHE_DIR`.
   private def defaultCacheDir: String =
     AddonBootstrap.defaultCacheDir
 

@@ -99,7 +99,7 @@ object AddonBootstrap {
     val bundledVersion = bundledLib.version
     val log = List.newBuilder[String]
 
-    log ++= LibPackage.seedCache(bundledLib, cacheDir)
+    requireUsableCacheDir(cacheDir)
     os.makeDir.all(dashboardsDir)
 
     // The static, machine-agnostic scaffold — byte-identical to what a laptop's
@@ -113,6 +113,15 @@ object AddonBootstrap {
       dashboardsDir / ".fh" / "machine.json",
       machineJson(cacheDir, loopbackUrl)
     )
+
+    // AFTER `machine.json`, so the workspace never names a cache this process
+    // did not use. Seeding first cost a debugging session: the seed threw on an
+    // unreachable cache dir, `machine.json` kept a path from some EARLIER run,
+    // and every dashboard then failed at eval with pkl's own
+    // "I/O error loading module … AccessDeniedException: /home/<someone>"
+    // instead of one message naming the directory. `requireUsableCacheDir`
+    // above is the other half: it fails before anything is written.
+    log ++= LibPackage.seedCache(bundledLib, cacheDir)
 
     // Refresh the `@fh-dashboard` pin to the bundled version (so the workspace
     // tracks add-on upgrades) — but ONLY if `pins.json` already exists. On a
@@ -187,17 +196,43 @@ object AddonBootstrap {
       .map(os.Path(_))
   }
 
-  /** The default package cache location — the cross-platform user DATA dir
-    * under the SAME appdirs coordinates the `fh` script uses, so a local
-    * instance, `BuildApp`, and a laptop `fh` all land in one place. The add-on
-    * overrides it to its persistent `/data/pkl-cache` via `FH_PKL_CACHE_DIR`.
+  /** The default package cache location — **pkl's own** (`~/.pkl/cache`), asked
+    * of `pkl-core` rather than derived here, so the server, a laptop `fh`, the
+    * `pkl` CLI and pkl-lsp all land in one cache without anyone declaring it.
+    * The add-on overrides it to its persistent `/data/pkl-cache` via
+    * `FH_PKL_CACHE_DIR`, because in that container this default is
+    * `/root/.pkl/cache` — an image layer, wiped by every add-on update.
+    *
     * This is the value written into `.fh/machine.json`; it is NOT a `PklBuild`
     * fallback — a workspace whose `base.pkl` declares no `moduleCacheDir` is a
     * hard error.
+    *
+    * It replaced an appdirs data dir of our own (`~/.local/share/fh/…`). Two
+    * reasons, one of them a bug: appdirs reads `XDG_DATA_HOME`, so a leaked
+    * value pointed a container at a home directory it could not access, and a
+    * path we invent is one pkl-lsp does not share.
     */
   def defaultCacheDir: String =
-    s"${net.harawata.appdirs.AppDirsFactory.getInstance
-        .getUserDataDir("fh", "0.0.1", "perok")}/pkl-cache"
+    // org.pkl.core.util is pkl's own internals, not its published API — the
+    // pin in build.sbt is what keeps this honest, and a move breaks the build
+    // rather than silently relocating everyone's cache.
+    org.pkl.core.util.IoUtils.getDefaultModuleCacheDir().toString
+
+  /** Fail on an unusable package cache dir HERE, naming it, rather than letting
+    * pkl report it once per dashboard as an I/O error against a module URI.
+    * Everything downstream — the lib seed, the dump package, every `import
+    * "@fh-dashboard/…"` — resolves through this directory, so there is no
+    * degraded mode worth starting in.
+    */
+  private def requireUsableCacheDir(cacheDir: os.Path): Unit =
+    try os.makeDir.all(cacheDir)
+    catch {
+      case e: java.io.IOException =>
+        sys.error(
+          s"pkl package cache dir is not usable: $cacheDir (${e.getClass.getSimpleName}: ${e.getMessage}). " +
+            "Set FH_PKL_CACHE_DIR to a writable path — the add-on uses its persistent /data/pkl-cache."
+        )
+    }
 
   private val StarterSiteResource = "dashboards/site_default.pkl"
 

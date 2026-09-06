@@ -5,7 +5,6 @@
 //> using toolkit typelevel:0.2.0
 //> using dep org.pkl-lang:pkl-core:0.32.1
 //> using dep org.slf4j:slf4j-nop:1.7.36
-//> using dep net.harawata:appdirs:1.5.0
 
 // TODO use @main
 
@@ -75,11 +74,8 @@ import org.http4s.headers.{Authorization, `Content-Type`}
 
 import java.nio.charset.StandardCharsets.UTF_8
 import java.nio.file.{Files, Path, Paths}
-import net.harawata.appdirs.*
 
 import scala.util.Using
-
-val appdirs = AppDirsFactory.getInstance()
 
 /** A user-facing failure: printed as `fh: <msg>`, exit 1, no stack trace. */
 case class Die(msg: String) extends RuntimeException(msg)
@@ -152,14 +148,13 @@ def sha256(bytes: Array[Byte]): String =
 // `evaluatorSettings.http.rewrites` off the loaded project (what the pkl CLI
 // does internally), never a second hand-built copy.
 
-// The package cache: the cross-platform user DATA dir under the SAME appdirs
-// coordinates the add-on / BuildApp use, so a local instance and this script
-// land in one cache. This absolute path is what `fh init` writes into
+// The package cache: pkl's OWN default (`~/.pkl/cache`), asked of pkl-core —
+// the same value `AddonBootstrap.defaultCacheDir` uses, so this script, a local
+// instance, the `pkl` CLI and pkl-lsp share one cache without any of them
+// declaring a path. This absolute path is what `fh init` writes into
 // `.fh/machine.json` as `cacheDir` (base.pkl's `moduleCacheDir`).
 val cacheDir =
-  Paths
-    .get(s"${appdirs.getUserDataDir("fh", "0.0.1", "perok")}/pkl-cache")
-    .toAbsolutePath
+  org.pkl.core.util.IoUtils.getDefaultModuleCacheDir().toAbsolutePath
 
 def loadProject(): org.pkl.core.project.Project =
   val manifest = Paths.get("PklProject")

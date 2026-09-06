@@ -23,7 +23,7 @@ import org.typelevel.log4cats.slf4j.Slf4jLogger
   * The artifact is for inspection/CI; the runtime
   * ([[fh.view.runtime.ServerApp]]) evaluates the same Pkl in memory and does
   * not need it. Paths default to the same gitignored scratch workspace + shared
-  * appdirs cache the local `sbt dashboardServe` uses, so the two share one
+  * pkl package cache the local `sbt dashboardServe` uses, so the two share one
   * bootstrapped workspace.
   */
 object BuildApp extends IOApp {
