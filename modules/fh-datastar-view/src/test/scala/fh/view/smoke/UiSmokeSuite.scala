@@ -511,6 +511,48 @@ class UiSmokeSuite extends SmokeSuite {
     }
   }
 
+  /** What the browser resolved `touch-action` to on the document root — the one
+    * place the #306 gesture rule can be read as the browser sees it, media
+    * query and cascade already applied.
+    */
+  private def rootTouchAction(page: Page): IO[String] =
+    IO.blocking(
+      page
+        .evaluate(
+          "() => getComputedStyle(document.documentElement).touchAction"
+        )
+        .toString
+    )
+
+  test("touch: the page does not zoom under a finger") {
+    // #306. `pan-x pan-y` is "scroll, but do not pinch or double-tap zoom", and
+    // it is asserted on the ROOT because the effective value is the
+    // intersection down the ancestor chain — restricting it here is what
+    // restricts every element under it.
+    withPage(scene, touch = true) { (page, _) =>
+      for {
+        // The same both-halves-or-neither check the touch tap test makes: the
+        // rule is behind `(pointer:coarse)`, so a context that did not flip the
+        // query would pass this test by testing nothing.
+        coarse <- IO.blocking(
+          page.evaluate("matchMedia('(pointer:coarse)').matches")
+        )
+        _ = assertEquals(coarse, true: Any)
+        action <- rootTouchAction(page)
+      } yield assertEquals(action, "pan-x pan-y")
+    }
+  }
+
+  test("a mouse keeps every zoom it had") {
+    // The other half of #306, and the one worth protecting: browser zoom is an
+    // accessibility feature, and the gesture being taken away is a TOUCH
+    // gesture. A rule that leaked out of `(pointer:coarse)` would take zoom
+    // from a desktop reader, which nothing here asked for.
+    withPage(scene) { (page, _) =>
+      rootTouchAction(page).map(assertEquals(_, "auto"))
+    }
+  }
+
   test("slider: a REFUSED commit puts the thumb back where the device is") {
     // The bug the client/server split exists to fix (ADR 0025). While the drag
     // wrote the server's own `value` slot, a commit that failed produced no
