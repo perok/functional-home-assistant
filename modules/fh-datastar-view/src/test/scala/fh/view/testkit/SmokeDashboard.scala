@@ -129,6 +129,59 @@ object SmokeDashboard {
          |""".stripMargin
     )
 
+  /** A name no phone can fit, for the layout tests that ask what a slider does
+    * when its label is longer than the room it has.
+    */
+  val longName = "Kitchen Ceiling Spotlights Above The Sink"
+
+  /** Every shape a slider row takes, each in a fitting and an overflowing
+    * spelling: a plain row, a group's head, and a member row. Both bugs
+    * [[fh.view.smoke.UiSmokeSuite]]'s narrow-viewport tests cover (a squeezed
+    * badge, a readout pushed off the card) appear only when the text overflows
+    * and behave differently per shape — a member's head is a grid item, a plain
+    * row's is a block — so a single long label proves nothing about the others.
+    */
+  val longLabelRows: Dashboard =
+    PklFixture.buildDashboard(
+      "smoke-long-label",
+      s"""amends "@fh-dashboard/entry.pkl"
+         |
+         |import "@fh-dashboard/components.pkl" as c
+         |import "@fh-home/dump.pkl" as dump
+         |
+         |title = "Smoke Long Label"
+         |
+         |$fontPinnedTheme
+         |
+         |card = (c.column) {
+         |  children {
+         |    (c.slider(dump.entities.${HouseFixture.kitchenLight.dumpKey})) {
+         |      label = "Short"
+         |      readout = "percent"
+         |    }
+         |    (c.slider(dump.entities.${HouseFixture.kitchenLight.dumpKey})) {
+         |      label = "$longName"
+         |      readout = "percent"
+         |    }
+         |    (c.slider(dump.entities.${HouseFixture.kitchenLight.dumpKey})) {
+         |      label = "$longName"
+         |      readout = "percent"
+         |      members {
+         |        (c.slider(dump.entities.${HouseFixture.livingRoomLight.dumpKey})) {
+         |          label = "$longName"
+         |          readout = "percent"
+         |        }
+         |        (c.slider(dump.entities.${HouseFixture.kitchenLight.dumpKey})) {
+         |          label = "Short"
+         |          readout = "percent"
+         |        }
+         |      }
+         |    }
+         |  }
+         |}
+         |""".stripMargin
+    )
+
   /** The light [[switchSlider]] drives: its only colour mode is `onoff`, which
     * is Home Assistant's own statement that it switches and nothing more. Not a
     * member of the house — see [[HouseFixture.dumpWith]] — so a scene that

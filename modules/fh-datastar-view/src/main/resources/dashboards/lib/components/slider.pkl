@@ -1,7 +1,7 @@
 /// The value slider, and the per-domain table that tells it what it drives.
 ///
-/// Give it children and the same card is a GROUP: the slider becomes the head
-/// and the children are the members it stands for.
+/// Give it MEMBERS and the same card is a GROUP: the slider becomes the head
+/// and the members are the rows it stands for.
 module components.slider
 
 import "../core/icon.pkl" as icons
@@ -209,8 +209,8 @@ typealias Readout = "state"|"percent"|"none"
 /// naming the dashboard line — including inside a query, where the fold drops a
 /// branch whose guard cannot hold before its render lambda is applied.
 ///
-/// Give it CHILDREN and the same card is a GROUP: the slider becomes the head
-/// (the group light, the cover group) and the children are the members it
+/// Give it MEMBERS and the same card is a GROUP: the slider becomes the head
+/// (the group light, the cover group) and the members are the rows it
 /// stands for, stacked inside it with the master's fill painted across the
 /// whole card behind them — one control with its parts shown, not a titled
 /// list.
@@ -219,7 +219,7 @@ typealias Readout = "state"|"percent"|"none"
 ///     icon = "mdi:lightbulb-group"
 ///     secondary = c.exprOf(dump.entities.sensor_kitchen_temp, #"state + ' °C'"#)
 ///     tap = c.toggle
-///     children { c.slider(a).readout("percent") c.slider(b).readout("percent") }
+///     members { c.slider(a).readout("percent") c.slider(b).readout("percent") }
 ///   }
 ///
 /// One card rather than a separate group card, because the members are
@@ -826,7 +826,14 @@ const local sliderCss: String = """
      pins the edge, so the number changes and nothing moves. A LONGER reading
      (`unavailable`) still gets its room; the floor only stops the box from
      collapsing below it. */
-  .slider-head{display:flex;gap:.75rem;align-items:center;padding:.5rem;line-height:1.5;z-index:3;pointer-events:none}
+  /* `min-inline-size:0` is what keeps the readout on the card. A member row lays
+     the head out as a GRID item (`.slider-members .card` below), and a grid
+     item's automatic minimum is its min-content width — which `nowrap` text
+     makes the WHOLE label, so the row grew past the card, `overflow:hidden`
+     clipped it, and a long name pushed the reading off the right edge entirely.
+     Zero lets the label shrink and clip as it does on a plain row, where the
+     head is an ordinary block and never had the problem. */
+  .slider-head{display:flex;gap:.75rem;align-items:center;padding:.5rem;line-height:1.5;z-index:3;pointer-events:none;min-inline-size:0}
   .slider-head>.state{margin-inline-start:auto;flex:0 0 auto;
   min-inline-size:var(--fh-readout-size,3.25rem);text-align:end}
   /* The edge of the control, drawn OVER the fill and never under it. Without it
@@ -930,8 +937,13 @@ const local sliderCss: String = """
   .slider-group>.slider-head-cell>.slider-body>.slider-head>.slider-icon{grid-row:1/3}
   .slider-group>.slider-head-cell>.slider-body>.slider-head>.state{grid-column:3;grid-row:1/3}
   .slider-group>.slider-head-cell>.slider-body>.slider-head>.slider-actions{grid-column:4;grid-row:1/3}
+  /* `flex:0 0 auto` because the badge is a CIRCLE with a fixed glyph in it: as a
+     shrinkable flex item it gave width away to a long label (2rem measured down
+     to 1.5rem at a phone's 360px), which turns the circle into an ellipse and
+     leaves the 1.25rem glyph painting over its own edge. The label is the thing
+     with somewhere to go — it clips. */
   .slider-icon{display:flex;align-items:center;justify-content:center;
-  inline-size:2rem;block-size:2rem;border-radius:50%;
+  flex:0 0 auto;inline-size:2rem;block-size:2rem;border-radius:50%;
   background:var(--fh-surface-alt);color:var(--fh-accent)}
   .slider-icon>i{font-size:1.25rem}
   /* Bigger on a group's head alone, where the badge reads as a card header
