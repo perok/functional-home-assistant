@@ -580,4 +580,33 @@ facts {
     s.kind == "set"
     ids.apply(s).every((id) -> s.members.containsKey(id))
   }
+
+  ["writing a term as a lambda emits exactly what the data form emits"] {
+    // The fold resolves a property name ONCE per set and then decides per
+    // candidate. A term the candidate itself produces cannot be resolved up
+    // front, so it takes a second path — and two paths through one fold is how
+    // they drift. Same term, both spellings, one wire.
+    //
+    // Both halves matter: `area_id` is the registry fact the build reads (so
+    // the candidate is kept or dropped here), `state` is the live one that
+    // becomes a guard.
+    local wire = (s) -> new JsonRenderer {}.renderValue(s)
+    local dataForm = q.from(allEnts)
+      .where(List(q.eq(q.prop("area_id"), "stue"), q.eq(q.stateProp, "on")))
+      .render((e) -> c.entityCard(e))
+      .build()
+    local lambdaForm = q.from(allEnts)
+      .where((e) -> List(q.eq(q.prop("area_id"), "stue"), q.eq(q.stateProp, "on")))
+      .render((e) -> c.entityCard(e))
+      .build()
+    local candidateForm = q.from(allEnts)
+      .where(List(
+        q.candidate((e) -> q.eq(q.prop("area_id"), "stue")),
+        q.eq(q.stateProp, "on")))
+      .render((e) -> c.entityCard(e))
+      .build()
+    wire.apply(dataForm) == wire.apply(lambdaForm)
+    wire.apply(dataForm) == wire.apply(candidateForm)
+    ids.apply(dataForm) == List("light.taklys", "light.lampe", "binary_sensor.stue_motion")
+  }
 }
