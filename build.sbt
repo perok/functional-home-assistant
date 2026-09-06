@@ -311,6 +311,11 @@ lazy val `fh-datastar-view` = project
       // Runtime-only on purpose: nothing compiles against it, autoconfigure
       // picks it at boot, and it stays unloaded unless an endpoint is set.
       "io.opentelemetry" % "opentelemetry-exporter-otlp" % otelJavaVersion % Runtime,
+      // In-memory span and log-record exporters. The only way to assert that a
+      // log record carries the span it was written inside — which is the whole
+      // claim `fh.view.runtime.Logging` makes, and otel4s ships no logs testkit
+      // to check it with.
+      "io.opentelemetry" % "opentelemetry-sdk-testing" % otelJavaVersion % Test,
       "org.scalameta" %% "munit" % "1.3.5" % Test,
       // Lets tests return IO[Unit] directly (no unsafeRunSync / global runtime)
       // and adds IO-aware assertions (assertIO, IO#assertEquals).

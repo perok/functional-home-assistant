@@ -136,6 +136,12 @@ if [ -f /data/options.json ]; then
   if [ -n "$OTLP" ]; then
     export OTEL_EXPORTER_OTLP_ENDPOINT="$OTLP"
     export OTEL_SERVICE_NAME="${OTEL_SERVICE_NAME:-fh-dashboard}"
+    # The OTel Java SDK defaults this to grpc, and the option's own example is
+    # a :4318 URL — which is the OTLP/HTTP port. Left to the default, every
+    # export fails with "FRAME_SIZE_ERROR" from okhttp's http2 layer, because
+    # it is speaking gRPC at an HTTP/1.1 endpoint. Overridable, for a collector
+    # that only takes gRPC on 4317.
+    export OTEL_EXPORTER_OTLP_PROTOCOL="${OTEL_EXPORTER_OTLP_PROTOCOL:-http/protobuf}"
   fi
 fi
 

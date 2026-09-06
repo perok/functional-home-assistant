@@ -235,6 +235,10 @@ to them. Nothing scrapes the add-on, and for traces nothing could — a trace is
 a stream of completed spans rather than a current value, so there is no pull
 protocol for it.
 
+4318 is OTLP over HTTP and 4317 is gRPC. The add-on sends HTTP, since that is
+the port every example names; point `otlp_endpoint` at 4317 instead and you
+must also set `OTEL_EXPORTER_OTLP_PROTOCOL=grpc`, or every export fails.
+
 ### What it costs
 
 **With no endpoint set, nothing.** The OpenTelemetry SDK is never constructed,
