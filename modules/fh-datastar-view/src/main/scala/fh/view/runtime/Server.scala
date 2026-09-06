@@ -205,9 +205,10 @@ class Server(
       )
 
     // The workspace scaffold a laptop's `fh init` fetches and writes verbatim:
-    // the machine-AGNOSTIC, byte-identical files (ADR 0010). The per-machine
-    // `.fh/machine.json` is NOT served — `fh` writes its own (its cache dir + the
-    // instance URL). Before the `:name` catch-all so these exact names win.
+    // the machine-AGNOSTIC, byte-identical files (ADR 0010). `.fh/machine.json`
+    // is NOT served — this instance has none, its two per-reader values being
+    // its own environment's; `fh init` writes the laptop's. Before the `:name`
+    // catch-all so these exact names win.
     case GET -> Root / "system" / "pkl" / "base.pkl" =>
       Ok(AddonBootstrap.BaseManifest)
         .map(_.putHeaders(`Content-Type`(MediaType.text.plain)))

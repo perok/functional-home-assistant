@@ -4,7 +4,6 @@ import cats.data.NonEmptyList
 import cats.effect.IO
 import com.comcast.ip4s.{host, port}
 import fh.view.build.{
-  AddonBootstrap,
   DashboardBuild,
   DumpPackage,
   LibPackage,
@@ -18,7 +17,7 @@ import fh.view.build.{
 import fh.view.model.Dashboard
 import fh.view.runtime.TestServer
 
-import fh.view.testkit.{HouseFixture, PklFixture}
+import fh.view.testkit.{HouseFixture, PklFixture, PklWorkspace}
 
 import org.http4s.*
 import org.http4s.ember.server.EmberServerBuilder
@@ -58,12 +57,7 @@ class UseCaseSuite extends munit.CatsEffectSuite {
   private def stageWorkspace(withDump: Boolean): os.Path = {
     val root = os.temp.dir()
     val ws = root / "fh-dashboards"
-    val _ = AddonBootstrap.run(
-      ws,
-      bundledLib = bundled,
-      cacheDir = root / "pkl-cache",
-      loopbackUrl = "http://127.0.0.1:8080"
-    )
+    val _ = PklWorkspace.bootstrapInto(ws, bundled, root / "pkl-cache")
     if (withDump) {
       val _ = DumpPackage.seedFromText(
         ws,
@@ -104,12 +98,7 @@ class UseCaseSuite extends munit.CatsEffectSuite {
     // nothing here is fetched.
     val root = os.temp.dir()
     val ws = root / "fh-dashboards"
-    val _ = AddonBootstrap.run(
-      ws,
-      bundledLib = bundled,
-      cacheDir = root / "pkl-cache",
-      loopbackUrl = "http://127.0.0.1:8080"
-    )
+    val _ = PklWorkspace.bootstrapInto(ws, bundled, root / "pkl-cache")
     val _ =
       DumpPackage.seedFromText(
         ws,
@@ -208,12 +197,7 @@ class UseCaseSuite extends munit.CatsEffectSuite {
     val root = os.temp.dir()
     val instance = root / "fh-dashboards"
     val instanceCache = root / "pkl-cache"
-    val _ = AddonBootstrap.run(
-      instance,
-      bundledLib = bundled,
-      cacheDir = instanceCache,
-      loopbackUrl = "http://127.0.0.1:8080"
-    )
+    val _ = PklWorkspace.bootstrapInto(instance, bundled, instanceCache)
     val _ =
       DumpPackage.seedFromText(
         instance,
@@ -328,12 +312,7 @@ class UseCaseSuite extends munit.CatsEffectSuite {
     // versions + metadata sha256 of both packages, as JSON.
     val root = os.temp.dir()
     val instance = root / "fh-dashboards"
-    val _ = AddonBootstrap.run(
-      instance,
-      bundledLib = bundled,
-      cacheDir = root / "pkl-cache",
-      loopbackUrl = "http://127.0.0.1:8080"
-    )
+    val _ = PklWorkspace.bootstrapInto(instance, bundled, root / "pkl-cache")
     val _ =
       DumpPackage.seedFromText(
         instance,
@@ -381,12 +360,7 @@ class UseCaseSuite extends munit.CatsEffectSuite {
     // artifacts are served too — which is exactly what `pull` re-pins to.
     val root = os.temp.dir()
     val instance = root / "fh-dashboards"
-    val _ = AddonBootstrap.run(
-      instance,
-      bundledLib = bundled,
-      cacheDir = root / "pkl-cache",
-      loopbackUrl = "http://127.0.0.1:8080"
-    )
+    val _ = PklWorkspace.bootstrapInto(instance, bundled, root / "pkl-cache")
     val _ =
       DumpPackage.seedFromText(
         instance,

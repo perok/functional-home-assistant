@@ -74,9 +74,10 @@ object PklBuild {
       project.foreach(builder.applyFromProject)
       project.foreach(ensureLockfile(dashboardsDir, _, builder))
       // Same cache the resolver used — a REMOTE dep (the add-on's package-form
-      // `@fh-dashboard`) must find its pre-seeded zip here rather than in
-      // `preconfigured()`'s `~/.pkl/cache`. Set after `applyFromProject` so it
-      // wins even when the project declares no `moduleCacheDir` of its own.
+      // `@fh-dashboard`) must find its pre-seeded zip here. Set after
+      // `applyFromProject`, which leaves the builder's own default standing
+      // when the project declares no `moduleCacheDir`; this makes the ONE
+      // resolved value explicit for all three consumers.
       builder.setModuleCacheDir(cacheDir(dashboardsDir, project).toNIO)
       val evaluator = builder.build()
       val module =
@@ -235,19 +236,19 @@ object PklBuild {
     }
 
   /** The package cache for this workspace, taken from the loaded project's
-    * `evaluatorSettings.moduleCacheDir` — which the static `.fh/base.pkl`
-    * always declares (reading it from `.fh/machine.json`; the add-on points it
-    * at persistent storage and pkl-lsp honors the same setting). Used
-    * identically by the resolver, the evaluator and the analyzer — a remote dep
-    * resolves offline as long as its version is already IN this cache
-    * (pre-seeded by `LibPackage`).
+    * `evaluatorSettings.moduleCacheDir`. Used identically by the resolver, the
+    * evaluator and the analyzer — a remote dep resolves offline as long as its
+    * version is already IN this cache (pre-seeded by `LibPackage`).
     *
-    * A loaded `PklProject` that declares NO `moduleCacheDir` is a HARD ERROR:
-    * in this design every workspace's `base.pkl` supplies it, so its absence
-    * means an un-bootstrapped / corrupt workspace — better a loud failure than
-    * a silent stray `.pkl-cache`. Only the projectless plain-eval path (no
-    * `PklProject` at all, hence no package deps) falls back to a
-    * workspace-local `.pkl-cache`.
+    * A project that declares NONE is the NORMAL case, not a broken workspace:
+    * `.fh/base.pkl` sets it from `FH_PKL_CACHE_DIR` and nothing else, so it is
+    * null for every reader that isn't the add-on. The fallback is pkl's own
+    * default, which is what those readers' pkl-lsp and `pkl` CLI already use —
+    * the same rule [[AddonBootstrap.defaultCacheDir]] seeds through, so the dir
+    * we resolve here and the dir the seed wrote to cannot disagree.
+    *
+    * Only the projectless plain-eval path (no `PklProject` at all, hence no
+    * package deps) uses a workspace-local `.pkl-cache`.
     */
   private[build] def workspaceCacheDir(dashboardsDir: os.Path): os.Path = {
     val projectFile = dashboardsDir / "PklProject"
@@ -271,13 +272,7 @@ object PklBuild {
             if (path.isAbsolute) os.Path(path)
             else dashboardsDir / os.RelPath(path.toString)
           }
-          .getOrElse(
-            sys.error(
-              s"${dashboardsDir / ".fh" / "base.pkl"} declares no moduleCacheDir " +
-                "— the workspace is not bootstrapped; run `fh init` or restart " +
-                "the add-on"
-            )
-          )
+          .getOrElse(os.Path(AddonBootstrap.defaultCacheDir))
       // No PklProject at all: the plain-eval path has no package deps, so a
       // workspace-local cache location is enough.
       case None => dashboardsDir / ".pkl-cache"
