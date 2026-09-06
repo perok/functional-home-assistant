@@ -115,7 +115,10 @@ class Server(
     // ([[Logging]]), so a line written while serving a request carries that
     // request's trace id — which is what lets a slow trace and the warning
     // that explains it find each other.
-    loggerFactory: LoggerFactory[IO] = Logging.console
+    loggerFactory: LoggerFactory[IO] = Logging.console,
+    // The unsampled counterpart of the spans above ([[Meters]]). No-op by
+    // default, like the tracer, and for the same reason.
+    meters: Meters = Meters.noop
 ) {
 
   /** `logger`, not `log`: `renderPage` already takes a `log: FragmentLog`, and
@@ -2027,7 +2030,7 @@ class Server(
               // nodes in 40 ms and 20 nodes in 40 ms are different findings.
               tracer.currentSpanOrNoop.flatMap(
                 _.addAttribute(Attribute("fh.nodes", own.size.toLong))
-              )
+              ) *> meters.pageNodes.record(own.size.toLong)
           )
             // Where a page open actually spends its time, and the span #75 was
             // opened to get: everything above prices the SETUP, while this is
@@ -2797,7 +2800,8 @@ object Server {
       adoptionWindow: FiniteDuration = AdoptionWindow,
       lingerWindow: FiniteDuration = LingerWindow,
       tracer: Tracer[IO] = Tracer.noop,
-      loggerFactory: LoggerFactory[IO] = Logging.console
+      loggerFactory: LoggerFactory[IO] = Logging.console,
+      meters: Meters = Meters.noop
   ): Resource[IO, Server] =
     for {
       supervisor <- Supervisor[IO]
@@ -2815,7 +2819,8 @@ object Server {
         adoptionWindow,
         lingerWindow,
         tracer,
-        loggerFactory
+        loggerFactory,
+        meters
       )
       _ <- server.sharedPatchPublishers.compile.drain.background
     } yield server
@@ -2843,7 +2848,8 @@ object Server {
       // has and what the tests want.
       actions: HomeAssistantApi[IO] => ServiceCalls = ServiceCalls.asInstance,
       tracer: Tracer[IO] = Tracer.noop,
-      loggerFactory: LoggerFactory[IO] = Logging.console
+      loggerFactory: LoggerFactory[IO] = Logging.console,
+      meters: Meters = Meters.noop
   ): Resource[IO, Server] =
     withSite(
       actions(feed.api),
@@ -2856,7 +2862,8 @@ object Server {
       systemPkl,
       dumpRefresh,
       tracer = tracer,
-      loggerFactory = loggerFactory
+      loggerFactory = loggerFactory,
+      meters = meters
     )
 
   /** The `POST /system/dump/refresh` response body — status plus what a caller

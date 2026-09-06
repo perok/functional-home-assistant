@@ -17,11 +17,11 @@ import org.typelevel.otel4s.{AnyValue, Attribute}
   * separately that something warned, and no way to tell whether they were the
   * same request.
   *
-  * A FACTORY rather than a logger, for two reasons. It is what http4s takes,
-  * so ember's own lines join the same stream; and a logger built per class
-  * name is what an OpenTelemetry instrumentation scope is, so the collector
-  * can tell `fh.view.runtime.Server` from `org.http4s.ember.server` without
-  * being told the mapping.
+  * A FACTORY rather than a logger, for two reasons. It is what http4s takes, so
+  * ember's own lines join the same stream; and a logger built per class name is
+  * what an OpenTelemetry instrumentation scope is, so the collector can tell
+  * `fh.view.runtime.Server` from `org.http4s.ember.server` without being told
+  * the mapping.
   *
   * ==Why not the logback appender==
   *
@@ -33,9 +33,9 @@ import org.typelevel.otel4s.{AnyValue, Attribute}
   * than by the field a backend already knows. Bridging means a
   * `makeCurrent()`/`close()` pair around every call, which is the same
   * thread-local hazard that rules out SLF4J's MDC: a cats-effect fiber moves
-  * between threads freely, and a value put there before an async boundary is
-  * on the wrong thread after it — failing silently, and usually with
-  * SOMEBODY's trace id rather than none.
+  * between threads freely, and a value put there before an async boundary is on
+  * the wrong thread after it — failing silently, and usually with SOMEBODY's
+  * trace id rather than none.
   *
   * otel4s' own `LoggerProvider` has no such problem: `currentContext` is read
   * per call, in `IO`, from the same `IOLocal` the tracer writes.
@@ -47,8 +47,8 @@ object Logging {
     *
     * An enum rather than passing `Severity` around because `Severity`'s
     * companion offers four gradations per level (`info`, `info2`, …) that
-    * nothing here distinguishes, and because matching on it to pick the
-    * console method would need an equality this profile does not grant.
+    * nothing here distinguishes, and because matching on it to pick the console
+    * method would need an equality this profile does not grant.
     */
   private enum Level(val severity: Severity, val text: String) {
     case Trace extends Level(Severity.trace, "TRACE")
@@ -61,8 +61,8 @@ object Logging {
   /** The factory the whole runtime logs through.
     *
     * ONE tracer for every logger it hands out, which is sound because the
-    * tracer is only ever asked which span is current — a property of the
-    * fiber, not of the instrumentation scope asking.
+    * tracer is only ever asked which span is current — a property of the fiber,
+    * not of the instrumentation scope asking.
     */
   def factory(otel: Telemetry.Otel): IO[LoggerFactory[IO]] =
     otel.tracerProvider.get("fh.view.runtime.Logging").map { tracer =>
@@ -109,9 +109,9 @@ object Logging {
       * wins, so this can never quietly overwrite something a call site meant.
       *
       * On the console leg these are the whole correlation story: the add-on's
-      * Log tab is plain text, and a trace id in it is what lets a reader take
-      * a line to the trace it belongs to. The collector leg does not need them
-      * — it gets the context itself — but they cost nothing there.
+      * Log tab is plain text, and a trace id in it is what lets a reader take a
+      * line to the trace it belongs to. The collector leg does not need them —
+      * it gets the context itself — but they cost nothing there.
       */
     private def traced(ctx: Map[String, String]): IO[Map[String, String]] =
       tracer.currentSpanContext.map {
@@ -122,10 +122,9 @@ object Logging {
 
     /** Both legs of one line.
       *
-      * The message is forced ONCE, behind the enabled check, and handed on as
-      * a strict `String`: a by-name passed to two writers is evaluated twice,
-      * and interpolations in log statements are exactly where that is
-      * expensive.
+      * The message is forced ONCE, behind the enabled check, and handed on as a
+      * strict `String`: a by-name passed to two writers is evaluated twice, and
+      * interpolations in log statements are exactly where that is expensive.
       */
     private def emit(
         level: Level,

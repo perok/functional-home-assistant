@@ -54,6 +54,7 @@ import org.http4s.otel4s.middleware.trace.server.{
 import org.http4s.server.middleware.Metrics as ServerMetrics
 import org.typelevel.log4cats.LoggerFactory
 import org.typelevel.log4cats.slf4j.Slf4jLogger
+import org.typelevel.otel4s.metrics.MeterProvider
 import org.typelevel.otel4s.trace.{Tracer, TracerProvider}
 import fs2.io.file.{Watcher, Path}
 
@@ -163,6 +164,7 @@ object ServerApp extends IOApp {
         // was written inside and reaches the collector alongside it
         // ([[Logging]]).
         loggerFactory <- Logging.factory(otel).toResource
+        meters <- Meters.create(otel.meterProvider).toResource
         // `appLog`, not `log`: the object already has one, and a field a local
         // shadows in one method and not the others is a trap. This one exists
         // because boot's own lines are worth having beside the
@@ -217,7 +219,8 @@ object ServerApp extends IOApp {
           FHApi.lowLevelConnectWithClose(haEnv),
           wanted,
           feedTracer,
-          loggerFactory
+          loggerFactory,
+          meters
         )
         dashboardsDir = config.dashboardsDir
         // Seed the dump and evaluate the entrypoint into every dashboard it
@@ -230,7 +233,8 @@ object ServerApp extends IOApp {
           dashboardsDir,
           Some(bundledLib),
           buildTracer,
-          loggerFactory
+          loggerFactory,
+          meters
         ).toResource
         built = prepared.built
         // Serves this home's `dump.pkl` and its resolved package artifacts over
@@ -414,7 +418,10 @@ object ServerApp extends IOApp {
           // no login session still falls back to the feed's own identity, which
           // is what an unauthenticated deployment and ingress both have.
           actions = ServiceCalls.asUser(_, connectAs, authSessions, oauth),
-          tracerProvider = otel.tracerProvider
+          tracerProvider = otel.tracerProvider,
+          loggerFactory = loggerFactory,
+          meterProvider = otel.meterProvider,
+          meters = meters
         )
         // The editor surface (/edit + /lsp/pkl). The pkl-lsp jar backs the LSP
         // subprocess; None just disables completion/diagnostics (the editor and
@@ -588,54 +595,64 @@ object ServerApp extends IOApp {
       dashboardsDir: os.Path,
       bundledLib: Option[LibPackage.Artifacts],
       tracer: Tracer[IO] = Tracer.noop,
-      loggerFactory: LoggerFactory[IO] = Logging.console
+      loggerFactory: LoggerFactory[IO] = Logging.console,
+      meters: Meters = Meters.noop
   ): IO[Prepared] =
     // Traced because this is the OTHER thing that can make the add-on feel
     // slow, and it is not a request so no HTTP span covers it: on a Pi, the
     // dump fetch and a pkl evaluation of every dashboard are seconds, and they
     // run again on every registry-driven refresh — not just at boot.
-    tracer.span("dashboard.prepare").surround {
-      // Write the live dump once (so `import "@fh-home/dump.pkl"` resolves) via
-      // the build phase, which owns fetching + packaging the dump.
-      tracer
-        .span("dashboard.prepare.dump")
-        .surround(
-          DashboardBuild.prepareDumps(
-            feed.api,
-            dashboardsDir,
-            bundledLib,
-            loggerFactory
-          )
-        ) *>
-        tracer
-          .span("dashboard.prepare.eval")
-          .surround(DashboardBuild.evalSite(dashboardsDir))
-          .attempt
-          .flatMap {
-            case Right((site, imports)) =>
-              IO.pure(Prepared(site.dashboards.toMap, site.default, imports))
-            case Left(err) =>
-              // Nothing evaluated, so nothing can be attributed to a slug: serve
-              // the error under the one name `/` will look for.
-              IO.pure(
-                Prepared(
-                  Map(Server.DefaultSlug -> Left(Site.messageOf(err))),
-                  None,
-                  Set(dashboardsDir / Site.EntryFile)
-                )
+    // The histogram beside the span, because this one runs again on every
+    // registry-driven refresh: a series says whether it is getting slower as
+    // the house grows, which a sampled span cannot.
+    meters.evalDuration
+      .recordDuration(java.util.concurrent.TimeUnit.SECONDS)
+      .surround {
+        tracer.span("dashboard.prepare").surround {
+          // Write the live dump once (so `import "@fh-home/dump.pkl"` resolves) via
+          // the build phase, which owns fetching + packaging the dump.
+          tracer
+            .span("dashboard.prepare.dump")
+            .surround(
+              DashboardBuild.prepareDumps(
+                feed.api,
+                dashboardsDir,
+                bundledLib,
+                loggerFactory
               )
-          }
-          .flatTap { prepared =>
-            prepared.built.traverse_ { case (slug, renderer) =>
-              // Built, but maybe not sound: report what still serves and only
-              // misbehaves (a popup with nowhere to go).
-              renderer.warnings.traverse_(w => log.warn(s"'$slug': $w"))
-            } *>
-              prepared.failed.traverse_ { case (slug, message) =>
-                log.error(s"Dashboard '$slug' failed to build: $message")
+            ) *>
+            tracer
+              .span("dashboard.prepare.eval")
+              .surround(DashboardBuild.evalSite(dashboardsDir))
+              .attempt
+              .flatMap {
+                case Right((site, imports)) =>
+                  IO.pure(
+                    Prepared(site.dashboards.toMap, site.default, imports)
+                  )
+                case Left(err) =>
+                  // Nothing evaluated, so nothing can be attributed to a slug: serve
+                  // the error under the one name `/` will look for.
+                  IO.pure(
+                    Prepared(
+                      Map(Server.DefaultSlug -> Left(Site.messageOf(err))),
+                      None,
+                      Set(dashboardsDir / Site.EntryFile)
+                    )
+                  )
               }
-          }
-    }
+              .flatTap { prepared =>
+                prepared.built.traverse_ { case (slug, renderer) =>
+                  // Built, but maybe not sound: report what still serves and only
+                  // misbehaves (a popup with nowhere to go).
+                  renderer.warnings.traverse_(w => log.warn(s"'$slug': $w"))
+                } *>
+                  prepared.failed.traverse_ { case (slug, message) =>
+                    log.error(s"Dashboard '$slug' failed to build: $message")
+                  }
+              }
+        }
+      }
 
   /** How long a session may go unchecked before HA is asked about it again.
     * Matches HA's own access-token life, so a revocation is visible within one
@@ -755,10 +772,15 @@ object ServerApp extends IOApp {
       // No-op by default, which is what every test harness gets and also what
       // an install with no collector configured runs on.
       tracerProvider: TracerProvider[IO] = TracerProvider.noop,
-      loggerFactory: LoggerFactory[IO] = Logging.console
+      loggerFactory: LoggerFactory[IO] = Logging.console,
+      meterProvider: MeterProvider[IO] = MeterProvider.noop,
+      meters: Meters = Meters.noop
   ): Resource[IO, Server] =
     for {
       sessions <- Sessions.create.toResource
+      // The registry is the only place that knows how many sessions there
+      // are, so the gauge is registered where it is built.
+      _ <- Meters.observeSessions(meterProvider, sessions)
       tracer <- tracerProvider.get("fh.view.runtime.Server").toResource
       server <- Server.fromFeed(
         feed,
@@ -770,7 +792,8 @@ object ServerApp extends IOApp {
         dumpRefresh,
         actions,
         tracer,
-        loggerFactory
+        loggerFactory,
+        meters
       )
     } yield server
 

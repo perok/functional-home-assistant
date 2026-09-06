@@ -54,6 +54,8 @@ already on its classpath.
 
 ## Boxes
 
+Boxes 1–4 have landed. What is left is at the bottom, under "Still open".
+
 ### 1. The factory
 
 Replace `TracedLogger` with the fan-out factory and thread it from `ServerApp` to every site that
@@ -73,13 +75,15 @@ Off values the code already computes, so none of these is a new measurement:
 
 | Instrument | Kind | Where |
 | --- | --- | --- |
-| `fh.sessions.live` | UpDownCounter | `Sessions.register` / the reaper |
-| `fh.sse.frames` | Counter | the per-session write loop |
-| `fh.sse.patch.bytes` | Counter | same |
+| `fh.sessions.live` | observable UpDownCounter | the `Sessions` registry itself |
 | `fh.page.nodes` | Histogram | `Server`'s walk — a span attribute today, so sampling-dependent |
 | `fh.ha.entities` | Counter | `HaFeed.pump`, same batch size the span carries |
 | `fh.dashboard.eval.duration` | Histogram | `prepareRenderers`, boot AND every registry refresh |
-| `fh.renderer.cache` (`result` attr) | Counter | `Renderer.identityCache` |
+
+`fh.sessions.live` is OBSERVED off the registry map rather than incremented in
+`register` and decremented in `deregisterIf`. The map is already the truth, and
+a second copy of it disagrees the first time a `conn` is re-registered — which a
+re-minted session does — as a drift nothing else would ever report.
 
 ### 4. Two small ones
 
@@ -88,6 +92,24 @@ Off values the code already computes, so none of these is a new measurement:
 - Drop `JAVA_OTEL` / `-Dotel.java.global-autoconfigure.enabled=true` from `run.sh`. It is dead:
   that flag gates `GlobalOpenTelemetry.get()`, and `OtelJava.autoConfigured` builds its own SDK —
   verified by autoconfiguration running, and failing on an exporter setting, without it.
+
+## Still open
+
+- **`ha-api`'s transport still logs to the console only.** `HAWSApiLowLevel` is
+  an object whose five log calls sit in five different private helpers, so
+  taking the factory means threading it through the whole transport — a
+  refactor that does not belong in a telemetry change. Its error and warn lines
+  are worth having; they are the reason this is written down rather than
+  dropped.
+- **`ServerApp`'s own helpers likewise.** `run` logs through the fan-out
+  factory; `reloadSite`, `refreshOnce`, `revalidateOnce`, the pkl-lsp
+  resolution and `bootstrap` still use the object's console logger. `bootstrap`
+  genuinely has to — it runs before the SDK exists — but the others do not.
+- **SSE frames and patch bytes.** What a live page costs after it has loaded is
+  the obvious next instrument and needs a look at the write loop first.
+- **`Renderer.identityCache` hit rate.** Deliberately last: the cache is a
+  `ConcurrentHashMap` in the pure render core, and counting through it means
+  putting `IO` where there is none.
 
 ## Not doing
 
