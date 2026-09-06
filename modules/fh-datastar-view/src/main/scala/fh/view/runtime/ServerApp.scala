@@ -99,10 +99,6 @@ object ServerApp extends IOApp {
       // Bind address: loopback by default so LAN exposure is opt-in (`HOST`).
       bindHost: Host,
       bindPort: Port,
-      // The raw `PORT` string for the `.fh/machine.json` loopback URL — kept
-      // verbatim so a non-numeric PORT reproduces the prior behavior exactly
-      // (bindPort falls back to 8080, the URL echoes the raw value).
-      loopbackPort: String,
       // `FH_WATCH_REGISTRY`: registry-driven dump refresh, on by default.
       watchRegistry: Boolean,
       // `PKL_LSP_JAR`: explicit pkl-lsp jar override (else cached/downloaded).
@@ -128,8 +124,8 @@ object ServerApp extends IOApp {
               )
               .getOrElse(host"127.0.0.1")
           )
-        loopbackPort <- envOr("PORT", "8080")
-        bindPort = loopbackPort.toIntOption
+        portString <- envOr("PORT", "8080")
+        bindPort = portString.toIntOption
           .flatMap(Port.fromInt)
           .getOrElse(port"8080")
         watchRegistry <- Env[IO]
@@ -142,7 +138,6 @@ object ServerApp extends IOApp {
         assetsDir,
         bindHost,
         bindPort,
-        loopbackPort,
         watchRegistry,
         pklLspJar
       )
@@ -1095,13 +1090,7 @@ object ServerApp extends IOApp {
             .run(
               config.dashboardsDir,
               bundled,
-              config.cacheDir,
-              // This instance's own URL, written into `.fh/machine.json` as the
-              // `http.rewrites` target. Loopback + the bind PORT: inert here
-              // (packages resolve from the cache), it only matters if the
-              // workspace is copied — a laptop's `fh init` overwrites it with
-              // the real instance URL.
-              loopbackUrl = s"http://127.0.0.1:${config.loopbackPort}"
+              config.cacheDir
             )
         )
         .flatMap(_.traverse_(log.info(_)))

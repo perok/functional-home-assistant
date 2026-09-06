@@ -91,8 +91,9 @@ personas differ only in **where the cache is seeded from** and **who seeds the
 `LspBridge` spawns pkl-lsp as a **server-side subprocess** and the client sends
 absolute on-disk paths in `initialize`, so completion resolves the library (from
 the persistent package cache — `moduleCacheDir` is declared IN the generated
-`.fh/base.pkl` the user's `PklProject` amends, which reads it from the sibling
-`.fh/machine.json`, so pkl-lsp finds it with no extra configuration) and the
+`.fh/base.pkl` the user's `PklProject` amends, which reads it from this process's
+environment and defaults to pkl's own `~/.pkl/cache`, so pkl-lsp finds it with no
+extra configuration) and the
 freshly-seeded `@fh-home` dump package, through the project. Nothing is fetched. This is the default path and it needs no network
 story at all.
 
@@ -298,8 +299,9 @@ and not a jar subcommand: after the content-versioned dump design, the laptop
 side is *only* fetch-and-write. `init` fetches the instance's byte-identical
 scaffold (`.fh/base.pkl`, `PklProject`, `.gitignore`) verbatim from
 `/system/pkl/{base.pkl,PklProject,gitignore}` and writes the two per-machine
-files this laptop needs — `.fh/machine.json` (its own cache dir + the instance
-URL) and `.fh/pins.json` (the version pins) — then resolves dependencies; `pull`
+files this laptop needs — `.fh/machine.json` (the instance URL; the cache is
+pkl's own default) and `.fh/pins.json` (the version pins) — then resolves
+dependencies; `pull`
 just re-pins `@fh-home` in `.fh/pins.json`; `push` is one evaluation per entry
 (several entries in one invocation, `--slug` renaming a single pushed one,
 `--write` sending the source + its local imports instead, `--watch` repeating
@@ -330,10 +332,10 @@ artifacts a pull re-pins to, push) without spawning any subprocess.
 The laptop workspace is IDENTICAL to the add-on's, by construction (the scaffold
 is served, not re-templated): `.fh/base.pkl` byte-identical and machine-agnostic,
 `PklProject` and `.gitignore` the same, the `@fh-home` pin (uri + checksum) in
-`.fh/pins.json`. The only per-machine file is `.fh/machine.json` (this laptop's
-cache dir + the instance URL the rewrite targets), which is gitignored — so a user
-can keep the workspace in git and use the same files on the laptop and the
-instance, differing only in that one ignored file.
+`.fh/pins.json`. The only per-machine file is `.fh/machine.json` (the instance
+URL the rewrite targets), which is gitignored — so a user can keep the workspace in
+git and use the same files on the laptop and the instance, differing only in that
+one ignored file, which the instance does not write at all.
 
 **The `.pkl` routes are a file-download API, not a module source.** pkl-lsp
 does not fetch them — `LspBridge` runs pkl-lsp server-side against on-disk
@@ -453,14 +455,39 @@ default is `/root/.pkl/cache`, an image layer, so every update would drop the pa
 workspace's pins name.
 
 The cache dir is therefore checked FIRST, before anything is written, and an unusable one
-aborts the boot naming the directory. Ordering is load-bearing for the same reason: the
-seed runs AFTER `machine.json` is written, so the workspace can never name a cache this
-process did not use. The other way round, a seed that threw left a path from an earlier run
-standing in `machine.json`, and the failure resurfaced as pkl's own "I/O error loading
-module … AccessDeniedException" once per dashboard, at eval, pointing at nothing.
+aborts the boot naming the directory — rather than resurfacing as pkl's own "I/O error
+loading module … AccessDeniedException", once per dashboard, at eval, pointing at nothing.
 
-`AddonBootstrap` (run by the server at startup when `FH_PKL_CACHE_DIR` is set —
-`run.sh` only exports the path) does, idempotently:
+### The per-reader values come from the reader, never from the directory
+
+One dashboards directory is meant to be used from several machines: the HA device serving
+it, the author's laptop over `fh`, a dev container. They agree on everything the workspace
+contains — entries, pins, the scaffold — and disagree on exactly two things: **where this
+machine's package cache is**, and **which instance to resolve packages from**. Those two
+therefore cannot live in the directory. The add-on wrote both into `.fh/machine.json` at
+every start, which meant whichever machine booted last decided for the others; a container
+handed a cache path from outside it failed every dashboard, and a laptop sharing the
+directory had its real instance URL overwritten with the device's loopback.
+
+So `base.pkl` reads each of them from **this process's environment first**
+(`FH_PKL_CACHE_DIR`, `FH_INSTANCE_URL`), falling back to `.fh/machine.json` for a reader
+with no launcher to set them, and the instance **writes neither**. `run.sh` exports both
+(the URL derived from the PORT it exports, not hardcoded); `fh init` writes only
+`instanceUrl`, because a laptop wants pkl's own cache and writing a path would impose it on
+everyone else. Absent everywhere, `moduleCacheDir` is null — which is not "no cache" but
+"the reading tool's default", so pkl-lsp and the `pkl` CLI resolve where the server seeded
+— and there is no rewrite at all, so packages resolve from the cache alone.
+
+Spiked on the 0.32.1 pin, each answering a case the design turns on: `read?` yields null
+for a missing env var or a missing file; `read?("env:…")` returns a **String**, not a
+`Resource`; `??` short-circuits and properties are lazy, so with the env set the file is
+never parsed (verified against a `machine.json` of pure garbage); `toTyped` tolerates EXTRA
+properties, so a `machine.json` from an older add-on still parses and its stale `cacheDir`
+is simply ignored; and the stdlib permits `moduleCacheDir` only on a file-based project
+(`(moduleCacheDir != null).implies(isFileBasedProject)`), which a workspace is and a package
+never is.
+
+`AddonBootstrap` (run by the server at startup) does, idempotently:
 
 1. **Seed the cache** (`LibPackage`): packages the image's `/opt/fh/lib` into
    the two-file resolved-package layout
@@ -481,20 +508,18 @@ module … AccessDeniedException" once per dashboard, at eval, pointing at nothi
    its own mapping entries override the base's):
    - `.fh/base.pkl` — **machine-owned, STATIC and machine-AGNOSTIC**: it carries
      no path and no URL. `moduleCacheDir` and the `http.rewrites` target are read
-     from the sibling `.fh/machine.json`, and both alias pins from `.fh/pins.json`
-     — all via `pkl:json` (`local class Machine { cacheDir; instanceUrl }` +
-     `local class Pins { … }`, each a
-     `(new json.Parser {}).parse(read("…")).toTyped(…)`). Because it holds nothing
+     from the environment, then `.fh/machine.json`, and both alias pins from
+     `.fh/pins.json` — all via `pkl:json` (`local class Machine { cacheDir?;
+     instanceUrl? }` + `local class Pins { … }`). Because it holds nothing
      per-machine it is **byte-identical everywhere** — the exact bytes the
      instance serves to a laptop's `fh init` over `/system/pkl/base.pkl`. Rewritten
-     only when the template changes across add-on versions.
-   - `.fh/machine.json` — **machine-owned** `{ cacheDir, instanceUrl }`, the
-     per-machine values, refreshed each start. This instance fills it with the
-     persistent cache path + its own loopback URL (inert here — packages are cache
-     hits — but it makes the workspace copy-usable); a laptop's `fh init` fills its
-     own cache + the real instance URL. **Never committed** (the seeded
-     `.gitignore` excludes it) — it is the ONLY file that differs between the
-     instance and a git copy of the same workspace.
+     only when the template changes across add-on versions. It is the ONLY
+     scaffold file the instance writes.
+   - `.fh/machine.json` — the READER's own `{ cacheDir?, instanceUrl? }`, both
+     optional and both overridden by the environment. **Written by whoever has no
+     launcher to set env vars** — a laptop's `fh init` (which writes only
+     `instanceUrl`) and the test harness — and by the instance never. **Never
+     committed** (the seeded `.gitignore` excludes it).
    - `.fh/pins.json` — **machine-owned** `{ dashboardUri, homeUri, homeSha256 }`,
      the file rewritten as pins move (both pins are DATA here, so a lib bump or
      dump pull is the same file-rewrite mechanism): `dashboardUri` set to the

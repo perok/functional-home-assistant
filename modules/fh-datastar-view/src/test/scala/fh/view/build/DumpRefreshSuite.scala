@@ -1,6 +1,6 @@
 package fh.view.build
 
-import fh.view.testkit.{FixtureEntity, HouseFixture}
+import fh.view.testkit.{FixtureEntity, HouseFixture, PklWorkspace}
 import io.circe.Json
 
 /** Validate-then-swap for the regenerated dump ([[DumpRefresh]]): a changed
@@ -58,12 +58,7 @@ class DumpRefreshSuite extends munit.CatsEffectSuite {
     val root = os.temp.dir()
     val ws = root / "fh-dashboards"
     os.write(ws / Site.EntryFile, entrypoint, createFolders = true)
-    val _ = AddonBootstrap.run(
-      ws,
-      bundled,
-      root / "pkl-cache",
-      loopbackUrl = "http://127.0.0.1:8080"
-    )
+    val _ = PklWorkspace.bootstrapInto(ws, bundled, root / "pkl-cache")
     val _ = DumpPackage.seedFromText(ws, currentDump, Some(bundled))
     ws
   }

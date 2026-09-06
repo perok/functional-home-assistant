@@ -16,9 +16,10 @@
 // and pkl resolves them from the instance through the manifest's own http
 // rewrite. `fh init` fetches the instance's byte-identical scaffold
 // (`.fh/base.pkl`, `PklProject`, `.gitignore`) verbatim and writes the two
-// per-machine files this laptop needs — `.fh/machine.json` (its cache dir +
-// the instance URL) and `.fh/pins.json` (the version pins); `fh pull` re-pins
-// @fh-home.
+// files this laptop needs — `.fh/machine.json` (the instance URL) and
+// `.fh/pins.json` (the version pins); `fh pull` re-pins @fh-home. The package
+// cache is not written anywhere: it is pkl's own `~/.pkl/cache` unless
+// `FH_PKL_CACHE_DIR` says otherwise.
 //
 // `fh push a.pkl b.pkl` evaluates each entry here and installs the RESULT on
 // the instance, live and ephemeral (pushing `site.pkl` installs every
@@ -148,13 +149,16 @@ def sha256(bytes: Array[Byte]): String =
 // `evaluatorSettings.http.rewrites` off the loaded project (what the pkl CLI
 // does internally), never a second hand-built copy.
 
-// The package cache: pkl's OWN default (`~/.pkl/cache`), asked of pkl-core —
-// the same value `AddonBootstrap.defaultCacheDir` uses, so this script, a local
-// instance, the `pkl` CLI and pkl-lsp share one cache without any of them
-// declaring a path. This absolute path is what `fh init` writes into
-// `.fh/machine.json` as `cacheDir` (base.pkl's `moduleCacheDir`).
+// The package cache this script resolves through: `FH_PKL_CACHE_DIR` if set,
+// else pkl's OWN default (`~/.pkl/cache`) asked of pkl-core — the same two
+// steps `base.pkl` and `AddonBootstrap` take, so this script, an instance, the
+// `pkl` CLI and pkl-lsp share one cache without any of them declaring a path.
 val cacheDir =
-  org.pkl.core.util.IoUtils.getDefaultModuleCacheDir().toAbsolutePath
+  sys.env
+    .get("FH_PKL_CACHE_DIR")
+    .map(Paths.get(_))
+    .getOrElse(org.pkl.core.util.IoUtils.getDefaultModuleCacheDir())
+    .toAbsolutePath
 
 def loadProject(): org.pkl.core.project.Project =
   val manifest = Paths.get("PklProject")
@@ -372,18 +376,20 @@ def writeScaffold(client: Client[IO], url: String): IO[Unit] =
     }
   } yield ()
 
-/** The per-machine `{ cacheDir, instanceUrl }` that `base.pkl` reads — this
-  * laptop's own cache and the instance URL. Gitignored; never committed.
+/** The one per-reader value `base.pkl` cannot default: WHICH instance serves
+  * the packages. Gitignored; never committed.
+  *
+  * No `cacheDir`: this laptop wants pkl's own `~/.pkl/cache`, which base.pkl
+  * falls back to on its own, and writing a path here would impose it on
+  * everyone else reading the same directory — the add-on doing exactly that is
+  * what broke a shared workspace. Set `FH_PKL_CACHE_DIR` to override.
   */
 def writeMachine(url: String): IO[Unit] = IO.blocking {
   Files.createDirectories(machineJson.getParent)
   Files.write(
     machineJson,
     (Json
-      .obj(
-        "cacheDir" -> Json.fromString(cacheDir.toString),
-        "instanceUrl" -> Json.fromString(url)
-      )
+      .obj("instanceUrl" -> Json.fromString(url))
       .spaces2 + "\n").getBytes(UTF_8)
   )
 }

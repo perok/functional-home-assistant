@@ -24,13 +24,18 @@ import io.circe.Json
   * The committed scaffold is BYTE-IDENTICAL on every machine — the same
   * `.fh/base.pkl`, `PklProject`, and `.gitignore` the instance serves to a
   * laptop's `fh init` (see [[BaseManifest]] / the `/system/pkl/{base.pkl,
-  * PklProject,gitignore}` routes). The two per-machine values — the pkl cache
-  * dir and the instance URL the rewrite targets — live in a gitignored
-  * `.fh/machine.json`, read by `base.pkl` the same way it reads `pins.json`.
-  * That is what lets a user keep their dashboards in git and use the exact same
-  * files on both sides: only `.fh/machine.json` differs (this instance fills it
-  * with the persistent cache path + a loopback URL — inert, a cache hit — a
-  * laptop with its own cache + the real instance URL).
+  * PklProject,gitignore}` routes). The two per-reader values — the pkl cache
+  * dir and the instance URL the rewrite targets — come from the ENVIRONMENT of
+  * whoever is reading (`FH_PKL_CACHE_DIR`, `FH_INSTANCE_URL`), falling back to
+  * a gitignored `.fh/machine.json` for a reader with no launcher to set them.
+  *
+  * **The instance writes neither.** One dashboards directory is meant to be
+  * shared — an HA device, the author's laptop, a dev container — and each of
+  * them needs different answers, so a per-machine value written into the shared
+  * directory is a value imposed on everyone else. That is not hypothetical: the
+  * add-on used to write its own cache path and loopback URL at every start, and
+  * a container reading them failed every dashboard with pkl's own
+  * "AccessDeniedException: /home/<someone>".
   *
   * The files split machine-owned from user-owned along an `amends` chain
   * (spike-verified on 0.31.1: a PklProject can amend a local base module, the
@@ -41,9 +46,10 @@ import io.circe.Json
   *     `machine.json` for `moduleCacheDir` + the `http.rewrites` target and
   *     `pins.json` for both alias pins, all via `pkl:json`. Rewritten only when
   *     this template changes across add-on versions.
-  *   - `.fh/machine.json` — machine-owned `{ cacheDir, instanceUrl }`, the
-  *     per-machine values, NEVER committed (the seeded `.gitignore` excludes
-  *     it). Refreshed each start with this instance's cache + loopback URL.
+  *   - `.fh/machine.json` — the READER's own `{ cacheDir?, instanceUrl? }`,
+  *     both optional, NEVER committed (the seeded `.gitignore` excludes it) and
+  *     never written here: a laptop's `fh init` writes its own, and the
+  *     environment wins over it wherever there is a launcher to set one.
   *   - `.fh/pins.json` — machine-owned `{ dashboardUri, homeUri, homeSha256 }`,
   *     born real-or-not-at-all: it does NOT exist until the first dump
   *     ([[DumpPackage.seedFromText]] writes all three keys at once). From then
@@ -80,21 +86,15 @@ object AddonBootstrap {
     *   streamed from the running jar in production, `LibPackage.build(dir)` in
     *   tests
     * @param cacheDir
-    *   the persistent package cache (`/data/pkl-cache`) — written into
-    *   `.fh/machine.json` as `cacheDir`, which the static `base.pkl` reads for
-    *   its `moduleCacheDir`, so pkl-lsp and the server resolve from the same
-    *   place
-    * @param loopbackUrl
-    *   this instance's own URL (`http://127.0.0.1:<port>`) — written into
-    *   `.fh/machine.json` as `instanceUrl`, the `http.rewrites` target. Inert
-    *   on the instance (packages are cache hits), it makes the workspace
-    *   copy-usable; a laptop's `fh init` overwrites it with the real URL.
+    *   the persistent package cache to seed (`/data/pkl-cache` on the add-on).
+    *   NOT written into the workspace: `base.pkl` reads `FH_PKL_CACHE_DIR`
+    *   itself, and this is the same value resolved by the same rule, so what we
+    *   seed and what evaluation resolves cannot diverge
     */
   def run(
       dashboardsDir: os.Path,
       bundledLib: LibPackage.Artifacts,
-      cacheDir: os.Path,
-      loopbackUrl: String
+      cacheDir: os.Path
   ): List[String] = {
     val bundledVersion = bundledLib.version
     val log = List.newBuilder[String]
@@ -103,24 +103,15 @@ object AddonBootstrap {
     os.makeDir.all(dashboardsDir)
 
     // The static, machine-agnostic scaffold — byte-identical to what a laptop's
-    // `fh init` fetches from this instance. The per-machine values it reads live
-    // in `.fh/machine.json` (below).
+    // `fh init` fetches from this instance. This is the ONLY scaffold file the
+    // instance writes: the values that used to sit beside it in `machine.json`
+    // come from this process's environment now, so a workspace shared with a
+    // laptop or a dev container is never handed another machine's paths.
     log ++= writeMachineFile(
       dashboardsDir / ".fh" / "base.pkl",
       BaseManifest
     )
-    log ++= writeMachineFile(
-      dashboardsDir / ".fh" / "machine.json",
-      machineJson(cacheDir, loopbackUrl)
-    )
 
-    // AFTER `machine.json`, so the workspace never names a cache this process
-    // did not use. Seeding first cost a debugging session: the seed threw on an
-    // unreachable cache dir, `machine.json` kept a path from some EARLIER run,
-    // and every dashboard then failed at eval with pkl's own
-    // "I/O error loading module … AccessDeniedException: /home/<someone>"
-    // instead of one message naming the directory. `requireUsableCacheDir`
-    // above is the other half: it fails before anything is written.
     log ++= LibPackage.seedCache(bundledLib, cacheDir)
 
     // Refresh the `@fh-dashboard` pin to the bundled version (so the workspace
@@ -180,21 +171,47 @@ object AddonBootstrap {
     log.result()
   }
 
-  /** The package cache dir from `.fh/machine.json` — the SAME value `base.pkl`
-    * forwards to `moduleCacheDir`, but readable WITHOUT a loadable project. The
-    * first dump seed runs before `pins.json` exists (so the project can't
-    * load), yet must write into the real cache; it reads the dir here rather
-    * than through the project ([[DumpPackage.seedFromText]]). `None` when there
-    * is no `machine.json` (an un-bootstrapped workspace).
+  /** The package cache this workspace resolves through, WITHOUT loading the
+    * project — `FH_PKL_CACHE_DIR`, else `.fh/machine.json`'s `cacheDir`, else
+    * pkl's own default. The same three steps `base.pkl` performs, in the same
+    * order, which is the point: the dir we seed into and the dir pkl resolves
+    * from are one value derived twice, so they cannot drift.
+    *
+    * Needed projectless because the first dump seed runs before `pins.json`
+    * exists — the project is unloadable then, yet the seed must land in the
+    * real cache ([[DumpPackage.seedFromText]]).
     */
-  def machineCacheDir(dashboardsDir: os.Path): Option[os.Path] = {
+  def effectiveCacheDir(dashboardsDir: os.Path): os.Path =
+    sys.env
+      .get("FH_PKL_CACHE_DIR")
+      .orElse(machineFileCacheDir(dashboardsDir))
+      .map(os.Path(_))
+      .getOrElse(os.Path(defaultCacheDir))
+
+  private def machineFileCacheDir(dashboardsDir: os.Path): Option[String] = {
     val file = dashboardsDir / ".fh" / "machine.json"
     Option
       .when(os.exists(file))(os.read(file))
       .flatMap(io.circe.parser.parse(_).toOption)
       .flatMap(_.hcursor.get[String]("cacheDir").toOption)
-      .map(os.Path(_))
   }
+
+  /** The `.fh/machine.json` a reader with no launcher to set env vars writes
+    * for itself: a laptop's `fh init`, and the test harness. The instance
+    * writes it NEVER — that is what makes one workspace usable from several
+    * machines at once. Both keys are optional; an absent one falls through to
+    * the default in `base.pkl`.
+    */
+  def machineFileJson(
+      cacheDir: Option[os.Path],
+      instanceUrl: Option[String]
+  ): String =
+    Json
+      .obj(
+        (cacheDir.map(d => "cacheDir" -> Json.fromString(d.toString)).toList ++
+          instanceUrl.map("instanceUrl" -> Json.fromString(_)).toList)*
+      )
+      .spaces2 + "\n"
 
   /** The default package cache location — **pkl's own** (`~/.pkl/cache`), asked
     * of `pkl-core` rather than derived here, so the server, a laptop `fh`, the
@@ -272,10 +289,33 @@ object AddonBootstrap {
 
   /** The static, machine-agnostic base manifest — BYTE-IDENTICAL on the
     * instance and on any laptop (`fh init` fetches this verbatim over
-    * `/system/pkl/base.pkl`). It reads the two per-machine values (cache dir,
-    * instance URL) from the gitignored `.fh/machine.json` and the two version
-    * pins from `.fh/pins.json`, both via `pkl:json` — so this file itself never
-    * carries a path or URL and never differs across machines.
+    * `/system/pkl/base.pkl`). It never carries a path or URL of its own: the
+    * version pins come from `.fh/pins.json`, and the two per-reader values come
+    * from THIS PROCESS's environment first, `.fh/machine.json` second.
+    *
+    * That order is what makes one workspace usable from several machines at
+    * once — the case that broke it before: the add-on wrote its own cache dir
+    * and loopback URL into `machine.json` at every start, so a directory shared
+    * with a laptop or a dev container handed them a path that does not exist
+    * there and an instance URL that is not reachable from there. The add-on now
+    * writes nothing per-machine; `run.sh` gives it `FH_PKL_CACHE_DIR` and
+    * `FH_INSTANCE_URL`, and `machine.json` belongs to whoever has no launcher
+    * to set those — a laptop, written once by `fh init`.
+    *
+    * Spiked on the 0.32.1 pin, and each of these decides a case:
+    *   - `read?` yields null for a missing env var OR a missing file, so an
+    *     absent `moduleCacheDir` means "the reading tool's default" —
+    *     `~/.pkl/cache`, which pkl-lsp and the `pkl` CLI already use.
+    *   - `read?("env:…")` returns a **String**, not a `Resource` (`.text` on it
+    *     is "Cannot find property `text` in object of type `String`").
+    *   - `??` short-circuits and properties are lazy, so with the env set the
+    *     file is never read — verified with a machine.json of pure garbage.
+    *   - `toTyped` tolerates EXTRA properties, so a `machine.json` from an
+    *     older add-on (carrying `cacheDir`) still parses; its stale cache path
+    *     is simply ignored.
+    *   - the stdlib allows `moduleCacheDir` only on a file-based project
+    *     (`(moduleCacheDir != null).implies(isFileBasedProject)`), which a
+    *     workspace is and a package never is.
     */
   val BaseManifest: String =
     s"""/// $MachineOwnedMarker; do not edit.
@@ -291,28 +331,50 @@ object AddonBootstrap {
        |///                  entity dump, rebuilt from your live Home Assistant
        |///                  registry.
        |///
-       |/// This file is machine-AGNOSTIC and byte-identical everywhere. The two
-       |/// per-machine values (the package cache dir and the instance URL the
-       |/// rewrite targets) live in the gitignored sibling `machine.json`; the two
-       |/// version pins live in `pins.json`. Both are read below via `pkl:json`.
+       |/// This file is machine-AGNOSTIC and byte-identical everywhere. It carries
+       |/// no path and no URL: the two per-reader values are read from THIS
+       |/// process's environment first, the gitignored sibling `machine.json`
+       |/// second, and the two version pins live in `pins.json`.
+       |///
+       |///   FH_PKL_CACHE_DIR  where resolved packages live. Unset, and with no
+       |///                     `cacheDir` in machine.json, this is pkl's own
+       |///                     `~/.pkl/cache` — the one your pkl-lsp and `pkl`
+       |///                     CLI already use, so nothing has to be declared.
+       |///   FH_INSTANCE_URL   the instance whose `/system/pkl/packages/` serves
+       |///                     `@fh-dashboard` and `@fh-home`. With neither this
+       |///                     nor an `instanceUrl`, there is no rewrite at all
+       |///                     and packages resolve from the cache alone.
+       |///
+       |/// So the SAME directory works from the add-on, your laptop and a dev
+       |/// container at once: each supplies its own two values, and none of them
+       |/// writes the others' into a file the rest have to live with.
        |amends "pkl:Project"
        |import "pkl:json"
        |
-       |local class Machine { cacheDir: String; instanceUrl: String }
+       |local class Machine { cacheDir: String? = null; instanceUrl: String? = null }
        |local class Pins { dashboardUri: String; homeUri: String; homeSha256: String }
        |
-       |local machine: Machine = (new json.Parser {})
-       |  .parse(read("machine.json"))
-       |  .toTyped(Machine)
+       |// `read?` is null for an absent file, and `??` short-circuits, so with
+       |// both env vars set this is never parsed. Either key may be absent.
+       |local machineText = read?("machine.json")
+       |local machine: Machine? =
+       |  if (machineText == null) null
+       |  else (new json.Parser {}).parse(machineText).toTyped(Machine)
        |local pins: Pins = (new json.Parser {})
        |  .parse(read("pins.json"))
        |  .toTyped(Pins)
        |
+       |local instanceUrl: String? =
+       |  read?("env:FH_INSTANCE_URL") ?? machine?.instanceUrl
+       |
        |evaluatorSettings {
-       |  moduleCacheDir = machine.cacheDir
+       |  // Null is not "no cache": it leaves pkl's own default standing.
+       |  moduleCacheDir = read?("env:FH_PKL_CACHE_DIR") ?? machine?.cacheDir
        |  http {
        |    rewrites {
-       |      ["https://fh.invalid/"] = machine.instanceUrl + "/system/pkl/packages/"
+       |      when (instanceUrl != null) {
+       |        ["https://fh.invalid/"] = instanceUrl!! + "/system/pkl/packages/"
+       |      }
        |    }
        |  }
        |  // pkl's defaults plus THIS instance. From 0.32 the resource allowlist
@@ -334,7 +396,9 @@ object AddonBootstrap {
        |    "package:"
        |    "projectpackage:"
        |    "https:"
-       |    "^" + machine.instanceUrl.replaceAll(".", "[.]") + "/"
+       |    when (instanceUrl != null) {
+       |      "^" + instanceUrl!!.replaceAll(".", "[.]") + "/"
+       |    }
        |  }
        |}
        |
@@ -346,17 +410,6 @@ object AddonBootstrap {
        |  }
        |}
        |""".stripMargin
-
-  /** The per-machine `{ cacheDir, instanceUrl }` that `base.pkl` reads.
-    * Gitignored, regenerated each start — never committed, never served.
-    */
-  private def machineJson(cacheDir: os.Path, instanceUrl: String): String =
-    Json
-      .obj(
-        "cacheDir" -> Json.fromString(cacheDir.toString),
-        "instanceUrl" -> Json.fromString(instanceUrl)
-      )
-      .spaces2 + "\n"
 
   /** Seeded once into a workspace a user may keep in git: commit the identical
     * scaffold + entries, ignore the per-machine + generated files.

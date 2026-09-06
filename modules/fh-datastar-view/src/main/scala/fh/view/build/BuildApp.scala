@@ -54,14 +54,7 @@ object BuildApp extends IOApp {
       bundled <- IO.blocking(BundledLib.artifacts())
       _ <- IO
         .blocking(
-          // The build phase runs no server; the rewrite URL is inert (resolution
-          // is cache-only), so a loopback default is fine in `machine.json`.
-          AddonBootstrap.run(
-            dashboardsDir,
-            bundled,
-            cacheDir,
-            loopbackUrl = "http://127.0.0.1:8080"
-          )
+          AddonBootstrap.run(dashboardsDir, bundled, cacheDir)
         )
         .flatMap(_.traverse_(log.info(_)))
 
