@@ -201,8 +201,11 @@ Metrics of its own, alongside the conventional `http.*` ones:
 - `fh.ha.entities` — entity states applied from the feed. Its rate is how fast
   the house is moving.
 - `fh.sessions.live` — dashboard sessions currently registered.
-- `fh.dashboard.eval.duration` — the dump fetch plus evaluating every
-  dashboard, in seconds.
+
+There is no instrument for how long a dashboard build takes: that is the
+`dashboard.prepare` span's own duration, and a collector that derives latency
+metrics from spans (Tempo's metrics generator does, and the `otel-lgtm` image
+below turns it on) already produces the series.
 
 Log lines go to the collector too, as OpenTelemetry records carrying the trace
 and span they were written inside — so the slow trace and the warning that

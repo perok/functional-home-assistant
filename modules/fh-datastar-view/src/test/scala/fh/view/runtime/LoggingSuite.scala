@@ -26,7 +26,8 @@ class LoggingSuite extends munit.CatsEffectSuite {
     * value the runtime is given. `SimpleLogRecordProcessor` rather than a batch
     * one so a record is exported by the time `emit` returns.
     */
-  private def collecting: Resource[IO, (Telemetry.Otel, InMemoryLogRecordExporter)] =
+  private def collecting
+      : Resource[IO, (Telemetry.Otel, InMemoryLogRecordExporter)] =
     Resource
       .eval(IO(InMemoryLogRecordExporter.create()))
       .flatMap { records =>
@@ -39,7 +40,9 @@ class LoggingSuite extends munit.CatsEffectSuite {
                 .setLoggerProvider(
                   SdkLoggerProvider
                     .builder()
-                    .addLogRecordProcessor(SimpleLogRecordProcessor.create(records))
+                    .addLogRecordProcessor(
+                      SimpleLogRecordProcessor.create(records)
+                    )
                     .build()
                 )
                 .build()

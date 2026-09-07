@@ -233,8 +233,7 @@ object ServerApp extends IOApp {
           dashboardsDir,
           Some(bundledLib),
           buildTracer,
-          loggerFactory,
-          meters
+          loggerFactory
         ).toResource
         built = prepared.built
         // Serves this home's `dump.pkl` and its resolved package artifacts over
@@ -595,64 +594,56 @@ object ServerApp extends IOApp {
       dashboardsDir: os.Path,
       bundledLib: Option[LibPackage.Artifacts],
       tracer: Tracer[IO] = Tracer.noop,
-      loggerFactory: LoggerFactory[IO] = Logging.console,
-      meters: Meters = Meters.noop
+      loggerFactory: LoggerFactory[IO] = Logging.console
   ): IO[Prepared] =
     // Traced because this is the OTHER thing that can make the add-on feel
     // slow, and it is not a request so no HTTP span covers it: on a Pi, the
     // dump fetch and a pkl evaluation of every dashboard are seconds, and they
     // run again on every registry-driven refresh — not just at boot.
-    // The histogram beside the span, because this one runs again on every
-    // registry-driven refresh: a series says whether it is getting slower as
-    // the house grows, which a sampled span cannot.
-    meters.evalDuration
-      .recordDuration(java.util.concurrent.TimeUnit.SECONDS)
-      .surround {
-        tracer.span("dashboard.prepare").surround {
-          // Write the live dump once (so `import "@fh-home/dump.pkl"` resolves) via
-          // the build phase, which owns fetching + packaging the dump.
-          tracer
-            .span("dashboard.prepare.dump")
-            .surround(
-              DashboardBuild.prepareDumps(
-                feed.api,
-                dashboardsDir,
-                bundledLib,
-                loggerFactory
+    tracer.span("dashboard.prepare").surround {
+      // Write the live dump once (so `import "@fh-home/dump.pkl"` resolves) via
+      // the build phase, which owns fetching + packaging the dump.
+      tracer
+        .span("dashboard.prepare.dump")
+        .surround(
+          DashboardBuild.prepareDumps(
+            feed.api,
+            dashboardsDir,
+            bundledLib,
+            loggerFactory
+          )
+        ) *>
+        tracer
+          .span("dashboard.prepare.eval")
+          .surround(DashboardBuild.evalSite(dashboardsDir))
+          .attempt
+          .flatMap {
+            case Right((site, imports)) =>
+              IO.pure(
+                Prepared(site.dashboards.toMap, site.default, imports)
               )
-            ) *>
-            tracer
-              .span("dashboard.prepare.eval")
-              .surround(DashboardBuild.evalSite(dashboardsDir))
-              .attempt
-              .flatMap {
-                case Right((site, imports)) =>
-                  IO.pure(
-                    Prepared(site.dashboards.toMap, site.default, imports)
-                  )
-                case Left(err) =>
-                  // Nothing evaluated, so nothing can be attributed to a slug: serve
-                  // the error under the one name `/` will look for.
-                  IO.pure(
-                    Prepared(
-                      Map(Server.DefaultSlug -> Left(Site.messageOf(err))),
-                      None,
-                      Set(dashboardsDir / Site.EntryFile)
-                    )
-                  )
+            case Left(err) =>
+              // Nothing evaluated, so nothing can be attributed to a slug: serve
+              // the error under the one name `/` will look for.
+              IO.pure(
+                Prepared(
+                  Map(Server.DefaultSlug -> Left(Site.messageOf(err))),
+                  None,
+                  Set(dashboardsDir / Site.EntryFile)
+                )
+              )
+          }
+          .flatTap { prepared =>
+            prepared.built.traverse_ { case (slug, renderer) =>
+              // Built, but maybe not sound: report what still serves and only
+              // misbehaves (a popup with nowhere to go).
+              renderer.warnings.traverse_(w => log.warn(s"'$slug': $w"))
+            } *>
+              prepared.failed.traverse_ { case (slug, message) =>
+                log.error(s"Dashboard '$slug' failed to build: $message")
               }
-              .flatTap { prepared =>
-                prepared.built.traverse_ { case (slug, renderer) =>
-                  // Built, but maybe not sound: report what still serves and only
-                  // misbehaves (a popup with nowhere to go).
-                  renderer.warnings.traverse_(w => log.warn(s"'$slug': $w"))
-                } *>
-                  prepared.failed.traverse_ { case (slug, message) =>
-                    log.error(s"Dashboard '$slug' failed to build: $message")
-                  }
-              }
-        }
-      }
+          }
+    }
 
   /** How long a session may go unchecked before HA is asked about it again.
     * Matches HA's own access-token life, so a revocation is visible within one

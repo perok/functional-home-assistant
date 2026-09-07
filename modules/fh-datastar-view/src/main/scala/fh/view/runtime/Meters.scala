@@ -19,6 +19,11 @@ import org.typelevel.otel4s.metrics.{Counter, Histogram, MeterProvider}
   * THIS page open do" and the instrument answers "what do page opens do", which
   * sampling would otherwise make a guess.
   *
+  * A span-metrics generator does not close that gap either: it promotes an
+  * attribute to a metric LABEL, so `fh.nodes=137` yields one series per node
+  * count — unbounded cardinality, and still no distribution. Durations are the
+  * opposite case, which is why there is no instrument for one here.
+  *
   * ==Why so few==
   *
   * Each of these reads a number the code had already computed. Nothing here
@@ -35,19 +40,14 @@ final case class Meters(
     /** Entities in one applied batch, which is one Home Assistant frame. The
       * rate of this IS how fast the house is moving.
       */
-    haEntities: Counter[IO, Long],
-    /** How long it takes to fetch the dump and evaluate every dashboard. Boot
-      * pays this, and so does every registry-driven refresh — which is why it
-      * is worth a series and not just a boot log line.
-      */
-    evalDuration: Histogram[IO, Double]
+    haEntities: Counter[IO, Long]
 )
 
 object Meters {
 
   /** What an unconfigured install, a test and a standalone construction get. */
   val noop: Meters =
-    Meters(Histogram.noop, Counter.noop, Histogram.noop)
+    Meters(Histogram.noop, Counter.noop)
 
   /** Sessions currently registered, OBSERVED off the registry rather than
     * counted into a separate total.
@@ -87,11 +87,6 @@ object Meters {
           .counter[Long]("fh.ha.entities")
           .withDescription("Entity states applied from the Home Assistant feed")
           .withUnit("{entity}")
-          .create,
-        meter
-          .histogram[Double]("fh.dashboard.eval.duration")
-          .withDescription("Dump fetch plus evaluation of every dashboard")
-          .withUnit("s")
           .create
       ).mapN(Meters.apply)
     }

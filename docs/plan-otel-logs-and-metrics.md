@@ -28,9 +28,12 @@ unchanged, `trace_id`/`span_id` still in the line for reading by eye) and an ote
 still pays nothing. `Server`, `HaFeed`, `AssetCache`, `LspBridge`, `DashboardBuild` and
 `SessionStore` take the factory; ember takes it through `withLogger`. `TracedLogger` is gone.
 
-**`Meters`** — `fh.page.nodes`, `fh.ha.entities`, `fh.dashboard.eval.duration`, and
-`fh.sessions.live`. Two of them are also span attributes, which is not duplication: a span is
-sampled, so the attribute says what THIS page open did and the instrument says what page opens do.
+**`Meters`** — `fh.page.nodes`, `fh.ha.entities` and `fh.sessions.live`. Two of them are also span
+attributes, which is not duplication: a span is sampled, so the attribute says what THIS page open
+did and the instrument says what page opens do. Nothing here measures a duration — a collector
+that derives latency from spans gives that for free, and the values these carry are the ones it
+cannot: an attribute becomes a metric LABEL, so `fh.nodes=137` derives a series per node count
+rather than a distribution of node counts.
 
 `fh.sessions.live` is OBSERVED off the registry map rather than incremented in `register` and
 decremented in `deregisterIf`. The map is already the truth, and a second copy of it disagrees the
