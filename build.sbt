@@ -9,7 +9,7 @@ val otel4sVersion = "1.1.0"
 // Pinned to what otel4s-oteljava resolves, so the exporter cannot drift from
 // the SDK it plugs into. otel4s' own SDK modules are NOT used: they moved to a
 // separate repo and are still marked experimental.
-val otelJavaVersion = "1.64.0"
+val otelJavaVersion = "1.65.0"
 val otelMiddlewareVersion = "0.18.0"
 val MUnitFramework = new TestFramework("munit.Framework")
 
