@@ -7,7 +7,7 @@ import cats.effect.{IO, Resource}
 import cats.effect.kernel.Ref
 import cats.effect.std.Supervisor
 import cats.syntax.all.*
-import fh.view.telemetry.{Logging, Meters}
+import fh.view.telemetry.{Diagnostics, Logging, Meters}
 import fh.view.build.{
   AddonBootstrap,
   DashboardBuild,

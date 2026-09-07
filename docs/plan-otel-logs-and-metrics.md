@@ -22,10 +22,11 @@ this builds is a `LoggerFactory[IO]`, and a factory is what http4s takes.
 
 ## Landed
 
-**`fh.view.telemetry`** is where all three live — `Telemetry` (the providers and the endpoint
-switch), `Logging`, `Meters`. They are what every other package takes a parameter of, so they are
-not part of `runtime`'s own subject; `Meters.observeSessions` therefore takes the `IO[Long]` it
-reads rather than the `Sessions` registry, which is what kept the dependency one-way.
+**`fh.view.telemetry`** is where these live — `Telemetry` (the providers and the endpoint switch),
+`Logging`, `Meters`, and `Diagnostics`, which answers the same question locally when there is no
+collector. They are what every other package takes a parameter of, so they are not part of
+`runtime`'s own subject; `Meters.observeSessions` therefore takes the `IO[Long]` it reads rather
+than the `Sessions` registry, which is what kept the dependency one-way.
 
 **`Logging`** hands out loggers that fan out to both legs — slf4j (stdout, the add-on's Log tab,
 unchanged, `trace_id`/`span_id` still in the line for reading by eye) and an otel4s
