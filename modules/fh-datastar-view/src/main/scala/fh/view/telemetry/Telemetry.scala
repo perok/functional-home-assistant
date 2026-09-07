@@ -75,7 +75,10 @@ object Telemetry {
       case Some(_) =>
         // `autoConfigured` reads the standard `OTEL_*` variables, so protocol,
         // headers, sampling and resource attributes are all configurable
-        // without this file growing an option for each of them.
+        // without this file growing an option for each of them. A variable it
+        // cannot make sense of throws here and kills boot — wanted, and not a
+        // gap: an endpoint was asked for, so a collector that is misconfigured
+        // should be loud rather than silently absent.
         OtelJava
           .autoConfigured[IO]()
           .map(otel =>

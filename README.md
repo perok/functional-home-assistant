@@ -23,6 +23,39 @@ TODO small example
 - Catch errors in your dashboard immediately; fully typed overview of all your entities, devices, and users
 - Secure by design; Can only do actions on entities that are in dashboards you can view
 
+## Traces, metrics and logs from a local run
+
+The dashboard emits OpenTelemetry when — and only when — an OTLP endpoint is set.
+[`grafana/otel-lgtm`](https://github.com/grafana/docker-otel-lgtm) is one container
+and no configuration, and gives you all three signals in one Grafana:
+
+```bash
+docker run -d --name lgtm \
+  -p 3000:3000 -p 4317:4317 -p 4318:4318 \
+  -p 3200:3200 -p 9090:9090 -p 3100:3100 \
+  grafana/otel-lgtm:latest
+
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 \
+OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf \
+OTEL_SERVICE_NAME=fh-dashboard \
+  sbt dashboardServe
+```
+
+Grafana is on 3000 with no login. The other three ports are Tempo, Prometheus and
+Loki themselves — publish them if you want to query the APIs instead of clicking.
+
+**`OTEL_EXPORTER_OTLP_PROTOCOL` is not optional.** The OpenTelemetry Java SDK
+defaults to gRPC, `:4318` is OTLP/HTTP, and the mismatch fails as
+`FRAME_SIZE_ERROR` from okhttp's http2 layer rather than as anything that names
+the cause. (The add-on's `run.sh` sets it for you; `dashboardServe` does not.)
+
+Open a dashboard, then read that one page open three ways: the request span with
+its `dashboard.page.walk` child, the log lines from it found by its trace id, and
+`fh.page.nodes` agreeing with the `fh.nodes` attribute on the span. Unset the
+endpoint and the SDK is never constructed at all.
+
+What is emitted, what it costs, and the `OTEL_*` knobs: [`home-addon/DOCS.md`](home-addon/DOCS.md#telemetry-optional).
+
 ---
 
 TODO just do template query? https://community.home-assistant.io/t/get-api-areas-rest-endpoint/271440/12?u=perok
