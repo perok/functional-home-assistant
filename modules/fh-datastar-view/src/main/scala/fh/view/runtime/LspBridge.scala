@@ -1,5 +1,6 @@
 package fh.view.runtime
 
+import fh.view.telemetry.Logging
 import cats.effect.IO
 import cats.effect.std.Queue
 import fs2.{Chunk, Pipe, Pull, Stream}

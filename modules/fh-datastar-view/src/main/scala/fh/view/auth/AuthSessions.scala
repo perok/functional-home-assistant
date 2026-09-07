@@ -8,7 +8,7 @@ import fs2.io.file.{Files, Path, PosixPermissions}
 import io.circe.syntax.*
 import io.circe.{Decoder, Encoder, parser}
 import org.http4s.{Request, RequestCookie, ResponseCookie, SameSite, Uri}
-import fh.view.runtime.Logging
+import fh.view.telemetry.Logging
 import org.typelevel.log4cats.LoggerFactory
 
 import java.nio.file.FileAlreadyExistsException

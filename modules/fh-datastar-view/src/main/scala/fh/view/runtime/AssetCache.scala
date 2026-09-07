@@ -1,5 +1,6 @@
 package fh.view.runtime
 
+import fh.view.telemetry.Logging
 import cats.effect.IO
 import cats.syntax.all.*
 import org.http4s.{EntityDecoder, Header, MediaType, Response, Uri}

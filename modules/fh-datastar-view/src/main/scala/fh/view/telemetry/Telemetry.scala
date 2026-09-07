@@ -1,4 +1,4 @@
-package fh.view.runtime
+package fh.view.telemetry
 
 import cats.effect.{IO, Resource}
 import cats.effect.std.Env
@@ -68,7 +68,9 @@ object Telemetry {
     * runs on, and the default arm is exactly the one a developer with a
     * collector configured would stop exercising.
     */
-  private[runtime] def resource(endpoint: Option[String]): Resource[IO, Otel] =
+  private[telemetry] def resource(
+      endpoint: Option[String]
+  ): Resource[IO, Otel] =
     endpoint.map(_.trim).filter(_.nonEmpty) match {
       case Some(_) =>
         // `autoConfigured` reads the standard `OTEL_*` variables, so protocol,

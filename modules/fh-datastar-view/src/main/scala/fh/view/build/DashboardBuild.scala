@@ -6,7 +6,7 @@ import cats.syntax.all.*
 import fh.view.FHError
 import fh.view.model.{Dashboard, LayoutNode}
 import io.circe.{Json, JsonObject}
-import fh.view.runtime.Logging
+import fh.view.telemetry.Logging
 import org.typelevel.log4cats.LoggerFactory
 
 /** Turns the Pkl dashboard sources into a validated [[Dashboard]].

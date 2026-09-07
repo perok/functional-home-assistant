@@ -4,6 +4,7 @@ import api.homeassistant.HomeAssistantApi
 import api.homeassistant.ws.HAWSApiLowLevel
 import api.homeassistant.ws.protocol.client.{CommandPhase, CommandResponse}
 import api.homeassistant.ws.domain.EntitiesEvent
+import fh.view.telemetry.{Logging, Meters}
 import fh.view.FHError
 import cats.effect.{Deferred, IO, Resource}
 import fs2.Stream

@@ -1,4 +1,4 @@
-package fh.view.runtime
+package fh.view.telemetry
 
 import cats.effect.IO
 import cats.syntax.all.*

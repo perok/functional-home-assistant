@@ -1,4 +1,4 @@
-package fh.view.runtime
+package fh.view.telemetry
 
 import cats.effect.IO
 import cats.syntax.all.*
@@ -65,7 +65,7 @@ object Logging {
     * not of the instrumentation scope asking.
     */
   def factory(otel: Telemetry.Otel): IO[LoggerFactory[IO]] =
-    otel.tracerProvider.get("fh.view.runtime.Logging").map { tracer =>
+    otel.tracerProvider.get("fh.view.telemetry.Logging").map { tracer =>
       new LoggerFactory[IO] {
         private val console = Slf4jFactory.create[IO]
 
@@ -91,7 +91,7 @@ object Logging {
     * against, since the 25 delegating methods below are exactly where a
     * copy-paste slip lands and nothing else would catch it.
     */
-  private[runtime] def logger(
+  private[telemetry] def logger(
       name: String,
       out: SelfAwareStructuredLogger[IO],
       tracer: Tracer[IO],

@@ -8,6 +8,7 @@ import scala.concurrent.duration.*
 import com.comcast.ip4s.{Host, Port, host, port}
 import fh.api.FHApi
 import fh.view.FHError
+import fh.view.telemetry.{Logging, Meters, Telemetry}
 import fh.view.build.{
   AddonBootstrap,
   BundledLib,
@@ -771,7 +772,10 @@ object ServerApp extends IOApp {
       sessions <- Sessions.create.toResource
       // The registry is the only place that knows how many sessions there
       // are, so the gauge is registered where it is built.
-      _ <- Meters.observeSessions(meterProvider, sessions)
+      _ <- Meters.observeSessions(
+        meterProvider,
+        sessions.all.map(_.size.toLong)
+      )
       tracer <- tracerProvider.get("fh.view.runtime.Server").toResource
       server <- Server.fromFeed(
         feed,

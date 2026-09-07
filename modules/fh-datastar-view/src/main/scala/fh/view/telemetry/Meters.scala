@@ -1,4 +1,4 @@
-package fh.view.runtime
+package fh.view.telemetry
 
 import cats.effect.{IO, Resource}
 import cats.syntax.all.*
@@ -60,7 +60,7 @@ object Meters {
     */
   def observeSessions(
       provider: MeterProvider[IO],
-      sessions: Sessions
+      live: IO[Long]
   ): Resource[IO, Unit] =
     provider
       .get("fh.view.runtime")
@@ -69,9 +69,7 @@ object Meters {
         _.observableUpDownCounter[Long]("fh.sessions.live")
           .withDescription("Dashboard sessions currently registered")
           .withUnit("{session}")
-          .createWithCallback(cb =>
-            sessions.all.flatMap(all => cb.record(all.size.toLong))
-          )
+          .createWithCallback(cb => live.flatMap(cb.record(_)))
       )
       .void
 
