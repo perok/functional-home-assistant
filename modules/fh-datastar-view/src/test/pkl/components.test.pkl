@@ -593,10 +593,23 @@ facts {
     c.lock.controls(plainLock).card == "entityCard"
   }
 
-  ["the latch posts lock/open, which is not unlocking"] {
+  ["the latch ASKS before it opens; the confirmation is what posts lock/open"] {
     local latch = c.lock.openLatch(latchLock)
-    latch.slots["onclick"].transform.contains("lock/open")
-    // Aimed at the lock itself: a button carries no subject of its own.
-    latch.slots["entity_id"] == "lock.latch"
+    // The latch itself calls nothing — it opens an inline confirmation, which
+    // is the whole point: releasing a latch opens a door.
+    latch.inlineSurfaces != null
+    !latch.slots["onclick"].transform.contains("lock/open")
+    // …and `lock/open` lives inside it, aimed at the lock (a button carries no
+    // subject of its own).
+    local body = latch.inlineSurfaces!!["self"].content.children.toList().first
+    local press = body.children.toList()
+      .filter((n) -> n.card == "button" && n.slots.containsKey("entity_id"))
+      .first
+    press.slots["onclick"].transform.contains("lock/open")
+    press.slots["entity_id"] == "lock.latch"
+    // The tile beside it still locks/unlocks by state — the two controls are
+    // different actions, not two spellings of one.
+    c.entityCard(latchLock).slots["onclick"].transform
+      .contains(#"state == 'locked' ? 'lock/unlock' : 'lock/lock'"#)
   }
 }
