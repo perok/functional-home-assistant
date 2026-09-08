@@ -128,13 +128,16 @@ class ComponentVisualSuite extends SmokeSuite {
     withPage(scene, viewport) { (page, _) =>
       IO.blocking {
         settle(page)
-        // The whole composition, not just the tile: what `c.lock.controls`
-        // decides is that a lock reporting OPEN gets a SECOND control, so a
-        // screenshot of the tile alone would pass with the latch button gone.
-        val lockColumn = page
+        // The whole composition, not just the latch. Every node is a cell (ADR
+        // 0008), so a cell holding the button alone matches too — and `.last()`
+        // takes the INNERMOST match, which is exactly that. Requiring the tile
+        // as well is what pins the cell to `c.lock.controls`'s own card, so
+        // this fails if either half goes missing.
+        val lockCard = page
           .locator(
             ".fh-cell",
             new Page.LocatorOptions()
+              .setHas(page.locator("article.entity"))
               .setHas(
                 page.getByRole(
                   AriaRole.BUTTON,
@@ -143,7 +146,7 @@ class ComponentVisualSuite extends SmokeSuite {
               )
           )
           .last()
-        VisualSnapshot.check("lock-controls", lockColumn.screenshot())
+        VisualSnapshot.check("lock-controls", lockCard.screenshot())
       }
     }
   }

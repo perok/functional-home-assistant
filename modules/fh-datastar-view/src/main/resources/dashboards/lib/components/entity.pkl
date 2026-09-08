@@ -109,6 +109,58 @@ class EntityCard extends nodes.Node {
   function tapAction(t: tapMod.TapAction): EntityCard = let (self = this) (self) { tapAction = t }
 }
 
+/// A card and its FEATURES — HA's own shape, where a tile carries controls that
+/// belong to the entity but are not the tile's own tap (`hui-card-features`).
+///
+/// A WRAPPER rather than a region on [[EntityCard]], and both halves of that are
+/// forced. A card declaring a region is STRUCTURE, and `core/node.pkl` forbids
+/// structure from carrying a live BYTE slot — an entity card has several (a
+/// query-rendered member's `label`, a `CallByState` tap's `onclick`), so it
+/// cannot hold a region and them at once. And a feature must sit OUTSIDE the
+/// tappable element: nested inside it, one press on a lock's latch would post
+/// `lock/open` and the tile's own `lock/lock` together.
+///
+/// This card holds no slots at all, so it is structure with nothing live in it,
+/// and the tile it wraps is untouched — which is also why a state tick repaints
+/// the tile and leaves the features alone.
+class CardFeatures extends nodes.Node {
+  card = "cardFeatures"
+  cardDef = new nodes.CardDef {
+    regions = new Mapping {
+      ["content"] = new nodes.Region {}
+      ["actions"] = new nodes.Region {}
+    }
+    template = """
+      <div class="card fh-features">
+        {{#content}}{{{html}}}{{/content}}
+        <div class="fh-features-actions">{{#actions}}{{{html}}}{{/actions}}</div>
+      </div>
+      """
+    // The wrapper wears the card chrome and the tile inside it sheds it, so the
+    // two read as ONE card rather than a card with a second card stacked under
+    // it. Nothing here knows the theme: `.card` is what the tile already asked
+    // for, this just moves which element gets it.
+    css = """
+      .fh-features>.card{background:none;box-shadow:none;border:0;padding:0;margin:0}
+      .fh-features-actions{display:flex;gap:.5rem;margin-block-start:.5rem}
+      .fh-features-actions>*{flex:1 1 0}
+      """
+  }
+  hidden tile: nodes.LayoutNode
+  hidden actions: Listing<nodes.LayoutNode> = new {}
+  children = new Mapping {
+    ["content"] = new Listing { tile }
+    ["actions"] = actions
+  }
+}
+
+/// `c.withFeatures(c.entityCard(e), List(button))` — the tile, then its
+/// controls beneath it in the same card box. See [[CardFeatures]].
+function withFeatures(
+  card: nodes.LayoutNode,
+  xs: List<nodes.LayoutNode>
+): CardFeatures = new CardFeatures { tile = card; actions = xs.toListing() }
+
 /// Static entity card as a call (amend options in parens).
 function entityCard(e: hass.Entity): EntityCard = new EntityCard { entity = e }
 /// The SAME constructor as a VALUE, for a query's render positions:

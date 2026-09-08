@@ -802,7 +802,10 @@ class PklBuildSuite extends munit.FunSuite {
       "sliderText" -> List("label", "entity_id"),
       "popup" -> Nil,
       "tabs" -> Nil,
-      "ifhost" -> Nil
+      "ifhost" -> Nil,
+      // A tile plus its features. Holds no slots of its own — it is structure,
+      // and structure may not carry anything live.
+      "cardFeatures" -> Nil
     )
     assertEquals(
       cards.keys.map(_.toSet),
