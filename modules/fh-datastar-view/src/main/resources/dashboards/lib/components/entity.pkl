@@ -131,25 +131,29 @@ class CardFeatures extends nodes.Node {
       ["actions"] = new nodes.Region {}
     }
     template = """
-      <div class="card fh-features">
+      <article class="card fh-features">
         <div class="fh-features-content">{{#content}}{{{html}}}{{/content}}</div>
         <div class="fh-features-actions">{{#actions}}{{{html}}}{{/actions}}</div>
-      </div>
+      </article>
       """
     // The wrapper wears the card chrome and the tile inside it sheds it, so the
     // two read as ONE card rather than a card with a second one stacked under
     // it. Nothing here knows the theme: `.card` is what the tile already asked
     // for, this only moves which element gets it.
     //
-    // Scoped to the CONTENT, and a descendant selector rather than a child one.
-    // Both matter: every node is wrapped in a `.fh-cell` (ADR 0008), so `>`
-    // never reaches the tile at all — the first cut of this rule silently
-    // matched nothing and the button rendered outside the box. And a feature
-    // BUTTON also carries `.card` (that is how `control.pkl` spells a
-    // non-round one), so an unscoped rule would strip its paint too.
+    // An `<article>`, because that is what BeerCSS paints a card box on — the
+    // `card` CLASS is how `control.pkl` spells a rectangular BUTTON, and on a
+    // `<div>` it draws nothing. A `<div class="card">` here left the lock
+    // floating on the page background with no box at all.
+    //
+    // The strip selector walks the exact chain `.fh-features-content > .fh-cell
+    // > <the card root>`: every node is cell-wrapped (ADR 0008), so a `>` from
+    // the content misses the tile entirely, while a descendant selector on
+    // `.card` would also catch a feature button and strip its paint. Naming the
+    // chain hits the wrapped card and nothing else, whatever card it is.
     css = """
       .fh-features{display:flex;flex-direction:column}
-      .fh-features-content .card{background:none;box-shadow:none;border:0;
+      .fh-features-content>.fh-cell>*{background:none;box-shadow:none;border:0;
       padding:0;margin:0}
       .fh-features-actions{display:flex;gap:.5rem;margin-block-start:.75rem}
       .fh-features-actions>*{flex:1 1 0}
