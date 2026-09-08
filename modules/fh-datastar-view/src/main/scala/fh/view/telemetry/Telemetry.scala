@@ -1,9 +1,11 @@
-package fh.view.runtime
+package fh.view.telemetry
 
 import cats.effect.{IO, Resource}
 import cats.effect.std.Env
+import org.typelevel.otel4s.logs.LoggerProvider
 import org.typelevel.otel4s.metrics.MeterProvider
 import org.typelevel.otel4s.oteljava.OtelJava
+import org.typelevel.otel4s.oteljava.context.Context
 import org.typelevel.otel4s.trace.TracerProvider
 
 /** Telemetry for the add-on (#75), and the switch that keeps it free when
@@ -29,14 +31,25 @@ import org.typelevel.otel4s.trace.TracerProvider
   */
 object Telemetry {
 
-  /** What the wiring needs, in one value. Both are no-op together or real
+  /** What the wiring needs, in one value. All three are no-op together or real
     * together — there is one endpoint and one SDK, so splitting them would only
     * invite a half-configured state that cannot occur.
     */
   final case class Otel(
       tracerProvider: TracerProvider[IO],
-      meterProvider: MeterProvider[IO]
+      meterProvider: MeterProvider[IO],
+      loggerProvider: LoggerProvider[IO, Context]
   )
+
+  object Otel {
+
+    /** What an unconfigured install, a test and a standalone construction all
+      * get. Named rather than spelled out at each site so "off" is one value
+      * and cannot drift into a half-off one.
+      */
+    val noop: Otel =
+      Otel(TracerProvider.noop, MeterProvider.noop, LoggerProvider.noop)
+  }
 
   /** The endpoint's env var, which is OpenTelemetry's own standard name rather
     * than an `FH_` one — `run.sh` sets it from the `otlp_endpoint` option, and
@@ -55,16 +68,22 @@ object Telemetry {
     * runs on, and the default arm is exactly the one a developer with a
     * collector configured would stop exercising.
     */
-  private[runtime] def resource(endpoint: Option[String]): Resource[IO, Otel] =
+  private[telemetry] def resource(
+      endpoint: Option[String]
+  ): Resource[IO, Otel] =
     endpoint.map(_.trim).filter(_.nonEmpty) match {
       case Some(_) =>
         // `autoConfigured` reads the standard `OTEL_*` variables, so protocol,
         // headers, sampling and resource attributes are all configurable
-        // without this file growing an option for each of them.
+        // without this file growing an option for each of them. A variable it
+        // cannot make sense of throws here and kills boot — wanted, and not a
+        // gap: an endpoint was asked for, so a collector that is misconfigured
+        // should be loud rather than silently absent.
         OtelJava
           .autoConfigured[IO]()
-          .map(otel => Otel(otel.tracerProvider, otel.meterProvider))
-      case None =>
-        Resource.pure(Otel(TracerProvider.noop, MeterProvider.noop))
+          .map(otel =>
+            Otel(otel.tracerProvider, otel.meterProvider, otel.loggerProvider)
+          )
+      case None => Resource.pure(Otel.noop)
     }
 }

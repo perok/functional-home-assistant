@@ -1,4 +1,4 @@
-package fh.view.runtime
+package fh.view.telemetry
 
 import cats.effect.IO
 import cats.syntax.all.*
@@ -55,7 +55,8 @@ class TelemetrySuite extends munit.CatsEffectSuite {
 
   test("a log line outside any span carries no ids to mislead a reader") {
     val underlying = StructuredTestingLogger.impl[IO]()
-    val logger = new TracedLogger(underlying, Tracer.noop[IO])
+    val logger =
+      Logging.logger("test", underlying, Tracer.noop[IO], Telemetry.Otel.noop)
     for {
       _ <- logger.info("nothing traced here")
       logged <- underlying.logged
@@ -71,7 +72,8 @@ class TelemetrySuite extends munit.CatsEffectSuite {
     // that could overwrite what a caller explicitly attached would corrupt
     // data to add metadata.
     val underlying = StructuredTestingLogger.impl[IO]()
-    val logger = new TracedLogger(underlying, Tracer.noop[IO])
+    val logger =
+      Logging.logger("test", underlying, Tracer.noop[IO], Telemetry.Otel.noop)
     for {
       _ <- logger.info(Map("slug" -> "home", "trace_id" -> "mine"))("hello")
       logged <- underlying.logged
@@ -87,7 +89,8 @@ class TelemetrySuite extends munit.CatsEffectSuite {
     // lands — a `warn` that calls `info`, or an arity that drops its throwable
     // — and none of it would fail anywhere else.
     val underlying = StructuredTestingLogger.impl[IO]()
-    val logger = new TracedLogger(underlying, Tracer.noop[IO])
+    val logger =
+      Logging.logger("test", underlying, Tracer.noop[IO], Telemetry.Otel.noop)
     val boom = new RuntimeException("boom")
     for {
       _ <- logger.trace("a")

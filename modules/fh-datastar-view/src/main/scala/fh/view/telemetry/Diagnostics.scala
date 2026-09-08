@@ -1,4 +1,4 @@
-package fh.view.runtime
+package fh.view.telemetry
 
 import cats.effect.IO
 import cats.syntax.all.*
@@ -117,7 +117,7 @@ object Diagnostics {
     * happily with a broken operation name or signature. Asserting this one is
     * defined is what actually pins the mechanism.
     */
-  private[runtime] def nmtText: IO[Option[String]] =
+  private[telemetry] def nmtText: IO[Option[String]] =
     diagnosticCommand("vmNativeMemory", Array("summary"))
 
   /** One `jcmd` command, run in process.
@@ -229,7 +229,7 @@ object Diagnostics {
     * exactly why a JVM sizing itself as a percentage of "available" memory
     * sizes itself against the whole machine (see `home-addon/run.sh`).
     */
-  private[runtime] def parseCgroup(
+  private[telemetry] def parseCgroup(
       current: String,
       max: Option[String],
       stat: String

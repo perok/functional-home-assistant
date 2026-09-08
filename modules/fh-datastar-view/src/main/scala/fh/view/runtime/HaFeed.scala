@@ -4,11 +4,12 @@ import api.homeassistant.HomeAssistantApi
 import api.homeassistant.ws.HAWSApiLowLevel
 import api.homeassistant.ws.protocol.client.{CommandPhase, CommandResponse}
 import api.homeassistant.ws.domain.EntitiesEvent
+import fh.view.telemetry.{Logging, Meters}
 import fh.view.FHError
 import cats.effect.{Deferred, IO, Resource}
 import fs2.Stream
 import fs2.concurrent.{Signal, SignallingRef}
-import org.typelevel.log4cats.slf4j.Slf4jLogger
+import org.typelevel.log4cats.{LoggerFactory, SelfAwareStructuredLogger}
 import org.typelevel.otel4s.Attribute
 import org.typelevel.otel4s.trace.Tracer
 
@@ -44,8 +45,6 @@ final case class HaFeed(
 
 object HaFeed {
 
-  private val log = Slf4jLogger.getLogger[IO]
-
   /** A RATE limit, not a backoff, and deliberately flat. Exponential backoff
     * assumes retries are expensive or the peer is shared; this is one WebSocket
     * to one local instance, where a failed attempt is a refused TCP connect. It
@@ -74,7 +73,9 @@ object HaFeed {
   def resource(
       connect: Connect,
       wanted: Signal[IO, Option[Set[String]]] = Signal.constant(None),
-      tracer: Tracer[IO] = Tracer.noop
+      tracer: Tracer[IO] = Tracer.noop,
+      loggerFactory: LoggerFactory[IO] = Logging.console,
+      meters: Meters = Meters.noop
   ): Resource[IO, HaFeed] =
     for {
       // `.isDefined` IS the `healthy` banner — one toggle, not a second flag.
@@ -90,7 +91,9 @@ object HaFeed {
         seeded,
         store,
         wanted,
-        tracer
+        tracer,
+        loggerFactory.getLoggerFromName("fh.view.runtime.HaFeed"),
+        meters
       ).background
       // Credentials are validated by the caller, so failing this wait means HA
       // is configured but not answering — a boot error rather than a silent
@@ -128,7 +131,9 @@ object HaFeed {
       seeded: Deferred[IO, Unit],
       store: StateStore,
       wanted: Signal[IO, Option[Set[String]]],
-      tracer: Tracer[IO]
+      tracer: Tracer[IO],
+      log: SelfAwareStructuredLogger[IO],
+      meters: Meters
   ): IO[Unit] =
     Stream
       .repeatEval(
@@ -138,7 +143,8 @@ object HaFeed {
           seeded,
           store,
           wanted,
-          tracer
+          tracer,
+          meters
         ).attempt
       )
       .meteredStartImmediately(ReconnectDelay)
@@ -150,7 +156,7 @@ object HaFeed {
       .map(describe)
       .changes
       .evalMap(reason => log.info(s"attempt ended: $reason"))
-      .concurrently(logConnectivity(connection))
+      .concurrently(logConnectivity(connection, log))
       .compile
       .drain
 
@@ -162,7 +168,8 @@ object HaFeed {
     * disconnect goes unlogged.
     */
   private def logConnectivity(
-      connection: SignallingRef[IO, Option[HAWSApiLowLevel[IO]]]
+      connection: SignallingRef[IO, Option[HAWSApiLowLevel[IO]]],
+      log: SelfAwareStructuredLogger[IO]
   ): Stream[IO, Nothing] =
     connection.discrete
       .map(_.isDefined)
@@ -199,7 +206,8 @@ object HaFeed {
       seeded: Deferred[IO, Unit],
       store: StateStore,
       wanted: Signal[IO, Option[Set[String]]],
-      tracer: Tracer[IO]
+      tracer: Tracer[IO],
+      meters: Meters
   ): IO[Unit] =
     connect
       .use { case (ll, awaitClosed) =>
@@ -211,7 +219,8 @@ object HaFeed {
           store,
           seeded,
           connection.set(Some(ll)),
-          tracer
+          tracer,
+          meters
         )
         // The race covers the WHOLE lifetime, not just the pump: subscribing
         // waits on the wire, so a socket dying there has to end this run too or
@@ -231,7 +240,8 @@ object HaFeed {
       frames: Stream[IO, EntitiesEvent],
       store: StateStore,
       seeded: Deferred[IO, Unit],
-      tracer: Tracer[IO]
+      tracer: Tracer[IO],
+      meters: Meters
   ): Stream[IO, Unit] =
     frames.chunks
       .evalMap(batch =>
@@ -244,7 +254,8 @@ object HaFeed {
             "ha.entities.apply",
             Attribute("fh.entities", batch.size.toLong)
           )
-          .surround(store.applyEntities(batch))
+          .surround(store.applyEntities(batch)) *>
+          meters.haEntities.add(batch.size.toLong)
       )
       .evalTap(_ => seeded.complete(()).void)
 
@@ -273,7 +284,8 @@ object HaFeed {
       store: StateStore,
       seeded: Deferred[IO, Unit],
       established: IO[Unit],
-      tracer: Tracer[IO]
+      tracer: Tracer[IO],
+      meters: Meters
   ): IO[Unit] =
     Stream
       .eval(IO.deferred[Unit])
@@ -289,7 +301,7 @@ object HaFeed {
               Stream
                 .resource(ha.entities(only))
                 .evalTap(_ => established)
-                .flatMap(pump(_, store, seeded, tracer)) ++
+                .flatMap(pump(_, store, seeded, tracer, meters)) ++
                 // A subscription that ends ON ITS OWN means the connection is
                 // gone — the transport closes every route when it dies — and
                 // this run must end so the supervisor reconnects. Under
