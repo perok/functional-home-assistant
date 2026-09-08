@@ -247,7 +247,7 @@
       # session — this only redefines what "no arguments" means. It does start
       # the server, though, so `box` gets laid out alongside it either way.
       tmuxConf = pkgs.writeTextDir "etc/tmux.conf" ''
-        new-session -d -s box -n docs -c /work "devbox readme; devbox greet; exec bash"
+        new-session -d -s box -n docs -c /work "devbox greet; exec bash"
         new-window -d -t box: -n work -c /work
         set -g default-client-command "new-session -A -s box"
 
