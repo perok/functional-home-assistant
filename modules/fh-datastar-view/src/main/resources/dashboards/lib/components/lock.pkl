@@ -7,25 +7,52 @@
 /// the latch — a lock reporting `LockEntityFeature.OPEN` has a THIRD thing it
 /// can do, and no generic card can know that.
 ///
-/// What is deliberately not here — code entry, an alarming `jammed`,
-/// confirmation before unlocking — is listed with its reason on
-/// [[hass.LockEntity]].
+/// What is deliberately not here — code entry, an alarming `jammed`, a confirm
+/// on the tile's own lock/unlock — is listed with its reason on
+/// [[hass.LockEntity]]. The LATCH is confirmed; see [[openLatch]].
 module components.lock
 
 import "../core/node.pkl" as nodes
+import "../layout.pkl" as layout
 import "../core/tap.pkl" as tapMod
 import "../hass.pkl"
 import "control.pkl" as control
+import "text.pkl" as textMod
 import "entity.pkl" as entityMod
 
 /// Release the latch — `lock/open`, which is not the same as unlocking: an
-/// unlocked door is still shut. Only writeable for a lock that reports the
-/// capability, because [[controls]] is what places it.
+/// unlocked door is still shut.
+///
+/// Behind a CONFIRMATION, and that is part of the feature rather than a taste
+/// in taps. HA guards this one control specifically:
+/// `hui-lock-open-door-card-feature` makes the first press arm the button for
+/// five seconds and only the second one calls the service. The reason is
+/// physical — a latch release opens a door, where every other tap on a
+/// dashboard moves something that can be moved back.
+///
+/// The guarantee here is the same, in the primitives this project already has:
+/// an inline popup (ADR 0024), where the second press is in a DIFFERENT place
+/// rather than the same one. On a wall tablet that is the safer of the two —
+/// HA's two-step can be satisfied by one sleeve brushing the same spot twice.
 function openLatch(l: hass.LockEntity): control.Button =
   control
-    .button("Open", tapMod.service("lock/open"))
-    .entity(l)
+    .button("Open", tapMod.openPopupInline(confirmOpen(l)))
     .icon("mdi:door-open")
+
+/// What the latch asks before it acts: the lock as it stands, the press that
+/// releases it, and a way out. Not exported — a confirmation is only meaningful
+/// attached to the thing it guards, and [[openLatch]] is that thing.
+local function confirmOpen(l: hass.LockEntity): layout.Column = new layout.Column {
+  children {
+    textMod.title("Open the door?")
+    // The lock's own card, so the state you are acting on is in front of you —
+    // and pinned to its domain action rather than the default, which would be
+    // more-info opening on top of this popup.
+    (entityMod.entityCard(l)) { tapAction = tapMod.byDomain(l) }
+    control.button("Open the door", tapMod.service("lock/open")).entity(l)
+    control.button("Cancel", tapMod.closePopup())
+  }
+}
 
 /// A lock and everything it can do: the tile (tap locks or unlocks, by state)
 /// carrying the latch as a FEATURE when the lock reports `OPEN`.

@@ -248,9 +248,13 @@ open class LightEntity extends Entity {
 ///   - **a jammed state that looks different.** `jammed` renders as the value
 ///     text and nothing more. Making it look alarming needs a state-dependent
 ///     look, and this project resolves an icon at BUILD time (`core/icon.pkl`).
-///   - **confirmation before unlocking.** There is no confirm primitive in
-///     `core/tap.pkl`; adding one is a decision about taps in general, not
-///     about locks, and would land the same way for `siren` and `alarm_control_panel`.
+///   - **confirmation before UNLOCKING.** The latch has one — releasing it opens
+///     a door, and HA guards that control specifically, so
+///     `components/lock.pkl` does too. The tile's own lock/unlock does not:
+///     there is no confirm primitive in `core/tap.pkl`, and adding a general
+///     one is a decision about taps, not about locks — it would land the same
+///     way for `siren` and `alarm_control_panel`. The latch gets its guarantee
+///     from an inline popup instead, which needs nothing new.
 open class LockEntity extends Entity {
   domain: "lock" = "lock"
 
