@@ -98,7 +98,7 @@ and the `jsonata` bench cells.
 - **The fast tier beside it is a closed catalog (`Transform.Simple`).** The
   shapes the library bakes that CAN be read as data — the raw `state` read,
   the guarded attribute read, the fallback-to-id name, the unit suffix, a
-  literal prefix/suffix, the state enum, the slider's range percent and fill —
+  literal prefix/suffix, the state match, the slider's range percent and fill —
   are evaluated without the engine. Measured through the production dispatch
   (`RenderBench.simple`, 1200 evals/op) at the recognition stage: 1001 µs /
   968.9 kB against the engine-only `cel` cell's 1592 µs / 1074.2 kB — -37%

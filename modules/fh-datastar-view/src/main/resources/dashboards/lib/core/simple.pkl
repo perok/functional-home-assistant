@@ -56,11 +56,21 @@ class SimpleSuffix {
   literal: String
 }
 
-/// Idiomatic CEL: `state == 'equalTo' ? 'thenValue' : 'otherwise'`.
-class SimpleEnum {
-  kind = "enum"
-  equalTo: String
-  thenValue: String
+/// The state as a lookup. Idiomatic CEL:
+/// `cel.bind(m, {'k': 'v', ...}, state in m ? m[state] : 'otherwise')`.
+///
+/// A Mapping, not a list of arms: the match is on equality, so nothing about it
+/// is sequential, and Pkl already rejects a duplicate key.
+///
+/// `otherwise` is REQUIRED — it is not "these cases are exhaustive". Nothing
+/// downstream knows a domain's state vocabulary, and HA adds states (`open` and
+/// `opening` arrived in `lock` after the domain shipped), so an unmatched state
+/// has to degrade rather than blank the card. A helper that covers every
+/// variant of a vendored state union belongs in the domain module, where the
+/// vocabulary is.
+class SimpleMatch {
+  kind = "match"
+  cases: Mapping<String, String>
   otherwise: String
 }
 
@@ -86,7 +96,7 @@ class SimpleFill {
 
 typealias Simple =
   SimpleState|SimpleAttr|SimpleAttrOrId|SimpleUnit|SimplePrefix|
-  SimpleSuffix|SimpleEnum|SimplePercent|SimpleFill
+  SimpleSuffix|SimpleMatch|SimplePercent|SimpleFill
 
 // The constructors. `const` because components call them from class bodies;
 // parameters are suffixed so none shadows the property it initialises (the
@@ -97,8 +107,13 @@ const function attrOrId(attrName: String): Simple = new SimpleAttrOrId { name = 
 const function unit(attrName: String): Simple = new SimpleUnit { name = attrName }
 const function prefix(lit: String): Simple = new SimplePrefix { literal = lit }
 const function suffix(lit: String): Simple = new SimpleSuffix { literal = lit }
+const function matchOf(byState: Mapping<String, String>, elseV: String): Simple =
+  new SimpleMatch { cases = byState; otherwise = elseV }
+
+/// The one-armed shorthand — what a two-valued state test reads as at the call
+/// site, so a card testing `on` does not spell out a Mapping.
 const function enumOf(eq: String, thenV: String, elseV: String): Simple =
-  new SimpleEnum { equalTo = eq; thenValue = thenV; otherwise = elseV }
+  new SimpleMatch { cases = new { [eq] = thenV }; otherwise = elseV }
 const function percent(attrName: String, minV: Number, maxV: Number): Simple =
   new SimplePercent { name = attrName; min = minV; max = maxV }
 const function fill(attrName: String, minV: Number, maxV: Number): Simple =
