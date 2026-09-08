@@ -37,7 +37,22 @@ import "entity.pkl" as entityMod
 function openLatch(l: hass.LockEntity): control.Button =
   control
     .button("Open", tapMod.openPopupInline(confirmOpen(l)))
+    .entity(l)
     .icon("mdi:door-open")
+    .inertWhile(CANNOT_OPEN)
+
+/// HA's `canOpen`, as the states it says no in: already open, mid-move, or gone
+/// (`lock/const.py` marks `is_locking`/`is_unlocking`/`is_opening` optional, so
+/// a lock that jumps straight `locked`→`unlocked` simply never reads one of
+/// these and the button is never inert — which is what HA's own button does
+/// there too).
+local const CANNOT_OPEN: List<String> = List(
+  "open",
+  "opening",
+  "unlocking",
+  "locking",
+  "unavailable"
+)
 
 /// What the latch asks before it acts: the lock as it stands, the press that
 /// releases it, and a way out. Not exported — a confirmation is only meaningful
