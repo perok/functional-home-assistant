@@ -48,6 +48,24 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # Where VisualSnapshot drops a failing before/after pair, out of the
+      # build tree so the upload path does not depend on sbt's working
+      # directory.
+      #
+      # BEFORE ANY sbt STEP, and via $GITHUB_ENV rather than the test step's
+      # own `env`: the suite runs IN the sbt server (nothing sets `Test /
+      # fork`), and the server inherits its environment from the client that
+      # first STARTED it — `Install Playwright Browsers`, on a cache miss. Set
+      # on the test step alone, the variable only ever reached a client that
+      # connects to that server, `sys.env` in the suite fell back to the
+      # in-tree path, and the upload found nothing.
+      #
+      # A step can read `runner.temp`; a job-level `env:` cannot — that context
+      # is not among the ones it may use, and naming it there fails the whole
+      # workflow at parse time rather than expanding to a blank.
+      - name: Visual failure dir
+        run: echo "FH_VISUAL_FAILURES_DIR=${{ runner.temp }}/visual-failures" >> "$GITHUB_ENV"
+
       # scala-cli runs the fh script's own test suite below.
       - uses: coursier/cache-action@v8
       - uses: coursier/setup-action@v3
@@ -139,10 +157,6 @@ jobs:
           # requires. `--check` rewrites nothing and fails on any diff it would
           # make (#115) — the linter half, which the -Werror gate cannot see.
           - name: Test + scalafix check
-            env:
-              # Out of the build tree, so the upload path does not depend on
-              # sbt's working directory for a forked test.
-              FH_VISUAL_FAILURES_DIR: ${{ runner.temp }}/visual-failures
             # ONE quoted argument with `;`, not two arguments: sbt 2's thin
             # client JOINS its argv into a single command string, so
             # `sbt 'a' 'b'` is parsed as the one command `a b` and dies with
@@ -188,7 +202,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: visual-snapshot-failures
-          path: ${{ runner.temp }}/visual-failures/
+          path: ${{ env.FH_VISUAL_FAILURES_DIR }}/
           if-no-files-found: ignore
           retention-days: 1
 
