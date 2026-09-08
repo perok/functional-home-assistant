@@ -584,4 +584,23 @@ facts {
     c.entityCard(latchLock).slots["onclick"].transform
       .contains(#"state == 'locked' ? 'lock/unlock' : 'lock/lock'"#)
   }
+
+  ["the latch is inert while the lock is mid-move — which the busy guard cannot see"] {
+    local latch = c.lock.openLatch(latchLock)
+    local inert: simpleMod.SimpleMatch = latch.slots["inert"].transform!!
+    // HA's `canOpen`: already open, mid-move, or gone. Every arm answers the
+    // same "1" — a set membership test, which is what one `match` buys over the
+    // two-armed enum it replaced.
+    inert.cases.toMap().keys.toList().sort()
+      == List("locking", "open", "opening", "unavailable", "unlocking")
+    inert.cases.toMap().values.toSet() == Set("1")
+    // `""` for "go ahead": the ONLY falsy value a slot can produce, and the
+    // reason this is a CLASS binding rather than `attr:disabled` — the pinned
+    // bundle SETS `disabled=""` on an empty string.
+    inert.otherwise == ""
+    latch.slots["inert"].signal == "class:fh-disabled"
+    // Gated on a literal, or the patch form (where the value is always "")
+    // would collapse the section and take the guard with it.
+    latch.slots["hasInert"] == "1"
+  }
 }
