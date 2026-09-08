@@ -383,13 +383,16 @@ class TransformSuite extends munit.FunSuite {
     )
   }
 
-  test("definition: unit suffix, literal prefix/suffix, and the state enum") {
+  test("definition: unit suffix, literal prefix/suffix, and the state match") {
     val probes = List(
       es("on"),
       es("on", "unit_of_measurement" -> Json.fromString("°C")),
       es("on", "unit_of_measurement" -> Json.fromString("")),
       es("21.44"),
-      es("locked")
+      es("locked"),
+      es("unlocking"),
+      es("jammed"),
+      es("")
     )
     agree(
       Simple.UnitSuffix("unit_of_measurement"),
@@ -400,14 +403,55 @@ class TransformSuite extends munit.FunSuite {
     agree(Simple.Prefix("lit: "), "'lit: ' + state", probes)
     agree(Simple.Suffix(" W"), "state + ' W'", probes)
     agree(
-      Simple.Enum("on", "Open", "Closed"),
-      "state == 'on' ? 'Open' : 'Closed'",
+      Simple.Match(Map("on" -> "Open"), "Closed"),
+      "cel.bind(m, {'on': 'Open'}, state in m ? m[state] : 'Closed')",
       probes
     )
     agree(
-      Simple.Enum("locked", "lock/unlock", "lock/lock"),
-      "state == 'locked' ? 'lock/unlock' : 'lock/lock'",
+      Simple.Match(Map("locked" -> "lock/unlock"), "lock/lock"),
+      "cel.bind(m, {'locked': 'lock/unlock'}, state in m ? m[state] : 'lock/lock')",
       probes
+    )
+    // Many arms to one value — HA's `isWaiting`, and the shape a two-armed
+    // enum could not express without three transforms and three signals.
+    agree(
+      Simple.Match(
+        Map("locking" -> "true", "unlocking" -> "true", "opening" -> "true"),
+        ""
+      ),
+      "cel.bind(m, {'locking': 'true', 'unlocking': 'true', 'opening': 'true'}, " +
+        "state in m ? m[state] : '')",
+      probes
+    )
+    // Arms to DIFFERENT values — a state-derived icon class.
+    agree(
+      Simple.Match(
+        Map("locked" -> "mdi-lock", "unlocked" -> "mdi-lock-open"),
+        "mdi-lock-alert"
+      ),
+      "cel.bind(m, {'locked': 'mdi-lock', 'unlocked': 'mdi-lock-open'}, " +
+        "state in m ? m[state] : 'mdi-lock-alert')",
+      probes
+    )
+    // No arms at all: every state takes `otherwise`.
+    agree(
+      Simple.Match(Map.empty, "n/a"),
+      "cel.bind(m, {}, state in m ? m[state] : 'n/a')",
+      probes
+    )
+  }
+
+  test("key: a Match key cannot be forged by a separator inside a value") {
+    // The siblings join on ':' safely because their arity is fixed. A Match's
+    // is not, so the key is length-prefixed — a collision here would put two
+    // different transforms on ONE signal.
+    val a = Simple.Match(Map("a" -> "b:c"), "z")
+    val b = Simple.Match(Map("a:b" -> "c"), "z")
+    assertNotEquals(Simple.key(a), Simple.key(b))
+    // …and it does not depend on Map iteration order.
+    assertEquals(
+      Simple.key(Simple.Match(Map("x" -> "1", "y" -> "2"), "z")),
+      Simple.key(Simple.Match(Map("y" -> "2", "x" -> "1"), "z"))
     )
   }
 

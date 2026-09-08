@@ -28,10 +28,24 @@ It worked, and no wire byte moved. Three costs followed from the design itself:
    engine tier) or a `Simple` structure as a JSON object (the fast tier). The
    form IS the tier selection; there is no recognition machinery at all, and
    nothing else on the slot describes its tier.
-2. **The catalog is unchanged and stays closed.** The same nine atomic forms over one read
-   (`state`, `attr`, `attrOrId`, `unit`, `prefix`, `suffix`, `enum`, `percent`, `fill`). The
+2. **The catalog stays closed at nine atomic forms over one read**
+   (`state`, `attr`, `attrOrId`, `unit`, `prefix`, `suffix`, `match`, `percent`, `fill`). The
    composite `{value, op, prefix, postfix}` micro-format was considered and rejected: it reopens
    the language Phase 2 closed. Anything beyond the nine is CEL, explicitly.
+
+   `match` is a lookup — `Map[String, String]` plus a required `otherwise` — and it REPLACED the
+   two-armed `enum`, which is `match` with one entry. The count did not move, and the shapes it
+   bought are ones no two-armed test could reach: HA's `isWaiting` (three states, one value), a
+   state-derived icon class (arms to different values), and a `jammed` look. A `Map` rather than
+   an ordered list of arms, because the test is equality: nothing about it is sequential, so a
+   duplicate key and a first-match-wins question are unrepresentable rather than undefined.
+
+   `otherwise` is REQUIRED and is not an `Option` meaning "the cases are exhaustive". Nothing at
+   this layer knows a domain's state vocabulary — only the vendored Pkl module does — so that
+   check cannot live here; and HA ADDS states (`open`/`opening` arrived in `lock` after the
+   domain shipped), so an unmatched state must degrade rather than blank a card months later. A
+   helper that covers every variant of a vendored state union belongs in the domain module,
+   where the vocabulary is.
 3. **Each case is DEFINED by its idiomatic CEL spelling** — documented on the Scala case and on
    the Pkl wire class — and `TransformSuite`'s battery evaluates that spelling through the engine,
    asserting **byte-equality with the fast read over the hostile sweep**. The mapping is a test
@@ -43,11 +57,14 @@ It worked, and no wire byte moved. Three costs followed from the design itself:
    is documented on its case and pinned in the suite's divergence tests.
 5. **Naming keys on the structure.** Signal names and the once-cache hash `Transform.Simple.key`
    (`attr:brightness`, `percent:brightness:1.0:255.0`) — injective by construction, independent of
-   any spelling.
+   any spelling. `match` is the one case whose key is LENGTH-PREFIXED: its siblings can join on
+   `:` because their arity is fixed, and a variable-arity map joined that way would let a
+   separator inside a key forge a different map. A collision is two transforms sharing one
+   signal, so injectivity here is not a nicety.
 6. **Authoring is a namespace: `core/simple.pkl`** (the `c.tap` module-as-namespace pattern, typed
    facade re-export `c.simple`). `Slot.simple` takes the structures; `labelSlot`/`valueSlot`/
    `secondarySlot` accept a Simple beside `String`/`Expr`. The components opt in: the slider's
-   `value`/`percent`/`fill` slots and its default state readout, `control`'s two enums, and
+   `value`/`percent`/`fill` slots and its default state readout, `control`'s two state matches, and
    `slot.pkl`'s own auto-unit value and guarded secondary read. The slider's `percentExpr`/
    `valueExpr`/`minExpr`/`maxExpr` stay CEL strings deliberately — they are the splice surface for
    composed readouts, which no atomic shape covers.

@@ -385,12 +385,11 @@ facts {
     // — a light with no brightness reports no colour either (`onoff` is a
     // light's SOLE mode when present), so the default is the only paint it can
     // get. A TOKEN, not the literal behind it: the value is the theme's to move.
-    // The fill is OPTED IN: the two-armed state enum of the simple tier
+    // The fill is OPTED IN: a one-armed state match of the simple tier
     // (annotated local = the runtime-checked downcast from the union).
-    local fillEnum: simpleMod.SimpleEnum = row.headSlots["fill"].transform!!
-    fillEnum.equalTo == "on"
-    fillEnum.thenValue == "0%"
-    fillEnum.otherwise == "100%"
+    local fillMatch: simpleMod.SimpleMatch = row.headSlots["fill"].transform!!
+    fillMatch.cases.toMap() == Map("on", "0%")
+    fillMatch.otherwise == "100%"
     row.headSlots["fillColor"].default == "var(--fh-default-color)"
     // ...and the token is one the contract actually defines. A `var()` naming
     // nothing paints TRANSPARENT, and only a browser would ever say so.
