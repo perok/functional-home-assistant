@@ -9,7 +9,7 @@ val otel4sVersion = "1.1.0"
 // Pinned to what otel4s-oteljava resolves, so the exporter cannot drift from
 // the SDK it plugs into. otel4s' own SDK modules are NOT used: they moved to a
 // separate repo and are still marked experimental.
-val otelJavaVersion = "1.64.0"
+val otelJavaVersion = "1.65.0"
 val otelMiddlewareVersion = "0.18.0"
 val MUnitFramework = new TestFramework("munit.Framework")
 
@@ -122,7 +122,7 @@ lazy val `ha-api` = project // todo add api layer here as well
       "org.typelevel" %% "log4cats-slf4j" % log4catsVersion
     ),
     libraryDependencies ++= Seq(
-      "org.scalameta" %% "munit" % "1.3.5" % Test,
+      "org.scalameta" %% "munit" % "1.3.6" % Test,
       "org.typelevel" %% "munit-cats-effect" % "2.2.0" % Test,
       // Test-only: without a binding on the classpath slf4j prints two
       // "Failed to load class ... StaticLoggerBinder" lines at the top of
@@ -316,7 +316,7 @@ lazy val `fh-datastar-view` = project
       // claim `fh.view.runtime.Logging` makes, and otel4s ships no logs testkit
       // to check it with.
       "io.opentelemetry" % "opentelemetry-sdk-testing" % otelJavaVersion % Test,
-      "org.scalameta" %% "munit" % "1.3.5" % Test,
+      "org.scalameta" %% "munit" % "1.3.6" % Test,
       // Lets tests return IO[Unit] directly (no unsafeRunSync / global runtime)
       // and adds IO-aware assertions (assertIO, IO#assertEquals).
       "org.typelevel" %% "munit-cats-effect" % "2.2.0" % Test,
@@ -397,7 +397,7 @@ lazy val root = project
     commands ++= snapshotUpdateCommands,
     // libraryDependencies += ("org.scalameta" %% "scalameta" % "4.11.0")
     // .cross(CrossVersion.for3Use2_13),
-    libraryDependencies += "org.scalameta" %% "munit" % "1.3.5" % Test,
+    libraryDependencies += "org.scalameta" %% "munit" % "1.3.6" % Test,
     libraryDependencies ++= Seq(
       "org.http4s" %% "http4s-ember-client" % http4sVersion,
       "org.http4s" %% "http4s-ember-server" % http4sVersion,
