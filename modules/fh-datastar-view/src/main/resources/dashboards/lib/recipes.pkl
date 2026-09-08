@@ -20,22 +20,30 @@ import "components/slider.pkl" as sliderMod
 /// [[hass.lights]] picking the domain out. Areas with no lights are skipped, so
 /// the result is exactly the light-bearing sections. Returns a [[Column]] so it
 /// drops straight into an entry's tree.
-function floorView(floor: hass.Floor): layout.Column = new layout.Column {
-  children {
+/// Each area's lights are needed twice — to skip an area that has none, and to
+/// render the ones it has — and [[hass.lights]] is a filter over every entity in
+/// the area, so they are built once here and read by `area_id` below. Not a
+/// `local` in the for-generator body: that may generate only entries and
+/// elements, so a property there is "cannot generate object properties".
+function floorView(floor: hass.Floor): layout.Column =
+  let (lightsByArea = new Mapping<String, List<hass.LightEntity>> {
     for (area in floor.areas) {
-      // Not hoisted into a `local`: a for-generator body may generate only
-      // entries and elements, so a `local` there is "cannot generate object
-      // properties".
-      when (!hass.lights(area.all).isEmpty) {
-        new layout.Column {
-          children {
-            textMod.title(area.area_name)
-            for (light in hass.lights(area.all)) {
-              sliderMod.slider(light)
+      [area.area_id] = hass.lights(area.all)
+    }
+  })
+    new layout.Column {
+      children {
+        for (area in floor.areas) {
+          when (!lightsByArea[area.area_id].isEmpty) {
+            new layout.Column {
+              children {
+                textMod.title(area.area_name)
+                for (light in lightsByArea[area.area_id]) {
+                  sliderMod.slider(light)
+                }
+              }
             }
           }
         }
       }
     }
-  }
-}

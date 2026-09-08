@@ -202,9 +202,10 @@ abstract class SmokeSuite extends BrowserSuite {
     * that an `onload` handler swaps to `rel=stylesheet`, so until that swap its
     * `@font-face` is not in the document's font set at all and `fonts.ready`
     * resolves without ever having heard of it. The screenshot then catches the
-    * page mid-load, and which side of the race it lands on is a coin flip —
-    * which is how `lock-controls.png` came to be checked in with the button's
-    * icon missing, then failed in CI where the glyph arrived in time.
+    * page mid-load, and which side of the race it lands on is a coin flip. One
+    * local `dashboardVisualSnapshotsUpdate` produced FOUR icon-less baselines
+    * this way and only the smallest of them failed CI: a missing glyph is a
+    * fixed number of pixels, so a diff RATIO hides it in a large snapshot.
     */
   def settle(page: Page): Unit = {
     page.waitForFunction(

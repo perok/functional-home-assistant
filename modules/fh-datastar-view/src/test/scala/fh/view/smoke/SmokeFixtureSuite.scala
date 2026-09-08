@@ -29,7 +29,7 @@ class SmokeFixtureSuite extends munit.FunSuite {
   test("the lock composition places both of its controls") {
     // What `c.lock.controls` decides, and the only thing it decides: a lock
     // reporting OPEN gets a latch button as well as its tile. The visual
-    // baseline shoots the pair; this says the pair exists.
+    // baseline only shoots the latch, so the pair is asserted here.
     val onTheLock = nodes
       .filter(_.subjectEntity.contains(HouseFixture.frontLock.entityId))
       .map(_.card)

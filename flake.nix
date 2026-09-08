@@ -26,6 +26,18 @@
             readme)
               exec cat /share/doc/${name}/README.md
               ;;
+            # The two lines the box opens with. Also what tmux's `docs` window
+            # ends on, because tmux takes the alternate screen and the copy
+            # printed on the way in is not visible while attached — and the
+            # dashboard URL is the one line here that is only known at runtime.
+            greet)
+              echo "agentbox — docs: devbox readme" >&2
+              if [ -n "''${AGENTBOX_DASHBOARD_URL:-}" ]; then
+                echo "dashboard:   ''${AGENTBOX_DASHBOARD_URL}  (sbt dashboardServe in /work)" >&2
+              else
+                echo "dashboard:   no port published — restart with AGENTBOX_PORT=8080" >&2
+              fi
+              ;;
             jcodemunch-setup)
               shift
               exec jcodemunch-mcp init --hooks "$@"
@@ -96,12 +108,7 @@
         text = ''
           run_as_user() {
             if [ $# -eq 0 ] || [ "''${1##*/}" = "bash" ]; then
-              echo "agentbox — docs: devbox readme" >&2
-              if [ -n "''${AGENTBOX_DASHBOARD_URL:-}" ]; then
-                echo "dashboard:   ''${AGENTBOX_DASHBOARD_URL}  (sbt dashboardServe in /work)" >&2
-              else
-                echo "dashboard:   no port published — restart with AGENTBOX_PORT=8080" >&2
-              fi
+              devbox greet
             fi
 
             mkdir -p "${state}"/{bin,cache,state,uv,npm,npm-cache}
@@ -177,6 +184,23 @@
               export GH_TOKEN
             fi
 
+            # A box entered with no command is exactly the session tmux exists
+            # for, so it is the default rather than something to remember to
+            # type. Skipped when a command WAS named (`agentbox claude -p …`)
+            # and when there is no tty — the wrapper passes `-i` alone for a
+            # pipe, and tmux there dies with "open terminal failed: not a
+            # terminal". AGENTBOX_TMUX=0 opts out.
+            #
+            # NOT `exec tmux`: the client is then PID 1, so detaching (C-b d)
+            # would end the container and take the sbt server with it. Falling
+            # through to the shell makes detach mean detach — `tmux` returns,
+            # `exit` leaves the box.
+            if [ "''${AGENTBOX_TMUX:-1}" != 0 ] &&
+               [ -t 0 ] && [ -t 1 ] &&
+               { [ $# -eq 0 ] || [ "''${1##*/}" = "bash" ]; }; then
+              tmux || true
+            fi
+
             exec "$@"
           }
 
@@ -202,6 +226,36 @@
         HISTSIZE=100000
         HISTFILESIZE=200000
         HISTCONTROL=ignoredups
+      '';
+
+      # One box, two windows: `docs` (this README, then a shell) and `work`.
+      # The point is running an agent and the project side by side without a
+      # second `nix run` — a second box would be a second container sharing
+      # /opt/agent, and two sbt servers on one Coursier cache is not a thing to
+      # do casually.
+      #
+      # nixpkgs builds tmux with `--sysconfdir=/etc`, so this is the system
+      # config and needs nothing in the throwaway home.
+      #
+      # The two commands are a pair, and neither works alone:
+      #   * `new-session -d` runs when the SERVER starts, which is early enough
+      #     to lay out windows but leaves the session detached.
+      #   * `default-client-command` is what a bare `tmux` runs in place of its
+      #     built-in `new-session`, so it lands in the session above instead of
+      #     creating an unnamed second one next to it.
+      # Anything more specific (`tmux new -s foo`) still gets its own plain
+      # session — this only redefines what "no arguments" means. It does start
+      # the server, though, so `box` gets laid out alongside it either way.
+      tmuxConf = pkgs.writeTextDir "etc/tmux.conf" ''
+        new-session -d -s box -n docs -c /work "devbox greet; exec bash"
+        new-window -d -t box: -n work -c /work
+        set -g default-client-command "new-session -A -s box"
+
+        set -g mouse on
+        set -g history-limit 100000
+        # Claude Code reads a bare ESC as interrupt; tmux's 500ms default makes
+        # it wait for an escape sequence that is not coming.
+        set -sg escape-time 10
       '';
 
       # GitHub's SSH host keys, so the first `git push` out of a fresh box
@@ -285,6 +339,7 @@
           findutils
           which
           less
+          tmux # run an agent and the project side by side — see /etc/tmux.conf
           curl
           git
           openssh
@@ -308,6 +363,7 @@
           devbox
           readme
           bashrc
+          tmuxConf
           dockerTools.fakeNss
           dockerTools.caCertificates
           context7-mcp
@@ -400,9 +456,10 @@
 
         ## Use
 
-            nix run .#                 # bash in the container, cwd as /work
+            nix run .#                 # tmux in the container, cwd as /work
             nix run .# -- opencode
             nix run .# -- claude
+            AGENTBOX_TMUX=0 nix run .# # ... or a plain shell
             # inside the box:
             devbox readme              # this document
             devbox mcp jcodemunch      # wire an MCP server into both agents
@@ -411,6 +468,27 @@
 
         Unfree packages (claude-code) are allowed in the flake itself — no env
         vars or `--impure` needed.
+
+        ### Two windows
+
+        `nix run .#` lands in tmux: window `docs` with this README already
+        printed and a shell under it, window `work` in `/work`. Run the agent
+        in one and `sbt` in the other.
+
+        `C-b d` detaches to a plain shell in the same box rather than ending
+        it, so `tmux` returns to both windows with the sbt server still up, and
+        `exit` from there leaves. `AGENTBOX_TMUX=0` skips it for a plain shell.
+
+        Reach for a window before starting a SECOND box: two containers share
+        `/opt/agent`, so they share one Coursier cache and one bash history,
+        and two sbt servers over that is not a thing to do casually.
+
+        Naming a command (`nix run .# -- claude`) skips tmux entirely, as does
+        a box with no tty. Inside, `tmux new -s spike` still gets its own plain
+        session — `/etc/tmux.conf` only redefines what "no arguments" means,
+        via `default-client-command`. The layout lives there too, so pointing
+        the first window at the project's own README instead is a one-line
+        change.
 
         Nothing is published to the host by default. `AGENTBOX_PORT=8080`
         exposes the Datastar dashboard, any other value remaps it:
@@ -1211,6 +1289,7 @@
             "''${NET_ARGS[@]}" \
             "''${MOUNTS[@]}" \
             -e CLAUDE_CODE_SUBAGENT_MODEL=claude-sonnet-5 \
+            -e "AGENTBOX_TMUX=''${AGENTBOX_TMUX:-1}" \
             -w /work \
             "$IMG" "$@"
           exit $?
