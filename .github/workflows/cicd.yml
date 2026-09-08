@@ -42,21 +42,29 @@ jobs:
     # from. The test step therefore carries its own, shorter `timeout` (see
     # there) so a hang fails a STEP while this cap is still far away.
     timeout-minutes: 20
-    env:
-      # Where VisualSnapshot drops a failing before/after pair, out of the
-      # build tree so the upload path does not depend on sbt's working
-      # directory. JOB level, not on the test step: tests run IN the sbt
-      # server, and the server inherits its environment from the client that
-      # first STARTED it — `Install Playwright Browsers`, on a cache miss.
-      # Set on the test step alone, the variable reaches a client that only
-      # connects, `sys.env` in the suite falls back to the in-tree path, and
-      # the upload finds nothing at `runner.temp`.
-      FH_VISUAL_FAILURES_DIR: ${{ runner.temp }}/visual-failures
     permissions:
       contents: read
       checks: write # For mikepenz/action-junit-report
     steps:
       - uses: actions/checkout@v7
+
+      # Where VisualSnapshot drops a failing before/after pair, out of the
+      # build tree so the upload path does not depend on sbt's working
+      # directory.
+      #
+      # BEFORE ANY sbt STEP, and via $GITHUB_ENV rather than the test step's
+      # own `env`: the suite runs IN the sbt server (nothing sets `Test /
+      # fork`), and the server inherits its environment from the client that
+      # first STARTED it — `Install Playwright Browsers`, on a cache miss. Set
+      # on the test step alone, the variable only ever reached a client that
+      # connects to that server, `sys.env` in the suite fell back to the
+      # in-tree path, and the upload found nothing.
+      #
+      # A step can read `runner.temp`; a job-level `env:` cannot — that context
+      # is not among the ones it may use, and naming it there fails the whole
+      # workflow at parse time rather than expanding to a blank.
+      - name: Visual failure dir
+        run: echo "FH_VISUAL_FAILURES_DIR=${{ runner.temp }}/visual-failures" >> "$GITHUB_ENV"
 
       # scala-cli runs the fh script's own test suite below.
       - uses: coursier/cache-action@v8
@@ -194,7 +202,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: visual-snapshot-failures
-          path: ${{ runner.temp }}/visual-failures/
+          path: ${{ env.FH_VISUAL_FAILURES_DIR }}/
           if-no-files-found: ignore
           retention-days: 1
 

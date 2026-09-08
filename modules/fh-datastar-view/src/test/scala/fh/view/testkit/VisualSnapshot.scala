@@ -46,7 +46,9 @@ object VisualSnapshot {
     * machine.
     *
     * `FH_VISUAL_FAILURES_DIR` names it, and CI sets it to a runner temp path it
-    * then uploads. The fallback is a gitignored dir under this module's
+    * then uploads — from a step that runs before any sbt one, because this
+    * suite runs in the sbt SERVER and inherits the environment of whichever
+    * client started it. The fallback is a gitignored dir under this module's
     * `target`, which is right when `os.pwd` is the repo root — and that is an
     * assumption, not a guarantee: sbt's working directory for a forked test is
     * not something this file should be encoding. The env var is how a caller
