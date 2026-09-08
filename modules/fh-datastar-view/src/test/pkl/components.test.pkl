@@ -581,10 +581,16 @@ facts {
     // The whole of what `c.lock.controls` decides. A lock's tile is the generic
     // one — the composition exists for the capability the generic card cannot
     // see.
-    c.lock.controls(latchLock).children.toList().map((n) -> n.card)
-      == List("entityCard", "button")
-    c.lock.controls(plainLock).children.toList().map((n) -> n.card)
-      == List("entityCard")
+    local withLatch = c.lock.controls(latchLock)
+    withLatch.card == "cardFeatures"
+    withLatch.children["content"].toList().map((n) -> n.card) == List("entityCard")
+    // The latch is a SIBLING of the tile, not a child of it: inside the
+    // tappable element, one press would post `lock/open` and the tile's own
+    // `lock/lock` together.
+    withLatch.children["actions"].toList().map((n) -> n.card) == List("button")
+    // No capability, no wrapper — a plain lock is the generic tile and nothing
+    // more.
+    c.lock.controls(plainLock).card == "entityCard"
   }
 
   ["the latch posts lock/open, which is not unlocking"] {
