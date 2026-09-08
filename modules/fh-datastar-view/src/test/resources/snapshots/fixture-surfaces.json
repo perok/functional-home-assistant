@@ -410,7 +410,7 @@
       },
       "slots" : [
       ],
-      "template" : "<div class=\"card fh-features\">\n  <div class=\"fh-features-content\">{{#content}}{{{html}}}{{/content}}</div>\n  <div class=\"fh-features-actions\">{{#actions}}{{{html}}}{{/actions}}</div>\n</div>"
+      "template" : "<article class=\"card fh-features\">\n  <div class=\"fh-features-content\">{{#content}}{{{html}}}{{/content}}</div>\n  <div class=\"fh-features-actions\">{{#actions}}{{{html}}}{{/actions}}</div>\n</article>"
     },
     "entityCard" : {
       "slots" : [
