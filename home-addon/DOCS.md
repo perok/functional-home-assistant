@@ -166,7 +166,7 @@ docker exec "$C" jcmd <pid> JFR.start settings=profile duration=60s \
 docker cp "$C":/data/fh.jfr .
 ```
 
-## Tracing (optional)
+## Telemetry (optional)
 
 `GET /system/diagnostics` says how much the add-on is using. It does not say
 where a slow *page open* went, because the phases a dashboard request goes
@@ -194,9 +194,24 @@ On top of those, the spans that are specific to what this add-on does:
   high-frequency by nature; if it is more than your collector wants, that is
   what `OTEL_TRACES_SAMPLER` is for.
 
-Log lines written while serving carry the `trace_id` and `span_id` of the span
-they happened in, so a slow trace and the warning explaining it can be matched
-up.
+Metrics of its own, alongside the conventional `http.*` ones:
+
+- `fh.page.nodes` — nodes painted by one page open. Sampling makes the span
+  attribute of the same name a guess about the whole; this is not.
+- `fh.ha.entities` — entity states applied from the feed. Its rate is how fast
+  the house is moving.
+- `fh.sessions.live` — dashboard sessions currently registered.
+
+There is no instrument for how long a dashboard build takes: that is the
+`dashboard.prepare` span's own duration, and a collector that derives latency
+metrics from spans (Tempo's metrics generator does, and the `otel-lgtm` image
+below turns it on) already produces the series.
+
+Log lines go to the collector too, as OpenTelemetry records carrying the trace
+and span they were written inside — so the slow trace and the warning that
+explains it find each other without matching text by hand. They keep going to
+the add-on's Log tab exactly as before, with `trace_id` and `span_id` on the
+line for reading by eye.
 
 The request path is kept in spans (it names the dashboard) but the **query
 string is dropped**, because the Home Assistant login redirect arrives as
@@ -208,18 +223,24 @@ in telemetry.
 You need one container and no configuration. On any machine on the LAN:
 
 ```sh
-docker run -p 3000:3000 -p 4317:4317 -p 4318:4318 grafana/otel-lgtm
+docker run -p 3000:3000 -p 4317:4317 -p 4318:4318 \
+  -p 3200:3200 -p 9090:9090 -p 3100:3100 grafana/otel-lgtm
 ```
 
 Then set `otlp_endpoint` to `http://<that machine>:4318` and open Grafana on
-port 3000 — traces land in Tempo. The image bundles Grafana, Tempo, Loki and
-Prometheus behind an OpenTelemetry collector and needs no setup of its own.
+port 3000 — traces land in Tempo, metrics in Prometheus, logs in Loki. The
+image bundles all four behind an OpenTelemetry collector and needs no setup of
+its own. The three extra ports are Tempo, Prometheus and Loki themselves, worth
+publishing if you want to query their APIs rather than click through Grafana.
 
 Note that 4317/4318 are the collector's **receiving** ports: the add-on pushes
-to them. Nothing scrapes the add-on for traces, and no OpenTelemetry component
-can — a trace is a stream of completed spans rather than a current value, so
-there is no pull protocol for it. (Metrics are the exception, and Prometheus
-scraping is how they would be collected if we ever export any.)
+to them. Nothing scrapes the add-on, and for traces nothing could — a trace is
+a stream of completed spans rather than a current value, so there is no pull
+protocol for it.
+
+4318 is OTLP over HTTP and 4317 is gRPC. The add-on sends HTTP, since that is
+the port every example names; point `otlp_endpoint` at 4317 instead and you
+must also set `OTEL_EXPORTER_OTLP_PROTOCOL=grpc`, or every export fails.
 
 ### What it costs
 

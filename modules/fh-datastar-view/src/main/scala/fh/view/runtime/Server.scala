@@ -7,6 +7,7 @@ import cats.effect.{IO, Resource}
 import cats.effect.kernel.Ref
 import cats.effect.std.Supervisor
 import cats.syntax.all.*
+import fh.view.telemetry.{Diagnostics, Logging, Meters}
 import fh.view.build.{
   AddonBootstrap,
   DashboardBuild,
@@ -33,7 +34,7 @@ import org.http4s.headers.{
   ETag
 }
 import org.typelevel.ci.CIString
-import org.typelevel.log4cats.slf4j.Slf4jLogger
+import org.typelevel.log4cats.LoggerFactory
 import org.typelevel.otel4s.Attribute
 import org.typelevel.otel4s.trace.Tracer
 
@@ -109,18 +110,23 @@ class Server(
     // test and a standalone construction get, and it is also what the add-on
     // itself runs on unless an OTLP endpoint is configured ([[Telemetry]]) —
     // so this parameter changes what is REPORTED, never what is done.
-    tracer: Tracer[IO] = Tracer.noop
+    tracer: Tracer[IO] = Tracer.noop,
+    // Where log lines go. The console-only default is what every test and a
+    // standalone construction get; the add-on passes the fan-out factory
+    // ([[Logging]]), so a line written while serving a request carries that
+    // request's trace id — which is what lets a slow trace and the warning
+    // that explains it find each other.
+    loggerFactory: LoggerFactory[IO] = Logging.console,
+    // The unsampled counterpart of the spans above ([[Meters]]). No-op by
+    // default, like the tracer, and for the same reason.
+    meters: Meters = Meters.noop
 ) {
 
-  /** This class's logger, wrapped so a line written while serving a request
-    * carries that request's trace id ([[TracedLogger]]) — which is what lets a
-    * slow trace and the warning that explains it find each other.
-    *
-    * `logger`, not `log`: `renderPage` already takes a `log: FragmentLog`, and
+  /** `logger`, not `log`: `renderPage` already takes a `log: FragmentLog`, and
     * a field that a parameter shadows in one method and not the others is a
     * trap rather than a convenience.
     */
-  private val logger = new TracedLogger(Slf4jLogger.getLogger[IO], tracer)
+  private val logger = loggerFactory.getLoggerFromClass(classOf[Server])
 
   val routes: HttpRoutes[IO] = HttpRoutes.of[IO] {
     // Resolved per REQUEST, not at construction: the entrypoint can rename or
@@ -2025,7 +2031,7 @@ class Server(
               // nodes in 40 ms and 20 nodes in 40 ms are different findings.
               tracer.currentSpanOrNoop.flatMap(
                 _.addAttribute(Attribute("fh.nodes", own.size.toLong))
-              )
+              ) *> meters.pageNodes.record(own.size.toLong)
           )
             // Where a page open actually spends its time, and the span #75 was
             // opened to get: everything above prices the SETUP, while this is
@@ -2794,7 +2800,9 @@ object Server {
       dumpRefresh: Option[IO[DumpRefresh.Result]],
       adoptionWindow: FiniteDuration = AdoptionWindow,
       lingerWindow: FiniteDuration = LingerWindow,
-      tracer: Tracer[IO] = Tracer.noop
+      tracer: Tracer[IO] = Tracer.noop,
+      loggerFactory: LoggerFactory[IO] = Logging.console,
+      meters: Meters = Meters.noop
   ): Resource[IO, Server] =
     for {
       supervisor <- Supervisor[IO]
@@ -2811,7 +2819,9 @@ object Server {
         dumpRefresh,
         adoptionWindow,
         lingerWindow,
-        tracer
+        tracer,
+        loggerFactory,
+        meters
       )
       _ <- server.sharedPatchPublishers.compile.drain.background
     } yield server
@@ -2838,7 +2848,9 @@ object Server {
       // the instance's own identity, which is what a deployment with no login
       // has and what the tests want.
       actions: HomeAssistantApi[IO] => ServiceCalls = ServiceCalls.asInstance,
-      tracer: Tracer[IO] = Tracer.noop
+      tracer: Tracer[IO] = Tracer.noop,
+      loggerFactory: LoggerFactory[IO] = Logging.console,
+      meters: Meters = Meters.noop
   ): Resource[IO, Server] =
     withSite(
       actions(feed.api),
@@ -2850,7 +2862,9 @@ object Server {
       feed.healthy,
       systemPkl,
       dumpRefresh,
-      tracer = tracer
+      tracer = tracer,
+      loggerFactory = loggerFactory,
+      meters = meters
     )
 
   /** The `POST /system/dump/refresh` response body — status plus what a caller
