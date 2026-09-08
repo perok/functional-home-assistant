@@ -132,17 +132,26 @@ class CardFeatures extends nodes.Node {
     }
     template = """
       <div class="card fh-features">
-        {{#content}}{{{html}}}{{/content}}
+        <div class="fh-features-content">{{#content}}{{{html}}}{{/content}}</div>
         <div class="fh-features-actions">{{#actions}}{{{html}}}{{/actions}}</div>
       </div>
       """
     // The wrapper wears the card chrome and the tile inside it sheds it, so the
-    // two read as ONE card rather than a card with a second card stacked under
+    // two read as ONE card rather than a card with a second one stacked under
     // it. Nothing here knows the theme: `.card` is what the tile already asked
-    // for, this just moves which element gets it.
+    // for, this only moves which element gets it.
+    //
+    // Scoped to the CONTENT, and a descendant selector rather than a child one.
+    // Both matter: every node is wrapped in a `.fh-cell` (ADR 0008), so `>`
+    // never reaches the tile at all — the first cut of this rule silently
+    // matched nothing and the button rendered outside the box. And a feature
+    // BUTTON also carries `.card` (that is how `control.pkl` spells a
+    // non-round one), so an unscoped rule would strip its paint too.
     css = """
-      .fh-features>.card{background:none;box-shadow:none;border:0;padding:0;margin:0}
-      .fh-features-actions{display:flex;gap:.5rem;margin-block-start:.5rem}
+      .fh-features{display:flex;flex-direction:column}
+      .fh-features-content .card{background:none;box-shadow:none;border:0;
+      padding:0;margin:0}
+      .fh-features-actions{display:flex;gap:.5rem;margin-block-start:.75rem}
       .fh-features-actions>*{flex:1 1 0}
       """
   }
