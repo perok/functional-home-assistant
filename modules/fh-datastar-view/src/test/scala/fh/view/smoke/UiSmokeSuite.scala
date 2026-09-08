@@ -247,7 +247,19 @@ class UiSmokeSuite extends SmokeSuite {
         _ <- IO.blocking(kitchenCard.click())
         // Nothing can have arrived yet: there is no stream to carry it.
         _ <- IO.blocking(assertThat(popup).hasCount(0))
-        _ <- IO.blocking(page.unroute("**/sse/dashboard/**"))
+        // Unroute inside the wait, not before an assertion that hopes the
+        // stream is back: every abort above fed Datastar's reconnect backoff,
+        // so by now the next attempt can be a dozen seconds out and the
+        // assertion's own timeout was racing it. Waiting for the RECONNECT
+        // leaves the assertion covering only what it is about — the queued
+        // patch draining down a stream that exists.
+        _ <- IO.blocking(
+          page.waitForRequest(
+            "**/sse/dashboard/**",
+            new Page.WaitForRequestOptions().setTimeout(60000),
+            () => page.unroute("**/sse/dashboard/**")
+          )
+        )
         _ <- IO.blocking(assertThat(popup).containsText("Kitchen Detail"))
       } yield assertEquals(forgotten, 1)
     }

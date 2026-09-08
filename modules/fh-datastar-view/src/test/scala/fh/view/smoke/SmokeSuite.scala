@@ -191,13 +191,30 @@ abstract class SmokeSuite extends BrowserSuite {
   }
 
   /** Quiesce a page before a screenshot ([[ComponentVisualSuite]]): wait for
-    * web fonts (the vendored Material Symbols glyphs) to finish loading, and
-    * kill CSS transitions/animations so a screenshot can never land
-    * mid-transition — the two sources of screenshot-to-screenshot noise a
-    * byte-identity snapshot can't tolerate.
+    * every stylesheet and the web fonts it pulls to finish loading, and kill
+    * CSS transitions/animations so a screenshot can never land mid-transition —
+    * the two sources of screenshot-to-screenshot noise a byte-identity snapshot
+    * can't tolerate.
+    *
+    * `document.fonts.ready` ALONE is not that wait, and the gap is not
+    * theoretical: a theme's deferred sheet (`theme-beer`'s MDI, via
+    * `Theme.deferredStylesheets`) reaches the page as a `<link rel=preload>`
+    * that an `onload` handler swaps to `rel=stylesheet`, so until that swap its
+    * `@font-face` is not in the document's font set at all and `fonts.ready`
+    * resolves without ever having heard of it. The screenshot then catches the
+    * page mid-load, and which side of the race it lands on is a coin flip —
+    * which is how `lock-controls.png` came to be checked in with the button's
+    * icon missing, then failed in CI where the glyph arrived in time.
     */
   def settle(page: Page): Unit = {
-    page.evaluate("document.fonts.ready")
+    page.waitForFunction(
+      """() => !document.querySelector('link[rel="preload"][as="style"]')"""
+    )
+    // The layout read forces the style recalc the swap queued, so the font
+    // load it triggers is already pending when `ready` is asked for.
+    page.evaluate(
+      "() => { document.body.offsetHeight; return document.fonts.ready }"
+    )
     page.addStyleTag(
       new Page.AddStyleTagOptions().setContent(
         "*,*::before,*::after{transition:none!important;animation:none!important;caret-color:transparent!important}"
