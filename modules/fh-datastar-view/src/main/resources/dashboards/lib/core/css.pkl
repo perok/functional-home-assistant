@@ -155,6 +155,12 @@ const local busyCss: String = """
      visible; `.fh-disabled` above stays for the in-flight case, which
      deliberately does NOT disable (ADR 0019). */
   .fh-cell button:disabled{opacity:.5;cursor:not-allowed}
+  /* The same fact on a host that CANNOT be disabled — an entity card's tap is
+     on an `<article>`, and `disabled` is a form-control attribute. The cursor
+     is the visible half: the card keeps its own opacity, because a tile is a
+     READOUT first and dimming the reading it exists to show would cost more
+     than the guard is worth. */
+  .fh-inert{cursor:not-allowed}
   /* The REFUSED state, and the reason it exists: `data-indicator` clears on
      either outcome, so a rejected action left the control looking exactly like
      a successful one. It stays until the next press on this control, unlike

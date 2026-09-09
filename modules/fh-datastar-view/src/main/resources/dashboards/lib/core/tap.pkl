@@ -46,6 +46,21 @@ class TapAction {
   /// "your tap landed, the control is inert" feedback); only the spinner
   /// waits, on the derived signal [[busyShapeClass]] builds.
   busyVisual: Boolean = true
+  /// States of the tapped entity in which this action is MEANINGLESS, so a card
+  /// should refuse the press rather than send a competing command. Filled from
+  /// the domain table for a [[stateService]] tap ([[byDomain]]); empty for
+  /// every other kind, which renders byte-identical to before this existed.
+  ///
+  /// It rides the ACTION and not the card because it is a fact about the
+  /// service, not about the presentation: the same list is right for the tile,
+  /// a pill and a button, and no author should have to know a domain's
+  /// transitional states to get it. See `hass/actions.pkl`.
+  ///
+  /// NOT the busy guard. Busy runs from click until the POST resolves; this
+  /// runs while the ENTITY is mid-move, which begins when HA accepts a command
+  /// and ends when the hardware finishes — and covers a lock someone else moved
+  /// from a keypad, which no request-scoped flag can see.
+  inertWhile: Listing<String> = new {}
 }
 // Wrap a CEL route expression into the full Datastar click expression
 //   @post('sse/action/<slug>/<domain>/<service>/<entity_id>', <no signals>)
@@ -452,7 +467,12 @@ const toggle: TapAction = service("homeassistant/toggle")
 /// The one tap that carries a LIVE expression, so its click slot re-renders on
 /// state change like a value slot does. Prefer a plain [[service]] wherever a
 /// real `toggle` service exists.
-const function stateService(whenState: String, then: String, otherwise: String): TapAction =
+const function stateService(
+  whenState: String,
+  then: String,
+  otherwise: String,
+  inertStates: Listing<String>
+): TapAction =
   new {
     onclick = clickSlot(
       serviceOnclick(
@@ -461,6 +481,7 @@ const function stateService(whenState: String, then: String, otherwise: String):
       true
     )
     busy = true
+    inertWhile = inertStates
   }
 
 /// What a tap on `e` should call, decided from its domain at BUILD time — or
@@ -477,7 +498,12 @@ const function byDomain(e: hass.Entity): TapAction? =
     else if (action is hassActions.Call) service(action.action)
     else
       let (byState = action as hassActions.CallByState)
-        stateService(byState.whenState, byState.then, byState.otherwise)
+        stateService(
+          byState.whenState,
+          byState.then,
+          byState.otherwise,
+          byState.inertWhile
+        )
 
 // The value-carrying action route: the service call gets `service_data`, with
 // the value riding in the URL PATH (the same route the slider's template posts

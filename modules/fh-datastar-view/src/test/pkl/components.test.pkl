@@ -591,6 +591,34 @@ facts {
     !plainLock.supportsOpen
   }
 
+  ["a state-dependent tap refuses the press while the entity is mid-move"] {
+    // The bug this closes: a two-way `CallByState` has one branch and a
+    // fallback, so every transitional state lands in the fallback — a lock read
+    // as `unlocking` is not `locked`, so the tile posted `lock/lock` AGAINST
+    // the unlock already running. The list is the DOMAIN's, so no author has to
+    // know it.
+    local tile = c.entityCard(latchLock)
+    local inert: simpleMod.SimpleMatch = tile.slots["inert"].transform!!
+    inert.cases.toMap().keys.toList().sort()
+      == List("locking", "opening", "unlocking")
+    // `open` and `jammed` are NOT here: locking an open door and retrying a jam
+    // are both meaningful presses, and only a transitional state is not.
+    !inert.cases.toMap().containsKey("open")
+    !inert.cases.toMap().containsKey("jammed")
+    tile.slots["hasInert"] == "1"
+    // A CLASS, not `attr:disabled`: this host is an `<article>`, and only a
+    // form control can be disabled.
+    tile.slots["inert"].signal == "class:fh-inert"
+  }
+
+  ["a domain whose tap is state-INDEPENDENT gets no guard at all"] {
+    // `light/toggle` means the same thing in every state, so there is nothing
+    // to be mid-way through. The card renders byte-identical to before the
+    // guard existed.
+    !c.entityCard(kitchen).slots.containsKey("inert")
+    !c.entityCard(kitchen).slots.containsKey("hasInert")
+  }
+
   ["a typed lock still taps by state, like any other lock"] {
     // Typing the domain must not change what the generic tile does with it —
     // the capability is additive (ADR 0016 owns the tap).

@@ -4,6 +4,7 @@ module components.entity
 
 import "../core/icon.pkl" as icons
 import "../core/node.pkl" as nodes
+import "../core/simple.pkl" as simpleMod
 import "../core/slot.pkl" as slotMod
 import "../core/tap.pkl" as tapMod
 import "../core/text.pkl" as textMod
@@ -17,8 +18,8 @@ class EntityCard extends nodes.Node {
   card = "entityCard"
   cardDef = new nodes.CardDef {
     template = """
-      <article class="card entity{{#tappable}} tappable{{/tappable}}"{{#tappable}}
-        data-on:click="\(tapMod.guardClick){{{onclick}}}"{{/tappable}}\(tapMod.guard)>
+      <article class="card entity{{#tappable}} tappable{{/tappable}}{{#hasInert}} {{inert}}{{/hasInert}}"{{#tappable}}
+        data-on:click="{{#hasInert}}$\(slotMod.signalRef("inert")) ? '' : {{/hasInert}}\(tapMod.guardClick){{{onclick}}}"{{/tappable}}{{#hasInert}} \(slotMod.signalBind("inert")){{/hasInert}}\(tapMod.guard)>
         <header>{{#icon}}{{#busy}}<span class="fh-icon-shape"{{#busyVisual}} \(tapMod.busyShapeClass){{/busyVisual}}>{{/busy}}<i class="mdi {{icon}}"></i>{{#busy}}</span>{{/busy}}{{/icon}}\(textMod.hole("label"))</header>
         <span class="state \(textMod.BOX)">\(textMod.liveRun("value"))</span>{{#secondary}}
         <span class="secondary \(textMod.BOX)">\(textMod.run("secondary"))</span>{{/secondary}}
@@ -82,6 +83,32 @@ class EntityCard extends nodes.Node {
     }
     when (tapAction != null && tapAction!!.busy) {
       ["busy"] = "1"
+    }
+    // INERT while the entity is mid-move, from the ACTION's own list — the
+    // domain table says which states those are, so no author has to
+    // (`hass/actions.pkl`, ADR 0016). Without it a two-way `CallByState` sends
+    // its fallback during a transition: a lock read as `unlocking` is not
+    // `locked`, so a tap posted `lock/lock` against the unlock already running.
+    //
+    // A CLASS and a click guard, where `Button.inertWhile` uses a real
+    // `disabled`: this host is an `<article>`, and only a form control can be
+    // disabled. So the guard is the mechanism here rather than a belt on top of
+    // one.
+    when (tapAction != null && !tapAction!!.inertWhile.isEmpty) {
+      ["inert"] = new slotMod.Slot {
+        transform = simpleMod.matchOf(new Mapping {
+          for (st in tapAction!!.inertWhile) {
+            [st] = "fh-inert"
+          }
+        }, "")
+        default = ""
+        bypassUnavailable = false
+        signal = slotMod.asClass("fh-inert")
+      }
+      // A literal flag, for the same reason `busy` is one: in the PATCH form
+      // the slot's value is blank, so `{{#inert}}` would collapse and take the
+      // binding and the guard with it.
+      ["hasInert"] = "1"
     }
     // The LOOK is a separate slot from the GUARD (`busy`): the class binding
     // behind it is the whole `fh-disabled`/`fh-loading` visual, and a tap with
