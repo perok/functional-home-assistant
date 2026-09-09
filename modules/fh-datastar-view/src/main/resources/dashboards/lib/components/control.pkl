@@ -45,7 +45,7 @@ class Button extends nodes.Node {
     // in-flight affordance an icon has instead of a label going dim. A labelled
     // button gets only what `tapMod.guard` brings.
     template = """
-      {{#href}}<a class="button {{#round}}circle small{{/round}}{{^round}}card{{/round}}{{#hasLit}} {{lit}}{{/hasLit}}"{{#hasLit}} \(slotMod.signalBind("lit")){{/hasLit}} href="{{{href}}}">{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</a>{{/href}}{{^href}}<button class="{{#round}}circle small{{/round}}{{^round}}card{{/round}}{{#hasLit}} {{lit}}{{/hasLit}}"{{#hasLit}} \(slotMod.signalBind("lit")){{/hasLit}} data-on:click="{{#hasInert}}$\(slotMod.signalRef("inert")) ? '' : {{/hasInert}}\(tapMod.guardClick){{{onclick}}}"{{#hasInert}}{{#inert}} disabled{{/inert}} \(slotMod.signalBind("inert")){{/hasInert}}\(tapMod.guard){{#busyVisual}}{{#glyph}} \(tapMod.busyShapeClass){{/glyph}}{{/busyVisual}}>{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</button>{{/href}}
+      {{#href}}<a class="button {{#round}}circle small{{/round}}{{^round}}card{{/round}}{{#hasLit}} {{lit}}{{/hasLit}}"{{#hasLit}} \(slotMod.signalBind("lit")){{/hasLit}} href="{{{href}}}">{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</a>{{/href}}{{^href}}<button class="{{#round}}circle small{{/round}}{{^round}}card{{/round}}{{#hasLit}} {{lit}}{{/hasLit}}"{{#hasLit}} \(slotMod.signalBind("lit")){{/hasLit}} data-on:click="\(tapMod.guardClick){{{onclick}}}"{{#hasInert}}{{#inert}} disabled{{/inert}} \(slotMod.signalBind("inert")){{/hasInert}}\(tapMod.guard){{#busyVisual}}{{#glyph}} \(tapMod.busyShapeClass){{/glyph}}{{/busyVisual}}>{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</button>{{/href}}
       """
     // `label` stays declared — every button has one, even when it is the empty
     // string an icon-only button carries. `glyph`/`round`/`lit` do not: they are
@@ -101,6 +101,21 @@ class Button extends nodes.Node {
       ?? throw(noAction("c.button"))
   // Copy the action's inline surfaces onto the node (mirror jsonnet tapInline).
   inlineSurfaces = tapAction.inlineSurfaces
+  /// Whether [[inertWhile]] applies, and the one shape it cannot take.
+  ///
+  /// A button that GOES somewhere renders as `<a href>`, and `disabled` is a
+  /// FORM-CONTROL attribute — a link has no inert form at all short of dropping
+  /// its `href`, which would take middle-click and open-in-new-tab with it. So
+  /// the combination is refused at BUILD time rather than accepted and quietly
+  /// ignored: silently dropping the option is how a control ends up looking
+  /// guarded and not being it.
+  local inertApplies: Boolean =
+    if (inertWhile.isEmpty || entity == null) false
+    else if (tapAction.href != null)
+      throw("c.button: `inertWhile` needs a button, but this one navigates and "
+        + "renders as a link — `disabled` is a form-control attribute. Drop "
+        + "`inertWhile`, or give it a service tap.")
+    else true
   slots {
     when (entity != null) {
       ["entity_id"] = entity!!.entity_id
@@ -131,10 +146,11 @@ class Button extends nodes.Node {
     // and, because it reads state rather than a request, it also covers a lock
     // someone else moved from a keypad or an automation.
     //
-    // The click guard stays, and is not redundant: `disabled` only works on a
-    // form control, and the same option has to hold on an `<a>` (the `href`
-    // branch of this template) and on any host that is neither.
-    when (!inertWhile.isEmpty && entity != null) {
+    // No click guard beside it: a disabled button fires no click event at all,
+    // so a `$inert ? '' :` prefix on `data-on:click` would be unreachable code.
+    // A host that CANNOT be disabled needs one — an entity card's tap is on an
+    // `<article>` — but that is that card's business, not this template's.
+    when (inertApplies) {
       ["inert"] = new slotMod.Slot {
         transform = simpleMod.stateIn(inertWhile)
         bypassUnavailable = false
@@ -300,7 +316,7 @@ class Pill extends nodes.Node {
     // A chip is already pill-shaped, so unlike [[Button]] there is no round
     // variant: a glyph-only chip is a chip with a glyph in it.
     template = """
-      {{#href}}<a class="chip" href="{{{href}}}">{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</a>{{/href}}{{^href}}<button class="chip" data-on:click="{{#hasInert}}$\(slotMod.signalRef("inert")) ? '' : {{/hasInert}}\(tapMod.guardClick){{{onclick}}}"{{#hasInert}}{{#inert}} disabled{{/inert}} \(slotMod.signalBind("inert")){{/hasInert}}\(tapMod.guard){{#busyVisual}}{{#glyph}} \(tapMod.busyShapeClass){{/glyph}}{{/busyVisual}}>{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</button>{{/href}}
+      {{#href}}<a class="chip" href="{{{href}}}">{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</a>{{/href}}{{^href}}<button class="chip" data-on:click="\(tapMod.guardClick){{{onclick}}}"{{#hasInert}}{{#inert}} disabled{{/inert}} \(slotMod.signalBind("inert")){{/hasInert}}\(tapMod.guard){{#busyVisual}}{{#glyph}} \(tapMod.busyShapeClass){{/glyph}}{{/busyVisual}}>{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</button>{{/href}}
       """
     slots { "label" }
   }

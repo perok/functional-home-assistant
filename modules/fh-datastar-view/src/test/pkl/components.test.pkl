@@ -257,6 +257,27 @@ facts {
     module.catch(() -> c.toggle(outside).slots["onclick"]).contains("nothing happens on click")
   }
 
+  ["inertWhile on a button that NAVIGATES is a build error, not a no-op"] {
+    // A navigating button renders as `<a href>`, and `disabled` is a
+    // form-control attribute — there is no inert form of a link short of
+    // dropping its href, which would take middle-click and open-in-new-tab with
+    // it. Refused rather than accepted and ignored: silently dropping the
+    // option is how a control ends up looking guarded and not being it.
+    module
+      .catch(() ->
+        c.button("Go", c.tap.navigate("/other"))
+          .entity(latchLock)
+          .inertWhile(List("opening"))
+          .slots["label"])
+      .contains("renders as a link")
+    // The same button with a SERVICE tap is fine, which is what makes the
+    // check about the link rather than about `inertWhile`.
+    c.button("Open", c.tap.service("lock/open"))
+      .entity(latchLock)
+      .inertWhile(List("opening"))
+      .slots["hasInert"] == "1"
+  }
+
   // ---- CSS ownership (ADR 0020) ----
 
   ["the base CSS carries the layout contract and the variables cards read"] {
