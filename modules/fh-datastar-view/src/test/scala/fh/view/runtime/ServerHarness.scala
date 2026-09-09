@@ -709,6 +709,12 @@ trait ServerHarness extends munit.CatsEffectSuite {
   def isCursor(e: ServerSentEvent): Boolean =
     e.signals.exists(_.contains(Server.StoreVersionSignal))
 
+  /** The HA-liveness frame a connection opens with. Not part of the opening
+    * block — see [[LiveWorld.connect]] for why it still has to be waited for.
+    */
+  def isLiveness(e: ServerSentEvent): Boolean =
+    e.signals.exists(_.contains(Server.HaDownSignal))
+
   def isCursor(e: SseFrame): Boolean =
     e.signals.exists(_.contains(Server.StoreVersionSignal))
 
@@ -789,11 +795,22 @@ trait ServerHarness extends munit.CatsEffectSuite {
             .drain
         )
         client = new LiveClient(seen)
-        // The opening block ends at the cursor handshake; wait for it so the
-        // first `drain` is exactly what CONNECTING produced.
+        // The opening block ends at the cursor handshake — but the LIVENESS
+        // frame is not in that block. `_haDown` rides a branch MERGED into the
+        // connection stream (`Server.scala`, `healthy.discrete.changes`), so it
+        // can land either side of the cursor; waiting for the cursor alone left
+        // it in flight, and it then turned up in the NEXT drain as bytes a
+        // quiet client was not supposed to have received.
+        //
+        // Here it is always coming, and that is what makes this a wait rather
+        // than a race: the emit is deduplicated against what the session was
+        // last told, and a real page is already correct because the DOCUMENT
+        // rendered the banner and recorded it. This harness has no document, so
+        // the session starts at `None` and the first health value always
+        // patches.
         _ <- fs2.Stream
           .repeatEval(seen.get <* IO.sleep(10.millis))
-          .find(_.exists(isCursor))
+          .find(es => es.exists(isCursor) && es.exists(isLiveness))
           .compile
           .drain
           .timeout(15.seconds)
