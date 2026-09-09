@@ -245,9 +245,14 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   repaint or fill sends, and all a JS-less browser ever gets) and the PATCH form (neither; what
   `renderNodeById` sends, which is why the digest stands still and the morph is suppressed).
   The slot's value names the BINDING KIND (`SignalBind`, one string on the wire): `text`
-  (`data-text`), `style:<prop>` (`data-style:<prop>`, custom properties included), `attr:<name>`, or
-  `bind` (`data-bind`, two-way on a form control). Every kind reads the signal bare — the VALUE
-  carries its own unit (`39.37%`, `#ffb46b`), so the transform decides its shape in one place.
+  (`data-text`), `style:<prop>` (`data-style:<prop>`, custom properties included), `attr:<name>`,
+  `flag:<name>`, `class:<name>`, or `bind` (`data-bind`, two-way on a form control). Every kind
+  reads the signal bare — the VALUE carries its own unit (`39.37%`, `#ffb46b`), so the transform
+  decides its shape in one place. `flag:` is the ONE exception, emitting `!!$sig`, and it is forced:
+  a boolean attribute needs ABSENT, `""` SETS one (`disabled=""` is how HTML spells on), and the
+  value cannot be made absent instead because a `null` in a frame DELETES the signal and a display
+  signal is SHARED across binding kinds. So the truthiness test sits in the per-card attribute —
+  ADR 0017 has the three measurements.
   Customers: `entityCard`'s `value` (text), and all four of the slider's moving slots — `state`
   (text), `value` (`attr:value`), `fill` (`style:--_end`) and
   `fillColor` (`style:background`). The slider's `value` is SERVER-ONLY (ADR 0025): the input is

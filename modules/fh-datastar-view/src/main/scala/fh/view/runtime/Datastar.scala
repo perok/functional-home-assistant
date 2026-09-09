@@ -492,6 +492,16 @@ object Datastar {
     * attribute would be a second place a value's shape is decided, and the
     * authoring layer already decides it in the transform.
     *
+    * [[SignalBind.Flag]] is the ONE exception, and it is forced rather than
+    * chosen. A boolean attribute is absent or present, and the value channel
+    * cannot say ABSENT: `null` in a signals frame DELETES the signal and
+    * orphans every binding on it (see [[signalsJson]]), `false` would render as
+    * the text `false` wherever the same signal is read by a `data-text`, and a
+    * display signal IS shared across binding kinds because
+    * [[Renderer.signalName]] keys it by `(entity, transform)` and not by kind.
+    * So the truthiness test lives in the attribute, where it is per-card, which
+    * is the only place it can be right for every reader of one value.
+    *
     * `data-bind` is the odd one out and takes the signal's NAME rather than a
     * `$`-read, because it is two-way — it writes the signal back on input.
     */
@@ -501,6 +511,11 @@ object Datastar {
     case SignalBind.Style(property) =>
       s"""data-style:$property="$$$signal""""
     case SignalBind.Attr(name) => s"""data-attr:$name="$$$signal""""
+    // `!!` and not `$sig != ''`: the plugin removes on `false` and on `null`,
+    // and a signal the seed has not reached yet reads as undefined — which `!!`
+    // already answers correctly, where a string comparison would set the
+    // attribute.
+    case SignalBind.Flag(name) => s"""data-attr:$name="!!$$$signal""""
     // The bundle kebab-cases a `data-class` key (`P(e, n, "kebab")`), so a
     // class name is written as it appears in CSS and nowhere else.
     case SignalBind.Class(name) => s"""data-class:$name="$$$signal""""

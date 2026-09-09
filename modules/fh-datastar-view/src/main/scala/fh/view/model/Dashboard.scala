@@ -202,10 +202,16 @@ object SlotSource:
   *     included). The VALUE carries its own unit, so the expression is a bare
   *     signal read and the authoring layer decides whether a fill is a
   *     percentage or a colour.
-  *   - [[Attr]] — `data-attr:<name>`, one attribute. Note this sets the
-  *     ATTRIBUTE, which for a form control is not the property the browser
-  *     reads after load (`checked` is the classic trap) — reach for [[Bind]]
-  *     there instead.
+  *   - [[Attr]] — `data-attr:<name>`, one attribute whose VALUE is the signal
+  *     (`value`, `href`, `aria-label`). Note this sets the ATTRIBUTE, which for
+  *     a form control is not the property the browser reads after load
+  *     (`checked` is the classic trap) — reach for [[Bind]] there instead.
+  *   - [[Flag]] — `data-attr:<name>`, one BOOLEAN attribute (`disabled`,
+  *     `hidden`, `inert`, `readonly`, `open`), present while the value is
+  *     truthy. [[Attr]] cannot express this: the plugin follows the DOM's own
+  *     model, where `""` SETS an attribute (`disabled=""` is how HTML spells
+  *     ON) and only `false`/`null` removes it — so a slot whose only falsy
+  *     value is `""` can turn such an attribute on and never off again.
   *   - [[Class]] — `data-class:<name>`, one class present while the value is
   *     truthy. A boolean state, where the value is `""` for off and anything
   *     for on: an empty string is the only falsy thing a slot can produce, so
@@ -221,6 +227,7 @@ enum SignalBind derives CanEqual:
   case Bind
   case Style(property: String)
   case Attr(name: String)
+  case Flag(name: String)
   case Class(name: String)
 
 object SignalBind:
@@ -234,6 +241,7 @@ object SignalBind:
     case "bind" :: Nil          => Some(Bind)
     case "style" :: prop :: Nil => Option.when(prop.nonEmpty)(Style(prop))
     case "attr" :: name :: Nil  => Option.when(name.nonEmpty)(Attr(name))
+    case "flag" :: name :: Nil  => Option.when(name.nonEmpty)(Flag(name))
     case "class" :: name :: Nil => Option.when(name.nonEmpty)(Class(name))
     case _                      => None
 
