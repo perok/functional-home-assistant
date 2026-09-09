@@ -141,7 +141,7 @@ const function signalValueSlot(value: (String|Expr|simpleMod.Simple)?): Slot =
   (valueSlot(value)) { signal = asText }
 
 /// A live value expression for a display field that also accepts a plain
-/// string: `label = expr(#"('friendly_name' in attr ? attr['friendly_name'] : '') + ' ' + state"#)`
+/// string: `label = expr(#"attr[?'friendly_name'].orValue('') + ' ' + state"#)`
 /// vs the literal `label = "Kitchen"`.
 class Expr {
   entityId: String? = null
@@ -156,11 +156,11 @@ function expr(s: String): Expr = new { transform = s }
 function exprOf(eo: hass.Entity, s: String): Expr = new { entityId = eo.entity_id; transform = s }
 
 // Auto-appended unit for a value display: the entity's unit_of_measurement,
-// space-separated, when it has one. The append is a guarded CEL conditional
-// spliced onto the value expression with a `+` (presence is a real boolean;
-// `attr['x']` on an absent key is an eval error, so every read is guarded).
+// space-separated, when it has one. Guarded, because `attr['x']` on an absent
+// key is an eval error — `[?` yields an optional instead, `optMap` runs only
+// when there is a value, and `orValue` supplies the absent case.
 const UNIT_EXPR =
-  #"'unit_of_measurement' in attr ? ' ' + attr['unit_of_measurement'] : ''"#
+  #"attr[?'unit_of_measurement'].optMap(u, ' ' + u).orValue('')"#
 
 // label: Expr -> live (still resolving when unavailable, so a label shows the
 // name, not "unavailable"); Simple -> the opted-in structure (same bypass
@@ -185,7 +185,7 @@ const function valueSlot(value: (String|Expr|simpleMod.Simple)?): Slot =
   else if (value == null) new Slot { transform = simpleMod.unit("unit_of_measurement") }
   else new Slot {
     transform =
-      "('" + value + "' in attr ? attr['" + value + "'] : '')" +
+      "attr[?'" + value + "'].orValue('')" +
       " + (" + UNIT_EXPR + ")"
   }
 
