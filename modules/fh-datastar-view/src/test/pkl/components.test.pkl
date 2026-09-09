@@ -76,7 +76,6 @@ facts {
     slotMod.asBind == "bind"
     slotMod.asStyle("--_end") == "style:--_end"
     slotMod.asAttr("value") == "attr:value"
-    slotMod.asFlag("disabled") == "flag:disabled"
     slotMod.asClass("fh-disabled") == "class:fh-disabled"
   }
 

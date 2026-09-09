@@ -33,12 +33,21 @@ It worked, and no wire byte moved. Three costs followed from the design itself:
    composite `{value, op, prefix, postfix}` micro-format was considered and rejected: it reopens
    the language Phase 2 closed. Anything beyond the nine is CEL, explicitly.
 
-   `match` is a lookup — `Map[String, String]` plus a required `otherwise` — and it REPLACED the
+   `match` is a lookup — `Map[String, SlotValue]` plus a required `otherwise` — and it REPLACED the
    two-armed `enum`, which is `match` with one entry. The count did not move, and the shapes it
    bought are ones no two-armed test could reach: HA's `isWaiting` (three states, one value), a
    state-derived icon class (arms to different values), and a `jammed` look. A `Map` rather than
    an ordered list of arms, because the test is equality: nothing about it is sequential, so a
    duplicate key and a first-match-wins question are unrepresentable rather than undefined.
+
+   Its values are `String | Boolean`, which makes `match` the shape that produces a real
+   BOOLEAN — the only value that can turn a boolean attribute off (ADR 0017). A dedicated
+   membership case (`stateIn`) was considered and rejected in Scala: it would be a second
+   state-to-value mechanism beside this one, and it could not express the inverse
+   (`otherwise = true`) without a third. It survives as Pkl SUGAR over `matchOf`, which is
+   spelling and not mechanism. The arms must be all Strings or all booleans, checked by
+   `Dashboard.validate` — CEL requires one type across a map's values and both ternary arms, so
+   a mixed lookup has no idiomatic spelling to be equivalent to.
 
    `otherwise` is REQUIRED and is not an `Option` meaning "the cases are exhaustive". Nothing at
    this layer knows a domain's state vocabulary — only the vendored Pkl module does — so that

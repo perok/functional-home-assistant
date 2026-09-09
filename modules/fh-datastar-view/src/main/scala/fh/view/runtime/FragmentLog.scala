@@ -1,6 +1,6 @@
 package fh.view.runtime
 
-import fh.view.model.{NodeId, SignalId}
+import fh.view.model.{NodeId, SignalId, SlotValue}
 
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
@@ -92,7 +92,7 @@ private[runtime] object Digest {
   */
 private[runtime] case class Held(
     digest: Option[Digest] = None,
-    signals: Map[SignalId, String] = Map.empty
+    signals: Map[SignalId, SlotValue] = Map.empty
 ) {
 
   /** `later` wins where it says anything, and says nothing by being absent —

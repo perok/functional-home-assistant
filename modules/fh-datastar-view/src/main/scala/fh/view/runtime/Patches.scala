@@ -3,7 +3,7 @@ package fh.view.runtime
 import cats.effect.IO
 import cats.syntax.traverse.*
 import cats.syntax.traverseFilter.*
-import fh.view.model.{DomId, NodeId, SetId, SignalId}
+import fh.view.model.{DomId, NodeId, SetId, SignalId, SlotValue}
 import fh.view.model.DomId.selector
 import io.circe.Json
 
@@ -728,12 +728,21 @@ private[runtime] object Patches {
     val heldB = Map.newBuilder[NodeId, Held]
     var anyMoved = false
     ids.foreach { id =>
-      val held = holds.get(id).fold(Map.empty[SignalId, String])(_.signals)
-      val nodeB = Map.newBuilder[SignalId, String]
+      val held = holds.get(id).fold(Map.empty[SignalId, SlotValue])(_.signals)
+      val nodeB = Map.newBuilder[SignalId, SlotValue]
       var nodeMoved = false
       renderer.signalsFor(id, states).foreach { case (name, value) =>
         if (!held.get(name).contains(value)) {
-          payload += ((name, io.circe.Json.fromString(value)))
+          // A boolean rides the frame as a JSON boolean. `Json.fromString`
+          // would send `"false"`, which is TRUTHY in every binding that reads
+          // it — the attribute would stay set, and the card would look right
+          // on a first paint and wrong ever after.
+          payload += ((
+            name,
+            value match
+              case b: Boolean => io.circe.Json.fromBoolean(b)
+              case s: String  => io.circe.Json.fromString(s)
+          ))
           nodeB += ((name, value))
           nodeMoved = true
         }

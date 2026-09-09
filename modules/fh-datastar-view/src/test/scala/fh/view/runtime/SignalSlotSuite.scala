@@ -12,7 +12,8 @@ import fh.view.model.{
   SignalBind,
   SignalId,
   SlotSource,
-  Surface
+  Surface,
+  Transform
 }
 import api.homeassistant.HomeAssistantApi
 import cats.effect.IO
@@ -417,7 +418,6 @@ class SignalSlotSuite extends ServerHarness {
         "bind",
         "style:--_end",
         "attr:value",
-        "flag:disabled",
         "class:fh-disabled"
       ).map(SignalBind.parse),
       List(
@@ -425,49 +425,67 @@ class SignalSlotSuite extends ServerHarness {
         SignalBind.Bind,
         SignalBind.Style("--_end"),
         SignalBind.Attr("value"),
-        SignalBind.Flag("disabled"),
         SignalBind.Class("fh-disabled")
       ).map(Some(_))
     )
-    assertEquals(SignalBind.parse("flag:"), None)
-    assertEquals(SignalBind.parse("flag"), None)
+    assertEquals(SignalBind.parse("attr:"), None)
+    assertEquals(SignalBind.parse("attr"), None)
   }
 
-  test("a flag binding tests truthiness, and shares the plain value's signal") {
-    // A boolean attribute is the one kind whose meaning the VALUE cannot carry:
-    // `""` sets `disabled=""` (that IS how HTML spells on), and the value
-    // cannot be made absent instead, because the same signal is read by the
-    // `data-text` below and a `null` in a frame would delete it for both.
-    val d = Dashboard(
+  // A boolean attribute is the shape a String slot cannot express: `""` SETS
+  // `disabled` (that IS how HTML spells on), so only a real `false` turns one
+  // off. These pin BOTH ends of that — the seed the client reads and the bytes
+  // a client running no JS is left with — because they fail independently.
+  private val boolOff: Transform.Simple =
+    Transform.Simple.Match(Map("unavailable" -> true), otherwise = false)
+
+  private val boolDash = Dashboard(
+    Map(
+      "sw" -> CardDef(
+        """<button {{#off}}disabled{{/off}} {{{off__bind}}}>go</button>""",
+        slots = List("off")
+      )
+    ),
+    LayoutNode.Component(
+      "sw",
       Map(
-        "sw" -> CardDef(
-          """<button {{{off__bind}}}>{{label}}</button>""" +
-            """<i {{{label__bind}}}>{{label}}</i>",""",
-          slots = List("off", "label")
-        )
-      ),
-      LayoutNode.Component(
-        "sw",
-        Map(
-          "entity_id" -> SlotSource(literal = Some("light.a")),
-          "off" -> SlotSource(
-            transform = "state == 'unavailable' ? '1' : ''",
-            signal = Some(SignalBind.Flag("disabled"))
-          ),
-          "label" -> SlotSource(
-            transform = "state == 'unavailable' ? '1' : ''",
-            signal = Some(SignalBind.Text)
-          )
+        "entity_id" -> SlotSource(literal = Some("light.a")),
+        "off" -> SlotSource(
+          transform = boolOff,
+          bypassUnavailable = false,
+          signal = Some(SignalBind.Attr("disabled"))
         )
       )
     )
-    val html = Renderer.create(d).renderPage(lit(40))
-    val s = sig("light.a", "state == 'unavailable' ? '1' : ''")
-    // ONE signal, two readings of it. That sharing is the reason the truthiness
-    // test has to sit in the attribute rather than in the value: `!!` is right
-    // for the button and would be wrong bytes for the `data-text`.
-    assert(html.contains(s"""data-attr:disabled="!!$$$s""""), clue = html)
-    assert(html.contains(s"""data-text="$$$s""""), clue = html)
+  )
+
+  test("a boolean slot binds bare, and seeds an unquoted boolean") {
+    val html = Renderer.create(boolDash).renderPage(lit(40))
+    val s = sig("light.a", Transform.Simple.key(boolOff))
+    // BARE `$sig`, no `!!` around it: the value is a real boolean, so the
+    // plugin's own `false -> removeAttribute` branch is the whole mechanism.
+    assert(html.contains(s"""data-attr:disabled="$$$s""""), clue = html)
+    // Unquoted in the seed. `'false'` would seed a truthy STRING, and the
+    // attribute would be set on a page that has JS and clear on one that does
+    // not — the two halves disagreeing is the failure this pins. Asserted on
+    // the LEAF segment: a seed is nested, so the dotted path never appears.
+    assert(html.contains(s"${s.segments.last}: false"), clue = html)
+    assert(!html.contains("'false'"), clue = html)
+  }
+
+  test("a false slot leaves the attribute out of the plain HTML") {
+    // The half no signal test can see: mustache drives `{{#off}}` off
+    // `java.lang.Boolean`, and the STRING "false" is TRUTHY there. If the value
+    // were stringified on its way to the template, a browser running no JS
+    // would get a permanently disabled button while every assertion above
+    // still passed.
+    val off = Renderer.create(boolDash).renderPage(lit(40))
+    assert(!off.contains("<button disabled"), clue = off)
+
+    val on = Renderer
+      .create(boolDash)
+      .renderPage(Map("light.a" -> st("light.a", "unavailable")))
+    assert(on.contains("<button disabled"), clue = on)
   }
 
   test("a brightness tick moves four values and sends no element patch") {
