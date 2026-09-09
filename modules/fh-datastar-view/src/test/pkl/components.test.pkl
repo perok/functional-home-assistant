@@ -576,4 +576,21 @@ facts {
     c.entityCard(latchLock).slots["onclick"].transform
       .contains(#"state == 'locked' ? 'lock/unlock' : 'lock/lock'"#)
   }
+
+  ["a lock that can open its latch gets a second control; one that cannot does not"] {
+    // The whole of what `c.lock.controls` decides. A lock's tile is the generic
+    // one — the composition exists for the capability the generic card cannot
+    // see.
+    c.lock.controls(latchLock).children.toList().map((n) -> n.card)
+      == List("entityCard", "button")
+    c.lock.controls(plainLock).children.toList().map((n) -> n.card)
+      == List("entityCard")
+  }
+
+  ["the latch posts lock/open, which is not unlocking"] {
+    local latch = c.lock.openLatch(latchLock)
+    latch.slots["onclick"].transform.contains("lock/open")
+    // Aimed at the lock itself: a button carries no subject of its own.
+    latch.slots["entity_id"] == "lock.latch"
+  }
 }

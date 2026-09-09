@@ -1,7 +1,7 @@
 package fh.view.smoke
 
 import fh.view.model.LayoutNode
-import fh.view.testkit.SmokeDashboard
+import fh.view.testkit.{HouseFixture, SmokeDashboard}
 
 /** The smoke fixtures without a browser.
   *
@@ -24,5 +24,15 @@ class SmokeFixtureSuite extends munit.FunSuite {
 
   test("the smoke dashboard builds") {
     assert(nodes.sizeIs > 1, clue = nodes.map(_.card))
+  }
+
+  test("the lock composition places both of its controls") {
+    // What `c.lock.controls` decides, and the only thing it decides: a lock
+    // reporting OPEN gets a latch button as well as its tile. The visual
+    // baseline shoots the pair; this says the pair exists.
+    val onTheLock = nodes
+      .filter(_.subjectEntity.contains(HouseFixture.frontLock.entityId))
+      .map(_.card)
+    assertEquals(onTheLock.sorted, List("button", "entityCard"))
   }
 }

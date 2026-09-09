@@ -124,6 +124,30 @@ class ComponentVisualSuite extends SmokeSuite {
     }
   }
 
+  test("lock controls look right") {
+    withPage(scene, viewport) { (page, _) =>
+      IO.blocking {
+        settle(page)
+        // The whole composition, not just the tile: what `c.lock.controls`
+        // decides is that a lock reporting OPEN gets a SECOND control, so a
+        // screenshot of the tile alone would pass with the latch button gone.
+        val lockColumn = page
+          .locator(
+            ".fh-cell",
+            new Page.LocatorOptions()
+              .setHas(
+                page.getByRole(
+                  AriaRole.BUTTON,
+                  new Page.GetByRoleOptions().setName("Open")
+                )
+              )
+          )
+          .last()
+        VisualSnapshot.check("lock-controls", lockColumn.screenshot())
+      }
+    }
+  }
+
   test("the full dashboard looks right") {
     withPage(scene, viewport) { (page, _) =>
       IO.blocking {

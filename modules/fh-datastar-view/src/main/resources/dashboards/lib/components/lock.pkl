@@ -1,0 +1,44 @@
+/// Lock-domain composition — the tile plus the one control a lock may have
+/// beyond locking and unlocking.
+///
+/// Small on purpose. A lock's ordinary card is `c.entityCard(l)`: its default
+/// tap already posts `lock/lock` or `lock/unlock` by state (`hass/actions.pkl`),
+/// and its state already reads out as the card's value. What this module adds is
+/// the latch — a lock reporting `LockEntityFeature.OPEN` has a THIRD thing it
+/// can do, and no generic card can know that.
+///
+/// What is deliberately not here — code entry, an alarming `jammed`,
+/// confirmation before unlocking — is listed with its reason on
+/// [[hass.LockEntity]].
+module components.lock
+
+import "../core/tap.pkl" as tapMod
+import "../hass.pkl"
+import "../layout.pkl" as layout
+import "control.pkl" as control
+import "entity.pkl" as entityMod
+
+/// Release the latch — `lock/open`, which is not the same as unlocking: an
+/// unlocked door is still shut. Only writeable for a lock that reports the
+/// capability, because [[controls]] is what places it.
+function openLatch(l: hass.LockEntity): control.Button =
+  control
+    .button("Open", tapMod.service("lock/open"))
+    .entity(l)
+    .icon("mdi:door-open")
+
+/// A lock and everything it can do: the tile (tap locks or unlocks, by state)
+/// plus a latch button when the lock reports `OPEN`.
+///
+/// The capability is read from the entity rather than taken as a group
+/// argument, unlike `components/light.pkl` — a lock's OPEN is one bit with no
+/// values attached, so there is no group for it to carry (ADR 0013's groups
+/// exist to carry a capability's DATA, e.g. a kelvin range).
+function controls(l: hass.LockEntity): layout.Column = new layout.Column {
+  children {
+    entityMod.entityCard(l)
+    when (l.supportsOpen) {
+      openLatch(l)
+    }
+  }
+}
