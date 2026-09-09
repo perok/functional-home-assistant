@@ -484,7 +484,9 @@ class PklBuildSuite extends munit.FunSuite {
       ),
       clue = src
     )
-    assert(src.contains("lights = List(light_kitchen)"), clue = src)
+    // An area carries ONE member list; `hass.lights(area.all)` is how a domain
+    // comes back out of it.
+    assert(src.contains("all = List(light_kitchen, sensor_temp)"), clue = src)
     // Every name in this dump is a legal plain identifier — no identifier is
     // backticked (the `///` doc header's markdown backticks don't count).
     val code = src.linesIterator.filterNot(_.trim.startsWith("///"))
@@ -569,11 +571,12 @@ class PklBuildSuite extends munit.FunSuite {
       tmp / "probe.pkl",
       """module probe
         |
+        |import "@fh-dashboard/hass.pkl"
         |import "@fh-home/dump.pkl" as dump
         |
         |flat = dump.entities.light_kitchen.entity_id
         |viaFloor = dump.ground_floor.kjokken.light_kitchen.entity_id
-        |areaLightCount = dump.areas.kjokken.lights.length
+        |areaLightCount = hass.lights(dump.areas.kjokken.all).length
         |noArea = dump.entities.switch_garage.entity_id
         |""".stripMargin
     )
@@ -585,6 +588,67 @@ class PklBuildSuite extends munit.FunSuite {
     assertEquals(c.get[String]("viaFloor").toOption, Some("light.kitchen"))
     assertEquals(c.get[Int]("areaLightCount").toOption, Some(1))
     assertEquals(c.get[String]("noArea").toOption, Some("switch.garage"))
+  }
+
+  test("a modelled domain's house-wide list is derived, and partitions `all`") {
+    // End to end for what the generator does NOT emit: it writes `all`, and
+    // `dump.locks` comes from the selector the base applies to it. The lock is
+    // the case that would have been silent before — a domain modelled in
+    // `hass.pkl` but left in `generic` reads as "no locks in this house".
+    val tmp = os.temp.dir()
+    copyLib(tmp)
+    writeDump(
+      tmp,
+      PklDump.render(
+        io.circe.parser
+          .parse("""
+            {
+              "areas": {},
+              "floors": {},
+              "entities": {
+                "lock_front": {
+                  "entity_id": "lock.front", "domain": "lock",
+                  "attributes": { "supported_features": 1 }
+                },
+                "media_player_tv": {
+                  "entity_id": "media_player.tv", "domain": "media_player",
+                  "attributes": {}
+                }
+              }
+            }
+          """)
+          .toOption
+          .get
+      )
+    )
+    os.write(
+      tmp / "probe.pkl",
+      """module probe
+        |
+        |import "@fh-home/dump.pkl" as dump
+        |
+        |lockIds = dump.locks.map((l) -> l.entity_id)
+        |latch = dump.locks.first.supportsOpen
+        |genericIds = dump.generic.map((e) -> e.entity_id)
+        |allCount = dump.all.length
+        |""".stripMargin
+    )
+
+    val result = SourceEval.eval(tmp, "probe.pkl")
+    assert(result.isRight, clue = result)
+    val c = result.toOption.get.value.hcursor
+    assertEquals(
+      c.get[List[String]]("lockIds").toOption,
+      Some(List("lock.front"))
+    )
+    // Typed, not just present: `dump.locks` is a `List<LockEntity>`, so the
+    // capability the class derives is reachable off a member.
+    assertEquals(c.get[Boolean]("latch").toOption, Some(true))
+    assertEquals(
+      c.get[List[String]]("genericIds").toOption,
+      Some(List("media_player.tv"))
+    )
+    assertEquals(c.get[Int]("allCount").toOption, Some(2))
   }
 
   test(
@@ -1089,7 +1153,7 @@ class PklBuildSuite extends munit.FunSuite {
     // at build time. A clause knows its candidate: the id is a literal slot and
     // the name is baked, so neither costs a runtime read.
     val set = probeSet(
-      """node = q.from(dump.areas.stue.lights).render((e) -> c.entityCard(e)).build()"""
+      """node = q.from(hass.lights(dump.areas.stue.all)).render((e) -> c.entityCard(e)).build()"""
     )
     val node = set
       .members("light.taklys")
@@ -1115,6 +1179,7 @@ class PklBuildSuite extends munit.FunSuite {
          |
          |import "@fh-dashboard/components.pkl" as c
          |import "@fh-dashboard/query.pkl" as q
+         |import "@fh-dashboard/hass.pkl"
          |import "@fh-home/dump.pkl" as dump
          |
          |$body
@@ -1166,7 +1231,7 @@ class PklBuildSuite extends munit.FunSuite {
     // reaches the wire), a live one becomes the member's guard, and the clause
     // node arrives complete — its own card, its own `entity_id`.
     val set = probeSet(
-      """node = q.from(dump.areas.stue.lights)
+      """node = q.from(hass.lights(dump.areas.stue.all))
         |  .where(q.eq(q.stateProp, "on"))
         |  .render((e) -> c.entityCard(e))
         |  .build()""".stripMargin
@@ -1188,7 +1253,7 @@ class PklBuildSuite extends munit.FunSuite {
     // reverse index has to learn about it from there or the members are never
     // woken. `liveEntities` is that derivation.
     val set = probeSet(
-      """node = q.from(dump.areas.stue.lights + dump.areas.bad.lights)
+      """node = q.from(hass.lights(dump.areas.stue.all) + hass.lights(dump.areas.bad.all))
         |  .where(q.candidate((_e) -> q.entity(dump.areas.stue.sensor_motion).stateIs("on")))
         |  .render((e) -> c.entityCard(e))
         |  .build()""".stripMargin
@@ -1217,7 +1282,7 @@ class PklBuildSuite extends munit.FunSuite {
     // The clauses hold complete nodes, so an unknown card or a bad slot in one
     // has to be caught the same way it is anywhere else in the tree.
     val set = probeSet(
-      """node = q.from(dump.areas.stue.lights + dump.areas.bad.lights)
+      """node = q.from(hass.lights(dump.areas.stue.all) + hass.lights(dump.areas.bad.all))
         |  .render((e) -> c.entityCard(e))
         |  .build()""".stripMargin
     )
@@ -1405,7 +1470,7 @@ class PklBuildSuite extends munit.FunSuite {
     "a render lambda's cell lands on the clause node, the set's on the set"
   ) {
     val set = probeSet(
-      """node = q.from(dump.areas.stue.lights)
+      """node = q.from(hass.lights(dump.areas.stue.all))
         |  .render((e) -> c.entityCard(e).fullWidth())
         |  .build()""".stripMargin
     )
@@ -1419,7 +1484,7 @@ class PklBuildSuite extends munit.FunSuite {
     // The SET's own cell is a layout builder on the built node, so the two
     // cannot be confused for each other.
     val sized = probeSet(
-      """node = (q.from(dump.areas.stue.lights)
+      """node = (q.from(hass.lights(dump.areas.stue.all))
         |  .render((e) -> c.entityCard(e))
         |  .build()).fullWidth()""".stripMargin
     )
@@ -1594,7 +1659,7 @@ class PklBuildSuite extends munit.FunSuite {
     // fact at runtime. A candidate is a known entity, so all five are literals
     // and the lookup tier is gone.
     val set = probeSet(
-      """node = q.from(dump.areas.stue.lights).render((e) -> c.slider(e)).build()"""
+      """node = q.from(hass.lights(dump.areas.stue.all)).render((e) -> c.slider(e)).build()"""
     )
     val slots = rowOf(
       set

@@ -4,7 +4,7 @@
 ///
 /// Plain Pkl stays the first answer. A fixed list of lights is still
 ///
-///     for (light in dump.stue.lights) { c.slider(light) }
+///     for (light in hass.lights(dump.areas.stue.all)) { c.slider(light) }
 ///
 /// and reaching for `q.from(...)` to write that is a regression in authoring
 /// cost with nothing bought. This module earns its place only when the set has
@@ -21,7 +21,7 @@
 /// So the runtime decides presence and nothing else; it never materialises an
 /// entity the build did not know about.
 ///
-///     q.from(dump.stue.lights)
+///     q.from(hass.lights(dump.areas.stue.all))
 ///       .where(q.eq(q.stateProp, "on"))
 ///       .render((e) -> c.slider(e))
 ///

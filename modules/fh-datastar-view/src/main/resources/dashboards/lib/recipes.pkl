@@ -15,18 +15,22 @@ import "components/slider.pkl" as sliderMod
 /// One section per area of `floor` that HAS lights: the area name as a
 /// [[SectionTitle]] followed by a [[Slider]] per light, each area wrapped in its
 /// own column. The typed counterpart of `overetasje.jsonnet`'s `areaView`,
-/// driven by the generated dump's `Floor.areas` / `Area.lights` member lists
-/// (both `hidden` on [[hass.Floor]]/[[hass.Area]] — readable, never rendered).
-/// Areas with no lights are skipped, so the result is exactly the light-bearing
-/// sections. Returns a [[Column]] so it drops straight into an entry's tree.
+/// driven by the generated dump's `Floor.areas` and each area's `all` (both
+/// `hidden` on [[hass.Floor]]/[[hass.Area]] — readable, never rendered), with
+/// [[hass.lights]] picking the domain out. Areas with no lights are skipped, so
+/// the result is exactly the light-bearing sections. Returns a [[Column]] so it
+/// drops straight into an entry's tree.
 function floorView(floor: hass.Floor): layout.Column = new layout.Column {
   children {
     for (area in floor.areas) {
-      when (!area.lights.isEmpty) {
+      // Not hoisted into a `local`: a for-generator body may generate only
+      // entries and elements, so a `local` there is "cannot generate object
+      // properties".
+      when (!hass.lights(area.all).isEmpty) {
         new layout.Column {
           children {
             textMod.title(area.area_name)
-            for (light in area.lights) {
+            for (light in hass.lights(area.all)) {
               sliderMod.slider(light)
             }
           }

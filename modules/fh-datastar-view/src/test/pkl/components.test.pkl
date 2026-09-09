@@ -24,6 +24,12 @@ local outside: hass.SensorEntity = new { entity_id = "sensor.outside" }
 // Default-tap fixtures (#106): a domain HA can toggle, one whose service the
 // state picks, one that only presses, and one with no action at all.
 local frontLock: hass.GenericEntity = new { entity_id = "lock.front"; domain = "lock" }
+// The typed lock, with and without the one capability the domain defines.
+local latchLock: hass.LockEntity = new {
+  entity_id = "lock.latch"
+  supported_features = 1
+}
+local plainLock: hass.LockEntity = new { entity_id = "lock.plain" }
 local doorbell: hass.GenericEntity = new { entity_id = "button.doorbell"; domain = "button" }
 
 // Icon fixtures, shaped as PklDump generates them: a capability attribute lives
@@ -554,5 +560,22 @@ facts {
     // ...and the label that stayed behind for the toggle's `aria-label` reads
     // `onRender`: right whenever the card is drawn, never a reason to draw it.
     head.slots["label"] is String || head.slots["label"].reads == "onRender"
+  }
+
+  // ---- the lock domain ----
+
+  ["supportsOpen reads the one bit LockEntityFeature defines"] {
+    // The whole of what typing a lock buys: `lock/open` releases a latch and is
+    // NOT unlocking, and only the bitmask says whether this lock has one. A
+    // card cannot see that; the schema can.
+    latchLock.supportsOpen
+    !plainLock.supportsOpen
+  }
+
+  ["a typed lock still taps by state, like any other lock"] {
+    // Typing the domain must not change what the generic tile does with it —
+    // the capability is additive (ADR 0016 owns the tap).
+    c.entityCard(latchLock).slots["onclick"].transform
+      .contains(#"state == 'locked' ? 'lock/unlock' : 'lock/lock'"#)
   }
 }
