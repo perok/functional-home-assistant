@@ -129,7 +129,7 @@ ids at all, because the member is their patch target, so their slots live in its
 Descending in the static case would seed a child's signal on its parent's wrapper and leave the
 child's binding pointed at a signal nothing ever writes — silent, and permanent.
 
-### Four binding kinds, because a value does not always land in text
+### Six binding kinds, because a value does not always land in text
 
 `signal`'s value says **where** the value lands — the one thing the renderer cannot infer. It is a
 renderer-side enumeration (`SignalBind`, one string on the wire) rather than an attribute the card
@@ -140,12 +140,45 @@ have it un-written.
 |---|---|---|
 | `text` | `data-text="$sig"` | a reading, a label, a state |
 | `style:<prop>` | `data-style:<prop>="$sig"` | a track fill, a colour — custom properties included |
-| `attr:<name>` | `data-attr:<name>="$sig"` | one attribute |
+| `attr:<name>` | `data-attr:<name>="$sig"` | one attribute whose VALUE is the signal — `value`, `href`, `aria-label` |
+| `flag:<name>` | `data-attr:<name>="!!$sig"` | one BOOLEAN attribute — `disabled`, `hidden`, `inert`, `readonly`, `open` |
+| `class:<name>` | `data-class:<name>="$sig"` | one class, present while the value is truthy |
 | `bind` | `data-bind="sig"` | **two-way** on a form control: the server writes it, the user's input writes it back |
 
 Every kind reads the signal **bare**, with no expression around it, because the value carries
 whatever it needs — a fill arrives as `39.37%`, a colour as `#ffb46b`. An expression in the
 attribute would be a second place a value's shape is decided, and the transform already decides it.
+
+**`flag` is the one exception, and it is forced rather than chosen.** A boolean attribute is absent
+or present, and the value channel cannot say ABSENT. Three facts, each measured:
+
+1. Datastar's attr plugin implements the DOM's own model — `l===""||l===!0 → setAttribute(a,"")`,
+   `l===!1||l==null → removeAttribute(a)`. `disabled=""` **is** how HTML spells on, so an empty
+   string SETS. With `""` the only falsy value a slot produces, `attr:` can turn a boolean attribute
+   on and never off again.
+2. Making the value nullable does not rescue it: **`null` in a signals frame DELETES the signal**
+   and orphans every binding on it (the store proxy is `if (a == null) delete r[o]`; pinned by
+   `DatastarMorphContractSuite`). Reading the name afterwards re-creates it as `""`, which nothing
+   is watching. `false` avoids the delete but renders as the literal text `false` wherever the same
+   signal is read as `data-text`.
+3. And it IS the same signal: a display signal is keyed by `(entity, transform)` and **shared
+   across binding kinds** (`Renderer.signalName` — only `bind` is node-scoped). That is the #134
+   win, and it means no single encoding of "absent" can be right for every reader of one value.
+
+So the truthiness test lives in the attribute, where it is **per-card** — the only place that can be
+right for all of them. `!!` rather than a comparison against `''` because a signal the seed has not
+reached yet reads as `undefined`, which `!!` already answers correctly.
+
+`flag:disabled` is for a control that is unavailable **because of the entity's state** — the lock is
+already moving, the device is offline. There a real `disabled` is the right answer: it leaves the
+tab order and stops the click in the browser, where a dimming class needs a JS guard to mean
+anything.
+
+It is **not** the answer for an action in flight. ADR 0019 settled that deliberately: a disabled
+button loses focus and fires no events at all, which is worse for a card than an inert one, so
+`busy` guards the expression instead. The two cases differ in duration and in who is waiting — a
+state the entity is in, against a request the user just made — and that is why they get different
+mechanisms rather than one.
 
 `bind` is the odd one out twice over: it takes the signal's *name* rather than a `$`-read, and its
 card is **not plain-form-capable** — an interactive control needs a client signal whatever this

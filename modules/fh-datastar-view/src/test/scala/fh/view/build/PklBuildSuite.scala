@@ -2142,23 +2142,21 @@ class PklBuildSuite extends munit.FunSuite {
     // not a hard-coded constant.
     assertEquals(
       rowOf(kids(0)).slots("fillColor").valueKey,
-      """cel.bind(rgb, 'rgb_color' in attr ? attr['rgb_color'] : null,
-        |  rgb != null && size(rgb) == 3
+      """attr[?'rgb_color'].optMap(rgb,
+        |  size(rgb) == 3
         |    ? 'rgb(' + str(rgb[0]) + ',' + str(rgb[1]) + ',' + str(rgb[2]) + ')'
-        |    : '')""".stripMargin
+        |    : '').orValue('')""".stripMargin
     )
     assertEquals(
       rowOf(kids(1)).slots("fillColor").valueKey,
-      """cel.bind(k, 'color_temp_kelvin' in attr ? attr['color_temp_kelvin'] : null,
-        |  k != null
-        |    ? cel.bind(t,
-        |        (double(k) - 2000.0) < 0.0 ? 0.0 :
-        |        ((double(k) - 2000.0) > 4535.0
-        |          ? 1.0 : (double(k) - 2000.0) / 4535.0),
-        |        'rgb(' + str(math.round(255.0 - 54.0 * t))
-        |        + ',' + str(math.round(166.0 + 60.0 * t))
-        |        + ',' + str(math.round(87.0 + 168.0 * t)) + ')')
-        |    : '')""".stripMargin
+      """attr[?'color_temp_kelvin'].optMap(k,
+        |  cel.bind(t,
+        |    (double(k) - 2000.0) < 0.0 ? 0.0 :
+        |    ((double(k) - 2000.0) > 4535.0
+        |      ? 1.0 : (double(k) - 2000.0) / 4535.0),
+        |    'rgb(' + str(math.round(255.0 - 54.0 * t))
+        |    + ',' + str(math.round(166.0 + 60.0 * t))
+        |    + ',' + str(math.round(87.0 + 168.0 * t)) + ')')).orValue('')""".stripMargin
     )
   }
 

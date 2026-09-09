@@ -61,10 +61,11 @@ class Slot {
 ///
 /// The constraint is what a union would have bought — a typo is an eval error
 /// naming the value, not a slot that silently binds nothing. Build one with
-/// [[asText]] / [[asBind]] / [[asStyle]] / [[asAttr]] / [[asClass]] rather than
-/// writing the string, so the spelling lives in one place.
+/// [[asText]] / [[asBind]] / [[asStyle]] / [[asAttr]] / [[asFlag]] /
+/// [[asClass]] rather than writing the string, so the spelling lives in one
+/// place.
 typealias SignalBind =
-  String(matches(Regex(#"text|bind|(style|attr|class):\S+"#)))
+  String(matches(Regex(#"text|bind|(style|attr|flag|class):\S+"#)))
 
 /// `data-text` — the element's whole text content. The common case: a reading,
 /// a label, a state.
@@ -81,9 +82,32 @@ const asBind: SignalBind = "bind"
 /// expression around it: the transform decides the shape, in one place.
 const function asStyle(property: String): SignalBind = "style:" + property
 
-/// `data-attr:<name>` — one attribute. NOT for a form control's state; see
-/// [[asBind]].
+/// `data-attr:<name>` — one attribute whose VALUE is the signal (`value`,
+/// `href`, `aria-label`). NOT for a form control's state; see [[asBind]]. NOT
+/// for a boolean attribute either — see [[asFlag]], which exists because this
+/// one cannot turn one off.
 const function asAttr(name: String): SignalBind = "attr:" + name
+
+/// `data-attr:<name>` for a BOOLEAN attribute — `disabled`, `hidden`, `inert`,
+/// `readonly`, `open` — present while the value is truthy, exactly like
+/// [[asClass]], so the transform yields `""` for off and anything for on.
+///
+/// Separate from [[asAttr]] because HTML spells ON as `disabled=""`, so an
+/// empty string SETS a boolean attribute. A slot whose only falsy value is `""`
+/// can therefore turn one on and never off again — and the value cannot simply
+/// be made nullable, because a display signal is SHARED by every card reading
+/// the same value and a `null` in a patch frame deletes it outright. So the
+/// truthiness test lives in the emitted attribute, where it is per-card.
+///
+/// For a control unavailable because of the ENTITY'S STATE — already moving,
+/// offline — prefer this over [[asClass]] plus CSS: a real `disabled` leaves
+/// the tab order and stops the click in the browser, where a dimming class
+/// needs a JS guard to mean anything.
+///
+/// NOT for an action in flight. ADR 0019 settled that: a disabled button loses
+/// focus and fires no events at all, which is worse for a card than an inert
+/// one, so `busy` guards the click expression instead.
+const function asFlag(name: String): SignalBind = "flag:" + name
 
 /// `data-class:<name>` — one class, present while the value is truthy. A
 /// BOOLEAN state: the transform must yield `""` for off, because an empty
@@ -117,7 +141,7 @@ const function signalValueSlot(value: (String|Expr|simpleMod.Simple)?): Slot =
   (valueSlot(value)) { signal = asText }
 
 /// A live value expression for a display field that also accepts a plain
-/// string: `label = expr(#"('friendly_name' in attr ? attr['friendly_name'] : '') + ' ' + state"#)`
+/// string: `label = expr(#"attr[?'friendly_name'].orValue('') + ' ' + state"#)`
 /// vs the literal `label = "Kitchen"`.
 class Expr {
   entityId: String? = null
@@ -132,11 +156,11 @@ function expr(s: String): Expr = new { transform = s }
 function exprOf(eo: hass.Entity, s: String): Expr = new { entityId = eo.entity_id; transform = s }
 
 // Auto-appended unit for a value display: the entity's unit_of_measurement,
-// space-separated, when it has one. The append is a guarded CEL conditional
-// spliced onto the value expression with a `+` (presence is a real boolean;
-// `attr['x']` on an absent key is an eval error, so every read is guarded).
+// space-separated, when it has one. Guarded, because `attr['x']` on an absent
+// key is an eval error — `[?` yields an optional instead, `optMap` runs only
+// when there is a value, and `orValue` supplies the absent case.
 const UNIT_EXPR =
-  #"'unit_of_measurement' in attr ? ' ' + attr['unit_of_measurement'] : ''"#
+  #"attr[?'unit_of_measurement'].optMap(u, ' ' + u).orValue('')"#
 
 // label: Expr -> live (still resolving when unavailable, so a label shows the
 // name, not "unavailable"); Simple -> the opted-in structure (same bypass
@@ -161,7 +185,7 @@ const function valueSlot(value: (String|Expr|simpleMod.Simple)?): Slot =
   else if (value == null) new Slot { transform = simpleMod.unit("unit_of_measurement") }
   else new Slot {
     transform =
-      "('" + value + "' in attr ? attr['" + value + "'] : '')" +
+      "attr[?'" + value + "'].orValue('')" +
       " + (" + UNIT_EXPR + ")"
   }
 

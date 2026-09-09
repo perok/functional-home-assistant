@@ -60,6 +60,20 @@ facts {
     q.entity(kitchen).lt(q.prop("brightness"), 20).op == "lt"
   }
 
+  // The wire spelling of a binding is declared twice — this typealias and
+  // `SignalBind.parse` in Scala — and nothing makes them agree, so these pin
+  // the strings the Scala side has to accept. A spelling the regex rejects is
+  // an eval error here; one the regex accepts but Scala cannot parse decodes
+  // to a slot that silently binds nothing.
+  ["a binding names its kind on the wire"] {
+    slotMod.asText == "text"
+    slotMod.asBind == "bind"
+    slotMod.asStyle("--_end") == "style:--_end"
+    slotMod.asAttr("value") == "attr:value"
+    slotMod.asFlag("disabled") == "flag:disabled"
+    slotMod.asClass("fh-disabled") == "class:fh-disabled"
+  }
+
   ["a numeric threshold stays a number, not a string"] {
     q.entity(kitchen).lt(q.prop("brightness"), 20).value is Int
   }

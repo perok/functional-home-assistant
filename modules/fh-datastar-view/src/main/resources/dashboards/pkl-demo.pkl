@@ -89,7 +89,7 @@ card = (c.grid) {
       .caseOf(q.eq(q.prop("domain"), "light"), c.slider)
       .`else`((e) -> c.entityCard(e)
         .tapAction(c.tap.toggle)
-        .label(c.expr(#"('friendly_name' in attr ? attr['friendly_name'] : '') + ' (' + state + ')'"#)))
+        .label(c.expr(#"attr[?'friendly_name'].orValue('') + ' (' + state + ')'"#)))
       .build()
       .fullWidth()
 
@@ -104,7 +104,7 @@ card = (c.grid) {
       .where(q.eq(q.optional(q.prop("device_class")), "battery"))
       .where(q.lt(q.stateProp, 20))
       .render((e) -> c.entityCard(e)
-        .label(c.expr(#"('friendly_name' in attr ? attr['friendly_name'] : '') + ' — ' + state + '%'"#))
+        .label(c.expr(#"attr[?'friendly_name'].orValue('') + ' — ' + state + '%'"#))
         .secondary("device_class"))
       .build()
       .fullWidth()

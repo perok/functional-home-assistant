@@ -406,6 +406,70 @@ class SignalSlotSuite extends ServerHarness {
     assert(html.contains("""@post('x/' + $_c__value)"""), clue = html)
   }
 
+  test("every wire spelling the authoring layer emits decodes") {
+    // The other end of the `components.test.pkl` fact of the same name: the
+    // grammar is declared twice — a Pkl typealias regex and this parser — and
+    // nothing else checks they agree. A spelling one side accepts and the other
+    // does not becomes a slot that binds nothing, silently.
+    assertEquals(
+      List(
+        "text",
+        "bind",
+        "style:--_end",
+        "attr:value",
+        "flag:disabled",
+        "class:fh-disabled"
+      ).map(SignalBind.parse),
+      List(
+        SignalBind.Text,
+        SignalBind.Bind,
+        SignalBind.Style("--_end"),
+        SignalBind.Attr("value"),
+        SignalBind.Flag("disabled"),
+        SignalBind.Class("fh-disabled")
+      ).map(Some(_))
+    )
+    assertEquals(SignalBind.parse("flag:"), None)
+    assertEquals(SignalBind.parse("flag"), None)
+  }
+
+  test("a flag binding tests truthiness, and shares the plain value's signal") {
+    // A boolean attribute is the one kind whose meaning the VALUE cannot carry:
+    // `""` sets `disabled=""` (that IS how HTML spells on), and the value
+    // cannot be made absent instead, because the same signal is read by the
+    // `data-text` below and a `null` in a frame would delete it for both.
+    val d = Dashboard(
+      Map(
+        "sw" -> CardDef(
+          """<button {{{off__bind}}}>{{label}}</button>""" +
+            """<i {{{label__bind}}}>{{label}}</i>",""",
+          slots = List("off", "label")
+        )
+      ),
+      LayoutNode.Component(
+        "sw",
+        Map(
+          "entity_id" -> SlotSource(literal = Some("light.a")),
+          "off" -> SlotSource(
+            transform = "state == 'unavailable' ? '1' : ''",
+            signal = Some(SignalBind.Flag("disabled"))
+          ),
+          "label" -> SlotSource(
+            transform = "state == 'unavailable' ? '1' : ''",
+            signal = Some(SignalBind.Text)
+          )
+        )
+      )
+    )
+    val html = Renderer.create(d).renderPage(lit(40))
+    val s = sig("light.a", "state == 'unavailable' ? '1' : ''")
+    // ONE signal, two readings of it. That sharing is the reason the truthiness
+    // test has to sit in the attribute rather than in the value: `!!` is right
+    // for the button and would be wrong bytes for the `data-text`.
+    assert(html.contains(s"""data-attr:disabled="!!$$$s""""), clue = html)
+    assert(html.contains(s"""data-text="$$$s""""), clue = html)
+  }
+
   test("a brightness tick moves four values and sends no element patch") {
     val r = Renderer.create(sliderish)
     val log = FragmentLog("test").touched(leaf, 1L)

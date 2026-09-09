@@ -20,9 +20,9 @@ import io.circe.derivation.{Configuration, ConfiguredDecoder}
   *
   *   - `str(math.round(num(state) * 10.0) / 10.0) + ' V'` — round to one
   *     decimal, append a unit
-  *   - `state + ('unit_of_measurement' in attr ? ' ' + attr['unit_of_measurement'] : '')`
-  *     — append the entity's own unit only when it has one
-  *   - `'brightness' in attr ? str(math.round((double(attr['brightness']) - 1.0) * 100.0 / 254.0)) + ' %' : '0 %'`
+  *   - `state + attr[?'unit_of_measurement'].optMap(u, ' ' + u).orValue('')` —
+  *     append the entity's own unit only when it has one
+  *   - `attr[?'brightness'].optMap(b, str(math.round((double(b) - 1.0) * 100.0 / 254.0)) + ' %').orValue('0 %')`
   *     — position as a percentage of the slider's baked min..max range
   *   - `state == 'on' ? 'Open' : 'Closed'` — map a state to display text
   *   - `"@post('sse/action/\" + dashboard_slug + \"/\" + 'light/toggle' + \"/\" + entity_id + \"')"`
@@ -31,11 +31,15 @@ import io.circe.derivation.{Configuration, ConfiguredDecoder}
   * Presence is a REAL boolean in CEL, and the entity's `attr` is a JVM map
   * adapted as a CEL map (not a native one): `'x' in attr` tests a key's
   * presence, while a RAW `attr['x']` on an absent key is an evaluation error —
-  * so the shipped strings read attributes guarded (`'x' in attr ? … : …`), the
-  * idiom that mirrors JSONata's null-on-missing (measured in the Phase-0
-  * sweep). Stringify a heterogeneous value with `str(x)`, which renders numbers
-  * the same 10-digit way the engine renders a bare numeric result, so the two
-  * can never drift.
+  * so every read is guarded. CEL's optionals are enabled and are what the
+  * shipped strings use: `attr[?'x']` is the guarded read, `.orValue(d)` the
+  * inline default, `.optMap(v, …)` when the value is transformed on the way
+  * out. An empty optional renders `""`, exactly as a `null` does. The older
+  * `'x' in attr ? … : …` ternary means the same thing and still works — it
+  * survives where the [[Simple]] tier's scaladoc DEFINES a shape by it (ADR
+  * 0028 pins those by byte-equality). Stringify a heterogeneous value with
+  * `str(x)`, which renders numbers the same 10-digit way the engine renders a
+  * bare numeric result, so the two can never drift.
   *
   * Compilation happens once at build/validate time; the renderer reuses the
   * compiled program. A failing evaluation is **not** swallowed nor allowed to

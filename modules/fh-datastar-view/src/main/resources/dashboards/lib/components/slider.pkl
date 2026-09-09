@@ -54,20 +54,20 @@ const sliderSpec: Mapping<String, SliderSpec> = new {
 // a runtime one — a light can go `unavailable` and a live update can replace
 // its state with one carrying no colour attrs at all, and in CEL a read of a
 // missing map key THROWS (an engine error on the card, where the slot default
-// is a graceful fallback). So every shape keeps one `in attr` presence test on
-// its bind. What the store contract DOES prove away is the value's nullness
-// behind a present key ([[StateStore.toJavaObject]] never emits JSON-null
-// values), which is why there is no second `!= null` — and `size(rgb) == 3`
-// stays as one cheap call between "ignore a lying integration's short list"
-// and a CEL indexing error.
+// is a graceful fallback). So every shape keeps one presence guard on its
+// read: `attr[?'x']` yields an optional, `optMap` runs the body only when
+// there is a value, and `orValue('')` supplies the absent case. What the store
+// contract DOES prove away is the value's nullness behind a present key
+// ([[StateStore.toJavaObject]] never emits JSON-null values), which is why
+// there is no second `!= null` — and `size(rgb) == 3` stays as one cheap call
+// between "ignore a lying integration's short list" and a CEL indexing error.
 //
-// CEL has no variable-binding operator, so the intermediates (the rgb list,
-// the kelvin, the ramp position) ride the `cel.bind` extension's:
-// `cel.bind(<name>, <value>, <body>)` runs body with the name bound. A kelvin
-// value arrives as a Long and CEL's double overloads have no (Long, double)
-// operand, so every arithmetic read coerces `double(k)` first. Both ternary
-// arms must be the SAME type (CEL has no `? x : null`), so the absent arm is
-// `''`.
+// `optMap` also BINDS its value, so the guarded read and the intermediate are
+// one construct rather than a presence test feeding a `cel.bind`. The ramp
+// position still needs `cel.bind(<name>, <value>, <body>)` — it is computed,
+// not read. A kelvin value arrives as a Long and CEL's double overloads have
+// no (Long, double) operand, so every arithmetic read coerces `double(k)`
+// first.
 //
 // The sources ship AS WRITTEN, minus two mechanical normalizations: Pkl
 // multi-line strings DEDENT by the closing delimiter's indentation, and
@@ -80,10 +80,10 @@ const sliderSpec: Mapping<String, SliderSpec> = new {
 
 const local sliderFillColourRgb: String =
   #"""
-  cel.bind(rgb, 'rgb_color' in attr ? attr['rgb_color'] : null,
-    rgb != null && size(rgb) == 3
+  attr[?'rgb_color'].optMap(rgb,
+    size(rgb) == 3
       ? 'rgb(' + str(rgb[0]) + ',' + str(rgb[1]) + ',' + str(rgb[2]) + ')'
-      : '')
+      : '').orValue('')
   """#.trim()
 
 // The ramp over the axis's own range: `minK`/`maxK` are the kelvin bounds the
@@ -92,16 +92,14 @@ const local sliderFillColourRgb: String =
 // have no (Long, int) operand — the same fact `double(k)` answers).
 const local function sliderFillColourRamp(minK: Int, maxK: Int): String =
   """
-  cel.bind(k, 'color_temp_kelvin' in attr ? attr['color_temp_kelvin'] : null,
-    k != null
-      ? cel.bind(t,
-          (double(k) - \(minK).0) < 0.0 ? 0.0 :
-          ((double(k) - \(minK).0) > \(maxK - minK).0
-            ? 1.0 : (double(k) - \(minK).0) / \(maxK - minK).0),
-          'rgb(' + str(math.round(255.0 - 54.0 * t))
-          + ',' + str(math.round(166.0 + 60.0 * t))
-          + ',' + str(math.round(87.0 + 168.0 * t)) + ')')
-      : '')
+  attr[?'color_temp_kelvin'].optMap(k,
+    cel.bind(t,
+      (double(k) - \(minK).0) < 0.0 ? 0.0 :
+      ((double(k) - \(minK).0) > \(maxK - minK).0
+        ? 1.0 : (double(k) - \(minK).0) / \(maxK - minK).0),
+      'rgb(' + str(math.round(255.0 - 54.0 * t))
+      + ',' + str(math.round(166.0 + 60.0 * t))
+      + ',' + str(math.round(87.0 + 168.0 * t)) + ')')).orValue('')
   """.trim()
 
 // The dragged position as a percentage of the card's own range, in JS — the

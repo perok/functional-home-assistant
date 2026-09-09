@@ -35,8 +35,12 @@ Dashjoin left the shipped runtime entirely; it survives only as a bench-local
 reference (`modules/benchmarks/.../Jsonata.scala`) behind the divergence gate
 and the `jsonata` bench cells.
 
-- **CEL-native semantics, no compatibility shims.** Presence is `'k' in attr`
-  (a raw `attr['k']` on an absent key throws — it is not a null check), concat
+- **CEL-native semantics, no compatibility shims.** A raw `attr['k']` on an
+  absent key throws — it is not a null check — so every read is guarded.
+  `attr[?'k']` (CEL's optionals, enabled on both builders) is what the shipped
+  strings use, with `.orValue(d)` for the default and `.optMap(v, …)` where the
+  value is transformed on the way out; `'k' in attr` is the older spelling of
+  the same test and still works. Concat
   is `+`, rounding is `math.round` (half-away), `double(v)` is explicit where
   JSONata coerced. `Transform.Direct` (bare `state`, guarded attribute read)
   still bypasses the engine; widening it into the Simple catalog is Phase 2

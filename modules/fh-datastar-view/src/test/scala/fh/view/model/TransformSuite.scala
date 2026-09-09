@@ -136,6 +136,32 @@ class TransformSuite extends munit.FunSuite {
     )
   }
 
+  test("an optional renders like the null it means, never as its wrapper") {
+    val attrs = Map("brightness" -> Json.fromInt(120))
+    // An EMPTY optional is the trap this pins. It arrives as a plain
+    // `java.util.Optional`, so without the unwrap it falls through to
+    // `String.valueOf` and the literal text `Optional.empty` reaches the DOM —
+    // green tests, wrong bytes on the page.
+    assertEquals(run("attr[?'brightness']", "on", attrs), "120")
+    assertEquals(run("attr[?'nope']", "on", attrs), "")
+    assertEquals(run("optional.none()", "on"), "")
+    assertEquals(run("optional.of('x')", "on"), "x")
+    // `''` means absent here, which is what `optional.ofNonZeroValue` is for —
+    // the same rule `SlotSource.default` applies one layer up.
+    assertEquals(run("optional.ofNonZeroValue('')", "on"), "")
+
+    // The point of turning the library on: the guarded read without a ternary,
+    // agreeing byte for byte with the spelling every shipped transform uses.
+    assertEquals(
+      run("attr[?'brightness'].orValue('none')", "on", attrs),
+      run("'brightness' in attr ? attr['brightness'] : 'none'", "on", attrs)
+    )
+    assertEquals(
+      run("attr[?'nope'].orValue('none')", "on", attrs),
+      run("'nope' in attr ? attr['nope'] : 'none'", "on", attrs)
+    )
+  }
+
   test("identity bindings: domain and entity_id come from the entity id") {
     assertEquals(run("domain", "on", entity = "light.kitchen"), "light")
     assertEquals(
