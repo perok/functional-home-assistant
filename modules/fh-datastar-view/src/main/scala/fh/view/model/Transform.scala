@@ -33,9 +33,11 @@ import io.circe.derivation.{Configuration, ConfiguredDecoder}
   * presence, while a RAW `attr['x']` on an absent key is an evaluation error —
   * so the shipped strings read attributes guarded (`'x' in attr ? … : …`), the
   * idiom that mirrors JSONata's null-on-missing (measured in the Phase-0
-  * sweep). Stringify a heterogeneous value with `str(x)`, which renders numbers
-  * the same 10-digit way the engine renders a bare numeric result, so the two
-  * can never drift.
+  * sweep). `attr[?'x']` says the same thing without the ternary — CEL's
+  * optionals are enabled — and `.orValue(d)` is the inline default; an empty
+  * optional renders `""`, exactly as a `null` does. Stringify a heterogeneous
+  * value with `str(x)`, which renders numbers the same 10-digit way the engine
+  * renders a bare numeric result, so the two can never drift.
   *
   * Compilation happens once at build/validate time; the renderer reuses the
   * compiled program. A failing evaluation is **not** swallowed nor allowed to

@@ -3,7 +3,7 @@ package fh.view.runtime
 import dev.cel.common.{CelFunctionDecl, CelOverloadDecl}
 import dev.cel.common.types.{MapType, SimpleType}
 import dev.cel.compiler.CelCompilerFactory
-import dev.cel.extensions.CelExtensions
+import dev.cel.extensions.{CelExtensions, CelOptionalLibrary}
 import dev.cel.runtime.{
   CelFunctionBinding,
   CelFunctionOverload,
@@ -148,7 +148,12 @@ object Cel {
       CelExtensions.strings(),
       CelExtensions.lists(),
       CelExtensions.math(),
-      CelExtensions.comprehensions()
+      CelExtensions.comprehensions(),
+      // Optionals, on BOTH builders: `CelOptionalLibrary` is a compiler library
+      // AND a runtime one, and adding it to only the compiler yields programs
+      // the runtime cannot evaluate. It is what makes `attr[?'x']` parse at all
+      // — without it the parser rejects `[?` as unsupported syntax.
+      CelOptionalLibrary.INSTANCE
     )
     .addVar("state", SimpleType.STRING)
     .addVar("attr", MapType.create(SimpleType.STRING, SimpleType.DYN))
@@ -164,7 +169,8 @@ object Cel {
       CelExtensions.strings(),
       CelExtensions.lists(),
       CelExtensions.math(),
-      CelExtensions.comprehensions()
+      CelExtensions.comprehensions(),
+      CelOptionalLibrary.INSTANCE
     )
     .addFunctionBindings(
       CelFunctionBinding.from(
@@ -230,23 +236,25 @@ object Cel {
   /** Evaluate a compiled program against one entity, stringified for the
     * template. The dashboard's slug binds `dashboard_slug` (ADR 0023); on
     * evaluation failure the CEL error message is returned so the card shows it
-    * — contained, never thrown into the render. A `null` result becomes `""` so
-    * the slot's `default` can take over.
+    * — contained, never thrown into the render. A result with no value becomes
+    * `""` so the slot's `default` can take over.
     */
   def run(
       program: Program,
       entity: EntityState,
       dashboardSlug: String
   ): String =
-    try
-      stringify(
-        program.eval(new EntityResolver(entity, dashboardSlug))
-      )
+    try stringify(program.eval(new EntityResolver(entity, dashboardSlug)))
     catch case e: Exception => s"cel error: ${errorText(e)}"
 
   /** Stringify a CEL result the way a string-coercing operator would, so a bare
-    * number and a `str(...)` number land identically on the slot. Null becomes
-    * "" so the slot's `default` can take over.
+    * number and a `str(...)` number land identically on the slot.
+    *
+    * The two ways CEL says "no value" both render `""`, so the slot's `default`
+    * can take over: a `null` arrives as `NullValue` (or a bare Java null), an
+    * `optional.none()` / missing `attr[?'x']` as an empty `java.util.Optional`.
+    * The optional case is not cosmetic — without it an optional falls through
+    * to `String.valueOf` and puts the literal text `Optional.empty` in the DOM.
     *
     * Also what the `Transform.Simple` fast tier renders its direct reads with
     * ([[Transform.runSimple]]): the tier is only sound while it produces
@@ -255,6 +263,7 @@ object Cel {
     */
   private[view] def stringify(result: Any): String = result match
     case n if isNullValue(n)  => ""
+    case o: Optional[?]       => if (o.isPresent) stringify(o.get) else ""
     case s: String            => s
     case b: java.lang.Boolean => b.toString
     case l: java.lang.Long    => l.toString
