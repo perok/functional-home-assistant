@@ -45,7 +45,7 @@ class Button extends nodes.Node {
     // in-flight affordance an icon has instead of a label going dim. A labelled
     // button gets only what `tapMod.guard` brings.
     template = """
-      {{#href}}<a class="button {{#round}}circle small{{/round}}{{^round}}card{{/round}}{{#hasLit}} {{lit}}{{/hasLit}}"{{#hasLit}} \(slotMod.signalBind("lit")){{/hasLit}} href="{{{href}}}">{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</a>{{/href}}{{^href}}<button class="{{#round}}circle small{{/round}}{{^round}}card{{/round}}{{#hasLit}} {{lit}}{{/hasLit}}"{{#hasLit}} \(slotMod.signalBind("lit")){{/hasLit}} data-on:click="{{#hasInert}}$\(slotMod.signalRef("inert")) ? '' : {{/hasInert}}\(tapMod.guardClick){{{onclick}}}"{{#hasInert}} \(slotMod.signalBind("inert")){{/hasInert}}\(tapMod.guard){{#busyVisual}}{{#glyph}} \(tapMod.busyShapeClass){{/glyph}}{{/busyVisual}}>{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</button>{{/href}}
+      {{#href}}<a class="button {{#round}}circle small{{/round}}{{^round}}card{{/round}}{{#hasLit}} {{lit}}{{/hasLit}}"{{#hasLit}} \(slotMod.signalBind("lit")){{/hasLit}} href="{{{href}}}">{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</a>{{/href}}{{^href}}<button class="{{#round}}circle small{{/round}}{{^round}}card{{/round}}{{#hasLit}} {{lit}}{{/hasLit}}"{{#hasLit}} \(slotMod.signalBind("lit")){{/hasLit}} data-on:click="{{#hasInert}}$\(slotMod.signalRef("inert")) ? '' : {{/hasInert}}\(tapMod.guardClick){{{onclick}}}"{{#hasInert}}{{#inert}} disabled{{/inert}} \(slotMod.signalBind("inert")){{/hasInert}}\(tapMod.guard){{#busyVisual}}{{#glyph}} \(tapMod.busyShapeClass){{/glyph}}{{/busyVisual}}>{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</button>{{/href}}
       """
     // `label` stays declared — every button has one, even when it is the empty
     // string an icon-only button carries. `glyph`/`round`/`lit` do not: they are
@@ -116,36 +116,33 @@ class Button extends nodes.Node {
         ["round"] = "1"
       }
     }
-    // INERT while the entity reads one of [[inertWhile]]. Two effects from one
-    // signal: the press is swallowed (the same shape as the busy guard, which
-    // is a JS expression, so `""` is simply falsy) and the control wears
-    // `fh-disabled`.
+    // INERT while the entity reads one of [[inertWhile]]: a REAL `disabled`, so
+    // the browser takes the control out of the tab order and refuses the click
+    // itself, and `button:disabled` dims it. A dimming class would have needed
+    // JS to mean anything — the difference between telling a keyboard user the
+    // control is unavailable and handing them one that silently does nothing.
     //
     // This is NOT the busy guard and does not replace it. Busy runs from click
-    // until the POST resolves — milliseconds. This runs while the ENTITY is in
-    // a state that makes the press meaningless, which begins when HA accepts a
-    // command and ends when the hardware finishes, seconds later — and, because
-    // it reads state rather than a request, it also covers a lock someone else
-    // moved from a keypad or an automation.
+    // until the POST resolves — milliseconds — and ADR 0019 settled that it
+    // must NOT disable: a disabled button loses focus and fires no events,
+    // which is worse for a card than an inert one. This runs while the ENTITY
+    // is in a state that makes the press meaningless, which begins when HA
+    // accepts a command and ends when the hardware finishes, seconds later —
+    // and, because it reads state rather than a request, it also covers a lock
+    // someone else moved from a keypad or an automation.
     //
-    // `attr:disabled` would have been the obvious binding and is wrong: the
-    // pinned Datastar bundle SETS `disabled=""` for an empty string
-    // (`l===""||l===!0?setAttribute(a,"")`), so the falsy arm would disable the
-    // control forever. A class binding is plain JS truthiness.
+    // The click guard stays, and is not redundant: `disabled` only works on a
+    // form control, and the same option has to hold on an `<a>` (the `href`
+    // branch of this template) and on any host that is neither.
     when (!inertWhile.isEmpty && entity != null) {
       ["inert"] = new slotMod.Slot {
-        transform = simpleMod.matchOf(new Mapping {
-          for (st in inertWhile) {
-            [st] = "1"
-          }
-        }, "")
-        default = ""
+        transform = simpleMod.stateIn(inertWhile)
         bypassUnavailable = false
-        signal = slotMod.asClass("fh-disabled")
+        signal = slotMod.asAttr("disabled")
       }
       // A literal flag, for the same reason `hasLit` is one: in the PATCH form
-      // the slot's value is always "", so `{{#inert}}` would collapse and take
-      // the binding and the guard with it.
+      // the slot's value is blank, so `{{#inert}}` would collapse and take the
+      // binding and the guard with it.
       ["hasInert"] = "1"
     }
     when (lit && entity != null) {
@@ -303,7 +300,7 @@ class Pill extends nodes.Node {
     // A chip is already pill-shaped, so unlike [[Button]] there is no round
     // variant: a glyph-only chip is a chip with a glyph in it.
     template = """
-      {{#href}}<a class="chip" href="{{{href}}}">{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</a>{{/href}}{{^href}}<button class="chip" data-on:click="{{#hasInert}}$\(slotMod.signalRef("inert")) ? '' : {{/hasInert}}\(tapMod.guardClick){{{onclick}}}"{{#hasInert}} \(slotMod.signalBind("inert")){{/hasInert}}\(tapMod.guard){{#busyVisual}}{{#glyph}} \(tapMod.busyShapeClass){{/glyph}}{{/busyVisual}}>{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</button>{{/href}}
+      {{#href}}<a class="chip" href="{{{href}}}">{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</a>{{/href}}{{^href}}<button class="chip" data-on:click="{{#hasInert}}$\(slotMod.signalRef("inert")) ? '' : {{/hasInert}}\(tapMod.guardClick){{{onclick}}}"{{#hasInert}}{{#inert}} disabled{{/inert}} \(slotMod.signalBind("inert")){{/hasInert}}\(tapMod.guard){{#busyVisual}}{{#glyph}} \(tapMod.busyShapeClass){{/glyph}}{{/busyVisual}}>{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</button>{{/href}}
       """
     slots { "label" }
   }
