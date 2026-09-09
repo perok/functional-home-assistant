@@ -22,21 +22,21 @@ class SimpleState {
   kind = "state"
 }
 
-/// Idiomatic CEL: `'name' in attr ? attr['name'] : null` — an absent
+/// Idiomatic CEL: `attr[?'name']` — an absent
 /// attribute renders `""` (the slot's `default` then applies).
 class SimpleAttr {
   kind = "attr"
   name: String
 }
 
-/// Idiomatic CEL: `('name' in attr ? attr['name'] : entity_id)` — the "name"
+/// Idiomatic CEL: `attr[?'name'].orValue(entity_id)` — the "name"
 /// shape.
 class SimpleAttrOrId {
   kind = "attrOrId"
   name: String
 }
 
-/// Idiomatic CEL: `state + ('name' in attr ? ' ' + attr['name'] : state)`.
+/// Idiomatic CEL: `state + attr[?'name'].optMap(u, ' ' + u).orValue('')`.
 /// A unit that is present but not a String renders the state alone — the
 /// documented divergence from the engine's `' ' + nonString` error.
 class SimpleUnit {

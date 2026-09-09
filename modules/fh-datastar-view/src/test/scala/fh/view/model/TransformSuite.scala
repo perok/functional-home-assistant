@@ -350,13 +350,13 @@ class TransformSuite extends munit.FunSuite {
   // The slider's light-axis config (min 1, max 255), as every battery below
   // bakes it.
   private val percentExpr =
-    "cel.bind(v, 'brightness' in attr ? attr['brightness'] : null, " +
-      "v != null ? str(math.round((double(v) - 1.0) * 100.0 / (255.0 - 1.0))) " +
-      "+ ' %' : '0 %')"
+    "attr[?'brightness'].optMap(v, " +
+      "str(math.round((double(v) - 1.0) * 100.0 / (255.0 - 1.0))) + ' %')" +
+      ".orValue('0 %')"
   private val fillExpr =
-    "str(cel.bind(v, 'brightness' in attr ? attr['brightness'] : null, " +
-      "v != null ? 100.0 - ((double(v) - 1.0) * 100.0 / (255.0 - 1.0)) " +
-      ": 100.0)) + '%'"
+    "attr[?'brightness'].optMap(v, " +
+      "str(100.0 - ((double(v) - 1.0) * 100.0 / (255.0 - 1.0))))" +
+      ".orValue('100') + '%'"
 
   test("definition: state, attr read, and the fallback-to-id name") {
     val probes = List(
@@ -371,14 +371,10 @@ class TransformSuite extends munit.FunSuite {
       es("off", "brightness" -> Json.fromInt(200))
     )
     agree(Simple.State, "state", probes)
-    agree(
-      Simple.Attr("brightness"),
-      "'brightness' in attr ? attr['brightness'] : null",
-      probes
-    )
+    agree(Simple.Attr("brightness"), "attr[?'brightness']", probes)
     agree(
       Simple.AttrOrId("friendly_name"),
-      "('friendly_name' in attr ? attr['friendly_name'] : entity_id)",
+      "attr[?'friendly_name'].orValue(entity_id)",
       probes
     )
   }
@@ -396,8 +392,7 @@ class TransformSuite extends munit.FunSuite {
     )
     agree(
       Simple.UnitSuffix("unit_of_measurement"),
-      "state + ('unit_of_measurement' in attr ? ' ' + " +
-        "attr['unit_of_measurement'] : '')",
+      "state + attr[?'unit_of_measurement'].optMap(u, ' ' + u).orValue('')",
       probes
     )
     agree(Simple.Prefix("lit: "), "'lit: ' + state", probes)
