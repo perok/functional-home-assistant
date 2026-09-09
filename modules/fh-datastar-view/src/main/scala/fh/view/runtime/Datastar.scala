@@ -1,6 +1,6 @@
 package fh.view.runtime
 
-import fh.view.model.{SignalBind, SignalId}
+import fh.view.model.{SignalBind, SignalId, SlotValue}
 import io.circe.Json
 import org.http4s.{EntityEncoder, MediaType, ServerSentEvent}
 import org.http4s.headers.`Content-Type`
@@ -323,7 +323,7 @@ object Datastar {
     * bare `'` and closes the literal early. The same pair `Server`'s popup seed
     * uses, and the reason this lives here rather than in every card template.
     */
-  def signalsAttr(values: Map[SignalId, String]): String =
+  def signalsAttr(values: Map[SignalId, SlotValue]): String =
     if (values.isEmpty) ""
     else
       // LEADING SPACE, like `Renderer.cellClasses`: this is spliced straight
@@ -418,7 +418,7 @@ object Datastar {
   def seedAttrInto(
       out: java.lang.Appendable,
       seed: SignalSeed,
-      values: Map[SignalId, String]
+      values: Map[SignalId, SlotValue]
   ): Unit = {
     val n = seed.order.length
     // Resolved BEFORE anything is written, so a mismatch falls back without
@@ -430,8 +430,13 @@ object Datastar {
         var i = 0
         while (i < n && vs != null) {
           values.get(seed.order(i)) match {
-            case Some(v) => vs(i) = v; i += 1
-            case None    => i = n + 1
+            // A BOOLEAN cannot fill a hole here: the seed bakes the quotes
+            // around each value into its chunks, and a boolean has to seed
+            // unquoted. Fall back to building the attribute, exactly as a
+            // name mismatch does — the seed is an optimisation for the shape
+            // every card had before booleans existed, not a requirement.
+            case Some(v: String) => vs(i) = v; i += 1
+            case _               => i = n + 1
           }
         }
         if (i == n) vs else null
@@ -459,7 +464,7 @@ object Datastar {
     */
   private def nestJsInto(
       sb: java.lang.StringBuilder,
-      paths: Array[(Array[String], String)],
+      paths: Array[(Array[String], SlotValue)],
       from: Int,
       until: Int,
       depth: Int
@@ -473,9 +478,16 @@ object Datastar {
       if (i > from) { val _ = sb.append(", ") }
       sb.append(segment).append(": ")
       if (paths(i)._1.length == depth + 1) {
-        sb.append('\'')
-        escapeJsInto(sb, paths(i)._2)
-        sb.append('\'')
+        // A boolean seeds as a JS boolean LITERAL, unquoted: `data-signals` is
+        // compiled as an expression, and `'false'` would seed a truthy string
+        // — which for a `data-attr` binding is the difference between an
+        // attribute absent and an attribute set.
+        paths(i)._2 match
+          case b: Boolean => sb.append(b)
+          case s: String  =>
+            sb.append('\'')
+            escapeJsInto(sb, s)
+            sb.append('\'')
       } else nestJsInto(sb, paths, i, j, depth + 1)
       i = j
     }
@@ -492,15 +504,12 @@ object Datastar {
     * attribute would be a second place a value's shape is decided, and the
     * authoring layer already decides it in the transform.
     *
-    * [[SignalBind.Flag]] is the ONE exception, and it is forced rather than
-    * chosen. A boolean attribute is absent or present, and the value channel
-    * cannot say ABSENT: `null` in a signals frame DELETES the signal and
-    * orphans every binding on it (see [[signalsJson]]), `false` would render as
-    * the text `false` wherever the same signal is read by a `data-text`, and a
-    * display signal IS shared across binding kinds because
-    * [[Renderer.signalName]] keys it by `(entity, transform)` and not by kind.
-    * So the truthiness test lives in the attribute, where it is per-card, which
-    * is the only place it can be right for every reader of one value.
+    * That holds for a BOOLEAN attribute too, and it is why the value is
+    * `String | Boolean` rather than String ([[fh.view.model.SlotValue]]): a
+    * real `false` is what removes an attribute, so `data-attr:disabled="$sig"`
+    * needs no `!!` around it. An earlier version wrote one, which put a second
+    * decision about a value's shape back in the attribute; making the value
+    * honest removed the binding kind that existed for it.
     *
     * `data-bind` is the odd one out and takes the signal's NAME rather than a
     * `$`-read, because it is two-way — it writes the signal back on input.
@@ -511,11 +520,6 @@ object Datastar {
     case SignalBind.Style(property) =>
       s"""data-style:$property="$$$signal""""
     case SignalBind.Attr(name) => s"""data-attr:$name="$$$signal""""
-    // `!!` and not `$sig != ''`: the plugin removes on `false` and on `null`,
-    // and a signal the seed has not reached yet reads as undefined — which `!!`
-    // already answers correctly, where a string comparison would set the
-    // attribute.
-    case SignalBind.Flag(name) => s"""data-attr:$name="!!$$$signal""""
     // The bundle kebab-cases a `data-class` key (`P(e, n, "kebab")`), so a
     // class name is written as it appears in CSS and nowhere else.
     case SignalBind.Class(name) => s"""data-class:$name="$$$signal""""

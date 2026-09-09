@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.model.SlotValue
+
 import dev.cel.common.{CelFunctionDecl, CelOverloadDecl}
 import dev.cel.common.types.{MapType, SimpleType}
 import dev.cel.compiler.CelCompilerFactory
@@ -244,7 +246,27 @@ object Cel {
       entity: EntityState,
       dashboardSlug: String
   ): String =
-    try stringify(program.eval(new EntityResolver(entity, dashboardSlug)))
+    SlotValue.text(runValue(program, entity, dashboardSlug))
+
+  /** [[run]] keeping a BOOLEAN result boolean.
+    *
+    * CEL's `bool` is a real type — `state in ['locked','locking']` returns one
+    * — and it is the only value that can turn a boolean attribute off. Every
+    * other result stringifies exactly as [[run]] renders it, so this is a
+    * widening at one type and an identity everywhere else.
+    *
+    * An evaluation FAILURE stays a String: the card shows the CEL message, and
+    * a message is bytes whatever the expression's declared type was.
+    */
+  def runValue(
+      program: Program,
+      entity: EntityState,
+      dashboardSlug: String
+  ): SlotValue =
+    try
+      program.eval(new EntityResolver(entity, dashboardSlug)) match
+        case b: java.lang.Boolean => b.booleanValue
+        case other                => stringify(other)
     catch case e: Exception => s"cel error: ${errorText(e)}"
 
   /** Stringify a CEL result the way a string-coercing operator would, so a bare

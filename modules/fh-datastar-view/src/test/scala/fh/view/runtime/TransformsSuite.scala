@@ -120,6 +120,49 @@ class TransformsSuite extends munit.CatsEffectSuite {
     assert(errs.exists(_.contains("degenerate")), clue = errs)
   }
 
+  test("a match with both string and boolean arms is rejected at validate") {
+    // ADR 0028 defines the shape by an idiomatic CEL spelling, and CEL requires
+    // one type across a map's values and both ternary arms — so a mixed lookup
+    // has nothing to be equivalent TO. It is also incoherent at the binding:
+    // one state would set an attribute by value, another by presence.
+    def withMatch(m: Transform.Simple) =
+      dashboard("kitchen")
+        .copy(card =
+          LayoutNode.Component(
+            card = "c",
+            slots = Map("onclick" -> SlotSource(transform = m))
+          )
+        )
+        .validated()
+        .fold(identity, _ => Nil)
+
+    val mixed = withMatch(
+      Transform.Simple
+        .Match(Map("on" -> "yes", "off" -> false), otherwise = "no")
+    )
+    assert(mixed.exists(_.contains("string and boolean arms")), clue = mixed)
+
+    // The `otherwise` counts as an arm — it is the value an unmatched state
+    // gets, so a String there against boolean cases is the same mismatch.
+    val mixedElse = withMatch(
+      Transform.Simple.Match(Map("on" -> true), otherwise = "")
+    )
+    assert(
+      mixedElse.exists(_.contains("string and boolean arms")),
+      clue = mixedElse
+    )
+
+    // Both homogeneous forms pass.
+    assertEquals(
+      withMatch(Transform.Simple.Match(Map("on" -> true), otherwise = false)),
+      Nil
+    )
+    assertEquals(
+      withMatch(Transform.Simple.Match(Map("on" -> "yes"), otherwise = "no")),
+      Nil
+    )
+  }
+
   // The expression the shipped `c.tap.service("light/toggle")` emits: the action
   // as a single-quoted CEL literal, the slug and entity spliced from bindings,
   // and `noSignals` riding inside the built string.

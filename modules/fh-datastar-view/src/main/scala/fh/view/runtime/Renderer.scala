@@ -15,6 +15,7 @@ import fh.view.model.{
   SignalBind,
   SignalId,
   SlotSource,
+  SlotValue,
   Surface
 }
 import scala.jdk.CollectionConverters.*
@@ -37,7 +38,7 @@ private[runtime] case class Painted(
     // that needs real bytes ([[Renderer.render]], one node) asks for the walk
     // ROOT's, which [[Traced.rootOwn]] carries.
     digest: Digest,
-    signals: Map[SignalId, String]
+    signals: Map[SignalId, SlotValue]
 )
 
 /** What is in a host, from [[Renderer.renderHost]]: the parts to splice, and
@@ -1707,7 +1708,7 @@ class Renderer(
 
   private def memberSeedOf(
       m: Member,
-      values: Map[SignalId, String]
+      values: Map[SignalId, SlotValue]
   ): Datastar.SignalSeed = {
     val key: String = m.id
     val cached = memberSeeds.get(key)
@@ -1719,7 +1720,7 @@ class Renderer(
     }
   }
 
-  private def memberSignalsOf(rm: ResolvedMember): Map[SignalId, String] =
+  private def memberSignalsOf(rm: ResolvedMember): Map[SignalId, SlotValue] =
     rm.regions.values.flatten.foldLeft(rm.resolved.signals) {
       case (acc, ResolvedChild.Node(_, n))   => acc ++ memberSignalsOf(n)
       case (acc, ResolvedChild.NestedSet(_)) => acc
@@ -1792,11 +1793,11 @@ class Renderer(
       structural: Map[String, String],
       constants: Map[String, String],
       bindings: Map[String, String],
-      paint: Map[String, String],
+      paint: Map[String, SlotValue],
       bake: Map[String, String],
       liveBindings: Map[String, String],
       signalSlots: List[String],
-      signals: Map[SignalId, String]
+      signals: Map[SignalId, SlotValue]
   )
 
   /** The template context, READ IN PLACE.
@@ -1860,9 +1861,22 @@ class Renderer(
             // (`RenderBench.page`, async-profiler). Each default is the
             // constant `null` now, which is non-capturing and therefore the
             // JVM's one cached instance.
-            var v: String | Null = resolved.bindings.getOrElse(name, null)
+            //
+            // `AnyRef`, not `String`, for ONE layer's sake: `paint` can hold a
+            // boxed `java.lang.Boolean`, and it has to reach mustache as one.
+            // A `{{#slot}}…{{/slot}}` section is driven by `Boolean`, and the
+            // STRING "false" is truthy there — stringifying on the way out
+            // would set `disabled` in exactly the case that must not, in the
+            // plain form, which is the one a browser without JS gets.
+            var v: AnyRef | Null = resolved.bindings.getOrElse(name, null)
             if (v == null) v = resolved.liveBindings.getOrElse(name, null)
-            if (v == null) v = resolved.paint.getOrElse(name, null)
+            if (v == null) {
+              // Not `.get(name).map(...)`: an `Option` here is the same
+              // per-lookup allocation the note above measured away. `scoped`
+              // returns the String itself, or one of the two cached boxes.
+              val p: SlotValue | Null = resolved.paint.getOrElse(name, null)
+              if (p != null) v = SlotValue.scoped(p)
+            }
             if (v == null) v = resolved.constants.getOrElse(name, null)
             if (v == null) v = resolved.bake.getOrElse(name, null)
             if (v == null) v = resolved.structural.getOrElse(name, null)
@@ -2091,13 +2105,13 @@ class Renderer(
     // the name the template asks for is answered from whichever layer holds
     // it ([[NodeContext.fhGet]]). The old assembly built one merged map per
     // node per paint to say the same thing.
-    val paintB = Map.newBuilder[String, String]
+    val paintB = Map.newBuilder[String, SlotValue]
     paintB.sizeHint(plan.dynamic.size)
     val signalB =
       if (plan.signalNameBySlot.isEmpty) None
-      else Some(Map.newBuilder[SignalId, String])
+      else Some(Map.newBuilder[SignalId, SlotValue])
     plan.dynamic.foreach { case (slot, srcEntity, source) =>
-      val value = resolveSlot(srcEntity, source, states)
+      val value = resolveSlotValue(srcEntity, source, states)
       paintB += ((slot, value))
       plan.signalNameBySlot
         .get(slot)
@@ -2111,7 +2125,7 @@ class Renderer(
       bake = bakeIndex,
       liveBindings = Map.empty,
       plan.signalSlots,
-      signalB.fold(Map.empty[SignalId, String])(_.result())
+      signalB.fold(Map.empty[SignalId, SlotValue])(_.result())
     )
   }
 
@@ -2132,19 +2146,22 @@ class Renderer(
       slots.get(Dashboard.SubjectSlot).map { s =>
         s.literal.getOrElse(resolveSlot(s.entityId, s, states))
       }
-    val resolved = slots.map { case (slot, source) =>
-      val value = source.literal match {
+    val resolved: Map[String, SlotValue] = slots.map { case (slot, source) =>
+      val value: SlotValue = source.literal match {
         case Some(text) => text
         case None       =>
           val srcEntity =
             if (slot == Dashboard.SubjectSlot) source.entityId
             else source.entityId.orElse(subject)
+          // The `once` memo stays String-keyed and String-valued: a `once`
+          // slot is a pure function of WHICH entity this is (an action URL, an
+          // id), and nothing identity-derived is a boolean.
           if (source.reads == Reads.Once)
             identityCache.computeIfAbsent(
               (srcEntity.getOrElse(""), source.valueKey),
               _ => resolveSlot(srcEntity, source, states)
             )
-          else resolveSlot(srcEntity, source, states)
+          else resolveSlotValue(srcEntity, source, states)
       }
       slot -> value
     }
@@ -2236,7 +2253,7 @@ class Renderer(
   def signalsFor(
       id: NodeId,
       states: Map[String, EntityState]
-  ): Map[SignalId, String] =
+  ): Map[SignalId, SlotValue] =
     members
       .memberAt(id, states)
       .map(m => memberSignalsOf(resolveMember(m, states)))
@@ -2266,7 +2283,7 @@ class Renderer(
       id: NodeId,
       node: LayoutNode,
       states: Map[String, EntityState]
-  ): Map[SignalId, String] = node match {
+  ): Map[SignalId, SlotValue] = node match {
     case c: LayoutNode.Component =>
       val plan = planOf(id, id, c, states)
       // A dynamic subject is the shape a plan holds nothing per-slot for: the
@@ -2276,7 +2293,7 @@ class Renderer(
       if (plan.subjectDynamic) directSignalsOfSlots(id, c, states)
       else if (plan.signalNameBySlot.isEmpty) Map.empty
       else {
-        val b = Map.newBuilder[SignalId, String]
+        val b = Map.newBuilder[SignalId, SlotValue]
         b.sizeHint(plan.signalNameBySlot.size)
         // Only the signal slots, not every dynamic one: a signal slot is
         // always non-literal and `live`, so it is always in `dynamic`.
@@ -2284,7 +2301,7 @@ class Renderer(
           plan.signalNameBySlot
             .get(slot)
             .foreach(sig =>
-              b += ((sig, resolveSlot(srcEntity, source, states)))
+              b += ((sig, resolveSlotValue(srcEntity, source, states)))
             )
         }
         b.result()
@@ -2296,7 +2313,7 @@ class Renderer(
       id: NodeId,
       c: LayoutNode.Component,
       states: Map[String, EntityState]
-  ): Map[SignalId, String] = {
+  ): Map[SignalId, SlotValue] = {
     val subject = c.slots
       .get(Dashboard.SubjectSlot)
       .map(s => s.literal.getOrElse(resolveSlot(s.entityId, s, states)))
@@ -2305,7 +2322,7 @@ class Renderer(
         val entity = src.entityId.orElse(subject)
         val kind = Renderer.signalBind(src).getOrElse(SignalBind.Text)
         Renderer.signalName(id, slot, entity, src.valueKey, kind) ->
-          resolveSlot(entity, src, states)
+          resolveSlotValue(entity, src, states)
     }
   }
 
@@ -2317,7 +2334,20 @@ class Renderer(
       srcEntity: Option[String],
       source: SlotSource,
       states: Map[String, EntityState]
-  ): String = {
+  ): String = SlotValue.text(resolveSlotValue(srcEntity, source, states))
+
+  /** [[resolveSlot]] keeping a BOOLEAN result boolean — see [[SlotValue]] for
+    * why the difference is load-bearing rather than cosmetic.
+    *
+    * The `default` rule is unchanged and applies to bytes only: a boolean is
+    * never "empty", so it never falls through to `default`. That is the honest
+    * reading — `false` is an answer, not a missing one.
+    */
+  private def resolveSlotValue(
+      srcEntity: Option[String],
+      source: SlotSource,
+      states: Map[String, EntityState]
+  ): SlotValue = {
     val st =
       srcEntity
         .flatMap(states.get)
@@ -2330,11 +2360,15 @@ class Renderer(
     else {
       // ONE wire fact, two forms: the Simple object never touches the engine,
       // the CEL string never leaves it — the form IS the tier (ADR 0028).
-      val out = source.transform match {
-        case sm: Transform.Simple => transforms.run(sm, st)
-        case t: String            => transforms.run(t, st, dashboard.slug)
+      val out: SlotValue = source.transform match {
+        case sm: Transform.Simple => transforms.runValue(sm, st)
+        case t: String            => transforms.runValue(t, st, dashboard.slug)
       }
-      if (out.nonEmpty) out else source.default.getOrElse("")
+      out match {
+        case b: Boolean              => b
+        case s: String if s.nonEmpty => s
+        case _                       => source.default.getOrElse("")
+      }
     }
   }
 }

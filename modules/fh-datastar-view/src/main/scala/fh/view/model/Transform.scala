@@ -117,10 +117,36 @@ object Transform {
     /** A literal suffix on the state. Idiomatic CEL: `state + 'literal'`. */
     case Suffix(literal: String)
 
-    /** The two-armed state enum. Idiomatic CEL:
-      * `state == 'eq' ? 'thenValue' : 'otherwise'`.
+    /** The state as a lookup. Idiomatic CEL:
+      * `cel.bind(m, {'k': 'v', …}, state in m ? m[state] : 'otherwise')`, with
+      * the values written as CEL literals — so a boolean arm spells `true`, not
+      * `'true'`.
+      *
+      * A `Map`, not an ordered list of arms: the match is on equality, so this
+      * IS a lookup table and nothing about it is sequential. That makes a
+      * duplicate key and a first-match-wins question unrepresentable rather
+      * than undefined.
+      *
+      * The values are [[SlotValue]], so this is also the shape that yields a
+      * real BOOLEAN — the only kind of value that can turn a boolean attribute
+      * OFF (see [[SlotValue]]). A dedicated membership case was considered and
+      * rejected: it would be a second state-to-value mechanism beside this one,
+      * and it could not express the inverse (`otherwise = true`, "every state
+      * except these") without a third. CEL requires one type across a map's
+      * values and both ternary arms, so the arms and `otherwise` must agree —
+      * which is a property of the language, not a rule invented here.
+      *
+      * `otherwise` is required, and deliberately not an `Option` meaning "these
+      * cases are exhaustive". Exhaustive over WHAT: the runtime does not know a
+      * domain's state vocabulary — only the vendored Pkl module does
+      * (`hass/lock.pkl`'s `LockState`) — so the check cannot live here, and HA
+      * ADDS states (`open`/`opening` arrived in `lock` after the domain
+      * shipped). An unmatched state has to degrade, not blank a wall panel
+      * months after the dashboard was written. The authoring layer is where a
+      * "cover every variant" helper belongs, because that is where the
+      * vocabulary is.
       */
-    case Enum(equalTo: String, thenValue: String, otherwise: String)
+    case Match(cases: Map[String, SlotValue], otherwise: SlotValue)
 
     /** An attribute as a percentage of a range, rounded half-away-from-zero —
       * the same rounding the engine's `math.round` applies. Idiomatic CEL:
@@ -170,6 +196,18 @@ object Transform {
           case other        => other.toLowerCase
         }
 
+    /** A [[Match]] arm off the wire. BOOLEAN FIRST, and the order is the whole
+      * decoder: circe's `Decoder[String]` fails on a JSON boolean, but trying
+      * String first would still be wrong the day someone widens the union — the
+      * narrower type always goes first. Pkl emits a bare `true`, not `"true"`,
+      * so the two are distinguishable in the JSON and this is a total decision
+      * rather than a guess.
+      */
+    private given Decoder[SlotValue] =
+      Decoder[Boolean]
+        .map(b => b: SlotValue)
+        .or(Decoder[String].map(s => s: SlotValue))
+
     given Decoder[Simple] = ConfiguredDecoder.derived
 
     /** A stable, injective KEY for one Simple value — the transform's identity
@@ -184,9 +222,32 @@ object Transform {
       case Simple.UnitSuffix(n)    => s"unit:$n"
       case Simple.Prefix(lit)      => s"prefix:$lit"
       case Simple.Suffix(lit)      => s"suffix:$lit"
-      case Simple.Enum(eq, t, o)   => s"enum:$eq:$t:$o"
+      case m: Simple.Match         => matchKey(m)
       case Simple.Percent(n, a, b) => s"percent:$n:$a:$b"
       case Simple.Fill(n, a, b)    => s"fill:$n:$a:$b"
+    }
+
+    /** Length-prefixed, where its siblings just join on `:`. They can: their
+      * arity is fixed, so a separator inside a field cannot make one shape read
+      * as another. A [[Simple.Match]]'s arity is not, and `k=v,k=v` would let a
+      * key holding the separator forge a different map — a key COLLISION here
+      * is two different transforms sharing one signal. Sorted so the key does
+      * not depend on `Map` iteration order. Verbosity is free: the segment is
+      * hashed into the signal name either way ([[fh.view.runtime.Renderer]]).
+      */
+    private def matchKey(m: Simple.Match): String = {
+      def sized(s: String) = s"${s.length}:$s"
+      // A value carries its TYPE into the key: `true` and `"true"` are
+      // different transforms — one removes a boolean attribute, the other sets
+      // it — so they must not share a signal.
+      def value(v: SlotValue) = v match
+        case s: String  => sized(s)
+        case b: Boolean => s"b:$b"
+      val body = m.cases.toSeq
+        .sortBy(_._1)
+        .map((k, v) => sized(k) + value(v))
+        .mkString
+      s"match:${m.cases.size}:$body${value(m.otherwise)}"
     }
   }
 
@@ -199,6 +260,13 @@ object Transform {
     * opted-in tier owns its values.
     */
   def runSimple(s: Simple, entity: EntityState): String =
+    SlotValue.text(runSimpleValue(s, entity))
+
+  /** [[runSimple]] keeping a [[Simple.Match]] arm's type. Every other shape
+    * reads or builds a String, so this is a widening at one case and an
+    * identity everywhere else.
+    */
+  def runSimpleValue(s: Simple, entity: EntityState): SlotValue =
     s match {
       case Simple.State      => entity.state
       case Simple.Attr(name) =>
@@ -211,10 +279,10 @@ object Transform {
           case u: String => entity.state + " " + u
           case _         => entity.state
         }
-      case Simple.Prefix(lit)                => lit + entity.state
-      case Simple.Suffix(lit)                => entity.state + lit
-      case Simple.Enum(eq, thenV, otherwise) =>
-        if entity.state == eq then thenV else otherwise
+      case Simple.Prefix(lit)             => lit + entity.state
+      case Simple.Suffix(lit)             => entity.state + lit
+      case Simple.Match(cases, otherwise) =>
+        cases.getOrElse(entity.state, otherwise)
       case Simple.Percent(name, min, max) =>
         Simple.num(entity.javaAttributes.get(name)) match {
           case Some(v) =>
@@ -248,6 +316,14 @@ object Transform {
     */
   def run(expr: Compiled, entity: EntityState, dashboardSlug: String): String =
     Cel.run(expr, entity, dashboardSlug)
+
+  /** [[run]] keeping a boolean result boolean — see [[Cel.runValue]]. */
+  def runValue(
+      expr: Compiled,
+      entity: EntityState,
+      dashboardSlug: String
+  ): SlotValue =
+    Cel.runValue(expr, entity, dashboardSlug)
 
   // (The attribute JSON -> Java conversion lives on EntityState.javaAttributes,
   // cached per state version, so it runs once per entity rather than per eval.)
