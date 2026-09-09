@@ -8,6 +8,7 @@
 module core.icon
 
 import "../hass.pkl"
+import "simple.pkl" as simpleMod
 
 // ---- entity icons ----
 //
@@ -27,10 +28,10 @@ import "../hass.pkl"
 ///
 /// One table, not one per domain: HA keys these by (domain, device_class) and a
 /// few names genuinely differ, but the overlap is small and a single table is
-/// the version worth maintaining by hand. State-dependent icons (HA shows a
-/// door open vs closed) are deliberately out — an icon resolved at build time
-/// cannot vary with state, and making it live would put a JSONata transform
-/// back on every card to save one glyph.
+/// the version worth maintaining by hand. Icons that vary with STATE are
+/// [[stateIcons]] — a separate table, because they are a different KIND of
+/// answer: this one resolves at build time to a literal, that one to a live
+/// slot.
 const deviceClassIcons: Mapping<String, String> = new {
   ["temperature"] = "mdi:thermometer"
   ["humidity"] = "mdi:water-percent"
@@ -155,3 +156,67 @@ const function iconFor(e: hass.Entity?): String? =
         mdiClass(deviceClassIcons[dc])
       else if (domainIcons.containsKey(e.domain)) mdiClass(domainIcons[e.domain])
       else null
+
+// ---- state-dependent icons ----
+
+/// Domains whose glyph is a function of the entity's STATE — HA shows a lock
+/// open and a lock closed differently, and a tile that cannot is reading half
+/// the entity out loud.
+///
+/// A `Mapping<state, mdi name>` per domain plus a fallback, which is exactly a
+/// [[simpleMod.SimpleMatch]] — the state lookup that already exists, evaluated
+/// on the fast tier with no engine involved. That is what makes this cheap
+/// enough to be worth it: the reason it was ruled out before was a per-card
+/// JSONata transform, and neither half of that is true any more (ADR 0027 moved
+/// to CEL, and ADR 0017 shares a display signal per `(entity, transform)` — one
+/// frame entry for the whole page, not one per card).
+///
+/// SMALL ON PURPOSE. One domain earns it here; the next is one row, the same
+/// way `hass/actions.pkl` grows. A domain is worth adding when HA's own frontend
+/// draws it differently per state AND the difference is the thing you look at
+/// the tile to learn.
+const stateIcons: Mapping<String, Mapping<String, String>> = new {
+  // `jammed` gets its own alert glyph: it is the one lock state you want to
+  // notice from across the room, and it is not "unlocked".
+  ["lock"] = new {
+    ["locked"] = "mdi:lock"
+    ["unlocked"] = "mdi:lock-open"
+    ["open"] = "mdi:lock-open-variant"
+    ["opening"] = "mdi:lock-open-variant"
+    ["locking"] = "mdi:lock-clock"
+    ["unlocking"] = "mdi:lock-clock"
+    ["jammed"] = "mdi:lock-alert"
+  }
+}
+
+/// The live icon for an entity, or null when it does not have one.
+///
+/// Null in three cases, and each is a rule rather than an omission:
+///
+///   - the domain is not in [[stateIcons]] — most are not;
+///   - the entity carries its OWN `icon`, which a user or integration set
+///     deliberately and which must beat anything derived (the same precedence
+///     [[iconFor]] applies, and the reason this is checked here too);
+///   - the entity has a `device_class`, whose glyph is more specific than a
+///     domain default and which HA also prefers.
+///
+/// The fallback arm is [[iconFor]]'s own answer, so an unknown state degrades
+/// to exactly the icon this card would have shown anyway rather than blanking —
+/// HA adds states (`open`/`opening` arrived in `lock` after the domain
+/// shipped).
+const function stateIconFor(e: hass.Entity?): simpleMod.Simple? =
+  if (e == null || !stateIcons.containsKey(e.domain)) null
+  else
+    let (own = e.getPropertyOrNull("icon"))
+    let (dc = e.getPropertyOrNull("device_class"))
+      if (own is String || dc is String) null
+      else
+        let (table = stateIcons[e.domain])
+          simpleMod.matchOf(
+            new Mapping {
+              for (st, name in table) {
+                [st] = "mdi " + mdiClass(name)
+              }
+            },
+            "mdi " + (iconFor(e) ?? "")
+          )

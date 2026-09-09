@@ -42,6 +42,8 @@ local class E_with_icon extends hass.LightEntity {
 }
 local class E_temp extends hass.SensorEntity { device_class: String = "temperature" }
 local class E_custom_icon extends hass.LightEntity { icon: String = "hue:bulb-sultan" }
+// A lock carrying its OWN icon — the case that must beat the state table.
+local class E_lock_icon extends hass.LockEntity { icon: String = "mdi:key" }
 
 // D1 helpers: there are no shared tables any more, so "how many distinct shapes
 // / conditions" is a question you ask of the members.
@@ -130,6 +132,42 @@ facts {
       domain = "wibble"
     }
     !c.entityCard(odd).slots.containsKey("icon")
+  }
+
+  // ---- state-dependent icons ----
+
+  ["a lock's glyph follows its state, as a shared signal"] {
+    local tile = c.entityCard(latchLock)
+    local m: simpleMod.SimpleMatch = tile.slots["icon"].transform!!
+    m.cases.toMap()["locked"] == "mdi mdi-lock"
+    m.cases.toMap()["unlocked"] == "mdi mdi-lock-open"
+    // `jammed` is the one lock state you want to notice from across the room,
+    // and it is not "unlocked".
+    m.cases.toMap()["jammed"] == "mdi mdi-lock-alert"
+    // An unknown state degrades to the icon this card would have shown anyway —
+    // HA ADDS states, so the fallback must not blank the glyph.
+    m.otherwise == "mdi mdi-lock"
+    // The WHOLE class is the value: the element carries nothing else, so
+    // `data-attr:class` has nothing to fight over.
+    tile.slots["icon"].signal == "attr:class"
+    tile.slots["liveIcon"] == "1"
+  }
+
+  ["anything more specific than the domain beats the live glyph"] {
+    // HA's own precedence, and the reason `stateIconFor` re-checks it: an
+    // author's icon, a user's `icon` attribute and a device_class are all more
+    // specific than "this is a lock".
+    c.entityCard(latchLock).icon("mdi:key").slots["icon"] == "mdi-key"
+    c.entityCard(new E_lock_icon { entity_id = "lock.k" }).slots["icon"]
+      == "mdi-key"
+    // …and each of those is a plain literal again, with no live machinery.
+    !c.entityCard(latchLock).icon("mdi:key").slots.containsKey("liveIcon")
+  }
+
+  ["a domain with no state glyphs renders byte-identical to before"] {
+    // Most domains are not in the table, and they must not pay for it.
+    c.entityCard(kitchen).slots["icon"] == "mdi-lightbulb"
+    !c.entityCard(kitchen).slots.containsKey("liveIcon")
   }
 
   ["an author override takes either spelling"] {
