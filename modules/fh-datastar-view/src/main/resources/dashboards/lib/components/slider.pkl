@@ -265,7 +265,7 @@ class SliderHead extends nodes.Node {
         <div class="slider-head">
           {{#icon}}<div class="slider-icon"{{#busyVisual}} \(tapMod.busyClassChange) \(tapMod.busyShapeClassChange){{/busyVisual}}><i class="mdi {{icon}}"></i></div>{{/icon}}
           {{#text}}{{{html}}}{{/text}}
-          {{#state}}<span class="state" \(slotMod.signalBind("state"))>{{state}}</span>{{/state}}
+          \(slotMod.ifSlot("state"))<span class="state" \(slotMod.signalBind("state"))>{{state}}</span>\(slotMod.endIfSlot("state"))
           <div class="slider-actions">{{#actions}}{{{html}}}{{/actions}}</div>
         </div>
         <div class="slider max" style="--_start: 0%;--_end: {{fill}}" \(slotMod.signalBind("fill")) \(restoreOnRefusal){{#busyVisual}} \(tapMod.busyClassChange){{/busyVisual}}>
@@ -532,8 +532,10 @@ class Slider extends nodes.Node {
       ["busyVisual"] = "1"
     }
     // The display header (inherits entity_id, bypassUnavailable default).
-    // Omitted entirely when the readout is "none": an absent slot renders ""
-    // and the template's `{{#state}}` section then drops the whole span.
+    // Omitted entirely when the readout is "none", which the template reads as
+    // the slot's ABSENCE rather than its emptiness — a signal slot's value is
+    // blank in the patch form, so a section over the value itself dropped the
+    // span and its binding on the first patch and never restored them.
     // A TEXT signal slot (ADR 0017): the readout is one of the four things on
     // this card that move when brightness does, and all four are signals — see
     // `value`/`fill`/`fillColor` below. Between them they are the whole reason a
