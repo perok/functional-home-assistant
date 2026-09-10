@@ -123,6 +123,28 @@ class TransformsSuite extends munit.CatsEffectSuite {
     assert(errs.exists(_.contains("degenerate")), clue = errs)
   }
 
+  test("a non-positive duration scale is rejected at validate") {
+    // The same failure mode as a degenerate range, one shape over: it does not
+    // error, it renders `0s` for every reading — a card that looks finished
+    // forever. Silent-and-plausible is what makes it worth a build error.
+    def scaled(s: Double) =
+      dashboard("kitchen")
+        .copy(card =
+          LayoutNode.Component(
+            card = "c",
+            slots = Map(
+              "onclick" -> SlotSource(transform = Transform.Simple.Duration(s))
+            )
+          )
+        )
+        .validated()
+        .fold(identity, _ => Nil)
+
+    assert(scaled(0.0).exists(_.contains("duration scale")), clue = scaled(0.0))
+    assert(scaled(-60.0).exists(_.contains("duration scale")))
+    assertEquals(scaled(60.0), Nil)
+  }
+
   test("a match with both string and boolean arms is rejected at validate") {
     // ADR 0028 defines the shape by an idiomatic CEL spelling, and CEL requires
     // one type across a map's values and both ternary arms — so a mixed lookup

@@ -30,7 +30,7 @@ It worked, and no wire byte moved. Three costs followed from the design itself:
    nothing else on the slot describes its tier.
 2. **A shape joins the catalog when it is a STATIC LOOKUP and TOTAL** — decided entirely at
    build time, and defined over every value a live entity can produce. Today that is
-   `state`, `attr`, `suffixUnit`, `prefix`, `suffix`, `match`, `percent`, `fill`.
+   `state`, `attr`, `suffixUnit`, `prefix`, `suffix`, `match`, `percent`, `fill`, `duration`.
 
    Totality is the load-bearing half, and it is why the rule is not "the hot shapes". CEL's
    `double(state)` ERRORS on `unknown`, and a CEL error renders as its own message — on a wall
@@ -51,6 +51,28 @@ It worked, and no wire byte moved. Three costs followed from the design itself:
    `attrOrId` was dropped: no component ever called it, and it carried a Pkl class, a decode
    arm, a key arm, an evaluation arm and a parity row for nothing. The benchmark that justified
    this tier had been measuring it as its headline probe.
+
+   `duration` is the clearest case the rule admits, and the reason the rule is not about speed.
+   It reads the STATE numerically — the only operator that does, which is what a duration sensor
+   IS — scales it by the seconds its unit is worth, and renders `4h 13m` / `13m` / `45s`. A
+   remaining-time sensor ticks about once a minute, so it is nowhere near a hot path; what earns
+   it a place is that `double('unknown')` ERRORS, and `unknown` is exactly what an appliance
+   between programmes reports. The empty string is the honest answer there — `0s` would claim it
+   had just finished — and only a total operator can give it.
+
+   Two further reasons it is not a CEL string in whichever card wants it:
+
+   - **The scale cannot be baked into a spelling.** HA's `duration` device class fixes no unit,
+     so the same "45 minutes left" arrives as `45` from one appliance and `2700` from another.
+     A card inlining the CEL would inline one integration's unit and be right by luck.
+   - **It is domain-free.** Every `duration` sensor in the house wants exactly this, so the
+     alternative is the same twenty-line ternary copied per card — the duplication the tier
+     exists to end, and the shape most likely to be copied slightly wrong.
+
+   Its resolution is deliberately coarser than the reading: no seconds tier above a minute,
+   because an appliance updates a remaining time on its own slow schedule and finer digits would
+   be invented precision that ticks in jumps. That is a rendering decision the catalog owns, so
+   every card renders a duration the same way.
 
    `match` is a lookup — `Map[String, SlotValue]` plus a required `otherwise` — and it REPLACED the
    two-armed `enum`, which is `match` with one entry. The count did not move, and the shapes it

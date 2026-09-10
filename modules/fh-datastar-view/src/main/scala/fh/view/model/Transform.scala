@@ -174,6 +174,39 @@ object Transform {
       * number, renders `100%` (same divergence note as [[Percent]]).
       */
     case Fill(name: String, min: Double, max: Double)
+
+    /** The STATE as a duration a person reads, scaled from the unit the entity
+      * reports into seconds first. Idiomatic CEL:
+      * {{{
+      * cel.bind(t, int(math.round(double(state) * scale)),
+      *   t <= 0 ? '0s'
+      *   : t >= 3600 ? str(t / 3600) + 'h ' + str(t % 3600 / 60) + 'm'
+      *   : t >= 60 ? str(t / 60) + 'm'
+      *   : str(t) + 's')
+      * }}}
+      *
+      * `scale` is SECONDS PER UNIT, off `hass.SensorEntity.durationSeconds`.
+      * HA's `duration` device class fixes no unit — the same "45 minutes left"
+      * arrives as `45` from one appliance and `2700` from another — so a
+      * formatter that assumed one would be right by luck per integration.
+      *
+      * This is the only case that reads the STATE numerically rather than an
+      * attribute, which is what a duration sensor is: the reading IS the state.
+      *
+      * The three-tier resolution is deliberately coarser than the reading. An
+      * appliance updates a remaining time on its own slow schedule, so seconds
+      * shown against an hours-long cycle would be invented precision that ticks
+      * in jumps.
+      *
+      * Absent-value form is the EMPTY string, and that case is ordinary rather
+      * than exotic: measured on the live instance, a dishwasher between
+      * programmes reports `unknown` for its remaining time. Empty is the only
+      * honest answer there — `0s` would claim it just finished, and passing
+      * `unknown` through puts the word where a time goes. The engine ERRORS on
+      * `double('unknown')`; same divergence as [[Percent]]/[[Fill]], pinned in
+      * the parity suite's divergence table.
+      */
+    case Duration(scale: Double)
   }
 
   object Simple {
@@ -206,6 +239,7 @@ object Transform {
       case m: Simple.Match         => matchKey(m)
       case Simple.Percent(n, a, b) => s"percent:$n:$a:$b"
       case Simple.Fill(n, a, b)    => s"fill:$n:$a:$b"
+      case Simple.Duration(scale)  => s"duration:$scale"
     }
 
     /** Length-prefixed, where its siblings just join on `:`. They can: their
@@ -306,7 +340,10 @@ object Transform {
           case "suffix"     => arg.map(Simple.Suffix.apply)
           case "percent"    => range(Simple.Percent.apply)
           case "fill"       => range(Simple.Fill.apply)
-          case other        => Left(s"unknown simple op `$other`")
+          // The one operator whose argument is numeric and whose read is the
+          // STATE, so it takes no `value` at all.
+          case "duration" => param("scale").map(Simple.Duration.apply)
+          case other      => Left(s"unknown simple op `$other`")
         }
     }
   }
@@ -397,6 +434,16 @@ object Transform {
           case Some(v) =>
             Cel.numToString(100.0 - (v - min) * 100.0 / (max - min)) + "%"
           case None => "100%"
+        }
+      case Simple.Duration(scale) =>
+        Simple.num(entity.state) match {
+          case Some(v) =>
+            val t = roundAway(v * scale).toLong
+            if (t <= 0) "0s"
+            else if (t >= 3600) s"${t / 3600}h ${t % 3600 / 60}m"
+            else if (t >= 60) s"${t / 60}m"
+            else s"${t}s"
+          case None => ""
         }
     }
 

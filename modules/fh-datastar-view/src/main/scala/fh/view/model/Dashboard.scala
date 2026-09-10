@@ -1116,6 +1116,17 @@ case class Dashboard(
                   s"$nodeId: slot '$name' has a degenerate fill range " +
                     s"(${f.min}..${f.max}) — it would divide by zero"
                 )
+              // Same rule one shape over: a duration's scale is SECONDS PER
+              // UNIT, so a non-positive one renders every reading as `0s` —
+              // a card that looks finished forever rather than one that
+              // errors. `hass.SensorEntity.durationSeconds` answers null
+              // rather than 0 for a unit it cannot scale, so this catches a
+              // hand-written scale, which is the only way to get one.
+              case d: Transform.Simple.Duration if d.scale <= 0 =>
+                Some(
+                  s"$nodeId: slot '$name' has a non-positive duration scale " +
+                    s"(${d.scale}) — every reading would render '0s'"
+                )
               // A Match's arms must be all Strings or all booleans. Not a
               // taste rule: ADR 0028 defines the shape by an idiomatic CEL
               // spelling, and CEL requires one type across a map's values and

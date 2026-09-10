@@ -38,7 +38,7 @@ module core.simple
 /// The operator names. The Scala side decodes this same set
 /// (`Transform.SimpleWire.toSimple`) and REJECTS anything else, so a name added
 /// here without an arm there is a build error rather than a dead slot.
-typealias Op = "state"|"attr"|"suffixUnit"|"prefix"|"suffix"|"percent"|"fill"
+typealias Op = "state"|"attr"|"suffixUnit"|"prefix"|"suffix"|"percent"|"fill"|"duration"
 
 /// An operator over one read: `op` names it, `value` is its single String
 /// argument (an attribute name, or a literal), and `params` carries whatever
@@ -161,4 +161,21 @@ const function fill(attrName: String, minV: Number, maxV: Number): Simple =
     op = "fill"
     value = attrName
     params = new Mapping { ["min"] = minV; ["max"] = maxV }
+  }
+
+/// The STATE read as a number, scaled into seconds and rendered as `4h 13m` /
+/// `13m` / `45s`. Absent or unparseable renders the EMPTY string — the
+/// documented divergence, and the ordinary case rather than an exotic one: an
+/// appliance between programmes reports `unknown`, where `0s` would claim it
+/// had just finished.
+///
+/// `unitSeconds` is what one unit of the reading is worth — pass
+/// `e.durationSeconds`, which is null for a sensor whose unit has no fixed
+/// length, so a card has to decide rather than get a plausible wrong number.
+/// HA's `duration` device class fixes no unit: the same "45 minutes left"
+/// arrives as `45` from one appliance and `2700` from another.
+const function duration(unitSeconds: Number): Simple =
+  new SimpleValue {
+    op = "duration"
+    params = new Mapping { ["scale"] = unitSeconds }
   }
