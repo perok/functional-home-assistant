@@ -406,13 +406,14 @@ class Slider extends nodes.Node {
   // The CEL pieces of the `fill` computation, honouring the same two config
   // tiers as the input's own slots: author override → build-time spec literal.
   //
-  // `valueExpr` is the GUARDED attribute read (a missing position — a light
-  // that is off — yields null, and the slot's `default` takes over; CEL has no
-  // JSONata's null-on-missing, so `attr['x']` on an absent key would error and
-  // every read is gated on `'x' in attr`).
+  // `valueExpr` is the GUARDED attribute read: `attr['x']` on an absent key is
+  // an eval error, so every read is guarded. It yields an OPTIONAL — a missing
+  // position (a light that is off) is an empty one — so an author splicing it
+  // continues with `.optMap(v, …)` for the present case and `.orValue(…)` for
+  // the absent one, rather than testing a null.
   hidden valueExpr: String =
-    if (valueAttr != null) "'\(valueAttr!!)' in attr ? attr['\(valueAttr!!)'] : null"
-    else "'\(spec.value)' in attr ? attr['\(spec.value)'] : null"
+    if (valueAttr != null) "attr[?'\(valueAttr!!)']"
+    else "attr[?'\(spec.value)']"
   // The attribute the axis reads, as a NAME — what the opted-in Simple shapes
   // ([[simpleMod.percent]]/[[simpleMod.fill]]/[[simpleMod.attr]]) take, and
   // what [[valueExpr]] spells out for authors composing their own expression.
@@ -489,7 +490,7 @@ class Slider extends nodes.Node {
   // `fill` it wants whole numbers. No position attribute (a light that is off)
   // reads 0 %, which is what the row shows: an empty track.
   hidden percentExpr: String =
-    "cel.bind(v, \(valueExpr), v != null ? str(math.round((double(v) - \(minExpr)) * 100.0 / (\(maxExpr) - \(minExpr)))) + ' %' : '0 %')"
+    "\(valueExpr).optMap(v, str(math.round((double(v) - \(minExpr)) * 100.0 / (\(maxExpr) - \(minExpr)))) + ' %').orValue('0 %')"
   // A percentage of an axis the entity does not have is a permanent "0 %", so a
   // toggle-only row reads out its STATE instead — a group's rows are usually
   // given `percent` in one `map`, without knowing which can dim. An author's own

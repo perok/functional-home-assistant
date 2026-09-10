@@ -1810,7 +1810,7 @@ class PklBuildSuite extends munit.FunSuite {
     )
     val state = rowOf(own).slots("state")
     assert(
-      state.valueKey.contains("attr['brightness']"),
+      state.valueKey.contains("attr[?'brightness']"),
       clue = state.valueKey
     )
     assert(

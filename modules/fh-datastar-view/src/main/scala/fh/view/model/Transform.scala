@@ -35,9 +35,10 @@ import io.circe.derivation.{Configuration, ConfiguredDecoder}
   * shipped strings use: `attr[?'x']` is the guarded read, `.orValue(d)` the
   * inline default, `.optMap(v, …)` when the value is transformed on the way
   * out. An empty optional renders `""`, exactly as a `null` does. The older
-  * `'x' in attr ? … : …` ternary means the same thing and still works — it
-  * survives where the [[Simple]] tier's scaladoc DEFINES a shape by it (ADR
-  * 0028 pins those by byte-equality). Stringify a heterogeneous value with
+  * `'x' in attr ? … : …` ternary means the same thing and still compiles, but
+  * nothing here spells it that way any more — the [[Simple]] tier's documented
+  * equivalents moved too, and the parity suite proves the two forms agree byte
+  * for byte over its hostile sweep. Stringify a heterogeneous value with
   * `str(x)`, which renders numbers the same 10-digit way the engine renders a
   * bare numeric result, so the two can never drift.
   *
@@ -90,21 +91,20 @@ object Transform {
     /** The entity's raw state string. Idiomatic CEL: `state`. */
     case State
 
-    /** A guarded attribute read, stringified. Idiomatic CEL:
-      * `'name' in attr ? attr['name'] : null` — a null result renders `""`, so
-      * the absent attribute IS the empty string (the slot's `default` then
-      * applies). Presence is part of the structure; an author can never write
-      * an unguarded read.
+    /** A guarded attribute read, stringified. Idiomatic CEL: `attr[?'name']` —
+      * an empty optional renders `""`, so the absent attribute IS the empty
+      * string (the slot's `default` then applies). Presence is part of the
+      * structure; an author can never write an unguarded read.
       */
     case Attr(name: String)
 
     /** A guarded attribute read falling back to the entity id — the "name"
-      * shape. Idiomatic CEL: `('name' in attr ? attr['name'] : entity_id)`.
+      * shape. Idiomatic CEL: `attr[?'name'].orValue(entity_id)`.
       */
     case AttrOrId(name: String)
 
     /** The state with the entity's own unit appended when it has one. Idiomatic
-      * CEL: `'name' in attr ? state + ' ' + attr['name'] : state`. A unit that
+      * CEL: `state + attr[?'name'].optMap(u, ' ' + u).orValue('')`. A unit that
       * is present but not a String is treated as absent — the documented
       * divergence from the engine, which would error on `' ' + nonString`
       * (pinned in the parity suite's divergence table).
@@ -150,22 +150,23 @@ object Transform {
 
     /** An attribute as a percentage of a range, rounded half-away-from-zero —
       * the same rounding the engine's `math.round` applies. Idiomatic CEL:
-      * `cel.bind(v, 'name' in attr ? attr['name'] : null, v != null ?
-      * str(math.round((double(v) - min) * 100.0 / (max - min))) + ' %' : '0
-      * %')`. The numeric domain mirrors the engine's `double()` — a number, or
-      * a string that parses as one — so a string-numbered attribute renders the
-      * same bytes both ways. Absent, or present and unparseable, renders `0 %`
-      * — the documented divergence from the engine, which would error on
-      * `double(text)` (pinned in the parity suite's divergence table).
+      * `attr[?'name'].optMap(v, str(math.round((double(v) - min) * 100.0 / (max -
+      * min))) + ' %').orValue('0 %')`. The `optMap` body runs only when the
+      * attribute is there, which is what the `cel.bind` + `!= null` pair this
+      * replaced was spelling out. The numeric domain mirrors the engine's
+      * `double()` — a number, or a string that parses as one — so a
+      * string-numbered attribute renders the same bytes both ways. Absent, or
+      * present and unparseable, renders `0 %` — the documented divergence from
+      * the engine, which would error on `double(text)` (pinned in the parity
+      * suite's divergence table).
       */
     case Percent(name: String, min: Double, max: Double)
 
     /** An attribute as the slider's remaining fill — the complement of
-      * [[Percent]] for a right-anchored track. Idiomatic CEL: `str(cel.bind(v,
-      * 'name' in attr ? attr['name'] : null, v != null ? 100.0 - ((double(v) -
-      * min) * 100.0 / (max - min)) : 100.0)) + '%'`. Absent, or present and
-      * unparseable as a number, renders `100%` (same divergence note as
-      * [[Percent]]).
+      * [[Percent]] for a right-anchored track. Idiomatic CEL:
+      * `attr[?'name'].optMap(v, str(100.0 - ((double(v) - min) * 100.0 / (max -
+      * min)))).orValue('100') + '%'`. Absent, or present and unparseable as a
+      * number, renders `100%` (same divergence note as [[Percent]]).
       */
     case Fill(name: String, min: Double, max: Double)
   }
