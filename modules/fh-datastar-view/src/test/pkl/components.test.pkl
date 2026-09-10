@@ -685,6 +685,24 @@ facts {
     tile.slots["inert"].signal == "class:fh-inert"
   }
 
+  ["a value-carrying tap is the same call with one more segment"] {
+    // Not a second route builder: `serviceClick` covers both, and a tap with no
+    // value declares no `dataKey`, so the section closes over nothing.
+    local plain = c.tap.service("light/turn_on")
+    plain.serviceSlot == "light/turn_on"
+    plain.dataKey == null
+    local valued = c.tap.serviceValue("light/turn_on", "effect", "Color loop")
+    valued.serviceSlot == "light/turn_on"
+    valued.dataKey == "effect"
+    // PERCENT-ENCODED for the two characters that break the two contexts the
+    // value passes through: a space is invalid in a path segment, and a `'`
+    // would close the JS string the URL sits in — Mustache escapes it to
+    // `&#39;`, which the browser decodes back to `'` BEFORE the expression is
+    // parsed, so the attribute escape cannot save it.
+    valued.dataValue == "Color%20loop"
+    c.tap.serviceValue("a/b", "k", "it's").dataValue == "it%27s"
+  }
+
   ["a SERVICE tap is inert on a dead entity, whatever its domain"] {
     // Availability is a different axis from transitional state: HA rejects a
     // service call on an unavailable entity in EVERY domain, so it is one rule

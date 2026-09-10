@@ -2200,15 +2200,13 @@ class PklBuildSuite extends munit.FunSuite {
       pills.map(_.slots("label").literal),
       List(Some("off"), Some("Color loop"))
     )
-    // The value splices as a SINGLE-QUOTED CEL literal inside the @post string
-    // — the old JSONata splicing left it outside (the latent bug tap.pkl records).
-    assert(
-      pills(1)
-        .slots("onclick")
-        .valueKey
-        .contains("'effect' + \"/\" + 'Color%20loop'"),
-      clue = pills(1).slots("onclick").valueKey
-    )
+    // The value rides as its own LITERAL slot, and the card's template puts it
+    // in the route's trailing `/<key>/<value>` — the same `serviceClick` a
+    // valueless tap uses, with one optional segment rather than a second arm.
+    // A space is percent-encoded here and not left for the URL to trip over.
+    assertEquals(pills(1).slots("service").literal, Some("light/turn_on"))
+    assertEquals(pills(1).slots("dataKey").literal, Some("effect"))
+    assertEquals(pills(1).slots("dataValue").literal, Some("Color%20loop"))
     // The fill colour is AXIS-AWARE, asserted as EXACT bytes — the transform
     // string ships and hashes exactly as written (multi-line, Pkl-dedented by
     // the closing delimiter's indent, edge-trimmed), so its shape is a

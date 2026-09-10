@@ -41,6 +41,11 @@ class TapAction {
   /// for either. [[serviceClick]] is that template; this supplies the one piece
   /// it cannot spell.
   serviceSlot: (slotMod.Slot|String)? = null
+  /// The ONE value a service call carries, as the route's trailing
+  /// `/<key>/<value>` ([[serviceValue]]). Both null or both set; null on every
+  /// other tap, and their absence is what keeps that segment off the URL.
+  dataKey: String? = null
+  dataValue: String? = null
   href: String? = null
   inlineSurfaces: Mapping<String, surfaceMod.SurfaceDef>? = null
   /// Whether this tap is worth GUARDING: while its POST is in flight, a second
@@ -172,40 +177,22 @@ const busyChangeSig: String = "_{{id}}__busy_change"
 ///
 /// TWO writers, for two different facts. The SERVER patches it when the service
 /// call it made was refused — a 200 carrying `datastar-patch-signals`, keyed on
-/// the node id the tap sends ([[nodeQuery]]), so the message HA gave lands on
+/// the node id the tap sends (`?node={{id}}`), so the message HA gave lands on
 /// the control instead of a status code. [[failedOn]] is the client's half, and
 /// covers what a signal patch cannot reach: a response that is not 200 at all
 /// (an access refusal, a dead route), where the body is never parsed.
 const errorSig: String = "_{{id}}__error"
 
-/// **What an action tells the server about itself**, so a refusal can be
-/// reported ON the thing that asked. Spliced onto the END of a route, so append
-/// `, <options>)` after it for a `@post` that takes options, `)` for one that
-/// does not.
+/// **What a surface open tells the server about itself**, so it can end the
+/// pending ask (see [[pendingSignal]]). Spliced onto the END of a route.
 ///
-/// Two halves, and each rides exactly where it can be answered:
-///
-/// [[nodeQuery]] is for a GUARDED tap (`busy = true`), because `busy` is what
-/// opens [[guard]]'s section and `guard` is what puts `data-fh-node` on the
-/// element. One flag governs both, so the parameter cannot be sent by an
-/// element that has no id to send — a tab anchor is not guarded and never
-/// carries one.
-///
-/// [[groupQuery]] is for a surface open that answers a SELECTION, so the server
-/// can end the pending ask (see [[pendingSignal]]). Nothing carries both: a
-/// service call has no selection, a tab has no node.
-///
-/// The node id is read off the DOM at click time rather than interpolated,
-/// because a click expression is a transform's OUTPUT and is inserted raw —
-/// Mustache never sees it, so `{{id}}` inside it would stay a literal. A card
-/// building its own action URL in a TEMPLATE writes `{{id}}` directly (the
-/// slider's commit), the same two spellings `dashboardSlug` already has.
+/// A service call sends `?node={{id}}` instead, written by the TEMPLATE that
+/// builds its URL ([[serviceClick]]) — nothing carries both: a service call has
+/// no selection, a tab has no node.
 ///
 /// QUERY parameters, not path segments: the value-carrying action route already
 /// ends `…/<entity>/<key>/<value>`, so a positional id would make the two forms
 /// ambiguous.
-const local nodeQuery: String = #"?node=' + (el.dataset.fhNode || '')"#
-
 const local function groupQuery(group: String): String = "?group=\(group)'"
 
 /// Sets [[errorSig]] when THIS element's action is refused, and clears it when
@@ -405,7 +392,14 @@ const busyShapeClassChange: String = busySpinner("_{{id}}__busy_change")
 /// what emits that, and `busy` is what opens [[guard]].
 const serviceClick: String =
   #"@post('sse/action/{{dashboardSlug}}/' + "# + slotMod.slotRead("service") +
-    #" + '/{{entity_id}}?node={{id}}', "# + noSignals + ")"
+    #" + '/{{entity_id}}"# +
+    // The value-carrying route is the SAME call with one more segment, so it is
+    // one optional piece here rather than a second arm on [[click]]. A tap that
+    // carries no value declares no `dataKey`, and the section closes over
+    // nothing.
+    slotMod.ifSlot("dataKey") + "/{{dataKey}}/{{dataValue}}" +
+    slotMod.endIfSlot("dataKey") +
+    #"?node={{id}}', "# + noSignals + ")"
 
 /// **What every card with a tap places**, and the whole of it:
 ///
@@ -500,6 +494,10 @@ const function tapRoute(t: TapAction): Mapping<String, slotMod.Slot|String> =
     when (t.serviceSlot != null) {
       ["service"] = t.serviceSlot!!
     }
+    when (t.dataKey != null) {
+      ["dataKey"] = t.dataKey!!
+      ["dataValue"] = t.dataValue!!
+    }
     ["onclick"] = t.onclick
   }
 
@@ -533,13 +531,15 @@ const function tapSlots(t: TapAction?): Mapping<String, slotMod.Slot|String> =
 
 // A click expression inherits the card's entity to resolve entity_id, and must
 // resolve even when that entity is unavailable (an unavailable light is exactly
-// the one you want to click). `live` is the rare case: a route the CURRENT state
-// picks ([[stateService]]), which has to re-render like any other state
-// reading. Everything else is identity-derived — `reads = "once"` keeps it in
-// the renderer's identity cache.
-const local function clickSlot(transformExpr: String, live: Boolean): slotMod.Slot = new {
+// the one you want to click).
+//
+// Always `once` — identity-derived, so it stays in the renderer's identity
+// cache. The one route the CURRENT state used to pick ([[stateService]]) is the
+// reason this once took a `live` flag; it carries its service as a signal now
+// and builds no expression at all, so nothing is left that re-renders.
+const local function clickSlot(transformExpr: String): slotMod.Slot = new {
   transform = transformExpr
-  reads = if (live) "live" else "once"
+  reads = "once"
   bypassUnavailable = false
 }
 
@@ -572,8 +572,7 @@ const local function openSurfaceOnclick(
     // module.
     "\"" + head + #"@post('sse/surface/""# +
       #" + dashboard_slug + "/open/"# + surfaceId +
-      (if (group == null) "'" else groupQuery(group)) + #")""#,
-    false
+      (if (group == null) "'" else groupQuery(group)) + #")""#
   )
 
 /// The PENDING signal for a selection group — what this client has ASKED to
@@ -720,20 +719,24 @@ const function byDomain(e: hass.Entity): TapAction? =
 // to). A path segment, so a value containing a space is percent-encoded — the
 // one character that actually shows up in HA's own vocabularies (effect names
 // like "Color loop", preset modes).
-//
-// The three route parts are spliced as SINGLE-QUOTED CEL literals so they land
-// in the produced URL (the old JSONata splicing left the value outside the
-// `@post` string — a latent bug this spelling fixes).
-const local function serviceValueOnclick(action: String, key: String, value: String): String =
-  #""@post('sse/action/""# +
-    #" + dashboard_slug + "/" + '"# + action + #"' + "/" + entity_id + "/" + '"# + key +
-    #"' + "/" + '"# + value.replaceAll(" ", "%20") + #"' + ""# + nodeQuery + #", "# + noSignals + #")""#
-
 /// A service call carrying ONE static value: `serviceValue("light/turn_on",
 /// "effect", "colorloop")`. The entity comes from the card the tap sits on, so
 /// the same tap works on any card that has one.
+///
+/// The value is PERCENT-ENCODED for the two characters that break the two
+/// contexts it passes through: a space is not valid in a path segment, and a
+/// `'` would close the JS string literal the URL sits in — Mustache escapes it
+/// to `&#39;`, which the browser decodes back to `'` before the expression is
+/// ever parsed, so the attribute escape does not save it. (Both were hazards on
+/// the CEL spelling this replaced too, where `'` broke the transform instead.)
 function serviceValue(action: String, key: String, value: String): TapAction =
-  new { onclick = clickSlot(serviceValueOnclick(action, key, value), false); busy = true }
+  new {
+    onclick = ""
+    serviceSlot = action
+    dataKey = key
+    dataValue = value.replaceAll(" ", "%20").replaceAll("'", "%27")
+    busy = true
+  }
 
 /// Go to dashboard `slug` — an ordinary document load, so the browser owns the
 /// history entry (ADR 0002). The `href` is RELATIVE and resolves against
@@ -753,8 +756,7 @@ function navigate(slug: String): TapAction = new {
 function closePopup(): TapAction =
   new {
     onclick = clickSlot(
-      #""@post('sse/popup/""# + #" + dashboard_slug + "/close')""#,
-      false
+      #""@post('sse/popup/""# + #" + dashboard_slug + "/close')""#
     )
   }
 
