@@ -157,6 +157,13 @@ object Cel {
       // — without it the parser rejects `[?` as unsupported syntax.
       CelOptionalLibrary.INSTANCE
     )
+    // NO MACROS, and `has()` is the one people expect: `standardCelCompilerBuilder`
+    // registers standard DECLARATIONS but no standard macros, so `has(attr.x)` is
+    // an "undeclared reference to 'has'" here, not a working guard. Measured
+    // against the pinned `dev.cel:cel:0.14.0`; nothing in the tree uses it, and
+    // the optional spelling (`attr[?'x']`) removed most of the reason to want it.
+    // Turning it on is `setStandardMacros(CelStandardMacro.HAS)` — per-macro, so
+    // it need not drag in ALL/EXISTS/MAP/FILTER.
     .addVar("state", SimpleType.STRING)
     .addVar("attr", MapType.create(SimpleType.STRING, SimpleType.DYN))
     .addVar("entity_id", SimpleType.STRING)

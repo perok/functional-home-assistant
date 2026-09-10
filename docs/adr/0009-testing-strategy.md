@@ -157,6 +157,23 @@ byte-identical; and it reproduces on commits that never touched the slider. It
 sits right at the 0.2 % budget, so it is intermittent (usually green on a
 full-suite re-run).
 
+**A percentage budget makes a LARGE snapshot blind to the regression it exists
+for**, and that is not hypothetical — it was measured on a run where every
+rebaselined image had been generated locally with MDI unloaded, so all of them
+were missing their glyphs:
+
+| snapshot | pixels | 0.3 % budget | missing glyphs | result |
+|---|---|---|---|---|
+| `lock-controls` | 35,360 | 106 | ~190 | fails |
+| `tabs` | 163,540 | 490 | ~190 | passes |
+| `full-dashboard` | 630,000 | 1,890 | ~950 | passes |
+
+The same defect, in the same pixels, caught only on the smallest image. So a
+green full-dashboard proves less than it looks, and a diff budget wants a floor
+in ABSOLUTE pixels rather than a bare ratio. Do not guess the number: that pair
+says ~190 px was ALL glyph, so genuine cross-environment antialiasing noise is
+well under it — measure it off a clean CI pair before picking a cap.
+
 **Do not** regenerate the baseline locally (`sbt dashboardSnapshotsUpdate`) to
 "fix" it — that overwrites the CI-portable image with one machine's rendering and
 moves the failure elsewhere. The durable fix is to take the native control out of
