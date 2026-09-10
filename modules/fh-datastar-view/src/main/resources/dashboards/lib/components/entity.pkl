@@ -20,7 +20,7 @@ class EntityCard extends nodes.Node {
     template = """
       <article class="card entity{{#tappable}} tappable{{/tappable}}{{#hasInert}} {{inert}}{{/hasInert}}"{{#tappable}}
         data-on:click="{{#hasInert}}$\(slotMod.signalRef("inert")) ? '' : {{/hasInert}}\(tapMod.guardClick){{{onclick}}}"{{/tappable}}{{#hasInert}} \(slotMod.signalBind("inert")){{/hasInert}}\(tapMod.guard)>
-        <header>{{#icon}}{{#busy}}<span class="fh-icon-shape"{{#busyVisual}} \(tapMod.busyShapeClass){{/busyVisual}}>{{/busy}}<i class="mdi {{icon}}"></i>{{#busy}}</span>{{/busy}}{{/icon}}\(textMod.hole("label"))</header>
+        <header>{{#icon}}{{#busy}}<span class="fh-icon-shape"{{#busyVisual}} \(tapMod.busyShapeClass){{/busyVisual}}>{{/busy}}<i class="{{^liveIcon}}mdi {{/liveIcon}}{{icon}}"{{#liveIcon}} \(slotMod.signalBind("icon")){{/liveIcon}}></i>{{#busy}}</span>{{/busy}}{{/icon}}\(textMod.hole("label"))</header>
         <span class="state \(textMod.BOX)">\(textMod.liveRun("value"))</span>{{#secondary}}
         <span class="secondary \(textMod.BOX)">\(textMod.run("secondary"))</span>{{/secondary}}
       </article>
@@ -67,11 +67,26 @@ class EntityCard extends nodes.Node {
     // whole tile. Everything else here — icon, label, tap — is a registry fact
     // or a literal and never moves at all.
     ["value"] = slotMod.signalValueSlot(value)
-    // A LITERAL, always: the entity's own icon, its device_class or its domain
-    // are all registry facts, so there is nothing here for the runtime to
-    // decide. This used to be a `$lookup($domain)` transform on every card,
-    // because a query group's member had no identity at build time.
-    when (icons.iconFor(entity) != null || icon != null) {
+    // A LIVE icon where the domain has one and nothing more specific overrides
+    // it ([[icons.stateIconFor]]) — a lock reads open or closed, which is the
+    // thing you look at the tile to learn. A SIGNAL slot, so the glyph moving
+    // costs a frame entry shared by every card showing this entity, not a
+    // re-rendered tile each; and the whole class is the value, because the
+    // element carries nothing else for `data-attr:class` to fight over.
+    //
+    // An author's own `icon` wins over both, as it does in HA.
+    when (icon == null && icons.stateIconFor(entity) != null) {
+      ["icon"] = new slotMod.Slot {
+        transform = icons.stateIconFor(entity)!!
+        bypassUnavailable = false
+        signal = slotMod.asAttr("class")
+      }
+      ["liveIcon"] = "1"
+    }
+    // Otherwise the LITERAL it has always been: an entity's own icon, its
+    // device_class and its domain are all registry facts, so there is nothing
+    // for the runtime to decide.
+    when (icon != null || (icons.stateIconFor(entity) == null && icons.iconFor(entity) != null)) {
       ["icon"] = if (icon != null) icons.mdiClass(icon!!) else icons.iconFor(entity)!!
     }
     when (secondary != null) {
