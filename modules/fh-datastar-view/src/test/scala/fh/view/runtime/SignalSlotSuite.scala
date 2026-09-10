@@ -527,14 +527,17 @@ class SignalSlotSuite extends ServerHarness {
     */
   private val lockService = "state == 'locked' ? 'lock/unlock' : 'lock/lock'"
 
-  private val lockish = Dashboard(
-    Map(
-      "lock" -> CardDef(
-        """<article data-on:click="@post('a/' + ${{service__signal}})">""" +
-          """<span {{{state__bind}}}>{{state}}</span></article>""",
-        slots = List("state", "service")
-      )
-    ),
+  /** ONE card, and the whole point of `__read`: the template never learns which
+    * tier filled `service`.
+    */
+  private val lockCard = CardDef(
+    """<article data-on:click="@post('a/' + {{{service__read}}})">""" +
+      """<span {{{state__bind}}}>{{state}}</span></article>""",
+    slots = List("state", "service")
+  )
+
+  private def tile(service: SlotSource) = Dashboard(
+    Map("lock" -> lockCard),
     LayoutNode.Component(
       "lock",
       Map(
@@ -543,25 +546,37 @@ class SignalSlotSuite extends ServerHarness {
           transform = "state",
           signal = Some(SignalBind.Text)
         ),
-        "service" -> SlotSource(
-          transform = lockService,
-          signal = Some(SignalBind.Handler)
-        )
+        "service" -> service
       )
     )
+  )
+
+  private val lockish = tile(
+    SlotSource(transform = lockService, signal = Some(SignalBind.Handler))
   )
 
   private def lock(state: String) =
     Map("lock.front" -> st("lock.front", state))
 
+  test("one template serves a literal service and a signalled one") {
+    // The card is byte-identical between them; only what `__read` resolves to
+    // differs. A card that had to branch on the tier is what this replaced.
+    val static = Renderer
+      .create(tile(SlotSource(literal = Some("light/toggle"))))
+      .renderPage(lock("locked"))
+    assert(static.contains("""@post('a/' + 'light/toggle')"""), clue = static)
+    // A literal has nothing to patch, so it mints no signal and seeds nothing.
+    assert(!static.contains("light/toggle'}"), clue = static)
+
+    val live = Renderer.create(lockish).renderPage(lock("locked"))
+    assert(
+      live.contains(s"""@post('a/' + $$${sig("lock.front", lockService)})"""),
+      clue = live
+    )
+  }
+
   test("a handler signal binds nothing, and the service leaves the bytes") {
     val html = Renderer.create(lockish).renderPage(lock("locked"))
-    // The click names the signal and concatenates it, which is the whole point:
-    // the service is decided server-side and READ client-side.
-    assert(
-      html.contains(s"""@post('a/' + $$${sig("lock.front", lockService)})"""),
-      clue = html
-    )
     // No attribute of its own — there is nothing to paint. Every other kind
     // emits one, so an accidental `data-*` here would mean the wrong kind.
     assert(!html.contains("""data-attr:service"""), clue = html)
@@ -1049,6 +1064,66 @@ class SignalSlotSuite extends ServerHarness {
         "c: card 'gauge' has slot 'value' marked as a signal slot, but no " +
           "part of its template places {{{value__bind}}} — the value would " +
           "stop updating"
+      )
+    )
+  }
+
+  test("a handler slot is rejected unless the card READS it") {
+    def card(tpl: String) = Dashboard(
+      Map("t" -> CardDef(tpl, slots = List("service"))),
+      LayoutNode.Component(
+        "t",
+        Map(
+          "entity_id" -> SlotSource(literal = Some("lock.front")),
+          "service" -> SlotSource(
+            transform = lockService,
+            signal = Some(SignalBind.Handler)
+          )
+        )
+      )
+    )
+    // It has no binding to place, so the `__bind` rule cannot be what checks
+    // it — placing one is not even possible.
+    assertEquals(
+      card("""<i data-on:click="@post('a')"></i>""").validate(),
+      List(
+        "c: card 't' has slot 'service' marked as a signal slot, but no part " +
+          "of its template places {{{service__read}}} or {{service__signal}} " +
+          "— the value would stop updating"
+      )
+    )
+    // Either read satisfies it: `__read` is what a card composing a URL uses,
+    // `__signal` the bare name for anything else.
+    assertEquals(card("""<i x="{{{service__read}}}"></i>""").validate(), Nil)
+    assertEquals(card("""<i x="${{service__signal}}"></i>""").validate(), Nil)
+  }
+
+  test("a live non-signal slot cannot be read as a JS expression") {
+    // `__read` is answered before the paint — a literal, an identity-`once`
+    // value, a signal. A live value has no answer, and refusing it IS the rule:
+    // such a value moves in the element's bytes every tick, which is what a
+    // signal exists to stop.
+    val bad = Dashboard(
+      Map(
+        "t" -> CardDef(
+          """<i x="{{{service__read}}}"></i>""",
+          slots = List("service")
+        )
+      ),
+      LayoutNode.Component(
+        "t",
+        Map(
+          "entity_id" -> SlotSource(literal = Some("lock.front")),
+          "service" -> SlotSource(transform = lockService)
+        )
+      )
+    )
+    assertEquals(
+      bad.validate(),
+      List(
+        "c: card 't' reads slot 'service' as {{{service__read}}}, but the " +
+          "slot is live and not a signal — its value moves in the element's " +
+          "bytes, so make it a signal slot or a literal"
       )
     )
   }

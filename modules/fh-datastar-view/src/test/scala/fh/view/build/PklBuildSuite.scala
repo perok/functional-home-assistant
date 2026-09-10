@@ -1614,7 +1614,12 @@ class PklBuildSuite extends munit.FunSuite {
         |node = c.button("Toggle", c.tap.toggle).entity(light)""".stripMargin
     )
     assert(!toggle.slots.contains("href"), clue = toggle.slots)
-    assert(toggle.slots("onclick").valueKey.contains("@post"))
+    // A service tap names only the SERVICE; the card's template assembles the
+    // URL around it (ADR 0017), so there is no `@post` in any slot value.
+    assertEquals(
+      toggle.slots("service").literal,
+      Some("homeassistant/toggle")
+    )
   }
 
   test("Row cssClass emits a literal `class` slot") {

@@ -517,10 +517,15 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
           assert(html.contains("class=\"slider-toggle\""), clue = html)
           assert(!html.contains("type=\"range\""), clue = html)
           // The whole track posts the light's own toggle, under the same
-          // commit signal the drag would have used.
+          // commit signal the drag would have used. The service is spliced as a
+          // quoted literal — the same spelling a state-dependent tap fills with
+          // a signal read, which is why one template serves both (ADR 0017) —
+          // and the node id is a build-time constant, not a `dataset` read.
           assert(
             html.contains(
-              "data-on:click=\"$_c_0_head_0__busy_change ? '' : @post('sse/action/fixture-plug/light/toggle/light.plug?node='"
+              "data-on:click=\"$_c_0_head_0__busy_change ? '' : " +
+                "@post('sse/action/fixture-plug/' + 'light/toggle' + " +
+                "'/light.plug?node=c_0_head_0'"
             ),
             clue = html
           )

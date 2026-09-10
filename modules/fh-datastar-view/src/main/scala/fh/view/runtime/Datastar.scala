@@ -528,6 +528,22 @@ object Datastar {
     // signal slot, not from there being an attribute.
     case SignalBind.Handler => ""
 
+  /** A slot's value as a **single-quoted JS string literal**, for splicing into
+    * an expression a card composes — the non-signal half of `<slot>__read`.
+    *
+    * The same double escape a seed needs ([[escapeJsInto]]): the literal sits
+    * inside an HTML attribute, so the JS quote and the attribute's `"` both
+    * apply. Sharing the escaper is the point — a second one would be a second
+    * chance to get `'` wrong, which is the trap that method documents.
+    */
+  def jsLiteral(value: String): String = {
+    val sb = new java.lang.StringBuilder(value.length + 2)
+    val _ = sb.append('\'')
+    escapeJsInto(sb, value)
+    val _ = sb.append('\'')
+    sb.toString
+  }
+
   /** Both escapes of a seeded value, in ONE pass, straight into the builder.
     *
     * The value sits in a JS string literal which sits in an HTML attribute, so

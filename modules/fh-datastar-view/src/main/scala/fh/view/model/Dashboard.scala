@@ -1141,8 +1141,40 @@ case class Dashboard(
                 }
               case _: Transform.Simple => None
             }
-        transformError.toList ++ signalErrors(nodeId, cardName, name, src)
+        transformError.toList ++ signalErrors(nodeId, cardName, name, src) ++
+          readErrors(nodeId, cardName, name, src)
       }
+
+    /** `<slot>__read` is a card composing a slot's value into a handler
+      * expression (ADR 0017). It is answered for a literal, an identity-`once`
+      * value and a signal — the three whose value is settled before the paint.
+      *
+      * A LIVE slot that is not a signal is the one shape with no answer, and
+      * refusing it is the rule rather than a limitation: such a value moves in
+      * the element's bytes on every tick, which is exactly what carrying it as
+      * a signal exists to stop. Without this the var renders empty and the
+      * handler is silently malformed.
+      */
+    def readErrors(
+        nodeId: String,
+        cardName: String,
+        name: String,
+        src: SlotSource
+    ): List[String] =
+      if (
+        src.literal.isDefined || src.signal.isDefined ||
+        src.reads == Reads.Once
+      ) Nil
+      else
+        cards
+          .get(cardName)
+          .toList
+          .filter(_.template.contains(s"{{{${name}__read}}}"))
+          .map(_ =>
+            s"$nodeId: card '$cardName' reads slot '$name' as {{{${name}__read}}}, " +
+              "but the slot is live and not a signal — its value moves in the " +
+              "element's bytes, so make it a signal slot or a literal"
+          )
 
     // A signal slot's value leaves the element's HTML on the patch path — a
     // `datastar-patch-signals` frame carries it instead (ADR 0017). Both checks
@@ -1183,18 +1215,22 @@ case class Dashboard(
         // depends on the kind: every painted kind has a binding, and a
         // `Handler` slot has none at all — nothing reads it but an expression
         // the card composes, so its name is what must appear.
+        // A `Handler` slot has no binding — nothing paints it — so what must
+        // appear is one of the two ways a card can READ it: `__read` (the
+        // value as a JS expression, which spells a literal and a signal alike)
+        // or the bare `__signal` name.
         val placed =
           if (src.signal.contains(SignalBind.Handler))
-            s"{{${name}__signal}}"
-          else s"{{{${name}__bind}}}"
+            List(s"{{{${name}__read}}}", s"{{${name}__signal}}")
+          else List(s"{{{${name}__bind}}}")
         cards
           .get(cardName)
           .toList
-          .filterNot(cd => cd.template.contains(placed))
+          .filterNot(cd => placed.exists(cd.template.contains))
           .map(_ =>
             s"$nodeId: card '$cardName' has slot '$name' marked as a signal " +
-              s"slot, but no part of its template places $placed " +
-              "— the value would stop updating"
+              s"slot, but no part of its template places " +
+              placed.mkString(" or ") + " — the value would stop updating"
           )
 
     def childErrors(

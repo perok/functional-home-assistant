@@ -145,6 +145,26 @@ const function signalBind(name: String): String = "{{{" + name + "__bind}}}"
 /// the signal existing, so it is not usable by a client that takes no signals.
 const function signalRef(name: String): String = "{{" + name + "__signal}}"
 
+/// The slot's value as a JS EXPRESSION, for a card composing it into a handler
+/// of its own — an action URL above all:
+///
+/// ```
+/// @post('sse/action/{{dashboardSlug}}/' + \(slotRead("service")) + '/{{entity_id}}')
+/// ```
+///
+/// **The card never learns which tier filled the slot.** A literal reads back
+/// as `'light/toggle'` and a signal as `$_e.lock.front.t4d7a74a1`, so ONE
+/// template serves a static tap and one whose service the live state picks —
+/// which is the whole reason a card does not branch on it. Contrast
+/// [[signalRef]], which is the signal's bare NAME and therefore signal-only.
+///
+/// Answered for a literal, an identity-`once` value and a signal. A LIVE slot
+/// that is not a signal is a build error: such a value moves in the element's
+/// bytes every tick, which is what carrying it as a signal exists to stop.
+///
+/// Raw (`{{{…}}}`) because it IS code.
+const function slotRead(name: String): String = "{{{" + name + "__read}}}"
+
 /// The section a card wraps optional markup in, when that markup holds a slot:
 ///
 /// ```

@@ -196,8 +196,8 @@ the identity cache to repaint a URL nobody ever looks at. Read at click time ins
 two-way test costs no bytes:
 
 ```
-data-on:click="@post('sse/action/{{dashboardSlug}}/' + $_e.lock.front.t4d7a74a1
-  + '/lock.front?node=' + (el.dataset.fhNode || ''), {filterSignals:{exclude:'.*'}})"
+data-on:click="@post('sse/action/home/' + $_e.lock.front.t4d7a74a1
+  + '/lock.front?node=c_4', {filterSignals:{exclude:'.*'}})"
 ```
 
 Every byte constant; only the signal moves. The request body also stays empty — the handler reads
@@ -212,14 +212,37 @@ second expression language, no escaping regime, and no drift to prevent.
 
 That is what `SignalBind.Handler` is: a signal with no binding at all, because nothing paints it.
 Everything else about it is an ordinary signal slot — one name per `(entity, transform)`, value
-withheld from the patch form, seeded on the wrapper, carried in the frame. `Dashboard.validate`
-asks for `{{<slot>__signal}}` in the template where the painted kinds want `{{{<slot>__bind}}}`,
-since that name is the value's only consumer.
+withheld from the patch form, seeded on the wrapper, carried in the frame.
 
 The one thing it forces on a card: **the URL is assembled in the template, not in the transform.**
 Mustache runs once and a slot's value is spliced raw, so a URL built server-side could not carry a
-placeholder for either the signal name or `{{dashboardSlug}}`. `tap.stateClick` is that markup,
-placed the way `tap.guard` already is.
+placeholder for the signal name or `{{dashboardSlug}}`. `tap.serviceClick` is that markup, placed
+the way `tap.guard` already is — and `?node={{id}}` comes free with it, where a transform had to
+read `el.dataset.fhNode` at click time and got nothing on an unguarded tap.
+
+### `<slot>__read` — a value as an expression, so the card cannot tell the tiers apart
+
+A card composing a slot into a handler gets one var, and the renderer decides its spelling:
+
+| slot | `service__read` |
+|---|---|
+| signal | `$_e.lock.front.t4d7a74a1` |
+| literal / identity-`once` | `'light/toggle'` (quoted through the seed's own escaper) |
+
+So the *static* tap and the *state-dependent* one are the same template — a card branching on
+which tier filled a slot is the mistake `liveIcon` already made once, and this is the same fix as
+`__has` applied to a value instead of a section. It also keeps the plain form reachable: with
+`signalBind` answering `None` everywhere (issue #133) the slot falls back to its quoted literal and
+a state-dependent tap still works with no JS at all.
+
+Two `validate` rules, because both failures are silent:
+
+- A `Handler` slot must be READ — `{{{<slot>__read}}}` or the bare `{{<slot>__signal}}` — where a
+  painted kind must place `{{{<slot>__bind}}}`. It has no binding to place, so the existing rule
+  could not have covered it.
+- A slot read as `__read` must not be **live and non-signal**. That is the one shape with no
+  answer, and refusing it is the rule rather than a gap: such a value moves in the element's bytes
+  every tick, which is precisely what carrying it as a signal exists to stop.
 
 **"You send what you saw" is preserved, and is why this is safe.** The signal is patched in the
 same frame as the visible state, so at click time it holds what the user is looking at: the command

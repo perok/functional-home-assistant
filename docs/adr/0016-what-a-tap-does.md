@@ -81,13 +81,19 @@ It buys no extra wakeups: the card already tracks its entity for the state it
 displays. Revisit (b) if the state-dependent list grows past a two-way
 conditional — that is the trigger to watch, not the row count.
 
-**You send what you saw, and this is deliberate.** The service is decided
-server-side, by the same transform machinery as any other value, and reaches the
-browser as a **handler signal** (ADR 0017): a signal with no binding, read by
-name in the click expression. So the markup is constant —
-`data-on:click="@post('sse/action/' + $_e.lock.front.t4d7a74a1 + …)"` — and the
-tile stays in `Renderer`'s identity cache across a lock/unlock, where a
-fully-resolved URL in the bytes made it repaint.
+**You send what you saw, and this is deliberate.** A tap names only its SERVICE;
+the card's template assembles the URL around it (`tap.serviceClick`). A
+build-time service is a literal slot and a state-dependent one is a **handler
+signal** (ADR 0017), and the card reads both through `service__read` — so the
+four rows here cost no card a branch, and the markup is constant either way:
+
+```
+data-on:click="@post('sse/action/' + 'light/toggle'          + '/light.k?node=c_3')"
+data-on:click="@post('sse/action/' + $_e.lock.front.t4d7a74a1 + '/lock.front?node=c_4')"
+```
+
+The lock tile therefore stays in `Renderer`'s identity cache across a
+lock/unlock, where a fully-resolved URL in the bytes made it repaint.
 
 Nothing about the guarantee changes with it. The signal is patched in the same
 frame as the visible state, so at click time it holds exactly what produced the

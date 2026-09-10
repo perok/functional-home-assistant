@@ -45,7 +45,7 @@ class Button extends nodes.Node {
     // in-flight affordance an icon has instead of a label going dim. A labelled
     // button gets only what `tapMod.guard` brings.
     template = """
-      {{#href}}<a class="button {{#round}}circle small{{/round}}{{^round}}card{{/round}}\(slotMod.ifSlot("lit")) {{lit}}\(slotMod.endIfSlot("lit"))"\(slotMod.ifSlot("lit")) \(slotMod.signalBind("lit"))\(slotMod.endIfSlot("lit")) href="{{{href}}}">{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</a>{{/href}}{{^href}}<button class="{{#round}}circle small{{/round}}{{^round}}card{{/round}}\(slotMod.ifSlot("lit")) {{lit}}\(slotMod.endIfSlot("lit"))"\(slotMod.ifSlot("lit")) \(slotMod.signalBind("lit"))\(slotMod.endIfSlot("lit")) data-on:click="\(tapMod.guardClick){{{onclick}}}"\(slotMod.ifSlot("inert")){{#inert}} disabled{{/inert}} \(slotMod.signalBind("inert"))\(slotMod.endIfSlot("inert"))\(tapMod.guard){{#busyVisual}}{{#glyph}} \(tapMod.busyShapeClass){{/glyph}}{{/busyVisual}}>{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</button>{{/href}}
+      {{#href}}<a class="button {{#round}}circle small{{/round}}{{^round}}card{{/round}}\(slotMod.ifSlot("lit")) {{lit}}\(slotMod.endIfSlot("lit"))"\(slotMod.ifSlot("lit")) \(slotMod.signalBind("lit"))\(slotMod.endIfSlot("lit")) href="{{{href}}}">{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</a>{{/href}}{{^href}}<button class="{{#round}}circle small{{/round}}{{^round}}card{{/round}}\(slotMod.ifSlot("lit")) {{lit}}\(slotMod.endIfSlot("lit"))"\(slotMod.ifSlot("lit")) \(slotMod.signalBind("lit"))\(slotMod.endIfSlot("lit")) data-on:click="\(tapMod.guardClick)\(tapMod.click)"\(slotMod.ifSlot("inert")){{#inert}} disabled{{/inert}} \(slotMod.signalBind("inert"))\(slotMod.endIfSlot("inert"))\(tapMod.guard){{#busyVisual}}{{#glyph}} \(tapMod.busyShapeClass){{/glyph}}{{/busyVisual}}>{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</button>{{/href}}
       """
     // `label` stays declared — every button has one, even when it is the empty
     // string an icon-only button carries. `glyph`/`round`/`lit` do not: they are
@@ -174,7 +174,9 @@ class Button extends nodes.Node {
     when (tapAction.href != null) {
       ["href"] = tapAction.href!!
     } else {
-      ["onclick"] = tapAction.onclick
+      for (k, v in tapMod.tapRoute(tapAction, "service", "onclick")) {
+        [k] = v
+      }
     }
     // Only the non-anchor arm carries the busy splice — an anchor is a
     // navigate, which is never guarded (`busy = false`), so this can never
@@ -238,7 +240,7 @@ class Toggle extends nodes.Node {
       <article class="card row toggle" \(slotMod.signalBind("switched"))\(tapMod.guardLook)>
         <span class="max \(textMod.BOX)">\(textMod.run("label"))</span>
         <label class="switch">
-          <input type="checkbox" value="on" {{#checked}}checked{{/checked}} \(slotMod.signalBind("checked")) data-on:click="\(tapMod.guardClick){{{onclick}}}" \(restoreSwitch)\(tapMod.guardMechanism) />
+          <input type="checkbox" value="on" {{#checked}}checked{{/checked}} \(slotMod.signalBind("checked")) data-on:click="\(tapMod.guardClick)\(tapMod.click)" \(restoreSwitch)\(tapMod.guardMechanism) />
           <span></span>
         </label>
       </article>
@@ -303,7 +305,9 @@ class Toggle extends nodes.Node {
       bypassUnavailable = false
       signal = slotMod.asAttr("data-switched")
     }
-    ["onclick"] = tapAction.onclick
+    for (k, v in tapMod.tapRoute(tapAction, "service", "onclick")) {
+      [k] = v
+    }
     when (tapAction.busy) {
       ["busy"] = "1"
     }
@@ -341,7 +345,7 @@ class Pill extends nodes.Node {
     // A chip is already pill-shaped, so unlike [[Button]] there is no round
     // variant: a glyph-only chip is a chip with a glyph in it.
     template = """
-      {{#href}}<a class="chip" href="{{{href}}}">{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</a>{{/href}}{{^href}}<button class="chip" data-on:click="\(tapMod.guardClick){{{onclick}}}"\(tapMod.guard){{#busyVisual}}{{#glyph}} \(tapMod.busyShapeClass){{/glyph}}{{/busyVisual}}>{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</button>{{/href}}
+      {{#href}}<a class="chip" href="{{{href}}}">{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</a>{{/href}}{{^href}}<button class="chip" data-on:click="\(tapMod.guardClick)\(tapMod.click)"\(tapMod.guard){{#busyVisual}}{{#glyph}} \(tapMod.busyShapeClass){{/glyph}}{{/busyVisual}}>{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</button>{{/href}}
       """
     slots { "label" }
   }
@@ -367,7 +371,9 @@ class Pill extends nodes.Node {
     when (tapAction.href != null) {
       ["href"] = tapAction.href!!
     } else {
-      ["onclick"] = tapAction.onclick
+      for (k, v in tapMod.tapRoute(tapAction, "service", "onclick")) {
+        [k] = v
+      }
     }
     when (tapAction.href == null && tapAction.busy) {
       ["busy"] = "1"

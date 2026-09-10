@@ -238,16 +238,15 @@ facts {
   // express — sometimes no action at all.
 
   ["a domain with a real toggle gets a LITERAL route, not a runtime lookup"] {
-    local onclick = c.entityCard(kitchen).slots["onclick"]
-    onclick.transform.contains("light/toggle")
-    !onclick.transform.contains("$lookup")
-    !onclick.transform.contains("$domain")
-    // Identity-derived, so it stays in the renderer's identity cache.
-    onclick.reads == "once"
+    // A bare String — no transform, nothing for the runtime to decide, and so
+    // nothing that can leave the renderer's identity cache. `service__read`
+    // quotes it back into the card's click expression.
+    c.entityCard(kitchen).slots["service"] == "light/toggle"
+    c.entityCard(kitchen).slots["onclick"] == ""
   }
 
   ["a one-shot domain presses instead of toggling"] {
-    c.entityCard(doorbell).slots["onclick"].transform.contains("button/press")
+    c.entityCard(doorbell).slots["service"] == "button/press"
   }
 
   ["a lock's service is the one thing the STATE has to decide"] {
@@ -446,8 +445,9 @@ facts {
     local row = (c.slider(switchOnly)).readout("percent")
     row.toggleOnly
     row.headSlots["toggle"] == "1"
-    // The whole track posts the domain's own toggle.
-    row.headSlots["toggleClick"].transform.contains("light/toggle")
+    // The whole track posts the domain's own toggle — under the slider's own
+    // slot names, because its head already carries the commit's tap.
+    row.headSlots["toggleService"] == "light/toggle"
     // All or nothing, in the theme's switch-fill rather than in the text colour
     // — a light with no brightness reports no colour either (`onoff` is a
     // light's SOLE mode when present), so the default is the only paint it can
@@ -719,14 +719,14 @@ facts {
     // The latch itself calls nothing — it opens an inline confirmation, which
     // is the whole point: releasing a latch opens a door.
     latch.inlineSurfaces != null
-    !latch.slots["onclick"].transform.contains("lock/open")
+    !latch.slots.containsKey("service")
     // …and `lock/open` lives inside it, aimed at the lock (a button carries no
     // subject of its own).
     local body = latch.inlineSurfaces!!["self"].content.children.toList().first
     local press = body.children.toList()
       .filter((n) -> n.card == "button" && n.slots.containsKey("entity_id"))
       .first
-    press.slots["onclick"].transform.contains("lock/open")
+    press.slots["service"] == "lock/open"
     press.slots["entity_id"] == "lock.latch"
     // The tile beside it still locks/unlocks by state — the two controls are
     // different actions, not two spellings of one.

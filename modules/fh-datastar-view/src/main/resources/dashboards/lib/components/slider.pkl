@@ -281,7 +281,7 @@ class SliderHead extends nodes.Node {
           <span style="background:{{fillColor}}" \(slotMod.signalBind("fillColor"))></span>
           {{#toggle}}<button type="button" class="slider-toggle" aria-label="{{label}}"
             \(slotMod.signalBind("value"))
-            data-on:click="\(tapMod.busyGuardChange){{{toggleClick}}}"
+            data-on:click="\(tapMod.busyGuardChange)\(tapMod.clickOf("toggleService", "toggleClick"))"
             \(tapMod.busyAttrsChange)></button>{{/toggle}}
         </div>
       </div>
@@ -648,7 +648,11 @@ class Slider extends nodes.Node {
     // shared by every slider on the page — the shape has to travel as a slot.
     when (toggleOnly) {
       ["toggle"] = "1"
-      ["toggleClick"] = toggleTap.onclick
+      // Its OWN slot names: this is a second tap in a template that already has
+      // the commit's, so it cannot use `tapMod.tapSlots`' canonical pair.
+      for (k, v in tapMod.tapRoute(toggleTap, "toggleService", "toggleClick")) {
+        [k] = v
+      }
     }
     ["action"] = sliderConfig(action, spec, (s) -> s.action)
     ["key"] = sliderConfig(key, spec, (s) -> s.key)
