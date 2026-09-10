@@ -445,9 +445,8 @@ facts {
     local row = (c.slider(switchOnly)).readout("percent")
     row.toggleOnly
     row.headSlots["toggle"] == "1"
-    // The whole track posts the domain's own toggle — under the slider's own
-    // slot names, because its head already carries the commit's tap.
-    row.headSlots["toggleService"] == "light/toggle"
+    // The whole track posts the domain's own toggle.
+    row.headSlots["service"] == "light/toggle"
     // All or nothing, in the theme's switch-fill rather than in the text colour
     // — a light with no brightness reports no colour either (`onoff` is a
     // light's SOLE mode when present), so the default is the only paint it can

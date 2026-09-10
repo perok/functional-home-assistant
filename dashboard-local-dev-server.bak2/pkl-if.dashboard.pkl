@@ -1,0 +1,109 @@
+// A Pkl-authored If/else dashboard, served at /d/pkl-if (slug = filename) —
+// the demo entry for conditional sections. An `If` is the tabs machinery with
+// a condition: each branch is an inline surface baked into the host's
+// `{{{branch}}}` hole, and the ACTIVE member is selected by a quantified
+// condition over live entity state (server truth, shared by every viewer)
+// instead of a click/cookie. The hidden branch is not rendered and receives
+// no updates; toggling the condition entity swaps the branch live in every
+// open client.
+//
+// `amends "@fh-dashboard/entry.pkl"` supplies the `cards`/`theme` scaffold; this
+// entry sets only `card` (its branches become hoisted surfaces at build time).
+// (Plain `//` comments: a doc comment would attach to the first import, which
+// Pkl rejects — entries have no `module` clause to absorb it.)
+
+amends "@fh-dashboard/entry.pkl"
+
+import "@fh-dashboard/components.pkl" as c
+import "@fh-dashboard/query.pkl" as q
+import "@fh-home/dump.pkl" as dump
+
+local demoLight =
+  dump.entities.light_skyconnect_v1_0_light_group_overetasje_stue_sittegruppe_gang
+
+card = (c.column) {
+  children {
+    c.title("If/else")
+    c.button("« Back to dash", c.tap.navigate("pkl-demo"))
+
+    // BUILDER form: `iff(condition).then(card).`else`(card)` — `else` is a Pkl
+    // reserved word, so its call sites are backticked. The condition NAMES the
+    // entity it reads, so the runtime looks it up instead of scanning.
+    c
+      .iff(q.entity(demoLight).stateIs("on"))
+      .then((c.column) {
+        children {
+          c.title("Demo light is on")
+          c.button("TODO unrepresentable", c.tap.toggle) //dump.entities.light_skyconnect_v1_0_light_group_overetasje_stue_sittegruppe_gang.entity_id)
+          (c.tabs) {
+            tabs {
+              // Entity cards toggled on tap (options amended onto the call).
+              ["Lights"] {
+                (
+                  c.entityCard(
+                    dump.entities.light_skyconnect_v1_0_light_group_overetasje_stue_sittegruppe_gang,
+                  )
+                ) {
+                  tapAction = c.tap.toggle
+                }
+              }
+              // Live value expressions (own unit).
+              ["Sensors"] {
+                (c.entityCard(dump.entities.sensor_ams_1a4e_q)) {
+                  value = c.expr(#"str(math.round(num(state) * 10.0) / 10.0) + ' ' + ('unit_of_measurement' in attr ? attr['unit_of_measurement'] : '')"#)
+                }
+                (c.entityCard(dump.entities.sensor_ams_1a4e_u1)) {
+                  value = c.expr(#"str(math.round(num(state) * 10.0) / 10.0) + ' ' + ('unit_of_measurement' in attr ? attr['unit_of_measurement'] : '')"#)
+                }
+              }
+            }
+          }
+        }
+      })
+      .`else`((c.column) {
+        children {
+          c.title("Demo light is off")
+          c.slider(dump.entities.light_skyconnect_v1_0_light_group_overetasje_stue_sittegruppe_gang)
+          // TODO button on off
+          //
+        }
+      })
+
+    // AMEND form — multi-card branches list their cards directly (comma-free,
+    // like a tab body); the outer parens around the amended call are mandatory.
+    //
+    // Your TODO here was "this should be an error, c.stateIs on what?" — it is
+    // now, and by construction. There are no free predicate constructors left:
+    // a term only exists via `q.entity(e)` (which names its subject) or as a
+    // set's guard (whose subject is the candidate). An `If` supplies no subject,
+    // so a comparison that names no entity is a `Dashboard.validate` error
+    // rather than the old silent "some entity in the house is on".
+    (c.iff(q.entity(dump.entities.sensor_ams_1a4e_q).stateIs("on"))) {
+      `then` {
+        c.title("Something is on")
+        c.entityCard(dump.entities.sensor_ams_1a4e_q)
+      }
+      `else` {
+        c.title("All quiet")
+      }
+    }
+
+    c.title("START if with no else")
+    (c.iff(q.entity(demoLight).stateIs("on"))) {
+      `then` {
+        c.title("!!! Something is on (if, no else)")
+        c.entityCard(dump.entities.sensor_ams_1a4e_q)
+      }
+    }
+    c.title("DONE if with no else")
+
+    // A SET condition, which is what `iffNone` became: `none()` is a comparison
+    // on how many of a NAMED set are present (count == 0), so this reads "no
+    // light in the house is on" over the lights the dump actually has — where
+    // the quantifier meant "no entity of any kind matches". No `else` branch:
+    // while one is on, the host bakes empty.
+    c
+      .iff(q.from(dump.lights).where(q.eq(q.stateProp, "on")).none())
+      .then(c.entityCard(dump.entities.sensor_ams_1a4e_u1))
+  }
+}

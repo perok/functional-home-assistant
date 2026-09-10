@@ -1,0 +1,7 @@
+# fh dashboards workspace (ADR 0010). The committed scaffold — .fh/base.pkl,
+# PklProject, your *.pkl entries, and .fh/pins.json — is byte-identical on
+# every machine. These are per-machine or generated; keep them out of git.
+.fh/machine.json
+.fh/cache/
+.fh/pins.json.backup.*
+PklProject.deps.json

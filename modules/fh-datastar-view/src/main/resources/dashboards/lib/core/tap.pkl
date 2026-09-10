@@ -399,11 +399,9 @@ const busyShapeClassChange: String = busySpinner("_{{id}}__busy_change")
 /// the node id directly, where a transform did not. That also makes it correct
 /// for an UNGUARDED tap, which carries no `data-fh-node` at all — [[guard]] is
 /// what emits that, and `busy` is what opens [[guard]].
-const function serviceClickOf(serviceName: String): String =
-  #"@post('sse/action/{{dashboardSlug}}/' + "# + slotMod.slotRead(serviceName) +
+const serviceClick: String =
+  #"@post('sse/action/{{dashboardSlug}}/' + "# + slotMod.slotRead("service") +
     #" + '/{{entity_id}}?node={{id}}', "# + noSignals + ")"
-
-const serviceClick: String = serviceClickOf("service")
 
 /// **What every card with a tap places**, and the whole of it:
 ///
@@ -418,28 +416,25 @@ const serviceClick: String = serviceClickOf("service")
 ///
 /// A card that splices this needs no `when` of its own — [[tapSlots]] decides
 /// which arm exists by whether it emitted a `service` slot.
-const function clickOf(serviceName: String, exprName: String): String =
-  slotMod.ifSlot(serviceName) + serviceClickOf(serviceName) +
-    slotMod.endIfSlot(serviceName) + slotMod.ifNoSlot(serviceName) +
-    "{{{" + exprName + "}}}" + slotMod.endIfNoSlot(serviceName)
+const click: String =
+  slotMod.ifSlot("service") + serviceClick + slotMod.endIfSlot("service") +
+    slotMod.ifNoSlot("service") + "{{{onclick}}}" + slotMod.endIfNoSlot("service")
 
-const click: String = clickOf("service", "onclick")
-
-/// The ROUTE slots for one tap, under a card's own names — [[clickOf]]'s other
-/// half, and the piece a card places when it has more than one tap and so
-/// cannot use [[tapSlots]]' canonical names. The slider's toggle track is the
-/// case: it is a second click in the same template, which is why these are
-/// parameterised rather than fixed.
-const function tapRoute(
-  t: TapAction,
-  serviceName: String,
-  exprName: String
-): Mapping<String, slotMod.Slot|String> =
+/// [[click]]'s other half: the two ROUTE slots it reads. Separate from
+/// [[tapSlots]] for the card that decides `tappable`/`busy` for itself — a
+/// [[Button]] hangs those on whether the tap offered an `href` instead.
+///
+/// One node holds ONE tap's route, which has been enough for every card: the
+/// slider's toggle track and its commit look like two, but the commit assembles
+/// its own URL from `action`/`key` and never touches these, and the two arms are
+/// mutually exclusive anyway. If a card ever does need two, that is the point to
+/// name them rather than to parameterise this.
+const function tapRoute(t: TapAction): Mapping<String, slotMod.Slot|String> =
   new {
     when (t.serviceSlot != null) {
-      [serviceName] = t.serviceSlot!!
+      ["service"] = t.serviceSlot!!
     }
-    [exprName] = t.onclick
+    ["onclick"] = t.onclick
   }
 
 /// **Every slot a tap contributes**, as data, so a card folds them in with one
@@ -458,7 +453,7 @@ const function tapSlots(t: TapAction?): Mapping<String, slotMod.Slot|String> =
   new {
     when (t != null) {
       ["tappable"] = "1"
-      for (k, v in tapRoute(t!!, "service", "onclick")) {
+      for (k, v in tapRoute(t!!)) {
         [k] = v
       }
       when (t!!.busy) {

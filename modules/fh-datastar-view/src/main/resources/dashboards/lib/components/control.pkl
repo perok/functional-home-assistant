@@ -174,7 +174,7 @@ class Button extends nodes.Node {
     when (tapAction.href != null) {
       ["href"] = tapAction.href!!
     } else {
-      for (k, v in tapMod.tapRoute(tapAction, "service", "onclick")) {
+      for (k, v in tapMod.tapRoute(tapAction)) {
         [k] = v
       }
     }
@@ -305,7 +305,7 @@ class Toggle extends nodes.Node {
       bypassUnavailable = false
       signal = slotMod.asAttr("data-switched")
     }
-    for (k, v in tapMod.tapRoute(tapAction, "service", "onclick")) {
+    for (k, v in tapMod.tapRoute(tapAction)) {
       [k] = v
     }
     when (tapAction.busy) {
@@ -371,7 +371,7 @@ class Pill extends nodes.Node {
     when (tapAction.href != null) {
       ["href"] = tapAction.href!!
     } else {
-      for (k, v in tapMod.tapRoute(tapAction, "service", "onclick")) {
+      for (k, v in tapMod.tapRoute(tapAction)) {
         [k] = v
       }
     }

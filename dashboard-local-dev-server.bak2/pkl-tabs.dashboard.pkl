@@ -1,0 +1,53 @@
+// A Pkl-authored tabs dashboard, served at /d/pkl-tabs (slug = filename) — the
+// typed counterpart of tabs.jsonnet. Demonstrates the `Tabs` sugar: one bar over
+// a single inline panel, one tab visible at a time.
+//
+// `(c.tabs) { tabs { ["Label"] { ...cards... } } }` is pure composition — each
+// tab amends into existence off the mapping default (its body lists the panel's
+// cards directly; the Row wrap is automatic), the build-phase hoist lifts each
+// panel into the surfaces registry (sharing one exclusivity group + one inline
+// mount), the bar buttons open them, the first tab bakes inline for an instant
+// first paint, and the active tab is tracked in a signal (+ cookie) for the
+// highlight and reload-restore. Switching reuses the same surface open/close
+// machinery as popups.
+//
+// `amends "@fh-dashboard/entry.pkl"` supplies the `cards`/`theme` scaffold; this
+// entry sets only `card` (its tab panels become hoisted surfaces at build time).
+// (Plain `//` comments: a doc comment would attach to the first import, which
+// Pkl rejects — entries have no `module` clause to absorb it.)
+
+amends "@fh-dashboard/entry.pkl"
+
+import "@fh-dashboard/components.pkl" as c
+import "@fh-home/dump.pkl" as dump
+
+card = (c.column) {
+  children {
+    c.title("Tabs")
+
+    (c.row) {
+      children {
+        c.button("« Home", c.tap.navigate("pkl-demo"))
+      }
+    }
+    (c.tabs) {
+      tabs {
+        // Entity cards toggled on tap (options amended onto the call).
+        ["Lights"] {
+          (c.entityCard(dump.entities.light_skyconnect_v1_0_light_group_overetasje_stue_sittegruppe_gang)) {
+            tapAction = c.tap.toggle
+          }
+        }
+        // Live value expressions (own unit).
+        ["Sensors"] {
+          (c.entityCard(dump.entities.sensor_ams_1a4e_q)) {
+            value = c.expr(#"str(math.round(num(state) * 10.0) / 10.0) + ' ' + ('unit_of_measurement' in attr ? attr['unit_of_measurement'] : '')"#)
+          }
+          (c.entityCard(dump.entities.sensor_ams_1a4e_u1)) {
+            value = c.expr(#"str(math.round(num(state) * 10.0) / 10.0) + ' ' + ('unit_of_measurement' in attr ? attr['unit_of_measurement'] : '')"#)
+          }
+        }
+      }
+    }
+  }
+}
