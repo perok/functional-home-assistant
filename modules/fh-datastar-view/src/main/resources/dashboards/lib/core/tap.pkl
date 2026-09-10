@@ -237,11 +237,39 @@ const local function failedClass(sig: String): String =
 ///
 /// `busyVisual` is only ever set together with `busy` (the card sets both from
 /// the tap), so the two sections are siblings rather than nested.
-const guard: String =
+const guard: String = guardMechanism + guardLook
+
+/// [[guard]]'s MECHANISM half: what makes the fetch observable and reportable.
+/// It has to sit on the element that ISSUES the action — `failedOn` filters on
+/// `evt.detail.el === el`, and the server answers the `data-fh-node` it sent.
+const guardMechanism: String =
   "{{#busy}} " + indicatorOn(busySig) + " " + failedOn(errorSig)
     + #" data-fh-node="{{id}}""# + "{{/busy}}"
-    + "{{#busyVisual}} " + inFlightClass(busySig) + " " + failedClass(errorSig)
+
+/// [[guard]]'s LOOK half — the busy and failed classes.
+///
+/// Separate from [[guardMechanism]] because the two do not always belong on the
+/// same element. `fh-error` paints an OUTLINE (`core/css.pkl`), which shows
+/// nothing on an element the theme has hidden: a BeerCSS switch draws its track
+/// with a sibling `<span>` and leaves the `<input>` itself invisible, so a
+/// refused toggle reported its failure onto a control nobody can see. A card
+/// whose acting element is not its visible one places this on the visible one.
+const guardLook: String =
+  "{{#busyVisual}} " + inFlightClass(busySig) + " " + failedClass(errorSig)
     + "{{/busyVisual}}"
+
+/// Put a control back the way the SERVER last said it was, when an action on
+/// this node is refused.
+///
+/// An optimistic control moves on click and waits to be confirmed. A refusal is
+/// exactly the case where confirmation never arrives — HA changed nothing, so
+/// no state frame follows — and without this the control keeps the position the
+/// press gave it, which is the one position known to be wrong.
+///
+/// `restore` is the assignment that reads truth back out of a server-owned
+/// signal; the caller supplies it, because what "truth" is differs per control.
+const function restoreOnRefusal(restore: String): String =
+  #"data-on-signal-patch-filter="{include:/^\#(errorSig)$/}" data-on-signal-patch="$\#(errorSig) && (\#(restore))""#
 
 /// [[guard]]'s other half, for INSIDE the click expression: the prefix that
 /// makes a re-click a no-op while the first is still in flight.

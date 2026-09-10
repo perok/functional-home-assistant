@@ -200,6 +200,25 @@ class Button extends nodes.Node {
   function tapAction(a: tapMod.TapAction): Button = let (self = this) (self) { tapAction = a }
 }
 
+/// Put a refused switch back where the SERVER last had it.
+///
+/// [[Toggle.checked]] is two-way bound, so a press moves it immediately and
+/// waits to be confirmed. A refusal is exactly the case where confirmation
+/// never comes — HA changed nothing, so no state frame follows — and the switch
+/// then sits in the one position known to be wrong, until something unrelated
+/// moves the entity.
+///
+/// Truth is the `switched` slot: the SAME transform as `checked`, so this is a
+/// copy and not a mapping, but a shared server-owned signal rather than the
+/// node-scoped one `data-bind` writes into. Two signals is the point — a
+/// control that can be moved locally needs somewhere the local move cannot
+/// reach, which is the same split the slider makes between its committed value
+/// and `_slide`.
+const local restoreSwitch: String =
+  tapMod.restoreOnRefusal(
+    "$" + slotMod.signalRef("checked") + " = $" + slotMod.signalRef("switched")
+  )
+
 /// On/off control — BeerCSS's `.switch` (a checkbox styled as a MD3 switch:
 /// `<label class="switch"><input type="checkbox"><span></span></label>`).
 /// Unlike [[Button]]/[[Pill]], the checkbox itself must show which state it is
@@ -209,14 +228,17 @@ class Button extends nodes.Node {
 /// in the HTML it sends rather than something a client script re-derives.
 /// Always calls a service (there is no href arm — a checkbox cannot be an
 /// `<a>`), defaulting to the same domain-resolved toggle every [[Button]] does.
+///
+/// A refused command puts the switch BACK — see [[restoreSwitch]]. Optimism
+/// plus no rollback is the one combination that leaves a control lying.
 class Toggle extends nodes.Node {
   card = "toggle"
   cardDef = new nodes.CardDef {
     template = """
-      <article class="card row toggle">
+      <article class="card row toggle" \(slotMod.signalBind("switched"))\(tapMod.guardLook)>
         <span class="max \(textMod.BOX)">\(textMod.run("label"))</span>
         <label class="switch">
-          <input type="checkbox" value="on" {{#checked}}checked{{/checked}} \(slotMod.signalBind("checked")) data-on:click="\(tapMod.guardClick){{{onclick}}}"\(tapMod.guard) />
+          <input type="checkbox" value="on" {{#checked}}checked{{/checked}} \(slotMod.signalBind("checked")) data-on:click="\(tapMod.guardClick){{{onclick}}}" \(restoreSwitch)\(tapMod.guardMechanism) />
           <span></span>
         </label>
       </article>
@@ -258,14 +280,28 @@ class Toggle extends nodes.Node {
     // a JS-less reader) still gets the state in the markup, and the patch form
     // withholds it because the signal owns it from then on.
     //
-    // Two-way is a small behaviour change worth naming: a click now moves the
-    // signal immediately, so the switch flips optimistically and the frame that
-    // follows either confirms it or puts it back.
+    // Two-way is a small behaviour change worth naming: a click moves the
+    // signal immediately, so the switch flips optimistically. What confirms it
+    // is the next state frame — and a REFUSED command produces none, which is
+    // why [[restoreSwitch]] exists rather than the flip simply being undone by
+    // the traffic that follows.
     ["checked"] = new slotMod.Slot {
       transform = simpleMod.enumOf("on", "on", "")
       default = ""
       bypassUnavailable = false
       signal = slotMod.asBind
+    }
+    // The same reading as `checked`, on a SHARED signal instead of the
+    // node-scoped one `data-bind` owns — so there is a copy of the truth the
+    // press cannot overwrite. It rides a `data-` attribute because it needs
+    // some binding to exist and this is the honest one: the value is data about
+    // the control, and having it in the DOM makes the rollback inspectable
+    // rather than something only a signals dump can show.
+    ["switched"] = new slotMod.Slot {
+      transform = simpleMod.enumOf("on", "on", "")
+      default = ""
+      bypassUnavailable = false
+      signal = slotMod.asAttr("data-switched")
     }
     ["onclick"] = tapAction.onclick
     when (tapAction.busy) {

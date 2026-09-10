@@ -346,8 +346,10 @@ facts {
     cards["button"].css.contains("min-block-size:2.5rem")
     cards["button"].css.contains("block-size:auto")
     cards["toggle"].css.contains(".card.row.toggle>.switch{flex:0 0 auto}")
-    // ...and the class those rules name is really in the markup.
-    cards["toggle"].template.contains(#"<article class="card row toggle">"#)
+    // ...and the class those rules name is really in the markup. Matched
+    // WITHOUT the closing bracket: the element carries bindings now, and this
+    // fact is about the class list, not about the tag being bare.
+    cards["toggle"].template.contains(#"<article class="card row toggle""#)
     // The label itself is a text box in both, which is the half that shrinks.
     cards["button"].template.contains(#"<span class="fh-text">"#)
     cards["toggle"].template.contains(#"<span class="max fh-text">"#)
@@ -627,6 +629,33 @@ facts {
     // card cannot see that; the schema can.
     latchLock.supportsOpen
     !plainLock.supportsOpen
+  }
+
+  ["a refused switch goes back, and says so where it can be seen"] {
+    // Two halves of one report, and each was independently wrong.
+    //
+    // The LOOK: `fh-error` paints an outline, and the toggle put it on the
+    // `<input>` — which BeerCSS hides behind a sibling `<span>` that draws the
+    // track. An outline on an invisible element is an outline nobody sees, so
+    // the class belongs on the card.
+    //
+    // The ROLLBACK: `checked` is two-way bound, so a press moves it at once and
+    // waits for a state frame to confirm. A refusal produces NO state frame, so
+    // an unrestored switch sits in the one position known to be wrong.
+    local sw = c.toggle(kitchen)
+    local t = c.cards["toggle"].template
+    // The look rides the card element, the mechanism the input.
+    t.contains(#"<article class="card row toggle" "#)
+    t.split("<label").first.contains("data-class:fh-error")
+    t.split("<label").last.contains("data-on:datastar-fetch__document")
+    // Truth lives on a SECOND signal the press cannot reach: same reading,
+    // shared rather than node-scoped.
+    sw.slots["switched"].transform == sw.slots["checked"].transform
+    sw.slots["checked"].signal == "bind"
+    sw.slots["switched"].signal == "attr:data-switched"
+    // ...and the rollback copies one into the other, gated on the error signal.
+    t.contains("data-on-signal-patch-filter=\"{include:/^_{{id}}__error$/}\"")
+    t.contains("$_{{id}}__error && (${{checked__signal}} = ${{switched__signal}})")
   }
 
   ["a state-dependent tap refuses the press while the entity is mid-move"] {
