@@ -277,13 +277,14 @@ object PklDump {
   /** The hass.pkl class for an entity's domain (GenericEntity fallback). */
   private def entityType(eo: JsonObject): String =
     str(eo, "domain") match {
-      case Some("light")  => "hass.LightEntity"
-      case Some("lock")   => "hass.LockEntity"
-      case Some("sensor") => "hass.SensorEntity"
-      case Some("switch") => "hass.SwitchEntity"
-      case Some("number") => "hass.NumberEntity"
-      case Some("select") => "hass.SelectEntity"
-      case _              => "hass.GenericEntity"
+      case Some("light")         => "hass.LightEntity"
+      case Some("lock")          => "hass.LockEntity"
+      case Some("sensor")        => "hass.SensorEntity"
+      case Some("binary_sensor") => "hass.BinarySensorEntity"
+      case Some("switch")        => "hass.SwitchEntity"
+      case Some("number")        => "hass.NumberEntity"
+      case Some("select")        => "hass.SelectEntity"
+      case _                     => "hass.GenericEntity"
     }
 
   /** Property names `hass.Entity` and its domain subclasses already own. An
@@ -320,7 +321,17 @@ object PklDump {
     // `code_format` is deliberately absent: no shipped card asks for a code, so
     // it stays an ordinary per-entity attribute an author can read (see
     // `hass.LockEntity`).
-    "lock" -> Set("supported_features")
+    "lock" -> Set("supported_features"),
+    // `icon` stays OUT of both sensor rows: it is in the dump for every domain
+    // and `core/icon.pkl` already owns how one is chosen, so declaring it on
+    // the schema would give a card a second, competing source for the glyph.
+    "sensor" -> Set(
+      "device_class",
+      "state_class",
+      "unit_of_measurement",
+      "options"
+    ),
+    "binary_sensor" -> Set("device_class")
   )
 
   /** The generated class name for one entity. */
@@ -350,9 +361,46 @@ object PklDump {
           .flatMap(_.toInt)
           .map(v => s"  supported_features = $v")
           .toList
+      case Some("sensor") =>
+        deviceClassField(attrs, HassVocabulary.SensorDeviceClasses) ++
+          List("state_class", "unit_of_measurement")
+            .flatMap(n => str(attrs, n).map(v => s"  $n = ${pklString(v)}")) ++
+          attrs("options")
+            .flatMap(pklTyped)
+            .map { case (_, rendered) => s"  options = $rendered" }
+            .toList
+      case Some("binary_sensor") =>
+        deviceClassField(attrs, HassVocabulary.BinarySensorDeviceClasses)
       case _ => Nil
     }
   }
+
+  /** The `device_class` assignment, emitted only when the value is one the
+    * vendored union in `hass/sensor.pkl` (or `hass/binary_sensor.pkl`) actually
+    * names.
+    *
+    * An unrecognised one is DROPPED to a comment rather than assigned, and the
+    * schema's null default stands. Assigning it verbatim would be the obvious
+    * thing and is the wrong bet for THIS attribute: `SensorDeviceClass` is a
+    * string enum HA grows most releases (it gained `area`, `energy_distance`
+    * and `temperature_delta` recently), so a home running a newer HA than this
+    * lib was synced against would fail to evaluate its whole dashboard —
+    * "Cannot assign" on somebody's first boot, over a reading no shipped card
+    * knows how to render anyway. Cards branch on the class, and a class we do
+    * not model has no branch, so null is also the behaviourally correct answer.
+    *
+    * This is NOT the bet `supported_color_modes` takes (declared as the
+    * `ColorMode` union and assigned verbatim). That one is a closed set of ten
+    * that has not moved in years; this one is sixty and moving.
+    */
+  private def deviceClassField(
+      attrs: JsonObject,
+      known: Set[String]
+  ): List[String] =
+    str(attrs, "device_class").toList.map { v =>
+      if (known.contains(v)) s"  device_class = ${pklString(v)}"
+      else s"  // device_class $v is not in the vendored union; re-sync hass/"
+    }
 
   /** Each complete capability GROUP the entity reports, as a NARROWED
     * declaration on the entity's own class: the domain class types the group

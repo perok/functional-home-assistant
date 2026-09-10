@@ -18,7 +18,7 @@
 ///     q.from(hass.lights(dump.areas.stue.all))     // one room
 ///     q.from(hass.lights(dump.floors.loft.all))    // one floor
 ///
-/// Which is why only `all` is generated, per scope: the four domain lists here
+/// Which is why only `all` is generated, per scope: the domain lists here
 /// are derived from it by the same selectors an author calls, so a generated
 /// list and a hand-written filter cannot answer differently.
 ///
@@ -43,6 +43,7 @@ hidden all: List<hass.Entity> = List()
 hidden lights: List<hass.LightEntity> = hass.lights(all)
 hidden locks: List<hass.LockEntity> = hass.locks(all)
 hidden sensors: List<hass.SensorEntity> = hass.sensors(all)
+hidden binarySensors: List<hass.BinarySensorEntity> = hass.binarySensors(all)
 hidden switches: List<hass.SwitchEntity> = hass.switches(all)
-/// Every entity no other list claims, so the five partition `all`.
+/// Every entity no other list claims, so these lists partition `all`.
 hidden generic: List<hass.Entity> = hass.generic(all)
