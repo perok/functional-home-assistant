@@ -111,17 +111,8 @@ class EntityCard extends nodes.Node {
     // `disabled`: this host is an `<article>`, and only a form control can be
     // disabled. So the guard is the mechanism here rather than a belt on top of
     // one.
-    when (tapAction != null && !tapAction!!.inertWhile.isEmpty) {
-      ["inert"] = new slotMod.Slot {
-        transform = simpleMod.matchOf(new Mapping {
-          for (st in tapAction!!.inertWhile) {
-            [st] = "fh-inert"
-          }
-        }, "")
-        default = ""
-        bypassUnavailable = false
-        signal = slotMod.asClass("fh-inert")
-      }
+    when (!tapMod.inertStates(tapAction, new Listing {}).isEmpty) {
+      ["inert"] = tapMod.inertClass(tapMod.inertStates(tapAction, new Listing {}))
     }
   }
   // ---- fluent config (builder style) ----

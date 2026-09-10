@@ -672,8 +672,10 @@ facts {
     // know it.
     local tile = c.entityCard(latchLock)
     local inert: simpleMod.SimpleMatch = tile.slots["inert"].transform!!
+    // `unavailable` rides with them but is NOT one of them — see the fact
+    // below. The three transitional ones are the domain table's.
     inert.cases.toMap().keys.toList().sort()
-      == List("locking", "opening", "unlocking")
+      == List("locking", "opening", "unavailable", "unlocking")
     // `open` and `jammed` are NOT here: locking an open door and retrying a jam
     // are both meaningful presses, and only a transitional state is not.
     !inert.cases.toMap().containsKey("open")
@@ -683,11 +685,23 @@ facts {
     tile.slots["inert"].signal == "class:fh-inert"
   }
 
-  ["a domain whose tap is state-INDEPENDENT gets no guard at all"] {
-    // `light/toggle` means the same thing in every state, so there is nothing
-    // to be mid-way through. The card renders byte-identical to before the
-    // guard existed.
-    !c.entityCard(kitchen).slots.containsKey("inert")
+  ["a SERVICE tap is inert on a dead entity, whatever its domain"] {
+    // Availability is a different axis from transitional state: HA rejects a
+    // service call on an unavailable entity in EVERY domain, so it is one rule
+    // rather than a row per domain — which is also what lets `inertWhile` keep
+    // meaning "transitional only" (`hass/actions.pkl`).
+    local lit: simpleMod.SimpleMatch =
+      c.entityCard(kitchen).slots["inert"].transform!!
+    // `light/toggle` means the same thing in every state, so nothing
+    // transitional — and `unavailable` all the same.
+    lit.cases.toMap().keys.toList() == List("unavailable")
+  }
+
+  ["a tap that calls NO service stays live on a dead entity"] {
+    // More-info is exactly what you want to open on an unavailable entity: it
+    // is where the reason is. A navigate does not care either.
+    !c.entityCard(outside).slots.containsKey("inert")
+    !c.button("Go", c.tap.navigate("other")).slots.containsKey("inert")
   }
 
   ["a typed lock still taps by state, like any other lock"] {

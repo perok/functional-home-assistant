@@ -65,7 +65,11 @@ class TapAction {
   /// States of the tapped entity in which this action is MEANINGLESS, so a card
   /// should refuse the press rather than send a competing command. Filled from
   /// the domain table for a [[stateService]] tap ([[byDomain]]); empty for
-  /// every other kind, which renders byte-identical to before this existed.
+  /// every other kind.
+  ///
+  /// NOT the whole inert list a card renders — [[inertStates]] is, and it adds
+  /// availability, which is a fact about every service call rather than about
+  /// this domain. Keeping that out of here is what lets this stay transitional.
   ///
   /// It rides the ACTION and not the card because it is a fact about the
   /// service, not about the presentation: the same list is right for the tile,
@@ -429,6 +433,68 @@ const click: String =
 /// its own URL from `action`/`key` and never touches these, and the two arms are
 /// mutually exclusive anyway. If a card ever does need two, that is the point to
 /// name them rather than to parameterise this.
+/// **Every state in which this tap must refuse the press**, from the two facts
+/// that decide it — unioned HERE rather than in the domain table, because they
+/// are not the same kind of fact:
+///
+///  - TRANSITIONAL states ride the action ([[TapAction.inertWhile]],
+///    `hass/actions.pkl`): a lock read as `unlocking` is not `locked`, so a
+///    two-way test would post the command competing with the one running.
+///  - UNAVAILABLE is an AVAILABILITY fact, true of every service call in every
+///    domain — HA rejects one on a dead entity whatever the domain is. One rule
+///    beats a row per domain, and keeping it out of the table is what lets
+///    `inertWhile` mean "transitional ONLY", as its own doc says.
+///
+/// Availability applies to a SERVICE tap and nothing else: more-info on an
+/// unavailable entity is exactly what you want to open (it is where the reason
+/// is), and a navigate does not care.
+///
+/// `extra` is a card's own additions — [[components.control.Button]]'s
+/// `inertWhile`, HA's `canOpen`-style "this press is meaningless here". Empty
+/// for a card that has none.
+const function inertStates(t: TapAction?, extra: Listing<String>): List<String> =
+  if (t == null) List()
+  else
+    let (own = t!!.inertWhile.toList() + extra.toList())
+      (if (t!!.serviceSlot != null) own + List("unavailable") else own).distinct
+
+/// [[inertStates]] as a REAL `disabled`, for a card whose root is a form
+/// control: the browser takes it out of the tab order and refuses the click
+/// itself, and `button:disabled` dims it. A dimming class would need JS to mean
+/// anything — the difference between telling a keyboard user the control is
+/// unavailable and handing them one that silently does nothing.
+///
+/// A boolean, because only a real `false` REMOVES a boolean attribute — `""`
+/// sets one, `disabled=""` being how HTML spells on (ADR 0017).
+///
+/// Needs no click guard: a disabled button fires no click event at all, so a
+/// `$inert ? '' :` prefix would be unreachable. [[inertClass]]'s host does.
+const function inertDisabled(states: List<String>): slotMod.Slot = new {
+  transform = simpleMod.stateIn(states.toListing())
+  // The raw state string has to reach the match, or `unavailable` could never
+  // be one of the arms — the bypass is what this slot is deciding ABOUT.
+  bypassUnavailable = false
+  signal = slotMod.asAttr("disabled")
+}
+
+/// [[inertStates]] as a CLASS, for a host that cannot be disabled — an entity
+/// card's tap is on an `<article>`, and `disabled` is a form-control attribute.
+/// The card must place the click guard itself; the class alone only looks inert.
+///
+/// A String and not a boolean: this value is painted INLINE in the document
+/// form (`class="card entity {{inert}}"`), where a boolean would render the
+/// word `true` into the class list.
+const function inertClass(states: List<String>): slotMod.Slot = new {
+  transform = simpleMod.matchOf(new Mapping {
+    for (st in states) {
+      [st] = "fh-inert"
+    }
+  }, "")
+  default = ""
+  bypassUnavailable = false
+  signal = slotMod.asClass("fh-inert")
+}
+
 const function tapRoute(t: TapAction): Mapping<String, slotMod.Slot|String> =
   new {
     when (t.serviceSlot != null) {

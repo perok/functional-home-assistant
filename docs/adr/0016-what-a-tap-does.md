@@ -123,9 +123,25 @@ double duty as "not in the special state" and "we do not know".
 
 `EntityCard.tapAction` now defaults to `defaultTap(entity)`. Where the domain has no
 action, that is `moreInfo(e)` — the popup from issue #106's first half. So
-**nothing renders as clickable-but-dead, and nothing renders as inert either**:
-a card either does the thing its domain implies, or shows you everything it
-knows. `tapAction = null` is the explicit opt-out.
+**nothing renders as clickable-but-dead**: a card either does the thing its
+domain implies, or shows you everything it knows. `tapAction = null` is the
+explicit opt-out.
+
+A card DOES render inert, but only where the press would be refused, and that is
+two facts rather than one (`tap.inertStates`):
+
+- the domain's **transitional** states (`CallByState.inertWhile`) — a lock read
+  as `unlocking` is not `locked`, so a two-way test would post the command
+  competing with the one already running;
+- **unavailable**, on any service tap in any domain, because HA rejects a
+  service call on a dead entity whatever the domain is.
+
+The second is deliberately NOT a row in the table. It is one rule, it would
+otherwise be repeated per domain, and mixing it in is what makes an `inertWhile`
+list stop meaning "transitional" — the confusion `lock.pkl`'s own `CANNOT_OPEN`
+still shows, holding a terminal state, transitional ones and an availability one
+in a single list. It applies to service taps ALONE: more-info on an unavailable
+entity is exactly what you want to open, since that is where the reason is.
 
 The regress this creates is real and silent: `moreInfoBody(e)` contains an
 entity card, whose default tap for a non-actionable entity is this same popup,

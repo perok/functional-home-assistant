@@ -112,6 +112,19 @@
             "busyVisual" : "1",
             "entity_id" : "light.kitchen",
             "icon" : "mdi mdi-lightbulb",
+            "inert" : {
+              "bypassUnavailable" : false,
+              "default" : "",
+              "reads" : "live",
+              "signal" : "class:fh-inert",
+              "transform" : {
+                "cases" : {
+                  "unavailable" : "fh-inert"
+                },
+                "kind" : "match",
+                "otherwise" : ""
+              }
+            },
             "label" : "Kitchen",
             "onclick" : "",
             "service" : "homeassistant/toggle",
@@ -149,6 +162,19 @@
                               "busyVisual" : "1",
                               "entity_id" : "light.kitchen",
                               "icon" : "mdi mdi-lightbulb",
+                              "inert" : {
+                                "bypassUnavailable" : false,
+                                "default" : "",
+                                "reads" : "live",
+                                "signal" : "class:fh-inert",
+                                "transform" : {
+                                  "cases" : {
+                                    "unavailable" : "fh-inert"
+                                  },
+                                  "kind" : "match",
+                                  "otherwise" : ""
+                                }
+                              },
                               "label" : "Kitchen",
                               "onclick" : "",
                               "service" : "light/toggle",
@@ -177,6 +203,19 @@
                                     "busyVisual" : "1",
                                     "entity_id" : "light.kitchen",
                                     "icon" : "mdi mdi-lightbulb",
+                                    "inert" : {
+                                      "bypassUnavailable" : false,
+                                      "default" : "",
+                                      "reads" : "live",
+                                      "signal" : "class:fh-inert",
+                                      "transform" : {
+                                        "cases" : {
+                                          "unavailable" : "fh-inert"
+                                        },
+                                        "kind" : "match",
+                                        "otherwise" : ""
+                                      }
+                                    },
                                     "label" : "Kitchen",
                                     "onclick" : "",
                                     "service" : "homeassistant/toggle",
@@ -364,6 +403,19 @@
                       "busyVisual" : "1",
                       "entity_id" : "light.kitchen",
                       "icon" : "mdi mdi-lightbulb",
+                      "inert" : {
+                        "bypassUnavailable" : false,
+                        "default" : "",
+                        "reads" : "live",
+                        "signal" : "class:fh-inert",
+                        "transform" : {
+                          "cases" : {
+                            "unavailable" : "fh-inert"
+                          },
+                          "kind" : "match",
+                          "otherwise" : ""
+                        }
+                      },
                       "label" : "Kitchen",
                       "onclick" : "",
                       "service" : "light/toggle",
@@ -399,6 +451,19 @@
                       "busyVisual" : "1",
                       "entity_id" : "light.living_room",
                       "icon" : "mdi mdi-lightbulb",
+                      "inert" : {
+                        "bypassUnavailable" : false,
+                        "default" : "",
+                        "reads" : "live",
+                        "signal" : "class:fh-inert",
+                        "transform" : {
+                          "cases" : {
+                            "unavailable" : "fh-inert"
+                          },
+                          "kind" : "match",
+                          "otherwise" : ""
+                        }
+                      },
                       "label" : "Living Room",
                       "onclick" : "",
                       "service" : "light/toggle",
@@ -581,7 +646,7 @@
       "slots" : [
         "label"
       ],
-      "template" : "{{#href}}<a class=\"chip\" href=\"{{{href}}}\">{{#glyph}}<i class=\"mdi {{glyph}}\"></i>{{/glyph}}{{#label}}<span class=\"fh-text\"><span class=\"fh-text-run\">{{label}}</span></span>{{/label}}</a>{{/href}}{{^href}}<button class=\"chip\" data-on:click=\"{{#busy}}$_{{id}}__busy ? '' : {{/busy}}{{#service__has}}@post('sse/action/{{dashboardSlug}}/' + {{{service__read}}} + '/{{entity_id}}?node={{id}}', {filterSignals:{exclude:'.*'}}){{/service__has}}{{^service__has}}{{{onclick}}}{{/service__has}}\"{{#busy}} data-indicator=\"_{{id}}__busy\" data-on:datastar-fetch__document=\"evt.detail.el === el && (evt.detail.type === 'error' ? ($_{{id}}__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_{{id}}__error = ''))\" data-fh-node=\"{{id}}\"{{/busy}}{{#busyVisual}} data-class:fh-disabled=\"$_{{id}}__busy\" data-class:fh-loading=\"$_{{id}}__busy\" data-class:fh-error=\"$_{{id}}__error\"{{/busyVisual}}{{#busyVisual}}{{#glyph}} data-signals__ifmissing=\"{_{{id}}__busy_slow:false}\" data-on-signal-patch-filter=\"{include:/^_{{id}}__busy$/}\" data-on-signal-patch__delay.300ms=\"$_{{id}}__busy_slow = $_{{id}}__busy\" data-class:fh-busy-spin=\"$_{{id}}__busy_slow\"{{/glyph}}{{/busyVisual}}>{{#glyph}}<i class=\"mdi {{glyph}}\"></i>{{/glyph}}{{#label}}<span class=\"fh-text\"><span class=\"fh-text-run\">{{label}}</span></span>{{/label}}</button>{{/href}}"
+      "template" : "{{#href}}<a class=\"chip\" href=\"{{{href}}}\">{{#glyph}}<i class=\"mdi {{glyph}}\"></i>{{/glyph}}{{#label}}<span class=\"fh-text\"><span class=\"fh-text-run\">{{label}}</span></span>{{/label}}</a>{{/href}}{{^href}}<button class=\"chip\" data-on:click=\"{{#busy}}$_{{id}}__busy ? '' : {{/busy}}{{#service__has}}@post('sse/action/{{dashboardSlug}}/' + {{{service__read}}} + '/{{entity_id}}?node={{id}}', {filterSignals:{exclude:'.*'}}){{/service__has}}{{^service__has}}{{{onclick}}}{{/service__has}}\"{{#inert__has}}{{#inert}} disabled{{/inert}} {{{inert__bind}}}{{/inert__has}}{{#busy}} data-indicator=\"_{{id}}__busy\" data-on:datastar-fetch__document=\"evt.detail.el === el && (evt.detail.type === 'error' ? ($_{{id}}__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_{{id}}__error = ''))\" data-fh-node=\"{{id}}\"{{/busy}}{{#busyVisual}} data-class:fh-disabled=\"$_{{id}}__busy\" data-class:fh-loading=\"$_{{id}}__busy\" data-class:fh-error=\"$_{{id}}__error\"{{/busyVisual}}{{#busyVisual}}{{#glyph}} data-signals__ifmissing=\"{_{{id}}__busy_slow:false}\" data-on-signal-patch-filter=\"{include:/^_{{id}}__busy$/}\" data-on-signal-patch__delay.300ms=\"$_{{id}}__busy_slow = $_{{id}}__busy\" data-class:fh-busy-spin=\"$_{{id}}__busy_slow\"{{/glyph}}{{/busyVisual}}>{{#glyph}}<i class=\"mdi {{glyph}}\"></i>{{/glyph}}{{#label}}<span class=\"fh-text\"><span class=\"fh-text-run\">{{label}}</span></span>{{/label}}</button>{{/href}}"
     },
     "popup" : {
       "regions" : {

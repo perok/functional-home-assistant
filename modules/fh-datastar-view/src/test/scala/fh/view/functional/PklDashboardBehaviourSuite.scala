@@ -126,8 +126,18 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
         html.contains("data-class:fh-loading=\"$_c_2__busy\""),
         clue = html
       )
+      // Two guards, in order: INERT first (the entity is in a state where the
+      // press is meaningless — for a plain `light/toggle` that is availability
+      // alone), then BUSY (this tap's own POST is in flight). They answer
+      // different questions and neither subsumes the other.
       assert(
-        html.contains("data-on:click=\"$_c_2__busy ? '' : @post('sse/action/"),
+        html.contains("$_c_2__busy ? '' : @post('sse/action/"),
+        clue = html
+      )
+      assert(
+        html.contains(
+          "data-on:click=\"$_e.light.kitchen."
+        ) && html.contains("? '' : $_c_2__busy ? '' :"),
         clue = html
       )
       // Every guarded POST is no-signals, so the `_<id>__busy` signal —
