@@ -805,7 +805,11 @@ class PklBuildSuite extends munit.FunSuite {
       "ifhost" -> Nil,
       // A tile plus its features. Holds no slots of its own — it is structure,
       // and structure may not carry anything live.
-      "cardFeatures" -> Nil
+      "cardFeatures" -> Nil,
+      // An appliance mid-cycle. The countdown, the status and the bar's two
+      // readings are all conditional on what the appliance actually reports,
+      // so only the label and the subject are declared.
+      "progressCard" -> List("label", "entity_id")
     )
     assertEquals(
       cards.keys.map(_.toSet),

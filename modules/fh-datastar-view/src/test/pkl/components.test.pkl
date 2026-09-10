@@ -21,6 +21,20 @@ local dimmer: hass.LightEntity = new {
   colourModes { "brightness" }
 }
 local outside: hass.SensorEntity = new { entity_id = "sensor.outside" }
+// The appliance trio, in the shape the live instances report: the Electrolux
+// washer has a remaining time and NO programme length, the dishwasher has both,
+// and the status sensor is words rather than a modelled vocabulary.
+local remainingMin: hass.SensorEntity = new {
+  entity_id = "sensor.timetoend"
+  device_class = "duration"
+  unit_of_measurement = "min"
+}
+local programMin: hass.SensorEntity = new {
+  entity_id = "sensor.programduration"
+  device_class = "duration"
+  unit_of_measurement = "min"
+}
+local applianceState: hass.SensorEntity = new { entity_id = "sensor.appliancestate" }
 // Default-tap fixtures (#106): a domain HA can toggle, one whose service the
 // state picks, one that only presses, and one with no action at all.
 local frontLock: hass.GenericEntity = new { entity_id = "lock.front"; domain = "lock" }
@@ -662,6 +676,65 @@ facts {
     // ...and the rollback copies one into the other, gated on the error signal.
     t.contains("data-on-signal-patch-filter=\"{include:/^_{{id}}__error$/}\"")
     t.contains("$_{{id}}__error && (${{checked__signal}} = ${{switched__signal}})")
+  }
+
+  ["an appliance with no programme length gets a countdown and NO bar"] {
+    // The washer's real shape, measured on the live instance: it reports
+    // `timetoend` and nothing to divide it BY. Inventing a denominator — the
+    // highest reading seen this cycle, say — needs history this layer does not
+    // have, and would be wrong on the first paint after a reload, which is
+    // exactly when someone is looking.
+    local washer = c.progress(remainingMin).status(applianceState)
+    washer.slots.containsKey("left")
+    washer.slots["hasLeft"] == "1"
+    !washer.slots.containsKey("hasBar")
+    !washer.slots.containsKey("total")
+    // The status renders as the integration's own words, never interpreted:
+    // nothing here knows which of them means "running".
+    washer.slots["status"].entityId == "sensor.appliancestate"
+  }
+
+  ["a bar appears exactly when there is something to divide by"] {
+    local dishwasher = c.progress(remainingMin).total(programMin)
+    dishwasher.slots["hasBar"] == "1"
+    dishwasher.slots["total"].entityId == "sensor.programduration"
+    // The fill is a function of TWO entities, so it cannot be a transform: a
+    // slot reads one entity. The guard is the substance — a `total` reading
+    // `unknown` compares false, and the bar sits empty rather than painting
+    // NaN%.
+    local t = c.cards["progressCard"].template
+    t.contains("{{#hasBar}}")
+    t.contains("? Math.min(100, Math.max(0, 100 - 100 *")
+    t.contains("> 0 ?")
+  }
+
+  ["the countdown carries the seconds its unit is worth"] {
+    // The whole reason the schema derives `durationSeconds`: the same reading
+    // is minutes here and seconds elsewhere, and a countdown scaled by a guess
+    // runs sixty times fast.
+    local d: simpleMod.SimpleDuration = c.progress(remainingMin).slots["left"].transform!!
+    d.scale == 60
+    local secs: hass.SensorEntity = new {
+      entity_id = "sensor.secs"
+      device_class = "duration"
+      unit_of_measurement = "s"
+    }
+    (c.progress(secs).slots["left"].transform as simpleMod.SimpleDuration).scale == 1
+  }
+
+  ["a duration that cannot be scaled renders no countdown at all"] {
+    // Rather than a plausible wrong number. `durationSeconds` is null for a
+    // unit with no fixed length, and the card drops the slot instead of
+    // choosing a multiplier for "a month".
+    local months: hass.SensorEntity = new {
+      entity_id = "sensor.months"
+      device_class = "duration"
+      unit_of_measurement = "m"
+    }
+    !c.progress(months).slots.containsKey("left")
+    !c.progress(months).slots.containsKey("hasLeft")
+    // ...and it is still a card: the label survives.
+    c.progress(months).slots.containsKey("label")
   }
 
   ["a state-dependent tap refuses the press while the entity is mid-move"] {
