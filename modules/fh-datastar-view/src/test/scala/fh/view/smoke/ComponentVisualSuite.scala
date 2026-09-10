@@ -1,7 +1,7 @@
 package fh.view.smoke
 
 import cats.effect.IO
-import com.microsoft.playwright.Page
+import com.microsoft.playwright.{Locator, Page}
 import com.microsoft.playwright.assertions.PlaywrightAssertions.assertThat
 import com.microsoft.playwright.options.AriaRole
 import fh.view.testkit.{Scene, SmokeDashboard, VisualSnapshot}
@@ -121,6 +121,38 @@ class ComponentVisualSuite extends SmokeSuite {
           VisualSnapshot.check("popup-open", popup.screenshot())
         }
       } yield ()
+    }
+  }
+
+  test("lock controls look right") {
+    withPage(scene, viewport) { (page, _) =>
+      IO.blocking {
+        settle(page)
+        // The whole composition, not just the latch. Every node is a cell (ADR
+        // 0008), so a cell holding the button alone matches too — and `.last()`
+        // takes the INNERMOST match, which is exactly that. Requiring the tile
+        // as well is what pins the cell to `c.lock.controls`'s own card, so
+        // this fails if either half goes missing.
+        // TWO `filter` calls, not two `setHas` on one options object: `has` is
+        // a single locator field, so the second `setHas` REPLACES the first and
+        // the conjunction silently becomes "whichever was written last". That
+        // is a passing test asserting half of what it says.
+        val lockCard = page
+          .locator(".fh-cell")
+          .filter(
+            new Locator.FilterOptions().setHas(page.locator("article.entity"))
+          )
+          .filter(
+            new Locator.FilterOptions().setHas(
+              page.getByRole(
+                AriaRole.BUTTON,
+                new Page.GetByRoleOptions().setName("Open")
+              )
+            )
+          )
+          .last()
+        VisualSnapshot.check("lock-controls", lockCard.screenshot())
+      }
     }
   }
 

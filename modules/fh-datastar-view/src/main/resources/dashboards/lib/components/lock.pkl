@@ -1,0 +1,88 @@
+/// Lock-domain composition — the tile plus the one control a lock may have
+/// beyond locking and unlocking.
+///
+/// Small on purpose. A lock's ordinary card is `c.entityCard(l)`: its default
+/// tap already posts `lock/lock` or `lock/unlock` by state (`hass/actions.pkl`),
+/// and its state already reads out as the card's value. What this module adds is
+/// the latch — a lock reporting `LockEntityFeature.OPEN` has a THIRD thing it
+/// can do, and no generic card can know that.
+///
+/// What is deliberately not here — code entry, an alarming `jammed`, a confirm
+/// on the tile's own lock/unlock — is listed with its reason on
+/// [[hass.LockEntity]]. The LATCH is confirmed; see [[openLatch]].
+module components.lock
+
+import "../core/node.pkl" as nodes
+import "../layout.pkl" as layout
+import "../core/tap.pkl" as tapMod
+import "../hass.pkl"
+import "control.pkl" as control
+import "text.pkl" as textMod
+import "entity.pkl" as entityMod
+
+/// Release the latch — `lock/open`, which is not the same as unlocking: an
+/// unlocked door is still shut.
+///
+/// Behind a CONFIRMATION, and that is part of the feature rather than a taste
+/// in taps. HA guards this one control specifically:
+/// `hui-lock-open-door-card-feature` makes the first press arm the button for
+/// five seconds and only the second one calls the service. The reason is
+/// physical — a latch release opens a door, where every other tap on a
+/// dashboard moves something that can be moved back.
+///
+/// The guarantee here is the same, in the primitives this project already has:
+/// an inline popup (ADR 0024), where the second press is in a DIFFERENT place
+/// rather than the same one. On a wall tablet that is the safer of the two —
+/// HA's two-step can be satisfied by one sleeve brushing the same spot twice.
+function openLatch(l: hass.LockEntity): control.Button =
+  control
+    .button("Open", tapMod.openPopupInline(confirmOpen(l)))
+    .entity(l)
+    .icon("mdi:door-open")
+    .inertWhile(CANNOT_OPEN)
+
+/// HA's `canOpen`, as the states it says no in: already open, mid-move, or gone
+/// (`lock/const.py` marks `is_locking`/`is_unlocking`/`is_opening` optional, so
+/// a lock that jumps straight `locked`→`unlocked` simply never reads one of
+/// these and the button is never inert — which is what HA's own button does
+/// there too).
+local const CANNOT_OPEN: List<String> = List(
+  "open",
+  "opening",
+  "unlocking",
+  "locking",
+  "unavailable"
+)
+
+/// What the latch asks before it acts: the lock as it stands, the press that
+/// releases it, and a way out. Not exported — a confirmation is only meaningful
+/// attached to the thing it guards, and [[openLatch]] is that thing.
+local function confirmOpen(l: hass.LockEntity): layout.Column = new layout.Column {
+  children {
+    textMod.title("Open the door?")
+    // The lock's own card, so the state you are acting on is in front of you —
+    // and pinned to its domain action rather than the default, which would be
+    // more-info opening on top of this popup.
+    (entityMod.entityCard(l)) { tapAction = tapMod.byDomain(l) }
+    control.button("Open the door", tapMod.service("lock/open")).entity(l)
+    control.button("Cancel", tapMod.closePopup())
+  }
+}
+
+/// A lock and everything it can do: the tile (tap locks or unlocks, by state)
+/// carrying the latch as a FEATURE when the lock reports `OPEN`.
+///
+/// ONE card, not a column of two. HA composes a tile's features beneath it, and
+/// two sibling cells are a different thing — they wrap, size and get picked up
+/// by a layout independently, which a control belonging to a tile must not. It
+/// also has to sit outside the tile's tappable element, or one press would post
+/// `lock/open` and the tile's own `lock/lock` together ([[entityMod.EntityTile]]).
+///
+/// The capability is read from the entity rather than taken as a group
+/// argument, unlike `components/light.pkl` — a lock's OPEN is one bit with no
+/// values attached, so there is no group for it to carry (ADR 0013's groups
+/// exist to carry a capability's DATA, e.g. a kelvin range).
+function controls(l: hass.LockEntity): nodes.LayoutNode =
+  if (l.supportsOpen)
+    entityMod.withFeatures(entityMod.entityCard(l), List(openLatch(l)))
+  else entityMod.entityCard(l)

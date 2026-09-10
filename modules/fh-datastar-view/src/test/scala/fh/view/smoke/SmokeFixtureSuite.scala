@@ -1,7 +1,7 @@
 package fh.view.smoke
 
 import fh.view.model.LayoutNode
-import fh.view.testkit.SmokeDashboard
+import fh.view.testkit.{HouseFixture, SmokeDashboard}
 
 /** The smoke fixtures without a browser.
   *
@@ -24,5 +24,27 @@ class SmokeFixtureSuite extends munit.FunSuite {
 
   test("the smoke dashboard builds") {
     assert(nodes.sizeIs > 1, clue = nodes.map(_.card))
+  }
+
+  test("the lock composition places both of its controls") {
+    // What `c.lock.controls` decides, and the only thing it decides: a lock
+    // reporting OPEN gets a latch as well as its tile.
+    //
+    // Asserted through the WRAPPER rather than by the lock's entity id: the
+    // latch names no entity of its own any more, because it opens a
+    // confirmation rather than calling `lock/open` itself. What still has to
+    // hold is that the two are SIBLINGS — a latch nested inside the tappable
+    // tile would fire the tile's own lock/unlock on the same press.
+    val features = nodes.filter(_.card == "cardFeatures")
+    assertEquals(features.map(_.card), List("cardFeatures"))
+    val inside = features.flatMap(_.allChildren.flatMap(walk))
+    assertEquals(inside.map(_.card).sorted, List("button", "entityCard"))
+    assert(
+      inside.exists(n =>
+        n.card == "entityCard" &&
+          n.subjectEntity.contains(HouseFixture.frontLock.entityId)
+      ),
+      clue = inside.map(n => n.card -> n.subjectEntity)
+    )
   }
 }

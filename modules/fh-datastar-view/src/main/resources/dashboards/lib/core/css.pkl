@@ -149,6 +149,12 @@ const local colSpans: String = new Listing {
 const local busyCss: String = """
   .fh-disabled{opacity:.5}
   .fh-loading{cursor:progress}
+  /* A control the ENTITY'S STATE makes meaningless carries a real `disabled`
+     rather than a class (`Button.inertWhile`), so the browser takes it out of
+     the tab order and refuses the press itself. This only has to make that
+     visible; `.fh-disabled` above stays for the in-flight case, which
+     deliberately does NOT disable (ADR 0019). */
+  .fh-cell button:disabled{opacity:.5;cursor:not-allowed}
   /* The REFUSED state, and the reason it exists: `data-indicator` clears on
      either outcome, so a rejected action left the control looking exactly like
      a successful one. It stays until the next press on this control, unlike

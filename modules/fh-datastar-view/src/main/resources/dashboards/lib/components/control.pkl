@@ -45,7 +45,7 @@ class Button extends nodes.Node {
     // in-flight affordance an icon has instead of a label going dim. A labelled
     // button gets only what `tapMod.guard` brings.
     template = """
-      {{#href}}<a class="button {{#round}}circle small{{/round}}{{^round}}card{{/round}}{{#hasLit}} {{lit}}{{/hasLit}}"{{#hasLit}} \(slotMod.signalBind("lit")){{/hasLit}} href="{{{href}}}">{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</a>{{/href}}{{^href}}<button class="{{#round}}circle small{{/round}}{{^round}}card{{/round}}{{#hasLit}} {{lit}}{{/hasLit}}"{{#hasLit}} \(slotMod.signalBind("lit")){{/hasLit}} data-on:click="\(tapMod.guardClick){{{onclick}}}"\(tapMod.guard){{#busyVisual}}{{#glyph}} \(tapMod.busyShapeClass){{/glyph}}{{/busyVisual}}>{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</button>{{/href}}
+      {{#href}}<a class="button {{#round}}circle small{{/round}}{{^round}}card{{/round}}{{#hasLit}} {{lit}}{{/hasLit}}"{{#hasLit}} \(slotMod.signalBind("lit")){{/hasLit}} href="{{{href}}}">{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</a>{{/href}}{{^href}}<button class="{{#round}}circle small{{/round}}{{^round}}card{{/round}}{{#hasLit}} {{lit}}{{/hasLit}}"{{#hasLit}} \(slotMod.signalBind("lit")){{/hasLit}} data-on:click="\(tapMod.guardClick){{{onclick}}}"{{#hasInert}}{{#inert}} disabled{{/inert}} \(slotMod.signalBind("inert")){{/hasInert}}\(tapMod.guard){{#busyVisual}}{{#glyph}} \(tapMod.busyShapeClass){{/glyph}}{{/busyVisual}}>{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</button>{{/href}}
       """
     // `label` stays declared — every button has one, even when it is the empty
     // string an icon-only button carries. `glyph`/`round`/`lit` do not: they are
@@ -86,6 +86,10 @@ class Button extends nodes.Node {
   /// something rather than reflecting a state, and a button that lit up for no
   /// reason would be worse than one that never does. Needs an [[entity]].
   hidden lit: Boolean = false
+  /// States of this button's own entity that make the press meaningless — HA's
+  /// `canOpen`/`canLock`/`canUnlock` are exactly this list per domain. Empty
+  /// (the default) renders byte-identical to a button without the option.
+  hidden inertWhile: Listing<String> = new {}
   /// What pressing it DOES. Defaults to the entity's domain action where the
   /// button has an entity — and with neither, this FAILS the build: a button is
   /// defined by what pressing it does, so not knowing that is not a state it
@@ -97,6 +101,21 @@ class Button extends nodes.Node {
       ?? throw(noAction("c.button"))
   // Copy the action's inline surfaces onto the node (mirror jsonnet tapInline).
   inlineSurfaces = tapAction.inlineSurfaces
+  /// Whether [[inertWhile]] applies, and the one shape it cannot take.
+  ///
+  /// A button that GOES somewhere renders as `<a href>`, and `disabled` is a
+  /// FORM-CONTROL attribute — a link has no inert form at all short of dropping
+  /// its `href`, which would take middle-click and open-in-new-tab with it. So
+  /// the combination is refused at BUILD time rather than accepted and quietly
+  /// ignored: silently dropping the option is how a control ends up looking
+  /// guarded and not being it.
+  local inertApplies: Boolean =
+    if (inertWhile.isEmpty || entity == null) false
+    else if (tapAction.href != null)
+      throw("c.button: `inertWhile` needs a button, but this one navigates and "
+        + "renders as a link — `disabled` is a form-control attribute. Drop "
+        + "`inertWhile`, or give it a service tap.")
+    else true
   slots {
     when (entity != null) {
       ["entity_id"] = entity!!.entity_id
@@ -111,6 +130,36 @@ class Button extends nodes.Node {
       when (label == "") {
         ["round"] = "1"
       }
+    }
+    // INERT while the entity reads one of [[inertWhile]]: a REAL `disabled`, so
+    // the browser takes the control out of the tab order and refuses the click
+    // itself, and `button:disabled` dims it. A dimming class would have needed
+    // JS to mean anything — the difference between telling a keyboard user the
+    // control is unavailable and handing them one that silently does nothing.
+    //
+    // This is NOT the busy guard and does not replace it. Busy runs from click
+    // until the POST resolves — milliseconds — and ADR 0019 settled that it
+    // must NOT disable: a disabled button loses focus and fires no events,
+    // which is worse for a card than an inert one. This runs while the ENTITY
+    // is in a state that makes the press meaningless, which begins when HA
+    // accepts a command and ends when the hardware finishes, seconds later —
+    // and, because it reads state rather than a request, it also covers a lock
+    // someone else moved from a keypad or an automation.
+    //
+    // No click guard beside it: a disabled button fires no click event at all,
+    // so a `$inert ? '' :` prefix on `data-on:click` would be unreachable code.
+    // A host that CANNOT be disabled needs one — an entity card's tap is on an
+    // `<article>` — but that is that card's business, not this template's.
+    when (inertApplies) {
+      ["inert"] = new slotMod.Slot {
+        transform = simpleMod.stateIn(inertWhile)
+        bypassUnavailable = false
+        signal = slotMod.asAttr("disabled")
+      }
+      // A literal flag, for the same reason `hasLit` is one: in the PATCH form
+      // the slot's value is blank, so `{{#inert}}` would collapse and take the
+      // binding and the guard with it.
+      ["hasInert"] = "1"
     }
     when (lit && entity != null) {
       // `""` for off — an empty string is the only falsy value a slot can
@@ -156,6 +205,9 @@ class Button extends nodes.Node {
   function label(l: String|slotMod.Expr): Button = let (self = this) (self) { label = l }
   function icon(i: String): Button = let (self = this) (self) { icon = i }
   function lit(l: Boolean): Button = let (self = this) (self) { lit = l }
+  /// See [[inertWhile]]: `c.button(…).entity(l).inertWhile(List("opening"))`.
+  function inertWhile(xs: List<String>): Button =
+    let (self = this) (self) { inertWhile = xs.toListing() }
   function tapAction(a: tapMod.TapAction): Button = let (self = this) (self) { tapAction = a }
 }
 
@@ -264,7 +316,7 @@ class Pill extends nodes.Node {
     // A chip is already pill-shaped, so unlike [[Button]] there is no round
     // variant: a glyph-only chip is a chip with a glyph in it.
     template = """
-      {{#href}}<a class="chip" href="{{{href}}}">{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</a>{{/href}}{{^href}}<button class="chip" data-on:click="\(tapMod.guardClick){{{onclick}}}"\(tapMod.guard){{#busyVisual}}{{#glyph}} \(tapMod.busyShapeClass){{/glyph}}{{/busyVisual}}>{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</button>{{/href}}
+      {{#href}}<a class="chip" href="{{{href}}}">{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</a>{{/href}}{{^href}}<button class="chip" data-on:click="\(tapMod.guardClick){{{onclick}}}"{{#hasInert}}{{#inert}} disabled{{/inert}} \(slotMod.signalBind("inert")){{/hasInert}}\(tapMod.guard){{#busyVisual}}{{#glyph}} \(tapMod.busyShapeClass){{/glyph}}{{/busyVisual}}>{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</button>{{/href}}
       """
     slots { "label" }
   }
