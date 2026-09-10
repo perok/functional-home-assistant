@@ -128,6 +128,28 @@ const function signalBind(name: String): String = "{{{" + name + "__bind}}}"
 /// the signal existing, so it is not usable by a client that takes no signals.
 const function signalRef(name: String): String = "{{" + name + "__signal}}"
 
+/// The section a card wraps optional markup in, when that markup holds a slot:
+///
+/// ```
+/// \(ifSlot("icon"))<i class="{{icon}}" \(signalBind("icon"))></i>\(endIfSlot("icon"))
+/// ```
+///
+/// **Never `{{#icon}}` for this.** A signal slot's value is withheld in the
+/// patch form, and a withheld value is a FALSE Mustache section — so a section
+/// keyed on the VALUE renders once and then deletes its own element, and the
+/// binding inside it, on the first patch. Nothing writes to a binding that has
+/// left the DOM, so the card stays blank until a full repaint. That is what
+/// took the lock's glyph away on the first tap and brought it back on reload.
+///
+/// The backend fills `name__has` for every slot the node declares, signal-backed
+/// or not, so one section works whichever tier the value came from — which
+/// `entityCard`'s icon needs, being a signal where the domain has a state glyph
+/// and a literal everywhere else.
+const function ifSlot(name: String): String = "{{#" + name + "__has}}"
+
+/// Closes [[ifSlot]].
+const function endIfSlot(name: String): String = "{{/" + name + "__has}}"
+
 /// [[valueSlot]] as a text signal slot — the same value, carried as a signal.
 /// The card must place `signalBind("value")`.
 const function signalValueSlot(value: (String|Expr|simpleMod.Simple)?): Slot =

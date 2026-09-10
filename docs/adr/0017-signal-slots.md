@@ -91,6 +91,31 @@ Each form is load-bearing:
 The **binding** is present in both forms and absent from neither: it is what the seeded signal
 feeds, and a morph that dropped it would leave the element inert for good.
 
+### A section around a signal slot tests a companion flag, never the value
+
+The patch form's missing value is not merely absent text — to Mustache it is a FALSE section. So
+`{{#value}}…{{/value}}` around a signal slot renders on the document form and **collapses on every
+patch**, deleting the element and the binding inside it. Nothing recovers: a binding that is no
+longer in the DOM is never written to again. The guard has to be a separate literal slot, present
+in both forms:
+
+```
+{{#hasIcon}}<i class="{{icon}}" {{{icon__bind}}}></i>{{/hasIcon}}
+```
+
+**This bit.** `entityCard` wrapped its icon in `{{#icon}}` — correct while `icon` was a literal,
+wrong the moment it became a signal slot. The glyph vanished on the first tap and came back only
+on reload, because the tap's patch re-rendered the card in patch form and took the whole `<i>`
+with it. It is silent in exactly the way the other guard is not: `Dashboard.validate` rejects a
+signal slot whose template never places `{{{<slot>__bind}}}`, but a template that places it
+*inside a section keyed on the value* passes.
+
+So every card carrying a signal slot also carries a hand-written literal flag — `hasLit`,
+`hasInert`, `liveIcon`, `busy`. **That idiom is a bug generator and the renderer should derive
+it**: it already synthesises `<slot>__bind` and `<slot>__signal` per signal slot, and a
+`<slot>__has` beside them would delete the flag, the `when` that sets it and the comment
+explaining it from every card at once.
+
 ### The renderer owns the binding; the card places it
 
 A card gets one extra template var per signal slot, spliced raw beside the ordinary hole:
@@ -147,6 +172,59 @@ have it un-written.
 Every kind reads the signal **bare**, with no expression around it, because the value carries
 whatever it needs — a fill arrives as `39.37%`, a colour as `#ffb46b`. An expression in the
 attribute would be a second place a value's shape is decided, and the transform already decides it.
+
+### Which runtime evaluates a state-dependent value
+
+The five kinds all spend a signal on the DOM, but a **handler** can read one too, and that decides
+where a build-time-known function of state belongs:
+
+- A function whose result the **DOM** consumes is a server-side transform. The result has to be in
+  the element's bytes or in its signal, so the server is the only thing that can produce it.
+- A function whose result only an **event** consumes is client-side JS over a signal. It need only
+  exist at click time, so evaluating it on the server bakes a state-dependent result into bytes
+  that were otherwise static.
+
+This does not weaken "every kind reads the signal bare" above: that rule is about *bindings*, where
+an expression would be a second place a value's shape is decided. A handler is not a binding — it
+consumes the value rather than painting it.
+
+`entityCard`'s tap on a `CallByState` domain (ADR 0016) is miscategorised as the first. A lock's
+service is not knowable until the click, so the onclick is rendered from a live transform — which
+puts the service in the element's bytes, moves them on every lock/unlock, and drops the tile out of
+the identity cache to repaint a URL nobody ever looks at. Read at click time instead, the same
+two-way test costs no bytes:
+
+```
+data-on:click="@post('sse/action/{{dashboardSlug}}/'
+  + ($_e.lock.front.state === 'locked' ? 'lock/unlock' : 'lock/lock')
+  + '/lock.front', {filterSignals:{exclude:'.*'}})"
+```
+
+Every byte constant; only the signal moves. The request body also stays empty — the handler reads
+the signal locally — which sending the observed state as a payload would have cost.
+
+**"You send what you saw" is preserved, and is why this is safe.** The signal is patched in the
+same frame as the visible state, so at click time it holds what the user is looking at: the command
+is stale in exactly the way the pixels are stale, which is the property ADR 0016 wants. The
+alternative of a constant URL that the **server** resolves from its own state was considered and is
+wrong — it leaves the pixels stale and makes the command fresh, so a tap on a lock someone else has
+since unlocked re-locks it. Self-consistent stale bytes are the property to keep, not the defect to
+fix.
+
+**The client's reading stays advisory.** `Server.actionResponse` bounds a tap by entity (ADR 0023)
+and does not check the service — already true of the URL this replaces, so nothing here widens it.
+A two-way test is invertible (a posted `lock/unlock` can only mean the client saw `locked`), so the
+server can compare the implied observation against its own state and refuse a stale tap if that is
+ever wanted.
+
+**Only the fast tier can cross.** A `Simple` is data, so it compiles to whichever runtime reads it
+— CEL for a transform, JS for a handler — and one declaration cannot drift from itself, which
+hand-writing the ternary beside the transform guarantees it eventually will. Arbitrary CEL
+(ADR 0027) has no JS backend and will not get one: a value an event needs must be expressible as a
+`Simple` (ADR 0028). That is a real constraint, and the right one.
+
+*Status: the rule is decided; the tap still renders as a live transform. The JS backend for
+`Simple` and the raw-state signal it reads are the pending work.*
 
 ### A slot value is `String | Boolean`, and the boolean is load-bearing
 
@@ -361,9 +439,9 @@ Together those took the signal-slot premium on a 200-leaf page from ~2.5x a sign
 - `Dashboard.validate` rejects the two otherwise-silent mistakes: `signal` on a constant `literal`
   (nothing to patch), and a card declaring a signal slot whose template never places
   `{{{<slot>__bind}}}` (the patch form withholds the value and nothing puts it back).
-- Applied to `entityCard`'s `value` — the one thing on that card that moves on an ordinary tick;
-  icon, label and tap are registry facts or literals and never move at all — and to all four of the
-  slider's moving slots.
+- Applied to `entityCard`'s `value` and, where the domain has a state glyph, its `icon`; to the
+  `inert` class of a tap whose domain declares transitional states; and to all four of the slider's
+  moving slots. `label` stays a registry fact and never moves.
 
 ## What was deliberately left out
 
