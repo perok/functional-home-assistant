@@ -126,18 +126,20 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
         html.contains("data-class:fh-loading=\"$_c_2__busy\""),
         clue = html
       )
-      // Two guards, in order: INERT first (the entity is in a state where the
-      // press is meaningless — for a plain `light/toggle` that is availability
-      // alone), then BUSY (this tap's own POST is in flight). They answer
-      // different questions and neither subsumes the other.
+      // Two guards, and neither subsumes the other: BUSY is "this tap's own
+      // POST is in flight" (the card's, via `guardClick`), INERT is "the entity
+      // is in a state that refuses the press" (the tap's, via `click`) — for a
+      // plain `light/toggle` that is availability alone.
       assert(
-        html.contains("$_c_2__busy ? '' : @post('sse/action/"),
+        html.contains(
+          "data-on:click=\"$_c_2__busy ? '' : $_e.light.kitchen."
+        ),
         clue = html
       )
       assert(
         html.contains(
-          "data-on:click=\"$_e.light.kitchen."
-        ) && html.contains("? '' : $_c_2__busy ? '' :"),
+          "? '' : @post('sse/action/fixture-home/' + 'light/toggle'"
+        ),
         clue = html
       )
       // Every guarded POST is no-signals, so the `_<id>__busy` signal —
@@ -208,7 +210,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
           val button = "_c_0_head_0_actions_0__busy"
           assert(html.contains(s"""data-indicator="$button""""), clue = html)
           assert(
-            html.contains(s"""data-on:click="$$$button ? '' : @post("""),
+            html.contains(s"""data-on:click="$$$button ? '' : """),
             clue = html
           )
           assert(
@@ -273,9 +275,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
           ts.page().map { html =>
             assert(html.contains("data-indicator=\"_c_0__busy\""), clue = html)
             assert(
-              html.contains(
-                "data-on:click=\"$_c_0__busy ? '' : @post('sse/action/"
-              ),
+              html.contains("data-on:click=\"$_c_0__busy ? '' : "),
               clue = html
             )
             assert(!html.contains("data-class:fh-disabled"), clue = html)
@@ -535,6 +535,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
           assert(
             html.contains(
               "data-on:click=\"$_c_0_head_0__busy_change ? '' : " +
+                "$_e.light.plug.t722a9eca ? '' : " +
                 "@post('sse/action/fixture-plug/' + 'light/toggle' + " +
                 "'/light.plug?node=c_0_head_0'"
             ),

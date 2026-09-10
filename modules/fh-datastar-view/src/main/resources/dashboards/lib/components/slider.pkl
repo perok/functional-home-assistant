@@ -282,6 +282,7 @@ class SliderHead extends nodes.Node {
           {{#toggle}}<button type="button" class="slider-toggle" aria-label="{{label}}"
             \(slotMod.signalBind("value"))
             data-on:click="\(tapMod.busyGuardChange)\(tapMod.click)"
+            \(slotMod.ifSlot("inert"))\(slotMod.signalBind("inert"))\(slotMod.endIfSlot("inert"))
             \(tapMod.busyAttrsChange)></button>{{/toggle}}
         </div>
       </div>
@@ -651,7 +652,11 @@ class Slider extends nodes.Node {
       // The head's ONE tap route. The commit beside it looks like a second, but
       // it assembles its own URL from `action`/`key` and never touches these —
       // and the two arms are mutually exclusive anyway.
-      for (k, v in tapMod.tapRoute(toggleTap)) {
+      // A CLASS, not `disabled`: this track already binds `disabled` to the
+      // commit's in-flight signal (`busyAttrsChange`), and one element cannot
+      // carry two bindings for one attribute. `tapMod.click`'s guard is what
+      // actually refuses the press here.
+      for (k, v in tapMod.tapRoute(toggleTap, new Listing {}, "class")) {
         [k] = v
       }
     }

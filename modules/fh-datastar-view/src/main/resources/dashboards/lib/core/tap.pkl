@@ -415,7 +415,18 @@ const serviceClick: String =
 /// A card that splices this needs no `when` of its own — [[tapSlots]] decides
 /// which arm exists by whether it emitted a `service` slot.
 const click: String =
-  slotMod.ifSlot("service") + serviceClick + slotMod.endIfSlot("service") +
+  // The INERT guard leads, and rides here rather than in each card for the same
+  // reason the slot does. It is what actually stops the post: `disabled` alone
+  // cannot, on a host that already spends that attribute on something else —
+  // the slider's toggle track binds it to the commit's in-flight signal, so its
+  // inert has to be a class, and a class only LOOKS refused.
+  //
+  // Redundant where the shape IS `disabled` (a disabled control fires no click
+  // at all), and kept anyway: a guard that is present on every card cannot be
+  // the one a card forgot.
+  slotMod.ifSlot("inert") + "$" + slotMod.signalRef("inert") + " ? '' : " +
+    slotMod.endIfSlot("inert") +
+    slotMod.ifSlot("service") + serviceClick + slotMod.endIfSlot("service") +
     slotMod.ifNoSlot("service") + "{{{onclick}}}" + slotMod.endIfNoSlot("service")
 
 /// [[click]]'s other half: the two ROUTE slots it reads. Separate from
@@ -451,6 +462,13 @@ const function inertStates(t: TapAction?, extra: Listing<String>): List<String> 
   else
     let (own = t!!.inertWhile.toList() + extra.toList())
       (if (t!!.serviceSlot != null) own + List("unavailable") else own).distinct
+
+/// WHICH inert a card wants, which is decided by its host and by nothing else:
+/// a form control takes the real `disabled`, and anything else can only wear a
+/// class and guard its own click. Required at every [[tapRoute]] call rather
+/// than defaulted, so a new card cannot acquire "no inert" by saying nothing —
+/// which is how [[components.control.Toggle]] went without one.
+typealias InertAs = "disabled"|"class"
 
 /// [[inertStates]] as a REAL `disabled`, for a card whose root is a form
 /// control: the browser takes it out of the tab order and refuses the click
@@ -489,7 +507,11 @@ const function inertClass(states: List<String>): slotMod.Slot = new {
   signal = slotMod.asClass("fh-inert")
 }
 
-const function tapRoute(t: TapAction): Mapping<String, slotMod.Slot|String> =
+const function tapRoute(
+  t: TapAction,
+  extra: Listing<String>,
+  inertAs: InertAs
+): Mapping<String, slotMod.Slot|String> =
   new {
     when (t.serviceSlot != null) {
       ["service"] = t.serviceSlot!!
@@ -497,6 +519,15 @@ const function tapRoute(t: TapAction): Mapping<String, slotMod.Slot|String> =
     when (t.dataKey != null) {
       ["dataKey"] = t.dataKey!!
       ["dataValue"] = t.dataValue!!
+    }
+    // INERT rides here and not in each card, because doing it per card is how a
+    // card ends up without it: three had it three different ways and the fourth
+    // ([[components.control.Toggle]]) had none, so a toggle on a dead entity
+    // still posted. The SHAPE is the card's to say and nothing else is.
+    when (!inertStates(t, extra).isEmpty) {
+      ["inert"] =
+        if (inertAs == "disabled") inertDisabled(inertStates(t, extra))
+        else inertClass(inertStates(t, extra))
     }
     ["onclick"] = t.onclick
   }
@@ -513,11 +544,14 @@ const function tapRoute(t: TapAction): Mapping<String, slotMod.Slot|String> =
 /// `tappable` opens the card's pointer/handler markup; `service` picks
 /// [[click]]'s arm and carries the value it reads; `onclick` is the other arm;
 /// `busy`/`busyVisual` are ADR 0019's guard and its look.
-const function tapSlots(t: TapAction?): Mapping<String, slotMod.Slot|String> =
+const function tapSlots(
+  t: TapAction?,
+  inertAs: InertAs
+): Mapping<String, slotMod.Slot|String> =
   new {
     when (t != null) {
       ["tappable"] = "1"
-      for (k, v in tapRoute(t!!)) {
+      for (k, v in tapRoute(t!!, new Listing {}, inertAs)) {
         [k] = v
       }
       when (t!!.busy) {
