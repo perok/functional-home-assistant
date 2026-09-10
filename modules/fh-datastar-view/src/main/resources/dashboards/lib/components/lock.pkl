@@ -16,6 +16,7 @@ import "../core/node.pkl" as nodes
 import "../layout.pkl" as layout
 import "../core/tap.pkl" as tapMod
 import "../hass.pkl"
+import "../hass/lock.pkl" as hassLock
 import "control.pkl" as control
 import "text.pkl" as textMod
 import "entity.pkl" as entityMod
@@ -39,20 +40,10 @@ function openLatch(l: hass.LockEntity): control.Button =
     .button("Open", tapMod.openPopupInline(confirmOpen(l)))
     .entity(l)
     .icon("mdi:door-open")
-    .inertWhile(CANNOT_OPEN)
-
-/// HA's `canOpen`, as the states it says no in: already open, mid-move, or gone
-/// (`lock/const.py` marks `is_locking`/`is_unlocking`/`is_opening` optional, so
-/// a lock that jumps straight `locked`→`unlocked` simply never reads one of
-/// these and the button is never inert — which is what HA's own button does
-/// there too).
-local const CANNOT_OPEN: List<String> = List(
-  "open",
-  "opening",
-  "unlocking",
-  "locking",
-  "unavailable"
-)
+    // The DOMAIN's list, from the domain's own module — HA's `canOpen`. It adds
+    // to what the tap already refuses rather than replacing it
+    // ([[tapMod.inertStates]]).
+    .inertWhile(hassLock.CANNOT_OPEN)
 
 /// What the latch asks before it acts: the lock as it stands, the press that
 /// releases it, and a way out. Not exported — a confirmation is only meaningful
@@ -76,7 +67,7 @@ local function confirmOpen(l: hass.LockEntity): layout.Column = new layout.Colum
 /// two sibling cells are a different thing — they wrap, size and get picked up
 /// by a layout independently, which a control belonging to a tile must not. It
 /// also has to sit outside the tile's tappable element, or one press would post
-/// `lock/open` and the tile's own `lock/lock` together ([[entityMod.EntityTile]]).
+/// `lock/open` and the tile's own `lock/lock` together ([[entityMod.EntityCard]]).
 ///
 /// The capability is read from the entity rather than taken as a group
 /// argument, unlike `components/light.pkl` — a lock's OPEN is one bit with no

@@ -741,6 +741,11 @@ facts {
       .first
     press.slots["service"] == "lock/open"
     press.slots["entity_id"] == "lock.latch"
+    // …and it is THAT press availability guards, not the latch that opens the
+    // dialog: a service tap is inert on a dead entity in every domain, so
+    // `CANNOT_OPEN` never had to carry `unavailable` and now cannot.
+    (press.slots["inert"].transform as simpleMod.SimpleMatch)
+      .cases.toMap().containsKey("unavailable")
     // The tile beside it still locks/unlocks by state — the two controls are
     // different actions, not two spellings of one.
     (c.entityCard(latchLock).slots["service"].transform as simpleMod.SimpleMatch)
@@ -750,11 +755,18 @@ facts {
   ["the latch is inert while the lock is mid-move — which the busy guard cannot see"] {
     local latch = c.lock.openLatch(latchLock)
     local inert: simpleMod.SimpleMatch = latch.slots["inert"].transform!!
-    // HA's `canOpen`: already open, mid-move, or gone. Every arm answers the
-    // same `true` — a set membership test, which is what one `match` buys over
-    // the two-armed enum it replaced, and what `stateIn` spells.
+    // HA's `canOpen`, and ONLY that: already open, or mid-move. Every arm
+    // answers the same `true` — a set membership test, which is what one
+    // `match` buys over the two-armed enum it replaced, and what `stateIn`
+    // spells.
+    //
+    // No `unavailable`. It is not a lock STATE — `hass/lock.pkl` types the list
+    // as `LockState`, which refuses it — and the press it guards is protected
+    // anyway: the confirmation's own `lock/open` button is a service tap, so
+    // `tap.inertStates` disables THAT on a dead lock. Opening the dialog to be
+    // told why is better than a dead button that cannot say.
     inert.cases.toMap().keys.toList().sort()
-      == List("locking", "open", "opening", "unavailable", "unlocking")
+      == List("locking", "open", "opening", "unlocking")
     inert.cases.toMap().values.toSet() == Set(true)
     // A real `false`, which is the ONLY value that turns a boolean attribute
     // off: `""` would SET `disabled`, because `disabled=""` is how HTML spells
