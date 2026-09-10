@@ -518,6 +518,100 @@ class SignalSlotSuite extends ServerHarness {
   }
 
   // ---------------------------------------------------------------------------
+  // A value only an EVENT reads (ADR 0017, "Which runtime evaluates a
+  // state-dependent value")
+  // ---------------------------------------------------------------------------
+
+  /** A lock's tap: which service it posts is a function of live state, and
+    * nothing on the card paints it — only the click expression reads it.
+    */
+  private val lockService = "state == 'locked' ? 'lock/unlock' : 'lock/lock'"
+
+  private val lockish = Dashboard(
+    Map(
+      "lock" -> CardDef(
+        """<article data-on:click="@post('a/' + ${{service__signal}})">""" +
+          """<span {{{state__bind}}}>{{state}}</span></article>""",
+        slots = List("state", "service")
+      )
+    ),
+    LayoutNode.Component(
+      "lock",
+      Map(
+        "entity_id" -> SlotSource(literal = Some("lock.front")),
+        "state" -> SlotSource(
+          transform = "state",
+          signal = Some(SignalBind.Text)
+        ),
+        "service" -> SlotSource(
+          transform = lockService,
+          signal = Some(SignalBind.Handler)
+        )
+      )
+    )
+  )
+
+  private def lock(state: String) =
+    Map("lock.front" -> st("lock.front", state))
+
+  test("a handler signal binds nothing, and the service leaves the bytes") {
+    val html = Renderer.create(lockish).renderPage(lock("locked"))
+    // The click names the signal and concatenates it, which is the whole point:
+    // the service is decided server-side and READ client-side.
+    assert(
+      html.contains(s"""@post('a/' + $$${sig("lock.front", lockService)})"""),
+      clue = html
+    )
+    // No attribute of its own — there is nothing to paint. Every other kind
+    // emits one, so an accidental `data-*` here would mean the wrong kind.
+    assert(!html.contains("""data-attr:service"""), clue = html)
+    assert(!html.contains("""data-text="$_e.lock.front.t"""), clue = html)
+    // The service IS in the node's seed, and has to be — the document form is
+    // what makes a first paint correct with no frame behind it (ADR 0017). What
+    // matters is that it is only there: the element itself is byte-identical
+    // whichever way the lock is turned, which is what keeps it in the identity
+    // cache.
+    def click(s: String): String =
+      Renderer
+        .create(lockish)
+        .renderPage(lock(s))
+        .split("data-on:click=", 2)(1)
+        .takeWhile(_ != '>')
+    assertEquals(click("locked"), click("unlocked"), clue = html)
+  }
+
+  test("locking moves the service signal and sends NO element patch") {
+    val r = Renderer.create(lockish)
+    val log = FragmentLog("test").touched(leaf, 1L)
+    val out = resumeNow(
+      r,
+      log,
+      r.renderPageTraced(lock("locked")).own.map { case (id, p) =>
+        id -> Held(Some(p.digest), p.signals)
+      },
+      lock("unlocked"),
+      1L,
+      Set.empty,
+      Map.empty
+    )
+    assertEquals(
+      out.map(_.patch),
+      List(
+        frame(
+          sig("lock.front") -> "unlocked",
+          sig("lock.front", lockService) -> "lock/lock"
+        )
+      ),
+      clue = events(out).map(_.render)
+    )
+    // The tile is byte-identical across the change, so the morph it would have
+    // needed is not sent. This is the claim the whole design rests on: before
+    // the service moved into a signal, the URL was in the element and every
+    // lock/unlock repainted the tile.
+    assertEquals(elementPatches(events(out)), Nil)
+  }
+
+  // ---------------------------------------------------------------------------
   // One frame per batch, and what a departure carries
   // ---------------------------------------------------------------------------
 

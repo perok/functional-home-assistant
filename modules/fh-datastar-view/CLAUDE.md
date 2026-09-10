@@ -246,9 +246,11 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   `renderNodeById` sends, which is why the digest stands still and the morph is suppressed).
   The slot's value names the BINDING KIND (`SignalBind`, one string on the wire): `text`
   (`data-text`), `style:<prop>` (`data-style:<prop>`, custom properties included), `attr:<name>`,
-  `class:<name>`, or `bind` (`data-bind`, two-way on a form control). Every kind reads the signal
-  bare — the VALUE carries its own unit (`39.37%`, `#ffb46b`), so the transform decides its shape
-  in one place. A slot value is `String | Boolean` (`SlotValue`), and the boolean is what makes
+  `class:<name>`, `bind` (`data-bind`, two-way on a form control), or `handler` (NO binding at
+  all — nothing paints the value; an event handler reads it by name, which is how a lock tile's
+  tap knows which service to post without the URL being in its bytes). Every painted kind reads
+  the signal bare — the VALUE carries its own unit (`39.37%`, `#ffb46b`), so the transform decides
+  its shape in one place. A slot value is `String | Boolean` (`SlotValue`), and the boolean is what makes
   `attr:disabled` work: `""` SETS a boolean attribute (`disabled=""` is how HTML spells on), so
   only a real `false` removes one. It has to stay boolean at BOTH ends — unquoted in the frame and
   seed, and a boxed `Boolean` in `paint`, because a card places such a slot as a Mustache SECTION

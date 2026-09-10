@@ -8,6 +8,7 @@ module core.tap
 
 import "node.pkl" as nodes
 import "slot.pkl" as slotMod
+import "simple.pkl" as simpleMod
 import "surface.pkl" as surfaceMod
 import "../hass.pkl"
 import "../hass/actions.pkl" as hassActions
@@ -25,6 +26,17 @@ import "../hass/actions.pkl" as hassActions
 /// `<article>` of [[EntityCard]]), so every card renders the same intent.
 class TapAction {
   onclick: slotMod.Slot|String
+  /// The SERVICE, carried as a handler signal, for a tap whose service the live
+  /// state picks ([[stateService]]). Non-null exactly there, and null for every
+  /// other kind — which is what a card branches on.
+  ///
+  /// Why the service and not the whole URL: only a card's TEMPLATE can name the
+  /// signal (`{{service__signal}}`) and the slug (`{{dashboardSlug}}`), because
+  /// Mustache runs once and a slot's VALUE is spliced raw — so a URL built in
+  /// the transform could not contain a placeholder for either. So the card
+  /// assembles the URL from [[stateClick]] and this supplies the one piece that
+  /// moves.
+  serviceSlot: slotMod.Slot? = null
   href: String? = null
   inlineSurfaces: Mapping<String, surfaceMod.SurfaceDef>? = null
   /// Whether this tap is worth GUARDING: while its POST is in flight, a second
@@ -372,6 +384,30 @@ const local function serviceOnclick(route: String): String =
     noSignals +
     #")""#
 
+/// [[serviceOnclick]]'s twin for a tap whose service the live state picks: the
+/// same URL, assembled in the CARD'S TEMPLATE instead of in a transform, with
+/// the service read from the signal [[TapAction.serviceSlot]] carries.
+///
+/// A card places it in the branch where the node declares a `service` slot:
+///
+/// ```
+/// \(slotMod.ifSlot("service"))\(stateClick)\(slotMod.endIfSlot("service"))\(slotMod.ifNoSlot("service")){{{onclick}}}\(slotMod.endIfNoSlot("service"))
+/// ```
+///
+/// **Every byte here is constant**, which is the point — the service moves in
+/// the signal store, not in the element, so a lock tile stops re-rendering on
+/// every lock/unlock and stays in the renderer's identity cache. It also sends
+/// no signals: the handler reads this one locally, so the request body is still
+/// empty (ADR 0017).
+///
+/// It is a template const rather than a value because Mustache runs ONCE: a
+/// slot's value is spliced raw and never re-parsed, so `{{dashboardSlug}}` and
+/// `{{service__signal}}` can only be written by the template that holds them.
+const stateClick: String =
+  #"@post('sse/action/{{dashboardSlug}}/' + $"# + "{{service__signal}}" +
+    #" + '/{{entity_id}}?node=' + (el.dataset.fhNode || ''), "# +
+    noSignals + ")"
+
 // A click expression inherits the card's entity to resolve entity_id, and must
 // resolve even when that entity is unavailable (an unavailable light is exactly
 // the one you want to click). `live` is the rare case: a route the CURRENT state
@@ -492,9 +528,26 @@ const toggle: TapAction = service("homeassistant/toggle")
 /// while the state equals `whenState`, `otherwise` in every other state. The
 /// lock case — `stateService("locked", "lock/unlock", "lock/lock")`.
 ///
-/// The one tap that carries a LIVE expression, so its click slot re-renders on
-/// state change like a value slot does. Prefer a plain [[service]] wherever a
-/// real `toggle` service exists.
+/// The one tap whose service is not knowable at build time, so it is the one
+/// tap that reads live state. Prefer a plain [[service]] wherever a real
+/// `toggle` service exists.
+///
+/// The service rides a HANDLER SIGNAL rather than the click expression
+/// ([[slotMod.asHandler]]). Baked into the expression it was in the element's
+/// bytes, so a lock tile re-rendered on every lock/unlock and left the
+/// renderer's identity cache — to repaint a URL nobody reads. As a signal the
+/// markup is constant and the service costs a frame entry shared by every card
+/// on that entity. The MATCH still runs on the server, in one place; only the
+/// read is in the browser.
+///
+/// The staleness that remains is the one ADR 0016 wants: the signal is patched
+/// in the same frame as the visible state, so at click time it holds what the
+/// user is looking at. Resolving on the server instead would leave the pixels
+/// stale and make the command fresh — a tap on a lock someone else has since
+/// unlocked would re-lock it.
+///
+/// `onclick` is empty because a card on this path assembles the URL from
+/// [[stateClick]]; it stays declared because every other tap fills it.
 const function stateService(
   whenState: String,
   then: String,
@@ -502,12 +555,12 @@ const function stateService(
   inertStates: Listing<String>
 ): TapAction =
   new {
-    onclick = clickSlot(
-      serviceOnclick(
-        "(state == '" + whenState + "' ? '" + then + "' : '" + otherwise + "')"
-      ),
-      true
-    )
+    onclick = ""
+    serviceSlot = new slotMod.Slot {
+      transform = simpleMod.enumOf(whenState, then, otherwise)
+      bypassUnavailable = false
+      signal = slotMod.asHandler
+    }
     busy = true
     inertWhile = inertStates
   }

@@ -251,12 +251,19 @@ facts {
   }
 
   ["a lock's service is the one thing the STATE has to decide"] {
-    local onclick = c.entityCard(frontLock).slots["onclick"]
+    local svc: slotMod.Slot = c.entityCard(frontLock).slots["service"]
+    local m: simpleMod.SimpleMatch = svc.transform!!
     // A lock's snapshot state decides WHICH service the tap posts; the value
     // itself never changes what the target is.
-    onclick.transform.contains(#"state == 'locked' ? 'lock/unlock' : 'lock/lock'"#)
-    // The whole reason this slot is live — and the only tap shape that is.
-    onclick.reads == "live"
+    m.cases.toMap() == Map("locked", "lock/unlock")
+    m.otherwise == "lock/lock"
+    // Carried as a SIGNAL with no binding, so the service moves in the signal
+    // store and the element's bytes do not — the tile stays in the renderer's
+    // identity cache across a lock/unlock (ADR 0017).
+    svc.signal == "handler"
+    // …and the click expression is therefore not the live one it used to be:
+    // the card assembles the URL from `tapMod.stateClick`.
+    c.entityCard(frontLock).slots["onclick"] == ""
   }
 
   ["a domain with NO action falls back to more-info, so nothing is dead"] {
@@ -687,8 +694,8 @@ facts {
   ["a typed lock still taps by state, like any other lock"] {
     // Typing the domain must not change what the generic tile does with it —
     // the capability is additive (ADR 0016 owns the tap).
-    c.entityCard(latchLock).slots["onclick"].transform
-      .contains(#"state == 'locked' ? 'lock/unlock' : 'lock/lock'"#)
+    (c.entityCard(latchLock).slots["service"].transform as simpleMod.SimpleMatch)
+      .otherwise == "lock/lock"
   }
 
   ["a lock that can open its latch gets a second control; one that cannot does not"] {
@@ -723,8 +730,8 @@ facts {
     press.slots["entity_id"] == "lock.latch"
     // The tile beside it still locks/unlocks by state — the two controls are
     // different actions, not two spellings of one.
-    c.entityCard(latchLock).slots["onclick"].transform
-      .contains(#"state == 'locked' ? 'lock/unlock' : 'lock/lock'"#)
+    (c.entityCard(latchLock).slots["service"].transform as simpleMod.SimpleMatch)
+      .cases.toMap() == Map("locked", "lock/unlock")
   }
 
   ["the latch is inert while the lock is mid-move — which the busy guard cannot see"] {

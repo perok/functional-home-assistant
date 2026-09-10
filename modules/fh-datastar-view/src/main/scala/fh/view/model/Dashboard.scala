@@ -218,6 +218,16 @@ object SlotSource:
   *     position and a checkbox's `checked` PROPERTY want, and the one kind
   *     whose card is therefore not plain-form-capable — an interactive control
   *     needs a client signal whatever this setting says.
+  *   - [[Handler]] — NO binding at all. The value is carried as a signal and
+  *     read by an event handler rather than painted, so there is no attribute
+  *     to emit; the card composes `{{<slot>__signal}}` into an expression of
+  *     its own. It is a signal kind and not a separate concept because
+  *     everything else about it is identical — one name per
+  *     `(entity, transform)`, the value withheld from the patch form, seeded on
+  *     the wrapper, carried in the frame. What differs is only who reads it.
+  *     See ADR 0017, "Which runtime evaluates a state-dependent value": a value
+  *     the DOM consumes has to be in the bytes, and a value only an EVENT
+  *     consumes does not.
   */
 enum SignalBind derives CanEqual:
   case Text
@@ -225,6 +235,7 @@ enum SignalBind derives CanEqual:
   case Style(property: String)
   case Attr(name: String)
   case Class(name: String)
+  case Handler
 
 object SignalBind:
 
@@ -238,6 +249,7 @@ object SignalBind:
     case "style" :: prop :: Nil => Option.when(prop.nonEmpty)(Style(prop))
     case "attr" :: name :: Nil  => Option.when(name.nonEmpty)(Attr(name))
     case "class" :: name :: Nil => Option.when(name.nonEmpty)(Class(name))
+    case "handler" :: Nil       => Some(Handler)
     case _                      => None
 
   given Decoder[SignalBind] =
@@ -1166,16 +1178,22 @@ case class Dashboard(
             "fact, not a value that moves"
         )
       else
-        // The card must PLACE the binding, via the `<slot>__bind` var the
-        // renderer injects. Without it the patch form withholds the value and
-        // nothing in the DOM puts it back.
+        // The card must PLACE the value's one consumer, or the patch form
+        // withholds the value and nothing puts it back. Which var that is
+        // depends on the kind: every painted kind has a binding, and a
+        // `Handler` slot has none at all — nothing reads it but an expression
+        // the card composes, so its name is what must appear.
+        val placed =
+          if (src.signal.contains(SignalBind.Handler))
+            s"{{${name}__signal}}"
+          else s"{{{${name}__bind}}}"
         cards
           .get(cardName)
           .toList
-          .filterNot(cd => cd.template.contains(s"{{{${name}__bind}}}"))
+          .filterNot(cd => cd.template.contains(placed))
           .map(_ =>
             s"$nodeId: card '$cardName' has slot '$name' marked as a signal " +
-              s"slot, but no part of its template places {{{${name}__bind}}} " +
+              s"slot, but no part of its template places $placed " +
               "— the value would stop updating"
           )
 

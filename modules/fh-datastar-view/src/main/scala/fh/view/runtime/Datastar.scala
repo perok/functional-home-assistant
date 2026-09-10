@@ -523,6 +523,10 @@ object Datastar {
     // The bundle kebab-cases a `data-class` key (`P(e, n, "kebab")`), so a
     // class name is written as it appears in CSS and nowhere else.
     case SignalBind.Class(name) => s"""data-class:$name="$$$signal""""
+    // Nothing to bind: the value is read by a handler, not painted. The seed
+    // and the frame entry are unaffected — those come from the slot being a
+    // signal slot, not from there being an attribute.
+    case SignalBind.Handler => ""
 
   /** Both escapes of a seeded value, in ONE pass, straight into the builder.
     *

@@ -862,7 +862,7 @@ is keyed per node, and the common tick is signals-only and has no node. See "Kno
 
 **The digest is asked of the PATCH FORM**, and that is what puts a moving value on the cheap side of
 it. A signal slot's value is not in those bytes at all (ADR 0017) — the element carries only its
-`data-text` binding — so the node's digest stands still while the value moves, the morph is
+binding, or for a `handler` slot not even that — so the node's digest stands still while the value moves, the morph is
 suppressed, and one `datastar-patch-signals` frame carries the values for the whole batch. The
 wholesale renders (page, repaint, fill, the document a JS-less browser gets) use the DOCUMENT form
 instead: value inline, plus a `data-signals` seed on the node's `.fh-cell` wrapper, so an element

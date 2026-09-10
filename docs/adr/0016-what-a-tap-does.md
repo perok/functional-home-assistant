@@ -77,19 +77,29 @@ places (Pkl decides *whether*, Scala decides *which*) to serve four rows:
 `lock`, `vacuum`, `lawn_mower`, `timer`. It is modelled as a `CallByState`
 class, not a hand-written JSONata string, so the table stays data.
 
-The cost is that this one slot is `reactive` and drops out of `Renderer`'s
-identity cache. It buys no extra wakeups: the card already tracks its entity for
-the state it displays. Revisit (b) if the state-dependent list grows past a
-two-way conditional — that is the trigger to watch, not the row count.
+It buys no extra wakeups: the card already tracks its entity for the state it
+displays. Revisit (b) if the state-dependent list grows past a two-way
+conditional — that is the trigger to watch, not the row count.
 
-**You send what you saw, and this is deliberate.** A transform is evaluated
-server-side at render time and its *result* is spliced into the template
-(`Renderer.resolveSlot`), so the markup carries a fully-resolved literal —
-`data-on:click="@post('sse/action/lock/unlock/lock.front', …)"`. Nothing is
-resolved in the browser. The action a card offers was therefore chosen from the
-state that produced the pixels in front of you, and it stays that action until an
-SSE patch replaces the markup. Repeated taps on an unchanged card agree with each
-other and with what is on screen, even once the server's state has moved on.
+**You send what you saw, and this is deliberate.** The service is decided
+server-side, by the same transform machinery as any other value, and reaches the
+browser as a **handler signal** (ADR 0017): a signal with no binding, read by
+name in the click expression. So the markup is constant —
+`data-on:click="@post('sse/action/' + $_e.lock.front.t4d7a74a1 + …)"` — and the
+tile stays in `Renderer`'s identity cache across a lock/unlock, where a
+fully-resolved URL in the bytes made it repaint.
+
+Nothing about the guarantee changes with it. The signal is patched in the same
+frame as the visible state, so at click time it holds exactly what produced the
+pixels in front of you, and repeated taps on an unchanged card agree with each
+other and with what is on screen even once the server's state has moved on.
+
+**Resolving on the server at POST time is the version that breaks it**, and it
+looks like the obvious simplification: a constant URL naming no service, and the
+server deciding from the state it already has. That leaves the pixels stale and
+makes the command fresh — the one combination where a tap does the *opposite* of
+what was asked, silently, every time, rather than harmlessly repeating an action
+already taken.
 
 That is a property (b) would have given up: an intent route resolves at *click*
 time, so a double-tap on a lock reading "locked" would send unlock, then lock —
