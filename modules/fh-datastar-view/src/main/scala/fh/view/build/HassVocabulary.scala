@@ -4,12 +4,12 @@ package fh.view.build
   * `typealias` unions in the `dashboards/lib/hass/` modules.
   *
   * Two copies of one list is the thing this codebase normally refuses, so the
-  * reason for it: the Pkl union is what gives an author a typo error and
-  * editor completion, and it has to live in the lib because that is what a
-  * dashboard imports. The generator needs the same set BEFORE any Pkl runs, to
-  * decide whether assigning a device class would produce a dump that cannot
-  * evaluate (see `PklDump.deviceClassField`). Neither side can read the other
-  * at the moment it needs the answer.
+  * reason for it: the Pkl union is what gives an author a typo error and editor
+  * completion, and it has to live in the lib because that is what a dashboard
+  * imports. The generator needs the same set BEFORE any Pkl runs, to decide
+  * whether assigning a device class would produce a dump that cannot evaluate
+  * (see `PklDump.deviceClassField`). Neither side can read the other at the
+  * moment it needs the answer.
   *
   * So they are kept honest by test instead of by construction:
   * `HassVocabularySuite` parses the unions straight out of the vendored `.pkl`

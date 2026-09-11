@@ -3,8 +3,8 @@ package fh.view.build
 import io.circe.Json
 
 /** The `sensor`/`binary_sensor` dispatch: the registry attributes that say what
-  * a reading MEANS move onto the domain class, and one of them is allowed to
-  * be dropped.
+  * a reading MEANS move onto the domain class, and one of them is allowed to be
+  * dropped.
   */
 class PklDumpSensorSuite extends munit.FunSuite {
 
@@ -62,7 +62,13 @@ class PklDumpSensorSuite extends munit.FunSuite {
 
   test("a binary sensor extends BinarySensorEntity") {
     val src =
-      render(entity("binary_sensor.door", "binary_sensor", "device_class" -> s("door")))
+      render(
+        entity(
+          "binary_sensor.door",
+          "binary_sensor",
+          "device_class" -> s("door")
+        )
+      )
     assert(src.contains("extends hass.BinarySensorEntity"), clue = src)
     assert(src.contains("""device_class = "door""""), clue = src)
   }
@@ -72,9 +78,14 @@ class PklDumpSensorSuite extends munit.FunSuite {
     // home running a newer one than this lib was synced against must still
     // evaluate its dashboards. Assigning it would be `Cannot assign` at eval,
     // over a reading no shipped card knows how to render anyway.
-    val src = render(entity("sensor.x", "sensor", "device_class" -> s("flux_capacitance")))
+    val src = render(
+      entity("sensor.x", "sensor", "device_class" -> s("flux_capacitance"))
+    )
     assert(!src.contains("""device_class = "flux_capacitance""""), clue = src)
-    assert(src.contains("flux_capacitance is not in the vendored union"), clue = src)
+    assert(
+      src.contains("flux_capacitance is not in the vendored union"),
+      clue = src
+    )
   }
 
   test("a schema-modelled sensor attribute is not ALSO a per-entity property") {
