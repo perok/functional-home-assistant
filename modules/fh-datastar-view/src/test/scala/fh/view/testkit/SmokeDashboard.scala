@@ -78,6 +78,37 @@ object SmokeDashboard {
   val dashboard: Dashboard =
     PklFixture.buildDashboard("smoke-house", entrySource)
 
+  /** An appliance mid-cycle — `c.progress` over the three washer sensors.
+    *
+    * Its own dashboard for the INVERSE of the reason [[percentSlider]] has one:
+    * this card is here to be photographed, and putting it on [[dashboard]]
+    * would move `full-dashboard.png` as well, making two baselines to mint from
+    * CI where the card itself needs one. Everything else on this page would
+    * then be re-photographed to add a card that is not about them.
+    */
+  val appliance: Dashboard =
+    PklFixture.buildDashboard(
+      "smoke-appliance",
+      s"""amends "@fh-dashboard/entry.pkl"
+         |
+         |import "@fh-dashboard/components.pkl" as c
+         |import "@fh-home/dump.pkl" as dump
+         |
+         |title = "Smoke Appliance"
+         |
+         |$fontPinnedTheme
+         |
+         |card = (c.column) {
+         |  children {
+         |    (c.progress(dump.entities.${HouseFixture.washerRemaining.dumpKey})) {
+         |      total = dump.entities.${HouseFixture.washerProgram.dumpKey}
+         |      status = dump.entities.${HouseFixture.washerStatus.dumpKey}
+         |    }
+         |  }
+         |}
+         |""".stripMargin
+    )
+
   /** A slider whose line reads out its LEVEL — the readout a drag has to move
     * itself, since it is a function of the position rather than of the state.
     * Its own dashboard rather than a sixth card on [[dashboard]], because that

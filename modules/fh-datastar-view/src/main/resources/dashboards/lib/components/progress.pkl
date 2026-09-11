@@ -45,7 +45,7 @@ class ProgressCard extends nodes.Node {
     // first state change, permanently, and the card only comes back on reload.
     template = """
       <article class="card fh-progress">
-        <header>{{#icon}}<i class="{{icon}}"></i>{{/icon}}\(textMod.hole("label"))</header>{{#hasBar}}
+        <header>{{#icon}}<i class="mdi {{icon}}"></i>{{/icon}}\(textMod.hole("label"))</header>{{#hasBar}}
         <div class="fh-progress-track" role="progressbar"
           data-attr:data-remaining="$\(slotMod.signalRef("remaining"))"
           data-attr:data-total="$\(slotMod.signalRef("total"))"

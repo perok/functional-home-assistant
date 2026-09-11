@@ -18,6 +18,7 @@ class ComponentVisualSuite extends SmokeSuite {
 
   private val viewport = Some(900 -> 700)
   private val scene = Scene.of(SmokeDashboard.dashboard)
+  private val applianceScene = Scene.of(SmokeDashboard.appliance)
 
   test("entityCard (on) looks right") {
     withPage(scene, viewport) { (page, _) =>
@@ -152,6 +153,23 @@ class ComponentVisualSuite extends SmokeSuite {
           )
           .last()
         VisualSnapshot.check("lock-controls", lockCard.screenshot())
+      }
+    }
+  }
+
+  test("the progress card looks right mid-cycle") {
+    withPage(applianceScene, viewport) { (page, _) =>
+      IO.blocking {
+        settle(page)
+        // The BAR is what this photographs — the fill is the one thing on the
+        // card that no wire-format test can check, since its width comes from a
+        // client-side expression over two signals rather than from any byte the
+        // server sends. 47 of 120 minutes left is ~61% filled, which is far
+        // enough from both ends that an off-by-one in the arithmetic shows.
+        VisualSnapshot.check(
+          "progress-card",
+          page.locator("article.fh-progress").screenshot()
+        )
       }
     }
   }
