@@ -69,7 +69,7 @@ class ControlSmokeSuite extends SmokeSuite {
           new com.microsoft.playwright.Page.LocatorOptions()
             .setHasText("Kitchen")
         )
-        .locator(".state")
+        .locator(".fh-reading")
       for {
         _ <- ts.awaitLive()
         _ <- clickToggle(page)

@@ -200,12 +200,34 @@ const local shellCss: String = """
   border-radius:999px;font-weight:600;box-shadow:0 4px 12px rgba(0,0,0,.3)}
   """
 
-/// The class contract two cards share, so it lives with neither: an entity's
-/// live reading (`components/entity.pkl`, `components/slider.pkl`) and a
-/// section title (`components/text.pkl`).
+/// The TEXT contract every card shares, so it lives with none of them: three
+/// roles, named once here, used by class everywhere else.
+///
+///   - [[fh-reading]] — the card's own live value. An entity's state, a
+///     slider's readout, an appliance's countdown.
+///   - [[fh-sub]] — a second line ABOUT that value. Smaller and dimmer, and
+///     `em` not `rem` so it stays proportional wherever it is nested.
+///   - [[fh-section]] — a heading over a group of cards.
+///
+/// **Every name is `fh-` prefixed, and that is the load-bearing part.** These
+/// rules land in the same cascade as the theme's framework, and BeerCSS ships
+/// single-word utility classes with `!important`: `.secondary` is
+/// `background-color:var(--secondary)!important;color:var(--on-secondary)!important`,
+/// which no specificity we can write beats. An entity card's second line was
+/// spelled `.secondary` and painted WHITE on a light card for exactly that
+/// reason — invisible, and with no visual baseline covering it, silent.
+/// A generic class name here is not a style choice, it is a collision waiting
+/// for whichever framework the theme loads next.
+///
+/// The sizes are absolute rather than inherited for the same class of reason:
+/// a bare `<h2>` takes BeerCSS's display scale (measured: 45px against a 14px
+/// card), so a heading that states no size is not neutral, it is whatever the
+/// framework thought a page title should be.
 const local sharedCss: String = """
-  .state{color:var(--fh-text-dim)}
-  .section{color:var(--fh-accent)}
+  .fh-reading{color:var(--fh-text-dim)}
+  .fh-sub{font-size:.8em;color:var(--fh-text-dim)}
+  .fh-section{color:var(--fh-accent);font-size:1.125rem;font-weight:600;
+  line-height:1.3;margin:0}
   """
 
 /// No pinch- or double-tap-zoom on a touch device (#306) — a dashboard is an

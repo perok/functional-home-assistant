@@ -699,7 +699,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
           )
           assert(
             html.contains(
-              """<span class="state fh-text"><span class="fh-text-run" data-text="""
+              """<span class="fh-reading fh-text"><span class="fh-text-run" data-text="""
             ),
             clue = html
           )

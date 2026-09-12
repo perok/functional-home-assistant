@@ -82,7 +82,7 @@ class SignalSectionSuite extends munit.FunSuite {
     )
 
     val brokenState =
-      """{{#state}}<span class="state" \(slotMod.signalBind("state"))>{{state}}</span>{{/state}}"""
+      """{{#state}}<span class="fh-reading" \(slotMod.signalBind("state"))>{{state}}</span>{{/state}}"""
     assertEquals(
       sections(brokenState).collect {
         case (slot, body) if body.contains(s"""signalBind("$slot")""") => slot

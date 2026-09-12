@@ -21,8 +21,8 @@ class EntityCard extends nodes.Node {
       <article class="card entity{{#tappable}} tappable{{/tappable}}\(slotMod.ifSlot("inert")) {{inert}}\(slotMod.endIfSlot("inert"))"{{#tappable}}
         data-on:click="\(tapMod.guardClick)\(tapMod.click)"{{/tappable}}\(slotMod.ifSlot("inert")) \(slotMod.signalBind("inert"))\(slotMod.endIfSlot("inert"))\(tapMod.guard)>
         <header>\(slotMod.ifSlot("icon")){{#busy}}<span class="fh-icon-shape"{{#busyVisual}} \(tapMod.busyShapeClass){{/busyVisual}}>{{/busy}}<i class="{{icon}}" \(slotMod.signalBind("icon"))></i>{{#busy}}</span>{{/busy}}\(slotMod.endIfSlot("icon"))\(textMod.hole("label"))</header>
-        <span class="state \(textMod.BOX)">\(textMod.liveRun("value"))</span>\(slotMod.ifSlot("secondary"))
-        <span class="secondary \(textMod.BOX)">\(textMod.run("secondary"))</span>\(slotMod.endIfSlot("secondary"))
+        <span class="fh-reading \(textMod.BOX)">\(textMod.liveRun("value"))</span>\(slotMod.ifSlot("secondary"))
+        <span class="fh-sub \(textMod.BOX)">\(textMod.run("secondary"))</span>\(slotMod.endIfSlot("secondary"))
       </article>
       """
     slots { "label"; "value"; "entity_id" }
@@ -40,7 +40,6 @@ class EntityCard extends nodes.Node {
       .entity header>:is(i.mdi,.fh-icon-shape){flex:0 0 auto}
       .entity header i.mdi{font-size:1.25rem;line-height:1;
       margin-inline-end:.375rem;color:var(--fh-accent)}
-      .entity .secondary{font-size:.8em;color:var(--fh-text-dim)}
       """
   }
   hidden entity: hass.Entity
