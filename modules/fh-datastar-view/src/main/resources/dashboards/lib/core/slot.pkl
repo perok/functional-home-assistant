@@ -3,8 +3,9 @@
 ///
 /// A slot is either a bare String (a constant literal) or a [[Slot]] object: a
 /// live CEL transform over the card's entity ([[Slot.transform]], the engine
-/// tier) or an opted-in [[simpleMod.Simple]] structure ([[Slot.simple]], the fast tier —
-/// the field IS the tier selection; nothing recognizes expression spelling).
+/// tier) or an opted-in [[simpleMod.Simple]] structure in that SAME field (the
+/// fast tier — the form IS the tier selection; nothing recognizes expression
+/// spelling).
 /// The builders are the reason a third-party card can look like a shipped one:
 /// `labelSlot` falls back to friendly_name, `valueSlot` appends the entity's
 /// unit, `secondarySlot` keeps the mustache section collapsed when blank.
@@ -233,15 +234,15 @@ const function labelSlot(entity: hass.Entity?, label: (String|Expr|simpleMod.Sim
   else ""
 
 // value: null -> the state with the entity's unit appended, OPTED IN
-// ([[simpleMod.unit]] — the auto-unit shape); String -> that attribute guarded
+// ([[simpleMod.suffixUnit]] — the auto-unit shape); String -> that attribute guarded
 // plus the unit — TWO reads (the attribute and the unit), so no Simple shape
 // covers it and it stays CEL; Expr -> your expression verbatim (you own the
 // unit); Simple -> the opted-in structure verbatim (you own everything — no
-// unit is auto-appended; [[simpleMod.unit]] is the unit shape).
+// unit is auto-appended; [[simpleMod.suffixUnit]] is the unit shape).
 const function valueSlot(value: (String|Expr|simpleMod.Simple)?): Slot =
   if (value is Expr) new Slot { entityId = value.entityId; transform = value.transform }
   else if (value is simpleMod.Simple) new Slot { transform = value }
-  else if (value == null) new Slot { transform = simpleMod.unit("unit_of_measurement") }
+  else if (value == null) new Slot { transform = simpleMod.suffixUnit("unit_of_measurement") }
   else new Slot {
     transform =
       "attr[?'" + value + "'].orValue('')" +

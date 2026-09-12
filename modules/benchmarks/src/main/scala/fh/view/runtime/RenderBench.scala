@@ -360,8 +360,16 @@ class RenderBench {
     )
     celProbes = CelShapes.LiveTransforms.map(cparse)
     celComplex = cparse(CelShapes.TransformComplex)
+    // The shapes the library ACTUALLY emits, weighted as it emits them: the
+    // state lookup is by far the most-used (icons, taps, inert guards, the
+    // toggle), then the raw state, then the secondary line's guarded attr read,
+    // then the slider's range pair. An earlier set led with `AttrOrId`, which
+    // no component has ever called — so the number this produced was for a
+    // shape that does not ship.
     simpleProbes = List(
-      Transform.Simple.AttrOrId("friendly_name"),
+      Transform.Simple.Match(Map("on" -> "lit"), ""),
+      Transform.Simple.State,
+      Transform.Simple.Attr("brightness"),
       Transform.Simple.UnitSuffix("unit_of_measurement"),
       Transform.Simple.Fill("brightness", 1.0, 255.0),
       Transform.Simple.Percent("brightness", 1.0, 255.0)
@@ -1278,7 +1286,7 @@ class RenderBench {
     *
     * The check resolves only the slots that travel as BYTES and compares them
     * to what the cache entry was built from. On the shipped `entityCard` that
-    * is exactly one slot — the name, an `AttrOrId` through the production
+    * is exactly one slot — the name, a guarded attr read through the production
     * dispatch ([[Transforms.run]], ADR 0028's fast tier, no engine). The signal
     * slots are NOT in it: they are resolved on a signals tick regardless, to
     * fill the frame.
@@ -1465,12 +1473,21 @@ object RenderBench {
     */
   final val TickEntities = 20
 
-  /** The shipped `entityCard`'s one BYTE slot — the name. Every other slot on
-    * it is either a literal or travels as a signal, which is precisely why one
-    * slot is what re-admits the entity to the cache key (ADR 0012).
+  /** The shipped `entityCard`'s one BYTE slot. Every other slot on it is either
+    * a literal or travels as a signal, which is precisely why one slot is what
+    * re-admits the entity to the cache key (ADR 0012).
+    *
+    * Modelled as the secondary line's guarded attr read — one attribute lookup,
+    * the cost class the pre-check pays. It was `AttrOrId("friendly_name")`,
+    * which is wrong twice: nothing in the library ever called that shape, and
+    * the shipped card does not read the name live at all — `slot.labelSlot`
+    * bakes `friendly_name ?? entity_id` as a LITERAL off the dump. Whether the
+    * pre-check therefore has any transform to resolve on that card is a
+    * question for ADR 0012, not something this benchmark should answer by
+    * modelling a slot the card does not have.
     */
   final val NameSlot: Transform.Simple =
-    Transform.Simple.AttrOrId("friendly_name")
+    Transform.Simple.Attr("friendly_name")
 
   /** Distinct entities behind [[RenderBench.pageShared]]'s leaves. */
   final val Distinct = 40
@@ -1563,8 +1580,9 @@ object RenderBench {
           (if (signalOnly) SlotSource(literal = Some(s"Tile number $i"))
            else
              SlotSource(
-               // Opted in (ADR 0028): the shipped entity card's name shape.
-               transform = Transform.Simple.AttrOrId("friendly_name")
+               // Opted in (ADR 0028) — see [[NameSlot]] on what this models
+               // and what the shipped card actually does.
+               transform = Transform.Simple.Attr("friendly_name")
              )),
         "state" -> SlotSource(
           transform = Transform.Simple.UnitSuffix("unit_of_measurement"),
