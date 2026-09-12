@@ -712,14 +712,16 @@ facts {
     // The whole reason the schema derives `durationSeconds`: the same reading
     // is minutes here and seconds elsewhere, and a countdown scaled by a guess
     // runs sixty times fast.
-    local d: simpleMod.SimpleDuration = c.progress(remainingMin).slots["left"].transform!!
-    d.scale == 60
+    local d: simpleMod.SimpleValue = c.progress(remainingMin).slots["left"].transform!!
+    d.op == "duration"
+    d.params!!.toMap() == Map("scale", 60)
     local secs: hass.SensorEntity = new {
       entity_id = "sensor.secs"
       device_class = "duration"
       unit_of_measurement = "s"
     }
-    (c.progress(secs).slots["left"].transform as simpleMod.SimpleDuration).scale == 1
+    (c.progress(secs).slots["left"].transform as simpleMod.SimpleValue)
+      .params!!.toMap() == Map("scale", 1)
   }
 
   ["a duration that cannot be scaled renders no countdown at all"] {
