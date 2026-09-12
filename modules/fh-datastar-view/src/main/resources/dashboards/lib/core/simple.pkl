@@ -15,7 +15,13 @@
 ///
 /// **Two shapes, not one per case.** [[SimpleValue]] is an operator name plus
 /// its arguments; [[SimpleMatch]] is beside it because a lookup table carries a
-/// Mapping and `String|Boolean` arms, which no flat argument list models. The
+/// Mapping and `String|Boolean` arms, which no flat argument list models.
+///
+/// `kind` says WHICH SHAPE (the spelling `LayoutNode` and `Predicate` already
+/// use) and [[SimpleValue.op]] says which OPERATOR — two fields because they
+/// answer two questions, and because circe derives the Scala decoder off a
+/// discriminator that maps one constructor to one fixed string, which an `op`
+/// varying per operator cannot be. The
 /// constructors below are the only door — nothing constructs these classes
 /// directly, and nothing amends one — so the typed signatures here ARE the
 /// authoring contract, and the flat shape costs no checking at the call site.
@@ -30,7 +36,7 @@
 module core.simple
 
 /// The operator names. The Scala side decodes this same set
-/// (`Transform.Simple.fromWire`) and REJECTS anything else, so a name added
+/// (`Transform.SimpleWire.toSimple`) and REJECTS anything else, so a name added
 /// here without an arm there is a build error rather than a dead slot.
 typealias Op = "state"|"attr"|"suffixUnit"|"prefix"|"suffix"|"percent"|"fill"
 
@@ -52,6 +58,7 @@ typealias Op = "state"|"attr"|"suffixUnit"|"prefix"|"suffix"|"percent"|"fill"
 /// infers `Dynamic` and the assignment fails at EVAL time, in the author's
 /// dashboard rather than here.
 class SimpleValue {
+  kind = "value"
   op: Op
   value: String? = null
   params: Mapping<String, String|Number>? = null
@@ -60,7 +67,7 @@ class SimpleValue {
 /// The state as a lookup. Idiomatic CEL:
 /// `cel.bind(m, {'k': 'v', ...}, state in m ? m[state] : 'otherwise')`.
 ///
-/// Beside [[SimpleValue]] rather than an `op` on it: the payload is a Mapping
+/// Beside [[SimpleValue]] rather than an operator on it: the payload is a Mapping
 /// plus arms that may be Boolean, and flattening that into an argument list
 /// would mean encoding a table inside a field — a parser, which is the thing
 /// this tier exists to avoid.
@@ -83,7 +90,7 @@ class SimpleValue {
 /// variant of a vendored state union belongs in the domain module, where the
 /// vocabulary is.
 class SimpleMatch {
-  op = "match"
+  kind = "match"
   cases: Mapping<String, String|Boolean>
   otherwise: String|Boolean
 }

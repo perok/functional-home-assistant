@@ -558,7 +558,7 @@ class TransformSuite extends munit.FunSuite {
       op: String,
       value: Option[String] = None,
       params: Map[String, String | Double] = Map.empty
-  ) = Transform.Simple.fromWire(op, value, params)
+  ) = Transform.SimpleWire.Value(op, value, params).toSimple
 
   test("every op the Pkl module can spell parses into a runtime shape") {
     val args =
@@ -622,24 +622,38 @@ class TransformSuite extends munit.FunSuite {
       io.circe.parser.decode[Transform.Simple](src)
     assertEquals(
       decode(
-        """{"op":"percent","value":"brightness","params":{"min":1,"max":255}}"""
+        """{"kind":"value","op":"percent","value":"brightness",""" +
+          """"params":{"min":1,"max":255}}"""
       ),
       Right(Simple.Percent("brightness", 1.0, 255.0))
     )
-    assertEquals(decode("""{"op":"state"}"""), Right(Simple.State))
     assertEquals(
-      decode("""{"op":"match","cases":{"on":"Open"},"otherwise":false}"""),
+      decode("""{"kind":"value","op":"state"}"""),
+      Right(Simple.State)
+    )
+    assertEquals(
+      decode("""{"kind":"match","cases":{"on":"Open"},"otherwise":false}"""),
       Right(Simple.Match(Map("on" -> "Open"), false))
     )
     // A boolean arm stays a BOOLEAN — `"false"` would be truthy as a Mustache
     // section, which is what makes `attr:disabled` work at all.
     assert(
-      decode("""{"op":"match","cases":{"on":true},"otherwise":false}""")
+      decode("""{"kind":"match","cases":{"on":true},"otherwise":false}""")
         .exists {
           case Simple.Match(cases, _) => cases("on") == (true: SlotValue)
           case _                      => false
         }
     )
-    assert(decode("""{"op":"nope"}""").isLeft)
+    assert(decode("""{"kind":"value","op":"nope"}""").isLeft)
+    // The shape discriminator is separate from the operator, so a `kind` the
+    // sum does not name fails on the DISCRIMINATOR rather than falling into
+    // `Value` and reporting a confusing unknown-op.
+    assert(decode("""{"kind":"nope","op":"state"}""").isLeft)
+    // `params` and `value` are optional on the wire — the constructor defaults
+    // fill them, which is what lets Pkl omit both.
+    assertEquals(
+      decode("""{"kind":"value","op":"suffixUnit","value":"u"}"""),
+      Right(Simple.UnitSuffix("u"))
+    )
   }
 }

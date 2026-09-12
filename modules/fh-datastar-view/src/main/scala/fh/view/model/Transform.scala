@@ -2,6 +2,7 @@ package fh.view.model
 
 import fh.view.runtime.{Cel, EntityState}
 import io.circe.{Decoder, DecodingFailure}
+import io.circe.derivation.{Configuration, ConfiguredDecoder}
 
 /** Per-slot value transforms, expressed as [CEL](https://cel.dev) (the "Common
   * Expression Language").
@@ -91,13 +92,9 @@ object Transform {
     * second operator, rounding, cross-entity reads — is CEL, explicitly, which
     * is what keeps this from growing back into a micro-language.
     *
-    * This enum is the RUNTIME form. The wire carries the flatter
-    * `{op, value, params}` / `{op: "match", …}` pair the Pkl module builds, and
-    * [[Simple.fromWire]] parses one into the other ONCE at decode time — so a
-    * malformed structure is a build-time failure naming the dashboard, the
-    * renderer keeps an exhaustive match (which is what stops a new shape
-    * quietly skipping the parity suite), and no evaluation pays a map lookup
-    * for an argument.
+    * This enum is the RUNTIME form; [[SimpleWire]] is what the Pkl module emits
+    * and circe decodes, and [[SimpleWire.toSimple]] turns one into the other
+    * ONCE at decode time. See that type for why the two differ.
     */
   enum Simple {
 
@@ -193,105 +190,7 @@ object Transform {
       case _                   => None
     }
 
-    /** A [[Match]] arm off the wire. BOOLEAN FIRST, and the order is the whole
-      * decoder: circe's `Decoder[String]` fails on a JSON boolean, but trying
-      * String first would still be wrong the day someone widens the union — the
-      * narrower type always goes first. Pkl emits a bare `true`, not `"true"`,
-      * so the two are distinguishable in the JSON and this is a total decision
-      * rather than a guess.
-      */
-    private given Decoder[SlotValue] =
-      Decoder[Boolean]
-        .map(b => b: SlotValue)
-        .or(Decoder[String].map(s => s: SlotValue))
-
-    /** One `params` entry. Decided on the JSON's OWN shape rather than by
-      * trying `Decoder[Double]` then `Decoder[String]`: circe's numeric
-      * decoders accept a JSON string that parses as a number, so an ordered
-      * `or` would silently turn a genuine string argument into a Double. There
-      * is no ordering to get wrong here.
-      */
-    private given Decoder[String | Double] = Decoder.instance { c =>
-      c.value.fold(
-        jsonNull = Left(DecodingFailure("param is null", c.history)),
-        jsonBoolean =
-          _ => Left(DecodingFailure("param is a boolean", c.history)),
-        jsonNumber = n => Right(n.toDouble),
-        jsonString = s => Right(s),
-        jsonArray = _ => Left(DecodingFailure("param is an array", c.history)),
-        jsonObject = _ => Left(DecodingFailure("param is an object", c.history))
-      )
-    }
-
-    /** The wire form, parsed into the runtime form at decode time.
-      *
-      * `op` discriminates both shapes — the Pkl module pins `op = "match"` on
-      * its lookup class — so one read of one field picks the branch, and an
-      * unknown name fails here rather than decoding to something that renders
-      * nothing.
-      */
-    given Decoder[Simple] = Decoder.instance { c =>
-      c.get[String]("op").flatMap {
-        case "match" =>
-          for {
-            cases <- c.get[Map[String, SlotValue]]("cases")
-            otherwise <- c.get[SlotValue]("otherwise")
-          } yield Simple.Match(cases, otherwise)
-        case op =>
-          for {
-            value <- c.get[Option[String]]("value")
-            params <- c.getOrElse[Map[String, String | Double]]("params")(
-              Map.empty
-            )
-            simple <- fromWire(op, value, params).left
-              .map(DecodingFailure(_, c.history))
-          } yield simple
-      }
-    }
-
-    /** Parse the flat wire triple into the runtime shape — TOTAL, and the one
-      * place that knows the operator names.
-      *
-      * The `Left` is what makes the flat wire safe to carry: the Pkl
-      * constructors are the only door and they are typed, so a missing argument
-      * can only arrive from hand-written JSON or a `SimpleValue` built
-      * directly, and this reports it at build time naming the dashboard rather
-      * than rendering a blank slot forever.
-      */
-    def fromWire(
-        op: String,
-        value: Option[String],
-        params: Map[String, String | Double]
-    ): Either[String, Simple] = {
-      def arg: Either[String, String] =
-        value.toRight(s"simple `$op` needs a `value`")
-      def param(name: String): Either[String, Double] =
-        params.get(name) match {
-          case Some(d: Double) => Right(d)
-          case Some(s: String) =>
-            s.toDoubleOption.toRight(
-              s"simple `$op` param `$name` is not a number"
-            )
-          case None => Left(s"simple `$op` needs a `$name` param")
-        }
-      def range(make: (String, Double, Double) => Simple) =
-        for {
-          n <- arg
-          lo <- param("min")
-          hi <- param("max")
-        } yield make(n, lo, hi)
-
-      op match {
-        case "state"      => Right(Simple.State)
-        case "attr"       => arg.map(Simple.Attr.apply)
-        case "suffixUnit" => arg.map(Simple.UnitSuffix.apply)
-        case "prefix"     => arg.map(Simple.Prefix.apply)
-        case "suffix"     => arg.map(Simple.Suffix.apply)
-        case "percent"    => range(Simple.Percent.apply)
-        case "fill"       => range(Simple.Fill.apply)
-        case other        => Left(s"unknown simple op `$other`")
-      }
-    }
+    given Decoder[Simple] = Decoder[SimpleWire].emap(_.toSimple)
 
     /** A stable, injective KEY for one Simple value — the transform's identity
       * wherever the renderer keys by transform (signal names, the once-cache).
@@ -331,6 +230,131 @@ object Transform {
         .mkString
       s"match:${m.cases.size}:$body${value(m.otherwise)}"
     }
+  }
+
+  /** The WIRE form of [[Simple]]: what the Pkl module emits and circe decodes,
+    * two shapes rather than one per operator.
+    *
+    *   - [[SimpleWire.Value]] — an operator NAME plus its arguments. Five of
+    *     the operators take one String and nothing else, so that argument is a
+    *     field and their evaluation never touches a map.
+    *   - [[SimpleWire.Match]] — the lookup table, which cannot flatten into an
+    *     argument list: its payload is a map with `String | Boolean` arms, and
+    *     encoding that inside a field would be a parser.
+    *
+    * `kind` discriminates the two — the house spelling, same as `LayoutNode`
+    * and `Predicate` — and `op` names the operator WITHIN a `Value`. Two fields
+    * because they answer two questions, and because circe's discriminator maps
+    * a CONSTRUCTOR NAME to one fixed string: an `op` that varies per operator
+    * cannot also select the case.
+    *
+    * Decoding is derived. The only hand-written instances are the two UNION
+    * types circe has no generic story for, and [[toSimple]] is the seam that
+    * turns a decoded wire value into the runtime [[Simple]] — see its scaladoc
+    * for why the renderer never sees this type.
+    */
+  enum SimpleWire {
+    case Value(
+        op: String,
+        value: Option[String] = None,
+        params: Map[String, String | Double] = Map.empty
+    )
+    case Match(cases: Map[String, SlotValue], otherwise: SlotValue)
+
+    /** Parse a wire value into the runtime shape — TOTAL, and the one place
+      * that knows the operator names.
+      *
+      * The `Left` is what makes the flat wire safe to carry: the Pkl
+      * constructors are typed and are the only door, so a missing argument can
+      * only arrive from hand-written JSON or a `SimpleValue` built directly,
+      * and this reports it at build time naming the dashboard rather than
+      * rendering a blank slot forever.
+      *
+      * Applied in [[Simple.given_Decoder_Simple]] via `emap`, so the flat form
+      * never reaches the renderer: the evaluator keeps an exhaustive match over
+      * [[Simple]] (which is what stops a new shape quietly skipping the parity
+      * suite) and no evaluation pays a map lookup for an argument.
+      */
+    def toSimple: Either[String, Simple] = this match {
+      case SimpleWire.Match(cases, otherwise) =>
+        Right(Simple.Match(cases, otherwise))
+
+      case SimpleWire.Value(op, value, params) =>
+        def arg: Either[String, String] =
+          value.toRight(s"simple `$op` needs a `value`")
+        def param(name: String): Either[String, Double] =
+          params.get(name) match {
+            case Some(d: Double) => Right(d)
+            case Some(s: String) =>
+              s.toDoubleOption.toRight(
+                s"simple `$op` param `$name` is not a number"
+              )
+            case None => Left(s"simple `$op` needs a `$name` param")
+          }
+        def range(make: (String, Double, Double) => Simple) =
+          for {
+            n <- arg
+            lo <- param("min")
+            hi <- param("max")
+          } yield make(n, lo, hi)
+
+        op match {
+          case "state"      => Right(Simple.State)
+          case "attr"       => arg.map(Simple.Attr.apply)
+          case "suffixUnit" => arg.map(Simple.UnitSuffix.apply)
+          case "prefix"     => arg.map(Simple.Prefix.apply)
+          case "suffix"     => arg.map(Simple.Suffix.apply)
+          case "percent"    => range(Simple.Percent.apply)
+          case "fill"       => range(Simple.Fill.apply)
+          case other        => Left(s"unknown simple op `$other`")
+        }
+    }
+  }
+
+  object SimpleWire {
+
+    /** `kind` carries the case, lowercased; `withDefaults` is what lets an
+      * absent `value`/`params` fall back to the constructor's own defaults, so
+      * the Pkl module can omit both rather than emitting `"params": {}` on
+      * every slot of every card — bytes in a wire whose CONTENT HASH is the
+      * package version.
+      */
+    private given Configuration =
+      Configuration.default.withDefaults
+        .withDiscriminator("kind")
+        .withTransformConstructorNames(_.toLowerCase)
+
+    /** A [[Match]] arm off the wire. BOOLEAN FIRST, and the order is the whole
+      * decoder: circe's `Decoder[String]` fails on a JSON boolean, but trying
+      * String first would still be wrong the day someone widens the union — the
+      * narrower type always goes first. Pkl emits a bare `true`, not `"true"`,
+      * so the two are distinguishable in the JSON and this is a total decision
+      * rather than a guess.
+      */
+    private given Decoder[SlotValue] =
+      Decoder[Boolean]
+        .map(b => b: SlotValue)
+        .or(Decoder[String].map(s => s: SlotValue))
+
+    /** One `params` entry. Decided on the JSON's OWN shape rather than by
+      * trying `Decoder[Double]` then `Decoder[String]`: circe's numeric
+      * decoders accept a JSON string that parses as a number, so an ordered
+      * `or` would silently turn a genuine string argument into a Double. There
+      * is no ordering to get wrong here.
+      */
+    private given Decoder[String | Double] = Decoder.instance { c =>
+      c.value.fold(
+        jsonNull = Left(DecodingFailure("param is null", c.history)),
+        jsonBoolean =
+          _ => Left(DecodingFailure("param is a boolean", c.history)),
+        jsonNumber = n => Right(n.toDouble),
+        jsonString = s => Right(s),
+        jsonArray = _ => Left(DecodingFailure("param is an array", c.history)),
+        jsonObject = _ => Left(DecodingFailure("param is an object", c.history))
+      )
+    }
+
+    given Decoder[SimpleWire] = ConfiguredDecoder.derived
   }
 
   /** Evaluate a [[Simple]] shape without the engine, stringified exactly as
