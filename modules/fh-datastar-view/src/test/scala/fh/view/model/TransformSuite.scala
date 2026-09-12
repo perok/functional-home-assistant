@@ -358,7 +358,7 @@ class TransformSuite extends munit.FunSuite {
       "str(100.0 - ((double(v) - 1.0) * 100.0 / (255.0 - 1.0))))" +
       ".orValue('100') + '%'"
 
-  test("definition: state, attr read, and the fallback-to-id name") {
+  test("definition: state and the guarded attr read") {
     val probes = List(
       es("on"),
       es("on", "friendly_name" -> Json.fromString("Hall")),
@@ -372,11 +372,6 @@ class TransformSuite extends munit.FunSuite {
     )
     agree(Simple.State, "state", probes)
     agree(Simple.Attr("brightness"), "attr[?'brightness']", probes)
-    agree(
-      Simple.AttrOrId("friendly_name"),
-      "attr[?'friendly_name'].orValue(entity_id)",
-      probes
-    )
   }
 
   test("definition: unit suffix, literal prefix/suffix, and the state match") {
@@ -534,7 +529,7 @@ class TransformSuite extends munit.FunSuite {
     )
     assertNotEquals(
       Transform.Simple.key(Simple.Attr("x")),
-      Transform.Simple.key(Simple.AttrOrId("x"))
+      Transform.Simple.key(Simple.UnitSuffix("x"))
     )
     assertNotEquals(
       Transform.Simple.key(Simple.Percent("x", 1.0, 2.0)),
@@ -543,6 +538,122 @@ class TransformSuite extends munit.FunSuite {
     assertEquals(
       Transform.Simple.key(Simple.Percent("x", 1.0, 255.0)),
       Transform.Simple.key(Simple.Percent("x", 1.0, 255.0))
+    )
+  }
+
+  // ---- the wire form -------------------------------------------------------
+  // The flat `{op, value, params}` the Pkl module emits is parsed into the enum
+  // ONCE, here. These assert the SEAM rather than any one operator: that the
+  // op names Pkl can spell are exactly the ones that parse, and that a
+  // structure missing an argument fails loudly instead of rendering blank.
+
+  /** Every `op` the Pkl `core.simple.Op` typealias names. Kept as a literal
+    * list rather than derived: the whole point is to fail when the two sides
+    * drift, and a derivation from the Scala enum would agree with itself.
+    */
+  private val PklOps =
+    List("state", "attr", "suffixUnit", "prefix", "suffix", "percent", "fill")
+
+  private def wire(
+      op: String,
+      value: Option[String] = None,
+      params: Map[String, String | Double] = Map.empty
+  ) = Transform.SimpleWire.Value(op, value, params).toSimple
+
+  test("every op the Pkl module can spell parses into a runtime shape") {
+    val args =
+      Map("min" -> (1.0: String | Double), "max" -> (255.0: String | Double))
+    PklOps.foreach { op =>
+      assert(
+        wire(op, Some("brightness"), args).isRight,
+        s"op `$op` is spellable in Pkl but does not parse"
+      )
+    }
+  }
+
+  test("an op outside that set is refused, not silently dropped") {
+    assert(wire("duration", Some("x")).isLeft)
+    assert(wire("", Some("x")).isLeft)
+  }
+
+  test("a missing argument fails the parse rather than defaulting") {
+    // Each of these is what a hand-written `SimpleValue` forgetting a field
+    // looks like. The typed Pkl constructors cannot produce them, which is
+    // exactly why nothing downstream would catch them.
+    assert(wire("attr").isLeft, "attr with no value")
+    assert(wire("prefix").isLeft, "prefix with no literal")
+    assert(wire("percent", Some("brightness")).isLeft, "percent with no range")
+    assert(
+      wire(
+        "percent",
+        Some("brightness"),
+        Map("min" -> (1.0: String | Double))
+      ).isLeft,
+      "percent with only half a range"
+    )
+    assert(
+      wire(
+        "percent",
+        Some("b"),
+        Map("min" -> ("lo": String | Double), "max" -> (2.0: String | Double))
+      ).isLeft,
+      "percent whose min is not a number"
+    )
+  }
+
+  test("state takes no argument, and one it does not need is ignored") {
+    assertEquals(wire("state"), Right(Simple.State))
+    assertEquals(wire("state", Some("brightness")), Right(Simple.State))
+  }
+
+  test("a param may arrive as a numeric string, as Pkl's JSON may render it") {
+    assertEquals(
+      wire(
+        "percent",
+        Some("b"),
+        Map("min" -> ("1": String | Double), "max" -> ("255": String | Double))
+      ),
+      Right(Simple.Percent("b", 1.0, 255.0))
+    )
+  }
+
+  test("the decoder reads both wire shapes off real JSON") {
+    def decode(src: String) =
+      io.circe.parser.decode[Transform.Simple](src)
+    assertEquals(
+      decode(
+        """{"kind":"value","op":"percent","value":"brightness",""" +
+          """"params":{"min":1,"max":255}}"""
+      ),
+      Right(Simple.Percent("brightness", 1.0, 255.0))
+    )
+    assertEquals(
+      decode("""{"kind":"value","op":"state"}"""),
+      Right(Simple.State)
+    )
+    assertEquals(
+      decode("""{"kind":"match","cases":{"on":"Open"},"otherwise":false}"""),
+      Right(Simple.Match(Map("on" -> "Open"), false))
+    )
+    // A boolean arm stays a BOOLEAN — `"false"` would be truthy as a Mustache
+    // section, which is what makes `attr:disabled` work at all.
+    assert(
+      decode("""{"kind":"match","cases":{"on":true},"otherwise":false}""")
+        .exists {
+          case Simple.Match(cases, _) => cases("on") == (true: SlotValue)
+          case _                      => false
+        }
+    )
+    assert(decode("""{"kind":"value","op":"nope"}""").isLeft)
+    // The shape discriminator is separate from the operator, so a `kind` the
+    // sum does not name fails on the DISCRIMINATOR rather than falling into
+    // `Value` and reporting a confusing unknown-op.
+    assert(decode("""{"kind":"nope","op":"state"}""").isLeft)
+    // `params` and `value` are optional on the wire — the constructor defaults
+    // fill them, which is what lets Pkl omit both.
+    assertEquals(
+      decode("""{"kind":"value","op":"suffixUnit","value":"u"}"""),
+      Right(Simple.UnitSuffix("u"))
     )
   }
 }

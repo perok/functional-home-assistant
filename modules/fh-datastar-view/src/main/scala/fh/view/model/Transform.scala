@@ -1,7 +1,7 @@
 package fh.view.model
 
 import fh.view.runtime.{Cel, EntityState}
-import io.circe.Decoder
+import io.circe.{Decoder, DecodingFailure}
 import io.circe.derivation.{Configuration, ConfiguredDecoder}
 
 /** Per-slot value transforms, expressed as [CEL](https://cel.dev) (the "Common
@@ -63,17 +63,23 @@ object Transform {
 
   /** The closed set of transform shapes evaluated WITHOUT the engine — the fast
     * tier beside it (ADR 0027, ADR 0028). Opted into EXPLICITLY: a slot carries
-    * a [[Simple]] value in its `simple` field ([[SlotSource]]), and that field
-    * — not any recognition of expression spelling — is the whole tier
-    * selection. There is no recognition machinery: a CEL string is engine work,
-    * a Simple value is fast-path work, and nothing infers one from the other.
+    * a [[Simple]] value in its `transform` field ([[SlotSource]]) where a CEL
+    * string would otherwise sit, and that FORM — not any recognition of
+    * expression spelling — is the whole tier selection. There is no recognition
+    * machinery: a CEL string is engine work, a Simple value is fast-path work,
+    * and nothing infers one from the other.
     *
-    * An engine charges for being an engine: a general evaluator converts the
-    * entity into its own value model on every evaluation. On the renderer's
-    * warm path one evaluation of these shapes costs ~0.9 kB of cel-java's
-    * planner runtime (`benchmarks/RenderBench.cel`), against ~45 B for a direct
-    * read (`benchmarks/RenderBench.direct`) — so every shape the library ships
-    * that CAN be read as data, should be.
+    * MEMBERSHIP: a shape belongs here when it is a static lookup and TOTAL —
+    * decided at build time, and defined over every value a live entity can
+    * produce. Totality is the load-bearing half. CEL's `double(state)` errors
+    * on `unknown`, and an error renders as its own message on a wall panel, so
+    * a shape whose garbage case has an honest rendering earns a place here even
+    * when it is nowhere near a hot path. Speed is the other half and is
+    * narrower than it looks: a drag paints the slider's fill client-side, so
+    * the shapes that actually evaluate at volume are the ones a whole-dashboard
+    * render touches — page load, reconnect, repaint — where one evaluation
+    * costs ~0.9 kB of cel-java's planner runtime (`benchmarks/RenderBench.cel`)
+    * against ~45 B for a direct read (`benchmarks/RenderBench.direct`).
     *
     * Each case is DEFINED as its idiomatic CEL spelling, documented below; the
     * parity suite in TransformSuite evaluates that spelling through the engine
@@ -85,6 +91,10 @@ object Transform {
     * The set is CLOSED: atomic forms over one read. Anything beyond it — a
     * second operator, rounding, cross-entity reads — is CEL, explicitly, which
     * is what keeps this from growing back into a micro-language.
+    *
+    * This enum is the RUNTIME form; [[SimpleWire]] is what the Pkl module emits
+    * and circe decodes, and [[SimpleWire.toSimple]] turns one into the other
+    * ONCE at decode time. See that type for why the two differ.
     */
   enum Simple {
 
@@ -97,11 +107,6 @@ object Transform {
       * structure; an author can never write an unguarded read.
       */
     case Attr(name: String)
-
-    /** A guarded attribute read falling back to the entity id — the "name"
-      * shape. Idiomatic CEL: `attr[?'name'].orValue(entity_id)`.
-      */
-    case AttrOrId(name: String)
 
     /** The state with the entity's own unit appended when it has one. Idiomatic
       * CEL: `state + attr[?'name'].optMap(u, ' ' + u).orValue('')`. A unit that
@@ -185,41 +190,16 @@ object Transform {
       case _                   => None
     }
 
-    /** The wire `kind` names. `AttrOrId`/`UnitSuffix` spell deliberately (camel
-      * / the shorter "unit"); the rest lowercase themselves.
-      */
-    given Configuration =
-      Configuration.default.withDefaults
-        .withDiscriminator("kind")
-        .withTransformConstructorNames {
-          case "AttrOrId"   => "attrOrId"
-          case "UnitSuffix" => "unit"
-          case other        => other.toLowerCase
-        }
-
-    /** A [[Match]] arm off the wire. BOOLEAN FIRST, and the order is the whole
-      * decoder: circe's `Decoder[String]` fails on a JSON boolean, but trying
-      * String first would still be wrong the day someone widens the union — the
-      * narrower type always goes first. Pkl emits a bare `true`, not `"true"`,
-      * so the two are distinguishable in the JSON and this is a total decision
-      * rather than a guess.
-      */
-    private given Decoder[SlotValue] =
-      Decoder[Boolean]
-        .map(b => b: SlotValue)
-        .or(Decoder[String].map(s => s: SlotValue))
-
-    given Decoder[Simple] = ConfiguredDecoder.derived
+    given Decoder[Simple] = Decoder[SimpleWire].emap(_.toSimple)
 
     /** A stable, injective KEY for one Simple value — the transform's identity
       * wherever the renderer keys by transform (signal names, the once-cache).
       * Structure, not spelling: two structures with equal fields share a key,
-      * different structures never collide (the kind prefix is disjoint).
+      * different structures never collide (the op prefix is disjoint).
       */
     def key(s: Simple): String = s match {
       case Simple.State            => "state"
       case Simple.Attr(n)          => s"attr:$n"
-      case Simple.AttrOrId(n)      => s"attrOrId:$n"
       case Simple.UnitSuffix(n)    => s"unit:$n"
       case Simple.Prefix(lit)      => s"prefix:$lit"
       case Simple.Suffix(lit)      => s"suffix:$lit"
@@ -252,6 +232,131 @@ object Transform {
     }
   }
 
+  /** The WIRE form of [[Simple]]: what the Pkl module emits and circe decodes,
+    * two shapes rather than one per operator.
+    *
+    *   - [[SimpleWire.Value]] — an operator NAME plus its arguments. Five of
+    *     the operators take one String and nothing else, so that argument is a
+    *     field and their evaluation never touches a map.
+    *   - [[SimpleWire.Match]] — the lookup table, which cannot flatten into an
+    *     argument list: its payload is a map with `String | Boolean` arms, and
+    *     encoding that inside a field would be a parser.
+    *
+    * `kind` discriminates the two — the house spelling, same as `LayoutNode`
+    * and `Predicate` — and `op` names the operator WITHIN a `Value`. Two fields
+    * because they answer two questions, and because circe's discriminator maps
+    * a CONSTRUCTOR NAME to one fixed string: an `op` that varies per operator
+    * cannot also select the case.
+    *
+    * Decoding is derived. The only hand-written instances are the two UNION
+    * types circe has no generic story for, and [[toSimple]] is the seam that
+    * turns a decoded wire value into the runtime [[Simple]] — see its scaladoc
+    * for why the renderer never sees this type.
+    */
+  enum SimpleWire {
+    case Value(
+        op: String,
+        value: Option[String] = None,
+        params: Map[String, String | Double] = Map.empty
+    )
+    case Match(cases: Map[String, SlotValue], otherwise: SlotValue)
+
+    /** Parse a wire value into the runtime shape — TOTAL, and the one place
+      * that knows the operator names.
+      *
+      * The `Left` is what makes the flat wire safe to carry: the Pkl
+      * constructors are typed and are the only door, so a missing argument can
+      * only arrive from hand-written JSON or a `SimpleValue` built directly,
+      * and this reports it at build time naming the dashboard rather than
+      * rendering a blank slot forever.
+      *
+      * Applied in [[Simple.given_Decoder_Simple]] via `emap`, so the flat form
+      * never reaches the renderer: the evaluator keeps an exhaustive match over
+      * [[Simple]] (which is what stops a new shape quietly skipping the parity
+      * suite) and no evaluation pays a map lookup for an argument.
+      */
+    def toSimple: Either[String, Simple] = this match {
+      case SimpleWire.Match(cases, otherwise) =>
+        Right(Simple.Match(cases, otherwise))
+
+      case SimpleWire.Value(op, value, params) =>
+        def arg: Either[String, String] =
+          value.toRight(s"simple `$op` needs a `value`")
+        def param(name: String): Either[String, Double] =
+          params.get(name) match {
+            case Some(d: Double) => Right(d)
+            case Some(s: String) =>
+              s.toDoubleOption.toRight(
+                s"simple `$op` param `$name` is not a number"
+              )
+            case None => Left(s"simple `$op` needs a `$name` param")
+          }
+        def range(make: (String, Double, Double) => Simple) =
+          for {
+            n <- arg
+            lo <- param("min")
+            hi <- param("max")
+          } yield make(n, lo, hi)
+
+        op match {
+          case "state"      => Right(Simple.State)
+          case "attr"       => arg.map(Simple.Attr.apply)
+          case "suffixUnit" => arg.map(Simple.UnitSuffix.apply)
+          case "prefix"     => arg.map(Simple.Prefix.apply)
+          case "suffix"     => arg.map(Simple.Suffix.apply)
+          case "percent"    => range(Simple.Percent.apply)
+          case "fill"       => range(Simple.Fill.apply)
+          case other        => Left(s"unknown simple op `$other`")
+        }
+    }
+  }
+
+  object SimpleWire {
+
+    /** `kind` carries the case, lowercased; `withDefaults` is what lets an
+      * absent `value`/`params` fall back to the constructor's own defaults, so
+      * the Pkl module can omit both rather than emitting `"params": {}` on
+      * every slot of every card — bytes in a wire whose CONTENT HASH is the
+      * package version.
+      */
+    private given Configuration =
+      Configuration.default.withDefaults
+        .withDiscriminator("kind")
+        .withTransformConstructorNames(_.toLowerCase)
+
+    /** A [[Match]] arm off the wire. BOOLEAN FIRST, and the order is the whole
+      * decoder: circe's `Decoder[String]` fails on a JSON boolean, but trying
+      * String first would still be wrong the day someone widens the union — the
+      * narrower type always goes first. Pkl emits a bare `true`, not `"true"`,
+      * so the two are distinguishable in the JSON and this is a total decision
+      * rather than a guess.
+      */
+    private given Decoder[SlotValue] =
+      Decoder[Boolean]
+        .map(b => b: SlotValue)
+        .or(Decoder[String].map(s => s: SlotValue))
+
+    /** One `params` entry. Decided on the JSON's OWN shape rather than by
+      * trying `Decoder[Double]` then `Decoder[String]`: circe's numeric
+      * decoders accept a JSON string that parses as a number, so an ordered
+      * `or` would silently turn a genuine string argument into a Double. There
+      * is no ordering to get wrong here.
+      */
+    private given Decoder[String | Double] = Decoder.instance { c =>
+      c.value.fold(
+        jsonNull = Left(DecodingFailure("param is null", c.history)),
+        jsonBoolean =
+          _ => Left(DecodingFailure("param is a boolean", c.history)),
+        jsonNumber = n => Right(n.toDouble),
+        jsonString = s => Right(s),
+        jsonArray = _ => Left(DecodingFailure("param is an array", c.history)),
+        jsonObject = _ => Left(DecodingFailure("param is an object", c.history))
+      )
+    }
+
+    given Decoder[SimpleWire] = ConfiguredDecoder.derived
+  }
+
   /** Evaluate a [[Simple]] shape without the engine, stringified exactly as
     * [[run]] renders the idiomatic CEL — the SAME rendering, so the parity
     * suite can hold the two to byte-equality over the sweep. TOTAL: a value the
@@ -272,9 +377,6 @@ object Transform {
       case Simple.State      => entity.state
       case Simple.Attr(name) =>
         Cel.stringify(entity.javaAttributes.get(name))
-      case Simple.AttrOrId(name) =>
-        val v = entity.javaAttributes.get(name)
-        if v == null then entity.entityId else Cel.stringify(v)
       case Simple.UnitSuffix(name) =>
         entity.javaAttributes.get(name) match {
           case u: String => entity.state + " " + u

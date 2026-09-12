@@ -79,9 +79,13 @@ live path — an order of magnitude more than encoding the frame.
 **Fixed** (`Renderer.byteSlotValues` + a fourth branch in `RenderCache.apply`): not by predicting
 the inputs more finely but by **comparing the resolved byte-slot VALUES** before rendering — identical values mean identical bytes, so the entry's bytes are
 reused and re-stamped without mustache, wrapper or digest. It needs no static analysis, so CEL
-and `Transform.Simple` go through the same path, and on the shipped card there is exactly one
-byte slot to resolve (the name, an `AttrOrId` off ADR 0028's fast tier) — the signal slots are
-evaluated on a signals tick regardless. Note the values must NOT become the key:
+and `Transform.Simple` go through the same path, and on the shipped card there is at most one
+byte slot to resolve — the signal slots are evaluated on a signals tick regardless. ("The name,
+an `AttrOrId` off ADR 0028's fast tier" is what this said, and it was wrong twice over: nothing
+in the library ever called that shape, and `slot.labelSlot` bakes the name as a LITERAL off the
+dump, so the shipped `entityCard` may have no byte transform to resolve at all. The measured
+numbers below stand — they came from `RenderBench`'s own card, not from this sentence — but
+whether the pre-check has anything to do on the shipped card is an open question for this ADR.) Note the values must NOT become the key:
 `RenderInputs.isAtLeast` is a partial order over versions and is what stops a straggler
 displacing fresher bytes, so this is a pre-check that skips the render, not a new key.
 `resumeSignals` went 261.7 µs / 442 kB to 101.7 µs / 151 kB, landing on `resumeSignalsPure`'s

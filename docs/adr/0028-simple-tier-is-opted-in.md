@@ -28,10 +28,29 @@ It worked, and no wire byte moved. Three costs followed from the design itself:
    engine tier) or a `Simple` structure as a JSON object (the fast tier). The
    form IS the tier selection; there is no recognition machinery at all, and
    nothing else on the slot describes its tier.
-2. **The catalog stays closed at nine atomic forms over one read**
-   (`state`, `attr`, `attrOrId`, `unit`, `prefix`, `suffix`, `match`, `percent`, `fill`). The
-   composite `{value, op, prefix, postfix}` micro-format was considered and rejected: it reopens
-   the language Phase 2 closed. Anything beyond the nine is CEL, explicitly.
+2. **A shape joins the catalog when it is a STATIC LOOKUP and TOTAL** — decided entirely at
+   build time, and defined over every value a live entity can produce. Today that is
+   `state`, `attr`, `suffixUnit`, `prefix`, `suffix`, `match`, `percent`, `fill`.
+
+   Totality is the load-bearing half, and it is why the rule is not "the hot shapes". CEL's
+   `double(state)` ERRORS on `unknown`, and a CEL error renders as its own message — on a wall
+   panel, months after anyone read the dashboard source. A shape whose garbage case has an
+   honest rendering (`0 %`, `100%`, the empty string) is worth having here even when it is
+   nowhere near a hot path.
+
+   Speed is the other half, and it is narrower than it first looks: a drag paints the slider's
+   fill client-side, so the shapes that evaluate at volume are the ones a WHOLE-DASHBOARD render
+   touches — page load, reconnect, repaint — where every slot on every card resolves at once.
+   That cost is uniform across shapes, which is an argument for the tier covering what it can
+   rather than for ranking members by frequency.
+
+   Anything failing either half — a second operator, a cross-entity read, a decision the live
+   value drives — is CEL, explicitly. That is what keeps this from growing back into a
+   micro-language.
+
+   `attrOrId` was dropped: no component ever called it, and it carried a Pkl class, a decode
+   arm, a key arm, an evaluation arm and a parity row for nothing. The benchmark that justified
+   this tier had been measuring it as its headline probe.
 
    `match` is a lookup — `Map[String, SlotValue]` plus a required `otherwise` — and it REPLACED the
    two-armed `enum`, which is `match` with one entry. The count did not move, and the shapes it
@@ -55,29 +74,71 @@ It worked, and no wire byte moved. Three costs followed from the design itself:
    domain shipped), so an unmatched state must degrade rather than blank a card months later. A
    helper that covers every variant of a vendored state union belongs in the domain module,
    where the vocabulary is.
-3. **Each case is DEFINED by its idiomatic CEL spelling** — documented on the Scala case and on
-   the Pkl wire class — and `TransformSuite`'s battery evaluates that spelling through the engine,
+3. **Flat on the wire, typed in the renderer.** The wire and Pkl form is TWO shapes, not one per
+   case: `SimpleValue {kind: "value", op, value, params}` — an operator name, its single String
+   argument, and whatever else it needs — and `SimpleMatch {kind: "match", cases, otherwise}`
+   beside it.
+
+   **`kind` says which SHAPE and `op` says which OPERATOR**, and they are two fields rather than
+   one because they answer two questions. `kind` is also the spelling `LayoutNode` and
+   `Predicate` already use, so the wire reads consistently. The practical forcing function is
+   circe: its derivation maps one CONSTRUCTOR NAME to one fixed discriminator string
+   (`Configuration.withTransformConstructorNames`), so an `op` that varies per operator cannot
+   also select the case. Overloading one field buys ~16 bytes a slot and costs the derivation —
+   and with it the good error, since a bad `kind` then falls into `Value` and reports a
+   confusing unknown-op instead of an unknown shape.
+
+   `match` cannot flatten: its payload is a Mapping plus arms that may be Boolean, and forcing
+   that into an argument list would mean encoding a table inside a field — a parser, which is
+   the thing this tier exists to avoid. Two shapes is the honest floor, and `Simple` is their
+   union.
+
+   `Transform.SimpleWire` is that pair as a Scala `enum`, decoded by `ConfiguredDecoder.derived`
+   — the ONLY hand-written instances are the two UNION types circe has no generic story for
+   (`SlotValue`, and a `params` entry). `SimpleWire.toSimple` then parses it into the runtime
+   `Simple` ONCE, applied with `emap` so a `Left` becomes a decoding failure carrying the JSON
+   path. The wire form does not reach the renderer, and that is the point:
+
+   - The renderer keeps an **exhaustive match**, which is what stops a new shape quietly
+     skipping the parity suite. Matching on a `String` op would let one fall through to a
+     default, green and unproven.
+   - **No evaluation pays a map lookup** for an argument it could have read off a field.
+   - A malformed structure is a **build-time failure naming the dashboard** rather than a slot
+     that renders blank forever.
+
+   The authoring safety the flat form appears to cost is not actually lost: the `const function`
+   constructors in `core/simple.pkl` are typed, they are the only door (nothing constructs these
+   classes directly and nothing amends one), and `toSimple`'s `Left` catches what hand-written
+   JSON could still smuggle past them.
+
+   The two union decoders are where the care goes, because neither is derivable. A `SlotValue`
+   arm tries BOOLEAN first — `Decoder[String]` fails on a JSON boolean, and the narrower type
+   always goes first. A `params` entry is decided on the JSON's OWN shape rather than by an
+   ordered `or` at all: circe's numeric decoders accept a JSON string that parses as a number, so
+   `Double`-first would silently turn a genuine string argument into a Double.
+4. **Each case is DEFINED by its idiomatic CEL spelling** — documented on the Scala case and on
+   the Pkl constructor — and `TransformSuite`'s battery evaluates that spelling through the engine,
    asserting **byte-equality with the fast read over the hostile sweep**. The mapping is a test
    suite, not a runtime mechanism.
-4. **No engine fallback: the opted-in tier owns its values.** Where the engine would ERROR on a
+5. **No engine fallback: the opted-in tier owns its values.** Where the engine would ERROR on a
    mistyped value (`double("on")`, `' ' + 5`), the structure renders its absent-value form
    (`"0 %"`/`"100%"`, the state alone). The numeric domain of percent/fill mirrors `double()` —
    numbers and parseable strings — so plausible values still agree byte-for-byte. Each divergence
    is documented on its case and pinned in the suite's divergence tests.
-5. **Naming keys on the structure.** Signal names and the once-cache hash `Transform.Simple.key`
+6. **Naming keys on the structure.** Signal names and the once-cache hash `Transform.Simple.key`
    (`attr:brightness`, `percent:brightness:1.0:255.0`) — injective by construction, independent of
    any spelling. `match` is the one case whose key is LENGTH-PREFIXED: its siblings can join on
    `:` because their arity is fixed, and a variable-arity map joined that way would let a
    separator inside a key forge a different map. A collision is two transforms sharing one
    signal, so injectivity here is not a nicety.
-6. **Authoring is a namespace: `core/simple.pkl`** (the `c.tap` module-as-namespace pattern, typed
-   facade re-export `c.simple`). `Slot.simple` takes the structures; `labelSlot`/`valueSlot`/
+7. **Authoring is a namespace: `core/simple.pkl`** (the `c.tap` module-as-namespace pattern, typed
+   facade re-export `c.simple`). `Slot.transform` takes the structures; `labelSlot`/`valueSlot`/
    `secondarySlot` accept a Simple beside `String`/`Expr`. The components opt in: the slider's
    `value`/`percent`/`fill` slots and its default state readout, `control`'s two state matches, and
    `slot.pkl`'s own auto-unit value and guarded secondary read. The slider's `percentExpr`/
    `valueExpr`/`minExpr`/`maxExpr` stay CEL strings deliberately — they are the splice surface for
    composed readouts, which no atomic shape covers.
-7. **Validate stays the one gate.** A Simple structure is checked structurally
+8. **Validate stays the one gate.** A Simple structure is checked structurally
    — degenerate ranges (the check the recognizer's `range()` used to own) are
    build errors — and a CEL string must compile, located like any bad
    expression. Both tiers are validated by the same pass.
@@ -92,10 +153,14 @@ It worked, and no wire byte moved. Three costs followed from the design itself:
 - **Rendered bytes are unchanged for every well-typed value.** The only visible change is the
   documented one: a mistyped value now renders the absent-value form instead of the engine's error
   text — visible diagnosis traded for tier ownership, pinned in the suite.
-- **A shape beyond the nine cannot sneak into the fast tier** — there is nothing to fool. Growth
-  is a catalog decision, made here and gated by review.
+- **A shape beyond the catalog cannot sneak into the fast tier** — there is nothing to fool. An
+  `op` with no `toSimple` arm is a decode failure, not a dead slot. Growth is a catalog decision,
+  made here and gated by review.
 - **Opted-in slots' signal names changed once** (structure keys, not CEL hashes) and are stable
   from here; re-indenting or re-spelling any CEL in the library can no longer move a tier or a
   name.
-- `RenderBench.simple` measures the explicit mix (4 opted-in shapes + 2 engine shapes) the
-  production dispatch now walks.
+- `RenderBench.simple` measures the explicit mix the production dispatch walks, and its opted-in
+  probes are now the shapes the library ACTUALLY emits, weighted as it emits them — the state
+  lookup first (icons, taps, inert guards, the toggle), then the raw state, then the guarded attr
+  read, then the slider's range pair. The earlier set led with `attrOrId`, which no component has
+  ever called.

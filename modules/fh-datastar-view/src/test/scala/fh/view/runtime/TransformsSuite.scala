@@ -26,8 +26,9 @@ import io.circe.Json
 class TransformsSuite extends munit.CatsEffectSuite {
 
   test("the opted-in state tier renders exactly what CEL would") {
-    // The simple tier is entered by the slot's `simple` field, never by
-    // recognising spelling (ADR 0028). It is only safe while it renders
+    // The simple tier is entered by the slot's transform being a STRUCTURE
+    // rather than a string, never by recognising spelling (ADR 0028). It is
+    // only safe while it renders
     // EVERY state shape identically to the engine, so this compares them
     // rather than asserting expected output: the oracle is CEL itself.
     val states = List(
@@ -58,9 +59,10 @@ class TransformsSuite extends munit.CatsEffectSuite {
   }
 
   test("the simple tier decodes from the wire's explicit opt-in") {
-    // `"simple"` rides beside `transform` as the slot's own object; its `kind`
-    // discriminator picks the case. A decoded simple slot dispatches without
-    // the engine.
+    // The structure rides AS the slot's `transform`; `kind` picks the wire
+    // shape, `op` the operator within it, and `SimpleWire.toSimple` parses the
+    // pair into the runtime case. A decoded simple slot dispatches without the
+    // engine.
     val simpleWire = Json.obj(
       "slug" -> Json.fromString("k"),
       "cards" -> Json.obj(
@@ -75,8 +77,9 @@ class TransformsSuite extends munit.CatsEffectSuite {
         "slots" -> Json.obj(
           "v" -> Json.obj(
             "transform" -> Json.obj(
-              "kind" -> Json.fromString("suffix"),
-              "literal" -> Json.fromString(" W")
+              "kind" -> Json.fromString("value"),
+              "op" -> Json.fromString("suffix"),
+              "value" -> Json.fromString(" W")
             )
           )
         )

@@ -37,8 +37,9 @@
                                 "reads" : "live",
                                 "signal" : "text",
                                 "transform" : {
-                                  "kind" : "unit",
-                                  "name" : "unit_of_measurement"
+                                  "kind" : "value",
+                                  "op" : "suffixUnit",
+                                  "value" : "unit_of_measurement"
                                 }
                               }
                             }
@@ -98,8 +99,9 @@
               "reads" : "live",
               "signal" : "text",
               "transform" : {
-                "kind" : "unit",
-                "name" : "unit_of_measurement"
+                "kind" : "value",
+                "op" : "suffixUnit",
+                "value" : "unit_of_measurement"
               }
             }
           }
@@ -134,8 +136,9 @@
               "reads" : "live",
               "signal" : "text",
               "transform" : {
-                "kind" : "unit",
-                "name" : "unit_of_measurement"
+                "kind" : "value",
+                "op" : "suffixUnit",
+                "value" : "unit_of_measurement"
               }
             }
           }
@@ -184,8 +187,9 @@
                                 "reads" : "live",
                                 "signal" : "text",
                                 "transform" : {
-                                  "kind" : "unit",
-                                  "name" : "unit_of_measurement"
+                                  "kind" : "value",
+                                  "op" : "suffixUnit",
+                                  "value" : "unit_of_measurement"
                                 }
                               }
                             }
@@ -225,8 +229,9 @@
                                       "reads" : "live",
                                       "signal" : "text",
                                       "transform" : {
-                                        "kind" : "unit",
-                                        "name" : "unit_of_measurement"
+                                        "kind" : "value",
+                                        "op" : "suffixUnit",
+                                        "value" : "unit_of_measurement"
                                       }
                                     }
                                   }
@@ -292,8 +297,9 @@
               "reads" : "live",
               "signal" : "text",
               "transform" : {
-                "kind" : "unit",
-                "name" : "unit_of_measurement"
+                "kind" : "value",
+                "op" : "suffixUnit",
+                "value" : "unit_of_measurement"
               }
             }
           }
@@ -342,10 +348,13 @@
                     "reads" : "live",
                     "signal" : "style:--_end",
                     "transform" : {
-                      "kind" : "fill",
-                      "max" : 255,
-                      "min" : 1,
-                      "name" : "brightness"
+                      "kind" : "value",
+                      "op" : "fill",
+                      "params" : {
+                        "max" : 255,
+                        "min" : 1
+                      },
+                      "value" : "brightness"
                     }
                   },
                   "fillColor" : {
@@ -364,7 +373,8 @@
                     "reads" : "live",
                     "signal" : "text",
                     "transform" : {
-                      "kind" : "state"
+                      "kind" : "value",
+                      "op" : "state"
                     }
                   },
                   "value" : {
@@ -373,8 +383,9 @@
                     "reads" : "live",
                     "signal" : "attr:value",
                     "transform" : {
-                      "kind" : "attr",
-                      "name" : "brightness"
+                      "kind" : "value",
+                      "op" : "attr",
+                      "value" : "brightness"
                     }
                   }
                 }
@@ -425,8 +436,9 @@
                         "reads" : "live",
                         "signal" : "text",
                         "transform" : {
-                          "kind" : "unit",
-                          "name" : "unit_of_measurement"
+                          "kind" : "value",
+                          "op" : "suffixUnit",
+                          "value" : "unit_of_measurement"
                         }
                       }
                     }
@@ -473,8 +485,9 @@
                         "reads" : "live",
                         "signal" : "text",
                         "transform" : {
-                          "kind" : "unit",
-                          "name" : "unit_of_measurement"
+                          "kind" : "value",
+                          "op" : "suffixUnit",
+                          "value" : "unit_of_measurement"
                         }
                       }
                     }
@@ -773,8 +786,9 @@
                                     "reads" : "live",
                                     "signal" : "text",
                                     "transform" : {
-                                      "kind" : "unit",
-                                      "name" : "unit_of_measurement"
+                                      "kind" : "value",
+                                      "op" : "suffixUnit",
+                                      "value" : "unit_of_measurement"
                                     }
                                   }
                                 }
@@ -834,8 +848,9 @@
                   "reads" : "live",
                   "signal" : "text",
                   "transform" : {
-                    "kind" : "unit",
-                    "name" : "unit_of_measurement"
+                    "kind" : "value",
+                    "op" : "suffixUnit",
+                    "value" : "unit_of_measurement"
                   }
                 }
               }
