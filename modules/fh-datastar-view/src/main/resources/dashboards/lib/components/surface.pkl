@@ -45,10 +45,10 @@ class TabButton extends nodes.Node {
 }
 
 /// A tab bar over ONE inline panel — one tab visible at a time. Pure
-/// composition (mirror jsonnet `tabs`, components.libsonnet:467-499): each tab's
-/// cards become an inline surface baked into this component's panel host
-/// (`bakeInto = NODE_ID`, `bakeAs = "panel"`), sharing one exclusivity group;
-/// the bar buttons open them and the SWAP sets the active-tab signal `ui_<id>` — which
+/// composition: each tab's cards become an inline surface baked into this
+/// component's panel host (`bakeInto = NODE_ID`, `bakeAs = "panel"`), sharing
+/// one exclusivity group; the bar buttons open them and the SWAP sets the
+/// active-tab signal `ui_<id>` — which
 /// the backend reads (it rides every request) and the panel host mirrors into
 /// the `ui.<id>` URL param, so reconnect / navigate / refresh all restore the
 /// tab flash-free. The first tab is default-open (baked on

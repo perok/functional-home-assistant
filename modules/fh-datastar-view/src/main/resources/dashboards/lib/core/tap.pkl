@@ -809,9 +809,8 @@ function openPopup(surfaceId: String): TapAction =
 /// Open an INLINE popup: `content` is wrapped in a [[Popup]] dialog and stashed
 /// under this node's `inlineSurfaces["self"]`; the onclick references the future
 /// surface id (`<NODE_ID>_self`) the hoist mints and splices. (Pkl can't
-/// union-dispatch string|node in one function like jsonnet's `openPopup`, so the
-/// registered and inline forms are two named functions — a deliberate API
-/// deviation, see ADR 0006.)
+/// union-dispatch string|node in one function, so the registered and inline
+/// forms are two named functions — a deliberate API deviation, see ADR 0006.)
 // The parameter is `body`, NOT `content`: a bare `content` inside the nested
 // `new SurfaceDef { content = new Popup { children { <here> } } }` amend would
 // bind to SurfaceDef's own `content` member (a self-reference → stack overflow),

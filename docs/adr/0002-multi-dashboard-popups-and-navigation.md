@@ -7,7 +7,7 @@
 
 ## Context
 
-The dashboard originally served exactly one jsonnet entry at `GET /`, over a
+The dashboard originally served exactly one entry at `GET /`, over a
 single SSE stream that re-renders and pushes every affected node on every state
 change. Three needs arose together:
 
