@@ -39,6 +39,7 @@ import "components/surface.pkl" as surfaces
 import "components/light.pkl" as lightMod
 import "components/lock.pkl" as lockMod
 import "components/moreinfo.pkl" as moreinfo
+import "components/progress.pkl" as progressMod
 import "recipes.pkl" as recipesMod
 
 // ---- namespaces ----
@@ -145,6 +146,10 @@ function iconButton(i: String, a: tapMod.TapAction): control.Button = control.ic
 /// Value slider — an entity for its domain's default axis, or a capability
 /// group for that axis (`c.slider(l.colourTemp)`).
 function slider(a: sliderMod.SlideAxis): sliderMod.Slider = sliderMod.slider(a)
+/// An appliance mid-cycle, from its remaining-time sensor: a countdown, and a
+/// bar where the appliance also reports a programme length.
+function progress(remaining: hass.SensorEntity): progressMod.ProgressCard =
+  progressMod.progress(remaining)
 /// One button for a slider's head — a round [[iconButton]] tinted while its
 /// entity is on. See [[Slider.actions]].
 function sliderAction(e: hass.Entity, t: tapMod.TapAction): control.Button =
@@ -191,7 +196,8 @@ const modules: List<Module> = List(
   sliderMod,
   surfaces,
   surfaceMod,
-  moreinfo
+  moreinfo,
+  progressMod
 )
 
 /// Assemble a card registry by reflecting over `mods` — see [[modules]].

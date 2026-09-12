@@ -82,6 +82,43 @@ object HouseFixture {
     )
   )
 
+  /** An appliance mid-cycle, as HA actually models one: not a domain but a
+    * handful of `sensor` entities, here the three `c.progress` takes.
+    *
+    * The pair is deliberately the shape that HAS a denominator — the
+    * dishwasher's, not the washer's — because the bar is the part with pixels
+    * to check. The washer's no-total shape drops the bar entirely, so it is a
+    * Pkl fact rather than a screenshot.
+    */
+  val washerRemaining: FixtureEntity = FixtureEntity(
+    "sensor.washer_remaining",
+    "47",
+    Map(
+      "friendly_name" -> s("Washing Machine"),
+      "device_class" -> s("duration"),
+      "unit_of_measurement" -> s("min")
+    )
+  )
+
+  val washerProgram: FixtureEntity = FixtureEntity(
+    "sensor.washer_program_duration",
+    "120",
+    Map(
+      "friendly_name" -> s("Washing Machine Programme"),
+      "device_class" -> s("duration"),
+      "unit_of_measurement" -> s("min")
+    )
+  )
+
+  /** No `device_class`: the Electrolux integration declares none, and the card
+    * renders these words uninterpreted, so the fixture keeps that shape.
+    */
+  val washerStatus: FixtureEntity = FixtureEntity(
+    "sensor.washer_status",
+    "Rinsing",
+    Map("friendly_name" -> s("Washing Machine Status"))
+  )
+
   /** Every entity, as the seed a [[FakeHomeAssistant]] starts from. */
   val all: List[FixtureEntity] =
     List(
@@ -91,7 +128,10 @@ object HouseFixture {
       hallwayClimate,
       frontDoor,
       tv,
-      frontLock
+      frontLock,
+      washerRemaining,
+      washerProgram,
+      washerStatus
     )
 
   /** The whole house as a [[fh.view.build.RegistryDump.transform]] output — the

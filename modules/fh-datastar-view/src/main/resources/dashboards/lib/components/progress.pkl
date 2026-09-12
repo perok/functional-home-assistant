@@ -1,0 +1,180 @@
+/// An appliance mid-cycle: what it is doing, how long is left, and a bar when
+/// the appliance says enough for one to be honest.
+///
+/// Built for the shape a washing machine actually has, which is not a domain:
+/// HA models an appliance as a handful of `sensor` entities, so this card takes
+/// the two or three that matter rather than one entity of a `washer` domain
+/// that does not exist.
+///
+/// **The bar is optional because the data is.** Measured on the live instance:
+/// the Electrolux washer reports `timetoend` and NO programme length, while the
+/// dishwasher reports both `current_program_remaining_time` and
+/// `current_program_duration`. Without a total there is no denominator, and the
+/// card renders the countdown alone rather than inventing one. Guessing a total
+/// — remembering the highest reading seen this cycle, say — would need history
+/// this layer does not have, and would be wrong for the first paint after a
+/// reload, which is exactly when someone is looking.
+module components.progress
+
+import "../core/icon.pkl" as icons
+import "../core/node.pkl" as nodes
+import "../core/simple.pkl" as simpleMod
+import "../core/slot.pkl" as slotMod
+import "../core/text.pkl" as textMod
+import "../hass.pkl"
+
+/// The fill width, in JS, from the two signals the track carries.
+///
+/// CLIENT-side and not a transform, because it is the one value here that is a
+/// function of TWO entities: a slot reads one entity, so no server-side
+/// spelling of this exists. The guard is the point — `$tot` is a state string,
+/// so an appliance reporting `unknown` between programmes compares false and
+/// the bar sits empty instead of rendering `NaN%`.
+const local FILL_WIDTH: String =
+  "$%1$s > 0 ? Math.min(100, Math.max(0, 100 - 100 * $%2$s / $%1$s)) + '%%' : '0%%'"
+
+/// A cycle in progress: label, optional status line, a countdown, and a bar
+/// when [[ProgressCard.total]] is set.
+class ProgressCard extends nodes.Node {
+  card = "progressCard"
+  cardDef = new nodes.CardDef {
+    // Every optional part is guarded by a LITERAL flag (`hasBar`, `hasStatus`)
+    // rather than by the slot it wraps. A signal slot's value is BLANK in the
+    // patch form (ADR 0017), and a blank value is a FALSE Mustache section — so
+    // guarding on the slot itself deletes the element and its binding on the
+    // first state change, permanently, and the card only comes back on reload.
+    template = """
+      <article class="card fh-progress">
+        <header>{{#icon}}<i class="mdi {{icon}}"></i>{{/icon}}\(textMod.hole("label"))</header>{{#hasBar}}
+        <div class="fh-progress-track" role="progressbar"
+          data-attr:data-remaining="$\(slotMod.signalRef("remaining"))"
+          data-attr:data-total="$\(slotMod.signalRef("total"))"
+          data-attr:aria-valuetext="$\(slotMod.signalRef("left"))">
+          <div class="fh-progress-fill" data-style:width="\(fillWidth)"></div>
+        </div>{{/hasBar}}
+        <div class="fh-progress-foot">{{#hasStatus}}
+          <span class="fh-progress-status fh-sub \(textMod.BOX)">\(textMod.liveRun("status"))</span>{{/hasStatus}}{{#hasLeft}}
+          <span class="fh-progress-left fh-reading \(textMod.BOX)">\(textMod.liveRun("left"))</span>{{/hasLeft}}
+        </div>
+      </article>
+      """
+    slots { "label"; "entity_id" }
+    // A track and a fill, not a `<progress>`: the native element's inner parts
+    // are only reachable through vendor-prefixed pseudo-elements, so styling it
+    // to match the slider's fill means writing the rule three times. The ARIA
+    // role carries what the element would have carried.
+    css = """
+      .fh-progress{display:flex;flex-direction:column;gap:.5rem}
+      .fh-progress header{display:flex;align-items:center;min-inline-size:0}
+      .fh-progress header i{font-size:1.25rem;line-height:1;
+      margin-inline-end:.375rem;color:var(--fh-accent)}
+      .fh-progress-track{block-size:.5rem;inline-size:100%;border-radius:.25rem;
+      background:var(--fh-track,rgba(128,128,128,.25));overflow:hidden}
+      .fh-progress-fill{block-size:100%;inline-size:0;border-radius:inherit;
+      background:var(--fh-accent);transition:inline-size .3s linear}
+      .fh-progress-foot{display:flex;justify-content:space-between;
+      align-items:baseline;gap:.5rem;min-inline-size:0}
+      /* Only what is specific to a ticking number. The size and colour of both
+      feet come from the shared text contract (`core/css.pkl`): the countdown
+      is this card's reading, the status is a second line about it. */
+      .fh-progress-left{font-variant-numeric:tabular-nums}
+      """
+  }
+
+  /// The remaining-time sensor — the card's subject, and the only required one.
+  ///
+  /// Typed `SensorEntity` rather than `Entity` so the unit is reachable: this
+  /// card cannot render anything without [[hass.SensorEntity.durationSeconds]].
+  hidden entity: hass.SensorEntity
+
+  /// The programme-length sensor, where the appliance reports one. Its absence
+  /// is not a degraded card — it is the washer's ordinary shape, and the card
+  /// drops the bar rather than the countdown.
+  hidden total: hass.SensorEntity? = null
+
+  /// The sensor saying what the appliance is DOING — an `enum` sensor in HA's
+  /// model, though not every integration declares the device class (the
+  /// Electrolux one does not). Rendered as its own text, never interpreted:
+  /// this card does not know which of a given appliance's states means
+  /// "running", and the states are the integration's own words in the
+  /// integration's own capitalisation.
+  hidden status: hass.SensorEntity? = null
+
+  hidden label: (String|slotMod.Expr)? = null
+
+  /// An MDI name overriding what [[icons.iconFor]] resolved.
+  hidden icon: String? = null
+
+  /// Seconds per unit of [[entity]]'s reading. Null where the sensor is not a
+  /// scalable duration, which is what makes the countdown drop out rather than
+  /// render a number scaled by a guess.
+  hidden scale: Number? = entity.durationSeconds
+
+  /// Whether a bar can be drawn: a denominator, in a unit that can be scaled.
+  hidden hasBar: Boolean = total != null && total!!.durationSeconds != null
+
+  hidden fillWidth: String =
+    FILL_WIDTH
+      .replaceAll("%1$s", slotMod.signalRef("total"))
+      .replaceAll("%2$s", slotMod.signalRef("remaining"))
+      .replaceAll("%%", "%")
+
+  slots {
+    ["entity_id"] = entity.entity_id
+    ["label"] = slotMod.labelSlot(entity, label)
+    when (icon != null || icons.iconFor(entity) != null) {
+      ["icon"] =
+        if (icon != null) icons.mdiClass(icon!!) else icons.iconFor(entity)!!
+    }
+    // The countdown. A SIGNAL slot: it is the one thing on this card that moves
+    // on an ordinary tick, so it costs a frame entry rather than a repainted
+    // card — and every other card showing the same sensor shares the entry.
+    when (scale != null) {
+      ["left"] = new slotMod.Slot {
+        transform = simpleMod.duration(scale!!)
+        signal = slotMod.asText
+      }
+      ["hasLeft"] = "1"
+    }
+    when (status != null) {
+      ["status"] = new slotMod.Slot {
+        entityId = status!!.entity_id
+        transform = simpleMod.state()
+        signal = slotMod.asText
+      }
+      ["hasStatus"] = "1"
+    }
+    // The bar's two RAW readings. They are separate slots from `left` — same
+    // entity, different transform, so a different signal — because the fill
+    // needs the number and the readout needs the words, and neither can be
+    // derived from the other client-side without re-implementing the format.
+    when (hasBar) {
+      ["remaining"] = new slotMod.Slot {
+        transform = simpleMod.state()
+        signal = slotMod.asAttr("data-remaining")
+      }
+      ["total"] = new slotMod.Slot {
+        entityId = total!!.entity_id
+        transform = simpleMod.state()
+        signal = slotMod.asAttr("data-total")
+      }
+      ["hasBar"] = "1"
+    }
+  }
+
+  function total(t: hass.SensorEntity): ProgressCard =
+    let (self = this) (self) { total = t }
+  function status(s: hass.SensorEntity): ProgressCard =
+    let (self = this) (self) { status = s }
+  function label(l: String|slotMod.Expr): ProgressCard =
+    let (self = this) (self) { label = l }
+  function icon(i: String): ProgressCard = let (self = this) (self) { icon = i }
+}
+
+/// An appliance's cycle, from its remaining-time sensor.
+///
+///     c.progress(dump.entities.sensor_washer_timetoend)
+///       .status(dump.entities.sensor_washer_appliancestate)
+///       .label("Vaskemaskin")
+function progress(remaining: hass.SensorEntity): ProgressCard =
+  new { entity = remaining }
