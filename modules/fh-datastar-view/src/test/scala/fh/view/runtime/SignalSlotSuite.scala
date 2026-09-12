@@ -335,7 +335,7 @@ class SignalSlotSuite extends ServerHarness {
     Map(
       "slider" -> CardDef(
         """<div class="slider" style="--_end: {{fill}}" {{{fill__bind}}}>""" +
-          """<span class="state" {{{state__bind}}}>{{state}}</span>""" +
+          """<span class="fh-reading" {{{state__bind}}}>{{state}}</span>""" +
           """<input type="range" value="{{value}}" {{{value__bind}}}""" +
           """ data-on:change="@post('x/' + ${{value__signal}})" />""" +
           """<span style="background:{{tint}}" {{{tint__bind}}}></span></div>""",

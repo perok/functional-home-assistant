@@ -42,11 +42,12 @@
 ///   (ALWAYS a pure CSS passthrough, not an author-facing choice), per-cell
 ///   layout classes -> `.fh-cols-<1..12>`/`.fh-cols-full`, a grid's
 ///   group-centering opt-out -> `.fh-start`, cards -> `.card`, section titles ->
-///   `.section`, state text -> `.state`, popup dialog -> `.popup`/`.popup-close`,
+///   `.fh-section`, state text -> `.fh-reading`, popup dialog -> `.popup`/`.popup-close`,
 ///   tabs -> `.tabs`/`.tabbar`/`.tab`, more-info facts ->
 ///   `.entity-info`/`.entity-info-id`/`.entity-info-attrs`, the slider's parts ->
-///   `.slider-card`/`.slider-head`/`.slider-icon`/`.slider-sub`/`.slider-actions`/
-///   `.slider-body`/`.slider-members`/`.slider-group`.
+///   `.slider-card`/`.slider-head`/`.slider-icon`/`.slider-actions`/
+///   `.slider-body`/`.slider-members`/`.slider-group`, a second line on any
+///   card -> `.fh-sub`.
 ///
 /// A guarded action in flight toggles two classes on the tappable element
 /// itself: `.fh-disabled` (the guard is active, the element is genuinely inert)

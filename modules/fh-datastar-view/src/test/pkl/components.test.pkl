@@ -367,14 +367,14 @@ facts {
     // three declaration blocks rather than a rule per card. The OUTER box is
     // what the card's own layout sizes; the INNER one is what a marquee moves,
     // and a bare text node could not be moved at all.
-    cards["sectionTitle"].template.contains(#"<h2 class="section fh-text"><span class="fh-text-run">{{label}}</span></h2>"#)
+    cards["sectionTitle"].template.contains(#"<h2 class="fh-section fh-text"><span class="fh-text-run">{{label}}</span></h2>"#)
     cards["pill"].template.contains(#"<span class="fh-text"><span class="fh-text-run">{{label}}</span></span>"#)
-    cards["entityCard"].template.contains(#"<span class="secondary fh-text">"#)
+    cards["entityCard"].template.contains(#"<span class="fh-sub fh-text">"#)
     // A slider's text is `sliderText`'s, not `sliderHead`'s: the head holds
     // regions now (#151), and a card that holds regions is never patched — so
     // the two values here that move as bytes are their own node.
     cards["sliderText"].template.contains(#"<strong class="fh-text"><span class="fh-text-run">{{label}}</span></strong>"#)
-    cards["sliderText"].template.contains(#"<span class="slider-sub fh-text"><span class="fh-text-run">{{secondary}}</span></span>"#)
+    cards["sliderText"].template.contains(#"<span class="fh-sub fh-text"><span class="fh-text-run">{{secondary}}</span></span>"#)
     // A signal-backed reading binds on the RUN, not on the box: `data-text`
     // replaces an element's whole content, so binding the box would delete the
     // run on the first tick and the label would never move again.

@@ -129,7 +129,7 @@ const asHandler: SignalBind = "handler"
 /// hole:
 ///
 /// ```
-/// <span class="state" \(signalBind("value"))>{{value}}</span>
+/// <span class="fh-reading" \(signalBind("value"))>{{value}}</span>
 /// ```
 ///
 /// The backend fills `name__bind` with the whole attribute — whichever of

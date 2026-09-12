@@ -265,7 +265,7 @@ class SliderHead extends nodes.Node {
         <div class="slider-head">
           {{#icon}}<div class="slider-icon"{{#busyVisual}} \(tapMod.busyClassChange) \(tapMod.busyShapeClassChange){{/busyVisual}}><i class="mdi {{icon}}"></i></div>{{/icon}}
           {{#text}}{{{html}}}{{/text}}
-          \(slotMod.ifSlot("state"))<span class="state" \(slotMod.signalBind("state"))>{{state}}</span>\(slotMod.endIfSlot("state"))
+          \(slotMod.ifSlot("state"))<span class="fh-reading" \(slotMod.signalBind("state"))>{{state}}</span>\(slotMod.endIfSlot("state"))
           <div class="slider-actions">{{#actions}}{{{html}}}{{/actions}}</div>
         </div>
         <div class="slider max" style="--_start: 0%;--_end: {{fill}}" \(slotMod.signalBind("fill")) \(restoreOnRefusal){{#busyVisual}} \(tapMod.busyClassChange){{/busyVisual}}>
@@ -310,14 +310,14 @@ class SliderHead extends nodes.Node {
 /// The upside was not the point but is real — a friendly-name change now
 /// re-renders a `<strong>`, not a whole slider row.
 ///
-/// `display:contents` on its cell, so `strong` and `.slider-sub` stay layout
+/// `display:contents` on its cell, so `strong` and `.fh-sub` stay layout
 /// children of `.slider-head` and the group's grid still places them.
 class SliderText extends nodes.Node {
   card = "sliderText"
   cell = new nodes.Cell { classes { "slider-text" } }
   cardDef = new nodes.CardDef {
     template = """
-      <strong class="\(textMod.BOX)">\(textMod.run("label"))</strong>{{#secondary}}<span class="slider-sub \(textMod.BOX)">\(textMod.run("secondary"))</span>{{/secondary}}
+      <strong class="\(textMod.BOX)">\(textMod.run("label"))</strong>{{#secondary}}<span class="fh-sub \(textMod.BOX)">\(textMod.run("secondary"))</span>{{/secondary}}
       """
     // `secondary` is optional (a plain row carries none), so it is not declared
     // — an absent slot renders "" and the section collapses.
@@ -845,7 +845,7 @@ const local sliderCss: String = """
      Zero lets the label shrink and clip as it does on a plain row, where the
      head is an ordinary block and never had the problem. */
   .slider-head{display:flex;gap:.75rem;align-items:center;padding:.5rem;line-height:1.5;z-index:3;pointer-events:none;min-inline-size:0}
-  .slider-head>.state{margin-inline-start:auto;flex:0 0 auto;
+  .slider-head>.fh-reading{margin-inline-start:auto;flex:0 0 auto;
   min-inline-size:var(--fh-readout-size,3.25rem);text-align:end}
   /* The edge of the control, drawn OVER the fill and never under it. Without it
      a nearly-full slider has no visible end: the fill runs to the card's own
@@ -944,9 +944,9 @@ const local sliderCss: String = """
   grid-template-rows:auto auto;align-items:center;align-content:center;
   min-block-size:4.5rem;box-sizing:border-box;gap:0 .75rem}
   .slider-group>.slider-head-cell>.slider-body>.slider-head>.slider-text>strong{grid-column:2;grid-row:1}
-  .slider-group>.slider-head-cell>.slider-body>.slider-head>.slider-text>.slider-sub{grid-column:2;grid-row:2}
+  .slider-group>.slider-head-cell>.slider-body>.slider-head>.slider-text>.fh-sub{grid-column:2;grid-row:2}
   .slider-group>.slider-head-cell>.slider-body>.slider-head>.slider-icon{grid-row:1/3}
-  .slider-group>.slider-head-cell>.slider-body>.slider-head>.state{grid-column:3;grid-row:1/3}
+  .slider-group>.slider-head-cell>.slider-body>.slider-head>.fh-reading{grid-column:3;grid-row:1/3}
   .slider-group>.slider-head-cell>.slider-body>.slider-head>.slider-actions{grid-column:4;grid-row:1/3}
   /* `flex:0 0 auto` because the badge is a CIRCLE with a fixed glyph in it: as a
      shrinkable flex item it gave width away to a long label (2rem measured down
@@ -961,11 +961,10 @@ const local sliderCss: String = """
      rather than a row's icon. */
   .slider-group>.slider-head-cell>.slider-body>.slider-head>.slider-icon{inline-size:2.75rem;block-size:2.75rem}
   .slider-group>.slider-head-cell>.slider-body>.slider-head>.slider-icon>i{font-size:1.5rem}
-  .slider-sub{font-size:.8rem;color:var(--fh-text-dim)}
   /* The head's two node regions. Both wrappers are boxless for the same reason
      `.slider-head-cell` is: the backend gives every node an `.fh-cell`, and
      neither of these should become a box between the row and what it holds —
-     the group's grid places `strong`, `.slider-sub` and the button strip
+     the group's grid places `strong`, `.fh-sub` and the button strip
      itself. The actions are ordinary `c.iconButton`s, so the rule names the
      STRIP's cells rather than a class only this card's buttons carry. */
   .slider-text,.slider-actions>.fh-cell{display:contents}

@@ -380,7 +380,7 @@ class UiSmokeSuite extends SmokeSuite {
   test("slider: a percent readout moves with the drag too") {
     withPage(Scene.of(SmokeDashboard.percentSlider)) { (page, _) =>
       val slider = page.locator("input[type=range]")
-      val readout = page.locator(".state")
+      val readout = page.locator(".fh-reading")
       for {
         box <- IO.blocking(slider.boundingBox())
         mid = box.y + box.height / 2
@@ -400,7 +400,7 @@ class UiSmokeSuite extends SmokeSuite {
     // that edge left, and re-clipped the label on every frame of the drag.
     withPage(Scene.of(SmokeDashboard.percentSlider)) { (page, _) =>
       val slider = page.locator("input[type=range]")
-      val readout = page.locator(".state")
+      val readout = page.locator(".fh-reading")
       for {
         box <- IO.blocking(slider.boundingBox())
         mid = box.y + box.height / 2
@@ -432,7 +432,7 @@ class UiSmokeSuite extends SmokeSuite {
         .evaluate(
           """() => JSON.stringify([...document.querySelectorAll('.slider-head')].map(head => {
             |  const card = head.closest('article.slider-card').getBoundingClientRect();
-            |  const readout = head.querySelector('.state').getBoundingClientRect();
+            |  const readout = head.querySelector('.fh-reading').getBoundingClientRect();
             |  const badge = head.querySelector('.slider-icon').getBoundingClientRect();
             |  return {
             |    cardRight: card.right, headRight: head.getBoundingClientRect().right,
@@ -463,7 +463,9 @@ class UiSmokeSuite extends SmokeSuite {
       viewport = Some(360 -> 740)
     ) { (page, _) =>
       for {
-        _ <- IO.blocking(assertThat(page.locator(".state").first()).isVisible())
+        _ <- IO.blocking(
+          assertThat(page.locator(".fh-reading").first()).isVisible()
+        )
         rows <- sliderRows(page)
       } yield {
         assertEquals(rows.size, 5, clue = "two plain rows, a head, two members")
