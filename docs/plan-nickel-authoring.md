@@ -1,0 +1,363 @@
+# Plan: Nickel as the dashboard authoring language
+
+**Status: exploration. Nothing here is implemented, and no decision has been
+taken.** ADR 0006 (Pkl) still stands, and the spike now recommends leaving it
+that way — see "Where it landed" at the end, which is the section to read first
+if you are picking this up cold. This document describes the dashboard
+structure as it exists in Nickel in the runnable spike at
+`modules/fh-datastar-view/src/test/nickel/`, and the language constraints that
+forced its shape. It is a current-state design sketch, not a migration plan —
+iterate by changing the spike and this document together, and let the commits
+carry the history.
+
+Integration is deliberately out of scope: JVM interop, packaging, LSP wiring and
+JSON parity with the renderer are all solvable-if-we-decide-to and none of them
+inform the language question.
+
+## The structure
+
+Five layers, mirroring the Pkl library's split by audience (ADR 0015).
+
+```
+lib/hass.ncl        runtime validation         — the one contract left
+lib/core.ncl        placement + layout helpers — { cell, body }
+lib/components.ncl  slider, toggle, button, …  — what a dashboard author calls
+lib/query.ncl       { expr, pipe, builder }    — the candidate-set surface
+home.ncl            generated dump             — what codegen emits
+dashboard.ncl       the site                   — what a user writes
+```
+
+**The library is written in STATIC TYPES.** Contracts are kept for what they
+are — runtime validation of facts the type system cannot state — and exactly one
+survives (`lib/hass.ncl`: "this domain is one the slider can drive").
+
+`lib/core.ncl` separates PLACEMENT (`{ cell, body }`) from the node body. That
+is not a Pkl habit carried over; the type system forced it. `&` is untyped, so a
+statically typed layout helper cannot amend a node — it has to rebuild the
+concrete half and leave the body behind a type variable. The result is better
+than the merge version: one `fullWidth` covers component cards and query set
+nodes alike.
+
+### The dump: one type per entity
+
+Codegen gives each entity its own type, naming exactly the fields it has, and
+annotates the module so the type survives `import`:
+
+```nickel
+({
+  entities = { light_plug = { … }, light_hue_bibliotek = { … } },
+  lights = [ … ],
+} : {
+  entities : {
+    light_plug : { entity_id : String, domain : String, friendly_name : String },
+    light_hue_bibliotek : { …, colourTemp : { min_kelvin : Number, … } },
+  },
+  lights : Array { entity_id : String, domain : String, friendly_name : String },
+})
+```
+
+This is ADR 0013's design, and it reproduces all three properties that matter —
+per-entity type, narrowing by presence, omission beats null — plus one Pkl does
+not have: **it is checked before evaluation**. `home.entities.light_plug.colourTemp`
+in a dashboard is a `nickel typecheck` error reading "this record lacks
+`colourTemp`".
+
+`lights` carries the COMMON projection, because an `Array` needs one element
+type. That is the right answer rather than a limitation: a query over every
+light should only see what every light has, and per-entity capabilities stay
+reachable through `entities.<name>`. Same upcast Pkl gets from subtyping, spelled
+out because codegen writes it.
+
+Mechanical constraints codegen must respect:
+
+- **The module annotation must be the OUTERMOST expression.** `(let … in {…}) : T`,
+  not `let … in ({…} : T)` — the latter parses as the annotation being inside the
+  `let`, leaving the module's apparent type `Dyn`. Nothing warns, and only
+  importers degrade, silently, to unchecked.
+- Emit types, not contracts. They cannot be mixed on one value, and a contract
+  is invisible to the typechecker.
+
+### Components
+
+Every entity parameter is **row-polymorphic**, which is what makes a statically
+typed component library practical at all:
+
+```nickel
+toggle : forall a. { entity_id : String, friendly_name : String; a } -> <placed node>
+fullWidth : forall a. { cell : { classes : Array String }, body : a }
+         -> { cell : { classes : Array String }, body : a }
+```
+
+`forall a. { entity_id : String; a }` accepts any entity the dump generated,
+extra fields and all. Without it a component would have to name each entity's
+shape — impossible, since Nickel types cannot be named.
+
+Types being unnameable is the main tax: each signature spells its structure out,
+and the module-level annotation block keeps that to one place per module. The
+library roughly doubled in size against the contract version.
+
+The slider's parameter is a **tagged ADT** — see "The union problem" below —
+whose `match` the typechecker checks for exhaustiveness.
+
+### Query: two styles, one fold
+
+Both styles live in `lib/query.ncl` under separate namespaces and fold through
+the same `lib/query/fold.ncl`, so "the two agree" is a real test rather than two
+copies of the same code agreeing with themselves.
+
+```nickel
+# pipe (recommended)
+q.pipe.from home.lights
+|> q.pipe.where (q.expr.eq (q.expr.prop "domain") "light")
+|> q.pipe.case_of (q.expr.eq q.expr.state "on") (fun e => c.slider ('Entity e))
+|> q.pipe.otherwise c.toggle
+|> q.pipe.build
+|> (fun set => core.fullWidth (core.place set))
+
+# builder — `build` is a terminal FIELD, so no ()
+((( q.builder.from home.lights).where pred).otherwise c.toggle).build
+```
+
+The builder style works (`let rec` lets `mk` call itself) but **cannot be
+statically typed**: its `Chain` is a recursive type, and Nickel has no way to
+name a type, so there is no recursive type to write. `lib/query/builder.ncl` is
+therefore `Dyn` to every importer, and a dashboard in that style gets no
+compile-time checking at all. That, not the nested parens, is what settles the
+choice. Pkl's `q.from(x).where(…).build()` pays neither price: it gets method
+syntax for free.
+
+`Fallback` is an ADT (`[| 'None, 'Render … |]`) rather than a nullable field, and
+the emitted member omits `fallback` entirely when there is none.
+
+## The type system, and which half to build on
+
+Nickel has **static types** (`:`) and **contracts** (`|`). They do not compose,
+and naming a record type moves it from the first into the second — so the choice
+of which to write a library in is a real fork, not a style preference.
+
+**Static typing is the stronger side, and it crosses module boundaries.**
+`nickel typecheck` catches, before evaluation: a wrong argument at a call site
+**through two imports** (a statically annotated library called with a value from
+a statically annotated dump), and a **non-exhaustive `match` on an enum**. It has
+ADTs, `forall`, and row polymorphism over records and enums. `nls` completion
+follows function returns, through imports included.
+
+Row polymorphism is what makes it practical here: a parameter written
+`forall a. { entity_id : String; a }` accepts any entity that has those fields
+whatever else it carries, so per-entity dump types and static component
+signatures compose without inlining each entity's shape.
+
+An import carries its type when the imported **module** is annotated at module
+level. An unannotated module has apparent type `Dyn`, and the documented bridge
+is `exp | Type` where Type is a record **type** — fields with `:`, no values, no
+other metadata. A record *contract* in that position does not work; it stays
+opaque. So even an unannotated dump is reachable, at one ascription per boundary.
+
+**So the library is static types, and contracts are kept for what they actually
+are: runtime validation of what the types cannot state.** Exactly one survives —
+the slidable-domain predicate. The dump emits types, not contracts; the two
+cannot be mixed on one value, and a contract is invisible to the typechecker.
+
+One subtlety that cost real time: the module annotation must be the OUTERMOST
+expression. `let x = … in ({…} : T)` — the natural way to put imports at the
+top — parses as the annotation being inside the `let`, so the module's apparent
+type is `Dyn`. Nothing warns; only importers degrade, and they degrade to "not
+checked", which looks like success.
+
+### The real limits
+
+| | |
+|---|---|
+| No type alias | Naming a record type makes it a contract. Signatures inline their structure; one module-level annotation block per module plus row polymorphism keeps this bounded. |
+| No recursive type | There is no name to recurse through. But a recursive type is not *needed*: Nickel has rank-2 polymorphism, so a recursive structure can be encoded as its own fold, and the type that has to be written is not recursive. See "The fold encoding" below — this removes `Dyn` from the library entirely. |
+| `&` is untyped | Merge is `Dyn -> Dyn -> Dyn`. Rebuilding the record instead typechecks, and forces a better shape: separate placement from the node body, so one polymorphic `fullWidth` covers cards and query set nodes alike. |
+
+### The sharp edge
+
+There is no implicit upcast to `Dyn`: entering a dynamic position takes the
+CONTRACT application `| Dyn`, which is the documented "typechecker off here",
+and **every `| Dyn` is a hole where checking and tooling both stop** (hover
+inside one reports `Dyn`).
+
+`lib/` has 71 of them, and a dashboard written against it has six — one per
+child of the layout tree. That was described here as the ceiling. It is not; see
+below.
+
+### The fold encoding
+
+**Nickel supports rank-2 polymorphism.** A recursive structure can therefore be
+encoded as its own fold (Böhm–Berarducci): `r` marks every recursive position,
+and the type that has to be *written* is not recursive.
+
+```nickel
+# instead of the unwritable  Node = { …, children : Array Node }
+forall r. { node : Body -> r, group : Body -> Array r -> r, set : … -> r } -> r
+```
+
+`spike-rank2/` is the whole library and the demo dashboard rebuilt this way.
+
+| | `lib/` | `lib2/` |
+|---|---|---|
+| `Dyn` in the library | 71 | **0** |
+| `Dyn` in the dashboard | 6 | **0** |
+| lines | 415 | 479 |
+
+A mistake nested two levels inside the tree is now a typecheck error naming both
+the call and the signature that requires the field; hover inside the tree
+reports a real signature instead of `Dyn`.
+
+It is also a *smaller* model, and that part is worth having independently of the
+language question. The recursion was only ever in the tree structure, but `lib/`
+smeared it across every node type — a button carried `children : Array Dyn` that
+is always `[]`. Separating a node's own data (a flat `Body`) from the tree shape
+means components and layout helpers stop mentioning the tree at all:
+`toggle : … -> Body`, `fullWidth : Body -> Body`.
+
+The costs are real and none of them is `Dyn`:
+
+- **The algebra inlines at every occurrence** (types cannot be named): +64 lines,
+  and hover on a tree combinator prints ~40. It falls on the library, not on an
+  author.
+- **The carrier must be non-recursive**, so the emitted JSON is a flat node table
+  with path-derived ids rather than a nested tree. Instantiating `r` at a
+  recursive contract **crashes the typechecker** — a stack overflow, not a
+  diagnostic, and worth reporting upstream.
+- **A query case renders a leaf.** `map` and `@` cannot produce polymorphic
+  elements — only an array literal can — so a query, which accumulates, cannot
+  accumulate trees.
+- **No ADT may carry a tree**: `match` opens the `forall` and nothing
+  re-generalises it. A query's fallback becomes the last case rather than a
+  `[| 'None, 'Render … |]` payload.
+
+That last one cuts against "sum-type the state", and the flat wire format is a
+change to the renderer's contract. Both are judgement calls, not blockers.
+
+### What a contract-annotated library costs, for contrast
+
+This is now built rather than imagined — `spike-contracts/`, with its own README
+and claims — and it is what "Where it landed" below turns on. The two costs:
+
+- **`nickel typecheck` says nothing about it.** A file containing two wrong
+  calls typechecks clean. Green means the tool did not look.
+- **Completion does not follow calls**, so component return values are invisible
+  in the editor.
+
+### The union problem
+
+`slider` takes an entity **or** a colour-temperature axis. Nickel has an untagged
+union (`std.contract.any_of`), but it is unusable here: entity contracts must be
+open, and against open alternatives `any_of` commits to the first one and blames
+its missing field instead of reporting that the value matched none.
+
+So the union is a tagged ADT:
+
+```nickel
+SliderAxis = [| 'Entity SlidableEntity, 'Axis hass.ColourTemp |],
+slider | SliderAxis -> core.Node = match { 'Entity e => …, 'Axis a => … },
+```
+
+Gains: an **eager** check (a mistagged or untagged argument fails at the call),
+and `match` instead of sniffing with `std.record.has_field`.
+
+Costs, both real and both visible at the call site:
+
+- a tag on every call: `c.slider ('Axis light.colourTemp)`
+- **no point-free composition**: `c.toggle` can be handed to `q.pipe.otherwise`
+  directly, `c.slider` cannot, so a dashboard writes `(fun e => c.slider ('Entity e))`
+
+Pkl pays neither: its union is untagged and dispatched with `on is hass.ColourTemp`.
+
+A comparison's right-hand side (String for a state, Number for a battery level)
+stays an untagged `any_of`, because it must serialize as a bare JSON scalar and a
+tag would ride the wire. Its alternatives are closed scalars, the case `any_of`
+handles correctly.
+
+## Known blockers, unresolved
+
+- **No dynamic import, in any form** — not interpolated, not glob, not a
+  function. `site_default.pkl` documents `import*` as how dropping a
+  `kitchen.dashboard.pkl` adds a dashboard with no line to add, and
+  `ServerApp.scala` watches the directory specifically because of it. On Nickel
+  that workflow moves into Scala.
+- **Typed read-back into Scala is lost** — Nickel emits JSON, so decoding
+  returns to circe.
+- **A Rust core, not a JVM library** — pkl-core is in-process; Nickel means a
+  subprocess or FFI.
+
+## Where Nickel is genuinely better
+
+- **Error messages.** Every one carries the definition site, the use site, and
+  often a fix hint.
+- **ADTs with exhaustiveness checking** — the only compile-time guarantee found
+  anywhere in the spike, even if the library cannot reach it.
+- **Merge priorities** (`default` / `force`): symmetric, explicit conflicts, vs.
+  Pkl amending's last-writer-wins.
+- **Compiles to WASM**, so a fully client-side editor is possible; Pkl
+  (Truffle/GraalVM) cannot.
+
+## Where it is worse, for this codebase
+
+- The same class of variable-capture trap as Pkl, relocated and firing more
+  often: `field = param` inside a record is self-reference (fix: `include`), and
+  the punning shorthand `{ toggle }` silently declares an undefined field.
+- `let` is not recursive, so the dump and the node vocabulary must each be one
+  record.
+- Merge is not amend: it requires agreement and does not override, so every
+  overridable field needs `| default`.
+- No method syntax, so a fluent builder costs parens.
+
+## Evidence
+
+Everything above is executable, in `modules/fh-datastar-view/src/test/nickel/`:
+
+```bash
+nickel test *.test.ncl        # 49 assertions
+./typecheck-claims.sh         # 17 claims about what `nickel typecheck` catches
+./lsp-probe.py --claims       # editor completion + hover, asked of nls directly
+./spike-rank2/claims.sh       # 15 claims about the fold encoding and its limits
+./spike-contracts/claims.sh   # 15 claims about the contract design, editor included
+```
+
+The three catch disjoint sets of mistakes — a typecheck-only error evaluates
+fine, so `nickel test` is green while the claim is false. That gap is why the
+suite is split three ways rather than being one command.
+
+## Where it landed — recommendation: stay on Pkl (2026-08-19)
+
+A third design closed the question: `spike-contracts/lib3/`, written in
+contracts the way the manual advises and the way nickel-kubernetes does it. A
+contract may refer to itself, so the recursive tree is three lines, the library
+drops to 176 lines, and every limit the fold imposed (no ADT payload, no
+polymorphic `map`, leaf-only query cases, a non-recursive carrier) is gone.
+
+What it does not do is check anything before evaluation — and, measured with
+`lsp-probe.py --diagnostics`, **`nls` publishes nothing at all** for a contract
+error that it underlines in the folded design. There is no middle: a static
+signature may not mention a tree contract, and typing the tree `Dyn` instead
+restores the per-child `| Dyn`.
+
+So the fold is the only design that delivers what this project is shopping for,
+and it delivers **parity with Pkl** rather than an advantage — Pkl's classes
+express the same tree with no encoding — while living in a corner of Nickel the
+ecosystem is moving away from. Set against in-process JVM evaluation and
+`import*` (load-bearing: `ServerApp.scala` watches a directory precisely because
+dropping a file adds a dashboard), that is not a trade worth making.
+
+**Keep Pkl. Spend the effort on what the Pkl library's types expose instead.**
+
+### What would reopen it
+
+1. **pkl-lsp's live diagnostics, unmeasured.** If pkl-lsp does *not* underline
+   the deep entity error the way `nls` does for `spike-rank2/bad2.ncl`, then
+   Pkl's parity claim weakens to "same errors, later", and the fold's advantage
+   becomes real rather than a tie.
+2. A second, larger dashboard, to see whether the folded design's signature
+   verbosity stays bounded at realistic size.
+3. A browser-side editor becoming a priority — Nickel compiles to WASM and Pkl
+   (Truffle/GraalVM) does not. That is the one axis where Nickel is not merely
+   at parity.
+
+Beyond that, the seam: `fh.view.build.SourceEval` is already the
+authoring-language boundary, and giving it a second implementation is worth
+doing on its own merits (it makes the renderer testable against a fake),
+independent of whether Nickel is ever the second one.
