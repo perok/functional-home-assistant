@@ -107,15 +107,15 @@ facts {
   ["an entity's OWN icon wins, as the MDI class"] {
     // Its own icon wins over the `running` device_class it also carries.
     c.entityCard(new E_with_icon { entity_id = "light.k" }).slots["icon"]
-      == "mdi-ceiling-light"
+      == "mdi mdi-ceiling-light"
   }
 
   ["device_class beats the domain, so a temperature sensor is not a generic one"] {
     local plain: hass.SensorEntity = new { entity_id = "sensor.p" }
-    c.entityCard(new E_temp { entity_id = "sensor.t" }).slots["icon"] == "mdi-thermometer"
+    c.entityCard(new E_temp { entity_id = "sensor.t" }).slots["icon"] == "mdi mdi-thermometer"
     // No device_class at all -> the domain default, and no eval error for
     // reading a property this entity does not have.
-    c.entityCard(plain).slots["icon"] == "mdi-eye"
+    c.entityCard(plain).slots["icon"] == "mdi mdi-eye"
   }
 
   ["a NON-mdi icon set falls through, rather than emitting a dead class"] {
@@ -123,7 +123,7 @@ facts {
     // integration whose glyphs we do not ship. A class the stylesheet does not
     // define renders as blank space, which is visibly worse than the default.
     c.entityCard(new E_custom_icon { entity_id = "light.h" }).slots["icon"]
-      == "mdi-lightbulb"
+      == "mdi mdi-lightbulb"
   }
 
   ["an unknown domain emits NO icon slot, so the header renders none"] {
@@ -150,30 +150,30 @@ facts {
     // The WHOLE class is the value: the element carries nothing else, so
     // `data-attr:class` has nothing to fight over.
     tile.slots["icon"].signal == "attr:class"
-    tile.slots["liveIcon"] == "1"
   }
 
   ["anything more specific than the domain beats the live glyph"] {
     // HA's own precedence, and the reason `stateIconFor` re-checks it: an
     // author's icon, a user's `icon` attribute and a device_class are all more
     // specific than "this is a lock".
-    c.entityCard(latchLock).icon("mdi:key").slots["icon"] == "mdi-key"
+    //
+    // A plain String, not a `Slot` — which is the whole difference, and is also
+    // why both tiers must resolve to the SAME shape of value: the template has
+    // one `{{icon}}` and cannot ask which tier filled it.
+    c.entityCard(latchLock).icon("mdi:key").slots["icon"] == "mdi mdi-key"
     c.entityCard(new E_lock_icon { entity_id = "lock.k" }).slots["icon"]
-      == "mdi-key"
-    // …and each of those is a plain literal again, with no live machinery.
-    !c.entityCard(latchLock).icon("mdi:key").slots.containsKey("liveIcon")
+      == "mdi mdi-key"
   }
 
   ["a domain with no state glyphs renders byte-identical to before"] {
     // Most domains are not in the table, and they must not pay for it.
-    c.entityCard(kitchen).slots["icon"] == "mdi-lightbulb"
-    !c.entityCard(kitchen).slots.containsKey("liveIcon")
+    c.entityCard(kitchen).slots["icon"] == "mdi mdi-lightbulb"
   }
 
   ["an author override takes either spelling"] {
     local e: hass.LightEntity = new { entity_id = "light.k" }
-    c.entityCard(e).icon("mdi:fridge").slots["icon"] == "mdi-fridge"
-    c.entityCard(e).icon("mdi-fridge").slots["icon"] == "mdi-fridge"
+    c.entityCard(e).icon("mdi:fridge").slots["icon"] == "mdi mdi-fridge"
+    c.entityCard(e).icon("mdi-fridge").slots["icon"] == "mdi mdi-fridge"
   }
 
   ["a node has no cell until a layout builder adds one"] {
@@ -313,7 +313,7 @@ facts {
     c.button("Open", c.tap.service("lock/open"))
       .entity(latchLock)
       .inertWhile(List("opening"))
-      .slots["hasInert"] == "1"
+      .slots["inert"].signal == "attr:disabled"
   }
 
   // ---- CSS ownership (ADR 0020) ----
@@ -346,8 +346,10 @@ facts {
     cards["button"].css.contains("min-block-size:2.5rem")
     cards["button"].css.contains("block-size:auto")
     cards["toggle"].css.contains(".card.row.toggle>.switch{flex:0 0 auto}")
-    // ...and the class those rules name is really in the markup.
-    cards["toggle"].template.contains(#"<article class="card row toggle">"#)
+    // ...and the class those rules name is really in the markup. Matched
+    // WITHOUT the closing bracket: the element carries bindings now, and this
+    // fact is about the class list, not about the tag being bare.
+    cards["toggle"].template.contains(#"<article class="card row toggle""#)
     // The label itself is a text box in both, which is the half that shrinks.
     cards["button"].template.contains(#"<span class="fh-text">"#)
     cards["toggle"].template.contains(#"<span class="max fh-text">"#)
@@ -629,6 +631,33 @@ facts {
     !plainLock.supportsOpen
   }
 
+  ["a refused switch goes back, and says so where it can be seen"] {
+    // Two halves of one report, and each was independently wrong.
+    //
+    // The LOOK: `fh-error` paints an outline, and the toggle put it on the
+    // `<input>` — which BeerCSS hides behind a sibling `<span>` that draws the
+    // track. An outline on an invisible element is an outline nobody sees, so
+    // the class belongs on the card.
+    //
+    // The ROLLBACK: `checked` is two-way bound, so a press moves it at once and
+    // waits for a state frame to confirm. A refusal produces NO state frame, so
+    // an unrestored switch sits in the one position known to be wrong.
+    local sw = c.toggle(kitchen)
+    local t = c.cards["toggle"].template
+    // The look rides the card element, the mechanism the input.
+    t.contains(#"<article class="card row toggle" "#)
+    t.split("<label").first.contains("data-class:fh-error")
+    t.split("<label").last.contains("data-on:datastar-fetch__document")
+    // Truth lives on a SECOND signal the press cannot reach: same reading,
+    // shared rather than node-scoped.
+    sw.slots["switched"].transform == sw.slots["checked"].transform
+    sw.slots["checked"].signal == "bind"
+    sw.slots["switched"].signal == "attr:data-switched"
+    // ...and the rollback copies one into the other, gated on the error signal.
+    t.contains("data-on-signal-patch-filter=\"{include:/^_{{id}}__error$/}\"")
+    t.contains("$_{{id}}__error && (${{checked__signal}} = ${{switched__signal}})")
+  }
+
   ["a state-dependent tap refuses the press while the entity is mid-move"] {
     // The bug this closes: a two-way `CallByState` has one branch and a
     // fallback, so every transitional state lands in the fallback — a lock read
@@ -643,7 +672,6 @@ facts {
     // are both meaningful presses, and only a transitional state is not.
     !inert.cases.toMap().containsKey("open")
     !inert.cases.toMap().containsKey("jammed")
-    tile.slots["hasInert"] == "1"
     // A CLASS, not `attr:disabled`: this host is an `<article>`, and only a
     // form control can be disabled.
     tile.slots["inert"].signal == "class:fh-inert"
@@ -654,7 +682,6 @@ facts {
     // to be mid-way through. The card renders byte-identical to before the
     // guard existed.
     !c.entityCard(kitchen).slots.containsKey("inert")
-    !c.entityCard(kitchen).slots.containsKey("hasInert")
   }
 
   ["a typed lock still taps by state, like any other lock"] {
@@ -714,8 +741,5 @@ facts {
     // ON. That is why this can be `attr:disabled` at all (ADR 0017).
     inert.otherwise == false
     latch.slots["inert"].signal == "attr:disabled"
-    // Gated on a literal, or the patch form (where the value is blank) would
-    // collapse the section and take the binding and the guard with it.
-    latch.slots["hasInert"] == "1"
   }
 }

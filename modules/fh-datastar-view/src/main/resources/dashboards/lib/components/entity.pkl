@@ -18,11 +18,11 @@ class EntityCard extends nodes.Node {
   card = "entityCard"
   cardDef = new nodes.CardDef {
     template = """
-      <article class="card entity{{#tappable}} tappable{{/tappable}}{{#hasInert}} {{inert}}{{/hasInert}}"{{#tappable}}
-        data-on:click="{{#hasInert}}$\(slotMod.signalRef("inert")) ? '' : {{/hasInert}}\(tapMod.guardClick){{{onclick}}}"{{/tappable}}{{#hasInert}} \(slotMod.signalBind("inert")){{/hasInert}}\(tapMod.guard)>
-        <header>{{#icon}}{{#busy}}<span class="fh-icon-shape"{{#busyVisual}} \(tapMod.busyShapeClass){{/busyVisual}}>{{/busy}}<i class="{{^liveIcon}}mdi {{/liveIcon}}{{icon}}"{{#liveIcon}} \(slotMod.signalBind("icon")){{/liveIcon}}></i>{{#busy}}</span>{{/busy}}{{/icon}}\(textMod.hole("label"))</header>
-        <span class="state \(textMod.BOX)">\(textMod.liveRun("value"))</span>{{#secondary}}
-        <span class="secondary \(textMod.BOX)">\(textMod.run("secondary"))</span>{{/secondary}}
+      <article class="card entity{{#tappable}} tappable{{/tappable}}\(slotMod.ifSlot("inert")) {{inert}}\(slotMod.endIfSlot("inert"))"{{#tappable}}
+        data-on:click="\(slotMod.ifSlot("inert"))$\(slotMod.signalRef("inert")) ? '' : \(slotMod.endIfSlot("inert"))\(tapMod.guardClick){{{onclick}}}"{{/tappable}}\(slotMod.ifSlot("inert")) \(slotMod.signalBind("inert"))\(slotMod.endIfSlot("inert"))\(tapMod.guard)>
+        <header>\(slotMod.ifSlot("icon")){{#busy}}<span class="fh-icon-shape"{{#busyVisual}} \(tapMod.busyShapeClass){{/busyVisual}}>{{/busy}}<i class="{{icon}}" \(slotMod.signalBind("icon"))></i>{{#busy}}</span>{{/busy}}\(slotMod.endIfSlot("icon"))\(textMod.hole("label"))</header>
+        <span class="state \(textMod.BOX)">\(textMod.liveRun("value"))</span>\(slotMod.ifSlot("secondary"))
+        <span class="secondary \(textMod.BOX)">\(textMod.run("secondary"))</span>\(slotMod.endIfSlot("secondary"))
       </article>
       """
     slots { "label"; "value"; "entity_id" }
@@ -62,10 +62,9 @@ class EntityCard extends nodes.Node {
     ["entity_id"] = entity.entity_id
     ["label"] = slotMod.labelSlot(entity, label)
     // A SIGNAL slot (ADR 0017): the reading is the one thing on this card that
-    // moves on an ordinary tick, so carrying it as a signal is what turns a
+    // moves on every ordinary tick, so carrying it as a signal is what turns a
     // temperature ticking from 21.4 to 21.5 into a few bytes instead of the
-    // whole tile. Everything else here — icon, label, tap — is a registry fact
-    // or a literal and never moves at all.
+    // whole tile.
     ["value"] = slotMod.signalValueSlot(value)
     // A LIVE icon where the domain has one and nothing more specific overrides
     // it ([[icons.stateIconFor]]) — a lock reads open or closed, which is the
@@ -74,6 +73,12 @@ class EntityCard extends nodes.Node {
     // re-rendered tile each; and the whole class is the value, because the
     // element carries nothing else for `data-attr:class` to fight over.
     //
+    // Both tiers resolve to the WHOLE class (`mdi mdi-lock`), so the template
+    // has one `{{icon}}` and no idea which one it got. The alternative —
+    // the literal naming only the glyph and the template prefixing `mdi ` —
+    // needed a flag to say which, and that flag is what deleted the `<i>` on
+    // the first patch: see [[slotMod.ifSlot]].
+    //
     // An author's own `icon` wins over both, as it does in HA.
     when (icon == null && icons.stateIconFor(entity) != null) {
       ["icon"] = new slotMod.Slot {
@@ -81,13 +86,12 @@ class EntityCard extends nodes.Node {
         bypassUnavailable = false
         signal = slotMod.asAttr("class")
       }
-      ["liveIcon"] = "1"
     }
     // Otherwise the LITERAL it has always been: an entity's own icon, its
     // device_class and its domain are all registry facts, so there is nothing
     // for the runtime to decide.
     when (icon != null || (icons.stateIconFor(entity) == null && icons.iconFor(entity) != null)) {
-      ["icon"] = if (icon != null) icons.mdiClass(icon!!) else icons.iconFor(entity)!!
+      ["icon"] = "mdi " + (if (icon != null) icons.mdiClass(icon!!) else icons.iconFor(entity)!!)
     }
     when (secondary != null) {
       ["secondary"] = slotMod.secondarySlot(secondary!!)
@@ -120,10 +124,6 @@ class EntityCard extends nodes.Node {
         bypassUnavailable = false
         signal = slotMod.asClass("fh-inert")
       }
-      // A literal flag, for the same reason `busy` is one: in the PATCH form
-      // the slot's value is blank, so `{{#inert}}` would collapse and take the
-      // binding and the guard with it.
-      ["hasInert"] = "1"
     }
     // The LOOK is a separate slot from the GUARD (`busy`): the class binding
     // behind it is the whole `fh-disabled`/`fh-loading` visual, and a tap with

@@ -1774,7 +1774,7 @@ class Renderer(
     * @param structural
     *   constants from the node's position (ids, inherited entity)
     * @param constants
-    *   literal and identity-`once` slot values
+    *   literal and identity-`once` slot values, plus every slot's `__has`
     * @param bindings
     *   the `__bind`/`__signal` strings (constant subject)
     * @param paint
@@ -1973,6 +1973,19 @@ class Renderer(
     val dynB = List.newBuilder[(String, Option[String], SlotSource)]
     val dynInhB = List.newBuilder[(String, SlotSource)]
     slots.foreach { case (slot, source) =>
+      // The SECTION GUARD (ADR 0017), for every declared slot rather than only
+      // the signal-backed ones. A signal slot's value is withheld in the patch
+      // form, and a withheld value is a FALSE Mustache section — so
+      // `{{#value}}…{{/value}}` renders once and then deletes its own element,
+      // and the binding inside it, on the first patch. Nothing writes to a
+      // binding that has left the DOM.
+      //
+      // Uniform across the tiers because a card does not always know which one
+      // it got: `entityCard`'s icon is a signal where the domain has a state
+      // glyph and a literal otherwise, and one `{{#icon__has}}` has to work for
+      // both. `__has` therefore answers "this node declares this slot", which
+      // is a fact about the CARD and constant in both forms.
+      constB += ((slot + "__has", "1"))
       source.literal match {
         // A constant literal: used verbatim, reading no entity and running no
         // transform — the cheap path for a hardcoded label/action.
