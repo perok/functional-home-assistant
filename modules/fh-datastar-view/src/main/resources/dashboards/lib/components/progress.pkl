@@ -53,8 +53,8 @@ class ProgressCard extends nodes.Node {
           <div class="fh-progress-fill" data-style:width="\(fillWidth)"></div>
         </div>{{/hasBar}}
         <div class="fh-progress-foot">{{#hasStatus}}
-          <span class="fh-progress-status \(textMod.BOX)">\(textMod.liveRun("status"))</span>{{/hasStatus}}{{#hasLeft}}
-          <span class="fh-progress-left \(textMod.BOX)">\(textMod.liveRun("left"))</span>{{/hasLeft}}
+          <span class="fh-progress-status fh-sub \(textMod.BOX)">\(textMod.liveRun("status"))</span>{{/hasStatus}}{{#hasLeft}}
+          <span class="fh-progress-left fh-reading \(textMod.BOX)">\(textMod.liveRun("left"))</span>{{/hasLeft}}
         </div>
       </article>
       """
@@ -74,7 +74,9 @@ class ProgressCard extends nodes.Node {
       background:var(--fh-accent);transition:inline-size .3s linear}
       .fh-progress-foot{display:flex;justify-content:space-between;
       align-items:baseline;gap:.5rem;min-inline-size:0}
-      .fh-progress-status{font-size:.8em;color:var(--fh-text-dim)}
+      /* Only what is specific to a ticking number. The size and colour of both
+      feet come from the shared text contract (`core/css.pkl`): the countdown
+      is this card's reading, the status is a second line about it. */
       .fh-progress-left{font-variant-numeric:tabular-nums}
       """
   }
