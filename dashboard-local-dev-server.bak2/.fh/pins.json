@@ -1,5 +1,0 @@
-{
-  "dashboardUri" : "package://fh.invalid/fh-dashboard@1.0.0-g846c82188f73",
-  "homeUri" : "package://fh.invalid/fh-home@1.0.0-g7cd831190876",
-  "homeSha256" : "912c641c2654e8bac421b91ba67444b485d8f32d8f0cb78732f7bfe616bb8e25"
-}

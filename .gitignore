@@ -99,7 +99,10 @@ scripts/.scala-build/
 
 # Editor/agent backups. Nothing here is ever worth committing, and 172 of these
 # plus the two dirs above once rode in on a `git add -A`.
+# The `[0-9]*` tail is load-bearing: a plain `*.bak` does NOT match `.bak2`, and
+# a whole `dashboard-local-dev-server.bak2/` was committed through that gap.
 *.bak
+*.bak[0-9]*
 
 # JMH run output (sbt-jmh writes it to the working dir)
 jmh-result.*
