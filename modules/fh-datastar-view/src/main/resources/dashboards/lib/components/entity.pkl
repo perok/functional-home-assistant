@@ -52,9 +52,9 @@ class EntityCard extends nodes.Node {
   /// always clickable and never claims an action it cannot perform. `tapAction = null`
   /// opts a card out entirely (no pointer, no handler).
   hidden tapAction: tapMod.TapAction? = moreinfo.defaultTap(entity)
-  // Copy the tap's inline surfaces onto the node so the hoist lifts them
-  // (mirror jsonnet tapInline, components.libsonnet:186-188). Null when the tap
-  // is null or carries no inline popup → dropped by omitNullProperties.
+  // Copy the tap's inline surfaces onto the node so the hoist lifts them. Null
+  // when the tap is null or carries no inline popup → dropped by
+  // omitNullProperties.
   inlineSurfaces = if (tapAction != null) tapAction!!.inlineSurfaces else null
   slots {
     // entity_id is the card's subject — the magical slot the others inherit.

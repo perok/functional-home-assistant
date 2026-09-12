@@ -104,7 +104,7 @@ class Button extends nodes.Node {
   hidden tapAction: tapMod.TapAction =
     (if (entity != null) tapMod.byDomain(entity!!) else null)
       ?? throw(noAction("c.button"))
-  // Copy the action's inline surfaces onto the node (mirror jsonnet tapInline).
+  // Copy the action's inline surfaces onto the node so the hoist lifts them.
   inlineSurfaces = tapAction.inlineSurfaces
   /// [[inertWhile]], once the one shape it cannot take has been refused.
   ///

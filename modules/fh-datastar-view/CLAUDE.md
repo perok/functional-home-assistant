@@ -143,7 +143,6 @@ same commit; ADRs that change the pipeline update it too.
 | `resources/dashboards/lib/PklProject` | The `@fh-dashboard` package manifest — the shared lib, packaged into the cache by `LibPackage`. (The top-level consumer `PklProject` + `home/` are gone: workspaces are bootstrapped package-form; the repo `lib/` is bundled-lib SOURCE, not a path-form checkout.) |
 | `resources/dashboards/site_default.pkl` | The seeded starter SITE — what a fresh workspace's `site.pkl` is ([[AddonBootstrap.starterSite]], read off the jar's own resources) |
 | `resources/dashboards/pkl-demo.pkl`, `pkl-tabs.pkl` | Demo dashboard modules — a `dashboards` key has to point at one for it to be served |
-| `resources/dashboards/*.jsonnet`, `components.libsonnet` | **Inert porting references only** — no longer evaluated; do not extend (see below) |
 | `src/test/.../PklBuildSuite.scala` | The Pkl track's main safety net (fake dumps, full pipeline) |
 | `src/test/.../WireShapeSuite.scala` | The wire shape is declared TWICE — a Pkl class in the library's modules, a Scala case class in `Dashboard.scala` — and nothing made them agree; the snapshots only noticed when a fixture happened to exercise the drifted field. This reflects over both (`pkl:reflect` vs `productElementNames`) and names the mismatch. Compares NAMES not types on purpose; a documented asymmetry is excluded with its reason (`SlotSource.literal` has no Pkl field — a constant slot is a bare string) |
 
@@ -182,9 +181,6 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   URLs, ids) use `{{{...}}}`. Pkl sources live in `src/main/resources/dashboards/` (the seeded
   starter + demo modules, plus `lib/*.pkl`); the dump is a cache package (never on disk in the repo) and
   `dashboard.json` is generated + gitignored.
-  The old `*.jsonnet`/`*.libsonnet` files also still sit here as **inert porting references**
-  (the five real dashboards are being hand-ported to Pkl) — the backend never evaluates them and
-  they must not be extended.
 - Interactivity uses the WS `call_service` command (added to `ha-api`'s `CommandPhase` +
   `HomeAssistantApi.callService`). `POST /sse/action/:slug/:domain/:service/:entityId` triggers a no-data
   service; the value-carrying variant `.../:entityId/:key/:value` builds `service_data` (the value
@@ -345,9 +341,7 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   `q.from(...)` aggregate — a comparison that names none is a validate error), three-tier slider config — see ADR 0006 for the deliberate API shape
   (`openPopup`/`openPopupInline` split, `cssClass`) and Pkl gotchas before extending. `PklBuild`
   renders the evaluated module to JSON backend-side (no `output` blocks in entries) and watches the
-  precise `Analyzer.importGraph` import set. The old `*.jsonnet`/`*.libsonnet` sources remain on
-  disk as inert porting references only (the five real dashboards are being hand-ported); they are
-  never evaluated and must not be extended.
+  precise `Analyzer.importGraph` import set.
 
 #### Pkl: verify semantics empirically, never from intuition
 

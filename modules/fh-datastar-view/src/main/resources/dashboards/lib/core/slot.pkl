@@ -212,7 +212,6 @@ function expr(s: String): Expr = new { transform = s }
 
 /// A live value expression bound to an EXPLICIT entity (a cross-entity read):
 /// the emitted slot names its own `entityId` instead of inheriting the card's.
-/// Mirrors jsonnet `entityOf` (components.libsonnet:102-105).
 function exprOf(eo: hass.Entity, s: String): Expr = new { entityId = eo.entity_id; transform = s }
 
 // Auto-appended unit for a value display: the entity's unit_of_measurement,
