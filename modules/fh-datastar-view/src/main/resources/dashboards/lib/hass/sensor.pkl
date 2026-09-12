@@ -1,0 +1,68 @@
+/// Home Assistant's `sensor` domain model, vendored.
+///
+/// A copy of the vocabulary HA defines in `homeassistant/components/sensor/const.py`
+/// (`SensorDeviceClass`, `SensorStateClass`) plus the slice of
+/// `homeassistant/const.py`'s `UnitOfTime` a duration reading can arrive in.
+///
+/// Docs: https://developers.home-assistant.io/docs/core/entity/sensor
+///
+/// **Vendoring this is a weaker promise than `hass/light.pkl` makes.** Feature
+/// bitmasks are append-only because they are persisted; a device-class string
+/// enum is not persisted anywhere and HA has both ADDED members (`area`,
+/// `energy_distance`, `temperature_delta`) and, historically, deprecated them.
+/// So this list is a snapshot to be RE-SYNCED, not a constant to be trusted
+/// forever — which is why `SensorEntity.device_class` is typed as this union
+/// but `unit_of_measurement` is left an open `String`: a home with an
+/// integration reporting a class we have not vendored must still evaluate.
+module hass_sensor
+
+/// What a sensor's reading MEANS. HA uses it to pick a unit system, a default
+/// icon, and how the frontend formats the value.
+///
+/// A sensor is not required to have one — an integration reporting a bare
+/// number (a program name, a cycle counter) declares none, and that is the
+/// common case for appliance sensors specifically. See
+/// [[hass.SensorEntity.device_class]] for why that one is nullable while the
+/// per-entity capability attributes around it are not.
+typealias SensorDeviceClass =
+  "absolute_humidity"|"apparent_power"|"aqi"|"area"|"atmospheric_pressure"|
+  "battery"|"blood_glucose_concentration"|"co"|"co2"|"conductivity"|"current"|
+  "data_rate"|"data_size"|"date"|"distance"|"duration"|"energy"|
+  "energy_distance"|"energy_storage"|"enum"|"frequency"|"gas"|"humidity"|
+  "illuminance"|"irradiance"|"moisture"|"monetary"|"nitrogen_dioxide"|
+  "nitrogen_monoxide"|"nitrous_oxide"|"ozone"|"ph"|"pm1"|"pm10"|"pm25"|"pm4"|
+  "power"|"power_factor"|"precipitation"|"precipitation_intensity"|"pressure"|
+  "radon"|"reactive_energy"|"reactive_power"|"signal_strength"|"sound_pressure"|
+  "speed"|"sulphur_dioxide"|"temperature"|"temperature_delta"|"timestamp"|
+  "uptime"|"volatile_organic_compounds"|"volatile_organic_compounds_parts"|
+  "voltage"|"volume"|"volume_flow_rate"|"volume_storage"|"water"|"weight"|
+  "wind_direction"|"wind_speed"
+
+/// How a reading accumulates over time. Present only on a sensor HA records
+/// long-term statistics for, which is why it doubles as the sharpest available
+/// "this is a NUMBER, not a label" test — see [[hass.SensorEntity.isNumeric]].
+typealias SensorStateClass =
+  "measurement"|"measurement_angle"|"total"|"total_increasing"
+
+/// The `duration` device class does not fix a unit: the integration picks one
+/// and reports it in `unit_of_measurement`, so the SAME reading is `253` from
+/// one appliance and `15180` from another. Anything doing arithmetic on a
+/// duration has to scale by this first.
+///
+/// `UnitOfTime` also defines `w`/`m`/`y`. They are deliberately absent: a month
+/// is not a fixed number of seconds, so a multiplier for it would be a lie that
+/// silently produces a wrong countdown rather than an error. A duration sensor
+/// reporting one is not scalable, and [[hass.SensorEntity.durationSeconds]]
+/// answers `null` for it.
+const DURATION_SECONDS: Mapping<String, Number> = new {
+  ["μs"] = 0.000001
+  ["ms"] = 0.001
+  ["s"] = 1
+  ["min"] = 60
+  ["h"] = 3600
+  ["d"] = 86400
+}
+
+/// The device classes whose state is an ISO 8601 instant rather than a number
+/// or a label. Both render as text and neither is arithmetic-safe as-is.
+const INSTANT_CLASSES: List<SensorDeviceClass> = List("date", "timestamp")

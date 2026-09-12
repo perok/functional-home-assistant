@@ -23,6 +23,11 @@ import "hass/light.pkl" as hassLight
 // same reasoning as the light import above.
 import "hass/lock.pkl" as hassLock
 
+// The two sensor domains' vocabularies, vendored — device classes, state
+// classes, and the seconds a duration's unit is worth.
+import "hass/sensor.pkl" as hassSensor
+import "hass/binary_sensor.pkl" as hassBinarySensor
+
 typealias EntityId = String(matches(Regex(#"[a-z_0-9]+\.[a-z0-9_]+"#)))
 
 abstract class Entity {
@@ -85,6 +90,17 @@ typealias ColorMode = hassLight.ColorMode
 /// The states a lock reports — see [[hassLock.LockState]] for why nothing is
 /// typed against it yet.
 typealias LockState = hassLock.LockState
+
+/// What a sensor's reading means, typed against HA's own enum — so a card
+/// testing for `"timestamp"` cannot quietly test for `"timestmap"`.
+typealias SensorDeviceClass = hassSensor.SensorDeviceClass
+
+/// How a sensor's reading accumulates.
+typealias SensorStateClass = hassSensor.SensorStateClass
+
+/// What a binary sensor's `on` means. Not a state — the state is `on`/`off` —
+/// but the only thing that says WHICH of those is the interesting one.
+typealias BinarySensorDeviceClass = hassBinarySensor.BinarySensorDeviceClass
 
 // ---- domain classes ----
 // Each carries its domain literal and its capability PREDICATES, nothing else.
@@ -271,8 +287,95 @@ open class LockEntity extends Entity {
   }
 }
 
+/// developers.home-assistant.io/docs/core/entity/sensor
+///
+/// The domain with no shape of its own: `sensor` is HA's catch-all for "a
+/// reading", and what any given one MEANS lives entirely in three registry
+/// attributes. So unlike `light` or `lock`, there are no feature bits to decode
+/// here — the whole model is those three, typed, plus what follows from them.
+///
+/// **These are nullable, which the capability attributes around them are not**
+/// (ADR 0013: an entity without a capability has no such property, and reading
+/// it is an eval error rather than a silent null). The divergence is deliberate
+/// and specific to this domain: a card BRANCHES on the device class — renders a
+/// countdown for `duration`, a label for `enum`, a number otherwise — and "ask
+/// whether the property exists" is not a branch Pkl lets you write. An absent
+/// device class is a real and common answer here, not a mistake: measured on
+/// the live instance, an appliance's own status sensors (`appliancemode`,
+/// `appliancestate`, `cyclephase`) declare NONE while its `timetoend` declares
+/// `duration`. A domain where absence is ordinary needs a value for absence.
 open class SensorEntity extends Entity {
   domain: "sensor" = "sensor"
+
+  // ---- what the dump emits: DATA, not conclusions ----
+
+  hidden device_class: SensorDeviceClass? = null
+
+  /// Present only where HA records long-term statistics for the reading.
+  hidden state_class: SensorStateClass? = null
+
+  /// Deliberately an open `String`, not a unit enum: HA lets an integration
+  /// report any unit at all, and a home with one we have not vendored has to
+  /// keep evaluating. [[hassSensor.DURATION_SECONDS]] is the typed part, and it
+  /// covers only the units something actually computes with.
+  hidden unit_of_measurement: String? = null
+
+  /// The states an `enum` sensor can report, in the integration's own order.
+  /// Empty for every other device class — HA requires `enum` for this attribute
+  /// to mean anything.
+  hidden options: Listing<String> = new Listing {}
+
+  // ---- what the schema DERIVES ----
+
+  hidden isEnum: Boolean = device_class == "enum"
+  hidden isDuration: Boolean = device_class == "duration"
+
+  /// Whether the state is an ISO 8601 instant. Neither `date` nor `timestamp`
+  /// is arithmetic-safe as a bare state string.
+  hidden isInstant: Boolean =
+    device_class != null && hassSensor.INSTANT_CLASSES.contains(device_class)
+
+  /// Whether the reading is a NUMBER a card may do arithmetic on.
+  ///
+  /// `state_class` is the strong signal — HA only sets it where it records
+  /// statistics, which it can only do for numbers. A unit is the weaker
+  /// fallback, for an integration that reports one without opting into
+  /// statistics; `enum` is excluded because an enum sensor's `options` are
+  /// labels even when they look like numbers.
+  hidden isNumeric: Boolean =
+    !isEnum && !isInstant
+      && (state_class != null || unit_of_measurement != null)
+
+  /// What one unit of this duration reading is worth in SECONDS, or null when
+  /// the reading is not a scalable duration — a different device class, no unit
+  /// at all, or a unit with no fixed length (see
+  /// [[hassSensor.DURATION_SECONDS]], which omits weeks/months/years for that
+  /// reason).
+  ///
+  /// A countdown needs this: the same "45 minutes left" arrives as `45` from
+  /// one appliance and `2700` from another, and only the unit says which.
+  hidden durationSeconds: Number? =
+    if (!isDuration || unit_of_measurement == null) null
+    else hassSensor.DURATION_SECONDS.getOrNull(unit_of_measurement)
+}
+
+/// developers.home-assistant.io/docs/core/entity/binary-sensor
+///
+/// A two-state reading whose only content is what `on` means — see
+/// [[hassBinarySensor.BinarySensorDeviceClass]], where the polarity is NOT
+/// uniform across classes.
+open class BinarySensorEntity extends Entity {
+  domain: "binary_sensor" = "binary_sensor"
+
+  /// Nullable for the same reason [[SensorEntity.device_class]] is.
+  hidden device_class: BinarySensorDeviceClass? = null
+
+  /// What `on` reads as for this sensor, or null where nothing documented
+  /// applies. A card with no better idea can say `on`/`off`, which is always
+  /// true and rarely useful.
+  hidden onMeans: String? =
+    if (device_class == null) null
+    else hassBinarySensor.ON_MEANS.getOrNull(device_class)
 }
 
 open class SwitchEntity extends Entity {
@@ -353,7 +456,7 @@ abstract class Device {
 
 /// One per modelled domain, over any scope's `all`. Each new modelled domain
 /// adds exactly one of these, and `generic` loses that domain in the same edit
-/// — the two together are what keep the five lists a PARTITION of `all`.
+/// — the two together are what keep the selectors a PARTITION of `all`.
 
 function lights(scope: List<Entity>): List<LightEntity> =
   scope.filter((e) -> e is LightEntity) as List<LightEntity>
@@ -363,6 +466,9 @@ function locks(scope: List<Entity>): List<LockEntity> =
 
 function sensors(scope: List<Entity>): List<SensorEntity> =
   scope.filter((e) -> e is SensorEntity) as List<SensorEntity>
+
+function binarySensors(scope: List<Entity>): List<BinarySensorEntity> =
+  scope.filter((e) -> e is BinarySensorEntity) as List<BinarySensorEntity>
 
 function switches(scope: List<Entity>): List<SwitchEntity> =
   scope.filter((e) -> e is SwitchEntity) as List<SwitchEntity>
@@ -375,4 +481,5 @@ function switches(scope: List<Entity>): List<SwitchEntity> =
 function generic(scope: List<Entity>): List<Entity> =
   scope.filter((e) ->
     !(e is LightEntity) && !(e is LockEntity)
-      && !(e is SensorEntity) && !(e is SwitchEntity))
+      && !(e is SensorEntity) && !(e is BinarySensorEntity)
+      && !(e is SwitchEntity))

@@ -22,13 +22,26 @@ const local bulb: hass.LightEntity = new { entity_id = "light.a"; area_id = "stu
 const local temp: hass.SensorEntity = new { entity_id = "sensor.t"; area_id = "stue" }
 const local plug: hass.SwitchEntity = new { entity_id = "switch.p"; area_id = "stue" }
 const local door: hass.LockEntity = new { entity_id = "lock.d"; area_id = "stue" }
+const local ajar: hass.BinarySensorEntity = new {
+  entity_id = "binary_sensor.d"
+  area_id = "stue"
+  device_class = "door"
+}
 const local tv: hass.GenericEntity = new {
   entity_id = "media_player.tv"
   domain = "media_player"
   area_id = "stue"
 }
 
-const local everything: List<hass.Entity> = List(bulb, temp, plug, door, tv)
+const local everything: List<hass.Entity> = List(bulb, temp, plug, door, ajar, tv)
+
+/// An appliance's "time to end", in the shape the live Electrolux integration
+/// reports it: a plain number whose unit lives in the registry.
+const local remaining: hass.SensorEntity = new {
+  entity_id = "sensor.timetoend"
+  device_class = "duration"
+  unit_of_measurement = "min"
+}
 
 local class Stue extends hass.Area {
   area_id = "stue"
@@ -60,14 +73,25 @@ facts {
     ids.apply(hass.lights(stue.all)) == List("light.a")
     ids.apply(hass.locks(loft.all)) == List("lock.d")
     ids.apply(hass.sensors(dev.all)) == List("sensor.t")
+    ids.apply(hass.binarySensors(dev.all)) == List("binary_sensor.d")
     ids.apply(hass.switches(house.all)) == List("switch.p")
     // The complement: a media_player has no selector, so it lands here.
     ids.apply(hass.generic(stue.all)) == List("media_player.tv")
   }
 
+  ["`sensors` does NOT swallow binary_sensors"] {
+    // Two domains, two classes, and neither `is` test may catch the other —
+    // the names invite exactly that mistake, and a selector that over-matched
+    // would put a door contact in every numeric query in the house.
+    hass.sensors(everything).isEmpty == false
+    hass.sensors(everything).every((e) -> e.domain == "sensor")
+    hass.binarySensors(everything).every((e) -> e.domain == "binary_sensor")
+  }
+
   ["the selectors partition `all` — nothing dropped, nothing counted twice"] {
     local parts = hass.lights(everything) + hass.locks(everything)
-      + hass.sensors(everything) + hass.switches(everything)
+      + hass.sensors(everything) + hass.binarySensors(everything)
+      + hass.switches(everything)
       + hass.generic(everything)
     parts.length == everything.length
     parts.toSet() == everything.toSet()
@@ -85,6 +109,7 @@ facts {
     house.lights == hass.lights(house.all)
     house.locks == hass.locks(house.all)
     house.sensors == hass.sensors(house.all)
+    house.binarySensors == hass.binarySensors(house.all)
     house.switches == hass.switches(house.all)
     house.generic == hass.generic(house.all)
   }
@@ -99,9 +124,80 @@ facts {
     bare.lights.isEmpty
     bare.locks.isEmpty
     bare.sensors.isEmpty
+    bare.binarySensors.isEmpty
     bare.switches.isEmpty
     bare.generic.isEmpty
     (new Loft { areas = List() }).all.isEmpty
     (new Appliance { entities = List() }).all.isEmpty
+  }
+
+  ["a duration sensor carries the seconds its unit is worth"] {
+    // The fact a countdown rests on: `253` means minutes here and seconds
+    // elsewhere, and only the registry says which. Getting this wrong is not a
+    // visible error — it is a progress bar that finishes 60x early.
+    remaining.durationSeconds == 60
+    (new hass.SensorEntity {
+      entity_id = "sensor.s"
+      device_class = "duration"
+      unit_of_measurement = "s"
+    }).durationSeconds == 1
+  }
+
+  ["a duration with no fixed length is NOT scalable"] {
+    // Weeks/months/years are absent from DURATION_SECONDS on purpose: a
+    // multiplier for "a month" would be a lie that renders a plausible wrong
+    // countdown instead of failing. null is the answer that makes a card
+    // choose.
+    (new hass.SensorEntity {
+      entity_id = "sensor.s"
+      device_class = "duration"
+      unit_of_measurement = "m"
+    }).durationSeconds == null
+    // Same answer by the other two routes into "cannot scale this".
+    (new hass.SensorEntity {
+      entity_id = "sensor.s"
+      device_class = "duration"
+    }).durationSeconds == null
+    temp.durationSeconds == null
+  }
+
+  ["a sensor with no device class is ordinary, not broken"] {
+    // Measured on the live instance: an appliance's own status sensors declare
+    // none at all, so this is the common shape rather than a degenerate one.
+    temp.device_class == null
+    temp.isEnum == false
+    temp.isDuration == false
+    temp.isInstant == false
+    temp.isNumeric == false
+  }
+
+  ["what counts as a number a card may compute with"] {
+    remaining.isNumeric
+    (new hass.SensorEntity {
+      entity_id = "sensor.s"
+      state_class = "measurement"
+    }).isNumeric
+    // An enum's options can look like numbers and are labels regardless, and
+    // an instant is a string that would parse as nothing useful.
+    (new hass.SensorEntity {
+      entity_id = "sensor.s"
+      device_class = "enum"
+      options = new { "1"; "2" }
+    }).isNumeric == false
+    (new hass.SensorEntity {
+      entity_id = "sensor.s"
+      device_class = "timestamp"
+    }).isInstant
+  }
+
+  ["a binary sensor says what `on` means, and the polarity is not uniform"] {
+    // The trap this exists for: `door` on means OPEN, but `lock` on means
+    // UNLOCKED. A card rendering "on" as "active" is wrong for half of them.
+    ajar.onMeans == "open"
+    (new hass.BinarySensorEntity {
+      entity_id = "binary_sensor.l"
+      device_class = "lock"
+    }).onMeans == "unlocked"
+    (new hass.BinarySensorEntity { entity_id = "binary_sensor.x" }).onMeans == null
   }
 }
