@@ -238,25 +238,31 @@ facts {
   // express — sometimes no action at all.
 
   ["a domain with a real toggle gets a LITERAL route, not a runtime lookup"] {
-    local onclick = c.entityCard(kitchen).slots["onclick"]
-    onclick.transform.contains("light/toggle")
-    !onclick.transform.contains("$lookup")
-    !onclick.transform.contains("$domain")
-    // Identity-derived, so it stays in the renderer's identity cache.
-    onclick.reads == "once"
+    // A bare String — no transform, nothing for the runtime to decide, and so
+    // nothing that can leave the renderer's identity cache. `service__read`
+    // quotes it back into the card's click expression.
+    c.entityCard(kitchen).slots["service"] == "light/toggle"
+    c.entityCard(kitchen).slots["onclick"] == ""
   }
 
   ["a one-shot domain presses instead of toggling"] {
-    c.entityCard(doorbell).slots["onclick"].transform.contains("button/press")
+    c.entityCard(doorbell).slots["service"] == "button/press"
   }
 
   ["a lock's service is the one thing the STATE has to decide"] {
-    local onclick = c.entityCard(frontLock).slots["onclick"]
+    local svc: slotMod.Slot = c.entityCard(frontLock).slots["service"]
+    local m: simpleMod.SimpleMatch = svc.transform!!
     // A lock's snapshot state decides WHICH service the tap posts; the value
     // itself never changes what the target is.
-    onclick.transform.contains(#"state == 'locked' ? 'lock/unlock' : 'lock/lock'"#)
-    // The whole reason this slot is live — and the only tap shape that is.
-    onclick.reads == "live"
+    m.cases.toMap() == Map("locked", "lock/unlock")
+    m.otherwise == "lock/lock"
+    // Carried as a SIGNAL with no binding, so the service moves in the signal
+    // store and the element's bytes do not — the tile stays in the renderer's
+    // identity cache across a lock/unlock (ADR 0017).
+    svc.signal == "handler"
+    // …and the click expression is therefore not the live one it used to be:
+    // the card assembles the URL from `tapMod.stateClick`.
+    c.entityCard(frontLock).slots["onclick"] == ""
   }
 
   ["a domain with NO action falls back to more-info, so nothing is dead"] {
@@ -440,7 +446,7 @@ facts {
     row.toggleOnly
     row.headSlots["toggle"] == "1"
     // The whole track posts the domain's own toggle.
-    row.headSlots["toggleClick"].transform.contains("light/toggle")
+    row.headSlots["service"] == "light/toggle"
     // All or nothing, in the theme's switch-fill rather than in the text colour
     // — a light with no brightness reports no colour either (`onoff` is a
     // light's SOLE mode when present), so the default is the only paint it can
@@ -666,8 +672,10 @@ facts {
     // know it.
     local tile = c.entityCard(latchLock)
     local inert: simpleMod.SimpleMatch = tile.slots["inert"].transform!!
+    // `unavailable` rides with them but is NOT one of them — see the fact
+    // below. The three transitional ones are the domain table's.
     inert.cases.toMap().keys.toList().sort()
-      == List("locking", "opening", "unlocking")
+      == List("locking", "opening", "unavailable", "unlocking")
     // `open` and `jammed` are NOT here: locking an open door and retrying a jam
     // are both meaningful presses, and only a transitional state is not.
     !inert.cases.toMap().containsKey("open")
@@ -677,18 +685,48 @@ facts {
     tile.slots["inert"].signal == "class:fh-inert"
   }
 
-  ["a domain whose tap is state-INDEPENDENT gets no guard at all"] {
-    // `light/toggle` means the same thing in every state, so there is nothing
-    // to be mid-way through. The card renders byte-identical to before the
-    // guard existed.
-    !c.entityCard(kitchen).slots.containsKey("inert")
+  ["a value-carrying tap is the same call with one more segment"] {
+    // Not a second route builder: `serviceClick` covers both, and a tap with no
+    // value declares no `dataKey`, so the section closes over nothing.
+    local plain = c.tap.service("light/turn_on")
+    plain.serviceSlot == "light/turn_on"
+    plain.dataKey == null
+    local valued = c.tap.serviceValue("light/turn_on", "effect", "Color loop")
+    valued.serviceSlot == "light/turn_on"
+    valued.dataKey == "effect"
+    // PERCENT-ENCODED for the two characters that break the two contexts the
+    // value passes through: a space is invalid in a path segment, and a `'`
+    // would close the JS string the URL sits in — Mustache escapes it to
+    // `&#39;`, which the browser decodes back to `'` BEFORE the expression is
+    // parsed, so the attribute escape cannot save it.
+    valued.dataValue == "Color%20loop"
+    c.tap.serviceValue("a/b", "k", "it's").dataValue == "it%27s"
+  }
+
+  ["a SERVICE tap is inert on a dead entity, whatever its domain"] {
+    // Availability is a different axis from transitional state: HA rejects a
+    // service call on an unavailable entity in EVERY domain, so it is one rule
+    // rather than a row per domain — which is also what lets `inertWhile` keep
+    // meaning "transitional only" (`hass/actions.pkl`).
+    local lit: simpleMod.SimpleMatch =
+      c.entityCard(kitchen).slots["inert"].transform!!
+    // `light/toggle` means the same thing in every state, so nothing
+    // transitional — and `unavailable` all the same.
+    lit.cases.toMap().keys.toList() == List("unavailable")
+  }
+
+  ["a tap that calls NO service stays live on a dead entity"] {
+    // More-info is exactly what you want to open on an unavailable entity: it
+    // is where the reason is. A navigate does not care either.
+    !c.entityCard(outside).slots.containsKey("inert")
+    !c.button("Go", c.tap.navigate("other")).slots.containsKey("inert")
   }
 
   ["a typed lock still taps by state, like any other lock"] {
     // Typing the domain must not change what the generic tile does with it —
     // the capability is additive (ADR 0016 owns the tap).
-    c.entityCard(latchLock).slots["onclick"].transform
-      .contains(#"state == 'locked' ? 'lock/unlock' : 'lock/lock'"#)
+    (c.entityCard(latchLock).slots["service"].transform as simpleMod.SimpleMatch)
+      .otherwise == "lock/lock"
   }
 
   ["a lock that can open its latch gets a second control; one that cannot does not"] {
@@ -712,29 +750,41 @@ facts {
     // The latch itself calls nothing — it opens an inline confirmation, which
     // is the whole point: releasing a latch opens a door.
     latch.inlineSurfaces != null
-    !latch.slots["onclick"].transform.contains("lock/open")
+    !latch.slots.containsKey("service")
     // …and `lock/open` lives inside it, aimed at the lock (a button carries no
     // subject of its own).
     local body = latch.inlineSurfaces!!["self"].content.children.toList().first
     local press = body.children.toList()
       .filter((n) -> n.card == "button" && n.slots.containsKey("entity_id"))
       .first
-    press.slots["onclick"].transform.contains("lock/open")
+    press.slots["service"] == "lock/open"
     press.slots["entity_id"] == "lock.latch"
+    // …and it is THAT press availability guards, not the latch that opens the
+    // dialog: a service tap is inert on a dead entity in every domain, so
+    // `CANNOT_OPEN` never had to carry `unavailable` and now cannot.
+    (press.slots["inert"].transform as simpleMod.SimpleMatch)
+      .cases.toMap().containsKey("unavailable")
     // The tile beside it still locks/unlocks by state — the two controls are
     // different actions, not two spellings of one.
-    c.entityCard(latchLock).slots["onclick"].transform
-      .contains(#"state == 'locked' ? 'lock/unlock' : 'lock/lock'"#)
+    (c.entityCard(latchLock).slots["service"].transform as simpleMod.SimpleMatch)
+      .cases.toMap() == Map("locked", "lock/unlock")
   }
 
   ["the latch is inert while the lock is mid-move — which the busy guard cannot see"] {
     local latch = c.lock.openLatch(latchLock)
     local inert: simpleMod.SimpleMatch = latch.slots["inert"].transform!!
-    // HA's `canOpen`: already open, mid-move, or gone. Every arm answers the
-    // same `true` — a set membership test, which is what one `match` buys over
-    // the two-armed enum it replaced, and what `stateIn` spells.
+    // HA's `canOpen`, and ONLY that: already open, or mid-move. Every arm
+    // answers the same `true` — a set membership test, which is what one
+    // `match` buys over the two-armed enum it replaced, and what `stateIn`
+    // spells.
+    //
+    // No `unavailable`. It is not a lock STATE — `hass/lock.pkl` types the list
+    // as `LockState`, which refuses it — and the press it guards is protected
+    // anyway: the confirmation's own `lock/open` button is a service tap, so
+    // `tap.inertStates` disables THAT on a dead lock. Opening the dialog to be
+    // told why is better than a dead button that cannot say.
     inert.cases.toMap().keys.toList().sort()
-      == List("locking", "open", "opening", "unavailable", "unlocking")
+      == List("locking", "open", "opening", "unlocking")
     inert.cases.toMap().values.toSet() == Set(true)
     // A real `false`, which is the ONLY value that turns a boolean attribute
     // off: `""` would SET `disabled`, because `disabled=""` is how HTML spells

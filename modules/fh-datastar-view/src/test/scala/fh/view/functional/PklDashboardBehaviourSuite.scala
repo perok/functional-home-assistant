@@ -1,6 +1,7 @@
 package fh.view.functional
 
 import cats.effect.IO
+import cats.syntax.all.*
 import fh.view.runtime.TestServer
 import io.circe.Json
 import fh.view.testkit.{FixtureEntity, HouseFixture}
@@ -125,8 +126,20 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
         html.contains("data-class:fh-loading=\"$_c_2__busy\""),
         clue = html
       )
+      // Two guards, and neither subsumes the other: BUSY is "this tap's own
+      // POST is in flight" (the card's, via `guardClick`), INERT is "the entity
+      // is in a state that refuses the press" (the tap's, via `click`) — for a
+      // plain `light/toggle` that is availability alone.
       assert(
-        html.contains("data-on:click=\"$_c_2__busy ? '' : @post('sse/action/"),
+        html.contains(
+          "data-on:click=\"$_c_2__busy ? '' : $_e.light.kitchen."
+        ),
+        clue = html
+      )
+      assert(
+        html.contains(
+          "? '' : @post('sse/action/fixture-home/' + 'light/toggle'"
+        ),
         clue = html
       )
       // Every guarded POST is no-signals, so the `_<id>__busy` signal —
@@ -197,7 +210,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
           val button = "_c_0_head_0_actions_0__busy"
           assert(html.contains(s"""data-indicator="$button""""), clue = html)
           assert(
-            html.contains(s"""data-on:click="$$$button ? '' : @post("""),
+            html.contains(s"""data-on:click="$$$button ? '' : """),
             clue = html
           )
           assert(
@@ -262,9 +275,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
           ts.page().map { html =>
             assert(html.contains("data-indicator=\"_c_0__busy\""), clue = html)
             assert(
-              html.contains(
-                "data-on:click=\"$_c_0__busy ? '' : @post('sse/action/"
-              ),
+              html.contains("data-on:click=\"$_c_0__busy ? '' : "),
               clue = html
             )
             assert(!html.contains("data-class:fh-disabled"), clue = html)
@@ -517,10 +528,16 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
           assert(html.contains("class=\"slider-toggle\""), clue = html)
           assert(!html.contains("type=\"range\""), clue = html)
           // The whole track posts the light's own toggle, under the same
-          // commit signal the drag would have used.
+          // commit signal the drag would have used. The service is spliced as a
+          // quoted literal — the same spelling a state-dependent tap fills with
+          // a signal read, which is why one template serves both (ADR 0017) —
+          // and the node id is a build-time constant, not a `dataset` read.
           assert(
             html.contains(
-              "data-on:click=\"$_c_0_head_0__busy_change ? '' : @post('sse/action/fixture-plug/light/toggle/light.plug?node='"
+              "data-on:click=\"$_c_0_head_0__busy_change ? '' : " +
+                "$_e.light.plug.t722a9eca ? '' : " +
+                "@post('sse/action/fixture-plug/' + 'light/toggle' + " +
+                "'/light.plug?node=c_0_head_0'"
             ),
             clue = html
           )
@@ -534,6 +551,103 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
           // A percentage of an axis it does not have would read 0 % forever.
           assert(html.contains(">on<"), clue = html)
           assert(!html.contains(">0 %<"), clue = html)
+        }
+      }
+      .timeout(60.seconds)
+  }
+
+  // ---------------------------------------------------------------------------
+  // `CallByState` — the four domains whose service the live state picks
+  //
+  // This path had NO Scala coverage: every fact about it lived in
+  // `components.test.pkl`, which evaluates Pkl and can see neither
+  // `Dashboard.validate` nor a rendered byte. The gap let a validate rule ship
+  // WRONG and green — it demanded a template var the card no longer places, and
+  // nothing on this side ever rendered a lock for it to reject.
+  // ---------------------------------------------------------------------------
+
+  private def lockAt(state: String) = FixtureEntity(
+    "lock.front_door",
+    state,
+    Map("friendly_name" -> Json.fromString("Front Door"))
+  )
+
+  private val lockEntry =
+    s"""amends "@fh-dashboard/entry.pkl"
+       |
+       |import "@fh-dashboard/components.pkl" as c
+       |import "@fh-home/dump.pkl" as dump
+       |
+       |card = (c.column) {
+       |  children {
+       |    c.entityCard(dump.entities.${lockAt("locked").dumpKey})
+       |  }
+       |}
+       |""".stripMargin
+
+  /** The rendered page, and the one attribute this is about. */
+  private def lockPage(state: String): IO[(String, String)] =
+    TestServer
+      .fromWorkspace("fixture-lock", lockEntry, List(lockAt(state)))
+      .use(_.page().map { html =>
+        // BY CONTENT, not by position: the offline banner's reload button
+        // carries the page's first `data-on:click`, long before any card.
+        val click = html
+          .split("data-on:click=\"")
+          .toList
+          .map(_.takeWhile(_ != '"'))
+          .find(_.contains("sse/action"))
+        (html, click.getOrElse(fail(s"no action click in: $html")))
+      })
+
+  test("a lock's tap reads its service from a signal, not from the markup") {
+    (lockPage("locked"), lockPage("unlocked"))
+      .mapN {
+        case ((lockedHtml, lockedClick), (unlockedHtml, unlockedClick)) => {
+          // THE property: the element is identical whichever way the lock is
+          // turned, so it stays in the renderer's identity cache and a
+          // lock/unlock costs a signals frame instead of a repaint.
+          assertEquals(lockedClick, unlockedClick)
+          // It reads the service rather than naming one...
+          assert(
+            lockedClick.contains("+ $_e.lock.front_door."),
+            clue = lockedClick
+          )
+          // ...so neither service appears in the markup at all.
+          assert(!lockedClick.contains("lock/unlock"), clue = lockedClick)
+          assert(!lockedClick.contains("lock/lock"), clue = lockedClick)
+          // The node id is a build-time constant, not a click-time `dataset`
+          // read — which is what an UNGUARDED tap could not have done.
+          assert(!lockedClick.contains("dataset"), clue = lockedClick)
+
+          // The service itself is in the SEED, which is what makes a first
+          // paint correct with no frame behind it — and it is the right one for
+          // the state, which is the whole `CallByState` table doing its job.
+          assert(lockedHtml.contains("'lock/unlock'"), clue = lockedHtml)
+          assert(unlockedHtml.contains("'lock/lock'"), clue = unlockedHtml)
+
+          // And the domain's transitional states are bound as the inert class
+          // (ADR 0016), so a tap mid-move cannot fight the command running.
+          assert(
+            lockedHtml.contains("data-class:fh-inert"),
+            clue = lockedHtml
+          )
+        }
+      }
+      .timeout(60.seconds)
+  }
+
+  test("a lock mid-move is inert, and a lock at rest is not") {
+    (lockPage("locked"), lockPage("unlocking"))
+      .mapN {
+        case ((restHtml, _), (movingHtml, _)) => {
+          // The class is the VALUE of a signal slot, so the document form paints
+          // it inline: present while the lock is moving, empty at rest.
+          assert(movingHtml.contains("fh-inert"), clue = movingHtml)
+          assert(
+            !restHtml.contains("card entity tappable fh-inert"),
+            clue = restHtml
+          )
         }
       }
       .timeout(60.seconds)

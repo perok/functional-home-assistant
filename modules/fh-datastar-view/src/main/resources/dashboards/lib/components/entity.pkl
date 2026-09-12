@@ -19,7 +19,7 @@ class EntityCard extends nodes.Node {
   cardDef = new nodes.CardDef {
     template = """
       <article class="card entity{{#tappable}} tappable{{/tappable}}\(slotMod.ifSlot("inert")) {{inert}}\(slotMod.endIfSlot("inert"))"{{#tappable}}
-        data-on:click="\(slotMod.ifSlot("inert"))$\(slotMod.signalRef("inert")) ? '' : \(slotMod.endIfSlot("inert"))\(tapMod.guardClick){{{onclick}}}"{{/tappable}}\(slotMod.ifSlot("inert")) \(slotMod.signalBind("inert"))\(slotMod.endIfSlot("inert"))\(tapMod.guard)>
+        data-on:click="\(tapMod.guardClick)\(tapMod.click)"{{/tappable}}\(slotMod.ifSlot("inert")) \(slotMod.signalBind("inert"))\(slotMod.endIfSlot("inert"))\(tapMod.guard)>
         <header>\(slotMod.ifSlot("icon")){{#busy}}<span class="fh-icon-shape"{{#busyVisual}} \(tapMod.busyShapeClass){{/busyVisual}}>{{/busy}}<i class="{{icon}}" \(slotMod.signalBind("icon"))></i>{{#busy}}</span>{{/busy}}\(slotMod.endIfSlot("icon"))\(textMod.hole("label"))</header>
         <span class="state \(textMod.BOX)">\(textMod.liveRun("value"))</span>\(slotMod.ifSlot("secondary"))
         <span class="secondary \(textMod.BOX)">\(textMod.run("secondary"))</span>\(slotMod.endIfSlot("secondary"))
@@ -96,40 +96,12 @@ class EntityCard extends nodes.Node {
     when (secondary != null) {
       ["secondary"] = slotMod.secondarySlot(secondary!!)
     }
-    when (tapAction != null) {
-      ["tappable"] = "1"
-      ["onclick"] = tapAction!!.onclick
-    }
-    when (tapAction != null && tapAction!!.busy) {
-      ["busy"] = "1"
-    }
-    // INERT while the entity is mid-move, from the ACTION's own list — the
-    // domain table says which states those are, so no author has to
-    // (`hass/actions.pkl`, ADR 0016). Without it a two-way `CallByState` sends
-    // its fallback during a transition: a lock read as `unlocking` is not
-    // `locked`, so a tap posted `lock/lock` against the unlock already running.
-    //
-    // A CLASS and a click guard, where `Button.inertWhile` uses a real
-    // `disabled`: this host is an `<article>`, and only a form control can be
-    // disabled. So the guard is the mechanism here rather than a belt on top of
-    // one.
-    when (tapAction != null && !tapAction!!.inertWhile.isEmpty) {
-      ["inert"] = new slotMod.Slot {
-        transform = simpleMod.matchOf(new Mapping {
-          for (st in tapAction!!.inertWhile) {
-            [st] = "fh-inert"
-          }
-        }, "")
-        default = ""
-        bypassUnavailable = false
-        signal = slotMod.asClass("fh-inert")
-      }
-    }
-    // The LOOK is a separate slot from the GUARD (`busy`): the class binding
-    // behind it is the whole `fh-disabled`/`fh-loading` visual, and a tap with
-    // `busyVisual = false` still swallows re-clicks, just never dims or spins.
-    when (tapAction != null && tapAction!!.busy && tapAction!!.busyVisual) {
-      ["busyVisual"] = "1"
+    // Every slot the tap contributes, in the shape `tapMod.click` expects. The
+    // card decides WHERE they go and nothing about what they are.
+    // A CLASS and a click guard, not `disabled`: this host is an `<article>`,
+    // and only a form control can be disabled.
+    for (k, v in tapMod.tapSlots(tapAction, "class")) {
+      [k] = v
     }
   }
   // ---- fluent config (builder style) ----

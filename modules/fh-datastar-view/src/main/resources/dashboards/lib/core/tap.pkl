@@ -8,6 +8,7 @@ module core.tap
 
 import "node.pkl" as nodes
 import "slot.pkl" as slotMod
+import "simple.pkl" as simpleMod
 import "surface.pkl" as surfaceMod
 import "../hass.pkl"
 import "../hass/actions.pkl" as hassActions
@@ -25,6 +26,26 @@ import "../hass/actions.pkl" as hassActions
 /// `<article>` of [[EntityCard]]), so every card renders the same intent.
 class TapAction {
   onclick: slotMod.Slot|String
+  /// `"<domain>/<service>"` for a NO-DATA service call — a literal where it is
+  /// known at build time ([[service]]), a handler signal where the live state
+  /// picks it ([[stateService]]). Null for every tap that is not a service call
+  /// at all, and that null is what [[click]] branches on.
+  ///
+  /// The card reads it through `service__read`, which spells a literal and a
+  /// signal the same way — so the two tiers share one template and no card
+  /// knows which it got.
+  ///
+  /// Why the service and not the whole URL: only a card's TEMPLATE can name the
+  /// slug and the slot read, because Mustache runs once and a slot's VALUE is
+  /// spliced raw, so a URL built in a transform could not carry a placeholder
+  /// for either. [[serviceClick]] is that template; this supplies the one piece
+  /// it cannot spell.
+  serviceSlot: (slotMod.Slot|String)? = null
+  /// The ONE value a service call carries, as the route's trailing
+  /// `/<key>/<value>` ([[serviceValue]]). Both null or both set; null on every
+  /// other tap, and their absence is what keeps that segment off the URL.
+  dataKey: String? = null
+  dataValue: String? = null
   href: String? = null
   inlineSurfaces: Mapping<String, surfaceMod.SurfaceDef>? = null
   /// Whether this tap is worth GUARDING: while its POST is in flight, a second
@@ -49,7 +70,11 @@ class TapAction {
   /// States of the tapped entity in which this action is MEANINGLESS, so a card
   /// should refuse the press rather than send a competing command. Filled from
   /// the domain table for a [[stateService]] tap ([[byDomain]]); empty for
-  /// every other kind, which renders byte-identical to before this existed.
+  /// every other kind.
+  ///
+  /// NOT the whole inert list a card renders — [[inertStates]] is, and it adds
+  /// availability, which is a fact about every service call rather than about
+  /// this domain. Keeping that out of here is what lets this stay transitional.
   ///
   /// It rides the ACTION and not the card because it is a fact about the
   /// service, not about the presentation: the same list is right for the tile,
@@ -152,40 +177,22 @@ const busyChangeSig: String = "_{{id}}__busy_change"
 ///
 /// TWO writers, for two different facts. The SERVER patches it when the service
 /// call it made was refused — a 200 carrying `datastar-patch-signals`, keyed on
-/// the node id the tap sends ([[nodeQuery]]), so the message HA gave lands on
+/// the node id the tap sends (`?node={{id}}`), so the message HA gave lands on
 /// the control instead of a status code. [[failedOn]] is the client's half, and
 /// covers what a signal patch cannot reach: a response that is not 200 at all
 /// (an access refusal, a dead route), where the body is never parsed.
 const errorSig: String = "_{{id}}__error"
 
-/// **What an action tells the server about itself**, so a refusal can be
-/// reported ON the thing that asked. Spliced onto the END of a route, so append
-/// `, <options>)` after it for a `@post` that takes options, `)` for one that
-/// does not.
+/// **What a surface open tells the server about itself**, so it can end the
+/// pending ask (see [[pendingSignal]]). Spliced onto the END of a route.
 ///
-/// Two halves, and each rides exactly where it can be answered:
-///
-/// [[nodeQuery]] is for a GUARDED tap (`busy = true`), because `busy` is what
-/// opens [[guard]]'s section and `guard` is what puts `data-fh-node` on the
-/// element. One flag governs both, so the parameter cannot be sent by an
-/// element that has no id to send — a tab anchor is not guarded and never
-/// carries one.
-///
-/// [[groupQuery]] is for a surface open that answers a SELECTION, so the server
-/// can end the pending ask (see [[pendingSignal]]). Nothing carries both: a
-/// service call has no selection, a tab has no node.
-///
-/// The node id is read off the DOM at click time rather than interpolated,
-/// because a click expression is a transform's OUTPUT and is inserted raw —
-/// Mustache never sees it, so `{{id}}` inside it would stay a literal. A card
-/// building its own action URL in a TEMPLATE writes `{{id}}` directly (the
-/// slider's commit), the same two spellings `dashboardSlug` already has.
+/// A service call sends `?node={{id}}` instead, written by the TEMPLATE that
+/// builds its URL ([[serviceClick]]) — nothing carries both: a service call has
+/// no selection, a tab has no node.
 ///
 /// QUERY parameters, not path segments: the value-carrying action route already
 /// ends `…/<entity>/<key>/<value>`, so a positional id would make the two forms
 /// ambiguous.
-const local nodeQuery: String = #"?node=' + (el.dataset.fhNode || '')"#
-
 const local function groupQuery(group: String): String = "?group=\(group)'"
 
 /// Sets [[errorSig]] when THIS element's action is refused, and clears it when
@@ -364,23 +371,209 @@ const busyClassChange: String =
 /// whole commit window.
 const busyShapeClassChange: String = busySpinner("_{{id}}__busy_change")
 
-const local function serviceOnclick(route: String): String =
-  #""@post('sse/action/""# +
-    #" + dashboard_slug + "/" + "# +
-    "(" + route + ")" +
-    #" + "/" + entity_id + ""# + nodeQuery + #", "# +
-    noSignals +
-    #")""#
+/// **The no-data service call, assembled in the CARD'S TEMPLATE** — the one
+/// place that can name `{{dashboardSlug}}`, `{{entity_id}}` and the slot read,
+/// because Mustache runs ONCE and a slot's value is spliced raw, so a URL built
+/// in a transform could never carry a placeholder for any of them.
+///
+/// The service comes from `service__read`, which reads back as a quoted literal
+/// for a build-time service and as a signal for one the live state picks
+/// ([[stateService]]) — so this ONE string serves both and no card branches on
+/// which it got. That is what keeps a lock tile's bytes constant: the service
+/// moves in the signal store, not in the element, and the tile stays in the
+/// renderer's identity cache across a lock/unlock (ADR 0017).
+///
+/// It sends no signals either: the handler reads the service locally, so the
+/// request body stays empty.
+///
+/// `?node={{id}}` rather than a read of `el.dataset.fhNode`: the template knows
+/// the node id directly, where a transform did not. That also makes it correct
+/// for an UNGUARDED tap, which carries no `data-fh-node` at all — [[guard]] is
+/// what emits that, and `busy` is what opens [[guard]].
+const serviceClick: String =
+  #"@post('sse/action/{{dashboardSlug}}/' + "# + slotMod.slotRead("service") +
+    #" + '/{{entity_id}}"# +
+    // The value-carrying route is the SAME call with one more segment, so it is
+    // one optional piece here rather than a second arm on [[click]]. A tap that
+    // carries no value declares no `dataKey`, and the section closes over
+    // nothing.
+    slotMod.ifSlot("dataKey") + "/{{dataKey}}/{{dataValue}}" +
+    slotMod.endIfSlot("dataKey") +
+    #"?node={{id}}', "# + noSignals + ")"
+
+/// **What every card with a tap places**, and the whole of it:
+///
+/// ```
+/// data-on:click="\(guardClick)\(click)"
+/// ```
+///
+/// The branch is service-call vs everything else ([[navigate]], the popups),
+/// which is a real difference in what a click DOES. It cannot be collapsed the
+/// way the static/live one was: the alternative is teaching the renderer to
+/// build a service URL, and nothing in Scala knows an HA domain (ADR 0016).
+///
+/// A card that splices this needs no `when` of its own — [[tapSlots]] decides
+/// which arm exists by whether it emitted a `service` slot.
+const click: String =
+  // The INERT guard leads, and rides here rather than in each card for the same
+  // reason the slot does. It is what actually stops the post: `disabled` alone
+  // cannot, on a host that already spends that attribute on something else —
+  // the slider's toggle track binds it to the commit's in-flight signal, so its
+  // inert has to be a class, and a class only LOOKS refused.
+  //
+  // Redundant where the shape IS `disabled` (a disabled control fires no click
+  // at all), and kept anyway: a guard that is present on every card cannot be
+  // the one a card forgot.
+  slotMod.ifSlot("inert") + "$" + slotMod.signalRef("inert") + " ? '' : " +
+    slotMod.endIfSlot("inert") +
+    slotMod.ifSlot("service") + serviceClick + slotMod.endIfSlot("service") +
+    slotMod.ifNoSlot("service") + "{{{onclick}}}" + slotMod.endIfNoSlot("service")
+
+/// [[click]]'s other half: the two ROUTE slots it reads. Separate from
+/// [[tapSlots]] for the card that decides `tappable`/`busy` for itself — a
+/// [[Button]] hangs those on whether the tap offered an `href` instead.
+///
+/// One node holds ONE tap's route, which has been enough for every card: the
+/// slider's toggle track and its commit look like two, but the commit assembles
+/// its own URL from `action`/`key` and never touches these, and the two arms are
+/// mutually exclusive anyway. If a card ever does need two, that is the point to
+/// name them rather than to parameterise this.
+/// **Every state in which this tap must refuse the press**, from the two facts
+/// that decide it — unioned HERE rather than in the domain table, because they
+/// are not the same kind of fact:
+///
+///  - TRANSITIONAL states ride the action ([[TapAction.inertWhile]],
+///    `hass/actions.pkl`): a lock read as `unlocking` is not `locked`, so a
+///    two-way test would post the command competing with the one running.
+///  - UNAVAILABLE is an AVAILABILITY fact, true of every service call in every
+///    domain — HA rejects one on a dead entity whatever the domain is. One rule
+///    beats a row per domain, and keeping it out of the table is what lets
+///    `inertWhile` mean "transitional ONLY", as its own doc says.
+///
+/// Availability applies to a SERVICE tap and nothing else: more-info on an
+/// unavailable entity is exactly what you want to open (it is where the reason
+/// is), and a navigate does not care.
+///
+/// `extra` is a card's own additions — [[components.control.Button]]'s
+/// `inertWhile`, HA's `canOpen`-style "this press is meaningless here". Empty
+/// for a card that has none.
+const function inertStates(t: TapAction?, extra: Listing<String>): List<String> =
+  if (t == null) List()
+  else
+    let (own = t!!.inertWhile.toList() + extra.toList())
+      (if (t!!.serviceSlot != null) own + List("unavailable") else own).distinct
+
+/// WHICH inert a card wants, which is decided by its host and by nothing else:
+/// a form control takes the real `disabled`, and anything else can only wear a
+/// class and guard its own click. Required at every [[tapRoute]] call rather
+/// than defaulted, so a new card cannot acquire "no inert" by saying nothing —
+/// which is how [[components.control.Toggle]] went without one.
+typealias InertAs = "disabled"|"class"
+
+/// [[inertStates]] as a REAL `disabled`, for a card whose root is a form
+/// control: the browser takes it out of the tab order and refuses the click
+/// itself, and `button:disabled` dims it. A dimming class would need JS to mean
+/// anything — the difference between telling a keyboard user the control is
+/// unavailable and handing them one that silently does nothing.
+///
+/// A boolean, because only a real `false` REMOVES a boolean attribute — `""`
+/// sets one, `disabled=""` being how HTML spells on (ADR 0017).
+///
+/// Needs no click guard: a disabled button fires no click event at all, so a
+/// `$inert ? '' :` prefix would be unreachable. [[inertClass]]'s host does.
+const function inertDisabled(states: List<String>): slotMod.Slot = new {
+  transform = simpleMod.stateIn(states.toListing())
+  // The raw state string has to reach the match, or `unavailable` could never
+  // be one of the arms — the bypass is what this slot is deciding ABOUT.
+  bypassUnavailable = false
+  signal = slotMod.asAttr("disabled")
+}
+
+/// [[inertStates]] as a CLASS, for a host that cannot be disabled — an entity
+/// card's tap is on an `<article>`, and `disabled` is a form-control attribute.
+/// The card must place the click guard itself; the class alone only looks inert.
+///
+/// A String and not a boolean: this value is painted INLINE in the document
+/// form (`class="card entity {{inert}}"`), where a boolean would render the
+/// word `true` into the class list.
+const function inertClass(states: List<String>): slotMod.Slot = new {
+  transform = simpleMod.matchOf(new Mapping {
+    for (st in states) {
+      [st] = "fh-inert"
+    }
+  }, "")
+  default = ""
+  bypassUnavailable = false
+  signal = slotMod.asClass("fh-inert")
+}
+
+const function tapRoute(
+  t: TapAction,
+  extra: Listing<String>,
+  inertAs: InertAs
+): Mapping<String, slotMod.Slot|String> =
+  new {
+    when (t.serviceSlot != null) {
+      ["service"] = t.serviceSlot!!
+    }
+    when (t.dataKey != null) {
+      ["dataKey"] = t.dataKey!!
+      ["dataValue"] = t.dataValue!!
+    }
+    // INERT rides here and not in each card, because doing it per card is how a
+    // card ends up without it: three had it three different ways and the fourth
+    // ([[components.control.Toggle]]) had none, so a toggle on a dead entity
+    // still posted. The SHAPE is the card's to say and nothing else is.
+    when (!inertStates(t, extra).isEmpty) {
+      ["inert"] =
+        if (inertAs == "disabled") inertDisabled(inertStates(t, extra))
+        else inertClass(inertStates(t, extra))
+    }
+    ["onclick"] = t.onclick
+  }
+
+/// **Every slot a tap contributes**, as data, so a card folds them in with one
+/// generator instead of four `when` blocks that must agree with its template:
+///
+/// ```
+/// slots {
+///   for (k, v in tapMod.tapSlots(tapAction)) { [k] = v }
+/// }
+/// ```
+///
+/// `tappable` opens the card's pointer/handler markup; `service` picks
+/// [[click]]'s arm and carries the value it reads; `onclick` is the other arm;
+/// `busy`/`busyVisual` are ADR 0019's guard and its look.
+const function tapSlots(
+  t: TapAction?,
+  inertAs: InertAs
+): Mapping<String, slotMod.Slot|String> =
+  new {
+    when (t != null) {
+      ["tappable"] = "1"
+      for (k, v in tapRoute(t!!, new Listing {}, inertAs)) {
+        [k] = v
+      }
+      when (t!!.busy) {
+        ["busy"] = "1"
+      }
+      when (t!!.busy && t!!.busyVisual) {
+        ["busyVisual"] = "1"
+      }
+    }
+  }
 
 // A click expression inherits the card's entity to resolve entity_id, and must
 // resolve even when that entity is unavailable (an unavailable light is exactly
-// the one you want to click). `live` is the rare case: a route the CURRENT state
-// picks ([[stateService]]), which has to re-render like any other state
-// reading. Everything else is identity-derived — `reads = "once"` keeps it in
-// the renderer's identity cache.
-const local function clickSlot(transformExpr: String, live: Boolean): slotMod.Slot = new {
+// the one you want to click).
+//
+// Always `once` — identity-derived, so it stays in the renderer's identity
+// cache. The one route the CURRENT state used to pick ([[stateService]]) is the
+// reason this once took a `live` flag; it carries its service as a signal now
+// and builds no expression at all, so nothing is left that re-renders.
+const local function clickSlot(transformExpr: String): slotMod.Slot = new {
   transform = transformExpr
-  reads = if (live) "live" else "once"
+  reads = "once"
   bypassUnavailable = false
 }
 
@@ -413,8 +606,7 @@ const local function openSurfaceOnclick(
     // module.
     "\"" + head + #"@post('sse/surface/""# +
       #" + dashboard_slug + "/open/"# + surfaceId +
-      (if (group == null) "'" else groupQuery(group)) + #")""#,
-    false
+      (if (group == null) "'" else groupQuery(group)) + #")""#
   )
 
 /// The PENDING signal for a selection group — what this client has ASKED to
@@ -478,8 +670,13 @@ const function selectSurface(surfaceId: String, groupId: String, value: String):
   openSurfaceOnclick(surfaceId, "$" + pendingSignal(groupId) + " = '" + value + "'; ", groupId)
 
 /// Explicit "<domain>/<service>" override, e.g. service("lock/lock").
+///
+/// A LITERAL slot, not a click expression: the card assembles the URL from
+/// [[serviceClick]], and a build-time service reads back as a quoted literal
+/// there — byte-for-byte the constant it always was, just spelled by the
+/// template rather than by a transform.
 const function service(action: String): TapAction =
-  new { onclick = clickSlot(serviceOnclick("'" + action + "'"), false); busy = true }
+  new { onclick = ""; serviceSlot = action; busy = true }
 
 /// Toggle whatever the card's entity is, via HA's own domain-dispatching
 /// `homeassistant.toggle`. The blunt instrument, and an explicit choice now
@@ -492,9 +689,27 @@ const toggle: TapAction = service("homeassistant/toggle")
 /// while the state equals `whenState`, `otherwise` in every other state. The
 /// lock case — `stateService("locked", "lock/unlock", "lock/lock")`.
 ///
-/// The one tap that carries a LIVE expression, so its click slot re-renders on
-/// state change like a value slot does. Prefer a plain [[service]] wherever a
-/// real `toggle` service exists.
+/// The one tap whose service is not knowable at build time, so it is the one
+/// tap that reads live state. Prefer a plain [[service]] wherever a real
+/// `toggle` service exists.
+///
+/// The service rides a HANDLER SIGNAL rather than the click expression
+/// ([[slotMod.asHandler]]). Baked into the expression it was in the element's
+/// bytes, so a lock tile re-rendered on every lock/unlock and left the
+/// renderer's identity cache — to repaint a URL nobody reads. As a signal the
+/// markup is constant and the service costs a frame entry shared by every card
+/// on that entity. The MATCH still runs on the server, in one place; only the
+/// read is in the browser.
+///
+/// The staleness that remains is the one ADR 0016 wants: the signal is patched
+/// in the same frame as the visible state, so at click time it holds what the
+/// user is looking at. Resolving on the server instead would leave the pixels
+/// stale and make the command fresh — a tap on a lock someone else has since
+/// unlocked would re-lock it.
+///
+/// `onclick` is empty for the same reason it is on [[service]]: a service tap
+/// names only its service, and the card assembles the URL from
+/// [[serviceClick]]. It stays declared because a navigate or a popup fills it.
 const function stateService(
   whenState: String,
   then: String,
@@ -502,12 +717,12 @@ const function stateService(
   inertStates: Listing<String>
 ): TapAction =
   new {
-    onclick = clickSlot(
-      serviceOnclick(
-        "(state == '" + whenState + "' ? '" + then + "' : '" + otherwise + "')"
-      ),
-      true
-    )
+    onclick = ""
+    serviceSlot = new slotMod.Slot {
+      transform = simpleMod.enumOf(whenState, then, otherwise)
+      bypassUnavailable = false
+      signal = slotMod.asHandler
+    }
     busy = true
     inertWhile = inertStates
   }
@@ -538,20 +753,24 @@ const function byDomain(e: hass.Entity): TapAction? =
 // to). A path segment, so a value containing a space is percent-encoded — the
 // one character that actually shows up in HA's own vocabularies (effect names
 // like "Color loop", preset modes).
-//
-// The three route parts are spliced as SINGLE-QUOTED CEL literals so they land
-// in the produced URL (the old JSONata splicing left the value outside the
-// `@post` string — a latent bug this spelling fixes).
-const local function serviceValueOnclick(action: String, key: String, value: String): String =
-  #""@post('sse/action/""# +
-    #" + dashboard_slug + "/" + '"# + action + #"' + "/" + entity_id + "/" + '"# + key +
-    #"' + "/" + '"# + value.replaceAll(" ", "%20") + #"' + ""# + nodeQuery + #", "# + noSignals + #")""#
-
 /// A service call carrying ONE static value: `serviceValue("light/turn_on",
 /// "effect", "colorloop")`. The entity comes from the card the tap sits on, so
 /// the same tap works on any card that has one.
+///
+/// The value is PERCENT-ENCODED for the two characters that break the two
+/// contexts it passes through: a space is not valid in a path segment, and a
+/// `'` would close the JS string literal the URL sits in — Mustache escapes it
+/// to `&#39;`, which the browser decodes back to `'` before the expression is
+/// ever parsed, so the attribute escape does not save it. (Both were hazards on
+/// the CEL spelling this replaced too, where `'` broke the transform instead.)
 function serviceValue(action: String, key: String, value: String): TapAction =
-  new { onclick = clickSlot(serviceValueOnclick(action, key, value), false); busy = true }
+  new {
+    onclick = ""
+    serviceSlot = action
+    dataKey = key
+    dataValue = value.replaceAll(" ", "%20").replaceAll("'", "%27")
+    busy = true
+  }
 
 /// Go to dashboard `slug` — an ordinary document load, so the browser owns the
 /// history entry (ADR 0002). The `href` is RELATIVE and resolves against
@@ -571,8 +790,7 @@ function navigate(slug: String): TapAction = new {
 function closePopup(): TapAction =
   new {
     onclick = clickSlot(
-      #""@post('sse/popup/""# + #" + dashboard_slug + "/close')""#,
-      false
+      #""@post('sse/popup/""# + #" + dashboard_slug + "/close')""#
     )
   }
 

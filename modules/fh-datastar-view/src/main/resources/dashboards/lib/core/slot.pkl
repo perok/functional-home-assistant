@@ -61,10 +61,11 @@ class Slot {
 ///
 /// The constraint is what a union would have bought — a typo is an eval error
 /// naming the value, not a slot that silently binds nothing. Build one with
-/// [[asText]] / [[asBind]] / [[asStyle]] / [[asAttr]] / [[asClass]] rather
-/// than writing the string, so the spelling lives in one place.
+/// [[asText]] / [[asBind]] / [[asStyle]] / [[asAttr]] / [[asClass]] /
+/// [[asHandler]] rather than writing the string, so the spelling lives in one
+/// place.
 typealias SignalBind =
-  String(matches(Regex(#"text|bind|(style|attr|class):\S+"#)))
+  String(matches(Regex(#"text|bind|handler|(style|attr|class):\S+"#)))
 
 /// `data-text` — the element's whole text content. The common case: a reading,
 /// a label, a state.
@@ -107,6 +108,22 @@ const function asAttr(name: String): SignalBind = "attr:" + name
 /// string is the only falsy thing a slot can produce — `"false"` reads as ON.
 const function asClass(name: String): SignalBind = "class:" + name
 
+/// NO binding — the value is carried as a signal and read by an EVENT HANDLER
+/// rather than painted, so there is no attribute to emit. The card composes
+/// [[signalRef]] into an expression of its own.
+///
+/// What it is for: a value that is a function of live state but that only a
+/// click ever consumes. Rendered as a transform it would be in the element's
+/// bytes, so the element would re-render on every state change to repaint a
+/// URL nobody looks at; carried as a signal it costs a frame entry shared by
+/// every card on that entity, and the markup goes constant. ADR 0017, "Which
+/// runtime evaluates a state-dependent value".
+///
+/// The transform still runs on the SERVER, in one place, with the same parity
+/// suite behind it — only the READ moves to the browser. That is why this is a
+/// binding kind and not a second expression language.
+const asHandler: SignalBind = "handler"
+
 /// The binding a signal slot's card places, beside the ordinary `{{name}}`
 /// hole:
 ///
@@ -127,6 +144,26 @@ const function signalBind(name: String): String = "{{{" + name + "__bind}}}"
 /// own bound position). Not a binding — but a card that uses it is relying on
 /// the signal existing, so it is not usable by a client that takes no signals.
 const function signalRef(name: String): String = "{{" + name + "__signal}}"
+
+/// The slot's value as a JS EXPRESSION, for a card composing it into a handler
+/// of its own — an action URL above all:
+///
+/// ```
+/// @post('sse/action/{{dashboardSlug}}/' + \(slotRead("service")) + '/{{entity_id}}')
+/// ```
+///
+/// **The card never learns which tier filled the slot.** A literal reads back
+/// as `'light/toggle'` and a signal as `$_e.lock.front.t4d7a74a1`, so ONE
+/// template serves a static tap and one whose service the live state picks —
+/// which is the whole reason a card does not branch on it. Contrast
+/// [[signalRef]], which is the signal's bare NAME and therefore signal-only.
+///
+/// Answered for a literal, an identity-`once` value and a signal. A LIVE slot
+/// that is not a signal is a build error: such a value moves in the element's
+/// bytes every tick, which is what carrying it as a signal exists to stop.
+///
+/// Raw (`{{{…}}}`) because it IS code.
+const function slotRead(name: String): String = "{{{" + name + "__read}}}"
 
 /// The section a card wraps optional markup in, when that markup holds a slot:
 ///
@@ -149,6 +186,13 @@ const function ifSlot(name: String): String = "{{#" + name + "__has}}"
 
 /// Closes [[ifSlot]].
 const function endIfSlot(name: String): String = "{{/" + name + "__has}}"
+
+/// [[ifSlot]]'s inverse — the markup for when the node does NOT declare the
+/// slot. A card with two spellings of one thing places both.
+const function ifNoSlot(name: String): String = "{{^" + name + "__has}}"
+
+/// Closes [[ifNoSlot]].
+const function endIfNoSlot(name: String): String = "{{/" + name + "__has}}"
 
 /// [[valueSlot]] as a text signal slot — the same value, carried as a signal.
 /// The card must place `signalBind("value")`.

@@ -194,7 +194,10 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   NAMES the entity, so admission to one dashboard is not admission to the whole house. A module
   does not know its own slug, so the renderer supplies it: `dashboard_slug` (a CEL binding) in a
   tap's transform, `{{dashboardSlug}}` (a Mustache var) in a card's own template — two
-  spellings because there are genuinely two phases, each named after the one that fills it. The
+  spellings because there are genuinely two phases, each named after the one that fills it. Every
+  SERVICE tap now takes the second: `tap.serviceClick` assembles the URL in the card's template,
+  which is the only place that can also name `{{id}}` and the slot read a state-dependent service
+  needs (ADR 0017). The CEL spelling is left to the surface and popup taps. The
   slug is applied in `DashboardBuild.decode` BEFORE validation, so a `Validated` is final and a
   `fh push --slug` rename cannot leave a compiled tap URL naming the old dashboard.
   The surface taps carry it too — `POST /sse/surface/:slug/open/:id`, `POST /sse/popup/:slug/close`
@@ -246,9 +249,11 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   `renderNodeById` sends, which is why the digest stands still and the morph is suppressed).
   The slot's value names the BINDING KIND (`SignalBind`, one string on the wire): `text`
   (`data-text`), `style:<prop>` (`data-style:<prop>`, custom properties included), `attr:<name>`,
-  `class:<name>`, or `bind` (`data-bind`, two-way on a form control). Every kind reads the signal
-  bare — the VALUE carries its own unit (`39.37%`, `#ffb46b`), so the transform decides its shape
-  in one place. A slot value is `String | Boolean` (`SlotValue`), and the boolean is what makes
+  `class:<name>`, `bind` (`data-bind`, two-way on a form control), or `handler` (NO binding at
+  all — nothing paints the value; an event handler reads it by name, which is how a lock tile's
+  tap knows which service to post without the URL being in its bytes). Every painted kind reads
+  the signal bare — the VALUE carries its own unit (`39.37%`, `#ffb46b`), so the transform decides
+  its shape in one place. A slot value is `String | Boolean` (`SlotValue`), and the boolean is what makes
   `attr:disabled` work: `""` SETS a boolean attribute (`disabled=""` is how HTML spells on), so
   only a real `false` removes one. It has to stay boolean at BOTH ends — unquoted in the frame and
   seed, and a boxed `Boolean` in `paint`, because a card places such a slot as a Mustache SECTION

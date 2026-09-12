@@ -77,19 +77,35 @@ places (Pkl decides *whether*, Scala decides *which*) to serve four rows:
 `lock`, `vacuum`, `lawn_mower`, `timer`. It is modelled as a `CallByState`
 class, not a hand-written JSONata string, so the table stays data.
 
-The cost is that this one slot is `reactive` and drops out of `Renderer`'s
-identity cache. It buys no extra wakeups: the card already tracks its entity for
-the state it displays. Revisit (b) if the state-dependent list grows past a
-two-way conditional — that is the trigger to watch, not the row count.
+It buys no extra wakeups: the card already tracks its entity for the state it
+displays. Revisit (b) if the state-dependent list grows past a two-way
+conditional — that is the trigger to watch, not the row count.
 
-**You send what you saw, and this is deliberate.** A transform is evaluated
-server-side at render time and its *result* is spliced into the template
-(`Renderer.resolveSlot`), so the markup carries a fully-resolved literal —
-`data-on:click="@post('sse/action/lock/unlock/lock.front', …)"`. Nothing is
-resolved in the browser. The action a card offers was therefore chosen from the
-state that produced the pixels in front of you, and it stays that action until an
-SSE patch replaces the markup. Repeated taps on an unchanged card agree with each
-other and with what is on screen, even once the server's state has moved on.
+**You send what you saw, and this is deliberate.** A tap names only its SERVICE;
+the card's template assembles the URL around it (`tap.serviceClick`). A
+build-time service is a literal slot and a state-dependent one is a **handler
+signal** (ADR 0017), and the card reads both through `service__read` — so the
+four rows here cost no card a branch, and the markup is constant either way:
+
+```
+data-on:click="@post('sse/action/' + 'light/toggle'          + '/light.k?node=c_3')"
+data-on:click="@post('sse/action/' + $_e.lock.front.t4d7a74a1 + '/lock.front?node=c_4')"
+```
+
+The lock tile therefore stays in `Renderer`'s identity cache across a
+lock/unlock, where a fully-resolved URL in the bytes made it repaint.
+
+Nothing about the guarantee changes with it. The signal is patched in the same
+frame as the visible state, so at click time it holds exactly what produced the
+pixels in front of you, and repeated taps on an unchanged card agree with each
+other and with what is on screen even once the server's state has moved on.
+
+**Resolving on the server at POST time is the version that breaks it**, and it
+looks like the obvious simplification: a constant URL naming no service, and the
+server deciding from the state it already has. That leaves the pixels stale and
+makes the command fresh — the one combination where a tap does the *opposite* of
+what was asked, silently, every time, rather than harmlessly repeating an action
+already taken.
 
 That is a property (b) would have given up: an intent route resolves at *click*
 time, so a double-tap on a lock reading "locked" would send unlock, then lock —
@@ -107,9 +123,25 @@ double duty as "not in the special state" and "we do not know".
 
 `EntityCard.tapAction` now defaults to `defaultTap(entity)`. Where the domain has no
 action, that is `moreInfo(e)` — the popup from issue #106's first half. So
-**nothing renders as clickable-but-dead, and nothing renders as inert either**:
-a card either does the thing its domain implies, or shows you everything it
-knows. `tapAction = null` is the explicit opt-out.
+**nothing renders as clickable-but-dead**: a card either does the thing its
+domain implies, or shows you everything it knows. `tapAction = null` is the
+explicit opt-out.
+
+A card DOES render inert, but only where the press would be refused, and that is
+two facts rather than one (`tap.inertStates`):
+
+- the domain's **transitional** states (`CallByState.inertWhile`) — a lock read
+  as `unlocking` is not `locked`, so a two-way test would post the command
+  competing with the one already running;
+- **unavailable**, on any service tap in any domain, because HA rejects a
+  service call on a dead entity whatever the domain is.
+
+The second is deliberately NOT a row in the table. It is one rule, it would
+otherwise be repeated per domain, and mixing it in is what makes an `inertWhile`
+list stop meaning "transitional" — the confusion `lock.pkl`'s own `CANNOT_OPEN`
+still shows, holding a terminal state, transitional ones and an availability one
+in a single list. It applies to service taps ALONE: more-info on an unavailable
+entity is exactly what you want to open, since that is where the reason is.
 
 The regress this creates is real and silent: `moreInfoBody(e)` contains an
 entity card, whose default tap for a non-actionable entity is this same popup,

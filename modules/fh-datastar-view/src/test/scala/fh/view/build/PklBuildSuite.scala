@@ -1291,11 +1291,14 @@ class PklBuildSuite extends munit.FunSuite {
     )
     val cards = Map(
       "entityCard" -> CardDef(
-        // The `value__bind` hole is not decoration: the library's `entityCard`
-        // marks `value` as a signal slot, and `validate` rejects a card that
-        // declares one without placing its binding (ADR 0017). A stub standing
-        // in for a real card has to carry what that card's contract requires.
-        "<b>{{label}}</b><i {{{value__bind}}}>{{value}}</i>",
+        // The `__bind` holes are not decoration: the library's `entityCard`
+        // marks `value` as a signal slot — and now `inert` too, since a service
+        // tap is inert on an unavailable entity in every domain — and
+        // `validate` rejects a card that declares one without placing its
+        // binding (ADR 0017). A stub standing in for a real card has to carry
+        // what that card's contract requires.
+        "<b>{{label}}</b><i {{{value__bind}}}>{{value}}</i>" +
+          "<u {{{inert__bind}}}></u>",
         slots = List("label", "value")
       )
     )
@@ -1614,7 +1617,12 @@ class PklBuildSuite extends munit.FunSuite {
         |node = c.button("Toggle", c.tap.toggle).entity(light)""".stripMargin
     )
     assert(!toggle.slots.contains("href"), clue = toggle.slots)
-    assert(toggle.slots("onclick").valueKey.contains("@post"))
+    // A service tap names only the SERVICE; the card's template assembles the
+    // URL around it (ADR 0017), so there is no `@post` in any slot value.
+    assertEquals(
+      toggle.slots("service").literal,
+      Some("homeassistant/toggle")
+    )
   }
 
   test("Row cssClass emits a literal `class` slot") {
@@ -2192,15 +2200,13 @@ class PklBuildSuite extends munit.FunSuite {
       pills.map(_.slots("label").literal),
       List(Some("off"), Some("Color loop"))
     )
-    // The value splices as a SINGLE-QUOTED CEL literal inside the @post string
-    // — the old JSONata splicing left it outside (the latent bug tap.pkl records).
-    assert(
-      pills(1)
-        .slots("onclick")
-        .valueKey
-        .contains("'effect' + \"/\" + 'Color%20loop'"),
-      clue = pills(1).slots("onclick").valueKey
-    )
+    // The value rides as its own LITERAL slot, and the card's template puts it
+    // in the route's trailing `/<key>/<value>` — the same `serviceClick` a
+    // valueless tap uses, with one optional segment rather than a second arm.
+    // A space is percent-encoded here and not left for the URL to trip over.
+    assertEquals(pills(1).slots("service").literal, Some("light/turn_on"))
+    assertEquals(pills(1).slots("dataKey").literal, Some("effect"))
+    assertEquals(pills(1).slots("dataValue").literal, Some("Color%20loop"))
     // The fill colour is AXIS-AWARE, asserted as EXACT bytes — the transform
     // string ships and hashes exactly as written (multi-line, Pkl-dedented by
     // the closing delimiter's indent, edge-trimmed), so its shape is a

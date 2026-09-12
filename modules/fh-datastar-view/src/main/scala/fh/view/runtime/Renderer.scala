@@ -1989,8 +1989,13 @@ class Renderer(
       source.literal match {
         // A constant literal: used verbatim, reading no entity and running no
         // transform — the cheap path for a hardcoded label/action.
-        case Some(text) => constB += ((slot, text))
-        case None       =>
+        case Some(text) =>
+          constB += ((slot, text))
+          // `__read`: the slot's value as a JS EXPRESSION, for a card composing
+          // it into a handler of its own. A literal reads as itself, quoted.
+          // See the signal half in `bindings` below, and ADR 0017.
+          constB += ((slot + "__read", Datastar.jsLiteral(text)))
+        case None =>
           subjectConst match {
             case Some(subject) =>
               // A slot's entity is its own `entityId`, or the subject when it
@@ -2011,15 +2016,14 @@ class Renderer(
               // `live` and `onRender` both re-resolve; they differ in whether
               // the entity is SUBSCRIBED, which is `liveEntities`' business,
               // not this one. That is why the memo asks only about `once`.
-              if (source.reads == Reads.Once)
-                constB += ((
-                  slot,
-                  identityCache.computeIfAbsent(
-                    (srcEntity.getOrElse(""), source.valueKey),
-                    _ => resolveSlot(srcEntity, source, states)
-                  )
-                ))
-              else dynB += ((slot, srcEntity, source))
+              if (source.reads == Reads.Once) {
+                val once = identityCache.computeIfAbsent(
+                  (srcEntity.getOrElse(""), source.valueKey),
+                  _ => resolveSlot(srcEntity, source, states)
+                )
+                constB += ((slot, once))
+                constB += ((slot + "__read", Datastar.jsLiteral(once)))
+              } else dynB += ((slot, srcEntity, source))
             // A dynamic subject makes every inheritance chain a per-paint
             // question; [[resolveDirect]] runs the node and the plan holds
             // nothing per-slot (and seeds no memo under a key that could be
@@ -2068,7 +2072,15 @@ class Renderer(
           // it does not compromise the plain form — but a card that uses it is
           // relying on a signal existing, which a plain-form client has not
           // got.
-          s"${slot}__signal" -> signal
+          s"${slot}__signal" -> signal,
+          // `__read`: the same value as a JS EXPRESSION, so a card composing it
+          // into a handler never learns which tier filled the slot — a literal
+          // reads as `'light/toggle'`, a signal as `$_e.lock.front.t4d7a74a1`,
+          // and the card's markup is identical either way. That uniformity is
+          // what lets ONE template serve a static tap and a state-dependent
+          // one, and it is why the plain form stays reachable: with no signals
+          // the same slot falls back to its quoted literal (issue #133).
+          s"${slot}__read" -> s"$$$signal"
         )
       }.toMap,
       signalSlots = named.map(_._1),
@@ -2198,7 +2210,8 @@ class Renderer(
     val bindings = named.flatMap { case (slot, kind, signal) =>
       List(
         s"${slot}__bind" -> Datastar.binding(signal, kind),
-        s"${slot}__signal" -> signal
+        s"${slot}__signal" -> signal,
+        s"${slot}__read" -> s"$$$signal"
       )
     }
     // Same layers as the planned path ([[NodeContext.fhGet]] resolves the
