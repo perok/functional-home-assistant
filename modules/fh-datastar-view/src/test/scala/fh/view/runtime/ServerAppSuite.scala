@@ -154,7 +154,7 @@ class ServerAppSuite extends munit.CatsEffectSuite {
       editor = new EditorRoutes(
         tmp,
         TestAuth.openGate,
-        None,
+        IO.pure(None),
         site.defaultSlug,
         site.names
       )

@@ -429,11 +429,19 @@ object ServerApp extends IOApp {
       // The editor surface (/edit + /lsp/pkl). The pkl-lsp jar backs the LSP
       // subprocess; None just disables completion/diagnostics (the editor and
       // local highlighting still work).
+      //
+      // NOT resolved here — `memoize` defers it to the first `/lsp/pkl`
+      // socket. On a cold cache this is a ~30 MB download from Maven Central,
+      // and it used to sit on the boot path of every start, including the
+      // overwhelming majority that never open the editor. Memoized rather than
+      // re-run per request so concurrent sockets share one download; a failure
+      // is cached as `None`, which is exactly what resolving once at boot
+      // already did.
       pklLspJar <- resolvePklLspJar(
         httpClient,
         config.pklLspJar,
         log
-      ).toResource
+      ).memoize.toResource
       editor = new EditorRoutes(
         dashboardsDir,
         gate,
@@ -1182,6 +1190,11 @@ object ServerApp extends IOApp {
     * a cached copy under `.pkl-lsp/`, else download it from Maven Central once
     * (the shaded CLI jar, run as `java -jar`). Returns `None` — LSP degraded,
     * editor + local highlighting still work — if it can't be obtained.
+    *
+    * Run on FIRST USE, not at boot: the caller `memoize`s it and hands
+    * [[EditorRoutes]] the deferred value, so the ~30 MB cold-cache download
+    * happens when somebody opens the editor rather than on every start of a
+    * server that mostly never serves one.
     */
   private def resolvePklLspJar(
       client: java.net.http.HttpClient,
