@@ -85,12 +85,15 @@ scalafmt                            # format (standalone CLI, version pinned by 
 sbt doCodegen                       # regenerate typed device/entity code, then format it
 sbt 'home / run'                    # run the main app (AppHome), env vars set from build.sbt
 sbt dashboardBuild                  # build phase: regenerate modules/fh-datastar-view/dashboard.json
-sbt dashboardServe                  # runtime: serve the Datastar dashboard (http://localhost:8080)
-sbt 'dashboardServe path/to/ws'     # ...serving THAT workspace instead: the optional argument
-                                    # beats `DASHBOARDS_DIR`, and a relative path resolves from
-                                    # the repo root (the forked run's cwd). A non-existent dir is
-                                    # bootstrapped, so this is how you spin up a scratch workspace.
-                                    # Quote the whole thing — sbt 2's client joins its argv.
+                                    # for the workspace `DASHBOARDS_DIR` names (put it in the
+                                    # repo-root `.env`); it refuses to guess one.
+sbt 'dashboardServe path/to/ws'     # runtime: serve THAT workspace (http://localhost:8080). The
+                                    # directory is REQUIRED — the build sets no default — and a
+                                    # relative path resolves from the repo root (the forked run's
+                                    # cwd). A non-existent dir is bootstrapped, so this is how you
+                                    # spin up a scratch workspace. Quote the whole thing — sbt 2's
+                                    # client joins its argv. `DASHBOARDS_DIR` is the fallback when
+                                    # no directory is named.
 sbt fh-datastar-view/frontendInstall  # npm ci for the dashboard frontend
 sbt fh-datastar-view/frontendBundle   # vite build -> managed resources (runs on compile)
 ```

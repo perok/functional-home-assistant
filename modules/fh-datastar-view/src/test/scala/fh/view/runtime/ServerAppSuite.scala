@@ -18,16 +18,36 @@ import org.http4s.implicits.*
   */
 class ServerAppSuite extends munit.CatsEffectSuite {
 
-  test("workspaceArg: no argument, one argument, and a refused second") {
-    assertEquals(ServerApp.workspaceArg(Nil), Right(None))
+  test("workspaceDir: the argument wins, the env is the fallback") {
     assertEquals(
-      ServerApp.workspaceArg(List("scratch/ws")),
-      Right(Some("scratch/ws"))
+      ServerApp.workspaceDir(List("scratch/ws"), None),
+      Right("scratch/ws")
     )
-    // REFUSED, not ignored. `args.headOption` quietly served the first one, so
-    // an unquoted path with a space — or a glob that matched two directories —
-    // booted a server on a workspace the caller never named.
-    val two = ServerApp.workspaceArg(List("my", "workspace"))
+    assertEquals(
+      ServerApp.workspaceDir(List("scratch/ws"), Some("/from/env")),
+      Right("scratch/ws")
+    )
+    assertEquals(
+      ServerApp.workspaceDir(Nil, Some("/from/env")),
+      Right("/from/env")
+    )
+  }
+
+  test("workspaceDir: a workspace is never guessed") {
+    // No default, deliberately: a relative fallback bootstraps a fresh, EMPTY
+    // workspace wherever the process started and then boots green serving a
+    // starter dashboard, so a mistyped path looked like it worked.
+    List(None, Some("")).foreach { env =>
+      val none = ServerApp.workspaceDir(Nil, env)
+      assert(none.isLeft, clue = env)
+      assert(none.left.exists(_.contains("DASHBOARDS_DIR")), clue = none)
+    }
+
+    // A SECOND argument is refused, not ignored. `args.headOption` quietly
+    // served the first one, so an unquoted path with a space — or a glob that
+    // matched two directories — booted a server on a workspace the caller
+    // never named.
+    val two = ServerApp.workspaceDir(List("my", "workspace"), None)
     assert(two.isLeft, clue = two)
     // The message has to name what it actually got, because the shell already
     // ate the quoting that would have made it obvious.

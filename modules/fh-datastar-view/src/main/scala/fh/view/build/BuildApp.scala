@@ -22,9 +22,9 @@ import org.typelevel.log4cats.slf4j.Slf4jLogger
   *
   * The artifact is for inspection/CI; the runtime
   * ([[fh.view.runtime.ServerApp]]) evaluates the same Pkl in memory and does
-  * not need it. Paths default to the same gitignored scratch workspace + shared
-  * pkl package cache the local `sbt dashboardServe` uses, so the two share one
-  * bootstrapped workspace.
+  * not need it. The workspace is named by `DASHBOARDS_DIR` and never defaulted;
+  * the pkl package cache still defaults to the shared one `sbt dashboardServe`
+  * uses, so pointing both at one directory bootstraps it once.
   */
 object BuildApp extends IOApp {
 
@@ -32,12 +32,11 @@ object BuildApp extends IOApp {
 
   // Paths are relative to the forked `run` working dir, which is the REPO ROOT
   // (`Compile / run / baseDirectory`), not the module directory.
-  private val defaultDashboardsDir = "dashboard-local-dev"
   private val defaultDashboardJson = "dashboard.json"
 
   def run(args: List[String]): IO[ExitCode] =
     for {
-      dashboardsDir <- pathFromEnv("DASHBOARDS_DIR", defaultDashboardsDir)
+      dashboardsDir <- workspaceFromEnv
       outputPath <- pathFromEnv("DASHBOARD_JSON", defaultDashboardJson)
 
       // Bring the workspace to a package-form state (lib package in the cache,
@@ -87,6 +86,23 @@ object BuildApp extends IOApp {
         s"Wrote site artifact (${decoded.slugs.mkString(", ")}) to $outputPath"
       )
     } yield ExitCode.Success
+
+  /** The workspace to build, which is REQUIRED and never guessed — same rule as
+    * [[fh.view.runtime.ServerApp]]. `BuildApp` takes no argument (ADR 0021), so
+    * `DASHBOARDS_DIR` is the only channel; put it in the repo-root `.env`
+    * alongside `SERVER`/`SECRET`, which is where this run already gets its
+    * environment from.
+    */
+  private def workspaceFromEnv: IO[os.Path] =
+    Env[IO].get("DASHBOARDS_DIR").flatMap {
+      case Some(dir) if dir.nonEmpty => IO.pure(os.Path(dir, os.pwd))
+      case _                         =>
+        IO.raiseError(
+          Exception(
+            "no workspace: set DASHBOARDS_DIR (in the repo-root .env) to the directory to build"
+          )
+        )
+    }
 
   private def pathFromEnv(name: String, default: String): IO[os.Path] =
     Env[IO]
