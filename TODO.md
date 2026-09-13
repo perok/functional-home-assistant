@@ -1,47 +1,80 @@
-- global system that imports all dashboards?
-- should we also do jinja2 as ha templates? https://github.com/HubSpot/jinjava. jinja2 over mustache as that is more familiar to HA users.
-- TODO pick up changes in the static sets. Like a new area or a new entity. That must recreate the dump and recreate a dashboard.json
-- [x] TODO some popup if not connected
-- a json spec step for validating everything?
-- switch to handlebars? from mustache, For more custom transformation on static tweaks per instance. Need a cache setup that caches based on the hash of the generated template string or something since we need to compile the template for multiple instances. But share where we can. or jinja2, or the thing from shopify
-- a worker for connection to backend api? so we can seamlessly switch between in home connection and a remote connection?
-- move from datastar to htmx? Add hyprscript for client side scripting?
-- components api amke it clear what is static injected variables, what goes to templating backend rendering and what are values that the client side can script on. SHould JSONata be used to determine values that are injected?
-- lots of design stuff, like tabs, are added to themes.libsonnet, should some of that be injectable from the components themselves?
-- Parse AST of Pkl directly and use that to validate jsonata. Provide positional errors.
-- [x] condital component to filter them out, if component.
-- (cd modules/fh-datastar-view/editor-src; npm install), do this from sbt
-- [x] reload page on not component changes but layout 
-- BuildPhaseSuite: test based on request response caching json structure to make intention clearer
-- [x] VisualSnapSHot: for ci dir for images, create tempdir used in GHA and use that for directory to save files
-- FixtureDashboard: base the structure on PKL instead of internal structure
-- assets-cache fallback to a temp directory or xdg config directory
-- tests should not have one named functional. the suites should be appropropritatley places and be functional tests
-- TestServer must be rewritten to use ServerApp instead of duplicating stuff. And ServerApp must support this
-- [x] HALowLEvel Stream result and remove topic, less things
-- add elif
-- button, how to click action?
-- test suite to test if pkl compiles or not. for.ex c.button("TODO unrepresentable", c.toggleTap) should be a compile error
-- ServerApp to class, with http4s routes. TestServer need not duplicate too much
-- server does not pickup new pkl dashboard files
-- failed dashboard parse during startup; will not be accessible after it is fixed in the code
-- house data into sqllite? read from that?
-- an action push should hold until complete and if failed revert the change
-- https://github.com/google/closure-compiler for javascript inlined?
-- are we pruning to only latest on resume? a long forgotten tab had quite a walkthrough of changes
-- setmodulecachedir, needed at all in pklbuild?
-- use valuevisitor to parse pkl jsonata to get correct positions for syntax error?
-- pkl syntax
-    - c.button(d.light_test) // with tap and verything
-    - d.dynamic(d.entity.has(d.domain, h.domains.light).and(d.state.is(h.domain.light.states.on))))
-- split compinents in structure (layout setup, if, dynamic) and components
-  - move dynamic grup into own class/continer
+# TODO — the old brain-dump, audited
 
+Every line of the original list, checked against the tree on 2026-09-13 and sorted by what is
+actually true of it now. Nothing was dropped; git history has the original order.
 
----
-TODO document the API surface
-jsonata https://docs.jsonata.org/programming
+## Done
 
----
+- [x] **A global entry that imports all dashboards.** `site.pkl` is the ONE entrypoint naming
+      every dashboard it serves (ADR 0021). TODO2 had parked this as "unclear need" — it shipped
+      anyway, for the build story rather than the navigation one.
+- [x] **Pick up changes in the static sets (new area, new entity) and rebuild the dump.**
+      `RegistryDump` + `DumpRefresh`, on by default via `FH_WATCH_REGISTRY`.
+- [x] **Some popup if not connected.** Two distinct failures, presented separately — see the
+      disconnected-indicator entry in TODO2.
+- [x] **`npm install` from sbt.** `project/NpmPlugin.scala`: `frontendInstall` (`npm ci`) and
+      `frontendBundle` (vite), wired as a resource generator so a plain `compile` builds it.
+- [x] **Conditional component to filter them out.**
+- [x] **Reload the page on layout (not component) changes.**
+- [x] **VisualSnapshot: a CI directory for images.**
+- [x] **`HALowLevel` returns a stream; the topic is gone.**
+- [x] **Button click actions.** `c.tap.toggle` / `c.tap.navigate(…)`, with the in-flight
+      semantics of ADR 0019.
+- [x] **An action push holds until complete and reverts on failure.** ADR 0019 (an action in
+      flight) and ADR 0025 (a value in flight).
+- [x] **The server picks up new Pkl dashboard files.** The workspace DIRECTORY is watched, not
+      just known imports (`ServerApp.isSourceEvent`), and `reloadSite` reports `Change.Added`.
+- [x] **A dashboard that failed to parse at startup becomes reachable once fixed.** ADR 0018;
+      `reloadSite` emits `Recovered`, and `ServerAppSuite` covers the boot half.
+- [x] **Prune to the latest on resume.** `FragmentLog.pruned` truncates below `Sessions.floor`.
+- [x] **`setModuleCacheDir` — needed at all?** Yes: it is the ONE resolution mode (ADR 0010);
+      `PklBuild.scala:79` says why.
+- [x] **Split components into structure vs components; move the dynamic group out.** ADR 0015 —
+      `lib/core/` is what a component author extends, `lib/components*` is what a dashboard author
+      writes against.
+- [x] **Document the API surface.** `docs-pkl-components.md`.
+- [x] **Pkl syntax for `c.button(entity)` and a dynamic query form.** `q.from(…)`,
+      `q.entity(…).stateIs(…)`, `hass.lights(dump.areas.stue.all)`. See the open item below for
+      the part that is still unrepresentable.
 
-TODO conditions here? for.ex when over X time, dont turn on sofies room light to max? or wrong place?
+## Superseded — the question stopped applying
+
+- **Handlebars / jinja2 / jinjava instead of Mustache**, and the template-compilation cache that
+  went with it. Parked in TODO2: logic-in-templates is what the transform layer is for.
+- **JSONata everywhere** — the transform language is CEL (`fh/view/runtime/Cel.scala`). That
+  retires "should JSONata decide injected values", "parse the Pkl AST to validate JSONata", and
+  "use a ValueVisitor for JSONata positions". The wish underneath the last two — *positional*
+  errors from the transform layer — is unaddressed and worth re-raising as its own item if it
+  still bites.
+- **A JSON spec step for validating everything** — Pkl's type system is that step (ADR 0006).
+- **Design details living in `themes.libsonnet`** — the jsonnet track is deleted (#23). Themes are
+  Pkl, ADR 0015 splits core from components, and ADR 0020 settles who owns the wrapper class.
+- **Closure Compiler for inlined JavaScript** — vite bundles the frontend, and
+  `vite.config.ts`'s `fh-assert-self-contained` plugin fails the build on an unbundled import.
+- **`assets-cache` falling back to a temp/XDG directory** — decided against, deliberately.
+  `AddonBootstrap.scala:227` records the reason: appdirs reads `XDG_DATA_HOME`, which leaked. The
+  relocation knob is `FH_ASSETS_DIR`.
+- **A worker abstraction for in-home vs remote connections** — parked in TODO2, blocked on the
+  deployment story.
+- **htmx + hyperscript instead of Datastar** — parked in TODO2; no identified Datastar limitation.
+- **Automation-style conditions** ("don't set the light to max after 22:00") — belongs in the
+  `home` automations track, not the view layer.
+
+## Still open
+
+- **`elif`.** Only `c.iff(p).then(…).\`else\`(…)` exists; there is no else-if chain.
+- **A test that asserts some Pkl does NOT compile.** The motivating example is still sitting in
+  the tree: `dashboard-local-dev-server/pkl-if.dashboard.pkl` carries
+  `c.button("TODO unrepresentable", c.tap.toggle)` — a tap with no entity, which should be a
+  compile error and is not.
+- **Test packages named after their layer, not `functional`.**
+  `modules/fh-datastar-view/src/test/scala/fh/view/functional/` is still there.
+- **`TestServer` folded into `ServerApp`.** Half done: `ServerAppSuite` now drives the real
+  `prepareRenderers` -> `liveServer` path, but `TestServer` survives and is still used by
+  `FunctionalSuite` and `ActionSignalNamesSuite`. Related: the browser-shaped test seam in TODO2.
+- **`BuildPhaseSuite`: make the request/response caching structure the thing asserted**, so the
+  intent is legible from the test.
+- **`FixtureDashboard`: build the fixture from Pkl** rather than from the internal structure.
+- **House data in SQLite and read from there.** Never explored; no design attached. Note the
+  history-view plan (PR #365) makes a related but different call — series data stays in HA's
+  recorder and is fetched, not mirrored.
