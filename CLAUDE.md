@@ -86,6 +86,11 @@ sbt doCodegen                       # regenerate typed device/entity code, then 
 sbt 'home / run'                    # run the main app (AppHome), env vars set from build.sbt
 sbt dashboardBuild                  # build phase: regenerate modules/fh-datastar-view/dashboard.json
 sbt dashboardServe                  # runtime: serve the Datastar dashboard (http://localhost:8080)
+sbt 'dashboardServe path/to/ws'     # ...serving THAT workspace instead: the optional argument
+                                    # beats `DASHBOARDS_DIR`, and a relative path resolves from
+                                    # the repo root (the forked run's cwd). A non-existent dir is
+                                    # bootstrapped, so this is how you spin up a scratch workspace.
+                                    # Quote the whole thing — sbt 2's client joins its argv.
 sbt fh-datastar-view/frontendInstall  # npm ci for the dashboard frontend
 sbt fh-datastar-view/frontendBundle   # vite build -> managed resources (runs on compile)
 ```
@@ -120,8 +125,10 @@ wired as a `resourceGenerators` entry — so an ordinary `compile`/`test`/`assem
 `npm ci` and `vite build` when the sources change, and nothing built is committed. Both
 tasks no-op when a content fingerprint of their inputs still matches.
 
-Note: `run`/`runMain` are forked with the **working directory set to the module's base dir**
-(e.g. `modules/fh-datastar-view`), so relative paths in `*App` mains are module-relative.
+Note: `run`/`runMain` are forked with the **working directory set to the repo root** — `show
+fh-datastar-view/Compile/run/baseDirectory` says `/work`, not the module — so relative paths in
+`*App` mains, and a relative workspace argument to `dashboardServe`, resolve from where you
+started sbt.
 
 `doCodegen` is an alias for `fhTaskCodeGen ; home-codegen / scalafmt`. It connects to the live HA instance at `haUrl` (configured in `build.sbt`, currently `http://192.168.1.174:8123`) using `haSecret`, wipes `modules/home-codegen/src/main/scala/ha/generated`, and regenerates it. **That generated directory is gitignored** — it is a build product, not source. Codegen requires the HA instance to be reachable.
 

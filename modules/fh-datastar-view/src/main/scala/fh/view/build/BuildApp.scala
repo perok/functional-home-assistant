@@ -30,7 +30,8 @@ object BuildApp extends IOApp {
 
   private val log = Slf4jLogger.getLogger[IO]
 
-  // Paths are relative to the module directory (the forked `run` working dir).
+  // Paths are relative to the forked `run` working dir, which is the REPO ROOT
+  // (`Compile / run / baseDirectory`), not the module directory.
   private val defaultDashboardsDir = "dashboard-local-dev"
   private val defaultDashboardJson = "dashboard.json"
 

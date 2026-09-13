@@ -78,7 +78,10 @@ object ServerApp extends IOApp {
   private val consoleLog: SelfAwareStructuredLogger[IO] =
     Logging.console.getLoggerFromName(LoggerName)
 
-  // All relative to the module directory (the forked `run` working dir).
+  // All relative to the forked `run` working dir, which is the REPO ROOT
+  // (`Compile / run / baseDirectory` is `/work`, not the module) — so a
+  // relative path typed at `sbt dashboardServe` resolves where the person
+  // typing it expects.
   //
   // Last-resort fallback when `DASHBOARDS_DIR` is unset (build.sbt sets it for
   // `dashboardServe` — an absolute repo-root path; `run.sh` sets it on the
@@ -100,7 +103,8 @@ object ServerApp extends IOApp {
     * table — no scattered `Env[IO].get`, no defaults re-stated per site.
     */
   private case class Config(
-      // Workspace precedence: optional CLI arg > `DASHBOARDS_DIR` > default.
+      // Workspace precedence: optional CLI arg ([[workspaceArg]]) >
+      // `DASHBOARDS_DIR` > default.
       dashboardsDir: os.Path,
       // Persistent pkl package cache (`FH_PKL_CACHE_DIR`).
       cacheDir: os.Path,
@@ -118,7 +122,8 @@ object ServerApp extends IOApp {
   private object Config {
     def load(args: List[String]): IO[Config] =
       for {
-        dashboardsDir <- args.headOption
+        arg <- IO.fromEither(workspaceArg(args).leftMap(Exception(_)))
+        dashboardsDir <- arg
           .map(p => IO.pure(os.Path(p, os.pwd)))
           .getOrElse(pathFromEnv("DASHBOARDS_DIR", defaultDashboardsDir))
         cacheDir <- pathFromEnv("FH_PKL_CACHE_DIR", defaultCacheDir)
@@ -1172,6 +1177,32 @@ object ServerApp extends IOApp {
 
   private def pathFromEnv(name: String, default: String): IO[os.Path] =
     envOr(name, default).map(s => os.Path(s, os.pwd))
+
+  /** The optional workspace directory, off the command line:
+    * `sbt 'dashboardServe <dir>'`, absolute or relative to the repo root.
+    *
+    * Pure, and separated from [[Config.load]] for the usual reason — this is
+    * the whole of the argument contract, and it is the part worth a test, where
+    * the rest of `load` needs an environment to say anything.
+    *
+    * A SECOND argument is refused rather than ignored. `args.headOption`
+    * quietly served the first one, so a typo'd flag or an unquoted glob that
+    * matched two directories booted a server on a workspace the caller did not
+    * name and did not see named.
+    */
+  private[runtime] def workspaceArg(
+      args: List[String]
+  ): Either[String, Option[String]] =
+    args match {
+      case Nil        => Right(None)
+      case dir :: Nil => Right(Some(dir))
+      case more       =>
+        Left(
+          s"dashboardServe takes at most one workspace directory, got ${more.size}: " +
+            more.mkString(", ") +
+            " — quote a path that contains spaces, and set everything else through the environment"
+        )
+    }
 
   private val PklLspVersion = "0.8.0"
   private val PklLspUrl =

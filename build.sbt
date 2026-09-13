@@ -60,10 +60,16 @@ addCommandAlias(
   "fh-datastar-view/runMain fh.view.build.BuildApp"
 )
 addCommandAlias(
-  // The workspace dir comes from `DASHBOARDS_DIR` (set to an absolute
-  // repo-root path in the project's `run / envVars` above). A local run
-  // bootstraps a package-form workspace there — its own home/, .fh/, seeded
-  // entries, .pkl-cache — gitignored, exactly the shape the add-on writes.
+  // `sbt dashboardServe` serves the workspace named by `DASHBOARDS_DIR` (set to
+  // an absolute repo-root path in the project's `run / envVars` above);
+  // `sbt 'dashboardServe <dir>'` serves that one instead — the alias forwards
+  // the rest of the input, and the forked run's cwd is the repo root, so a
+  // relative path resolves from where sbt was started.
+  //
+  // Either way the run bootstraps a package-form workspace there — its own
+  // home/, .fh/, seeded entries, .pkl-cache — gitignored, exactly the shape the
+  // add-on writes. So naming a directory that does not exist yet is how you get
+  // a fresh scratch workspace, not an error.
   "dashboardServe",
   "fh-datastar-view/runMain fh.view.runtime.ServerApp"
 )

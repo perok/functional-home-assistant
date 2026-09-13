@@ -18,6 +18,22 @@ import org.http4s.implicits.*
   */
 class ServerAppSuite extends munit.CatsEffectSuite {
 
+  test("workspaceArg: no argument, one argument, and a refused second") {
+    assertEquals(ServerApp.workspaceArg(Nil), Right(None))
+    assertEquals(
+      ServerApp.workspaceArg(List("scratch/ws")),
+      Right(Some("scratch/ws"))
+    )
+    // REFUSED, not ignored. `args.headOption` quietly served the first one, so
+    // an unquoted path with a space — or a glob that matched two directories —
+    // booted a server on a workspace the caller never named.
+    val two = ServerApp.workspaceArg(List("my", "workspace"))
+    assert(two.isLeft, clue = two)
+    // The message has to name what it actually got, because the shell already
+    // ate the quoting that would have made it obvious.
+    assert(two.left.exists(_.contains("my, workspace")), clue = two)
+  }
+
   test("defaultSlugFrom: the site's default wins, even a failed one") {
     // Objective 3 — a broken default STAYS the default (its error page is the
     // fix path), it is not silently swapped for a dashboard that built.
