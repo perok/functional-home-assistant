@@ -333,7 +333,7 @@ class LiveStreamSuite extends ServerHarness {
       fake <- FakeHomeAssistant.create(Nil)
       out <- Server
         .resource(
-          HomeAssistantApi.fromWs(fake),
+          ServiceCalls.asInstance(HomeAssistantApi.fromWs(fake)),
           store,
           Map("dashboard" -> ref),
           "dashboard",

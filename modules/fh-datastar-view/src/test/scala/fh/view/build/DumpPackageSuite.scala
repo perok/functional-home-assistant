@@ -1,6 +1,6 @@
 package fh.view.build
 
-import fh.view.testkit.HouseFixture
+import fh.view.testkit.{HouseFixture, PklWorkspace}
 import io.circe.parser.parse
 
 /** The content-versioned dump package (ADR 0010, "resolved by content-derived
@@ -26,12 +26,7 @@ class DumpPackageSuite extends munit.FunSuite {
     val root = os.temp.dir()
     val ws = root / "fh-dashboards"
     val cache = root / "pkl-cache"
-    val _ = AddonBootstrap.run(
-      ws,
-      bundled,
-      cache,
-      loopbackUrl = "http://127.0.0.1:8080"
-    )
+    val _ = PklWorkspace.bootstrapInto(ws, bundled, cache)
     (ws, cache)
   }
 

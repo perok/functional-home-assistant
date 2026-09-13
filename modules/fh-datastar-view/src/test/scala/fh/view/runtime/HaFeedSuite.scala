@@ -162,4 +162,62 @@ class HaFeedSuite extends munit.CatsEffectSuite {
       List(Json.fromString("one"), Json.fromString("two"))
     )).timeout(30.seconds)
   }
+
+  test("the subscription is re-opened, narrowed, when the wanted set changes") {
+    (for {
+      fake <- FakeHomeAssistant.create(
+        List(
+          FixtureEntity("light.kitchen", "off"),
+          FixtureEntity("sensor.unwatched", "1")
+        )
+      )
+      (connect, _, _) <- controllable(fake)
+      // Boot value: nothing is built yet, so nothing knows what matters.
+      wanted <- SignallingRef[IO].of(Option.empty[Set[String]])
+      asked <- HaFeed.resource(connect, wanted).use { feed =>
+        for {
+          _ <- fake.awaitEntitySubscribes(1)
+          _ <- wanted.set(Some(Set("light.kitchen")))
+          _ <- fake.awaitEntitySubscribes(2)
+          // The narrowed feed still fills the store — the re-subscribe's own
+          // opening frame is the catch-up, exactly as a reconnect's is.
+          _ <- fake.emit("light.kitchen", "on")
+          _ <- Stream
+            .repeatEval(feed.store.snapshot.map(_.get("light.kitchen")))
+            .metered(10.millis)
+            .find(_.exists(_.state == "on"))
+            .head
+            .compile
+            .drain
+          got <- fake.entitySubscriptions
+        } yield got.toList
+      }
+    } yield assertEquals(
+      asked,
+      List(None, Some(List("light.kitchen")))
+    )).timeout(30.seconds)
+  }
+
+  test("an empty wanted set opens no subscription at all") {
+    // The trap this exists for: HA reads an empty `entity_ids` as NO FILTER, so
+    // sending one would subscribe to the whole house at the exact moment we
+    // want none of it. Declining to subscribe is the only correct spelling.
+    (for {
+      fake <- FakeHomeAssistant.create(
+        List(FixtureEntity("light.kitchen", "off"))
+      )
+      (connect, _, _) <- controllable(fake)
+      wanted <- SignallingRef[IO].of(Option.empty[Set[String]])
+      asked <- HaFeed.resource(connect, wanted).use { _ =>
+        for {
+          _ <- fake.awaitEntitySubscribes(1)
+          _ <- wanted.set(Some(Set.empty))
+          // Nothing to await — the assertion is that nothing HAPPENS — so give
+          // a wrong implementation time to open the subscription it should not.
+          _ <- IO.sleep(200.millis)
+          got <- fake.entitySubscriptions
+        } yield got.toList
+      }
+    } yield assertEquals(asked, List(None))).timeout(30.seconds)
+  }
 }

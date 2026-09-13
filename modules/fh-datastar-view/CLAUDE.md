@@ -121,7 +121,7 @@ same commit; ADRs that change the pipeline update it too.
 | `fh/view/model/Dashboard.scala` | Wire model `{cards, card}`, `LayoutNode` (incl. `Dynamic`), `Predicate` AST, `validate` |
 | `fh/view/build/SourceEval.scala` | The authoring-language seam: `.pkl` → `PklBuild` (Pkl is the only evaluated language) |
 | `fh/view/build/PklBuild.scala` / `PklDump.scala` | Pkl evaluation (pkl-core 0.32.1) + typed dump generation — rendered to text and packaged, never written as a loose file. **Touching how the dump is TYPED** — capability classes, a modelled domain's value groups, the codegen `warnings` pass, adding a domain — **read ADR 0013 first**: it owns that design, the per-domain coverage table and the add-a-domain recipe |
-| `fh/view/build/LibPackage.scala` / `AddonBootstrap.scala` | The server boot path: `@fh-dashboard` packaged into a persistent cache, then the workspace seeded — on EVERY start, add-on and local `sbt dashboardServe` alike (repo resources as the bundled lib, appdirs cache, workspace `dashboard-local-dev`). **Touching seeding, module resolution or the workspace scaffold — read ADR 0010 first**: it owns the write-once rule for user files, package-form as the ONE resolution mode, the `.fh/base.pkl` + `.fh/machine.json` split that keeps the scaffold byte-identical everywhere, and why a missing `moduleCacheDir` is a hard error rather than a fallback |
+| `fh/view/build/LibPackage.scala` / `AddonBootstrap.scala` | The server boot path: `@fh-dashboard` packaged into a persistent cache, then the workspace seeded — on EVERY start, add-on and local `sbt dashboardServe` alike (repo resources as the bundled lib, pkl's own `~/.pkl/cache`, workspace `dashboard-local-dev`). **Touching seeding, module resolution or the workspace scaffold — read ADR 0010 first**: it owns the write-once rule for user files, package-form as the ONE resolution mode, and why the two per-reader values (`FH_PKL_CACHE_DIR`, `FH_INSTANCE_URL`) come from the reader's ENVIRONMENT — the instance writes no `.fh/machine.json` at all — so one workspace serves an HA device, a laptop and a dev container at once |
 | `fh/view/build/DumpPackage.scala` | The dump as a content-versioned package (`fh-home@1.0.0-g<hash>`; the lib is versioned the same way, base from `lib/PklProject`), the ONLY form it takes anywhere: `seedFromText` builds + seeds it into the cache and rewrites `.fh/pins.json` on every dump render (server startup + `DumpRefresh`). Consumed by the instance's own eval AND by laptops, via `/system/pkl/packages`. **ADR 0010** owns the packaging and pinning design |
 | `scripts/fh` (repo root) | The laptop CLI: `init`, `pull`, `push` (`--slug`, `--write`, `--watch`), `init-lsp-fix`, `update`. Typelevel toolkit + decline + in-process pkl-core, installed by curl from GitHub raw (`update` sha256-compares against the repo copy); needs only scala-cli. Its own suite is `scripts/fh.test.scala` (weaver), run with `cd scripts && SCALA_TEST_MODE=true scala-cli test .` — the script gates its dispatcher behind that variable — and it is a CI step. **What each command does and why is ADR 0010** (`push --write` sending SOURCE, the `Analyzer.importGraph` watch set, the pkl-CLI bug behind `init-lsp-fix`); that pushing `site.pkl` installs every dashboard it names is ADR 0021 |
 | `fh/view/build/RegistryDump.scala` | **The** dump — there is no second path. Built from the WS registries joined onto the `subscribe_entities` snapshot, which is the SPINE (a LEFT join from states; the registry also lists disabled entities no dashboard can render). Also owns the shared `transform`/`entityKey`/`slug` keying. `build` is pure, so `RegistryDumpSuite` tests it with no HA. Attributes are filtered to `CapabilityAttributes`, widenable via `FH_DUMP_ATTRIBUTES` (comma-separated, additive) — **before adding one, read ADR 0013**: the filter protects the dump's CONTENT HASH, not just freshness, so a volatile attribute re-evaluates every dashboard on every change |
@@ -129,10 +129,11 @@ same commit; ADRs that change the pipeline update it too.
 | `fh/view/runtime/Renderer.scala` / `Server.scala` / `StateStore.scala` | Live re-render, SSE patch diffing, WS-fed state |
 | `src/js/` + `package.json` + `vite.config.ts` | The frontend, bundled by **vite 8** into MANAGED resources (`project/NpmPlugin.scala`, `frontendInstall`/`frontendBundle` — a `resourceGenerators` entry, so a plain compile builds it and **node + npm are a build requirement**). ONE build, three entries: `shell.ts` (inlined into every page by `Server.pageInto`), `editor/app.js` (CodeMirror + lsp-client bundled IN — no vendor file, no CDN, no import map), `editor/overlay.js`. Outputs are **content-hashed under `web/` with a `build.manifest`**; nothing spells a filename out — `FrontendAssets` reads the manifest and everything asks by ENTRY NAME (`Server.UrlSyncScript`, the `editAssets` overlay tag, the `__APP_JS__` placeholder in the editor `index.html`), and `Server` serves `/web/:file` `immutable` guarded by that same manifest. Deliberately **not `build.lib`**: lib mode refuses multi-entry for `iife`/`umd`, and `isEsLibBuild` hard-forces `minifyWhitespace: false` (to keep pure annotations for a downstream bundler we do not have), which shipped `app.js` at 654 kB where `rollupOptions.input` emits 421 kB. `shell.js` and `overlay.js` are classic scripts and work as `es` output ONLY because they import nothing; rollup never duplicates code, so one shared module splits a chunk and gives both a real `import`, breaking every page silently. The `fh-assert-self-contained` vite plugin FAILS THE BUILD on that, off rollup's own `chunk.imports`/`exports`, and the document's last line calls `fhScroll` only `if(window.fhScroll)` so anything the build cannot see still names itself in the console. Nothing built is committed; new code is TypeScript (`tsc --noEmit` runs as part of the build), the ported editor sources stay JS |
 | `resources/dashboards/lib/` (the `@fh-dashboard` package) | THREE tiers by audience: **`core/`** — `node`, `css`, `slot`, `text`, `icon`, `tap`, `surface`, `predicate` — is what a COMPONENT author imports; **`layout.pkl`** (Row/Column/Grid) and **`components.pkl` + `components/`** (`text`, `entity`, `control`, `slider`, `surface`, `light`, `moreinfo`) are what a DASHBOARD author imports, `components.pkl` being a FACADE that declares no cards; **`recipes.pkl`** is whole opinionated sections. `internal/dump-base.pkl` is generator-facing, and `entry.pkl` stays at the root because it is what every entry amends. **Adding a module, or re-exporting through the facade — read ADR 0015 first**: it owns the tiering and the two rules a re-export cannot break, both of which exist to keep editor completion working THROUGH the module |
-| `resources/dashboards/lib/{hass.pkl,hass/light.pkl,tokens.pkl}` | Pkl domain schema (`hass.pkl` stays at the package ROOT — every generated dump emits `import "@fh-dashboard/hass.pkl"`, and that URI identity is load-bearing; the vendored per-domain constants live under `hass/`) + shared HA-named design tokens. `hass.pkl` gives every SCOPE the same five names — `lights`/`sensors`/`switches`/`generic`/`all` — on `Area` (generator-filled), `Floor` (derived from its areas) and `Device` (type tests over its entities), matching the dump's house-wide lists, so `q.from(...)` takes any scope |
-| `resources/dashboards/lib/internal/dump-base.pkl` | The house-wide lists as a CONTRACT (`open module`, `List()` defaults) that the generated `@fh-home/dump.pkl` **extends**. **ADR 0013** owns why the lists are declared here rather than emitted per home, and why `extends` and not `amends` |
+| `resources/dashboards/lib/{hass.pkl,hass/light.pkl,tokens.pkl}` | Pkl domain schema (`hass.pkl` stays at the package ROOT — every generated dump emits `import "@fh-dashboard/hass.pkl"`, and that URI identity is load-bearing; the vendored per-domain constants live under `hass/`) + shared HA-named design tokens. Every SCOPE answers ONE name — `all` — on `Area` (generator-filled), `Floor` (its areas') and `Device` (its entities'), so `q.from(...)` takes any scope; a DOMAIN comes out of one through a selector (`hass.lights(area.all)`, `hass.locks(…)`, …), which is also what derives the dump's house-wide lists. A new modelled domain adds one selector and removes itself from `generic` — not a list on four classes |
+| `resources/dashboards/lib/internal/dump-base.pkl` | The house-wide lists as a CONTRACT (`open module`, `List()` defaults) that the generated `@fh-home/dump.pkl` **extends** — `all` is the only one a dump fills, the per-domain ones being selectors over it. **ADR 0013** owns why the lists are declared here rather than emitted per home, and why `extends` and not `amends` |
 | `resources/dashboards/lib/query.pkl` | The candidate-set query surface (`q.from(...).where(...).render(...)`), imported as `@fh-dashboard/query.pkl`: `where`/`orderBy`/`limit`/`caseOf`/`render`, the aggregates (`count`/`any`/`none`/`all` — these are also what an `If` condition is built from), nested sets, `q.entity(e)` for naming a DIFFERENT entity than the member, and `q.prop`/`q.attr`/`q.optional` for names. The wire classes live in `core/predicate.pkl` — query.pkl depends on the CORE, never on the shipped cards. **Plain Pkl stays the first answer**: a `for` over a typed dump list is still the right way to render a fixed set of lights, and this earns its place only when membership must react to live state. **ADR 0003** owns the build-time/live fold and how a property name resolves |
 | `resources/dashboards/lib/hass/actions.pkl` | **What a TAP means, per domain**, vendored: a `Call` (a build-time literal like `light/toggle`), a `CallByState` for the four domains whose service the live state picks, or **absent**. Adding a domain is one row, and nothing in Scala knows an HA domain. **ADR 0016** owns why absence is the load-bearing case and which absences are deliberate |
+| `resources/dashboards/lib/hass/icons.pkl` | The MDI glyph tables HA's own frontend derives an icon from, VENDORED — per device_class, per domain, and per STATE. `core/icon.pkl` keeps the resolution (`iconFor`/`stateIconFor`/`mdiClass`), which is what a component author calls; the tables are here because the reader who matters is whoever re-syncs against a new HA release, and every vendored table is under `hass/` for them. Only 24% of a real instance's entities carry an `icon`, so these render three quarters of the cards |
 | `resources/dashboards/lib/hass/light.pkl` | HA's `light` domain model VENDORED — the `ColorMode` union + `LightEntityFeature` bits. `HaLight.scala` is the generator's copy and `HaLightSuite` asserts the two agree. Imported by `hass.pkl` **with an `as` alias** — Pkl binds an import to its FILE name, so the alias keeps `light` from reading as a light ENTITY; a `///` doc comment on an import is also a parse error. **ADR 0013** owns why copying HA's `*EntityFeature` flags is safe, and the pattern other domains follow |
 | `resources/dashboards/lib/core/css.pkl` | The base stylesheet EVERY dashboard gets whatever its theme (ADR 0020): the `fh-` layout contract, the `--fh-*` colour variables a card's CSS is written against, and the classes the runtime itself emits or binds (busy states, offline banners, toast). `entry.pkl` puts it on `Dashboard.css`, and the renderer emits it FIRST — so a theme can override it but never drop it |
 | `resources/dashboards/lib/theme.pkl` | The theme CONTRACT (`open class Theme`, the `sliderHoldScript` gesture, and the `hidden classes` a theme uses to get its OWN class names spliced into card markup) and the theme-author guide; implementations are the `theme-*.pkl` siblings. A theme is now the PAINT layer only — the layout contract is `core/css.pkl`'s and each card's structure is its own `cardDef.css` |
@@ -142,7 +143,6 @@ same commit; ADRs that change the pipeline update it too.
 | `resources/dashboards/lib/PklProject` | The `@fh-dashboard` package manifest — the shared lib, packaged into the cache by `LibPackage`. (The top-level consumer `PklProject` + `home/` are gone: workspaces are bootstrapped package-form; the repo `lib/` is bundled-lib SOURCE, not a path-form checkout.) |
 | `resources/dashboards/site_default.pkl` | The seeded starter SITE — what a fresh workspace's `site.pkl` is ([[AddonBootstrap.starterSite]], read off the jar's own resources) |
 | `resources/dashboards/pkl-demo.pkl`, `pkl-tabs.pkl` | Demo dashboard modules — a `dashboards` key has to point at one for it to be served |
-| `resources/dashboards/*.jsonnet`, `components.libsonnet` | **Inert porting references only** — no longer evaluated; do not extend (see below) |
 | `src/test/.../PklBuildSuite.scala` | The Pkl track's main safety net (fake dumps, full pipeline) |
 | `src/test/.../WireShapeSuite.scala` | The wire shape is declared TWICE — a Pkl class in the library's modules, a Scala case class in `Dashboard.scala` — and nothing made them agree; the snapshots only noticed when a fixture happened to exercise the drifted field. This reflects over both (`pkl:reflect` vs `productElementNames`) and names the mismatch. Compares NAMES not types on purpose; a documented asymmetry is excluded with its reason (`SlotSource.literal` has no Pkl field — a constant slot is a bare string) |
 
@@ -181,9 +181,6 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   URLs, ids) use `{{{...}}}`. Pkl sources live in `src/main/resources/dashboards/` (the seeded
   starter + demo modules, plus `lib/*.pkl`); the dump is a cache package (never on disk in the repo) and
   `dashboard.json` is generated + gitignored.
-  The old `*.jsonnet`/`*.libsonnet` files also still sit here as **inert porting references**
-  (the five real dashboards are being hand-ported to Pkl) — the backend never evaluates them and
-  they must not be extended.
 - Interactivity uses the WS `call_service` command (added to `ha-api`'s `CommandPhase` +
   `HomeAssistantApi.callService`). `POST /sse/action/:slug/:domain/:service/:entityId` triggers a no-data
   service; the value-carrying variant `.../:entityId/:key/:value` builds `service_data` (the value
@@ -194,7 +191,10 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   NAMES the entity, so admission to one dashboard is not admission to the whole house. A module
   does not know its own slug, so the renderer supplies it: `dashboard_slug` (a CEL binding) in a
   tap's transform, `{{dashboardSlug}}` (a Mustache var) in a card's own template — two
-  spellings because there are genuinely two phases, each named after the one that fills it. The
+  spellings because there are genuinely two phases, each named after the one that fills it. Every
+  SERVICE tap now takes the second: `tap.serviceClick` assembles the URL in the card's template,
+  which is the only place that can also name `{{id}}` and the slot read a state-dependent service
+  needs (ADR 0017). The CEL spelling is left to the surface and popup taps. The
   slug is applied in `DashboardBuild.decode` BEFORE validation, so a `Validated` is final and a
   `fh push --slug` rename cannot leave a compiled tap URL naming the old dashboard.
   The surface taps carry it too — `POST /sse/surface/:slug/open/:id`, `POST /sse/popup/:slug/close`
@@ -219,7 +219,10 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   clearing `_<group>__pending`, and setting `_toast` to HA's own message. Both ids ride in the
   action's query string (`?node=&group=`), read off `data-fh-node` at click time. The bundle parses
   a response body only on exactly 200, so a 4xx could never carry any of it; the client-side
-  `failedOn`/`pendingFail` handlers remain for the genuine non-200 remainder.
+  `failedOn` handler remains for the genuine non-200 remainder. The other two ways an ask ends —
+  a dead stream, and a non-200 whose body is dropped unread — are page-wide facts and live as ONE
+  rule on the shell (`Server.PendingSweep`, an `@setAll` over `/__pending$/`), not as a copy on
+  every tab bar.
 - Cards (`lib/components/`, re-exported by `lib/components.pkl` — ADR 0015): `fhgrid`/`fhrow`/`fhcol` containers, `sectionTitle`, `entityCard`,
   `button`, `pill`, `slider` — each is a typed card class carrying its own `cardDef` (Mustache template +
   declared slots), and the emitted `cards` registry is derived by `pkl:reflect`; slots are checked
@@ -242,9 +245,17 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   repaint or fill sends, and all a JS-less browser ever gets) and the PATCH form (neither; what
   `renderNodeById` sends, which is why the digest stands still and the morph is suppressed).
   The slot's value names the BINDING KIND (`SignalBind`, one string on the wire): `text`
-  (`data-text`), `style:<prop>` (`data-style:<prop>`, custom properties included), `attr:<name>`, or
-  `bind` (`data-bind`, two-way on a form control). Every kind reads the signal bare — the VALUE
-  carries its own unit (`39.37%`, `#ffb46b`), so the transform decides its shape in one place.
+  (`data-text`), `style:<prop>` (`data-style:<prop>`, custom properties included), `attr:<name>`,
+  `class:<name>`, `bind` (`data-bind`, two-way on a form control), or `handler` (NO binding at
+  all — nothing paints the value; an event handler reads it by name, which is how a lock tile's
+  tap knows which service to post without the URL being in its bytes). Every painted kind reads
+  the signal bare — the VALUE carries its own unit (`39.37%`, `#ffb46b`), so the transform decides
+  its shape in one place. A slot value is `String | Boolean` (`SlotValue`), and the boolean is what makes
+  `attr:disabled` work: `""` SETS a boolean attribute (`disabled=""` is how HTML spells on), so
+  only a real `false` removes one. It has to stay boolean at BOTH ends — unquoted in the frame and
+  seed, and a boxed `Boolean` in `paint`, because a card places such a slot as a Mustache SECTION
+  and the string `"false"` is TRUTHY there. ADR 0017 has the two rejected designs (`flag:`, and a
+  nullable value) and why each failed.
   Customers: `entityCard`'s `value` (text), and all four of the slider's moving slots — `state`
   (text), `value` (`attr:value`), `fill` (`style:--_end`) and
   `fillColor` (`style:background`). The slider's `value` is SERVER-ONLY (ADR 0025): the input is
@@ -330,9 +341,7 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   `q.from(...)` aggregate — a comparison that names none is a validate error), three-tier slider config — see ADR 0006 for the deliberate API shape
   (`openPopup`/`openPopupInline` split, `cssClass`) and Pkl gotchas before extending. `PklBuild`
   renders the evaluated module to JSON backend-side (no `output` blocks in entries) and watches the
-  precise `Analyzer.importGraph` import set. The old `*.jsonnet`/`*.libsonnet` sources remain on
-  disk as inert porting references only (the five real dashboards are being hand-ported); they are
-  never evaluated and must not be extended.
+  precise `Analyzer.importGraph` import set.
 
 #### Pkl: verify semantics empirically, never from intuition
 

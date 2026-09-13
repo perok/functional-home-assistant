@@ -136,6 +136,32 @@ class TransformSuite extends munit.FunSuite {
     )
   }
 
+  test("an optional renders like the null it means, never as its wrapper") {
+    val attrs = Map("brightness" -> Json.fromInt(120))
+    // An EMPTY optional is the trap this pins. It arrives as a plain
+    // `java.util.Optional`, so without the unwrap it falls through to
+    // `String.valueOf` and the literal text `Optional.empty` reaches the DOM —
+    // green tests, wrong bytes on the page.
+    assertEquals(run("attr[?'brightness']", "on", attrs), "120")
+    assertEquals(run("attr[?'nope']", "on", attrs), "")
+    assertEquals(run("optional.none()", "on"), "")
+    assertEquals(run("optional.of('x')", "on"), "x")
+    // `''` means absent here, which is what `optional.ofNonZeroValue` is for —
+    // the same rule `SlotSource.default` applies one layer up.
+    assertEquals(run("optional.ofNonZeroValue('')", "on"), "")
+
+    // The point of turning the library on: the guarded read without a ternary,
+    // agreeing byte for byte with the spelling every shipped transform uses.
+    assertEquals(
+      run("attr[?'brightness'].orValue('none')", "on", attrs),
+      run("'brightness' in attr ? attr['brightness'] : 'none'", "on", attrs)
+    )
+    assertEquals(
+      run("attr[?'nope'].orValue('none')", "on", attrs),
+      run("'nope' in attr ? attr['nope'] : 'none'", "on", attrs)
+    )
+  }
+
   test("identity bindings: domain and entity_id come from the entity id") {
     assertEquals(run("domain", "on", entity = "light.kitchen"), "light")
     assertEquals(
@@ -324,15 +350,15 @@ class TransformSuite extends munit.FunSuite {
   // The slider's light-axis config (min 1, max 255), as every battery below
   // bakes it.
   private val percentExpr =
-    "cel.bind(v, 'brightness' in attr ? attr['brightness'] : null, " +
-      "v != null ? str(math.round((double(v) - 1.0) * 100.0 / (255.0 - 1.0))) " +
-      "+ ' %' : '0 %')"
+    "attr[?'brightness'].optMap(v, " +
+      "str(math.round((double(v) - 1.0) * 100.0 / (255.0 - 1.0))) + ' %')" +
+      ".orValue('0 %')"
   private val fillExpr =
-    "str(cel.bind(v, 'brightness' in attr ? attr['brightness'] : null, " +
-      "v != null ? 100.0 - ((double(v) - 1.0) * 100.0 / (255.0 - 1.0)) " +
-      ": 100.0)) + '%'"
+    "attr[?'brightness'].optMap(v, " +
+      "str(100.0 - ((double(v) - 1.0) * 100.0 / (255.0 - 1.0))))" +
+      ".orValue('100') + '%'"
 
-  test("definition: state, attr read, and the fallback-to-id name") {
+  test("definition: state and the guarded attr read") {
     val probes = List(
       es("on"),
       es("on", "friendly_name" -> Json.fromString("Hall")),
@@ -345,43 +371,77 @@ class TransformSuite extends munit.FunSuite {
       es("off", "brightness" -> Json.fromInt(200))
     )
     agree(Simple.State, "state", probes)
-    agree(
-      Simple.Attr("brightness"),
-      "'brightness' in attr ? attr['brightness'] : null",
-      probes
-    )
-    agree(
-      Simple.AttrOrId("friendly_name"),
-      "('friendly_name' in attr ? attr['friendly_name'] : entity_id)",
-      probes
-    )
+    agree(Simple.Attr("brightness"), "attr[?'brightness']", probes)
   }
 
-  test("definition: unit suffix, literal prefix/suffix, and the state enum") {
+  test("definition: unit suffix, literal prefix/suffix, and the state match") {
     val probes = List(
       es("on"),
       es("on", "unit_of_measurement" -> Json.fromString("°C")),
       es("on", "unit_of_measurement" -> Json.fromString("")),
       es("21.44"),
-      es("locked")
+      es("locked"),
+      es("unlocking"),
+      es("jammed"),
+      es("")
     )
     agree(
       Simple.UnitSuffix("unit_of_measurement"),
-      "state + ('unit_of_measurement' in attr ? ' ' + " +
-        "attr['unit_of_measurement'] : '')",
+      "state + attr[?'unit_of_measurement'].optMap(u, ' ' + u).orValue('')",
       probes
     )
     agree(Simple.Prefix("lit: "), "'lit: ' + state", probes)
     agree(Simple.Suffix(" W"), "state + ' W'", probes)
     agree(
-      Simple.Enum("on", "Open", "Closed"),
-      "state == 'on' ? 'Open' : 'Closed'",
+      Simple.Match(Map("on" -> "Open"), "Closed"),
+      "cel.bind(m, {'on': 'Open'}, state in m ? m[state] : 'Closed')",
       probes
     )
     agree(
-      Simple.Enum("locked", "lock/unlock", "lock/lock"),
-      "state == 'locked' ? 'lock/unlock' : 'lock/lock'",
+      Simple.Match(Map("locked" -> "lock/unlock"), "lock/lock"),
+      "cel.bind(m, {'locked': 'lock/unlock'}, state in m ? m[state] : 'lock/lock')",
       probes
+    )
+    // Many arms to one value — HA's `isWaiting`, and the shape a two-armed
+    // enum could not express without three transforms and three signals.
+    agree(
+      Simple.Match(
+        Map("locking" -> "true", "unlocking" -> "true", "opening" -> "true"),
+        ""
+      ),
+      "cel.bind(m, {'locking': 'true', 'unlocking': 'true', 'opening': 'true'}, " +
+        "state in m ? m[state] : '')",
+      probes
+    )
+    // Arms to DIFFERENT values — a state-derived icon class.
+    agree(
+      Simple.Match(
+        Map("locked" -> "mdi-lock", "unlocked" -> "mdi-lock-open"),
+        "mdi-lock-alert"
+      ),
+      "cel.bind(m, {'locked': 'mdi-lock', 'unlocked': 'mdi-lock-open'}, " +
+        "state in m ? m[state] : 'mdi-lock-alert')",
+      probes
+    )
+    // No arms at all: every state takes `otherwise`.
+    agree(
+      Simple.Match(Map.empty, "n/a"),
+      "cel.bind(m, {}, state in m ? m[state] : 'n/a')",
+      probes
+    )
+  }
+
+  test("key: a Match key cannot be forged by a separator inside a value") {
+    // The siblings join on ':' safely because their arity is fixed. A Match's
+    // is not, so the key is length-prefixed — a collision here would put two
+    // different transforms on ONE signal.
+    val a = Simple.Match(Map("a" -> "b:c"), "z")
+    val b = Simple.Match(Map("a:b" -> "c"), "z")
+    assertNotEquals(Simple.key(a), Simple.key(b))
+    // …and it does not depend on Map iteration order.
+    assertEquals(
+      Simple.key(Simple.Match(Map("x" -> "1", "y" -> "2"), "z")),
+      Simple.key(Simple.Match(Map("y" -> "2", "x" -> "1"), "z"))
     )
   }
 
@@ -438,6 +498,77 @@ class TransformSuite extends munit.FunSuite {
     agree(Simple.Fill("brightness", 1.0, 255.0), fillExpr, probes)
   }
 
+  /** The spelling [[Simple.Duration]] IS, at minutes-per-unit. */
+  private val durationExpr =
+    "cel.bind(t, int(math.round(double(state) * 60.0)), " +
+      "t <= 0 ? '0s' " +
+      ": t >= 3600 ? str(t / 3600) + 'h ' + str(t % 3600 / 60) + 'm' " +
+      ": t >= 60 ? str(t / 60) + 'm' " +
+      ": str(t) + 's')"
+
+  test("definition: a duration reading over the hostile sweep") {
+    // The boundaries are where a hand-rolled formatter and the engine part
+    // company: each tier's first and last value, the rounding knife edge, and
+    // the negative arm a countdown reaches when the appliance stops updating.
+    val readings = List(
+      "-5", // overshot: clamps rather than showing a negative
+      "0",
+      "0.008", // 0.48s -> rounds to 0, so the clamp arm, not '0s' by luck
+      "0.009", // 0.54s -> rounds to 1
+      "0.5", // 30s
+      "0.99", // 59.4 -> 59s, the last second-tier value
+      "1", // exactly 60s -> the minute tier's first
+      "1.5",
+      "59", // the last minute-tier value
+      "60", // exactly 3600s -> the hour tier's first, and 0 minutes
+      "60.5",
+      "253", // the live washer's own reading: 4h 13m
+      "1439",
+      "2322" // the live washer's lifetime total, in the same unit
+    )
+    agree(Simple.Duration(60.0), durationExpr, readings.map(es(_)))
+  }
+
+  test("definition: a duration in SECONDS is the same shape, unscaled") {
+    // The scale is the whole difference between two integrations reporting the
+    // same wash, so the spelling has to agree at another one too.
+    val secondsExpr = durationExpr.replace("* 60.0", "* 1.0")
+    val readings = List("0", "1", "59", "60", "3599", "3600", "15180")
+    agree(Simple.Duration(1.0), secondsExpr, readings.map(es(_)))
+  }
+
+  test("a duration reads as a person would say it") {
+    // Byte-equality with CEL says the two agree; it does not say either is
+    // right. These are the readings themselves.
+    def fmt(v: String) = Transform.runSimple(Simple.Duration(60.0), es(v))
+    assertEquals(fmt("253"), "4h 13m")
+    assertEquals(fmt("60"), "1h 0m")
+    assertEquals(fmt("59"), "59m")
+    assertEquals(fmt("1"), "1m")
+    assertEquals(fmt("0.5"), "30s")
+    assertEquals(fmt("0"), "0s")
+    assertEquals(fmt("-5"), "0s")
+  }
+
+  test("divergence: a duration renders EMPTY on an unreadable state") {
+    // Not a rare case: a dishwasher between programmes reports `unknown` for
+    // its remaining time. `0s` would claim it just finished, and the raw word
+    // puts `unknown` where a time goes — so the absent form is empty, and the
+    // slot's default gets to take over.
+    assertEquals(Transform.runSimple(Simple.Duration(60.0), es("unknown")), "")
+    assertEquals(
+      Transform.runSimple(Simple.Duration(60.0), es("unavailable")),
+      ""
+    )
+    assertEquals(Transform.runSimple(Simple.Duration(60.0), es("")), "")
+    // The engine's half of the divergence: it errors rather than rendering.
+    assert(
+      Transform
+        .run(compile(durationExpr), es("unknown"), "dashboard")
+        .startsWith("cel error:")
+    )
+  }
+
   test(
     "divergence: percent/fill render the absent form on unparseable values"
   ) {
@@ -461,6 +592,23 @@ class TransformSuite extends munit.FunSuite {
     )
   }
 
+  test("a duration decodes off the wire under the name Pkl writes") {
+    // The two halves of the name are written in different languages — the
+    // `Op` typealias in `core/simple.pkl` and `toSimple`'s arm here — so
+    // nothing but this checks they are the same word. A mismatch is a decode
+    // failure at boot, not a compile error.
+    //
+    // `duration` is also the one operator carrying its argument ONLY in
+    // `params`: its read is the state, so there is no `value`.
+    assertEquals(
+      io.circe.parser
+        .decode[Transform.Simple](
+          """{"kind":"value","op":"duration","params":{"scale":60}}"""
+        ),
+      Right(Simple.Duration(60.0))
+    )
+  }
+
   test("the simple key is injective across structures and stable") {
     assertEquals(Transform.Simple.key(Simple.State), "state")
     assertEquals(
@@ -469,7 +617,7 @@ class TransformSuite extends munit.FunSuite {
     )
     assertNotEquals(
       Transform.Simple.key(Simple.Attr("x")),
-      Transform.Simple.key(Simple.AttrOrId("x"))
+      Transform.Simple.key(Simple.UnitSuffix("x"))
     )
     assertNotEquals(
       Transform.Simple.key(Simple.Percent("x", 1.0, 2.0)),
@@ -478,6 +626,143 @@ class TransformSuite extends munit.FunSuite {
     assertEquals(
       Transform.Simple.key(Simple.Percent("x", 1.0, 255.0)),
       Transform.Simple.key(Simple.Percent("x", 1.0, 255.0))
+    )
+    // The scale is the whole content of a Duration, so two sensors reporting
+    // the same number in different units must not share a signal — that would
+    // paint one appliance's minutes into the other's seconds.
+    assertNotEquals(
+      Transform.Simple.key(Simple.Duration(60.0)),
+      Transform.Simple.key(Simple.Duration(1.0))
+    )
+  }
+
+  // ---- the wire form -------------------------------------------------------
+  // The flat `{op, value, params}` the Pkl module emits is parsed into the enum
+  // ONCE, here. These assert the SEAM rather than any one operator: that the
+  // op names Pkl can spell are exactly the ones that parse, and that a
+  // structure missing an argument fails loudly instead of rendering blank.
+
+  /** Every `op` the Pkl `core.simple.Op` typealias names. Kept as a literal
+    * list rather than derived: the whole point is to fail when the two sides
+    * drift, and a derivation from the Scala enum would agree with itself.
+    */
+  private val PklOps =
+    List(
+      "state",
+      "attr",
+      "suffixUnit",
+      "prefix",
+      "suffix",
+      "percent",
+      "fill",
+      "duration"
+    )
+
+  private def wire(
+      op: String,
+      value: Option[String] = None,
+      params: Map[String, String | Double] = Map.empty
+  ) = Transform.SimpleWire.Value(op, value, params).toSimple
+
+  test("every op the Pkl module can spell parses into a runtime shape") {
+    // Every param any operator takes, so one call covers the whole set: an
+    // operator ignores what it does not need.
+    val args = Map(
+      "min" -> (1.0: String | Double),
+      "max" -> (255.0: String | Double),
+      "scale" -> (60.0: String | Double)
+    )
+    PklOps.foreach { op =>
+      assert(
+        wire(op, Some("brightness"), args).isRight,
+        s"op `$op` is spellable in Pkl but does not parse"
+      )
+    }
+  }
+
+  test("an op outside that set is refused, not silently dropped") {
+    assert(wire("attrOrId", Some("x")).isLeft)
+    assert(wire("", Some("x")).isLeft)
+  }
+
+  test("a missing argument fails the parse rather than defaulting") {
+    // Each of these is what a hand-written `SimpleValue` forgetting a field
+    // looks like. The typed Pkl constructors cannot produce them, which is
+    // exactly why nothing downstream would catch them.
+    assert(wire("attr").isLeft, "attr with no value")
+    assert(wire("prefix").isLeft, "prefix with no literal")
+    assert(wire("percent", Some("brightness")).isLeft, "percent with no range")
+    assert(
+      wire(
+        "percent",
+        Some("brightness"),
+        Map("min" -> (1.0: String | Double))
+      ).isLeft,
+      "percent with only half a range"
+    )
+    assert(
+      wire(
+        "percent",
+        Some("b"),
+        Map("min" -> ("lo": String | Double), "max" -> (2.0: String | Double))
+      ).isLeft,
+      "percent whose min is not a number"
+    )
+  }
+
+  test("state takes no argument, and one it does not need is ignored") {
+    assertEquals(wire("state"), Right(Simple.State))
+    assertEquals(wire("state", Some("brightness")), Right(Simple.State))
+  }
+
+  test("a param may arrive as a numeric string, as Pkl's JSON may render it") {
+    assertEquals(
+      wire(
+        "percent",
+        Some("b"),
+        Map("min" -> ("1": String | Double), "max" -> ("255": String | Double))
+      ),
+      Right(Simple.Percent("b", 1.0, 255.0))
+    )
+  }
+
+  test("the decoder reads both wire shapes off real JSON") {
+    def decode(src: String) =
+      io.circe.parser.decode[Transform.Simple](src)
+    assertEquals(
+      decode(
+        """{"kind":"value","op":"percent","value":"brightness",""" +
+          """"params":{"min":1,"max":255}}"""
+      ),
+      Right(Simple.Percent("brightness", 1.0, 255.0))
+    )
+    assertEquals(
+      decode("""{"kind":"value","op":"state"}"""),
+      Right(Simple.State)
+    )
+    assertEquals(
+      decode("""{"kind":"match","cases":{"on":"Open"},"otherwise":false}"""),
+      Right(Simple.Match(Map("on" -> "Open"), false))
+    )
+    // A boolean arm stays a BOOLEAN — `"false"` would be truthy as a Mustache
+    // section, which is what makes `attr:disabled` work at all.
+    assert(
+      decode("""{"kind":"match","cases":{"on":true},"otherwise":false}""")
+        .exists {
+          case Simple.Match(cases, _) => cases("on") == (true: SlotValue)
+          case _                      => false
+        }
+    )
+    assert(decode("""{"kind":"value","op":"nope"}""").isLeft)
+    // The shape discriminator is separate from the operator, so a `kind` the
+    // sum does not name fails on the DISCRIMINATOR rather than falling into
+    // `Value` and reporting a confusing unknown-op.
+    assert(decode("""{"kind":"nope","op":"state"}""").isLeft)
+    // `params` and `value` are optional on the wire — the constructor defaults
+    // fill them, which is what lets Pkl omit both.
+    assertEquals(
+      decode("""{"kind":"value","op":"suffixUnit","value":"u"}"""),
+      Right(Simple.UnitSuffix("u"))
     )
   }
 }

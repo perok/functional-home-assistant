@@ -5,7 +5,6 @@
 //> using toolkit typelevel:0.2.0
 //> using dep org.pkl-lang:pkl-core:0.32.1
 //> using dep org.slf4j:slf4j-nop:1.7.36
-//> using dep net.harawata:appdirs:1.5.0
 
 // TODO use @main
 
@@ -17,9 +16,10 @@
 // and pkl resolves them from the instance through the manifest's own http
 // rewrite. `fh init` fetches the instance's byte-identical scaffold
 // (`.fh/base.pkl`, `PklProject`, `.gitignore`) verbatim and writes the two
-// per-machine files this laptop needs — `.fh/machine.json` (its cache dir +
-// the instance URL) and `.fh/pins.json` (the version pins); `fh pull` re-pins
-// @fh-home.
+// files this laptop needs — `.fh/machine.json` (the instance URL) and
+// `.fh/pins.json` (the version pins); `fh pull` re-pins @fh-home. The package
+// cache is not written anywhere: it is pkl's own `~/.pkl/cache` unless
+// `FH_PKL_CACHE_DIR` says otherwise.
 //
 // `fh push a.pkl b.pkl` evaluates each entry here and installs the RESULT on
 // the instance, live and ephemeral (pushing `site.pkl` installs every
@@ -75,11 +75,8 @@ import org.http4s.headers.{Authorization, `Content-Type`}
 
 import java.nio.charset.StandardCharsets.UTF_8
 import java.nio.file.{Files, Path, Paths}
-import net.harawata.appdirs.*
 
 import scala.util.Using
-
-val appdirs = AppDirsFactory.getInstance()
 
 /** A user-facing failure: printed as `fh: <msg>`, exit 1, no stack trace. */
 case class Die(msg: String) extends RuntimeException(msg)
@@ -144,22 +141,34 @@ def sha256(bytes: Array[Byte]): String =
     .mkString
 
 // ---------------------------------------------------------------- pkl-core
-// The workspace manifest (`.fh/base.pkl`, reading `.fh/machine.json`) is the
-// single source of the cache dir + the fh.invalid rewrite. Evaluation gets
-// both through `applyFromProject`; only the dependency RESOLVER needs them
-// wired by hand, because `PackageResolver` is a lower-level API where the
-// caller owns the http client — so it reads the SAME
+// The workspace manifest (`.fh/base.pkl`, reading this process's environment
+// then `.fh/machine.json`) is the single source of the cache dir + the
+// fh.invalid rewrite. Evaluation gets both through `applyFromProject`; only the
+// dependency RESOLVER needs them wired by hand, because `PackageResolver` is a
+// lower-level API where the caller owns the http client — so it reads the SAME
 // `evaluatorSettings.http.rewrites` off the loaded project (what the pkl CLI
 // does internally), never a second hand-built copy.
 
-// The package cache: the cross-platform user DATA dir under the SAME appdirs
-// coordinates the add-on / BuildApp use, so a local instance and this script
-// land in one cache. This absolute path is what `fh init` writes into
-// `.fh/machine.json` as `cacheDir` (base.pkl's `moduleCacheDir`).
+// The package cache this script resolves through: `FH_PKL_CACHE_DIR` if set,
+// else pkl's OWN default (`~/.pkl/cache`) asked of pkl-core — the same two
+// steps `base.pkl` and `AddonBootstrap` take, so this script, an instance, the
+// `pkl` CLI and pkl-lsp share one cache without any of them declaring a path.
 val cacheDir =
-  Paths
-    .get(s"${appdirs.getUserDataDir("fh", "0.0.1", "perok")}/pkl-cache")
+  sys.env
+    .get("FH_PKL_CACHE_DIR")
+    .map(Paths.get(_))
+    .getOrElse(org.pkl.core.util.IoUtils.getDefaultModuleCacheDir())
     .toAbsolutePath
+
+/** The cache a LOADED workspace resolves through: what its manifest declares
+  * (base.pkl having already applied env → machine.json), else the default pkl
+  * itself would use — which is what a manifest declaring none MEANS, and the
+  * normal case now that nothing writes a cache path into a workspace. Anywhere
+  * pkl-core is driven by hand (`PackageResolver`, `Analyzer`) needs this
+  * spelled out; `applyFromProject` already does exactly it for evaluation.
+  */
+def cacheDirOf(project: org.pkl.core.project.Project): Path =
+  Option(project.getEvaluatorSettings.moduleCacheDir()).getOrElse(cacheDir)
 
 def loadProject(): org.pkl.core.project.Project =
   val manifest = Paths.get("PklProject")
@@ -221,11 +230,7 @@ def resolveDeps(): IO[Unit] = IO.blocking {
   import org.pkl.core.packages.PackageResolver
   import org.pkl.core.project.ProjectDependenciesResolver
   val project = loadProject()
-  val cache = Option(project.getEvaluatorSettings.moduleCacheDir()).getOrElse(
-    throw Die(
-      s"$basePkl declares no moduleCacheDir — re-run: fh init <instance-url>"
-    )
-  )
+  val cache = cacheDirOf(project)
   val resolver = new ProjectDependenciesResolver(
     project,
     PackageResolver.getInstance(
@@ -377,18 +382,20 @@ def writeScaffold(client: Client[IO], url: String): IO[Unit] =
     }
   } yield ()
 
-/** The per-machine `{ cacheDir, instanceUrl }` that `base.pkl` reads — this
-  * laptop's own cache and the instance URL. Gitignored; never committed.
+/** The one per-reader value `base.pkl` cannot default: WHICH instance serves
+  * the packages. Gitignored; never committed.
+  *
+  * No `cacheDir`: this laptop wants pkl's own `~/.pkl/cache`, which base.pkl
+  * falls back to on its own, and writing a path here would impose it on
+  * everyone else reading the same directory — the add-on doing exactly that is
+  * what broke a shared workspace. Set `FH_PKL_CACHE_DIR` to override.
   */
 def writeMachine(url: String): IO[Unit] = IO.blocking {
   Files.createDirectories(machineJson.getParent)
   Files.write(
     machineJson,
     (Json
-      .obj(
-        "cacheDir" -> Json.fromString(cacheDir.toString),
-        "instanceUrl" -> Json.fromString(url)
-      )
+      .obj("instanceUrl" -> Json.fromString(url))
       .spaces2 + "\n").getBytes(UTF_8)
   )
 }
@@ -852,7 +859,7 @@ def importSet(entry: Path): IO[Option[Set[Path]]] = IO.blocking {
           ModuleKeyFactories.projectpackage,
           ModuleKeyFactories.pkg
         ).asJava,
-        project.getEvaluatorSettings.moduleCacheDir(),
+        cacheDirOf(project),
         project.getDependencies,
         org.pkl.core.http.HttpClient.dummyClient(),
         TraceMode.COMPACT

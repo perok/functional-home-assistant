@@ -330,15 +330,37 @@ object client {
         extends CommandPhase
         with CommandResponse.AsStream.AsEvent derives ConfiguredEncoder
 
-    /** HA's compressed state feed — the full entity set on subscribe, then
-      * deltas. Replaces `get_states` + `subscribe_events state_changed` for
-      * anything tracking live state: one subscription cannot have a gap between
-      * the snapshot and the change feed. See [[EntitiesEvent]].
+    /** HA's compressed state feed — the subscribed entity set in full on
+      * subscribe, then deltas. Replaces `get_states` + `subscribe_events
+      * state_changed` for anything tracking live state: one subscription cannot
+      * have a gap between the snapshot and the change feed. See
+      * [[EntitiesEvent]].
+      *
+      * `entity_ids` narrows it, which HA supports but does not document —
+      * `websocket_api/commands.py` gates both the opening snapshot and every
+      * later event on `not entity_ids or state.entity_id in entity_ids`.
+      *
+      * '''`Some(Nil)` would mean EVERY entity, not none.''' HA reads the list
+      * as `set(msg.get("entity_ids", [])) or None`, so an empty one falls back
+      * to unfiltered. A caller holding an empty set must not subscribe at all
+      * rather than send one.
       */
-    case class subscribe_entities()
+    case class subscribe_entities(entity_ids: Option[List[String]] = None)
         extends CommandPhase
         with CommandResponse.AsStream.AsEventOf[EntitiesEvent]
-        derives ConfiguredEncoder
+
+    object subscribe_entities {
+
+      /** The derived encoder writes an absent `entity_ids` as `null`, which is
+        * NOT the same as omitting it: HA validates the field with
+        * `cv.entity_ids`, which rejects null, so the whole subscription would
+        * fail rather than fall back to the whole house. Dropped explicitly.
+        */
+      given Encoder.AsObject[subscribe_entities] =
+        ConfiguredEncoder
+          .derived[subscribe_entities]
+          .mapJsonObject(_.filter { case (_, v) => !v.isNull })
+    }
 
     // todo https://developers.home-assistant.io/docs/api/websocket#unsubscribing-from-events
     case class unsubscribe_events(subscription: Int)

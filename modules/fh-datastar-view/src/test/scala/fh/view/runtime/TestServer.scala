@@ -49,6 +49,12 @@ final class TestServer(
   /** Await `n` subscribers on the store's change topic — a readiness gate for
     * tests that consume `store.changes` directly (topics only reach current
     * subscribers).
+    *
+    * '''`n` counts the recorder too.''' A `TestServer` has a per-slug recorder
+    * already subscribed, so a test adding a subscriber of its own must wait for
+    * TWO — waiting for one is answered by the recorder, and an emit can then
+    * land before the test's own stream is attached. It fails as a timeout on a
+    * `take(1)` that never completes, not as a wrong value.
     */
   def awaitChangeSubscribers(n: Int): IO[Unit] =
     store.changeSubscribers.filter(_ >= n).head.compile.drain

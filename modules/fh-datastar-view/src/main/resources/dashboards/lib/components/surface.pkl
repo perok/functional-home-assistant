@@ -45,10 +45,10 @@ class TabButton extends nodes.Node {
 }
 
 /// A tab bar over ONE inline panel — one tab visible at a time. Pure
-/// composition (mirror jsonnet `tabs`, components.libsonnet:467-499): each tab's
-/// cards become an inline surface baked into this component's panel host
-/// (`bakeInto = NODE_ID`, `bakeAs = "panel"`), sharing one exclusivity group;
-/// the bar buttons open them and the SWAP sets the active-tab signal `ui_<id>` — which
+/// composition: each tab's cards become an inline surface baked into this
+/// component's panel host (`bakeInto = NODE_ID`, `bakeAs = "panel"`), sharing
+/// one exclusivity group; the bar buttons open them and the SWAP sets the
+/// active-tab signal `ui_<id>` — which
 /// the backend reads (it rides every request) and the panel host mirrors into
 /// the `ui.<id>` URL param, so reconnect / navigate / refresh all restore the
 /// tab flash-free. The first tab is default-open (baked on
@@ -105,7 +105,7 @@ class Tabs extends nodes.Node {
       ["panel"] = new nodes.Region { fill = "baked" }
     }
     template = """
-      <div class="fh-col"><div class="tabs" data-signals__ifmissing="{ ui_{{id}}: {{bakeIndex}}, \(tapMod.pendingSeedEntry("{{id}}")) }" \(tapMod.pendingClear("{{id}}")) \(tapMod.pendingFail("{{id}}"))>{{#children}}{{{html}}}{{/children}}</div><div id="{{hostId}}" class="tab-panel" data-effect="fhUrl('ui.{{id}}', $ui_{{id}})">{{#panel}}{{{html}}}{{/panel}}</div></div>
+      <div class="fh-col"><div class="tabs" data-signals__ifmissing="{ ui_{{id}}: {{bakeIndex}}, \(tapMod.pendingSeedEntry("{{id}}")) }" \(tapMod.pendingClear("{{id}}"))>{{#children}}{{{html}}}{{/children}}</div><div id="{{hostId}}" class="tab-panel" data-effect="fhUrl('ui.{{id}}', $ui_{{id}})">{{#panel}}{{{html}}}{{/panel}}</div></div>
       """
     // The panel host is a patch target that must not be a box: the selected
     // tab's own layout is what should reach the surrounding column.

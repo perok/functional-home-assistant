@@ -51,7 +51,7 @@ class FailedDashboardSuite extends ServerHarness {
       sessions <- Sessions.create.toResource
       fake <- FakeHomeAssistant.create(Nil).toResource
       server <- Server.resource(
-        HomeAssistantApi.fromWs(fake),
+        ServiceCalls.asInstance(HomeAssistantApi.fromWs(fake)),
         store,
         Map("dashboard" -> ref),
         "dashboard",
@@ -461,7 +461,7 @@ class FailedDashboardSuite extends ServerHarness {
         sessions <- Sessions.create
         out <- Server
           .withSite(
-            HomeAssistantApi.fromWs(fake),
+            ServiceCalls.asInstance(HomeAssistantApi.fromWs(fake)),
             store,
             site,
             sessions,
@@ -790,7 +790,7 @@ class FailedDashboardSuite extends ServerHarness {
         .toResource
       sessions <- Sessions.create.toResource
       server <- Server.resource(
-        HomeAssistantApi.fromWs(fake),
+        ServiceCalls.asInstance(HomeAssistantApi.fromWs(fake)),
         store,
         refs,
         "dash",

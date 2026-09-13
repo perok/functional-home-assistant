@@ -137,11 +137,16 @@ object RegistryDump {
     * every attribute (see [[EntitiesEvent]]) — one command, no size cap, and no
     * Jinja. Take that frame and release the subscription; the live feed is the
     * runtime's job, not the dump's.
+    *
+    * UNFILTERED, and it has to stay that way even though the runtime's feed is
+    * narrowed to what the dashboards read: the dump is what an author writes
+    * the next dashboard AGAINST, so it must offer every entity, including the
+    * ones nothing references yet.
     */
   private def snapshot(
       api: HomeAssistantApi[IO]
   ): IO[Map[String, EntitiesEvent.Full]] =
-    api.entities.use(_.head.compile.lastOrError).map(_.added)
+    api.entities(None).use(_.head.compile.lastOrError).map(_.added)
 
   /** The pure core: join the state snapshot against the registries.
     *

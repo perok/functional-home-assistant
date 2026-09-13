@@ -4,6 +4,7 @@ import cats.effect.{ExitCode, IO, IOApp}
 import cats.effect.std.Env
 import cats.syntax.all.*
 import fh.api.FHApi
+import org.typelevel.log4cats.slf4j.Slf4jLogger
 
 /** Build phase entry point.
   *
@@ -22,10 +23,12 @@ import fh.api.FHApi
   * The artifact is for inspection/CI; the runtime
   * ([[fh.view.runtime.ServerApp]]) evaluates the same Pkl in memory and does
   * not need it. Paths default to the same gitignored scratch workspace + shared
-  * appdirs cache the local `sbt dashboardServe` uses, so the two share one
+  * pkl package cache the local `sbt dashboardServe` uses, so the two share one
   * bootstrapped workspace.
   */
 object BuildApp extends IOApp {
+
+  private val log = Slf4jLogger.getLogger[IO]
 
   // Paths are relative to the module directory (the forked `run` working dir).
   private val defaultDashboardsDir = "dashboard-local-dev"
@@ -51,16 +54,9 @@ object BuildApp extends IOApp {
       bundled <- IO.blocking(BundledLib.artifacts())
       _ <- IO
         .blocking(
-          // The build phase runs no server; the rewrite URL is inert (resolution
-          // is cache-only), so a loopback default is fine in `machine.json`.
-          AddonBootstrap.run(
-            dashboardsDir,
-            bundled,
-            cacheDir,
-            loopbackUrl = "http://127.0.0.1:8080"
-          )
+          AddonBootstrap.run(dashboardsDir, bundled, cacheDir)
         )
-        .flatMap(_.traverse_(IO.println))
+        .flatMap(_.traverse_(log.info(_)))
 
       result <- FHApi.fromEnv.use(
         DashboardBuild.evaluate(_, dashboardsDir, Site.EntryFile, Some(bundled))
@@ -86,7 +82,7 @@ object BuildApp extends IOApp {
       }
 
       _ <- IO.blocking(os.write.over(outputPath, siteJson.spaces2))
-      _ <- IO.println(
+      _ <- log.info(
         s"Wrote site artifact (${decoded.slugs.mkString(", ")}) to $outputPath"
       )
     } yield ExitCode.Success

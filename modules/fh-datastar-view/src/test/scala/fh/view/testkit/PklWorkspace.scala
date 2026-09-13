@@ -20,6 +20,28 @@ object PklWorkspace {
     */
   val resourcesLib: os.Path = resourcesDashboards / "lib"
 
+  /** [[AddonBootstrap.run]] plus the `.fh/machine.json` a real reader writes
+    * for ITSELF. The instance writes none — its two values come from
+    * `FH_PKL_CACHE_DIR`/`FH_INSTANCE_URL` — and a test cannot set an env var
+    * per case, so it supplies them the way a laptop's `fh init` does. Without
+    * this the workspace would resolve through the developer's own
+    * `~/.pkl/cache`, which is neither isolated nor reproducible.
+    */
+  def bootstrapInto(
+      ws: os.Path,
+      bundled: LibPackage.Artifacts,
+      cache: os.Path
+  ): List[String] = {
+    val log = AddonBootstrap.run(ws, bundled, cache)
+    os.write.over(
+      ws / ".fh" / "machine.json",
+      AddonBootstrap
+        .machineFileJson(Some(cache), Some("http://127.0.0.1:8080")),
+      createFolders = true
+    )
+    log
+  }
+
   /** Bootstrap `tmp` to a package-form workspace and seed `dumpText` as the
     * `@fh-home` package. `dumpText` content is irrelevant unless a probe
     * imports and USES `@fh-home/dump.pkl` (then pass the real rendered dump);
@@ -35,12 +57,7 @@ object PklWorkspace {
     // The bundled lib built from the repo dir (tests use the dir path; the
     // server streams the same bytes from the jar via BundledLib).
     val bundled = LibPackage.build(resourcesLib)
-    val _ = AddonBootstrap.run(
-      tmp,
-      bundled,
-      cache,
-      loopbackUrl = "http://127.0.0.1:8080"
-    )
+    val _ = PklWorkspace.bootstrapInto(tmp, bundled, cache)
     // First dump on a fresh workspace: no pins.json yet, so pass the bundled lib
     // artifacts to pin the dump's `@fh-dashboard` dependency (first-boot order).
     val _ = DumpPackage.seedFromText(tmp, dumpText, Some(bundled))

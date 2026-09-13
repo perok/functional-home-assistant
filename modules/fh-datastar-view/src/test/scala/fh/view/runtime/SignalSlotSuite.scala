@@ -12,11 +12,12 @@ import fh.view.model.{
   SignalBind,
   SignalId,
   SlotSource,
-  Surface
+  Surface,
+  Transform
 }
 import api.homeassistant.HomeAssistantApi
 import cats.effect.IO
-import fh.view.testkit.DashboardBuilders.st
+import fh.view.testkit.DashboardBuilders.{asComponent, st}
 import fh.view.testkit.FakeHomeAssistant
 import fs2.concurrent.SignallingRef
 import fh.view.testkit.TestIds.given
@@ -334,7 +335,7 @@ class SignalSlotSuite extends ServerHarness {
     Map(
       "slider" -> CardDef(
         """<div class="slider" style="--_end: {{fill}}" {{{fill__bind}}}>""" +
-          """<span class="state" {{{state__bind}}}>{{state}}</span>""" +
+          """<span class="fh-reading" {{{state__bind}}}>{{state}}</span>""" +
           """<input type="range" value="{{value}}" {{{value__bind}}}""" +
           """ data-on:change="@post('x/' + ${{value__signal}})" />""" +
           """<span style="background:{{tint}}" {{{tint__bind}}}></span></div>""",
@@ -406,6 +407,87 @@ class SignalSlotSuite extends ServerHarness {
     assert(html.contains("""@post('x/' + $_c__value)"""), clue = html)
   }
 
+  test("every wire spelling the authoring layer emits decodes") {
+    // The other end of the `components.test.pkl` fact of the same name: the
+    // grammar is declared twice — a Pkl typealias regex and this parser — and
+    // nothing else checks they agree. A spelling one side accepts and the other
+    // does not becomes a slot that binds nothing, silently.
+    assertEquals(
+      List(
+        "text",
+        "bind",
+        "style:--_end",
+        "attr:value",
+        "class:fh-disabled"
+      ).map(SignalBind.parse),
+      List(
+        SignalBind.Text,
+        SignalBind.Bind,
+        SignalBind.Style("--_end"),
+        SignalBind.Attr("value"),
+        SignalBind.Class("fh-disabled")
+      ).map(Some(_))
+    )
+    assertEquals(SignalBind.parse("attr:"), None)
+    assertEquals(SignalBind.parse("attr"), None)
+  }
+
+  // A boolean attribute is the shape a String slot cannot express: `""` SETS
+  // `disabled` (that IS how HTML spells on), so only a real `false` turns one
+  // off. These pin BOTH ends of that — the seed the client reads and the bytes
+  // a client running no JS is left with — because they fail independently.
+  private val boolOff: Transform.Simple =
+    Transform.Simple.Match(Map("unavailable" -> true), otherwise = false)
+
+  private val boolDash = Dashboard(
+    Map(
+      "sw" -> CardDef(
+        """<button {{#off}}disabled{{/off}} {{{off__bind}}}>go</button>""",
+        slots = List("off")
+      )
+    ),
+    LayoutNode.Component(
+      "sw",
+      Map(
+        "entity_id" -> SlotSource(literal = Some("light.a")),
+        "off" -> SlotSource(
+          transform = boolOff,
+          bypassUnavailable = false,
+          signal = Some(SignalBind.Attr("disabled"))
+        )
+      )
+    )
+  )
+
+  test("a boolean slot binds bare, and seeds an unquoted boolean") {
+    val html = Renderer.create(boolDash).renderPage(lit(40))
+    val s = sig("light.a", Transform.Simple.key(boolOff))
+    // BARE `$sig`, no `!!` around it: the value is a real boolean, so the
+    // plugin's own `false -> removeAttribute` branch is the whole mechanism.
+    assert(html.contains(s"""data-attr:disabled="$$$s""""), clue = html)
+    // Unquoted in the seed. `'false'` would seed a truthy STRING, and the
+    // attribute would be set on a page that has JS and clear on one that does
+    // not — the two halves disagreeing is the failure this pins. Asserted on
+    // the LEAF segment: a seed is nested, so the dotted path never appears.
+    assert(html.contains(s"${s.segments.last}: false"), clue = html)
+    assert(!html.contains("'false'"), clue = html)
+  }
+
+  test("a false slot leaves the attribute out of the plain HTML") {
+    // The half no signal test can see: mustache drives `{{#off}}` off
+    // `java.lang.Boolean`, and the STRING "false" is TRUTHY there. If the value
+    // were stringified on its way to the template, a browser running no JS
+    // would get a permanently disabled button while every assertion above
+    // still passed.
+    val off = Renderer.create(boolDash).renderPage(lit(40))
+    assert(!off.contains("<button disabled"), clue = off)
+
+    val on = Renderer
+      .create(boolDash)
+      .renderPage(Map("light.a" -> st("light.a", "unavailable")))
+    assert(on.contains("<button disabled"), clue = on)
+  }
+
   test("a brightness tick moves four values and sends no element patch") {
     val r = Renderer.create(sliderish)
     val log = FragmentLog("test").touched(leaf, 1L)
@@ -432,6 +514,115 @@ class SignalSlotSuite extends ServerHarness {
       clue = events(out).map(_.render)
     )
     // `tint` did not move, so it is not in the frame even though its node was.
+    assertEquals(elementPatches(events(out)), Nil)
+  }
+
+  // ---------------------------------------------------------------------------
+  // A value only an EVENT reads (ADR 0017, "Which runtime evaluates a
+  // state-dependent value")
+  // ---------------------------------------------------------------------------
+
+  /** A lock's tap: which service it posts is a function of live state, and
+    * nothing on the card paints it — only the click expression reads it.
+    */
+  private val lockService = "state == 'locked' ? 'lock/unlock' : 'lock/lock'"
+
+  /** ONE card, and the whole point of `__read`: the template never learns which
+    * tier filled `service`.
+    */
+  private val lockCard = CardDef(
+    """<article data-on:click="@post('a/' + {{{service__read}}})">""" +
+      """<span {{{state__bind}}}>{{state}}</span></article>""",
+    slots = List("state", "service")
+  )
+
+  private def tile(service: SlotSource) = Dashboard(
+    Map("lock" -> lockCard),
+    LayoutNode.Component(
+      "lock",
+      Map(
+        "entity_id" -> SlotSource(literal = Some("lock.front")),
+        "state" -> SlotSource(
+          transform = "state",
+          signal = Some(SignalBind.Text)
+        ),
+        "service" -> service
+      )
+    )
+  )
+
+  private val lockish = tile(
+    SlotSource(transform = lockService, signal = Some(SignalBind.Handler))
+  )
+
+  private def lock(state: String) =
+    Map("lock.front" -> st("lock.front", state))
+
+  test("one template serves a literal service and a signalled one") {
+    // The card is byte-identical between them; only what `__read` resolves to
+    // differs. A card that had to branch on the tier is what this replaced.
+    val static = Renderer
+      .create(tile(SlotSource(literal = Some("light/toggle"))))
+      .renderPage(lock("locked"))
+    assert(static.contains("""@post('a/' + 'light/toggle')"""), clue = static)
+    // A literal has nothing to patch, so it mints no signal and seeds nothing.
+    assert(!static.contains("light/toggle'}"), clue = static)
+
+    val live = Renderer.create(lockish).renderPage(lock("locked"))
+    assert(
+      live.contains(s"""@post('a/' + $$${sig("lock.front", lockService)})"""),
+      clue = live
+    )
+  }
+
+  test("a handler signal binds nothing, and the service leaves the bytes") {
+    val html = Renderer.create(lockish).renderPage(lock("locked"))
+    // No attribute of its own — there is nothing to paint. Every other kind
+    // emits one, so an accidental `data-*` here would mean the wrong kind.
+    assert(!html.contains("""data-attr:service"""), clue = html)
+    assert(!html.contains("""data-text="$_e.lock.front.t"""), clue = html)
+    // The service IS in the node's seed, and has to be — the document form is
+    // what makes a first paint correct with no frame behind it (ADR 0017). What
+    // matters is that it is only there: the element itself is byte-identical
+    // whichever way the lock is turned, which is what keeps it in the identity
+    // cache.
+    def click(s: String): String =
+      Renderer
+        .create(lockish)
+        .renderPage(lock(s))
+        .split("data-on:click=", 2)(1)
+        .takeWhile(_ != '>')
+    assertEquals(click("locked"), click("unlocked"), clue = html)
+  }
+
+  test("locking moves the service signal and sends NO element patch") {
+    val r = Renderer.create(lockish)
+    val log = FragmentLog("test").touched(leaf, 1L)
+    val out = resumeNow(
+      r,
+      log,
+      r.renderPageTraced(lock("locked")).own.map { case (id, p) =>
+        id -> Held(Some(p.digest), p.signals)
+      },
+      lock("unlocked"),
+      1L,
+      Set.empty,
+      Map.empty
+    )
+    assertEquals(
+      out.map(_.patch),
+      List(
+        frame(
+          sig("lock.front") -> "unlocked",
+          sig("lock.front", lockService) -> "lock/lock"
+        )
+      ),
+      clue = events(out).map(_.render)
+    )
+    // The tile is byte-identical across the change, so the morph it would have
+    // needed is not sent. This is the claim the whole design rests on: before
+    // the service moved into a signal, the URL was in the element and every
+    // lock/unlock repainted the tile.
     assertEquals(elementPatches(events(out)), Nil)
   }
 
@@ -599,7 +790,7 @@ class SignalSlotSuite extends ServerHarness {
     val page = r.renderPage(states)
     assertEquals(page.contains("sensor.unseen"), false, clue = page)
     // ...so the fill has to carry both the binding and the value.
-    val fill = r.renderSurface("panel", states).get
+    val fill = r.renderSurfaceTraced("panel", states).map(_.html).get
     assert(fill.contains("data-text=\"$_e.sensor.unseen.state\""), clue = fill)
     assert(
       fill.contains("data-signals=\"{_e: {sensor: {unseen: {state: '7'"),
@@ -697,7 +888,7 @@ class SignalSlotSuite extends ServerHarness {
       fake <- FakeHomeAssistant.create(Nil)
       out <- Server
         .resource(
-          HomeAssistantApi.fromWs(fake),
+          ServiceCalls.asInstance(HomeAssistantApi.fromWs(fake)),
           store,
           Map("dashboard" -> ref),
           "dashboard",
@@ -877,6 +1068,66 @@ class SignalSlotSuite extends ServerHarness {
     )
   }
 
+  test("a handler slot is rejected unless the card READS it") {
+    def card(tpl: String) = Dashboard(
+      Map("t" -> CardDef(tpl, slots = List("service"))),
+      LayoutNode.Component(
+        "t",
+        Map(
+          "entity_id" -> SlotSource(literal = Some("lock.front")),
+          "service" -> SlotSource(
+            transform = lockService,
+            signal = Some(SignalBind.Handler)
+          )
+        )
+      )
+    )
+    // It has no binding to place, so the `__bind` rule cannot be what checks
+    // it — placing one is not even possible.
+    assertEquals(
+      card("""<i data-on:click="@post('a')"></i>""").validate(),
+      List(
+        "c: card 't' has slot 'service' marked as a signal slot, but no part " +
+          "of its template places {{{service__read}}} or {{service__signal}} " +
+          "— the value would stop updating"
+      )
+    )
+    // Either read satisfies it: `__read` is what a card composing a URL uses,
+    // `__signal` the bare name for anything else.
+    assertEquals(card("""<i x="{{{service__read}}}"></i>""").validate(), Nil)
+    assertEquals(card("""<i x="${{service__signal}}"></i>""").validate(), Nil)
+  }
+
+  test("a live non-signal slot cannot be read as a JS expression") {
+    // `__read` is answered before the paint — a literal, an identity-`once`
+    // value, a signal. A live value has no answer, and refusing it IS the rule:
+    // such a value moves in the element's bytes every tick, which is what a
+    // signal exists to stop.
+    val bad = Dashboard(
+      Map(
+        "t" -> CardDef(
+          """<i x="{{{service__read}}}"></i>""",
+          slots = List("service")
+        )
+      ),
+      LayoutNode.Component(
+        "t",
+        Map(
+          "entity_id" -> SlotSource(literal = Some("lock.front")),
+          "service" -> SlotSource(transform = lockService)
+        )
+      )
+    )
+    assertEquals(
+      bad.validate(),
+      List(
+        "c: card 't' reads slot 'service' as {{{service__read}}}, but the " +
+          "slot is live and not a signal — its value moves in the element's " +
+          "bytes, so make it a signal slot or a literal"
+      )
+    )
+  }
+
   test("a constant literal cannot be a signal slot") {
     val constant = Dashboard(
       cards,
@@ -991,8 +1242,7 @@ class SignalSlotSuite extends ServerHarness {
     // `tint` as bytes could only reach the DOM by patching the section, which
     // would carry the region's whole content back with it.
     val bytes = structural.copy(card =
-      structural.card
-        .asInstanceOf[LayoutNode.Component]
+      structural.card.asComponent
         .copy(slots =
           Map(
             "entity_id" -> SlotSource(literal = Some("sensor.a")),

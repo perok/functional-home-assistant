@@ -137,6 +137,50 @@ class StateStoreSuite extends munit.FunSuite {
     assertEquals(stamp, 7L)
   }
 
+  test("a full state the store already holds is not re-stored at all") {
+    val held = st("a", "1").copy(
+      lastUpdated = Some(java.time.Instant.parse("2026-09-04T06:00:00Z")),
+      contentVersion = 7L
+    )
+    val (before, after) = (for {
+      s <- StateStore.inMemory(Map("a" -> held))
+      // Byte for byte what a reconnect's full set hands back on a steady HA:
+      // same content, same instant, and no stamp of its own yet.
+      _ <- s.update(held.copy(contentVersion = 0L))
+      snap <- s.snapshot
+    } yield (held, snap("a"))).timeout(10.seconds).unsafeRunSync()
+
+    // Identity, not equality: `stale` treats an equal instant as not newer, so
+    // the Replace is dropped a level ABOVE the dedup and the stored value is
+    // untouched. An equal copy would pass `==` while still having cost a map
+    // node, an EntityState and its recomputed attribute caches — which is what
+    // this asserts is not happening on the reconnect path.
+    assert(before eq after)
+  }
+
+  test("a stale change cannot slip in behind a timestamp-only bump") {
+    val t10 = java.time.Instant.parse("2026-09-04T06:00:10Z")
+    val t12 = java.time.Instant.parse("2026-09-04T06:00:12Z")
+    val t15 = java.time.Instant.parse("2026-09-04T06:00:15Z")
+
+    val state = (for {
+      s <- StateStore.inMemory(
+        Map("a" -> st("a", "1").copy(lastUpdated = Some(t10)))
+      )
+      // Same content, later instant: publishes nothing, but the stored value
+      // MUST advance to t15 anyway.
+      _ <- s.update(st("a", "1").copy(lastUpdated = Some(t15)))
+      // A reconnect's full set, from before t15 and disagreeing about content.
+      _ <- s.update(st("a", "2").copy(lastUpdated = Some(t12)))
+      snap <- s.snapshot
+    } yield snap("a").state).timeout(10.seconds).unsafeRunSync()
+
+    // Had the bump been skipped as a no-op, `a` would still read t10, `stale`
+    // would wave t12 through, and the store would end up holding "2" — content
+    // HA superseded three seconds before that frame was sent.
+    assertEquals(state, "1")
+  }
+
   test("a published change carries the same stamp the store kept") {
     val (published, stored) = (for {
       s <- StateStore.inMemory(Map("a" -> st("a", "1")))

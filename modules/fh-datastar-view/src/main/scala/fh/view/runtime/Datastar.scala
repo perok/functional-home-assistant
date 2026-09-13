@@ -1,6 +1,6 @@
 package fh.view.runtime
 
-import fh.view.model.{SignalBind, SignalId}
+import fh.view.model.{SignalBind, SignalId, SlotValue}
 import io.circe.Json
 import org.http4s.{EntityEncoder, MediaType, ServerSentEvent}
 import org.http4s.headers.`Content-Type`
@@ -275,10 +275,13 @@ object Datastar {
       out(i) = (k.segments, v)
       i += 1
     }
-    java.util.Arrays.sort(
-      out,
-      pathOrder.asInstanceOf[java.util.Comparator[(Array[String], A)]]
-    )
+    // ONE comparator for every element type, because it only ever reads `._1`.
+    // A `def` with the type parameter would be cast-free, but it hides a
+    // singleton behind a call and pays a type parameter for a value that does
+    // not depend on it.
+    val order =
+      pathOrder.asInstanceOf[PathOrder[A]] // scalafix:ok DisableSyntax
+    java.util.Arrays.sort(out, order)
     out
   }
 
@@ -292,7 +295,9 @@ object Datastar {
     * bytes are asserted, so sorting the cheaper way would be a rare, silent
     * reordering. Pinned in `DatastarNestSuite`.
     */
-  private val pathOrder: java.util.Comparator[(Array[String], Any)] =
+  private type PathOrder[A] = java.util.Comparator[(Array[String], A)]
+
+  private val pathOrder: PathOrder[Any] =
     (x, y) => {
       val a = x._1
       val b = y._1
@@ -318,7 +323,7 @@ object Datastar {
     * bare `'` and closes the literal early. The same pair `Server`'s popup seed
     * uses, and the reason this lives here rather than in every card template.
     */
-  def signalsAttr(values: Map[SignalId, String]): String =
+  def signalsAttr(values: Map[SignalId, SlotValue]): String =
     if (values.isEmpty) ""
     else
       // LEADING SPACE, like `Renderer.cellClasses`: this is spliced straight
@@ -413,7 +418,7 @@ object Datastar {
   def seedAttrInto(
       out: java.lang.Appendable,
       seed: SignalSeed,
-      values: Map[SignalId, String]
+      values: Map[SignalId, SlotValue]
   ): Unit = {
     val n = seed.order.length
     // Resolved BEFORE anything is written, so a mismatch falls back without
@@ -425,8 +430,13 @@ object Datastar {
         var i = 0
         while (i < n && vs != null) {
           values.get(seed.order(i)) match {
-            case Some(v) => vs(i) = v; i += 1
-            case None    => i = n + 1
+            // A BOOLEAN cannot fill a hole here: the seed bakes the quotes
+            // around each value into its chunks, and a boolean has to seed
+            // unquoted. Fall back to building the attribute, exactly as a
+            // name mismatch does — the seed is an optimisation for the shape
+            // every card had before booleans existed, not a requirement.
+            case Some(v: String) => vs(i) = v; i += 1
+            case _               => i = n + 1
           }
         }
         if (i == n) vs else null
@@ -454,7 +464,7 @@ object Datastar {
     */
   private def nestJsInto(
       sb: java.lang.StringBuilder,
-      paths: Array[(Array[String], String)],
+      paths: Array[(Array[String], SlotValue)],
       from: Int,
       until: Int,
       depth: Int
@@ -468,9 +478,16 @@ object Datastar {
       if (i > from) { val _ = sb.append(", ") }
       sb.append(segment).append(": ")
       if (paths(i)._1.length == depth + 1) {
-        sb.append('\'')
-        escapeJsInto(sb, paths(i)._2)
-        sb.append('\'')
+        // A boolean seeds as a JS boolean LITERAL, unquoted: `data-signals` is
+        // compiled as an expression, and `'false'` would seed a truthy string
+        // — which for a `data-attr` binding is the difference between an
+        // attribute absent and an attribute set.
+        paths(i)._2 match
+          case b: Boolean => sb.append(b)
+          case s: String  =>
+            sb.append('\'')
+            escapeJsInto(sb, s)
+            sb.append('\'')
       } else nestJsInto(sb, paths, i, j, depth + 1)
       i = j
     }
@@ -487,6 +504,13 @@ object Datastar {
     * attribute would be a second place a value's shape is decided, and the
     * authoring layer already decides it in the transform.
     *
+    * That holds for a BOOLEAN attribute too, and it is why the value is
+    * `String | Boolean` rather than String ([[fh.view.model.SlotValue]]): a
+    * real `false` is what removes an attribute, so `data-attr:disabled="$sig"`
+    * needs no `!!` around it. An earlier version wrote one, which put a second
+    * decision about a value's shape back in the attribute; making the value
+    * honest removed the binding kind that existed for it.
+    *
     * `data-bind` is the odd one out and takes the signal's NAME rather than a
     * `$`-read, because it is two-way — it writes the signal back on input.
     */
@@ -499,6 +523,26 @@ object Datastar {
     // The bundle kebab-cases a `data-class` key (`P(e, n, "kebab")`), so a
     // class name is written as it appears in CSS and nowhere else.
     case SignalBind.Class(name) => s"""data-class:$name="$$$signal""""
+    // Nothing to bind: the value is read by a handler, not painted. The seed
+    // and the frame entry are unaffected — those come from the slot being a
+    // signal slot, not from there being an attribute.
+    case SignalBind.Handler => ""
+
+  /** A slot's value as a **single-quoted JS string literal**, for splicing into
+    * an expression a card composes — the non-signal half of `<slot>__read`.
+    *
+    * The same double escape a seed needs ([[escapeJsInto]]): the literal sits
+    * inside an HTML attribute, so the JS quote and the attribute's `"` both
+    * apply. Sharing the escaper is the point — a second one would be a second
+    * chance to get `'` wrong, which is the trap that method documents.
+    */
+  def jsLiteral(value: String): String = {
+    val sb = new java.lang.StringBuilder(value.length + 2)
+    val _ = sb.append('\'')
+    escapeJsInto(sb, value)
+    val _ = sb.append('\'')
+    sb.toString
+  }
 
   /** Both escapes of a seeded value, in ONE pass, straight into the builder.
     *

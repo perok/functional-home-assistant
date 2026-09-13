@@ -169,7 +169,7 @@ identity slots are memoized (ADR 0004).
 `lib/query.pkl` is the only thing that builds a set:
 
 ```pkl
-q.from(dump.areas.stue.lights)
+q.from(hass.lights(dump.areas.stue.all))
   .where(q.eq(q.stateProp, "on"))
   .caseOf(q.eq(q.prop("domain"), "light"), c.slider)
   .`else`((e) -> c.entityCard(e))

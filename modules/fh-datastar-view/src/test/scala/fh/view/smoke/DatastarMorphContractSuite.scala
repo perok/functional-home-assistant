@@ -1,5 +1,7 @@
 package fh.view.smoke
 
+import fh.view.smoke.BrowserSuite.{asJsInt, asJsStrings}
+
 import cats.effect.{IO, Resource}
 import cats.syntax.all.*
 import com.comcast.ip4s.{host, port}
@@ -399,9 +401,9 @@ class DatastarMorphContractSuite extends BrowserSuite {
 
         // (5) It SETTLED. A self-referential effect that looped would still be
         // running; the count is small and stops growing.
-        runs <- IO.blocking(p.evaluate("window.__runs").asInstanceOf[Int])
+        runs <- IO.blocking(p.evaluate("window.__runs").asJsInt)
         _ <- IO.sleep(300.millis)
-        later <- IO.blocking(p.evaluate("window.__runs").asInstanceOf[Int])
+        later <- IO.blocking(p.evaluate("window.__runs").asJsInt)
         _ <- IO {
           assertEquals(
             later,
@@ -729,14 +731,16 @@ class DatastarMorphContractSuite extends BrowserSuite {
 
   private def served(
       body: String,
-      patches: List[SseFrame]
+      patches: List[SseFrame],
+      spacing: FiniteDuration = 50.millis
   ): Resource[IO, (Page, Uri)] =
-    servedWith(body, patches, HttpRoutes.empty[IO])
+    servedWith(body, patches, HttpRoutes.empty[IO], spacing)
 
   private def servedWith(
       body: String,
       patches: List[SseFrame],
-      extra: HttpRoutes[IO]
+      extra: HttpRoutes[IO],
+      spacing: FiniteDuration = 50.millis
   ): Resource[IO, (Page, Uri)] =
     for {
       js <- bundle.toResource
@@ -757,7 +761,7 @@ class DatastarMorphContractSuite extends BrowserSuite {
             Stream
               .emits(all)
               .covary[IO]
-              .metered(50.millis)
+              .metered(spacing)
               .append(Stream.never[IO])
           )
       }
@@ -833,10 +837,10 @@ class DatastarMorphContractSuite extends BrowserSuite {
     * through blank and the observer cannot separate them. Sampling per
     * animation frame — what the browser actually PAINTS — does.
     *
-    * The harness meters patches 50ms apart, wider than the single flush
-    * production uses, so treat "elements-first flashes" as the direction of the
-    * risk rather than its size. Signals-first is safe at any spacing, which is
-    * why it is the rule rather than a tuning.
+    * This fixture meters its patches far wider than the single flush production
+    * uses (see [[fillOrder]] for how wide and why), so treat "elements-first
+    * flashes" as the direction of the risk rather than its size. Signals-first
+    * is safe at any spacing, which is why it is the rule rather than a tuning.
     */
   private val recorder =
     """window.__seen = [];
@@ -858,21 +862,28 @@ class DatastarMorphContractSuite extends BrowserSuite {
       |  }
       |}).observe(document, {subtree: true, childList: true, characterData: true});""".stripMargin
 
+  /** The one fixture whose measure is a `requestAnimationFrame` sampler rather
+    * than an event, so it needs the patches spaced FAR further apart than the
+    * rest of the suite. rAF is throttled hard on a loaded headless runner, and
+    * at the shared 50 ms it missed the blank window entirely on CI — reporting
+    * `painted=[42]` while the MutationObserver had `seen=["", "42"]`, i.e. the
+    * blank happened and the sampler never woke inside it. The gap has to
+    * outlast the slowest plausible frame, not the fastest.
+    */
   private def fillOrder(
       patches: List[SseFrame]
   ): IO[(String, List[String], List[String])] =
-    served("""<div id="host"></div>""", patches).use { case (p, uri) =>
-      def strings(js: String) = IO
-        .blocking(p.evaluate(js).asInstanceOf[java.util.List[String]])
-        .map(scala.jdk.CollectionConverters.ListHasAsScala(_).asScala.toList)
-      for {
-        _ <- IO.blocking(p.addInitScript(recorder))
-        _ <- IO.blocking(p.navigate(uri.renderString))
-        _ <- eventually(text(p, "#done"))(_ == "yes")
-        shown <- text(p, "#filled")
-        seen <- strings("() => window.__seen")
-        frames <- strings("() => window.__frames")
-      } yield (shown, seen, frames)
+    served("""<div id="host"></div>""", patches, spacing = 500.millis).use {
+      case (p, uri) =>
+        def strings(js: String) = IO.blocking(p.evaluate(js).asJsStrings)
+        for {
+          _ <- IO.blocking(p.addInitScript(recorder))
+          _ <- IO.blocking(p.navigate(uri.renderString))
+          _ <- eventually(text(p, "#done"))(_ == "yes")
+          shown <- text(p, "#filled")
+          seen <- strings("() => window.__seen")
+          frames <- strings("() => window.__frames")
+        } yield (shown, seen, frames)
     }
 
   private val frame =

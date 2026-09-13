@@ -9,7 +9,7 @@ class SectionTitle extends nodes.Node {
   card = "sectionTitle"
   cardDef = new nodes.CardDef {
     template = """
-      <h2 class="section \(textMod.BOX)">\(textMod.run("label"))</h2>
+      <h2 class="fh-section \(textMod.BOX)">\(textMod.run("label"))</h2>
       """
     slots { "label" }
   }

@@ -7,9 +7,10 @@ import io.circe.Json
   * `theme-beer.pkl` chrome/CSS (unlike [[PklFixture.dummyTheme]] fixtures
   * elsewhere, these tests exist specifically to exercise real CSS/JS in a real
   * browser), plus one of each interaction class a UI/visual smoke test needs
-  * something to click — a popup trigger, a tab bar, and a brightness slider —
-  * over the [[HouseFixture]] entities, so the served state and the dashboard
-  * can never drift (same discipline as [[PklFixture]]).
+  * something to click — a popup trigger, a tab bar, a brightness slider, and a
+  * domain composition (`c.lock.controls`) — over the [[HouseFixture]] entities,
+  * so the served state and the dashboard can never drift (same discipline as
+  * [[PklFixture]]).
   *
   * The theme amend pins the text font (see [[fontPinnedTheme]]) — TEST-ONLY, so
   * [[fh.view.smoke.ComponentVisualSuite]]'s baselines are portable between a
@@ -63,6 +64,7 @@ object SmokeDashboard {
        |    c.entityCard(dump.entities.${HouseFixture.kitchenLight.dumpKey}).tapAction(c.tap.openPopup("detail"))
        |    c.button("Toggle Kitchen", c.tap.service("light/toggle")).entity(dump.entities.${HouseFixture.kitchenLight.dumpKey})
        |    c.slider(dump.entities.${HouseFixture.kitchenLight.dumpKey})
+       |    c.lock.controls(dump.entities.${HouseFixture.frontLock.dumpKey})
        |    (c.tabs) {
        |      tabs {
        |        ["Lights"] { c.entityCard(dump.entities.${HouseFixture.livingRoomLight.dumpKey}) }
@@ -75,6 +77,37 @@ object SmokeDashboard {
 
   val dashboard: Dashboard =
     PklFixture.buildDashboard("smoke-house", entrySource)
+
+  /** An appliance mid-cycle — `c.progress` over the three washer sensors.
+    *
+    * Its own dashboard for the INVERSE of the reason [[percentSlider]] has one:
+    * this card is here to be photographed, and putting it on [[dashboard]]
+    * would move `full-dashboard.png` as well, making two baselines to mint from
+    * CI where the card itself needs one. Everything else on this page would
+    * then be re-photographed to add a card that is not about them.
+    */
+  val appliance: Dashboard =
+    PklFixture.buildDashboard(
+      "smoke-appliance",
+      s"""amends "@fh-dashboard/entry.pkl"
+         |
+         |import "@fh-dashboard/components.pkl" as c
+         |import "@fh-home/dump.pkl" as dump
+         |
+         |title = "Smoke Appliance"
+         |
+         |$fontPinnedTheme
+         |
+         |card = (c.column) {
+         |  children {
+         |    (c.progress(dump.entities.${HouseFixture.washerRemaining.dumpKey})) {
+         |      total = dump.entities.${HouseFixture.washerProgram.dumpKey}
+         |      status = dump.entities.${HouseFixture.washerStatus.dumpKey}
+         |    }
+         |  }
+         |}
+         |""".stripMargin
+    )
 
   /** A slider whose line reads out its LEVEL — the readout a drag has to move
     * itself, since it is a function of the position rather than of the state.
@@ -124,6 +157,59 @@ object SmokeDashboard {
          |card = (c.column) {
          |  children {
          |    c.slider(dump.entities.${HouseFixture.kitchenLight.dumpKey}).tapAction(c.tap.service("light/toggle"))
+         |  }
+         |}
+         |""".stripMargin
+    )
+
+  /** A name no phone can fit, for the layout tests that ask what a slider does
+    * when its label is longer than the room it has.
+    */
+  val longName = "Kitchen Ceiling Spotlights Above The Sink"
+
+  /** Every shape a slider row takes, each in a fitting and an overflowing
+    * spelling: a plain row, a group's head, and a member row. Both bugs
+    * [[fh.view.smoke.UiSmokeSuite]]'s narrow-viewport tests cover (a squeezed
+    * badge, a readout pushed off the card) appear only when the text overflows
+    * and behave differently per shape — a member's head is a grid item, a plain
+    * row's is a block — so a single long label proves nothing about the others.
+    */
+  val longLabelRows: Dashboard =
+    PklFixture.buildDashboard(
+      "smoke-long-label",
+      s"""amends "@fh-dashboard/entry.pkl"
+         |
+         |import "@fh-dashboard/components.pkl" as c
+         |import "@fh-home/dump.pkl" as dump
+         |
+         |title = "Smoke Long Label"
+         |
+         |$fontPinnedTheme
+         |
+         |card = (c.column) {
+         |  children {
+         |    (c.slider(dump.entities.${HouseFixture.kitchenLight.dumpKey})) {
+         |      label = "Short"
+         |      readout = "percent"
+         |    }
+         |    (c.slider(dump.entities.${HouseFixture.kitchenLight.dumpKey})) {
+         |      label = "$longName"
+         |      readout = "percent"
+         |    }
+         |    (c.slider(dump.entities.${HouseFixture.kitchenLight.dumpKey})) {
+         |      label = "$longName"
+         |      readout = "percent"
+         |      members {
+         |        (c.slider(dump.entities.${HouseFixture.livingRoomLight.dumpKey})) {
+         |          label = "$longName"
+         |          readout = "percent"
+         |        }
+         |        (c.slider(dump.entities.${HouseFixture.kitchenLight.dumpKey})) {
+         |          label = "Short"
+         |          readout = "percent"
+         |        }
+         |      }
+         |    }
          |  }
          |}
          |""".stripMargin

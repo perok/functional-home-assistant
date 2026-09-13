@@ -99,9 +99,17 @@ and so cannot depend on either tool's cleverness.
   mechanism itself wraps with it (`PopupSurface`, `openPopupInline`), so putting
   it in `components/` would point a kernel module at the component tier.
 - Shared helpers had to become public for the families to reach them —
-  `labelSlot`/`valueSlot`/`secondarySlot` (`core/slot.pkl`), the icon tables
+  `labelSlot`/`valueSlot`/`secondarySlot` (`core/slot.pkl`), icon resolution
   (`core/icon.pkl`), `noSignals` (`core/tap.pkl`). That is a gain: a third-party
   card can now look like a shipped one without copying JSONata.
+
+  The icon TABLES themselves are not in that tier, and the split is what the
+  audience rule means in practice: `iconFor`/`stateIconFor` are what a component
+  author calls, while `hass/icons.pkl`'s per-device-class, per-domain and
+  per-state glyph maps are vendored HA facts nobody reads directly. What decides
+  the tier is who reads it — and for a vendored table the reader is whoever
+  re-syncs against a new HA release, which is why every such table is under
+  `hass/` where that person is already looking.
 - **This is a breaking rename** (alpha, and taken deliberately): the seven tap
   constructors moved under `c.tap`, `lightControls`/`effectPills` under
   `c.light`, `floorView` under `c.recipes`. Existing user dashboards fail at

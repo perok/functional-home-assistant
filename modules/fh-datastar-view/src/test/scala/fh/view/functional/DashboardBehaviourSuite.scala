@@ -85,8 +85,14 @@ class DashboardBehaviourSuite extends FunctionalSuite {
     // subsequent real one — driven through the fake's queue, not a private seam.
     withServer(scene.card(FixtureDashboard.reading(outside))) { ts =>
       for {
-        firstChange <- ts.store.changes.take(1).compile.lastOrError.start
+        // TWO gates, and the order matters. The per-slug recorder subscribes to
+        // `changes` on its own, so waiting for ONE subscriber is answered by the
+        // recorder — and the emits below could then land before this test's
+        // fiber has subscribed, leaving `take(1)` waiting forever on changes it
+        // never saw. Wait for the recorder first, then for this fiber on top.
         _ <- ts.awaitChangeSubscribers(1)
+        firstChange <- ts.store.changes.take(1).compile.lastOrError.start
+        _ <- ts.awaitChangeSubscribers(2)
         // No-op: same value the fixture already seeded -> dropped by update.
         _ <- ts.fake.emit(outside.entityId, outside.state, outside.attributes)
         // A real change -> published.

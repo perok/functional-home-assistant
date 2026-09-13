@@ -46,7 +46,9 @@ object VisualSnapshot {
     * machine.
     *
     * `FH_VISUAL_FAILURES_DIR` names it, and CI sets it to a runner temp path it
-    * then uploads. The fallback is a gitignored dir under this module's
+    * then uploads — from a step that runs before any sbt one, because this
+    * suite runs in the sbt SERVER and inherits the environment of whichever
+    * client started it. The fallback is a gitignored dir under this module's
     * `target`, which is right when `os.pwd` is the repo root — and that is an
     * assumption, not a guarantee: sbt's working directory for a forked test is
     * not something this file should be encoding. The env var is how a caller
@@ -109,9 +111,19 @@ object VisualSnapshot {
       os.makeDir.all(snapshotDir)
       os.write.over(file, actual)
     } else if (!os.exists(file)) {
+      // The shot goes to the failure dir too, so a NEW baseline can be adopted
+      // from CI's artifact. Without this the advice above was unreachable for
+      // the one case that needs it most: the local regenerate bakes in this
+      // machine's rasterization, and a first baseline has no before/after pair
+      // to fall back on — so the only portable way to mint one is to let CI
+      // take the shot and commit what it uploaded.
+      os.makeDir.all(failureDir)
+      os.write.over(failureDir / s"$name.actual.png", actual)
       throw new AssertionError(
-        s"missing visual snapshot $file — regenerate with " +
-          "`sbt dashboardVisualSnapshotsUpdate`"
+        s"missing visual snapshot $file — $name.actual.png written to " +
+          s"$failureDir. Commit THAT file as the baseline (CI's copy is the " +
+          "portable one), or regenerate locally with " +
+          "`sbt dashboardVisualSnapshotsUpdate` if this machine is the reference."
       )
     } else {
       val expectedImg = decode(os.read.bytes(file))

@@ -45,3 +45,5 @@ to move it; 0003 and 0007 own two of the three node kinds it draws.
 - [0026 — The look is BeerCSS: an MD3 framework that styles semantic HTML](0026-the-look-is-beercss.md)
 - [0027 — Transforms are CEL: the engine swap and what it kept](0027-transforms-are-cel.md)
 - [0028 — The simple tier is opted into, not recognized](0028-simple-tier-is-opted-in.md)
+- [0029 — A node's fingerprint digests its render INPUTS, not its output bytes](0029-digest-render-inputs.md) *(rejected after measurement)*
+- [0030 — Subscribe to what we read](0030-subscribe-to-what-we-read.md)

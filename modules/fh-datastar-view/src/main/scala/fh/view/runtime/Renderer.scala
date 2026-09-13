@@ -15,6 +15,7 @@ import fh.view.model.{
   SignalBind,
   SignalId,
   SlotSource,
+  SlotValue,
   Surface
 }
 import scala.jdk.CollectionConverters.*
@@ -37,7 +38,25 @@ private[runtime] case class Painted(
     // that needs real bytes ([[Renderer.render]], one node) asks for the walk
     // ROOT's, which [[Traced.rootOwn]] carries.
     digest: Digest,
-    signals: Map[SignalId, String]
+    signals: Map[SignalId, SlotValue]
+)
+
+/** What is in a host, from [[Renderer.renderHost]]: the parts to splice, and
+  * what each node inside them now holds — so the next tick can tell "unchanged"
+  * from "never told".
+  *
+  * `claims` is built HERE rather than at the fill site because only this knows
+  * which of the two shapes produced the parts, and they claim different ids. A
+  * candidate set's members are separate renders, so each part IS a claimable
+  * node and its bytes are hashed. A state group's branch is ONE walk whose part
+  * is the composed subtree under a root with no rendering of its own — hashing
+  * that would claim an id no later render can resolve — so it claims the walk's
+  * own per-node digests instead ([[Renderer.Traced]]), which cost nothing
+  * because the walk produced them anyway.
+  */
+private[runtime] case class HostContent(
+    parts: List[(NodeId, String)],
+    claims: Map[NodeId, Held]
 )
 
 /** Which of a signal slot's two renderings a walk is producing (ADR 0017).
@@ -314,6 +333,13 @@ class Renderer(
   def references(entityId: String): Boolean =
     dashboard.referencedEntities.contains(entityId)
 
+  /** Every entity a change to which could make this dashboard render
+    * differently — what the live subscription asks HA for. WIDER than
+    * [[references]]; see [[Dashboard.watchedEntities]] for why they are two
+    * values and not one.
+    */
+  def watchedEntities: Set[String] = dashboard.watchedEntities
+
   def surfaceComponentsFor(surfaceId: String, entityId: String): Set[NodeId] =
     surfaceIndexes
       .get(surfaceId)
@@ -499,20 +525,6 @@ class Renderer(
     own.asScala.toMap
   }
 
-  /** Bare content, with no wrapper: every surface is chrome-less, because the
-    * host it swaps into and any frame around it live in `theme.chrome` rather
-    * than per-surface.
-    */
-  def renderSurface(
-      surfaceId: String,
-      states: Map[String, EntityState],
-      uiState: Map[String, String] = Map.empty
-  ): Option[String] =
-    renderSurfaceTraced(surfaceId, states, uiState).map(_.html)
-
-  /** [[renderSurface]] with the per-node trace — what a FILL uses, so the log
-    * learns what the fill put in each node without re-rendering the subtree.
-    */
   /** A surface as a WRITER HOLE for the page's chrome — the same walk
     * [[renderSurfaceTraced]] runs, tracing into the page's own buffer and
     * accumulator instead of building a String for mustache to splice. `None`
@@ -541,6 +553,11 @@ class Renderer(
       )
     }
 
+  /** Bare content with no wrapper — every surface is chrome-less, because the
+    * host it swaps into and any frame around it live in `theme.chrome` rather
+    * than per-surface — plus the per-node trace, which is what a FILL claims so
+    * the log learns what it put in each node without re-walking the subtree.
+    */
   private[runtime] def renderSurfaceTraced(
       surfaceId: String,
       states: Map[String, EntityState],
@@ -619,22 +636,33 @@ class Renderer(
   /** What a wholesale FILL carries, for EITHER kind of container: a candidate
     * set's members, or a state group's one active branch. Both are "what is in
     * this host", so they answer here rather than at each fill site.
+    *
+    * A state group's branch is walked with its trace kept, because the walk
+    * produces it either way ([[Traced]]) and the fill is the only thing that
+    * can tell the client's record what it just put in each node.
     */
-  def renderHost(
+  private[runtime] def renderHost(
       container: NodeId,
       states: Map[String, EntityState],
       uiState: Map[String, String] = Map.empty
-  ): List[(NodeId, String)] =
+  ): HostContent =
     members.setContainer(container) match {
-      case Some(setId) => renderMembers(setId, states)
-      case None        =>
+      case Some(setId) =>
+        val parts = renderMembers(setId, states)
+        HostContent(
+          parts,
+          parts.map { case (id, html) => id -> Held.of(html) }.toMap
+        )
+      case None =>
         surfaces
           .resolveActiveByState(container, states)
           .flatMap(surfaces.bakeGroup(container).lift)
           .flatMap(sid =>
-            renderSurface(sid, states, uiState).map(surfaceContentId(sid) -> _)
+            renderSurfaceTraced(sid, states, uiState).map(t =>
+              HostContent(List(surfaceContentId(sid) -> t.html), t.claims)
+            )
           )
-          .toList
+          .getOrElse(HostContent(Nil, Map.empty))
     }
 
   /** Every LOG KEY must be resolvable here, because the log holds a digest
@@ -994,7 +1022,15 @@ class Renderer(
       // [[Renderer.render]] wants real bytes out of a trace, and it always
       // wants the root's, so every other node keeps only its digest.
       rootOwn: Option[String] = None
-  )
+  ) {
+
+    /** What a client holds once this walk's bytes are in its DOM — every fill
+      * records the same thing, so it is derived here rather than spelled out at
+      * each one.
+      */
+    def claims: Map[NodeId, Held] =
+      own.map { case (id, p) => id -> Held(Some(p.digest), p.signals) }
+  }
 
   /** A static floor on the nodes a subtree renders, for sizing its buffer: the
     * structure plus every region child. A set counts its candidates and members
@@ -1672,7 +1708,7 @@ class Renderer(
 
   private def memberSeedOf(
       m: Member,
-      values: Map[SignalId, String]
+      values: Map[SignalId, SlotValue]
   ): Datastar.SignalSeed = {
     val key: String = m.id
     val cached = memberSeeds.get(key)
@@ -1684,7 +1720,7 @@ class Renderer(
     }
   }
 
-  private def memberSignalsOf(rm: ResolvedMember): Map[SignalId, String] =
+  private def memberSignalsOf(rm: ResolvedMember): Map[SignalId, SlotValue] =
     rm.regions.values.flatten.foldLeft(rm.resolved.signals) {
       case (acc, ResolvedChild.Node(_, n))   => acc ++ memberSignalsOf(n)
       case (acc, ResolvedChild.NestedSet(_)) => acc
@@ -1738,7 +1774,7 @@ class Renderer(
     * @param structural
     *   constants from the node's position (ids, inherited entity)
     * @param constants
-    *   literal and identity-`once` slot values
+    *   literal and identity-`once` slot values, plus every slot's `__has`
     * @param bindings
     *   the `__bind`/`__signal` strings (constant subject)
     * @param paint
@@ -1757,11 +1793,11 @@ class Renderer(
       structural: Map[String, String],
       constants: Map[String, String],
       bindings: Map[String, String],
-      paint: Map[String, String],
+      paint: Map[String, SlotValue],
       bake: Map[String, String],
       liveBindings: Map[String, String],
       signalSlots: List[String],
-      signals: Map[SignalId, String]
+      signals: Map[SignalId, SlotValue]
   )
 
   /** The template context, READ IN PLACE.
@@ -1825,9 +1861,22 @@ class Renderer(
             // (`RenderBench.page`, async-profiler). Each default is the
             // constant `null` now, which is non-capturing and therefore the
             // JVM's one cached instance.
-            var v: String | Null = resolved.bindings.getOrElse(name, null)
+            //
+            // `AnyRef`, not `String`, for ONE layer's sake: `paint` can hold a
+            // boxed `java.lang.Boolean`, and it has to reach mustache as one.
+            // A `{{#slot}}…{{/slot}}` section is driven by `Boolean`, and the
+            // STRING "false" is truthy there — stringifying on the way out
+            // would set `disabled` in exactly the case that must not, in the
+            // plain form, which is the one a browser without JS gets.
+            var v: AnyRef | Null = resolved.bindings.getOrElse(name, null)
             if (v == null) v = resolved.liveBindings.getOrElse(name, null)
-            if (v == null) v = resolved.paint.getOrElse(name, null)
+            if (v == null) {
+              // Not `.get(name).map(...)`: an `Option` here is the same
+              // per-lookup allocation the note above measured away. `scoped`
+              // returns the String itself, or one of the two cached boxes.
+              val p: SlotValue | Null = resolved.paint.getOrElse(name, null)
+              if (p != null) v = SlotValue.scoped(p)
+            }
             if (v == null) v = resolved.constants.getOrElse(name, null)
             if (v == null) v = resolved.bake.getOrElse(name, null)
             if (v == null) v = resolved.structural.getOrElse(name, null)
@@ -1924,11 +1973,29 @@ class Renderer(
     val dynB = List.newBuilder[(String, Option[String], SlotSource)]
     val dynInhB = List.newBuilder[(String, SlotSource)]
     slots.foreach { case (slot, source) =>
+      // The SECTION GUARD (ADR 0017), for every declared slot rather than only
+      // the signal-backed ones. A signal slot's value is withheld in the patch
+      // form, and a withheld value is a FALSE Mustache section — so
+      // `{{#value}}…{{/value}}` renders once and then deletes its own element,
+      // and the binding inside it, on the first patch. Nothing writes to a
+      // binding that has left the DOM.
+      //
+      // Uniform across the tiers because a card does not always know which one
+      // it got: `entityCard`'s icon is a signal where the domain has a state
+      // glyph and a literal otherwise, and one `{{#icon__has}}` has to work for
+      // both. `__has` therefore answers "this node declares this slot", which
+      // is a fact about the CARD and constant in both forms.
+      constB += ((slot + "__has", "1"))
       source.literal match {
         // A constant literal: used verbatim, reading no entity and running no
         // transform — the cheap path for a hardcoded label/action.
-        case Some(text) => constB += ((slot, text))
-        case None       =>
+        case Some(text) =>
+          constB += ((slot, text))
+          // `__read`: the slot's value as a JS EXPRESSION, for a card composing
+          // it into a handler of its own. A literal reads as itself, quoted.
+          // See the signal half in `bindings` below, and ADR 0017.
+          constB += ((slot + "__read", Datastar.jsLiteral(text)))
+        case None =>
           subjectConst match {
             case Some(subject) =>
               // A slot's entity is its own `entityId`, or the subject when it
@@ -1949,15 +2016,14 @@ class Renderer(
               // `live` and `onRender` both re-resolve; they differ in whether
               // the entity is SUBSCRIBED, which is `liveEntities`' business,
               // not this one. That is why the memo asks only about `once`.
-              if (source.reads == Reads.Once)
-                constB += ((
-                  slot,
-                  identityCache.computeIfAbsent(
-                    (srcEntity.getOrElse(""), source.valueKey),
-                    _ => resolveSlot(srcEntity, source, states)
-                  )
-                ))
-              else dynB += ((slot, srcEntity, source))
+              if (source.reads == Reads.Once) {
+                val once = identityCache.computeIfAbsent(
+                  (srcEntity.getOrElse(""), source.valueKey),
+                  _ => resolveSlot(srcEntity, source, states)
+                )
+                constB += ((slot, once))
+                constB += ((slot + "__read", Datastar.jsLiteral(once)))
+              } else dynB += ((slot, srcEntity, source))
             // A dynamic subject makes every inheritance chain a per-paint
             // question; [[resolveDirect]] runs the node and the plan holds
             // nothing per-slot (and seeds no memo under a key that could be
@@ -2006,7 +2072,15 @@ class Renderer(
           // it does not compromise the plain form — but a card that uses it is
           // relying on a signal existing, which a plain-form client has not
           // got.
-          s"${slot}__signal" -> signal
+          s"${slot}__signal" -> signal,
+          // `__read`: the same value as a JS EXPRESSION, so a card composing it
+          // into a handler never learns which tier filled the slot — a literal
+          // reads as `'light/toggle'`, a signal as `$_e.lock.front.t4d7a74a1`,
+          // and the card's markup is identical either way. That uniformity is
+          // what lets ONE template serve a static tap and a state-dependent
+          // one, and it is why the plain form stays reachable: with no signals
+          // the same slot falls back to its quoted literal (issue #133).
+          s"${slot}__read" -> s"$$$signal"
         )
       }.toMap,
       signalSlots = named.map(_._1),
@@ -2056,13 +2130,13 @@ class Renderer(
     // the name the template asks for is answered from whichever layer holds
     // it ([[NodeContext.fhGet]]). The old assembly built one merged map per
     // node per paint to say the same thing.
-    val paintB = Map.newBuilder[String, String]
+    val paintB = Map.newBuilder[String, SlotValue]
     paintB.sizeHint(plan.dynamic.size)
     val signalB =
       if (plan.signalNameBySlot.isEmpty) None
-      else Some(Map.newBuilder[SignalId, String])
+      else Some(Map.newBuilder[SignalId, SlotValue])
     plan.dynamic.foreach { case (slot, srcEntity, source) =>
-      val value = resolveSlot(srcEntity, source, states)
+      val value = resolveSlotValue(srcEntity, source, states)
       paintB += ((slot, value))
       plan.signalNameBySlot
         .get(slot)
@@ -2076,7 +2150,7 @@ class Renderer(
       bake = bakeIndex,
       liveBindings = Map.empty,
       plan.signalSlots,
-      signalB.fold(Map.empty[SignalId, String])(_.result())
+      signalB.fold(Map.empty[SignalId, SlotValue])(_.result())
     )
   }
 
@@ -2097,19 +2171,22 @@ class Renderer(
       slots.get(Dashboard.SubjectSlot).map { s =>
         s.literal.getOrElse(resolveSlot(s.entityId, s, states))
       }
-    val resolved = slots.map { case (slot, source) =>
-      val value = source.literal match {
+    val resolved: Map[String, SlotValue] = slots.map { case (slot, source) =>
+      val value: SlotValue = source.literal match {
         case Some(text) => text
         case None       =>
           val srcEntity =
             if (slot == Dashboard.SubjectSlot) source.entityId
             else source.entityId.orElse(subject)
+          // The `once` memo stays String-keyed and String-valued: a `once`
+          // slot is a pure function of WHICH entity this is (an action URL, an
+          // id), and nothing identity-derived is a boolean.
           if (source.reads == Reads.Once)
             identityCache.computeIfAbsent(
               (srcEntity.getOrElse(""), source.valueKey),
               _ => resolveSlot(srcEntity, source, states)
             )
-          else resolveSlot(srcEntity, source, states)
+          else resolveSlotValue(srcEntity, source, states)
       }
       slot -> value
     }
@@ -2133,7 +2210,8 @@ class Renderer(
     val bindings = named.flatMap { case (slot, kind, signal) =>
       List(
         s"${slot}__bind" -> Datastar.binding(signal, kind),
-        s"${slot}__signal" -> signal
+        s"${slot}__signal" -> signal,
+        s"${slot}__read" -> s"$$$signal"
       )
     }
     // Same layers as the planned path ([[NodeContext.fhGet]] resolves the
@@ -2201,7 +2279,7 @@ class Renderer(
   def signalsFor(
       id: NodeId,
       states: Map[String, EntityState]
-  ): Map[SignalId, String] =
+  ): Map[SignalId, SlotValue] =
     members
       .memberAt(id, states)
       .map(m => memberSignalsOf(resolveMember(m, states)))
@@ -2231,7 +2309,7 @@ class Renderer(
       id: NodeId,
       node: LayoutNode,
       states: Map[String, EntityState]
-  ): Map[SignalId, String] = node match {
+  ): Map[SignalId, SlotValue] = node match {
     case c: LayoutNode.Component =>
       val plan = planOf(id, id, c, states)
       // A dynamic subject is the shape a plan holds nothing per-slot for: the
@@ -2241,7 +2319,7 @@ class Renderer(
       if (plan.subjectDynamic) directSignalsOfSlots(id, c, states)
       else if (plan.signalNameBySlot.isEmpty) Map.empty
       else {
-        val b = Map.newBuilder[SignalId, String]
+        val b = Map.newBuilder[SignalId, SlotValue]
         b.sizeHint(plan.signalNameBySlot.size)
         // Only the signal slots, not every dynamic one: a signal slot is
         // always non-literal and `live`, so it is always in `dynamic`.
@@ -2249,7 +2327,7 @@ class Renderer(
           plan.signalNameBySlot
             .get(slot)
             .foreach(sig =>
-              b += ((sig, resolveSlot(srcEntity, source, states)))
+              b += ((sig, resolveSlotValue(srcEntity, source, states)))
             )
         }
         b.result()
@@ -2261,7 +2339,7 @@ class Renderer(
       id: NodeId,
       c: LayoutNode.Component,
       states: Map[String, EntityState]
-  ): Map[SignalId, String] = {
+  ): Map[SignalId, SlotValue] = {
     val subject = c.slots
       .get(Dashboard.SubjectSlot)
       .map(s => s.literal.getOrElse(resolveSlot(s.entityId, s, states)))
@@ -2270,7 +2348,7 @@ class Renderer(
         val entity = src.entityId.orElse(subject)
         val kind = Renderer.signalBind(src).getOrElse(SignalBind.Text)
         Renderer.signalName(id, slot, entity, src.valueKey, kind) ->
-          resolveSlot(entity, src, states)
+          resolveSlotValue(entity, src, states)
     }
   }
 
@@ -2282,7 +2360,20 @@ class Renderer(
       srcEntity: Option[String],
       source: SlotSource,
       states: Map[String, EntityState]
-  ): String = {
+  ): String = SlotValue.text(resolveSlotValue(srcEntity, source, states))
+
+  /** [[resolveSlot]] keeping a BOOLEAN result boolean — see [[SlotValue]] for
+    * why the difference is load-bearing rather than cosmetic.
+    *
+    * The `default` rule is unchanged and applies to bytes only: a boolean is
+    * never "empty", so it never falls through to `default`. That is the honest
+    * reading — `false` is an answer, not a missing one.
+    */
+  private def resolveSlotValue(
+      srcEntity: Option[String],
+      source: SlotSource,
+      states: Map[String, EntityState]
+  ): SlotValue = {
     val st =
       srcEntity
         .flatMap(states.get)
@@ -2295,11 +2386,15 @@ class Renderer(
     else {
       // ONE wire fact, two forms: the Simple object never touches the engine,
       // the CEL string never leaves it — the form IS the tier (ADR 0028).
-      val out = source.transform match {
-        case sm: Transform.Simple => transforms.run(sm, st)
-        case t: String            => transforms.run(t, st, dashboard.slug)
+      val out: SlotValue = source.transform match {
+        case sm: Transform.Simple => transforms.runValue(sm, st)
+        case t: String            => transforms.runValue(t, st, dashboard.slug)
       }
-      if (out.nonEmpty) out else source.default.getOrElse("")
+      out match {
+        case b: Boolean              => b
+        case s: String if s.nonEmpty => s
+        case _                       => source.default.getOrElse("")
+      }
     }
   }
 }

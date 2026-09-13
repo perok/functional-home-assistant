@@ -1,12 +1,13 @@
 package fh.view.runtime
 
-import scala.util.chaining.*
 import api.homeassistant.HomeAssistantApi
-import cats.data.OptionT
+import scala.util.chaining.*
+import cats.data.{NonEmptyList, OptionT}
 import cats.effect.{IO, Resource}
 import cats.effect.kernel.Ref
 import cats.effect.std.Supervisor
 import cats.syntax.all.*
+import fh.view.telemetry.{Diagnostics, Logging, Meters}
 import fh.view.build.{
   AddonBootstrap,
   DashboardBuild,
@@ -22,6 +23,9 @@ import fs2.Stream
 import fs2.concurrent.{Signal, SignallingRef}
 import io.circe.{Decoder, Json}
 import org.http4s.*
+// `EntityEncoder[IO, Json]`, so a JSON route answers `Ok(json)` and takes its
+// content type from the encoder rather than restating it.
+import org.http4s.circe.*
 import org.http4s.dsl.io.*
 import org.http4s.headers.{
   `Cache-Control`,
@@ -30,6 +34,9 @@ import org.http4s.headers.{
   ETag
 }
 import org.typelevel.ci.CIString
+import org.typelevel.log4cats.LoggerFactory
+import org.typelevel.otel4s.Attribute
+import org.typelevel.otel4s.trace.Tracer
 
 import java.nio.charset.StandardCharsets.UTF_8
 
@@ -53,7 +60,10 @@ import scala.concurrent.duration.*
   * one at runtime (ADR 0010).
   */
 class Server(
-    api: HomeAssistantApi[IO],
+    // Not the whole API: writing is all the server does to HA directly (it
+    // READS through the store), and who a write is attributed to is a live
+    // question — see [[ServiceCalls]].
+    actions: ServiceCalls,
     stateStore: StateStore,
     // Every dashboard this instance currently serves and which one answers `/`
     // ([[Server.LiveSite]]) — one hot-swappable renderer STATE per slug, paired
@@ -95,8 +105,28 @@ class Server(
     adoptionWindow: FiniteDuration = Server.AdoptionWindow,
     // How long a session outlives its stream ([[Server.LingerWindow]]). Same
     // reason it is a parameter.
-    lingerWindow: FiniteDuration = Server.LingerWindow
+    lingerWindow: FiniteDuration = Server.LingerWindow,
+    // Spans for the page-open path (#75). The no-op default is what every
+    // test and a standalone construction get, and it is also what the add-on
+    // itself runs on unless an OTLP endpoint is configured ([[Telemetry]]) —
+    // so this parameter changes what is REPORTED, never what is done.
+    tracer: Tracer[IO] = Tracer.noop,
+    // Where log lines go. The console-only default is what every test and a
+    // standalone construction get; the add-on passes the fan-out factory
+    // ([[Logging]]), so a line written while serving a request carries that
+    // request's trace id — which is what lets a slow trace and the warning
+    // that explains it find each other.
+    loggerFactory: LoggerFactory[IO] = Logging.console,
+    // The unsampled counterpart of the spans above ([[Meters]]). No-op by
+    // default, like the tracer, and for the same reason.
+    meters: Meters = Meters.noop
 ) {
+
+  /** `logger`, not `log`: `renderPage` already takes a `log: FragmentLog`, and
+    * a field that a parameter shadows in one method and not the others is a
+    * trap rather than a convenience.
+    */
+  private val logger = loggerFactory.getLoggerFromClass(classOf[Server])
 
   val routes: HttpRoutes[IO] = HttpRoutes.of[IO] {
     // Resolved per REQUEST, not at construction: the entrypoint can rename or
@@ -181,9 +211,10 @@ class Server(
       )
 
     // The workspace scaffold a laptop's `fh init` fetches and writes verbatim:
-    // the machine-AGNOSTIC, byte-identical files (ADR 0010). The per-machine
-    // `.fh/machine.json` is NOT served — `fh` writes its own (its cache dir + the
-    // instance URL). Before the `:name` catch-all so these exact names win.
+    // the machine-AGNOSTIC, byte-identical files (ADR 0010). `.fh/machine.json`
+    // is NOT served — this instance has none, its two per-reader values being
+    // its own environment's; `fh init` writes the laptop's. Before the `:name`
+    // catch-all so these exact names win.
     case GET -> Root / "system" / "pkl" / "base.pkl" =>
       Ok(AddonBootstrap.BaseManifest)
         .map(_.putHeaders(`Content-Type`(MediaType.text.plain)))
@@ -230,6 +261,39 @@ class Server(
     // Admin (ADR 0023) — `fh push` carries an HA long-lived token as a bearer.
     case req @ POST -> Root / "system" / "push" / slug =>
       gate.handleRequirement(req, Requirement.Admin)(pushResponse(slug, req))
+
+    // What this add-on is spending on the machine ([[Diagnostics]]): the
+    // container's cgroup figure — the one the supervisor's percentage is
+    // computed from — beside the JVM's own heap/pool/GC accounting, so the two
+    // can be read against each other rather than one at a time.
+    //
+    // Admin-only, like the rest of /system. It reports sizes and counts, never
+    // dashboard content or who is logged in.
+    case req @ GET -> Root / "system" / "diagnostics" =>
+      gate.handleRequirement(req, Requirement.Admin)(
+        Diagnostics.report().flatMap(Ok(_))
+      )
+
+    // The two dumps, split off the report above because they are large, TEXT,
+    // and read rather than parsed — and because taking a thread dump pauses
+    // every thread, which is not a price to pay for asking how much memory is
+    // in use.
+    //
+    // `Thread.print` is the JVM's own: what shows a deadlock, or a pool with
+    // every thread blocked on the same monitor.
+    case req @ GET -> Root / "system" / "diagnostics" / "threads" =>
+      gate.handleRequirement(req, Requirement.Admin)(
+        Diagnostics.threadDump.flatMap(plainText)
+      )
+
+    // The cats-effect one, which the JVM's cannot replace: this server's work
+    // runs as FIBERS over a handful of carrier threads, so a thread dump of a
+    // stuck dashboard shows an idle worker pool and says nothing about the
+    // fiber that is actually parked. This names them.
+    case req @ GET -> Root / "system" / "diagnostics" / "fibers" =>
+      gate.handleRequirement(req, Requirement.Admin)(
+        Diagnostics.fiberDump.flatMap(plainText)
+      )
 
     // Recreate the entity dump on demand (the /edit editor's "refresh dump"
     // button): re-fetch from HA, validate every dashboard against the new dump
@@ -338,6 +402,13 @@ class Server(
       case e: FHError => FHError.logged(e)
       case err        => InternalServerError(err.getMessage)
     }
+
+  /** A dump answered as plain text — declared, because a browser shown a thread
+    * dump as `application/octet-stream` downloads it instead of displaying it,
+    * and reading it in the browser is the whole point.
+    */
+  private def plainText(body: String): IO[Response[IO]] =
+    Ok(body).map(_.withContentType(`Content-Type`(MediaType.text.plain)))
 
   /** The current renderer for `slug`, or `None` if no such dashboard is
     * registered. Reads through the registry `Ref`, so it sees slugs pushed
@@ -639,7 +710,7 @@ class Server(
       // Warn on any off ui-state value.
       _ <- Server
         .cursorAnomaly(req)
-        .traverse_(w => IO.println(s"[warn] $w"))
+        .traverse_(w => logger.warn(w))
       _ <- rendererOpt.traverse_ { r =>
         warnAnomalies(r, uiState) *>
           session.open.set(
@@ -1519,7 +1590,7 @@ class Server(
   ): IO[Unit] =
     renderer.surfaces
       .uiStateAnomalies(uiState)
-      .traverse_(w => IO.println(s"[warn] $w"))
+      .traverse_(w => logger.warn(w))
 
   /** Datastar reads live updates from the persistent SSE stream, so a service
     * call that WORKS returns no content.
@@ -1545,11 +1616,18 @@ class Server(
       serviceData: Json,
       req: Request[IO]
   ): IO[Response[IO]] =
-    api.callService(domain, service, entityId, serviceData).attempt.flatMap {
-      case Right(_)  => NoContent()
-      case Left(err) =>
-        actionRefused(req, Option(err.getMessage).getOrElse(err.toString))
-    }
+    actions
+      .call(req, domain, service, entityId, serviceData)
+      .attempt
+      .flatMap {
+        case Right(_)  => NoContent()
+        case Left(err) =>
+          // NOT retried, deliberately. A `call_service` is not idempotent — a
+          // toggle run twice is back where it started — and a failure arriving
+          // here cannot say whether HA ran it, so the safe answer is to tell
+          // the person and let them press again.
+          actionRefused(req, Option(err.getMessage).getOrElse(err.toString))
+      }
 
   /** **What every refused action answers**, whatever refused it: HA rejecting
     * the service call, this dashboard not naming the entity (ADR 0023), a
@@ -1838,7 +1916,17 @@ class Server(
       // argument in `recordFrame`.
       _ <- sessions.register(conn, session)
       _ <- reapAfter(conn, session, Tenure.Fresh, adoptionWindow)
-      store <- stateStore.current
+      store <- tracer
+        .span("dashboard.page.store", Attribute("fh.slug", slug))
+        .surround(stateStore.current)
+      // The REQUEST's span, put here by the http4s middleware, captured while
+      // it is still current and handed to the walk below. The walk cannot
+      // inherit it: it runs when the RESPONSE BODY IS PULLED, after this `for`
+      // has returned, so without carrying the context across it would open its
+      // own trace and the expensive half of a page open would sit unattached
+      // to the request that caused it. That disconnect is exactly what #75
+      // describes as making this path invisible.
+      parentSpan <- tracer.currentSpanContext
       // Where the walk leaves its trace. The render has not happened yet — it
       // happens as the RESPONSE BODY IS PULLED — so what the page painted is
       // only known once the last byte is out, which is why `holds` is
@@ -1936,7 +2024,24 @@ class Server(
             // body.
             w.flush()
             own
-          }.flatMap(ownRef.set)
+          }.flatMap(own =>
+            ownRef.set(own) *>
+              // The node count is the size of what was just painted, and it is
+              // the number the walk's duration has to be read against — 200
+              // nodes in 40 ms and 20 nodes in 40 ms are different findings.
+              tracer.currentSpanOrNoop.flatMap(
+                _.addAttribute(Attribute("fh.nodes", own.size.toLong))
+              ) *> meters.pageNodes.record(own.size.toLong)
+          )
+            // Where a page open actually spends its time, and the span #75 was
+            // opened to get: everything above prices the SETUP, while this is
+            // the render plus the write, on a blocking thread, measured on the
+            // machine that is slow rather than on a dev box.
+            .pipe(walk =>
+              tracer.childOrContinue(parentSpan)(
+                tracer.span("dashboard.page.walk").surround(walk)
+              )
+            )
         }
         // `holds` is "bytes this client was sent", so it is committed once
         // they HAVE been — on success only. An abandoned or truncated page
@@ -1956,7 +2061,7 @@ class Server(
               })
             )
           case Resource.ExitCase.Errored(e) =>
-            IO.println(s"[warn] page render for '$slug' failed mid-walk: $e")
+            logger.warn(e)(s"page render for '$slug' failed mid-walk")
           case Resource.ExitCase.Canceled => IO.unit
         }
       resp <- Ok(body)
@@ -2174,6 +2279,7 @@ class Server(
          |     data-on-signal-patch-filter="{include:/^${Server.ToastSignal}$$/}"
          |     data-on-signal-patch="$$${Server.ToastSignal} && (fhToast($$${Server.ToastSignal}), $$${Server.ToastSignal} = '')"
          |     data-on:${Server.StreamEvent}__document__debounce.600ms="$$_sse = $sseLatched">
+         |  <div $hidden ${Server.PendingSweep}></div>
          |  <div class="fh-offline fh-offline-sse" $hidden role="status" aria-live="assertive" data-show="$$_sse > 0">
          |    <span $hidden data-show="$$_sse < 2">Reconnecting to the dashboard…</span>
          |    <span $hidden data-show="$$_sse >= 2">Dashboard connection lost. <button class="fh-offline-action" data-on:click="window.location.reload()">Reload</button></span>
@@ -2390,6 +2496,38 @@ object Server {
 
     def changes: Stream[IO, Map[String, LiveSlug]] =
       entries.discrete.map(_.view.mapValues(_.live).toMap)
+
+    /** The union of what every registered dashboard reads — the entity set the
+      * upstream subscription is narrowed to ([[HaFeed]]).
+      *
+      * Two levels of liveness, and both matter: the SLUG SET moves on a reload
+      * or a `push`, and one slug's renderer is swapped in place by an edit or a
+      * dump refresh. `switchMap` re-derives the inner signal when the first
+      * moves; the inner one is the product of the renderers, so it re-emits
+      * when the second does.
+      *
+      * A failed dashboard contributes nothing: it renders no entity, and its
+      * error page reads none.
+      *
+      * Empty means EMPTY — no dashboards, so nothing is owed any state. It must
+      * not be confused with "unfiltered", which is what `None` means one layer
+      * up; that distinction is the whole reason this returns a bare `Set`.
+      */
+    def watchedEntities: Stream[IO, Set[String]] =
+      changes.switchMap { slugs =>
+        NonEmptyList.fromList(slugs.values.toList) match {
+          case None       => Stream.emit(Set.empty[String])
+          case Some(live) =>
+            live
+              .traverse(l =>
+                l.renderer.map(
+                  _.rendererOf.fold(Set.empty[String])(_.watchedEntities)
+                )
+              )
+              .discrete
+              .map(_.reduceLeft(_ ++ _))
+        }
+      }.changes
 
     /** Install a dashboard the developer PUSHED (ADR 0010): a swap for a slug
       * already registered (which repaints its open connections), otherwise a
@@ -2613,7 +2751,7 @@ object Server {
     * like the ones present at startup.
     */
   def resource(
-      api: HomeAssistantApi[IO],
+      actions: ServiceCalls,
       stateStore: StateStore,
       renderers: Map[String, SignallingRef[IO, RendererState]],
       defaultSlug: String,
@@ -2633,7 +2771,7 @@ object Server {
       .toResource
       .flatMap(
         withSite(
-          api,
+          actions,
           stateStore,
           _,
           sessions,
@@ -2651,7 +2789,7 @@ object Server {
     * the reload path writes the same registry the routes read.
     */
   def withSite(
-      api: HomeAssistantApi[IO],
+      actions: ServiceCalls,
       stateStore: StateStore,
       site: LiveSite,
       sessions: Sessions,
@@ -2661,12 +2799,15 @@ object Server {
       systemPkl: SystemPkl,
       dumpRefresh: Option[IO[DumpRefresh.Result]],
       adoptionWindow: FiniteDuration = AdoptionWindow,
-      lingerWindow: FiniteDuration = LingerWindow
+      lingerWindow: FiniteDuration = LingerWindow,
+      tracer: Tracer[IO] = Tracer.noop,
+      loggerFactory: LoggerFactory[IO] = Logging.console,
+      meters: Meters = Meters.noop
   ): Resource[IO, Server] =
     for {
       supervisor <- Supervisor[IO]
       server = new Server(
-        api,
+        actions,
         stateStore,
         site,
         sessions,
@@ -2677,7 +2818,10 @@ object Server {
         systemPkl,
         dumpRefresh,
         adoptionWindow,
-        lingerWindow
+        lingerWindow,
+        tracer,
+        loggerFactory,
+        meters
       )
       _ <- server.sharedPatchPublishers.compile.drain.background
     } yield server
@@ -2697,10 +2841,19 @@ object Server {
       gate: AuthGate,
       assets: AssetCache = AssetCache.empty,
       systemPkl: SystemPkl = SystemPkl.empty,
-      dumpRefresh: Option[IO[DumpRefresh.Result]] = None
+      dumpRefresh: Option[IO[DumpRefresh.Result]] = None,
+      // WHO an action is attributed to, given the feed's own connection
+      // ([[ServiceCalls]]). A function rather than a value because the feed
+      // owns the api and this is the one place it is in hand; the default is
+      // the instance's own identity, which is what a deployment with no login
+      // has and what the tests want.
+      actions: HomeAssistantApi[IO] => ServiceCalls = ServiceCalls.asInstance,
+      tracer: Tracer[IO] = Tracer.noop,
+      loggerFactory: LoggerFactory[IO] = Logging.console,
+      meters: Meters = Meters.noop
   ): Resource[IO, Server] =
     withSite(
-      feed.api,
+      actions(feed.api),
       feed.store,
       site,
       sessions,
@@ -2708,7 +2861,10 @@ object Server {
       assets,
       feed.healthy,
       systemPkl,
-      dumpRefresh
+      dumpRefresh,
+      tracer = tracer,
+      loggerFactory = loggerFactory,
+      meters = meters
     )
 
   /** The `POST /system/dump/refresh` response body — status plus what a caller
@@ -2913,6 +3069,42 @@ object Server {
     * it never rides a request back.
     */
   val ToastSignal: String = "_toast"
+
+  /** **Nothing is coming, so no ask is still outstanding** — ONE rule for the
+    * whole page, on the shell, replacing the copy each selection group used to
+    * carry (ADR 0025).
+    *
+    * A pending value says "this client has asked for X and is waiting". Two
+    * things end that wait without an answer, and neither is specific to any one
+    * group: the stream the answer would have ridden is DOWN (`_sse`, which this
+    * shell already maintains for the banner), or a response arrived that was
+    * not 200, whose body Datastar drops unread so nothing in it can clear
+    * anything. A refusal this server sends is NOT here — it answers 200 naming
+    * the group it ended (ADR 0024), which is strictly better because it ends
+    * only that one.
+    *
+    * `@setAll(value, filter)` is what makes it one line: the pinned bundle
+    * enumerates the store through the same include/exclude filter
+    * `data-on-signal-patch-filter` uses, and PEEKS while it writes
+    * (`apply(e,t,n){H();…;_()}` — `H`/`_` are start/stopPeeking), so this
+    * neither registers a dependency on every pending signal nor re-triggers
+    * itself.
+    *
+    * Clearing every group rather than one is not a loss of precision that
+    * mattered: the per-group version keyed on the same two page-wide facts, so
+    * a stream outage already cleared all of them, one attribute at a time.
+    *
+    * Busy signals are deliberately NOT swept. `finished` is dispatched in the
+    * bundle's `finally` and the indicator plugin decrements a counter to clear
+    * (verified in the pinned source), so a busy state cannot outlive its fetch
+    * — sweeping it would be guarding against something that cannot happen.
+    */
+  val PendingSweep: String = {
+    val clear = """@setAll('', {include:/__pending$/})"""
+    s"""data-on-signal-patch-filter="{include:/^_sse$$/}" """ +
+      s"""data-on-signal-patch="$$_sse > 0 && $clear" """ +
+      s"""data-on:datastar-fetch__document="evt.detail.type === 'error' && $clear""""
+  }
 
   /** A node/group id as it arrives from a caller — an untrusted CLAIM that
     * becomes a SIGNAL NAME, so its shape is checked rather than trusted.

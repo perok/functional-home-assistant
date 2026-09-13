@@ -53,7 +53,56 @@ export FH_ASSETS_DIR=/data/assets-cache
 # Both the authoring lib and the starter are streamed from the jar's own
 # resources (BundledLib / AddonBootstrap.starterSite) — no seed path, no
 # FH_BUNDLED_LIB path.
+#
+# The two values `.fh/base.pkl` reads from the environment. They are set HERE,
+# not written into the dashboards directory, because that directory is meant to
+# be shared — with the author's laptop, with a dev container — and a path or URL
+# written into it is one imposed on every other machine reading it.
+#
+# FH_PKL_CACHE_DIR is REQUIRED, not a preference: the default is pkl's own
+# ~/.pkl/cache, which in this container is /root/.pkl/cache — an image layer, so
+# every add-on update would drop the lib and dump packages the workspace's pins
+# name. /data is the add-on's persistent volume, so the cache survives updates.
 export FH_PKL_CACHE_DIR=/data/pkl-cache
+# The instance the `https://fh.invalid/` rewrite targets. Inert here (every
+# package is a cache hit), and derived from the PORT this script exports rather
+# than hardcoded, so it stays right if that moves.
+export FH_INSTANCE_URL="http://127.0.0.1:${PORT}"
+
+# The heap ceiling is a NUMBER, not a fraction of the machine.
+# `-XX:MaxRAMPercentage` reads the cgroup limit when there is one and the
+# HOST's physical RAM when there is not — and the supervisor puts no memory
+# limit on an add-on, so the 75% this used to pass resolved to a ~3 GB max
+# heap on a 4 GB Pi. A page render allocates 6-12 MB (issue #237), so G1
+# grew the heap toward that ceiling instead of collecting, and sized its own
+# native structures off it as well: the footprint tracked the hardware
+# rather than the workload.
+#
+# 512M is deliberately generous — comfortably above the live set (dashboard,
+# house state, the per-renderer caches) plus a pkl evaluation spike — and is
+# a ceiling, not a reservation. Raise it with the `max_heap` option if a
+# large house or a big workspace needs more.
+JAVA_MAX_HEAP="${JAVA_MAX_HEAP:-512M}"
+
+# The STARTING heap is a fraction of the machine too (InitialRAMPercentage,
+# 1.5625%), which is the same bug at the other end: on a big host the JVM
+# commits the whole ceiling before serving a request. Pinned small so the
+# heap grows into the workload instead of starting at it — with SerialGC's
+# 40/70 free-ratio policy it then also gives the memory back.
+JAVA_MIN_HEAP="${JAVA_MIN_HEAP:-64M}"
+
+# SerialGC, not the G1 the JVM picks by itself: at this heap size on four
+# slow cores, G1's concurrent threads and remembered sets buy nothing, and
+# SerialGC RETURNS memory to the OS after a collection where G1 largely does
+# not — which is most of what makes the number reported to the supervisor
+# follow the workload.
+JAVA_GC=-XX:+UseSerialGC
+
+# Native Memory Tracking is the only thing that separates heap from
+# metaspace from GC native from code cache, and it cannot be turned on
+# without a restart — hence an option rather than a runtime toggle. It costs
+# a few percent, so it is off unless asked for.
+JAVA_NMT=
 
 # There is no `default_dashboard` option: the slug served at `/` is `default`
 # in the workspace's own `site.pkl` (ADR 0021), where the dashboards it
@@ -63,6 +112,45 @@ if [ -f /data/options.json ]; then
   if [ "$(jq -r '.watch_registry' /data/options.json)" = "false" ]; then
     export FH_WATCH_REGISTRY=false
   fi
+  # `// empty` so an unset option yields "" rather than the string "null".
+  # Assigned through an `if`, not `[ -n "$x" ] && ...`, because a false test
+  # is the last command of that list and `set -e` would take it as failure.
+  HEAP_OPT="$(jq -r '.max_heap // empty' /data/options.json)"
+  if [ -n "$HEAP_OPT" ]; then
+    JAVA_MAX_HEAP="$HEAP_OPT"
+  fi
+  MIN_OPT="$(jq -r '.min_heap // empty' /data/options.json)"
+  if [ -n "$MIN_OPT" ]; then
+    JAVA_MIN_HEAP="$MIN_OPT"
+  fi
+  if [ "$(jq -r '.memory_tracking' /data/options.json)" = "true" ]; then
+    JAVA_NMT=-XX:NativeMemoryTracking=summary
+  fi
+  # Telemetry is OFF unless there is somewhere to send to: with no endpoint the
+  # server never builds the OpenTelemetry SDK at all, so an ordinary install
+  # pays nothing (see fh.view.runtime.Telemetry). Exported under OTel's own
+  # standard names, so everything else — protocol, headers, sampling — is
+  # configurable the same way it is for any other OTLP producer, without an
+  # add-on option per knob.
+  OTLP="$(jq -r '.otlp_endpoint // empty' /data/options.json)"
+  if [ -n "$OTLP" ]; then
+    export OTEL_EXPORTER_OTLP_ENDPOINT="$OTLP"
+    export OTEL_SERVICE_NAME="${OTEL_SERVICE_NAME:-fh-dashboard}"
+    # The OTel Java SDK defaults this to grpc, and the option's own example is
+    # a :4318 URL — which is the OTLP/HTTP port. Left to the default, every
+    # export fails with "FRAME_SIZE_ERROR" from okhttp's http2 layer, because
+    # it is speaking gRPC at an HTTP/1.1 endpoint. Overridable, for a collector
+    # that only takes gRPC on 4317.
+    export OTEL_EXPORTER_OTLP_PROTOCOL="${OTEL_EXPORTER_OTLP_PROTOCOL:-http/protobuf}"
+  fi
 fi
 
-exec java -XX:MaxRAMPercentage=75 -jar /opt/fh-dashboard.jar
+# ExitOnOutOfMemoryError so a heap that is genuinely too small restarts the
+# add-on — visible, and recovered by s6 — instead of thrashing the GC
+# forever, which is what a bounded heap turns a leak into.
+#
+# $JAVA_NMT is deliberately unquoted: it is one flag or nothing, and nothing
+# must vanish rather than become an empty argument.
+# shellcheck disable=SC2086
+exec java "-Xms$JAVA_MIN_HEAP" "-Xmx$JAVA_MAX_HEAP" "$JAVA_GC" \
+  -XX:+ExitOnOutOfMemoryError $JAVA_NMT -jar /opt/fh-dashboard.jar

@@ -717,16 +717,23 @@ alternates, so `changes` cannot swallow a real transition; keyed on the reason i
 can, because that stream emits one element per connection END and two ends with the
 same cause an hour apart are consecutive elements.
 
-## Not in scope: the HA → server side
+## No RESUME on the HA → server side
 
 `subscribe_entities` has no "since" parameter, so a reconnect always reopens with the
-full entity set — and that is already free, because `StateStore` publishes only
-entities whose content actually changed (`EntityState.sameContent`). The reconnect gap
-is lossless BY CONSTRUCTION rather than repaired after the fact, and that is recorded
-at the three places which guarantee it: `HaFeed.runConnection`, `StateStore`'s
-`Ingest.Remove`, and `ServerApp.watchRegistryEvents`. Re-deriving is strictly stronger
-than replaying, since it also covers changes no event was ever seen for. So the
-browser↔server resume has no HA↔server counterpart to build, and should not grow one.
+full state of the subscribed set — and that is already free, because `StateStore`
+publishes only entities whose content actually changed (`EntityState.sameContent`), and
+`EntityState.stale` drops a re-sent state carrying the timestamp we already hold. The
+reconnect gap is lossless BY CONSTRUCTION rather than repaired after the fact, and that
+is recorded at the three places which guarantee it: `HaFeed.runConnection`,
+`StateStore`'s `Ingest.Remove`, and `ServerApp.watchRegistryEvents`. Re-deriving is
+strictly stronger than replaying, since it also covers changes no event was ever seen
+for. So the browser↔server resume has no HA↔server counterpart to build, and should not
+grow one.
+
+What the upstream subscription DOES carry is a scope: it asks for the entities the
+registered dashboards can be woken by, not the whole house, and rotates when that set
+moves. That is ADR 0030, and it is orthogonal to this one — narrowing changes which
+entities arrive, never whether a gap in them can be recovered.
 
 ## Still to prove in a browser
 

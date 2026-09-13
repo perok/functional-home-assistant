@@ -202,10 +202,13 @@ object SlotSource:
   *     included). The VALUE carries its own unit, so the expression is a bare
   *     signal read and the authoring layer decides whether a fill is a
   *     percentage or a colour.
-  *   - [[Attr]] — `data-attr:<name>`, one attribute. Note this sets the
-  *     ATTRIBUTE, which for a form control is not the property the browser
-  *     reads after load (`checked` is the classic trap) — reach for [[Bind]]
-  *     there instead.
+  *   - [[Attr]] — `data-attr:<name>`, one attribute. A String value IS the
+  *     attribute's value (`value`, `href`, `aria-label`); a BOOLEAN value sets
+  *     or removes it, which is what a boolean attribute (`disabled`, `hidden`,
+  *     `inert`) needs — see [[SlotValue]] for why only a real boolean can turn
+  *     one off. Note this sets the ATTRIBUTE, which for a form control is not
+  *     the property the browser reads after load (`checked` is the classic
+  *     trap) — reach for [[Bind]] there instead.
   *   - [[Class]] — `data-class:<name>`, one class present while the value is
   *     truthy. A boolean state, where the value is `""` for off and anything
   *     for on: an empty string is the only falsy thing a slot can produce, so
@@ -215,6 +218,16 @@ object SlotSource:
   *     position and a checkbox's `checked` PROPERTY want, and the one kind
   *     whose card is therefore not plain-form-capable — an interactive control
   *     needs a client signal whatever this setting says.
+  *   - [[Handler]] — NO binding at all. The value is carried as a signal and
+  *     read by an event handler rather than painted, so there is no attribute
+  *     to emit; the card composes `{{<slot>__signal}}` into an expression of
+  *     its own. It is a signal kind and not a separate concept because
+  *     everything else about it is identical — one name per
+  *     `(entity, transform)`, the value withheld from the patch form, seeded on
+  *     the wrapper, carried in the frame. What differs is only who reads it.
+  *     See ADR 0017, "Which runtime evaluates a state-dependent value": a value
+  *     the DOM consumes has to be in the bytes, and a value only an EVENT
+  *     consumes does not.
   */
 enum SignalBind derives CanEqual:
   case Text
@@ -222,6 +235,7 @@ enum SignalBind derives CanEqual:
   case Style(property: String)
   case Attr(name: String)
   case Class(name: String)
+  case Handler
 
 object SignalBind:
 
@@ -235,6 +249,7 @@ object SignalBind:
     case "style" :: prop :: Nil => Option.when(prop.nonEmpty)(Style(prop))
     case "attr" :: name :: Nil  => Option.when(name.nonEmpty)(Attr(name))
     case "class" :: name :: Nil => Option.when(name.nonEmpty)(Class(name))
+    case "handler" :: Nil       => Some(Handler)
     case _                      => None
 
   given Decoder[SignalBind] =
@@ -1004,6 +1019,44 @@ case class Dashboard(
     (walk(card) ++ surfaces.values.toList.flatMap(s => walk(s.content))).toSet
   }
 
+  /** Every entity a change to which could make this dashboard render
+    * differently — what the live subscription has to ask HA for.
+    *
+    * A SUPERSET of [[referencedEntities]], and the difference is the whole
+    * reason it is a separate value rather than a reuse. That one answers "does
+    * this dashboard NAME this entity", the bound an action POST is held to (ADR
+    * 0023), so it walks what is rendered. This one answers "could this entity
+    * wake us", so it also walks what merely DECIDES:
+    *
+    *   - a set clause's `when` guard, which may name an entity the member does
+    *     not render ("show the hall light while the hall sensor is on")
+    *   - a surface's [[Activation.State]] condition — the entity a flip hangs
+    *     on, rendered nowhere
+    *
+    * Subscribing to the narrower set would leave a dashboard that paints
+    * correctly and then never reacts: the flip and the membership change are
+    * exactly the two things whose deciding entity can be off-screen.
+    */
+  lazy val watchedEntities: Set[String] = {
+    def deciders(n: LayoutNode): List[String] = n match {
+      case c: LayoutNode.Component => c.allChildren.flatMap(deciders)
+      case set: LayoutNode.SetNode =>
+        set.members.values.toList
+          .flatMap(_.clauses)
+          .flatMap(cl =>
+            cl.when.toList.flatMap(Predicate.referencedEntities) ++
+              deciders(cl.node)
+          )
+    }
+
+    referencedEntities ++ deciders(card) ++ surfaces.values.toList.flatMap(s =>
+      deciders(s.content) ++ (s.activation match {
+        case Activation.State(c) => Predicate.referencedEntities(c)
+        case _: Activation.User  => Nil
+      })
+    )
+  }
+
   /** Validate that every card reference resolves, supplies the params/slots the
     * card's template declares, and that each slot's `transform` is compilable
     * JSONata. Returns human-readable errors (empty = valid).
@@ -1063,6 +1116,33 @@ case class Dashboard(
                   s"$nodeId: slot '$name' has a degenerate fill range " +
                     s"(${f.min}..${f.max}) — it would divide by zero"
                 )
+              // Same rule one shape over: a duration's scale is SECONDS PER
+              // UNIT, so a non-positive one renders every reading as `0s` —
+              // a card that looks finished forever rather than one that
+              // errors. `hass.SensorEntity.durationSeconds` answers null
+              // rather than 0 for a unit it cannot scale, so this catches a
+              // hand-written scale, which is the only way to get one.
+              case d: Transform.Simple.Duration if d.scale <= 0 =>
+                Some(
+                  s"$nodeId: slot '$name' has a non-positive duration scale " +
+                    s"(${d.scale}) — every reading would render '0s'"
+                )
+              // A Match's arms must be all Strings or all booleans. Not a
+              // taste rule: ADR 0028 defines the shape by an idiomatic CEL
+              // spelling, and CEL requires one type across a map's values and
+              // both arms of a ternary — a mixed lookup has nothing to be
+              // equivalent TO. It is also incoherent at the binding, where one
+              // state would set an attribute by value and another by presence.
+              case m: Transform.Simple.Match
+                  if (m.cases.values.toList :+ m.otherwise)
+                    .map(_.isInstanceOf[Boolean])
+                    .distinct
+                    .sizeIs > 1 =>
+                Some(
+                  s"$nodeId: slot '$name' has a match with both string and " +
+                    "boolean arms — pick one; a boolean arm is for a boolean " +
+                    "attribute (disabled, hidden), a string for everything else"
+                )
               // The engine tier: the expression must compile.
               case t: String =>
                 Transform.parse(t).left.toOption.map { err =>
@@ -1072,8 +1152,40 @@ case class Dashboard(
                 }
               case _: Transform.Simple => None
             }
-        transformError.toList ++ signalErrors(nodeId, cardName, name, src)
+        transformError.toList ++ signalErrors(nodeId, cardName, name, src) ++
+          readErrors(nodeId, cardName, name, src)
       }
+
+    /** `<slot>__read` is a card composing a slot's value into a handler
+      * expression (ADR 0017). It is answered for a literal, an identity-`once`
+      * value and a signal — the three whose value is settled before the paint.
+      *
+      * A LIVE slot that is not a signal is the one shape with no answer, and
+      * refusing it is the rule rather than a limitation: such a value moves in
+      * the element's bytes on every tick, which is exactly what carrying it as
+      * a signal exists to stop. Without this the var renders empty and the
+      * handler is silently malformed.
+      */
+    def readErrors(
+        nodeId: String,
+        cardName: String,
+        name: String,
+        src: SlotSource
+    ): List[String] =
+      if (
+        src.literal.isDefined || src.signal.isDefined ||
+        src.reads == Reads.Once
+      ) Nil
+      else
+        cards
+          .get(cardName)
+          .toList
+          .filter(_.template.contains(s"{{{${name}__read}}}"))
+          .map(_ =>
+            s"$nodeId: card '$cardName' reads slot '$name' as {{{${name}__read}}}, " +
+              "but the slot is live and not a signal — its value moves in the " +
+              "element's bytes, so make it a signal slot or a literal"
+          )
 
     // A signal slot's value leaves the element's HTML on the patch path — a
     // `datastar-patch-signals` frame carries it instead (ADR 0017). Both checks
@@ -1109,17 +1221,27 @@ case class Dashboard(
             "fact, not a value that moves"
         )
       else
-        // The card must PLACE the binding, via the `<slot>__bind` var the
-        // renderer injects. Without it the patch form withholds the value and
-        // nothing in the DOM puts it back.
+        // The card must PLACE the value's one consumer, or the patch form
+        // withholds the value and nothing puts it back. Which var that is
+        // depends on the kind: every painted kind has a binding, and a
+        // `Handler` slot has none at all — nothing reads it but an expression
+        // the card composes, so its name is what must appear.
+        // A `Handler` slot has no binding — nothing paints it — so what must
+        // appear is one of the two ways a card can READ it: `__read` (the
+        // value as a JS expression, which spells a literal and a signal alike)
+        // or the bare `__signal` name.
+        val placed =
+          if (src.signal.contains(SignalBind.Handler))
+            List(s"{{{${name}__read}}}", s"{{${name}__signal}}")
+          else List(s"{{{${name}__bind}}}")
         cards
           .get(cardName)
           .toList
-          .filterNot(cd => cd.template.contains(s"{{{${name}__bind}}}"))
+          .filterNot(cd => placed.exists(cd.template.contains))
           .map(_ =>
             s"$nodeId: card '$cardName' has slot '$name' marked as a signal " +
-              s"slot, but no part of its template places {{{${name}__bind}}} " +
-              "— the value would stop updating"
+              s"slot, but no part of its template places " +
+              placed.mkString(" or ") + " — the value would stop updating"
           )
 
     def childErrors(

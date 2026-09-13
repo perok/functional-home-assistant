@@ -9,7 +9,7 @@ import fh.view.build.{
   Site,
   SourceEval
 }
-import fh.view.testkit.{HouseFixture, PklFixture}
+import fh.view.testkit.{HouseFixture, PklFixture, PklWorkspace}
 
 /** The add-on boot contract (ADR 0010, "the add-on workspace"): the bundled
   * library reaches evaluation as a *pre-cached package*, never as files in the
@@ -28,15 +28,15 @@ class AddonBootstrapSuite extends munit.FunSuite {
   private val bundled = LibPackage.build(bundledLib)
   private val libVersion = bundled.version
 
-  private val LoopbackUrl = "http://127.0.0.1:8080"
-
   private case class Box(ws: os.Path, cache: os.Path)
 
   private def boot(): (Box, List[String]) = {
     val root = os.temp.dir()
     val box = Box(root / "fh-dashboards", root / "pkl-cache")
-    val log =
-      AddonBootstrap.run(box.ws, bundled, box.cache, LoopbackUrl)
+    // `bootstrapInto` = the instance's own boot, plus the `machine.json` a
+    // reader writes for itself. The instance writes none (that is the point —
+    // one workspace, many machines), and a test cannot set an env var per case.
+    val log = PklWorkspace.bootstrapInto(box.ws, bundled, box.cache)
     (box, log)
   }
 
@@ -59,21 +59,19 @@ class AddonBootstrapSuite extends munit.FunSuite {
       !consumer.linesIterator.exists(_.trim == "dependencies {"),
       clue = consumer
     )
-    // base.pkl is machine-AGNOSTIC: no path, no URL — it READS both from json
-    // siblings (machine.json for the cache + rewrite, pins.json for the pins).
+    // base.pkl is machine-AGNOSTIC: no path, no URL — it READS the per-reader
+    // values from this process's environment first, `machine.json` second, and
+    // the pins from their own sibling.
     val base = os.read(box.ws / ".fh" / "base.pkl")
-    assert(base.contains("read(\"machine.json\")"), clue = base)
+    assert(base.contains("read?(\"env:FH_PKL_CACHE_DIR\")"), clue = base)
+    assert(base.contains("read?(\"env:FH_INSTANCE_URL\")"), clue = base)
+    assert(base.contains("read?(\"machine.json\")"), clue = base)
     assert(base.contains("read(\"pins.json\")"), clue = base)
     assert(
-      base.contains("machine.instanceUrl + \"/system/pkl/packages/\""),
+      base.contains("instanceUrl!! + \"/system/pkl/packages/\""),
       clue = base
     )
     assert(!base.contains(box.cache.toString), clue = base)
-    // The per-machine values live in machine.json: THIS instance's cache path +
-    // its own loopback URL (inert here, a cache hit; copy-usable elsewhere).
-    val machine = os.read(box.ws / ".fh" / "machine.json")
-    assert(machine.contains(box.cache.toString), clue = machine)
-    assert(machine.contains(LoopbackUrl), clue = machine)
     // pins.json is real-or-nothing: a fresh workspace has NONE until the first
     // dump writes all three keys at once. There is no placeholder, no `home/`.
     assert(
@@ -102,6 +100,34 @@ class AddonBootstrapSuite extends munit.FunSuite {
       )
     val result = SourceEval.eval(box.ws, "site.pkl")
     assert(result.isRight, clue = result)
+  }
+
+  test("the instance imposes none of its own paths on a shared workspace") {
+    // One dashboards directory is meant to be usable from an HA device, the
+    // author's laptop and a dev container at once. The add-on used to write its
+    // cache path and loopback URL into `.fh/machine.json` at every start, so
+    // whichever machine booted last decided for the others — and a container
+    // handed a path outside it failed EVERY dashboard with pkl's own
+    // "AccessDeniedException". So: it writes no per-machine file at all, and a
+    // reader's own file survives a boot byte-for-byte.
+    val root = os.temp.dir()
+    val ws = root / "fh-dashboards"
+    val laptop = AddonBootstrap.machineFileJson(
+      cacheDir = Some(os.root / "home" / "someone" / ".pkl" / "cache"),
+      instanceUrl = Some("http://ha.local:8123")
+    )
+    os.write(ws / ".fh" / "machine.json", laptop, createFolders = true)
+
+    val _ = AddonBootstrap.run(ws, bundled, root / "pkl-cache")
+
+    assertEquals(os.read(ws / ".fh" / "machine.json"), laptop)
+    // …and on a workspace that has none, the boot does not invent one.
+    val fresh = os.temp.dir() / "fh-dashboards"
+    val _ = AddonBootstrap.run(fresh, bundled, root / "pkl-cache")
+    assert(
+      !os.exists(fresh / ".fh" / "machine.json"),
+      clue = os.list(fresh / ".fh")
+    )
   }
 
   test("a dump-importing entry typechecks against the packaged schema") {
@@ -160,7 +186,7 @@ class AddonBootstrapSuite extends munit.FunSuite {
     os.write(box.ws / "mine.pkl", "// the user's own entry\n")
 
     val bootLog =
-      AddonBootstrap.run(box.ws, bundled, box.cache, LoopbackUrl)
+      AddonBootstrap.run(box.ws, bundled, box.cache)
 
     // Nothing user-authored is touched: lib/, the consumer + their module all
     // stay, and no backup is made. The stale lockfile IS removed (generated
@@ -187,14 +213,15 @@ class AddonBootstrapSuite extends munit.FunSuite {
       clue = bootLog
     )
     // Said once, on the boot that seeded the entrypoint — not every start.
-    val second = AddonBootstrap.run(box.ws, bundled, box.cache, LoopbackUrl)
+    val second = AddonBootstrap.run(box.ws, bundled, box.cache)
     assert(!second.exists(_.contains("mine.pkl")), clue = second)
 
     // Recovery: deleting the machine-era consumer opts into a fresh, package-form
-    // re-seed — then it evaluates.
+    // re-seed — then it evaluates. `bootstrapInto` because evaluating needs the
+    // reader's own cache dir, which this workspace (built by hand above, never
+    // through `boot()`) has not been given.
     val _ = os.remove(box.ws / "PklProject")
-    val _ =
-      AddonBootstrap.run(box.ws, bundled, box.cache, LoopbackUrl)
+    val _ = PklWorkspace.bootstrapInto(box.ws, bundled, box.cache)
     val _ = DumpPackage.seedFromText(
       box.ws,
       PklDump.render(HouseFixture.transformedDump),
@@ -212,7 +239,7 @@ class AddonBootstrapSuite extends munit.FunSuite {
     os.write.over(box.ws / "PklProject", customized)
 
     val _ =
-      AddonBootstrap.run(box.ws, bundled, box.cache, LoopbackUrl)
+      AddonBootstrap.run(box.ws, bundled, box.cache)
 
     assertEquals(os.read(box.ws / "PklProject"), customized)
     assert(!os.list(box.ws).exists(_.last.startsWith("PklProject.backup.")))
@@ -225,10 +252,33 @@ class AddonBootstrapSuite extends munit.FunSuite {
         s"fh-dashboard@$libVersion.zip"
     val mtime = os.mtime(zipPath)
     val log =
-      AddonBootstrap.run(box.ws, bundled, box.cache, LoopbackUrl)
+      AddonBootstrap.run(box.ws, bundled, box.cache)
     assert(log.isEmpty, clue = log)
     assertEquals(os.mtime(zipPath), mtime)
     assert(!os.list(box.ws).exists(_.last.contains(".backup.")))
+  }
+
+  test("an unusable cache dir fails the boot instead of every dashboard") {
+    val (box, _) = boot()
+    val before = os.read(box.ws / ".fh" / "machine.json")
+
+    // A regular file where the cache dir has to be. Unusable on every platform,
+    // and unlike a chmod it still holds when the suite runs as root.
+    val blocker = os.temp.dir() / "not-a-dir"
+    os.write(blocker, "")
+    val unusable = blocker / "pkl-cache"
+
+    val e = intercept[RuntimeException](
+      AddonBootstrap.run(box.ws, bundled, unusable)
+    )
+    assert(e.getMessage.contains(unusable.toString), clue = e.getMessage)
+    assert(e.getMessage.contains("FH_PKL_CACHE_DIR"), clue = e.getMessage)
+
+    // And `machine.json` still names the cache the last SUCCESSFUL boot used.
+    // Seeding BEFORE that write is what made this go wrong quietly: the seed
+    // threw, a path from an earlier run survived in the workspace, and the
+    // failure resurfaced as pkl's own I/O error once per dashboard.
+    assertEquals(os.read(box.ws / ".fh" / "machine.json"), before)
   }
 
   test("a changed lib mints a NEW content version; the old entry survives") {
@@ -243,7 +293,7 @@ class AddonBootstrapSuite extends munit.FunSuite {
     val v1 = LibPackage.version(editableLib)
     val bundledV1 = LibPackage.build(editableLib)
     val _ =
-      AddonBootstrap.run(box.ws, bundledV1, box.cache, LoopbackUrl)
+      AddonBootstrap.run(box.ws, bundledV1, box.cache)
     // Seed a dump so pins.json exists at v1 — only then does the bootstrap's
     // dashboardUri refresh have a file to move (real-or-nothing pins).
     val _ = DumpPackage.seedFromText(
@@ -257,7 +307,7 @@ class AddonBootstrapSuite extends munit.FunSuite {
     val v2 = LibPackage.version(editableLib)
     val bundledV2 = LibPackage.build(editableLib)
     val log =
-      AddonBootstrap.run(box.ws, bundledV2, box.cache, LoopbackUrl)
+      AddonBootstrap.run(box.ws, bundledV2, box.cache)
 
     assertNotEquals(v1, v2)
     assert(log.exists(_.contains(s"fh-dashboard@$v2")), clue = log)

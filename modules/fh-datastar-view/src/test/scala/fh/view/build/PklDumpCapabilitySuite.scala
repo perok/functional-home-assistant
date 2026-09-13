@@ -104,15 +104,20 @@ class PklDumpCapabilitySuite extends munit.FunSuite {
     assert(src.contains("icon: String = \"mdi:bulb\""), clue = src)
   }
 
-  test("a non-light domain is untouched by the light schema") {
-    val sensor = Json.obj(
-      "entity_id" -> Json.fromString("sensor.a"),
-      "domain" -> Json.fromString("sensor"),
+  test("an UNMODELLED domain's attributes fall through untyped") {
+    // The fallback that lets a domain nobody has modelled keep working: its
+    // attributes become plain per-entity properties, typed by what they look
+    // like. `media_player` stands in for "not modelled" — this used to be
+    // spelled with a `sensor`, which now has a schema of its own that claims
+    // `device_class`, so a sensor no longer demonstrates the fallback at all.
+    val player = Json.obj(
+      "entity_id" -> Json.fromString("media_player.a"),
+      "domain" -> Json.fromString("media_player"),
       "members" -> Json.arr(),
-      "attributes" -> Json.obj("device_class" -> Json.fromString("power"))
+      "attributes" -> Json.obj("device_class" -> Json.fromString("tv"))
     )
-    val src = PklDump.render(dump(sensor))
-    assert(src.contains("device_class: String = \"power\""), clue = src)
+    val src = PklDump.render(dump(player))
+    assert(src.contains("device_class: String = \"tv\""), clue = src)
     assert(!src.contains("colourModes"), clue = src)
   }
 }

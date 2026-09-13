@@ -156,3 +156,42 @@ object SignalId {
     def segments: Array[String] = (id: String).split('.')
   }
 }
+
+/** What a slot resolves to — bytes, or a real boolean.
+  *
+  * A boolean is not a String that happens to read `"true"`, and the difference
+  * decides whether a BOOLEAN ATTRIBUTE is set. HTML spells `disabled` on as
+  * `disabled=""`, so an empty string SETS one; Datastar's attr plugin
+  * implements exactly that (`l===""||l===!0` sets, `l===!1||l==null` removes).
+  * A real `false` is therefore the only value that turns one off, at both ends:
+  * `data-attr:disabled="$sig"` removes the attribute, and the document form's
+  * `{{#slot}}disabled{{/slot}}` section skips — where the STRING `"false"` is
+  * truthy in a Mustache section and would silently disable the control in the
+  * plain form, which is the one a browser without JS gets.
+  *
+  * A union rather than a wrapper ADT for the reason
+  * [[fh.view.runtime.Renderer]] takes `String | Null` over `Option` next door:
+  * these values are built, merged and diffed on every paint, and a union costs
+  * no allocation per value. `-Yexplicit-nulls` and exhaustivity still make the
+  * compiler demand a decision wherever one is read as bytes.
+  */
+type SlotValue = String | Boolean
+
+object SlotValue {
+
+  /** The value as BYTES — what a template hole, a digest or a `default` test
+    * needs. `true`/`false` render as themselves, which is what a `{{slot}}`
+    * hole would have printed anyway.
+    */
+  def text(v: SlotValue): String = v match
+    case s: String  => s
+    case b: Boolean => b.toString
+
+  /** The value as the object a Mustache scope answers with. A `Boolean` must
+    * arrive BOXED and not stringified: mustache.java drives a `{{#slot}}`
+    * section off `java.lang.Boolean`, and the string `"false"` is truthy there.
+    */
+  def scoped(v: SlotValue): AnyRef = v match
+    case s: String  => s
+    case b: Boolean => java.lang.Boolean.valueOf(b)
+}

@@ -248,6 +248,17 @@ class StateStore private (
     * as a [[Ingest.Replace]], and only the ones that actually moved during the
     * outage produce a change, so every connected browser catches up over its
     * live SSE stream with no per-client tracking.
+    *
+    * The saving is DOWNSTREAM of this fold, which walks every ingest either
+    * way: what an empty `changes` buys is the frame behind it — no
+    * `topic.publish1`, and a `version` that stays put, so no client's cursor
+    * goes stale and no publisher pass runs at all.
+    *
+    * A reconnect's full set does not even reach `put`: HA re-sends the
+    * `last_updated` it gave us, so [[EntityState.stale]] (equal counts as not
+    * newer) drops each [[Ingest.Replace]] one level up. What lands in `put`'s
+    * dedup arm is the narrower case of a state whose timestamp really did move
+    * while its content did not.
     */
   private[runtime] def update(ingests: Iterable[Ingest]): IO[Unit] =
     ref

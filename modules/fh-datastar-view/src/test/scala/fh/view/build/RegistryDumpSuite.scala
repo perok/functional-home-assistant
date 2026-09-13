@@ -78,6 +78,7 @@ class RegistryDumpSuite extends munit.FunSuite {
       primary_config_entry = None,
       serial_numer = None,
       sw_version = None,
+      parent_device_id = None,
       via_device_id = None
     )
 

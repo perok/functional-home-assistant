@@ -1,7 +1,7 @@
 /// The value slider, and the per-domain table that tells it what it drives.
 ///
-/// Give it children and the same card is a GROUP: the slider becomes the head
-/// and the children are the members it stands for.
+/// Give it MEMBERS and the same card is a GROUP: the slider becomes the head
+/// and the members are the rows it stands for.
 module components.slider
 
 import "../core/icon.pkl" as icons
@@ -54,20 +54,20 @@ const sliderSpec: Mapping<String, SliderSpec> = new {
 // a runtime one — a light can go `unavailable` and a live update can replace
 // its state with one carrying no colour attrs at all, and in CEL a read of a
 // missing map key THROWS (an engine error on the card, where the slot default
-// is a graceful fallback). So every shape keeps one `in attr` presence test on
-// its bind. What the store contract DOES prove away is the value's nullness
-// behind a present key ([[StateStore.toJavaObject]] never emits JSON-null
-// values), which is why there is no second `!= null` — and `size(rgb) == 3`
-// stays as one cheap call between "ignore a lying integration's short list"
-// and a CEL indexing error.
+// is a graceful fallback). So every shape keeps one presence guard on its
+// read: `attr[?'x']` yields an optional, `optMap` runs the body only when
+// there is a value, and `orValue('')` supplies the absent case. What the store
+// contract DOES prove away is the value's nullness behind a present key
+// ([[StateStore.toJavaObject]] never emits JSON-null values), which is why
+// there is no second `!= null` — and `size(rgb) == 3` stays as one cheap call
+// between "ignore a lying integration's short list" and a CEL indexing error.
 //
-// CEL has no variable-binding operator, so the intermediates (the rgb list,
-// the kelvin, the ramp position) ride the `cel.bind` extension's:
-// `cel.bind(<name>, <value>, <body>)` runs body with the name bound. A kelvin
-// value arrives as a Long and CEL's double overloads have no (Long, double)
-// operand, so every arithmetic read coerces `double(k)` first. Both ternary
-// arms must be the SAME type (CEL has no `? x : null`), so the absent arm is
-// `''`.
+// `optMap` also BINDS its value, so the guarded read and the intermediate are
+// one construct rather than a presence test feeding a `cel.bind`. The ramp
+// position still needs `cel.bind(<name>, <value>, <body>)` — it is computed,
+// not read. A kelvin value arrives as a Long and CEL's double overloads have
+// no (Long, double) operand, so every arithmetic read coerces `double(k)`
+// first.
 //
 // The sources ship AS WRITTEN, minus two mechanical normalizations: Pkl
 // multi-line strings DEDENT by the closing delimiter's indentation, and
@@ -80,10 +80,10 @@ const sliderSpec: Mapping<String, SliderSpec> = new {
 
 const local sliderFillColourRgb: String =
   #"""
-  cel.bind(rgb, 'rgb_color' in attr ? attr['rgb_color'] : null,
-    rgb != null && size(rgb) == 3
+  attr[?'rgb_color'].optMap(rgb,
+    size(rgb) == 3
       ? 'rgb(' + str(rgb[0]) + ',' + str(rgb[1]) + ',' + str(rgb[2]) + ')'
-      : '')
+      : '').orValue('')
   """#.trim()
 
 // The ramp over the axis's own range: `minK`/`maxK` are the kelvin bounds the
@@ -92,16 +92,14 @@ const local sliderFillColourRgb: String =
 // have no (Long, int) operand — the same fact `double(k)` answers).
 const local function sliderFillColourRamp(minK: Int, maxK: Int): String =
   """
-  cel.bind(k, 'color_temp_kelvin' in attr ? attr['color_temp_kelvin'] : null,
-    k != null
-      ? cel.bind(t,
-          (double(k) - \(minK).0) < 0.0 ? 0.0 :
-          ((double(k) - \(minK).0) > \(maxK - minK).0
-            ? 1.0 : (double(k) - \(minK).0) / \(maxK - minK).0),
-          'rgb(' + str(math.round(255.0 - 54.0 * t))
-          + ',' + str(math.round(166.0 + 60.0 * t))
-          + ',' + str(math.round(87.0 + 168.0 * t)) + ')')
-      : '')
+  attr[?'color_temp_kelvin'].optMap(k,
+    cel.bind(t,
+      (double(k) - \(minK).0) < 0.0 ? 0.0 :
+      ((double(k) - \(minK).0) > \(maxK - minK).0
+        ? 1.0 : (double(k) - \(minK).0) / \(maxK - minK).0),
+      'rgb(' + str(math.round(255.0 - 54.0 * t))
+      + ',' + str(math.round(166.0 + 60.0 * t))
+      + ',' + str(math.round(87.0 + 168.0 * t)) + ')')).orValue('')
   """.trim()
 
 // The dragged position as a percentage of the card's own range, in JS — the
@@ -209,8 +207,8 @@ typealias Readout = "state"|"percent"|"none"
 /// naming the dashboard line — including inside a query, where the fold drops a
 /// branch whose guard cannot hold before its render lambda is applied.
 ///
-/// Give it CHILDREN and the same card is a GROUP: the slider becomes the head
-/// (the group light, the cover group) and the children are the members it
+/// Give it MEMBERS and the same card is a GROUP: the slider becomes the head
+/// (the group light, the cover group) and the members are the rows it
 /// stands for, stacked inside it with the master's fill painted across the
 /// whole card behind them — one control with its parts shown, not a titled
 /// list.
@@ -219,7 +217,7 @@ typealias Readout = "state"|"percent"|"none"
 ///     icon = "mdi:lightbulb-group"
 ///     secondary = c.exprOf(dump.entities.sensor_kitchen_temp, #"state + ' °C'"#)
 ///     tap = c.toggle
-///     children { c.slider(a).readout("percent") c.slider(b).readout("percent") }
+///     members { c.slider(a).readout("percent") c.slider(b).readout("percent") }
 ///   }
 ///
 /// One card rather than a separate group card, because the members are
@@ -267,7 +265,7 @@ class SliderHead extends nodes.Node {
         <div class="slider-head">
           {{#icon}}<div class="slider-icon"{{#busyVisual}} \(tapMod.busyClassChange) \(tapMod.busyShapeClassChange){{/busyVisual}}><i class="mdi {{icon}}"></i></div>{{/icon}}
           {{#text}}{{{html}}}{{/text}}
-          {{#state}}<span class="state" \(slotMod.signalBind("state"))>{{state}}</span>{{/state}}
+          \(slotMod.ifSlot("state"))<span class="fh-reading" \(slotMod.signalBind("state"))>{{state}}</span>\(slotMod.endIfSlot("state"))
           <div class="slider-actions">{{#actions}}{{{html}}}{{/actions}}</div>
         </div>
         <div class="slider max" style="--_start: 0%;--_end: {{fill}}" \(slotMod.signalBind("fill")) \(restoreOnRefusal){{#busyVisual}} \(tapMod.busyClassChange){{/busyVisual}}>
@@ -283,7 +281,8 @@ class SliderHead extends nodes.Node {
           <span style="background:{{fillColor}}" \(slotMod.signalBind("fillColor"))></span>
           {{#toggle}}<button type="button" class="slider-toggle" aria-label="{{label}}"
             \(slotMod.signalBind("value"))
-            data-on:click="\(tapMod.busyGuardChange){{{toggleClick}}}"
+            data-on:click="\(tapMod.busyGuardChange)\(tapMod.click)"
+            \(slotMod.ifSlot("inert"))\(slotMod.signalBind("inert"))\(slotMod.endIfSlot("inert"))
             \(tapMod.busyAttrsChange)></button>{{/toggle}}
         </div>
       </div>
@@ -311,14 +310,14 @@ class SliderHead extends nodes.Node {
 /// The upside was not the point but is real — a friendly-name change now
 /// re-renders a `<strong>`, not a whole slider row.
 ///
-/// `display:contents` on its cell, so `strong` and `.slider-sub` stay layout
+/// `display:contents` on its cell, so `strong` and `.fh-sub` stay layout
 /// children of `.slider-head` and the group's grid still places them.
 class SliderText extends nodes.Node {
   card = "sliderText"
   cell = new nodes.Cell { classes { "slider-text" } }
   cardDef = new nodes.CardDef {
     template = """
-      <strong class="\(textMod.BOX)">\(textMod.run("label"))</strong>{{#secondary}}<span class="slider-sub \(textMod.BOX)">\(textMod.run("secondary"))</span>{{/secondary}}
+      <strong class="\(textMod.BOX)">\(textMod.run("label"))</strong>{{#secondary}}<span class="fh-sub \(textMod.BOX)">\(textMod.run("secondary"))</span>{{/secondary}}
       """
     // `secondary` is optional (a plain row carries none), so it is not declared
     // — an absent slot renders "" and the section collapses.
@@ -408,13 +407,14 @@ class Slider extends nodes.Node {
   // The CEL pieces of the `fill` computation, honouring the same two config
   // tiers as the input's own slots: author override → build-time spec literal.
   //
-  // `valueExpr` is the GUARDED attribute read (a missing position — a light
-  // that is off — yields null, and the slot's `default` takes over; CEL has no
-  // JSONata's null-on-missing, so `attr['x']` on an absent key would error and
-  // every read is gated on `'x' in attr`).
+  // `valueExpr` is the GUARDED attribute read: `attr['x']` on an absent key is
+  // an eval error, so every read is guarded. It yields an OPTIONAL — a missing
+  // position (a light that is off) is an empty one — so an author splicing it
+  // continues with `.optMap(v, …)` for the present case and `.orValue(…)` for
+  // the absent one, rather than testing a null.
   hidden valueExpr: String =
-    if (valueAttr != null) "'\(valueAttr!!)' in attr ? attr['\(valueAttr!!)'] : null"
-    else "'\(spec.value)' in attr ? attr['\(spec.value)'] : null"
+    if (valueAttr != null) "attr[?'\(valueAttr!!)']"
+    else "attr[?'\(spec.value)']"
   // The attribute the axis reads, as a NAME — what the opted-in Simple shapes
   // ([[simpleMod.percent]]/[[simpleMod.fill]]/[[simpleMod.attr]]) take, and
   // what [[valueExpr]] spells out for authors composing their own expression.
@@ -491,7 +491,7 @@ class Slider extends nodes.Node {
   // `fill` it wants whole numbers. No position attribute (a light that is off)
   // reads 0 %, which is what the row shows: an empty track.
   hidden percentExpr: String =
-    "cel.bind(v, \(valueExpr), v != null ? str(math.round((double(v) - \(minExpr)) * 100.0 / (\(maxExpr) - \(minExpr)))) + ' %' : '0 %')"
+    "\(valueExpr).optMap(v, str(math.round((double(v) - \(minExpr)) * 100.0 / (\(maxExpr) - \(minExpr)))) + ' %').orValue('0 %')"
   // A percentage of an axis the entity does not have is a permanent "0 %", so a
   // toggle-only row reads out its STATE instead — a group's rows are usually
   // given `percent` in one `map`, without knowing which can dim. An author's own
@@ -533,8 +533,10 @@ class Slider extends nodes.Node {
       ["busyVisual"] = "1"
     }
     // The display header (inherits entity_id, bypassUnavailable default).
-    // Omitted entirely when the readout is "none": an absent slot renders ""
-    // and the template's `{{#state}}` section then drops the whole span.
+    // Omitted entirely when the readout is "none", which the template reads as
+    // the slot's ABSENCE rather than its emptiness — a signal slot's value is
+    // blank in the patch form, so a section over the value itself dropped the
+    // span and its binding on the first patch and never restored them.
     // A TEXT signal slot (ADR 0017): the readout is one of the four things on
     // this card that move when brightness does, and all four are signals — see
     // `value`/`fill`/`fillColor` below. Between them they are the whole reason a
@@ -647,7 +649,16 @@ class Slider extends nodes.Node {
     // shared by every slider on the page — the shape has to travel as a slot.
     when (toggleOnly) {
       ["toggle"] = "1"
-      ["toggleClick"] = toggleTap.onclick
+      // The head's ONE tap route. The commit beside it looks like a second, but
+      // it assembles its own URL from `action`/`key` and never touches these —
+      // and the two arms are mutually exclusive anyway.
+      // A CLASS, not `disabled`: this track already binds `disabled` to the
+      // commit's in-flight signal (`busyAttrsChange`), and one element cannot
+      // carry two bindings for one attribute. `tapMod.click`'s guard is what
+      // actually refuses the press here.
+      for (k, v in tapMod.tapRoute(toggleTap, new Listing {}, "class")) {
+        [k] = v
+      }
     }
     ["action"] = sliderConfig(action, spec, (s) -> s.action)
     ["key"] = sliderConfig(key, spec, (s) -> s.key)
@@ -826,8 +837,15 @@ const local sliderCss: String = """
      pins the edge, so the number changes and nothing moves. A LONGER reading
      (`unavailable`) still gets its room; the floor only stops the box from
      collapsing below it. */
-  .slider-head{display:flex;gap:.75rem;align-items:center;padding:.5rem;line-height:1.5;z-index:3;pointer-events:none}
-  .slider-head>.state{margin-inline-start:auto;flex:0 0 auto;
+  /* `min-inline-size:0` is what keeps the readout on the card. A member row lays
+     the head out as a GRID item (`.slider-members .card` below), and a grid
+     item's automatic minimum is its min-content width — which `nowrap` text
+     makes the WHOLE label, so the row grew past the card, `overflow:hidden`
+     clipped it, and a long name pushed the reading off the right edge entirely.
+     Zero lets the label shrink and clip as it does on a plain row, where the
+     head is an ordinary block and never had the problem. */
+  .slider-head{display:flex;gap:.75rem;align-items:center;padding:.5rem;line-height:1.5;z-index:3;pointer-events:none;min-inline-size:0}
+  .slider-head>.fh-reading{margin-inline-start:auto;flex:0 0 auto;
   min-inline-size:var(--fh-readout-size,3.25rem);text-align:end}
   /* The edge of the control, drawn OVER the fill and never under it. Without it
      a nearly-full slider has no visible end: the fill runs to the card's own
@@ -926,23 +944,27 @@ const local sliderCss: String = """
   grid-template-rows:auto auto;align-items:center;align-content:center;
   min-block-size:4.5rem;box-sizing:border-box;gap:0 .75rem}
   .slider-group>.slider-head-cell>.slider-body>.slider-head>.slider-text>strong{grid-column:2;grid-row:1}
-  .slider-group>.slider-head-cell>.slider-body>.slider-head>.slider-text>.slider-sub{grid-column:2;grid-row:2}
+  .slider-group>.slider-head-cell>.slider-body>.slider-head>.slider-text>.fh-sub{grid-column:2;grid-row:2}
   .slider-group>.slider-head-cell>.slider-body>.slider-head>.slider-icon{grid-row:1/3}
-  .slider-group>.slider-head-cell>.slider-body>.slider-head>.state{grid-column:3;grid-row:1/3}
+  .slider-group>.slider-head-cell>.slider-body>.slider-head>.fh-reading{grid-column:3;grid-row:1/3}
   .slider-group>.slider-head-cell>.slider-body>.slider-head>.slider-actions{grid-column:4;grid-row:1/3}
+  /* `flex:0 0 auto` because the badge is a CIRCLE with a fixed glyph in it: as a
+     shrinkable flex item it gave width away to a long label (2rem measured down
+     to 1.5rem at a phone's 360px), which turns the circle into an ellipse and
+     leaves the 1.25rem glyph painting over its own edge. The label is the thing
+     with somewhere to go — it clips. */
   .slider-icon{display:flex;align-items:center;justify-content:center;
-  inline-size:2rem;block-size:2rem;border-radius:50%;
+  flex:0 0 auto;inline-size:2rem;block-size:2rem;border-radius:50%;
   background:var(--fh-surface-alt);color:var(--fh-accent)}
   .slider-icon>i{font-size:1.25rem}
   /* Bigger on a group's head alone, where the badge reads as a card header
      rather than a row's icon. */
   .slider-group>.slider-head-cell>.slider-body>.slider-head>.slider-icon{inline-size:2.75rem;block-size:2.75rem}
   .slider-group>.slider-head-cell>.slider-body>.slider-head>.slider-icon>i{font-size:1.5rem}
-  .slider-sub{font-size:.8rem;color:var(--fh-text-dim)}
   /* The head's two node regions. Both wrappers are boxless for the same reason
      `.slider-head-cell` is: the backend gives every node an `.fh-cell`, and
      neither of these should become a box between the row and what it holds —
-     the group's grid places `strong`, `.slider-sub` and the button strip
+     the group's grid places `strong`, `.fh-sub` and the button strip
      itself. The actions are ordinary `c.iconButton`s, so the rule names the
      STRIP's cells rather than a class only this card's buttons carry. */
   .slider-text,.slider-actions>.fh-cell{display:contents}

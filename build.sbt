@@ -2,6 +2,15 @@ import FHCodegenPlugin.autoImport.*
 import smithy4s.codegen.Smithy4sCodegenPlugin
 
 val http4sVersion = "0.23.34"
+// log4cats already arrives transitively (http4s logs through it); named here
+// so the version the app logs on is chosen rather than inherited.
+val log4catsVersion = "2.8.0"
+val otel4sVersion = "1.1.0"
+// Pinned to what otel4s-oteljava resolves, so the exporter cannot drift from
+// the SDK it plugs into. otel4s' own SDK modules are NOT used: they moved to a
+// separate repo and are still marked experimental.
+val otelJavaVersion = "1.65.0"
+val otelMiddlewareVersion = "0.18.0"
 val MUnitFramework = new TestFramework("munit.Framework")
 
 // Warnings are advisory while you work and fatal where the flag says so (#115).
@@ -107,11 +116,19 @@ lazy val `ha-api` = project // todo add api layer here as well
       "io.circe" %% "circe-core" % "0.14.16",
       "io.circe" %% "circe-parser" % "0.14.16",
       "org.http4s" %% "http4s-core" % http4sVersion,
-      "org.http4s" %% "http4s-jdk-http-client" % "0.10.0"
+      "org.http4s" %% "http4s-jdk-http-client" % "0.10.0",
+      // Logging. No backend here — this is a library; `fh-datastar-view`
+      // brings the one binding the whole app logs through.
+      "org.typelevel" %% "log4cats-slf4j" % log4catsVersion
     ),
     libraryDependencies ++= Seq(
-      "org.scalameta" %% "munit" % "1.3.5" % Test,
-      "org.typelevel" %% "munit-cats-effect" % "2.2.0" % Test
+      "org.scalameta" %% "munit" % "1.3.6" % Test,
+      "org.typelevel" %% "munit-cats-effect" % "2.2.0" % Test,
+      // Test-only: without a binding on the classpath slf4j prints two
+      // "Failed to load class ... StaticLoggerBinder" lines at the top of
+      // every run of this module's suites. The app's binding is not visible
+      // here, because a library must not impose one.
+      "ch.qos.logback" % "logback-classic" % "1.6.3" % Test
     )
   )
 
@@ -241,6 +258,10 @@ lazy val `fh-datastar-view` = project
         MergeStrategy.discard
       // smithy4s ships duplicate smithy manifests; unused at runtime.
       case PathList("META-INF", "smithy", _*) => MergeStrategy.first
+      // OSGi bundle metadata (okhttp, jspecify, the otel exporters) — read by
+      // an OSGi container, and there is none here.
+      case path if path.endsWith("OSGI-INF/MANIFEST.MF") =>
+        MergeStrategy.discard
       case x => (assembly / assemblyMergeStrategy).value(x)
     },
     // The `smoke` package is Playwright-driven and is the slowest part of the
@@ -254,9 +275,10 @@ lazy val `fh-datastar-view` = project
       "org.http4s" %% "http4s-core" % http4sVersion,
       "org.http4s" %% "http4s-dsl" % http4sVersion,
       "org.http4s" %% "http4s-ember-server" % http4sVersion,
+      "org.http4s" %% "http4s-circe" % http4sVersion,
       "io.circe" %% "circe-core" % "0.14.16",
       "io.circe" %% "circe-parser" % "0.14.16",
-      // filesystem paths/IO for the build phase (was transitive via sjsonnet)
+      // filesystem paths/IO for the build phase
       "com.lihaoyi" %% "os-lib" % "0.11.8",
       // pkl evaluation for the build phase (pure Java, needs JDK 17+)
       "org.pkl-lang" % "pkl-core" % "0.32.1",
@@ -273,10 +295,32 @@ lazy val `fh-datastar-view` = project
       // runtime; bundles the extension libraries — string/list/math/bindings/
       // comprehensions — in the same jar).
       "dev.cel" % "cel" % "0.14.0",
-      "org.scalameta" %% "munit" % "1.3.5" % Test,
+      // Logging, and the ONE slf4j binding in the build. log4cats and an
+      // unbound slf4j-api were already on the classpath via http4s, which
+      // means http4s' own logging went nowhere; logback lights that up too.
+      // Kept in this module because it assembles the add-on jar — a binding
+      // belongs to the application, not to a library.
+      "org.typelevel" %% "log4cats-slf4j" % log4catsVersion,
+      "ch.qos.logback" % "logback-classic" % "1.6.3",
+      "org.typelevel" %% "otel4s-oteljava" % otel4sVersion,
+      "org.http4s" %% "http4s-otel4s-middleware-trace-server" % otelMiddlewareVersion,
+      "org.http4s" %% "http4s-otel4s-middleware-trace-client" % otelMiddlewareVersion,
+      "org.http4s" %% "http4s-otel4s-middleware-metrics" % otelMiddlewareVersion,
+      "org.http4s" %% "http4s-server" % http4sVersion,
+      "org.http4s" %% "http4s-client" % http4sVersion,
+      // Runtime-only on purpose: nothing compiles against it, autoconfigure
+      // picks it at boot, and it stays unloaded unless an endpoint is set.
+      "io.opentelemetry" % "opentelemetry-exporter-otlp" % otelJavaVersion % Runtime,
+      // In-memory span and log-record exporters. The only way to assert that a
+      // log record carries the span it was written inside — which is the whole
+      // claim `fh.view.runtime.Logging` makes, and otel4s ships no logs testkit
+      // to check it with.
+      "io.opentelemetry" % "opentelemetry-sdk-testing" % otelJavaVersion % Test,
+      "org.scalameta" %% "munit" % "1.3.6" % Test,
       // Lets tests return IO[Unit] directly (no unsafeRunSync / global runtime)
       // and adds IO-aware assertions (assertIO, IO#assertEquals).
       "org.typelevel" %% "munit-cats-effect" % "2.2.0" % Test,
+      "org.typelevel" %% "log4cats-testing" % log4catsVersion % Test,
       // Property-based testing for the digest biconditional (ADR 0029):
       // equal input digest ⟺ equal patch bytes must hold over GENERATED node
       // shapes, because a missed input fails silently and permanently.
@@ -353,7 +397,7 @@ lazy val root = project
     commands ++= snapshotUpdateCommands,
     // libraryDependencies += ("org.scalameta" %% "scalameta" % "4.11.0")
     // .cross(CrossVersion.for3Use2_13),
-    libraryDependencies += "org.scalameta" %% "munit" % "1.3.5" % Test,
+    libraryDependencies += "org.scalameta" %% "munit" % "1.3.6" % Test,
     libraryDependencies ++= Seq(
       "org.http4s" %% "http4s-ember-client" % http4sVersion,
       "org.http4s" %% "http4s-ember-server" % http4sVersion,

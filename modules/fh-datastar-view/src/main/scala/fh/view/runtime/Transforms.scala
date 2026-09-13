@@ -1,6 +1,6 @@
 package fh.view.runtime
 
-import fh.view.model.{Dashboard, Transform}
+import fh.view.model.{Dashboard, SlotValue, Transform}
 
 /** The slot value-transform library, pre-compiled once at startup (never on the
   * hot path) — the CEL counterpart to [[Templates]].
@@ -33,10 +33,25 @@ class Transforms private (
   def run(expr: String, entity: EntityState, dashboardSlug: String): String =
     Transform.run(compiled(expr), entity, dashboardSlug)
 
+  /** [[run]] keeping a boolean result boolean — the pair the renderer uses, so
+    * a `Simple.Match` arm and a CEL `bool` reach a binding as the same kind of
+    * value ([[fh.view.model.SlotValue]]).
+    */
+  def runValue(
+      expr: String,
+      entity: EntityState,
+      dashboardSlug: String
+  ): SlotValue =
+    Transform.runValue(compiled(expr), entity, dashboardSlug)
+
   /** Evaluate an opted-in [[Transform.Simple]] value — no engine involvement.
     */
   def run(s: Transform.Simple, entity: EntityState): String =
     Transform.runSimple(s, entity)
+
+  /** [[run]] keeping a boolean result boolean. */
+  def runValue(s: Transform.Simple, entity: EntityState): SlotValue =
+    Transform.runSimpleValue(s, entity)
 }
 
 object Transforms {

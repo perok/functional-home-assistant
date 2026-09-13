@@ -91,6 +91,31 @@ Each form is load-bearing:
 The **binding** is present in both forms and absent from neither: it is what the seeded signal
 feeds, and a morph that dropped it would leave the element inert for good.
 
+### A section around a signal slot tests a companion flag, never the value
+
+The patch form's missing value is not merely absent text — to Mustache it is a FALSE section. So
+`{{#value}}…{{/value}}` around a signal slot renders on the document form and **collapses on every
+patch**, deleting the element and the binding inside it. Nothing recovers: a binding that is no
+longer in the DOM is never written to again. The guard has to be a separate literal slot, present
+in both forms:
+
+```
+{{#hasIcon}}<i class="{{icon}}" {{{icon__bind}}}></i>{{/hasIcon}}
+```
+
+**This bit.** `entityCard` wrapped its icon in `{{#icon}}` — correct while `icon` was a literal,
+wrong the moment it became a signal slot. The glyph vanished on the first tap and came back only
+on reload, because the tap's patch re-rendered the card in patch form and took the whole `<i>`
+with it. It is silent in exactly the way the other guard is not: `Dashboard.validate` rejects a
+signal slot whose template never places `{{{<slot>__bind}}}`, but a template that places it
+*inside a section keyed on the value* passes.
+
+So every card carrying a signal slot also carries a hand-written literal flag — `hasLit`,
+`hasInert`, `liveIcon`, `busy`. **That idiom is a bug generator and the renderer should derive
+it**: it already synthesises `<slot>__bind` and `<slot>__signal` per signal slot, and a
+`<slot>__has` beside them would delete the flag, the `when` that sets it and the comment
+explaining it from every card at once.
+
 ### The renderer owns the binding; the card places it
 
 A card gets one extra template var per signal slot, spliced raw beside the ordinary hole:
@@ -129,7 +154,7 @@ ids at all, because the member is their patch target, so their slots live in its
 Descending in the static case would seed a child's signal on its parent's wrapper and leave the
 child's binding pointed at a signal nothing ever writes — silent, and permanent.
 
-### Four binding kinds, because a value does not always land in text
+### Six binding kinds, because a value does not always land in text
 
 `signal`'s value says **where** the value lands — the one thing the renderer cannot infer. It is a
 renderer-side enumeration (`SignalBind`, one string on the wire) rather than an attribute the card
@@ -140,12 +165,155 @@ have it un-written.
 |---|---|---|
 | `text` | `data-text="$sig"` | a reading, a label, a state |
 | `style:<prop>` | `data-style:<prop>="$sig"` | a track fill, a colour — custom properties included |
-| `attr:<name>` | `data-attr:<name>="$sig"` | one attribute |
+| `attr:<name>` | `data-attr:<name>="$sig"` | one attribute — a String value fills it, a BOOLEAN sets or removes it |
+| `class:<name>` | `data-class:<name>="$sig"` | one class, present while the value is truthy |
 | `bind` | `data-bind="sig"` | **two-way** on a form control: the server writes it, the user's input writes it back |
+| `handler` | none | a value nothing paints — an event handler reads it by name (see below) |
 
 Every kind reads the signal **bare**, with no expression around it, because the value carries
 whatever it needs — a fill arrives as `39.37%`, a colour as `#ffb46b`. An expression in the
 attribute would be a second place a value's shape is decided, and the transform already decides it.
+
+### Which runtime evaluates a state-dependent value
+
+The five kinds all spend a signal on the DOM, but a **handler** can read one too, and that decides
+where a build-time-known function of state belongs:
+
+- A function whose result the **DOM** consumes is a server-side transform. The result has to be in
+  the element's bytes or in its signal, so the server is the only thing that can produce it.
+- A function whose result only an **event** consumes is client-side JS over a signal. It need only
+  exist at click time, so evaluating it on the server bakes a state-dependent result into bytes
+  that were otherwise static.
+
+This does not weaken "every kind reads the signal bare" above: that rule is about *bindings*, where
+an expression would be a second place a value's shape is decided. A handler is not a binding — it
+consumes the value rather than painting it.
+
+`entityCard`'s tap on a `CallByState` domain (ADR 0016) is miscategorised as the first. A lock's
+service is not knowable until the click, so the onclick is rendered from a live transform — which
+puts the service in the element's bytes, moves them on every lock/unlock, and drops the tile out of
+the identity cache to repaint a URL nobody ever looks at. Read at click time instead, the same
+two-way test costs no bytes:
+
+```
+data-on:click="@post('sse/action/home/' + $_e.lock.front.t4d7a74a1
+  + '/lock.front?node=c_4', {filterSignals:{exclude:'.*'}})"
+```
+
+Every byte constant; only the signal moves. The request body also stays empty — the handler reads
+the signal locally — which sending the observed state as a payload would have cost.
+
+**The signal carries the RESULT, not the state.** The obvious design is to seed the raw state and
+compile the domain table into the click expression as JS. That is one declaration too many: the
+table would exist as a CEL transform *and* as a JS ternary, and nothing keeps two spellings of one
+lookup honest. Carrying the answer instead leaves the match on the server, in one place, with the
+parity suite (ADR 0028) already behind it — only the READ moves to the browser. So there is no
+second expression language, no escaping regime, and no drift to prevent.
+
+That is what `SignalBind.Handler` is: a signal with no binding at all, because nothing paints it.
+Everything else about it is an ordinary signal slot — one name per `(entity, transform)`, value
+withheld from the patch form, seeded on the wrapper, carried in the frame.
+
+The one thing it forces on a card: **the URL is assembled in the template, not in the transform.**
+Mustache runs once and a slot's value is spliced raw, so a URL built server-side could not carry a
+placeholder for the signal name or `{{dashboardSlug}}`. `tap.serviceClick` is that markup, placed
+the way `tap.guard` already is — and `?node={{id}}` comes free with it, where a transform had to
+read `el.dataset.fhNode` at click time and got nothing on an unguarded tap.
+
+### `<slot>__read` — a value as an expression, so the card cannot tell the tiers apart
+
+A card composing a slot into a handler gets one var, and the renderer decides its spelling:
+
+| slot | `service__read` |
+|---|---|
+| signal | `$_e.lock.front.t4d7a74a1` |
+| literal / identity-`once` | `'light/toggle'` (quoted through the seed's own escaper) |
+
+So the *static* tap and the *state-dependent* one are the same template — a card branching on
+which tier filled a slot is the mistake `liveIcon` already made once, and this is the same fix as
+`__has` applied to a value instead of a section. It also keeps the plain form reachable: with
+`signalBind` answering `None` everywhere (issue #133) the slot falls back to its quoted literal and
+a state-dependent tap still works with no JS at all.
+
+Two `validate` rules, because both failures are silent:
+
+- A `Handler` slot must be READ — `{{{<slot>__read}}}` or the bare `{{<slot>__signal}}` — where a
+  painted kind must place `{{{<slot>__bind}}}`. It has no binding to place, so the existing rule
+  could not have covered it.
+- A slot read as `__read` must not be **live and non-signal**. That is the one shape with no
+  answer, and refusing it is the rule rather than a gap: such a value moves in the element's bytes
+  every tick, which is precisely what carrying it as a signal exists to stop.
+
+**"You send what you saw" is preserved, and is why this is safe.** The signal is patched in the
+same frame as the visible state, so at click time it holds what the user is looking at: the command
+is stale in exactly the way the pixels are stale, which is the property ADR 0016 wants. The
+alternative of a constant URL that the **server** resolves from its own state was considered and is
+wrong — it leaves the pixels stale and makes the command fresh, so a tap on a lock someone else has
+since unlocked re-locks it. Self-consistent stale bytes are the property to keep, not the defect to
+fix.
+
+**The client's reading stays advisory.** `Server.actionResponse` bounds a tap by entity (ADR 0023)
+and does not check the service — already true of the URL this replaces, so nothing here widens it.
+A two-way test is invertible (a posted `lock/unlock` can only mean the client saw `locked`), so the
+server can compare the implied observation against its own state and refuse a stale tap if that is
+ever wanted.
+
+**What it does not buy.** A handler signal is still a value the server decided, so anything the
+client must compute from two moving values at click time is out of scope — that would need the
+state itself, and the second declaration this avoids. Nothing wants it yet, and the shape to reach
+for first is another handler signal.
+
+### A slot value is `String | Boolean`, and the boolean is load-bearing
+
+A boolean attribute is absent or present, and the value has to be able to say which. Datastar's attr
+plugin implements the DOM's own model — `l===""||l===!0 → setAttribute(a,"")`,
+`l===!1||l==null → removeAttribute(a)` — and `disabled=""` **is** how HTML spells on. So an empty
+string SETS, and while `""` was the only falsy value a slot could produce, `attr:` could turn a
+boolean attribute on and never off again.
+
+A real `false` is what turns it off, so `SlotValue = String | Boolean`
+(`Transform.Simple.Match`'s arms, and any CEL expression whose result is a `bool`). The binding
+stays bare, and the mechanism is the plugin's own branch rather than anything invented here.
+
+**Both ends have to carry it, and they fail independently:**
+
+- The **frame and the seed** send a JSON/JS boolean — `{"sig": false}`, `{sig: false}`, unquoted.
+  `"false"` would be a truthy string in every binding that reads it.
+- The **document form** paints the value inline, and the card places it as a Mustache SECTION
+  (`{{#off}}disabled{{/off}}`), never as an attribute value — `disabled="false"` is *present*,
+  because a boolean attribute ignores its value. mustache.java drives that section off
+  `java.lang.Boolean`, and the **string `"false"` is truthy there**. So `paint` carries the real
+  Boolean too: stringifying on the way to the template would disable the control in exactly the
+  case that must not, in the form a browser without JS gets, with every signal-level assertion
+  still green.
+
+**Rejected: a `flag:` kind emitting `data-attr:x="!!$sig"`.** It shipped briefly. It works, but it
+puts a second decision about a value's shape into the attribute — the thing the bare-read rule
+exists to prevent — and it exists only because the value type was too narrow. Fixing the type
+deleted the kind.
+
+**Rejected: making the value nullable instead.** Built in full and reverted. **`null` in a signals
+frame DELETES the signal** and orphans every binding on it (the store proxy is
+`if (a == null) delete r[o]`; pinned by `DatastarMorphContractSuite`); reading the name afterwards
+re-creates it as `""`, which nothing is watching. A boolean has no such problem — only `null` is
+special to the store.
+
+Worth knowing why `false` is safe where it looks like it might not be: a display signal is keyed by
+`(entity, transform)` and **shared across binding kinds** (`Renderer.signalName` — only `bind` is
+node-scoped), so one value can be read as `data-text` on another card. A boolean-producing transform
+is a *different* transform string, so it gets its own signal; it can only be shared with a card
+reading the same boolean transform, where `true`/`false` is the honest rendering.
+
+A boolean `disabled` is for a control unavailable **because of the entity's state** — the lock is
+already moving, the device is offline. There a real `disabled` is the right answer: it leaves the
+tab order and stops the click in the browser, where a dimming class needs a JS guard to mean
+anything.
+
+It is **not** the answer for an action in flight. ADR 0019 settled that deliberately: a disabled
+button loses focus and fires no events at all, which is worse for a card than an inert one, so
+`busy` guards the expression instead. The two cases differ in duration and in who is waiting — a
+state the entity is in, against a request the user just made — and that is why they get different
+mechanisms rather than one.
 
 `bind` is the odd one out twice over: it takes the signal's *name* rather than a `$`-read, and its
 card is **not plain-form-capable** — an interactive control needs a client signal whatever this
@@ -308,9 +476,10 @@ Together those took the signal-slot premium on a 200-leaf page from ~2.5x a sign
 - `Dashboard.validate` rejects the two otherwise-silent mistakes: `signal` on a constant `literal`
   (nothing to patch), and a card declaring a signal slot whose template never places
   `{{{<slot>__bind}}}` (the patch form withholds the value and nothing puts it back).
-- Applied to `entityCard`'s `value` — the one thing on that card that moves on an ordinary tick;
-  icon, label and tap are registry facts or literals and never move at all — and to all four of the
-  slider's moving slots.
+- Applied to `entityCard`'s `value` and, where the domain has a state glyph, its `icon`; to the
+  `inert` class of a tap whose domain declares transitional states; to the `service` of a
+  `CallByState` tap, as a `handler` signal; and to all four of the slider's moving slots. `label`
+  stays a registry fact and never moves.
 
 ## What was deliberately left out
 

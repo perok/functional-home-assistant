@@ -6,6 +6,8 @@ import cats.syntax.all.*
 import fh.view.FHError
 import fh.view.model.{Dashboard, LayoutNode}
 import io.circe.{Json, JsonObject}
+import fh.view.telemetry.Logging
+import org.typelevel.log4cats.LoggerFactory
 
 /** Turns the Pkl dashboard sources into a validated [[Dashboard]].
   *
@@ -30,19 +32,21 @@ object DashboardBuild {
   def prepareDumps(
       api: HomeAssistantApi[IO],
       dashboardsDir: os.Path,
-      bundledLib: Option[LibPackage.Artifacts] = None
+      bundledLib: Option[LibPackage.Artifacts] = None,
+      loggerFactory: LoggerFactory[IO] = Logging.console
   ): IO[Unit] =
     RegistryDump.fetch(api).flatMap { dump =>
+      val log = loggerFactory.getLoggerFromName("fh.view.build.DashboardBuild")
       // Generation-time complaints about entities HA reported inconsistently
       // (a half-populated capability group). Reported, never fatal: one odd
       // integration must not stop the house's dump from building.
       PklDump
         .warnings(dump)
-        .traverse_(w => IO.println(s"dump warning: $w")) *>
+        .traverse_(w => log.warn(s"dump warning: $w")) *>
         IO.blocking(
           DumpPackage
             .seedFromText(dashboardsDir, PklDump.render(dump), bundledLib)
-        ).flatMap(_.traverse_(IO.println))
+        ).flatMap(_.traverse_(log.info(_)))
     }
 
   /** Fetch + write the live dump ([[prepareDumps]]), then evaluate `entry` into

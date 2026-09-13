@@ -35,8 +35,12 @@ Dashjoin left the shipped runtime entirely; it survives only as a bench-local
 reference (`modules/benchmarks/.../Jsonata.scala`) behind the divergence gate
 and the `jsonata` bench cells.
 
-- **CEL-native semantics, no compatibility shims.** Presence is `'k' in attr`
-  (a raw `attr['k']` on an absent key throws — it is not a null check), concat
+- **CEL-native semantics, no compatibility shims.** A raw `attr['k']` on an
+  absent key throws — it is not a null check — so every read is guarded.
+  `attr[?'k']` (CEL's optionals, enabled on both builders) is what the shipped
+  strings use, with `.orValue(d)` for the default and `.optMap(v, …)` where the
+  value is transformed on the way out; `'k' in attr` is the older spelling of
+  the same test and still works. Concat
   is `+`, rounding is `math.round` (half-away), `double(v)` is explicit where
   JSONata coerced. `Transform.Direct` (bare `state`, guarded attribute read)
   still bypasses the engine; widening it into the Simple catalog is Phase 2
@@ -98,7 +102,7 @@ and the `jsonata` bench cells.
 - **The fast tier beside it is a closed catalog (`Transform.Simple`).** The
   shapes the library bakes that CAN be read as data — the raw `state` read,
   the guarded attribute read, the fallback-to-id name, the unit suffix, a
-  literal prefix/suffix, the state enum, the slider's range percent and fill —
+  literal prefix/suffix, the state match, the slider's range percent and fill —
   are evaluated without the engine. Measured through the production dispatch
   (`RenderBench.simple`, 1200 evals/op) at the recognition stage: 1001 µs /
   968.9 kB against the engine-only `cel` cell's 1592 µs / 1074.2 kB — -37%

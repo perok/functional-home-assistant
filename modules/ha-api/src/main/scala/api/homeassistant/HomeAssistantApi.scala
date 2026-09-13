@@ -65,11 +65,19 @@ trait HomeAssistantApi[F[_]] {
     */
   def currentUser: F[HaUser]
 
-  /** HA's compressed state feed: the full entity set, then deltas, over ONE
-    * subscription — so live state needs no separate snapshot fetch to race
+  /** HA's compressed state feed: the subscribed set in full, then deltas, over
+    * ONE subscription — so live state needs no separate snapshot fetch to race
     * against. See [[api.homeassistant.ws.domain.EntitiesEvent]].
+    *
+    * `only` narrows the subscription HA-side, which is where narrowing is worth
+    * anything: the entities left out cost no serialisation, no bytes, no parse
+    * and no ingest. `None` subscribes to the whole house.
+    *
+    * '''An empty set is not expressible on the wire''' — HA reads an empty
+    * `entity_ids` as "no filter" — so a caller that wants nothing must not call
+    * this at all. `Some(Set.empty)` would subscribe to everything.
     */
-  def entities: Resource[F, Stream[F, EntitiesEvent]]
+  def entities(only: Option[Set[String]]): Resource[F, Stream[F, EntitiesEvent]]
 
   def event(event: Option[String]): Resource[F, Stream[F, Event]]
 
@@ -168,8 +176,12 @@ object HomeAssistantApi {
       def deviceAutomationActionCapabilities(action: Json): IO[Json] =
         in.sendCommand(`device_automation/action/capabilities`(action))
 
-      def entities: Resource[IO, Stream[IO, EntitiesEvent]] =
-        in.subscribeStream(subscribe_entities())
+      def entities(
+          only: Option[Set[String]]
+      ): Resource[IO, Stream[IO, EntitiesEvent]] =
+        in.subscribeStream(
+          subscribe_entities(only.map(_.toList.sorted))
+        )
 
       def event(event: Option[String]): Resource[IO, Stream[IO, Event]] =
         // The raw stream decoded into the state_changed shape (the only event

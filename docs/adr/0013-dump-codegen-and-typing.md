@@ -34,7 +34,7 @@ Three stages, each owning one thing:
 |---|---|---|
 | fetch + join | `RegistryDump` | WHERE the data comes from, and WHAT is carried |
 | render | `PklDump` | HOW it is typed, and generation-time validation |
-| schema | `lib/hass.pkl` (+ `lib/hass/light.pkl`) | what the types MEAN — the rules |
+| schema | `lib/hass.pkl` (+ the vendored `lib/hass/` modules) | what the types MEAN — the rules |
 
 The division that matters: **the generator emits data, the schema draws
 conclusions.** `PklDump` writes `colourModes` and `supported_features`;
@@ -112,11 +112,10 @@ template path baked it onto every light; it is a live value.)
 
 ### Stage 1c — house-wide lists, declared rather than emitted
 
-The dump carries `lights` / `sensors` / `switches` / `generic` / `all` — the
-same five names `hass.Area` uses per room, so "every light" and "this room's
-lights" read the same and a query's `from` takes either. `hidden`, because they
-reference the entities `entities` already holds and rendering them would emit
-the house twice.
+The dump carries `all` plus one list per modelled domain — `lights`, `locks`,
+`sensors`, `binarySensors`, `switches` and `generic`, which partition it.
+`hidden`, because they reference the entities `entities` already holds and
+rendering them would emit the house twice.
 
 They exist because a candidate set needs candidates at BUILD time (ADR 0003),
 and the starter dashboard names no concrete entity by design — every section is
@@ -128,18 +127,28 @@ matters for exactly the entry that depends on them: `site.pkl` queries the
 lists having never seen this home's dump, so a generator that stopped emitting
 one would fail as `Cannot find property` at eval — on somebody's first boot. A
 declaration with a `List()` default cannot fail that way; a home with no
-switches answers `List()`. Empty assignments are therefore omitted from the
-generated file, and `all` is derived in the base rather than emitted, because
-two sources for one list is how they come to disagree.
+switches answers `List()`. The empty assignment is therefore omitted from the
+generated file.
 
 `extends` rather than `amends`: an amending module may not declare classes
 ("Class needs a `local` modifier"), and a dump is mostly classes. Pkl's own
 error names `extends` as the way out.
 
-The same five names are on `hass.Floor` (derived from its areas) and
-`hass.Device` (type tests over its entities), so all four scopes are one
-vocabulary. Neither needs generator support — a floor's entities ARE its areas'
-entities, and deriving them keeps that impossible to disagree about.
+**Only `all` is generated, per scope.** The per-domain lists are derived from
+it, in the base, by the SELECTORS in `hass.pkl` (`hass.lights(scope)`,
+`hass.locks(scope)`, …) — the same functions an author calls, so a generated
+list and a hand-written filter cannot answer differently. Every smaller scope
+answers `all` alone: `hass.Area` has it filled by the generator, `hass.Floor`
+derives it from its areas, `hass.Device` from its entities, and a domain comes
+out of any of them the one way — `hass.lights(dump.floors.loft.all)`.
+
+The alternative, a `lights`/`locks`/… on every scope, is one list per
+(domain × scope): the same filter written four times over, and a five-place edit
+each time a domain is modelled — three of those places in this generator. A
+selector is one function per domain, it works on any `List<Entity>` including
+one an author has already filtered, and it makes `generic` a single hand-written
+complement instead of four. The house keeps its lists because `dump.lights` is
+the everyday spelling; that is a convenience over `all`, not a second source.
 
 ### Stage 1d — the live-attribute schema, derived and never observed
 
@@ -387,6 +396,38 @@ Vendoring also lets the dump type its colour modes as `Listing<hass.ColorMode>`
 rather than `Listing<String>`, so an author's `"colour_temp"` is an eval error
 instead of a comparison that silently never matches.
 
+#### A vendored STRING enum is a weaker bet, and `device_class` is dropped when unknown
+
+`SensorDeviceClass` gets the same treatment — vendored to `lib/hass/sensor.pkl`
+and mirrored in `HassVocabulary.scala`, kept honest by `HassVocabularySuite` the
+way `HaLightSuite` keeps the light pair honest — but it does **not** get the
+same guarantee, and the difference decides what the generator does with an
+unrecognised value.
+
+A feature bitmask is append-only because it is persisted and read by HA's own
+frontend. A device-class string enum is persisted nowhere and has both grown
+(`area`, `energy_distance`, `temperature_delta` are recent) and, historically,
+deprecated members. It is sixty-odd values and moving, against `ColorMode`'s ten
+and stable.
+
+So `PklDump.deviceClassField` **emits the assignment only for a class the
+vendored union names**, and leaves a comment in the generated source otherwise.
+Assigning it verbatim — the obvious thing, and what `supported_color_modes`
+does — would mean a home running a newer HA than this lib was synced against
+fails to evaluate *every* dashboard, `Cannot assign` on a first boot, over a
+reading no shipped card knows how to render. Dropping to null is also the
+behaviourally right answer: cards BRANCH on the class, and a class with no
+branch is indistinguishable from none.
+
+This is the same "keep the house booting" reasoning as the declared-not-emitted
+house lists above, applied to a value rather than a property.
+
+`unit_of_measurement` is deliberately NOT vendored as a union for the same
+reason taken one step further: HA lets an integration report any unit at all, so
+there is no closed set to check against. Only `hass_sensor.DURATION_SECONDS` —
+the units something actually computes with — is typed, and a unit outside it
+answers `null` rather than a wrong multiplier.
+
 #### Group members are references, not id strings
 
 Two HA mechanisms name an entity's members — `attributes.entity_id` (the Light
@@ -443,8 +484,9 @@ withheld rather than emitted broken.
 Three levels, all working today; the difference is only how much a dashboard
 knows:
 
-- **Modelled** — a domain class with capability GROUPS and derived predicates,
-  its HA constants vendored.
+- **Modelled** — a domain class with derived predicates and its HA constants
+  vendored, plus capability GROUPS where the domain has co-occurring values to
+  group (only `light` does so far — `lock` and `sensor` carry flat fields).
 - **Typed** — a domain class, so a value can be typed `List<XEntity>` and a card
   factory can demand the domain; capabilities still arrive on the per-entity
   class.
@@ -457,13 +499,15 @@ knows:
 | Domain | Level | HA spec |
 |---|---|---|
 | `light` | **Modelled** — `colourTemp`, `effects` groups; colour/brightness/flash/transition predicates; `ColorMode` + `LightEntityFeature` vendored | [light](https://developers.home-assistant.io/docs/core/entity/light) |
-| `sensor` | Typed | [sensor](https://developers.home-assistant.io/docs/core/entity/sensor) |
+| `lock` | **Modelled** — `supportsOpen` off the feature bit; `LockState` + `LockEntityFeature` vendored | [lock](https://developers.home-assistant.io/docs/core/entity/lock) |
+| `sensor` | **Modelled** — `device_class`/`state_class`/`unit_of_measurement`/`options` typed on the class; `isNumeric`/`isInstant`/`durationSeconds` derived; `SensorDeviceClass` + `SensorStateClass` vendored | [sensor](https://developers.home-assistant.io/docs/core/entity/sensor) |
+| `binary_sensor` | **Modelled** — `device_class` typed, `onMeans` derived; `BinarySensorDeviceClass` vendored | [binary_sensor](https://developers.home-assistant.io/docs/core/entity/binary-sensor) |
 | `switch` | Typed | [switch](https://developers.home-assistant.io/docs/core/entity/switch) |
 | `number` | Typed | [number](https://developers.home-assistant.io/docs/core/entity/number) |
 | `select` | Typed | [select](https://developers.home-assistant.io/docs/core/entity/select) |
 | `cover`, `fan` | Generic — but both have a `sliderSpec` row, so `c.slider` works on them | [cover](https://developers.home-assistant.io/docs/core/entity/cover), [fan](https://developers.home-assistant.io/docs/core/entity/fan) |
-| `climate`, `media_player`, `vacuum`, `lawn_mower`, `water_heater`, `humidifier`, `alarm_control_panel`, `lock`, `valve`, `remote`, `siren`, `camera`, `weather` | Generic — **bitmask domains**, the next candidates: each has an `*EntityFeature` IntFlag to vendor exactly as `light`'s was | [climate](https://developers.home-assistant.io/docs/core/entity/climate), [media_player](https://developers.home-assistant.io/docs/core/entity/media-player), [vacuum](https://developers.home-assistant.io/docs/core/entity/vacuum), [lawn_mower](https://developers.home-assistant.io/docs/core/entity/lawn-mower), [water_heater](https://developers.home-assistant.io/docs/core/entity/water-heater), [humidifier](https://developers.home-assistant.io/docs/core/entity/humidifier), [alarm_control_panel](https://developers.home-assistant.io/docs/core/entity/alarm-control-panel), [lock](https://developers.home-assistant.io/docs/core/entity/lock), [valve](https://developers.home-assistant.io/docs/core/entity/valve), [remote](https://developers.home-assistant.io/docs/core/entity/remote), [siren](https://developers.home-assistant.io/docs/core/entity/siren), [camera](https://developers.home-assistant.io/docs/core/entity/camera), [weather](https://developers.home-assistant.io/docs/core/entity/weather) |
-| `binary_sensor`, `button`, `text`, `date`, `datetime`, `time`, `event`, `scene`, `todo`, `calendar`, `update`, `image`, `notify`, `device_tracker`, `geo_location`, `air_quality` | Generic — no feature bitmask; `device_class` (already carried) is most of what they have | [binary_sensor](https://developers.home-assistant.io/docs/core/entity/binary-sensor), [button](https://developers.home-assistant.io/docs/core/entity/button), [text](https://developers.home-assistant.io/docs/core/entity/text), [date](https://developers.home-assistant.io/docs/core/entity/date), [datetime](https://developers.home-assistant.io/docs/core/entity/datetime), [time](https://developers.home-assistant.io/docs/core/entity/time), [event](https://developers.home-assistant.io/docs/core/entity/event), [scene](https://developers.home-assistant.io/docs/core/entity/scene), [todo](https://developers.home-assistant.io/docs/core/entity/todo), [calendar](https://developers.home-assistant.io/docs/core/entity/calendar), [update](https://developers.home-assistant.io/docs/core/entity/update), [image](https://developers.home-assistant.io/docs/core/entity/image), [notify](https://developers.home-assistant.io/docs/core/entity/notify), [device_tracker](https://developers.home-assistant.io/docs/core/entity/device-tracker), [geo_location](https://developers.home-assistant.io/docs/core/entity/geo-location), [air_quality](https://developers.home-assistant.io/docs/core/entity/air-quality) |
+| `climate`, `media_player`, `vacuum`, `lawn_mower`, `water_heater`, `humidifier`, `alarm_control_panel`, `valve`, `remote`, `siren`, `camera`, `weather` | Generic — **bitmask domains**, the next candidates: each has an `*EntityFeature` IntFlag to vendor exactly as `light`'s was | [climate](https://developers.home-assistant.io/docs/core/entity/climate), [media_player](https://developers.home-assistant.io/docs/core/entity/media-player), [vacuum](https://developers.home-assistant.io/docs/core/entity/vacuum), [lawn_mower](https://developers.home-assistant.io/docs/core/entity/lawn-mower), [water_heater](https://developers.home-assistant.io/docs/core/entity/water-heater), [humidifier](https://developers.home-assistant.io/docs/core/entity/humidifier), [alarm_control_panel](https://developers.home-assistant.io/docs/core/entity/alarm-control-panel), [valve](https://developers.home-assistant.io/docs/core/entity/valve), [remote](https://developers.home-assistant.io/docs/core/entity/remote), [siren](https://developers.home-assistant.io/docs/core/entity/siren), [camera](https://developers.home-assistant.io/docs/core/entity/camera), [weather](https://developers.home-assistant.io/docs/core/entity/weather) |
+| `button`, `text`, `date`, `datetime`, `time`, `event`, `scene`, `todo`, `calendar`, `update`, `image`, `notify`, `device_tracker`, `geo_location`, `air_quality` | Generic — no feature bitmask; `device_class` (already carried) is most of what they have | [button](https://developers.home-assistant.io/docs/core/entity/button), [text](https://developers.home-assistant.io/docs/core/entity/text), [date](https://developers.home-assistant.io/docs/core/entity/date), [datetime](https://developers.home-assistant.io/docs/core/entity/datetime), [time](https://developers.home-assistant.io/docs/core/entity/time), [event](https://developers.home-assistant.io/docs/core/entity/event), [scene](https://developers.home-assistant.io/docs/core/entity/scene), [todo](https://developers.home-assistant.io/docs/core/entity/todo), [calendar](https://developers.home-assistant.io/docs/core/entity/calendar), [update](https://developers.home-assistant.io/docs/core/entity/update), [image](https://developers.home-assistant.io/docs/core/entity/image), [notify](https://developers.home-assistant.io/docs/core/entity/notify), [device_tracker](https://developers.home-assistant.io/docs/core/entity/device-tracker), [geo_location](https://developers.home-assistant.io/docs/core/entity/geo-location), [air_quality](https://developers.home-assistant.io/docs/core/entity/air-quality) |
 | `conversation`, `stt`, `tts`, `wake_word`, `assist_satellite`, `ai_task`, `infrared`, `radio_frequency` | Generic — voice/AI plumbing, no dashboard use yet | [entity index](https://developers.home-assistant.io/docs/core/entity) |
 
 Helper domains an instance also exposes (`input_number`, `input_select`,
@@ -480,7 +524,7 @@ The recipe, in the order the pieces depend on each other:
 2. **Carry the attributes**: add them to `RegistryDump.CapabilityAttributes` —
    *after* checking them against live `subscribe_entities` deltas, per the rule
    above. Skip any that are live values.
-3. **Vendor the constants** in `lib/hass-<domain>.pkl` + `Ha<Domain>.scala`, and
+3. **Vendor the constants** in `lib/hass/<domain>.pkl` + `Ha<Domain>.scala`, and
    extend `HaLightSuite`'s comparison to the new pair so they cannot drift.
    (Import with an `as` alias — Pkl binds an import to its FILE name, and
    `hass-media-player` is not an identifier.)
@@ -488,14 +532,18 @@ The recipe, in the order the pieces depend on each other:
    Entity` with the co-occurring values as nullable GROUP classes and the
    yes/no capabilities as predicates DERIVED from the raw emitted data. Do not
    bake conclusions into the generator.
-5. **Emit the data** in `PklDump`: a `schemaFields` branch for the always-present
+5. **Select the domain**: one `function <domain>s(scope)` in `hass.pkl`, removed
+   from `generic`'s complement in the same edit — the two together are what keep
+   the lists a partition — and one derived `hidden <domain>s` on
+   `internal/dump-base.pkl`. The generator emits no list: it emits `all`.
+6. **Emit the data** in `PklDump`: a `schemaFields` branch for the always-present
    values, a `schemaGroups` branch for the narrowed group declarations, and the
    attribute names the domain now owns listed in `SchemaModelled` so
    `capabilityDecls` stops declaring them on the per-entity class too.
-6. **Validate in `PklDump.warnings`**: what would make a group half-populated?
+7. **Validate in `PklDump.warnings`**: what would make a group half-populated?
    Report it and omit the group.
-7. **Dispatch**: add the domain to `PklDump.entityType`.
-8. **Test**: a `PklDumpCapabilitySuite` case per group (complete, half,
+8. **Dispatch**: add the domain to `PklDump.entityType`.
+9. **Test**: a `PklDumpCapabilitySuite` case per group (complete, half,
    claimed-but-absent, unmodelled-attribute-still-falls-through) and a
    `PklBuildSuite` probe that evaluates the guarded access for real.
 

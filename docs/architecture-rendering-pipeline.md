@@ -28,11 +28,11 @@ what its viewer has selected).
 
 ```mermaid
 flowchart TB
-  HA["Home Assistant · WebSocket<br/>subscribe_entities"]
+  HA["Home Assistant · WebSocket<br/>subscribe_entities entity_ids<br/>ONLY what the dashboards read"]
 
   subgraph GLOBAL["GLOBAL — exactly one per process, for ALL dashboards"]
     direction TB
-    PUMP["HaFeed.pump<br/>ONE HA WebSocket, one subscribe_entities<br/>one HA frame = one fs2 chunk"]
+    PUMP["HaFeed.pump<br/>ONE HA WebSocket, one subscribe_entities<br/>re-opened when the wanted set moves<br/>one HA frame = one fs2 chunk"]
     STORE["StateStore.update<br/>ONE store for every dashboard<br/>ONE Ref.modify per frame<br/>version++ only if content really moved<br/>each moved entity stamped with it"]
     CH["changes topic · list of StateChange<br/>unbounded — the feed must never backpressure"]
   end
@@ -133,7 +133,9 @@ The same thing as §1, in words, because the diagram cannot show ordering and li
 
 ```
 open ONE WebSocket to Home Assistant, subscribe_entities
-  the opening frame IS the full entity set, so there is no separate seeding step
+  the opening frame IS the subscribed set in full, so there is no separate seeding step
+  UNFILTERED at boot — nothing is built yet, so nothing knows which entities matter,
+  and it is this frame that fills the store the boot waits for
 create ONE StateStore              // for every dashboard, not one each
 evaluate the ONE entrypoint        // site.pkl -> slug -> dashboard (ADR 0021);
                                    // decoded PER SLUG, and neither a broken
@@ -171,6 +173,8 @@ flowchart LR
   REG -->|discrete| RECON["sharedPatchPublishers<br/>toAdd / toCancel"]
   RECON -->|toAdd| START["start that slug's recorder"]
   RECON -->|toCancel| STOP["cancel it"]
+  REG -->|discrete| NARROW["ServerApp.narrowFeed<br/>union of watchedEntities"]
+  NARROW --> RESUB["HaFeed re-subscribes<br/>switchMap, new entity_ids"]
 
   classDef ok fill:#dcfce7,stroke:#15803d,color:#0f172a
   classDef store fill:#fef3c7,stroke:#b45309,color:#0f172a
@@ -178,7 +182,7 @@ flowchart LR
   class REG store
 ```
 
-Three properties worth stating, because each is silent when broken:
+Four properties worth stating, because each is silent when broken:
 
 - **Installing a slug IS starting its recorder**, and removing one IS stopping
   it. A removed slug cannot leave a fiber diffing every state batch forever.
@@ -191,6 +195,12 @@ Three properties worth stating, because each is silent when broken:
   `SignallingRef`, which rotates its log identity and repaints every open
   browser. The comparison is per slug, so one author's edit repaints one
   dashboard.
+- **The registry also decides what HA is asked for.** The upstream
+  `subscribe_entities` carries the union of the registered slugs'
+  `watchedEntities` (ADR 0030), so installing, removing or rebuilding a
+  dashboard rotates the subscription. An entity no dashboard reads never reaches
+  the process at all — which is why the store's contents are the dashboards'
+  entities, not the house's.
 
 ### A browser opens a dashboard
 
@@ -304,10 +314,14 @@ The CQRS split (action POST is no-content; the result arrives later over the
 stream, ADR 0005) leaves a click visibly answerless, so the card layer adds
 client-only feedback around the `@post` — see `docs/adr/0019-an-action-in-flight.md`:
 
-- **Busy, per node.** A guarded tap renders `data-indicator="_<id>__busy"`
+- **Busy, per node — one splice the card places, not four.** A card declares
+  `busy = true` on the tap and splices `tapMod.guardClick` into its click
+  expression and `tapMod.guard` beside it. Both carry their own `{{#busy}}`
+  section, so the card places them unconditionally and an unguarded tap emits
+  nothing. What lands is `data-indicator="_<id>__busy"`
   (the value form — the pinned bundle splits attribute KEYS on `__`, so the
-  keyed form would arm a differently-named signal) + a
-  `data-class:fh-disabled="$<id>__busy"`, and wraps its click in
+  keyed form would arm a differently-named signal), `data-fh-node`, the refusal
+  handler, `data-class:fh-disabled="$<id>__busy"`, and a click wrapped in
   `$<id>__busy ? '' : …` (a second click while in flight is a no-op). The
   indicator clears in a `finally` on success AND error. The signal is
   `_`-prefixed client-only state: it never joins a request and is per-node, so
@@ -343,6 +357,13 @@ client-only feedback around the `@post` — see `docs/adr/0019-an-action-in-flig
   `data-fh-node` at click time. The bundle parses a response body only on
   exactly 200 (`if (M !== 200) { … return }`), which is why a 4xx could never
   have carried any of this.
+- **Nothing is coming, so no ask is outstanding — one rule, in the shell.**
+  `Server.PendingSweep` clears every `*__pending` signal on a dead stream
+  (`_sse > 0`) or a non-200 response, via `@setAll('', {include:/__pending$/})`.
+  Both are page-wide facts, so neither knows nor needs which group asked; a
+  refusal the server SENDS is different and names its own group. Busy signals
+  are not swept — the bundle dispatches `finished` in a `finally` and the
+  indicator clears on a counter, so a busy state cannot outlive its fetch.
 - **Failure toast, in the shell.** `<body>`'s signal-patch handler calls
   `window.fhToast` when `_toast` is written, showing a themed `fh-toast`.
   `shell.ts` also keeps a `datastar-fetch:error` listener for what a signal
@@ -542,6 +563,15 @@ which no prefix of the container's id reaches, so the patch names the surfaces a
 (`Patches.hostEvicts`) as what it made unknown. A SET's members are `gid_…`, so there the set's
 own id is the right root — a set has no card and no declared region, so it is the one container
 that is neither.
+
+**And then it CLAIMS what it put there** (`Renderer.HostContent.claims`). Forgetting alone left the
+arriving branch unknown as well as the departing one, so the next tick that made any node in it a
+candidate re-sent bytes the client had just been handed. The two container kinds claim different
+ids and that is why the renderer decides it rather than the fill site: a set's members are separate
+renders, so each part is itself a claimable node and its bytes are hashed; a state group's branch is
+ONE walk whose part is a composed subtree under a root with no rendering of its own, so it claims
+the walk's per-node digests (`Traced.claims`) — which cost nothing, the walk having produced them
+already.
 
 ---
 
@@ -832,7 +862,7 @@ is keyed per node, and the common tick is signals-only and has no node. See "Kno
 
 **The digest is asked of the PATCH FORM**, and that is what puts a moving value on the cheap side of
 it. A signal slot's value is not in those bytes at all (ADR 0017) — the element carries only its
-`data-text` binding — so the node's digest stands still while the value moves, the morph is
+binding, or for a `handler` slot not even that — so the node's digest stands still while the value moves, the morph is
 suppressed, and one `datastar-patch-signals` frame carries the values for the whole batch. The
 wholesale renders (page, repaint, fill, the document a JS-less browser gets) use the DOCUMENT form
 instead: value inline, plus a `data-signals` seed on the node's `.fh-cell` wrapper, so an element
@@ -1041,6 +1071,7 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 | a stylesheet the first paint does not need | `model/Dashboard.scala` · `Theme.deferredStylesheets` (the icon font); `runtime/Server.scala` · `page`'s `rel=preload` + `<noscript>` pair. In `headFingerprint` like any other `<link>`, and prefetched by `AssetCache` like any other theme URL |
 | the actual rendering | `runtime/Renderer.scala` · `renderNodeById`, `renderHost` |
 | the document render | `runtime/Renderer.scala` · `renderPageInto`, `renderBodyTraced`, `tracedInto`, `executeInto`; `runtime/Sink.scala` · the `Writer` the whole document goes through — `Streaming` for a page, `Buffer` for a patch — and `digesting`, which fingerprints a node from the run it just wrote; `runtime/Server.scala` · `renderPage`, `pageInto` (the shell, around a writer hole). Streamed to the client as it is walked — §6a |
+| what a page open COST | `telemetry/Telemetry.scala` · the three providers, no-op together unless an OTLP endpoint is configured; `telemetry/Logging.scala` · the loggers every file takes, each line carrying the span it was written inside; `telemetry/Meters.scala` · the `fh.*` instruments; `runtime/Server.scala` · the `dashboard.page` / `.store` / `.walk` spans. Because the document is walked as the body is pulled, the walk outlives the handler — so its span is started inside the body and re-parented with `childOrContinue`, and a span that merely wrapped `renderPage` would time the setup and miss the render (issue #75) |
 | what keys a render | `runtime/Renderer.scala` · `renderInputs`, `activeBakeIndex` |
 | the member graph | `runtime/MemberGraph.scala` · `Member`, `MemberIndex`, `syncMembers`, `membersOf`, `innerSetId` |
 | which branch is showing, and to whom | `runtime/SurfaceGraph.scala` · `bakeGroup`, `resolveActive` (per viewer) / `resolveActiveByState` (per slug), `selectedSurfaces`, `visibleNode`, `visibleSurface`, `userSurfaceOf`, `rootOf` |
@@ -1080,13 +1111,14 @@ Live list — delete an entry when it is answered, and say where the answer land
   for 3.4%, and the same profile named items worth three and six times as much. Reopen only if a
   profile puts it somewhere else.
 
-- **Fills bypass the `RenderCache` entirely** —
-  [issue #224](https://github.com/perok/functional-home-assistant/issues/224). `arrivingFill` and
-  `branchPatch` take no cache and `Patches.resume` runs per session, so a flip renders its whole
-  surface subtree once per connection — the exact N-sessions-one-render waste `Patches.bytes` exists
-  to prevent. Not an oversight: a fill's content is a composed subtree, which `renderInputs` refuses
-  a key for by design, so the fix is composing a fill from per-node cached leaves rather than one
-  fresh walk. Orthogonal to render FORM — that was checked and changes nothing here (PR #222).
+- ~~**Fills bypass the `RenderCache` entirely.**~~ *Measured, and the answer is no*
+  ([issue #224](https://github.com/perok/functional-home-assistant/issues/224), closed). They still
+  do — `renderHost` takes no cache and `Patches.resume` runs per session — but the only fill several
+  sessions can ever share is a state-group FLIP (a tab switch is one client's own selection, a
+  refill is per reconnect), and `RenderBench.resumeFlip` prices the whole of it at **~730 µs of CPU
+  per flip at ten clients**, against 93.9 µs for one. A flip is an alarm arming; at one a minute
+  that is 0.001% of a core, while `resumeSignalsFanout` spends 424 µs per TICK on the path that runs
+  continuously. Reopen only if a profile of a real deployment puts a fill on it.
 
 - **The document walk and the repaint bypass the `RenderCache` entirely** —
   [issue #130](https://github.com/perok/functional-home-assistant/issues/130), measured and

@@ -92,6 +92,12 @@ case class Device(
     primary_config_entry: Option[EntryId],
     serial_numer: Option[String],
     sw_version: Option[String],
+    // HA 2026.9 added child devices — one outlet of a power strip, one gang of
+    // a switch — as a first-class parent/child edge. Every device carries the
+    // key (main devices send it as null), and it is one level deep: a child
+    // cannot be a parent. NOT `via_device_id`, which says "reached THROUGH"
+    // rather than "is part of".
+    parent_device_id: Option[DeviceId],
     via_device_id: Option[String]
 ) extends IsDevice derives StaticCode
 

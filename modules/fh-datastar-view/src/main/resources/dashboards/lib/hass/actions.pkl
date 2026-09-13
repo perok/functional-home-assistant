@@ -31,6 +31,20 @@ class CallByState {
   whenState: String
   then: String
   otherwise: String
+  /// States in which a tap is MEANINGLESS, because the entity is already doing
+  /// something. A two-way test over a multi-state domain has one branch and a
+  /// fallback, so every transitional state lands in [[otherwise]]: a lock read
+  /// as `unlocking` is not `locked`, so a tap posted `lock/lock` — a command
+  /// competing with the one already running.
+  ///
+  /// A GUARD, not a third branch, so ADR 0016's "revisit if the conditional
+  /// grows past two-way" trigger is untouched: the question stays "which of two
+  /// services", with a separate answer for "none, not now".
+  ///
+  /// Transitional states ONLY. A state that merely makes the fallback the WRONG
+  /// GUESS is not this — a `jammed` lock should still accept a retry, and a
+  /// `paused` vacuum should still accept a start.
+  inertWhile: Listing<String> = new {}
 }
 
 typealias DomainAction = Call|CallByState
@@ -75,17 +89,26 @@ const ACTIONS: Mapping<String, DomainAction> = new {
     whenState = "locked"
     then = "lock/unlock"
     otherwise = "lock/lock"
+    // `open`/`jammed` are deliberately absent: locking an open door and
+    // retrying a jam are both meaningful presses.
+    inertWhile { "locking"; "unlocking"; "opening" }
   }
   ["vacuum"] = new CallByState {
     whenState = "cleaning"
     then = "vacuum/return_to_base"
     otherwise = "vacuum/start"
+    // `docked`/`idle`/`paused` all start it, which is right; `returning` is the
+    // one where starting again fights a dock already under way.
+    inertWhile { "returning" }
   }
   ["lawn_mower"] = new CallByState {
     whenState = "mowing"
     then = "lawn_mower/dock"
     otherwise = "lawn_mower/start_mowing"
+    inertWhile { "returning" }
   }
+  // No transitional state: `idle` and `paused` both start, and starting a
+  // paused timer is how you resume it.
   ["timer"] = new CallByState {
     whenState = "active"
     then = "timer/pause"

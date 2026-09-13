@@ -149,6 +149,18 @@ const local colSpans: String = new Listing {
 const local busyCss: String = """
   .fh-disabled{opacity:.5}
   .fh-loading{cursor:progress}
+  /* A control the ENTITY'S STATE makes meaningless carries a real `disabled`
+     rather than a class (`Button.inertWhile`), so the browser takes it out of
+     the tab order and refuses the press itself. This only has to make that
+     visible; `.fh-disabled` above stays for the in-flight case, which
+     deliberately does NOT disable (ADR 0019). */
+  .fh-cell button:disabled{opacity:.5;cursor:not-allowed}
+  /* The same fact on a host that CANNOT be disabled — an entity card's tap is
+     on an `<article>`, and `disabled` is a form-control attribute. The cursor
+     is the visible half: the card keeps its own opacity, because a tile is a
+     READOUT first and dimming the reading it exists to show would cost more
+     than the guard is worth. */
+  .fh-inert{cursor:not-allowed}
   /* The REFUSED state, and the reason it exists: `data-indicator` clears on
      either outcome, so a rejected action left the control looking exactly like
      a successful one. It stays until the next press on this control, unlike
@@ -188,12 +200,59 @@ const local shellCss: String = """
   border-radius:999px;font-weight:600;box-shadow:0 4px 12px rgba(0,0,0,.3)}
   """
 
-/// The class contract two cards share, so it lives with neither: an entity's
-/// live reading (`components/entity.pkl`, `components/slider.pkl`) and a
-/// section title (`components/text.pkl`).
+/// The TEXT contract every card shares, so it lives with none of them: three
+/// roles, named once here, used by class everywhere else.
+///
+///   - [[fh-reading]] — the card's own live value. An entity's state, a
+///     slider's readout, an appliance's countdown.
+///   - [[fh-sub]] — a second line ABOUT that value. Smaller and dimmer, and
+///     `em` not `rem` so it stays proportional wherever it is nested.
+///   - [[fh-section]] — a heading over a group of cards.
+///
+/// **Every name is `fh-` prefixed, and that is the load-bearing part.** These
+/// rules land in the same cascade as the theme's framework, and BeerCSS ships
+/// single-word utility classes with `!important`: `.secondary` is
+/// `background-color:var(--secondary)!important;color:var(--on-secondary)!important`,
+/// which no specificity we can write beats. An entity card's second line was
+/// spelled `.secondary` and painted WHITE on a light card for exactly that
+/// reason — invisible, and with no visual baseline covering it, silent.
+/// A generic class name here is not a style choice, it is a collision waiting
+/// for whichever framework the theme loads next.
+///
+/// The sizes are absolute rather than inherited for the same class of reason:
+/// a bare `<h2>` takes BeerCSS's display scale (measured: 45px against a 14px
+/// card), so a heading that states no size is not neutral, it is whatever the
+/// framework thought a page title should be.
 const local sharedCss: String = """
-  .state{color:var(--fh-text-dim)}
-  .section{color:var(--fh-accent)}
+  .fh-reading{color:var(--fh-text-dim)}
+  .fh-sub{font-size:.8em;color:var(--fh-text-dim)}
+  .fh-section{color:var(--fh-accent);font-size:1.125rem;font-weight:600;
+  line-height:1.3;margin:0}
+  """
+
+/// No pinch- or double-tap-zoom on a touch device (#306) — a dashboard is an
+/// app surface there, and a wall tablet or a phone in a pocket zooms by
+/// accident far more often than on purpose.
+///
+/// TOUCH ONLY, which is what `(pointer:coarse)` says: a desktop browser keeps
+/// its zoom, including the browser-level one that is an accessibility feature
+/// rather than a gesture. This affects a POINTING gesture, never the zoom a
+/// reader has actually asked for.
+///
+/// `touch-action` rather than the `user-scalable=no` viewport meta the obvious
+/// answer reaches for: iOS deliberately ignores that (since iOS 10, for
+/// accessibility), so it would do nothing on the platform most likely to be
+/// running this from a home screen — and it would apply to a phone's ordinary
+/// browser tab too, which this media query does not.
+///
+/// On the root, because the effective touch-action is the intersection down the
+/// ancestor chain: a restriction here holds for every element under it, and the
+/// narrower `pan-y` a slider's track sets (`components/slider.pkl`) still wins
+/// where it applies.
+const local gestureCss: String = """
+  @media (pointer:coarse){
+  html{touch-action:pan-x pan-y}
+  }
   """
 
 /// What `entry.pkl` puts on the dashboard's `css`. Order is cascade order:
@@ -206,4 +265,5 @@ const local sharedCss: String = """
 /// runs at is the entry's (`entry.pkl` emits it at `:root`); these rules only
 /// say what each mode means.
 const baseCss: String =
-  List(paletteVars, layoutCss, busyCss, shellCss, sharedCss, textMod.css).join("\n")
+  List(paletteVars, layoutCss, busyCss, shellCss, sharedCss, gestureCss, textMod.css)
+    .join("\n")

@@ -75,6 +75,32 @@ trait BrowserSuite extends munit.CatsEffectSuite with SlowSuite {
 
 object BrowserSuite {
 
+  /** Playwright's `evaluate` returns `Object` — the JS value marshalled into
+    * whatever Java type it maps to — so reading one is where a browser test has
+    * to say what it expects.
+    *
+    * These say it once each, with a failure that names the value that arrived.
+    * The alternative at every call site is a cast whose `ClassCastException`
+    * says only "String cannot be cast to Boolean", which in a suite that
+    * evaluates a dozen expressions is not enough to find WHICH one.
+    */
+  extension (evaluated: Object) {
+    def asJsBoolean: Boolean = evaluated match {
+      case b: java.lang.Boolean => b.booleanValue
+      case other => throw new AssertionError(s"expected a boolean, got: $other")
+    }
+
+    def asJsInt: Int = evaluated match {
+      case i: java.lang.Integer => i.intValue
+      case other => throw new AssertionError(s"expected an int, got: $other")
+    }
+
+    def asJsStrings: List[String] = evaluated match {
+      case l: java.util.List[?] => l.asScala.toList.map(String.valueOf)
+      case other => throw new AssertionError(s"expected a list, got: $other")
+    }
+  }
+
   /** Set by the agentbox wrapper to the sidecar's Playwright server. Its
     * PRESENCE selects `connect` over `launch` — there is no second "am I in a
     * box" flag to keep consistent with it.

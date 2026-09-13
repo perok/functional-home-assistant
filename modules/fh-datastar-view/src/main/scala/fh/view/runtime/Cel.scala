@@ -1,9 +1,11 @@
 package fh.view.runtime
 
+import fh.view.model.SlotValue
+
 import dev.cel.common.{CelFunctionDecl, CelOverloadDecl}
 import dev.cel.common.types.{MapType, SimpleType}
 import dev.cel.compiler.CelCompilerFactory
-import dev.cel.extensions.CelExtensions
+import dev.cel.extensions.{CelExtensions, CelOptionalLibrary}
 import dev.cel.runtime.{
   CelFunctionBinding,
   CelFunctionOverload,
@@ -148,8 +150,20 @@ object Cel {
       CelExtensions.strings(),
       CelExtensions.lists(),
       CelExtensions.math(),
-      CelExtensions.comprehensions()
+      CelExtensions.comprehensions(),
+      // Optionals, on BOTH builders: `CelOptionalLibrary` is a compiler library
+      // AND a runtime one, and adding it to only the compiler yields programs
+      // the runtime cannot evaluate. It is what makes `attr[?'x']` parse at all
+      // — without it the parser rejects `[?` as unsupported syntax.
+      CelOptionalLibrary.INSTANCE
     )
+    // NO MACROS, and `has()` is the one people expect: `standardCelCompilerBuilder`
+    // registers standard DECLARATIONS but no standard macros, so `has(attr.x)` is
+    // an "undeclared reference to 'has'" here, not a working guard. Measured
+    // against the pinned `dev.cel:cel:0.14.0`; nothing in the tree uses it, and
+    // the optional spelling (`attr[?'x']`) removed most of the reason to want it.
+    // Turning it on is `setStandardMacros(CelStandardMacro.HAS)` — per-macro, so
+    // it need not drag in ALL/EXISTS/MAP/FILTER.
     .addVar("state", SimpleType.STRING)
     .addVar("attr", MapType.create(SimpleType.STRING, SimpleType.DYN))
     .addVar("entity_id", SimpleType.STRING)
@@ -164,7 +178,8 @@ object Cel {
       CelExtensions.strings(),
       CelExtensions.lists(),
       CelExtensions.math(),
-      CelExtensions.comprehensions()
+      CelExtensions.comprehensions(),
+      CelOptionalLibrary.INSTANCE
     )
     .addFunctionBindings(
       CelFunctionBinding.from(
@@ -230,23 +245,45 @@ object Cel {
   /** Evaluate a compiled program against one entity, stringified for the
     * template. The dashboard's slug binds `dashboard_slug` (ADR 0023); on
     * evaluation failure the CEL error message is returned so the card shows it
-    * — contained, never thrown into the render. A `null` result becomes `""` so
-    * the slot's `default` can take over.
+    * — contained, never thrown into the render. A result with no value becomes
+    * `""` so the slot's `default` can take over.
     */
   def run(
       program: Program,
       entity: EntityState,
       dashboardSlug: String
   ): String =
+    SlotValue.text(runValue(program, entity, dashboardSlug))
+
+  /** [[run]] keeping a BOOLEAN result boolean.
+    *
+    * CEL's `bool` is a real type — `state in ['locked','locking']` returns one
+    * — and it is the only value that can turn a boolean attribute off. Every
+    * other result stringifies exactly as [[run]] renders it, so this is a
+    * widening at one type and an identity everywhere else.
+    *
+    * An evaluation FAILURE stays a String: the card shows the CEL message, and
+    * a message is bytes whatever the expression's declared type was.
+    */
+  def runValue(
+      program: Program,
+      entity: EntityState,
+      dashboardSlug: String
+  ): SlotValue =
     try
-      stringify(
-        program.eval(new EntityResolver(entity, dashboardSlug))
-      )
+      program.eval(new EntityResolver(entity, dashboardSlug)) match
+        case b: java.lang.Boolean => b.booleanValue
+        case other                => stringify(other)
     catch case e: Exception => s"cel error: ${errorText(e)}"
 
   /** Stringify a CEL result the way a string-coercing operator would, so a bare
-    * number and a `str(...)` number land identically on the slot. Null becomes
-    * "" so the slot's `default` can take over.
+    * number and a `str(...)` number land identically on the slot.
+    *
+    * The two ways CEL says "no value" both render `""`, so the slot's `default`
+    * can take over: a `null` arrives as `NullValue` (or a bare Java null), an
+    * `optional.none()` / missing `attr[?'x']` as an empty `java.util.Optional`.
+    * The optional case is not cosmetic — without it an optional falls through
+    * to `String.valueOf` and puts the literal text `Optional.empty` in the DOM.
     *
     * Also what the `Transform.Simple` fast tier renders its direct reads with
     * ([[Transform.runSimple]]): the tier is only sound while it produces
@@ -255,6 +292,7 @@ object Cel {
     */
   private[view] def stringify(result: Any): String = result match
     case n if isNullValue(n)  => ""
+    case o: Optional[?]       => if (o.isPresent) stringify(o.get) else ""
     case s: String            => s
     case b: java.lang.Boolean => b.toString
     case l: java.lang.Long    => l.toString

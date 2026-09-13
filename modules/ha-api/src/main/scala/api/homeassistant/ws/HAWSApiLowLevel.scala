@@ -1,7 +1,6 @@
 package api.homeassistant.ws
 
 import cats.syntax.all.*
-import cats.effect.std.Console
 import api.homeassistant.ws.protocol.client.{CommandPhase, CommandResponse}
 import api.homeassistant.ws.protocol.server.WSCommandPhaseServerPayload
 import cats.effect.std.Queue
@@ -12,6 +11,7 @@ import fs2.concurrent.SignallingRef
 import io.circe.parser.decode
 import io.circe.{Decoder, Encoder, Json}
 import org.http4s.Uri
+import org.typelevel.log4cats.slf4j.Slf4jLogger
 import org.http4s.client.websocket.{
   WSClient,
   WSConnectionHighLevel,
@@ -54,6 +54,12 @@ trait HAWSApiLowLevel[F[_]] {
 
 object HAWSApiLowLevel {
 
+  // Frame tracing lives at DEBUG. With `subscribe_entities` that is a line per
+  // state change of the whole house, which is why it is not on by default —
+  // but it is now a logger level like everything else, not a flag threaded
+  // through the transport's constructor.
+  private val log = Slf4jLogger.getLogger[IO]
+
   /** The error a caller sees for work issued on a dead connection: the cause
     * that killed it when there was one, since "closed" alone loses the only
     * clue why (a clean socket end has no exception to reuse).
@@ -89,9 +95,7 @@ object HAWSApiLowLevel {
       * coalesced into a frame stays one batch — which is what lets
       * `HaFeed.pump` fold it into a single store update.
       */
-    def receiveStreamDecode[Body: Decoder](
-        debugFrames: Boolean
-    ): Stream[IO, Body] = {
+    def receiveStreamDecode[Body: Decoder](): Stream[IO, Body] = {
       // TODO ping pong on WSFrame?
       // Branch on the SHAPE, and name `decodeList` explicitly rather than
       // summoning `Decoder[List[Body]]` — that would resolve back to this very
@@ -105,14 +109,9 @@ object HAWSApiLowLevel {
       wsClient.receiveStream
         .evalMap {
           case WSFrame.Text(data, true) =>
-            Console[IO]
-              .println(s"<-- Receiving: ${data.take(100)}")
-              .whenA(debugFrames) *>
+            log.debug(s"<-- Receiving: ${data.take(100)}") *>
               decode[List[Body]](data)(using batch).liftTo[IO].onError { err =>
-                Console[IO].errorln(
-                  s"receiveStreamDecode error decoding: $data"
-                ) >>
-                  Console[IO].printStackTrace(err)
+                log.error(err)(s"receiveStreamDecode error decoding: $data")
               }
           case unknown =>
             IO.raiseError(
@@ -152,11 +151,7 @@ object HAWSApiLowLevel {
       // (`state_changed` events) resets the timer, so a busy connection is never
       // pinged. https://developers.home-assistant.io/docs/api/websocket/#pings-and-pongs
       pingInterval: FiniteDuration = 30.seconds,
-      pingTimeout: FiniteDuration = 10.seconds,
-      // Trace every frame in both directions. Off by default: with
-      // `subscribe_entities` this is one line per state change of the whole
-      // house, so it is a deliberate debugging switch, never ambient logging.
-      debugFrames: Boolean = false
+      pingTimeout: FiniteDuration = 10.seconds
   ): Resource[IO, HAWSApiLowLevel[IO]] = {
     import cats.effect.std.Queue
 
@@ -235,9 +230,7 @@ object HAWSApiLowLevel {
                   // Everything in command phase has id https://developers.home-assistant.io/docs/api/websocket/#command-phase
                   val idJson = Json.obj(("id" -> Json.fromInt(id)))
                   val toSend = msg.message.asJson.deepMerge(idJson)
-                  Console[IO]
-                    .println(s"--> Sending ${toSend.noSpaces}")
-                    .whenA(debugFrames) *>
+                  log.debug(s"--> Sending ${toSend.noSpaces}") *>
                     ha.sendText(toSend.noSpaces)
                 }
               } yield ()
@@ -256,7 +249,7 @@ object HAWSApiLowLevel {
           // Registration precedes the send, so the queue always exists when HA
           // answers — ack and later events land in order, no first-event race.
           _ <- ha
-            .receiveStreamDecode[WSCommandPhaseServerPayload](debugFrames)
+            .receiveStreamDecode[WSCommandPhaseServerPayload]()
             // Route a whole FRAME at a time: group its payloads by id and hand
             // each subscription its group as one chunk. Doing this per payload
             // would dissolve the batch HA deliberately coalesced.
@@ -271,7 +264,7 @@ object HAWSApiLowLevel {
                       case Some(queue) =>
                         queue.offer(Some(Chunk.from(payloads)))
                       case None =>
-                        Console[IO].errorln(
+                        log.error(
                           s"Received message, but not receivers: $payloads"
                         )
                     }
@@ -369,7 +362,7 @@ object HAWSApiLowLevel {
                       .attempt
                       .flatMap {
                         case Left(err) =>
-                          Console[IO].errorln(
+                          log.warn(
                             s"unsubscribe of $id failed: ${err.getMessage}"
                           )
                         case Right(_) => IO.unit
