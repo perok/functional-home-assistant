@@ -130,9 +130,14 @@ async function save() {
   // the key that names it), but silence would read as "it is live" — which it
   // is not until site.pkl imports it.
   const saved = await res.json().catch(() => null)
-  setMsg(saved && saved.used === false
-    ? "saved ✓ — but nothing in site.pkl reads this file yet"
-    : "saved ✓")
+  // `changed: false` means the bytes already matched, so nothing was written
+  // and no reload was triggered. "saved ✓" would claim an edit that did not
+  // happen — which matters most right after an undo back to the original.
+  setMsg(saved && saved.changed === false
+    ? "no change — the instance already has these bytes"
+    : saved && saved.used === false
+      ? "saved ✓ — but nothing in site.pkl reads this file yet"
+      : "saved ✓")
   // The preview iframe repaints itself live via its SSE stream on reload.
 }
 

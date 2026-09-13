@@ -219,6 +219,41 @@ class EditorSuite extends munit.FunSuite {
     }
   }
 
+  test(
+    "an identical write is reported unchanged, and does not touch the file"
+  ) {
+    // Not cosmetic. Touching the file fires the source watcher, which
+    // re-evaluates the whole site — seconds on a Pi — and swaps the renderer,
+    // which reloads every connected browser. So a `fh write` with nothing to
+    // say used to cost every viewer their page.
+    workspace { ws =>
+      def put(name: String, body: String) = routes(ws).orNotFound
+        .run(
+          Request[IO](Method.PUT, Uri.unsafeFromString(s"/edit/file/$name"))
+            .withEntity(body)
+        )
+        .flatMap(resp => resp.body.through(fs2.text.utf8.decode).compile.string)
+        .unsafeRunSync()
+
+      def changed(body: String) = parse(body).toOption
+        .flatMap(_.hcursor.get[Boolean]("changed").toOption)
+
+      val target = ws / "pkl-tabs.pkl"
+      assertEquals(changed(put("pkl-tabs.pkl", "// first")), Some(true))
+      val afterFirst = os.mtime(target)
+
+      // The same bytes again: reported unchanged, and the mtime stands still —
+      // which is the half the watcher actually reads.
+      assertEquals(changed(put("pkl-tabs.pkl", "// first")), Some(false))
+      assertEquals(os.mtime(target), afterFirst)
+      assertEquals(os.read(target), "// first")
+
+      // Different bytes are still a write.
+      assertEquals(changed(put("pkl-tabs.pkl", "// second")), Some(true))
+      assertEquals(os.read(target), "// second")
+    }
+  }
+
   test("PklProject is readable and writable; its lockfile is neither") {
     workspace { ws =>
       assertEquals(get(ws, "/edit/file/PklProject")._1, Status.Ok)

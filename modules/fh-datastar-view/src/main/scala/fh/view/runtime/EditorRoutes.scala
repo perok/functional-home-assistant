@@ -109,7 +109,17 @@ final class EditorRoutes(
             Forbidden("""{"error":"not an editable dashboard source"}""")
           case Some(p) =>
             req.bodyText.compile.string.flatMap { body =>
-              IO.blocking(os.write.over(p, body)) *> saved(p)
+              // A write whose bytes match what is already there is SKIPPED, not
+              // just reported. Touching the file fires the source watcher,
+              // which re-evaluates the whole site — seconds on a Pi, per
+              // `prepareRenderers`' own note — and swaps the renderer, which
+              // reloads every connected browser. So `fh write` with nothing to
+              // say used to cost every viewer their page.
+              IO.blocking {
+                val same = os.exists(p) && os.read(p) == body
+                if (!same) os.write.over(p, body)
+                !same
+              }.flatMap(saved(p, _))
             }
         })
 
@@ -194,7 +204,7 @@ final class EditorRoutes(
     * ([[PklBuild.fileImports]]), so the note is never the confident wrong way
     * round.
     */
-  private def saved(path: os.Path): IO[Response[IO]] =
+  private def saved(path: os.Path, changed: Boolean): IO[Response[IO]] =
     IO.blocking(PklBuild.fileImports(dashboardsDir, Site.EntryFile))
       .flatMap { reads =>
         val used =
@@ -204,7 +214,11 @@ final class EditorRoutes(
             .obj(
               "written" -> Json
                 .fromString(path.relativeTo(dashboardsDir).toString),
-              "used" -> Json.fromBoolean(used)
+              "used" -> Json.fromBoolean(used),
+              // Whether the bytes MOVED, not whether the request succeeded —
+              // `fh write` reports N files either way, and "wrote 6 files" for
+              // a push that changed nothing reads as work done.
+              "changed" -> Json.fromBoolean(changed)
             )
             .noSpaces
         ).map(_.withContentType(`Content-Type`(MediaType.application.json)))
