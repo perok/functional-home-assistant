@@ -1,6 +1,6 @@
 // A Pkl-authored tabs dashboard — point a key at it from `site.pkl`
-// to serve it (ADR 0021). The typed counterpart of tabs.jsonnet. Demonstrates the `Tabs` sugar: one bar over
-// a single inline panel, one tab visible at a time.
+// to serve it (ADR 0021). Demonstrates the `Tabs` sugar: one bar over a single
+// inline panel, one tab visible at a time.
 //
 // `(c.tabs) { tabs { ["Label"] { ...cards... } } }` is pure composition — each
 // tab amends into existence off the mapping default (its body lists the panel's
@@ -27,7 +27,7 @@ card = (c.column) {
 
     (c.row) {
       children {
-        c.button("« Home", c.tap.navigate("dashboard"))
+        c.button("« Home", c.tap.navigate("home"))
       }
     }
     (c.tabs) {

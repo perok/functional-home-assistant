@@ -26,11 +26,9 @@ JDK) showed [Pkl](https://pkl-lang.org) offers what jsonnet structurally cannot:
 
 ## Decision
 
-Pkl is **the** authoring language — the only one the backend evaluates. The
-jsonnet sources (`components.libsonnet`, the `*.jsonnet` entries) remain on disk
-only as **inert porting references** while the five real dashboards are ported
-to Pkl by hand; the backend can no longer evaluate them and they are not
-extended. Once the hand-port completes they are deleted.
+Pkl is **the** authoring language, and the only one that exists here: the
+jsonnet sources were kept on disk as porting references until the hand-port
+finished, and are deleted (issue #23).
 
 1. **`SourceEval` seam** (`fh.view.build.SourceEval`): owns
    `Result(value: Json, imports: Set[os.Path])` and evaluates `.pkl` entries via
@@ -241,10 +239,9 @@ slot key remains `"class"`.
 - **A fresh `Evaluator.preconfigured()` per eval** (~0.5 s cold, per entry per
   reload). Fine at current scale; reuse an evaluator (or restrict re-eval to
   affected entries) if reload latency grows with the dump.
-- `BuildApp` takes the entry as an ARGUMENT and has no default
-  (`sbt 'dashboardBuild overetasje.pkl'`): a workspace holds several entries and
-  the build writes one artifact, so which one is the caller's to say. With none,
-  it names the entries the workspace actually has.
+- `BuildApp` takes NO argument (`sbt dashboardBuild`): a workspace has one
+  entrypoint and the artifact is the whole site (ADR 0021), so there is nothing
+  for the caller to choose.
 - Generated-code safety in `PklDump`: every identifier backticked, strings
   escaped (backslash first also neutralizes `\(` interpolation), null
   `friendly_name` omitted, floor slugs guarded against the module's own

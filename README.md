@@ -2,7 +2,7 @@
 
 > [!CAUTION]
 > This project is **pre-v1 alpha**. Nothing here is stable: APIs, the dashboard
-card model, the jsonnet authoring surface, generated code, and on-disk formats
+card model, the Pkl authoring surface, generated code, and on-disk formats
 can all change without notice. **Breaking changes are expected and allowed** —
 favour the cleanest design over backward compatibility until v1.
 
@@ -59,10 +59,6 @@ What is emitted, what it costs, and the `OTEL_*` knobs: [`home-addon/DOCS.md`](h
 ---
 
 TODO just do template query? https://community.home-assistant.io/t/get-api-areas-rest-endpoint/271440/12?u=perok
-jsonnetfmt input.json > output.libsonnet
-static stuff => json output saved as libssonnet
-jsonnet to filter and use that to generate defintions
-defintions use some kind of templating language
 
 
 how to create reusable config UIs

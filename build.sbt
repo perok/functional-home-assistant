@@ -278,7 +278,7 @@ lazy val `fh-datastar-view` = project
       "org.http4s" %% "http4s-circe" % http4sVersion,
       "io.circe" %% "circe-core" % "0.14.16",
       "io.circe" %% "circe-parser" % "0.14.16",
-      // filesystem paths/IO for the build phase (was transitive via sjsonnet)
+      // filesystem paths/IO for the build phase
       "com.lihaoyi" %% "os-lib" % "0.11.8",
       // pkl evaluation for the build phase (pure Java, needs JDK 17+)
       "org.pkl-lang" % "pkl-core" % "0.32.1",

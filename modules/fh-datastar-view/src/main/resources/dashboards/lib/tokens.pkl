@@ -1,5 +1,5 @@
-/// Design tokens — Home Assistant frontend theme variables (the Pkl port of
-/// `tokens.libsonnet`; see that file for the full rationale).
+/// Design tokens — Home Assistant frontend theme variables.
+/// <https://www.home-assistant.io/integrations/frontend/>
 ///
 /// A theme is a map of `variable-name -> value`. The runtime injects each as a
 /// CSS custom property `--<variable-name>` on the dashboard root, and the

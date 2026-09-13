@@ -1,14 +1,13 @@
 // The Pkl-authored demo dashboard. A MODULE, not a dashboard by itself: point
-// a key at it from `site.pkl` to serve it (ADR 0021).
-// Exercises the MVP component set: entity
-// cards (default value, live expr override, tap), a domain-checked slider,
-// and cross-dashboard navigation back to the jsonnet default.
+// a key at it from `site.pkl` to serve it (ADR 0021). Exercises the MVP
+// component set: entity cards (default value, live expr override, tap) and a
+// domain-checked slider.
 //
 // `amends "@fh-dashboard/entry.pkl"` supplies the `cards`/`theme` scaffold; the
 // entry sets only `surfaces` + `card`. `lib/dump.pkl` is GENERATED (by PklDump, from
-// the live HA registry) when the server or build runs — like `dump.libsonnet`
-// on the jsonnet track. (Plain `//` comments here: a doc comment would attach
-// to the first import, which Pkl rejects — entries have no `module` clause.)
+// the live HA registry) when the server or build runs. (Plain `//` comments
+// here: a doc comment would attach to the first import, which Pkl rejects —
+// entries have no `module` clause.)
 
 amends "@fh-dashboard/entry.pkl"
 
@@ -20,7 +19,6 @@ import "@fh-home/dump.pkl" as dump
 // rendered/streamed only while open. Amending the key into existence builds a
 // `PopupSurface` (the mapping default from lib/entry.pkl), so the `popup`
 // dialog wrap is automatic — the body lists the dialog's cards directly.
-// Mirrors dashboard.jsonnet:42-52.
 surfaces {
   ["detail"] {
     body {
@@ -125,7 +123,6 @@ card = (c.grid) {
             c.button("Close", c.tap.closePopup())
           }
         }))
-        c.button("« Back to jsonnet", c.tap.navigate("dashboard"))
       }
     }
   }
