@@ -292,7 +292,7 @@ badly wherever the name is used.
 
 ```bash
 sbt 'fh-datastar-view/testOnly *PklLibraryTestSuite'   # fast, no browser
-sbt dashboardServe                                     # then look at it
+sbt 'dashboardServe <your-workspace>'                  # then look at it
 ```
 
 The Pkl suite catches structural mistakes in seconds. Anything about how a card

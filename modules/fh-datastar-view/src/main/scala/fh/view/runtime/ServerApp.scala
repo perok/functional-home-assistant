@@ -78,15 +78,10 @@ object ServerApp extends IOApp {
   private val consoleLog: SelfAwareStructuredLogger[IO] =
     Logging.console.getLoggerFromName(LoggerName)
 
-  // All relative to the module directory (the forked `run` working dir).
-  //
-  // Last-resort fallback when `DASHBOARDS_DIR` is unset (build.sbt sets it for
-  // `dashboardServe` — an absolute repo-root path; `run.sh` sets it on the
-  // add-on). A local scratch dir, NOT the resources dir, so a dev run bootstraps
-  // a real package-form workspace (its `.fh/` pins, seeded entries, dated
-  // backups) without ever writing into the checked-in
-  // `src/main/resources/dashboards`.
-  private val defaultDashboardsDir = "dashboard-local-dev"
+  // Relative paths are resolved against the forked `run` working dir, which is
+  // the REPO ROOT (`Compile / run / baseDirectory` is `/work`, not the module)
+  // — so a relative path typed at `sbt dashboardServe` resolves where the
+  // person typing it expects.
 
   // Persistent pkl package cache for a dev run: pkl's own default
   // (`~/.pkl/cache`), shared with `BuildApp`, the laptop `fh`, the `pkl` CLI
@@ -100,7 +95,8 @@ object ServerApp extends IOApp {
     * table — no scattered `Env[IO].get`, no defaults re-stated per site.
     */
   private case class Config(
-      // Workspace precedence: optional CLI arg > `DASHBOARDS_DIR` > default.
+      // The workspace, named by CLI arg or `DASHBOARDS_DIR` and never
+      // defaulted — see [[workspaceDir]].
       dashboardsDir: os.Path,
       // Persistent pkl package cache (`FH_PKL_CACHE_DIR`).
       cacheDir: os.Path,
@@ -118,9 +114,11 @@ object ServerApp extends IOApp {
   private object Config {
     def load(args: List[String]): IO[Config] =
       for {
-        dashboardsDir <- args.headOption
-          .map(p => IO.pure(os.Path(p, os.pwd)))
-          .getOrElse(pathFromEnv("DASHBOARDS_DIR", defaultDashboardsDir))
+        dirEnv <- Env[IO].get("DASHBOARDS_DIR")
+        dir <- IO.fromEither(
+          workspaceDir(args, dirEnv).leftMap(Exception(_))
+        )
+        dashboardsDir = os.Path(dir, os.pwd)
         cacheDir <- pathFromEnv("FH_PKL_CACHE_DIR", defaultCacheDir)
         assetsDir <- pathFromEnv("FH_ASSETS_DIR", "assets-cache")
         bindHost <- Env[IO]
@@ -1180,6 +1178,45 @@ object ServerApp extends IOApp {
 
   private def pathFromEnv(name: String, default: String): IO[os.Path] =
     envOr(name, default).map(s => os.Path(s, os.pwd))
+
+  /** Which workspace to serve: `sbt 'dashboardServe <dir>'`, else
+    * `DASHBOARDS_DIR` (the add-on's channel, `run.sh`). Absolute, or relative
+    * to the repo root.
+    *
+    * Pure, and separated from [[Config.load]] for the usual reason — this is
+    * the whole contract, and the part worth a test, where the rest of `load`
+    * needs an environment to say anything.
+    *
+    * There is deliberately NO default. A relative fallback bootstraps a fresh,
+    * empty package-form workspace wherever the process happened to start, and
+    * then boots green serving a starter dashboard — so a mistyped path, or a
+    * run from a directory nobody thought about, looked like it worked and left
+    * a second workspace on disk beside the real one.
+    *
+    * A SECOND argument is refused rather than ignored, for the same reason:
+    * `args.headOption` quietly served the first one, so a typo'd flag or an
+    * unquoted glob that matched two directories booted a server on a workspace
+    * the caller did not name and did not see named.
+    */
+  private[runtime] def workspaceDir(
+      args: List[String],
+      dashboardsDirEnv: Option[String]
+  ): Either[String, String] =
+    args match {
+      case dir :: Nil => Right(dir)
+      case Nil        =>
+        dashboardsDirEnv
+          .filter(_.nonEmpty)
+          .toRight(
+            "no workspace to serve: name the directory — `sbt 'dashboardServe <dir>'` — or set DASHBOARDS_DIR"
+          )
+      case more =>
+        Left(
+          s"dashboardServe takes one workspace directory, got ${more.size}: " +
+            more.mkString(", ") +
+            " — quote a path that contains spaces, and set everything else through the environment"
+        )
+    }
 
   private val PklLspVersion = "0.8.0"
   private val PklLspUrl =
