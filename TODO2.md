@@ -13,9 +13,10 @@ query-scoped dynamic re-renders, column layout — were removed; git history has
 - [ ] `pkl-spike` skill (`.claude/skills/pkl-spike/`): package the scala-cli + pkl-core
       spike harness (lib.pkl + entry.pkl + runner, see the template in CLAUDE.md) so
       "verify Pkl semantics empirically" is a one-command habit.
-- [ ] (project-wide) Move the HA bearer token out of `build.sbt` (`secretToken`) into an
-      env var / untracked `.env` — security hygiene, and stops the credential being copied
-      into new files during refactors.
+- [x] (project-wide) Move the HA bearer token out of `build.sbt` (`secretToken`) into an
+      env var / untracked `.env`. **Done** — `build.sbt` carries `haSecret := "TODO"`, the real
+      value lives in the gitignored repo-root `.env` (`SERVER`/`SECRET`) and is read at run time
+      by `FHApi.fromEnv`.
 - [x] Page title: replace the hardcoded `<title>Home Assistant</title>` (Server.scala) with a
       per-dashboard title — new optional top-level `title` in the dashboard model, falling
       back to the slug. (`lib/entry.pkl`'s `title` field is the authoring half.)
@@ -26,9 +27,10 @@ query-scoped dynamic re-renders, column layout — were removed; git history has
 
 ## Worth doing
 
-- [ ] Discover NEW dashboard files at runtime: the watcher re-evaluates known entries but a new
-      top-level `.pkl` needs a server restart. Watch the dashboards dir for creates, add a
-      renderer for each new slug.
+- [x] Discover NEW dashboard files at runtime. **Done** — the workspace DIRECTORY is watched, not
+      only known imports, because a new file is nobody's import yet (`ServerApp.isSourceEvent`
+      filters the events to `*.pkl` plus the manifest); `reloadSite` re-evaluates the entrypoint
+      and reports `Change.Added` for each slug that appeared.
 - [x] ~~Carry the converted attribute map across a tick~~ — **measured, and the answer is no.**
       `EntityState.javaAttributes` is a `lazy val` on a value rebuilt on EVERY state change, so an
       entity whose frame moved only `state` re-converts an attribute map that did not change. This
@@ -54,22 +56,24 @@ query-scoped dynamic re-renders, column layout — were removed; git history has
       `data-on-interval` derives both, giving the transport priority. Structure/behavior are in
       the server shell (`Server.page`, theme-agnostic so it always renders); the look is
       theme-owned via `.fh-offline*` classes in each theme's `styles`. Pairs with the
-      self-healing HA feed (`HaFeed` + `HAWSApiLowLevel` idle ping/pong + reconnect). NOTE: the
-      `datastar-sse` event name/shape was verified against datastar beta.11 (npm); the pinned
-      v1.0.2 (GitHub-only, unreachable here) still needs a browser check.
-- [ ] Registry-change refresh: a renamed entity / new area / new entity never reaches the dump
-      (fetched once at startup). Subscribe to the HA registry-updated WS events, re-fetch the
-      dump, re-evaluate entries — same machinery as source-file live reload, different trigger.
-- [ ] Dynamic case containers: a dynamic group case renders a single card (`childrenHtml = Nil`
-      in Renderer.renderCase) — allow a case to render a row/col with children (e.g. a slider
-      *and* a label per matched light).
-- [ ] Author-facing docs: one authoring guide for the API surface (cards, slots
-      literal-vs-transform, JSONata context, dynamic groups, surfaces/tabs, theming) — the ADRs
-      record decisions but nothing teaches usage. Include what is static, backend-rendered, or
-      client-signal scriptable.
+      self-healing HA feed (`HaFeed` + `HAWSApiLowLevel` idle ping/pong + reconnect). The old
+      caveat about `datastar-sse` is settled: the pinned v1.0.2 bundle dispatches
+      **`datastar-fetch`** (no `datastar-sse` constant in it at all), with `detail.type` taking
+      `started`/`finished`/`error`/`retrying`/`retries-failed`, and that is the name `shell.ts`
+      and `Server.scala` bind to.
+- [x] Registry-change refresh. **Done** — `RegistryDump` subscribes, `DumpRefresh` re-seeds the
+      dump package and re-evaluates, on by default and switchable with `FH_WATCH_REGISTRY`.
+- [ ] Dynamic case containers: a dynamic group case renders a single card — allow a case to
+      render a row/col with children (e.g. a slider *and* a label per matched light).
+      NOTE: `Renderer.renderCase` no longer exists; `Dashboard.scala`'s `noWrap` comment still
+      names it and should be corrected along with this.
+- [x] Author-facing docs. **Done** — `docs-pkl-components.md` is the authoring guide. (Its
+      transform section is CEL, not JSONata, which this entry predates.)
 - [ ] CSS/class pass-through on components: a standard class API on every template, not just
       the `cssClass` slot the containers have. The `.fh-cell` half of this is settled — the
-      wrapper class is the base layer's, not a theme's (ADR 0020).
+      wrapper class is the base layer's, not a theme's (ADR 0020). Still open as described:
+      `cssClass` reaches `layout.pkl`, `components/surface.pkl` and `components/control.pkl`,
+      but is not on `core/node.pkl`, so it is not every template.
 
 - [ ] Make the runtime suites connect like a BROWSER does. The in-process harness talks to
       `routes.run` directly, and the ways it differs from a real client have each hidden a
@@ -98,9 +102,11 @@ query-scoped dynamic re-renders, column layout — were removed; git history has
 
 ## Bigger bets (design first)
 
-- [ ] "show if" / conditional visibility: a predicate-gated node (hide a card or subtree when a
-      condition is false). Reuses the Predicate AST + the dynamic-group re-render scoping;
-      needs an ADR (interaction with pathId stability and the diff cache).
+- [x] "show if" / conditional visibility. **Done, and as branches rather than visibility** —
+      `c.iff(p).then(card).`else`(card)` builds an `If`, which is the tabs machinery with a
+      quantified condition over live entity state instead of a click: the inactive branch is not
+      rendered and receives no updates. Demo entry: `pkl-if.dashboard.pkl`. What is still missing
+      is `elif` (see TODO.md).
 - [ ] Event coalescing under state_changed bursts: debounce/batch, collapsing repeated touches
       of the same node into one render+push (already flagged as FUTURE in Server.scala). Do
       after the shared-fanout refactor — it changes where batching goes.
