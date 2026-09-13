@@ -34,9 +34,11 @@ import org.http4s.server.staticcontent.*
   *     `lib` sources), each with its absolute on-disk path (LSP document URI)
   *     and its `kind`.
   *   - `GET  /edit/dashboards` the slugs currently served (the preview list).
-  *   - `GET  /edit/file/<rel>` read a source; `PUT` write it. A write lands on
-  *     disk and the existing `ServerApp.watchSources` reload repaints every
-  *     open preview — no coupling here.
+  *   - `GET  /edit/file/<rel>` read a source; `PUT` write it. A write that
+  *     MOVES the bytes lands on disk and the existing `ServerApp.watchSources`
+  *     reload repaints every open preview — no coupling here. One whose bytes
+  *     already match is skipped outright (`changed: false`), precisely so it
+  *     does not pay for that reload.
   *   - `GET  /lsp/pkl` the language-server WebSocket ([[LspBridge]]).
   *
   * Every route here is **admin-only** — the `/lsp/pkl` WebSocket included —
@@ -183,7 +185,9 @@ final class EditorRoutes(
         NotFound("editor index.html not found on the classpath (/editor)")
       )
 
-  /** The write response: `{ written, used }`, where `used` says whether the
+  /** The write response: `{ written, used, changed }`, where `changed` says
+    * whether the bytes MOVED (see the PUT route for why an identical write is
+    * skipped rather than merely reported), and `used` says whether the
     * entrypoint actually READS this file — itself, something it imports, or a
     * file a glob import matches ([[PklBuild.fileImports]], static analysis, no
     * evaluation).
