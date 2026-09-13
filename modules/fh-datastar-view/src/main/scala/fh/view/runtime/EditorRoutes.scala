@@ -34,9 +34,11 @@ import org.http4s.server.staticcontent.*
   *     `lib` sources), each with its absolute on-disk path (LSP document URI)
   *     and its `kind`.
   *   - `GET  /edit/dashboards` the slugs currently served (the preview list).
-  *   - `GET  /edit/file/<rel>` read a source; `PUT` write it. A write lands on
-  *     disk and the existing `ServerApp.watchSources` reload repaints every
-  *     open preview — no coupling here.
+  *   - `GET  /edit/file/<rel>` read a source; `PUT` write it. A write that
+  *     MOVES the bytes lands on disk and the existing `ServerApp.watchSources`
+  *     reload repaints every open preview — no coupling here. One whose bytes
+  *     already match is skipped outright (`changed: false`), precisely so it
+  *     does not pay for that reload.
   *   - `GET  /lsp/pkl` the language-server WebSocket ([[LspBridge]]).
   *
   * Every route here is **admin-only** — the `/lsp/pkl` WebSocket included —
@@ -113,7 +115,17 @@ final class EditorRoutes(
             Forbidden("""{"error":"not an editable dashboard source"}""")
           case Some(p) =>
             req.bodyText.compile.string.flatMap { body =>
-              IO.blocking(os.write.over(p, body)) *> saved(p)
+              // A write whose bytes match what is already there is SKIPPED, not
+              // just reported. Touching the file fires the source watcher,
+              // which re-evaluates the whole site — seconds on a Pi, per
+              // `prepareRenderers`' own note — and swaps the renderer, which
+              // reloads every connected browser. So `fh write` with nothing to
+              // say used to cost every viewer their page.
+              IO.blocking {
+                val same = os.exists(p) && os.read(p) == body
+                if (!same) os.write.over(p, body)
+                !same
+              }.flatMap(saved(p, _))
             }
         })
 
@@ -177,7 +189,9 @@ final class EditorRoutes(
         NotFound("editor index.html not found on the classpath (/editor)")
       )
 
-  /** The write response: `{ written, used }`, where `used` says whether the
+  /** The write response: `{ written, used, changed }`, where `changed` says
+    * whether the bytes MOVED (see the PUT route for why an identical write is
+    * skipped rather than merely reported), and `used` says whether the
     * entrypoint actually READS this file — itself, something it imports, or a
     * file a glob import matches ([[PklBuild.fileImports]], static analysis, no
     * evaluation).
@@ -198,7 +212,7 @@ final class EditorRoutes(
     * ([[PklBuild.fileImports]]), so the note is never the confident wrong way
     * round.
     */
-  private def saved(path: os.Path): IO[Response[IO]] =
+  private def saved(path: os.Path, changed: Boolean): IO[Response[IO]] =
     IO.blocking(PklBuild.fileImports(dashboardsDir, Site.EntryFile))
       .flatMap { reads =>
         val used =
@@ -208,7 +222,11 @@ final class EditorRoutes(
             .obj(
               "written" -> Json
                 .fromString(path.relativeTo(dashboardsDir).toString),
-              "used" -> Json.fromBoolean(used)
+              "used" -> Json.fromBoolean(used),
+              // Whether the bytes MOVED, not whether the request succeeded —
+              // `fh write` reports N files either way, and "wrote 6 files" for
+              // a push that changed nothing reads as work done.
+              "changed" -> Json.fromBoolean(changed)
             )
             .noSpaces
         ).map(_.withContentType(`Content-Type`(MediaType.application.json)))
