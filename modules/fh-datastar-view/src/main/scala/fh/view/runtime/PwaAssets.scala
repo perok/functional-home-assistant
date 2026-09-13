@@ -25,12 +25,25 @@ import org.typelevel.ci.CIString
   * manifest and the SW, `no-cache` is also the *mechanism*: the browser
   * re-fetches both on every load/register to learn about updates.
   *
-  * Its `theme_color`/`background_color` are the DEFAULT theme's light
-  * background (`tokens.pkl`'s `primary-background-color`), not its accent: they
-  * paint an installed app's chrome and its splash, which sit directly above the
-  * page. A cold launch is all they cover — once a document is up,
-  * [[Renderer.themeColorTags]] overrides `theme_color` with the live theme's
-  * own value, per scheme. A manifest takes no comments, hence the note here.
+  * Its `theme_color`/`background_color` are the default theme's DARK background
+  * (`tokens.pkl`'s `primary-background-color` under `dark`). A manifest takes
+  * no comments, hence the note here, and the choice needs one:
+  *
+  *   - A manifest holds ONE colour and is one per ORIGIN, while a theme is per
+  *     DASHBOARD — so there is no theme to derive this from, and no scheme to
+  *     pick it by. It is a deliberate constant, not a stale copy of a token.
+  *   - Dark, because an installed app's status bar is chrome rather than page:
+  *     it reads as a bar under both schemes, where light reads as a white
+  *     stripe on a dark phone. [[Renderer.themeColorTags]] still does the
+  *     per-scheme job for as long as a document is up; this covers what it
+  *     cannot reach.
+  *
+  * THE TRAP, because it cost a whole investigation: an INSTALLED app's status
+  * bar comes from the manifest, and Chrome caches the manifest at install time
+  * and refreshes it lazily. So a change here reaches installed phones days
+  * later, with no deploy to correlate it against — the symptom is a colour that
+  * changes on its own, and `git log` on this file looks innocent because the
+  * commit that did it is weeks back.
   *
   * Everything is read ONCE at class-init, and missing files are a HARD failure
   * like [[FrontendAssets]] — a pwa/ without its files is a broken build.

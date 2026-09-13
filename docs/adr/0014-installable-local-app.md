@@ -188,8 +188,14 @@ Open questions to spike before Phase-2 implementation:
    tell a user navigation from a server-ordered `location.reload()`. One escape: a
    cache-busting marker on the reload URL. Not needed under NetworkFirst; recorded so
    nobody adds strict cache-first without revisiting the `_reload` loop.
-4. **Theme-driven manifest colors.** `theme_color`/`background_color` are hardcoded; the
-   theme owns tokens (`theme-beer.pkl`). A dynamic manifest route is possible later.
+4. ~~**Theme-driven manifest colors.**~~ **Answered: they cannot be, and should not be.** A
+   manifest holds one colour and is one per ORIGIN; a theme is per DASHBOARD. There is no
+   single theme to derive them from, so they are a deliberate constant — the dark background,
+   because an installed app's status bar is chrome rather than page. `Renderer.themeColorTags`
+   covers the per-scheme case for as long as a document is up; the manifest covers what it
+   cannot reach (the splash, the task switcher, and the standalone status bar itself).
+   Note that an installed app takes manifest changes LAZILY — Chrome caches it at install —
+   so a change here surfaces on phones days after the deploy that made it.
 5. **HTTPS on the intranet** (issue #98 follow-up): a private CA or reverse proxy so the
    SW activates on LAN devices — the precondition for Phase 2's offline goal to matter
    outside `localhost`.

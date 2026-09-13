@@ -252,6 +252,24 @@ class ServerRoutesSuite extends ServerHarness {
     }
   }
 
+  test("the manifest paints an installed app's chrome DARK, in both schemes") {
+    // Not a copy of a token that drifted: a manifest holds one colour and is one
+    // per ORIGIN where a theme is per DASHBOARD, so there is nothing to derive
+    // it from and no scheme to pick it by (ADR 0014). Dark is the deliberate
+    // choice — a status bar is chrome, and the light value reads as a white
+    // stripe above a dark page, which is the bug this pins.
+    //
+    // It is pinned in a test because the symptom is invisible here and slow
+    // there: an installed app caches the manifest, so a wrong value shows up on
+    // a phone days after the deploy and correlates with no commit.
+    response("/manifest.webmanifest").flatMap { r =>
+      r.as[String].map { body =>
+        assert(body.contains(""""theme_color": "#111111""""), clue = body)
+        assert(body.contains(""""background_color": "#111111""""), clue = body)
+      }
+    }
+  }
+
   test("the page head links the manifest and registers the service worker") {
     pageHtml(titleDash("home", None)).map { html =>
       // The manifest link rides the <base href> like every other app URL.
