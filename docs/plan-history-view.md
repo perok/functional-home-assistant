@@ -6,9 +6,10 @@ only where it is.
 `components/moreinfo.pkl` says so itself today: *"HA's own more-info also carries history and
 settings; neither is here."* This is the design for the first half.
 
-Two questions were asked, and they have very different answers. The charting one turns out to be
-nearly settled by constraints this project already has. The retrieval one is the real design work,
-because it adds **a second kind of data** to a pipeline that currently has exactly one.
+Two questions were asked, and they have very different answers. The charting one is settled by one
+constraint — Datastar morphs the DOM — and the shape that satisfies it. The retrieval one is the
+real design work, because it adds **a second kind of data** to a pipeline that currently has
+exactly one.
 
 ---
 
@@ -49,67 +50,103 @@ Note what *isn't* new: a window is a selection, so it rides the machinery select
 
 ---
 
-## 2. Charting: server-rendered SVG, and why the alternatives lose here
+## 2. Charting: an ECharts custom element the morph is allowed to patch
 
-The generic comparison of chart libraries is not very interesting. What decides it is three
-constraints this project already has, two of which are written down as traps.
+**Ship a client-side chart — ECharts — inside a custom element with a shadow root, configured
+through an attribute.**
+
+There is exactly one hard constraint, and it is not weight or vendoring:
 
 **Datastar morphs the DOM.** A canvas chart keeps its state in a JS object associated with an
-element. A morph that touches that element severs the association silently — no error, a dead
-chart.
+element. A morph that replaces that element severs the association silently — no error, a dead
+chart. So a client-owned chart needs a structural guarantee, not a convention.
 
-**`data-ignore-morph` is a trap, not the answer.** The `datastar` skill records the measurement:
-clause E of the guard is *one-sided and unconditional*, so every element **inside** a marked
-subtree is refused as a patch target forever. Marking a chart host to protect it also kills every
-live update under it. It is a "this DOM is client-owned, server keep out" tool, not a "skip this
-during someone else's morph" tool.
+**`data-ignore-morph` is not that guarantee.** The `datastar` skill records the measurement: clause
+E of the guard is *one-sided and unconditional*, so every element **inside** a marked subtree is
+refused as a patch target forever. Marking a chart host to protect it also kills every live update
+under it. It is a "this DOM is client-owned, server keep out" tool, not a "skip this during someone
+else's morph" tool.
 
-**Offline on a LAN is a feature.** `AssetCache` exists to vendor every CDN asset locally so a
-dashboard survives an internet outage. Any library we add is one more thing to vendor, and its
-sub-resources to rewrite.
+### A shadow root is the guarantee, and it costs nothing
 
-Against those:
+The pinned bundle (`assets-cache/46cf17bf647e-datastar.js`, v1.0.2) contains **zero occurrences of
+`shadow`, `attachShadow` or `customElement`**. The morph walks light-DOM children only. So a custom
+element that puts all of its chart DOM in a shadow root presents the morph with a single tag
+carrying attributes and **no children at all**: the morph reconciles the attributes and stops.
 
-| Option | Morph fit | JS weight | Verdict |
+That inverts the escape-hatch rule an earlier draft of this plan wrote down. The host is not
+"rendered once and never patched again" — it is patched like anything else, and **the attribute
+change IS the update path**: `attributeChangedCallback` → `setOption`. A history chart is therefore
+an ordinary leaf card. It patches, caches, digests and resumes with the rest of the tree, and it
+needs no isolation mechanism, no `data-ignore-morph`, and no second update channel.
+
+The data rides an **attribute, not a signal** — ADR 0011: every non-`_` signal is serialised into
+every action POST and every SSE reconnect for the life of the page, which is the wrong place for a
+multi-KB chart payload.
+
+### Why not server-rendered SVG, which was the earlier recommendation
+
+It is not a bad answer; it is a worse total system than it looked, once the two constraints it was
+optimising for were relaxed (vendoring, and a 1 MB JS-only dependency, are both acceptable here).
+What "just emit SVG" actually obliges us to write:
+
+- value and time scaling, and nice-number tick selection on the value axis;
+- tick selection on a **time** axis across 1h → 30d, where each magnitude wants a different
+  sensible interval;
+- **step-after** path generation, because HA state is a step function and a straight polyline is a
+  lie about it;
+- gaps and `unavailable` runs as breaks rather than interpolation;
+- LTTB downsampling;
+- a responsive `viewBox` that does not scale the label text with it.
+
+That is a small chart library — several hundred lines with real tests, mediocre-looking for a
+while, and a permanent maintenance surface.
+
+And one thing that does not show up until it bites: **text cannot be measured server-side.** Axis
+margins must be sized to the widest label, so a server-rendered chart *guesses*, and the guess is
+wrong at a different font, a longer unit, or a locale with wider numerals. The browser measures.
+
+**Server-side charting libraries do not rescue that route.** JFreeChart or XChart can emit SVG, but
+they produce a static picture — no hover, no zoom — with defaults we would theme by hand anyway, in
+exchange for a heavyweight AWT-flavoured dependency. They buy the axis math and nothing else.
+ECharts' own SSR mode needs node at *request* time; we have node only at build time.
+
+| Option | Morph fit | Cost | Verdict |
 |---|---|---|---|
-| **Server-rendered inline SVG** | perfect — it *is* bytes | 0 | **Ship this** |
-| uPlot | needs isolation | ~45 KB | the escape hatch, not the default |
-| Chart.js | needs isolation | ~200 KB | no — weight, for one popup |
-| ECharts / Plotly | needs isolation | 300 KB–1 MB | no |
-| Observable Plot / D3 | client-built SVG | ~100 KB+ | no — we can emit SVG ourselves |
-| Frappe / Chartist | client-built SVG | ~30 KB | no — buys little over server SVG |
+| **ECharts in a shadow root** | patches like any leaf | ~350 KB custom build | **Ship this** |
+| uPlot, same shape | same | ~45 KB | viable if size ever matters; fewer batteries |
+| Server-rendered inline SVG | perfect — it *is* bytes | a chart library we write | the sparkline case only |
+| Server-side SVG lib (JFreeChart/XChart) | perfect | heavy dep, static output | no |
+| Any chart lib in the light DOM | severed by a morph | — | no |
 
-**Server-rendered SVG makes a chart an ordinary leaf card.** It patches, caches, digests, resumes
-and survives a morph, with no new mechanism and nothing to vendor. It also satisfies ADR 0024's
-stated aspiration — *the DOM we send should be as usable as possible without JS* — which a canvas
-chart cannot.
+What ECharts brings that we would otherwise write: `step: 'end'`, `sampling: 'lttb'`, `dataZoom`,
+tooltips, time-axis tick selection, and resize.
 
-Two objections, both answerable:
+### What this takes on — stated, not glossed
 
-- *"Thousands of points is a lot of HTML."* You must not ship thousands of points to a phone
-  regardless. Downsample server-side (LTTB keeps visual shape far better than decimation), target
-  ~300 points, and the path data is a couple of KB. This is work you want done anyway, and the
-  server is the only place it can be done once for every viewer.
-- *"No tooltips or zoom."* Zoom is a **window change**, which is a selection and therefore a
-  server round trip we want anyway — the server holds the data and can re-downsample for the new
-  span, which client-side zoom into pre-downsampled points cannot. A hover readout is a `<title>`
-  element or a CSS-only band; richer interaction is what the escape hatch is for.
+- **A ~350 KB dependency.** An `echarts/core` custom build (LineChart + GridComponent +
+  TooltipComponent + DataZoomComponent) rather than the ~1 MB full bundle. It is an **npm
+  dependency and a fifth vite entry**, not an `AssetCache` vendored CDN asset: it lands in managed
+  resources as `web/chart-<hash>.js`, is served `immutable` through `FrontendAssets`, and is inside
+  the jar — so offline-on-a-LAN is by construction, with nothing to rewrite. Only a page that
+  contains a chart loads it.
+- **A new failure class that does not exist today:** a chart that dies because the morph *replaced*
+  the host rather than reconciling it. Mitigated by a stable node id and by the per-node identity
+  cache (identical bytes are never patched at all), but it wants a smoke test that patches around a
+  live chart and asserts it still draws.
+- **A lifecycle we have not needed before:** `disconnectedCallback` → `dispose`, plus a
+  `ResizeObserver`, or a closed more-info popup leaks a chart instance per open.
+- **Theme colours must be passed in.** Inside a shadow root the theme's CSS does not reach the
+  chart, so line/axis/text colours come from the theme tokens through the option object. That is a
+  real coupling and belongs in the shipped component, not in each author's hands.
+- **We give up ADR 0024's "usable without JS" for this one card.** Accepted: a chart is a picture,
+  not a control, and every control on the page keeps working without it.
 
-### The escape hatch, and the rule that makes it safe
+### Where server SVG still wins
 
-A third party wanting uPlot-class interaction needs a client-owned region. The rule cannot be
-`data-ignore-morph`, per above. It is:
-
-> **The server renders the host element once and never patches it again. Data reaches the chart as
-> signals only.**
-
-That binding already exists and is exactly this shape — `SignalBind.asHandler`: a value carried as
-a signal that nothing paints, read by an expression. Its doc already describes the case ("a value
-that is a function of live state but that only a click ever consumes"). A client-owned chart is the
-same trade with a different consumer.
-
-So the escape hatch needs **no new mechanism either** — it needs a documented card shape and a test
-proving the host's digest never moves.
+A tiny inline **sparkline** on a card face — no axes, no labels, no interaction — is ~30 lines of
+path emission and none of the problems above. Worth having later, as its own thing. It is not this
+card.
 
 ---
 
@@ -161,6 +198,13 @@ the entire bucket, and the entry expires by the bucket rolling over rather than 
 the pull-side analogue of `StateStore`, and the same principle as `RenderCache`: keyed by what the
 render *read*.
 
+### Downsampling stays server-side
+
+ECharts has `sampling: 'lttb'`, but that decides how many points it *draws*, not how many cross the
+wire. The server still downsamples — LTTB, target ~300 points — because the payload is an HTML
+attribute on every patch and every resume, and because it is the one place the work is done once
+for every viewer. ECharts' own sampling is the belt on top of those braces.
+
 ---
 
 ## 4. How this navigates static vs. live — the part that touches the pipeline
@@ -195,13 +239,14 @@ versions; a chart's bytes depend on the series key instead. So:
 A history card is **structural, with two regions** — the same split as the slider's head-and-rows,
 for the same reason:
 
-- `chart` — a **leaf** holding the SVG. Cached hard on the series key. Repaints when the window
-  changes or the bucket rolls, and at no other time.
-- `now` — the live present, as a **signal slot**. Updates every tick without the chart re-rendering
-  at all.
+- `chart` — a **leaf** holding the `<fh-chart option='…'>` host. Cached hard on the series key. Its
+  bytes move when the window changes or the bucket rolls, and at no other time; when they do move,
+  the ordinary morph carries the new option into the live chart.
+- `now` — the live present, as a **signal slot**. Updates every tick without the chart's bytes
+  changing at all.
 
-A tick on the current reading must never repaint the chart. Two regions is what guarantees that
-structurally, rather than by anyone remembering to.
+A tick on the current reading must never re-serialise the series. Two regions is what guarantees
+that structurally, rather than by anyone remembering to.
 
 ### Window selection is a bake group
 
@@ -231,13 +276,19 @@ Each is independently mergeable and independently useful.
    bucket key are pure and are where the tests go.
 3. **`RenderInputs` gains the series component.** The pipeline change, on its own, with the
    architecture doc updated in the same commit.
-4. **Pkl `core/series.pkl` + a shipped `c.historyChart(e)`** leaf emitting SVG.
-5. **Window selection** as a bake group over the existing surface machinery.
-6. **`moreInfoBody` gains the chart**, and `moreinfo.pkl`'s "neither is here" comment stops being
+4. **`<fh-chart>`**: the npm dependency, the `chart` vite entry, and the custom element —
+   shadow root, `attributeChangedCallback` → `setOption`, `disconnectedCallback` → `dispose`,
+   `ResizeObserver`. Its acceptance test is a smoke suite that patches the tree around a live chart
+   and asserts the chart survives and redraws.
+5. **Pkl `core/series.pkl` + a shipped `c.historyChart(e)`** leaf emitting the option JSON, with the
+   theme's colours folded in.
+6. **Window selection** as a bake group over the existing surface machinery.
+7. **`moreInfoBody` gains the chart**, and `moreinfo.pkl`'s "neither is here" comment stops being
    true and gets rewritten.
-7. **Docs**: terminology (series / window / provider), architecture §6, and an ADR for the provider
-   seam — the decision that needs a home readers will find is *why a fetched series is a second
-   kind of data and not a widened slot*.
+8. **Docs**: terminology (series / window / provider), architecture §6, a note in the `datastar`
+   skill that a shadow root is invisible to the morph (measured off the pinned bundle), and an ADR
+   for the provider seam — the decision that needs a home readers will find is *why a fetched series
+   is a second kind of data and not a widened slot*, with the shadow-root rule as its companion.
 
 ---
 
@@ -255,8 +306,13 @@ the prose.
 3. **Whose identity should read?** The person's token is the correct answer for a permission-scoped
    read, but it means a second connection per user, exactly as issue #198 describes for taps.
    Whether history is worth that cost is a judgement call, not a technical one.
-4. **How many points is too many?** Measure the SVG path size for a week of a chatty sensor before
-   picking the downsample target. The 300 above is a guess.
+4. **How big is the attribute?** Measure the serialised option JSON for a week of a chatty sensor
+   before fixing the downsample target. The ~300 points above is a guess, and the number that
+   matters is bytes on every patch and every resume, not points.
 5. **Does a window change need a new fetch or a re-slice?** Fetching the widest window once and
    slicing it for narrower ones trades memory for round trips. Probably wrong for 30d, probably
    right for 1h/24h.
+6. **What does the `echarts/core` custom build actually weigh** with the four components we need,
+   and does a `chart` entry keep `shell`/`overlay`/`sw` self-contained? The assert-self-contained
+   plugin only guards the classic entries, so a shared chunk between `chart` and `app` would be
+   legal but wasteful — check what rollup emits.
