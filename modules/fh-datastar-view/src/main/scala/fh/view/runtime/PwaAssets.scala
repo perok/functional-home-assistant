@@ -1,10 +1,14 @@
 package fh.view.runtime
 
 import cats.effect.IO
+import io.circe.Json
+import io.circe.parser.parse
 import org.http4s.{Header, MediaType, Response}
 import org.http4s.dsl.io.*
 import org.http4s.headers.`Content-Type`
 import org.typelevel.ci.CIString
+
+import java.nio.charset.StandardCharsets.UTF_8
 
 /** The PWA files that make the dashboard installable: the manifest, the service
   * worker, and the icons.
@@ -25,13 +29,16 @@ import org.typelevel.ci.CIString
   * manifest and the SW, `no-cache` is also the *mechanism*: the browser
   * re-fetches both on every load/register to learn about updates.
   *
-  * Its `theme_color`/`background_color` are the default theme's DARK background
-  * (`tokens.pkl`'s `primary-background-color` under `dark`). A manifest takes
-  * no comments, hence the note here, and the choice needs one:
+  * Its `theme_color`/`background_color` are FILLED PER REQUEST from the theme
+  * of the dashboard served at `/` ([[Renderer.chromeColor]]); the committed
+  * values are only what an instance with no dashboard at all falls back to. A
+  * manifest takes no comments, hence the note here, and two things need one:
   *
   *   - A manifest holds ONE colour and is one per ORIGIN, while a theme is per
-  *     DASHBOARD — so there is no theme to derive this from, and no scheme to
-  *     pick it by. It is a deliberate constant, not a stale copy of a token.
+  *     DASHBOARD and per SCHEME — so something must be picked, and the pick is
+  *     the default dashboard's dark background. Deriving it rather than
+  *     hardcoding it is what keeps a retuned theme from leaving a hex behind
+  *     here that nothing points at; the pick itself is a judgement.
   *   - Dark, because an installed app's status bar is chrome rather than page:
   *     it reads as a bar under both schemes, where light reads as a white
   *     stripe on a dark phone. [[Renderer.themeColorTags]] still does the
@@ -97,16 +104,52 @@ object PwaAssets {
     */
   val manifestUrl: String = "manifest.webmanifest"
 
+  private val ManifestName = "manifest.webmanifest"
+
+  /** The committed manifest, parsed once — the shape [[manifest]] recolours. */
+  private val manifestJson: Json = {
+    val (bytes, _) = contents(ManifestName)
+    parse(new String(bytes, UTF_8)).fold(
+      err => sys.error(s"/pwa/$ManifestName is not valid JSON: ${err.message}"),
+      identity
+    )
+  }
+
+  /** The manifest, painted `chrome` — the colour of whatever `/` serves.
+    *
+    * `None` (an instance whose entrypoint never evaluated, or a theme with no
+    * background token) serves the committed values unchanged, so an installable
+    * app is never held hostage to a dashboard that will not build.
+    */
+  def manifest(chrome: Option[String]): IO[Response[IO]] =
+    respond(
+      chrome
+        .fold(manifestJson) { color =>
+          manifestJson.deepMerge(
+            Json.obj(
+              "theme_color" -> Json.fromString(color),
+              "background_color" -> Json.fromString(color)
+            )
+          )
+        }
+        .spaces2
+        .getBytes(UTF_8),
+      contents(ManifestName)._2
+    )
+
   /** Serve a PWA file by name, or 404. Same origin, revalidated (`no-cache`) —
-    * see the object doc for why nothing here is `immutable`.
+    * see the object doc for why nothing here is `immutable`. The manifest goes
+    * through [[manifest]] instead, which has a colour to fill.
     */
   def serve(name: String): IO[Response[IO]] =
     contents.get(name) match {
       case None              => NotFound()
-      case Some((bytes, mt)) =>
-        Ok(bytes).map(
-          _.withContentType(`Content-Type`(mt))
-            .putHeaders(Header.Raw(CIString("Cache-Control"), "no-cache"))
-        )
+      case Some((bytes, mt)) => respond(bytes, mt)
     }
+
+  private def respond(bytes: Array[Byte], mt: MediaType): IO[Response[IO]] =
+    Ok(bytes).map(
+      _.withContentType(`Content-Type`(mt))
+        .putHeaders(Header.Raw(CIString("Cache-Control"), "no-cache"))
+    )
 }

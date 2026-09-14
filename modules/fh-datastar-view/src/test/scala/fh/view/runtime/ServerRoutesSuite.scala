@@ -172,11 +172,14 @@ class ServerRoutesSuite extends ServerHarness {
   /** Run one arbitrary request against a real server, for the routes that are
     * about the response rather than the page.
     */
-  private def response(uri: String): IO[Response[IO]] =
+  private def response(
+      uri: String,
+      dash: Dashboard = titleDash("home", None)
+  ): IO[Response[IO]] =
     (for {
       store <- StateStore.inMemory(Map.empty)
       ref <- SignallingRef[IO].of(
-        Server.RendererState.Ready(Renderer.create(titleDash("home", None)))
+        Server.RendererState.Ready(Renderer.create(dash))
       )
       sessions <- Sessions.create
       fake <- FakeHomeAssistant.create(Nil)
@@ -252,20 +255,40 @@ class ServerRoutesSuite extends ServerHarness {
     }
   }
 
-  test("the manifest paints an installed app's chrome DARK, in both schemes") {
-    // Not a copy of a token that drifted: a manifest holds one colour and is one
-    // per ORIGIN where a theme is per DASHBOARD, so there is nothing to derive
-    // it from and no scheme to pick it by (ADR 0014). Dark is the deliberate
-    // choice — a status bar is chrome, and the light value reads as a white
-    // stripe above a dark page, which is the bug this pins.
+  test("the manifest takes the DARK background of the dashboard at /") {
+    // A manifest holds ONE colour and is one per ORIGIN, so something has to be
+    // picked: the dark background of whatever `/` serves (ADR 0014). Dark
+    // because a status bar is chrome — the light value reads as a white stripe
+    // above a dark page, which is the bug this pins — and derived rather than
+    // hardcoded so a retuned theme cannot leave a hex behind that nothing
+    // points at any more.
     //
     // It is pinned in a test because the symptom is invisible here and slow
     // there: an installed app caches the manifest, so a wrong value shows up on
     // a phone days after the deploy and correlates with no commit.
+    val themed = titleDash("home", None).copy(theme =
+      Theme(
+        tokens = Map("primary-background-color" -> "#fafafa"),
+        tokensDark = Map("primary-background-color" -> "#223344")
+      )
+    )
+    response("/manifest.webmanifest", themed).flatMap { r =>
+      r.as[String].map { body =>
+        assert(body.contains(""""theme_color" : "#223344""""), clue = body)
+        assert(body.contains(""""background_color" : "#223344""""), clue = body)
+        // The light value is the one a phone must never be handed here.
+        assert(!body.contains("#fafafa"), clue = body)
+      }
+    }
+  }
+
+  test("a theme with no background token leaves the manifest as committed") {
+    // An instance whose dashboard says nothing about its background — or one
+    // whose entrypoint never evaluated at all — still serves an installable
+    // manifest, rather than an uncoloured one or a 500.
     response("/manifest.webmanifest").flatMap { r =>
       r.as[String].map { body =>
-        assert(body.contains(""""theme_color": "#111111""""), clue = body)
-        assert(body.contains(""""background_color": "#111111""""), clue = body)
+        assert(body.contains(""""theme_color" : "#111111""""), clue = body)
       }
     }
   }
@@ -333,6 +356,28 @@ class ServerRoutesSuite extends ServerHarness {
       )
       // Both are scheme-qualified: an unqualified theme-color would win over
       // whichever of the two matched, and pin the chrome to one scheme.
+      assertEquals(
+        html.sliding("theme-color".length).count(_ == "theme-color"),
+        2,
+        clue = html
+      )
+    }
+  }
+
+  test("a theme with ONE palette paints both schemes with it") {
+    // The half-defined case is the one that produced the reported symptom: the
+    // missing tag does not mean "no opinion", it means the browser paints its
+    // own chrome — white — above a page the theme did colour.
+    val lightOnly = titleDash("home", None).copy(theme =
+      Theme(tokens = Map("primary-background-color" -> "#fafafa"))
+    )
+    pageHtml(lightOnly).map { html =>
+      assert(
+        html.contains(
+          """<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#fafafa">"""
+        ),
+        clue = html
+      )
       assertEquals(
         html.sliding("theme-color".length).count(_ == "theme-color"),
         2,

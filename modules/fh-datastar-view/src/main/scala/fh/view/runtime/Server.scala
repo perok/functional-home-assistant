@@ -160,7 +160,7 @@ class Server(
     // no-cache, never immutable — the browser must revalidate them to learn
     // about updates (see the object doc).
     case GET -> Root / "manifest.webmanifest" =>
-      PwaAssets.serve("manifest.webmanifest")
+      chromeColor.flatMap(PwaAssets.manifest)
     case GET -> Root / "sw.js" =>
       PwaAssets.serve("sw.js")
     case GET -> Root / "icon-192.png" =>
@@ -1831,6 +1831,22 @@ class Server(
           .putHeaders(ETag(etag), cacheControl)
       )
   }
+
+  /** The colour the PWA manifest paints with: the theme of whatever `/` serves
+    * right now — resolved per request like `/` itself, since a reload can
+    * rename the default dashboard or retheme it.
+    *
+    * `None` whenever there is no theme to ask (nothing registered, or a
+    * dashboard that failed to build), and [[PwaAssets.manifest]] falls back to
+    * the committed colours rather than refusing to serve.
+    */
+  private def chromeColor: IO[Option[String]] =
+    site.defaultSlug
+      .flatMap(site.liveFor)
+      .flatMap(_.flatTraverse(_.renderer.get.map {
+        case Server.RendererState.Ready(r)  => r.chromeColor
+        case Server.RendererState.Failed(_) => None
+      }))
 
   private def pageResponse(slug: String, req: Request[IO]): IO[Response[IO]] =
     liveFor(slug).flatMap {

@@ -188,14 +188,24 @@ Open questions to spike before Phase-2 implementation:
    tell a user navigation from a server-ordered `location.reload()`. One escape: a
    cache-busting marker on the reload URL. Not needed under NetworkFirst; recorded so
    nobody adds strict cache-first without revisiting the `_reload` loop.
-4. ~~**Theme-driven manifest colors.**~~ **Answered: they cannot be, and should not be.** A
-   manifest holds one colour and is one per ORIGIN; a theme is per DASHBOARD. There is no
-   single theme to derive them from, so they are a deliberate constant — the dark background,
-   because an installed app's status bar is chrome rather than page. `Renderer.themeColorTags`
-   covers the per-scheme case for as long as a document is up; the manifest covers what it
-   cannot reach (the splash, the task switcher, and the standalone status bar itself).
-   Note that an installed app takes manifest changes LAZILY — Chrome caches it at install —
-   so a change here surfaces on phones days after the deploy that made it.
+4. ~~**Theme-driven manifest colors.**~~ **Answered: yes, from the dashboard served at `/`.**
+   `/manifest.webmanifest` fills `theme_color`/`background_color` per request from
+   `Renderer.chromeColor` — the default dashboard's DARK `primary-background-color` — and the
+   committed file's values are only the fallback for an instance with no theme to ask (nothing
+   registered, or a dashboard that failed to build).
+
+   One colour has to be picked, and the pick is a judgement rather than a derivation: a manifest
+   holds ONE colour, is one per ORIGIN, and carries no scheme, while a theme is per dashboard and
+   per scheme. Dark, because an installed app's status bar and splash are chrome rather than page
+   — the light value reads as a white stripe above a dark page, which is the bug that prompted
+   this. `Renderer.themeColorTags` still does the per-scheme job for as long as a document is up;
+   the manifest covers what it cannot reach (the splash, the task switcher, and the standalone
+   status bar itself), and a theme defining only one palette paints both metas with it rather than
+   leaving one scheme to the browser's own chrome.
+
+   Note that an installed app takes manifest changes LAZILY — Chrome caches it at install — so a
+   change here surfaces on phones days after the deploy that made it, which is what made the
+   original symptom hard to attribute.
 5. **HTTPS on the intranet** (issue #98 follow-up): a private CA or reverse proxy so the
    SW activates on LAN devices — the precondition for Phase 2's offline goal to matter
    outside `localhost`.

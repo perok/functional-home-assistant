@@ -358,6 +358,11 @@ class Renderer(
   /** The `<meta name="theme-color">` pair — see [[Renderer.themeColorTags]]. */
   val themeColorTags: String = Renderer.themeColorTags(dashboard)
 
+  /** The single colour the PWA manifest paints with — see
+    * [[Renderer.chromeColor]].
+    */
+  val chromeColor: Option[String] = Renderer.chromeColor(dashboard)
+
   /** Injected as `<script type="module">`, e.g. beer.min.js. */
   def scripts: List[String] = dashboard.theme.scripts
 
@@ -2484,14 +2489,38 @@ object Renderer {
     *
     * Emitted from [[fh.view.model.Theme.tokens]]/`tokensDark`, so a theme that
     * retunes its background moves the phone's chrome with it.
+    *
+    * A theme that defines the token under only ONE scheme paints BOTH with it.
+    * Omitting the other tag is worse than reusing the colour: the browser then
+    * falls back to its own chrome — white, on the scheme the theme said nothing
+    * about — which is a stripe of unrelated UI above the page, and it is
+    * indistinguishable from a theme that had no opinion at all.
     */
-  private[runtime] def themeColorTags(dashboard: Dashboard): String =
+  private[runtime] def themeColorTags(dashboard: Dashboard): String = {
+    val light = dashboard.theme.tokens.get(ChromeToken)
+    val dark = dashboard.theme.tokensDark.get(ChromeToken)
     List(
-      "light" -> dashboard.theme.tokens.get(ChromeToken),
-      "dark" -> dashboard.theme.tokensDark.get(ChromeToken)
+      "light" -> light.orElse(dark),
+      "dark" -> dark.orElse(light)
     ).collect { case (scheme, Some(color)) =>
       s"""<meta name="theme-color" media="(prefers-color-scheme: $scheme)" content="$color">"""
     }.mkString("\n  ")
+  }
+
+  /** The ONE colour for a surface that cannot follow the device's scheme — the
+    * PWA manifest (see [[PwaAssets]]), which is read at install time, off the
+    * document, and for a whole origin.
+    *
+    * The dark background, because an installed app's status bar and splash are
+    * chrome rather than page: dark reads as a bar under either scheme, where
+    * the light value reads as a white stripe on a dark phone. A theme that
+    * defines only a light palette still gets its own colour rather than the
+    * shipped default.
+    */
+  private[runtime] def chromeColor(dashboard: Dashboard): Option[String] =
+    dashboard.theme.tokensDark
+      .get(ChromeToken)
+      .orElse(dashboard.theme.tokens.get(ChromeToken))
 
   /** The HA-named token [[themeColorTags]] reads the chrome colour from. */
   private val ChromeToken = "primary-background-color"
