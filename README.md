@@ -38,7 +38,7 @@ docker run -d --name lgtm \
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 \
 OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf \
 OTEL_SERVICE_NAME=fh-dashboard \
-  sbt dashboardServe
+  sbt 'dashboardServe dashboard-local-dev-server'
 ```
 
 Grafana is on 3000 with no login. The other three ports are Tempo, Prometheus and
