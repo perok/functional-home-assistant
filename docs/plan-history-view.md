@@ -6,10 +6,10 @@ only where it is.
 `components/moreinfo.pkl` says so itself today: *"HA's own more-info also carries history and
 settings; neither is here."* This is the design for the first half.
 
-Two questions were asked, and they have very different answers. The charting one is settled by one
-constraint — Datastar morphs the DOM — and the shape that satisfies it. The retrieval one is the
-real design work, because it adds **a second kind of data** to a pipeline that currently has
-exactly one.
+Two questions were asked. The charting one is settled by a spike (§2): **ECharts runs on the
+server, under GraalJS, and emits SVG** — so a chart is bytes, like every other card. The retrieval
+one is the real design work, because it adds **a second kind of data** to a pipeline that currently
+has exactly one.
 
 ---
 
@@ -50,45 +50,17 @@ Note what *isn't* new: a window is a selection, so it rides the machinery select
 
 ---
 
-## 2. Charting: an ECharts custom element the morph is allowed to patch
+## 2. Charting: ECharts, rendered to SVG on the server
 
-**Ship a client-side chart — ECharts — inside a custom element with a shadow root, configured
-through an attribute.**
+**Run Apache ECharts in a GraalJS context inside our own JVM and emit its SVG string into the
+card.** No chart JavaScript reaches the browser.
 
-There is exactly one hard constraint, and it is not weight or vendoring:
+This is the third answer this section has had, and the reason it beats the other two is that it
+takes the good half of each: we do not write a chart library, and the browser gets bytes.
 
-**Datastar morphs the DOM.** A canvas chart keeps its state in a JS object associated with an
-element. A morph that replaces that element severs the association silently — no error, a dead
-chart. So a client-owned chart needs a structural guarantee, not a convention.
+### Why not hand-rolled SVG
 
-**`data-ignore-morph` is not that guarantee.** The `datastar` skill records the measurement: clause
-E of the guard is *one-sided and unconditional*, so every element **inside** a marked subtree is
-refused as a patch target forever. Marking a chart host to protect it also kills every live update
-under it. It is a "this DOM is client-owned, server keep out" tool, not a "skip this during someone
-else's morph" tool.
-
-### A shadow root is the guarantee, and it costs nothing
-
-The pinned bundle (`assets-cache/46cf17bf647e-datastar.js`, v1.0.2) contains **zero occurrences of
-`shadow`, `attachShadow` or `customElement`**. The morph walks light-DOM children only. So a custom
-element that puts all of its chart DOM in a shadow root presents the morph with a single tag
-carrying attributes and **no children at all**: the morph reconciles the attributes and stops.
-
-That inverts the escape-hatch rule an earlier draft of this plan wrote down. The host is not
-"rendered once and never patched again" — it is patched like anything else, and **the attribute
-change IS the update path**: `attributeChangedCallback` → `setOption`. A history chart is therefore
-an ordinary leaf card. It patches, caches, digests and resumes with the rest of the tree, and it
-needs no isolation mechanism, no `data-ignore-morph`, and no second update channel.
-
-The data rides an **attribute, not a signal** — ADR 0011: every non-`_` signal is serialised into
-every action POST and every SSE reconnect for the life of the page, which is the wrong place for a
-multi-KB chart payload.
-
-### Why not server-rendered SVG, which was the earlier recommendation
-
-It is not a bad answer; it is a worse total system than it looked, once the two constraints it was
-optimising for were relaxed (vendoring, and a 1 MB JS-only dependency, are both acceptable here).
-What "just emit SVG" actually obliges us to write:
+"Just emit SVG ourselves" sounds cheap and is not. It obliges us to write:
 
 - value and time scaling, and nice-number tick selection on the value axis;
 - tick selection on a **time** axis across 1h → 30d, where each magnitude wants a different
@@ -100,53 +72,91 @@ What "just emit SVG" actually obliges us to write:
 - a responsive `viewBox` that does not scale the label text with it.
 
 That is a small chart library — several hundred lines with real tests, mediocre-looking for a
-while, and a permanent maintenance surface.
+while, and a permanent maintenance surface. Plus one thing that does not show up until it bites:
+**text cannot be measured without a text engine**, so axis margins get guessed, and the guess is
+wrong at a different font, a longer unit, or wider numerals.
 
-And one thing that does not show up until it bites: **text cannot be measured server-side.** Axis
-margins must be sized to the widest label, so a server-rendered chart *guesses*, and the guess is
-wrong at a different font, a longer unit, or a locale with wider numerals. The browser measures.
+### Why not a chart library in the browser
 
-**Server-side charting libraries do not rescue that route.** JFreeChart or XChart can emit SVG, but
-they produce a static picture — no hover, no zoom — with defaults we would theme by hand anyway, in
-exchange for a heavyweight AWT-flavoured dependency. They buy the axis math and nothing else.
-ECharts' own SSR mode needs node at *request* time; we have node only at build time.
+Datastar morphs the DOM, and a client chart keeps its state in a JS object tied to an element, so a
+morph that replaces that element severs it silently. That is solvable — a custom element with a
+shadow root is invisible to the morph — but it costs a vendored ~350 KB–1 MB asset on every phone,
+a custom element with its own lifecycle, a new failure class, and ADR 0024's "usable without JS".
+The full design is kept in the appendix, because it is the right answer *if* we ever want true
+interactivity.
 
-| Option | Morph fit | Cost | Verdict |
-|---|---|---|---|
-| **ECharts in a shadow root** | patches like any leaf | ~350 KB custom build | **Ship this** |
-| uPlot, same shape | same | ~45 KB | viable if size ever matters; fewer batteries |
-| Server-rendered inline SVG | perfect — it *is* bytes | a chart library we write | the sparkline case only |
-| Server-side SVG lib (JFreeChart/XChart) | perfect | heavy dep, static output | no |
-| Any chart lib in the light DOM | severed by a morph | — | no |
+### The spike: it works, and the numbers are fine
 
-What ECharts brings that we would otherwise write: `step: 'end'`, `sampling: 'lttb'`, `dataZoom`,
-tooltips, time-axis tick selection, and resize.
+ECharts has had a zero-dependency SSR mode since 5.3: `echarts.init(null, null, { renderer: 'svg',
+ssr: true, width, height })` then `chart.renderToSVGString()`. It needs no DOM and no canvas — only
+a JavaScript engine. **We already ship one's worth of infrastructure**: `pkl-core` puts
+`truffle-api`, `polyglot` and `graal-sdk` on our classpath, so GraalJS is one more coordinate at a
+matching version.
 
-### What this takes on — stated, not glossed
+Measured on x86_64 / OpenJDK 25, with Truffle in its **interpreted** fallback runtime (the same
+mode Pkl already runs in here — no GraalVM, no JVMCI):
 
-- **A ~350 KB dependency.** An `echarts/core` custom build (LineChart + GridComponent +
-  TooltipComponent + DataZoomComponent) rather than the ~1 MB full bundle. It is an **npm
-  dependency and a fifth vite entry**, not an `AssetCache` vendored CDN asset: it lands in managed
-  resources as `web/chart-<hash>.js`, is served `immutable` through `FrontendAssets`, and is inside
-  the jar — so offline-on-a-LAN is by construction, with nothing to rewrite. Only a page that
-  contains a chart loads it.
-- **A new failure class that does not exist today:** a chart that dies because the morph *replaced*
-  the host rather than reconciling it. Mitigated by a stable node id and by the per-node identity
-  cache (identical bytes are never patched at all), but it wants a smoke test that patches around a
-  live chart and asserts it still draws.
-- **A lifecycle we have not needed before:** `disconnectedCallback` → `dispose`, plus a
-  `ResizeObserver`, or a closed more-info popup leaks a chart instance per open.
-- **Theme colours must be passed in.** Inside a shadow root the theme's CSS does not reach the
-  chart, so line/axis/text colours come from the theme tokens through the option object. That is a
-  real coupling and belongs in the shipped component, not in each author's hands.
-- **We give up ADR 0024's "usable without JS" for this one card.** Accepted: a chart is a picture,
-  not a control, and every control on the page keeps working without it.
+| | |
+|---|---|
+| Engine boot + first eval of `echarts.min.js` (1 MB) | ~1.1 s, **once** |
+| A further `Context` on the same `Engine` | 21–37 ms |
+| First render in a context | ~500 ms |
+| Warm render, 2 000 points | 84–190 ms |
+| Warm render, 5 000 points | 120–155 ms |
+| SVG out | ~19 KB, and **flat** from 2 000 to 5 000 points, because LTTB caps what is drawn |
+| New jars | ~48 MB (`js-language` 26 MB, shaded `icu4j` 18 MB, `regex` 3.7 MB, rest small) |
 
-### Where server SVG still wins
+Three findings worth keeping, because each was a live risk:
 
-A tiny inline **sparkline** on a card face — no axes, no labels, no interaction — is ~30 lines of
-path emission and none of the problems above. Worth having later, as its own thing. It is not this
-card.
+- **Pkl and JS coexist in one JVM.** Evaluate a Pkl module, then ECharts, then Pkl again: fine.
+- **Truffle is backwards compatible in the direction we need.** `pkl-core` 0.32.1, built against
+  Truffle 25.0.1, runs correctly on `truffle-api` **25.3.4.1**, so we take the newest GraalJS line
+  and it pulls Truffle forward for Pkl too. The constraint is one-directional and worth stating:
+  the runtime may be newer than the language, never older, so GraalJS and `pkl-core` must move
+  together — bump GraalJS when Pkl's Truffle floor rises past it.
+- **A four-line shim is required.** zrender starts an animation loop at init, so `setTimeout` and
+  `clearTimeout` must exist. With `animation: false` they never need to fire, so no-ops do.
+
+### The runtime shape
+
+One `Engine`, one `Source`, a small pool of `Context`s:
+
+- the **`Engine`** holds the parsed-code cache. It is what makes the 1.1 s parse a one-off: the
+  second and third contexts cost 21–37 ms, not a second each.
+- the **`Source`** for the bundle is built once and re-evaluated into each context.
+- a **`Context` is not safe for concurrent use**, so renders are serialised — one owner draining a
+  queue, per the repo's standing preference over a lock, or a pool of two if a measurement ever
+  says one is a bottleneck. Everything runs in `IO.blocking`.
+- it is built **lazily, on the first chart render**, so an instance whose dashboards have no chart
+  pays neither the 48 MB of class loading nor the 1.1 s.
+
+`echarts.setPlatformAPI({ measureText })` is in the bundle, so if ECharts' own SSR estimate places
+axis labels badly we can hand it real font metrics from Java. That closes the one hole hand-rolled
+SVG could not close at all.
+
+### What we give up
+
+Interaction. ECharts' docs are explicit that *"some operations related to interaction cannot be
+supported"* in SSR. Concretely: no tooltip, no hover, no client-side zoom.
+
+Two of those we do not want anyway. **Zoom is a window change**, which is a selection and therefore
+a server round trip by design — only the server can re-downsample for the new span, and client-side
+zoom into pre-downsampled points cannot. A hover readout can be a `<title>` per segment. If real
+interaction is ever wanted, ECharts 5.5+ ships a tiny client that `hydrate()`s SSR output for
+legend and hover; that is the appendix's territory and an addition, not a rewrite.
+
+### Deployment: no image change is required
+
+`home-addon/Dockerfile` builds a jlink'd Temurin 21 runtime, and the GraalJS jars are ordinary Java
+targeting bytecode 17. Truffle already runs in that image, for Pkl, so nothing about the module
+list needs to move for a second language.
+
+The separate, optional question is **interpreted vs. compiled**. Truffle falls back to the
+interpreter without JVMCI, which is what every number above was measured under, and it is already
+fast enough. Getting compiled execution means either a GraalVM base image or putting the Truffle
+runtime on the module path with JVMCI enabled — and it would speed up **Pkl evaluation too**, which
+is on the startup path that is already slow on the Pi. So it is worth measuring on the Pi as its
+own piece of work, on its own merits, not as a precondition for this one.
 
 ---
 
@@ -193,17 +203,17 @@ history, long window → statistics**, chosen from the schema we already generat
 A `SeriesStore` keyed by `(provider, entityId, window, asOfBucket)`, where `asOfBucket` is *now*
 rounded down to the window's resolution.
 
-That key is the whole trick. Every viewer looking at "last 24h" shares one fetch and one render for
-the entire bucket, and the entry expires by the bucket rolling over rather than by a timer. It is
-the pull-side analogue of `StateStore`, and the same principle as `RenderCache`: keyed by what the
-render *read*.
+That key is the whole trick. Every viewer looking at "last 24h" shares one fetch **and one
+rendered SVG** for the entire bucket, and the entry expires by the bucket rolling over rather than
+by a timer. It is the pull-side analogue of `StateStore`, and the same principle as `RenderCache`:
+keyed by what the render *read*. It is also what keeps the GraalJS context off the hot path — one
+render per bucket, not one per viewer.
 
 ### Downsampling stays server-side
 
-ECharts has `sampling: 'lttb'`, but that decides how many points it *draws*, not how many cross the
-wire. The server still downsamples — LTTB, target ~300 points — because the payload is an HTML
-attribute on every patch and every resume, and because it is the one place the work is done once
-for every viewer. ECharts' own sampling is the belt on top of those braces.
+ECharts' `sampling: 'lttb'` decides how many points it *draws*. We downsample before that anyway —
+LTTB, target ~300 points — because the fetch itself should not carry thousands of rows through the
+process for every bucket, and because it is the one place the work is done once for every viewer.
 
 ---
 
@@ -234,19 +244,29 @@ versions; a chart's bytes depend on the series key instead. So:
 
 `docs/architecture-rendering-pipeline.md` §6 (the pull path) is the box that moves.
 
+### Live updates ride SSE, unchanged
+
+Server-rendered SVG is what makes this boring, and boring is the point: the chart is an ordinary
+leaf, so a new rendering reaches an open page as a `datastar-patch-elements` fragment like any
+other node, through the same per-slug diff, the same fragment log, the same resume. Nothing about
+the transport is special-cased, and a reconnect replays it like anything else.
+
+What matters is **when** those bytes move, and the answer is: only when the series key does — a
+window change, or the bucket rolling over. A patch is ~19 KB, so a chart that re-rendered on every
+reading would be the most expensive node on the page by an order of magnitude. It cannot: nothing
+wakes it on a state tick (above), and the live present lives in its own region (below).
+
 ### The card shape
 
 A history card is **structural, with two regions** — the same split as the slider's head-and-rows,
 for the same reason:
 
-- `chart` — a **leaf** holding the `<fh-chart option='…'>` host. Cached hard on the series key. Its
-  bytes move when the window changes or the bucket rolls, and at no other time; when they do move,
-  the ordinary morph carries the new option into the live chart.
-- `now` — the live present, as a **signal slot**. Updates every tick without the chart's bytes
-  changing at all.
+- `chart` — a **leaf** holding the SVG. Cached hard on the series key.
+- `now` — the live present, as a **signal slot**. Updates every tick, costing one entry in a
+  signals frame, while the chart's bytes stand still.
 
-A tick on the current reading must never re-serialise the series. Two regions is what guarantees
-that structurally, rather than by anyone remembering to.
+A tick on the current reading must never repaint the chart. Two regions is what guarantees that
+structurally, rather than by anyone remembering to.
 
 ### Window selection is a bake group
 
@@ -276,27 +296,25 @@ Each is independently mergeable and independently useful.
    bucket key are pure and are where the tests go.
 3. **`RenderInputs` gains the series component.** The pipeline change, on its own, with the
    architecture doc updated in the same commit.
-4. **`<fh-chart>`**: the npm dependency, the `chart` vite entry, and the custom element —
-   shadow root, `attributeChangedCallback` → `setOption`, `disconnectedCallback` → `dispose`,
-   `ResizeObserver`. Its acceptance test is a smoke suite that patches the tree around a live chart
-   and asserts the chart survives and redraws.
-5. **Pkl `core/series.pkl` + a shipped `c.historyChart(e)`** leaf emitting the option JSON, with the
-   theme's colours folded in.
+4. **The chart renderer**: the GraalJS dependency, the vendored ECharts bundle as a resource, and
+   the `Engine`/`Source`/context-pool host behind a plain `IO[String]` — series in, SVG out, built
+   lazily on first use. Its tests are ordinary: no browser, no HA, just a function.
+5. **Pkl `core/series.pkl` + a shipped `c.historyChart(e)`** leaf, with the theme's colours folded
+   into the option object.
 6. **Window selection** as a bake group over the existing surface machinery.
 7. **`moreInfoBody` gains the chart**, and `moreinfo.pkl`'s "neither is here" comment stops being
    true and gets rewritten.
-8. **Docs**: terminology (series / window / provider), architecture §6, a note in the `datastar`
-   skill that a shadow root is invisible to the morph (measured off the pinned bundle), and an ADR
-   for the provider seam — the decision that needs a home readers will find is *why a fetched series
-   is a second kind of data and not a widened slot*, with the shadow-root rule as its companion.
+8. **Docs**: terminology (series / window / provider), architecture §6, and an ADR for the provider
+   seam — the decision that needs a home readers will find is *why a fetched series is a second
+   kind of data and not a widened slot*, with "a chart is bytes, and the JS that makes them runs
+   here" as its companion.
 
 ---
 
 ## 6. Open questions — spike before building
 
-**These need the live instance, which I could not reach.** Everything about HA's API below is from
-documentation, not measurement, and this project's standing rule is that the shipped bytes win over
-the prose.
+**The HA API below is from documentation, not measurement** — the live instance was not reachable
+— and this project's standing rule is that the shipped bytes win over the prose.
 
 1. **Does `history/history_during_period` exist on your HA's WS API**, or is REST
    `/api/history/period` the only route? Verify before phase 1; it decides whether this rides the
@@ -306,13 +324,50 @@ the prose.
 3. **Whose identity should read?** The person's token is the correct answer for a permission-scoped
    read, but it means a second connection per user, exactly as issue #198 describes for taps.
    Whether history is worth that cost is a judgement call, not a technical one.
-4. **How big is the attribute?** Measure the serialised option JSON for a week of a chatty sensor
-   before fixing the downsample target. The ~300 points above is a guess, and the number that
-   matters is bytes on every patch and every resume, not points.
-5. **Does a window change need a new fetch or a re-slice?** Fetching the widest window once and
+4. **What do the §2 numbers look like on the Pi?** Everything there is x86_64. Expect the
+   interpreted render to be several times slower; the question is whether the *first* chart in a
+   session is acceptable, since every later one in the bucket is free. Measure alongside the
+   memory a second Truffle language costs, which was not measured at all.
+5. **Is ECharts' SSR text estimate good enough**, or does `setPlatformAPI({ measureText })` need
+   real Java font metrics? Cheap to answer once a real dashboard renders one.
+6. **Does a window change need a new fetch or a re-slice?** Fetching the widest window once and
    slicing it for narrower ones trades memory for round trips. Probably wrong for 30d, probably
    right for 1h/24h.
-6. **What does the `echarts/core` custom build actually weigh** with the four components we need,
-   and does a `chart` entry keep `shell`/`overlay`/`sw` self-contained? The assert-self-contained
-   plugin only guards the classic entries, so a shared chunk between `chart` and `app` would be
-   legal but wasteful — check what rollup emits.
+
+---
+
+## Appendix — the client-side option, if interaction is ever wanted
+
+Not the plan. Recorded because it was designed, the finding under it was measured, and it is what
+we would build the day someone wants a draggable time axis or a real tooltip.
+
+**The obstacle is the morph.** A canvas/WebGL chart keeps its state in a JS object associated with
+an element; a morph that replaces that element severs the association silently — no error, a dead
+chart.
+
+**`data-ignore-morph` is not the fix.** The `datastar` skill records the measurement: clause E of
+the guard is one-sided and unconditional, so every element *inside* a marked subtree is refused as
+a patch target forever. Marking a chart host to protect it also kills every live update under it.
+
+**A shadow root is the fix, and it is free.** The pinned bundle
+(`assets-cache/46cf17bf647e-datastar.js`, v1.0.2) contains **zero occurrences of `shadow`,
+`attachShadow` or `customElement`** — the morph walks light-DOM children only. So a custom element
+holding all of its chart DOM in a shadow root presents the morph with one tag carrying attributes
+and no children: it reconciles the attributes and stops.
+
+That makes the host **ordinary rather than protected**, which is the counter-intuitive part: it is
+patched like any leaf, and `attributeChangedCallback` → `setOption` *is* the update path. The data
+rides an **attribute, not a signal** — ADR 0011: every non-`_` signal is serialised into every
+action POST and every SSE reconnect for the life of the page, which is the wrong place for a
+multi-KB payload.
+
+What it would cost, if chosen: a ~350 KB `echarts/core` custom build as an npm dependency and a
+fifth vite entry (served hashed and `immutable` from the jar, so offline still holds); a
+`disconnectedCallback` → `dispose` plus a `ResizeObserver`, or a closed popup leaks a chart per
+open; theme colours passed through the option, since a shadow root does not inherit the page's CSS;
+and a smoke test that patches around a live chart, because "the morph replaced the host" is a
+failure class that does not exist anywhere else in this codebase.
+
+The cheaper middle road, if only hover is wanted: ECharts 5.5+ ships a small client that
+`hydrate()`s **server-rendered** SSR output for legend toggles and hover. That keeps §2 exactly as
+it is and adds a few KB, rather than moving the chart to the browser.
