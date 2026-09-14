@@ -30,7 +30,7 @@ import java.nio.charset.StandardCharsets.UTF_8
   * re-fetches both on every load/register to learn about updates.
   *
   * Its `theme_color`/`background_color` are FILLED PER REQUEST from the theme
-  * of the dashboard served at `/` ([[Renderer.chromeColor]]); the committed
+  * of the dashboard served at `/` ([[Renderer.ChromeColors]]); the committed
   * values are only what an instance with no dashboard at all falls back to. A
   * manifest takes no comments, hence the note here — and the two members are
   * NOT the same kind of value, which is the thing to get right:
@@ -47,10 +47,18 @@ import java.nio.charset.StandardCharsets.UTF_8
   *     document to carry a meta. The manifest is its ONLY channel, which is the
   *     stronger half of the reason this is derived rather than frozen.
   *
-  * One colour must be picked — a manifest holds one, is one per ORIGIN, and
-  * carries no scheme, where a theme is per dashboard and per scheme. Dark,
-  * because these are chrome rather than page: it reads as a bar under either
-  * scheme, where the light value reads as a white stripe on a dark phone.
+  * A manifest is still one per ORIGIN, so WHICH dashboard's theme it takes is a
+  * choice (the one at `/`). Which SCHEME is not, any more: `color_scheme_dark`
+  * (w3c/manifest#1207, merged 2026-04-09) is an ordered map of overrides for
+  * the themeable members — exactly these two — applied when the OS is in dark
+  * mode, and both members are emitted into it.
+  *
+  * The bare members are therefore the value for light mode AND for every
+  * browser that does not implement the override. That is currently Chrome
+  * (crbug.com/383165202; WebKit shipped it in May 2026), i.e. almost everyone
+  * here — so [[Renderer.ChromeColors.base]] is pinned to the DARK colour and
+  * the override is a no-op until it flips. That pin is the whole reason this
+  * reads as redundant JSON; see that method for what changes when.
   *
   * THE TRAP, because it cost a whole investigation: Chrome caches the manifest
   * at install time and refreshes it lazily, so a change here reaches installed
@@ -128,20 +136,24 @@ object PwaAssets {
     )
   }
 
-  /** The manifest, painted `chrome` — the colour of whatever `/` serves.
+  /** The manifest, painted `chrome` — the colours of whatever `/` serves.
     *
     * `None` (an instance whose entrypoint never evaluated, or a theme with no
     * background token) serves the committed values unchanged, so an installable
     * app is never held hostage to a dashboard that will not build.
     */
-  def manifest(chrome: Option[String]): IO[Response[IO]] =
+  def manifest(chrome: Option[Renderer.ChromeColors]): IO[Response[IO]] =
     respond(
       chrome
-        .fold(manifestJson) { color =>
+        .fold(manifestJson) { c =>
           manifestJson.deepMerge(
             Json.obj(
-              "theme_color" -> Json.fromString(color),
-              "background_color" -> Json.fromString(color)
+              "theme_color" -> Json.fromString(c.base),
+              "background_color" -> Json.fromString(c.base),
+              "color_scheme_dark" -> Json.obj(
+                "theme_color" -> Json.fromString(c.dark),
+                "background_color" -> Json.fromString(c.dark)
+              )
             )
           )
         }

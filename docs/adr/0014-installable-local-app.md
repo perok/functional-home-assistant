@@ -190,9 +190,9 @@ Open questions to spike before Phase-2 implementation:
    nobody adds strict cache-first without revisiting the `_reload` loop.
 4. ~~**Theme-driven manifest colors.**~~ **Answered: yes, from the dashboard served at `/`.**
    `/manifest.webmanifest` fills `theme_color`/`background_color` per request from
-   `Renderer.chromeColor` — the default dashboard's DARK `primary-background-color` — and the
-   committed file's values are only the fallback for an instance with no theme to ask (nothing
-   registered, or a dashboard that failed to build).
+   `Renderer.chromeColors` — the default dashboard's `primary-background-color`, both palettes —
+   and the committed file's values are only the fallback for an instance with no theme to ask
+   (nothing registered, or a dashboard that failed to build).
 
    The two members are not the same kind of value, and the difference decides how much this
    matters. `theme_color` is a **default**: a page's own `<meta name="theme-color">` overrides it
@@ -202,11 +202,23 @@ Open questions to spike before Phase-2 implementation:
    has **no meta equivalent and cannot have one**: it paints the window before the stylesheets
    load, i.e. before there is a document to carry a meta. The manifest is its only channel.
 
-   One colour has to be picked — a manifest holds one, is one per ORIGIN, and carries no scheme,
-   while a theme is per dashboard and per scheme. Dark, because these are chrome rather than page:
-   the light value reads as a white stripe above a dark page, which is the bug that prompted this.
-   A theme defining only one palette paints both metas with it rather than leaving one scheme to
-   the browser's own chrome.
+   **Which dashboard is a choice; which scheme is not.** A manifest is one per ORIGIN, so it takes
+   the theme of whatever `/` serves. It no longer holds only one colour, though:
+   [`color_scheme_dark`](https://github.com/w3c/manifest/pull/1207) (merged into the spec
+   2026-04-09) is an ordered map of overrides for the *themeable members* — exactly `theme_color`
+   and `background_color` — applied when the OS is in dark mode. Both are emitted into it, so the
+   manifest says the same thing the metas do.
+
+   The bare members are therefore the light-mode value **and** the value for every browser that
+   does not implement the override — today Chrome (crbug.com/383165202; WebKit shipped it in
+   May 2026), which is nearly every client here. So `Renderer.ChromeColors.base` is **pinned to
+   the dark colour** and the override is currently a no-op. The trade is one-sided while that
+   holds: base-dark costs a light-mode phone a dark bar, base-light costs a dark-mode phone the
+   white stripe this whole path exists to fix. Flip `base` to `light` when Chrome ships; nothing
+   else changes.
+
+   A theme defining only one palette fills both the base and the override with it, rather than
+   leaving a scheme to the browser's own chrome.
 
    Every page of ours in scope either carries a meta or deliberately does not: dashboards do, the
    editor names its own fixed dark (`editor/index.html`), and the failed-dashboard error page has

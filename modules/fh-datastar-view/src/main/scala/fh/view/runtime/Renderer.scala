@@ -358,10 +358,10 @@ class Renderer(
   /** The `<meta name="theme-color">` pair — see [[Renderer.themeColorTags]]. */
   val themeColorTags: String = Renderer.themeColorTags(dashboard)
 
-  /** The single colour the PWA manifest paints with — see
-    * [[Renderer.chromeColor]].
+  /** The colours the PWA manifest paints with — see [[Renderer.ChromeColors]].
     */
-  val chromeColor: Option[String] = Renderer.chromeColor(dashboard)
+  val chromeColors: Option[Renderer.ChromeColors] =
+    Renderer.chromeColors(dashboard)
 
   /** Injected as `<script type="module">`, e.g. beer.min.js. */
   def scripts: List[String] = dashboard.theme.scripts
@@ -2477,52 +2477,70 @@ object Renderer {
     )
 
   /** The colour a phone paints its own chrome with — the browser's URL bar, and
-    * an installed PWA's status bar — as one `<meta name="theme-color">` per
-    * scheme.
+    * an installed PWA's status bar — under each scheme.
     *
     * It is the dashboard's BACKGROUND, not its accent: the bar sits directly
     * above the page, and any other colour reads as a stripe of unrelated UI
-    * rather than as the top of the dashboard. The manifest's own `theme_color`
-    * (a single value, and all a cold launch has) says the same thing; these
-    * metas are what let it follow the device's light/dark scheme, since they
-    * override the manifest once the document is up.
+    * rather than as the top of the dashboard.
     *
-    * Emitted from [[fh.view.model.Theme.tokens]]/`tokensDark`, so a theme that
-    * retunes its background moves the phone's chrome with it.
-    *
-    * A theme that defines the token under only ONE scheme paints BOTH with it.
-    * Omitting the other tag is worse than reusing the colour: the browser then
-    * falls back to its own chrome — white, on the scheme the theme said nothing
-    * about — which is a stripe of unrelated UI above the page, and it is
-    * indistinguishable from a theme that had no opinion at all.
+    * Both consumers take the PAIR rather than picking one here, because the two
+    * channels reach different surfaces and neither is a fallback for the other:
+    * [[themeColorTags]] emits a scheme-qualified `<meta>` each, and
+    * [[PwaAssets.manifest]] fills the manifest's themeable members. Collapsing
+    * to one value used to happen at the manifest's edge, which is why the
+    * manifest could only ever be half right.
     */
-  private[runtime] def themeColorTags(dashboard: Dashboard): String = {
-    val light = dashboard.theme.tokens.get(ChromeToken)
-    val dark = dashboard.theme.tokensDark.get(ChromeToken)
-    List(
-      "light" -> light.orElse(dark),
-      "dark" -> dark.orElse(light)
-    ).collect { case (scheme, Some(color)) =>
-      s"""<meta name="theme-color" media="(prefers-color-scheme: $scheme)" content="$color">"""
-    }.mkString("\n  ")
+  final case class ChromeColors(light: String, dark: String) {
+
+    /** What a surface paints when it cannot ask for a scheme: the manifest's
+      * bare `theme_color`/`background_color`, read once at install time for a
+      * whole origin, and — until `color_scheme_dark` is widely implemented —
+      * what every browser that does not know that member uses in BOTH schemes.
+      *
+      * Dark, deliberately. An installed app's status bar and splash are chrome
+      * rather than page: dark reads as a bar under either scheme, where the
+      * light value reads as a white stripe on a dark phone — which is the bug
+      * this whole path exists to fix. Once Chrome ships the override
+      * (crbug.com/383165202 — WebKit already has it), this becomes `light` and
+      * the member below starts doing the work instead.
+      */
+    def base: String = dark
   }
 
-  /** The ONE colour for a surface that cannot follow the device's scheme — the
-    * PWA manifest (see [[PwaAssets]]), which is read at install time, off the
-    * document, and for a whole origin.
+  /** The chrome colours of a dashboard's theme, or `None` when it names the
+    * token under neither scheme (an instance with no opinion: the committed
+    * manifest and no metas at all).
     *
-    * The dark background, because an installed app's status bar and splash are
-    * chrome rather than page: dark reads as a bar under either scheme, where
-    * the light value reads as a white stripe on a dark phone. A theme that
-    * defines only a light palette still gets its own colour rather than the
-    * shipped default.
+    * A theme that defines the token under only ONE scheme paints BOTH with it.
+    * Dropping the other is worse than reusing the colour: the browser then
+    * falls back to its own chrome — white, on the scheme the theme said nothing
+    * about — which is indistinguishable from a theme that had no opinion.
     */
-  private[runtime] def chromeColor(dashboard: Dashboard): Option[String] =
-    dashboard.theme.tokensDark
-      .get(ChromeToken)
-      .orElse(dashboard.theme.tokens.get(ChromeToken))
+  private[runtime] def chromeColors(
+      dashboard: Dashboard
+  ): Option[ChromeColors] = {
+    val light = dashboard.theme.tokens.get(ChromeToken)
+    val dark = dashboard.theme.tokensDark.get(ChromeToken)
+    (light.orElse(dark), dark.orElse(light)) match {
+      case (Some(l), Some(d)) => Some(ChromeColors(l, d))
+      case _                  => None
+    }
+  }
 
-  /** The HA-named token [[themeColorTags]] reads the chrome colour from. */
+  /** The `<meta name="theme-color">` pair — the channel that CAN follow the
+    * device's scheme, and the only one that reaches a page we serve outside the
+    * installed app.
+    */
+  private[runtime] def themeColorTags(dashboard: Dashboard): String =
+    chromeColors(dashboard).fold("") { c =>
+      List("light" -> c.light, "dark" -> c.dark)
+        .map { case (scheme, color) =>
+          s"""<meta name="theme-color" media="(prefers-color-scheme: $scheme)" content="$color">"""
+        }
+        .mkString("\n  ")
+    }
+
+  /** The HA-named token [[chromeColors]] reads the chrome colour from. */
   private val ChromeToken = "primary-background-color"
 
   /** 12 hex over the patchable part of `<head>`. See [[Renderer.styleHash]].

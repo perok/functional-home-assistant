@@ -255,13 +255,11 @@ class ServerRoutesSuite extends ServerHarness {
     }
   }
 
-  test("the manifest takes the DARK background of the dashboard at /") {
-    // A manifest holds ONE colour and is one per ORIGIN, so something has to be
-    // picked: the dark background of whatever `/` serves (ADR 0014). Dark
-    // because a status bar is chrome — the light value reads as a white stripe
-    // above a dark page, which is the bug this pins — and derived rather than
-    // hardcoded so a retuned theme cannot leave a hex behind that nothing
-    // points at any more.
+  test("the manifest takes the background of the dashboard at /, per scheme") {
+    // WHICH dashboard is a choice (a manifest is one per ORIGIN); which SCHEME
+    // is not, since `color_scheme_dark` (ADR 0014). Both themeable members are
+    // filled from the dashboard at `/`, and derived rather than hardcoded so a
+    // retuned theme cannot leave a hex behind that nothing points at any more.
     //
     // It is pinned in a test because the symptom is invisible here and slow
     // there: an installed app caches the manifest, so a wrong value shows up on
@@ -274,10 +272,53 @@ class ServerRoutesSuite extends ServerHarness {
     )
     response("/manifest.webmanifest", themed).flatMap { r =>
       r.as[String].map { body =>
-        assert(body.contains(""""theme_color" : "#223344""""), clue = body)
-        assert(body.contains(""""background_color" : "#223344""""), clue = body)
-        // The light value is the one a phone must never be handed here.
+        val json = io.circe.parser.parse(body).toOption.get.hcursor
+        val dark = json.downField("color_scheme_dark")
+
+        // The bare members are what light mode AND every browser without the
+        // override get. Pinned DARK: a status bar is chrome, and the light
+        // value reads as a white stripe above a dark page — the bug this
+        // whole path exists for. Flip with `ChromeColors.base`.
+        assertEquals(json.get[String]("theme_color").toOption, Some("#223344"))
+        assertEquals(
+          json.get[String]("background_color").toOption,
+          Some("#223344")
+        )
+
+        // ...and the override says the same thing for a browser that reads it,
+        // which is what makes the flip above a one-word change rather than a
+        // second mechanism to build later.
+        assertEquals(dark.get[String]("theme_color").toOption, Some("#223344"))
+        assertEquals(
+          dark.get[String]("background_color").toOption,
+          Some("#223344")
+        )
+
+        // While the base is pinned, the light value must not reach a phone at
+        // all — it is the one this route was fixed for handing over.
         assert(!body.contains("#fafafa"), clue = body)
+      }
+    }
+  }
+
+  test("a theme with ONE palette fills both the base and the override") {
+    // Reusing the colour beats omitting the other: a member left out falls back
+    // to the browser's own chrome — white — on the scheme the theme said
+    // nothing about, which is exactly what a theme with no opinion would get.
+    val themed = titleDash("home", None).copy(theme =
+      Theme(tokens = Map("primary-background-color" -> "#fafafa"))
+    )
+    response("/manifest.webmanifest", themed).flatMap { r =>
+      r.as[String].map { body =>
+        val json = io.circe.parser.parse(body).toOption.get.hcursor
+        assertEquals(json.get[String]("theme_color").toOption, Some("#fafafa"))
+        assertEquals(
+          json
+            .downField("color_scheme_dark")
+            .get[String]("theme_color")
+            .toOption,
+          Some("#fafafa")
+        )
       }
     }
   }
@@ -289,6 +330,8 @@ class ServerRoutesSuite extends ServerHarness {
     response("/manifest.webmanifest").flatMap { r =>
       r.as[String].map { body =>
         assert(body.contains(""""theme_color" : "#111111""""), clue = body)
+        // ...and no override is invented out of a colour nothing chose.
+        assert(!body.contains("color_scheme_dark"), clue = body)
       }
     }
   }
