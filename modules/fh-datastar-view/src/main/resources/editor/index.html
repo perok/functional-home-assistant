@@ -3,6 +3,11 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- Unqualified on purpose: app.css is a single dark palette, not a themed
+       page, so both schemes want this one colour. Without it the editor falls
+       back to the manifest's theme_color, which tracks the DASHBOARD's theme
+       and has nothing to do with what this page looks like. -->
+  <meta name="theme-color" content="#1e1e1e">
   <base href="__BASE__">
   <title>Dashboard editor</title>
   <script type="application/json" id="fh-editor-config">__CONFIG__</script>

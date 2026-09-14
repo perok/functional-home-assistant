@@ -1,10 +1,14 @@
 package fh.view.runtime
 
 import cats.effect.IO
+import io.circe.Json
+import io.circe.parser.parse
 import org.http4s.{Header, MediaType, Response}
 import org.http4s.dsl.io.*
 import org.http4s.headers.`Content-Type`
 import org.typelevel.ci.CIString
+
+import java.nio.charset.StandardCharsets.UTF_8
 
 /** The PWA files that make the dashboard installable: the manifest, the service
   * worker, and the icons.
@@ -25,12 +29,58 @@ import org.typelevel.ci.CIString
   * manifest and the SW, `no-cache` is also the *mechanism*: the browser
   * re-fetches both on every load/register to learn about updates.
   *
-  * Its `theme_color`/`background_color` are the DEFAULT theme's light
-  * background (`tokens.pkl`'s `primary-background-color`), not its accent: they
-  * paint an installed app's chrome and its splash, which sit directly above the
-  * page. A cold launch is all they cover — once a document is up,
-  * [[Renderer.themeColorTags]] overrides `theme_color` with the live theme's
-  * own value, per scheme. A manifest takes no comments, hence the note here.
+  * Its `theme_color`/`background_color` are FILLED PER REQUEST from the theme
+  * of the dashboard served at `/` ([[Renderer.ChromeColors]]); the committed
+  * values are only what an instance with no dashboard at all falls back to. A
+  * manifest takes no comments, hence the note here — and the two members are
+  * NOT the same kind of value, which is the thing to get right:
+  *
+  *   - `theme_color` is a DEFAULT. Per spec, a page's own
+  *     `<meta name="theme-color">` overrides it everywhere the manifest
+  *     applies, and every dashboard page carries a scheme-qualified pair
+  *     ([[Renderer.themeColorTags]]). So this value is what the surfaces with
+  *     no document of ours get: the splash, the task switcher, and any page we
+  *     serve without a meta — the failed-dashboard error page, which has no
+  *     theme to emit one from.
+  *   - `background_color` has NO meta equivalent, and cannot have one: it
+  *     paints the window before the stylesheets load, i.e. before there is a
+  *     document to carry a meta. The manifest is its ONLY channel, which is the
+  *     stronger half of the reason this is derived rather than frozen.
+  *
+  * A manifest is still one per ORIGIN, so WHICH dashboard's theme it takes is a
+  * choice (the one at `/`). Which SCHEME is not, any more: `color_scheme_dark`
+  * (w3c/manifest#1207, merged 2026-04-09) is an ordered map of overrides for
+  * the themeable members — exactly these two — applied when the OS is in dark
+  * mode, and both members are emitted into it.
+  *
+  * The bare members are therefore the value for light mode AND for every
+  * browser that does not implement the override. That is currently Chrome
+  * (crbug.com/383165202; WebKit shipped it in May 2026), i.e. almost everyone
+  * here — so [[Renderer.ChromeColors.base]] is pinned to the DARK colour and
+  * the override is a no-op until it flips. That pin is the whole reason this
+  * reads as redundant JSON; see that method for what changes when.
+  *
+  * THE TRAP, because it cost a whole investigation: Chrome caches the manifest
+  * at install time and refreshes it lazily, so a change here reaches installed
+  * phones days later with no deploy to correlate it against — a colour that
+  * changes on its own, with `git log` on this file looking innocent because the
+  * commit that did it is weeks back. Deriving the value does not remove that
+  * lag; it moves what feeds it to something the user can see and control.
+  *
+  * DO NOT "just drop `theme_color` and let the metas do it" — the advice you
+  * will find when you search this (SO 79744082 and its author's dev.to post,
+  * both Aug 2025). The metas are right and we emit them, but Chrome diverges
+  * from the spec exactly here: an installed PWA's status bar takes the
+  * MANIFEST's `theme_color` and ignores the document's meta (crbug 40759522,
+  * 40686953, 40634649 — titles readable, bodies need a sign-in). Remove it and
+  * a standalone app has no colour source at all, which is the white bar again
+  * and permanently. It also explains the observation that started this: a white
+  * bar weeks after the tokens moved, with no deploy to blame.
+  *
+  * The consequence to keep in mind: for an INSTALLED app the manifest is the
+  * only channel that reaches the status bar, so `color_scheme_dark` is the only
+  * route there will ever be to per-scheme chrome there. The metas serve the
+  * surfaces it does not reach — an ordinary browser tab, `minimal-ui`.
   *
   * Everything is read ONCE at class-init, and missing files are a HARD failure
   * like [[FrontendAssets]] — a pwa/ without its files is a broken build.
@@ -84,16 +134,56 @@ object PwaAssets {
     */
   val manifestUrl: String = "manifest.webmanifest"
 
+  private val ManifestName = "manifest.webmanifest"
+
+  /** The committed manifest, parsed once — the shape [[manifest]] recolours. */
+  private val manifestJson: Json = {
+    val (bytes, _) = contents(ManifestName)
+    parse(new String(bytes, UTF_8)).fold(
+      err => sys.error(s"/pwa/$ManifestName is not valid JSON: ${err.message}"),
+      identity
+    )
+  }
+
+  /** The manifest, painted `chrome` — the colours of whatever `/` serves.
+    *
+    * `None` (an instance whose entrypoint never evaluated, or a theme with no
+    * background token) serves the committed values unchanged, so an installable
+    * app is never held hostage to a dashboard that will not build.
+    */
+  def manifest(chrome: Option[Renderer.ChromeColors]): IO[Response[IO]] =
+    respond(
+      chrome
+        .fold(manifestJson) { c =>
+          manifestJson.deepMerge(
+            Json.obj(
+              "theme_color" -> Json.fromString(c.base),
+              "background_color" -> Json.fromString(c.base),
+              "color_scheme_dark" -> Json.obj(
+                "theme_color" -> Json.fromString(c.dark),
+                "background_color" -> Json.fromString(c.dark)
+              )
+            )
+          )
+        }
+        .spaces2
+        .getBytes(UTF_8),
+      contents(ManifestName)._2
+    )
+
   /** Serve a PWA file by name, or 404. Same origin, revalidated (`no-cache`) —
-    * see the object doc for why nothing here is `immutable`.
+    * see the object doc for why nothing here is `immutable`. The manifest goes
+    * through [[manifest]] instead, which has a colour to fill.
     */
   def serve(name: String): IO[Response[IO]] =
     contents.get(name) match {
       case None              => NotFound()
-      case Some((bytes, mt)) =>
-        Ok(bytes).map(
-          _.withContentType(`Content-Type`(mt))
-            .putHeaders(Header.Raw(CIString("Cache-Control"), "no-cache"))
-        )
+      case Some((bytes, mt)) => respond(bytes, mt)
     }
+
+  private def respond(bytes: Array[Byte], mt: MediaType): IO[Response[IO]] =
+    Ok(bytes).map(
+      _.withContentType(`Content-Type`(mt))
+        .putHeaders(Header.Raw(CIString("Cache-Control"), "no-cache"))
+    )
 }
