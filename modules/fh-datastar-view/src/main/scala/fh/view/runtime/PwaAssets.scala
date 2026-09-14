@@ -67,11 +67,20 @@ import java.nio.charset.StandardCharsets.UTF_8
   * commit that did it is weeks back. Deriving the value does not remove that
   * lag; it moves what feeds it to something the user can see and control.
   *
-  * A conflict worth recording, because it is unresolved: the spec says the meta
-  * wins in standalone display, yet a white bar on a dark phone weeks after the
-  * tokens moved is only explained by an installed app reading its install-time
-  * manifest instead. Unconfirmed on a device. Both channels carry the theme
-  * now, so the answer is the same either way.
+  * DO NOT "just drop `theme_color` and let the metas do it" — the advice you
+  * will find when you search this (SO 79744082 and its author's dev.to post,
+  * both Aug 2025). The metas are right and we emit them, but Chrome diverges
+  * from the spec exactly here: an installed PWA's status bar takes the
+  * MANIFEST's `theme_color` and ignores the document's meta (crbug 40759522,
+  * 40686953, 40634649 — titles readable, bodies need a sign-in). Remove it and
+  * a standalone app has no colour source at all, which is the white bar again
+  * and permanently. It also explains the observation that started this: a white
+  * bar weeks after the tokens moved, with no deploy to blame.
+  *
+  * The consequence to keep in mind: for an INSTALLED app the manifest is the
+  * only channel that reaches the status bar, so `color_scheme_dark` is the only
+  * route there will ever be to per-scheme chrome there. The metas serve the
+  * surfaces it does not reach — an ordinary browser tab, `minimal-ui`.
   *
   * Everything is read ONCE at class-init, and missing files are a HARD failure
   * like [[FrontendAssets]] — a pwa/ without its files is a broken build.

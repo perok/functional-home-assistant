@@ -224,10 +224,23 @@ Open questions to spike before Phase-2 implementation:
    editor names its own fixed dark (`editor/index.html`), and the failed-dashboard error page has
    no theme to derive one from and correctly takes the manifest's.
 
-   **Unresolved, and worth recording:** the spec says the meta wins in standalone display, yet a
-   white bar on a dark phone weeks after the tokens moved is only explained by an installed app
-   reading its install-time manifest instead. Unconfirmed on a device. Both channels carry the
-   theme now, so the answer is the same either way.
+   **Chrome diverges from the spec here, which is why we keep `theme_color` at all.** The advice
+   you will find when you search this — [SO 79744082](https://stackoverflow.com/a/79744082) and
+   [its author's dev.to post](https://dev.to/fedtti/how-to-provide-light-and-dark-theme-color-variants-in-pwa-1mml),
+   both Aug 2025 — is to drop `theme_color` from the manifest and let the two metas do the whole
+   job. The metas half is right and we do it. The removal half is not: an installed PWA's status
+   bar on Chrome takes the **manifest's** `theme_color` and ignores the document's meta
+   (crbug [40759522](https://issues.chromium.org/issues/40759522),
+   [40686953](https://issues.chromium.org/issues/40686953),
+   [40634649](https://issues.chromium.org/issues/40634649) — titles readable, bodies need a
+   sign-in, so the fix status is unknown). Remove it and a standalone app has no colour source at
+   all. That divergence is also what explains the observation that started this: a white bar weeks
+   after the tokens moved, with no deploy to correlate against.
+
+   The consequence: for an INSTALLED app the manifest is the only channel that reaches the status
+   bar, so `color_scheme_dark` is the only route there will ever be to per-scheme chrome there.
+   The metas serve the surfaces it does not reach — an ordinary browser tab, `minimal-ui`. Still
+   unconfirmed on a device.
 
    Note that an installed app takes manifest changes LAZILY — Chrome caches it at install — so a
    change here surfaces on phones days after the deploy that made it, which is what made the
