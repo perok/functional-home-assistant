@@ -87,6 +87,20 @@ class EditorSuite extends munit.FunSuite {
     }
   }
 
+  test("the editor states its own chrome colour") {
+    // Every page in the PWA's scope that carries no theme-color meta falls back
+    // to the MANIFEST's, which tracks the dashboard's theme and says nothing
+    // about this page. The editor's CSS is a fixed dark palette, so it names
+    // its own — unqualified, because both schemes want the one colour.
+    workspace { ws =>
+      val (_, html) = get(ws, "/edit")
+      assert(
+        html.contains("""<meta name="theme-color" content="#1e1e1e">"""),
+        clue = html
+      )
+    }
+  }
+
   test("only files the manifest names are served") {
     assert(FrontendAssets.serves(FrontendAssets.url("app").stripPrefix("web/")))
     // The guard is an allowlist of built filenames, so a made-up name — or a

@@ -194,14 +194,28 @@ Open questions to spike before Phase-2 implementation:
    committed file's values are only the fallback for an instance with no theme to ask (nothing
    registered, or a dashboard that failed to build).
 
-   One colour has to be picked, and the pick is a judgement rather than a derivation: a manifest
-   holds ONE colour, is one per ORIGIN, and carries no scheme, while a theme is per dashboard and
-   per scheme. Dark, because an installed app's status bar and splash are chrome rather than page
-   — the light value reads as a white stripe above a dark page, which is the bug that prompted
-   this. `Renderer.themeColorTags` still does the per-scheme job for as long as a document is up;
-   the manifest covers what it cannot reach (the splash, the task switcher, and the standalone
-   status bar itself), and a theme defining only one palette paints both metas with it rather than
-   leaving one scheme to the browser's own chrome.
+   The two members are not the same kind of value, and the difference decides how much this
+   matters. `theme_color` is a **default**: a page's own `<meta name="theme-color">` overrides it
+   everywhere the manifest applies, and every dashboard page carries a scheme-qualified pair from
+   `Renderer.themeColorTags` — so the manifest value is what the surfaces with no document of ours
+   get (the splash, the task switcher, and any page we serve without a meta). `background_color`
+   has **no meta equivalent and cannot have one**: it paints the window before the stylesheets
+   load, i.e. before there is a document to carry a meta. The manifest is its only channel.
+
+   One colour has to be picked — a manifest holds one, is one per ORIGIN, and carries no scheme,
+   while a theme is per dashboard and per scheme. Dark, because these are chrome rather than page:
+   the light value reads as a white stripe above a dark page, which is the bug that prompted this.
+   A theme defining only one palette paints both metas with it rather than leaving one scheme to
+   the browser's own chrome.
+
+   Every page of ours in scope either carries a meta or deliberately does not: dashboards do, the
+   editor names its own fixed dark (`editor/index.html`), and the failed-dashboard error page has
+   no theme to derive one from and correctly takes the manifest's.
+
+   **Unresolved, and worth recording:** the spec says the meta wins in standalone display, yet a
+   white bar on a dark phone weeks after the tokens moved is only explained by an installed app
+   reading its install-time manifest instead. Unconfirmed on a device. Both channels carry the
+   theme now, so the answer is the same either way.
 
    Note that an installed app takes manifest changes LAZILY — Chrome caches it at install — so a
    change here surfaces on phones days after the deploy that made it, which is what made the

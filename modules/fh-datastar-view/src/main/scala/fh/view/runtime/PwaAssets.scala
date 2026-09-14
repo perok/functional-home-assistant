@@ -32,25 +32,38 @@ import java.nio.charset.StandardCharsets.UTF_8
   * Its `theme_color`/`background_color` are FILLED PER REQUEST from the theme
   * of the dashboard served at `/` ([[Renderer.chromeColor]]); the committed
   * values are only what an instance with no dashboard at all falls back to. A
-  * manifest takes no comments, hence the note here, and two things need one:
+  * manifest takes no comments, hence the note here — and the two members are
+  * NOT the same kind of value, which is the thing to get right:
   *
-  *   - A manifest holds ONE colour and is one per ORIGIN, while a theme is per
-  *     DASHBOARD and per SCHEME — so something must be picked, and the pick is
-  *     the default dashboard's dark background. Deriving it rather than
-  *     hardcoding it is what keeps a retuned theme from leaving a hex behind
-  *     here that nothing points at; the pick itself is a judgement.
-  *   - Dark, because an installed app's status bar is chrome rather than page:
-  *     it reads as a bar under both schemes, where light reads as a white
-  *     stripe on a dark phone. [[Renderer.themeColorTags]] still does the
-  *     per-scheme job for as long as a document is up; this covers what it
-  *     cannot reach.
+  *   - `theme_color` is a DEFAULT. Per spec, a page's own
+  *     `<meta name="theme-color">` overrides it everywhere the manifest
+  *     applies, and every dashboard page carries a scheme-qualified pair
+  *     ([[Renderer.themeColorTags]]). So this value is what the surfaces with
+  *     no document of ours get: the splash, the task switcher, and any page we
+  *     serve without a meta — the failed-dashboard error page, which has no
+  *     theme to emit one from.
+  *   - `background_color` has NO meta equivalent, and cannot have one: it
+  *     paints the window before the stylesheets load, i.e. before there is a
+  *     document to carry a meta. The manifest is its ONLY channel, which is the
+  *     stronger half of the reason this is derived rather than frozen.
   *
-  * THE TRAP, because it cost a whole investigation: an INSTALLED app's status
-  * bar comes from the manifest, and Chrome caches the manifest at install time
-  * and refreshes it lazily. So a change here reaches installed phones days
-  * later, with no deploy to correlate it against — the symptom is a colour that
-  * changes on its own, and `git log` on this file looks innocent because the
-  * commit that did it is weeks back.
+  * One colour must be picked — a manifest holds one, is one per ORIGIN, and
+  * carries no scheme, where a theme is per dashboard and per scheme. Dark,
+  * because these are chrome rather than page: it reads as a bar under either
+  * scheme, where the light value reads as a white stripe on a dark phone.
+  *
+  * THE TRAP, because it cost a whole investigation: Chrome caches the manifest
+  * at install time and refreshes it lazily, so a change here reaches installed
+  * phones days later with no deploy to correlate it against — a colour that
+  * changes on its own, with `git log` on this file looking innocent because the
+  * commit that did it is weeks back. Deriving the value does not remove that
+  * lag; it moves what feeds it to something the user can see and control.
+  *
+  * A conflict worth recording, because it is unresolved: the spec says the meta
+  * wins in standalone display, yet a white bar on a dark phone weeks after the
+  * tokens moved is only explained by an installed app reading its install-time
+  * manifest instead. Unconfirmed on a device. Both channels carry the theme
+  * now, so the answer is the same either way.
   *
   * Everything is read ONCE at class-init, and missing files are a HARD failure
   * like [[FrontendAssets]] — a pwa/ without its files is a broken build.
