@@ -1,8 +1,3 @@
-# TODO — the original brain-dump
-
-Checked against the tree on 2026-09-13. Original order and wording kept, one line each. A struck
-line is one the tree has since answered; what answered it follows, unstruck.
-
 - [x] ~~global system that imports all dashboards?~~
       `site.pkl` is the ONE entrypoint naming every dashboard it serves (ADR 0021). TODO2 had
       parked this as "unclear need"; it shipped anyway, for the build story rather than the
