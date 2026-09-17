@@ -220,18 +220,23 @@ array, not as JSON.
 isolate — verified, since that is the guest→host direction and the one feature the plan leans on
 that a boundary could have taken away.
 
-**2. A GraalVM JDK base image.** Compiled Truffle with no boundary at all, and it would speed up
-**Pkl** too — which the isolate cannot, because `pkl-core` embeds Truffle directly rather than
-through the polyglot isolate API. That is the one real argument for this route, and Pkl is on the
-startup path that is already slow on the Pi. The cost is tying the add-on's JDK to GraalVM's own
-release train, which is [detaching from OpenJDK's](https://lobste.rs/s/9islkn/detaching_graalvm_from_java_ecosystem).
+**2. A GraalVM JDK base image.** Compiled Truffle with no boundary at all — the best *peak* render
+of the three, and the worst cold one. It was also supposed to speed up **Pkl**, which is the one
+thing the isolate cannot do and the argument that made this route interesting, Pkl being on the
+startup path that is already slow on the Pi. **Measured, it does not**: Pkl's call targets are
+never compiled on any JDK (zero compilations against a control's 245, and evaluation times a wash),
+because `pkl-core` ships `truffle-api` without the optimizing runtime and does not use the polyglot
+entry point. See `docs/spike-compiled-truffle.md`. The jlink stage does survive the move — GraalVM
+ships jmods and carries `libjvmcicompiler.so` into the image — at 94 MB for our exact module list.
+The residual cost is tying the add-on's JDK to GraalVM's own release train, which is
+[detaching from OpenJDK's](https://lobste.rs/s/9islkn/detaching_graalvm_from_java_ecosystem).
 
-**3. Native image.** Also boundary-free, and **not available to us**: `sbt-native-packager` has no
-sbt 2.x build — Maven Central stops at `sbt-native-packager_2.12_1.0` 1.11.7, and both
-`_3_2.0` and `_2.12_2.0` 404. So the
-[documented plugin route](https://www.scala-sbt.org/sbt-native-packager/formats/graalvm-native-image.html)
-is closed until that plugin crosses to sbt 2; what is left is driving `native-image` by hand over
-the assembly jar, which is a different and much larger project than this plan.
+**3. Native image.** Also boundary-free, and reachable: `sbt-native-packager` publishes no sbt 2
+artifact, but sbt 2's compatibility layer loads the sbt 1 plugin anyway — verified on sbt 2.0.8,
+where `GraalVMNativeImagePlugin` enables and its settings resolve. What makes this the wrong shape
+is not availability but the application: AOT's win is startup, we run for weeks, and GraalVM CE has
+no PGO — so the render loop, the one part of this server with real hot loops, is what an AOT build
+would make slower. The full argument and its costs are in `docs/spike-compiled-truffle.md`.
 
 #### The blocker all three share: the add-on image is musl
 
