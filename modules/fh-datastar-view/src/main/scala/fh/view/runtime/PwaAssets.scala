@@ -1,6 +1,7 @@
 package fh.view.runtime
 
 import cats.effect.IO
+import fh.view.model.ChromeColors
 import io.circe.Json
 import io.circe.parser.parse
 import org.http4s.{Header, MediaType, Response}
@@ -30,10 +31,10 @@ import java.nio.charset.StandardCharsets.UTF_8
   * re-fetches both on every load/register to learn about updates.
   *
   * Its `theme_color`/`background_color` are FILLED PER REQUEST from the theme
-  * of the dashboard served at `/` ([[Renderer.ChromeColors]]); the committed
-  * values are only what an instance with no dashboard at all falls back to. A
-  * manifest takes no comments, hence the note here — and the two members are
-  * NOT the same kind of value, which is the thing to get right:
+  * of the dashboard served at `/` ([[fh.view.model.ChromeColors]]); the
+  * committed values are only what an instance with no dashboard at all falls
+  * back to. A manifest takes no comments, hence the note here — and the two
+  * members are NOT the same kind of value, which is the thing to get right:
   *
   *   - `theme_color` is a DEFAULT. Per spec, a page's own
   *     `<meta name="theme-color">` overrides it everywhere the manifest
@@ -56,9 +57,10 @@ import java.nio.charset.StandardCharsets.UTF_8
   * The bare members are therefore the value for light mode AND for every
   * browser that does not implement the override. That is currently Chrome
   * (crbug.com/383165202; WebKit shipped it in May 2026), i.e. almost everyone
-  * here — so [[Renderer.ChromeColors.base]] is pinned to the DARK colour and
-  * the override is a no-op until it flips. That pin is the whole reason this
-  * reads as redundant JSON; see that method for what changes when.
+  * here — so [[fh.view.model.ChromeColors.base]] is pinned to the DARK colour
+  * and the override is a no-op until it flips. That pin is the whole reason
+  * this reads as redundant JSON; see that method for what changes when, and for
+  * what WebKit pays for it in the meantime.
   *
   * THE TRAP, because it cost a whole investigation: Chrome caches the manifest
   * at install time and refreshes it lazily, so a change here reaches installed
@@ -151,7 +153,7 @@ object PwaAssets {
     * background token) serves the committed values unchanged, so an installable
     * app is never held hostage to a dashboard that will not build.
     */
-  def manifest(chrome: Option[Renderer.ChromeColors]): IO[Response[IO]] =
+  def manifest(chrome: Option[ChromeColors]): IO[Response[IO]] =
     respond(
       chrome
         .fold(manifestJson) { c =>

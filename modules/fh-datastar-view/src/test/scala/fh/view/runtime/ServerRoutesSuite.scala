@@ -278,7 +278,9 @@ class ServerRoutesSuite extends ServerHarness {
         // The bare members are what light mode AND every browser without the
         // override get. Pinned DARK: a status bar is chrome, and the light
         // value reads as a white stripe above a dark page — the bug this
-        // whole path exists for. Flip with `ChromeColors.base`.
+        // whole path exists for. When Chrome ships the override and
+        // `ChromeColors.base` flips to light, THESE expectations are what
+        // changes with it — red here is the flip, not a regression.
         assertEquals(json.get[String]("theme_color").toOption, Some("#223344"))
         assertEquals(
           json.get[String]("background_color").toOption,
@@ -329,7 +331,8 @@ class ServerRoutesSuite extends ServerHarness {
     // manifest, rather than an uncoloured one or a 500.
     response("/manifest.webmanifest").flatMap { r =>
       r.as[String].map { body =>
-        assert(body.contains(""""theme_color" : "#111111""""), clue = body)
+        val json = io.circe.parser.parse(body).toOption.get.hcursor
+        assertEquals(json.get[String]("theme_color").toOption, Some("#111111"))
         // ...and no override is invented out of a colour nothing chose.
         assert(!body.contains("color_scheme_dark"), clue = body)
       }

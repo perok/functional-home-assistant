@@ -190,7 +190,7 @@ Open questions to spike before Phase-2 implementation:
    nobody adds strict cache-first without revisiting the `_reload` loop.
 4. ~~**Theme-driven manifest colors.**~~ **Answered: yes, from the dashboard served at `/`.**
    `/manifest.webmanifest` fills `theme_color`/`background_color` per request from
-   `Renderer.chromeColors` — the default dashboard's `primary-background-color`, both palettes —
+   `ChromeColors.from(theme)` — the default dashboard's `primary-background-color`, both palettes —
    and the committed file's values are only the fallback for an instance with no theme to ask
    (nothing registered, or a dashboard that failed to build).
 
@@ -211,18 +211,28 @@ Open questions to spike before Phase-2 implementation:
 
    The bare members are therefore the light-mode value **and** the value for every browser that
    does not implement the override — today Chrome (crbug.com/383165202; WebKit shipped it in
-   May 2026), which is nearly every client here. So `Renderer.ChromeColors.base` is **pinned to
-   the dark colour** and the override is currently a no-op. The trade is one-sided while that
-   holds: base-dark costs a light-mode phone a dark bar, base-light costs a dark-mode phone the
-   white stripe this whole path exists to fix. Flip `base` to `light` when Chrome ships; nothing
-   else changes.
+   May 2026), which is nearly every client here. So `ChromeColors.base` is **pinned to the dark
+   colour** and the override is currently a no-op. On Chrome the trade is one-sided: base-dark
+   costs a light-mode phone a dark bar, base-light costs a dark-mode phone the white stripe this
+   whole path exists to fix.
+
+   It is not free, though, and calling it a wait for implementations would be wrong. WebKit
+   already implements the override, so a Safari-installed app would read the light/dark pair
+   correctly today and instead gets a dark bar in light mode *because of this pin*. We are buying
+   the Chrome majority at Safari's expense — worth revisiting the moment this runs anywhere iOS
+   is the common client. When Chrome ships, flip `base` to `light`; the manifest test in
+   `ServerRoutesSuite` pins the current choice, so it goes red on that flip by design.
 
    A theme defining only one palette fills both the base and the override with it, rather than
    leaving a scheme to the browser's own chrome.
 
    Every page of ours in scope either carries a meta or deliberately does not: dashboards do, the
    editor names its own fixed dark (`editor/index.html`), and the failed-dashboard error page has
-   no theme to derive one from and correctly takes the manifest's.
+   no theme to derive one from and correctly takes the manifest's. That settles the browser-tab
+   case only — inside the installed app Chrome ignores every one of those metas, per the
+   divergence below, and each of those pages gets the manifest's colour. Acceptable: the manifest
+   is dark while the pin holds, so the worst outcome is the editor wearing the dashboard's dark
+   rather than its own.
 
    **Chrome diverges from the spec here, which is why we keep `theme_color` at all.** The advice
    you will find when you search this — [SO 79744082](https://stackoverflow.com/a/79744082) and

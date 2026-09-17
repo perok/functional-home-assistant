@@ -6,7 +6,11 @@
   <!-- Unqualified on purpose: app.css is a single dark palette, not a themed
        page, so both schemes want this one colour. Without it the editor falls
        back to the manifest's theme_color, which tracks the DASHBOARD's theme
-       and has nothing to do with what this page looks like. -->
+       and has nothing to do with what this page looks like.
+       Reaches a browser tab only: inside the installed app Chrome ignores the
+       document's meta and takes the manifest's anyway (see PwaAssets). That is
+       survivable here and not worth a second manifest — the value it falls
+       back to is the dashboard's, which is dark while ChromeColors.base is. -->
   <meta name="theme-color" content="#1e1e1e">
   <base href="__BASE__">
   <title>Dashboard editor</title>

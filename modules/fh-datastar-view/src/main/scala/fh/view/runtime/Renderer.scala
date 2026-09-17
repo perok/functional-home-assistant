@@ -5,6 +5,7 @@ import fh.view.build.LibPackage
 import fh.view.model.{
   Access,
   Cell,
+  ChromeColors,
   Dashboard,
   DomId,
   LayoutNode,
@@ -358,10 +359,8 @@ class Renderer(
   /** The `<meta name="theme-color">` pair — see [[Renderer.themeColorTags]]. */
   val themeColorTags: String = Renderer.themeColorTags(dashboard)
 
-  /** The colours the PWA manifest paints with — see [[Renderer.ChromeColors]].
-    */
-  val chromeColors: Option[Renderer.ChromeColors] =
-    Renderer.chromeColors(dashboard)
+  /** The colours the PWA manifest paints with — see [[ChromeColors]]. */
+  val chromeColors: Option[ChromeColors] = ChromeColors.from(dashboard.theme)
 
   /** Injected as `<script type="module">`, e.g. beer.min.js. */
   def scripts: List[String] = dashboard.theme.scripts
@@ -2476,72 +2475,18 @@ object Renderer {
       ).toString
     )
 
-  /** The colour a phone paints its own chrome with — the browser's URL bar, and
-    * an installed PWA's status bar — under each scheme.
-    *
-    * It is the dashboard's BACKGROUND, not its accent: the bar sits directly
-    * above the page, and any other colour reads as a stripe of unrelated UI
-    * rather than as the top of the dashboard.
-    *
-    * Both consumers take the PAIR rather than picking one here, because the two
-    * channels reach different surfaces and neither is a fallback for the other:
-    * [[themeColorTags]] emits a scheme-qualified `<meta>` each, and
-    * [[PwaAssets.manifest]] fills the manifest's themeable members. Collapsing
-    * to one value used to happen at the manifest's edge, which is why the
-    * manifest could only ever be half right.
-    */
-  final case class ChromeColors(light: String, dark: String) {
-
-    /** What a surface paints when it cannot ask for a scheme: the manifest's
-      * bare `theme_color`/`background_color`, read once at install time for a
-      * whole origin, and — until `color_scheme_dark` is widely implemented —
-      * what every browser that does not know that member uses in BOTH schemes.
-      *
-      * Dark, deliberately. An installed app's status bar and splash are chrome
-      * rather than page: dark reads as a bar under either scheme, where the
-      * light value reads as a white stripe on a dark phone — which is the bug
-      * this whole path exists to fix. Once Chrome ships the override
-      * (crbug.com/383165202 — WebKit already has it), this becomes `light` and
-      * the member below starts doing the work instead.
-      */
-    def base: String = dark
-  }
-
-  /** The chrome colours of a dashboard's theme, or `None` when it names the
-    * token under neither scheme (an instance with no opinion: the committed
-    * manifest and no metas at all).
-    *
-    * A theme that defines the token under only ONE scheme paints BOTH with it.
-    * Dropping the other is worse than reusing the colour: the browser then
-    * falls back to its own chrome — white, on the scheme the theme said nothing
-    * about — which is indistinguishable from a theme that had no opinion.
-    */
-  private[runtime] def chromeColors(
-      dashboard: Dashboard
-  ): Option[ChromeColors] = {
-    val light = dashboard.theme.tokens.get(ChromeToken)
-    val dark = dashboard.theme.tokensDark.get(ChromeToken)
-    (light.orElse(dark), dark.orElse(light)) match {
-      case (Some(l), Some(d)) => Some(ChromeColors(l, d))
-      case _                  => None
-    }
-  }
-
   /** The `<meta name="theme-color">` pair — the channel that CAN follow the
     * device's scheme, and the only one that reaches a page we serve outside the
-    * installed app.
+    * installed app (Chrome ignores it in an installed one — see [[PwaAssets]]).
     */
   private[runtime] def themeColorTags(dashboard: Dashboard): String =
-    chromeColors(dashboard).fold("") { c =>
+    ChromeColors.from(dashboard.theme).fold("") { c =>
       List("light" -> c.light, "dark" -> c.dark)
         .map { case (scheme, color) =>
           s"""<meta name="theme-color" media="(prefers-color-scheme: $scheme)" content="$color">"""
         }
         .mkString("\n  ")
     }
-
-  /** The HA-named token [[chromeColors]] reads the chrome colour from. */
-  private val ChromeToken = "primary-background-color"
 
   /** 12 hex over the patchable part of `<head>`. See [[Renderer.styleHash]].
     */

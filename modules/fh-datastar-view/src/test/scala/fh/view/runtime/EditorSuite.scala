@@ -91,7 +91,8 @@ class EditorSuite extends munit.FunSuite {
     // Every page in the PWA's scope that carries no theme-color meta falls back
     // to the MANIFEST's, which tracks the dashboard's theme and says nothing
     // about this page. The editor's CSS is a fixed dark palette, so it names
-    // its own — unqualified, because both schemes want the one colour.
+    // its own — unqualified, because both schemes want the one colour. In a
+    // TAB; installed, Chrome takes the manifest's regardless (see PwaAssets).
     workspace { ws =>
       val (_, html) = get(ws, "/edit")
       assert(

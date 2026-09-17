@@ -18,7 +18,14 @@ import fh.view.build.{
 }
 import fh.view.FHError
 import fh.view.auth.{AuthGate, Requirement}
-import fh.view.model.{Dashboard, DomId, NodeId, Permission, SignalId}
+import fh.view.model.{
+  ChromeColors,
+  Dashboard,
+  DomId,
+  NodeId,
+  Permission,
+  SignalId
+}
 import fs2.Stream
 import fs2.concurrent.{Signal, SignallingRef}
 import io.circe.{Decoder, Json}
@@ -1840,7 +1847,7 @@ class Server(
     * dashboard that failed to build), and [[PwaAssets.manifest]] falls back to
     * the committed colours rather than refusing to serve.
     */
-  private def chromeColors: IO[Option[Renderer.ChromeColors]] =
+  private def chromeColors: IO[Option[ChromeColors]] =
     site.defaultSlug
       .flatMap(site.liveFor)
       .flatMap(_.flatTraverse(_.renderer.get.map {
