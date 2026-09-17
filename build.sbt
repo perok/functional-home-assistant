@@ -60,10 +60,17 @@ addCommandAlias(
   "fh-datastar-view/runMain fh.view.build.BuildApp"
 )
 addCommandAlias(
-  // The workspace dir comes from `DASHBOARDS_DIR` (set to an absolute
-  // repo-root path in the project's `run / envVars` above). A local run
-  // bootstraps a package-form workspace there — its own home/, .fh/, seeded
-  // entries, .pkl-cache — gitignored, exactly the shape the add-on writes.
+  // `sbt 'dashboardServe <dir>'` — the directory is REQUIRED (the alias
+  // forwards the rest of the input; the forked run's cwd is the repo root, so a
+  // relative path resolves from where sbt was started). The build sets no
+  // `DASHBOARDS_DIR`: a default meant every run served one blessed workspace
+  // whether or not that was the one you meant, and the add-on names its own in
+  // `run.sh` anyway.
+  //
+  // The run bootstraps a package-form workspace there — its own home/, .fh/,
+  // seeded entries, .pkl-cache — gitignored, exactly the shape the add-on
+  // writes. So naming a directory that does not exist yet is how you get a
+  // fresh scratch workspace, not an error.
   "dashboardServe",
   "fh-datastar-view/runMain fh.view.runtime.ServerApp"
 )
@@ -229,14 +236,10 @@ lazy val `fh-datastar-view` = project
   .settings(
     commonSettings,
     run / fork := true,
-    // DASHBOARDS_DIR for a local `dashboardServe` / `run`: an ABSOLUTE path (via
-    // the `baseDirectory` helper) to the repo-root dev workspace, so the forked
-    // run — whose cwd is the module base — always lands on ONE stable,
-    // gitignored location regardless of cwd. The add-on sets this itself;
-    // ServerApp's optional CLI arg still overrides it.
+    // No DASHBOARDS_DIR here on purpose: a local run serves the workspace it is
+    // GIVEN (`sbt 'dashboardServe <dir>'`), and refuses to guess one. See the
+    // `dashboardServe` alias above.
     run / envVars ++= (Test / envFromFile).value,
-    run / envVars += "DASHBOARDS_DIR" ->
-      ((ThisBuild / baseDirectory).value / "dashboard-local-dev-server").toString,
     // Fat jar for the HA add-on image (home-addon/Dockerfile COPYs it from
     // this fixed, gitignored path).
     assembly / mainClass := Some("fh.view.runtime.ServerApp"),

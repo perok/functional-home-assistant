@@ -582,7 +582,7 @@ def writeSource(client: Client[IO], url: String, target: Target): IO[Unit] =
   for
     files <- writeSet(target.entry)
     token <- userToken()
-    _ <- files.traverse_ { case (rel, path) =>
+    results <- files.traverse { case (rel, path) =>
       IO.blocking(new String(Files.readAllBytes(path), UTF_8))
         .flatMap(
           post(
@@ -595,12 +595,41 @@ def writeSource(client: Client[IO], url: String, target: Target): IO[Unit] =
             token
           )
         )
+        .map(rel -> changedFlag(_))
     }
-    _ <- IO.println(
-      s"wrote ${files.size} file(s) on the instance: " +
-        files.map(_._1).mkString(", ")
-    )
+    _ <- IO.println(writeReport(results))
   yield ()
+
+/** Whether the instance says a write MOVED the file.
+  *
+  * Absent (an older instance, which answers without the field) reads as
+  * changed: the report then says what it used to say rather than claiming a
+  * no-op it has no evidence for.
+  */
+def changedFlag(responseBody: String): Boolean =
+  io.circe.jawn
+    .parse(responseBody)
+    .toOption
+    .flatMap(_.hcursor.get[Boolean]("changed").toOption)
+    .getOrElse(true)
+
+/** What `fh write` prints.
+  *
+  * The distinction it exists to draw: "wrote 6 file(s)" was printed whether the
+  * push moved every byte or none of them, so the one thing the author wanted to
+  * know — did that do anything — was the one thing it would not say. Unchanged
+  * files are COUNTED rather than listed, because the interesting list is always
+  * the short one.
+  */
+def writeReport(results: List[(String, Boolean)]): String =
+  val (moved, same) = results.partition(_._2)
+  if results.isEmpty then "nothing to write"
+  else if moved.isEmpty then
+    s"no change — all ${results.size} file(s) on the instance already match"
+  else
+    s"wrote ${moved.size} of ${results.size} file(s) on the instance: " +
+      moved.map(_._1).mkString(", ") +
+      (if same.isEmpty then "" else s" (${same.size} already up to date)")
 
 /** `(instance-relative path, local file)` for everything [[writeSource]] sends:
   * the entry plus its transitive local imports ([[importSet]]), each keyed by
@@ -681,12 +710,15 @@ def post(
     // the working directory, and both halves — the header it sends and the
     // advice it gives when refused — are testable without one.
     token: Option[String]
-): IO[Unit] =
+): IO[String] =
   for
     uri <- Uri
       .fromString(rawUri)
       .fold(_ => die(s"not a valid url: $rawUri"), IO.pure)
-    _ <- client
+    // The BODY on success, not Unit: the instance answers a write with what it
+    // did (`changed`), and a caller that discards it cannot tell a push that
+    // moved bytes from one that moved none.
+    out <- client
       .run {
         val req = Request[IO](method, uri)
           .withEntity(body)
@@ -696,8 +728,9 @@ def post(
         )
       }
       .use(response =>
-        IO.unlessA(response.status.isSuccess)(
-          response.bodyText.compile.string.flatMap(text =>
+        response.bodyText.compile.string.flatMap(text =>
+          if response.status.isSuccess then IO.pure(text)
+          else
             IO.raiseError(
               Die(
                 if response.status == Status.Unauthorized ||
@@ -709,7 +742,6 @@ def post(
                     }"
               )
             )
-          )
         )
       )
       // A stopped instance is the ordinary case under `--watch`, which prints
@@ -719,7 +751,7 @@ def post(
           Die(s"$what failed — $rawUri did not answer")
             .tap(_.addSuppressed(err))
       }
-  yield ()
+  yield out
 
 /** Write this laptop's instance credential.
   *

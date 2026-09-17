@@ -188,8 +188,73 @@ Open questions to spike before Phase-2 implementation:
    tell a user navigation from a server-ordered `location.reload()`. One escape: a
    cache-busting marker on the reload URL. Not needed under NetworkFirst; recorded so
    nobody adds strict cache-first without revisiting the `_reload` loop.
-4. **Theme-driven manifest colors.** `theme_color`/`background_color` are hardcoded; the
-   theme owns tokens (`theme-beer.pkl`). A dynamic manifest route is possible later.
+4. ~~**Theme-driven manifest colors.**~~ **Answered: yes, from the dashboard served at `/`.**
+   `/manifest.webmanifest` fills `theme_color`/`background_color` per request from
+   `ChromeColors.from(theme)` — the default dashboard's `primary-background-color`, both palettes —
+   and the committed file's values are only the fallback for an instance with no theme to ask
+   (nothing registered, or a dashboard that failed to build).
+
+   The two members are not the same kind of value, and the difference decides how much this
+   matters. `theme_color` is a **default**: a page's own `<meta name="theme-color">` overrides it
+   everywhere the manifest applies, and every dashboard page carries a scheme-qualified pair from
+   `Renderer.themeColorTags` — so the manifest value is what the surfaces with no document of ours
+   get (the splash, the task switcher, and any page we serve without a meta). `background_color`
+   has **no meta equivalent and cannot have one**: it paints the window before the stylesheets
+   load, i.e. before there is a document to carry a meta. The manifest is its only channel.
+
+   **Which dashboard is a choice; which scheme is not.** A manifest is one per ORIGIN, so it takes
+   the theme of whatever `/` serves. It no longer holds only one colour, though:
+   [`color_scheme_dark`](https://github.com/w3c/manifest/pull/1207) (merged into the spec
+   2026-04-09) is an ordered map of overrides for the *themeable members* — exactly `theme_color`
+   and `background_color` — applied when the OS is in dark mode. Both are emitted into it, so the
+   manifest says the same thing the metas do.
+
+   The bare members are therefore the light-mode value **and** the value for every browser that
+   does not implement the override — today Chrome (crbug.com/383165202; WebKit shipped it in
+   May 2026), which is nearly every client here. So `ChromeColors.base` is **pinned to the dark
+   colour** and the override is currently a no-op. On Chrome the trade is one-sided: base-dark
+   costs a light-mode phone a dark bar, base-light costs a dark-mode phone the white stripe this
+   whole path exists to fix.
+
+   It is not free, though, and calling it a wait for implementations would be wrong. WebKit
+   already implements the override, so a Safari-installed app would read the light/dark pair
+   correctly today and instead gets a dark bar in light mode *because of this pin*. We are buying
+   the Chrome majority at Safari's expense — worth revisiting the moment this runs anywhere iOS
+   is the common client. When Chrome ships, flip `base` to `light`; the manifest test in
+   `ServerRoutesSuite` pins the current choice, so it goes red on that flip by design.
+
+   A theme defining only one palette fills both the base and the override with it, rather than
+   leaving a scheme to the browser's own chrome.
+
+   Every page of ours in scope either carries a meta or deliberately does not: dashboards do, the
+   editor names its own fixed dark (`editor/index.html`), and the failed-dashboard error page has
+   no theme to derive one from and correctly takes the manifest's. That settles the browser-tab
+   case only — inside the installed app Chrome ignores every one of those metas, per the
+   divergence below, and each of those pages gets the manifest's colour. Acceptable: the manifest
+   is dark while the pin holds, so the worst outcome is the editor wearing the dashboard's dark
+   rather than its own.
+
+   **Chrome diverges from the spec here, which is why we keep `theme_color` at all.** The advice
+   you will find when you search this — [SO 79744082](https://stackoverflow.com/a/79744082) and
+   [its author's dev.to post](https://dev.to/fedtti/how-to-provide-light-and-dark-theme-color-variants-in-pwa-1mml),
+   both Aug 2025 — is to drop `theme_color` from the manifest and let the two metas do the whole
+   job. The metas half is right and we do it. The removal half is not: an installed PWA's status
+   bar on Chrome takes the **manifest's** `theme_color` and ignores the document's meta
+   (crbug [40759522](https://issues.chromium.org/issues/40759522),
+   [40686953](https://issues.chromium.org/issues/40686953),
+   [40634649](https://issues.chromium.org/issues/40634649) — titles readable, bodies need a
+   sign-in, so the fix status is unknown). Remove it and a standalone app has no colour source at
+   all. That divergence is also what explains the observation that started this: a white bar weeks
+   after the tokens moved, with no deploy to correlate against.
+
+   The consequence: for an INSTALLED app the manifest is the only channel that reaches the status
+   bar, so `color_scheme_dark` is the only route there will ever be to per-scheme chrome there.
+   The metas serve the surfaces it does not reach — an ordinary browser tab, `minimal-ui`. Still
+   unconfirmed on a device.
+
+   Note that an installed app takes manifest changes LAZILY — Chrome caches it at install — so a
+   change here surfaces on phones days after the deploy that made it, which is what made the
+   original symptom hard to attribute.
 5. **HTTPS on the intranet** (issue #98 follow-up): a private CA or reverse proxy so the
    SW activates on LAN devices — the precondition for Phase 2's offline goal to matter
    outside `localhost`.

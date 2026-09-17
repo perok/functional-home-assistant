@@ -121,12 +121,13 @@ the user-level `~/.pkl/settings.pkl` (honored in both modes; dated backup of
 any existing file), which fixes IDE sync as long as the instance is reachable.
 `UseCaseSuite` drives the real script + the real pkl CLI end-to-end.
 
-**Repo developer.** Runs a local server (`sbt dashboardServe`) that bootstraps
+**Repo developer.** Runs a local server (`sbt 'dashboardServe <dir>'`) that bootstraps
 the **same package-form workspace the add-on does** — there is no separate "dev
 mode" and no meaningful difference from the deployed add-on. The bundled library
 is the repo's own `resources/dashboards/lib`, packaged and seeded into a shared
 cache (pkl's own `~/.pkl/cache`, which the `fh` script also uses), the
-workspace is a local scratch dir (`dashboard-local-dev`, gitignored), and
+workspace is whichever local scratch dir the run NAMES (gitignored; there is no
+default — a run that guessed one served a workspace nobody chose), and
 `prepareDumps` seeds the dump package from a dev HA. So a local instance is a
 **first-class `fh` target**: `fh init`/`pull`/`push` work against it exactly as
 against the add-on. Iterating on the library is `fh push` (or a restart, which
