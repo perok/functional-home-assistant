@@ -44,7 +44,7 @@ ThisBuild / semanticdbEnabled := true
 ThisBuild / scalafixDependencies += "org.typelevel" %% "typelevel-scalafix" % "0.5.0"
 
 val commonSettings = Seq(
-  scalaVersion := "3.8.4",
+  scalaVersion := "3.9.0",
   libraryDependencies ++= Seq(
     "org.typelevel" %% "cats-effect" % "3.7.1",
     "io.scalaland" %% "chimney" % "1.11.0",
@@ -114,6 +114,14 @@ lazy val `ha-api` = project // todo add api layer here as well
   .dependsOn(`fh-domain`)
   .settings(
     commonSettings,
+    // smithy4s spells a union's discriminator `$ordinal`, mirroring the name the
+    // compiler itself generates for a sealed hierarchy — and Scala 3.9 started
+    // warning (E230) that `$` is reserved for exactly that internal use. 14 of
+    // them, in `src_managed` only, and `-Werror` makes them a build failure.
+    // Scoped to the generated tree rather than excluding `warnError` for the
+    // module (what `home-codegen` does): the hand-written WebSocket client lives
+    // here too and is the half of this project the gate is for.
+    scalacOptions += "-Wconf:src=.*src_managed.*&id=E230:s",
     libraryDependencies ++= Seq(
       "com.disneystreaming.smithy4s" %% "smithy4s-core" % smithy4sVersion.value,
       "com.disneystreaming.smithy4s" %% "smithy4s-http4s" % smithy4sVersion.value,
