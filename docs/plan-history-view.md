@@ -145,18 +145,117 @@ zoom into pre-downsampled points cannot. A hover readout can be a `<title>` per 
 interaction is ever wanted, ECharts 5.5+ ships a tiny client that `hydrate()`s SSR output for
 legend and hover; that is the appendix's territory and an addition, not a rewrite.
 
-### Deployment: no image change is required
+### Deployment: interpreted needs no image change
 
 `home-addon/Dockerfile` builds a jlink'd Temurin 21 runtime, and the GraalJS jars are ordinary Java
 targeting bytecode 17. Truffle already runs in that image, for Pkl, so nothing about the module
 list needs to move for a second language.
 
-The separate, optional question is **interpreted vs. compiled**. Truffle falls back to the
-interpreter without JVMCI, which is what every number above was measured under, and it is already
-fast enough. Getting compiled execution means either a GraalVM base image or putting the Truffle
-runtime on the module path with JVMCI enabled — and it would speed up **Pkl evaluation too**, which
-is on the startup path that is already slow on the Pi. So it is worth measuring on the Pi as its
-own piece of work, on its own merits, not as a precondition for this one.
+### Interpreted vs. compiled: the separate question, now answered on the mechanism
+
+Every number above was measured under Truffle's interpreted fallback, and it is fast enough. The
+follow-up — *how would we get compiled execution if the Pi says we need it* — is worth settling
+here because **the obvious answer has been withdrawn**: JVMCI is removed in JDK 27
+([JDK-8382582](https://bugs.openjdk.org/browse/JDK-8382582)), not deprecated. The issue is blunt
+about the aftercare: "Projects that depend on JVMCI should carry and maintain it in their own
+downstream trees." So "put the Truffle runtime on the module path with JVMCI enabled" has a
+shelf life and is not a direction to build toward.
+
+There are three ways left, and only one of them is cheap.
+
+**1. Polyglot isolates — the one that works on a stock JDK.** The optimizing runtime ships as a
+native library rather than as a JIT plugged into HotSpot, so it needs nothing from the host VM. A
+Graal developer states it directly in
+[r/java](https://www.reddit.com/r/java/comments/1ush0x9/comment/owp5r2n/): "JVMCI is not required
+to run GraalJS with the optimizing runtime on stock OpenJDK. You can use polyglot isolates."
+`js-isolate-community` exists from GraalVM CE 25.1, at **our exact version, 25.3.4.1**, and the
+platform jars are MIT/UPL — more permissive than the GPLv2+CE the docs promise for community
+artifacts.
+
+Measured here (x86_64, OpenJDK 25, ECharts 5.6.0, 600×300, same spike as the table above — a plain
+`javac` program over two coursier classpaths, `org.graalvm.polyglot:js-community:25.3.4.1` against
+`org.graalvm.polyglot:js-isolate-community:25.3.4.1`, differing only in `spawnIsolate`):
+
+| | interpreted | isolate |
+|---|---:|---:|
+| `Engine` build | 40–47 ms | 110–113 ms |
+| `Context` build | 21–24 ms | 31–34 ms |
+| eval `echarts.min.js` (1 MB) | 1041–1114 ms | **306–327 ms** |
+| first render, 2 000 points | 416–453 ms | **188–196 ms** |
+| warm render, 2 000 points | 51–54 ms | **29–31 ms** |
+| warm render, 5 000 points | 84 ms | **32 ms** |
+| cold process, one chart — wall | 2.23 s | **1.47 s** |
+| cold process, one chart — CPU | 11.9 s | **3.5 s** |
+| RSS | ~400–530 MB | ~530–545 MB |
+
+Four things in that table matter more than the headline 1.8–2.6×:
+
+- **The CPU column, not the wall column, is the Pi's number.** This box hides most of the
+  interpreted cost behind cores that a Pi does not have: HotSpot is busy C2-compiling Truffle's
+  *interpreter* in the background, 11.9 s of CPU against 2.2 s of wall. The isolate does not need
+  that work done at all. Wall time on a 4-core Pi tracks CPU far more closely, so the gap there
+  should be wider than anything measured here — which is an inference, not a measurement, and the
+  reason a Pi run is still the deciding evidence.
+- **The gap widens with the series.** Interpreted grows 51 → 84 ms from 2 000 to 5 000 points; the
+  isolate is flat at 29 → 32 ms. Compiled execution is what makes render cost track the SVG (which
+  LTTB already caps) rather than the input.
+- **The SVG is byte-identical between the two modes.** Checked, not assumed. So the mode is a pure
+  performance switch: wire snapshots taken under one pass under the other, and flipping it is not
+  a rendering decision.
+- **It is two lines of build config and two of code.** `spawnIsolate(true)` plus
+  `HostAccess.SCOPED`. One trap worth writing down: when an `Engine` is shared — which is the whole
+  point of our runtime shape — `spawnIsolate` must go on `Engine.Builder`, not on `Context.Builder`
+  as the docs' example shows. The Context form throws `IllegalStateException` naming the fix.
+
+The host↔guest boundary, which is what an isolate is usually criticised for, is not a problem at
+our shape and the instinct about it is backwards. Per-call overhead is 376 ns interpreted vs 964 ns
+isolated, so a chatty design would indeed suffer. But we are not chatty: one call in, one SVG
+string out. And passing 2 000 points as a host `double[]` costs **0.21 ms interpreted vs 0.02 ms
+isolated** — the compiled guest loop more than pays for the crossing — while the "send one JSON
+string and parse it inside" trick that seems safer is the one that gets *slower* (0.27 → 0.48 ms),
+because the string is copied across. If we ever go isolated, hand the series over as a primitive
+array, not as JSON.
+
+`echarts.setPlatformAPI({ measureText })` backed by a Java callback also works under `SCOPED` in an
+isolate — verified, since that is the guest→host direction and the one feature the plan leans on
+that a boundary could have taken away.
+
+**2. A GraalVM JDK base image.** Compiled Truffle with no boundary at all, and it would speed up
+**Pkl** too — which the isolate cannot, because `pkl-core` embeds Truffle directly rather than
+through the polyglot isolate API. That is the one real argument for this route, and Pkl is on the
+startup path that is already slow on the Pi. The cost is tying the add-on's JDK to GraalVM's own
+release train, which is [detaching from OpenJDK's](https://lobste.rs/s/9islkn/detaching_graalvm_from_java_ecosystem).
+
+**3. Native image.** Also boundary-free, and **not available to us**: `sbt-native-packager` has no
+sbt 2.x build — Maven Central stops at `sbt-native-packager_2.12_1.0` 1.11.7, and both
+`_3_2.0` and `_2.12_2.0` 404. So the
+[documented plugin route](https://www.scala-sbt.org/sbt-native-packager/formats/graalvm-native-image.html)
+is closed until that plugin crosses to sbt 2; what is left is driving `native-image` by hand over
+the assembly jar, which is a different and much larger project than this plan.
+
+#### The blocker all three share: the add-on image is musl
+
+`libpolyglotisolate.so` links `libc.so.6` with `GLIBC_2.x` versioned symbols and contains no
+reference to musl. `home-addon/Dockerfile` jlinks from `eclipse-temurin:21-alpine` onto
+`ghcr.io/hassio-addons/base` — a musl runtime, which is proven by the fact that a musl-linked JRE
+runs there at all. **A glibc shared object cannot load in that image.** The same applies to a
+GraalVM JDK base and to default native-image output, so this is not an isolate-specific tax: every
+compiled-Truffle option costs a move to a glibc base (`debian-base`) and a glibc JDK for the jlink
+stage.
+
+The second deployment cost is size, and it is smaller than expected. An isolate *replaces*
+`js-language` (26 MB), `icu4j` (17 MB) and `regex` (3.7 MB) rather than adding to them — the JS
+runtime lives inside the native library — so one platform is **+15 MB of jar** over the interpreted
+plan, not +61. What is not small is what that jar unpacks to: a **143 MB** `libpolyglotisolate.so`,
+extracted to a resource cache on first use, which on an SD card is a real first-run cost and worth
+pre-extracting into the image. And the fat jar is currently arch-independent on purpose — the
+Dockerfile says so — while isolate jars are per-arch, so shipping both Linux arches is +120 MB, and
+shipping one breaks the multi-arch build.
+
+**Conclusion, unchanged: build this interpreted.** What has changed is that the fallback now has a
+name, a version that already matches ours, a licence that is fine, a measured size, a measured
+speedup and a known blocker. If the Pi says the charts are too slow, the move is polyglot isolates
+and a glibc base image — not JVMCI, which will not be there.
 
 ---
 
