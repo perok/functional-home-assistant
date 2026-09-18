@@ -186,9 +186,18 @@ Measured here (x86_64, OpenJDK 25, ECharts 5.6.0, 600×300, same spike as the ta
 | warm render, 5 000 points | 84 ms | **32 ms** |
 | cold process, one chart — wall | 2.23 s | **1.47 s** |
 | cold process, one chart — CPU | 11.9 s | **3.5 s** |
-| RSS | ~400–530 MB | ~530–545 MB |
+| RSS, 300-point workload | 351 MB | 425 MB |
+| RSS, 5 000-point workload | 371 MB | **865–1002 MB** |
 
-Four things in that table matter more than the headline 1.8–2.6×:
+Five things in that table matter more than the headline 1.8–2.6×:
+
+- **The two RSS rows are the cost of this route, and they are a fork, not a range.** An isolate
+  carries its own native heap, which the JVM's limits cannot see. At dashboard shape the whole
+  74 MB difference is the mapped `.so` — clean, file-backed, reclaimable — and the dirty footprint
+  is identical to interpreted (336 vs 334 MB), so isolation really is nearly free there. At
+  5 000 points it holds **911 MB of anonymous memory against 369 MB**, and neither `-Xmx` (192m vs
+  512m moves it 825 → 840 MB) nor `engine.MaxIsolateMemory=128MB` (~830 MB) bounded it. On a 4 GB
+  Pi that is what to measure before shipping this, ahead of render time.
 
 - **The CPU column, not the wall column, is the Pi's number.** This box hides most of the
   interpreted cost behind cores that a Pi does not have: HotSpot is busy C2-compiling Truffle's
@@ -220,18 +229,23 @@ array, not as JSON.
 isolate — verified, since that is the guest→host direction and the one feature the plan leans on
 that a boundary could have taken away.
 
-**2. A GraalVM JDK base image.** Compiled Truffle with no boundary at all, and it would speed up
-**Pkl** too — which the isolate cannot, because `pkl-core` embeds Truffle directly rather than
-through the polyglot isolate API. That is the one real argument for this route, and Pkl is on the
-startup path that is already slow on the Pi. The cost is tying the add-on's JDK to GraalVM's own
-release train, which is [detaching from OpenJDK's](https://lobste.rs/s/9islkn/detaching_graalvm_from_java_ecosystem).
+**2. A GraalVM JDK base image.** Compiled Truffle with no boundary at all — the best *peak* render
+of the three, and the worst cold one. It was also supposed to speed up **Pkl**, which is the one
+thing the isolate cannot do and the argument that made this route interesting, Pkl being on the
+startup path that is already slow on the Pi. **Measured, it does not**: Pkl's call targets are
+never compiled on any JDK (zero compilations against a control's 245, and evaluation times a wash),
+because `pkl-core` ships `truffle-api` without the optimizing runtime and does not use the polyglot
+entry point. See `docs/spike-compiled-truffle.md`. The jlink stage does survive the move — GraalVM
+ships jmods and carries `libjvmcicompiler.so` into the image — at 94 MB for our exact module list.
+The residual cost is tying the add-on's JDK to GraalVM's own release train, which is
+[detaching from OpenJDK's](https://lobste.rs/s/9islkn/detaching_graalvm_from_java_ecosystem).
 
-**3. Native image.** Also boundary-free, and **not available to us**: `sbt-native-packager` has no
-sbt 2.x build — Maven Central stops at `sbt-native-packager_2.12_1.0` 1.11.7, and both
-`_3_2.0` and `_2.12_2.0` 404. So the
-[documented plugin route](https://www.scala-sbt.org/sbt-native-packager/formats/graalvm-native-image.html)
-is closed until that plugin crosses to sbt 2; what is left is driving `native-image` by hand over
-the assembly jar, which is a different and much larger project than this plan.
+**3. Native image.** Also boundary-free, and reachable: `sbt-native-packager` publishes no sbt 2
+artifact, but sbt 2's compatibility layer loads the sbt 1 plugin anyway — verified on sbt 2.0.8,
+where `GraalVMNativeImagePlugin` enables and its settings resolve. What makes this the wrong shape
+is not availability but the application: AOT's win is startup, we run for weeks, and GraalVM CE has
+no PGO — so the render loop, the one part of this server with real hot loops, is what an AOT build
+would make slower. The full argument and its costs are in `docs/spike-compiled-truffle.md`.
 
 #### The blocker all three share: the add-on image is musl
 
@@ -250,7 +264,9 @@ plan, not +61. What is not small is what that jar unpacks to: a **143 MB** `libp
 extracted to a resource cache on first use, which on an SD card is a real first-run cost and worth
 pre-extracting into the image. And the fat jar is currently arch-independent on purpose — the
 Dockerfile says so — while isolate jars are per-arch, so shipping both Linux arches is +120 MB, and
-shipping one breaks the multi-arch build.
+shipping one breaks the multi-arch build. The obvious coordinate makes that worse before it makes
+it better: `org.graalvm.polyglot:js-isolate-community` is an aggregate that pulls **all four**
+platforms (246 MB). Depend on `org.graalvm.js:js-isolate-linux-aarch64-community` directly.
 
 **Conclusion, unchanged: build this interpreted.** What has changed is that the fallback now has a
 name, a version that already matches ours, a licence that is fine, a measured size, a measured
