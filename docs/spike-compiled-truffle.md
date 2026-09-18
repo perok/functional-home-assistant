@@ -9,8 +9,10 @@ ECharts 5.6.0 SSR at 600×300, `pkl-core` 0.32.1. The spike is a plain `javac` p
 coursier classpaths; the only thing that varies between the GraalJS configurations is
 `spawnIsolate` and which `java` runs it.
 
-**Read the RSS figures as a shape, not a requirement.** These JVMs sized their heaps against 30 GB
-of RAM, so the absolute numbers say nothing about a Pi.
+**Do not read the RSS figures in the first table at all.** These JVMs sized their heaps against
+30 GB of RAM. Memory is measured properly, at bounded heaps and at both workload shapes, in
+"What isolation actually costs" below — and it is the one place where "isolates are cheap" needed
+correcting.
 
 ## Correction: sbt-native-packager DOES work under sbt 2
 
@@ -100,7 +102,7 @@ at all.
 | first render | 457 ms | **193 ms** | 907 ms |
 | warm render, min | 58 ms | 16 ms | **11 ms** |
 | warm render, median | 61 ms | 26 ms | **18 ms** |
-| RSS | 622 MB | 956 MB | 1009 MB |
+| RSS (default heap sizing — see below) | 622 MB | 956 MB | 1009 MB |
 
 The two winners are in different columns, and which column is the real one is a question about our
 workload rather than about the runtimes:
@@ -116,6 +118,63 @@ first chart and then lives for the life of the process, so renders after the fir
 "warm" here is 26 ms against 18 ms, a difference nobody perceives, while the first chart after a
 restart is 193 ms against 907 ms, which is the one a person actually waits for. **AOT wins where
 the user is looking; JIT wins where they are not.**
+
+## What isolation actually costs
+
+"Two lines of code, +15 MB of jar" is what the plan says, and on code and jar size it holds. The
+line it was missing is memory, and the RSS row above is the wrong number to read it off.
+
+**Build and code: cheap, with one packaging trap.** One builder call, one `HostAccess` — and one
+dependency line, but `org.graalvm.polyglot:js-isolate-community` is an aggregate that pulls **all
+four platforms** (darwin-aarch64, linux-aarch64, linux-amd64, windows-amd64) at 60–63 MB each:
+**246 MB of jars** for an add-on that runs on one. Depend on
+`org.graalvm.js:js-isolate-linux-aarch64-community` directly. That jar is 60 MB against the
+`js-language` + `icu4j` + `regex` 49 MB it replaces, which is where the plan's +15 MB comes from
+(+11 MB on aarch64).
+
+**Disk: the 143 MB is written out, and to a cache, not the image.** `libpolyglotisolate.so` is
+extracted from the jar on first use to
+`$XDG_CACHE_HOME/org.graalvm.polyglot/engine/<platform>/<sha256>/` and `dlopen`ed from there —
+observed in `/proc/self/maps`, 142.5 MB for linux-aarch64. So the add-on needs a writable cache
+directory that *survives restarts*, or every cold start re-extracts 142 MB onto an SD card.
+
+**Memory: the real cost, and neither `-Xmx` nor the isolate's own cap bounded it.** An isolate has
+its own native heap, which the JVM's limits cannot see. At the shape a dashboard actually renders
+— 300 points, 20 renders, `-Xmx256m`, `engine.MaxIsolateMemory=128MB` — that costs nothing:
+
+| 300 pts / 20 renders | interpreted | isolate |
+|---|---:|---:|
+| eval `echarts.min.js` | 1176 ms | **386 ms** |
+| first render | 327 ms | **181 ms** |
+| warm median | 35 ms | **22 ms** |
+| RSS | 351 MB | 425 MB |
+| **anonymous** (unreclaimable) | 334 MB | **336 MB** |
+
+The whole 74 MB of RSS difference is the mapped `.so` — clean, file-backed, reclaimable — and the
+dirty footprint is identical. At that shape isolation genuinely is nearly free, and it is buying a
+3× faster first chart.
+
+Push the workload up and the picture inverts, at `-Xmx512m`:
+
+| 5 000 pts / 300 renders | interpreted | isolate |
+|---|---:|---:|
+| RSS | 371 MB | 865–1002 MB |
+| **anonymous** | 369 MB | **911 MB** |
+
+That is +542 MB of dirty memory, and **it responds to nothing we control**: `-Xmx192m` vs
+`-Xmx512m` moves the isolate's anonymous total 825 → 840 MB, and setting
+`engine.MaxIsolateMemory=128MB` leaves it at ~830 MB — documented as "a hard limit for the size of
+the isolate heap", and not observed to be one here. (Default is `-1`, unbounded.)
+
+So the honest cost line is: **one extra heap that our memory settings do not reach.** At dashboard
+scale that heap stays small and isolation is as cheap as claimed; under a series large enough to
+matter it grew to 2.4× the interpreted process while every cap was set. On a 4 GB Pi running
+Home Assistant, that is the number to measure before shipping this — not the jar size, which is
+what the plan currently leads with.
+
+**Boundary crossings, for completeness:** 890–970 ns per host→guest call isolated against 350 ns
+in-heap, but 5 000 points cross as one JSON string in 1.07 ms against a ~25 ms render. Data is
+free; chattiness is not. Any `setPlatformAPI` callback ECharts invokes per label pays ~1 µs each.
 
 ## jlink: yes, still, and it keeps libgraal
 
@@ -172,7 +231,7 @@ nothing here can show.
 
 | | compiled charts | compiled Pkl | add-on image | cost |
 |---|---|---|---|---|
-| **Polyglot isolates** | yes, best cold | no | must leave musl | +15 MB jar, 143 MB unpacked, 2 lines of code |
+| **Polyglot isolates** | yes, best cold | no | must leave musl | 2 lines of code, +15 MB jar — and a second heap `-Xmx` cannot bound |
 | **GraalVM base image** | yes, best peak | **no** — measured | must leave musl | 94 MB jlink (+~40 MB), no code change |
 | **Native image** | yes, both | yes | must leave musl | reachability config for the whole tree |
 

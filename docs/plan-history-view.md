@@ -186,9 +186,18 @@ Measured here (x86_64, OpenJDK 25, ECharts 5.6.0, 600×300, same spike as the ta
 | warm render, 5 000 points | 84 ms | **32 ms** |
 | cold process, one chart — wall | 2.23 s | **1.47 s** |
 | cold process, one chart — CPU | 11.9 s | **3.5 s** |
-| RSS | ~400–530 MB | ~530–545 MB |
+| RSS, 300-point workload | 351 MB | 425 MB |
+| RSS, 5 000-point workload | 371 MB | **865–1002 MB** |
 
-Four things in that table matter more than the headline 1.8–2.6×:
+Five things in that table matter more than the headline 1.8–2.6×:
+
+- **The two RSS rows are the cost of this route, and they are a fork, not a range.** An isolate
+  carries its own native heap, which the JVM's limits cannot see. At dashboard shape the whole
+  74 MB difference is the mapped `.so` — clean, file-backed, reclaimable — and the dirty footprint
+  is identical to interpreted (336 vs 334 MB), so isolation really is nearly free there. At
+  5 000 points it holds **911 MB of anonymous memory against 369 MB**, and neither `-Xmx` (192m vs
+  512m moves it 825 → 840 MB) nor `engine.MaxIsolateMemory=128MB` (~830 MB) bounded it. On a 4 GB
+  Pi that is what to measure before shipping this, ahead of render time.
 
 - **The CPU column, not the wall column, is the Pi's number.** This box hides most of the
   interpreted cost behind cores that a Pi does not have: HotSpot is busy C2-compiling Truffle's
@@ -255,7 +264,9 @@ plan, not +61. What is not small is what that jar unpacks to: a **143 MB** `libp
 extracted to a resource cache on first use, which on an SD card is a real first-run cost and worth
 pre-extracting into the image. And the fat jar is currently arch-independent on purpose — the
 Dockerfile says so — while isolate jars are per-arch, so shipping both Linux arches is +120 MB, and
-shipping one breaks the multi-arch build.
+shipping one breaks the multi-arch build. The obvious coordinate makes that worse before it makes
+it better: `org.graalvm.polyglot:js-isolate-community` is an aggregate that pulls **all four**
+platforms (246 MB). Depend on `org.graalvm.js:js-isolate-linux-aarch64-community` directly.
 
 **Conclusion, unchanged: build this interpreted.** What has changed is that the fallback now has a
 name, a version that already matches ours, a licence that is fine, a measured size, a measured
