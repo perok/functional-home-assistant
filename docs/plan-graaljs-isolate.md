@@ -146,7 +146,18 @@ Point 3 has a consequence outside the Dockerfile: **a pull request that builds o
 longer tests the build.** The old rationale for one architecture on a PR — "everything a PR is
 likely to break is architecture-independent" — was true of a `COPY` and a `jlink` and is false of
 a JavaScript engine booting under QEMU, which is now the step most likely to break. The `image`
-job therefore builds both on every non-draft PR, and pays the emulation.
+job therefore builds both on every non-draft PR, and pays the emulation: **32.6 s** for the arm64
+bootstrap, inside a job that does both architectures end to end in 2m08s.
+
+The escape hatch, if that ever stops being cheap: **one builder can unpack both architectures.**
+`Engine.copyResources` emits both isolate libraries from an amd64 machine, and `truffle-api`
+carries `libtruffleattach` for `linux/aarch64` as well — so a `--platform=$BUILDPLATFORM` stage
+could produce `out/amd64` and `out/arm64` and each image `COPY` its own. Verified working, with
+`polyglot.engine.resourcePath` in place of `userResourceCache`. Not taken, for two reasons:
+`copyResources` omits `libtruffleattach`, so that file has to be lifted out of `truffle-api` at a
+known internal path — the hand-rolled archive-poking this design exists to avoid — and nothing
+would execute the foreign-architecture library during the build, which is the property that
+currently makes a broken one impossible to package.
 
 ## The cache: unpacked once, at build time, into the image
 
@@ -284,8 +295,10 @@ The history view and any chart card; native image; a GraalVM JDK base image; Pkl
 
 - **Everything above is x86_64 on a 32 GB machine, and the target is aarch64 on 4 GB.** Oracle's
   isolate holding flat across a 17× workload change is the best available evidence that it
-  transfers, but it is inference. A Pi run is the deciding evidence and should happen on this
-  branch, before the history view builds on it.
+  transfers, but it is inference. CI now runs the isolate on aarch64, which proves it RUNS and
+  says nothing about what it costs — that is QEMU, whose own translation buffers dominate the
+  figures (298 MB anonymous before an engine is even built). A Pi run is still the deciding
+  evidence and should happen on this branch, before the history view builds on it.
 
 - **Nothing currently deployed can see the number that decides this.** The isolate's memory is a
   native heap inside a `dlopen`ed library, so it is invisible to every instrument the add-on has:
