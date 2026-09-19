@@ -246,7 +246,10 @@ The history view and any chart card; native image; a GraalVM JDK base image; Pkl
   docker socket, all of which flake.nix's README lists as deliberate security properties. What
   stands in for a build: the library's ELF names `GLIBC_2.15` as its ceiling and no `libstdc++`,
   Debian 13 ships glibc 2.41, and `debian-base:9.4.0` was confirmed a single multi-arch manifest
-  through the GHCR API. The `image` CI job added on this branch is what actually builds it.
+  through the GHCR API. The `image` CI job added on this branch is what actually builds it —
+  amd64 on a pull request, both architectures on a push to main, reusing `ci`'s `addon-jar`
+  artifact either way. On a release commit that arm64 build happens twice, once here and once in
+  `cd`; sharing a `type=gha` buildx cache between the two jobs would fix that if it ever grates.
 - Whether `-XX:+UseCompactObjectHeaders` helps. It did nothing measurable in the chart benchmark,
   but that benchmark barely uses the JVM heap — the place it would act is the app's own object
   graph, which needs `RenderBench` or a Pi run to answer.
