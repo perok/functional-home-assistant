@@ -168,6 +168,57 @@ Community remains a drop-in fallback at 3–4× the native memory if the licence
    and serve.
 3. Isolate dependency, engine construction, library extraction in the Dockerfile, README notes.
 
+## Reproducing the measurements
+
+Every number here came from a scratch `javac` harness over coursier classpaths, not from
+anything committed. The environment is disposable and has already been lost once, so this is the
+recipe rather than a path.
+
+```sh
+cs fetch -p org.graalvm.js:js-isolate-linux-amd64:25.3.4.1 \
+          org.graalvm.polyglot:polyglot:25.3.4.1        > cp-iso.txt   # the route
+cs fetch -p org.graalvm.polyglot:js:25.3.4.1            > cp-interp.txt # interpreted baseline
+curl -LO https://cdn.jsdelivr.net/npm/echarts@5.6.0/dist/echarts.min.js
+```
+
+One program, two builders. `Spike.java` renders an ECharts SVG N times through
+`Context.newBuilder("js")` and prints eval / first-render / warm-median plus `Rss:` and
+`Anonymous:` read from `/proc/self/smaps_rollup`. `SpikeI.java` is the same file with the engine
+replaced:
+
+```java
+Engine.newBuilder("js").allowExperimentalOptions(true).spawnIsolate(true)
+      .option("engine.IsolateLibrary", System.getProperty("isolib")).build()
+```
+
+and contexts built against it with `HostAccess.SCOPED`. ECharts needs a `setTimeout`/`clearTimeout`
+shim defined before it is evaluated, and `animation: false` in the option object, or SSR throws
+`ReferenceError: setTimeout is not defined`.
+
+**Always run each configuration at least three times.** Single runs on a machine like this move by
+up to 2× on cold-path numbers, and reading one produced three wrong conclusions that survived
+until they were repeated. Pass the add-on's own flags — `-Xms64M -Xmx512M -XX:+UseSerialGC` —
+because G1 reports systematically more anonymous memory than the add-on actually uses.
+
+Two controls are worth re-running before trusting anything in this file:
+
+- **The named library is load-bearing.** Point `engine.IsolateLibrary` at a path that does not
+  exist: engine construction must throw from `PolyglotIsolateHostSupport.buildIsolatedEngine`. If
+  it does not, the `.so` is coming from a jar on the classpath and the measurement is of something
+  else.
+- **Drift is silent.** A 25.2.4 library against 25.3.4.1 jars runs clean. That is the finding, not
+  a broken setup.
+
+Extracting the library without a container, which is also what the Dockerfile will do:
+
+```sh
+jar xf js-isolate-linux-amd64-25.3.4.1.jar \
+  META-INF/resources/engine/js-isolate-linux-amd64/libvm/libpolyglotisolate.so
+```
+
+Its glibc floor can be read without running it — the highest `GLIBC_2.*` string in the ELF is
+**2.15**, so any modern glibc satisfies it.
+
 ## Out of scope
 
 The history view and any chart card; native image; a GraalVM JDK base image; Pkl performance.
@@ -190,11 +241,12 @@ The history view and any chart card; native image; a GraalVM JDK base image; Pkl
   dependency, and stays free when telemetry is off; it would make the Pi answerable from a normal
   install rather than from benchmarks run on the device. Worth doing before the Pi run, not after.
 
-- **CI never builds the image on a pull request** (`Assemble fat jar` and the whole `cd` job are
-  gated on `github.event_name != 'pull_request'`), and on `main` it builds only when the version
-  moves. So the base-image migration in this branch reaches a real `docker build` for the first
-  time at release. Given that this branch changes both stages of that build, a build-only
-  (no-push) image job on pull requests is worth adding here.
+- **The glibc move is verified by reading, not by building.** No container can be built in the
+  agentbox — `unshare(CLONE_NEWUSER)` is denied by its seccomp profile, with `CapEff` empty and no
+  docker socket, all of which flake.nix's README lists as deliberate security properties. What
+  stands in for a build: the library's ELF names `GLIBC_2.15` as its ceiling and no `libstdc++`,
+  Debian 13 ships glibc 2.41, and `debian-base:9.4.0` was confirmed a single multi-arch manifest
+  through the GHCR API. The `image` CI job added on this branch is what actually builds it.
 - Whether `-XX:+UseCompactObjectHeaders` helps. It did nothing measurable in the chart benchmark,
   but that benchmark barely uses the JVM heap — the place it would act is the app's own object
   graph, which needs `RenderBench` or a Pi run to answer.
