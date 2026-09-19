@@ -97,6 +97,26 @@ extra configuration) and the
 freshly-seeded `@fh-home` dump package, through the project. Nothing is fetched. This is the default path and it needs no network
 story at all.
 
+The pkl-lsp jar itself is **resolved by the build** rather than downloaded on
+first use: an ordinary `libraryDependencies` entry in a hidden Ivy
+configuration (`config("pkl-lsp").hide`), which `stagePklLsp` copies to
+`target/addon/pkl-lsp.jar` for the image to `COPY` with `PKL_LSP_JAR` pointing
+at it. The hidden configuration is what keeps it OFF every classpath while
+still being a dependency coursier fetches and dependabot can read — the same
+mechanism the GraalJS isolate libraries use, deliberately, because they are the
+same problem.
+
+It stays a separate file run as a **subprocess**, not a library on the app
+classpath, for two reasons that are not about jar size: pkl-lsp's `exit`
+notification — which every LSP client sends on disconnect — calls
+`exitProcess(0)`, so an embedded server would let a closed editor tab take down
+the dashboard; and its shaded jar bundles an unrelocated JNA 5.14.0 that
+collides with appdirs' 5.18.1 and fails `assembly`. pkl-lsp is compiled to
+class file 67, so the image's JDK floor is 23.
+
+Absent, it degrades rather than fails: `/edit` still serves and highlights
+locally, and only the LSP socket answers 503.
+
 **End user, local editor.** Their own workspace — their entries and manifests —
 evaluated **locally**, with completion. (Editing the instance's files in place
 is not a supported laptop mode; live editing on the instance is what `/edit` is
