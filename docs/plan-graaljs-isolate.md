@@ -120,10 +120,9 @@ need not happen on the target architecture and the target-architecture path is Q
 The staged path inside the image carries no version either, so `FH_JS_ISOLATE_LIBRARY` — and
 through it `engine.IsolateLibrary` — is a constant.
 
-Rejected: fetching at container *runtime*, on first boot. It would keep 159 MB out of the image,
-at the cost of making a first start depend on the internet, charging every install the download,
-and turning a network outage into an add-on that will not start. An appliance image should
-contain what it runs.
+The fetch is a build step and stays one: doing it at container *runtime* would keep 159 MB out of
+the image, but an appliance whose first start needs the internet is a worse trade than a bigger
+pull.
 
 ## Multi-architecture: easy, and cleaner than the default
 
