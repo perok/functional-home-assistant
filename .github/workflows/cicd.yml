@@ -206,19 +206,111 @@ jobs:
           if-no-files-found: ignore
           retention-days: 1
 
-      # Gated like the upload below, and for the same reason: cd is this jar's
-      # only consumer, and cd never runs for a pull request.
+      # Two consumers: `cd`, which never runs for a pull request, and `image`,
+      # which runs for a pull request only while it is NOT a draft. Hence the
+      # draft arm rather than a flat `!= 'pull_request'` — a draft PR builds no
+      # image, so it needs no jar and pays no assembly.
       - name: Assemble fat jar
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' || !github.event.pull_request.draft
         run: sbt 'fh-datastar-view/assembly'
 
       - name: Upload jar for cd
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' || !github.event.pull_request.draft
         uses: actions/upload-artifact@v7
         with:
           name: addon-jar
           path: target/addon/fh-dashboard.jar
           retention-days: 1
+
+  # Does the image still BUILD? Nothing else asks until release: `cd` is the
+  # only other `docker build` in this file, it runs on main alone, and then
+  # only when the version moved — so a Dockerfile mistake used to surface
+  # during a publish, which is the worst moment to find one. This job moves
+  # that failure to the change that causes it.
+  #
+  # It reuses `ci`'s `addon-jar` artifact rather than assembling its own, which
+  # is the same artifact `cd` consumes — the Dockerfile COPYs that jar, so the
+  # alternative is a second sbt assembly per run.
+  #
+  # TWO DEPTHS, because the two architectures cost wildly different amounts:
+  #
+  #   pull request -> linux/amd64 only. The arm64 jlink stage runs under QEMU
+  #                   and is minutes of emulation; everything a PR is likely to
+  #                   break — base images resolving, the jlink module list, the
+  #                   COPY paths — is architecture-independent anyway. Draft
+  #                   PRs skip the job AND the assembly it needs.
+  #   push to main -> both, which is what `cd` will publish. Main pushes are
+  #                   rare enough to absorb the emulation, and this is the last
+  #                   gate before a release build that only happens when the
+  #                   version moves.
+  #
+  # It does NOT push, and needs no registry credentials.
+  image:
+    needs: ci
+    if: >-
+      (github.event_name == 'pull_request' && !github.event.pull_request.draft)
+      || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    # Generous because the arm64 half is emulated; the amd64-only PR run
+    # finishes in well under a minute.
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Fetch ci-built jar
+        uses: actions/download-artifact@v8
+        with:
+          name: addon-jar
+          path: target/addon/
+
+      # Registers binfmt so the arm64 jlink stage can execute. Only main pays
+      # for it.
+      - uses: docker/setup-qemu-action@v4
+        if: github.event_name == 'push'
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: home-addon/Dockerfile
+          platforms: ${{ github.event_name == 'push' && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
+          push: false
+          # buildx refuses `load` for more than one platform, so on main the
+          # image is only proven to build; the run check below loads one
+          # architecture back out of the build cache.
+          load: ${{ github.event_name != 'push' }}
+          tags: fh-dashboard:ci
+
+      # A successful build says nothing about whether the jlinked runtime
+      # EXECUTES on the base image — the failure the move off musl introduced,
+      # where a glibc JRE lands on a musl base and nothing notices until a user
+      # starts the add-on.
+      #
+      # On main this re-runs the build for ONE architecture with `load`, which
+      # is a cache hit against the multi-arch build above (same job, same
+      # builder) rather than a second real build. arm64 is the one chosen,
+      # because that is the Raspberry Pi and the half a pull request never
+      # exercises; amd64 was already run on the PR that produced this merge.
+      - name: Load one architecture
+        uses: docker/build-push-action@v7
+        if: github.event_name == 'push'
+        with:
+          context: .
+          file: home-addon/Dockerfile
+          platforms: linux/arm64
+          push: false
+          load: true
+          tags: fh-dashboard:ci
+
+      # `java -version` and not `/run.sh`: the entrypoint exits before reaching
+      # the JVM when SUPERVISOR_TOKEN is absent, so it would pass without ever
+      # loading a single shared library. Under QEMU on main, this is the first
+      # time anything has proven the arm64 runtime starts at all.
+      - name: The runtime runs on the base image
+        run: docker run --rm --entrypoint java fh-dashboard:ci -version
 
   cd:
     needs: ci

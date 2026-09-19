@@ -2,14 +2,20 @@
 # assembled first:
 #   sbt fh-datastar-view/assembly
 #   docker buildx build -f home-addon/Dockerfile -t ghcr.io/perok/fh-dashboard:dev .
-# The jar is arch-independent JVM bytecode; the multi-arch alpine temurin
-# builder + hassio base yield linux/amd64 + linux/arm64 without
-# cross-compiling Scala (only the jlink stage runs per-arch).
+# The jar is arch-independent JVM bytecode; the multi-arch temurin builder +
+# hassio base yield linux/amd64 + linux/arm64 without cross-compiling Scala
+# (only the jlink stage runs per-arch).
+#
+# GLIBC, not musl, and that is a requirement rather than a preference: the
+# GraalJS polyglot isolate library this image is being prepared for links
+# libc.so.6 with versioned GLIBC_2.x symbols and names musl nowhere. Both
+# stages have to agree, so the alpine builder AND the alpine runtime base
+# moved together — a glibc JRE on a musl base does not load.
 # https://hub.docker.com/_/eclipse-temurin#creating-a-jre-using-jlink
-FROM eclipse-temurin:21-alpine AS jre-build
+FROM eclipse-temurin:25-jdk AS jre-build
 
 # Custom Java runtime: the module list is jdeps output for the assembled jar
-# (jdeps --multi-release 21 --print-module-deps --ignore-missing-deps
+# (jdeps --multi-release 25 --print-module-deps --ignore-missing-deps
 # target/addon/fh-dashboard.jar) + jdk.crypto.ec, which jdeps cannot see
 # statically but TLS needs for the HTTPS theme-asset fetches, + jdk.zipfs,
 # which jdeps likewise cannot see statically but pkl-core needs at runtime to
@@ -38,12 +44,15 @@ RUN $JAVA_HOME/bin/jlink \
          --strip-debug \
          --no-man-pages \
          --no-header-files \
-         --compress=2 \
+         --compress=zip-6 \
          --output /javaruntime
 
 # hassio base: s6-overlay init (config.yaml sets init: false), bashio + jq
-# already included (run.sh only needs jq).
-FROM ghcr.io/hassio-addons/base:21.0.0
+# already included (run.sh only needs jq, and the s6 container_environment
+# re-import). The DEBIAN variant, for the glibc reason above; it is the same
+# single multi-arch manifest as the alpine one, so buildx still builds both
+# platforms from this one Dockerfile.
+FROM ghcr.io/hassio-addons/debian-base:9.4.0
 
 ENV JAVA_HOME=/opt/java/openjdk
 ENV PATH="${JAVA_HOME}/bin:${PATH}"
