@@ -16,9 +16,10 @@ Datastar dashboard (`fh-datastar-view`): dashboards authored in
   — free to redistribute bundled in a product as long as nothing is charged
   for it, which is what this add-on does. The community build is a drop-in
   replacement under MIT/UPL at 3–4× the native memory, if the terms are ever
-  unwanted. [graalvm-js.version](graalvm-js.version) is the single version
-  string: `build.sbt` resolves the polyglot jars from it and the Dockerfile
-  fetches the matching library, because the two halves drift silently.
+  unwanted. The version is written once, in `build.sbt`; the image does not
+  repeat it but reads it back out of the assembled jar
+  (`fh.view.runtime.JsIsolateFetch`), because a library and a jar that
+  disagree run silently rather than failing.
 
 Is the library loadable in the built image?
 

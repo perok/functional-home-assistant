@@ -93,20 +93,37 @@ at a path that does not exist and engine construction throws from
 `PolyglotIsolateHostSupport.buildIsolatedEngine`.
 
 This is the same shape as the version-lockstep trap in `docs/spike-compiled-truffle.md`, and it
-rules out the obvious packaging shortcut: **neither the Dockerfile nor `build.sbt` may name a
-GraalVM version.** The string lives once, in `home-addon/graalvm-js.version`; `build.sbt` reads it
-to resolve the polyglot jars and the Dockerfile `COPY`s it to fetch the matching library. The two
-halves cannot drift apart because there is nothing to drift.
+decides the packaging: **the version is declared once, in `build.sbt`, and the image DERIVES it
+rather than repeating it.**
 
-A file rather than a `val` in `build.sbt`, because the Docker build cannot read `build.sbt` and
-routing the library through the build context is expensive: the context is the ci-built jar,
-shipped between jobs as an artifact, so staging both platforms' libraries through it moves 300 MB
-per run to land 159 MB. The Dockerfile fetches from Maven Central instead, in a stage pinned to
-`--platform=$BUILDPLATFORM` — nothing it does needs to be the target architecture, so the download
-and `jar xf` stay off QEMU even when building for aarch64.
+Deriving matters more than single-sourcing. A version stated a second time — a file the Dockerfile
+reads, a build argument, a workflow step — is a claim about the *repository*, and the image is
+built from a *jar*. Those are the same thing only while nobody builds an image against a jar from
+a different checkout, which is exactly what the CI job layout makes possible (`ci` assembles,
+`image` and `cd` consume the artifact). Read the version out of the jar and the pairing is right
+by construction, whatever produced the jar.
+
+The jar can be asked: every GraalVM polyglot artifact ships its version at
+`META-INF/graalvm/org.graalvm.polyglot/version`, which is the resource **Truffle itself
+version-checks with**, and sbt-assembly carries it through (a second, differing copy would fail
+the assembly rather than be silently picked between). So `fh.view.runtime.JsIsolateFetch` — a main
+in the app jar — reads its own version, downloads the matching `js-isolate-linux-<arch>` from Maven
+Central, checks it against Central's `.sha1`, and extracts the library. The whole Dockerfile stage
+is two lines and names no version, no URL and no archive path.
+
+Two details that fall out of doing it in Java rather than shell: the temurin images ship neither
+`curl` nor `wget`, so shelling out would have meant an `apt-get` in the build; and the arch
+spellings differ (buildx `arm64`, GraalVM `aarch64`), which is now one `match` rather than a `case`
+in a `RUN`. The stage is pinned to `--platform=$BUILDPLATFORM`, since downloading and unzipping
+need not happen on the target architecture and the target-architecture path is QEMU.
 
 The staged path inside the image carries no version either, so `FH_JS_ISOLATE_LIBRARY` — and
 through it `engine.IsolateLibrary` — is a constant.
+
+Rejected: fetching at container *runtime*, on first boot. It would keep 159 MB out of the image,
+at the cost of making a first start depend on the internet, charging every install the download,
+and turning a network outage into an add-on that will not start. An appliance image should
+contain what it runs.
 
 ## Multi-architecture: easy, and cleaner than the default
 
@@ -282,8 +299,8 @@ The history view and any chart card; native image; a GraalVM JDK base image; Pkl
   docker socket, all of which flake.nix's README lists as deliberate security properties. What
   stands in for a build: reading ELF headers and registry manifests. That is how the library's
   glibc ceiling (2.15 amd64 / 2.17 aarch64, against Debian 13's 2.41), its `libz.so.1`
-  requirement, and the absence of `curl` and `wget` from `eclipse-temurin:25-jdk` — which is why
-  the isolate stage installs one — were each settled without running anything. The `image` CI job
+  requirement, and the absence of `curl` and `wget` from `eclipse-temurin:25-jdk` were each
+  settled without running anything. The `image` CI job
   is what actually builds and now also RUNS it: amd64 on a pull request, both architectures on a
   push to main, reusing `ci`'s `addon-jar` artifact either way. On a release commit the arm64
   build happens twice, once here and once in `cd`; sharing a `type=gha` buildx cache between the

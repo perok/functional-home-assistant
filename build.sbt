@@ -11,13 +11,13 @@ val otel4sVersion = "1.1.0"
 // separate repo and are still marked experimental.
 val otelJavaVersion = "1.65.0"
 val otelMiddlewareVersion = "0.18.0"
-// GraalVM, in a FILE rather than a `val`, because two builds need the same
-// string: this one resolves the polyglot jars, and home-addon/Dockerfile
-// fetches the matching isolate library. Drift between those two halves is not
-// reported — a 25.2.4 libpolyglotisolate.so runs against 25.3.4.1 jars with no
-// warning and correct output — so the version cannot be allowed to exist
-// twice.
-val graalVmVersion = IO.read(file("home-addon/graalvm-js.version")).trim
+// The ONLY place a GraalVM version is written. The add-on image needs the
+// matching isolate library and does not repeat this string: it reads the
+// version back out of the assembled jar (fh.view.runtime.JsIsolateFetch),
+// because a second declaration can be right about the repository and wrong
+// about the jar being packaged — and a mismatched library and jar pair is not
+// reported, it just runs as a different GraalJS than this line names.
+val graalVmVersion = "25.3.4.1"
 val MUnitFramework = new TestFramework("munit.Framework")
 
 // Warnings are advisory while you work and fatal where the flag says so (#115).

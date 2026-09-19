@@ -63,36 +63,20 @@ RUN $JAVA_HOME/bin/jlink \
 # is the ci-built jar, shipped between jobs as an artifact: staging both
 # platforms' libraries through it means moving 300 MB per run to land 159 MB.
 #
-# The version is read from the same file `build.sbt` reads, so the library and
-# the polyglot jars cannot drift apart. They must not — a mismatched pair runs
-# with no warning, no error and correct output, and is simply a different
-# GraalJS than the build declares.
+# Nothing here names a GraalVM version, a URL or an archive layout. The app
+# jar already knows which polyglot it was built against — Truffle ships that
+# version as a classpath resource and version-checks itself with it — so
+# `JsIsolateFetch` reads its own and downloads the library that matches. A
+# version stated a second time can be right about the repository and wrong
+# about the jar being packaged, and a mismatched pair is not reported: it runs
+# as a different GraalJS than the build declares.
 #
-# `TARGETARCH` is buildx's spelling (`amd64`/`arm64`) and GraalVM says
-# `aarch64`; that mapping is the entire per-architecture difference. curl is
-# installed because the temurin images ship neither curl nor wget.
+# The jar is bind-mounted rather than COPYed because this stage is thrown away
+# and only the 159 MB `.so` is taken out of it.
 FROM --platform=$BUILDPLATFORM eclipse-temurin:25-jdk AS isolate
 ARG TARGETARCH
-COPY home-addon/graalvm-js.version /tmp/
-RUN set -eu; \
-    apt-get update; \
-    apt-get install -y --no-install-recommends curl; \
-    rm -rf /var/lib/apt/lists/*; \
-    V="$(tr -d '[:space:]' < /tmp/graalvm-js.version)"; \
-    case "$TARGETARCH" in \
-      amd64) ARCH=amd64 ;; \
-      arm64) ARCH=aarch64 ;; \
-      *) echo "no GraalVM JS isolate is published for $TARGETARCH" >&2; exit 1 ;; \
-    esac; \
-    A="js-isolate-linux-$ARCH"; \
-    curl -fsSL -o /tmp/isolate.jar \
-      "https://repo1.maven.org/maven2/org/graalvm/js/$A/$V/$A-$V.jar"; \
-    mkdir /isolate; \
-    cd /isolate; \
-    jar xf /tmp/isolate.jar \
-      "META-INF/resources/engine/$A/libvm/libpolyglotisolate.so"; \
-    mv "META-INF/resources/engine/$A/libvm/libpolyglotisolate.so" .; \
-    rm -rf META-INF /tmp/isolate.jar
+RUN --mount=type=bind,source=target/addon/fh-dashboard.jar,target=/tmp/app.jar \
+    java -cp /tmp/app.jar fh.view.runtime.JsIsolateFetch "$TARGETARCH" /isolate
 
 # hassio base: s6-overlay init (config.yaml sets init: false), bashio + jq
 # already included (run.sh only needs jq, and the s6 container_environment
