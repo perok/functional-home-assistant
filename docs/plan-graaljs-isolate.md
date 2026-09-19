@@ -67,6 +67,27 @@ context-level call is silently ineffective. Contexts are built against that engi
 message for it. Taken deliberately: it is what keeps the fat jar architecture-independent, and the
 alternative costs a 159 MB write per library version.
 
+`spawnIsolate` does not exist on `Engine.Builder` before the 25.3 line — 25.0.4 does not compile
+against it — so this route pins polyglot to 25.3.x rather than the 25.0.x LTS-aligned line.
+
+## One version, in one place, because drift is silent
+
+The isolate library and the polyglot jars are two halves of one engine, and **a mismatch between
+them is not reported**. Measured: a 25.2.4 `libpolyglotisolate.so` runs against 25.3.4.1 jars with
+no warning, no error and correct output — you are simply running a GraalJS other than the one the
+build declares. The control says the named path really is what loaded: point `engine.IsolateLibrary`
+at a path that does not exist and engine construction throws from
+`PolyglotIsolateHostSupport.buildIsolatedEngine`.
+
+This is the same shape as the version-lockstep trap in `docs/spike-compiled-truffle.md`, and it
+rules out the obvious packaging shortcut: **the Dockerfile must not name a GraalVM version.**
+Instead sbt stages the two platform jars into the build context from the single version already in
+`build.sbt`, and the Dockerfile selects one by `TARGETARCH` and extracts it. No version string
+outside `build.sbt`, so the two halves cannot drift apart in the first place.
+
+The staged path inside the image carries no version either, so `engine.IsolateLibrary` is a
+constant.
+
 ## Multi-architecture: easy, and cleaner than the default
 
 Three facts make this small:
@@ -155,9 +176,25 @@ The history view and any chart card; native image; a GraalVM JDK base image; Pkl
 
 - **Everything above is x86_64 on a 32 GB machine, and the target is aarch64 on 4 GB.** Oracle's
   isolate holding flat across a 17× workload change is the best available evidence that it
-  transfers, but it is inference. The add-on already jlinks `jcmd`, JFR and NMT for exactly this;
-  a Pi run is the deciding evidence and should happen on this branch, before the history view
-  builds on it.
+  transfers, but it is inference. A Pi run is the deciding evidence and should happen on this
+  branch, before the history view builds on it.
+
+- **Nothing currently deployed can see the number that decides this.** The isolate's memory is a
+  native heap inside a `dlopen`ed library, so it is invisible to every instrument the add-on has:
+  the OTLP export carries http4s `http.server.*` metrics and traces but no JVM runtime metrics at
+  all (no `runtime-telemetry` dependency), JVM heap gauges read MXBeans and would miss it anyway,
+  and `-XX:NativeMemoryTracking` accounts for JVM-internal native allocation, not a foreign
+  library's own heap. What does see it is RSS and anonymous from `/proc/self/smaps_rollup` — what
+  every measurement in the spike used — and the supervisor's own per-add-on memory figure.
+  Publishing those two as gauges through the existing `MeterProvider` is small, needs no new
+  dependency, and stays free when telemetry is off; it would make the Pi answerable from a normal
+  install rather than from benchmarks run on the device. Worth doing before the Pi run, not after.
+
+- **CI never builds the image on a pull request** (`Assemble fat jar` and the whole `cd` job are
+  gated on `github.event_name != 'pull_request'`), and on `main` it builds only when the version
+  moves. So the base-image migration in this branch reaches a real `docker build` for the first
+  time at release. Given that this branch changes both stages of that build, a build-only
+  (no-push) image job on pull requests is worth adding here.
 - Whether `-XX:+UseCompactObjectHeaders` helps. It did nothing measurable in the chart benchmark,
   but that benchmark barely uses the JVM heap — the place it would act is the app's own object
   graph, which needs `RenderBench` or a Pi run to answer.
