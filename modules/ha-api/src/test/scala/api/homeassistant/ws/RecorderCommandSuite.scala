@@ -22,9 +22,9 @@ import scala.concurrent.duration.*
   *
   * Every expectation here was taken from a live instance (HA core 2026.9.3)
   * rather than from the docs, because the docs do not mention that
-  * `history/history_during_period` is on the WS API at all, and because both
-  * of the shapes that actually bite — a rejected null and two different time
-  * units in one feature — are invisible in prose.
+  * `history/history_during_period` is on the WS API at all, and because both of
+  * the shapes that actually bite — a rejected null and two different time units
+  * in one feature — are invisible in prose.
   */
 class RecorderCommandSuite extends munit.FunSuite {
 
@@ -33,7 +33,9 @@ class RecorderCommandSuite extends munit.FunSuite {
 
   private def wire(c: CommandPhase): String = c.asJson.noSpaces
 
-  test("an open-ended statistics window omits end_time rather than nulling it") {
+  test(
+    "an open-ended statistics window omits end_time rather than nulling it"
+  ) {
     // HA answers `invalid_format: expected str at 'end_time'. Got None` for an
     // explicit null, and succeeds when the field is simply absent — measured
     // both ways. A derived encoder writes the null, so this is the guard on
@@ -253,7 +255,10 @@ class RecorderCommandSuite extends munit.FunSuite {
       sent.hcursor.get[String]("type"),
       Right("history/history_during_period")
     )
-    assertEquals(sent.hcursor.get[String]("start_time"), Right("2026-09-18T12:00:00Z"))
+    assertEquals(
+      sent.hcursor.get[String]("start_time"),
+      Right("2026-09-18T12:00:00Z")
+    )
     assertEquals(
       got,
       Map(
@@ -268,7 +273,9 @@ class RecorderCommandSuite extends munit.FunSuite {
     // Two of three bounds is not a band anyone can draw, and grouping is what
     // makes that unrepresentable rather than a caller's `.get`.
     assertEquals(
-      decode[StatisticPoint]("""{"start":0,"end":1,"min":1.0,"mean":2.0,"sum":9.0,"state":8.0}""")
+      decode[StatisticPoint](
+        """{"start":0,"end":1,"min":1.0,"mean":2.0,"sum":9.0,"state":8.0}"""
+      )
         .map(_.mean),
       Right(None)
     )

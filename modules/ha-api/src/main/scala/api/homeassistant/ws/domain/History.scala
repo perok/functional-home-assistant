@@ -39,10 +39,10 @@ object HistoryPoint {
     } yield HistoryPoint(s, epochSeconds(at))
   )
 
-  /** `BigDecimal`, not `Double`, and the difference is visible at the
-    * precision HA actually sends: `1789755910.543` is not representable as a
-    * double, so going through one yields `…:10.542999983Z`. Decoding the
-    * literal keeps the digits the recorder wrote.
+  /** `BigDecimal`, not `Double`, and the difference is visible at the precision
+    * HA actually sends: `1789755910.543` is not representable as a double, so
+    * going through one yields `…:10.542999983Z`. Decoding the literal keeps the
+    * digits the recorder wrote.
     */
   private def epochSeconds(d: BigDecimal): Instant = {
     val whole = d.setScale(0, BigDecimal.RoundingMode.FLOOR).toLong
@@ -103,13 +103,15 @@ object StatisticPoint {
       total <- c.get[Option[Double]]("sum")
       change <- c.get[Option[Double]]("change")
       reset <- c.get[Option[Long]]("last_reset")
-      meanGroup = for { lo <- min; mid <- mean; hi <- max } yield Mean(lo, mid, hi)
-      sumGroup = for { s <- state; t <- total } yield Sum(
-        s,
-        t,
-        change,
-        reset.map(Instant.ofEpochMilli)
-      )
+      meanGroup =
+        for { lo <- min; mid <- mean; hi <- max } yield Mean(lo, mid, hi)
+      sumGroup =
+        for { s <- state; t <- total } yield Sum(
+          s,
+          t,
+          change,
+          reset.map(Instant.ofEpochMilli)
+        )
       point <- Either.cond(
         meanGroup.isDefined || sumGroup.isDefined,
         StatisticPoint(start, end, meanGroup, sumGroup),
@@ -138,5 +140,6 @@ enum StatisticsPeriod(val wire: String) {
 }
 
 object StatisticsPeriod {
-  given Encoder[StatisticsPeriod] = Encoder.instance(p => Json.fromString(p.wire))
+  given Encoder[StatisticsPeriod] =
+    Encoder.instance(p => Json.fromString(p.wire))
 }
