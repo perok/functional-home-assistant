@@ -27,6 +27,17 @@ lazy val JsIsolate = config("js-isolate").hide
 lazy val stageIsolateJars = taskKey[Seq[File]](
   "Stage both platforms' GraalJS isolate jars beside the add-on jar"
 )
+
+// The hand-off point to the add-on image build, named once at BUILD level
+// because it belongs to no single module: `home-addon/Dockerfile` COPYs out of
+// it (its paths are relative to the repo root, which is the build context),
+// and CI ships it between jobs as the `addon-jar` artifact. Anything that
+// stages a file for the image writes here — which is also why the path is not
+// a module's own `target`, and why it is a setting rather than three
+// hand-stitched copies of the same string.
+lazy val addonStage =
+  settingKey[File]("Where the add-on image build picks its inputs up")
+ThisBuild / addonStage := (ThisBuild / baseDirectory).value / "target" / "addon"
 val MUnitFramework = new TestFramework("munit.Framework")
 
 // Warnings are advisory while you work and fatal where the flag says so (#115).
@@ -273,7 +284,7 @@ lazy val `fh-datastar-view` = project
     assembly / packageOptions +=
       Package.ManifestAttributes("Multi-Release" -> "true"),
     assembly / assemblyOutputPath := Def.uncached(
-      (ThisBuild / baseDirectory).value / "target" / "addon" / "fh-dashboard.jar"
+      (ThisBuild / addonStage).value / "fh-dashboard.jar"
     ),
     ivyConfigurations += JsIsolate,
     // Named by BUILDX's architecture spelling, not GraalVM's (`arm64`, not
@@ -285,7 +296,7 @@ lazy val `fh-datastar-view` = project
     // results by default and a `File` is not a valid cached output, because
     // the graph cannot see whether the file is still where it was put.
     stageIsolateJars := {
-      val out = (ThisBuild / baseDirectory).value / "target" / "addon"
+      val out = (ThisBuild / addonStage).value
       val resolved = update.value.select(configurationFilter(JsIsolate.name))
       Def.uncached {
         IO.createDirectory(out)
