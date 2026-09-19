@@ -72,6 +72,31 @@ context-level call is silently ineffective. Contexts are built against that engi
 `HostAccess.SCOPED`. It does not exist on `Engine.Builder` before the 25.3 line (25.0.4 does not
 compile against it), so this route pins polyglot to 25.3.x rather than the 25.0.x LTS-aligned one.
 
+### The host runs the FALLBACK Truffle runtime, and that is correct
+
+Truffle calls the host's runtime "fallback" here, which reads like a misconfiguration and is not:
+`truffle-runtime` is deliberately absent, because it drags libgraal into the JVM for ~186 MB of
+anonymous memory. **Guest compilation happens inside the isolate**, which is a native-image VM
+with its own compiler, so the host's runtime is irrelevant to JavaScript speed.
+
+Measured on the SHIPPED classpath, same loop, 200M iterations:
+
+| | throughput | fallback warning |
+|---|---:|---|
+| isolate (what we ship) | **501 M ops/sec** | none |
+| in-heap, host fallback runtime | 15.9 M ops/sec | `[engine] WARNING: ... fallback runtime that does not support runtime compilation` |
+
+31×, and Truffle does not consider our engine to be on a fallback runtime at all. `libtruffleattach`
+is only the host↔isolate bridge that this configuration needs — a consequence of the host runtime,
+not a symptom.
+
+Two things follow. **Do not reach for `Engine.supportsCompilation()` as a health check**: it
+reports the HOST runtime and returns `false` in both columns above, so printing it would say
+"no compilation" about an engine doing 501 M ops/sec. And **Pkl does run interpreted** in this
+JVM, unchanged by this branch — `pkl-core` already brought Truffle without the optimized runtime
+and suppresses the warning itself. The spike settled that: its hot `FunctionNode` path bails out
+of compilation even WITH an optimized runtime, so the 186 MB would buy very little.
+
 Three things the JVM needs that the classpath does not say:
 
 - **`--enable-native-access=ALL-UNNAMED`**. Truffle `System.load`s the isolate library; on JDK 25
