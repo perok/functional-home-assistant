@@ -37,17 +37,30 @@ slow the non-chart render loop.
 
 ## What actually goes on the classpath
 
-The `js-isolate-*` jar is **not** a dependency. With the isolate library named explicitly, the
-embedding side is seven jars and 18 MB:
+The `js-isolate-*` jar is **not** a dependency — its payload is the 159 MB per-architecture `.so`,
+which would land in the fat jar twice. What it contributes is its POM, so its four transitive
+coordinates are declared directly:
 
 ```
-org.graalvm.polyglot:polyglot        # + truffle-api, collections, nativeimage,
-                                     #   nativebridge, jniutils, word
+org.graalvm.polyglot:polyglot      org.graalvm.sdk:nativebridge
+org.graalvm.truffle:truffle-api    org.graalvm.sdk:jniutils
 ```
+
+Seven jars resolved, 18 MB — but **almost none of it is new**: `pkl-core` already brings polyglot
+and truffle-api, at 25.0.1, which these evict. So the real change to the shipped jar is that Pkl
+now evaluates on Truffle 25.3.4.1 (789 tests green, including the whole Pkl suite), plus three
+small jars.
 
 No `js-language`, no `truffle-runtime`, no `truffle-compiler` — nothing that would pull an
-in-process Truffle runtime or libgraal into the JVM. Verified running in this configuration at
-135 MB RSS.
+in-process Truffle runtime or libgraal into the JVM.
+
+Two things the JVM needs that the classpath does not say:
+
+- **`--enable-native-access=ALL-UNNAMED`**, in `run.sh`. Truffle `System.load`s the isolate
+  library; on JDK 25 that is a four-line warning, and on a later JDK it is a hard failure.
+- **`libz.so.1`**, which the library names in `DT_NEEDED` alongside glibc. Present in
+  `debian-base:9.4.0` on both architectures (checked by unpacking the layers, since nothing here
+  can run a container).
 
 The engine is built once and lives for the process:
 
@@ -80,13 +93,20 @@ at a path that does not exist and engine construction throws from
 `PolyglotIsolateHostSupport.buildIsolatedEngine`.
 
 This is the same shape as the version-lockstep trap in `docs/spike-compiled-truffle.md`, and it
-rules out the obvious packaging shortcut: **the Dockerfile must not name a GraalVM version.**
-Instead sbt stages the two platform jars into the build context from the single version already in
-`build.sbt`, and the Dockerfile selects one by `TARGETARCH` and extracts it. No version string
-outside `build.sbt`, so the two halves cannot drift apart in the first place.
+rules out the obvious packaging shortcut: **neither the Dockerfile nor `build.sbt` may name a
+GraalVM version.** The string lives once, in `home-addon/graalvm-js.version`; `build.sbt` reads it
+to resolve the polyglot jars and the Dockerfile `COPY`s it to fetch the matching library. The two
+halves cannot drift apart because there is nothing to drift.
 
-The staged path inside the image carries no version either, so `engine.IsolateLibrary` is a
-constant.
+A file rather than a `val` in `build.sbt`, because the Docker build cannot read `build.sbt` and
+routing the library through the build context is expensive: the context is the ci-built jar,
+shipped between jobs as an artifact, so staging both platforms' libraries through it moves 300 MB
+per run to land 159 MB. The Dockerfile fetches from Maven Central instead, in a stage pinned to
+`--platform=$BUILDPLATFORM` — nothing it does needs to be the target architecture, so the download
+and `jar xf` stay off QEMU even when building for aarch64.
+
+The staged path inside the image carries no version either, so `FH_JS_ISOLATE_LIBRARY` — and
+through it `engine.IsolateLibrary` — is a constant.
 
 ## Multi-architecture: easy, and cleaner than the default
 
@@ -154,10 +174,13 @@ MIT/UPL. GFTC permits what this add-on does — redistributing the unmodified pr
 bundled in a product, provided no fee is charged for it — and carries no expiry or termination
 clause. Two obligations follow into the build:
 
-- the image must carry the GFTC text and Oracle's notices, so **the assembly merge strategy must
-  not discard `META-INF` licence files**;
-- downstream users receive that component under GFTC rather than under this project's licence,
-  which the README should state.
+- **the artifacts carry no licence file of their own** — checked: neither the isolate jar nor any
+  of the seven polyglot jars contains a `LICENSE`, `NOTICE` or `THIRD_PARTY` entry, so there is
+  nothing for the assembly merge strategy to preserve and the notice has to be written by hand;
+- downstream users receive that component under GFTC rather than under this project's terms.
+
+Both are stated in `home-addon/DOCS.md` (what a user of the add-on sees) and
+`home-addon/README.md`.
 
 Community remains a drop-in fallback at 3–4× the native memory if the licence is ever unwanted.
 
@@ -166,7 +189,20 @@ Community remains a drop-in fallback at 3–4× the native memory if the licence
 1. This plan.
 2. Builder stage to glibc, JDK 21 → current. No functional change; the add-on must still start
    and serve.
-3. Isolate dependency, engine construction, library extraction in the Dockerfile, README notes.
+3. Isolate dependency, engine construction, library staging in the Dockerfile, licence notes.
+
+## What proves commit 3, given nothing renders a chart yet
+
+`fh.view.runtime.JsIsolate` has no production caller until the history view, so the usual answer —
+a unit test — would only prove that a `.so` on this machine loads on this machine. The claim worth
+proving is about the *image*: that the staged library is the right architecture and links against
+the base image's glibc and zlib. Every way of getting that wrong builds cleanly and dies at the
+first chart.
+
+So the check is `fh.view.runtime.JsIsolateCheck`, a main in the shipped jar that evaluates a line
+of JavaScript and prints RSS before and after, and the CI `image` job runs it **inside the built
+image** — amd64 on a pull request, aarch64 under emulation on main. That is also the diagnostic to
+run on a Pi, and the memory lines are there because no JVM instrument can see an isolate's heap.
 
 ## Reproducing the measurements
 
@@ -244,12 +280,14 @@ The history view and any chart card; native image; a GraalVM JDK base image; Pkl
 - **The glibc move is verified by reading, not by building.** No container can be built in the
   agentbox — `unshare(CLONE_NEWUSER)` is denied by its seccomp profile, with `CapEff` empty and no
   docker socket, all of which flake.nix's README lists as deliberate security properties. What
-  stands in for a build: the library's ELF names `GLIBC_2.15` as its ceiling and no `libstdc++`,
-  Debian 13 ships glibc 2.41, and `debian-base:9.4.0` was confirmed a single multi-arch manifest
-  through the GHCR API. The `image` CI job added on this branch is what actually builds it —
-  amd64 on a pull request, both architectures on a push to main, reusing `ci`'s `addon-jar`
-  artifact either way. On a release commit that arm64 build happens twice, once here and once in
-  `cd`; sharing a `type=gha` buildx cache between the two jobs would fix that if it ever grates.
+  stands in for a build: reading ELF headers and registry manifests. That is how the library's
+  glibc ceiling (2.15 amd64 / 2.17 aarch64, against Debian 13's 2.41), its `libz.so.1`
+  requirement, and the absence of `curl` and `wget` from `eclipse-temurin:25-jdk` — which is why
+  the isolate stage installs one — were each settled without running anything. The `image` CI job
+  is what actually builds and now also RUNS it: amd64 on a pull request, both architectures on a
+  push to main, reusing `ci`'s `addon-jar` artifact either way. On a release commit the arm64
+  build happens twice, once here and once in `cd`; sharing a `type=gha` buildx cache between the
+  two jobs would fix that if it ever grates.
 - Whether `-XX:+UseCompactObjectHeaders` helps. It did nothing measurable in the chart benchmark,
   but that benchmark barely uses the JVM heap — the place it would act is the app's own object
   graph, which needs `RenderBench` or a Pi run to answer.

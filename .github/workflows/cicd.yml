@@ -312,6 +312,18 @@ jobs:
       - name: The runtime runs on the base image
         run: docker run --rm --entrypoint java fh-dashboard:ci -version
 
+      # And the isolate library loads, which is the half `java -version` says
+      # nothing about: it is a 159 MB foreign `.so`, selected by architecture
+      # and linked against the base image's glibc and zlib, and every way of
+      # getting that wrong produces an image that builds cleanly and dies at
+      # the first chart. JsIsolateCheck runs JavaScript through it and prints
+      # what it cost in RSS.
+      - name: JavaScript runs in the isolate
+        run: |
+          docker run --rm --entrypoint java fh-dashboard:ci \
+            --enable-native-access=ALL-UNNAMED \
+            -cp /opt/fh-dashboard.jar fh.view.runtime.JsIsolateCheck
+
   cd:
     needs: ci
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'

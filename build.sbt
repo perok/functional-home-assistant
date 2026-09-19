@@ -11,6 +11,13 @@ val otel4sVersion = "1.1.0"
 // separate repo and are still marked experimental.
 val otelJavaVersion = "1.65.0"
 val otelMiddlewareVersion = "0.18.0"
+// GraalVM, in a FILE rather than a `val`, because two builds need the same
+// string: this one resolves the polyglot jars, and home-addon/Dockerfile
+// fetches the matching isolate library. Drift between those two halves is not
+// reported — a 25.2.4 libpolyglotisolate.so runs against 25.3.4.1 jars with no
+// warning and correct output — so the version cannot be allowed to exist
+// twice.
+val graalVmVersion = IO.read(file("home-addon/graalvm-js.version")).trim
 val MUnitFramework = new TestFramework("munit.Framework")
 
 // Warnings are advisory while you work and fatal where the flag says so (#115).
@@ -306,6 +313,24 @@ lazy val `fh-datastar-view` = project
       // runtime; bundles the extension libraries — string/list/math/bindings/
       // comprehensions — in the same jar).
       "dev.cel" % "cel" % "0.14.0",
+      // GraalJS, run in a polyglot ISOLATE (docs/plan-graaljs-isolate.md).
+      // Note what is NOT here: no js-language and no Truffle runtime. The
+      // JavaScript lives entirely in the isolate library, which the add-on
+      // image stages outside the jar so the jar stays the same bytes on both
+      // architectures.
+      //
+      // Nearly free in the fat jar, because pkl-core already brings polyglot
+      // and truffle-api — at 25.0.1, which these evict. So the four lines buy
+      // a Truffle version bump and three small jars, not 18 MB of new ones.
+      //
+      // The last three are what `org.graalvm.js:js-isolate-linux-<arch>` would
+      // bring transitively. Named here because depending on that artifact is
+      // exactly what we are avoiding: its payload is a 159 MB
+      // per-architecture `.so`, which would land in the fat jar twice.
+      "org.graalvm.polyglot" % "polyglot" % graalVmVersion,
+      "org.graalvm.truffle" % "truffle-api" % graalVmVersion,
+      "org.graalvm.sdk" % "nativebridge" % graalVmVersion,
+      "org.graalvm.sdk" % "jniutils" % graalVmVersion,
       // Logging, and the ONE slf4j binding in the build. log4cats and an
       // unbound slf4j-api were already on the classpath via http4s, which
       // means http4s' own logging went nowhere; logback lights that up too.

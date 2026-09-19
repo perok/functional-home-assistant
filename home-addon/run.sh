@@ -151,6 +151,13 @@ fi
 #
 # $JAVA_NMT is deliberately unquoted: it is one flag or nothing, and nothing
 # must vanish rather than become an empty argument.
+#
+# --enable-native-access: Truffle calls System.load to bring up the GraalJS
+# isolate library. On JDK 25 that is a four-line warning on stderr; from a
+# later JDK it is a hard failure, and this is the grant that keeps it working
+# either way. ALL-UNNAMED because a -jar launch puts everything on the
+# classpath, in the unnamed module.
 # shellcheck disable=SC2086
 exec java "-Xms$JAVA_MIN_HEAP" "-Xmx$JAVA_MAX_HEAP" "$JAVA_GC" \
-  -XX:+ExitOnOutOfMemoryError $JAVA_NMT -jar /opt/fh-dashboard.jar
+  -XX:+ExitOnOutOfMemoryError --enable-native-access=ALL-UNNAMED \
+  $JAVA_NMT -jar /opt/fh-dashboard.jar

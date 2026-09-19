@@ -263,3 +263,15 @@ The dashboard is also available on host port 8080 if you map it in the
 add-on's network configuration. **The direct port is unauthenticated** and the
 server drives Home Assistant with its own token — leave it disabled unless
 your LAN is trusted.
+
+## Third-party components
+
+The image bundles the GraalVM JavaScript engine as a polyglot isolate library,
+published by Oracle under the
+[GraalVM Free Terms and Conditions](https://www.oracle.com/downloads/licenses/graal-free-license.html).
+You receive that component under those terms rather than this project's: they
+permit redistribution of the unmodified program, including bundled in a
+product, as long as no fee is charged for it.
+
+Nothing loads it yet. It is `dlopen`ed the first time something asks for
+JavaScript, so today it costs image size and no memory at all.
