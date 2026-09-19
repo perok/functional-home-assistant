@@ -2,6 +2,10 @@ package fh.view.runtime
 
 import cats.effect.{IO, IOApp}
 import cats.syntax.all.*
+import org.graalvm.polyglot.Engine
+
+import java.nio.charset.StandardCharsets.UTF_8
+import scala.util.Using
 
 /** Boots the isolate, runs a line of JavaScript and prints what it cost.
   *
@@ -26,6 +30,7 @@ object JsIsolateCheck extends IOApp.Simple {
         JsIsolate.context(engine).use { context =>
           for {
             _ <- IO.println(s"engine     ${engine.getVersion}")
+            _ <- sameVersion(engine)
             out <- IO.blocking(
               context.eval("js", "[1, 2, 3].map(x => x * 2).join()").asString()
             )
@@ -35,6 +40,38 @@ object JsIsolateCheck extends IOApp.Simple {
         }
       }
     } yield ()
+
+  /** The isolate library and the polyglot jars are two halves of one engine,
+    * and Truffle does NOT report a mismatch: a 25.2.4 library against 25.3.4.1
+    * jars runs clean, with correct output (measured). What it does do is report
+    * the LIBRARY's version from `getVersion`, while the jars carry their own on
+    * the classpath — so the drift is detectable even though it is not reported,
+    * and this is where we detect it.
+    *
+    * `build.sbt` resolves both from one string, so this should be unfireable.
+    * It guards the gap where it isn't: a stale `target/addon` staged against a
+    * freshly assembled jar.
+    */
+  private def sameVersion(engine: Engine): IO[Unit] =
+    IO.blocking(
+      Option(
+        getClass.getResourceAsStream(
+          "/META-INF/graalvm/org.graalvm.polyglot/version"
+        )
+      )
+    ).flatMap {
+      case None     => IO.unit
+      case Some(in) =>
+        IO.blocking(
+          Using.resource(in)(s => String(s.readAllBytes(), UTF_8).trim)
+        ).flatMap { jars =>
+          IO.raiseError(
+            new IllegalStateException(
+              s"GraalJS drift: polyglot jars are $jars, the isolate library is ${engine.getVersion}"
+            )
+          ).unlessA(jars == engine.getVersion)
+        }
+    }
 
   /** `Rss` is what the supervisor reports; `Anonymous` is the unreclaimable
     * part of it, which is what decides whether this fits on a 4 GB machine.

@@ -90,6 +90,15 @@ Measured on the SHIPPED classpath, same loop, 200M iterations:
 is only the host↔isolate bridge that this configuration needs — a consequence of the host runtime,
 not a symptom.
 
+**That in-heap row is a deliberate alternative, not a failure mode we could slip into.** Measured
+on the shipped classpath: with the isolate jar present, the isolate is used whether or not
+`spawnIsolate(true)` is set (dropping it costs `HostAccess.SCOPED` and earns a method-scoping
+warning, not 31× — 178 M ops/sec, still compiled); with the jar absent, `js` is not a language at
+all — `A language with id 'js' is not available. Available languages are: [pkl]`. There is no
+in-heap JavaScript on this classpath to fall back TO. So both ways of losing the isolate are loud,
+and `spawnIsolate(true)` stays because it states the intent and sharpens the error, not because
+it is what selects the isolate.
+
 Two things follow. **Do not reach for `Engine.supportsCompilation()` as a health check**: it
 reports the HOST runtime and returns `false` in both columns above, so printing it would say
 "no compilation" about an engine doing 501 M ops/sec. And **Pkl does run interpreted** in this
@@ -113,8 +122,10 @@ Three things the JVM needs that the classpath does not say:
 The isolate library and the polyglot jars are two halves of one engine, and **a mismatch between
 them is not reported**. Measured: a 25.2.4 `libpolyglotisolate.so` runs against 25.3.4.1 jars with
 no warning, no error and correct output — you are simply running a GraalJS other than the one the
-build declares. That trap is what shaped the packaging, and the answer to each half was to stop
-hand-rolling it.
+build declares. Worse, `Engine.getVersion()` reports the LIBRARY's version, so the engine holds
+both numbers and warns about neither (`docs/issue-report-3-graalvm-polyglot-isolate.md`). That
+trap is what shaped the packaging, and the answer to each half was to stop hand-rolling it —
+plus a check in `JsIsolateCheck` that compares the two and fails.
 
 **Acquisition is dependency resolution.** The two platform jars are ordinary `libraryDependencies`
 in a hidden Ivy configuration (`js-isolate`, `.hide`), so coursier fetches, checksums and caches
