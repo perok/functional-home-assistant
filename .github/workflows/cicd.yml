@@ -219,7 +219,11 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: addon-jar
-          path: target/addon/fh-dashboard.jar
+          # The DIRECTORY: `stageIsolateJars` puts both platforms' GraalJS
+          # isolate jars here too, and the image build needs them (they are
+          # resolved by coursier as ordinary dependencies, so nothing
+          # downloads them inside the container).
+          path: target/addon/
           retention-days: 1
 
   # Does the image still BUILD? Nothing else asks until release: `cd` is the
@@ -232,17 +236,12 @@ jobs:
   # is the same artifact `cd` consumes — the Dockerfile COPYs that jar, so the
   # alternative is a second sbt assembly per run.
   #
-  # TWO DEPTHS, because the two architectures cost wildly different amounts:
-  #
-  #   pull request -> linux/amd64 only. The arm64 jlink stage runs under QEMU
-  #                   and is minutes of emulation; everything a PR is likely to
-  #                   break — base images resolving, the jlink module list, the
-  #                   COPY paths — is architecture-independent anyway. Draft
-  #                   PRs skip the job AND the assembly it needs.
-  #   push to main -> both, which is what `cd` will publish. Main pushes are
-  #                   rare enough to absorb the emulation, and this is the last
-  #                   gate before a release build that only happens when the
-  #                   version moves.
+  # BOTH architectures, including on a pull request, which this job did not
+  # always do. The reason it used to build amd64 alone — "everything a PR is
+  # likely to break is architecture-independent" — stopped being true when the
+  # GraalJS bootstrap landed: that step RUNS the isolate to unpack it, so the
+  # arm64 build now executes arm64 code and an amd64-only run does not
+  # exercise it at all. Draft PRs still skip the job and the assembly it needs.
   #
   # It does NOT push, and needs no registry credentials.
   image:
@@ -251,8 +250,8 @@ jobs:
       (github.event_name == 'pull_request' && !github.event.pull_request.draft)
       || (github.event_name == 'push' && github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
-    # Generous because the arm64 half is emulated; the amd64-only PR run
-    # finishes in well under a minute.
+    # Generous because the arm64 half is emulated, and now emulates a
+    # JavaScript engine booting rather than only jlink.
     timeout-minutes: 40
     permissions:
       contents: read
@@ -265,10 +264,9 @@ jobs:
           name: addon-jar
           path: target/addon/
 
-      # Registers binfmt so the arm64 jlink stage can execute. Only main pays
-      # for it.
+      # Registers binfmt so the arm64 stages can execute — jlink, and the
+      # GraalJS bootstrap that boots the isolate.
       - uses: docker/setup-qemu-action@v4
-        if: github.event_name == 'push'
       - uses: docker/setup-buildx-action@v4
 
       - name: Build
@@ -276,12 +274,11 @@ jobs:
         with:
           context: .
           file: home-addon/Dockerfile
-          platforms: ${{ github.event_name == 'push' && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
+          platforms: linux/amd64,linux/arm64
           push: false
-          # buildx refuses `load` for more than one platform, so on main the
-          # image is only proven to build; the run check below loads one
-          # architecture back out of the build cache.
-          load: ${{ github.event_name != 'push' }}
+          # buildx refuses `load` for more than one platform, so this proves
+          # both BUILD; the step below loads one back out of the build cache.
+          load: false
           tags: fh-dashboard:ci
 
       # A successful build says nothing about whether the jlinked runtime
@@ -289,14 +286,12 @@ jobs:
       # where a glibc JRE lands on a musl base and nothing notices until a user
       # starts the add-on.
       #
-      # On main this re-runs the build for ONE architecture with `load`, which
-      # is a cache hit against the multi-arch build above (same job, same
-      # builder) rather than a second real build. arm64 is the one chosen,
-      # because that is the Raspberry Pi and the half a pull request never
-      # exercises; amd64 was already run on the PR that produced this merge.
+      # A second single-platform build with `load`, which is a cache hit
+      # against the multi-arch build above (same job, same builder) rather
+      # than a real second build. arm64 is the one chosen: it is the
+      # Raspberry Pi, and it is the half that emulation could plausibly break.
       - name: Load one architecture
         uses: docker/build-push-action@v7
-        if: github.event_name == 'push'
         with:
           context: .
           file: home-addon/Dockerfile
@@ -307,22 +302,23 @@ jobs:
 
       # `java -version` and not `/run.sh`: the entrypoint exits before reaching
       # the JVM when SUPERVISOR_TOKEN is absent, so it would pass without ever
-      # loading a single shared library. Under QEMU on main, this is the first
-      # time anything has proven the arm64 runtime starts at all.
+      # loading a single shared library.
       - name: The runtime runs on the base image
         run: docker run --rm --entrypoint java fh-dashboard:ci -version
 
-      # And the isolate library loads, which is the half `java -version` says
-      # nothing about: it is a 159 MB foreign `.so`, selected by architecture
-      # and linked against the base image's glibc and zlib, and every way of
-      # getting that wrong produces an image that builds cleanly and dies at
-      # the first chart. JsIsolateCheck runs JavaScript through it and prints
-      # what it cost in RSS.
+      # And JavaScript still runs in the FINISHED image. The build already
+      # ran JsIsolateCheck once — that is what unpacked the resource cache —
+      # but on the builder image, against a staging directory. This runs it
+      # where the add-on will: the hassio base, the jlinked runtime, and the
+      # cache at the path run.sh names. It also prints what the isolate costs
+      # in RSS on aarch64, which is the number issue #237 wants.
       - name: JavaScript runs in the isolate
         run: |
           docker run --rm --entrypoint java fh-dashboard:ci \
             --enable-native-access=ALL-UNNAMED \
-            -cp /opt/fh-dashboard.jar fh.view.runtime.JsIsolateCheck
+            -Dpolyglot.engine.userResourceCache=/opt/fh/graal-resources \
+            -cp /opt/fh-dashboard.jar:/opt/fh/js-isolate.jar \
+            fh.view.runtime.JsIsolateCheck
 
   cd:
     needs: ci

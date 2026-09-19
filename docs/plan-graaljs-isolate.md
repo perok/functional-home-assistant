@@ -37,9 +37,9 @@ slow the non-chart render loop.
 
 ## What actually goes on the classpath
 
-The `js-isolate-*` jar is **not** a dependency — its payload is the 159 MB per-architecture `.so`,
-which would land in the fat jar twice. What it contributes is its POM, so its four transitive
-coordinates are declared directly:
+Two classpaths, and the difference between them is the whole packaging design.
+
+**The fat jar** carries four declared coordinates and nothing architecture-specific:
 
 ```
 org.graalvm.polyglot:polyglot      org.graalvm.sdk:nativebridge
@@ -49,113 +49,118 @@ org.graalvm.truffle:truffle-api    org.graalvm.sdk:jniutils
 Seven jars resolved, 18 MB — but **almost none of it is new**: `pkl-core` already brings polyglot
 and truffle-api, at 25.0.1, which these evict. So the real change to the shipped jar is that Pkl
 now evaluates on Truffle 25.3.4.1 (789 tests green, including the whole Pkl suite), plus three
-small jars.
+small jars. No `js-language`, no `truffle-runtime`, no `truffle-compiler` — nothing that would
+pull an in-process Truffle runtime or libgraal into the JVM.
 
-No `js-language`, no `truffle-runtime`, no `truffle-compiler` — nothing that would pull an
-in-process Truffle runtime or libgraal into the JVM.
+**The add-on adds one more jar at launch**: `js-isolate-linux-<arch>`, staged into the image per
+architecture and named on `-cp`, not packaged. It has to be there and it cannot be there: it is
+what REGISTERS that a JS isolate exists — without it an engine reports "No native isolate library
+is available for the requested language(s) [js]" however the resources are staged (measured) —
+while its 159 MB payload is exactly what must not be in an architecture-independent jar. Naming
+it on the launcher's classpath satisfies both.
 
-Two things the JVM needs that the classpath does not say:
+That is also why `run.sh` uses `-cp` and a main class rather than `-jar`, which ignores `-cp`.
 
-- **`--enable-native-access=ALL-UNNAMED`**, in `run.sh`. Truffle `System.load`s the isolate
-  library; on JDK 25 that is a four-line warning, and on a later JDK it is a hard failure.
-- **`libz.so.1`**, which the library names in `DT_NEEDED` alongside glibc. Present in
-  `debian-base:9.4.0` on both architectures (checked by unpacking the layers, since nothing here
-  can run a container).
-
-The engine is built once and lives for the process:
+The engine is then built with nothing configured in code:
 
 ```scala
-Engine.newBuilder("js")
-  .allowExperimentalOptions(true)
-  .spawnIsolate(true)
-  .option("engine.IsolateLibrary", <path staged into the image>)
-  .build()
+Engine.newBuilder("js").spawnIsolate(true).build()
 ```
 
 `spawnIsolate` goes on `Engine.Builder`, **not** `Context.Builder` — on a shared engine the
 context-level call is silently ineffective. Contexts are built against that engine with
-`HostAccess.SCOPED`.
+`HostAccess.SCOPED`. It does not exist on `Engine.Builder` before the 25.3 line (25.0.4 does not
+compile against it), so this route pins polyglot to 25.3.x rather than the 25.0.x LTS-aligned one.
 
-`engine.IsolateLibrary` is an experimental option and Truffle prints a "do not use in production"
-message for it. Taken deliberately: it is what keeps the fat jar architecture-independent, and the
-alternative costs a 159 MB write per library version.
+Three things the JVM needs that the classpath does not say:
 
-`spawnIsolate` does not exist on `Engine.Builder` before the 25.3 line — 25.0.4 does not compile
-against it — so this route pins polyglot to 25.3.x rather than the 25.0.x LTS-aligned line.
+- **`--enable-native-access=ALL-UNNAMED`**. Truffle `System.load`s the isolate library; on JDK 25
+  that is a four-line warning, and on a later JDK it is a hard failure.
+- **`-Dpolyglot.engine.userResourceCache=/opt/fh/graal-resources`**, the cache the image build
+  unpacked. Left at its default Truffle writes 161 MB into `~/.cache` on first use — an image
+  layer here, so every add-on update would redo it.
+- **`libz.so.1`**, which the library names in `DT_NEEDED` alongside glibc. Present in
+  `debian-base:9.4.0` on both architectures (checked by unpacking the layers, since nothing here
+  can run a container).
 
-## One version, in one place, because drift is silent
+## The library is acquired and unpacked by the tools that own those jobs
 
 The isolate library and the polyglot jars are two halves of one engine, and **a mismatch between
 them is not reported**. Measured: a 25.2.4 `libpolyglotisolate.so` runs against 25.3.4.1 jars with
 no warning, no error and correct output — you are simply running a GraalJS other than the one the
-build declares. The control says the named path really is what loaded: point `engine.IsolateLibrary`
-at a path that does not exist and engine construction throws from
-`PolyglotIsolateHostSupport.buildIsolatedEngine`.
+build declares. That trap is what shaped both halves of the packaging, and the answer to each was
+to stop hand-rolling it.
 
-This is the same shape as the version-lockstep trap in `docs/spike-compiled-truffle.md`, and it
-decides the packaging: **the version is declared once, in `build.sbt`, and the image DERIVES it
-rather than repeating it.**
+**Acquisition is dependency resolution.** The two platform jars are ordinary `libraryDependencies`
+in a hidden Ivy configuration (`js-isolate`, `.hide`), so coursier fetches, checksums and caches
+them exactly like every other dependency, from the one `graalVmVersion` in `build.sbt`. `hide`
+keeps them off compile, test and assembly classpaths — the fat jar never sees them.
+`stageIsolateJars` copies both beside the add-on jar under **buildx's** architecture spelling
+(`js-isolate-arm64.jar`, not `aarch64`, and no version), which is why the Dockerfile contains no
+version, no coordinate, no URL and no architecture mapping. Nothing downloads inside the
+container.
 
-Deriving matters more than single-sourcing. A version stated a second time — a file the Dockerfile
-reads, a build argument, a workflow step — is a claim about the *repository*, and the image is
-built from a *jar*. Those are the same thing only while nobody builds an image against a jar from
-a different checkout, which is exactly what the CI job layout makes possible (`ci` assembles,
-`image` and `cd` consume the artifact). Read the version out of the jar and the pairing is right
-by construction, whatever produced the jar.
+**Unpacking is what booting an engine does.** Truffle extracts its native resources on first use;
+pointing `polyglot.engine.userResourceCache` at a staging directory during the image build turns
+that into a build step. No API call, no archive layout, no extraction code of ours — and the
+command that does it is `JsIsolateCheck`, which already boots an engine and runs JavaScript, so
+the unpack and the proof that the unpacked thing works are the same step. **The build cannot
+stage a library it could not run.**
 
-The jar can be asked: every GraalVM polyglot artifact ships its version at
-`META-INF/graalvm/org.graalvm.polyglot/version`, which is the resource **Truffle itself
-version-checks with**, and sbt-assembly carries it through (a second, differing copy would fail
-the assembly rather than be silently picked between). So `fh.view.runtime.JsIsolateFetch` — a main
-in the app jar — reads its own version, downloads the matching `js-isolate-linux-<arch>` from Maven
-Central, checks it against Central's `.sha1`, and extracts the library. The whole Dockerfile stage
-is two lines and names no version, no URL and no archive path.
+Two dead ends worth not re-walking:
 
-Two details that fall out of doing it in Java rather than shell: the temurin images ship neither
-`curl` nor `wget`, so shelling out would have meant an `apt-get` in the build; and the arch
-spellings differ (buildx `arm64`, GraalVM `aarch64`), which is now one `match` rather than a `case`
-in a `RUN`. The stage is pinned to `--platform=$BUILDPLATFORM`, since downloading and unzipping
-need not happen on the target architecture and the target-architecture path is QEMU.
+- **`Engine.copyResources(Path, String...)` looks like the right API and is not.** It runs, and
+  writes the isolate out, but omits `libtruffleattach`; an engine pointed at its output then dies
+  with "Polyglot isolates require libtruffleattach when running on HotSpot with the fallback
+  Truffle runtime." `engine.resourcePath` is also not an engine option at all — it is a system
+  property, and setting it on the builder throws "Could not find option with name".
+- **`engine.IsolateLibrary` names the `.so` directly and needs no jar**, which is tempting because
+  it would keep the image to 159 MB. Truffle's own error text annotates it "(for testing purposes
+  only)" and it requires `allowExperimentalOptions`. Rejected for a shipped appliance; it remains
+  the fallback if the provider route ever breaks.
 
-The staged path inside the image carries no version either, so `FH_JS_ISOLATE_LIBRARY` — and
-through it `engine.IsolateLibrary` — is a constant.
+The cost of the supported route over that one is the provider jar in the image: ~231 MB of
+GraalJS (161 MB cache + 70 MB jar) against 159 MB. Stripping the now-redundant `.so` out of the
+staged jar gets back to ~161 MB and was verified working, but it is jar surgery and it removes
+the self-heal — with the full jar, a cache that somehow went missing re-extracts instead of
+failing to start.
 
-The fetch is a build step and stays one: doing it at container *runtime* would keep 159 MB out of
-the image, but an appliance whose first start needs the internet is a worse trade than a bigger
-pull.
-
-## Multi-architecture: easy, and cleaner than the default
+## Multi-architecture, and where the 161 MB lives
 
 Three facts make this small:
 
 1. **`config.yaml` already declares exactly `amd64` and `aarch64`**, which is exactly the set
    GraalVM publishes Linux isolates for. No architecture is dropped and no fallback path is
    needed.
-2. **The library sits at a fixed path inside the jar**, with no content hash in it:
-   `META-INF/resources/engine/js-isolate-linux-<arch>/libvm/libpolyglotisolate.so`. Extracting it
-   at build time is a `jar xf`, not a search.
-3. **The Dockerfile already has a per-architecture stage** — the jlink stage — and buildx supplies
-   `TARGETARCH` there. Only a name mapping is needed: buildx says `arm64`, GraalVM says `aarch64`.
+2. **sbt stages both platforms' jars under buildx's own spelling**, so selecting one is
+   `js-isolate-$TARGETARCH.jar` — no mapping anywhere in the Dockerfile.
+3. **The bootstrap stage is per-architecture and must be**, because it RUNS the isolate to unpack
+   it. That is a change in kind from the jlink stage, which only had to be the target
+   architecture to produce the right bytes: this one executes them.
 
-So the architecture-specific 159 MB stays in the image layer that is already built per
-architecture, and `target/addon/fh-dashboard.jar` remains the architecture-independent bytecode
-its Dockerfile comment promises. The alternative — shipping both platform jars inside the fat jar
-— would add ~140 MB to a jar that is copied into both images.
+So all 231 MB of GraalJS sits in layers that are already built per architecture, and
+`target/addon/fh-dashboard.jar` stays the architecture-independent bytecode its Dockerfile
+comment promises — the same file in both images.
 
-## The cache question, and what the README needs
+Point 3 has a consequence outside the Dockerfile: **a pull request that builds only amd64 no
+longer tests the build.** The old rationale for one architecture on a PR — "everything a PR is
+likely to break is architecture-independent" — was true of a `COPY` and a `jlink` and is false of
+a JavaScript engine booting under QEMU, which is now the step most likely to break. The `image`
+job therefore builds both on every non-draft PR, and pays the emulation.
 
-With the library named explicitly there is **no 159 MB extraction at all**. Measured against an
-empty cache directory, the runtime writes 96 KB — a 72 KB `libtruffleattach.so` and its directory.
+## The cache: unpacked once, at build time, into the image
 
-Had we let it self-extract, the answer would still be "first boot only", because `/data` is the
-add-on's persistent volume and survives updates — the same reason `FH_PKL_CACHE_DIR` points there.
-But it would be first boot *per library version*: the cache path is keyed by a SHA-256 of the
-library, so every add-on update that moves GraalVM re-extracts 159 MB and nothing prunes the old
-copy.
+Truffle extracts its native resources into a cache on first use — 161 MB, keyed by a SHA-256 of
+each resource. Left alone in this container that cache is `~/.cache` inside an image layer, so
+**every add-on update would re-extract**, and nothing prunes the copy the update replaced.
 
-That is the argument for naming the library rather than configuring a cache. What is left is a
-larger image, which is a one-time pull and needs no note — anyone for whom it matters is reading
-the image size already.
+Pointing `polyglot.engine.userResourceCache` at a directory the image build already populated
+removes the question entirely: nothing is extracted at runtime, on first boot or ever. Verified
+end to end — a cold run unpacks 161 MB, a second run against the same directory made **read-only**
+starts and runs JavaScript with the directory unchanged.
+
+What is left is a larger image, which is a one-time pull and needs no note — anyone for whom it
+matters is reading the image size already.
 
 ## Base image and JDK
 

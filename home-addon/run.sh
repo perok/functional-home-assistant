@@ -152,12 +152,22 @@ fi
 # $JAVA_NMT is deliberately unquoted: it is one flag or nothing, and nothing
 # must vanish rather than become an empty argument.
 #
-# --enable-native-access: Truffle calls System.load to bring up the GraalJS
-# isolate library. On JDK 25 that is a four-line warning on stderr; from a
-# later JDK it is a hard failure, and this is the grant that keeps it working
-# either way. ALL-UNNAMED because a -jar launch puts everything on the
-# classpath, in the unnamed module.
+# -cp and a named main class rather than -jar, because GraalJS needs a second
+# jar on the classpath: js-isolate.jar carries the provider that registers the
+# JS isolate, and -jar ignores -cp entirely. The fat jar's Main-Class is this
+# same class, so launching it with -jar still works for anyone who does.
+#
+# userResourceCache points at what the IMAGE BUILD already unpacked. Left to
+# its default Truffle extracts 161 MB into ~/.cache on first use — which in
+# this container is an image layer, so every add-on update would redo it.
+#
+# --enable-native-access: Truffle calls System.load to bring the isolate up.
+# On JDK 25 that is a four-line warning on stderr; from a later JDK it is a
+# hard failure, and this is the grant that keeps it working either way.
+# ALL-UNNAMED because everything is on the classpath, in the unnamed module.
 # shellcheck disable=SC2086
 exec java "-Xms$JAVA_MIN_HEAP" "-Xmx$JAVA_MAX_HEAP" "$JAVA_GC" \
   -XX:+ExitOnOutOfMemoryError --enable-native-access=ALL-UNNAMED \
-  $JAVA_NMT -jar /opt/fh-dashboard.jar
+  -Dpolyglot.engine.userResourceCache=/opt/fh/graal-resources \
+  $JAVA_NMT -cp /opt/fh-dashboard.jar:/opt/fh/js-isolate.jar \
+  fh.view.runtime.ServerApp

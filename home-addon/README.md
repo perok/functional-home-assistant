@@ -16,19 +16,24 @@ Datastar dashboard (`fh-datastar-view`): dashboards authored in
   — free to redistribute bundled in a product as long as nothing is charged
   for it, which is what this add-on does. The community build is a drop-in
   replacement under MIT/UPL at 3–4× the native memory, if the terms are ever
-  unwanted. The version is written once, in `build.sbt`; the image does not
-  repeat it but reads it back out of the assembled jar
-  (`fh.view.runtime.JsIsolateFetch`), because a library and a jar that
-  disagree run silently rather than failing.
+  unwanted. The version is written once, in `build.sbt`: sbt resolves both
+  platforms' libraries as ordinary dependencies and stages them for the image
+  build, so nothing downloads inside the container and the library cannot
+  disagree with the jars it runs against — a mismatched pair runs silently
+  rather than failing.
 
-Is the library loadable in the built image?
+Is the isolate healthy in the built image?
 
 ```sh
 docker run --rm --entrypoint java ghcr.io/perok/fh-dashboard:latest \
   --enable-native-access=ALL-UNNAMED \
-  -cp /opt/fh-dashboard.jar fh.view.runtime.JsIsolateCheck
+  -Dpolyglot.engine.userResourceCache=/opt/fh/graal-resources \
+  -cp /opt/fh-dashboard.jar:/opt/fh/js-isolate.jar \
+  fh.view.runtime.JsIsolateCheck
 ```
 
-It runs a line of JavaScript through the isolate and prints RSS before and
-after, which is the only way to see memory a foreign library allocates
-outside the JVM heap. CI runs it on both architectures.
+It runs a line of JavaScript and prints RSS before and after, which is the
+only way to see memory a foreign library allocates outside the JVM heap. The
+image build runs the same command — that is what unpacks the resource cache,
+so a library that cannot run cannot be packaged — and CI runs it again inside
+the finished image, on both architectures.

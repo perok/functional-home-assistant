@@ -1,7 +1,6 @@
 package fh.view.runtime
 
 import cats.effect.{IO, Resource}
-import fh.view.FHError
 import org.graalvm.polyglot.{Context, Engine, HostAccess}
 
 /** GraalJS, running in a polyglot isolate — a second, self-contained VM inside
@@ -13,38 +12,27 @@ import org.graalvm.polyglot.{Context, Engine, HostAccess}
   * isolate's compact native heap instead of ours, which measured 152 MB RSS
   * against 322 MB for interpreting the same workload in-heap, at half the
   * render time.
+  *
+  * Nothing is configured in code, deliberately. The library is found the way
+  * Truffle finds it by itself — a `js-isolate-linux-<arch>` jar on the
+  * classpath registers the provider, and the resources are read from the cache
+  * `polyglot.engine.userResourceCache` names. The add-on image supplies both,
+  * and unpacks that cache during its own build so nothing is extracted at
+  * runtime. The alternative, naming the `.so` through `engine.IsolateLibrary`,
+  * needs no jar but is an experimental option Truffle itself annotates "for
+  * testing purposes only".
+  *
+  * So outside the add-on image there is no isolate and this raises. That is the
+  * honest state: a local `sbt dashboardServe` has no JavaScript.
   */
 object JsIsolate {
-
-  /** Absolute path to `libpolyglotisolate.so`, set by the add-on image, which
-    * stages the library for its own architecture.
-    *
-    * There is no default and no classpath fallback: the alternative to naming
-    * the library is letting Truffle extract it from a jar, which is a 159 MB
-    * write per GraalVM version into a cache nothing prunes.
-    */
-  val libraryVar: String = "FH_JS_ISOLATE_LIBRARY"
 
   /** One engine for the life of the process; contexts are cheap against it,
     * engines are not.
     */
   def engine: Resource[IO, Engine] =
-    Resource.eval(library).flatMap(engineAt)
-
-  def engineAt(library: String): Resource[IO, Engine] =
     Resource.fromAutoCloseable(IO.blocking {
-      Engine
-        .newBuilder("js")
-        // `engine.IsolateLibrary` is experimental and Truffle says so on
-        // every boot. Taken deliberately — it is what keeps the fat jar
-        // architecture-independent.
-        .allowExperimentalOptions(true)
-        // On `Engine.Builder`. The identically-named call on `Context.Builder`
-        // is silently ineffective once a shared engine is in play, which looks
-        // like the isolate simply not saving any memory.
-        .spawnIsolate(true)
-        .option("engine.IsolateLibrary", library)
-        .build()
+      Engine.newBuilder("js").spawnIsolate(true).build()
     })
 
   def context(engine: Engine): Resource[IO, Context] =
@@ -55,15 +43,4 @@ object JsIsolate {
         .allowHostAccess(HostAccess.SCOPED)
         .build()
     })
-
-  private def library: IO[String] =
-    IO(sys.env.get(libraryVar)).flatMap {
-      case Some(path) => IO.pure(path)
-      case None       =>
-        IO.raiseError(
-          FHError.internal(
-            s"$libraryVar is not set — no JavaScript isolate library to load"
-          )
-        )
-    }
 }

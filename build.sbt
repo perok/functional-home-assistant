@@ -11,13 +11,22 @@ val otel4sVersion = "1.1.0"
 // separate repo and are still marked experimental.
 val otelJavaVersion = "1.65.0"
 val otelMiddlewareVersion = "0.18.0"
-// The ONLY place a GraalVM version is written. The add-on image needs the
-// matching isolate library and does not repeat this string: it reads the
-// version back out of the assembled jar (fh.view.runtime.JsIsolateFetch),
-// because a second declaration can be right about the repository and wrong
-// about the jar being packaged — and a mismatched library and jar pair is not
-// reported, it just runs as a different GraalJS than this line names.
+// The ONLY place a GraalVM version is written, for the polyglot jars AND for
+// the isolate libraries the image stages — both resolved from this one string
+// below, so they cannot disagree. They must not: a mismatched library and jar
+// pair is not reported, it just runs as a different GraalJS than this names.
 val graalVmVersion = "25.3.4.1"
+
+// The isolate libraries are RESOLVED but never on a classpath. `hide` keeps
+// this configuration out of compile, test and assembly, so the fat jar stays
+// architecture-independent (159 MB of `.so` per platform would otherwise land
+// in it twice) while coursier still fetches, checksums and caches them like
+// any other dependency, and `stageIsolateJars` hands them to the image build.
+lazy val JsIsolate = config("js-isolate").hide
+
+lazy val stageIsolateJars = taskKey[Seq[File]](
+  "Stage both platforms' GraalJS isolate jars beside the add-on jar"
+)
 val MUnitFramework = new TestFramework("munit.Framework")
 
 // Warnings are advisory while you work and fatal where the flag says so (#115).
@@ -266,6 +275,36 @@ lazy val `fh-datastar-view` = project
     assembly / assemblyOutputPath := Def.uncached(
       (ThisBuild / baseDirectory).value / "target" / "addon" / "fh-dashboard.jar"
     ),
+    ivyConfigurations += JsIsolate,
+    // Named by BUILDX's architecture spelling, not GraalVM's (`arm64`, not
+    // `aarch64`), and with the version dropped. That is the whole reason this
+    // renames at all: the Dockerfile can then say `js-isolate-$TARGETARCH.jar`
+    // and contain no version, no coordinate and no architecture mapping.
+    //
+    // `Def.uncached` for the reason `NpmPlugin` documents: sbt 2 caches task
+    // results by default and a `File` is not a valid cached output, because
+    // the graph cannot see whether the file is still where it was put.
+    stageIsolateJars := {
+      val out = (ThisBuild / baseDirectory).value / "target" / "addon"
+      val resolved = update.value.select(configurationFilter(JsIsolate.name))
+      Def.uncached {
+        IO.createDirectory(out)
+        Seq("amd64" -> "amd64", "arm64" -> "aarch64").map {
+          (dockerArch, graalArch) =>
+            val source = resolved
+              .find(_.getName.startsWith(s"js-isolate-linux-$graalArch-"))
+              .getOrElse(
+                sys.error(s"no js-isolate-linux-$graalArch jar resolved")
+              )
+            val target = out / s"js-isolate-$dockerArch.jar"
+            IO.copyFile(source, target)
+            target
+        }
+      }
+    },
+    // So `sbt fh-datastar-view/assembly` leaves a build context the Dockerfile
+    // can use, rather than one that is complete only if you knew to ask.
+    assembly := assembly.dependsOn(stageIsolateJars).value,
     assembly / assemblyMergeStrategy := {
       // JPMS descriptors from multi-release deps (circe/cats/pkl-core) —
       // meaningless on a flat classpath. Do NOT blanket-discard META-INF:
@@ -331,6 +370,10 @@ lazy val `fh-datastar-view` = project
       "org.graalvm.truffle" % "truffle-api" % graalVmVersion,
       "org.graalvm.sdk" % "nativebridge" % graalVmVersion,
       "org.graalvm.sdk" % "jniutils" % graalVmVersion,
+      // The libraries themselves, in the hidden configuration above: staged
+      // into the image per architecture, never onto a classpath here.
+      "org.graalvm.js" % "js-isolate-linux-amd64" % graalVmVersion % JsIsolate,
+      "org.graalvm.js" % "js-isolate-linux-aarch64" % graalVmVersion % JsIsolate,
       // Logging, and the ONE slf4j binding in the build. log4cats and an
       // unbound slf4j-api were already on the classpath via http4s, which
       // means http4s' own logging went nowhere; logback lights that up too.

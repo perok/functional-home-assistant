@@ -3,14 +3,19 @@ package fh.view.runtime
 import cats.effect.{IO, IOApp}
 import cats.syntax.all.*
 
-/** `java -cp /opt/fh-dashboard.jar fh.view.runtime.JsIsolateCheck` — boots the
-  * isolate, runs a line of JavaScript and prints what it cost.
+/** Boots the isolate, runs a line of JavaScript and prints what it cost.
   *
-  * It exists because nothing else proves the shipped image works. A container
-  * that BUILDS says nothing about whether the staged `.so` links against the
-  * base image's glibc and zlib, or whether it is the right architecture; the CI
-  * `image` job runs this inside the built image for exactly that reason, under
-  * emulation on aarch64.
+  * It is run TWICE, and the first time is not a test. The image build runs it
+  * with `polyglot.engine.userResourceCache` pointed at a staging directory,
+  * which is what makes Truffle unpack the 161 MB of native resources it needs —
+  * so this is the bootstrap, and the add-on never extracts anything at runtime.
+  * Nothing else is needed to trigger that: unpacking is what booting an engine
+  * does when the cache is cold.
+  *
+  * The second run is the test, inside the finished image, because a container
+  * that BUILDS says nothing about whether the library links against the base
+  * image's glibc and zlib. That the bootstrap and the check are the same
+  * command is the point: the build cannot stage a library it could not run.
   *
   * The memory lines are the second reason. The isolate's heap is native memory
   * inside a `dlopen`ed library, so no JVM instrument can see it — not the heap
