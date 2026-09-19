@@ -298,11 +298,20 @@ lazy val `fh-datastar-view` = project
               )
             val target = out / s"js-isolate-$dockerArch.jar"
             // 140 MB of copying on every `assembly` otherwise, and `assembly`
-            // runs constantly. Length is enough of a stamp: these are
-            // immutable released artifacts, so a same-named jar of the same
-            // size IS the same jar.
-            if (!target.exists || target.length != source.length)
+            // runs constantly. The stamp records the SOURCE's name, which is
+            // the only thing here that carries a version: the target's name
+            // deliberately does not, so "same name, same size" would compare a
+            // 25.3.4.1 jar against a 25.2.4 one and skip on a collision. That
+            // is the silent library/jar drift of
+            // docs/issue-report-3-graalvm-polyglot-isolate.md, self-inflicted.
+            val stamp = out / s"js-isolate-$dockerArch.source"
+            val want = source.getName
+            if (
+              !target.exists || !stamp.exists || IO.read(stamp).trim != want
+            ) {
               IO.copyFile(source, target)
+              IO.write(stamp, want)
+            }
             target
         }
       }
