@@ -330,6 +330,18 @@ jobs:
               -Dpolyglot.engine.userResourceCache="$FH_GRAAL_CACHE" \
               -cp "$FH_APP_CLASSPATH" fh.view.runtime.JsIsolateCheck'
 
+      # ECharts on the SHIPPED engine. `ChartSuite` covers what a chart says,
+      # but it runs on an in-heap GraalJS that is a test-only dependency — a
+      # different VM from the isolate, and not the one users get. This is the
+      # only place the production combination is exercised, and it prints the
+      # render timings the Pi question needs (plan-history-view §6).
+      - name: A chart renders in the isolate
+        run: |
+          docker run --rm --entrypoint sh fh-dashboard:ci -c '
+            exec java --enable-native-access=ALL-UNNAMED \
+              -Dpolyglot.engine.userResourceCache="$FH_GRAAL_CACHE" \
+              -cp "$FH_APP_CLASSPATH" fh.view.history.ChartCheck'
+
   cd:
     needs: ci
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'

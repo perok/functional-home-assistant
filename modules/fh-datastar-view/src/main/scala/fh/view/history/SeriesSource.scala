@@ -13,9 +13,9 @@ import java.time.Instant
 /** The two reads a series can come from, and nothing else.
   *
   * Narrow on purpose. [[SeriesProvider]] calls two of `HomeAssistantApi`'s
-  * twenty methods, and taking the whole trait would declare a dependency on
-  * the entity registry, the service catalogue and the live feed that it does
-  * not have — visible immediately in a test, which would need a stub for all of
+  * twenty methods, and taking the whole trait would declare a dependency on the
+  * entity registry, the service catalogue and the live feed that it does not
+  * have — visible immediately in a test, which would need a stub for all of
   * them to exercise a downsampler.
   */
 trait SeriesSource {

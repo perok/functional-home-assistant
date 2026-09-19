@@ -271,6 +271,29 @@ lazy val `fh-datastar-view` = project
   .settings(
     commonSettings,
     run / fork := true,
+    // ECharts, shipped as a classpath resource for the SERVER to evaluate —
+    // not bundled for a browser, which is why it does not go through vite.
+    //
+    // An npm dependency rather than a vendored blob, for the reason #62 landed
+    // for pkl-lsp: the version lives in the lockfile where dependabot reads it,
+    // and nothing built is committed. `frontendInstall` is what puts it in
+    // node_modules, so this depends on it rather than assuming it ran.
+    Compile / resourceGenerators += Def.task {
+      val source = (Compile / frontendDirectory).value /
+        "node_modules" / "echarts" / "dist" / "echarts.min.js"
+      val target =
+        (Compile / resourceManaged).value / "chart" / "echarts.min.js"
+      (Compile / frontendInstall).value
+      Def.uncached {
+        if (!source.exists) sys.error(s"echarts not installed at $source")
+        if (
+          !target.exists || IO.getModifiedTimeOrZero(target) <
+            IO.getModifiedTimeOrZero(source)
+        )
+          IO.copyFile(source, target, preserveLastModified = true)
+        Seq(target)
+      }
+    }.taskValue,
     // No DASHBOARDS_DIR here on purpose: a local run serves the workspace it is
     // GIVEN (`sbt 'dashboardServe <dir>'`), and refuses to guess one. See the
     // `dashboardServe` alias above.
@@ -399,6 +422,17 @@ lazy val `fh-datastar-view` = project
       // into the image per architecture, never onto a classpath here.
       "org.graalvm.js" % "js-isolate-linux-amd64" % graalVmVersion % JsIsolate,
       "org.graalvm.js" % "js-isolate-linux-aarch64" % graalVmVersion % JsIsolate,
+      // IN-HEAP GraalJS, tests only. The shipped engine is the isolate, which
+      // exists only inside the add-on image — so without this there is no
+      // JavaScript to run a chart test against anywhere else, and the renderer
+      // would be verified only by the `image` job.
+      //
+      // Testing on a different engine than production is sound HERE and would
+      // not be in general: the SVG is byte-identical between the two modes
+      // (checked, docs/plan-history-view.md), so the mode is a pure performance
+      // switch. It stays out of `Compile` because its 48 MB of language jars
+      // are exactly what the isolate replaces.
+      "org.graalvm.polyglot" % "js" % graalVmVersion % Test,
       // Logging, and the ONE slf4j binding in the build. log4cats and an
       // unbound slf4j-api were already on the classpath via http4s, which
       // means http4s' own logging went nowhere; logback lights that up too.

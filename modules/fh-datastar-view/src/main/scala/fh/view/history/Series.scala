@@ -22,8 +22,8 @@ import java.time.Instant
 final case class Series(points: Vector[Series.Point], unavailable: Int) {
   def isEmpty: Boolean = points.isEmpty
 
-  /** The oldest point, which is what says how far back the data actually goes
-    * — as opposed to how far back it was asked to go.
+  /** The oldest point, which is what says how far back the data actually goes —
+    * as opposed to how far back it was asked to go.
     */
   def oldest: Option[Instant] = points.headOption.map(_.at)
 
@@ -31,8 +31,9 @@ final case class Series(points: Vector[Series.Point], unavailable: Int) {
     * measure; zero for a single point.
     */
   def span: Option[java.time.Duration] =
-    for { a <- points.headOption; b <- points.lastOption }
-      yield java.time.Duration.between(a.at, b.at)
+    for {
+      a <- points.headOption; b <- points.lastOption
+    } yield java.time.Duration.between(a.at, b.at)
 }
 
 object Series {
@@ -48,7 +49,10 @@ object Series {
     */
   def fromHistory(rows: List[HistoryPoint]): Series = {
     val numeric = rows.flatMap(r => r.state.toDoubleOption.map(Point(r.at, _)))
-    Series(numeric.sortBy(p => (p.at.getEpochSecond, p.at.getNano)).toVector, rows.size - numeric.size)
+    Series(
+      numeric.sortBy(p => (p.at.getEpochSecond, p.at.getNano)).toVector,
+      rows.size - numeric.size
+    )
   }
 
   /** Statistics buckets, read at the bucket's END: a bucket describes the
@@ -65,6 +69,9 @@ object Series {
     val numeric = buckets.flatMap(b =>
       b.mean.map(_.mean).orElse(b.sum.map(_.state)).map(Point(b.end, _))
     )
-    Series(numeric.sortBy(p => (p.at.getEpochSecond, p.at.getNano)).toVector, buckets.size - numeric.size)
+    Series(
+      numeric.sortBy(p => (p.at.getEpochSecond, p.at.getNano)).toVector,
+      buckets.size - numeric.size
+    )
   }
 }
