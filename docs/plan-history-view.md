@@ -381,8 +381,12 @@ Each is independently mergeable and independently useful.
 
 1. **`ha-api`**: the two WS commands and their decoders. Testable against `FakeHomeAssistant`, no
    live HA.
-2. **`SeriesStore` + `HistoryProvider`**, pure core split from the fetch — the downsampler and the
-   bucket key are pure and are where the tests go.
+2. **`SeriesStore` + `SeriesProvider`**, pure core split from the fetch — the downsampler and the
+   bucket key are pure and are where the tests go. Source selection is decided by a learned
+   `Retention` rather than a threshold: a window it already covers costs one call, an unproven one
+   asks both sources in parallel and keeps whichever covers more time, and the history half is what
+   teaches it. Retention is a lower bound taken as the MAXIMUM across entities, because per entity
+   a daily purge and a day-old sensor give the same answer.
 3. **`RenderInputs` gains the series component.** The pipeline change, on its own, with the
    architecture doc updated in the same commit.
 4. **The chart renderer**: the vendored ECharts bundle as a resource and a host behind a plain
@@ -409,18 +413,14 @@ What is left needs a Pi or a rendered chart, not a decision.
 1. **Whose identity should read?** The person's token is the correct answer for a permission-scoped
    read, but it means a second connection per user, exactly as issue #198 describes for taps.
    Whether history is worth that cost is a judgement call, not a technical one.
-2. **What is the recorder's purge horizon, and should the card know it?** ~10 days on this
-   instance, but `purge_keep_days` is per-installation and nothing in the dump reports it. Either
-   the provider discovers it (a history call that returns fewer points than the window asked for)
-   or the source choice is a fixed threshold that is wrong on some installs.
-3. **What do the §2 numbers look like on the Pi?** Everything there is x86_64. The chart is now on
+2. **What do the §2 numbers look like on the Pi?** Everything there is x86_64. The chart is now on
    a compiled isolate, so the question has narrowed to whether the *first* chart in a session is
    acceptable — every later one in the bucket is free — and to what the isolate's native heap
    costs alongside Pkl's Truffle. Shares the Pi run `docs/plan-graaljs-isolate.md` is already
    waiting on.
-4. **Is ECharts' SSR text estimate good enough**, or does `setPlatformAPI({ measureText })` need
+3. **Is ECharts' SSR text estimate good enough**, or does `setPlatformAPI({ measureText })` need
    real Java font metrics? Cheap to answer once a real dashboard renders one.
-5. **Does a window change need a new fetch or a re-slice?** Fetching the widest window once and
+4. **Does a window change need a new fetch or a re-slice?** Fetching the widest window once and
    slicing it for narrower ones trades memory for round trips. Probably wrong for 30d, probably
    right for 1h/24h — and the retention finding pushes against it too, since the widest window is
    the one that has to come from a different command.
