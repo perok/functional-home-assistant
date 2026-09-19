@@ -1,13 +1,16 @@
-/// The BeerCSS Material Design 3 theme (`docs/plan-beercss-theme.md`) — the
-/// DEFAULT theme (wired in `entry.pkl`; contract + roster in `theme.pkl`).
+/// The BeerCSS Material Design 3 theme (ADR 0026) — the DEFAULT theme
+/// (wired in `entry.pkl`; contract + roster in `theme.pkl`).
 /// An entry retunes it by amending (`theme { md3Light { ... } }`) or swaps to
 /// another theme entirely (any sibling module exporting a `theme.pkl` Theme).
 ///
 /// BeerCSS styles SEMANTIC ELEMENTS directly (`<article>` = card, `<button>` =
 /// filled MD3 button, `<dialog>` = dialog), which is exactly what the card
-/// templates emit — so this theme needs no bespoke card CSS: BeerCSS supplies
-/// the MD3 look under the contract classes, and `styles` below carries only
-/// the color bridge + the residual contract CSS BeerCSS doesn't cover.
+/// templates emit — so this theme needs no bespoke card CSS. What `styles`
+/// carries is the PAINT (ADR 0020): the two colour bridges, and the handful of
+/// rules that name something BeerCSS owns rather than something a card emits
+/// (`--_padding`, `.shape`, the MDI font). The layout contract arrives from
+/// `core/css.pkl` and each card's structure from its own `cardDef.css`, both
+/// ahead of this, so anything here overrides them by document order.
 ///
 /// THEMING — the color variables are BeerCSS's own MD3 roles, documented in
 /// https://github.com/beercss/beercss/blob/main/docs/SETTINGS.md. They live
@@ -40,10 +43,48 @@ import "theme.pkl" as themeMod
 
 /// Pinned — never `@latest` (visual stability; the dist bundles the Material
 /// Symbols fonts with absolute CDN fallback URLs, so icons need no extra
-/// `<link>`). Bump deliberately and re-verify the spikes in
-/// `docs/plan-beercss-theme.md`.
+/// `<link>`). Bump deliberately and re-verify the framework facts ADR 0026
+/// rests on.
 const local beerVersion: String = "4.0.23"
 const local beerCdn: String = "https://cdn.jsdelivr.net/npm/beercss@\(beerVersion)/dist/cdn"
+
+/// Material Design Icons — HA's OWN icon set, so an entity's `icon` attribute
+/// (`mdi:thermometer`) renders as the glyph its author picked instead of being
+/// translated into some near-equivalent. Pinned for the same reason as BeerCSS.
+///
+/// **The cost, and the way out.** This is ~394 KB of woff2 plus ~100 KB of CSS
+/// for ~7 500 icons, of which one dashboard uses a few dozen. It is here
+/// because it is one line and it works; it is not the end state.
+///
+/// The end state is to INLINE the icons actually used, at build time, as SVG
+/// paths — which is available because every icon name is known at build time
+/// (`components.iconFor` resolves it from the dump, not from live state). The
+/// shape:
+///
+///   - add `@mdi/js` as a BUILD dependency (name -> path data, tree-shakeable);
+///   - resolve the name to its path where `iconFor` resolves the name today,
+///     and emit the path as the literal slot value;
+///   - the card template becomes
+///     `<svg viewBox="0 0 24 24"><path d="{{{icon}}}"/></svg>`, and
+///     `.entity header i` becomes a rule on that `svg`;
+///   - drop this stylesheet, and the `mdi ` class prefix with it.
+///
+/// That trades ~500 KB of always-loaded font for a few KB of markup that is
+/// already being sent, and removes a CDN round trip from first paint — which
+/// matters most on the PWA/remote path, where the font is not warm in cache.
+/// The reason it is not done here is scope, not doubt.
+const local mdiVersion: String = "7.4.47"
+const local mdiCdn: String =
+  "https://cdn.jsdelivr.net/npm/@mdi/font@\(mdiVersion)/css/materialdesignicons.min.css"
+
+/// The TEXT font BeerCSS's own `--font` stack asks for first and never loads.
+/// Without it every browser falls back to a different system sans, and the
+/// metrics differ enough to move glyphs inside an identically-sized line box —
+/// a label reads centred in one engine and high in another, on the same page,
+/// on the same machine. Localised by `AssetCache` exactly like the icon font,
+/// so the woff2s are served from us.
+const local interCdn: String =
+  "https://cdn.jsdelivr.net/npm/@fontsource/inter@5/latin.css"
 
 /// A mapping rendered as CSS custom-property declarations
 /// (`--primary:#006493;--on-primary:#ffffff;…`). `const` (like [[beerCdn]]):
@@ -148,6 +189,17 @@ class BeerTheme extends themeMod.Theme {
 
   stylesheets {
     "\(beerCdn)/beer.min.css"
+    interCdn
+  }
+
+  // MDI is ~100 KB of CSS for ~7 500 icons of which a dashboard uses a few
+  // dozen, and nothing about the page's LAYOUT depends on it — a glyph that
+  // arrives a beat late lands in a box the framework already sized. It is the
+  // one sheet here that should not hold up the first paint. (The end state is
+  // still to inline the used icons as SVG and drop the sheet entirely — see
+  // [[mdiCdn]].)
+  deferredStylesheets {
+    mdiCdn
   }
 
   // Required by this theme's CSS, not for behavior (which stays Datastar's):
@@ -159,14 +211,26 @@ class BeerTheme extends themeMod.Theme {
     "\(beerCdn)/beer.min.js"
   }
 
+  // The gesture half of the touch rules below — see themeMod.sliderHoldScript.
+  inlineScripts {
+    themeMod.sliderHoldScript
+  }
+
   // Same contract as theme.pkl: the `#dashboard` swap target (enforced by
-  // Dashboard.validate) + the `#popups` overlay mount, whose hole carries a
+  // Dashboard.validate) + the `#popups` overlay host, whose hole carries a
   // popup restored on refresh so it paints with the page. `responsive` is
   // BeerCSS's centered max-width container.
   chrome = """
     <main class="responsive" id="dashboard">{{{body}}}</main>
     <div id="popups">{{{popups}}}</div>
     """
+
+  // The class names this theme wants in card markup — BeerCSS's own spinner
+  // pair, an SVG mask that morphs itself, in place of the `fh-busy-spin` ring
+  // `core/css.pkl` falls back to. See theme.pkl's `classes` and ADR 0020.
+  classes {
+    ["busySpin"] = "shape loading-indicator"
+  }
 
   styles = """
     /* MD3 role palette ([[md3Light]]/[[md3Dark]], late-bound). Body
@@ -193,46 +257,75 @@ class BeerTheme extends themeMod.Theme {
       --surface-container-low:var(--card-background-color);
       --surface-container-high:var(--card-background-color);
     }
+    /* The other direction: the variables the CARDS read (core/css.pkl defaults
+       them from the HA tokens) pointed at this framework's roles, so a card
+       written against `--fh-surface-alt` gets the MD3 tier rather than the
+       nearest HA token — which for the container tiers there is none of. Body
+       specificity again, so this beats core's `:root` block. */
+    body,body.light,body.dark{
+      --fh-accent:var(--primary);
+      --fh-on-accent:var(--on-primary);
+      --fh-text:var(--on-surface);
+      --fh-text-dim:var(--on-surface-variant);
+      --fh-surface-alt:var(--surface-container-highest);
+      --fh-surface-sunken:var(--surface-container);
+      --fh-border:var(--outline-variant);
+      --fh-error:var(--error);
+      --fh-on-error:var(--on-error);
+    }
 
-    /* Contract CSS BeerCSS doesn't cover (cards/buttons/dialogs/sliders it
-       styles as elements). The fh- LAYOUT contract (grid/row/col/cell spans)
-       is the shared framework-agnostic default from theme.pkl. */
-    \(themeMod.layoutCss)
-    .section{color:var(--primary)}
-    .state{color:var(--on-surface-variant)}
-    .entity .secondary{display:block;font-size:.8em;color:var(--on-surface-variant)}
-    /* Domain icon in the entity-card header (Material Symbols — the font
-       ships in the BeerCSS dist). */
-    .entity header i{font-size:1.25rem;vertical-align:text-bottom;margin-inline-end:.375rem;color:var(--primary)}
-    .card.tappable{cursor:pointer}
-    /* The slider card's label line (class contract, like .card): label left,
-       live state right. */
-    .slider-head{display:flex;gap:.75rem;align-items:baseline;justify-content:space-between;z-index:3}
+    /* What is left is what BeerCSS itself needs, plus paint. The layout
+       contract and every card's own structure arrive ahead of this (ADR 0020),
+       so nothing below restates them. */
+    /* Entity icon in the card header. MDI, not the Material Symbols the
+       BeerCSS dist bundles — HA's own `icon` attribute is an MDI name, so this
+       is the set that can render what an author actually chose. The
+       `font-family` is restated because BeerCSS styles a bare `<i>` as Material
+       Symbols and would otherwise win the cascade over `.mdi:before`; the
+       metrics beside it belong to the entity card. */
+    .entity header i.mdi{font-family:"Material Design Icons"}
+    /* BeerCSS's own `.shape.loading-indicator` — an SVG mask that morphs
+       itself (internal `<animate>`, no CSS animation needed to spin it) —
+       painted around the `i.mdi` glyph rather than replacing it. It lands on
+       an element that already exists wherever there is one (`.slider-icon`,
+       the power `button`); only the entity header, whose glyph is bare inline
+       text, needs a wrapper, and that wrapper is a `<span>` precisely so it
+       needs no resting style at all. `background` is restated because a host's
+       own resting background would otherwise win the cascade and paint the
+       blob in the wrong colour. `filter:invert(1)` is BeerCSS's contrast trick
+       for arbitrary photo content; our glyph carries an explicit colour
+       already, so it takes the shape's `--on-primary` instead. */
+    .fh-icon-shape.shape,.slider-icon.shape,.circle.shape{
+      display:inline-flex;align-items:center;justify-content:center;
+      vertical-align:middle;background:var(--primary)}
+    .shape>i.mdi{filter:none;color:var(--on-primary)}
+    /* The two slider hosts are already sized circles; only the header badge
+       has no box of its own. BeerCSS's `.shape` default is 3.5rem, which would
+       balloon a header row. */
+    .fh-icon-shape.shape{inline-size:2.25rem;block-size:2.25rem}
+    @media (prefers-reduced-motion:reduce){
+      /* The morph is baked into the SVG mask's own `<animate>` elements, which
+         no CSS property can reach. Dropping the mask is the only way to hold
+         still, so the badge becomes a plain filled disc instead. */
+      .shape.loading-indicator{mask-image:none;border-radius:50%}
+    }
+    /* Half of BeerCSS's 1rem, matched by the line's own .5rem: a slider's
+       card is a track edge to edge with text over it, so the inset the eye reads
+       is the LINE's, and the card's job is only to keep a member row's pill
+       clear of the corner radius. The pair reads tighter than the default
+       without the group needing `padding:0` plus a re-add on every part.
+       `--_padding` is BeerCSS's own knob for a card's scale, and other BeerCSS
+       rules read it (fixed header/footer bleed, the `.padding` utilities), so
+       overriding `padding` instead would leave those on the 1rem default. */
+    .slider-card{--_padding:.5rem}
+    /* A member row's card, on the same BeerCSS knob: the row is sized by its own
+       `min-block-size`, so the card's padding would only make it taller. */
+    .slider-members .card{--_padding:0}
     /* Tabs: the bar is BeerCSS's native `.tabs > a` element — even tab
        distribution, underline active indicator, hover/press states, all
        framework CSS (an inline-size override to make tabs hug their labels
        was tried and REVERTED: it detached the active underline from the
-       anchor). Only the panel wrapper is ours. */
-    .tab-panel{display:contents}
-
-    /* Popup: BeerCSS's <dialog> styling (fixed, centered, elevated,
-       surface-container-high) does the chrome; cap the width and unfill the ✕
-       (a bare <button> is a filled primary pill by default). */
-    dialog.popup{max-inline-size:min(90vw,32rem)}
-    .popup-close{position:absolute;top:.5rem;right:.5rem;background:transparent;
-      color:var(--on-surface-variant);block-size:auto;padding:.25rem .5rem;font-size:1rem}
-
-    /* Connection banners. Structure/behavior are emitted by the server shell
-       (Server.page); this owns the look. Shared layout, then a colour per failure
-       kind — SSE transport (MD3 error role, flips in dark mode) vs upstream HA
-       feed (warning amber) — so the two are visually distinct. A fixed bar
-       overlaying the top; `data-show` keeps them hidden while healthy. */
-    .fh-offline{position:fixed;top:0;left:0;right:0;z-index:1000;text-align:center;
-      padding:.5rem 1rem;font-weight:600;box-shadow:0 1px 4px rgba(0,0,0,.3)}
-    .fh-offline-sse{background:var(--error,#ba1a1a);color:var(--on-error,#fff)}
-    .fh-offline-ha{background:var(--warning-color,#ffa600);color:#000}
-    .fh-offline-action{background:transparent;border:1px solid currentColor;color:inherit;
-      border-radius:.25rem;padding:.1rem .5rem;margin-left:.5rem;cursor:pointer;font:inherit}
+       anchor). The panel wrapper is the Tabs card's own CSS. */
     """
 }
 

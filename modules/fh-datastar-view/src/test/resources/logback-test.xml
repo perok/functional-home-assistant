@@ -1,0 +1,16 @@
+<!-- logback prefers this file over logback.xml when it is on the classpath, so
+     it is what the suites run under. WARN, because the server the harnesses
+     boot logs its normal startup at INFO and a suite that boots one per test
+     would bury the actual failure in it. A test that wants the noise can
+     lower a single logger here. -->
+<configuration>
+  <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+    <encoder>
+      <pattern>%-5level %logger{24} - %msg%n</pattern>
+    </encoder>
+  </appender>
+
+  <root level="WARN">
+    <appender-ref ref="STDOUT"/>
+  </root>
+</configuration>

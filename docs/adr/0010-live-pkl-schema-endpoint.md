@@ -87,12 +87,13 @@ personas differ only in **where the cache is seeded from** and **who seeds the
 | **Repo developer** | laptop, local server | the repo's `lib/`, seeded on start/`fh push` | `prepareDumps` vs a dev HA | works |
 | **Component developer** | their laptop | repo lib package + their own components | `fh pull` from the instance | works (push for their own cards) |
 
-**End user, `/edit` on the server.** Edits `dashboard.pkl` in the browser;
+**End user, `/edit` on the server.** Edits `site.pkl` in the browser;
 `LspBridge` spawns pkl-lsp as a **server-side subprocess** and the client sends
 absolute on-disk paths in `initialize`, so completion resolves the library (from
 the persistent package cache — `moduleCacheDir` is declared IN the generated
-`.fh/base.pkl` the user's `PklProject` amends, which reads it from the sibling
-`.fh/machine.json`, so pkl-lsp finds it with no extra configuration) and the
+`.fh/base.pkl` the user's `PklProject` amends, which reads it from this process's
+environment and defaults to pkl's own `~/.pkl/cache`, so pkl-lsp finds it with no
+extra configuration) and the
 freshly-seeded `@fh-home` dump package, through the project. Nothing is fetched. This is the default path and it needs no network
 story at all.
 
@@ -130,12 +131,13 @@ the user-level `~/.pkl/settings.pkl` (honored in both modes; dated backup of
 any existing file), which fixes IDE sync as long as the instance is reachable.
 `UseCaseSuite` drives the real script + the real pkl CLI end-to-end.
 
-**Repo developer.** Runs a local server (`sbt dashboardServe`) that bootstraps
+**Repo developer.** Runs a local server (`sbt 'dashboardServe <dir>'`) that bootstraps
 the **same package-form workspace the add-on does** — there is no separate "dev
 mode" and no meaningful difference from the deployed add-on. The bundled library
 is the repo's own `resources/dashboards/lib`, packaged and seeded into a shared
-cross-platform cache (the appdirs data dir the `fh` script also uses), the
-workspace is a local scratch dir (`dashboard-local-dev`, gitignored), and
+cache (pkl's own `~/.pkl/cache`, which the `fh` script also uses), the
+workspace is whichever local scratch dir the run NAMES (gitignored; there is no
+default — a run that guessed one served a workspace nobody chose), and
 `prepareDumps` seeds the dump package from a dev HA. So a local instance is a
 **first-class `fh` target**: `fh init`/`pull`/`push` work against it exactly as
 against the add-on. Iterating on the library is `fh push` (or a restart, which
@@ -157,6 +159,36 @@ ephemeral (nothing is written to disk; a restart returns the instance to its
 on-disk entries). The push body is validated exactly as an evaluated entry is —
 same `DashboardBuild.decode` — because a pushing developer reads no server log,
 so an unknown card comes back as a `400` naming it.
+
+**`fh push --write` is the persistent counterpart, and deliberately not a second
+push endpoint.** An author whose entry the instance *can* evaluate (it imports
+only `@fh-dashboard`/`@fh-home`) usually wants the dashboard to outlive a
+restart, which means the instance must own the SOURCE. That is exactly what the
+`/edit` editor's `PUT /edit/file/<name>.pkl` already does, and what
+`ServerApp.watchSources` already reloads from — so `--write` sends the source
+there instead of the JSON to `/system/push`, and no new route, write path or
+reload mechanism exists for it. The two modes stay honestly different: `push`
+delivers a RESULT the instance could never derive (ephemeral, works for cards
+the server has no source for), `--write` delivers a SOURCE the instance
+re-derives itself (persistent). Both evaluate locally first, so `--write`
+cannot overwrite a working file with one that does not build.
+
+**`--write` sends the whole local import set**, not just the named file:
+the entry plus its transitive `file:` imports (the same `Analyzer.importGraph`
+call `--watch` uses), each at its workspace-relative path. Writing one file
+whose imports stayed on the laptop leaves the instance holding a source it
+cannot evaluate, and since ADR 0021 that is no longer a one-dashboard problem
+— an entrypoint importing a missing module fails the whole site's evaluation,
+so every dashboard shows that error. The instance accepts `<name>.pkl` and
+`lib/<name>.pkl` only, so a file outside the workspace or nested deeper is
+refused on the laptop, naming it, rather than as a `403` halfway through the
+set.
+
+Writing the ENTRYPOINT is what adds, removes or renames a dashboard, and it
+goes live immediately — membership is data the reload re-reads (ADR 0021).
+`--slug` stays a `push`-only option: a source file's name is not a slug, so
+combining it with `--write` would rename the file while claiming to rename the
+dashboard, and it is rejected.
 
 For their cards to exist at all, the entry must name their module in
 `componentModules` (ADR 0006, decision 7): Pkl cannot infer it, since
@@ -278,9 +310,20 @@ and not a jar subcommand: after the content-versioned dump design, the laptop
 side is *only* fetch-and-write. `init` fetches the instance's byte-identical
 scaffold (`.fh/base.pkl`, `PklProject`, `.gitignore`) verbatim from
 `/system/pkl/{base.pkl,PklProject,gitignore}` and writes the two per-machine
-files this laptop needs — `.fh/machine.json` (its own cache dir + the instance
-URL) and `.fh/pins.json` (the version pins) — then resolves dependencies; `pull`
-just re-pins `@fh-home` in `.fh/pins.json`; `push` is one evaluation. Both run **in-process on pkl-core** (`ProjectDependenciesResolver`,
+files this laptop needs — `.fh/machine.json` (the instance URL; the cache is
+pkl's own default) and `.fh/pins.json` (the version pins) — then resolves
+dependencies; `pull`
+just re-pins `@fh-home` in `.fh/pins.json`; `push` is one evaluation per entry
+(several entries in one invocation, `--slug` renaming a single pushed one,
+`--write` sending the source + its local imports instead, `--watch` repeating
+either on every `*.pkl` change
+in the workspace — polled size+mtime, since these workspaces sit on synced
+filesystems). `--watch` re-sends only the entries a change actually reaches:
+`fh push --watch *.pkl` is the normal invocation, so re-sending every dashboard
+on every save is the wrong default. Which entries those are comes from the same
+`Analyzer.importGraph` call `PklBuild` uses server-side, re-read after each push
+(an edit can add or drop an import), and an entry whose imports cannot be
+analyzed counts as reached by anything — a redundant push, never a missed one. Both run **in-process on pkl-core** (`ProjectDependenciesResolver`,
 then `ValueRenderers.json` — the *same call* the instance's backend renders
 its wire JSON with, so pushed JSON matches by construction). Stock pkl tooling still works
 on the workspace — pkl-lsp completion is the point of having one, and the
@@ -300,10 +343,10 @@ artifacts a pull re-pins to, push) without spawning any subprocess.
 The laptop workspace is IDENTICAL to the add-on's, by construction (the scaffold
 is served, not re-templated): `.fh/base.pkl` byte-identical and machine-agnostic,
 `PklProject` and `.gitignore` the same, the `@fh-home` pin (uri + checksum) in
-`.fh/pins.json`. The only per-machine file is `.fh/machine.json` (this laptop's
-cache dir + the instance URL the rewrite targets), which is gitignored — so a user
-can keep the workspace in git and use the same files on the laptop and the
-instance, differing only in that one ignored file.
+`.fh/pins.json`. The only per-machine file is `.fh/machine.json` (the instance
+URL the rewrite targets), which is gitignored — so a user can keep the workspace in
+git and use the same files on the laptop and the instance, differing only in that
+one ignored file, which the instance does not write at all.
 
 **The `.pkl` routes are a file-download API, not a module source.** pkl-lsp
 does not fetch them — `LspBridge` runs pkl-lsp server-side against on-disk
@@ -365,8 +408,8 @@ The split is what makes the publish story true rather than aspirational: with th
 dump inside `@fh-dashboard`, publishing would have forced it out at exactly the
 moment the schema became remote — the riskiest possible time to discover the
 identity constraint above. Splitting now costs one manifest and proves the
-arrangement works, and the dump lives only as a package — never a top-level
-`*.pkl` that `discoverEntries` would scan as an entry.
+arrangement works, and the dump lives only as a package — never a file in the
+workspace the author could edit or a key could point at.
 
 `PklBuild.resolveProjectDeps` resolves the mapping **in-process**, writes the
 `PklProject.deps.json` lockfile (gitignored; re-resolved whenever a `PklProject`
@@ -412,8 +455,50 @@ is a stable renderer of the wire model), and the user's workspace depends on it
 as `package://fh.invalid/fh-dashboard@<version>`, resolved from a **persistent
 package cache** under `/data/pkl-cache` that survives image upgrades.
 
-`AddonBootstrap` (run by the server at startup when `FH_PKL_CACHE_DIR` is set —
-`run.sh` only exports the path) does, idempotently:
+**Where that cache is, by default, is pkl's own answer**: `AddonBootstrap.defaultCacheDir`
+asks `pkl-core` (`IoUtils.getDefaultModuleCacheDir`) rather than deriving a path, so the
+server, `BuildApp`, a laptop `fh`, the `pkl` CLI and pkl-lsp share `~/.pkl/cache` without
+any of them declaring one. It replaced an appdirs data dir of our own, which was both a
+path pkl-lsp did not share and, because appdirs reads `XDG_DATA_HOME`, a way for a leaked
+environment value to point a container at a home directory it could not access. The add-on
+still overrides it (`FH_PKL_CACHE_DIR=/data/pkl-cache`) and MUST: in that container the
+default is `/root/.pkl/cache`, an image layer, so every update would drop the packages the
+workspace's pins name.
+
+The cache dir is therefore checked FIRST, before anything is written, and an unusable one
+aborts the boot naming the directory — rather than resurfacing as pkl's own "I/O error
+loading module … AccessDeniedException", once per dashboard, at eval, pointing at nothing.
+
+### The per-reader values come from the reader, never from the directory
+
+One dashboards directory is meant to be used from several machines: the HA device serving
+it, the author's laptop over `fh`, a dev container. They agree on everything the workspace
+contains — entries, pins, the scaffold — and disagree on exactly two things: **where this
+machine's package cache is**, and **which instance to resolve packages from**. Those two
+therefore cannot live in the directory. The add-on wrote both into `.fh/machine.json` at
+every start, which meant whichever machine booted last decided for the others; a container
+handed a cache path from outside it failed every dashboard, and a laptop sharing the
+directory had its real instance URL overwritten with the device's loopback.
+
+So `base.pkl` reads each of them from **this process's environment first**
+(`FH_PKL_CACHE_DIR`, `FH_INSTANCE_URL`), falling back to `.fh/machine.json` for a reader
+with no launcher to set them, and the instance **writes neither**. `run.sh` exports both
+(the URL derived from the PORT it exports, not hardcoded); `fh init` writes only
+`instanceUrl`, because a laptop wants pkl's own cache and writing a path would impose it on
+everyone else. Absent everywhere, `moduleCacheDir` is null — which is not "no cache" but
+"the reading tool's default", so pkl-lsp and the `pkl` CLI resolve where the server seeded
+— and there is no rewrite at all, so packages resolve from the cache alone.
+
+Spiked on the 0.32.1 pin, each answering a case the design turns on: `read?` yields null
+for a missing env var or a missing file; `read?("env:…")` returns a **String**, not a
+`Resource`; `??` short-circuits and properties are lazy, so with the env set the file is
+never parsed (verified against a `machine.json` of pure garbage); `toTyped` tolerates EXTRA
+properties, so a `machine.json` from an older add-on still parses and its stale `cacheDir`
+is simply ignored; and the stdlib permits `moduleCacheDir` only on a file-based project
+(`(moduleCacheDir != null).implies(isFileBasedProject)`), which a workspace is and a package
+never is.
+
+`AddonBootstrap` (run by the server at startup) does, idempotently:
 
 1. **Seed the cache** (`LibPackage`): packages the image's `/opt/fh/lib` into
    the two-file resolved-package layout
@@ -434,20 +519,18 @@ package cache** under `/data/pkl-cache` that survives image upgrades.
    its own mapping entries override the base's):
    - `.fh/base.pkl` — **machine-owned, STATIC and machine-AGNOSTIC**: it carries
      no path and no URL. `moduleCacheDir` and the `http.rewrites` target are read
-     from the sibling `.fh/machine.json`, and both alias pins from `.fh/pins.json`
-     — all via `pkl:json` (`local class Machine { cacheDir; instanceUrl }` +
-     `local class Pins { … }`, each a
-     `(new json.Parser {}).parse(read("…")).toTyped(…)`). Because it holds nothing
+     from the environment, then `.fh/machine.json`, and both alias pins from
+     `.fh/pins.json` — all via `pkl:json` (`local class Machine { cacheDir?;
+     instanceUrl? }` + `local class Pins { … }`). Because it holds nothing
      per-machine it is **byte-identical everywhere** — the exact bytes the
      instance serves to a laptop's `fh init` over `/system/pkl/base.pkl`. Rewritten
-     only when the template changes across add-on versions.
-   - `.fh/machine.json` — **machine-owned** `{ cacheDir, instanceUrl }`, the
-     per-machine values, refreshed each start. This instance fills it with the
-     persistent cache path + its own loopback URL (inert here — packages are cache
-     hits — but it makes the workspace copy-usable); a laptop's `fh init` fills its
-     own cache + the real instance URL. **Never committed** (the seeded
-     `.gitignore` excludes it) — it is the ONLY file that differs between the
-     instance and a git copy of the same workspace.
+     only when the template changes across add-on versions. It is the ONLY
+     scaffold file the instance writes.
+   - `.fh/machine.json` — the READER's own `{ cacheDir?, instanceUrl? }`, both
+     optional and both overridden by the environment. **Written by whoever has no
+     launcher to set env vars** — a laptop's `fh init` (which writes only
+     `instanceUrl`) and the test harness — and by the instance never. **Never
+     committed** (the seeded `.gitignore` excludes it).
    - `.fh/pins.json` — **machine-owned** `{ dashboardUri, homeUri, homeSha256 }`,
      the file rewritten as pins move (both pins are DATA here, so a lib bump or
      dump pull is the same file-rewrite mechanism): `dashboardUri` set to the
@@ -476,9 +559,10 @@ package cache** under `/data/pkl-cache` that survives image upgrades.
    to a dated `.fh/pins.json.backup.<stamp>`, pruned to the newest 50 — the dump
    refresh rewrites the pin constantly, so the trail is capped rather than
    unbounded.
-4. **Seed a starter entry** (`AddonBootstrap.defaultDashboard`, read straight
+4. **Seed the starter SITE** (`AddonBootstrap.starterSite`, read straight
    off the jar's own classpath resources like the lib — no seed directory)
-   only into a workspace with no top-level `*.pkl`.
+   only into a workspace with no `site.pkl` — other `*.pkl` are modules and
+   do not stand in for one (ADR 0021); the boot log names them.
 
 `PklProject.deps.json` is no longer resolve-once: `PklBuild` re-resolves
 whenever a `PklProject` is newer than the lockfile (and boot deletes it
@@ -602,10 +686,11 @@ one → no-op (no file compare — same content is the same `fh-home@…-g<hash>
 Otherwise the whole workspace is copied to a temp dir (lockfiles dropped so
 dependencies re-resolve; the package cache is not copied — `moduleCacheDir` is an
 absolute path shared with the real workspace), the new dump **seeded there as its
-package** with the staged pin moved to it, and every entry evaluated against it.
-An entry failing under the new dump blocks the swap **only if it builds under the
-current one** — a dashboard the user has mid-edit must not veto registry changes
-forever. On green the real `.fh/pins.json` moves to the new snapshot and the
+package** with the staged pin moved to it, and the ENTRYPOINT evaluated against
+it. A dashboard failing under the new dump blocks the swap **only if it builds
+under the current one** — a dashboard the user has mid-edit must not veto
+registry changes forever — and the same rule applies one level up, to an
+entrypoint that will not evaluate at all (ADR 0021). On green the real `.fh/pins.json` moves to the new snapshot and the
 renderers hot-swap; the **previous immutable package version stays in the cache**
 — the snapshot itself is the trail (still resolvable for any laptop pinned to
 it), so there is no dated backup file. On rejection nothing moves and the server

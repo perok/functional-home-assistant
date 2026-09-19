@@ -48,9 +48,13 @@ object BundledLib {
       case "jar" =>
         // Fat jar: list the zip entries under the lib prefix. Do NOT close the
         // shared JarFile (the classloader owns it).
-        val conn =
-          marker.openConnection().asInstanceOf[java.net.JarURLConnection]
-        val jar = conn.getJarFile
+        val jar = marker.openConnection() match {
+          case conn: java.net.JarURLConnection => conn.getJarFile
+          case other                           =>
+            throw new IllegalStateException(
+              s"a jar: URL opened as ${other.getClass.getName}, not a JarURLConnection"
+            )
+        }
         val prefix = s"$LibResourcePrefix/"
         jar
           .entries()

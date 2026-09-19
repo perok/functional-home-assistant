@@ -251,7 +251,40 @@ object client {
 
     // TODO config/entity_registry/get_entries entity_ids https://github.com/home-assistant/core/blob/164d38ac0df5b590ef18dd0bc9481da1e674da85/homeassistant/components/config/entity_registry.py#L122
 
-    // TODO config/floor_registry/list https://github.com/home-assistant/core/blob/164d38ac0df5b590ef18dd0bc9481da1e674da85/homeassistant/components/config/floor_registry.py#L26C32-L26C58
+    // https://github.com/home-assistant/core/blob/dev/homeassistant/components/config/area_registry.py
+    case class `config/area_registry/list`()
+        extends CommandPhase
+        with CommandResponse.AsResult[List[Area]] derives ConfiguredEncoder
+
+    // https://github.com/home-assistant/core/blob/164d38ac0df5b590ef18dd0bc9481da1e674da85/homeassistant/components/config/floor_registry.py#L26C32-L26C58
+    case class `config/floor_registry/list`()
+        extends CommandPhase
+        with CommandResponse.AsResult[List[Floor]] derives ConfiguredEncoder
+
+    /** Every account that can log in — HA's own user list.
+      *
+      * Admin-only, which is fine for the one caller: the dump generator runs on
+      * the machine token. Verified against HA 2026.8.2, where it answered six
+      * accounts, three of them `system_generated`.
+      */
+    case class `config/auth/list`()
+        extends CommandPhase
+        with CommandResponse.AsResult[List[HaAccount]] derives ConfiguredEncoder
+
+    /** Who the access token that authenticated THIS connection belongs to.
+      *
+      * Unlike every other command here, the answer depends on which token
+      * opened the socket rather than on the home's state — which is exactly
+      * what makes it useful: a short-lived connection opened with a *user's*
+      * OAuth token identifies that user (issue #89). Asked on the shared feed
+      * it reports the machine identity, which is only ever a diagnostic.
+      *
+      * Verified against HA 2026.8.2: `{"id":1,"type":"auth/current_user"}` →
+      * `{"id":…,"name":…,"is_owner":true,"is_admin":true,"credentials":[…]}`
+      */
+    case class `auth/current_user`()
+        extends CommandPhase
+        with CommandResponse.AsResult[HaUser] derives ConfiguredEncoder
 
     //
     // Devices
@@ -297,15 +330,37 @@ object client {
         extends CommandPhase
         with CommandResponse.AsStream.AsEvent derives ConfiguredEncoder
 
-    /** HA's compressed state feed — the full entity set on subscribe, then
-      * deltas. Replaces `get_states` + `subscribe_events state_changed` for
-      * anything tracking live state: one subscription cannot have a gap between
-      * the snapshot and the change feed. See [[EntitiesEvent]].
+    /** HA's compressed state feed — the subscribed entity set in full on
+      * subscribe, then deltas. Replaces `get_states` + `subscribe_events
+      * state_changed` for anything tracking live state: one subscription cannot
+      * have a gap between the snapshot and the change feed. See
+      * [[EntitiesEvent]].
+      *
+      * `entity_ids` narrows it, which HA supports but does not document —
+      * `websocket_api/commands.py` gates both the opening snapshot and every
+      * later event on `not entity_ids or state.entity_id in entity_ids`.
+      *
+      * '''`Some(Nil)` would mean EVERY entity, not none.''' HA reads the list
+      * as `set(msg.get("entity_ids", [])) or None`, so an empty one falls back
+      * to unfiltered. A caller holding an empty set must not subscribe at all
+      * rather than send one.
       */
-    case class subscribe_entities()
+    case class subscribe_entities(entity_ids: Option[List[String]] = None)
         extends CommandPhase
         with CommandResponse.AsStream.AsEventOf[EntitiesEvent]
-        derives ConfiguredEncoder
+
+    object subscribe_entities {
+
+      /** The derived encoder writes an absent `entity_ids` as `null`, which is
+        * NOT the same as omitting it: HA validates the field with
+        * `cv.entity_ids`, which rejects null, so the whole subscription would
+        * fail rather than fall back to the whole house. Dropped explicitly.
+        */
+      given Encoder.AsObject[subscribe_entities] =
+        ConfiguredEncoder
+          .derived[subscribe_entities]
+          .mapJsonObject(_.filter { case (_, v) => !v.isNull })
+    }
 
     // todo https://developers.home-assistant.io/docs/api/websocket#unsubscribing-from-events
     case class unsubscribe_events(subscription: Int)

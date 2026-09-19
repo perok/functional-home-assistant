@@ -1,12 +1,8 @@
 //import scala.meta.* // scalameta for code generation. does not support dotty
 
 import api.homeassistant.HomeAssistantApi
-import api.homeassistant.ws.protocol.client.TriggerData
-import api.homeassistant.ws.domain.*
 import cats.effect.*
-import cats.syntax.all.*
 import fh.api.FHApi
-import fh.domain.utils.given
 
 object AppHome extends IOApp.Simple {
   val run = (for {
@@ -18,7 +14,9 @@ object AppHome extends IOApp.Simple {
   } yield ()).use_
 
   // TODO? https://github.com/keirlawson/fs2-progress/blob/main/src/main/scala/fs2/progress/ProgressBar.scala
-  def program(api: HomeAssistantApi[IO]) =
+  // Every call this scratch program makes is commented out below, so the api it
+  // is handed is unused today rather than unwanted.
+  def program(@scala.annotation.unused api: HomeAssistantApi[IO]) =
 
     for {
       _ <- IO.unit

@@ -1,0 +1,27 @@
+{
+  "mcpServers": {
+    "repowise": {
+      "command": "repowise",
+      "args": [
+        "mcp",
+        "/home/kanper/Dropbox/dev/functional-home-assistant",
+        "--transport",
+        "stdio"
+      ],
+      "description": "repowise: codebase intelligence — docs, graph, git signals, dead code, decisions"
+    },
+    "jcodemunch": {
+      "command": "jcodemunch-mcp",
+      "args": []
+    },
+    "metals": {
+      "command": "metals-mcp",
+      "args": [
+        "--workspace",
+        ".",
+        "--transport",
+        "stdio"
+      ]
+    }
+  }
+}

@@ -36,7 +36,9 @@ trait SystemPkl {
     * evaluates (same sha256 pin). Serves whatever versions the cache holds, so
     * a laptop pinned to an older lib than the instance still resolves.
     */
-  def packageArtifact(file: String): IO[Array[Byte]] =
+  def packageArtifact(
+      @annotation.unused file: String
+  ): IO[Array[Byte]] =
     FHError.notFound("this home serves no packages").raiseError[IO, Array[Byte]]
 
   /** The discovery document for `GET /system/pkl/packages` (no file name): the
@@ -90,7 +92,10 @@ object SystemPkl {
       def module(name: String): IO[String] =
         name match {
           case "dump.pkl" =>
-            Pins.homeVersion(dashboardsDir) match {
+            // `Pins` is synchronous build-layer code whose callers supply the
+            // region (see the class doc); these methods are the only effectful
+            // way in, so the region belongs here. `readZipEntry` owns its own.
+            IO.blocking(Pins.homeVersion(dashboardsDir)).flatMap {
               case None =>
                 FHError
                   .notFound("no dump yet — this home has not been built")
@@ -98,9 +103,11 @@ object SystemPkl {
               case Some(version) =>
                 val ref = PackageRef(DumpPackage.Name, version)
                 readZipEntry(ref.entryDir(cache) / ref.zipName, "dump.pkl")
-                  .liftTo[IO](
-                    FHError.notFound(
-                      s"dump package $version is not in the cache"
+                  .flatMap(
+                    _.liftTo[IO](
+                      FHError.notFound(
+                        s"dump package $version is not in the cache"
+                      )
                     )
                   )
             }
@@ -121,12 +128,13 @@ object SystemPkl {
       // un-bootstrapped workspace), not a state a correctly-started home can
       // reach — hence [[FHError.internal]], not [[FHError.notFound]].
       override def packagesIndex: IO[String] =
-        DumpPackage
-          .index(dashboardsDir)
-          .liftTo[IO](
-            FHError.internal(
-              "package index unavailable — this workspace was not " +
-                "bootstrapped (no lib package seeded / no dump written)"
+        IO.blocking(DumpPackage.index(dashboardsDir))
+          .flatMap(
+            _.liftTo[IO](
+              FHError.internal(
+                "package index unavailable — this workspace was not " +
+                  "bootstrapped (no lib package seeded / no dump written)"
+              )
             )
           )
       override def packageArtifact(file: String): IO[Array[Byte]] = {
@@ -143,11 +151,10 @@ object SystemPkl {
             .raiseError[IO, Array[Byte]]
         else {
           val path = PackageRef.entryDir(cache, base) / s"$base$suffix"
-          if (os.exists(path)) IO.pure(os.read.bytes(path))
-          else
-            FHError
-              .notFound(s"no such artifact: $file")
-              .raiseError[IO, Array[Byte]]
+          IO.blocking(Option.when(os.exists(path))(os.read.bytes(path)))
+            .flatMap(
+              _.liftTo[IO](FHError.notFound(s"no such artifact: $file"))
+            )
         }
       }
     }
@@ -155,23 +162,29 @@ object SystemPkl {
 
   /** Extract one entry's text from a zip (the `dump.pkl` module out of the
     * pinned `@fh-home` package). `None` when the zip or the entry is absent.
+    *
+    * Owns its `IO.blocking`: opening and reading a zip is the blocking thing
+    * here, so it is declared where it happens rather than at whichever call
+    * site happens to reach it.
     */
   private def readZipEntry(
       zipPath: os.Path,
       entryName: String
-  ): Option[String] =
-    Option
-      .when(os.exists(zipPath)) {
-        val zf = new java.util.zip.ZipFile(zipPath.toIO)
-        try
-          Option(zf.getEntry(entryName)).map { e =>
-            val is = zf.getInputStream(e)
-            try new String(is.readAllBytes(), "UTF-8")
-            finally is.close()
-          }
-        finally zf.close()
-      }
-      .flatten
+  ): IO[Option[String]] =
+    IO.blocking {
+      Option
+        .when(os.exists(zipPath)) {
+          val zf = new java.util.zip.ZipFile(zipPath.toIO)
+          try
+            Option(zf.getEntry(entryName)).map { e =>
+              val is = zf.getInputStream(e)
+              try new String(is.readAllBytes(), "UTF-8")
+              finally is.close()
+            }
+          finally zf.close()
+        }
+        .flatten
+    }
 
   /** `<name>@<version>` as it appears in the cache layout — conservative
     * charset, no separators, so it can never escape the cache dir.

@@ -1,0 +1,52 @@
+/// Home Assistant's `lock` domain model, vendored.
+///
+/// A verbatim copy of what HA defines in `homeassistant/components/lock/const.py`
+/// — the state vocabulary and the `LockEntityFeature` bit flag — so a dashboard
+/// can name a lock state without spelling a magic string, and so the schema's
+/// `supportsOpen` has a documented source for the bit it tests.
+///
+/// Docs: https://developers.home-assistant.io/docs/core/entity/lock
+///
+/// Safe to vendor for the same reason `hass/light.pkl` is: HA's `*EntityFeature`
+/// IntFlags are append-only, never renumbered, because they are persisted in
+/// entity state attributes and read by the frontend.
+module hass_lock
+
+/// Every state a lock reports. Five of the seven are TRANSIENT — a lock passes
+/// through `locking`/`unlocking`/`opening` on its way somewhere, and reports
+/// `jammed` when it tried to move and could not.
+///
+/// [[CANNOT_OPEN]] types against this, and that is the whole reason it lives in
+/// this module: the type is what refuses `"unavailable"`, which is not a lock
+/// state at all and had been sitting in that list.
+///
+/// The QUERY layer still does not — it compares a state as a plain String
+/// (`q.eq(q.stateProp, "locked")`) — so this remains the vocabulary an author
+/// needs rather than a constraint every read enforces. Typing `stateProp` per
+/// domain is a query-layer decision, not a lock one.
+typealias LockState =
+  "locked"|"unlocked"|"locking"|"unlocking"|"open"|"opening"|"jammed"
+
+/// The lock can release its latch — `lock/open`, distinct from unlocking it.
+/// The only flag the domain defines.
+const OPEN: Int = 1
+
+/// HA's `canOpen`, as the states it says no in: already open, or mid-move.
+///
+/// `lock/const.py` marks `is_locking`/`is_unlocking`/`is_opening` optional, so a
+/// lock that jumps straight `locked`→`unlocked` simply never reports one of
+/// these and the control is never inert — which is what HA's own button does
+/// there too.
+///
+/// Typed as [[LockState]], which is the point of it living here rather than
+/// beside the card that reads it: the type is what refuses `"unavailable"`.
+/// That was in this list, and it does not belong — availability is a different
+/// axis, and `tap.inertStates` adds it to every service tap in every domain.
+/// The latch's own `lock/open` press is protected by that rule; this list is
+/// only about what a LOCK's state means.
+const CANNOT_OPEN: List<LockState> = List(
+  "open",
+  "opening",
+  "unlocking",
+  "locking"
+)

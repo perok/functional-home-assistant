@@ -16,9 +16,6 @@ object hello {
   // services.input_button.Press
   def testTrigger(api: HomeAssistantApi[IO]): IO[Unit] = {
 
-    // TODO services
-    manifest.`Zigbee Home Automation`.config_entries.zha.`SONOFF Dongle-M_3F1C`.devices.hue_light_D21FB3_bibliotek.entities.number.hue_light_d21fb3_bibliotek_start_up_color_temperature
-
     val switchOveretasje =
       manifest.`Zigbee Home Automation`.config_entries.zha.`SONOFF Dongle-M_3F1C`.devices.hue_dimmer_switch_gang_overetasje
 
@@ -33,8 +30,6 @@ object hello {
   def postServiceApiTest(
       api: HomeAssistantApiService[IO]
   ): IO[PostServiceApiOutput] = {
-    val lys2 = entities.light.plug
-    // val service = services.light.Toggle()
     val service = services.light.toggle()
 
     // api.postServiceApi(service.domain, service.serviceId, entity_id = lys2.id.some)

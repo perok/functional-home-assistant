@@ -1,5 +1,6 @@
 package fh.view.runtime
 
+import fh.view.telemetry.Logging
 import cats.effect.IO
 import cats.syntax.all.*
 import org.http4s.{EntityDecoder, Header, MediaType, Response, Uri}
@@ -7,6 +8,7 @@ import org.http4s.client.Client
 import org.http4s.dsl.io.*
 import org.http4s.headers.`Content-Type`
 import org.typelevel.ci.CIString
+import org.typelevel.log4cats.{LoggerFactory, SelfAwareStructuredLogger}
 
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
@@ -86,22 +88,31 @@ object AssetCache {
   def build(
       dir: os.Path,
       urls: List[String],
-      client: Client[IO]
-  ): IO[AssetCache] =
+      client: Client[IO],
+      loggerFactory: LoggerFactory[IO] = Logging.console
+  ): IO[AssetCache] = {
+    val log = loggerFactory.getLoggerFromName("fh.view.runtime.AssetCache")
     IO.blocking(os.makeDir.all(dir)) *>
       urls.distinct
         .traverse { url =>
-          cacheOne(dir, url, client).attempt.flatMap {
+          cacheOne(dir, url, client, log).attempt.flatMap {
             // Relative (resolves via the page's <base href>) so the same
             // rendered HTML works directly and behind the ingress prefix.
             case Right(name) => IO.pure(Some(url -> s"assets/$name"))
             case Left(err)   =>
-              IO.println(
-                s"asset cache: keeping original URL for $url (${err.getMessage})"
-              ).as(None)
+              // WARN, not info: the page keeps the CDN URL, so every dashboard
+              // open now waits on jsdelivr for the script that runs
+              // `data-init` — which reads as "the dashboard feels sluggish"
+              // and nothing else says why (issue #75).
+              log
+                .warn(
+                  s"asset cache: keeping original URL for $url (${err.getMessage})"
+                )
+                .as(None)
           }
         }
         .map(entries => new AssetCache(dir, entries.flatten.toMap))
+  }
 
   /** Cached filename for a URL: short content-address (of the URL, not the
     * bytes) + the URL's filename, so names are unique per URL version but still
@@ -132,13 +143,15 @@ object AssetCache {
   private def cacheOne(
       dir: os.Path,
       url: String,
-      client: Client[IO]
+      client: Client[IO],
+      log: SelfAwareStructuredLogger[IO]
   ): IO[String] = {
     val name = hashName(url)
     IO.blocking(os.exists(dir / name)).flatMap {
       case true                           => IO.pure(name)
-      case false if name.endsWith(".css") => cacheCss(dir, url, name, client)
-      case false                          =>
+      case false if name.endsWith(".css") =>
+        cacheCss(dir, url, name, client, log)
+      case false =>
         fetch(client, url).flatMap(write(dir / name, _)).as(name)
     }
   }
@@ -153,7 +166,8 @@ object AssetCache {
       dir: os.Path,
       url: String,
       name: String,
-      client: Client[IO]
+      client: Client[IO],
+      log: SelfAwareStructuredLogger[IO]
   ): IO[String] =
     fetch(client, url).flatMap { bytes =>
       val css = new String(bytes, StandardCharsets.UTF_8)
@@ -174,9 +188,11 @@ object AssetCache {
           cached.attempt.flatMap {
             case Right(_)  => IO.pure(Some(ref -> subName))
             case Left(err) =>
-              IO.println(
-                s"asset cache: keeping ref $ref in $url (${err.getMessage})"
-              ).as(None)
+              log
+                .warn(
+                  s"asset cache: keeping ref $ref in $url (${err.getMessage})"
+                )
+                .as(None)
           }
         }
         .map(_.flatten.toMap)
@@ -198,7 +214,9 @@ object AssetCache {
     Uri
       .fromString(url)
       .liftTo[IO]
-      .flatMap(client.expect[Array[Byte]](_)(EntityDecoder.byteArrayDecoder))
+      .flatMap(
+        client.expect[Array[Byte]](_)(using EntityDecoder.byteArrayDecoder)
+      )
 
   private def write(path: os.Path, bytes: Array[Byte]): IO[Unit] =
     IO.blocking(os.write.over(path, bytes, createFolders = true))

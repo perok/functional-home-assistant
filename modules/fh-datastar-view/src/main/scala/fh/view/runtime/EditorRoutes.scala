@@ -1,6 +1,8 @@
 package fh.view.runtime
 
 import cats.effect.IO
+import fh.view.auth.{AuthGate, Requirement}
+import fh.view.build.{PklBuild, Site}
 import io.circe.Json
 import org.http4s.*
 import org.http4s.dsl.io.*
@@ -12,86 +14,132 @@ import org.http4s.server.staticcontent.*
   * dashboard sources on disk, with live preview and Pkl language support
   * (highlighting locally, completion/hover/diagnostics from the real pkl-lsp).
   *
-  * The front-end (HTML/CSS/JS) lives as real files under `resources/editor/`
-  * (`index.html`, `app.js`, `app.css`, `overlay.js`, `overlay.css`, plus the
-  * esbuild-bundled `vendor.js`) — NOT embedded in Scala strings — and is served
-  * as **static classpath resources** via http4s `StaticFile`. The editor's own
-  * assets are static; only the dashboard `.pkl` files are edited on the
-  * filesystem (via `/edit/file`).
+  * The front-end is never embedded in Scala strings; it is served as **static
+  * classpath resources** via http4s `StaticFile`. Its markup and CSS
+  * (`index.html`, `app.css`, `overlay.css`) are hand-written under
+  * `resources/editor/`; its JavaScript is authored in `src/js/editor/` and
+  * vite-bundled into MANAGED resources at the same classpath prefix, so both
+  * halves answer to `/editor/…` and only the build knows the difference.
+  * `app.js` carries CodeMirror and lsp-client inside it — there is no separate
+  * vendor bundle — and its hashed URL is injected into `index.html` from the
+  * build manifest ([[FrontendAssets]]). The editor's own assets are static;
+  * only the dashboard `.pkl` files are edited on the filesystem (via
+  * `/edit/file`).
   *
   *   - `GET  /edit` the editor page (index.html with base href + config
   *     injected).
-  *   - `GET  /edit/{app,vendor,overlay}.js|{app,overlay}.css` the static
-  *     assets.
-  *   - `GET  /edit/files` the editable source list (top-level `*.pkl` entries +
-  *     the `lib` sources), each with its absolute on-disk path (LSP document
-  *     URI).
-  *   - `GET  /edit/file/<rel>` read a source; `PUT` write it. A write lands on
-  *     disk and the existing `ServerApp.watchSources` reload repaints every
-  *     open preview — no coupling here.
+  *   - `GET  /edit/{app,overlay}.css` the static stylesheets. The JavaScript is
+  *     NOT here: it is content-hashed and served by `Server` from `/web`.
+  *   - `GET  /edit/files` the editable source list (top-level `*.pkl` + the
+  *     `lib` sources), each with its absolute on-disk path (LSP document URI)
+  *     and its `kind`.
+  *   - `GET  /edit/dashboards` the slugs currently served (the preview list).
+  *   - `GET  /edit/file/<rel>` read a source; `PUT` write it. A write that
+  *     MOVES the bytes lands on disk and the existing `ServerApp.watchSources`
+  *     reload repaints every open preview — no coupling here. One whose bytes
+  *     already match is skipped outright (`changed: false`), precisely so it
+  *     does not pay for that reload.
   *   - `GET  /lsp/pkl` the language-server WebSocket ([[LspBridge]]).
   *
-  * Editing is **deliberately ungated** for now, safe only because the server
-  * binds loopback by default (see the plan's "Deferred: feature gate +
-  * security" section). The write path is still clamped: only `<name>.pkl` and
-  * `lib/<name>.pkl` under the dashboards dir, each segment matching
-  * [[AssetCache.SafeName]] (which rejects `..` and slashes) — no traversal.
+  * Every route here is **admin-only** — the `/lsp/pkl` WebSocket included —
+  * declared per route through [[admin]] (ADR 0023). The write path is clamped
+  * independently of that: only `<name>.pkl` and `lib/<name>.pkl` under the
+  * dashboards dir, each segment matching [[AssetCache.SafeName]] (which rejects
+  * `..` and slashes) — no traversal.
   *
   * `dump.pkl` is excluded everywhere: it's the generated, gitignored dump, not
   * an author source.
   */
 final class EditorRoutes(
     dashboardsDir: os.Path,
+    // Every route here declares `Requirement.Admin` through this (ADR 0023).
+    gate: AuthGate,
+    // `None` means no LSP: the editor still serves, without completion.
     pklLspJar: Option[os.Path],
-    defaultSlug: String
+    // Read per request from the live site, never captured: both change while
+    // the editor is open — that is the point of editing the entrypoint.
+    defaultSlug: IO[String],
+    liveSlugs: IO[List[String]]
 ) {
 
+  /** Admin, for every route here — declared ONCE over the whole group rather
+    * than on each, so a route added later inherits it instead of having to
+    * remember it (ADR 0023).
+    */
   def routes(wsb: WebSocketBuilder2[IO]): HttpRoutes[IO] =
-    HttpRoutes.of[IO] {
+    AuthGate.require(gate, Requirement.Admin) {
       case req @ GET -> Root / "edit" =>
-        serveAsset(req, "index.html")
+        (serveAsset(req, "index.html"))
 
       case req @ GET -> Root / "edit" / asset if staticAssets(asset) =>
-        serveAsset(req, asset)
+        (serveAsset(req, asset))
 
       case GET -> Root / "edit" / "files" =>
-        Ok(listFiles).map(
-          _.withContentType(`Content-Type`(MediaType.application.json))
+        (
+          listFiles.flatMap(
+            Ok(_).map(
+              _.withContentType(`Content-Type`(MediaType.application.json))
+            )
+          )
+        )
+
+      // The dashboards the instance is SERVING. Not derivable from the file
+      // list any more: a slug is a key in the entrypoint, so only the runtime
+      // knows what the sources currently evaluate to (ADR 0021).
+      case GET -> Root / "edit" / "dashboards" =>
+        (
+          liveSlugs
+            .map(slugs => Json.arr(slugs.map(Json.fromString)*).noSpaces)
+            .flatMap(
+              Ok(_).map(
+                _.withContentType(`Content-Type`(MediaType.application.json))
+              )
+            )
         )
 
       case req @ GET -> "edit" /: "file" /: rest =>
-        resolveEditable(rest) match {
+        (resolveEditable(rest) match {
           case None => NotFound()
           case _    =>
             fileService[IO](
               FileService.Config(dashboardsDir.toString, "edit/file")
             ).apply(req).getOrElseF(NotFound())
-        }
+        })
 
       case req @ PUT -> "edit" /: "file" /: rest =>
-        resolveEditable(rest) match {
+        (resolveEditable(rest) match {
           case None =>
             Forbidden("""{"error":"not an editable dashboard source"}""")
           case Some(p) =>
             req.bodyText.compile.string.flatMap { body =>
-              IO.blocking(os.write.over(p, body)) *> NoContent()
+              // A write whose bytes match what is already there is SKIPPED, not
+              // just reported. Touching the file fires the source watcher,
+              // which re-evaluates the whole site — seconds on a Pi, per
+              // `prepareRenderers`' own note — and swaps the renderer, which
+              // reloads every connected browser. So `fh write` with nothing to
+              // say used to cost every viewer their page.
+              IO.blocking {
+                val same = os.exists(p) && os.read(p) == body
+                if (!same) os.write.over(p, body)
+                !same
+              }.flatMap(saved(p, _))
             }
-        }
+        })
 
       case GET -> Root / "lsp" / "pkl" =>
-        pklLspJar match {
+        (pklLspJar match {
           case Some(jar) => LspBridge.wsResponse(wsb, jar)
           case None      =>
             ServiceUnavailable("""{"error":"pkl-lsp jar not available"}""")
-        }
+        })
     }
 
   /** The static editor assets (served verbatim); everything else under `/edit`
-    * is an API route. `index.html` is NOT here — it needs placeholder
-    * injection.
+    * is an API route. `index.html` is NOT here — it needs placeholder injection
+    * — and neither is any JavaScript: the bundles are content-hashed and served
+    * from `/web` ([[FrontendAssets]]).
     */
-  private val staticAssets =
-    Set("app.js", "vendor.js", "app.css", "overlay.js", "overlay.css")
+  private val staticAssets = Set("app.css", "overlay.css")
 
   /** Serve one static editor asset through http4s [[StaticFile]] straight from
     * the classpath (`/editor/…`) — content type from the extension, caching
@@ -109,45 +157,130 @@ final class EditorRoutes(
           */
         case resp if name.endsWith(".html") =>
           val base = Server.ingressPrefixOf(req).fold("/")(p => s"$p/")
-          val config = Json
-            .obj(
-              "defaultSlug" -> Json.fromString(defaultSlug),
-              "basePath" -> Json.fromString(base)
-            )
-            .noSpaces
 
-          resp.bodyText.compile.string
-            .map(_.replace("__BASE__", base).replace("__CONFIG__", config))
-            .map(s =>
-              resp
-                .withEntity(s)
-                .withContentType(`Content-Type`(MediaType.text.html))
-            )
+          (for {
+            slug <- defaultSlug
+            body <- resp.bodyText.compile.string
+          } yield {
+            val config = Json
+              .obj(
+                "defaultSlug" -> Json.fromString(slug),
+                "basePath" -> Json.fromString(base)
+              )
+              .noSpaces
+            body
+              .replace("__BASE__", base)
+              .replace("__CONFIG__", config)
+              // The editor's own bundle, by entry name: its filename carries
+              // a content hash, so the markup cannot spell it out. Relative,
+              // like every app URL, so it resolves against <base href>.
+              .replace("__APP_JS__", FrontendAssets.url("app"))
+          }).map(s =>
+            resp
+              .withEntity(s)
+              .withContentType(`Content-Type`(MediaType.text.html))
+          )
         case resp => IO.pure(resp)
       }
       .getOrElseF(
         NotFound("editor index.html not found on the classpath (/editor)")
       )
 
-  /** JSON list of editable sources: `{ name, path, slug? }`. `name` is the
-    * dashboards-relative path (the editor's identity + `GET/PUT` key), `path`
-    * the absolute file (the LSP `file://` document URI); entries carry their
-    * `slug` (filename sans `.pkl`) so the page can preview them.
+  /** The write response: `{ written, used, changed }`, where `changed` says
+    * whether the bytes MOVED (see the PUT route for why an identical write is
+    * skipped rather than merely reported), and `used` says whether the
+    * entrypoint actually READS this file — itself, something it imports, or a
+    * file a glob import matches ([[PklBuild.fileImports]], static analysis, no
+    * evaluation).
+    *
+    * Saving a file nothing reads is allowed and sometimes the point (writing a
+    * module before the key that names it, or the other way round), so this is a
+    * NOTE rather than a gate: the editor and `fh push --write` say so, and the
+    * author decides. A gate would have to refuse the first half of every
+    * two-file change.
+    *
+    * The answer is as of this instant, deliberately: it is re-derived from the
+    * sources on disk rather than from the running site's import set, so writing
+    * an entrypoint that names a module reports that module as used immediately,
+    * without waiting for the reload.
+    *
+    * `used: false` therefore means the analysis RAN and did not reach this file
+    * — an analysis that cannot run answers with a conservative superset
+    * ([[PklBuild.fileImports]]), so the note is never the confident wrong way
+    * round.
     */
-  private def listFiles: String = {
-    def entryJson(rel: String, p: os.Path, slug: Option[String]): Json =
-      Json.obj(
-        "name" -> Json.fromString(rel),
-        "path" -> Json.fromString(p.toString),
-        "slug" -> slug.fold(Json.Null)(Json.fromString)
-      )
+  private def saved(path: os.Path, changed: Boolean): IO[Response[IO]] =
+    IO.blocking(PklBuild.fileImports(dashboardsDir, Site.EntryFile))
+      .flatMap { reads =>
+        val used =
+          path == dashboardsDir / Site.EntryFile || reads.contains(path)
+        Ok(
+          Json
+            .obj(
+              "written" -> Json
+                .fromString(path.relativeTo(dashboardsDir).toString),
+              "used" -> Json.fromBoolean(used),
+              // Whether the bytes MOVED, not whether the request succeeded —
+              // `fh write` reports N files either way, and "wrote 6 files" for
+              // a push that changed nothing reads as work done.
+              "changed" -> Json.fromBoolean(changed)
+            )
+            .noSpaces
+        ).map(_.withContentType(`Content-Type`(MediaType.application.json)))
+      }
 
-    val top = os
-      .list(dashboardsDir)
-      .filter(p => os.isFile(p) && p.last.endsWith(".pkl"))
-      .map(p => entryJson(p.last, p, Some(p.last.stripSuffix(".pkl"))))
-      .toList
-      .sortBy(_.hcursor.get[String]("name").toOption)
+  /** JSON list of editable sources: `{ name, path, kind }`. `name` is the
+    * dashboards-relative path (the editor's identity + `GET/PUT` key), `path`
+    * the absolute file (the LSP `file://` document URI).
+    *
+    * `kind` is `entry` for the one entrypoint, `module` for any other top-level
+    * `*.pkl`, `lib` for a library module and `manifest` for `PklProject`. It
+    * replaced a per-file `slug`, which is no longer a property a FILE has: a
+    * dashboard is a key in the entrypoint (ADR 0021), so what is served comes
+    * from `GET /edit/dashboards`.
+    *
+    * Returns `IO` because it reads the filesystem: the scan owns its own
+    * `IO.blocking` so no caller has to know it blocks. Only the scan is inside
+    * it — turning the result into JSON is pure and stays on the compute pool.
+    */
+  private def listFiles: IO[String] =
+    IO.blocking(scanSources).map { case (top, lib, project) =>
+      def entryJson(rel: String, p: os.Path, kind: String): Json =
+        Json.obj(
+          "name" -> Json.fromString(rel),
+          "path" -> Json.fromString(p.toString),
+          "kind" -> Json.fromString(kind)
+        )
+
+      def sorted(entries: List[Json]): List[Json] =
+        entries.sortBy(_.hcursor.get[String]("name").toOption)
+
+      val topJson =
+        sorted(top.map { p =>
+          entryJson(
+            p.last,
+            p,
+            if (p.last == Site.EntryFile) "entry" else "module"
+          )
+        })
+      val libJson = sorted(lib.map(p => entryJson(s"lib/${p.last}", p, "lib")))
+      val projectJson =
+        project.map(p => entryJson(EditorRoutes.Manifest, p, "manifest")).toList
+
+      Json.arr((topJson ++ libJson ++ projectJson)*).noSpaces
+    }
+
+  /** The editable sources on disk: top-level entries, `lib/` modules, and the
+    * workspace manifest if it exists. Blocking — called only from
+    * [[listFiles]], inside its region.
+    */
+  private def scanSources: (List[os.Path], List[os.Path], Option[os.Path]) = {
+    def pklFilesIn(dir: os.Path): List[os.Path] =
+      if (os.exists(dir))
+        os.list(dir)
+          .filter(p => os.isFile(p) && p.last.endsWith(".pkl"))
+          .toList
+      else Nil
 
     // The workspace's own manifest — a real author file (it declares the package
     // dependencies), even though it has no `.pkl` extension. Editing it takes
@@ -155,23 +288,11 @@ final class EditorRoutes(
     // `PklProject.deps.json` in-process on the next build. The generated
     // lockfile itself, and the machine-specific `.fh/` files, stay hidden.
     val manifest = dashboardsDir / EditorRoutes.Manifest
-    val project =
-      if (os.exists(manifest))
-        List(entryJson(EditorRoutes.Manifest, manifest, None))
-      else Nil
-
-    val libDir = dashboardsDir / "lib"
-    val lib =
-      if (os.exists(libDir))
-        os.list(libDir)
-          .filter(p => os.isFile(p) && p.last.endsWith(".pkl"))
-          .filter(_.last != "dump.pkl")
-          .map(p => entryJson(s"lib/${p.last}", p, None))
-          .toList
-          .sortBy(_.hcursor.get[String]("name").toOption)
-      else Nil
-
-    Json.arr((top ++ lib ++ project)*).noSpaces
+    (
+      pklFilesIn(dashboardsDir),
+      pklFilesIn(dashboardsDir / "lib").filter(_.last != "dump.pkl"),
+      Option.when(os.exists(manifest))(manifest)
+    )
   }
 
   /** Resolve a request path (`<name>.pkl`, `lib/<name>.pkl`, or the workspace's

@@ -1,0 +1,420 @@
+/// The things you press: button, pill, toggle.
+module components.control
+
+import "../core/node.pkl" as nodes
+import "../core/slot.pkl" as slotMod
+import "../core/tap.pkl" as tapMod
+import "../core/text.pkl" as textMod
+import "../core/icon.pkl" as icons
+import "../core/simple.pkl" as simpleMod
+import "../hass.pkl"
+
+// What a pressable card says when it has nothing to press. `const` because it
+// is called from class bodies.
+const local function noAction(ctor: String): String =
+  "\(ctor): nothing happens on click — pass an `action`, or an `entity` whose "
+    + "domain implies one (the table is `hass/actions.pkl`)"
+
+/// Generic click button (service call or navigate). `action = null` falls back
+/// to the domain-derived action of the button's `entity`, and a button with
+/// neither is a BUILD error — see [[Button.tap]]. (Tab-bar entries are NOT
+/// buttons — see [[TabButton]].)
+class Button extends nodes.Node {
+  card = "button"
+  cardDef = new nodes.CardDef {
+    // A button that GOES somewhere is an `<a href>`, not a scripted click: the
+    // browser then gives it middle-click, open-in-new-tab, the status-bar
+    // preview, and a working click before Datastar has even loaded. `.button`
+    // is BeerCSS's element-independent button styling, so the two forms look
+    // the same (verified in beer.min.css: every button rule is
+    // `:is(button,.button)`). Only `label` is a declared slot — the other two
+    // are the two arms of one choice, so neither is always present.
+    //
+    // A button may carry a GLYPH, a label, or both. Icon-only is `round`
+    // (BeerCSS `circle small`), because a button with nothing but a glyph in a
+    // rectangle reads as a broken label, and round is what every framework and
+    // every phone means by "icon button". The shape travels as a slot rather
+    // than being derived in the template, because `{{^label}}` nested inside
+    // `{{#glyph}}` says the same thing in a form nobody can read.
+    //
+    // `lit` tints the control while its entity is on — a CLASS signal slot, so
+    // the state costs a frame and never a re-render. Absent unless asked for.
+    //
+    // A GLYPH button additionally places `busyShapeClass` while its call is in
+    // flight: BeerCSS paints a morphing shape around the icon, which is the
+    // in-flight affordance an icon has instead of a label going dim. A labelled
+    // button gets only what `tapMod.guard` brings.
+    template = """
+      {{#href}}<a class="button {{#round}}circle small{{/round}}{{^round}}card{{/round}}\(slotMod.ifSlot("lit")) {{lit}}\(slotMod.endIfSlot("lit"))"\(slotMod.ifSlot("lit")) \(slotMod.signalBind("lit"))\(slotMod.endIfSlot("lit")) href="{{{href}}}">{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</a>{{/href}}{{^href}}<button class="{{#round}}circle small{{/round}}{{^round}}card{{/round}}\(slotMod.ifSlot("lit")) {{lit}}\(slotMod.endIfSlot("lit"))"\(slotMod.ifSlot("lit")) \(slotMod.signalBind("lit"))\(slotMod.endIfSlot("lit")) data-on:click="\(tapMod.guardClick)\(tapMod.click)"\(slotMod.ifSlot("inert")){{#inert}} disabled{{/inert}} \(slotMod.signalBind("inert"))\(slotMod.endIfSlot("inert"))\(tapMod.guard){{#busyVisual}}{{#glyph}} \(tapMod.busyShapeClass){{/glyph}}{{/busyVisual}}>{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</button>{{/href}}
+      """
+    // `label` stays declared — every button has one, even when it is the empty
+    // string an icon-only button carries. `glyph`/`round`/`lit` do not: they are
+    // optional pieces, absent on the ordinary labelled button.
+    slots { "label" }
+    // A LABELLED button fills its layout cell — `:not(.circle)`, because a round
+    // one is sized by its SHAPE and stretching it to the cell's width made an
+    // oval. This rule's specificity (0,2,0) beats BeerCSS's own `.circle`
+    // (0,1,0), so it wins silently rather than being overridden by the
+    // framework; the exception has to be written here or not at all.
+    //
+    // A framework that sizes buttons to their
+    // label (BeerCSS does) left-aligns a short pill in a wide box: three nav
+    // buttons on one row came out ragged, spaced by leftover cell rather than by
+    // the gap. Every other card already fills its cell, so this is the cell
+    // contract catching up with them, not a button special case. `border-box`
+    // because a content-box button would add its padding on top of the 100% and
+    // overflow. Only a cell's own root: the popup ✕ and the offline-banner
+    // button live outside the layout and keep hugging their labels.
+    // A label longer than the button is a LABEL, not an overflow: frameworks
+    // size a button to one line of text (BeerCSS pins `block-size` to its
+    // `--_size`), so a two-word entity name spilled out of the pill sideways.
+    // WHAT it does instead is `core/text.pkl`'s to say — what is here is only
+    // the room to do it: a button that may take a second line must be free to
+    // grow down, and `min-block-size` keeps the resting height it had, so a
+    // one-line button is pixel-identical either way.
+    css = """
+      .fh-cell>:is(.button,button):not(.circle){inline-size:100%;box-sizing:border-box;
+      block-size:auto;min-block-size:2.5rem;padding-block:.5rem}
+      """
+  }
+  hidden entity: hass.Entity? = null
+  hidden label: (String|slotMod.Expr)? = null
+  /// A glyph before the label, as an MDI name (`mdi:power`). With `label = ""`
+  /// the button is icon-only and renders round — see [[iconButton]].
+  hidden icon: String? = null
+  /// Tint the control while its entity is on. Off by default: most buttons DO
+  /// something rather than reflecting a state, and a button that lit up for no
+  /// reason would be worse than one that never does. Needs an [[entity]].
+  hidden lit: Boolean = false
+  /// States of this button's own entity that make the press meaningless — HA's
+  /// `canOpen`/`canLock`/`canUnlock` are exactly this list per domain.
+  ///
+  /// ADDS to what the tap already refuses ([[tapMod.inertStates]]: the domain's
+  /// transitional states, plus availability on any service call) rather than
+  /// replacing it — so a button on a lock is inert mid-move exactly as that
+  /// lock's tile is, whether or not an author writes anything here. They
+  /// disagreed before, and no author could have predicted which they got.
+  hidden inertWhile: Listing<String> = new {}
+  /// What pressing it DOES. Defaults to the entity's domain action where the
+  /// button has an entity — and with neither, this FAILS the build: a button is
+  /// defined by what pressing it does, so not knowing that is not a state it
+  /// should reach. It used to default to `homeassistant/toggle` with an empty
+  /// entity id, so `(c.button) { label = "x" }` posted a call that could only
+  /// ever error at HA (issue #106).
+  hidden tapAction: tapMod.TapAction =
+    (if (entity != null) tapMod.byDomain(entity!!) else null)
+      ?? throw(noAction("c.button"))
+  // Copy the action's inline surfaces onto the node so the hoist lifts them.
+  inlineSurfaces = tapAction.inlineSurfaces
+  /// [[inertWhile]], once the one shape it cannot take has been refused.
+  ///
+  /// A button that GOES somewhere renders as `<a href>`, and `disabled` is a
+  /// FORM-CONTROL attribute — a link has no inert form at all short of dropping
+  /// its `href`, which would take middle-click and open-in-new-tab with it. So
+  /// the combination is refused at BUILD time rather than accepted and quietly
+  /// ignored: silently dropping the option is how a control ends up looking
+  /// guarded and not being it.
+  ///
+  /// It is the VALUE `tapRoute` reads and not a boolean beside it, because a
+  /// Pkl local is lazy: a check nothing forces is a check that never runs.
+  local authoredInert: Listing<String> =
+    // Only an AUTHORED list is an error on a link — a navigate contributes no
+    // states of its own, so a plain navigating button simply has none and never
+    // reaches this.
+    if (!inertWhile.isEmpty && tapAction.href != null)
+      throw("c.button: `inertWhile` needs a button, but this one navigates and "
+        + "renders as a link — `disabled` is a form-control attribute. Drop "
+        + "`inertWhile`, or give it a service tap.")
+    else if (entity == null) new Listing {}
+    else inertWhile
+  slots {
+    when (entity != null) {
+      ["entity_id"] = entity!!.entity_id
+    }
+    ["label"] = slotMod.labelSlot(entity, label)
+    when (icon != null) {
+      ["glyph"] = icons.mdiClass(icon!!)
+      // Round exactly when there is nothing but the glyph. `label` is the
+      // AUTHORED value, not the resolved slot: a button with an entity resolves
+      // to its friendly_name, and asking about that would make every
+      // icon-carrying entity button rectangular.
+      when (label == "") {
+        ["round"] = "1"
+      }
+    }
+    // INERT while the entity reads one of [[inertWhile]]: a REAL `disabled`, so
+    // the browser takes the control out of the tab order and refuses the click
+    // itself, and `button:disabled` dims it. A dimming class would have needed
+    // JS to mean anything — the difference between telling a keyboard user the
+    // control is unavailable and handing them one that silently does nothing.
+    //
+    // This is NOT the busy guard and does not replace it. Busy runs from click
+    // until the POST resolves — milliseconds — and ADR 0019 settled that it
+    // must NOT disable: a disabled button loses focus and fires no events,
+    // which is worse for a card than an inert one. This runs while the ENTITY
+    // is in a state that makes the press meaningless, which begins when HA
+    // accepts a command and ends when the hardware finishes, seconds later —
+    // and, because it reads state rather than a request, it also covers a lock
+    // someone else moved from a keypad or an automation.
+    //
+    // No click guard beside it: a disabled button fires no click event at all,
+    // so a `$inert ? '' :` prefix on `data-on:click` would be unreachable code.
+    // A host that CANNOT be disabled needs one — an entity card's tap is on an
+    // `<article>` — but that is that card's business, not this template's.
+    //
+    // The STATES are the tap's, not this card's: `inertWhile` here ADDS to the
+    // domain's transitional list rather than replacing it, so a button on a
+    // lock refuses a press mid-move exactly as the lock's tile does. Before
+    // that they disagreed, and no author could have predicted which.
+    when (lit && entity != null) {
+      // `""` for off — an empty string is the only falsy value a slot can
+      // produce, and `"false"` would read as ON. Opted in
+      // ([[simpleMod.enumOf]]).
+      ["lit"] = new slotMod.Slot {
+        transform = simpleMod.enumOf("on", "lit", "")
+        default = ""
+        bypassUnavailable = false
+        signal = slotMod.asClass("lit")
+      }
+    }
+    // The anchor form wins when the tap offers one; the other slot is then
+    // omitted entirely rather than emitted-and-ignored, so the node JSON says
+    // which element it is.
+    //
+    // `authoredInert` is read FIRST and deliberately, not for what it answers:
+    // it is where the anchor-plus-`inertWhile` refusal lives, the anchor arm
+    // never reaches `tapRoute`, and a Pkl local nothing forces never runs. Its
+    // value here is always `true` when it returns at all — the case that would
+    // make it false has thrown by then.
+    when (authoredInert.isEmpty && tapAction.href != null) {
+      ["href"] = tapAction.href!!
+    } else {
+      for (k, v in tapMod.tapRoute(tapAction, authoredInert, "disabled")) {
+        [k] = v
+      }
+    }
+    // Only the non-anchor arm carries the busy splice — an anchor is a
+    // navigate, which is never guarded (`busy = false`), so this can never
+    // name a slot the template does not place. The GUARD (`busy`) and the
+    // LOOK (`busyVisual`) are separate slots: the class binding behind
+    // `busyVisual` is the whole `fh-disabled`/`fh-loading` visual, and a tap
+    // with `busyVisual = false` still swallows re-clicks, just never dims.
+    when (tapAction.href == null && tapAction.busy) {
+      ["busy"] = "1"
+    }
+    when (tapAction.href == null && tapAction.busy && tapAction.busyVisual) {
+      ["busyVisual"] = "1"
+    }
+  }
+  // Fluent config (see [[EntityCard]]'s builder methods).
+  function entity(e: hass.Entity): Button = let (self = this) (self) { entity = e }
+  function label(l: String|slotMod.Expr): Button = let (self = this) (self) { label = l }
+  function icon(i: String): Button = let (self = this) (self) { icon = i }
+  function lit(l: Boolean): Button = let (self = this) (self) { lit = l }
+  /// See [[inertWhile]]: `c.button(…).entity(l).inertWhile(List("opening"))`.
+  function inertWhile(xs: List<String>): Button =
+    let (self = this) (self) { inertWhile = xs.toListing() }
+  function tapAction(a: tapMod.TapAction): Button = let (self = this) (self) { tapAction = a }
+}
+
+/// Put a refused switch back where the SERVER last had it.
+///
+/// [[Toggle.checked]] is two-way bound, so a press moves it immediately and
+/// waits to be confirmed. A refusal is exactly the case where confirmation
+/// never comes — HA changed nothing, so no state frame follows — and the switch
+/// then sits in the one position known to be wrong, until something unrelated
+/// moves the entity.
+///
+/// Truth is the `switched` slot: the SAME transform as `checked`, so this is a
+/// copy and not a mapping, but a shared server-owned signal rather than the
+/// node-scoped one `data-bind` writes into. Two signals is the point — a
+/// control that can be moved locally needs somewhere the local move cannot
+/// reach, which is the same split the slider makes between its committed value
+/// and `_slide`.
+const local restoreSwitch: String =
+  tapMod.restoreOnRefusal(
+    "$" + slotMod.signalRef("checked") + " = $" + slotMod.signalRef("switched")
+  )
+
+/// On/off control — BeerCSS's `.switch` (a checkbox styled as a MD3 switch:
+/// `<label class="switch"><input type="checkbox"><span></span></label>`).
+/// Unlike [[Button]]/[[Pill]], the checkbox itself must show which state it is
+/// IN, not just act on it, so `checked` is a live slot baked from the entity's
+/// own state — the same baked-attribute move as [[Slider]]'s fill, and for the
+/// same reason: an SSE morph only replaces markup, so the state must already be
+/// in the HTML it sends rather than something a client script re-derives.
+/// Always calls a service (there is no href arm — a checkbox cannot be an
+/// `<a>`), defaulting to the same domain-resolved toggle every [[Button]] does.
+///
+/// A refused command puts the switch BACK — see [[restoreSwitch]]. Optimism
+/// plus no rollback is the one combination that leaves a control lying.
+class Toggle extends nodes.Node {
+  card = "toggle"
+  cardDef = new nodes.CardDef {
+    template = """
+      <article class="card row toggle" \(slotMod.signalBind("switched"))\(tapMod.guardLook)>
+        <span class="max \(textMod.BOX)">\(textMod.run("label"))</span>
+        <label class="switch">
+          <input type="checkbox" value="on" {{#checked}}checked{{/checked}} \(slotMod.signalBind("checked")) data-on:click="\(tapMod.guardClick)\(tapMod.click)"\(slotMod.ifSlot("inert")){{#inert}} disabled{{/inert}} \(slotMod.signalBind("inert"))\(slotMod.endIfSlot("inert")) \(restoreSwitch)\(tapMod.guardMechanism) />
+          <span></span>
+        </label>
+      </article>
+      """
+    slots { "label" }
+    // The `toggle` class exists only so this rule has something to name — a
+    // framework's `.row` is a shared class and must not be retuned through it.
+    //
+    // A flex item's automatic minimum size is its CONTENT, so a long label
+    // pushed the switch off the card's right edge — the control the card exists
+    // for, gone. The label giving way is `core/text.pkl`'s `min-inline-size:0`;
+    // this is the other half, and it has to be said here: the SWITCH must never
+    // be the thing that shrinks.
+    css = """
+      .card.row.toggle>.switch{flex:0 0 auto}
+      """
+  }
+  hidden entity: hass.Entity
+  hidden label: (String|slotMod.Expr)? = null
+  /// Defaults to the entity's domain action. A switch that cannot be switched
+  /// is not a thing, so a domain with no action ([[hass_actions]]) fails the
+  /// build here rather than rendering a checkbox that does nothing — use
+  /// [[EntityCard]] (which falls back to more-info) for those.
+  hidden tapAction: tapMod.TapAction = tapMod.byDomain(entity) ?? throw(noAction("c.toggle"))
+  inlineSurfaces = tapAction.inlineSurfaces
+  slots {
+    ["entity_id"] = entity.entity_id
+    ["label"] = slotMod.labelSlot(entity, label)
+    // Opt OUT of the unavailable bypass (unlike a display value, "unavailable"
+    // is not a checkbox state) so an unavailable entity just renders unchecked.
+    //
+    // A TWO-WAY signal slot (ADR 0017), which is the only correct binding for a
+    // checkbox: `data-attr:checked` sets the ATTRIBUTE, and after load the
+    // browser reads the PROPERTY, so an attribute patch would move nothing. The
+    // value is `"on"`/`""` to match the input's `value="on"` — the bundle's
+    // checkbox setter compares a string signal against `el.value` — and the
+    // template renders the initial `checked` attribute from a mustache SECTION
+    // off the same slot, which an empty string collapses. So the document (and
+    // a JS-less reader) still gets the state in the markup, and the patch form
+    // withholds it because the signal owns it from then on.
+    //
+    // Two-way is a small behaviour change worth naming: a click moves the
+    // signal immediately, so the switch flips optimistically. What confirms it
+    // is the next state frame — and a REFUSED command produces none, which is
+    // why [[restoreSwitch]] exists rather than the flip simply being undone by
+    // the traffic that follows.
+    ["checked"] = new slotMod.Slot {
+      transform = simpleMod.enumOf("on", "on", "")
+      default = ""
+      bypassUnavailable = false
+      signal = slotMod.asBind
+    }
+    // The same reading as `checked`, on a SHARED signal instead of the
+    // node-scoped one `data-bind` owns — so there is a copy of the truth the
+    // press cannot overwrite. It rides a `data-` attribute because it needs
+    // some binding to exist and this is the honest one: the value is data about
+    // the control, and having it in the DOM makes the rollback inspectable
+    // rather than something only a signals dump can show.
+    ["switched"] = new slotMod.Slot {
+      transform = simpleMod.enumOf("on", "on", "")
+      default = ""
+      bypassUnavailable = false
+      signal = slotMod.asAttr("data-switched")
+    }
+    for (k, v in tapMod.tapRoute(tapAction, new Listing {}, "disabled")) {
+      [k] = v
+    }
+    when (tapAction.busy) {
+      ["busy"] = "1"
+    }
+    when (tapAction.busy && tapAction.busyVisual) {
+      ["busyVisual"] = "1"
+    }
+  }
+  function label(l: String|slotMod.Expr): Toggle = let (self = this) (self) { label = l }
+  function tapAction(a: tapMod.TapAction): Toggle = let (self = this) (self) { tapAction = a }
+}
+
+/// Static toggle as a call — see [[Toggle]].
+function toggle(e: hass.Entity): Toggle = new Toggle { entity = e }
+/// The SAME constructor as a VALUE, for a query's render positions (mirrors
+/// [[entityCard]]).
+hidden toggle: (hass.Entity) -> Toggle = (e) -> toggle(e)
+
+/// Compact tappable pill — the same two arms as [[Button]] (navigate = `<a>`,
+/// service call = `<button>`), styled as a chip and sized to its label instead
+/// of to its cell. For a run of small choices — floors, scenes, modes — where a
+/// row of full-width buttons would read as a stack of unrelated slabs.
+///
+/// Its cell defaults to `fh-hug` (the same self-defaulted-cell move [[Tabs]]
+/// makes with `fh-cols-full`), which is the whole difference in layout terms:
+/// a hugging cell packs at the container's gap, so pills in a [[Grid]] centre
+/// and wrap as one group. An author still overrides it — `columns(n)` and
+/// `fullWidth()` compose on top, and a pill that spans a grid column is a
+/// perfectly reasonable thing to ask for.
+class Pill extends nodes.Node {
+  card = "pill"
+  cardDef = new nodes.CardDef {
+    // BeerCSS's `.chip`: outlined, `--on-surface-variant` text, pill radius,
+    // and already `box-sizing:border-box` (unlike `.button`, which is
+    // content-box — see the theme's `.fh-cell>.button` rule).
+    // A chip is already pill-shaped, so unlike [[Button]] there is no round
+    // variant: a glyph-only chip is a chip with a glyph in it.
+    template = """
+      {{#href}}<a class="chip" href="{{{href}}}">{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</a>{{/href}}{{^href}}<button class="chip" data-on:click="\(tapMod.guardClick)\(tapMod.click)"\(slotMod.ifSlot("inert")){{#inert}} disabled{{/inert}} \(slotMod.signalBind("inert"))\(slotMod.endIfSlot("inert"))\(tapMod.guard){{#busyVisual}}{{#glyph}} \(tapMod.busyShapeClass){{/glyph}}{{/busyVisual}}>{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</button>{{/href}}
+      """
+    slots { "label" }
+  }
+  cell = new nodes.Cell { classes { "fh-hug" } }
+  hidden entity: hass.Entity? = null
+  hidden label: (String|slotMod.Expr)? = null
+  /// A glyph before the label, as an MDI name — see [[Button.icon]]. With
+  /// `label = ""` the chip is glyph-only.
+  hidden icon: String? = null
+  /// See [[Button.tapAction]] — same rule, same build error.
+  hidden tapAction: tapMod.TapAction =
+    (if (entity != null) tapMod.byDomain(entity!!) else null)
+      ?? throw(noAction("c.pill"))
+  inlineSurfaces = tapAction.inlineSurfaces
+  slots {
+    when (entity != null) {
+      ["entity_id"] = entity!!.entity_id
+    }
+    ["label"] = slotMod.labelSlot(entity, label)
+    when (icon != null) {
+      ["glyph"] = icons.mdiClass(icon!!)
+    }
+    when (tapAction.href != null) {
+      ["href"] = tapAction.href!!
+    } else {
+      // A chip's root IS a `<button>`, so it takes the same real `disabled` a
+      // [[Button]] does — it just has no authored list of its own to add.
+      for (k, v in tapMod.tapRoute(tapAction, new Listing {}, "disabled")) {
+        [k] = v
+      }
+    }
+    when (tapAction.href == null && tapAction.busy) {
+      ["busy"] = "1"
+    }
+    when (tapAction.href == null && tapAction.busy && tapAction.busyVisual) {
+      ["busyVisual"] = "1"
+    }
+  }
+  function entity(e: hass.Entity): Pill = let (self = this) (self) { entity = e }
+  function label(l: String|slotMod.Expr): Pill = let (self = this) (self) { label = l }
+  function icon(i: String): Pill = let (self = this) (self) { icon = i }
+  function tapAction(a: tapMod.TapAction): Pill = let (self = this) (self) { tapAction = a }
+}
+
+/// A service/navigate button as a call: `c.button("Close", c.tap.closePopup())`.
+function button(l: String, a: tapMod.TapAction): Button = new Button { label = l; tapAction = a }
+/// The compact form of the same thing: `c.pill("Underetasje", c.tap.navigate("under"))`.
+function pill(l: String, a: tapMod.TapAction): Pill = new Pill { label = l; tapAction = a }
+
+/// A round icon button — [[Button]] with a glyph and no label:
+///
+///     c.iconButton("mdi:power", c.tap.toggle)
+///     c.iconButton("mdi:power", c.tap.toggle).entity(l).lit(true)
+///
+/// `const` so a class body can call it (the slider's head actions do).
+const function iconButton(i: String, a: tapMod.TapAction): Button =
+  new Button { icon = i; label = ""; tapAction = a }

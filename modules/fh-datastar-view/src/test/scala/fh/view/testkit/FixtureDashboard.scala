@@ -4,10 +4,10 @@ import fh.view.model.{
   Activation,
   CardDef,
   Dashboard,
-  DynamicCase,
   LayoutNode,
   Op,
   Predicate,
+  Region,
   SlotSource,
   Surface
 }
@@ -29,12 +29,13 @@ import io.circe.Json
 object FixtureDashboard {
 
   /** The card templates every fixture dashboard is rendered over: a `col`
-    * container, a numeric `reading` (state + a unit pulled from `$attr`), and a
+    * container, a numeric `reading` (state + a unit read from `attr`), and a
     * named on/off `light` tile.
     */
   val cards: Map[String, CardDef] = Map(
     "col" -> CardDef(
-      """<div class="col">{{#children}}{{{html}}}{{/children}}</div>"""
+      """<div class="col">{{#children}}{{{html}}}{{/children}}</div>""",
+      regions = Map("children" -> Region())
     ),
     "reading" -> CardDef(
       """<div class="reading"><span>{{state}}</span> {{unit}}</div>""",
@@ -44,7 +45,7 @@ object FixtureDashboard {
       """<div class="light">{{name}}: <span>{{state}}</span></div>""",
       slots = List("state")
     ),
-    // The per-entity card a dynamic group renders each matching member through:
+    // The per-entity card a candidate set renders each matching member through:
     // the member's own live friendly_name + state (both inherited from the
     // matched entity, so one card serves every member).
     "member" -> CardDef(
@@ -53,35 +54,54 @@ object FixtureDashboard {
     )
   )
 
-  /** A dynamic group over `query`, rendering each matching entity through the
-    * `member` card. The single always-matching case names no entity — its slots
-    * inherit the matched entity — so a group's members are seeded through the
-    * [[Scene]]'s `.entity(..)` extras (a group selects by query, so it never
-    * names a member in a slot for the reference scan to find).
+  /** A candidate set over `candidates`, rendering each through the `member`
+    * card. `guard` is the presence condition every member carries — `None` for
+    * "always shown". A member's slots name its own entity, because the build
+    * knows the candidate.
     */
-  def group(query: Predicate): LayoutNode.Dynamic =
-    LayoutNode.Dynamic(
-      query = Some(query),
-      cases = List(
-        DynamicCase(
-          when = Predicate.Cmp("domain", Op.Ne, Json.fromString("__never__")),
-          card = "member",
-          slots = Map(
-            "name" -> SlotSource(transform = "$attr.friendly_name"),
-            "state" -> SlotSource()
+  def set(
+      candidates: List[String],
+      guard: Option[Predicate] = None
+  ): LayoutNode.SetNode =
+    LayoutNode.SetNode(
+      candidates = candidates,
+      members = candidates.map { id =>
+        id -> LayoutNode.SetMember(
+          List(
+            LayoutNode.SetClause(
+              when = guard,
+              node = LayoutNode.Component(
+                "member",
+                slots = Map(
+                  "entity_id" -> SlotSource(literal = Some(id)),
+                  "name" -> SlotSource(
+                    transform =
+                      "('friendly_name' in attr ? attr['friendly_name'] : entity_id)"
+                  ),
+                  "state" -> SlotSource()
+                )
+              )
+            )
           )
         )
-      )
+      }.toMap
     )
 
-  /** A `reading` bound to `e`: its `$state` plus its `unit_of_measurement`
-    * attribute.
+  /** The `state == s` guard a set's members are usually presence-tested on. */
+  def stateIs(s: String): Predicate =
+    Predicate.Cmp("state", Op.Eq, Json.fromString(s))
+
+  /** A `reading` bound to `e`: its `state` plus its `unit_of_measurement`
+    * attribute (guarded — an absent attribute reads nothing, not an error).
     */
   def reading(e: FixtureEntity): LayoutNode.Component =
     component(
       "reading",
       "state" -> SlotSource(Some(e.entityId)),
-      "unit" -> SlotSource(Some(e.entityId), "$attr.unit_of_measurement")
+      "unit" -> SlotSource(
+        Some(e.entityId),
+        "('unit_of_measurement' in attr ? attr['unit_of_measurement'] : '')"
+      )
     )
 
   /** A named `light` tile bound to `e`, labelled `label`. */
@@ -92,17 +112,12 @@ object FixtureDashboard {
       "state" -> SlotSource(Some(e.entityId))
     )
 
-  /** "Entity `id` is in state `state`" — the entity_id-pinned condition a
-    * state-activated surface flips on (the [[fh.view.model.Activation.State]]
-    * idiom from ADR 0007).
+  /** "Entity `id` is in state `state`" — the condition a state-activated
+    * surface flips on (the [[fh.view.model.Activation.State]] idiom from ADR
+    * 0007). It NAMES its entity: a state condition has no subject to supply.
     */
   private def entityIs(id: String, state: String): Predicate =
-    Predicate.And(
-      List(
-        Predicate.Cmp("entity_id", Op.Eq, Json.fromString(id)),
-        Predicate.Cmp("state", Op.Eq, Json.fromString(state))
-      )
-    )
+    Predicate.Cmp("state", Op.Eq, Json.fromString(state), entity = Some(id))
 
   /** An If/else dashboard (ADR 0007's state-activated surfaces): an `ifhost`
     * root (id "c") whose `then` branch is baked while `condEntity` holds
@@ -120,9 +135,8 @@ object FixtureDashboard {
   ): Dashboard =
     Dashboard(
       cards = cards + ("ifhost" -> CardDef(
-        template = "{{{self}}}{{{mount}}}",
-        mount =
-          Some("""<div class="ifhost" id="{{mountId}}">{{{branch}}}</div>""")
+        template = """<div class="ifhost" id="{{hostId}}">{{{branch}}}</div>""",
+        regions = Map("branch" -> Region(Region.Baked))
       )),
       card = LayoutNode.Component("ifhost"),
       surfaces = Map(
@@ -138,9 +152,8 @@ object FixtureDashboard {
           bakeInto = Some("c"),
           bakeAs = Some("branch"),
           bakeIndex = Some(1),
-          activation = Activation.State(
-            Predicate.Cmp("domain", Op.Ne, Json.fromString("__never__"))
-          )
+          // An empty conjunction is vacuously true and reads no entity.
+          activation = Activation.State(Predicate.And(Nil))
         )
       ),
       slug = "ifhome",

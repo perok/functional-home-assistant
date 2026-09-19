@@ -1,23 +1,30 @@
-/// The base module every dashboard entry `amends`. It carries the scaffold that
-/// used to be copy-pasted into each entry — the reflected card registry and the
-/// shared theme — so an entry opens with `amends "lib/entry.pkl"` and sets only
-/// `card` (plus an optional `title`/`surfaces`, or a `theme` override).
+/// ONE dashboard: the scaffold that used to be copy-pasted into each entry —
+/// the reflected card registry and the shared theme — so a dashboard is written
+/// as `card` (plus an optional `title`/`surfaces`, or a `theme` override) and
+/// nothing else.
 ///
-/// Slug = the amending entry's filename (ServerApp forces it at decode time).
+/// You reach this module through `site.pkl`'s `dashboards` mapping, either
+/// inline (`["home"] { card = ... }`) or as a file of its own that
+/// `amends "@fh-dashboard/entry.pkl"` and is imported into a key. The SLUG is
+/// that mapping key — never the filename (ADR 0021).
+///
 /// `title` feeds the page `<title>` (Server falls back to the slug when null);
-/// `omitNullProperties` drops it from the wire JSON when left unset, so a
-/// title-less entry is byte-identical to the pre-base-module scaffold.
+/// `omitNullProperties` drops it from the wire JSON when left unset.
 ///
-/// AUTHORING NOTE — the required `card`: because `card` has no default here, an
-/// amending entry that forgets to set it fails with
+/// AUTHORING NOTE — the required `card`: because `card` has no default here, a
+/// dashboard that forgets to set it fails with
 ///   "Tried to read property `card` but its value is undefined"
-/// whose caret points at THIS module's `card` line (below), NOT at the offending
-/// entry (Pkl reports a missing required property at the class/base definition —
-/// see the CLAUDE.md Pkl gotchas). If you hit that error, the fix is in YOUR
-/// entry: assign `card = new c.Column { ... }` (or another `c.Node`).
+/// whose caret points at THIS module's `card` line (below), NOT at your own
+/// source (Pkl reports a missing required property at the class/base definition
+/// — see the CLAUDE.md Pkl gotchas). The trailing "occurred when rendering path
+/// `dashboards[<slug>].card`" names WHICH dashboard, though. The fix is there:
+/// assign `card = new c.Column { ... }` (or another `c.Node`).
 module entry
 
 import "components.pkl" as c
+import "core/access.pkl" as accessMod
+import "core/css.pkl" as cssMod
+import "core/text.pkl" as textMod
 import "theme-beer.pkl" as themeMod
 
 /// The component modules whose card classes this dashboard can use. The
@@ -37,11 +44,40 @@ import "theme-beer.pkl" as themeMod
 /// Your cards must live in their own module (not inline in this entry): classes
 /// in an amending module need `local`, and `local` classes are invisible to
 /// reflection, so an inline card class would never register.
-hidden componentModules: Listing<Module> = new { c }
+hidden componentModules: Listing<Module> = new {
+  for (m in c.modules) { m }
+}
 
-/// The reflected card registry (each card class's template + slots), collected
-/// from [[componentModules]]. Two modules claiming one card name is an error.
-cards = c.cardsOf(componentModules.toList())
+/// The reflected card registry (each card class's template, slots and CSS),
+/// collected from [[componentModules]]. Two modules claiming one card name is an
+/// error.
+///
+/// Built with the THEME, because this is the one point where a theme's own class
+/// names reach card markup (`core/node.pkl`'s `cardsWith` — the spinner is
+/// today's only user). A card's markup is a class-level default that cannot see
+/// the theme; the registry is an ordinary call that can.
+cards = c.cardsWith(componentModules.toList(), theme.classes)
+
+/// What every card on THIS dashboard does with a label longer than its box:
+/// `wrap` it onto a second line, `clip` it with an ellipsis (the default), or
+/// `scroll` it past its box and back. See `core/text.pkl`.
+///
+/// One card differs by saying so itself — `c.entityCard(e).textOverflow("wrap")`
+/// — which wins wherever it sits, this included.
+///
+/// `hidden`, because it is spelled out in [[css]] below: the wire model carries
+/// the rules, not the choice that produced them.
+hidden textOverflow: textMod.Overflow = textMod.defaultOverflow
+
+/// The CSS every dashboard gets whatever its theme: the `fh-` layout contract,
+/// the `--fh-*` variables the cards read, and the classes the runtime itself
+/// emits (`core/css.pkl`). Assigned here rather than reached through the theme
+/// precisely so a theme cannot drop it — it may only override it, since the
+/// renderer emits it first (ADR 0020).
+///
+/// [[textOverflow]] lands LAST of the base rules and at `:root`, so it beats the
+/// `var()` fallbacks and loses to any node that named a mode of its own.
+css = cssMod.baseCss + "\n" + textMod.rootCss(textOverflow)
 
 /// The shared theme — BeerCSS Material Design 3 (`theme-beer.pkl`; see
 /// `theme.pkl` for the contract + roster). Override in an entry that wants a
@@ -63,6 +99,22 @@ title: String? = null
 ///   surfaces { ["detail"] { body { c.title("...") c.entityCard(e) } } }
 /// A non-popup surface is an explicit `["x"] = new c.SurfaceDef { ... }`.
 surfaces: Mapping<String, c.SurfaceDef> = new { default = (_) -> new c.PopupSurface {} }
+
+/// Who may see this dashboard (issue #89). `null` — the default — means
+/// "whatever the site says", so the rule is written in ONE place unless a
+/// particular dashboard differs:
+///
+///     access = c.access.public                       // a hallway tablet
+///     access = c.access.admin                        // the admin-only one
+///     access = c.access.users(List(dump.users.peri))  // just these people
+///
+/// Home Assistant is the identity provider — these are HA's users and HA's
+/// admin role, not a second account system (see `core/access.pkl`).
+///
+/// `omitNullProperties` drops it from the wire JSON when unset, which is what
+/// lets the backend tell "inherit the site's" apart from "this dashboard really
+/// does want the default".
+access: accessMod.Access? = null
 
 /// The root of the layout tree — the ONE property every entry must set (see the
 /// authoring note above about the error location when it is forgotten).

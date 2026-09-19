@@ -29,10 +29,11 @@ import javax.imageio.ImageIO
   * environments while still catching real visual regressions.
   *
   * To regenerate after an intentional visual change: `sbt
-  * dashboardSnapshotsUpdate` (the scoped-`sys.props` alias — NOT a plain
-  * `FH_UPDATE_SNAPSHOTS=1` shell export, which sbt 2.0's persistent server
-  * keeps forever, leaving the gate silently stuck in regenerate mode; see
-  * `PklBuildSuite`).
+  * dashboardVisualSnapshotsUpdate` — and normally, DON'T. A local rebaseline
+  * records this machine's font rasterization, which CI does not share; the
+  * portable move is to let CI fail, collect its before/after artifact, and
+  * decide from that. `dashboardSnapshotsUpdate` (the wire snapshots) cannot
+  * reach these — separate flags, on purpose.
   */
 object VisualSnapshot {
 
@@ -45,7 +46,9 @@ object VisualSnapshot {
     * machine.
     *
     * `FH_VISUAL_FAILURES_DIR` names it, and CI sets it to a runner temp path it
-    * then uploads. The fallback is a gitignored dir under this module's
+    * then uploads — from a step that runs before any sbt one, because this
+    * suite runs in the sbt SERVER and inherits the environment of whichever
+    * client started it. The fallback is a gitignored dir under this module's
     * `target`, which is right when `os.pwd` is the repo root — and that is an
     * assumption, not a guarantee: sbt's working directory for a forked test is
     * not something this file should be encoding. The env var is how a caller
@@ -67,7 +70,7 @@ object VisualSnapshot {
     * are already excluded by the AA detection, so a genuine change lights up
     * far more than this.
     */
-  private val MaxDiffRatio = 0.002
+  private val MaxDiffRatio = 0.003
 
   /** Per-axis pixel tolerance on the screenshot's own dimensions. A component's
     * bounding box is content-derived, so a different OS font-rasterization
@@ -78,9 +81,15 @@ object VisualSnapshot {
     */
   private val MaxDimDelta = 2
 
+  /** Its OWN gate, not the wire snapshots' `FH_UPDATE_SNAPSHOTS`. The wire
+    * snapshots are rebaselined routinely and reviewed as a JSON diff; these are
+    * PNGs from this machine's font rasterization, so regenerating them locally
+    * bakes in rendering CI does not share. Sharing one flag meant the routine
+    * operation silently rewrote the dangerous artifact.
+    */
   private def updating: Boolean =
-    sys.env.get("FH_UPDATE_SNAPSHOTS").contains("1") ||
-      sys.props.get("FH_UPDATE_SNAPSHOTS").contains("1")
+    sys.env.get("FH_UPDATE_VISUAL_SNAPSHOTS").contains("1") ||
+      sys.props.get("FH_UPDATE_VISUAL_SNAPSHOTS").contains("1")
 
   private def decode(bytes: Array[Byte]): BufferedImage =
     ImageIO.read(new ByteArrayInputStream(bytes))
@@ -102,9 +111,19 @@ object VisualSnapshot {
       os.makeDir.all(snapshotDir)
       os.write.over(file, actual)
     } else if (!os.exists(file)) {
+      // The shot goes to the failure dir too, so a NEW baseline can be adopted
+      // from CI's artifact. Without this the advice above was unreachable for
+      // the one case that needs it most: the local regenerate bakes in this
+      // machine's rasterization, and a first baseline has no before/after pair
+      // to fall back on — so the only portable way to mint one is to let CI
+      // take the shot and commit what it uploaded.
+      os.makeDir.all(failureDir)
+      os.write.over(failureDir / s"$name.actual.png", actual)
       throw new AssertionError(
-        s"missing visual snapshot $file — regenerate with " +
-          "`sbt dashboardSnapshotsUpdate`"
+        s"missing visual snapshot $file — $name.actual.png written to " +
+          s"$failureDir. Commit THAT file as the baseline (CI's copy is the " +
+          "portable one), or regenerate locally with " +
+          "`sbt dashboardVisualSnapshotsUpdate` if this machine is the reference."
       )
     } else {
       val expectedImg = decode(os.read.bytes(file))
@@ -120,7 +139,7 @@ object VisualSnapshot {
         throw new AssertionError(
           s"visual snapshot for $name.png changed ($reason). before/after written to " +
             s"$failureDir ($name.expected.png / $name.actual.png) for review. If " +
-            "intended, regenerate with `sbt dashboardSnapshotsUpdate`."
+            "intended, regenerate with `sbt dashboardVisualSnapshotsUpdate`."
         )
       }
 

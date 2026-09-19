@@ -119,6 +119,29 @@ snapshots). Anti-flake rules: never `sleep` (Playwright retrying assertions or a
 bounded `eventually` poll), drive time only through `fake.emit`, one browser per
 suite with a fresh `BrowserContext` + bound server per test.
 
+#### Known gap: every smoke suite drives ONE page, and never a reconnect
+
+`withPage` opens a single `Page` and holds it open for the test. Nothing here has
+two browsers on one dashboard at once, and nothing backgrounds a tab or lets its
+SSE stream drop and re-open. So the browser half of the loop is checked only in
+its steady state, by one observer.
+
+That is a real blind spot, not a theoretical one: both halves of the bug fixed in
+PR #76 lived in it. The page shipped `filterSignals:{include:'null'}` — so every
+reconnect arrived carrying no cursor, no `conn` and no tab selection — and a
+reconnecting session was answered from `holds` it had never acknowledged, leaving
+a returning tab permanently stale. A single always-connected page sees neither,
+and the multi-client tests that would have (`LiveStreamSuite`) are wire-level,
+where there is no Datastar client to close and reopen a stream.
+
+Closing it means two `Page`s off one `BrowserContext` (two tabs of one browser,
+which is also what shares `sessionStorage`), one acting while the other observes,
+plus a visibility round trip on the observer. Deliberately not done here: the
+server-side contract is now pinned by `AckedResumeSuite` at the level the failure
+actually lives, and this would add browser time to every CI run to re-check it
+one layer out. Worth adding when a bug is found that only a second real page can
+see.
+
 #### Known limitation: native form controls aren't snapshot-portable
 
 `ComponentVisualSuite."slider looks right"` screenshots a native
@@ -133,6 +156,23 @@ correct (fixture brightness 180) in every run; the evaluated model/HTML/CSS is
 byte-identical; and it reproduces on commits that never touched the slider. It
 sits right at the 0.2 % budget, so it is intermittent (usually green on a
 full-suite re-run).
+
+**A percentage budget makes a LARGE snapshot blind to the regression it exists
+for**, and that is not hypothetical — it was measured on a run where every
+rebaselined image had been generated locally with MDI unloaded, so all of them
+were missing their glyphs:
+
+| snapshot | pixels | 0.3 % budget | missing glyphs | result |
+|---|---|---|---|---|
+| `lock-controls` | 35,360 | 106 | ~190 | fails |
+| `tabs` | 163,540 | 490 | ~190 | passes |
+| `full-dashboard` | 630,000 | 1,890 | ~950 | passes |
+
+The same defect, in the same pixels, caught only on the smallest image. So a
+green full-dashboard proves less than it looks, and a diff budget wants a floor
+in ABSOLUTE pixels rather than a bare ratio. Do not guess the number: that pair
+says ~190 px was ALL glyph, so genuine cross-environment antialiasing noise is
+well under it — measure it off a clean CI pair before picking a cap.
 
 **Do not** regenerate the baseline locally (`sbt dashboardSnapshotsUpdate`) to
 "fix" it — that overwrites the CI-portable image with one machine's rendering and
@@ -152,6 +192,96 @@ are real and hard to re-derive from the outside — but pull their scaffolding f
 suites (`RendererSuite` probes, `TransformSuite`, `AssetCacheSuite`,
 `BuildPhaseSuite`, `PklBuildSuite`) are not `Scene` candidates — `Scene` can't
 express their crafted inputs, and shouldn't try.
+
+### 6. A test that names a byte on the wire is not a test you may edit
+
+Refactors here routinely change types that tests construct — a signature, a `LiveSlug` field, a
+`FragmentLog` shape. Changing those tests is part of the refactor. What is NOT part of a refactor is
+changing a test that asserts on EMITTED SSE OUTPUT: `ServerSuite`'s stream tests,
+`DatastarMorphContractSuite`, and the functional suites over the fake HA
+(`DashboardBehaviourSuite`, `UseCaseSuite`, `PklDashboardBehaviourSuite`).
+
+The distinction is worth holding while working, because the two look identical in a diff:
+
+> Changing a test that names a TYPE is refactoring. Changing a test that names a BYTE on the wire is
+> a behaviour change wearing a refactor's clothes.
+
+A diff in one of those suites is a design question — say what moved and why it is correct — not a
+test to update. `PklBuildSuite`'s wire-format snapshots are the same rule one layer down, for the
+AUTHORING wire.
+
+### 7. Time is simulated per SUITE, and the real clock is a bug detector
+
+`ServerHarness.simulateTime` decides whether a suite runs under `TestControl`. A suite that
+FETCHES A DOCUMENT must set it false: the page route streams its body through
+`fs2.io.readOutputStream`, a pipe with two mutually-blocking sides, and `TestControl` ticks one
+fiber on one thread — so whichever side is ticked first parks the only thread. The first attempt at
+streaming hung 18 of 720 tests at their guards, a different subset per run.
+
+**Per suite, not per test, and that is forced.** A per-test opt-out looks tighter, but suites reach
+a document fetch through shared helpers (`AckedResumeSuite`, `SurfaceTapSuite`), so a per-test scan
+mis-classifies them — and a mis-classified test does not fail, it HANGS. What simulated time was
+buying here is only poll-loop acceleration: every sleep in the affected suites is 5–300 ms and the
+windows they exercise are `adoptionWindow`-sized.
+
+**The real clock then found two production bugs that simulated time had been hiding**, which is the
+reason to keep it rather than raise the guards:
+
+- a displacement `interruptWhen` applied INSIDE `Server.untilRevoked`'s merge, so the response body
+  of a displaced client never ended;
+- `reloadRepaints` inferring transitions with `.drop(1)`, which discarded a renderer swap that
+  landed before its subscription — a client left on a dashboard that no longer exists.
+
+So: **a suite failure that runs its FULL timeout guard is "the event never arrived", not "slow
+under load".** Raising the guard hides it. Chase it.
+
+**A barrier must wait on a BYTE.** Every stream barrier in `SessionLifecycleSuite` originally
+waited on session state — `awaitTenure(Held(1))`, `sessions.liveStreams` — and `adoptOrMint` sets
+that in the request HANDLER, so all of them are satisfied before the response body has run a step.
+Cancel or displace at that point and the bracketed registration never happened. The first byte off
+the stream is the only evidence the body is live.
+
+**Reproducing any of this needs a small machine.** These races appear at CI's core count and not on
+a 22-core box; `-XX:ActiveProcessorCount=2` in a root `.jvmopts` is what makes them reproducible
+(1-in-10 rather than never). Note that `-D` on the sbt command line, `SBT_OPTS` and `-J` all fail
+to reach the test JVM — the long-lived sbt server captures its options at startup, and `.jvmopts`
+is the one that lands.
+
+**Suites run CONCURRENTLY, and there are two distinct ambient flakes.** `Test / fork` is false but
+`Test / parallelExecution` is sbt's default **true** — measured, `show
+fh-datastar-view/Test/parallelExecution` — so sbt runs up to one suite per core in the one JVM.
+(An earlier version of this section asserted both were false and told the reader that making the
+suites serial "proves nothing". That was wrong, and it is why the two flakes below went unseparated
+for so long.) On a 22-core box that is far more concurrency than CI's two, so the two machines
+reproduce DIFFERENT things, and neither is a superset of the other:
+
+- **A pkl-core race — diagnosed, #226.** pkl's stdlib ASTs are Truffle nodes that specialize as
+  they warm and are shared process-wide, so a per-call `Evaluator` does not isolate them; two
+  threads evaluating at once can catch one mid-rewrite, surfacing as an NPE inside `pkl.semver` /
+  `pkl.Project`. Measured 3 failures in 8 runs parallel, 0 in ~10 serial. `PklBuild.serialized`
+  now holds one process-wide claim, and **every path that reaches Truffle takes it** — the two
+  test-side evaluators and `LibPackage.effectivePin` (`Project.loadFromPath` evaluates) included.
+- **A `PklDashboardBehaviourSuite` tab flake — #293, a test whose premise the harness does not
+  guarantee.** The three tests with an off-then-on trigger fail as an ASSERTION ("never saw
+  'Outside Temperature' after the opening block"), 4 runs in 12 at 22 cores. `fake.emit` offers to
+  a queue and returns, so both events can be in flight before the connection's pull runs — and the
+  pull coalesces deliberately (`doorbell.discrete`), so a pull that sees only the settled `on`
+  diffs against what the client already has and correctly sends nothing. Spacing the two emits by
+  300 ms is 0 failures in 12 at the same load. **A barrier must wait on the CONSEQUENCE**, here the
+  `off` render reaching this connection, and that gate belongs in `TestServer` beside `awaitLive` —
+  a sleep is what this ADR's anti-flake rules forbid.
+
+  Two things this cost, worth not repeating: `_haDown:false` reads like evidence the feed dropped
+  and is not (`session.haDown` starts `None`, so the first health emit always fires on a fresh
+  connection), and "it still fails serially" was taken to mean the race was in the server — the
+  coalescing window simply does not need suite parallelism, only load.
+
+What still holds from the earlier investigation: the `Evaluator` is per call and `close()`d, module
+cache dirs are per test, and concurrent evaluation does not serialize (8 evaluations on 8 threads:
+7 ms against 11 ms sequential) — pkl is expensive COLD (769 ms engine build, 1 ms warm). Those
+measurements say nothing about the stdlib ASTs, which is where #226's race actually lives.
+
+Do not trust a single green `testFull`.
 
 ## Consequences
 

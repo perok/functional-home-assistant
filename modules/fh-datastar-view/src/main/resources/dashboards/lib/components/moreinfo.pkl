@@ -1,0 +1,119 @@
+/// More-info: everything we know about one entity, in a popup.
+///
+/// The entity as a card, the controls its domain has, and its raw facts. What
+/// makes a tap on a NON-actionable entity do something rather than nothing —
+/// see issue #106. HA's own more-info also carries history and settings;
+/// neither is here.
+module components.moreinfo
+
+import "../core/node.pkl" as nodes
+import "../core/slot.pkl" as slotMod
+import "../core/tap.pkl" as tapMod
+import "../hass.pkl"
+import "../layout.pkl" as layout
+import "control.pkl" as control
+import "entity.pkl" as entityMod
+import "light.pkl" as light
+
+/// The raw facts about an entity: its id, and every attribute it currently
+/// reports as one `name: value` line each. The information half of a more-info
+/// popup ([[moreInfoBody]]); the controls half is composed alongside it.
+///
+/// The attribute lines are ONE live slot rather than a card per attribute,
+/// because which attributes an entity reports is a runtime fact and a template
+/// has no loop — so a text block a transform formats is the only shape that can
+/// show all of them (see [[ATTR_LINES]]).
+class EntityInfo extends nodes.Node {
+  card = "entityInfo"
+  cardDef = new nodes.CardDef {
+    template = """
+      <div class="card entity-info">
+        <code class="entity-info-id">{{entity_id}}</code>{{#attributes}}
+        <pre class="entity-info-attrs">{{attributes}}</pre>{{/attributes}}
+      </div>
+      """
+    slots { "entity_id"; "attributes" }
+    // The attribute block is preformatted text, so it scrolls INSIDE its own
+    // box, capped: a chatty entity (a media player reports dozens) must not
+    // push the dialog's controls and ✕ off the screen.
+    css = """
+      .entity-info{display:flex;flex-direction:column;gap:.5rem}
+      .entity-info-id{font-family:monospace;font-size:.8rem;word-break:break-all;
+      color:var(--fh-text-dim)}
+      .entity-info-attrs{margin:0;max-block-size:14rem;overflow:auto;font-size:.75rem;
+      line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere;
+      color:var(--fh-text-dim)}
+      """
+  }
+  hidden entity: hass.Entity
+  slots {
+    ["entity_id"] = entity.entity_id
+    ["attributes"] = new slotMod.Slot { transform = ATTR_LINES; default = "" }
+  }
+}
+
+/// The raw facts about an entity as a call — see [[EntityInfo]].
+function entityInfo(e: hass.Entity): EntityInfo = new EntityInfo { entity = e }
+
+// Every attribute the entity currently reports, one `name: value` line each,
+// sorted by name — HA's payload order is not stable and an unsorted block would
+// reshuffle under the reader on an unrelated change. Non-string values
+// (str()-ed) show as their JSON, so an `rgb_color` reads `[255,0,10]`. An
+// entity with no attributes yields null, which the slot's "" default collapses.
+//
+// CEL has no map-comprehension that strings a MAP's entries, so this uses the
+// transformations extension's `transformList(iterable, key, value, fn(key,
+// value, combined) -> string): list<string>` — over a MAP it walks the entries,
+// which is exactly what the benchmark's `attr.transformList` sweep validated —
+// then core `.sort()` and the strings extension's `.join('\n')`.
+const local ATTR_LINES =
+  #"attr.transformList(k, v, k + ': ' + str(v)).sort().join('\n')"#
+
+// ---- more-info ----
+
+/// What a more-info popup holds: the entity as a card (icon, name, live state),
+/// the controls its domain supports, and its raw facts ([[EntityInfo]]).
+/// HA's own more-info dialog also carries history and settings; neither is here.
+///
+/// Only `light` contributes controls, because [[lightControls]] is the only
+/// domain composition that exists — every other domain gets the card and the
+/// facts, which is the whole point: a popup that always has SOMETHING to show is
+/// what lets a tap on a non-actionable entity open this instead of doing nothing.
+function moreInfoBody(e: hass.Entity): layout.Column = new layout.Column {
+  children {
+    // `tapAction` is pinned to the domain action, NOT left to default: the default is
+    // [[defaultTap]], which for a domain with no action is `moreInfo(e)` — this
+    // very popup, whose body builds this very card. That is an infinite regress,
+    // and Pkl's laziness does not save it (the card's `slots` force the tap,
+    // which forces the popup body). Null here means a card with no click, which
+    // is right: you are already looking at the more-info.
+    (entityMod.entityCard(e)) { tapAction = tapMod.byDomain(e) }
+    when (e is hass.LightEntity) {
+      light.controls(e as hass.LightEntity)
+    }
+    entityInfo(e)
+    control.button("Close", tapMod.closePopup())
+  }
+}
+
+/// Open `e`'s more-info popup — `c.entityCard(e).tapAction(c.moreInfo(e))`, or
+/// `c.entityCard(e) |> c.informative` where the card already names it.
+/// An INLINE popup ([[openPopupInline]]): the body is this entity's, so there is
+/// no registered surface to share and the hoist mints the id.
+function moreInfo(e: hass.Entity): tapMod.TapAction = tapMod.openPopupInline(moreInfoBody(e))
+
+/// **The default click for any entity card**: the service call its domain
+/// implies, and more-info when its domain implies none.
+///
+/// This is the resolution issue #106 is about. `byDomain` is a build-time
+/// literal read out of the vendored table (`hass/actions.pkl`); the fallback is
+/// what makes the whole scheme honest, because a card that cannot act can still
+/// show you everything it knows. Nothing is left rendering a pointer cursor over
+/// a service that does not exist.
+function defaultTap(e: hass.Entity): tapMod.TapAction = tapMod.byDomain(e) ?? moreInfo(e)
+
+
+/// The more-info-on-tap addition: `c.entityCard(x) |> c.informative`. Reads the
+/// card's OWN entity, so `x` is named once (where `.tapAction(c.moreInfo(x))` names it
+/// twice). See [[moreInfo]].
+informative: Mixin<entityMod.EntityCard> = new { tapAction = moreInfo(entity) }

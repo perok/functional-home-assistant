@@ -32,17 +32,17 @@ case class FixtureEntity(
 
   /** A Pkl-safe key for this entity in a generated `lib/dump.pkl` — the id with
     * every non-alphanumeric character folded to `_` (so `dump.entities.<key>`
-    * is a legal dotted access). Matches the sanitizing `DataDump.transform`
+    * is a legal dotted access). Matches the sanitizing `RegistryDump.transform`
     * does.
     */
   def dumpKey: String = entityId.replaceAll("[^A-Za-z0-9]", "_")
 
-  /** This entity as one row of a [[fh.view.build.DataDump.transform]] output
-    * object — the shape [[fh.view.build.PklDump.render]] consumes to emit the
-    * typed `lib/dump.pkl`. `entity_id`/`domain`/`friendly_name` are lifted to
-    * top-level fields (where `PklDump` reads them); the remaining attributes
-    * ride under `attributes` (from which `PklDump` picks only registry facts
-    * like `color_mode`).
+  /** This entity as one row of a [[fh.view.build.RegistryDump.transform]]
+    * output object — the shape [[fh.view.build.PklDump.render]] consumes to
+    * emit the typed `lib/dump.pkl`. `entity_id`/`domain`/`friendly_name` are
+    * lifted to top-level fields (where `PklDump` reads them); the remaining
+    * attributes ride under `attributes` (from which `PklDump` picks only
+    * registry facts like `color_mode`).
     *
     * Deriving the AUTHORING dump from the same [[FixtureEntity]] the runtime
     * SERVES is what keeps "the entities the dashboard was built against" and

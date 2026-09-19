@@ -113,14 +113,11 @@ object DumpPackage {
       case Some(LibPin(libRef, metaSha)) =>
         val artifacts = build(dumpText, libRef.version, metaSha)
         // The FIRST dump seeds into the real cache before pins.json exists, so
-        // the project can't be loaded to read `moduleCacheDir` — take it
-        // straight from `.fh/machine.json` ([[AddonBootstrap.machineCacheDir]]),
-        // the same value base.pkl forwards. (Post-first-boot the project path
-        // resolves the identical dir; the machine.json read just also works
-        // before pins land.)
-        val cache = AddonBootstrap
-          .machineCacheDir(dashboardsDir)
-          .getOrElse(PklBuild.workspaceCacheDir(dashboardsDir))
+        // the project can't be loaded to read `moduleCacheDir` —
+        // [[AddonBootstrap.effectiveCacheDir]] applies the same env/file/default
+        // rule base.pkl does, without one. (Post-first-boot the project path
+        // resolves the identical dir.)
+        val cache = AddonBootstrap.effectiveCacheDir(dashboardsDir)
         LibPackage.seedEntry(
           cache,
           artifacts,
@@ -173,6 +170,9 @@ object DumpPackage {
     * snapshot), the lib half from the effective pin + its cached metadata
     * ([[libPin]]). `None` until a real dump has been pinned (before the first
     * dump there is no `pins.json` at all).
+    *
+    * Reads the disk synchronously ([[Pins]]'s convention): callers supply the
+    * `IO.blocking` region.
     */
   def index(dashboardsDir: os.Path): Option[String] =
     for {

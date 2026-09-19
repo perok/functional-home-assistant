@@ -36,6 +36,7 @@ case class Entity(
     area_id: Option[String],
     categories: Json,
     config_entry_id: Option[String], // TODO entryid?
+    config_subentry_id: Option[String],
     created_at: Double,
     device_id: Option[DeviceId],
     disabled_by: Option[String],
@@ -66,6 +67,13 @@ case class Device(
     area_id: Option[String],
     configuration_url: Option[String],
     config_entries: List[EntryId],
+    config_entries_subentries: Option[Json],
+    // HA 2026.8 tied a device to a single config entry: the registry list now
+    // also carries these two keys (deprecating `config_entries` /
+    // `primary_config_entry`). `Option` so a pre-2026.8 HA — which lacks the
+    // keys entirely — still decodes.
+    config_entry_id: Option[EntryId],
+    config_subentry_id: Option[String],
     connections: List[List[String]],
     created_at: Double,
     disabled_by: Option[String],
@@ -84,11 +92,109 @@ case class Device(
     primary_config_entry: Option[EntryId],
     serial_numer: Option[String],
     sw_version: Option[String],
+    // HA 2026.9 added child devices — one outlet of a power strip, one gang of
+    // a switch — as a first-class parent/child edge. Every device carries the
+    // key (main devices send it as null), and it is one level deep: a child
+    // cannot be a parent. NOT `via_device_id`, which says "reached THROUGH"
+    // rather than "is part of".
+    parent_device_id: Option[DeviceId],
     via_device_id: Option[String]
 ) extends IsDevice derives StaticCode
 
 object Device {
   given Decoder[Device] = DecoderWithWarnMissing.derived
+}
+
+/** `config/area_registry/list`. The authoritative area list — unlike the Jinja
+  * `areas()`/`area_name()` pair it carries `floor_id` directly, so the
+  * area->floor edge needs no second lookup.
+  */
+case class Area(
+    aliases: List[String],
+    area_id: String,
+    created_at: Double,
+    floor_id: Option[String],
+    humidity_entity_id: Option[String],
+    icon: Option[String],
+    labels: List[String],
+    modified_at: Json,
+    name: String,
+    picture: Option[String],
+    temperature_entity_id: Option[String]
+)
+
+object Area {
+  given Decoder[Area] = DecoderWithWarnMissing.derived
+}
+
+/** `config/floor_registry/list`. `level` orders floors vertically (basement is
+  * negative), which the Jinja `floors()` list does not expose at all.
+  */
+case class Floor(
+    aliases: List[String],
+    created_at: Double,
+    floor_id: String,
+    icon: Option[String],
+    level: Option[Int],
+    modified_at: Json,
+    name: String
+)
+
+object Floor {
+  given Decoder[Floor] = DecoderWithWarnMissing.derived
+}
+
+/** `auth/current_user` — who the access token used for THIS connection belongs
+  * to. HA's only answer to "who is this", and the whole identity + role source
+  * for dashboard access rules (issue #89): there is no REST equivalent.
+  *
+  * The response also carries `credentials` and `mfa_modules`; neither is
+  * modelled, because extra JSON fields decode away and nothing here needs them.
+  *
+  * Plain `derives Decoder` rather than the registry types'
+  * [[DecoderWithWarnMissing]] on purpose: that one WARNS on a missing field and
+  * carries on, which for `is_admin` would mean silently defaulting a role — an
+  * access check that fails open. A malformed user must fail the decode.
+  */
+case class HaUser(
+    id: String,
+    name: String,
+    is_admin: Boolean,
+    is_owner: Boolean
+) derives Decoder,
+      Encoder.AsObject,
+      CanEqual
+
+/** One Home Assistant account, from `config/auth/list` — the admin-only listing
+  * of everybody who can log in.
+  *
+  * Deliberately NOT [[HaUser]], which answers "who is this connection" and
+  * carries `is_admin` directly. This listing does not: a user's role is their
+  * membership of the `system-admin` GROUP, so [[isAdmin]] derives it rather
+  * than expecting a field that is not there (verified against HA 2026.8.2).
+  *
+  * `system_generated` marks the accounts that are not people — Supervisor,
+  * Cast, the content user. One of them IS an admin, so anything offering users
+  * to choose between has to drop them or offer nonsense.
+  */
+case class HaAccount(
+    id: String,
+    name: String,
+    group_ids: List[String],
+    system_generated: Boolean,
+    is_active: Boolean,
+    is_owner: Boolean
+) derives Decoder,
+      CanEqual {
+
+  def isAdmin: Boolean = group_ids.contains(HaAccount.AdminGroup)
+
+  /** A real person's account, and one that can still log in. */
+  def isPerson: Boolean = !system_generated && is_active
+}
+
+object HaAccount {
+  val AdminGroup: String = "system-admin"
 }
 
 case class DeviceTrigger(

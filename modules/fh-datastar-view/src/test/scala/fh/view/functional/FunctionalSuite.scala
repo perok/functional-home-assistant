@@ -1,6 +1,7 @@
 package fh.view.functional
 
 import cats.effect.IO
+import fh.view.model.Access
 import fh.view.runtime.TestServer
 import fh.view.testkit.Scene
 
@@ -29,9 +30,12 @@ abstract class FunctionalSuite extends munit.CatsEffectSuite {
     * fragment fails fast rather than hanging. Returns the `IO` for munit to run
     * (via [[munit.CatsEffectSuite]]) — no `unsafeRunSync`.
     */
-  def withServer[A](scene: Scene)(f: TestServer => IO[A]): IO[A] =
+  def withServer[A](
+      scene: Scene,
+      access: Access = Access.default
+  )(f: TestServer => IO[A]): IO[A] =
     TestServer
-      .resource(scene.dashboard, scene.entities)
+      .resource(scene.dashboard, scene.entities, access = access)
       .use(f)
       .timeout(45.seconds)
 }

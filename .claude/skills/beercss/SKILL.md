@@ -9,20 +9,22 @@ Pinned version: **4.x** (4.0.23 as of 2026-06-29; re-verify before bumping).
 CDN: `https://cdn.jsdelivr.net/npm/beercss@<version>/dist/cdn/beer.min.css`.
 MIT. ~14 KB brotli. Implements **MD3 / M3 Expressive**.
 
-## Docs — fetch per component, don't guess
+## Docs — use context7, don't guess
 
-The docs are per-component markdown in the repo (readable via raw URLs):
+For per-component markup and classes (cards, dialogs, tabs, sliders, buttons,
+helpers, settings), use the **context7 MCP tool** (`resolve-library-id` →
+`/beercss/beercss`, then `query-docs`) instead of web search or fetching raw
+GitHub markdown. It tracks the same upstream docs directly and needs no local
+mirror. The beercss.com site is JS-rendered — WebFetch gets nothing useful
+from it.
 
-- Index: `https://raw.githubusercontent.com/beercss/beercss/main/docs/INDEX.md`
-- Per element: `.../docs/<ELEMENT>.md` — e.g. `CARD.md`, `DIALOG.md`, `TABS.md`,
-  `SLIDER.md`, `BUTTON.md`, `HELPERS.md`, `SETTINGS.md`, `JAVASCRIPT.md`.
-- The beercss.com site is JS-rendered — WebFetch gets nothing useful from it;
-  use the raw GitHub markdown.
-
-As with Pkl: **verify empirically before relying on a behavior** — a scratch
+What context7 can't tell you: the JS/runtime gotchas below are spike-verified
+against this project's actual DOM behavior (slider fill repaint, Datastar
+morph survival, `.button` box-sizing) — no doc source has them. **Verify
+empirically before relying on a NEW behavior** the same way — a scratch
 `.html` file with the pinned CDN link and the exact markup our Mustache
-templates emit, checked in a browser (or `curl` the `beer.min.css` and grep the
-selector). Blog posts are mostly v3; class names changed across majors.
+templates emit, checked in a browser (or `curl` the `beer.min.css` and grep
+the selector). Blog posts are mostly v3; class names changed across majors.
 
 ## Consumption model (three ingredients)
 
@@ -55,6 +57,33 @@ Datastar SSE morphs (spike-verified); the slider fill is ALSO backend-baked
 into the template (`--_start`/`--_end` inline style) so every morph is correct
 without JS.
 
+Two traps in that repaint, both bitten:
+
+- It assigns **`style.cssText`**, so it REPLACES the `.slider` wrapper's whole
+  inline style. Nothing else may live there — the fill colour goes on the inner
+  `<span>`'s own `style` (`background:…`, which beats
+  `.slider.max>span{background:currentcolor}` by being inline).
+- It computes the percentage **unrounded**. A rounded server value therefore
+  twitches into place one frame after load (`39%` → `39.37…%`), so the baked
+  `fill` transform must not `$round`.
+
+`.button`/`button` is `inline-flex` + **`box-sizing:content-box`**, so it sizes
+to its label and a plain `inline-size:100%` overflows by its 2rem of padding.
+The theme makes a button fill its layout cell with
+`.fh-cell>:is(.button,button){inline-size:100%;box-sizing:border-box}` — without
+it a row of nav buttons is short pills left-aligned in equal cells, spaced by
+leftover cell rather than by the gap. `.chip` is the opposite primitive and is
+already `border-box`: outlined, content-sized, pill radius — what the `pill`
+card renders, paired with an `fh-hug` cell.
+
+`.slider.max` is `position:absolute;inset:0` — the whole card IS the slider, so
+anything drawn over it (`.slider-head`) needs `pointer-events:none` or it
+becomes a dead strip. It also ships `touch-action:none` + `cursor:grab`; the
+theme overrides both (`pan-y` so a slider card still scrolls, `ew-resize`
+because the control only moves sideways), and `theme.sliderHoldScript` — carried
+by the theme's `inlineScripts`, not by the server — gates touch behind a
+press-and-hold.
+
 Dashboard BEHAVIOR stays with Datastar/backend: dialogs are transient
 `<dialog open>` fragments patched into `#popups`, tab switching is our surface
 swap + `data-class` active toggling, theming is our token system. Nothing uses
@@ -63,8 +92,8 @@ swap + `data-class` active toggling, theming is our token system. Nothing uses
 ## Project conventions (fh-datastar-view)
 
 - `lib/theme-beer.pkl` is the DEFAULT (and only shipped) theme — wired in
-  `entry.pkl`; contract class + theme-author guide in `theme.pkl`, see
-  `docs/plan-beercss-theme.md`. Contract classes (`.card`, `.popup`,
+  `entry.pkl`; contract class + theme-author guide in `theme.pkl`, and the
+  choice itself is ADR 0026. Contract classes (`.card`, `.popup`,
   `.tabbar`, `.fh-row`…) stay on the markup — BeerCSS element styling applies
   *underneath* them.
 - LAYOUT does not use BeerCSS's `grid`/`s* m* l*` classes: the dashboard's
@@ -72,8 +101,8 @@ swap + `data-class` active toggling, theming is our token system. Nothing uses
   `.fh-cols-*`, `theme.pkl`'s `layoutCss` — ADR 0007), which theme-beer
   interpolates into its `styles`. BeerCSS helpers are still fine ON cards
   (via `cellClass`/card templates), but cell sizing rides on `fh-cols-*`.
-- The color variable names are BeerCSS's MD3 roles — **SETTINGS.md (link
-  above) is the authoritative list**. The palettes live ON `BeerTheme`
+- The color variable names are BeerCSS's MD3 roles — **SETTINGS.md via
+  context7 is the authoritative list**. The palettes live ON `BeerTheme`
   (`theme-beer.pkl`) as amendable `hidden md3Light`/`md3Dark` props (styles
   recompute late-bound: `(beer.theme) { md3Light { ["primary"] = … } }`);
   HA-named tokens stay in the shared `tokens.pkl` and win last via the

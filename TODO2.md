@@ -8,18 +8,18 @@ query-scoped dynamic re-renders, column layout — were removed; git history has
 
 - [x] Wire-format snapshot test: snapshot the evaluated `{cards, card}` JSON of the Pkl demo
       entries in PklBuildSuite so authoring-layer refactors are byte-identity-checked by
-      `sbt test`, not manual diffing. Land this BEFORE implementing
-      docs/plan-pkl-authoring-ergonomics.md — it is that plan's safety net.
+      `sbt test`, not manual diffing. Landed first, as the safety net for the authoring-
+      ergonomics refactor (ADR 0006).
 - [ ] `pkl-spike` skill (`.claude/skills/pkl-spike/`): package the scala-cli + pkl-core
       spike harness (lib.pkl + entry.pkl + runner, see the template in CLAUDE.md) so
       "verify Pkl semantics empirically" is a one-command habit.
-- [ ] (project-wide) Move the HA bearer token out of `build.sbt` (`secretToken`) into an
-      env var / untracked `.env` — security hygiene, and stops the credential being copied
-      into new files during refactors.
+- [x] (project-wide) Move the HA bearer token out of `build.sbt` (`secretToken`) into an
+      env var / untracked `.env`. **Done** — `build.sbt` carries `haSecret := "TODO"`, the real
+      value lives in the gitignored repo-root `.env` (`SERVER`/`SECRET`) and is read at run time
+      by `FHApi.fromEnv`.
 - [x] Page title: replace the hardcoded `<title>Home Assistant</title>` (Server.scala) with a
       per-dashboard title — new optional top-level `title` in the dashboard model, falling
-      back to the slug. (Backend half of plan-jsonnet-removal Phase 2; `lib/entry.pkl`'s
-      `title` field is the authoring half.)
+      back to the slug. (`lib/entry.pkl`'s `title` field is the authoring half.)
 - [ ] Area/floor membership in queries: today authors write
       `eo.area_id == dump.floors.overetasje.areas.kjokken.area_id` by hand. Add `inArea(...)` /
       `onFloor(...)` helpers to `lib/components.pkl` (build-time — the dump knows membership; no
@@ -27,9 +27,25 @@ query-scoped dynamic re-renders, column layout — were removed; git history has
 
 ## Worth doing
 
-- [ ] Discover NEW dashboard files at runtime: the watcher re-evaluates known entries but a new
-      top-level `.pkl` needs a server restart. Watch the dashboards dir for creates, add a
-      renderer for each new slug.
+- [x] Discover NEW dashboard files at runtime. **Done** — the workspace DIRECTORY is watched, not
+      only known imports, because a new file is nobody's import yet (`ServerApp.isSourceEvent`
+      filters the events to `*.pkl` plus the manifest); `reloadSite` re-evaluates the entrypoint
+      and reports `Change.Added` for each slug that appeared.
+- [x] ~~Carry the converted attribute map across a tick~~ — **measured, and the answer is no.**
+      `EntityState.javaAttributes` is a `lazy val` on a value rebuilt on EVERY state change, so an
+      entity whose frame moved only `state` re-converts an attribute map that did not change. This
+      entry said "do it when something measures it"; something has. Under async-profiler the
+      re-conversion is **3.4%** of a signals tick's allocation (`RenderBench.resumeSignals`),
+      against a fix that needs an `Attributes` type, a hand-written `equals` on the core state
+      type, and ~45 call sites reading `attributes` as a bare `Map`. The same profile named
+      `Patches.signalFrame` at 19% and `Renderer.signalsOfSlots` at 9%, both since taken. Reopen
+      only if a profile puts it somewhere else.
+- [ ] An overlay to drop a pushed dashboard: `POST /dashboard/:slug` (`Server.push`) installs a
+      slug that nothing ever reclaims — deliberately, since only the developer knows when they
+      are done with it, but a pushed slug costs a renderer, a fragment log and a publisher fiber
+      that diffs on every state batch, for the life of the process. Give the editor a list of
+      pushed slugs with a remove button; removal cancels the publisher (the supervisor's token)
+      and drops the registry entry. Until then, restarting the instance is the only way back.
 - [x] Disconnected indicator: TWO distinct failures, presented separately. (1) SSE transport
       down (browser can't reach the server) — from Datastar's connection-lifecycle events: a
       bridge script mirrors the `datastar-sse` document event (`error`/`retrying`/
@@ -40,28 +56,57 @@ query-scoped dynamic re-renders, column layout — were removed; git history has
       `data-on-interval` derives both, giving the transport priority. Structure/behavior are in
       the server shell (`Server.page`, theme-agnostic so it always renders); the look is
       theme-owned via `.fh-offline*` classes in each theme's `styles`. Pairs with the
-      self-healing HA feed (`HaFeed` + `HAWSApiLowLevel` idle ping/pong + reconnect). NOTE: the
-      `datastar-sse` event name/shape was verified against datastar beta.11 (npm); the pinned
-      v1.0.2 (GitHub-only, unreachable here) still needs a browser check.
-- [ ] Registry-change refresh: a renamed entity / new area / new entity never reaches the dump
-      (fetched once at startup). Subscribe to the HA registry-updated WS events, re-fetch the
-      dump, re-evaluate entries — same machinery as source-file live reload, different trigger.
-- [ ] Dynamic case containers: a dynamic group case renders a single card (`childrenHtml = Nil`
-      in Renderer.renderCase) — allow a case to render a row/col with children (e.g. a slider
-      *and* a label per matched light).
-- [ ] Author-facing docs: one authoring guide for the API surface (cards, slots
-      literal-vs-transform, JSONata context, dynamic groups, surfaces/tabs, theming) — the ADRs
-      record decisions but nothing teaches usage. Include what is static, backend-rendered, or
-      client-signal scriptable.
-- [ ] CSS/class pass-through on components — ties into the Tailwind `.ha-*` theme plan
-      (docs/plan-tw-theme.md): standard class API on templates, `class` slot on containers in
-      both languages, and make the backend-emitted `.fh-cell` wrapper class theme-owned.
+      self-healing HA feed (`HaFeed` + `HAWSApiLowLevel` idle ping/pong + reconnect). The old
+      caveat about `datastar-sse` is settled: the pinned v1.0.2 bundle dispatches
+      **`datastar-fetch`** (no `datastar-sse` constant in it at all), with `detail.type` taking
+      `started`/`finished`/`error`/`retrying`/`retries-failed`, and that is the name `shell.ts`
+      and `Server.scala` bind to.
+- [x] Registry-change refresh. **Done** — `RegistryDump` subscribes, `DumpRefresh` re-seeds the
+      dump package and re-evaluates, on by default and switchable with `FH_WATCH_REGISTRY`.
+- [ ] Dynamic case containers: a dynamic group case renders a single card — allow a case to
+      render a row/col with children (e.g. a slider *and* a label per matched light).
+      NOTE: `Renderer.renderCase` no longer exists; `Dashboard.scala`'s `noWrap` comment still
+      names it and should be corrected along with this.
+- [x] Author-facing docs. **Done** — `docs-pkl-components.md` is the authoring guide. (Its
+      transform section is CEL, not JSONata, which this entry predates.)
+- [ ] CSS/class pass-through on components: a standard class API on every template, not just
+      the `cssClass` slot the containers have. The `.fh-cell` half of this is settled — the
+      wrapper class is the base layer's, not a theme's (ADR 0020). Still open as described:
+      `cssClass` reaches `layout.pkl`, `components/surface.pkl` and `components/control.pkl`,
+      but is not on `core/node.pkl`, so it is not every template.
+
+- [ ] Make the runtime suites connect like a BROWSER does. The in-process harness talks to
+      `routes.run` directly, and the ways it differs from a real client have each hidden a
+      real bug in this branch:
+      - **It sends no `datastar` param.** A browser serialises its signal store into every
+        GET; the harness connects via the server-built `data-init` URL, which carries only
+        query params. So nothing that depends on signals-vs-params is observable in-process
+        — which is how `resumeFrom` came to take the reconnect branch on every page load
+        without a single test noticing, and why the test that finally pinned it has to append
+        `datastar={}` by hand.
+      - **Readiness seams encode assumptions about the server's shape.** Three broke here:
+        the cursor used as a "batch complete" marker (it stopped being sent on empty pulls),
+        a store update racing the recorder's own subscription to `changes`, and a gate on
+        `Sessions.floor` that includes sessions with no stream. Each surfaced as an
+        unrelated test hanging, intermittently.
+      - **Wire shapes are hand-built as literal JSON** in several places, so a change like
+        flat cursor signals → nested `_cursor` has to be mirrored by hand and can drift from
+        what the server actually emits.
+      The direction is a client-shaped seam the suites go through — one that builds a request
+      the way Datastar does (signal store included) and offers readiness gates in terms of
+      what the SERVER has done, not what happened to arrive on the wire. Not a rewrite: the
+      full-boot `LiveWorld` harness is already the right shape, it just talks to the socket
+      too directly. See also the `RenderCacheSuite` fixture in
+      `docs/architecture-rendering-pipeline.md` §8, which is the same problem from the other
+      end — a test whose fixture violates the contract it is testing.
 
 ## Bigger bets (design first)
 
-- [ ] "show if" / conditional visibility: a predicate-gated node (hide a card or subtree when a
-      condition is false). Reuses the Predicate AST + the dynamic-group re-render scoping;
-      needs an ADR (interaction with pathId stability and the diff cache).
+- [x] "show if" / conditional visibility. **Done, and as branches rather than visibility** —
+      ``c.iff(p).then(card).`else`(card)`` builds an `If`, which is the tabs machinery with a
+      quantified condition over live entity state instead of a click: the inactive branch is not
+      rendered and receives no updates. Demo entry: `pkl-if.dashboard.pkl`. What is still missing
+      is `elif` (see TODO.md).
 - [ ] Event coalescing under state_changed bursts: debounce/batch, collapsing repeated touches
       of the same node into one render+push (already flagged as FUTURE in Server.scala). Do
       after the shared-fanout refactor — it changes where batching goes.
@@ -72,8 +117,15 @@ query-scoped dynamic re-renders, column layout — were removed; git history has
       connections that arrived through a hop, per-connection, since the request is right there.
       Deliberately not done: the win is ~2 KB/hour, while a wrong guess is a connection that
       silently drops once a minute — the failure nobody reports because it still works.
-- [ ] Retain `FragmentLog` mutations by live cursor, not by age. `FragmentLog.Retention` (1 hour)
-      is a blunt stand-in: the precise rule is to truncate below the OLDEST cursor any live
+- [x] Retain `FragmentLog` mutations by live cursor, not by age. **Done** — `Sessions.floor`
+      is the lowest `position` among a slug's sessions and `FragmentLog.pruned` truncates
+      below it, which deleted `Stamp` and the last wall clock from the log. The age bound the
+      caveat below wanted as a backstop turned out to be unnecessary: a wedged connection
+      cannot pin the log open indefinitely because a session that loses its stream is reaped
+      after `LingerWindow`, so the floor is bounded by session lifetime rather than by a
+      second clock. Original note kept for the reasoning:
+      `FragmentLog.Retention` (1 hour)
+      was a blunt stand-in: the precise rule is to truncate below the OLDEST cursor any live
       connection still holds. `Sessions` is already keyed by `conn`, so each could report its
       last-sent version and the log evict everything below their minimum — retaining exactly
       what is still reachable and no more. Two caveats kept it out of the first cut. It
@@ -87,8 +139,10 @@ query-scoped dynamic re-renders, column layout — were removed; git history has
 
 - Scala macros for predicate/DSL perf — predicate eval is trivially cheap; identity-slot
   memoization already removed the real cost. Premature.
-- Handlebars/jinja2/jinjava instead of Mustache — logic-in-templates is what the JSONata
-  transform layer is *for*; swapping template engines buys churn, not capability.
+- ~~Handlebars/jinja2/jinjava instead of Mustache~~ — unparked. Logic-in-templates is what the
+  transform layer (CEL, ADR 0027) is for, and that was the whole of the case for swapping engines.
+  It is not the whole of the case for jinja2: an HA user already writes jinja2, so it is the one
+  option here that removes something to learn rather than adding it. Open in TODO.md.
 - htmx + hyperscript instead of Datastar — wholesale transport rewrite with no identified
   Datastar limitation. Revisit only if Datastar blocks something concrete.
 - xtrasonnet / jsonnet-bundler / validate-libsonnet — the typed/packaged/validated story is
@@ -101,5 +155,6 @@ query-scoped dynamic re-renders, column layout — were removed; git history has
   deployment story (home-addon) maturing first.
 - Automation-style conditions ("don't set the light to max after 22:00") — belongs in the
   automations track (`home` module), not the view layer.
-- "Global system that imports all dashboards" — unclear need; runtime discovery + navigation
-  already covers the named use cases.
+- ~~"Global system that imports all dashboards" — unclear need; runtime discovery + navigation
+  already covers the named use cases.~~ — shipped regardless, as `site.pkl` (ADR 0021): the case
+  that carried it was the build story, not the navigation one this entry was weighing.

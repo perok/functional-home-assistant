@@ -48,16 +48,14 @@ object DumpRefresh {
     */
   case class Rejected(errors: List[(String, String)]) extends Result
 
-  /** Validate `newDump` (the rendered `dump.pkl` text) against every entry and
-    * swap it in if green. `entries` is `(slug, entryFilename)` — the same list
-    * `ServerApp.discoverEntries` feeds the renderers. Serialize calls (the
-    * caller holds a mutex): two concurrent refreshes would race on the staged
+  /** Validate `newDump` (the rendered `dump.pkl` text) against every dashboard
+    * the entrypoint names and swap it in if green. Serialize calls (the caller
+    * holds a mutex): two concurrent refreshes would race on the staged
     * validation and the pin move.
     */
   def refresh(
       newDump: String,
-      dashboardsDir: os.Path,
-      entries: List[(String, String)]
+      dashboardsDir: os.Path
   ): IO[Result] =
     IO.blocking(
       (
@@ -67,41 +65,46 @@ object DumpRefresh {
     ).flatMap {
       case (Some(nv), Some(pv)) if nv == pv => IO.pure(Unchanged)
       case (newVersion, _)                  =>
-        newlyBroken(newDump, dashboardsDir, entries).flatMap {
+        newlyBroken(newDump, dashboardsDir).flatMap {
           case Nil    => IO.blocking(swap(newDump, dashboardsDir, newVersion))
           case errors => IO.pure(Rejected(errors))
         }
     }
 
-  /** The entries the new dump would break: evaluate everything in a temp copy
-    * of the workspace carrying the new dump package, then re-check each failure
-    * against the real workspace (current dump) — a failure in both is
+  /** The dashboards the new dump would break: evaluate the entrypoint in a temp
+    * copy of the workspace carrying the new dump package, then re-check each
+    * failure against the real workspace (current dump) — a failure in both is
     * pre-existing and doesn't block.
+    *
+    * An entrypoint that will not evaluate against the new dump blocks the swap
+    * unless it will not evaluate against the current one either: same rule, one
+    * level up (there is nothing to serve either way, so an unbuildable site
+    * must not be made worse, but it must not veto forever either).
     */
   private def newlyBroken(
       newDump: String,
-      dashboardsDir: os.Path,
-      entries: List[(String, String)]
+      dashboardsDir: os.Path
   ): IO[List[(String, String)]] =
     IO.blocking(stageWorkspace(newDump, dashboardsDir))
       .bracket { staged =>
-        for {
-          results <- entries.traverse { case (slug, entry) =>
-            DashboardBuild
-              .reevaluate(staged, entry)
-              .attempt
-              .map(r => (slug, entry, r))
-          }
-          failed = results.collect { case (slug, entry, Left(err)) =>
-            (slug, entry, err.getMessage)
-          }
-          blocking <- failed.filterA { case (_, entry, _) =>
-            DashboardBuild
-              .reevaluate(dashboardsDir, entry)
-              .attempt
-              .map(_.isRight)
-          }
-        } yield blocking.map { case (slug, _, err) => (slug, err) }
+        (
+          DashboardBuild.evalSite(staged).attempt,
+          DashboardBuild.evalSite(dashboardsDir).attempt
+        ).flatMapN {
+          case (Left(err), Right(_)) =>
+            IO.pure(List(Site.EntryFile -> Site.messageOf(err)))
+          case (Left(_), Left(_))            => IO.pure(Nil)
+          case (Right((staged, _)), current) =>
+            val building = current.toOption
+              .map(_._1.dashboards.collect { case (slug, Right(_)) => slug })
+              .getOrElse(Nil)
+              .toSet
+            IO.pure(
+              staged.dashboards.collect {
+                case (slug, Left(err)) if building(slug) => slug -> err
+              }
+            )
+        }
       }(staged => IO.blocking(os.remove.all(staged / os.up)))
 
   /** A throwaway copy of the workspace resolving the NEW dump: everything is

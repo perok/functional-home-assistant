@@ -32,6 +32,16 @@ trait HomeAssistantApi[F[_]] {
 
   def configEntityRegistryGet(entityId: EntityId): F[Json]
 
+  /** https://developers.home-assistant.io/docs/area_registry_index/ */
+  def configAreaRegistryList: F[List[Area]]
+
+  def configFloorRegistryList: F[List[Floor]]
+
+  /** Every account that can log in (`config/auth/list`) — admin-only, and asked
+    * on the machine connection, which is an admin.
+    */
+  def configAuthList: F[List[HaAccount]]
+
   // Not interesting
   def manifestList(): F[List[Manifest]]
 
@@ -48,11 +58,26 @@ trait HomeAssistantApi[F[_]] {
 
   def getConfigWS: F[Json]
 
-  /** HA's compressed state feed: the full entity set, then deltas, over ONE
-    * subscription — so live state needs no separate snapshot fetch to race
-    * against. See [[api.homeassistant.ws.domain.EntitiesEvent]].
+  /** Who the token that authenticated this connection belongs to. On the shared
+    * feed that is the machine identity; the useful call is on a short-lived
+    * connection opened with a user's own OAuth token, which is how a browser
+    * login learns its user and role (issue #89).
     */
-  def entities: Resource[F, Stream[F, EntitiesEvent]]
+  def currentUser: F[HaUser]
+
+  /** HA's compressed state feed: the subscribed set in full, then deltas, over
+    * ONE subscription — so live state needs no separate snapshot fetch to race
+    * against. See [[api.homeassistant.ws.domain.EntitiesEvent]].
+    *
+    * `only` narrows the subscription HA-side, which is where narrowing is worth
+    * anything: the entities left out cost no serialisation, no bytes, no parse
+    * and no ingest. `None` subscribes to the whole house.
+    *
+    * '''An empty set is not expressible on the wire''' — HA reads an empty
+    * `entity_ids` as "no filter" — so a caller that wants nothing must not call
+    * this at all. `Some(Set.empty)` would subscribe to everything.
+    */
+  def entities(only: Option[Set[String]]): Resource[F, Stream[F, EntitiesEvent]]
 
   def event(event: Option[String]): Resource[F, Stream[F, Event]]
 
@@ -114,6 +139,15 @@ object HomeAssistantApi {
       def configEntityRegistryGet(entityId: EntityId): IO[Json] =
         in.sendCommand(`config/entity_registry/get`(entityId))
 
+      def configAreaRegistryList: IO[List[Area]] =
+        in.sendCommand(`config/area_registry/list`())
+
+      def configFloorRegistryList: IO[List[Floor]] =
+        in.sendCommand(`config/floor_registry/list`())
+
+      def configAuthList: IO[List[HaAccount]] =
+        in.sendCommand(`config/auth/list`())
+
       def manifestList(): IO[List[Manifest]] =
         in.sendCommand(`manifest/list`())
 
@@ -142,8 +176,12 @@ object HomeAssistantApi {
       def deviceAutomationActionCapabilities(action: Json): IO[Json] =
         in.sendCommand(`device_automation/action/capabilities`(action))
 
-      def entities: Resource[IO, Stream[IO, EntitiesEvent]] =
-        in.subscribeStream(subscribe_entities())
+      def entities(
+          only: Option[Set[String]]
+      ): Resource[IO, Stream[IO, EntitiesEvent]] =
+        in.subscribeStream(
+          subscribe_entities(only.map(_.toList.sorted))
+        )
 
       def event(event: Option[String]): Resource[IO, Stream[IO, Event]] =
         // The raw stream decoded into the state_changed shape (the only event
@@ -180,6 +218,9 @@ object HomeAssistantApi {
       def getConfigWS: IO[Json] =
         in.sendCommand(`get_config`())
 
+      def currentUser: IO[HaUser] =
+        in.sendCommand(`auth/current_user`())
+
       def getServices: IO[List[ServiceDomain]] =
         in.sendCommand(`get_services`())
 
@@ -188,8 +229,7 @@ object HomeAssistantApi {
       // dropped that lone render is fixed in `subscribeStream`. NOTE: a
       // `| tojson` template renders to a JSON-encoded STRING (HA does not parse
       // the filter output back), so `Body=Json` decodes to a `Json` string, not
-      // the structured value — a caller that wants the object parses it
-      // (`DataDump.parseIfString`).
+      // the structured value — a caller that wants the object parses it.
       def templateFunc[Body: Decoder](template: String): IO[Body] =
         in.subscribeStream(render_template(template))
           .use(_.head.compile.lastOrError)
