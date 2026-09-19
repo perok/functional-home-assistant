@@ -344,6 +344,24 @@ The history view and any chart card; native image; a GraalVM JDK base image; Pkl
 
 ## Open questions
 
+- **The same staging pattern exists twice in flight, implemented two different ways.** PR #62
+  ("Resolve pkl-lsp in the build instead of downloading it at runtime") needs exactly this — an
+  artifact resolved by the build, kept OFF the application classpath, handed to the image as a
+  plain file — and solves it with a phantom project (`pkl-lsp-dist`, which nothing depends on,
+  reading `Compile / dependencyClasspath`). This branch solves it with a hidden Ivy configuration
+  (`config("js-isolate").hide` + `update.value.select(configurationFilter(...))`).
+
+  The hidden configuration is the one sbt's own Library Management reference documents for this
+  job, in nearly these words: `val JS = config("js") hide`, then
+  `update.value.select(configurationFilter("js"))`. The phantom project also carries a cost the
+  configuration does not — it needs its own `scalaVersion`, and #62's is already pinned to
+  `3.8.4` while the build moved to `3.9.0`.
+
+  Neither is wrong, but two mechanisms for one job is what the design principles here call out.
+  **Whichever of #62 and #373 lands second should converge on the documented one**, and the
+  version must stay a `libraryDependencies` entry either way — dependabot is configured for sbt
+  and that is what it reads.
+
 - **Everything above is x86_64 on a 32 GB machine, and the target is aarch64 on 4 GB.** Oracle's
   isolate holding flat across a 17× workload change is the best available evidence that it
   transfers, but it is inference. CI now runs the isolate on aarch64, which proves it RUNS and
