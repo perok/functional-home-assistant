@@ -196,6 +196,35 @@ object FhScriptSuite extends SimpleIOSuite:
     }
   }
 
+  pureTest("writeReport: says whether the push actually moved anything") {
+    // The whole point. "wrote 6 file(s)" was printed whether the push moved
+    // every byte or none of them, so the one thing the author wanted to know —
+    // did that do anything — was the one thing it would not say.
+    expect.all(
+      fh.writeReport(Nil) == "nothing to write",
+      fh.writeReport(List("a.pkl" -> false, "site.pkl" -> false)) ==
+        "no change — all 2 file(s) on the instance already match",
+      // A mixed push names the ones that moved and counts the rest: the
+      // interesting list is always the short one.
+      fh.writeReport(List("a.pkl" -> true, "site.pkl" -> false)) ==
+        "wrote 1 of 2 file(s) on the instance: a.pkl (1 already up to date)",
+      fh.writeReport(List("a.pkl" -> true, "site.pkl" -> true)) ==
+        "wrote 2 of 2 file(s) on the instance: a.pkl, site.pkl"
+    )
+  }
+
+  pureTest("changedFlag: an instance too old to answer reads as changed") {
+    expect.all(
+      fh.changedFlag("""{"written":"a.pkl","used":true,"changed":true}"""),
+      !fh.changedFlag("""{"written":"a.pkl","used":true,"changed":false}"""),
+      // No field, and not JSON at all: claim nothing, report what it always
+      // reported. Guessing "unchanged" here would be a silent lie about the
+      // one thing this exists to say.
+      fh.changedFlag("""{"written":"a.pkl","used":true}"""),
+      fh.changedFlag("not json")
+    )
+  }
+
   test("watchSources: fires on a *.pkl edit, ignores dot-directories") {
     // What `push --watch` sits in. The stamp is size+mtime, so the edit below
     // changes the size; the `.fh/` write must NOT wake it (that dir is where

@@ -112,6 +112,18 @@ renderer cannot derive it from the parent link.
 
 **Template** — the whole card's markup, holes included. There is one per card.
 
+**Chrome** — two senses, and they are unrelated, so always say which:
+
+- **The dashboard's chrome** (`Theme.chrome`) — the frame template a dashboard's body is rendered
+  into, owning the `#dashboard` swap target and the popup host. Ours, and made of HTML.
+- **The browser's chrome** (`ChromeColors`) — the UI the *device* paints around our page: the URL
+  bar, an installed app's status bar and splash. Not ours, and made of one colour per scheme,
+  which we can only ask for (`<meta name="theme-color">`, the manifest's themeable members).
+  ADR 0014.
+
+The vendor is a third thing again, and the reason the sentence "Chrome ignores the chrome colour
+in an installed app" needs writing out rather than shortening.
+
 **Region** — a named hole in a template that something else fills. A card declares them
 (`CardDef.regions`), a node fills them (`Component.regions`, keyed by region name). `fill = "eager"`
 splices the children it was given; `fill = "baked"` is filled by a surface instead (see **bake**).

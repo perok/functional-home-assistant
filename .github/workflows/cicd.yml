@@ -206,19 +206,129 @@ jobs:
           if-no-files-found: ignore
           retention-days: 1
 
-      # Gated like the upload below, and for the same reason: cd is this jar's
-      # only consumer, and cd never runs for a pull request.
+      # Two consumers: `cd`, which never runs for a pull request, and `image`,
+      # which runs for a pull request only while it is NOT a draft. Hence the
+      # draft arm rather than a flat `!= 'pull_request'` — a draft PR builds no
+      # image, so it needs no jar and pays no assembly.
       - name: Assemble fat jar
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' || !github.event.pull_request.draft
         run: sbt 'fh-datastar-view/assembly'
 
       - name: Upload jar for cd
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' || !github.event.pull_request.draft
         uses: actions/upload-artifact@v7
         with:
           name: addon-jar
-          path: target/addon/fh-dashboard.jar
+          # The DIRECTORY: `stageIsolateJars` puts both platforms' GraalJS
+          # isolate jars here too, and the image build needs them (they are
+          # resolved by coursier as ordinary dependencies, so nothing
+          # downloads them inside the container).
+          path: target/addon/
           retention-days: 1
+
+  # Does the image still BUILD? Nothing else asks until release: `cd` is the
+  # only other `docker build` in this file, it runs on main alone, and then
+  # only when the version moved — so a Dockerfile mistake used to surface
+  # during a publish, which is the worst moment to find one. This job moves
+  # that failure to the change that causes it.
+  #
+  # It reuses `ci`'s `addon-jar` artifact rather than assembling its own, which
+  # is the same artifact `cd` consumes — the Dockerfile COPYs that jar, so the
+  # alternative is a second sbt assembly per run.
+  #
+  # TWO DEPTHS, because the architectures cost wildly different amounts:
+  #
+  #   pull request -> linux/amd64 only. The build itself is now
+  #                   architecture-independent again — it copies a jar rather
+  #                   than running the isolate — so what a PR is likely to
+  #                   break (base images, the jlink module list, COPY paths)
+  #                   shows up on either. Draft PRs skip the job entirely.
+  #   push to main -> both, and the isolate check then runs on aarch64 under
+  #                   emulation. That is the last gate before a release build.
+  #
+  # It does NOT push, and needs no registry credentials.
+  image:
+    needs: ci
+    if: >-
+      (github.event_name == 'pull_request' && !github.event.pull_request.draft)
+      || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    # Generous because the arm64 half is emulated.
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Fetch ci-built jar
+        uses: actions/download-artifact@v8
+        with:
+          name: addon-jar
+          path: target/addon/
+
+      # Registers binfmt so the arm64 jlink stage, and the arm64 isolate
+      # check below, can execute. Only main pays for it.
+      - uses: docker/setup-qemu-action@v4
+        if: github.event_name == 'push'
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: home-addon/Dockerfile
+          platforms: ${{ github.event_name == 'push' && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
+          push: false
+          # buildx refuses `load` for more than one platform, so on main this
+          # proves both BUILD and the step below loads one back out of cache.
+          load: ${{ github.event_name != 'push' }}
+          tags: fh-dashboard:ci
+
+      # A successful build says nothing about whether the jlinked runtime
+      # EXECUTES on the base image — the failure the move off musl introduced,
+      # where a glibc JRE lands on a musl base and nothing notices until a user
+      # starts the add-on.
+      #
+      # A second single-platform build with `load`, which is a cache hit
+      # against the multi-arch build above (same job, same builder) rather
+      # than a real second build. arm64 is the one chosen: it is the
+      # Raspberry Pi, and it is the half that emulation could plausibly break.
+      - name: Load one architecture
+        uses: docker/build-push-action@v7
+        if: github.event_name == 'push'
+        with:
+          context: .
+          file: home-addon/Dockerfile
+          platforms: linux/arm64
+          push: false
+          load: true
+          tags: fh-dashboard:ci
+
+      # `java -version` and not `/run.sh`: the entrypoint exits before reaching
+      # the JVM when SUPERVISOR_TOKEN is absent, so it would pass without ever
+      # loading a single shared library.
+      - name: The runtime runs on the base image
+        run: docker run --rm --entrypoint java fh-dashboard:ci -version
+
+      # And JavaScript runs, which `java -version` says nothing about: the
+      # staged library has to be the right architecture and has to link
+      # against the base image's glibc and zlib, and every way of getting that
+      # wrong builds cleanly and dies at the first chart.
+      #
+      # The cache is cold here, so this also pays the one-time unpack a user's
+      # first start pays — the check and the thing it checks are the same code
+      # path. It prints the isolate's RSS too, which on the main-push run is
+      # aarch64, the number issue #237 wants.
+      - name: JavaScript runs in the isolate
+        # Through `sh` so the classpath and cache path come from the IMAGE's
+        # own environment — the same two variables `run.sh` launches with.
+        # Spelled out here instead, they would be a second copy that can drift
+        # from the real launch while this step keeps passing.
+        run: |
+          docker run --rm --entrypoint sh fh-dashboard:ci -c '
+            exec java --enable-native-access=ALL-UNNAMED \
+              -Dpolyglot.engine.userResourceCache="$FH_GRAAL_CACHE" \
+              -cp "$FH_APP_CLASSPATH" fh.view.runtime.JsIsolateCheck'
 
   cd:
     needs: ci
