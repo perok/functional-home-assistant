@@ -99,10 +99,16 @@ keeps them off compile, test and assembly classpaths — the fat jar never sees 
 (`js-isolate-arm64.jar`, not `aarch64`, and no version), which is why the Dockerfile contains no
 version, no coordinate, no URL and no architecture mapping. Nothing downloads inside the container.
 
-**Unpacking is Truffle's own job, and is left to it.** An engine extracts its native resources on
-first build; `polyglot.engine.userResourceCache` chooses only *where*. So the image stages one jar
-and sets one path, and that is the entire mechanism — no build stage, no extraction code, no
-archive layout, and nothing architecture-specific happening at build time beyond a `COPY`.
+**Unpacking is Truffle's own job, and is left to it.** This is the documented default — "on first
+use, languages may unpack internal resources, such as standard libraries, into a cache folder" —
+and `polyglot.engine.userResourceCache` is the documented, OS-agnostic way to choose *where*. So
+the image stages one jar and sets one path, and that is the entire mechanism: no build stage, no
+extraction code, no archive layout, and nothing architecture-specific at build time beyond a
+`COPY`.
+
+Acquisition has no installer to invoke either, by design: GraalVM retired `gu` in favour of
+Maven, and the documentation's own instruction for this feature is to depend on the `-isolate`
+artifacts from Maven Central. Declaring the dependency IS the bootstrap.
 
 The cost is a one-time unpack: **161 MB, ~650 ms of CPU** on a warm NVMe box (three cold/warm
 pairs: 1342/614, 1232/638, 1275/620 ms), so on slower storage it is however long 161 MB of writes
@@ -121,11 +127,18 @@ Two things make that acceptable rather than merely cheap:
 
 Two dead ends worth not re-walking:
 
-- **`Engine.copyResources(Path, String...)` looks like the right API and is not.** It runs, and
-  writes the isolate out, but omits `libtruffleattach`; an engine pointed at its output then dies
-  with "Polyglot isolates require libtruffleattach when running on HotSpot with the fallback
-  Truffle runtime." `engine.resourcePath` is also not an engine option at all — it is a system
-  property, and setting it on the builder throws "Could not find option with name".
+- **`Engine.copyResources(Path, String...)` is exactly the right API, and is incomplete.** GraalVM
+  documents it for "a read-only file system where the application cannot write resources during
+  startup" and "strict startup-time requirements" — our case precisely — with
+  `-Dpolyglot.engine.resourcePath` as the runtime counterpart. It runs and writes the isolate out,
+  but omits `libtruffleattach`, and an engine pointed at its output then dies with "Polyglot
+  isolates require libtruffleattach when running on HotSpot with the fallback Truffle runtime."
+  That file IS registered the same way the isolate is — `truffle-api` ships
+  `JDKSupportLibTruffleAttachResourceProvider` as an `InternalResourceProvider` — so this looks
+  like an upstream gap rather than a misuse, and is worth reporting alongside the Pkl bailout.
+  Lifting the one file out of `truffle-api` by hand makes the whole route work (verified).
+  A related trap: `engine.resourcePath` is a system property, NOT an engine option — setting it on
+  the builder throws "Could not find option with name".
 - **`engine.IsolateLibrary` names the `.so` directly and needs no jar.** Truffle's own error text
   annotates it "(for testing purposes only)" and it requires `allowExperimentalOptions`. Rejected
   for a shipped appliance; it remains the fallback if the provider route ever breaks.
