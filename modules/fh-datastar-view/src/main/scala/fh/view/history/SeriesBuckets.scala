@@ -44,9 +44,10 @@ object SeriesBuckets {
   val none: SeriesBuckets = SeriesBuckets(Map.empty)
 
   /** The bucket a read is in at `asOf`, for a window this build knows. An
-    * unknown window name yields nothing rather than raising: `Dashboard.validate`
-    * is what rejects one, so reaching here with a bad name is already a bug
-    * caught upstream, and a render is the wrong place to discover it.
+    * unknown window name yields nothing rather than raising:
+    * `Dashboard.validate` is what rejects one, so reaching here with a bad name
+    * is already a bug caught upstream, and a render is the wrong place to
+    * discover it.
     */
   def at(reads: List[SeriesRead], asOf: Instant): SeriesBuckets =
     SeriesBuckets(

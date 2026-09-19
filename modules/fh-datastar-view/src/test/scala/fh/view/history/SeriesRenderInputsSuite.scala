@@ -1,6 +1,13 @@
 package fh.view.history
 
-import fh.view.model.{CardDef, Dashboard, LayoutNode, Reads, SeriesRead, SlotSource}
+import fh.view.model.{
+  CardDef,
+  Dashboard,
+  LayoutNode,
+  Reads,
+  SeriesRead,
+  SlotSource
+}
 import fh.view.runtime.RenderInputs
 
 import java.time.Instant
@@ -30,7 +37,10 @@ class SeriesRenderInputsSuite extends munit.FunSuite {
     // nothing said so, and the next person to add a `reads` mode would not
     // know this was load-bearing.
     val node = chartNode()
-    assertEquals(node.liveEntities, List("sensor.t")) // from `name`, not `chart`
+    assertEquals(
+      node.liveEntities,
+      List("sensor.t")
+    ) // from `name`, not `chart`
     assertEquals(
       LayoutNode
         .Component(
@@ -83,7 +93,8 @@ class SeriesRenderInputsSuite extends munit.FunSuite {
   // --- Buckets -------------------------------------------------------------
 
   test("a read's bucket is its window's floor of now") {
-    val reads = List(SeriesRead("sensor.t", "24h"), SeriesRead("sensor.t", "1h"))
+    val reads =
+      List(SeriesRead("sensor.t", "24h"), SeriesRead("sensor.t", "1h"))
     val buckets = SeriesBuckets.at(reads, now).buckets
     // 24h floors to 5 minutes, 1h to one minute.
     assertEquals(buckets(reads(0)), Instant.parse("2026-09-19T12:05:00Z"))
@@ -92,7 +103,10 @@ class SeriesRenderInputsSuite extends munit.FunSuite {
 
   test("an unknown window contributes no bucket rather than raising") {
     // `validate` is what rejects one; a render is the wrong place to find out.
-    assertEquals(SeriesBuckets.at(List(SeriesRead("s.t", "nope")), now).buckets, Map.empty)
+    assertEquals(
+      SeriesBuckets.at(List(SeriesRead("s.t", "nope")), now).buckets,
+      Map.empty
+    )
   }
 
   test("a read with no bucket is absent from the key, not zero") {
@@ -120,7 +134,9 @@ class SeriesRenderInputsSuite extends munit.FunSuite {
     assert(!key(read24 -> 100L).isAtLeast(key(read24 -> 200L)))
   }
 
-  test("the same bucket is at least itself, so an equal render still installs") {
+  test(
+    "the same bucket is at least itself, so an equal render still installs"
+  ) {
     assert(key(read24 -> 100L).isAtLeast(key(read24 -> 100L)))
   }
 
@@ -140,10 +156,12 @@ class SeriesRenderInputsSuite extends munit.FunSuite {
 
   test("the state half still decides on its own when no series is read") {
     assert(
-      RenderInputs(Map("sensor.t" -> 2L)).isAtLeast(RenderInputs(Map("sensor.t" -> 1L)))
+      RenderInputs(Map("sensor.t" -> 2L))
+        .isAtLeast(RenderInputs(Map("sensor.t" -> 1L)))
     )
     assert(
-      !RenderInputs(Map("sensor.t" -> 1L)).isAtLeast(RenderInputs(Map("sensor.t" -> 2L)))
+      !RenderInputs(Map("sensor.t" -> 1L))
+        .isAtLeast(RenderInputs(Map("sensor.t" -> 2L)))
     )
   }
 
@@ -168,7 +186,10 @@ class SeriesRenderInputsSuite extends munit.FunSuite {
     val errs = dashboard(
       Map(
         "entity_id" -> SlotSource(literal = Some("sensor.t")),
-        "chart" -> SlotSource(reads = Reads.OnRender, series = Some("last-week"))
+        "chart" -> SlotSource(
+          reads = Reads.OnRender,
+          series = Some("last-week")
+        )
       )
     ).validate()
     assert(errs.exists(_.contains("unknown window 'last-week'")), clue = errs)
