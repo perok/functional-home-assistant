@@ -151,6 +151,34 @@ fi
 #
 # $JAVA_NMT is deliberately unquoted: it is one flag or nothing, and nothing
 # must vanish rather than become an empty argument.
+#
+# Both come from the image (see the Dockerfile) so this file and the CI check
+# cannot spell the classpath differently. Checked rather than defaulted: a
+# JVM ignores a classpath entry that is not there, so an empty value here
+# would start the add-on and fail at the first chart instead of now.
+if [ -z "${FH_APP_CLASSPATH:-}" ] || [ -z "${FH_GRAAL_CACHE:-}" ]; then
+  echo "FATAL: FH_APP_CLASSPATH/FH_GRAAL_CACHE unset — not the add-on image?" >&2
+  exit 1
+fi
+
+# -cp and a named main class rather than -jar, because GraalJS needs a second
+# jar on the classpath: js-isolate.jar carries the provider that registers the
+# JS isolate, and -jar ignores -cp entirely. The fat jar's Main-Class is this
+# same class, so launching it with -jar still works for anyone who does.
+#
+# userResourceCache is WHERE Truffle unpacks its own native resources, which
+# it does by itself the first time an engine is built. Only the location is
+# ours: the default is ~/.cache, an image layer here, so every add-on update
+# would redo the 161 MB. /data survives updates, and config.yaml keeps it out
+# of Home Assistant's backups. Cost is a few seconds once per GraalVM bump.
+#
+# --enable-native-access: Truffle calls System.load to bring the isolate up.
+# On JDK 25 that is a four-line warning on stderr; from a later JDK it is a
+# hard failure, and this is the grant that keeps it working either way.
+# ALL-UNNAMED because everything is on the classpath, in the unnamed module.
 # shellcheck disable=SC2086
 exec java "-Xms$JAVA_MIN_HEAP" "-Xmx$JAVA_MAX_HEAP" "$JAVA_GC" \
-  -XX:+ExitOnOutOfMemoryError $JAVA_NMT -jar /opt/fh-dashboard.jar
+  -XX:+ExitOnOutOfMemoryError --enable-native-access=ALL-UNNAMED \
+  "-Dpolyglot.engine.userResourceCache=$FH_GRAAL_CACHE" \
+  $JAVA_NMT -cp "$FH_APP_CLASSPATH" \
+  fh.view.runtime.ServerApp

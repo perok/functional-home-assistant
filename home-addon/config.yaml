@@ -31,6 +31,28 @@ ports_description:
 # default, so addon_config files aren't reachable for editing.
 map:
   - homeassistant_config:rw
+# Everything under /data that is a CACHE and can be refetched. Without this
+# they ride in every Home Assistant backup: `pkl-cache` holds the packaged
+# authoring library and the entity dump, `assets-cache` the downloaded theme
+# CSS and fonts. Both are rebuilt on demand, so backing them up costs snapshot
+# size and restores nothing that matters.
+#
+# A bare directory name is enough, and that is not obvious from the docs
+# (which say only "list of files/paths (with glob support)"). The supervisor
+# tests each pattern with `PurePath.match`, which matches from the RIGHT, and
+# securetar applies the filter to a directory BEFORE descending into it — so
+# one name prunes the whole subtree. Do not write `pkl-cache/**` instead:
+# `match` does not treat `**` as recursive and that pattern matches nothing at
+# all, silently.
+#
+# Relative-looking, but matched against the supervisor's own absolute path.
+# The names are the leaf of FH_PKL_CACHE_DIR / FH_ASSETS_DIR in run.sh; if one
+# moves, this moves. `graal-cache` is Truffle's own unpack of the GraalJS
+# native library, re-extracted whenever a GraalVM bump changes its hash.
+backup_exclude:
+  - pkl-cache
+  - assets-cache
+  - graal-cache
 options:
   watch_registry: true
 schema:
