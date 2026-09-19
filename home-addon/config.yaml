@@ -47,11 +47,12 @@ map:
 #
 # Relative-looking, but matched against the supervisor's own absolute path.
 # The names are the leaf of FH_PKL_CACHE_DIR / FH_ASSETS_DIR in run.sh; if one
-# moves, this moves. The GraalJS resource cache needs no entry — it is baked
-# into the image, not /data.
+# moves, this moves. `graal-cache` is Truffle's own unpack of the GraalJS
+# native library, re-extracted whenever a GraalVM bump changes its hash.
 backup_exclude:
   - pkl-cache
   - assets-cache
+  - graal-cache
 options:
   watch_registry: true
 schema:

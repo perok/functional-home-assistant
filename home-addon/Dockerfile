@@ -2,10 +2,11 @@
 # assembled first:
 #   sbt fh-datastar-view/assembly
 #   docker buildx build -f home-addon/Dockerfile -t ghcr.io/perok/fh-dashboard:dev .
-# The jar is arch-independent JVM bytecode; the multi-arch temurin builder +
-# hassio base yield linux/amd64 + linux/arm64 without cross-compiling Scala.
-# Only jlink runs emulated per-arch — the GraalJS stage picks its library by
-# TARGETARCH but runs on the BUILD platform.
+# The fat jar is arch-independent JVM bytecode; the multi-arch temurin builder
+# + hassio base yield linux/amd64 + linux/arm64 without cross-compiling Scala.
+# jlink is the only stage that runs emulated per-arch; the one
+# architecture-specific artifact, the GraalJS isolate jar, is selected by
+# TARGETARCH and merely copied.
 #
 # GLIBC, not musl, and that is a requirement rather than a preference: the
 # GraalJS polyglot isolate library staged below links libc.so.6 with versioned
@@ -48,47 +49,6 @@ RUN $JAVA_HOME/bin/jlink \
          --compress=zip-6 \
          --output /javaruntime
 
-# The GraalJS polyglot isolate library — the JavaScript engine itself, as a
-# 159 MB native library the JVM dlopens. Everything the app links against is
-# in the fat jar (org.graalvm.polyglot, ~1 MB of pure bytecode); this is the
-# only architecture-specific byte in the image, which is what keeps that jar
-# the same file on both.
-#
-# --platform=$BUILDPLATFORM: this stage only DOWNLOADS and unpacks. Nothing it
-# runs has to be the target architecture, and the target-architecture path is
-# QEMU, so pinning it to the builder keeps the whole step off the emulator.
-# `TARGETARCH` still selects which library is fetched.
-#
-# Fetched rather than copied out of the build context because the context here
-# is the ci-built jar, shipped between jobs as an artifact: staging both
-# platforms' libraries through it means moving 300 MB per run to land 159 MB.
-#
-# GraalJS bootstraps itself here. Nothing in this stage names a version, a
-# URL, an archive layout or an architecture mapping: sbt resolved both
-# platforms' isolate jars as ordinary dependencies and staged them beside the
-# app jar under buildx's own spelling, and unpacking is simply what booting a
-# Truffle engine does when its resource cache is cold. Pointing
-# `userResourceCache` at a staging directory turns that into a build step, so
-# the add-on never extracts 161 MB at runtime.
-#
-# `JsIsolateCheck` and not a bootstrap of our own, because it already boots an
-# engine and runs JavaScript — which means the unpack and the proof that the
-# unpacked thing works are one command, and the build cannot stage a library
-# it could not run.
-#
-# NOT `--platform=$BUILDPLATFORM`: this runs the isolate, so it has to be the
-# target architecture. The arm64 half is emulated, and that is also the point
-# at which a broken arm64 build fails.
-FROM eclipse-temurin:25-jdk AS isolate
-ARG TARGETARCH
-COPY target/addon/ /staging/
-RUN set -eu; \
-    java -cp "/staging/fh-dashboard.jar:/staging/js-isolate-$TARGETARCH.jar" \
-      -Dpolyglot.engine.userResourceCache=/graal-resources \
-      --enable-native-access=ALL-UNNAMED \
-      fh.view.runtime.JsIsolateCheck; \
-    cp "/staging/js-isolate-$TARGETARCH.jar" /js-isolate.jar
-
 # hassio base: s6-overlay init (config.yaml sets init: false), bashio + jq
 # already included (run.sh only needs jq, and the s6 container_environment
 # re-import). The DEBIAN variant, for the glibc reason above; it is the same
@@ -100,23 +60,29 @@ ENV JAVA_HOME=/opt/java/openjdk
 ENV PATH="${JAVA_HOME}/bin:${PATH}"
 COPY --from=jre-build /javaruntime $JAVA_HOME
 
-# GraalJS: the provider jar, and the resource cache the build above unpacked.
-# Both are needed and neither is redundant — the jar is what REGISTERS that a
-# JS isolate exists (an engine without it reports "No native isolate library
-# is available" however the resources are staged), and the cache is what it
-# reads instead of extracting 161 MB on first use.
+# GraalJS: one jar, staged per architecture by sbt under buildx's own
+# spelling, so there is no version, coordinate or architecture mapping here.
+# It is what REGISTERS that a JS isolate exists — an engine without it reports
+# "No native isolate library is available" — and it carries the 159 MB library
+# as an internal resource.
+#
+# Nothing unpacks it here. Truffle extracts its own resources on first use,
+# which is how the thing is meant to work; `run.sh` only chooses WHERE, and
+# picks /data so the unpack survives add-on updates. Doing it at build time
+# instead costs a per-architecture stage that has to run the isolate under
+# emulation, and 161 MB of image, to save a few seconds once per GraalVM bump.
 #
 # The library needs libz.so.1 alongside glibc; the base image has both.
-COPY --from=isolate /js-isolate.jar /opt/fh/js-isolate.jar
-COPY --from=isolate /graal-resources /opt/fh/graal-resources
+ARG TARGETARCH
+COPY target/addon/js-isolate-$TARGETARCH.jar /opt/fh/js-isolate.jar
 
 # How this image launches a JVM against the app, defined ONCE. `run.sh` reads
-# both, and so does the CI step that re-runs JsIsolateCheck in the finished
+# both, and so does the CI step that runs JsIsolateCheck in the finished
 # image — otherwise those two spell out the same classpath separately and can
 # drift, and the JVM SILENTLY IGNORES a classpath entry that does not exist:
 # the add-on would start normally and fail at the first chart.
 ENV FH_APP_CLASSPATH=/opt/fh-dashboard.jar:/opt/fh/js-isolate.jar
-ENV FH_GRAAL_RESOURCES=/opt/fh/graal-resources
+ENV FH_GRAAL_CACHE=/data/graal-cache
 
 # The sbt-assembly fat jar (sbt fh-datastar-view/assembly).
 COPY target/addon/fh-dashboard.jar /opt/fh-dashboard.jar

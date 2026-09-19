@@ -156,8 +156,8 @@ fi
 # cannot spell the classpath differently. Checked rather than defaulted: a
 # JVM ignores a classpath entry that is not there, so an empty value here
 # would start the add-on and fail at the first chart instead of now.
-if [ -z "${FH_APP_CLASSPATH:-}" ] || [ -z "${FH_GRAAL_RESOURCES:-}" ]; then
-  echo "FATAL: FH_APP_CLASSPATH/FH_GRAAL_RESOURCES unset — not the add-on image?" >&2
+if [ -z "${FH_APP_CLASSPATH:-}" ] || [ -z "${FH_GRAAL_CACHE:-}" ]; then
+  echo "FATAL: FH_APP_CLASSPATH/FH_GRAAL_CACHE unset — not the add-on image?" >&2
   exit 1
 fi
 
@@ -166,9 +166,11 @@ fi
 # JS isolate, and -jar ignores -cp entirely. The fat jar's Main-Class is this
 # same class, so launching it with -jar still works for anyone who does.
 #
-# userResourceCache points at what the IMAGE BUILD already unpacked. Left to
-# its default Truffle extracts 161 MB into ~/.cache on first use — which in
-# this container is an image layer, so every add-on update would redo it.
+# userResourceCache is WHERE Truffle unpacks its own native resources, which
+# it does by itself the first time an engine is built. Only the location is
+# ours: the default is ~/.cache, an image layer here, so every add-on update
+# would redo the 161 MB. /data survives updates, and config.yaml keeps it out
+# of Home Assistant's backups. Cost is a few seconds once per GraalVM bump.
 #
 # --enable-native-access: Truffle calls System.load to bring the isolate up.
 # On JDK 25 that is a four-line warning on stderr; from a later JDK it is a
@@ -177,6 +179,6 @@ fi
 # shellcheck disable=SC2086
 exec java "-Xms$JAVA_MIN_HEAP" "-Xmx$JAVA_MAX_HEAP" "$JAVA_GC" \
   -XX:+ExitOnOutOfMemoryError --enable-native-access=ALL-UNNAMED \
-  "-Dpolyglot.engine.userResourceCache=$FH_GRAAL_RESOURCES" \
+  "-Dpolyglot.engine.userResourceCache=$FH_GRAAL_CACHE" \
   $JAVA_NMT -cp "$FH_APP_CLASSPATH" \
   fh.view.runtime.ServerApp

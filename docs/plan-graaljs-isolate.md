@@ -76,9 +76,9 @@ Three things the JVM needs that the classpath does not say:
 
 - **`--enable-native-access=ALL-UNNAMED`**. Truffle `System.load`s the isolate library; on JDK 25
   that is a four-line warning, and on a later JDK it is a hard failure.
-- **`-Dpolyglot.engine.userResourceCache=/opt/fh/graal-resources`**, the cache the image build
-  unpacked. Left at its default Truffle writes 161 MB into `~/.cache` on first use — an image
-  layer here, so every add-on update would redo it.
+- **`-Dpolyglot.engine.userResourceCache=/data/graal-cache`**, where Truffle may unpack its own
+  native resources. Left at its default that is `~/.cache`, an image layer here, so every add-on
+  update would redo the 161 MB.
 - **`libz.so.1`**, which the library names in `DT_NEEDED` alongside glibc. Present in
   `debian-base:9.4.0` on both architectures (checked by unpacking the layers, since nothing here
   can run a container).
@@ -88,8 +88,8 @@ Three things the JVM needs that the classpath does not say:
 The isolate library and the polyglot jars are two halves of one engine, and **a mismatch between
 them is not reported**. Measured: a 25.2.4 `libpolyglotisolate.so` runs against 25.3.4.1 jars with
 no warning, no error and correct output — you are simply running a GraalJS other than the one the
-build declares. That trap is what shaped both halves of the packaging, and the answer to each was
-to stop hand-rolling it.
+build declares. That trap is what shaped the packaging, and the answer to each half was to stop
+hand-rolling it.
 
 **Acquisition is dependency resolution.** The two platform jars are ordinary `libraryDependencies`
 in a hidden Ivy configuration (`js-isolate`, `.hide`), so coursier fetches, checksums and caches
@@ -97,15 +97,27 @@ them exactly like every other dependency, from the one `graalVmVersion` in `buil
 keeps them off compile, test and assembly classpaths — the fat jar never sees them.
 `stageIsolateJars` copies both beside the add-on jar under **buildx's** architecture spelling
 (`js-isolate-arm64.jar`, not `aarch64`, and no version), which is why the Dockerfile contains no
-version, no coordinate, no URL and no architecture mapping. Nothing downloads inside the
-container.
+version, no coordinate, no URL and no architecture mapping. Nothing downloads inside the container.
 
-**Unpacking is what booting an engine does.** Truffle extracts its native resources on first use;
-pointing `polyglot.engine.userResourceCache` at a staging directory during the image build turns
-that into a build step. No API call, no archive layout, no extraction code of ours — and the
-command that does it is `JsIsolateCheck`, which already boots an engine and runs JavaScript, so
-the unpack and the proof that the unpacked thing works are the same step. **The build cannot
-stage a library it could not run.**
+**Unpacking is Truffle's own job, and is left to it.** An engine extracts its native resources on
+first build; `polyglot.engine.userResourceCache` chooses only *where*. So the image stages one jar
+and sets one path, and that is the entire mechanism — no build stage, no extraction code, no
+archive layout, and nothing architecture-specific happening at build time beyond a `COPY`.
+
+The cost is a one-time unpack: **161 MB, ~650 ms of CPU** on a warm NVMe box (three cold/warm
+pairs: 1342/614, 1232/638, 1275/620 ms), so on slower storage it is however long 161 MB of writes
+takes. It recurs only when a GraalVM bump changes the resource hashes. Because `JsIsolate.engine`
+is a process-lifetime resource acquired at startup, that lands on add-on start, not on a user's
+first chart.
+
+Two things make that acceptable rather than merely cheap:
+
+- **`/data` survives add-on updates**, which is the whole reason the path is chosen rather than
+  left at `~/.cache` — an image layer, so every update would redo the work.
+- **`backup_exclude` keeps it out of Home Assistant's backups.** A bare directory name prunes the
+  subtree: the supervisor matches with `PurePath.match` (from the right) and securetar applies the
+  filter to a directory *before* descending. The trap next to it is that `graal-cache/**` matches
+  nothing at all, silently, because `match` does not treat `**` as recursive.
 
 Two dead ends worth not re-walking:
 
@@ -114,18 +126,17 @@ Two dead ends worth not re-walking:
   with "Polyglot isolates require libtruffleattach when running on HotSpot with the fallback
   Truffle runtime." `engine.resourcePath` is also not an engine option at all — it is a system
   property, and setting it on the builder throws "Could not find option with name".
-- **`engine.IsolateLibrary` names the `.so` directly and needs no jar**, which is tempting because
-  it would keep the image to 159 MB. Truffle's own error text annotates it "(for testing purposes
-  only)" and it requires `allowExperimentalOptions`. Rejected for a shipped appliance; it remains
-  the fallback if the provider route ever breaks.
+- **`engine.IsolateLibrary` names the `.so` directly and needs no jar.** Truffle's own error text
+  annotates it "(for testing purposes only)" and it requires `allowExperimentalOptions`. Rejected
+  for a shipped appliance; it remains the fallback if the provider route ever breaks.
 
-The cost of the supported route over that one is the provider jar in the image: ~231 MB of
-GraalJS (161 MB cache + 70 MB jar) against 159 MB. Stripping the now-redundant `.so` out of the
-staged jar gets back to ~161 MB and was verified working, but it is jar surgery and it removes
-the self-heal — with the full jar, a cache that somehow went missing re-extracts instead of
-failing to start.
+**Rejected: unpacking at build time.** It was implemented and measured before being backed out.
+Baking the cache into the image removes the runtime unpack, but costs 161 MB of image, a
+per-architecture build stage that has to RUN the isolate — under QEMU for aarch64, 32.6 s — and
+the both-architecture PR builds that then follow from it. That is a lot of machinery to save a few
+seconds once per GraalVM bump, against the grain of how Truffle is meant to be used.
 
-## Multi-architecture, and where the 161 MB lives
+## Multi-architecture, and what is actually architecture-specific
 
 Three facts make this small:
 
@@ -134,44 +145,33 @@ Three facts make this small:
    needed.
 2. **sbt stages both platforms' jars under buildx's own spelling**, so selecting one is
    `js-isolate-$TARGETARCH.jar` — no mapping anywhere in the Dockerfile.
-3. **The bootstrap stage is per-architecture and must be**, because it RUNS the isolate to unpack
-   it. That is a change in kind from the jlink stage, which only had to be the target
-   architecture to produce the right bytes: this one executes them.
+3. **Nothing architecture-specific is EXECUTED during the build.** One jar is copied; jlink
+   remains the only emulated stage. This was briefly not true — an earlier version unpacked the
+   cache at build time, which meant running the isolate under QEMU — and reverting that also
+   reverted the CI consequence below.
 
-So all 231 MB of GraalJS sits in layers that are already built per architecture, and
-`target/addon/fh-dashboard.jar` stays the architecture-independent bytecode its Dockerfile
-comment promises — the same file in both images.
+So `target/addon/fh-dashboard.jar` stays the architecture-independent bytecode its Dockerfile
+comment promises — the same file in both images — and the only per-architecture byte is a jar
+chosen by `COPY`.
 
-Point 3 has a consequence outside the Dockerfile: **a pull request that builds only amd64 no
-longer tests the build.** The old rationale for one architecture on a PR — "everything a PR is
-likely to break is architecture-independent" — was true of a `COPY` and a `jlink` and is false of
-a JavaScript engine booting under QEMU, which is now the step most likely to break. The `image`
-job therefore builds both on every non-draft PR, and pays the emulation: **32.6 s** for the arm64
-bootstrap, inside a job that does both architectures end to end in 2m08s.
+Because the build no longer runs arch-specific code, the `image` job is back to two depths:
+amd64 on a pull request, both on a push to main, where the isolate check then runs on aarch64
+under emulation before any release build.
 
-The escape hatch, if that ever stops being cheap: **one builder can unpack both architectures.**
-`Engine.copyResources` emits both isolate libraries from an amd64 machine, and `truffle-api`
-carries `libtruffleattach` for `linux/aarch64` as well — so a `--platform=$BUILDPLATFORM` stage
-could produce `out/amd64` and `out/arm64` and each image `COPY` its own. Verified working, with
-`polyglot.engine.resourcePath` in place of `userResourceCache`. Not taken, for two reasons:
-`copyResources` omits `libtruffleattach`, so that file has to be lifted out of `truffle-api` at a
-known internal path — the hand-rolled archive-poking this design exists to avoid — and nothing
-would execute the foreign-architecture library during the build, which is the property that
-currently makes a broken one impossible to package.
+## The cache: unpacked once, at runtime, into /data
 
-## The cache: unpacked once, at build time, into the image
+Truffle extracts its native resources on first use — 161 MB, keyed by a SHA-256 of each resource
+— and `polyglot.engine.userResourceCache` chooses where. `/data`, because it is the add-on's
+persistent volume: it survives restarts and updates, so the unpack recurs only when a GraalVM
+bump changes the hashes. The default, `~/.cache`, is an image layer and would redo it on every
+update.
 
-Truffle extracts its native resources into a cache on first use — 161 MB, keyed by a SHA-256 of
-each resource. Left alone in this container that cache is `~/.cache` inside an image layer, so
-**every add-on update would re-extract**, and nothing prunes the copy the update replaced.
+Nothing prunes the copy a bump replaces, so `/data/graal-cache` grows by 161 MB per GraalVM
+version. Deleting the directory is always safe — it is rebuilt on the next start — and that is
+the escape valve if it ever matters. It is not worth code until it does.
 
-Pointing `polyglot.engine.userResourceCache` at a directory the image build already populated
-removes the question entirely: nothing is extracted at runtime, on first boot or ever. Verified
-end to end — a cold run unpacks 161 MB, a second run against the same directory made **read-only**
-starts and runs JavaScript with the directory unchanged.
-
-What is left is a larger image, which is a one-time pull and needs no note — anyone for whom it
-matters is reading the image size already.
+`backup_exclude` keeps all of it out of Home Assistant's backups, along with the pkl and asset
+caches, which were being backed up before this branch.
 
 ## Base image and JDK
 
@@ -233,8 +233,10 @@ first chart.
 
 So the check is `fh.view.runtime.JsIsolateCheck`, a main in the shipped jar that evaluates a line
 of JavaScript and prints RSS before and after, and the CI `image` job runs it **inside the built
-image** — amd64 on a pull request, aarch64 under emulation on main. That is also the diagnostic to
-run on a Pi, and the memory lines are there because no JVM instrument can see an isolate's heap.
+image** — amd64 on a pull request, aarch64 under emulation on main. On a cold cache it pays the
+one-time unpack too, so it exercises exactly what a user's first start does. That is also the
+diagnostic to run on a Pi, and the memory lines are there because no JVM instrument can see an
+isolate's heap.
 
 ## Reproducing the measurements
 

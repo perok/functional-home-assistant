@@ -5,11 +5,11 @@ import cats.syntax.all.*
 
 /** Boots the isolate, runs a line of JavaScript and prints what it cost.
   *
-  * Run TWICE, and the first time is not a test: the image build runs it with
-  * `polyglot.engine.userResourceCache` aimed at a staging directory, and
-  * unpacking is simply what booting a cold engine does. That the bootstrap and
-  * the check are one command is the point — the build cannot stage a library it
-  * could not run. The second run is inside the finished image.
+  * CI runs it inside the built image, which is the only thing that proves the
+  * staged library is the right architecture and links against the base image's
+  * glibc and zlib — every way of getting that wrong builds cleanly and dies at
+  * the first chart. On a cold cache it also pays the one-time unpack, so it
+  * measures that too.
   *
   * It prints memory because nothing else can see this: the isolate's heap is
   * native memory inside a `dlopen`ed library, invisible to the heap MXBeans and

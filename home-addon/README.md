@@ -20,20 +20,22 @@ Datastar dashboard (`fh-datastar-view`): dashboards authored in
   platforms' libraries as ordinary dependencies and stages them for the image
   build, so nothing downloads inside the container and the library cannot
   disagree with the jars it runs against — a mismatched pair runs silently
-  rather than failing.
+  rather than failing. Truffle unpacks its own native resources into
+  `/data/graal-cache` the first time an engine is built (161 MB, once per
+  GraalVM version); `backup_exclude` keeps that out of HA backups.
 
 Is the isolate healthy in the built image?
 
 ```sh
 docker run --rm --entrypoint java ghcr.io/perok/fh-dashboard:latest \
   --enable-native-access=ALL-UNNAMED \
-  -Dpolyglot.engine.userResourceCache=/opt/fh/graal-resources \
+  -Dpolyglot.engine.userResourceCache=/tmp/graal-cache \
   -cp /opt/fh-dashboard.jar:/opt/fh/js-isolate.jar \
   fh.view.runtime.JsIsolateCheck
 ```
 
 It runs a line of JavaScript and prints RSS before and after, which is the
-only way to see memory a foreign library allocates outside the JVM heap. The
-image build runs the same command — that is what unpacks the resource cache,
-so a library that cannot run cannot be packaged — and CI runs it again inside
-the finished image, on both architectures.
+only way to see memory a foreign library allocates outside the JVM heap. CI
+runs it inside the built image — amd64 on a pull request, aarch64 under
+emulation on main. (A throwaway cache path here so the check does not warm
+the real one; `run.sh` uses `$FH_GRAAL_CACHE`.)

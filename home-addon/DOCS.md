@@ -273,5 +273,8 @@ You receive that component under those terms rather than this project's: they
 permit redistribution of the unmodified program, including bundled in a
 product, as long as no fee is charged for it.
 
-Nothing loads it yet. It is `dlopen`ed the first time something asks for
-JavaScript, so today it costs image size and no memory at all.
+Nothing loads it yet. The first time something does ask for JavaScript, the
+engine unpacks about 160 MB of native resources into `/data/graal-cache` —
+once, and again only when an add-on update moves the GraalVM version. That
+directory is excluded from Home Assistant backups, and deleting it is safe:
+it is rebuilt on the next start.

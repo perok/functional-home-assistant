@@ -236,12 +236,15 @@ jobs:
   # is the same artifact `cd` consumes — the Dockerfile COPYs that jar, so the
   # alternative is a second sbt assembly per run.
   #
-  # BOTH architectures, including on a pull request, which this job did not
-  # always do. The reason it used to build amd64 alone — "everything a PR is
-  # likely to break is architecture-independent" — stopped being true when the
-  # GraalJS bootstrap landed: that step RUNS the isolate to unpack it, so the
-  # arm64 build now executes arm64 code and an amd64-only run does not
-  # exercise it at all. Draft PRs still skip the job and the assembly it needs.
+  # TWO DEPTHS, because the architectures cost wildly different amounts:
+  #
+  #   pull request -> linux/amd64 only. The build itself is now
+  #                   architecture-independent again — it copies a jar rather
+  #                   than running the isolate — so what a PR is likely to
+  #                   break (base images, the jlink module list, COPY paths)
+  #                   shows up on either. Draft PRs skip the job entirely.
+  #   push to main -> both, and the isolate check then runs on aarch64 under
+  #                   emulation. That is the last gate before a release build.
   #
   # It does NOT push, and needs no registry credentials.
   image:
@@ -250,8 +253,7 @@ jobs:
       (github.event_name == 'pull_request' && !github.event.pull_request.draft)
       || (github.event_name == 'push' && github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
-    # Generous because the arm64 half is emulated, and now emulates a
-    # JavaScript engine booting rather than only jlink.
+    # Generous because the arm64 half is emulated.
     timeout-minutes: 40
     permissions:
       contents: read
@@ -264,9 +266,10 @@ jobs:
           name: addon-jar
           path: target/addon/
 
-      # Registers binfmt so the arm64 stages can execute — jlink, and the
-      # GraalJS bootstrap that boots the isolate.
+      # Registers binfmt so the arm64 jlink stage, and the arm64 isolate
+      # check below, can execute. Only main pays for it.
       - uses: docker/setup-qemu-action@v4
+        if: github.event_name == 'push'
       - uses: docker/setup-buildx-action@v4
 
       - name: Build
@@ -274,11 +277,11 @@ jobs:
         with:
           context: .
           file: home-addon/Dockerfile
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ github.event_name == 'push' && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
           push: false
-          # buildx refuses `load` for more than one platform, so this proves
-          # both BUILD; the step below loads one back out of the build cache.
-          load: false
+          # buildx refuses `load` for more than one platform, so on main this
+          # proves both BUILD and the step below loads one back out of cache.
+          load: ${{ github.event_name != 'push' }}
           tags: fh-dashboard:ci
 
       # A successful build says nothing about whether the jlinked runtime
@@ -292,6 +295,7 @@ jobs:
       # Raspberry Pi, and it is the half that emulation could plausibly break.
       - name: Load one architecture
         uses: docker/build-push-action@v7
+        if: github.event_name == 'push'
         with:
           context: .
           file: home-addon/Dockerfile
@@ -320,7 +324,7 @@ jobs:
         run: |
           docker run --rm --entrypoint sh fh-dashboard:ci -c '
             exec java --enable-native-access=ALL-UNNAMED \
-              -Dpolyglot.engine.userResourceCache="$FH_GRAAL_RESOURCES" \
+              -Dpolyglot.engine.userResourceCache="$FH_GRAAL_CACHE" \
               -cp "$FH_APP_CLASSPATH" fh.view.runtime.JsIsolateCheck'
 
   cd:

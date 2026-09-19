@@ -12,9 +12,10 @@ import org.graalvm.polyglot.{Context, Engine, HostAccess}
   *
   * Nothing is configured here because the add-on image supplies it all: the
   * `js-isolate-linux-<arch>` jar on the classpath is what registers the
-  * isolate, and `polyglot.engine.userResourceCache` points at resources its
-  * build already unpacked. So outside that image there is no isolate and this
-  * raises — a local `sbt dashboardServe` has no JavaScript.
+  * isolate, and `polyglot.engine.userResourceCache` says where Truffle may
+  * unpack its native resources — which it does by itself, once, the first time
+  * this is built. So outside that image there is no isolate and this raises: a
+  * local `sbt dashboardServe` has no JavaScript.
   */
 object JsIsolate {
 
