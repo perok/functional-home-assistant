@@ -110,6 +110,14 @@ COPY --from=jre-build /javaruntime $JAVA_HOME
 COPY --from=isolate /js-isolate.jar /opt/fh/js-isolate.jar
 COPY --from=isolate /graal-resources /opt/fh/graal-resources
 
+# How this image launches a JVM against the app, defined ONCE. `run.sh` reads
+# both, and so does the CI step that re-runs JsIsolateCheck in the finished
+# image — otherwise those two spell out the same classpath separately and can
+# drift, and the JVM SILENTLY IGNORES a classpath entry that does not exist:
+# the add-on would start normally and fail at the first chart.
+ENV FH_APP_CLASSPATH=/opt/fh-dashboard.jar:/opt/fh/js-isolate.jar
+ENV FH_GRAAL_RESOURCES=/opt/fh/graal-resources
+
 # The sbt-assembly fat jar (sbt fh-datastar-view/assembly).
 COPY target/addon/fh-dashboard.jar /opt/fh-dashboard.jar
 

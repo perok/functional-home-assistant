@@ -152,6 +152,15 @@ fi
 # $JAVA_NMT is deliberately unquoted: it is one flag or nothing, and nothing
 # must vanish rather than become an empty argument.
 #
+# Both come from the image (see the Dockerfile) so this file and the CI check
+# cannot spell the classpath differently. Checked rather than defaulted: a
+# JVM ignores a classpath entry that is not there, so an empty value here
+# would start the add-on and fail at the first chart instead of now.
+if [ -z "${FH_APP_CLASSPATH:-}" ] || [ -z "${FH_GRAAL_RESOURCES:-}" ]; then
+  echo "FATAL: FH_APP_CLASSPATH/FH_GRAAL_RESOURCES unset — not the add-on image?" >&2
+  exit 1
+fi
+
 # -cp and a named main class rather than -jar, because GraalJS needs a second
 # jar on the classpath: js-isolate.jar carries the provider that registers the
 # JS isolate, and -jar ignores -cp entirely. The fat jar's Main-Class is this
@@ -168,6 +177,6 @@ fi
 # shellcheck disable=SC2086
 exec java "-Xms$JAVA_MIN_HEAP" "-Xmx$JAVA_MAX_HEAP" "$JAVA_GC" \
   -XX:+ExitOnOutOfMemoryError --enable-native-access=ALL-UNNAMED \
-  -Dpolyglot.engine.userResourceCache=/opt/fh/graal-resources \
-  $JAVA_NMT -cp /opt/fh-dashboard.jar:/opt/fh/js-isolate.jar \
+  "-Dpolyglot.engine.userResourceCache=$FH_GRAAL_RESOURCES" \
+  $JAVA_NMT -cp "$FH_APP_CLASSPATH" \
   fh.view.runtime.ServerApp

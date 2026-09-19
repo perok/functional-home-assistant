@@ -313,12 +313,15 @@ jobs:
       # cache at the path run.sh names. It also prints what the isolate costs
       # in RSS on aarch64, which is the number issue #237 wants.
       - name: JavaScript runs in the isolate
+        # Through `sh` so the classpath and cache path come from the IMAGE's
+        # own environment — the same two variables `run.sh` launches with.
+        # Spelled out here instead, they would be a second copy that can drift
+        # from the real launch while this step keeps passing.
         run: |
-          docker run --rm --entrypoint java fh-dashboard:ci \
-            --enable-native-access=ALL-UNNAMED \
-            -Dpolyglot.engine.userResourceCache=/opt/fh/graal-resources \
-            -cp /opt/fh-dashboard.jar:/opt/fh/js-isolate.jar \
-            fh.view.runtime.JsIsolateCheck
+          docker run --rm --entrypoint sh fh-dashboard:ci -c '
+            exec java --enable-native-access=ALL-UNNAMED \
+              -Dpolyglot.engine.userResourceCache="$FH_GRAAL_RESOURCES" \
+              -cp "$FH_APP_CLASSPATH" fh.view.runtime.JsIsolateCheck'
 
   cd:
     needs: ci

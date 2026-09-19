@@ -297,7 +297,12 @@ lazy val `fh-datastar-view` = project
                 sys.error(s"no js-isolate-linux-$graalArch jar resolved")
               )
             val target = out / s"js-isolate-$dockerArch.jar"
-            IO.copyFile(source, target)
+            // 140 MB of copying on every `assembly` otherwise, and `assembly`
+            // runs constantly. Length is enough of a stamp: these are
+            // immutable released artifacts, so a same-named jar of the same
+            // size IS the same jar.
+            if (!target.exists || target.length != source.length)
+              IO.copyFile(source, target)
             target
         }
       }
