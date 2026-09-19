@@ -56,7 +56,8 @@ object Downsample {
         // This bucket: keep whichever point makes the biggest triangle with
         // the previously kept point and that centre of mass.
         val from = Math.floor(i * every).toInt + 1
-        val to = Math.min(Math.floor((i + 1) * every).toInt + 1, points.length - 1)
+        val to =
+          Math.min(Math.floor((i + 1) * every).toInt + 1, points.length - 1)
         val aX = seconds(points(anchor))
         val aY = points(anchor).value
         var best = from
@@ -64,7 +65,9 @@ object Downsample {
         var k = from
         while (k < to) {
           val area = Math.abs(
-            (aX - avgX) * (points(k).value - aY) - (aX - seconds(points(k))) * (avgY - aY)
+            (aX - avgX) * (points(k).value - aY) - (aX - seconds(
+              points(k)
+            )) * (avgY - aY)
           )
           if (area > bestArea) { bestArea = area; best = k }
           k += 1

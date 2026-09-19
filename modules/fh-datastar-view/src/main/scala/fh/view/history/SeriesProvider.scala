@@ -68,9 +68,9 @@ object SeriesProvider {
     * The parallel arm is the discovery mechanism as well as the fallback: the
     * history half is what teaches [[Retention]], so a window that needed two
     * calls once may need one afterwards. Two calls is also the honest cost of
-    * not knowing — a sensor created yesterday and an instance that purges
-    * daily produce identical short answers, and only asking statistics
-    * separates them.
+    * not knowing — a sensor created yesterday and an instance that purges daily
+    * produce identical short answers, and only asking statistics separates
+    * them.
     */
   def asInstance(
       source: SeriesSource,

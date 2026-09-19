@@ -32,9 +32,9 @@ final case class SeriesKey(
   * default behaviour without it.
   *
   * A failure is not cached. It is removed on completion, so the next asker
-  * retries — the opposite of the memoized `None` that suits a one-shot
-  * lookup, because a series that failed because HA was briefly down should
-  * come back when it is up rather than at the next bucket.
+  * retries — the opposite of the memoized `None` that suits a one-shot lookup,
+  * because a series that failed because HA was briefly down should come back
+  * when it is up rather than at the next bucket.
   */
 final class SeriesStore private (
     entries: Ref[IO, Map[SeriesKey, Deferred[IO, Either[Throwable, Series]]]],

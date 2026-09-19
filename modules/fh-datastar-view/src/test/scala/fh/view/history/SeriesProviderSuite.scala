@@ -47,7 +47,9 @@ class SeriesProviderSuite extends munit.CatsEffectSuite {
   private def rowsFrom(oldest: Instant)(start: Instant): List[HistoryPoint] = {
     val from = if (start.isBefore(oldest)) oldest else start
     val minutes = java.time.Duration.between(from, now).toMinutes
-    (0L to minutes).map(m => HistoryPoint("1.0", from.plusSeconds(m * 60))).toList
+    (0L to minutes)
+      .map(m => HistoryPoint("1.0", from.plusSeconds(m * 60)))
+      .toList
   }
 
   private def hourlyStats(from: Instant): List[StatisticPoint] = {
@@ -98,7 +100,11 @@ class SeriesProviderSuite extends munit.CatsEffectSuite {
       r <- Retention.create
       _ <- r.record(Some(now.minusSeconds(30.days.toSeconds)), now)
       p = SeriesProvider.asInstance(
-        new StubSource(rowsFrom(now.minusSeconds(2.hours.toSeconds)), Nil, calls),
+        new StubSource(
+          rowsFrom(now.minusSeconds(2.hours.toSeconds)),
+          Nil,
+          calls
+        ),
         r
       )
       _ <- p.series(SeriesIdentity.Instance, entity, Window.LastHour, now)
@@ -166,7 +172,11 @@ class SeriesProviderSuite extends munit.CatsEffectSuite {
       r <- Retention.create
       _ <- r.record(Some(now.minusSeconds(30.days.toSeconds)), now)
       p = SeriesProvider.asInstance(
-        new StubSource(rowsFrom(now.minusSeconds(30.days.toSeconds)), Nil, calls),
+        new StubSource(
+          rowsFrom(now.minusSeconds(30.days.toSeconds)),
+          Nil,
+          calls
+        ),
         r,
         target = 100
       )
@@ -197,7 +207,9 @@ class SeriesProviderSuite extends munit.CatsEffectSuite {
       fetches <- Ref[IO].of(0)
       store <- SeriesStore.create(countingProvider(fetches, 50.millis))
       _ <- List
-        .fill(10)(store.get(SeriesIdentity.Instance, entity, Window.LastDay, now))
+        .fill(10)(
+          store.get(SeriesIdentity.Instance, entity, Window.LastDay, now)
+        )
         .parSequence
       count <- fetches.get
     } yield assertEquals(count, 1)
@@ -263,7 +275,9 @@ class SeriesProviderSuite extends munit.CatsEffectSuite {
           }
       }
       store <- SeriesStore.create(provider)
-      first <- store.get(SeriesIdentity.Instance, entity, Window.LastDay, now).attempt
+      first <- store
+        .get(SeriesIdentity.Instance, entity, Window.LastDay, now)
+        .attempt
       _ <- IO(assert(first.isLeft))
       // The retry is the point: a series that failed because HA blinked should
       // come back when it stops, not at the next bucket.
