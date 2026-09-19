@@ -1,6 +1,6 @@
-# FH Dashboard add-on image. Build context = repo root; both jars must be
-# staged first:
-#   sbt 'fh-datastar-view/assembly ; pkl-lsp-dist/stagePklLsp'
+# FH Dashboard add-on image. Build context = repo root; everything it COPYs is
+# staged into target/addon/ by one command:
+#   sbt fh-datastar-view/assembly
 #   docker buildx build -f home-addon/Dockerfile -t ghcr.io/perok/fh-dashboard:dev .
 # The app and pkl-lsp jars are arch-independent JVM bytecode; the multi-arch
 # temurin builder + hassio base yield linux/amd64 + linux/arm64 without
@@ -95,8 +95,8 @@ ENV FH_GRAAL_CACHE=/data/graal-cache
 COPY target/addon/fh-dashboard.jar /opt/fh-dashboard.jar
 
 # The pkl-lsp CLI jar backing /edit's language server, resolved by the build
-# (pkl-lsp-dist/stagePklLsp) rather than downloaded at runtime. It stays a
-# SUBPROCESS and a separate file on purpose: pkl-lsp's `exit` notification —
+# (`stagePklLsp`) rather than downloaded at runtime. It stays a SUBPROCESS and
+# a separate file on purpose: pkl-lsp's `exit` notification —
 # which every LSP client sends on disconnect — calls exitProcess(0), so
 # embedding it would let a closed editor tab kill the dashboard. Its shaded jar
 # also bundles an unrelocated JNA 5.14.0 that collides with appdirs' 5.18.1 on
