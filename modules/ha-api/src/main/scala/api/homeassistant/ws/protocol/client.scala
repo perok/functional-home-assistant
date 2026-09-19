@@ -13,6 +13,8 @@ import io.circe.syntax.*
 import cats.syntax.all.*
 import perok.ha.{GetStatesData, ServiceDomain, ServicesData}
 
+import java.time.Instant
+
 object client {
   // https://github.com/zachowj/node-red-contrib-home-assistant-websocket/blob/main/src/homeAssistant/Websocket.ts#L659
 
@@ -316,6 +318,70 @@ object client {
         extends CommandPhase
         with CommandResponse.AsResult[List[DeviceTrigger]]
         derives ConfiguredEncoder
+
+    //
+    // Recorder
+    //
+
+    /** Raw recorder rows per entity, keyed by `entity_id`.
+      *
+      * The two flags are defaults rather than parameters because the
+      * alternative is not a variant anyone here wants: without them every point
+      * repeats the entity's whole attribute map, which measured 37 KB against 8
+      * KB for the same 223 points. [[HistoryPoint]] decodes only the compact
+      * shape.
+      *
+      * Two shapes of "nothing" both come back as a SUCCESS with `{}`, measured:
+      * an entity id that does not exist, and a window whose end precedes its
+      * start. So an empty map is the normal answer for "no rows", and a caller
+      * cannot use it to detect a bad request.
+      *
+      * The window is also bounded by the recorder's own retention
+      * (`purge_keep_days`, ~10 days on the instance this was measured against),
+      * silently: asking for 30 days returns what survives, not an error. Past
+      * that horizon [[`recorder/statistics_during_period`]] is the only source.
+      */
+    case class `history/history_during_period`(
+        start_time: Instant,
+        end_time: Instant,
+        entity_ids: List[String],
+        minimal_response: Boolean = true,
+        no_attributes: Boolean = true
+    ) extends CommandPhase
+        with CommandResponse.AsResult[Map[String, List[HistoryPoint]]]
+        derives ConfiguredEncoder
+
+    /** Pre-bucketed long-term statistics per statistic id.
+      *
+      * Available only for entities HA computes statistics for — a `state_class`
+      * on the entity, which `recorder/list_statistic_ids` enumerates. For
+      * anything else this answers an empty map rather than an error (measured
+      * on a `binary_sensor` and a `light`), so absence is not a failure and the
+      * caller decides from the schema, not from the response.
+      *
+      * Buckets shorter than the window's own resolution simply do not exist
+      * yet: a one-hour window at `Hour` returns nothing at all.
+      */
+    case class `recorder/statistics_during_period`(
+        start_time: Instant,
+        end_time: Option[Instant],
+        statistic_ids: List[String],
+        period: StatisticsPeriod
+    ) extends CommandPhase
+        with CommandResponse.AsResult[Map[String, List[StatisticPoint]]]
+
+    object `recorder/statistics_during_period` {
+
+      /** An open-ended window omits `end_time`; it must not send null. HA
+        * validates the field with `vol.Coerce(str)` and answers
+        * `invalid_format: expected str at 'end_time'. Got None` — measured, and
+        * the same trap [[subscribe_entities]] documents.
+        */
+      given Encoder.AsObject[`recorder/statistics_during_period`] =
+        ConfiguredEncoder
+          .derived[`recorder/statistics_during_period`]
+          .mapJsonObject(_.filter { case (_, v) => !v.isNull })
+    }
 
     //
     // Subscriptions

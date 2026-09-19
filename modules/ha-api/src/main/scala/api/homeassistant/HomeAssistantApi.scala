@@ -12,6 +12,8 @@ import fs2.Stream
 import io.circe.{Decoder, Json}
 import perok.ha.{GetStatesData, ServiceDomain}
 
+import java.time.Instant
+
 // TODO add caching of rest + json response. triggers and actions usually don't change
 //
 // The trait is effect-polymorphic in `F`: methods return `F[...]` /
@@ -103,6 +105,33 @@ trait HomeAssistantApi[F[_]] {
   def getStates: F[List[GetStatesData]]
 
   def getServices: F[List[ServiceDomain]]
+
+  /** Raw recorder rows for each entity, within the window.
+    *
+    * An entity with no rows is simply absent from the map — including an entity
+    * id that does not exist, which is a SUCCESS with an empty result, not an
+    * error. The recorder's retention also bounds this silently: a window
+    * reaching past `purge_keep_days` returns what survives. Past that,
+    * [[statisticsDuringPeriod]] is the only source.
+    */
+  def historyDuringPeriod(
+      start: Instant,
+      end: Instant,
+      entityIds: List[String]
+  ): F[Map[String, List[HistoryPoint]]]
+
+  /** Pre-bucketed long-term statistics per statistic id.
+    *
+    * Only entities HA computes statistics for (those with a `state_class`)
+    * appear; anything else is absent rather than an error. `end` is optional
+    * and open-ended when absent.
+    */
+  def statisticsDuringPeriod(
+      start: Instant,
+      end: Option[Instant],
+      statisticIds: List[String],
+      period: StatisticsPeriod
+  ): F[Map[String, List[StatisticPoint]]]
 
   // Assumes | to_json as the end
   def templateFunc[Body: Decoder](template: String): F[Body]
@@ -214,6 +243,25 @@ object HomeAssistantApi {
 
       def getStates: IO[List[GetStatesData]] =
         in.sendCommand(`get_states`())
+
+      def historyDuringPeriod(
+          start: Instant,
+          end: Instant,
+          entityIds: List[String]
+      ): IO[Map[String, List[HistoryPoint]]] =
+        in.sendCommand(
+          `history/history_during_period`(start, end, entityIds)
+        )
+
+      def statisticsDuringPeriod(
+          start: Instant,
+          end: Option[Instant],
+          statisticIds: List[String],
+          period: StatisticsPeriod
+      ): IO[Map[String, List[StatisticPoint]]] =
+        in.sendCommand(
+          `recorder/statistics_during_period`(start, end, statisticIds, period)
+        )
 
       def getConfigWS: IO[Json] =
         in.sendCommand(`get_config`())
