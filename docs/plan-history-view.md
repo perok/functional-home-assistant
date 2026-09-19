@@ -89,12 +89,10 @@ interactivity.
 
 ECharts has had a zero-dependency SSR mode since 5.3: `echarts.init(null, null, { renderer: 'svg',
 ssr: true, width, height })` then `chart.renderToSVGString()`. It needs no DOM and no canvas — only
-a JavaScript engine. **We already ship one's worth of infrastructure**: `pkl-core` puts
-`truffle-api`, `polyglot` and `graal-sdk` on our classpath, so GraalJS is one more coordinate at a
-matching version.
+a JavaScript engine, and **we already ship one**: `fh.view.runtime.JsIsolate`.
 
-Measured on x86_64 / OpenJDK 25, with Truffle in its **interpreted** fallback runtime (the same
-mode Pkl already runs in here — no GraalVM, no JVMCI):
+Measured on x86_64 / OpenJDK 25 before the isolate landed, so with Truffle interpreted — kept as
+the floor, since the shipped numbers are the faster column further down:
 
 | | |
 |---|---|
@@ -104,7 +102,7 @@ mode Pkl already runs in here — no GraalVM, no JVMCI):
 | Warm render, 2 000 points | 84–190 ms |
 | Warm render, 5 000 points | 120–155 ms |
 | SVG out | ~19 KB, and **flat** from 2 000 to 5 000 points, because LTTB caps what is drawn |
-| New jars | ~48 MB (`js-language` 26 MB, shaded `icu4j` 18 MB, `regex` 3.7 MB, rest small) |
+| New jars | none — the isolate carries its own JS runtime |
 
 Three findings worth keeping, because each was a live risk:
 
@@ -145,36 +143,31 @@ zoom into pre-downsampled points cannot. A hover readout can be a `<title>` per 
 interaction is ever wanted, ECharts 5.5+ ships a tiny client that `hydrate()`s SSR output for
 legend and hover; that is the appendix's territory and an addition, not a rewrite.
 
-### Deployment: interpreted needs no image change
+### Deployment: already done, and compiled
 
-`home-addon/Dockerfile` builds a jlink'd Temurin 21 runtime, and the GraalJS jars are ordinary Java
-targeting bytecode 17. Truffle already runs in that image, for Pkl, so nothing about the module
-list needs to move for a second language.
+The engine and the image are already in place (`docs/plan-graaljs-isolate.md`, #372 and #373), so
+this plan adds a caller, not a runtime:
 
-### Interpreted vs. compiled: the separate question, now answered on the mechanism
+- The engine is an **Oracle polyglot isolate**: `Engine.newBuilder("js").spawnIsolate(true)`,
+  `HostAccess.SCOPED`, contexts built against one shared engine. `fh.view.runtime.JsIsolate` is
+  the whole surface, and it is already on the classpath — this plan adds a caller, not a
+  dependency.
+- The image is glibc (`debian-base`) on JDK 25, the isolate jar is staged per architecture by the
+  build, and Truffle unpacks its own resources into `/data/graal-cache` on first start.
+- Guest JavaScript is **compiled**: 501 M ops/sec measured against 15.9 M in-heap, with no
+  fallback-runtime warning for our engine.
 
-Every number above was measured under Truffle's interpreted fallback, and it is fast enough. The
-follow-up — *how would we get compiled execution if the Pi says we need it* — is worth settling
-here because **the obvious answer has been withdrawn**: JVMCI is removed in JDK 27
-([JDK-8382582](https://bugs.openjdk.org/browse/JDK-8382582)), not deprecated. The issue is blunt
-about the aftercare: "Projects that depend on JVMCI should carry and maintain it in their own
-downstream trees." So "put the Truffle runtime on the module path with JVMCI enabled" has a
-shelf life and is not a direction to build toward.
+Two consequences for the numbers below. They were measured **interpreted**, so they are an upper
+bound on what a chart now costs — the isolate was 1.8–2.6× faster on exactly this workload. And
+the memory question they raised is answered differently than expected: the isolate's guest heap is
+native memory outside the JVM, and Oracle's holds flat as the series grows where the community
+build does not.
 
-There are three ways left, and only one of them is cheap.
+### What interpreted rendering cost, as the upper bound
 
-**1. Polyglot isolates — the one that works on a stock JDK.** The optimizing runtime ships as a
-native library rather than as a JIT plugged into HotSpot, so it needs nothing from the host VM. A
-Graal developer states it directly in
-[r/java](https://www.reddit.com/r/java/comments/1ush0x9/comment/owp5r2n/): "JVMCI is not required
-to run GraalJS with the optimizing runtime on stock OpenJDK. You can use polyglot isolates."
-`js-isolate-community` exists from GraalVM CE 25.1, at **our exact version, 25.3.4.1**, and the
-platform jars are MIT/UPL — more permissive than the GPLv2+CE the docs promise for community
-artifacts.
-
-Measured here (x86_64, OpenJDK 25, ECharts 5.6.0, 600×300, same spike as the table above — a plain
-`javac` program over two coursier classpaths, `org.graalvm.polyglot:js-community:25.3.4.1` against
-`org.graalvm.polyglot:js-isolate-community:25.3.4.1`, differing only in `spawnIsolate`):
+Measured x86_64, OpenJDK 25, ECharts 5.6.0, 600×300 — a plain `javac` program over two coursier
+classpaths differing only in `spawnIsolate`. The isolate column is what we ship; the interpreted
+column is kept because it is the floor a Pi could fall back to.
 
 | | interpreted | isolate |
 |---|---:|---:|
@@ -202,10 +195,8 @@ Four things in that table matter more than the headline 1.8–2.6×:
 - **The SVG is byte-identical between the two modes.** Checked, not assumed. So the mode is a pure
   performance switch: wire snapshots taken under one pass under the other, and flipping it is not
   a rendering decision.
-- **It is two lines of build config and two of code.** `spawnIsolate(true)` plus
-  `HostAccess.SCOPED`. One trap worth writing down: when an `Engine` is shared — which is the whole
-  point of our runtime shape — `spawnIsolate` must go on `Engine.Builder`, not on `Context.Builder`
-  as the docs' example shows. The Context form throws `IllegalStateException` naming the fix.
+- **The engine shape is already built.** `JsIsolate.engine` is a process-lifetime `Resource`, so
+  the cold-process row is paid at add-on start, not on a user's first chart.
 
 The host↔guest boundary, which is what an isolate is usually criticised for, is not a problem at
 our shape and the instinct about it is backwards. Per-call overhead is 376 ns interpreted vs 964 ns
@@ -220,42 +211,10 @@ array, not as JSON.
 isolate — verified, since that is the guest→host direction and the one feature the plan leans on
 that a boundary could have taken away.
 
-**2. A GraalVM JDK base image.** Compiled Truffle with no boundary at all, and it would speed up
-**Pkl** too — which the isolate cannot, because `pkl-core` embeds Truffle directly rather than
-through the polyglot isolate API. That is the one real argument for this route, and Pkl is on the
-startup path that is already slow on the Pi. The cost is tying the add-on's JDK to GraalVM's own
-release train, which is [detaching from OpenJDK's](https://lobste.rs/s/9islkn/detaching_graalvm_from_java_ecosystem).
-
-**3. Native image.** Also boundary-free, and **not available to us**: `sbt-native-packager` has no
-sbt 2.x build — Maven Central stops at `sbt-native-packager_2.12_1.0` 1.11.7, and both
-`_3_2.0` and `_2.12_2.0` 404. So the
-[documented plugin route](https://www.scala-sbt.org/sbt-native-packager/formats/graalvm-native-image.html)
-is closed until that plugin crosses to sbt 2; what is left is driving `native-image` by hand over
-the assembly jar, which is a different and much larger project than this plan.
-
-#### The blocker all three share: the add-on image is musl
-
-`libpolyglotisolate.so` links `libc.so.6` with `GLIBC_2.x` versioned symbols and contains no
-reference to musl. `home-addon/Dockerfile` jlinks from `eclipse-temurin:21-alpine` onto
-`ghcr.io/hassio-addons/base` — a musl runtime, which is proven by the fact that a musl-linked JRE
-runs there at all. **A glibc shared object cannot load in that image.** The same applies to a
-GraalVM JDK base and to default native-image output, so this is not an isolate-specific tax: every
-compiled-Truffle option costs a move to a glibc base (`debian-base`) and a glibc JDK for the jlink
-stage.
-
-The second deployment cost is size, and it is smaller than expected. An isolate *replaces*
-`js-language` (26 MB), `icu4j` (17 MB) and `regex` (3.7 MB) rather than adding to them — the JS
-runtime lives inside the native library — so one platform is **+15 MB of jar** over the interpreted
-plan, not +61. What is not small is what that jar unpacks to: a **143 MB** `libpolyglotisolate.so`,
-extracted to a resource cache on first use, which on an SD card is a real first-run cost and worth
-pre-extracting into the image. And the fat jar is currently arch-independent on purpose — the
-Dockerfile says so — while isolate jars are per-arch, so shipping both Linux arches is +120 MB, and
-shipping one breaks the multi-arch build.
-
-**Conclusion, unchanged: build this interpreted.** What has changed is that the fallback now has a
-name, a version that already matches ours, a licence that is fine, a measured size, a measured
-speedup and a known blocker. If the Pi says the charts are too slow, the move is polyglot isolates
-and a glibc base image — not JVMCI, which will not be there.
+The one thing an isolate does **not** buy is Pkl: `pkl-core` embeds Truffle directly rather than
+through the polyglot isolate API, so it stays interpreted. That is fine and is not this plan's
+problem — Pkl's own hot path bails out of compilation anyway
+(`docs/issue-report-3-graalvm-polyglot-isolate.md`), and it runs at startup, never per render.
 
 ---
 
@@ -286,16 +245,47 @@ renderer.
 ### The HA side
 
 `ha-api`'s WS client is a set of case classes named after HA's command types, so this is one row
-each:
+each. **Both commands are on the WS API** — measured against the live instance (HA core
+2026.9.3), so nothing here needs a REST client:
 
-- `history/history_during_period` — raw recorder rows. Right for short windows.
-- `recorder/statistics_during_period` — pre-bucketed 5-minute/hourly long-term statistics. Far
-  cheaper for anything over ~24h, and it only exists for entities with a `state_class` — which
-  `SensorEntity` already models since #349, so the dashboard can *know at build time* which source
-  an entity supports.
+- `history/history_during_period` — raw recorder rows. With `minimal_response: true` and
+  `no_attributes: true` a point is `{"s": "23.1", "lu": 1789755910.543}`: state as a STRING, and
+  `lu` (last_updated) as epoch **seconds with a fractional part**. Without those flags every point
+  repeats the full attribute map — 8 KB becomes 37 KB for the same 223 points, so the flags are
+  not an optimisation, they are the calling convention.
+- `recorder/statistics_during_period` — pre-bucketed statistics, `period` one of
+  `5minute`/`hour`/`day`/…. Shape depends on the sensor's `state_class`:
+  a measurement gives `{start, end, min, mean, max, last_reset}`, a total gives
+  `{start, end, state, sum, change, last_reset}` — `start`/`end` in epoch **milliseconds**, not
+  seconds. Two units in one feature; the decoders must not share a timestamp type.
 
-That pairing is worth stating as the design rather than an optimisation: **short window → raw
-history, long window → statistics**, chosen from the schema we already generate.
+**The cutover is about retention, not size, and the plan had this wrong.** Measured on one
+temperature sensor:
+
+| window | history | statistics (hour) |
+|---|---|---|
+| 1 h | 10 pts, 0.4 KB | **0 pts** |
+| 24 h | 223 pts, 8 KB | 23 pts, 2.5 KB |
+| 7 d | 1 396 pts, 50 KB | 167 pts, 18 KB |
+| 30 d | 1 836 pts, 66 KB | 719 pts, 76 KB |
+
+At 30 days statistics is *bigger* than raw history — because raw history is not there any more.
+It is clamped by the recorder's purge horizon (~10 days on this instance: 22 extra days of window
+bought 440 extra points), while statistics covers the whole range. So the rule is **history for
+what the recorder still holds, statistics for what it has purged**, and the 1 h row is the other
+end of the same fact: hourly buckets have nothing to say about the last hour. A window shorter
+than the bucket must use history, and one longer than the purge horizon must use statistics.
+
+Two more things the measurement settled:
+
+- **Statistics is empty, not an error, for an entity without a `state_class`** — a
+  `binary_sensor` and a `light` both came back `{}`. So the build-time knowledge
+  `SensorEntity` carries (since #349) decides which source is even *available*, and the runtime
+  never has to interpret an empty result as a failure.
+- **Fan-out is the expensive axis, not window length.** Ten chatty measurement sensors over 24 h
+  is 910 KB and 2.3 s in one call, against 8 KB and 30 ms for the one temperature sensor. That is
+  the argument for the per-`(entity, window, bucket)` cache below being per *entity*: batching ten
+  entities into one request shares a round trip but shares no cache entry.
 
 ### Caching, and where immutability pays
 
@@ -395,9 +385,10 @@ Each is independently mergeable and independently useful.
    bucket key are pure and are where the tests go.
 3. **`RenderInputs` gains the series component.** The pipeline change, on its own, with the
    architecture doc updated in the same commit.
-4. **The chart renderer**: the GraalJS dependency, the vendored ECharts bundle as a resource, and
-   the `Engine`/`Source`/context-pool host behind a plain `IO[String]` — series in, SVG out, built
-   lazily on first use. Its tests are ordinary: no browser, no HA, just a function.
+4. **The chart renderer**: the vendored ECharts bundle as a resource and a host behind a plain
+   `IO[String]` — series in, SVG out. The engine is `JsIsolate`, already on the classpath and
+   already a process-lifetime `Resource`, so this phase adds the `Source` and the context handling
+   and nothing else. Its tests are ordinary: no browser, no HA, just a function.
 5. **Pkl `core/series.pkl` + a shipped `c.historyChart(e)`** leaf, with the theme's colours folded
    into the option object.
 6. **Window selection** as a bake group over the existing surface machinery.
@@ -410,28 +401,29 @@ Each is independently mergeable and independently useful.
 
 ---
 
-## 6. Open questions — spike before building
+## 6. Open questions
 
-**The HA API below is from documentation, not measurement** — the live instance was not reachable
-— and this project's standing rule is that the shipped bytes win over the prose.
+The HA-API ones are answered and have moved into §3, where the design that depends on them lives.
+What is left needs a Pi or a rendered chart, not a decision.
 
-1. **Does `history/history_during_period` exist on your HA's WS API**, or is REST
-   `/api/history/period` the only route? Verify before phase 1; it decides whether this rides the
-   existing socket or needs a REST client.
-2. **What does `recorder/statistics_during_period` actually return** for a sensor with a
-   `state_class` — and what is the real cutover point where it beats raw history?
-3. **Whose identity should read?** The person's token is the correct answer for a permission-scoped
+1. **Whose identity should read?** The person's token is the correct answer for a permission-scoped
    read, but it means a second connection per user, exactly as issue #198 describes for taps.
    Whether history is worth that cost is a judgement call, not a technical one.
-4. **What do the §2 numbers look like on the Pi?** Everything there is x86_64. Expect the
-   interpreted render to be several times slower; the question is whether the *first* chart in a
-   session is acceptable, since every later one in the bucket is free. Measure alongside the
-   memory a second Truffle language costs, which was not measured at all.
-5. **Is ECharts' SSR text estimate good enough**, or does `setPlatformAPI({ measureText })` need
+2. **What is the recorder's purge horizon, and should the card know it?** ~10 days on this
+   instance, but `purge_keep_days` is per-installation and nothing in the dump reports it. Either
+   the provider discovers it (a history call that returns fewer points than the window asked for)
+   or the source choice is a fixed threshold that is wrong on some installs.
+3. **What do the §2 numbers look like on the Pi?** Everything there is x86_64. The chart is now on
+   a compiled isolate, so the question has narrowed to whether the *first* chart in a session is
+   acceptable — every later one in the bucket is free — and to what the isolate's native heap
+   costs alongside Pkl's Truffle. Shares the Pi run `docs/plan-graaljs-isolate.md` is already
+   waiting on.
+4. **Is ECharts' SSR text estimate good enough**, or does `setPlatformAPI({ measureText })` need
    real Java font metrics? Cheap to answer once a real dashboard renders one.
-6. **Does a window change need a new fetch or a re-slice?** Fetching the widest window once and
+5. **Does a window change need a new fetch or a re-slice?** Fetching the widest window once and
    slicing it for narrower ones trades memory for round trips. Probably wrong for 30d, probably
-   right for 1h/24h.
+   right for 1h/24h — and the retention finding pushes against it too, since the widest window is
+   the one that has to come from a different command.
 
 ---
 
