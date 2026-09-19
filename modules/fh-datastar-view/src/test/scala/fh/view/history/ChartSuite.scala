@@ -66,14 +66,22 @@ class ChartSuite extends munit.FunSuite {
   test("the y axis scales rather than anchoring at zero") {
     // An indoor temperature against a zero-anchored axis is a flat line at the
     // top of the box: true, and useless.
-    assertEquals(option(series(21.4, 21.6)).downField("yAxis").get[Boolean]("scale"), Right(true))
+    assertEquals(
+      option(series(21.4, 21.6)).downField("yAxis").get[Boolean]("scale"),
+      Right(true)
+    )
   }
 
   test("a unit is drawn and widens the gutter that has to hold it") {
     val without = option(series(1)).downField("grid").get[Int]("left")
     val with_ = option(series(1), ChartStyle(unit = Some("°C")))
     assertEquals(with_.downField("yAxis").get[String]("name"), Right("°C"))
-    assert(with_.downField("grid").get[Int]("left").exists(l => without.exists(_ < l)))
+    assert(
+      with_
+        .downField("grid")
+        .get[Int]("left")
+        .exists(l => without.exists(_ < l))
+    )
   }
 
   test("a non-finite value becomes null rather than invalid JSON") {
@@ -88,15 +96,18 @@ class ChartSuite extends munit.FunSuite {
     // A sensor with nothing recorded is normal, and must render an empty chart
     // rather than fail the page.
     assertEquals(
-      option(Series.empty).downField("series").downArray.get[List[Json]]("data"),
+      option(Series.empty)
+        .downField("series")
+        .downArray
+        .get[List[Json]]("data"),
       Right(Nil)
     )
   }
 
   // --- The renderer --------------------------------------------------------
 
-  /** One in-heap engine for the suite: building it and evaluating ECharts is
-    * ~1 s interpreted, and nothing here needs a fresh one.
+  /** One in-heap engine for the suite: building it and evaluating ECharts is ~1
+    * s interpreted, and nothing here needs a fresh one.
     */
   private def withRenderer[A](f: ChartRenderer => IO[A]): A =
     Engine
@@ -162,7 +173,9 @@ class ChartSuite extends munit.FunSuite {
     assert(svg.contains("""height="90""""), clue = svg.take(200))
   }
 
-  test("renders are serialised, so concurrent charts do not corrupt each other") {
+  test(
+    "renders are serialised, so concurrent charts do not corrupt each other"
+  ) {
     // One context for the process; Graal contexts are not safe for concurrent
     // use, and the mutex is what makes that a non-issue rather than a race
     // that only shows up under load.
@@ -173,6 +186,8 @@ class ChartSuite extends munit.FunSuite {
         )
     }
     assertEquals(svgs.length, 4)
-    svgs.foreach(s => assert(s.startsWith("<svg") && s.contains("</svg>"), clue = s.take(120)))
+    svgs.foreach(s =>
+      assert(s.startsWith("<svg") && s.contains("</svg>"), clue = s.take(120))
+    )
   }
 }

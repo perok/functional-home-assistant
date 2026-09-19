@@ -33,7 +33,8 @@ object ChartCheck extends IOApp.Simple {
         .toVector,
       0
     )
-    val reduced = Series(Downsample.lttb(series.points, Downsample.DefaultTarget), 0)
+    val reduced =
+      Series(Downsample.lttb(series.points, Downsample.DefaultTarget), 0)
 
     for {
       t0 <- IO.monotonic
@@ -42,14 +43,20 @@ object ChartCheck extends IOApp.Simple {
           t1 <- IO.monotonic
           _ <- IO.println(s"engine + echarts  ${(t1 - t0).toMillis} ms")
           first <- timed(renderer.render(reduced, ChartStyle()))
-          _ <- IO.println(s"first render      ${first._2} ms, ${first._1.length} bytes")
-          warm <- (1 to 5).toList.traverse(_ => timed(renderer.render(reduced, ChartStyle())))
+          _ <- IO.println(
+            s"first render      ${first._2} ms, ${first._1.length} bytes"
+          )
+          warm <- (1 to 5).toList.traverse(_ =>
+            timed(renderer.render(reduced, ChartStyle()))
+          )
           _ <- IO.println(
             s"warm renders      ${warm.map(_._2).mkString(", ")} ms"
           )
           svg = first._1
           _ <- IO
-            .raiseError(new IllegalStateException(s"not an SVG: ${svg.take(120)}"))
+            .raiseError(
+              new IllegalStateException(s"not an SVG: ${svg.take(120)}")
+            )
             .unlessA(svg.startsWith("<svg") && svg.contains("<path"))
         } yield ()
       }

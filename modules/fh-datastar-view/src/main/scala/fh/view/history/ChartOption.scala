@@ -20,8 +20,8 @@ final case class ChartStyle(
   *
   * Pure, so it is where the tests are: everything about what a chart SAYS is
   * decided in Scala, and the guest does nothing but turn an option object into
-  * SVG. A bug in the axis config is then an assertion on a `Json`, not a
-  * regex over 20 KB of markup.
+  * SVG. A bug in the axis config is then an assertion on a `Json`, not a regex
+  * over 20 KB of markup.
   *
   * Two settings are not cosmetic and must not be "cleaned up":
   *
