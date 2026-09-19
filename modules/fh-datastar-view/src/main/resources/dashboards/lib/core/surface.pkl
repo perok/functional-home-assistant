@@ -1,0 +1,126 @@
+/// Surfaces — the on-demand render subtrees the build-phase hoist lifts into a
+/// dashboard's top-level `surfaces` registry: popups, tab panels, `If` branches.
+///
+/// [[Popup]] lives here rather than with the shipped cards because the surface
+/// mechanism itself wraps with it: [[PopupSurface]] and `core/tap.pkl`'s
+/// `openPopupInline` both compose the dialog around a body (ADR 0002 — the
+/// dialog is a container card the authoring layer composes, never backend
+/// chrome).
+module core.surface
+
+import "node.pkl" as nodes
+import "predicate.pkl" as pred
+
+/// An on-demand render subtree the build-phase hoist lifts into the top-level
+/// `surfaces` registry (mirrors fh.view.model.Surface). Registered surfaces are
+/// authored directly (a top-level `surfaces` mapping); inline surfaces ride on a
+/// node's [[Node.inlineSurfaces]] and are hoisted, keyed `<node-id>_<localKey>`.
+/// `bakeInto`/`bakeAs`/`bakeIndex` drive first-paint baking (tabs, [[If]]
+/// branches); a plain popup leaves them null. `activation` is HOW the surface
+/// becomes visible — [[UserActivation]] or [[StateActivation]] — nullable so
+/// omitNullProperties drops it and the backend defaults to user activation,
+/// closed (a plain popup declares nothing).
+///
+/// WHICH to write is not a style choice. An OWNED surface — a tab's panel, an
+/// [[If]] branch — belongs to exactly one node, has no meaning apart from it,
+/// and is authored inline at that node; registering it by hand throws away the
+/// ownership that makes it baked, ordered and addressed as part of that node. A
+/// TRIGGERED surface — a popup — is dashboard-level: any number of taps may
+/// open it and its lifetime should not depend on which of them exists, so it
+/// earns a registry entry.
+///
+/// The test for a registry entry is being referred to BY NAME from more than
+/// one place, or from somewhere that is not its parent. Nothing else is.
+/// `openPopupInline` is locality only, not a third kind: its id is derived from
+/// the owning node and `NODE_ID` resolves only to a node's OWN id, so a second
+/// tap cannot name it — sharing means registering it and using [[openPopup]].
+open class SurfaceDef {
+  content: nodes.LayoutNode
+  bakeInto: String? = null
+  bakeAs: String? = null
+  bakeIndex: Int? = null
+  activation: (UserActivation|StateActivation)? = null
+}
+
+/// USER activation (mirrors fh.view.model.Activation.User): the surface is
+/// shown by a user action — a popup open, a tab click — so which member a
+/// client sees is per-session truth (uiState). `defaultOpen` bakes it
+/// from the first paint (a tab bar's first tab).
+class UserActivation {
+  kind: "user" = "user"
+  defaultOpen: Boolean = false
+}
+
+/// STATE activation (mirrors fh.view.model.Activation.State): the surface is
+/// shown while `condition` holds over live entity state — server truth,
+/// identical for every viewer (an [[If]] branch).
+///
+/// The condition is SUBJECT-FREE: there is no member here to be its subject, so
+/// every comparison must name its own entity (`query.entity(e).stateIs("on")`)
+/// and a [[Count]] carries its own candidates. There is no quantifier — over a
+/// named set `any` is `count > 0`, `none` is `count == 0` and `all` is
+/// `count == length`, which `query.pkl` builds — and a comparison that names no
+/// entity is a `Dashboard.validate` error rather than the old "some entity in
+/// the house".
+class StateActivation {
+  kind: "state" = "state"
+  condition: pred.Predicate
+}
+
+/// A REGISTERED popup surface: the `body` cards are wrapped in the [[Popup]]
+/// dialog automatically (registered popup surfaces must carry their own wrap —
+/// ADR 0002). `lib/entry.pkl` makes this the `surfaces` mapping default, so an
+/// entry amends a popup surface into existence with no `new` and no wrap:
+///   surfaces { ["detail"] { body { c.title("...") c.entityCard(e) } } }
+/// A non-popup surface is still an explicit assignment:
+///   ["x"] = new c.SurfaceDef { content = ... }
+class PopupSurface extends SurfaceDef {
+  hidden body: Listing<nodes.LayoutNode> = new {}
+  content = new Popup { children = body }
+}
+
+
+/// POPUP dialog container — a NORMAL container card (like [[Row]]/[[Column]])
+/// that wraps a popup surface's content in the overlay `<dialog>` + a ✕ posting
+/// the id-less close. Composed INTO a surface's content, NOT applied as backend
+/// chrome. Authors rarely touch it directly: [[openPopupInline]] wraps its body
+/// in one, and a registered surface gets it via the [[PopupSurface]] default.
+class Popup extends nodes.Node {
+  card = "popup"
+  // `open` is static markup (a `<dialog>` without it is display:none); the
+  // dialog is transient — present only while open.
+  //
+  // The ✕ builds its close URL in the TEMPLATE, so the slug is the Mustache
+  // spelling `{{dashboardSlug}}` rather than the transform's `dashboard_slug`
+  // ([[closePopup]] is the same route reached from a tap). Two spellings, one
+  // fact — see ADR 0023.
+  cardDef = new nodes.CardDef {
+    regions = new Mapping { [nodes.defaultRegion] = new nodes.Region {} }
+    template = #"<dialog open class="popup"><button class="popup-close" data-on:click="@post('sse/popup/{{dashboardSlug}}/close'); $ui_popups = ''">✕</button>{{#children}}{{{html}}}{{/children}}</dialog>"#
+    // The frame itself (fixed, centred, elevated) is the theme's `<dialog>`
+    // styling; ours is the width cap and the shape of the ✕.
+    //
+    // The ✕ is a PILL, 2.75rem square — 44px, the platform touch-target
+    // minimum. It used to be a bare glyph with .25rem of padding, which on a
+    // phone is a ~16px target in the very corner of the screen, the hardest
+    // place on a handset to hit accurately. It carries its own surface for the
+    // same reason: over a dialog whose content reaches the corner, a
+    // transparent ✕ had nothing to say where it ended.
+    //
+    // `z-index` is not decoration — the ✕ sat UNDER the body all along and only
+    // got away with it while it was small enough to overlap nothing. At 44px it
+    // overlaps a popup's title, and `elementFromPoint` at its own centre
+    // returned the `<h2>`: the button was there, visible, and un-clickable.
+    css = """
+      dialog.popup{max-inline-size:min(90vw,32rem)}
+      .popup-close{position:absolute;inset-block-start:.5rem;inset-inline-end:.5rem;
+      display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;
+      inline-size:2.75rem;block-size:2.75rem;padding:0;border:0;border-radius:999px;z-index:1;
+      background:var(--fh-surface-alt);color:var(--fh-text-dim);
+      font-size:1.25rem;line-height:1;cursor:pointer}
+      .popup-close:is(:hover,:focus-visible){color:var(--fh-text)}
+      """
+  }
+}
+/// Amendable base instance — `(c.popup) { children { ... } }` (see [[row]]).
+hidden popup: Popup = new Popup {}

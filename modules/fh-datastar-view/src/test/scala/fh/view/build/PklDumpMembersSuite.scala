@@ -1,0 +1,190 @@
+package fh.view.build
+
+import io.circe.Json
+
+/** The generated-source half of the group work: a member edge must come out as
+  * a REFERENCE to the other entity's `e_*` const, because that is what makes
+  * `e.members[0].members` walk a nested group instead of handing the author a
+  * string to look up again.
+  */
+class PklDumpMembersSuite extends munit.FunSuite {
+
+  private def entity(
+      entityId: String,
+      domain: String,
+      members: List[String] = Nil,
+      deviceId: Option[String] = None,
+      attributes: (String, Json)*
+  ): Json =
+    Json.obj(
+      "entity_id" -> Json.fromString(entityId),
+      "domain" -> Json.fromString(domain),
+      "members" -> Json.fromValues(members.map(Json.fromString)),
+      "device_id" -> deviceId.fold(Json.Null)(Json.fromString),
+      "attributes" -> Json.obj(attributes*)
+    )
+
+  private def dump(entities: Json*): Json =
+    RegistryDump.transform(
+      Json.obj(
+        "areas" -> Json.arr(),
+        "floors" -> Json.arr(),
+        "entities" -> Json.fromValues(entities)
+      )
+    )
+
+  test("members render as references to the member entities' consts") {
+    val src = PklDump.render(
+      dump(
+        entity("light.group", "light", members = List("light.a", "light.b")),
+        entity("light.a", "light"),
+        entity("light.b", "light")
+      )
+    )
+    assert(src.contains("members = List(e_light_a, e_light_b)"), clue = src)
+  }
+
+  test("a member that is not in the dump is dropped, not left dangling") {
+    val src = PklDump.render(
+      dump(
+        entity("light.group", "light", members = List("light.a", "light.gone")),
+        entity("light.a", "light")
+      )
+    )
+    assert(src.contains("members = List(e_light_a)"), clue = src)
+    assert(!src.contains("e_light_gone"), clue = src)
+  }
+
+  test("an entity with no members emits no members assignment") {
+    val src = PklDump.render(dump(entity("light.a", "light")))
+    assert(!src.contains("members ="), clue = src)
+  }
+
+  test("number and select entities get their own typed classes") {
+    val src = PklDump.render(
+      dump(entity("number.a", "number"), entity("select.b", "select"))
+    )
+    assert(
+      src.contains("class E_number_a extends hass.NumberEntity"),
+      clue = src
+    )
+    assert(
+      src.contains("class E_select_b extends hass.SelectEntity"),
+      clue = src
+    )
+    assert(src.contains("const hidden e_number_a: E_number_a"), clue = src)
+    assert(src.contains("const hidden e_select_b: E_select_b"), clue = src)
+  }
+
+  test("a lock's feature bitmask is assigned to the schema, not redeclared") {
+    val src = PklDump.render(
+      dump(
+        entity(
+          "lock.front",
+          "lock",
+          attributes = Seq("supported_features" -> Json.fromInt(1))*
+        )
+      )
+    )
+    assert(
+      src.contains("class E_lock_front extends hass.LockEntity"),
+      clue = src
+    )
+    // The domain class declares it, so the entity ASSIGNS it. A redeclaration
+    // on the per-entity class would shadow the schema's field and `supportsOpen`
+    // would read the default forever — the failure `SchemaModelled` exists to
+    // prevent, and one nothing else would catch: both spellings evaluate.
+    assert(src.contains("supported_features = 1"), clue = src)
+    assert(!src.contains("hidden supported_features: Int = 1"), clue = src)
+  }
+
+  test("a lock's code_format stays an ordinary per-entity attribute") {
+    // Deliberately NOT schema-modelled: no shipped card asks for a code, but an
+    // author can still see that this lock wants one.
+    val src = PklDump.render(
+      dump(
+        entity(
+          "lock.keypad",
+          "lock",
+          attributes = Seq("code_format" -> Json.fromString("^\\d{4}$"))*
+        )
+      )
+    )
+    assert(src.contains("""code_format: String = "^\\d{4}$""""), clue = src)
+  }
+
+  test("no devices in the dump means no Devices namespace at all") {
+    val src = PklDump.render(dump(entity("light.a", "light")))
+    assert(!src.contains("class Devices"), clue = src)
+    assert(!src.contains("devices: Devices"), clue = src)
+  }
+
+  test("a device class references the entities that report it") {
+    val transformed = dump(
+      entity("light.a", "light", deviceId = Some("d1")),
+      entity("sensor.b", "sensor", deviceId = Some("d1")),
+      entity("light.c", "light", deviceId = Some("d2"))
+    ).deepMerge(
+      Json.obj(
+        "devices" -> Json.obj(
+          "bulb" -> Json.obj(
+            "device_id" -> Json.fromString("d1"),
+            "device_name" -> Json.fromString("Bulb")
+          )
+        )
+      )
+    )
+    val src = PklDump.render(transformed)
+    assert(src.contains("class Device_bulb extends hass.Device"), clue = src)
+    assert(src.contains("entities = List(light_a, sensor_b)"), clue = src)
+    assert(
+      !src.contains("light_c: hass.LightEntity = e_light_c\n  entities"),
+      clue = src
+    )
+  }
+
+  test("the house-wide list references the entity consts, in id order") {
+    val src = PklDump.render(
+      dump(
+        entity("switch.z", "switch"),
+        entity("light.b", "light"),
+        entity("light.a", "light"),
+        entity("sensor.s", "sensor"),
+        entity("media_player.tv", "media_player")
+      )
+    )
+    // Assigned, not declared: the type and the `List()` default live in
+    // `@fh-dashboard/internal/dump-base.pkl`, which the module extends.
+    assert(
+      src.contains("""extends "@fh-dashboard/internal/dump-base.pkl""""),
+      clue = src
+    )
+    assert(
+      src.contains(
+        "all = List(e_light_a, e_light_b, e_media_player_tv, e_sensor_s, e_switch_z)"
+      ),
+      clue = src
+    )
+    // The per-domain lists are DERIVED in the base, by the same selectors an
+    // author calls. The generator emitting them too is the failure this guards:
+    // two sources for one list is how they come to disagree, and it is also
+    // what made adding a domain a five-place edit.
+    assert(!src.contains("lights ="), clue = src)
+    assert(!src.contains("generic ="), clue = src)
+  }
+
+  test("an empty house emits no list assignments, and that is the point") {
+    // The failure this guards is specific: the starter dashboard queries these
+    // lists having never seen this dump, so a home with no switches must answer
+    // `List()` rather than `Cannot find property` on its first boot. Declaring
+    // them in the base is what makes the absence safe — so the generator is
+    // free to say nothing here, and `PklBuildSuite` proves the starter still
+    // builds against a house with no switches in it.
+    val src = PklDump.render(dump())
+    assert(!src.contains("all ="), clue = src)
+    assert(
+      src.contains("""extends "@fh-dashboard/internal/dump-base.pkl""""),
+      clue = src
+    )
+  }
+}

@@ -1,0 +1,870 @@
+/// Unit tests for the `@fh-dashboard` authoring library, run by `pkl test`.
+///
+/// These live OUTSIDE `lib/` on purpose: `LibPackage` packages that directory
+/// into the content-versioned `@fh-dashboard` cache package, so a test module
+/// in there would change the package hash and re-evaluate every dashboard.
+/// Imports are therefore relative file paths, not `@fh-dashboard/...`.
+amends "pkl:test"
+
+import "../../main/resources/dashboards/lib/components.pkl" as c
+import "../../main/resources/dashboards/lib/core/node.pkl" as nodes
+import "../../main/resources/dashboards/lib/core/css.pkl" as cssMod
+import "../../main/resources/dashboards/lib/core/slot.pkl" as slotMod
+import "../../main/resources/dashboards/lib/core/simple.pkl" as simpleMod
+import "../../main/resources/dashboards/lib/core/text.pkl" as textMod
+import "../../main/resources/dashboards/lib/query.pkl" as q
+import "../../main/resources/dashboards/lib/hass.pkl" as hass
+
+local kitchen: hass.LightEntity = new { entity_id = "light.kitchen" }
+local dimmer: hass.LightEntity = new {
+  entity_id = "light.dimmer"
+  colourModes { "brightness" }
+}
+local outside: hass.SensorEntity = new { entity_id = "sensor.outside" }
+// The appliance trio, in the shape the live instances report: the Electrolux
+// washer has a remaining time and NO programme length, the dishwasher has both,
+// and the status sensor is words rather than a modelled vocabulary.
+local remainingMin: hass.SensorEntity = new {
+  entity_id = "sensor.timetoend"
+  device_class = "duration"
+  unit_of_measurement = "min"
+}
+local programMin: hass.SensorEntity = new {
+  entity_id = "sensor.programduration"
+  device_class = "duration"
+  unit_of_measurement = "min"
+}
+local applianceState: hass.SensorEntity = new { entity_id = "sensor.appliancestate" }
+// Default-tap fixtures (#106): a domain HA can toggle, one whose service the
+// state picks, one that only presses, and one with no action at all.
+local frontLock: hass.GenericEntity = new { entity_id = "lock.front"; domain = "lock" }
+// The typed lock, with and without the one capability the domain defines.
+local latchLock: hass.LockEntity = new {
+  entity_id = "lock.latch"
+  supported_features = 1
+}
+local plainLock: hass.LockEntity = new { entity_id = "lock.plain" }
+local doorbell: hass.GenericEntity = new { entity_id = "button.doorbell"; domain = "button" }
+
+// Icon fixtures, shaped as PklDump generates them: a capability attribute lives
+// on the class generated PER ENTITY, never on the domain class (ADR 0013), so a
+// test that just sets `icon = ...` on a `hass.LightEntity` is testing a shape
+// the dump never produces.
+local class E_with_icon extends hass.LightEntity {
+  icon: String = "mdi:ceiling-light"
+  device_class: String = "running"
+}
+local class E_temp extends hass.SensorEntity { device_class: String = "temperature" }
+local class E_custom_icon extends hass.LightEntity { icon: String = "hue:bulb-sultan" }
+// A lock carrying its OWN icon — the case that must beat the state table.
+local class E_lock_icon extends hass.LockEntity { icon: String = "mdi:key" }
+
+// D1 helpers: there are no shared tables any more, so "how many distinct shapes
+// / conditions" is a question you ask of the members.
+local allClauses = (s) -> s.members.values.flatMap((m) -> m.clauses)
+local cards = (s) -> allClauses.apply(s).map((c) -> c.node.card).distinct
+local conds = (s) -> allClauses.apply(s).map((c) -> c.`when`).distinct
+local firstNode = (s) -> s.members.values.first.clauses.first.node
+
+facts {
+  // The predicate vocabulary lives in `query.pkl` now: there are no free
+  // constructors, so every term carries a binding by construction (a set's
+  // candidate, or the entity `q.entity` names). These pin the PROPERTY NAMES
+  // the runtime reads — `state`, `attr:<name>`, `domain` — which is the part
+  // the two sides have to agree on.
+  ["a term carries the property name the runtime reads"] {
+    local st = q.entity(kitchen).stateIs("on")
+    st.property == "state"
+    st.op == "eq"
+    st.entity == "light.kitchen"
+
+    q.entity(kitchen).lt(q.prop("brightness"), 20).property == "attr:brightness"
+    q.entity(kitchen).lt(q.prop("brightness"), 20).op == "lt"
+  }
+
+  // The wire spelling of a binding is declared twice — this typealias and
+  // `SignalBind.parse` in Scala — and nothing makes them agree, so these pin
+  // the strings the Scala side has to accept. A spelling the regex rejects is
+  // an eval error here; one the regex accepts but Scala cannot parse decodes
+  // to a slot that silently binds nothing.
+  ["a binding names its kind on the wire"] {
+    slotMod.asText == "text"
+    slotMod.asBind == "bind"
+    slotMod.asStyle("--_end") == "style:--_end"
+    slotMod.asAttr("value") == "attr:value"
+    slotMod.asClass("fh-disabled") == "class:fh-disabled"
+  }
+
+  ["a numeric threshold stays a number, not a string"] {
+    q.entity(kitchen).lt(q.prop("brightness"), 20).value is Int
+  }
+
+  ["combinators nest without rebinding `this` to the new object"] {
+    // The Pkl trap this pins: a bare `this` inside a `new {}` body rebinds to
+    // the object being built, so `and`/`or`/`not` must capture the receiver
+    // first. Silent when broken — the term comes out referring to itself.
+    local a = q.entity(kitchen).stateIs("on")
+    local b = q.entity(kitchen).lt(q.prop("brightness"), 20)
+    a.and(b).items.toList().length == 2
+    a.and(b).items.toList()[0].property == "state"
+    a.or(b).kind == "or"
+    a.not().item.property == "state"
+    a.not().kind == "not"
+  }
+
+  // ---- entity icons -----------------------------------------------------------
+  // Resolved at BUILD time, in Home Assistant's own precedence: the entity's own
+  // `icon` beats its device_class, which beats its domain. All three are
+  // registry facts, so the slot is a LITERAL — it used to be a
+  // `$lookup($domain)` JSONata transform on every card.
+
+  ["an entity's OWN icon wins, as the MDI class"] {
+    // Its own icon wins over the `running` device_class it also carries.
+    c.entityCard(new E_with_icon { entity_id = "light.k" }).slots["icon"]
+      == "mdi mdi-ceiling-light"
+  }
+
+  ["device_class beats the domain, so a temperature sensor is not a generic one"] {
+    local plain: hass.SensorEntity = new { entity_id = "sensor.p" }
+    c.entityCard(new E_temp { entity_id = "sensor.t" }).slots["icon"] == "mdi mdi-thermometer"
+    // No device_class at all -> the domain default, and no eval error for
+    // reading a property this entity does not have.
+    c.entityCard(plain).slots["icon"] == "mdi mdi-eye"
+  }
+
+  ["a NON-mdi icon set falls through, rather than emitting a dead class"] {
+    // Six entities on the reference instance carry `hue:` icons from a HACS
+    // integration whose glyphs we do not ship. A class the stylesheet does not
+    // define renders as blank space, which is visibly worse than the default.
+    c.entityCard(new E_custom_icon { entity_id = "light.h" }).slots["icon"]
+      == "mdi mdi-lightbulb"
+  }
+
+  ["an unknown domain emits NO icon slot, so the header renders none"] {
+    local odd: hass.GenericEntity = new {
+      entity_id = "wibble.x"
+      domain = "wibble"
+    }
+    !c.entityCard(odd).slots.containsKey("icon")
+  }
+
+  // ---- state-dependent icons ----
+
+  ["a lock's glyph follows its state, as a shared signal"] {
+    local tile = c.entityCard(latchLock)
+    local m: simpleMod.SimpleMatch = tile.slots["icon"].transform!!
+    m.cases.toMap()["locked"] == "mdi mdi-lock"
+    m.cases.toMap()["unlocked"] == "mdi mdi-lock-open"
+    // `jammed` is the one lock state you want to notice from across the room,
+    // and it is not "unlocked".
+    m.cases.toMap()["jammed"] == "mdi mdi-lock-alert"
+    // An unknown state degrades to the icon this card would have shown anyway —
+    // HA ADDS states, so the fallback must not blank the glyph.
+    m.otherwise == "mdi mdi-lock"
+    // The WHOLE class is the value: the element carries nothing else, so
+    // `data-attr:class` has nothing to fight over.
+    tile.slots["icon"].signal == "attr:class"
+  }
+
+  ["anything more specific than the domain beats the live glyph"] {
+    // HA's own precedence, and the reason `stateIconFor` re-checks it: an
+    // author's icon, a user's `icon` attribute and a device_class are all more
+    // specific than "this is a lock".
+    //
+    // A plain String, not a `Slot` — which is the whole difference, and is also
+    // why both tiers must resolve to the SAME shape of value: the template has
+    // one `{{icon}}` and cannot ask which tier filled it.
+    c.entityCard(latchLock).icon("mdi:key").slots["icon"] == "mdi mdi-key"
+    c.entityCard(new E_lock_icon { entity_id = "lock.k" }).slots["icon"]
+      == "mdi mdi-key"
+  }
+
+  ["a domain with no state glyphs renders byte-identical to before"] {
+    // Most domains are not in the table, and they must not pay for it.
+    c.entityCard(kitchen).slots["icon"] == "mdi mdi-lightbulb"
+  }
+
+  ["an author override takes either spelling"] {
+    local e: hass.LightEntity = new { entity_id = "light.k" }
+    c.entityCard(e).icon("mdi:fridge").slots["icon"] == "mdi mdi-fridge"
+    c.entityCard(e).icon("mdi-fridge").slots["icon"] == "mdi mdi-fridge"
+  }
+
+  ["a node has no cell until a layout builder adds one"] {
+    c.title("Lights").cell == null
+  }
+
+  ["layout builders put fh- contract classes on the wrapper"] {
+    c.title("x").columns(3).cell.classes.toList() == List("fh-cols-3")
+    c.title("x").fullWidth().cell.classes.toList() == List("fh-cols-full")
+    c.title("x").hug().cell.classes.toList() == List("fh-hug")
+    c.title("x").cellClass("my-thing").cell.classes.toList() == List("my-thing")
+  }
+
+  ["ONE SPAN PER NODE: a later fh-cols-* drops the earlier one"] {
+    c.title("x").columns(3).columns(7).cell.classes.toList() == List("fh-cols-7")
+    c.title("x").columns(3).fullWidth().cell.classes.toList() == List("fh-cols-full")
+    // a non-span class is additive, not a replacement
+    c.title("x").columns(3).hug().cell.classes.toList() == List("fh-cols-3", "fh-hug")
+  }
+
+  // ---- more-info (#106) ----
+  // The popup a tap opens for an entity nothing can be DONE to: what we know
+  // about it, live. Its body is per-entity, hence inline rather than registered.
+
+  ["more-info is an inline popup, so every entity's body is its own surface"] {
+    local t = c.moreInfo(kitchen)
+    t.inlineSurfaces.containsKey("self")
+    // A transform, not a constant: the route carries `dashboard_slug`, which
+    // only a transform can read.
+    (t.onclick as slotMod.Slot).transform.contains("sse/surface/")
+    (t.onclick as slotMod.Slot).transform.contains("/open/\(nodes.NODE_ID)_self")
+    (t.onclick as slotMod.Slot).transform.contains("dashboard_slug")
+  }
+
+  ["the body is the entity, then the controls its domain has, then its facts"] {
+    local body = c.moreInfo(dimmer).inlineSurfaces["self"].content.children[0]
+    body.children.toList().map((n) -> n.card)
+      == List("entityCard", "fhcol", "entityInfo", "button")
+  }
+
+  ["a domain with no controls still shows the card and the facts"] {
+    // The property the default flip will rest on: there is no entity for which
+    // this popup is empty.
+    local body = c.moreInfo(outside).inlineSurfaces["self"].content.children[0]
+    body.children.toList().map((n) -> n.card)
+      == List("entityCard", "entityInfo", "button")
+  }
+
+  ["the facts card names its subject and reads every attribute live"] {
+    local info = c.entityInfo(kitchen)
+    info.slots["entity_id"] == "light.kitchen"
+    info.slots["attributes"].transform.contains("attr.transformList(k, v,")
+    // No attributes evaluates to null, which this default renders as an absent
+    // block rather than the word "null".
+    info.slots["attributes"].default == ""
+  }
+
+  // ---- the default tap (#106) ----
+  // Every card is clickable by a default derived from its OWN entity. The
+  // build-time half is the point: what used to be one `$lookup($domain)`
+  // transform per card is now a literal, and — the part a lookup could not
+  // express — sometimes no action at all.
+
+  ["a domain with a real toggle gets a LITERAL route, not a runtime lookup"] {
+    // A bare String — no transform, nothing for the runtime to decide, and so
+    // nothing that can leave the renderer's identity cache. `service__read`
+    // quotes it back into the card's click expression.
+    c.entityCard(kitchen).slots["service"] == "light/toggle"
+    c.entityCard(kitchen).slots["onclick"] == ""
+  }
+
+  ["a one-shot domain presses instead of toggling"] {
+    c.entityCard(doorbell).slots["service"] == "button/press"
+  }
+
+  ["a lock's service is the one thing the STATE has to decide"] {
+    local svc: slotMod.Slot = c.entityCard(frontLock).slots["service"]
+    local m: simpleMod.SimpleMatch = svc.transform!!
+    // A lock's snapshot state decides WHICH service the tap posts; the value
+    // itself never changes what the target is.
+    m.cases.toMap() == Map("locked", "lock/unlock")
+    m.otherwise == "lock/lock"
+    // Carried as a SIGNAL with no binding, so the service moves in the signal
+    // store and the element's bytes do not — the tile stays in the renderer's
+    // identity cache across a lock/unlock (ADR 0017).
+    svc.signal == "handler"
+    // …and the click expression is therefore not the live one it used to be:
+    // the card assembles the URL from `tapMod.stateClick`.
+    c.entityCard(frontLock).slots["onclick"] == ""
+  }
+
+  ["a domain with NO action falls back to more-info, so nothing is dead"] {
+    local card = c.entityCard(outside)
+    // Still tappable — but it opens the popup rather than posting a service
+    // call HA would reject. This is the flip the more-info work gated.
+    card.slots["tappable"] == "1"
+    card.inlineSurfaces.containsKey("self")
+    !(card.slots["onclick"] as slotMod.Slot).transform.contains("sse/action")
+    (card.slots["onclick"] as slotMod.Slot).transform.contains("/open/")
+  }
+
+  ["the more-info body's own card does NOT default to more-info"] {
+    // Silent when broken, and fatal: `defaultTap` on a non-actionable entity
+    // is `moreInfo(e)`, whose body builds this very card — an infinite regress
+    // that laziness does not stop, because `slots` forces the tap.
+    local body = c.moreInfo(outside).inlineSurfaces["self"].content.children[0]
+    body.children.toList().first.inlineSurfaces == null
+  }
+
+  ["`tapAction = null` is how a card opts out of being clickable at all"] {
+    local card = (c.entityCard(outside)) { tapAction = null }
+    !card.slots.containsKey("tappable")
+    !card.slots.containsKey("onclick")
+  }
+
+  ["a pressable card with nothing to press is a BUILD error"] {
+    // The amend form is the one that could reach it: the factories take an
+    // action, so only `new c.Button { label = ... }` leaves both unset. It used
+    // to post `homeassistant/toggle` with an empty entity id.
+    // `slots["onclick"]` and not `slots`: reading the object does not force its
+    // entries, so a `catch` over the bare `slots` sees no error at all.
+    module.catch(() -> (new c.Button { label = "x" }).slots["onclick"])
+      .contains("nothing happens on click")
+    // A toggle whose domain cannot be toggled is the same mistake.
+    module.catch(() -> c.toggle(outside).slots["onclick"]).contains("nothing happens on click")
+  }
+
+  ["inertWhile on a button that NAVIGATES is a build error, not a no-op"] {
+    // A navigating button renders as `<a href>`, and `disabled` is a
+    // form-control attribute — there is no inert form of a link short of
+    // dropping its href, which would take middle-click and open-in-new-tab with
+    // it. Refused rather than accepted and ignored: silently dropping the
+    // option is how a control ends up looking guarded and not being it.
+    module
+      .catch(() ->
+        c.button("Go", c.tap.navigate("/other"))
+          .entity(latchLock)
+          .inertWhile(List("opening"))
+          .slots["label"])
+      .contains("renders as a link")
+    // The same button with a SERVICE tap is fine, which is what makes the
+    // check about the link rather than about `inertWhile`.
+    c.button("Open", c.tap.service("lock/open"))
+      .entity(latchLock)
+      .inertWhile(List("opening"))
+      .slots["inert"].signal == "attr:disabled"
+  }
+
+  // ---- CSS ownership (ADR 0020) ----
+
+  ["the base CSS carries the layout contract and the variables cards read"] {
+    // It is a dashboard property, not a theme one, so this is what every
+    // dashboard gets whatever look it wears.
+    cssMod.baseCss.contains(".fh-grid{display:flex")
+    cssMod.baseCss.contains(".fh-cols-12{")
+    cssMod.baseCss.contains("--fh-text-dim:var(--secondary-text-color)")
+    // The classes the RUNTIME emits, which no card owns.
+    cssMod.baseCss.contains(".fh-toast{")
+    cssMod.baseCss.contains(".fh-disabled{opacity:.5}")
+    // The half of the leaving-page rule that lives here; `src/js/shell.ts` sets
+    // the class, and ServerRoutesSuite pins that side. `!important` is the rule,
+    // not a detail: `data-show` reveals a banner by clearing its inline display.
+    cssMod.baseCss.contains(".fh-leaving .fh-offline{display:none!important}")
+    // A hairline edge is a colour ROLE, so it is a contract name rather than a
+    // literal in whichever card first needed one.
+    cssMod.baseCss.contains("--fh-border:var(--divider-color)")
+  }
+
+  ["a control still holds its own label, however long"] {
+    local cards = c.cards
+    // A framework sizes a button to one line and a row to nowrap; a label
+    // longer than either used to spill sideways — the button out of its pill,
+    // the toggle's switch off the card. WHAT happens instead is the dashboard's
+    // choice now (`core/text.pkl`), so what each card owes is the ROOM to carry
+    // it out: a button free to grow down, and a switch that never shrinks.
+    cards["button"].css.contains("min-block-size:2.5rem")
+    cards["button"].css.contains("block-size:auto")
+    cards["toggle"].css.contains(".card.row.toggle>.switch{flex:0 0 auto}")
+    // ...and the class those rules name is really in the markup. Matched
+    // WITHOUT the closing bracket: the element carries bindings now, and this
+    // fact is about the class list, not about the tag being bare.
+    cards["toggle"].template.contains(#"<article class="card row toggle""#)
+    // The label itself is a text box in both, which is the half that shrinks.
+    cards["button"].template.contains(#"<span class="fh-text">"#)
+    cards["toggle"].template.contains(#"<span class="max fh-text">"#)
+  }
+
+  ["one dashboard-wide answer to a label that does not fit"] {
+    local cards = c.cards
+    // Every card that shows text places the same two boxes, so the modes are
+    // three declaration blocks rather than a rule per card. The OUTER box is
+    // what the card's own layout sizes; the INNER one is what a marquee moves,
+    // and a bare text node could not be moved at all.
+    cards["sectionTitle"].template.contains(#"<h2 class="fh-section fh-text"><span class="fh-text-run">{{label}}</span></h2>"#)
+    cards["pill"].template.contains(#"<span class="fh-text"><span class="fh-text-run">{{label}}</span></span>"#)
+    cards["entityCard"].template.contains(#"<span class="fh-sub fh-text">"#)
+    // A slider's text is `sliderText`'s, not `sliderHead`'s: the head holds
+    // regions now (#151), and a card that holds regions is never patched — so
+    // the two values here that move as bytes are their own node.
+    cards["sliderText"].template.contains(#"<strong class="fh-text"><span class="fh-text-run">{{label}}</span></strong>"#)
+    cards["sliderText"].template.contains(#"<span class="fh-sub fh-text"><span class="fh-text-run">{{secondary}}</span></span>"#)
+    // A signal-backed reading binds on the RUN, not on the box: `data-text`
+    // replaces an element's whole content, so binding the box would delete the
+    // run on the first tick and the label would never move again.
+    cards["entityCard"].template.contains(#"<span class="fh-text-run" {{{value__bind}}}>{{value}}</span>"#)
+
+    // The mode travels as inherited custom properties. That is not a style
+    // choice: two equally-specific `.fh-text-clip .fh-text` / `.fh-text-wrap
+    // .fh-text` rules would be settled by stylesheet ORDER, where inheritance is
+    // settled by which ancestor is NEARER — which is what "a card inside a
+    // scrolling group can say clip" means.
+    cssMod.baseCss.contains(".fh-text-clip{--fh-text-lines:nowrap")
+    cssMod.baseCss.contains(".fh-text-wrap{--fh-text-lines:normal")
+    cssMod.baseCss.contains("white-space:var(--fh-text-lines,nowrap)")
+    // Only the scrolling mode measures itself, and it travels by exactly the
+    // overflow: `100cqw` is the box, `100%` is the run, and `min()` pins a label
+    // that fits at zero — so "only when it does not fit" needs no script.
+    cssMod.baseCss.contains("container-type:var(--fh-text-track,normal)")
+    cssMod.baseCss.contains("transform:translateX(min(0px,calc(100cqw - 100%)))")
+    cssMod.baseCss.contains("@media (prefers-reduced-motion:reduce)")
+  }
+
+  ["a node can differ from the dashboard it is on"] {
+    // The per-node override is a cell class, so it covers the card AND anything
+    // under it — and it is ONE per node: asking twice replaces, it does not
+    // stack two modes whose winner would be stylesheet order.
+    local scrolling = c.entityCard(kitchen).textOverflow("scroll")
+    scrolling.cell.classes.toList() == List("fh-text-scroll")
+    scrolling.textOverflow("wrap").cell.classes.toList() == List("fh-text-wrap")
+    // ...and it composes with the other cell answers, which are a different
+    // question and keep their own slot.
+    c.entityCard(kitchen).columns(3).textOverflow("clip").cell.classes.toList()
+      == List("fh-cols-3", "fh-text-clip")
+    // The default is what a dashboard emits at :root, so a node that says
+    // nothing inherits it rather than each card carrying a copy.
+    textMod.rootCss("scroll").startsWith(":root{--fh-text-lines:nowrap")
+  }
+
+  ["the popup's ✕ is a touch target, and a member row has an edge"] {
+    local cards = c.cards
+    // 2.75rem = 44px, the platform touch-target minimum; it was a bare glyph
+    // with .25rem of padding, in the corner of the screen.
+    cards["popup"].css.contains(".popup-close{position:absolute")
+    cards["popup"].css.contains("inline-size:2.75rem;block-size:2.75rem")
+    // The hairline that makes an OFF member row visible on a dark palette,
+    // through the contract rather than as a literal.
+    cards["slider"].css.contains("box-shadow:inset 0 0 0 .0625rem var(--fh-border)")
+  }
+
+  // #128: a slider's own edge, and a slider on a light that cannot dim.
+  ["a slider's edge is drawn OVER its fill, so a full one still ends somewhere"] {
+    local cards = c.cards
+    // The property, not the rule: whatever draws the edge has to be painted
+    // above the descendants, because the fill IS a descendant and reaches the
+    // card's boundary at 100 %. An inset shadow on the card itself cannot.
+    cards["slider"].css.contains(".slider-card:after{content:\"\";position:absolute")
+    // One edge, not two: the member row's own inset shadow was the invisible
+    // one, and it is this rule's job now.
+    cards["slider"].css.split("box-shadow:inset 0 0 0 .0625rem var(--fh-border)").length == 2
+  }
+
+  ["a light that only switches keeps the row, and stops pretending to slide"] {
+    local switchOnly: hass.LightEntity = new {
+      entity_id = "light.porch"
+      colourModes { "onoff" }
+    }
+    // As a group's rows are composed: the caller does not know, and does not
+    // have to, which of a group's lights can dim.
+    local row = (c.slider(switchOnly)).readout("percent")
+    row.toggleOnly
+    row.headSlots["toggle"] == "1"
+    // The whole track posts the domain's own toggle.
+    row.headSlots["service"] == "light/toggle"
+    // All or nothing, in the theme's switch-fill rather than in the text colour
+    // — a light with no brightness reports no colour either (`onoff` is a
+    // light's SOLE mode when present), so the default is the only paint it can
+    // get. A TOKEN, not the literal behind it: the value is the theme's to move.
+    // The fill is OPTED IN: a one-armed state match of the simple tier
+    // (annotated local = the runtime-checked downcast from the union).
+    local fillMatch: simpleMod.SimpleMatch = row.headSlots["fill"].transform!!
+    fillMatch.cases.toMap() == Map("on", "0%")
+    fillMatch.otherwise == "100%"
+    row.headSlots["fillColor"].default == "var(--fh-default-color)"
+    // ...and the token is one the contract actually defines. A `var()` naming
+    // nothing paints TRANSPARENT, and only a browser would ever say so.
+    cssMod.baseCss.contains("--fh-default-color:rgb(189, 189, 176)")
+    // A percentage of an axis it does not have reads 0 % forever, so the row
+    // reads out its state instead — and nothing drags the readout.
+    // The state readout opted in as the raw-state shape.
+    (row.headSlots["state"].transform as simpleMod.SimpleValue).op == "state"
+    !row.slots.containsKey("dragPercent")
+    // The markup is ONE template shared by every slider, so the two shapes are
+    // sections of it rather than two cards.
+    c.cards["sliderHead"].template.contains("{{#toggle}}<button type=\"button\" class=\"slider-toggle\"")
+    c.cards["sliderHead"].template.contains("{{^toggle}}<input type=\"range\"")
+    // ...and a light that CAN dim is untouched by all of it — as is one that
+    // says NOTHING about its modes, which is what an entity that was
+    // unavailable when the dump was taken looks like.
+    local dim = (c.slider(dimmer)).readout("percent")
+    !dim.toggleOnly
+    !(c.slider(kitchen)).toggleOnly
+    !dim.slots.containsKey("toggle")
+    // The percent READOUT rides the "state" slot (shownReadout), opted in as
+    // the simple tier's percent over the light's own 1..255 range.
+    local statePercent: simpleMod.SimpleValue = dim.headSlots["state"].transform!!
+    statePercent.op == "percent"
+    statePercent.value == "brightness"
+    statePercent.params.toMap() == Map("min", 1, "max", 255)
+    dim.headSlots["dragPercent"] == "1"
+  }
+
+  ["a card's structure travels with the card"] {
+    // The registry is what the renderer concatenates, so the assertion is on
+    // the registry rather than on the class: a card whose `css` never reaches
+    // it renders unstyled.
+    local cards = c.cards
+    cards["slider"].css.contains(".slider-head{display:flex")
+    cards["entityCard"].css.contains(".card.tappable{cursor:pointer}")
+    cards["entityInfo"].css.contains(".entity-info-attrs{")
+    cards["popup"].css.contains("dialog.popup{")
+    cards["tabs"].css.contains(".tab-panel{display:contents}")
+    // Colour goes through the `--fh-*` contract, never a framework's own role
+    // name — that is what makes a card portable to another theme.
+    !cards["slider"].css.contains("--surface-container")
+    !cards["slider"].css.contains("var(--primary)")
+  }
+
+  ["a theme's own class names reach card markup through the registry"] {
+    // The one channel a theme has into a template (`cardsWith`, called by
+    // entry.pkl with `theme.classes`): the spinner's class is BeerCSS's under
+    // the BeerCSS theme...
+    local beer = c.cardsWith(c.modules, new Mapping { ["busySpin"] = "shape loading-indicator" })
+    beer["entityCard"].template.contains(#"data-class:shape="$_{{id}}__busy_slow""#)
+    beer["entityCard"].template.contains(#"data-class:loading-indicator="$_{{id}}__busy_slow""#)
+    // ...and the framework-free fallback otherwise. No hole survives either way.
+    local plain = c.cards
+    plain["entityCard"].template.contains(#"data-class:fh-busy-spin="$_{{id}}__busy_slow""#)
+    !plain["entityCard"].template.contains("@@CLASSBIND")
+    !beer["entityCard"].template.contains("@@CLASSBIND")
+    // The commit signal is bound by the HEAD, which is the card that moves.
+    beer["sliderHead"].template.contains(#"data-class:shape="$_{{id}}__busy_change_slow""#)
+  }
+
+  ["a theme that names no spinner binds nothing at all"] {
+    local none = c.cardsWith(c.modules, new Mapping {})
+    !none["entityCard"].template.contains("data-class:fh-busy-spin")
+    !none["entityCard"].template.contains("@@CLASSBIND")
+    // The guard and its immediate dim are NOT a theme's to decline.
+    none["entityCard"].template.contains("data-class:fh-disabled")
+  }
+
+  ["`informative` reads the card's OWN entity"] {
+    // The amend-scoping trap, and silent when broken: a mixin resolving the
+    // entity anywhere but on the card it is applied to opens the wrong popup.
+    local card = (c.entityCard(kitchen)) |> c.informative
+    card.inlineSurfaces["self"].content.children[0].children[0]
+      .slots["entity_id"] == "light.kitchen"
+  }
+
+  ["a button or a pill can be a glyph, a label, or both"] {
+    // What the slider's head action needed over `c.pill` was a glyph, no label
+    // and the `lit` tint. None of the three is about sliders, so all three are
+    // the shared cards' — one icon button in the library, not a private copy.
+    local labelled = c.button("Close", c.tap.closePopup())
+    !labelled.slots.containsKey("glyph")
+    !labelled.slots.containsKey("round")
+    labelled.slots["label"] == "Close"
+
+    local glyphOnly = c.iconButton("mdi:power", c.tap.closePopup())
+    glyphOnly.slots["glyph"] == "mdi-power"
+    // ROUND exactly when the glyph is alone: a bare icon in a rectangle reads
+    // as a label that failed to render.
+    glyphOnly.slots["round"] == "1"
+    glyphOnly.slots["label"] == ""
+
+    // Both together stay rectangular — that is an ordinary button with an icon.
+    local both = (c.button("Power", c.tap.closePopup())).icon("mdi:power")
+    both.slots["glyph"] == "mdi-power"
+    !both.slots.containsKey("round")
+
+    // A pill takes the glyph too; it has no round variant because a chip is
+    // already pill-shaped.
+    local chip = (c.pill("Up", c.tap.navigate("under"))).icon("mdi:arrow-up")
+    chip.slots["glyph"] == "mdi-arrow-up"
+    !chip.slots.containsKey("round")
+
+    // `lit` is OFF by default — most buttons do something rather than reflect a
+    // state — and needs an entity to read.
+    !glyphOnly.slots.containsKey("lit")
+    ((c.iconButton("mdi:power", c.tap.toggle)) { entity = kitchen; lit = true })
+      .slots["lit"].signal == "class:lit"
+  }
+
+  ["a slider's head actions are NODES, so each owns its own busy signal"] {
+    // The reason #151 is a region and not a repeated slot. ADR 0019 allows one
+    // busy-guarded element per node, and the busy signal is named after the
+    // node — so two buttons sharing the head's id could only ever arm one of
+    // them, and pressing either would disable both.
+    local row = (c.slider(kitchen))
+      .tapAction(c.tap.toggle)
+      .actions(List(
+        c.sliderAction(kitchen, c.moreInfo(kitchen))
+          .icon("mdi:information").lit(false)
+      ))
+    local acts = row.children["head"][0].children["actions"]
+    acts.length == 2
+    // `tapAction` stays FIRST — it is the shorthand for the button this card
+    // has always had, and adding a second must not move it.
+    acts[0].slots["glyph"] == "mdi-power"
+    acts[1].slots["glyph"] == "mdi-information"
+    // They are ordinary `button`s — the shared round icon form, not a card of
+    // this module's own. What the slider adds is only WHERE they sit.
+    acts.toList().every((a) -> a.card == "button")
+    acts.toList().every((a) -> a.slots["round"] == "1")
+    // Each declares the guard, and the template names the node's own id — the
+    // renderer fills `{{id}}` per node, which is what makes the two distinct.
+    c.cards["button"].template.contains(#"data-indicator="_{{id}}__busy""#)
+    // `lit(false)` drops the class signal rather than binding a constant: a
+    // button that does not mean "this entity is on" should not light up.
+    acts[0].slots.containsKey("lit")
+    !acts[1].slots.containsKey("lit")
+    // A popup action carries its OWN surfaces, so the popup hangs off the
+    // button that opens it rather than off the slider.
+    acts[1].inlineSurfaces != null
+    row.inlineSurfaces == null
+  }
+
+  ["a slider with no actions still renders the strip, and the theme hides it"] {
+    // A card is ONE shape: its optional pieces are absent, not different. The
+    // strip is always in the markup and `:empty` is what removes it, the same
+    // way `.slider-members:empty` handles a member-less group.
+    local plain = c.slider(kitchen)
+    plain.children["head"][0].children["actions"].isEmpty
+    c.cards["sliderHead"].template.contains(#"<div class="slider-actions">"#)
+    c.cards["slider"].css.contains(".slider-actions:empty{display:none}")
+  }
+
+  ["the head is STRUCTURE, so nothing on it reads live as bytes"] {
+    // The invariant the split exists to keep (#151). A region-holding card is
+    // never a patch target, so a live bytes slot on it would never reach the
+    // DOM — `Dashboard.validate` rejects one, and `core/node.pkl` constrains
+    // `slots` so it fails in the author's editor first.
+    local head = (c.slider(kitchen)).children["head"][0]
+    head.cardDef.regions.keys == Set("text", "actions")
+    // Every live slot left on it carries a signal binding...
+    head.slots.toMap().values
+      .filter((v) -> v is slotMod.Slot && v.reads == "live")
+      .every((v) -> v.signal != null)
+    // ...and the label that stayed behind for the toggle's `aria-label` reads
+    // `onRender`: right whenever the card is drawn, never a reason to draw it.
+    head.slots["label"] is String || head.slots["label"].reads == "onRender"
+  }
+
+  // ---- the lock domain ----
+
+  ["supportsOpen reads the one bit LockEntityFeature defines"] {
+    // The whole of what typing a lock buys: `lock/open` releases a latch and is
+    // NOT unlocking, and only the bitmask says whether this lock has one. A
+    // card cannot see that; the schema can.
+    latchLock.supportsOpen
+    !plainLock.supportsOpen
+  }
+
+  ["a refused switch goes back, and says so where it can be seen"] {
+    // Two halves of one report, and each was independently wrong.
+    //
+    // The LOOK: `fh-error` paints an outline, and the toggle put it on the
+    // `<input>` — which BeerCSS hides behind a sibling `<span>` that draws the
+    // track. An outline on an invisible element is an outline nobody sees, so
+    // the class belongs on the card.
+    //
+    // The ROLLBACK: `checked` is two-way bound, so a press moves it at once and
+    // waits for a state frame to confirm. A refusal produces NO state frame, so
+    // an unrestored switch sits in the one position known to be wrong.
+    local sw = c.toggle(kitchen)
+    local t = c.cards["toggle"].template
+    // The look rides the card element, the mechanism the input.
+    t.contains(#"<article class="card row toggle" "#)
+    t.split("<label").first.contains("data-class:fh-error")
+    t.split("<label").last.contains("data-on:datastar-fetch__document")
+    // Truth lives on a SECOND signal the press cannot reach: same reading,
+    // shared rather than node-scoped.
+    sw.slots["switched"].transform == sw.slots["checked"].transform
+    sw.slots["checked"].signal == "bind"
+    sw.slots["switched"].signal == "attr:data-switched"
+    // ...and the rollback copies one into the other, gated on the error signal.
+    t.contains("data-on-signal-patch-filter=\"{include:/^_{{id}}__error$/}\"")
+    t.contains("$_{{id}}__error && (${{checked__signal}} = ${{switched__signal}})")
+  }
+
+  ["an appliance with no programme length gets a countdown and NO bar"] {
+    // The washer's real shape, measured on the live instance: it reports
+    // `timetoend` and nothing to divide it BY. Inventing a denominator — the
+    // highest reading seen this cycle, say — needs history this layer does not
+    // have, and would be wrong on the first paint after a reload, which is
+    // exactly when someone is looking.
+    local washer = c.progress(remainingMin).status(applianceState)
+    washer.slots.containsKey("left")
+    washer.slots["hasLeft"] == "1"
+    !washer.slots.containsKey("hasBar")
+    !washer.slots.containsKey("total")
+    // The status renders as the integration's own words, never interpreted:
+    // nothing here knows which of them means "running".
+    washer.slots["status"].entityId == "sensor.appliancestate"
+  }
+
+  ["a bar appears exactly when there is something to divide by"] {
+    local dishwasher = c.progress(remainingMin).total(programMin)
+    dishwasher.slots["hasBar"] == "1"
+    dishwasher.slots["total"].entityId == "sensor.programduration"
+    // The fill is a function of TWO entities, so it cannot be a transform: a
+    // slot reads one entity. The guard is the substance — a `total` reading
+    // `unknown` compares false, and the bar sits empty rather than painting
+    // NaN%.
+    local t = c.cards["progressCard"].template
+    t.contains("{{#hasBar}}")
+    t.contains("? Math.min(100, Math.max(0, 100 - 100 *")
+    t.contains("> 0 ?")
+  }
+
+  ["the countdown carries the seconds its unit is worth"] {
+    // The whole reason the schema derives `durationSeconds`: the same reading
+    // is minutes here and seconds elsewhere, and a countdown scaled by a guess
+    // runs sixty times fast.
+    local d: simpleMod.SimpleValue = c.progress(remainingMin).slots["left"].transform!!
+    d.op == "duration"
+    d.params!!.toMap() == Map("scale", 60)
+    local secs: hass.SensorEntity = new {
+      entity_id = "sensor.secs"
+      device_class = "duration"
+      unit_of_measurement = "s"
+    }
+    (c.progress(secs).slots["left"].transform as simpleMod.SimpleValue)
+      .params!!.toMap() == Map("scale", 1)
+  }
+
+  ["a duration that cannot be scaled renders no countdown at all"] {
+    // Rather than a plausible wrong number. `durationSeconds` is null for a
+    // unit with no fixed length, and the card drops the slot instead of
+    // choosing a multiplier for "a month".
+    local months: hass.SensorEntity = new {
+      entity_id = "sensor.months"
+      device_class = "duration"
+      unit_of_measurement = "m"
+    }
+    !c.progress(months).slots.containsKey("left")
+    !c.progress(months).slots.containsKey("hasLeft")
+    // ...and it is still a card: the label survives.
+    c.progress(months).slots.containsKey("label")
+  }
+
+  ["a state-dependent tap refuses the press while the entity is mid-move"] {
+    // The bug this closes: a two-way `CallByState` has one branch and a
+    // fallback, so every transitional state lands in the fallback — a lock read
+    // as `unlocking` is not `locked`, so the tile posted `lock/lock` AGAINST
+    // the unlock already running. The list is the DOMAIN's, so no author has to
+    // know it.
+    local tile = c.entityCard(latchLock)
+    local inert: simpleMod.SimpleMatch = tile.slots["inert"].transform!!
+    // `unavailable` rides with them but is NOT one of them — see the fact
+    // below. The three transitional ones are the domain table's.
+    inert.cases.toMap().keys.toList().sort()
+      == List("locking", "opening", "unavailable", "unlocking")
+    // `open` and `jammed` are NOT here: locking an open door and retrying a jam
+    // are both meaningful presses, and only a transitional state is not.
+    !inert.cases.toMap().containsKey("open")
+    !inert.cases.toMap().containsKey("jammed")
+    // A CLASS, not `attr:disabled`: this host is an `<article>`, and only a
+    // form control can be disabled.
+    tile.slots["inert"].signal == "class:fh-inert"
+  }
+
+  ["a value-carrying tap is the same call with one more segment"] {
+    // Not a second route builder: `serviceClick` covers both, and a tap with no
+    // value declares no `dataKey`, so the section closes over nothing.
+    local plain = c.tap.service("light/turn_on")
+    plain.serviceSlot == "light/turn_on"
+    plain.dataKey == null
+    local valued = c.tap.serviceValue("light/turn_on", "effect", "Color loop")
+    valued.serviceSlot == "light/turn_on"
+    valued.dataKey == "effect"
+    // PERCENT-ENCODED for the two characters that break the two contexts the
+    // value passes through: a space is invalid in a path segment, and a `'`
+    // would close the JS string the URL sits in — Mustache escapes it to
+    // `&#39;`, which the browser decodes back to `'` BEFORE the expression is
+    // parsed, so the attribute escape cannot save it.
+    valued.dataValue == "Color%20loop"
+    c.tap.serviceValue("a/b", "k", "it's").dataValue == "it%27s"
+  }
+
+  ["a SERVICE tap is inert on a dead entity, whatever its domain"] {
+    // Availability is a different axis from transitional state: HA rejects a
+    // service call on an unavailable entity in EVERY domain, so it is one rule
+    // rather than a row per domain — which is also what lets `inertWhile` keep
+    // meaning "transitional only" (`hass/actions.pkl`).
+    local lit: simpleMod.SimpleMatch =
+      c.entityCard(kitchen).slots["inert"].transform!!
+    // `light/toggle` means the same thing in every state, so nothing
+    // transitional — and `unavailable` all the same.
+    lit.cases.toMap().keys.toList() == List("unavailable")
+  }
+
+  ["a tap that calls NO service stays live on a dead entity"] {
+    // More-info is exactly what you want to open on an unavailable entity: it
+    // is where the reason is. A navigate does not care either.
+    !c.entityCard(outside).slots.containsKey("inert")
+    !c.button("Go", c.tap.navigate("other")).slots.containsKey("inert")
+  }
+
+  ["a typed lock still taps by state, like any other lock"] {
+    // Typing the domain must not change what the generic tile does with it —
+    // the capability is additive (ADR 0016 owns the tap).
+    (c.entityCard(latchLock).slots["service"].transform as simpleMod.SimpleMatch)
+      .otherwise == "lock/lock"
+  }
+
+  ["a lock that can open its latch gets a second control; one that cannot does not"] {
+    // The whole of what `c.lock.controls` decides. A lock's tile is the generic
+    // one — the composition exists for the capability the generic card cannot
+    // see.
+    local withLatch = c.lock.controls(latchLock)
+    withLatch.card == "cardFeatures"
+    withLatch.children["content"].toList().map((n) -> n.card) == List("entityCard")
+    // The latch is a SIBLING of the tile, not a child of it: inside the
+    // tappable element, one press would post `lock/open` and the tile's own
+    // `lock/lock` together.
+    withLatch.children["actions"].toList().map((n) -> n.card) == List("button")
+    // No capability, no wrapper — a plain lock is the generic tile and nothing
+    // more.
+    c.lock.controls(plainLock).card == "entityCard"
+  }
+
+  ["the latch ASKS before it opens; the confirmation is what posts lock/open"] {
+    local latch = c.lock.openLatch(latchLock)
+    // The latch itself calls nothing — it opens an inline confirmation, which
+    // is the whole point: releasing a latch opens a door.
+    latch.inlineSurfaces != null
+    !latch.slots.containsKey("service")
+    // …and `lock/open` lives inside it, aimed at the lock (a button carries no
+    // subject of its own).
+    local body = latch.inlineSurfaces!!["self"].content.children.toList().first
+    local press = body.children.toList()
+      .filter((n) -> n.card == "button" && n.slots.containsKey("entity_id"))
+      .first
+    press.slots["service"] == "lock/open"
+    press.slots["entity_id"] == "lock.latch"
+    // …and it is THAT press availability guards, not the latch that opens the
+    // dialog: a service tap is inert on a dead entity in every domain, so
+    // `CANNOT_OPEN` never had to carry `unavailable` and now cannot.
+    (press.slots["inert"].transform as simpleMod.SimpleMatch)
+      .cases.toMap().containsKey("unavailable")
+    // The tile beside it still locks/unlocks by state — the two controls are
+    // different actions, not two spellings of one.
+    (c.entityCard(latchLock).slots["service"].transform as simpleMod.SimpleMatch)
+      .cases.toMap() == Map("locked", "lock/unlock")
+  }
+
+  ["the latch is inert while the lock is mid-move — which the busy guard cannot see"] {
+    local latch = c.lock.openLatch(latchLock)
+    local inert: simpleMod.SimpleMatch = latch.slots["inert"].transform!!
+    // HA's `canOpen`, and ONLY that: already open, or mid-move. Every arm
+    // answers the same `true` — a set membership test, which is what one
+    // `match` buys over the two-armed enum it replaced, and what `stateIn`
+    // spells.
+    //
+    // No `unavailable`. It is not a lock STATE — `hass/lock.pkl` types the list
+    // as `LockState`, which refuses it — and the press it guards is protected
+    // anyway: the confirmation's own `lock/open` button is a service tap, so
+    // `tap.inertStates` disables THAT on a dead lock. Opening the dialog to be
+    // told why is better than a dead button that cannot say.
+    inert.cases.toMap().keys.toList().sort()
+      == List("locking", "open", "opening", "unlocking")
+    inert.cases.toMap().values.toSet() == Set(true)
+    // A real `false`, which is the ONLY value that turns a boolean attribute
+    // off: `""` would SET `disabled`, because `disabled=""` is how HTML spells
+    // ON. That is why this can be `attr:disabled` at all (ADR 0017).
+    inert.otherwise == false
+    latch.slots["inert"].signal == "attr:disabled"
+  }
+}

@@ -65,7 +65,7 @@ attribute, `"$lookup(…, $domain)"` an identity-derived value. There is no
 separate "computed" concept. A hardcoded value is a **literal** slot (a bare
 JSON string) — no entity, no JSONata, no compilation.
 
-**`entity_id` is the magical slot.** A component is `(card, slots, children)`;
+**`entity_id` is the magical slot.** A component is `(card, slots, regions)`;
 the card's subject entity is the slot *named* `entity_id` (normally a literal;
 a transform form grounds indirection on its own entity). It is the single slot
 that does **not** inherit the subject — it *defines* it. Every other slot with
@@ -77,9 +77,9 @@ dynamic case).
 default) makes an `"unavailable"`/`"unknown"` entity show its raw state
 *instead of* running the transform — what keeps a value display readable when
 its transform would error on a non-numeric state. Slots that must run their
-transform regardless opt out: identity-derived actions (resolve from `$domain`,
-not state), labels (keep the friendly_name), a slider's numeric position (fall
-back to its `default`).
+transform regardless opt out: actions (an unavailable light is exactly the one
+you want to click), labels (keep the friendly_name), a slider's numeric position
+(fall back to its `default`).
 
 **Failure modes are contained.** A genuinely broken transform on a real value
 renders the JSONata **error message on its card** — never a silent blank, never
@@ -88,11 +88,16 @@ over. A transform that fails to *compile* is a hard build error
 (`Dashboard.validate`) — the dashboard does not load.
 
 **Service actions are data, not a Scala domain table.** Templates take a single
-`{{{action}}}` value (`"<domain>/<service>"`); the default is an ordinary
-identity slot whose transform is a JSONata `$lookup` over `$domain`
-(scene/script → `turn_on`, button → `press`, else `homeassistant/toggle`),
-authored in the card builder and overridable via `serviceTap(...)`. The
-renderer never knows HA domains.
+`{{{action}}}` value (`"<domain>/<service>"`), authored in the card builder and
+overridable via `c.tap.service(...)`. The renderer never knows HA domains — that is
+the part of this decision that has not moved.
+
+What has moved is where the value comes from. It used to be an identity slot
+whose transform was a JSONata `$lookup` over `$domain`, falling back to
+`homeassistant/toggle`. It is now resolved **per entity at build time** from a
+vendored table that is also allowed to say *no action*, in which case the tap
+opens more-info instead. **ADR 0016** owns that; only four domains still resolve
+their service from live state.
 
 **The slider resolves its whole config the same way.** One `sliderSpec` table
 (domain → action/key/min/max/position attribute) drives `action`/`key`/`min`/

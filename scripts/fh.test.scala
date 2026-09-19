@@ -15,11 +15,14 @@
 // routes) live in UseCaseSuite, which has the backend to talk to; here we
 // cover what the script does WITHOUT an instance.
 
-import cats.effect.IO
+import cats.data.NonEmptyList
+import cats.effect.{IO, Ref, Resource}
+import org.http4s.{MediaType, Method}
 import weaver.*
 
 import java.nio.charset.StandardCharsets.UTF_8
 import java.nio.file.{Files, Path}
+import scala.concurrent.duration.*
 import scala.jdk.CollectionConverters.*
 
 object FhScriptSuite extends SimpleIOSuite:
@@ -94,6 +97,352 @@ object FhScriptSuite extends SimpleIOSuite:
       )
     }
   }
+
+  test("targets: a slug per entry, and --slug only names one") {
+    // `push` takes several entries, each landing on its own filename; `--slug`
+    // renames ONE, so it is rejected rather than quietly applied to the last.
+    val many = NonEmptyList.of("a.pkl", "sub/b.pkl")
+    for
+      defaults <- fh.targets(many, None)
+      renamed <- fh.targets(NonEmptyList.one("a.pkl"), Some("other"))
+      ambiguous <- fh.targets(many, Some("other")).attempt
+    yield expect.same(
+      List("a" -> "a.pkl", "b" -> "sub/b.pkl"),
+      defaults.toList.map(t => t.slug -> t.entry.toString)
+    ) and expect.same(
+      List("other" -> "a.pkl"),
+      renamed.toList.map(t => t.slug -> t.entry.toString)
+    ) and (ambiguous match
+      case Left(fh.Die(msg)) => expect(clue(msg).contains("--slug names one"))
+      case other             => failure(s"expected Die, got: $other"))
+  }
+
+  test("targets: --slug is a push option, never a --write one") {
+    // Since #116 a source file's name is not a slug (the slug is a key inside
+    // site.pkl), so `--slug --write` would rename the FILE while claiming
+    // to rename the dashboard. Refused, with the fix in the message.
+    fh.targets(NonEmptyList.one("a.pkl"), Some("other"), write = true)
+      .attempt
+      .map {
+        case Left(fh.Die(msg)) =>
+          expect(clue(msg).contains("--write sends SOURCE")) and
+            expect(clue(msg).contains("site.pkl"))
+        case other => failure(s"expected Die, got: $other")
+      }
+  }
+
+  pureTest("siteSlugs: an entrypoint is told apart by its `dashboards` key") {
+    // What decides whether a push installs one dashboard or a whole site —
+    // the same key the instance's `Site.decode` reads.
+    expect.same(
+      Some(List("home", "kitchen")),
+      fh.siteSlugs(
+        """{"dashboards":{"kitchen":{},"home":{}},"default":"home"}"""
+      )
+    ) and expect.same(None, fh.siteSlugs("""{"cards":{},"card":{}}""")) and
+      expect.same(None, fh.siteSlugs("not json"))
+  }
+
+  test("writeSet: the entry AND its local imports travel, workspace-relative") {
+    // A written file whose imports stayed on the laptop does not build on the
+    // instance — and for the entrypoint that fails the WHOLE site, so what
+    // `--write` sends has to be what the entry actually reads.
+    val ws = Files.createTempDirectory("fh-writeset")
+    Files.writeString(ws.resolve("dashboard.pkl"), "// entry")
+    // No import graph is analyzable here (no PklProject), so it falls back to
+    // the entry alone — the workspace-relative path contract is what this pins.
+    fh.writeSet(ws.resolve("dashboard.pkl"), ws)
+      .map(files => expect.same(List("dashboard.pkl"), files.map(_._1)))
+  }
+
+  test("writeSet: the entrypoint is written LAST, whatever it sorts as") {
+    // The ordering is the safety property: these are N independent PUTs, and
+    // an entrypoint that landed before its modules leaves the instance holding
+    // a site.pkl naming a file it does not have — which fails the WHOLE site's
+    // evaluation, taking down dashboards that were serving. Alphabetical order
+    // gets this right by luck against "pkl-demo.pkl" and wrong against
+    // "zone.pkl", so it is pinned with a name that sorts after site.pkl.
+    val ws = Files.createTempDirectory("fh-writeset")
+    Files.writeString(ws.resolve("site.pkl"), "// entry")
+    Files.writeString(
+      ws.resolve("zone.pkl"),
+      "// a module, alphabetically last"
+    )
+    fh.writeSet(
+      ws.resolve("site.pkl"),
+      ws,
+      _ =>
+        IO.pure(
+          Some(
+            Set(
+              ws.resolve("site.pkl"),
+              ws.resolve("zone.pkl")
+            )
+          )
+        )
+    ).map(files => expect.same(List("zone.pkl", "site.pkl"), files.map(_._1)))
+  }
+
+  test("writeSet: a file the instance could not accept is refused here") {
+    // The instance takes <name>.pkl and lib/<name>.pkl only; catching it here
+    // names the file instead of 403-ing halfway through a multi-file write.
+    val ws = Files.createTempDirectory("fh-writeset")
+    Files.createDirectories(ws.resolve("deep/nested"))
+    val deep = ws.resolve("deep/nested/x.pkl")
+    Files.writeString(deep, "// too deep")
+    fh.writeSet(deep, ws).attempt.map {
+      case Left(fh.Die(msg)) => expect(clue(msg).contains("nested too deep"))
+      case other             => failure(s"expected Die, got: $other")
+    }
+  }
+
+  pureTest("writeReport: says whether the push actually moved anything") {
+    // The whole point. "wrote 6 file(s)" was printed whether the push moved
+    // every byte or none of them, so the one thing the author wanted to know —
+    // did that do anything — was the one thing it would not say.
+    expect.all(
+      fh.writeReport(Nil) == "nothing to write",
+      fh.writeReport(List("a.pkl" -> false, "site.pkl" -> false)) ==
+        "no change — all 2 file(s) on the instance already match",
+      // A mixed push names the ones that moved and counts the rest: the
+      // interesting list is always the short one.
+      fh.writeReport(List("a.pkl" -> true, "site.pkl" -> false)) ==
+        "wrote 1 of 2 file(s) on the instance: a.pkl (1 already up to date)",
+      fh.writeReport(List("a.pkl" -> true, "site.pkl" -> true)) ==
+        "wrote 2 of 2 file(s) on the instance: a.pkl, site.pkl"
+    )
+  }
+
+  pureTest("changedFlag: an instance too old to answer reads as changed") {
+    expect.all(
+      fh.changedFlag("""{"written":"a.pkl","used":true,"changed":true}"""),
+      !fh.changedFlag("""{"written":"a.pkl","used":true,"changed":false}"""),
+      // No field, and not JSON at all: claim nothing, report what it always
+      // reported. Guessing "unchanged" here would be a silent lie about the
+      // one thing this exists to say.
+      fh.changedFlag("""{"written":"a.pkl","used":true}"""),
+      fh.changedFlag("not json")
+    )
+  }
+
+  test("watchSources: fires on a *.pkl edit, ignores dot-directories") {
+    // What `push --watch` sits in. The stamp is size+mtime, so the edit below
+    // changes the size; the `.fh/` write must NOT wake it (that dir is where
+    // the workspace's own machine files churn).
+    emptyDir.flatMap { dir =>
+      val entry = dir.resolve("a.pkl")
+      def write(p: Path, s: String) = IO.blocking {
+        Files.createDirectories(p.getParent)
+        Files.write(p, s.getBytes(UTF_8))
+      }
+      for
+        _ <- write(entry, "one")
+        fired <- IO.ref(0)
+        seen <- IO.ref(Set.empty[Path])
+        watching <- fh
+          .watchSources(
+            changed => fired.update(_ + 1) *> seen.update(_ ++ changed),
+            dir
+          )
+          .start
+
+        _ <- write(dir.resolve(".fh").resolve("pins.json"), "{}")
+        _ <- IO.sleep(3 * fh.pollInterval)
+        afterHidden <- fired.get
+
+        _ <- write(entry, "one and more")
+        _ <- awaitCount(fired, 1)
+
+        // A file created after the watch started counts too — the source set is
+        // re-scanned every tick, not fixed at startup.
+        _ <- write(dir.resolve("b.pkl"), "two")
+        _ <- awaitCount(fired, 2)
+        _ <- watching.cancel
+        changed <- seen.get
+      yield expect.same(0, afterHidden) and
+        // WHICH files changed is the payload `push --watch` needs to re-send
+        // only the entries a change reaches — absolute, as import sets are.
+        expect.same(
+          Set(entry, dir.resolve("b.pkl")).map(_.toAbsolutePath.normalize),
+          changed
+        )
+    }
+  }
+
+  pureTest("affectedBy: a change re-sends its dependents, and only those") {
+    // The point of `push --watch *.pkl`: editing one entry must not re-send
+    // every dashboard. What an entry reads comes from pkl's import graph, so a
+    // shared module reaches its importers — `three` here — and nothing else.
+    val one = fh.Target(Path.of("/w/one.pkl"), "one")
+    val two = fh.Target(Path.of("/w/two.pkl"), "two")
+    val three = fh.Target(Path.of("/w/three.pkl"), "three")
+    val shared = Path.of("/w/shared.pkl")
+    val unanalyzable = fh.Target(Path.of("/w/four.pkl"), "four")
+
+    val deps = Map(
+      one -> Some(Set(one.entry)),
+      two -> Some(Set(two.entry)),
+      three -> Some(Set(three.entry, shared)),
+      unanalyzable -> None
+    )
+    val all = List(one, two, three, unanalyzable)
+    def slugs(changed: Set[Path]) =
+      fh.affectedBy(all, deps, changed).map(_.slug)
+
+    expect.same(List("one", "four"), slugs(Set(one.entry))) and
+      expect.same(List("three", "four"), slugs(Set(shared))) and
+      expect.same(
+        List("one", "three", "four"),
+        slugs(Set(one.entry, shared))
+      ) and
+      // An untracked file reaches only the entry nobody could analyze.
+      expect.same(List("four"), slugs(Set(Path.of("/w/stray.pkl"))))
+  }
+
+  test("post: a rejection carries the instance's own message") {
+    // The failure mode that matters for push: the server puts the validation
+    // message in the body (the pushing author reads no server log), so it has
+    // to reach the terminal rather than being flattened to a bare status.
+    stubServer("nosuchcard is not a card", 400).use { url =>
+      for rejected <- fh
+          .withClient(
+            fh.post(
+              _,
+              url,
+              Method.POST,
+              "{}",
+              MediaType.application.json,
+              "push",
+              None
+            )
+          )
+          .attempt
+      yield rejected match
+        case Left(fh.Die(msg)) =>
+          expect.all(
+            clue(msg).contains("push failed"),
+            msg.contains("400"),
+            msg.contains("nosuchcard is not a card")
+          )
+        case other => failure(s"expected Die, got: $other")
+    }
+  }
+
+  /** Wait for `ref` to reach `n` — polled, so the test costs one tick rather
+    * than a guessed sleep, and hangs (weaver's own timeout) if it never does.
+    */
+  private def awaitCount(ref: Ref[IO, Int], n: Int): IO[Unit] =
+    ref.get.flatMap(current =>
+      IO.unlessA(current >= n)(IO.sleep(fh.pollInterval) *> awaitCount(ref, n))
+    )
+
+  test(
+    "post: the instance is told who is asking, when this laptop has a token"
+  ) {
+    // Writing pkl to the instance is admin-only (issue #89) and `fh` carries no
+    // secret of its own: it forwards an HA long-lived token and lets the
+    // instance resolve it, exactly as it resolves a browser login. What this
+    // pins is the CARRIER — that the header is actually on the request — which
+    // no assertion about the response could show.
+    IO(java.util.Collections.synchronizedList(new java.util.ArrayList[String]))
+      .flatMap { seen =>
+        recordingServer(seen).use { url =>
+          for
+            _ <- fh
+              .withClient(
+                fh.post(
+                  _,
+                  url,
+                  Method.POST,
+                  "{}",
+                  MediaType.application.json,
+                  "push",
+                  Some("ha-long-lived-token")
+                )
+              )
+              .attempt
+            _ <- fh
+              .withClient(
+                fh.post(
+                  _,
+                  url,
+                  Method.POST,
+                  "{}",
+                  MediaType.application.json,
+                  "push",
+                  None
+                )
+              )
+              .attempt
+            headers <- IO.blocking(seen.asScala.toList)
+          yield expect.same(
+            List("Bearer ha-long-lived-token", "<none>"),
+            headers
+          )
+        }
+      }
+  }
+
+  pureTest("a refused push says which of the two things went wrong") {
+    // "It worked yesterday" and "I never set this up" need different advice,
+    // and the only way to tell them apart is whether a token was sent at all.
+    val noToken =
+      fh.unauthorizedHelp("push", org.http4s.Status.Unauthorized, false)
+    val wrongUser =
+      fh.unauthorizedHelp("push", org.http4s.Status.Forbidden, true)
+    expect.all(
+      clue(noToken).contains(".fh/user_secret.json"),
+      noToken.contains("Profile -> Security"),
+      clue(wrongUser).contains("did not accept this token"),
+      wrongUser.contains("ADMIN")
+    )
+  }
+
+  /** Records each request's `Authorization` header (or `<none>`) and answers
+    * 401, so a test can see what went out as well as what came back.
+    */
+  private def recordingServer(
+      seen: java.util.List[String]
+  ): Resource[IO, String] =
+    Resource
+      .make(IO.blocking {
+        val server = com.sun.net.httpserver.HttpServer
+          .create(new java.net.InetSocketAddress("127.0.0.1", 0), 0)
+        server.createContext(
+          "/",
+          exchange =>
+            val auth =
+              Option(exchange.getRequestHeaders.getFirst("Authorization"))
+                .getOrElse("<none>")
+            val _ = seen.add(auth)
+            exchange.sendResponseHeaders(401, -1L)
+            exchange.close()
+        )
+        server.start()
+        server
+      })(server => IO.blocking(server.stop(0)))
+      .map(server => s"http://127.0.0.1:${server.getAddress.getPort}/")
+
+  /** A one-response HTTP stub (the JDK's own server — no extra dependency),
+    * yielding its URL.
+    */
+  private def stubServer(body: String, status: Int): Resource[IO, String] =
+    Resource
+      .make(IO.blocking {
+        val bytes = body.getBytes(UTF_8)
+        val server = com.sun.net.httpserver.HttpServer
+          .create(new java.net.InetSocketAddress("127.0.0.1", 0), 0)
+        server.createContext(
+          "/",
+          exchange =>
+            exchange.sendResponseHeaders(status, bytes.length.toLong)
+            exchange.getResponseBody.write(bytes)
+            exchange.close()
+        )
+        server.start()
+        server
+      })(server => IO.blocking(server.stop(0)))
+      .map(server => s"http://127.0.0.1:${server.getAddress.getPort}/")
 
   test("update: sha-compare against the remote copy, replace with a backup") {
     // cmdUpdate is parameterized (self path + source URL) precisely so this

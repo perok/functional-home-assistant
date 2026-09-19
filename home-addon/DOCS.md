@@ -13,7 +13,7 @@ Home Assistant config directory:
 
 ```
 <ha config>/fh-dashboards/
-  dashboard.pkl      # the starter entry — edit me
+  site.pkl           # THE entrypoint: every dashboard you serve — edit me
   lib/               # the shared Pkl card/theme library
 ```
 
@@ -23,15 +23,28 @@ default File editor / Samba add-ons can reach them without extra config.
 
 ### Editing dashboards
 
-- Every top-level `*.pkl` file in `fh-dashboards/` is a dashboard; the slug is
-  the filename (`dashboard.pkl` → `/d/dashboard`).
-- **Edits to existing files hot-reload**: connected browsers repaint over the
-  live SSE stream, no restart needed. A file that fails to evaluate is logged
-  and the previous version stays up.
-- **A brand-new `*.pkl` entry file needs an add-on restart** — entries are
-  discovered at startup.
-- A dashboard that is broken at startup is skipped (and logged); the add-on
-  only fails to start when *no* dashboard builds.
+- **`site.pkl` is the one entrypoint.** Every dashboard is a key in its
+  `dashboards` map, and the key is the route: `["kitchen"]` serves at
+  `/d/kitchen`. Any other `*.pkl` beside it is an ordinary module — it becomes
+  a dashboard only when a key points at it:
+
+  ```pkl
+  dashboards {
+    ["home"] { title = "Home"; card = ... }        // inline
+    ["kitchen"] = import("kitchen.pkl")            // its own file
+  }
+  ```
+
+  Being data, they can also be generated — a `for` over your floors gives you
+  a dashboard per floor.
+- **Every edit hot-reloads**, including ADDING or REMOVING a dashboard:
+  connected browsers repaint over the live SSE stream, no restart needed.
+- A dashboard that fails to build serves an error page naming the problem and
+  recovers the moment you fix it; the others keep serving. If `site.pkl`
+  itself will not evaluate, every dashboard shows that error — the file no
+  longer says what they are — and one fix restores them all.
+- `default = "<slug>"` in `site.pkl` picks what `/` serves; with none, the
+  dashboard keyed `dashboard`, else the first one.
 - `home/dump.pkl` is regenerated from your live entity registry on every
   startup — don't edit it; import it (`import "@fh-home/dump.pkl" as dump`) for
   typed references to your entities (`dump.entities.<name>`).
@@ -47,21 +60,202 @@ default File editor / Samba add-ons can reach them without extra config.
 
 ### Re-seeding
 
-The seed is copied only when the dashboards directory is empty. To get a
-fresh copy of the starter or an updated `lib/` after an add-on upgrade, move
-your entries elsewhere, empty the directory, and restart.
+The starter is written only when there is no `site.pkl` at all. To get a
+fresh copy of it or an updated `lib/` after an add-on upgrade, move your files
+elsewhere, empty the directory, and restart.
 
-What you get: your entries (`*.pkl`, starting with `dashboard.pkl`), `lib/` (the
-authoring library that ships with the add-on — don't edit it, it is replaced on
-upgrade), `home/` (your regenerated `dump.pkl`), and `PklProject`, which binds
-the `@fh-dashboard` and `@fh-home` names your entries import.
+What you get: `site.pkl` (the starter entrypoint), `lib/` (the authoring
+library that ships with the add-on — don't edit it, it is replaced on upgrade),
+your regenerated entity dump, and `PklProject`, which binds the
+`@fh-dashboard` and `@fh-home` names your dashboards import.
 
 ## Options
 
 | Option | Description |
 |---|---|
-| `default_dashboard` | Slug served at `/` (empty = `dashboard`, else the first slug). |
 | `watch_registry` | Rebuild the entity dump automatically on HA registry changes (default `true`). The swap is validated first and the previous dump is kept as a dated backup. |
+| `max_heap` | JVM max heap as a `-Xmx` value — `"512M"` (the default), `"1G"`. A ceiling, not a reservation. Raise it if a large house or a big workspace runs out. |
+| `min_heap` | JVM starting heap as a `-Xms` value — `"64M"` by default. This is the end that decides the idle footprint; raise it with `max_heap` if the collector is visibly growing and shrinking. |
+| `memory_tracking` | Add the native-memory breakdown to `GET /system/diagnostics` (default `false`). Costs a few percent, and takes effect on restart — the JVM cannot start tracking while running. |
+| `otlp_endpoint` | Send traces to an OpenTelemetry collector, e.g. `"http://192.168.1.50:4318"`. Empty (the default) means tracing is off and the OpenTelemetry SDK is never started. |
+
+## Memory
+
+The add-on is a JVM, so what the supervisor reports is its heap plus the
+runtime's own overhead — metaspace, JIT code cache, GC structures, thread
+stacks. That overhead is a fixed cost of running Scala on a JVM, not a leak.
+
+Both ends of the heap are set to numbers rather than to fractions of the
+machine: it starts at 64 MB and grows only as the workload needs, up to
+`max_heap` (512 MB by default). So the figure follows the dashboards you run
+rather than the size of the box you run them on, and the garbage collector
+hands memory back once a burst is over. If the add-on restarts with an
+OutOfMemoryError in the log, `max_heap` is the thing to raise.
+
+### Seeing where it actually goes
+
+`GET /system/diagnostics` reports it, as JSON. It needs a Home Assistant
+admin, like the rest of `/system`, and it reports sizes and counts only —
+never dashboard content or who is signed in.
+
+```jsonc
+{
+  "container": {
+    "current": 412844032,   // what the supervisor's percentage is computed from
+    "max": "max",           // add-ons get no memory limit; see below
+    "anon": 331739136,      // memory the add-on actually allocated
+    "file": 81104896        // page cache it is charged for but did not allocate
+  },
+  "jvm": {
+    "heap":    { "used": 48234496, "committed": 67108864, "max": 536870912 },
+    "nonHeap": { "used": 91234816, "committed": 96468992, "max": null },
+    "pools":   { "Metaspace": {}, "Compressed Class Space": {}, "CodeHeap ...": {} },
+    "gc":      [ { "name": "Copy", "count": 41, "ms": 388 } ],
+    "threads": 34,
+    "uptimeMs": 903114
+  },
+  "nmt": null               // the full NMT summary when memory_tracking is on
+}
+```
+
+Two fields answer most questions on their own. **`container.file`** is page
+cache — the add-on is charged for it in the figure the UI shows, but it is not
+the JVM's doing, so subtract it before concluding anything. And
+**`container.max`** is the literal `"max"`: the supervisor puts no memory limit
+on an add-on, which is exactly why the heap is given a number here instead of
+a percentage of "available" memory.
+
+For the native breakdown that the pools do not cover — GC structures, thread
+stacks — set `memory_tracking: true`, restart, and read the `nmt` field.
+
+### When it is stuck rather than large
+
+Two more admin endpoints, both plain text, for the other kind of problem:
+
+- **`GET /system/diagnostics/threads`** — a JVM thread dump, lock information
+  included. What shows a deadlock, or a pool with every thread blocked on the
+  same monitor.
+- **`GET /system/diagnostics/fibers`** — a cats-effect fiber dump. The thread
+  dump *cannot* replace this: almost all of the server's work runs as fibers
+  multiplexed over a handful of carrier threads, so a thread dump taken while a
+  dashboard is stuck shows an idle worker pool and says nothing about which
+  fiber is parked. This is the one that names it.
+
+They are separate from the report above because they are large, meant to be
+read rather than parsed, and because taking a thread dump pauses every thread —
+not a price to pay for asking how much memory is in use.
+
+### If you would rather use a terminal
+
+The image ships `jcmd`, `jmap`, `jstat` and Flight Recorder, so with the SSH
+add-on you can go straight at the process. PID 1 is the base image's init, so
+ask `jcmd -l` for the JVM's:
+
+```sh
+C=$(docker ps --format '{{.Names}}' | grep fh_dashboard)
+docker exec "$C" jcmd -l                      # -> "<pid> /opt/fh-dashboard.jar"
+docker exec "$C" jcmd <pid> GC.heap_info
+```
+
+For a slow page open rather than a large one, record a profile into the
+add-on's `/data` and copy it out:
+
+```sh
+docker exec "$C" jcmd <pid> JFR.start settings=profile duration=60s \
+  filename=/data/fh.jfr
+docker cp "$C":/data/fh.jfr .
+```
+
+## Telemetry (optional)
+
+`GET /system/diagnostics` says how much the add-on is using. It does not say
+where a slow *page open* went, because the phases a dashboard request goes
+through — reading the entity store, minting the session, and the walk that
+renders and writes the document — take their time separately.
+
+Set `otlp_endpoint` to a collector and you get traces and metrics for every
+request in and every call out, under the standard OpenTelemetry `http.*` names
+(the add-on uses the official http4s middleware, so a collector that has never
+heard of this project still understands the data).
+
+On top of those, the spans that are specific to what this add-on does:
+
+- `dashboard.page.store` — reading the live entity state for a page.
+- `dashboard.page.walk` — the render and the write, tagged with the number of
+  nodes painted. Usually the one worth looking at: the document is rendered
+  *as the response body is streamed*, so its cost is invisible to anything
+  timing the handler.
+- `dashboard.prepare`, with `.dump` and `.eval` beneath it — fetching the
+  entity dump and evaluating every dashboard. Not a request, so no HTTP span
+  covers it, and it runs on every registry-driven refresh rather than only at
+  boot.
+- `ha.entities.apply` — one span per frame of entity state arriving from Home
+  Assistant, tagged with how many entities were in it. This one is
+  high-frequency by nature; if it is more than your collector wants, that is
+  what `OTEL_TRACES_SAMPLER` is for.
+
+Metrics of its own, alongside the conventional `http.*` ones:
+
+- `fh.page.nodes` — nodes painted by one page open. Sampling makes the span
+  attribute of the same name a guess about the whole; this is not.
+- `fh.ha.entities` — entity states applied from the feed. Its rate is how fast
+  the house is moving.
+- `fh.sessions.live` — dashboard sessions currently registered.
+
+There is no instrument for how long a dashboard build takes: that is the
+`dashboard.prepare` span's own duration, and a collector that derives latency
+metrics from spans (Tempo's metrics generator does, and the `otel-lgtm` image
+below turns it on) already produces the series.
+
+Log lines go to the collector too, as OpenTelemetry records carrying the trace
+and span they were written inside — so the slow trace and the warning that
+explains it find each other without matching text by hand. They keep going to
+the add-on's Log tab exactly as before, with `trace_id` and `span_id` on the
+line for reading by eye.
+
+The request path is kept in spans (it names the dashboard) but the **query
+string is dropped**, because the Home Assistant login redirect arrives as
+`/auth/callback?code=…` and an authorization code must not leave the machine
+in telemetry.
+
+### If you have no collector
+
+You need one container and no configuration. On any machine on the LAN:
+
+```sh
+docker run -p 3000:3000 -p 4317:4317 -p 4318:4318 \
+  -p 3200:3200 -p 9090:9090 -p 3100:3100 grafana/otel-lgtm
+```
+
+Then set `otlp_endpoint` to `http://<that machine>:4318` and open Grafana on
+port 3000 — traces land in Tempo, metrics in Prometheus, logs in Loki. The
+image bundles all four behind an OpenTelemetry collector and needs no setup of
+its own. The three extra ports are Tempo, Prometheus and Loki themselves, worth
+publishing if you want to query their APIs rather than click through Grafana.
+
+Note that 4317/4318 are the collector's **receiving** ports: the add-on pushes
+to them. Nothing scrapes the add-on, and for traces nothing could — a trace is
+a stream of completed spans rather than a current value, so there is no pull
+protocol for it.
+
+4318 is OTLP over HTTP and 4317 is gRPC. The add-on sends HTTP, since that is
+the port every example names; point `otlp_endpoint` at 4317 instead and you
+must also set `OTEL_EXPORTER_OTLP_PROTOCOL=grpc`, or every export fails.
+
+### What it costs
+
+**With no endpoint set, nothing.** The OpenTelemetry SDK is never constructed,
+so the spans are no-op calls and the exporter classes are never loaded.
+
+**With an endpoint set but nothing listening, still nothing that grows.** The
+SDK's batch processor holds a fixed-size queue of 2048 spans and drops on
+overflow rather than blocking or growing — so an unreachable or switched-off
+collector costs dropped spans and a warning, never memory. If you stop the
+collector, you can leave the endpoint set.
+
+Everything else about the exporter — protocol, headers, sampling, extra
+resource attributes — is configured with the standard `OTEL_*` environment
+variables rather than an option per setting.
 
 ## Direct port (optional)
 
@@ -69,3 +263,18 @@ The dashboard is also available on host port 8080 if you map it in the
 add-on's network configuration. **The direct port is unauthenticated** and the
 server drives Home Assistant with its own token — leave it disabled unless
 your LAN is trusted.
+
+## Third-party components
+
+The image bundles the GraalVM JavaScript engine as a polyglot isolate library,
+published by Oracle under the
+[GraalVM Free Terms and Conditions](https://www.oracle.com/downloads/licenses/graal-free-license.html).
+You receive that component under those terms rather than this project's: they
+permit redistribution of the unmodified program, including bundled in a
+product, as long as no fee is charged for it.
+
+Nothing loads it yet. The first time something does ask for JavaScript, the
+engine unpacks about 160 MB of native resources into `/data/graal-cache` —
+once, and again only when an add-on update moves the GraalVM version. That
+directory is excluded from Home Assistant backups, and deleting it is safe:
+it is rebuilt on the next start.

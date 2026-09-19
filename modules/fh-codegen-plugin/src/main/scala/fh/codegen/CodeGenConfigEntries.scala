@@ -3,7 +3,6 @@ package fh.codegen
 import cats.*
 import cats.syntax.all.*
 import api.homeassistant.ws.domain.{ConfigEntry, Device}
-import api.homeassistant.ws.domain.*
 import ha.runtime.definitions.*
 import fh.codegen.utils.{Helpers, StaticCode}
 

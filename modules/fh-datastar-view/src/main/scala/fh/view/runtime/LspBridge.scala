@@ -1,5 +1,6 @@
 package fh.view.runtime
 
+import fh.view.telemetry.Logging
 import cats.effect.IO
 import cats.effect.std.Queue
 import fs2.{Chunk, Pipe, Pull, Stream}
@@ -7,6 +8,7 @@ import fs2.io.process.ProcessBuilder
 import org.http4s.Response
 import org.http4s.server.websocket.WebSocketBuilder2
 import org.http4s.websocket.WebSocketFrame
+import org.typelevel.log4cats.LoggerFactory
 
 import java.nio.charset.StandardCharsets
 
@@ -40,9 +42,11 @@ object LspBridge {
     */
   def wsResponse(
       wsb: WebSocketBuilder2[IO],
-      pklLspJar: os.Path
+      pklLspJar: os.Path,
+      loggerFactory: LoggerFactory[IO] = Logging.console
   ): IO[Response[IO]] =
     Queue.unbounded[IO, WebSocketFrame].flatMap { fromClient =>
+      val log = loggerFactory.getLoggerFromName("fh.view.runtime.LspBridge")
       // Client -> server: stash every inbound frame; the process stream drains
       // it into stdin. Ignore close frames (the send stream's finalizer, driven
       // by http4s on socket close, tears the process down).
@@ -65,7 +69,7 @@ object LspBridge {
               .through(fs2.text.utf8.decode)
               .through(fs2.text.lines)
               .filter(_.nonEmpty)
-              .foreach(l => IO.println(s"[pkl-lsp] $l"))
+              .foreach(l => log.debug(l))
               .drain
 
           proc.stdout

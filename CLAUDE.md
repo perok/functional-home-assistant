@@ -2,6 +2,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+Before starting work, read and follow AGENTS.md in this repository root.
+
 ## What this is
 
 A type-safe, "functional" wrapper around [Home Assistant](https://www.home-assistant.io/). The core idea: **connect to a live Home Assistant instance, introspect its devices/entities/services, and code-generate strongly-typed Scala references to them**, so that automations written against this project reference real devices/entities by name with compile-time guarantees (rather than stringly-typed `entity_id`s). Conceptually similar to NetDaemon/AppDaemon, but with generated types.
@@ -12,25 +14,124 @@ Scala 3 + Typelevel stack (cats-effect, http4s, circe, chimney) + smithy4s for t
 
 Do not make anything up and ask questions if anything is unclear.
 
+## ADRs and plans: read first, rewrite in place
+
+Design decisions live in [`docs/adr/`](docs/adr/README.md). Read the relevant ADR(s) before
+changing the area they cover. Each ADR is a **current-state** document: check a change against
+them, and when a change supersedes a decision, **rewrite the relevant ADR in place** — git history
+keeps the archaeology, so no dated update sections while the design is pre-v1. A genuinely new
+decision gets a new ADR.
+
+[`docs/architecture-rendering-pipeline.md`](docs/architecture-rendering-pipeline.md) is the **map of the live rendering
+system** — how one HA state change becomes bytes in a browser, what is shared per slug vs. per
+connection, and the three node kinds. Read it before changing anything in `fh/view/runtime`, and
+**update it in the same commit as the change**, ADRs included (an ADR owns the decision, that file
+owns the shape). It is also where a proposal should point: say which box moves. Its "Known open
+questions" section is a live list, not a backlog — delete an entry when it is answered.
+
+[`docs/terminology.md`](docs/terminology.md) defines the words this project uses in a specific way
+— region, leaf/structure, host, bake, surface, clause, holds, floor, horizon, doorbell, linger.
+**Read it before writing an ADR, a plan or a comment that leans on one**, and use the term as
+defined rather than a near-synonym: the vocabulary is load-bearing (a "region" is a declaration, a
+"host" is the element it is filled through, and prose that blurs them has already produced a wrong
+design). When a change coins a term or moves what one means, update that file in the same commit —
+a definition that lags the code is worse than none, because it gets trusted.
+
+A `docs/plan-*.md` is a design for work **in flight**, not a description of the sources — do not
+assume an API written there exists.
+
+**The lifecycle is fixed, and every step is the maintainer's call to start, not yours:**
+
+1. **Create** the plan as `docs/plan-<topic>.md` and **commit it**, normally as the first commit
+   on the branch and the opening of its PR.
+2. **Keep it as the work moves.** When a decision changes mid-flight, rewrite the plan in place in
+   the same commit as the code — the plan's own git history is the record of how the design
+   moved, so do not append dated "update" sections and do not leave a superseded paragraph
+   standing next to the one that replaced it.
+3. **On completion, delete the plan file.** Deleting it is part of finishing the work, in the same
+   PR, not a follow-up — git history keeps the archaeology, so nothing is lost by removing it.
+
+   An ADR is **not** automatic. Write one only when a decision needs a home that readers will
+   find later and that the code cannot state itself. When the artifact is already self-contained
+   and self-documenting — `flake.nix` carries its own README, so the agentbox decisions live
+   where anyone changing them is already reading — that IS the record, and a separate ADR would
+   be a second copy to keep in sync. Ask before adding one.
+
+A plan that has landed but is still sitting in `docs/` is unfinished work, not documentation: it
+becomes a third category that is neither current state nor history, which is exactly what step 3
+exists to prevent. Never delete one on your own initiative, though — ask, and scope the deletion
+to the changeset's own plan.
+
+When the user questions a decision in a plan or ADR, **discuss alternatives in chat first** (with
+spikes as evidence, inline code examples) — do not rewrite the document until a direction is
+picked.
+
 ## Build & run commands
 
 ```bash
 sbt compile                         # compile everything
 sbt test                            # INCREMENTAL in sbt 2.0 (only changed suites)
 sbt testFull                        # run ALL tests regardless of change (e.g. fh-datastar-view/testFull)
+sbt 'fh-datastar-view/testOnly * -- --exclude-tags=Slow'   # same coverage MINUS the Playwright
+                                    # `smoke` suites — the variant to use in an environment with
+                                    # no browser driver, where they die in beforeAll with
+                                    # "Failed to read message from driver, pipe closed". `testFull`
+                                    # takes no `--` arguments, hence testOnly with a `*` selector.
 sbt 'testOnly *SomeSuite'           # run a single test suite
 sbt 'testOnly *SomeSuite -- *name*' # run a single test by name (munit)
-sbt 'scalafmt; Test/scalafmt'       # format (scalafmt 3.9.3, scala3 dialect)
-                                    # BOTH: `scalafmt` alone skips test sources,
-                                    # which CI's `scalafmt --test` still checks
+scalafmt                            # format (standalone CLI, version pinned by .scalafmt.conf,
+                                    # scala3 dialect); a PreToolUse hook already runs this
+                                    # before every `git add` — see .claude/settings.json
 sbt doCodegen                       # regenerate typed device/entity code, then format it
 sbt 'home / run'                    # run the main app (AppHome), env vars set from build.sbt
 sbt dashboardBuild                  # build phase: regenerate modules/fh-datastar-view/dashboard.json
-sbt dashboardServe                  # runtime: serve the Datastar dashboard (http://localhost:8080)
+                                    # for the workspace `DASHBOARDS_DIR` names (put it in the
+                                    # repo-root `.env`); it refuses to guess one.
+sbt 'dashboardServe path/to/ws'     # runtime: serve THAT workspace (http://localhost:8080). The
+                                    # directory is REQUIRED — the build sets no default — and a
+                                    # relative path resolves from the repo root (the forked run's
+                                    # cwd). A non-existent dir is bootstrapped, so this is how you
+                                    # spin up a scratch workspace. Quote the whole thing — sbt 2's
+                                    # client joins its argv. `DASHBOARDS_DIR` is the fallback when
+                                    # no directory is named.
+sbt fh-datastar-view/frontendInstall  # npm ci for the dashboard frontend
+sbt fh-datastar-view/frontendBundle   # vite build -> managed resources (runs on compile)
 ```
 
-Note: `run`/`runMain` are forked with the **working directory set to the module's base dir**
-(e.g. `modules/fh-datastar-view`), so relative paths in `*App` mains are module-relative.
+## Hooks (`.claude/settings.json`, `.claude/hooks/`)
+
+Three `PreToolUse` guardrails run automatically — don't route around them without reading why
+they exist first:
+
+- **scalafmt before `git add`** — runs `scalafmt` (standalone CLI) so nothing unformatted ever
+  reaches CI's `scalafmt --test`.
+- **`guard-protected-paths.sh`** (on `Edit`/`Write`) — blocks edits inside any folder literally
+  named `generated` (build output, wiped by `doCodegen`) and blocks any edit touching the
+  `version:` line in `home-addon/config.yaml` (the release trigger — see "Releasing is the
+  maintainer's call" above).
+- **`block-shell-file-edits.sh`** (on `Bash`) — blocks `sed -i`, `perl -i`, `python`/`python3`
+  file writes, `cat >`/`>>`, and `tee` against tracked files. Use the `Edit`/`Write` tools
+  instead: they require reading the file first and enforce a unique match, which catches
+  stale-file and ambiguous-replacement errors that shell edits don't. `/tmp` and the scratchpad
+  dir are exempt.
+
+  **Escape hatch**: for a genuine bulk/multi-file mechanical edit (a repo-wide rename,
+  find+sed across many files) where a Read+Edit round trip per file would be far more
+  expensive than one shell command, prefix the command with `ALLOW_SHELL_EDIT=1` to bypass
+  the check for that one call, e.g. `ALLOW_SHELL_EDIT=1 sed -i 's/old/new/' $(git grep -l old)`.
+  Use it deliberately for actual bulk edits — not as a way around the check for a single edit
+  that `Edit`/`Write` would handle fine.
+
+**`fh-datastar-view` needs node + npm to build.** Its frontend (`src/js`, TypeScript
+and JavaScript) is bundled by vite 8 into managed resources via `project/NpmPlugin.scala`,
+wired as a `resourceGenerators` entry — so an ordinary `compile`/`test`/`assembly` runs
+`npm ci` and `vite build` when the sources change, and nothing built is committed. Both
+tasks no-op when a content fingerprint of their inputs still matches.
+
+Note: `run`/`runMain` are forked with the **working directory set to the repo root** — `show
+fh-datastar-view/Compile/run/baseDirectory` says `/work`, not the module — so relative paths in
+`*App` mains, and a relative workspace argument to `dashboardServe`, resolve from where you
+started sbt.
 
 `doCodegen` is an alias for `fhTaskCodeGen ; home-codegen / scalafmt`. It connects to the live HA instance at `haUrl` (configured in `build.sbt`, currently `http://192.168.1.174:8123`) using `haSecret`, wipes `modules/home-codegen/src/main/scala/ha/generated`, and regenerates it. **That generated directory is gitignored** — it is a build product, not source. Codegen requires the HA instance to be reachable.
 
@@ -45,205 +146,25 @@ The codegen pipeline is the spine of the project. Data flows: **live HA instance
 - **`fh-codegen-plugin`** — The actual code generators. `fh.codegen.Plugin` is the `IOApp` entry point invoked by the sbt task; it fetches services/entities/devices/manifests/config-entries/triggers from the API and runs `CodeGenEntities`, `CodeGenDevices`, `CodeGenServices`, `CodeGenConfigEntries`, `CodeGenManifests`. `ThingReference[T]` is the central abstraction — a named, packaged unit of generated code that knows its own file path and package. Generation uses plain string templating (scalameta does not support Scala 3 / Dotty).
 - **`home-codegen`** — Output target for generated code (under `ha.generated.*`). Enables the `FHCodegenPlugin`. Contents are gitignored.
 - **`home`** — The runnable application (`AppHome`, an `IOApp.Simple`). Depends on `ha-api` and `home-codegen`, so automations here can reference generated devices/entities by name.
-- **`fh-datastar-view`** — A simpler HA web frontend (port of the TS prototype in `../ha-frontend`). See its own section below.
+- **`fh-datastar-view`** — A simpler HA web frontend (port of the TS prototype in `../ha-frontend`). Has its own `CLAUDE.md`. Its Pkl authoring library is split by AUDIENCE (ADR 0015): `lib/core/` is what a component author extends, `lib/components.pkl` + `lib/components/` is what a dashboard author writes against.
 - **`fh-api`, `fh-automation`** — Stubs / WIP (marked "TODO needed?" in build.sbt).
 
 ### `fh-datastar-view` — the Datastar dashboard
 
-> **Before changing this module, read its ADRs in [`docs/adr/`](docs/adr/README.md).**
-> They record the design decisions (entity card + JSONata transforms, surfaces/tabs,
-> dynamic groups, the slot model) with their rationale. Each ADR is a *current-state*
-> document: check a change against them, and when a change supersedes a decision,
-> **rewrite the relevant ADR in place** (git history keeps the archaeology — no dated
-> update sections while the design is pre-v1); a genuinely new decision gets a new ADR.
-
-#### Workflow for changes here
-
-1. Read the relevant ADR(s) first; for Pkl work also read ADR 0006 and the "Spike results"
-   section of `docs/plan-pkl-authoring-ergonomics.md` before writing any Pkl.
-2. Verify with `sbt 'fh-datastar-view/testFull'` — the suites build **fake dumps** in temp
-   dirs and run the real library modules through the full pipeline, so **no live HA is
-   needed** for tests. (`sbt dashboardBuild` *does* need the live instance — it fetches the
-   entity dump.)
-3. For refactors that must not change behavior (authoring-API changes, ergonomics work): the
-   evaluated `{cards, card}` JSON is the contract. The safety net is the **wire-format
-   snapshots** in `PklBuildSuite` (`src/test/resources/snapshots/`): they byte-identity-check
-   the evaluated demo entries, so `sbt 'fh-datastar-view/testFull'` catches any drift.
-   Regenerate them deliberately when the wire format is *meant* to change — but NOT by
-   exporting `FH_UPDATE_SNAPSHOTS=1` into the shell: the long-lived sbt server keeps its
-   start-time env forever, leaving the gate silently stuck in regenerate mode. Use the
-   scoped form instead:
-   `sbt 'eval sys.props.put("FH_UPDATE_SNAPSHOTS", "1"); fh-datastar-view/testFull; eval sys.props.remove("FH_UPDATE_SNAPSHOTS")'`.
-   The backend model (`Dashboard.scala`) should not need to change for
-   authoring-layer work (the layout-cell fields — `Cell`, `CardDef.wrapAsCell`
-   — were the sanctioned structural exception; see ADR 0008).
-4. Visual changes cannot be verified from the terminal — ask the user to confirm in the
-   browser (`sbt dashboardServe`), per ADR 0006.
-5. Datastar questions (attribute syntax, SSE semantics): consult the **local** reference in
-   `docs/reference/datastar/` before searching the web. Attributes use colon syntax
-   (`data-on:click`, not `data-on-click`).
-6. Format with `sbt 'scalafmt; Test/scalafmt'` (Scala only; there is no formatter for the Pkl
-   sources). **Both tasks, always** — `scalafmt` covers `Compile` only, so a test-only
-   formatting change passes locally and then fails CI, which runs the `scalafmt --test` CLI
-   over every file. Verified by misformatting a test source: `sbt scalafmt` leaves it
-   untouched, `Test/scalafmt` fixes it. Note the quotes: unquoted
-   `sbt scalafmt Test/scalafmt` is a parse error in sbt 2.0.
-
-#### Key files
-
-| File | Role |
-|---|---|
-| `fh/view/model/Dashboard.scala` | Wire model `{cards, card}`, `LayoutNode` (incl. `Dynamic`), `Predicate` AST, `validate` |
-| `fh/view/build/SourceEval.scala` | The authoring-language seam: `.pkl` → `PklBuild` (Pkl is the only evaluated language) |
-| `fh/view/build/PklBuild.scala` / `PklDump.scala` | Pkl evaluation (pkl-core 0.31.1) + typed dump generation (rendered to text, packaged — never written as a loose file) |
-| `fh/view/build/LibPackage.scala` / `AddonBootstrap.scala` | The server boot path (ADR 0010): `@fh-dashboard` packaged into a persistent cache + workspace seed (write-once user files, NEVER moved/overwritten — old `lib/`/consumer left alone, delete-to-reseed to adopt package-form; the only overwrite-with-backup is a dated `.fh/pins.json.backup.<stamp>`, capped at the newest 50, via [[Pins]]). Runs on EVERY start — add-on AND local `sbt dashboardServe` (repo resources as the bundled lib, appdirs cache, workspace `dashboard-local-dev`). **One resolution mode — package-form, everywhere** (server, `BuildApp`, tests): `@fh-dashboard` AND `@fh-home` are cache packages resolved offline via `moduleCacheDir`; there is NO path-form and NO `home/` folder. The workspace scaffold is BYTE-IDENTICAL everywhere — a STATIC, machine-agnostic `.fh/base.pkl` (reads `moduleCacheDir` + the `http.rewrites` target from `.fh/machine.json`, and both pins from `.fh/pins.json`, all via `pkl:json`) + a user `PklProject` + `.gitignore`; the instance SERVES these to a laptop's `fh init` over `/system/pkl/{base.pkl,PklProject,gitignore}` (no two copies). The two per-machine values (cache dir + instance URL) live in a gitignored `.fh/machine.json` — the ONLY file that differs between the instance and a git copy. A loaded `PklProject` with no `moduleCacheDir` is a HARD ERROR (`PklBuild.cacheDir`), never a silent fallback |
-| `fh/view/build/DumpPackage.scala`, `scripts/fh` (repo root) | The dump as a content-versioned package (`fh-home@1.0.0-g<hash>`; the lib is content-versioned the same way — `fh-dashboard@<base>-g<hash>`, base from `lib/PklProject`, hash-suffix to be dropped for normal version bumps once the lib stabilizes), the ONLY form it takes anywhere: `seedFromText` builds+seeds it into the cache and rewrites `.fh/pins.json` on every dump render (server startup + `DumpRefresh`). Consumed by the instance's own eval AND laptops (via `/system/pkl/packages`). Plus the `fh` scala-cli script (`init` fetches the served scaffold verbatim + writes this laptop's `.fh/machine.json` + `.fh/pins.json`; `pull` re-pins `@fh-home`; `push`; `init-lsp-fix` writes the rewrite to `~/.pkl/settings.pkl` (the pkl CLI ignores a project's `http.rewrites` in `project resolve <dir>` mode — how IntelliJ syncs); `update`; Typelevel toolkit + decline + in-process pkl-core, installed by curl from GitHub raw, `update` sha256-compares against the repo copy; needs only scala-cli). Its own suite `scripts/fh.test.scala` (weaver) runs via `cd scripts && SCALA_TEST_MODE=true scala-cli test .` — the script gates its dispatcher behind `SCALA_TEST_MODE`. Also a CI step |
-| `fh/view/build/DataDump.scala` | Live entity dump fetch/transform |
-| `fh/view/build/DumpRefresh.scala` | Runtime dump refresh, validate-then-swap: unchanged ⟺ same content-version; else temp-copy the workspace, seed the new dump package there, re-eval all entries, swap the `.fh/pins.json` pin only if nothing that builds today breaks. No loose file, no dated backup — the previous immutable cache version IS the trail. Driven by HA registry events (`watch_registry` option) + `POST /system/dump/refresh` (the /edit button) |
-| `fh/view/runtime/Renderer.scala` / `Server.scala` / `StateStore.scala` | Live re-render, SSE patch diffing, WS-fed state |
-| `resources/dashboards/lib/{hass,components,tokens}.pkl` | Pkl domain schema + card classes (templates live ON the classes, registry derived via pkl:reflect) + shared HA-named design tokens |
-| `resources/dashboards/lib/theme.pkl` | The theme CONTRACT (`open class Theme` + the reusable `layoutCss` for the `fh-` layout classes) and the theme-author guide; implementations are the `theme-*.pkl` siblings |
-| `resources/dashboards/lib/theme-beer.pkl` | BeerCSS MD3 theme, the DEFAULT (via entry.pkl) and only shipped implementation — read `docs/plan-beercss-theme.md` + the `beercss` skill first; its module doc explains the body-specificity color bridge + the amendable `md3Light`/`md3Dark` palettes |
-| `resources/dashboards/lib/entry.pkl` | Entry base module — entries `amends` it, setting only `card` (+ optional `title`/`surfaces`/`theme`) |
-| `resources/dashboards/lib/PklProject` | The `@fh-dashboard` package manifest — the shared lib, packaged into the cache by `LibPackage`. (The top-level consumer `PklProject` + `home/` are gone: workspaces are bootstrapped package-form; the repo `lib/` is bundled-lib SOURCE, not a path-form checkout.) |
-| `resources/dashboards/pkl-demo.pkl`, `pkl-tabs.pkl` | Pkl entry dashboards (the demo/example entries) |
-| `resources/dashboards/*.jsonnet`, `components.libsonnet` | **Inert porting references only** — no longer evaluated; do not extend (see below) |
-| `src/test/.../PklBuildSuite.scala` | The Pkl track's main safety net (fake dumps, full pipeline) |
-
-A two-phase dashboard frontend. Authors write a dashboard as **Pkl** (ADR 0006); the server
-renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-fragment patches
-+ action POSTs).
-
-- **Evaluation** (`DashboardBuild`): fetches the live entity dump (`DataDump`, a port of
-  `../ha-frontend/script.sh`), seeds the typed dump as the `@fh-home` content-versioned cache package
-  (`DumpPackage.seedFromText` — no loose file), then evaluates
-  the entry `.pkl` **in-process via pkl-core** (`PklBuild`, through the `SourceEval` seam) into the
-  `{ cards, card }` model — a shared library of named cards (Mustache templates) plus a
-  **recursive layout tree** (`card` = its root) of component nodes that reference cards by name.
-  Pkl does **composition only** and emits Mustache template strings + static node params; it
-  never injects live values, and authors never write node ids (the backend derives stable,
-  location-based ids while recursing — `LayoutNode.pathId`).
-- **Build phase** (`fh.view.build`, `BuildApp` / `sbt dashboardBuild`): evaluates + persists the
-  `dashboard.json` artifact for inspection/CI. The runtime does not need it. `BuildApp` honors
-  `DASHBOARD_ENTRY` (default `dashboard.pkl` — which errors until that entry is ported).
-- **Runtime phase** (`fh.view.runtime`, `ServerApp` / `sbt dashboardServe`): evaluates the **same
-  Pkl entries in memory on startup** (so pkl-core *is* on the startup path — but never on the live
-  hot path), pre-compiles the Mustache templates (jmustache, `Templates`), seeds all entity state from
-  `/api/states` and keeps it live from the `state_changed` WS stream (`StateStore`, a `Ref` +
-  fs2 `Topic`, full attributes; publishes only on real change). On each change it re-renders the
-  affected components (`Renderer`, reverse index `entityId -> generated id`) plus the
-  query-affected dynamic groups — **per-entity**: an in-place member tick morphs one
-  `{gid}_{entity}` child, small membership deltas patch `remove`/`before`/`append`, and only
-  heavy churn (≥50% of rendered members, `Server.MaxChurnFraction`) or a post-reload group
-  repaints wholesale — and pushes only the fragments whose HTML actually changed (`Server`
-  keeps a per-node last-rendered cache; http4s ember).
-- **Phase discipline**: leaf templates escape `{{slot}}` values; container templates splice their
-  children unescaped via `{{#children}}{{{html}}}{{/children}}`; other raw author values (action
-  URLs, ids) use `{{{...}}}`. Pkl sources live in `src/main/resources/dashboards/` (top-level
-  `*.pkl` entries + `lib/*.pkl`); the dump is a cache package (never on disk in the repo) and
-  `dashboard.json` is generated + gitignored.
-  The old `*.jsonnet`/`*.libsonnet` files also still sit here as **inert porting references**
-  (the five real dashboards are being hand-ported to Pkl) — the backend never evaluates them and
-  they must not be extended.
-- Interactivity uses the WS `call_service` command (added to `ha-api`'s `CommandPhase` +
-  `HomeAssistantApi.callService`). `POST /sse/action/:domain/:service/:entityId` triggers a no-data
-  service; the value-carrying variant `.../:entityId/:key/:value` builds `service_data` (the value
-  rides in the URL path, since Datastar template-literal URL interpolation isn't confirmed in v1 —
-  use `'.../key/' + $signal` concatenation client-side). The resulting state change flows back over
-  the persistent SSE stream.
-- Cards (`lib/components.pkl`): `fhgrid`/`fhrow`/`fhcol` containers, `sectionTitle`, `entityCard`,
-  `button`, `slider` — each is a typed card class carrying its own `cardDef` (Mustache template +
-  declared slots), and the emitted `cards` registry is derived by `pkl:reflect`; slots are checked
-  by `Dashboard.validate`. Call-style factories / classes return layout nodes referencing a card
-  by name; a new container/leaf kind is one class, no Scala change. Datastar attributes use
-  **colon** syntax (`data-on:click`,
-  `data-bind`, `data-signals`). `SlotSource.default` fills absent/null attributes (e.g. brightness
-  when a light is off).
-- **Every node is a cell (ADR 0008)**: the renderer wraps every component in an id'd `.fh-cell`
-  (the real flex/grid item and Datastar morph target; `CardDef.wrapAsCell = false` is the rare
-  opt-out — the tab anchors). `Grid` (`.fh-grid`, 12 columns, cells default to half — HA
-  `grid_options` semantics) is the default container; per-node sizing rides in the wire-level
-  `cell.classes` via the HA-flavored builders `columns(n)`/`fullWidth()`/`centered()`/`cellClass`
-  on the Pkl `LayoutNode` base (chain them AFTER card-specific builders). Dynamic groups flow
-  their members the same way (`.fh-group`).
-- Dynamic groups: a `LayoutNode.Dynamic` runs a simple property-query AST (`Predicate`:
-  And/Or/Not/Cmp over `domain`/`state`/`attr:<name>`) against live state and renders each matching
-  entity via the first `case` whose `when` matches (per-entity/per-domain template dispatch).
-- **Pkl authoring (ADR 0006)** — the authoring language: dashboards are [Pkl](https://pkl-lang.org),
-  typed cards + editor completion. `fh.view.build.SourceEval` is the (Pkl-only) seam;
-  everything downstream is source-agnostic. Pkl library modules live in `dashboards/lib/`
-  (`hass.pkl` hand-written domain schema, `components.pkl`, the `theme.pkl` contract +
-  the `theme-beer.pkl` implementation, `tokens.pkl`, the entry
-  scaffold `entry.pkl`); top-level `*.pkl` files are entries that `amends "lib/entry.pkl"` and set
-  only `card` (+ optional `title`/`surfaces`/`theme`). Slug = filename; `ServerApp.discoverEntries`
-  scans top-level `*.pkl` only. The `@fh-home` dump is a TYPED dump generated by `PklDump` from the live
-  fetch and seeded as a cache package (no file on disk). Feature surface: containers (grid/row/column) + the layout-cell builders
-  (`columns`/`fullWidth`/`centered`/`cellClass`, ADR 0008), sectionTitle/entityCard/button/slider,
-  expr/exprOf,
-  serviceTap/navigate, tabs, popups/surfaces, dynamic groups (Mapping-branch + render-lambda over a
-  typed Predicate AST), conditional sections (`` c.iff(cond).then(..).`else`(..) `` — state-activated
-  surfaces on the tabs machinery, ADR 0007), three-tier slider config — see ADR 0006 for the deliberate API shape
-  (`openPopup`/`openPopupInline` split, `cssClass`) and Pkl gotchas before extending. `PklBuild`
-  renders the evaluated module to JSON backend-side (no `output` blocks in entries) and watches the
-  precise `Analyzer.importGraph` import set. The old `*.jsonnet`/`*.libsonnet` sources remain on
-  disk as inert porting references only (the five real dashboards are being hand-ported); they are
-  never evaluated and must not be extended.
-
-#### Pkl: verify semantics empirically, never from intuition
-
-Pkl (pinned: pkl-core **0.31.1**) has unusual semantics; wrong guesses compile into confusing
-errors. When unsure, **run a 2-minute spike** instead of reasoning from analogy: a scratch dir
-with a `lib.pkl` + `entry.pkl` and a scala-cli runner —
-
-```scala
-//> using dep org.pkl-lang:pkl-core:0.31.1
-import org.pkl.core.*
-@main def run(): Unit =
-  val ev = EvaluatorBuilder.preconfigured().build()
-  try ev.evaluate(ModuleSource.path(java.nio.file.Path.of("entry.pkl")))
-       .getProperties.forEach((k, v) => println(s"$k = $v"))
-  finally ev.close()
-```
-
-Gotchas already verified on 0.31.1 (full list with evidence: `docs/plan-pkl-authoring-ergonomics.md`,
-"Spike results"):
-
-- Amending ANY parent that isn't a `new` expression **requires outer parens** — method-call
-  results (`(c.entityCard(e)) { ... }`), qualified reads (`(c.row) { ... }`), even bare
-  in-scope names. Parens-free is a parse error.
-- A typed-object amend body accepts only **properties**: bare elements ("Object of type
-  `Row` cannot have an element") and `["key"]` entries (Mapping/Dynamic only) are errors.
-  So there is no trailing-block call form (`row { a b }` is unreachable); comma-free
-  children go through a Listing-typed property (`children { ... }`).
-- A Mapping `default` enables **amend-into-existence**: `["detail"] { ... }` on an absent
-  key instantiates the default and amends it (how `surfaces`/`tabs` avoid `new`); a
-  `Listing`-valued default lets that body add elements directly (no `children` key).
-- **Late binding is the core mechanism**: amending a `hidden` prop re-derives everything
-  computed from it (that's how card `slots` recompute). Amending a function *parameter*
-  (`(n) { entity = ... }`) also works.
-- Methods and properties live in **separate namespaces** — `function slider(e)` and a
-  function-valued property `slider` can coexist; call syntax picks the method.
-- Inside a `new {}` body, `this` rebinds to the new object — capture the outer receiver
-  with `let (l = this)` when writing fluent methods on classes.
-- Required (no-default) class properties are **lazy**: a missing value errors only when
-  forced, and the trace points at the class definition, not the author's dashboard line.
-- `and` / `or` / `not` are legal method names (the operators are `&&`/`||`/`!`).
-- Function-valued properties on a *rendered* module cannot be exported — mark them `hidden`.
-- `Mapping` preserves insertion order; structurally-equal duplicate keys are a build error.
-- `|>` binds looser than call/amend; `Mixin<T>` values and Mixin-returning methods chain
-  as pipe stages.
-
-#### Design docs and plans
-
-- `docs/plan-*.md` are **deferred design plans, not implemented code** unless they say
-  otherwise. Notably `plan-pkl-authoring-ergonomics.md` (call-style factories, Mapping-branch
-  dynamic groups, fluent predicates) is fully designed and spike-verified but **not yet
-  applied** to `components.pkl` — do not assume its API exists in the sources.
-- When the user questions a decision in a plan/ADR, **discuss alternatives in chat first**
-  (with spikes as evidence, inline code examples) — do not rewrite the document until a
-  direction is picked.
+A two-phase HA dashboard frontend: authors write Pkl, the server renders HTML and keeps it live
+with [Datastar](https://data-star.dev) (SSE fragment patches + action POSTs). Its full guidance —
+workflow, key files, Pkl semantics gotchas, phase discipline — lives in
+`modules/fh-datastar-view/CLAUDE.md`, which loads when you work in that module. **Read it before
+changing anything there.**
 
 ### The sbt plugin glue
+
+`project/NpmPlugin.scala` is the other project-local `AutoPlugin` (ported from the sbt 1
+one in perok/workshop-programs-as-values): `frontendInstall` (`npm ci`) and
+`frontendBundle` (`npm run build`, then copy `target/frontend` into
+`Compile / resourceManaged`). Both are `Def.uncached` with an explicit content-hash
+stamp, because sbt 2's task cache cannot see that npm wrote a tree or that the output
+was deleted; `fileInputs` is declared purely so `~` watches the sources.
 
 `project/FHCodegenPlugin.scala` is a project-local sbt `AutoPlugin`. It defines `fhTaskCodeGen`, which deletes the output dir and runs `fh.codegen.Plugin` via `runMain` with `(outputDir, haUrl, haSecret)` as args. Note: it writes to **`scalaSource`** (unmanaged source), not `sourceManaged`, because there is no good cache key to invalidate on — so codegen is manual via `doCodegen`, not automatic on compile. `build.sbt` wires `haUrl`/`haSecret` into the `home-codegen` project.
 
@@ -268,21 +189,62 @@ matter, say so and stop; do not act on it.
 ## Conventions & gotchas
 
 - Generated file names sanitize device/entity names (spaces → `-`, emoji → unicode names) because the Scala compiler rejects emoji in filenames — see `ThingReference.toPath`.
-- The HA bearer token is currently **hardcoded in `build.sbt`** (`secretToken`). Treat it as a real credential.
-- `sbt-tpolecat` enforces strict compiler options; `warnError` is excluded so warnings don't fail the build.
+- The HA URL and bearer token live in a gitignored **`.env`** at the repo root (`SERVER`/`SECRET`),
+  read at run time by `FHApi.fromEnv`. `build.sbt`'s `haUrl`/`haSecret` are `"TODO"` placeholders.
+  Treat the `.env` value as a real credential.
+- `sbt-tpolecat` enforces strict compiler options, advisory locally and fatal in CI — see "Read the
+  compiler's warnings" below. `home-codegen` is the one project exempt: its sources are generated.
 - Generated package root is `ha.generated` (set in `Plugin.scala` as `AbsolutePosition(outputDir, List("ha", "generated"))`).
 
 ## Read the compiler's warnings
 
-`-Wunused:privates`/`locals`/`params`/`imports` are ON (sbt-tpolecat), and
-`warnError` is excluded so warnings do NOT fail the build — which means they are
-easy to never see. Two consequences worth knowing:
+`-Wunused:privates`/`locals`/`params`/`imports` and `-Wvalue-discard` are ON
+(sbt-tpolecat). **A warning is advisory locally and an ERROR in CI** — the mode
+is `DevMode` by default and CI sets `SBT_TPOLECAT_CI` (`build.sbt`,
+`cicd.yml`) — so an unfixed warning does not block your loop but does block the
+merge. Three consequences worth knowing:
 
+- **Reproduce a CI warning failure with `sbt tpolecatCiMode <task>`.** Exporting
+  the env var at a shell that talks to a running sbt server does nothing; the
+  build reads it at LOAD.
 - **The compiler already finds dead private members.** Do not grep for them.
   Grep is still needed for unused PUBLIC API, which the compiler cannot prove.
 - **When filtering test/compile output, do not filter out `[warn]`.** A run
   reduced to `grep "==> X|Total"` hides exactly the signal that would have said
   a helper became unreachable.
+
+**`sbt scalafixAll` fixes most of them for you** (`.scalafix.conf`):
+`RemoveUnused` deletes exactly the imports and locals the gate would fail on,
+and the Typelevel rules catch what no warning covers — a built-then-dropped
+`IO` above all. CI runs `fh-datastar-view/scalafixAll --check`.
+
+## Before calling a change done
+
+Green tests are not the finish line. Make one pass over your own diff as if it were someone
+else's. Every check below has caught a real defect that a passing suite said nothing about:
+
+- **Run the suite for every KIND of file you touched.** `sbt fh-datastar-view/testFull` now
+  covers `.pkl` too — `PklLibraryTestSuite` runs the pure-Pkl `facts` through the pinned
+  `pkl-core`, so a `.pkl` edit no longer opts you into a runner `sbt` does not invoke. The one
+  still outside it is `scripts/fh.test.scala`. Where no browser driver is installed, run the
+  `--exclude-tags=Slow` variant above instead and say so — six red `smoke` suites are the
+  environment, not the diff.
+- **Check every claim your change touches, not only the ones you wrote.** A scaladoc saying "the
+  only way to X", "cannot happen" or "is not possible" is an assertion about the codebase, and the
+  commit that adds the second way is usually the same one that wrote the sentence. If a claim would
+  be falsified by a `grep`, run the `grep` — the counterexample is often already in the tree, in a
+  test helper. The claims your change FALSIFIED are the more expensive half: nothing fails, so they
+  survive until someone trusts one.
+- **Cash the justification.** If the stated reason was testability, the same change adds the
+  test. If it was "one mechanism, not two", the second is deleted here, not left for later. A
+  refactor justified by a benefit it did not deliver is unfinished, not done.
+- **Test the property, not the line you changed.** An assertion on the value you just fixed
+  passes for that fix and is blind to the next instance of the same bug — and identical bugs
+  come in pairs, because whatever produced one produced the other. Ask what would have caught
+  it in the first place, and write that instead.
+- **Look at what a new type or class can SEE, not only what it does.** A constructor taking a
+  whole aggregate to read one field declares a dependency you did not mean. It shows up first
+  as awkward test fixtures: needing dummy arguments to hand over one map is the tell.
 
 ## Comments: the code says what, a comment says why
 
@@ -295,6 +257,19 @@ well-named call does; a history of what the code used to be or what was tried an
 belongs in the commit message, or in a plan/ADR if it is a decision); a section header over three
 lines of code.
 
+**Write for a competent reader who already knows the stack.** The audience is someone fluent in
+Scala 3, cats-effect, http4s, fs2 and Pkl — not someone being taught them. A comment that
+explains what a library provides, what a standard type is for, or what a well-known idiom
+achieves is aimed at the wrong reader, and unlike the library's own documentation it goes stale.
+
+**The test: if the sentence would be equally true in somebody else's project, delete it.** What
+earns a comment is what is true of THIS codebase and could not be looked up — the obvious choice
+that was rejected and why, an invariant the types do not carry, a trap that actually bit. Detail
+is worth spending there and nowhere else.
+
+The failure mode to watch for is a comment that is individually defensible but collectively
+noise: each line looks like a small kindness, and the ratio is what does the damage.
+
 **Do write:** the reason a non-obvious choice was made over the obvious one; an invariant a reader
 would otherwise have to reconstruct; a trap that has actually bitten (with what it looked like);
 anything that took a spike to learn. One or two lines each — if it needs a paragraph, it is
@@ -302,6 +277,23 @@ probably a design decision and belongs in the ADR, with the code pointing at it.
 
 A useful test: delete the comment and ask whether a competent reader would now make a mistake. If
 not, leave it deleted.
+
+**A comment your change falsified is part of your change.** The same rule the ADRs and the
+architecture doc already have. The failure is not that an old comment is dated — it is that it is
+now WRONG, and a wrong comment is trusted. Two habits that produce them, both seen here:
+
+- **Rewriting history instead of deleting it.** Turning "a container patches its `self`" into "a
+  container used to patch its `self`" preserves a fact nobody needs and leaves the reader
+  reconstructing a design that no longer exists. Say what is true; git holds the rest. The
+  exception is a trap that actually bit — keep the symptom, drop the chronology.
+- **Writing the new block ABOVE the old one.** Scala attaches the last doc comment, so the earlier
+  one becomes invisible dead prose that still asserts something false. Four of these were found in
+  one sweep. After editing a doc comment, check there is only one.
+
+**Tells worth grepping for after a design change**, because they are how a comment written from the
+diff reads: `used to`, `no longer`, `the old`, `now that`, `since <feature>`, `pre-split`. Also grep
+the names you deleted — a method, a field, a card kind — since a comment naming a symbol that no
+longer exists is the cheapest possible thing to find and the most confusing thing to leave.
 
 ## Design principles (apply when touching existing code, not just when writing new code)
 
@@ -324,7 +316,7 @@ as standing review criteria, not a one-time cleanup that's now "done".
   `fh.view.build.SystemPkl` (module/packageArtifact/packagesIndex) for the shape.
 - **Parse, don't validate.** Prefer producing a value that makes an illegal state
   unrepresentable over re-validating the same precondition at every consumer. `Dashboard.Validated`
-  (produced only by `Dashboard.validate`, carrying already-compiled JSONata transforms) is the
+  (produced only by `Dashboard.validate`, carrying already-compiled CEL transforms) is the
   model: `Renderer`/`Transforms` take the validated type instead of re-checking and throwing
   "validate should have rejected this". Look for the same smell elsewhere: a `None`/`Left` that
   really means "this workspace/value is unusable" and gets re-derived or re-thrown-defensively at
@@ -334,8 +326,8 @@ as standing review criteria, not a one-time cleanup that's now "done".
   evaluation) separate from the `os.*`/`IO`/network shell, and prefer extracting pure logic out of
   a class that's only reachable today via a full-boot test harness (e.g. `Server`'s pure diff core
   in `Patches`) — that's usually the biggest testability win available. Mutation stays where
-  performance genuinely demands it (`Renderer.identityCache`, per-slug diff caches, jmustache Java
-  interop) — this is not a blanket "no mutable state" rule.
+  performance genuinely demands it (`Renderer.identityCache`, per-slug diff caches, mustache.java
+  Java interop) — this is not a blanket "no mutable state" rule.
 - **Name recurring implicit concepts.** If the same shape (a `(String, String)` tuple, a
   hand-rebuilt URI/path string, a re-derived precondition) shows up re-interpolated or re-checked
   in several places (`PackageRef` in `fh.view.build` is the existing example — one value type now
@@ -372,6 +364,22 @@ as standing review criteria, not a one-time cleanup that's now "done".
   type/shape fixed (`getStates: IO[List[GetStatesData]]`, `HaFeed(api, store, healthy)`) so
   consumers and tests stay untouched and the diff reads honestly.
 
+## Skills
+
+These are available but load only when invoked — reach for them when the trigger applies:
+
+- **`scala3-syntax`** — before writing any new Scala 3 source. The build runs `-source:future`,
+  `-language:strictEquality`, `-Yexplicit-nulls`; Scala 3 written from memory routinely produces
+  syntax this profile rejects or warns off.
+- **`scala-fp`** — Cats / cats-effect / fs2 work: `Ref`, `Deferred`, `Queue`, `Resource`, fibers,
+  `Topic`, tagless final. The runtime is entirely Typelevel, so this covers most of
+  `fh-datastar-view` and `ha-api`.
+- **`scala-code-optimizer`** — refactoring, modernizing, or auditing a `.scala` file.
+- **`scala-weaver-test`** — writing or changing weaver suites (`fh-datastar-view` tests,
+  `scripts/fh.test.scala`).
+- **`sbt`** — sbt gotchas specific to this repo.
+- **`datastar`**, **`beercss`** — dashboard work; see `modules/fh-datastar-view/CLAUDE.md`.
+
 ### Using `scalex` for Scala navigation
 
 This repo has the `scalex` skill available (a Scalameta-based code-intelligence CLI: `def`,
@@ -382,3 +390,33 @@ objects) that plain text search misses or over-matches. It only indexes git-trac
 `.java` files. **Do not invoke it unprompted** — use it when it's the right tool for a task already
 in progress (e.g. mid-refactor, checking call sites), not proactively at the start of unrelated
 work.
+
+
+## Code Exploration Policy
+
+Always use jCodeMunch-MCP for code navigation. Never fall back to Read, Grep, Glob, or Bash for code exploration.
+**Exception:** use `Read` when you are about to edit a file — the harness requires a `Read` before `Edit`/`Write`. Use jCodeMunch to *find and understand* code, then `Read` only the file you are changing.
+
+This server runs the **front door** surface: three tools reach every jCodeMunch capability, so the tool list stays small and the catalogue is fetched only when you need it.
+
+**Start any session:**
+1. `order { "action": "resolve_repo", "args": { "path": "." } }` — confirm the project is indexed. If it is not: `order { "action": "index_folder", "args": { "path": "." } }`
+
+**Then, for any task:**
+- Know what you want → `order { "action": "<name>", "args": { ... } }`
+- Know the goal, not the tool → `route { "query": "your task in a sentence" }` picks the action and shapes the arguments
+- Want to see what exists → `menu { "query": "what you are trying to do" }` returns matching actions with example arguments
+- Want the whole catalogue and the usage rules → `jcodemunch_guide`
+
+`menu` and `jcodemunch_guide` list every action this server can run, including ones absent from your tool list. That is expected: the front door is the way to call them.
+
+**Interpreting results:**
+- A `verdict` of `no_implementation_found` is evidence of absence. Report the gap; do not re-search with different wording.
+- A `verdict` of `degraded` means a channel was unavailable, so absence is NOT proven. Read the note before relying on the result.
+- `source: ""` alongside `source_status` means the body could not be read, not that the symbol is empty.
+
+**After editing files:**
+- With PostToolUse hooks installed (Claude Code), edited files are reindexed automatically.
+- Otherwise `order { "action": "register_edit", "args": { "paths": [...] } }` after an edit, batched for bulk changes.
+
+**Announce your model once per session** so the server can size its answers: `announce_model { "model": "<your-model-id>" }`.

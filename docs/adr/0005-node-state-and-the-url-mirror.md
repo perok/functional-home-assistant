@@ -69,8 +69,13 @@ name, like `conn`.
   makes — the SSE reconnect included. `Server.uiStateOf` reads it, and the
   server therefore always knows what a connection is showing without keeping
   per-client state between connections.
+- **Only the server writes it** (ADR 0025). A tap records what it ASKED for in
+  a separate pending signal; `ui_<id>` moves when the swap that serves the tap
+  moves it. That is what makes "the signal is the truth" a fact rather than a
+  hope: the URL below mirrors a value no client ever asserted on its own.
 - **The URL mirrors it**, via `history.replaceState` from the page shell's
-  `fhUrl(key, value)` helper (`Server.UrlSyncScript`), as `?ui.<id>=<value>`.
+  `fhUrl(key, value)` helper (`src/js/shell.ts`, inlined by
+  `Server.UrlSyncScript`), as `?ui.<id>=<value>`.
   That is a hand-rolled `data-query-string` — the Pro plugin that would do this
   for us and which we don't have. The reverse direction needs no script: the
   page is server-rendered, so the server reads its own GET's query and bakes
@@ -99,6 +104,15 @@ Tiering discipline (do not blur it):
 - **must-survive-and-inform-first-paint UI → an unprefixed signal + its URL
   param**, and only that.
 
+- **must-survive-a-load but must NOT be in a link → `sessionStorage`, keyed by
+  slug.** The scroll offset (`fhScroll` in `src/js/shell.ts`, ADR 0002) is the
+  case: it has to cross the document load that navigation is made of, but it is
+  not the view a URL names — mirroring it would rewrite the URL on every scroll
+  frame and make a shared link land somebody else mid-page. Per tab, like the
+  `conn` handoff that already uses this storage. Reach for this tier only when
+  the value fails the URL test on BOTH counts (not shareable, not first-paint
+  input); anything the server must know at render time belongs in the URL.
+
 Server in-memory per-connection state is explicitly not this tier: `conn` is
 minted fresh per stream, giving no continuity across a reload.
 
@@ -117,8 +131,9 @@ Both are keyed by the id the server already knows, and both are untrusted
 input, clamped at the boundary:
 
 - **Active tab.** `ui_<bakeInto>` = the active surface index, mirrored to
-  `ui.<bakeInto>`. Each tab button's click sets the signal (pure authoring
-  composition); the panel host's `data-effect` writes the URL.
+  `ui.<bakeInto>`. Each tab button's click sets a PENDING signal (pure authoring
+  composition) and the swap commits `ui_<bakeInto>`; the panel host's
+  `data-effect` writes the URL off the committed one (ADR 0025).
   `Renderer.resolveActive` parses and **clamps** the index to a real member of
   the bake group, falling back to the `defaultOpen` member, and logs a warning
   on a malformed value — so a hand-edited URL can never bake a non-existent
@@ -126,15 +141,17 @@ input, clamped at the boundary:
   directly, and the SSE connect seeds the open set with it so it streams live
   from the first paint.
 - **Open popup.** The SAME mechanism, not a second one: `ui_<PopupHostId>`,
-  mirrored to `ui.<PopupHostId>`, set by the open/close taps exactly as a tab
-  button sets its own. Only the VALUE differs in kind — a surface id rather than
+  mirrored to `ui.<PopupHostId>`, committed by the open/close swaps exactly as a
+  tab's is. It carries no pending twin, because nothing on the page DISPLAYS a
+  popup selection — the dialog itself is what the swap patches in, so there is
+  no highlight to keep instant. Only the VALUE differs in kind — a surface id rather than
   a member index — because the popup host is not a bake group: any registered
   surface can appear there, one at a time. `Renderer.openPopup` clamps it,
   ignoring a claim naming a surface this dashboard does not host, which is the
   popup's equivalent of `resolveActive`'s index clamp.
 
   One asymmetry is unavoidable: every other selection's signal is declared by
-  the card that owns the mount, and the popup host lives in `theme.chrome`,
+  the card that owns the host, and the popup host lives in `theme.chrome`,
   outside every node — so the page shell declares and mirrors this one.
 
   The signal is authoritative **whenever it is present, `""` included** — that is

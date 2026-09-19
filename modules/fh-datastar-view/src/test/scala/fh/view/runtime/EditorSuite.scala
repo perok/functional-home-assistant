@@ -1,80 +1,140 @@
 package fh.view.runtime
 
+import fh.view.testkit.TestAuth
+
 import cats.effect.IO
 import cats.effect.unsafe.implicits.global
+import cats.syntax.all.*
 import io.circe.parser.parse
 import org.http4s.*
 import org.http4s.implicits.*
 
-/** The editor surface: what `/edit` offers to edit, plus the built asset bundle
-  * it boots from.
+/** The editor surface: what `/edit` offers to edit, plus the bundle it boots
+  * from.
   *
-  * That bundle is covered here because `vendor.js` is a BUILT artifact
-  * (esbuild, from `editor-src/`) and is gitignored — CI builds it, a checkout
-  * may carry an old one. When it drifts from what `app.js` imports, the failure
-  * is TOTAL and SILENT: the ES module import throws, so `app.js` never runs, so
-  * the file list is never rendered AND the on-screen error handler (registered
-  * inside that module) is never installed. The editor is simply blank, with
-  * nothing but a browser console entry to say why. That happened; hence this
-  * test.
+  * That bundle is covered here because it is a BUILT artifact (vite, from
+  * `src/js/`) and is gitignored — CI builds it, a checkout may carry an old one
+  * or none. When it is missing or was not really bundled, the failure is TOTAL
+  * and SILENT: the ES module import throws, so `app.js` never runs, so the file
+  * list is never rendered AND the on-screen error handler (registered inside
+  * that module) is never installed. The editor is simply blank, with nothing
+  * but a browser console entry to say why. That happened when `app.js` and its
+  * vendor bundle could drift apart; they are one file now, and this is the
+  * guard that replaces that one.
   *
   * A text check on purpose — no node, no browser — so it runs in the normal
-  * suite. Both files are read off the CLASSPATH, which is what the server
+  * suite. Everything is read off the CLASSPATH, which is what the server
   * actually serves.
+  *
+  * The OTHER way a bundle breaks — a classic script (the shell, the overlay)
+  * picking up an `import` because rollup split a shared module out — is not
+  * checked here. `vite.config.ts`'s `fh-assert-self-contained` plugin fails the
+  * build on it, off rollup's own chunk metadata, so it cannot reach a test.
   */
 class EditorSuite extends munit.FunSuite {
 
-  private def resource(name: String): String = {
-    val in = Option(getClass.getResourceAsStream(s"/editor/$name"))
-      .getOrElse(fail(s"editor/$name is not on the classpath"))
-    try new String(in.readAllBytes(), "UTF-8")
-    finally in.close()
-  }
+  /** A bundle by ENTRY NAME, the way the app addresses it — the filenames carry
+    * a content hash, so nothing here can spell one out either.
+    */
+  private def bundle(entry: String): String = FrontendAssets.content(entry)
 
-  test("vendor.js exports every symbol app.js imports") {
-    val app = resource("app.js")
-    val vendor = resource("vendor.js")
+  test("the editor bundle is present and self-contained") {
+    val app = bundle("app")
 
-    // The single `import { … } from "./vendor.js"` block at the top of app.js.
-    val imported = "(?s)import\\s*\\{(.*?)\\}\\s*from\\s*\"\\./vendor\\.js\"".r
-      .findFirstMatchIn(app)
+    // Really a bundle, not the bare source: CodeMirror is inside it. The
+    // source is ~10KB and the bundle ~650KB, so the floor is far from either.
+    assert(app.length > 100000, clue = app.length)
+
+    // ...and nothing was left EXTERNAL. A bundle that still names a bare
+    // package specifier would throw on import in the browser (no import map,
+    // no CDN) — the blank-editor failure this suite exists for.
+    val unbundled = "from\\s*[\"']([^./\"'][^\"']*)[\"']".r
+      .findAllMatchIn(app)
       .map(_.group(1))
-      .getOrElse(fail("app.js has no import block from ./vendor.js"))
-      .split(",")
-      .map(_.trim)
-      .filter(_.nonEmpty)
       .toList
-
-    assert(imported.sizeIs > 5, clue = imported) // the regex really matched
-
-    // esbuild's esm output ends in one `export { … }` list.
-    val exported = "(?s)export\\s*\\{([^}]*)\\}\\s*;?\\s*$".r
-      .findFirstMatchIn(vendor)
-      .map(_.group(1))
-      .getOrElse(fail("vendor.js has no trailing export block"))
-      .split(",")
-      .map(_.trim.split("\\s+as\\s+").last.trim)
-      .filter(_.nonEmpty)
-      .toSet
-
-    val missing = imported.filterNot(exported.contains)
     assertEquals(
-      missing,
+      unbundled,
       Nil,
-      clue =
-        s"vendor.js is stale — rebuild it: (cd modules/fh-datastar-view/editor-src && npm install && npm run build). Missing: ${missing
-            .mkString(", ")}"
+      clue = s"app.js imports unbundled modules: ${unbundled.mkString(", ")}"
     )
   }
 
-  /** A workspace shaped like a real one: two entries, the manifest, its
-    * generated lockfile, a machine-specific `.fh/`, and a `lib/` source.
+  test("the page shell bundle defines the helpers the document calls") {
+    val shell = bundle("shell")
+    // The document calls all four by name — fhConn from a script mid-body,
+    // fhScroll from the last line of it, fhUrl from Datastar's first effect,
+    // fhRegisterSw from a script in the head.
+    List("fhUrl", "fhConn", "fhScroll", "fhRegisterSw").foreach(fn =>
+      assert(shell.contains(s"window.$fn="), clue = (fn, shell))
+    )
+  }
+
+  test("the editor page names the hashed bundle, and nothing else does") {
+    workspace { ws =>
+      val (status, html) = get(ws, "/edit")
+      assertEquals(status, Status.Ok)
+      // The placeholder is gone and the real, hashed, RELATIVE url is in its
+      // place — relative so it resolves against <base href> behind ingress.
+      val app = FrontendAssets.url("app")
+      assert(html.contains(s"""src="$app""""), clue = html)
+      assert(!html.contains("__APP_JS__"), clue = html)
+      assert(app.startsWith("web/") && app.endsWith(".js"), clue = app)
+      // A hash, not a bare name: that is what makes the immutable caching on
+      // the serving route honest.
+      assertNotEquals(app, "web/app.js", clue = app)
+      // ...and the editor route no longer serves JavaScript at all.
+      assertEquals(get(ws, "/edit/app.js")._1, Status.NotFound)
+    }
+  }
+
+  test("the editor states its own chrome colour") {
+    // Every page in the PWA's scope that carries no theme-color meta falls back
+    // to the MANIFEST's, which tracks the dashboard's theme and says nothing
+    // about this page. The editor's CSS is a fixed dark palette, so it names
+    // its own — unqualified, because both schemes want the one colour. In a
+    // TAB; installed, Chrome takes the manifest's regardless (see PwaAssets).
+    workspace { ws =>
+      val (_, html) = get(ws, "/edit")
+      assert(
+        html.contains("""<meta name="theme-color" content="#1e1e1e">"""),
+        clue = html
+      )
+    }
+  }
+
+  test("no pkl-lsp jar disables the socket, not the editor") {
+    // The jar is staged by the build, so its absence is a misconfigured
+    // deployment rather than a failed download — and the editor still has to
+    // serve. `wsb` is null here, which is safe precisely because the None
+    // branch answers before anything touches it.
+    workspace { ws =>
+      val r = routes(ws).orNotFound
+      val (fileStatus, _) = get(ws, "/edit/files")
+      assertEquals(fileStatus, Status.Ok)
+      assertEquals(
+        r.run(Request[IO](Method.GET, uri"/lsp/pkl")).unsafeRunSync().status,
+        Status.ServiceUnavailable
+      )
+    }
+  }
+
+  test("only files the manifest names are served") {
+    assert(FrontendAssets.serves(FrontendAssets.url("app").stripPrefix("web/")))
+    // The guard is an allowlist of built filenames, so a made-up name — or a
+    // traversal attempt — is simply not a route that exists.
+    assert(!FrontendAssets.serves("app.js"))
+    assert(!FrontendAssets.serves("../application.conf"))
+  }
+
+  /** A workspace shaped like a real one: the entrypoint, a module beside it,
+    * the manifest, its generated lockfile, a machine-specific `.fh/`, and a
+    * `lib/` source.
     */
   private def workspace(f: os.Path => Unit): Unit = {
     val ws = os.temp.dir() / "ws"
     os.makeDir.all(ws / "lib")
     os.makeDir.all(ws / ".fh")
-    os.write(ws / "pkl-demo.pkl", "// demo")
+    os.write(ws / "site.pkl", "// the entrypoint")
     os.write(ws / "pkl-tabs.pkl", "// tabs")
     os.write(ws / "PklProject", "amends \"...\"")
     os.write(ws / "PklProject.deps.json", "{}")
@@ -84,7 +144,13 @@ class EditorSuite extends munit.FunSuite {
   }
 
   private def routes(ws: os.Path) =
-    new EditorRoutes(ws, None, "pkl-demo").routes(null)
+    new EditorRoutes(
+      ws,
+      TestAuth.openGate,
+      None,
+      IO.pure("home"),
+      IO.pure(List("home", "kitchen"))
+    ).routes(null)
 
   private def get(ws: os.Path, path: String): (Status, String) = {
     val resp = routes(ws).orNotFound
@@ -96,35 +162,126 @@ class EditorSuite extends munit.FunSuite {
     )
   }
 
-  test("the file list carries the entries, the lib sources, and PklProject") {
+  test("the file list carries the sources, each with its kind") {
     workspace { ws =>
       val (status, body) = get(ws, "/edit/files")
       assertEquals(status, Status.Ok)
-      val names = parse(body).toOption
-        .flatMap(_.asArray)
-        .toList
-        .flatten
-        .flatMap(_.hcursor.get[String]("name").toOption)
-      assertEquals(
-        names,
-        List("pkl-demo.pkl", "pkl-tabs.pkl", "lib/components.pkl", "PklProject")
-      )
-      // Only a dashboard entry carries a slug — that is what the editor previews,
-      // and what dims everything else in the list.
-      val slugged = parse(body).toOption
+      val entries = parse(body).toOption
         .flatMap(_.asArray)
         .toList
         .flatten
         .flatMap(e =>
-          e.hcursor
-            .get[String]("slug")
-            .toOption
-            .map(_ => e.hcursor.get[String]("name").toOption.get)
+          (
+            e.hcursor.get[String]("name").toOption,
+            e.hcursor.get[String]("kind").toOption
+          ).tupled
         )
-      assertEquals(slugged, List("pkl-demo.pkl", "pkl-tabs.pkl"))
+      // Exactly ONE file is the entrypoint; everything else is an ordinary
+      // source, which is what dims it in the list (ADR 0021).
+      assertEquals(
+        entries,
+        List(
+          "pkl-tabs.pkl" -> "module",
+          "site.pkl" -> "entry",
+          "lib/components.pkl" -> "lib",
+          "PklProject" -> "manifest"
+        )
+      )
       // The generated lockfile and the machine-specific files stay hidden.
+      val names = entries.map(_._1)
       assert(!names.contains("PklProject.deps.json"), clue = names)
       assert(!names.exists(_.startsWith(".fh")), clue = names)
+    }
+  }
+
+  test("the dashboard list is the LIVE slugs, not the files") {
+    workspace { ws =>
+      val (status, body) = get(ws, "/edit/dashboards")
+      assertEquals(status, Status.Ok)
+      assertEquals(
+        parse(body).flatMap(_.as[List[String]]).toOption,
+        Some(List("home", "kitchen"))
+      )
+    }
+  }
+
+  test("a write says whether the site actually reads the file") {
+    // Saving a file no dashboard reads is allowed — you may be writing the
+    // module before the key that names it — but silence would read as "it is
+    // live". The answer is static analysis of the entrypoint, so it is right
+    // as soon as the file is on disk, without waiting for a reload.
+    //
+    // The entrypoint here imports nothing, so the analysis answers precisely
+    // and the `false` below is the TRUE answer. It is never the confident
+    // wrong way round: an analysis that cannot run at all falls back to the
+    // conservative superset (`PklBuild.fileImports`), i.e. everything is read.
+    workspace { ws =>
+      def put(name: String, body: String) = routes(ws).orNotFound
+        .run(
+          Request[IO](Method.PUT, Uri.unsafeFromString(s"/edit/file/$name"))
+            .withEntity(body)
+        )
+        .flatMap(resp =>
+          resp.body
+            .through(fs2.text.utf8.decode)
+            .compile
+            .string
+            .map(resp.status -> _)
+        )
+        .unsafeRunSync()
+
+      val (entryStatus, entryBody) = put("site.pkl", "// the entrypoint")
+      assertEquals(entryStatus, Status.Ok)
+      assertEquals(
+        parse(entryBody).toOption
+          .flatMap(_.hcursor.get[Boolean]("used").toOption),
+        Some(true)
+      )
+
+      val (modStatus, modBody) = put("pkl-tabs.pkl", "// nothing names me")
+      assertEquals(modStatus, Status.Ok)
+      assertEquals(
+        parse(modBody).toOption
+          .flatMap(_.hcursor.get[Boolean]("used").toOption),
+        Some(false)
+      )
+      // It is a note, not a gate: the bytes landed either way.
+      assertEquals(os.read(ws / "pkl-tabs.pkl"), "// nothing names me")
+    }
+  }
+
+  test(
+    "an identical write is reported unchanged, and does not touch the file"
+  ) {
+    // Not cosmetic. Touching the file fires the source watcher, which
+    // re-evaluates the whole site — seconds on a Pi — and swaps the renderer,
+    // which reloads every connected browser. So a `fh write` with nothing to
+    // say used to cost every viewer their page.
+    workspace { ws =>
+      def put(name: String, body: String) = routes(ws).orNotFound
+        .run(
+          Request[IO](Method.PUT, Uri.unsafeFromString(s"/edit/file/$name"))
+            .withEntity(body)
+        )
+        .flatMap(resp => resp.body.through(fs2.text.utf8.decode).compile.string)
+        .unsafeRunSync()
+
+      def changed(body: String) = parse(body).toOption
+        .flatMap(_.hcursor.get[Boolean]("changed").toOption)
+
+      val target = ws / "pkl-tabs.pkl"
+      assertEquals(changed(put("pkl-tabs.pkl", "// first")), Some(true))
+      val afterFirst = os.mtime(target)
+
+      // The same bytes again: reported unchanged, and the mtime stands still —
+      // which is the half the watcher actually reads.
+      assertEquals(changed(put("pkl-tabs.pkl", "// first")), Some(false))
+      assertEquals(os.mtime(target), afterFirst)
+      assertEquals(os.read(target), "// first")
+
+      // Different bytes are still a write.
+      assertEquals(changed(put("pkl-tabs.pkl", "// second")), Some(true))
+      assertEquals(os.read(target), "// second")
     }
   }
 
@@ -138,7 +295,10 @@ class EditorSuite extends munit.FunSuite {
             .withEntity("amends \"edited\"")
         )
         .unsafeRunSync()
-      assertEquals(written.status, Status.NoContent)
+      // 200 + `{written, used}` — a write reports whether the site reads what
+      // it just saved (here: the manifest, which the entrypoint does not
+      // import, so `used` is false and the editor says so).
+      assertEquals(written.status, Status.Ok)
       assertEquals(os.read(ws / "PklProject"), "amends \"edited\"")
 
       // The lockfile is generated — a write would be silently undone by the next

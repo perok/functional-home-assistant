@@ -1,0 +1,1028 @@
+/// The value slider, and the per-domain table that tells it what it drives.
+///
+/// Give it MEMBERS and the same card is a GROUP: the slider becomes the head
+/// and the members are the rows it stands for.
+module components.slider
+
+import "../core/icon.pkl" as icons
+import "../core/simple.pkl" as simpleMod
+import "../core/node.pkl" as nodes
+import "../core/slot.pkl" as slotMod
+import "../core/tap.pkl" as tapMod
+import "../core/text.pkl" as textMod
+import "control.pkl" as control
+import "../hass.pkl"
+
+// The slider's controllable config per domain: the service to call, the
+// service_data key the value rides on, the range bounds, and which attribute
+// is the live position. Add a domain (cover/fan/climate…) by adding a row —
+// TYPED: a missing/misspelled field is a build error. A slider resolves its
+// config AT BUILD TIME from the entity's domain, as baked literals — always,
+// now that a set's candidates are known entities.
+class SliderSpec {
+  action: String
+  key: String
+  min: Int
+  max: Int
+  value: String
+}
+
+const sliderSpec: Mapping<String, SliderSpec> = new {
+  ["light"] = new { action = "light/turn_on"; key = "brightness"; min = 1; max = 255; value = "brightness" }
+  ["cover"] = new { action = "cover/set_cover_position"; key = "position"; min = 0; max = 100; value = "current_position" }
+  ["fan"] = new { action = "fan/set_percentage"; key = "percentage"; min = 0; max = 100; value = "percentage" }
+}
+
+// The slider fill colour paints WHAT THE SLIDER DRIVES — the axis decides, as
+// a build-time specialization of [[Slider.fillColorExpr]]:
+//
+//   - a temperature axis (`c.slider(l.colourTemp)`) gets the warm→cool ramp
+//     interpolated over the axis's OWN kelvin range — the same `min`/`max`
+//     the range input is baked from, so the fill shows where in the slider's
+//     span the current temperature sits;
+//   - an entity axis (a light's brightness, a cover's position) on a
+//     colour-capable light gets the light's current `rgb_color` — the fill
+//     doubles as a colour indicator, whichever the axis actually writes;
+//   - everything else bakes the constant `''`, and the slot's default hands
+//     the paint back to the theme (`currentcolor`, or the toggle-only
+//     `--fh-default-color`).
+//
+// GUARDS, and what the build-time facts actually prove: the dump knows what a
+// light reports ([[hass.LightEntity.reportsRgbColour]] and the colour-temp
+// mode are HA-guaranteed predictors of the live attribute set), so the shape
+// is chosen once. But capability is a build-time fact while STATE PRESENCE is
+// a runtime one — a light can go `unavailable` and a live update can replace
+// its state with one carrying no colour attrs at all, and in CEL a read of a
+// missing map key THROWS (an engine error on the card, where the slot default
+// is a graceful fallback). So every shape keeps one presence guard on its
+// read: `attr[?'x']` yields an optional, `optMap` runs the body only when
+// there is a value, and `orValue('')` supplies the absent case. What the store
+// contract DOES prove away is the value's nullness behind a present key
+// ([[StateStore.toJavaObject]] never emits JSON-null values), which is why
+// there is no second `!= null` — and `size(rgb) == 3` stays as one cheap call
+// between "ignore a lying integration's short list" and a CEL indexing error.
+//
+// `optMap` also BINDS its value, so the guarded read and the intermediate are
+// one construct rather than a presence test feeding a `cel.bind`. The ramp
+// position still needs `cel.bind(<name>, <value>, <body>)` — it is computed,
+// not read. A kelvin value arrives as a Long and CEL's double overloads have
+// no (Long, double) operand, so every arithmetic read coerces `double(k)`
+// first.
+//
+// The sources ship AS WRITTEN, minus two mechanical normalizations: Pkl
+// multi-line strings DEDENT by the closing delimiter's indentation, and
+// `.trim()` removes the edge newline — CEL treats the rest (the interior
+// newlines and indentation) as insignificant, and the string's bytes are
+// hashed and snapshot-compared verbatim, so what the reader sees, minus the
+// shared indent, is what runs. (The ramp needs a REGULAR multi-line string
+// because raw strings do not interpolate; the rgb shape is raw because it
+// reads no values.)
+
+const local sliderFillColourRgb: String =
+  #"""
+  attr[?'rgb_color'].optMap(rgb,
+    size(rgb) == 3
+      ? 'rgb(' + str(rgb[0]) + ',' + str(rgb[1]) + ',' + str(rgb[2]) + ')'
+      : '').orValue('')
+  """#.trim()
+
+// The ramp over the axis's own range: `minK`/`maxK` are the kelvin bounds the
+// slider's range input is already baked from. Whole kelvin integers, so
+// `\(minK).0` is the exact double literal CEL needs (its double overloads
+// have no (Long, int) operand — the same fact `double(k)` answers).
+const local function sliderFillColourRamp(minK: Int, maxK: Int): String =
+  """
+  attr[?'color_temp_kelvin'].optMap(k,
+    cel.bind(t,
+      (double(k) - \(minK).0) < 0.0 ? 0.0 :
+      ((double(k) - \(minK).0) > \(maxK - minK).0
+        ? 1.0 : (double(k) - \(minK).0) / \(maxK - minK).0),
+      'rgb(' + str(math.round(255.0 - 54.0 * t))
+      + ',' + str(math.round(166.0 + 60.0 * t))
+      + ',' + str(math.round(87.0 + 168.0 * t)) + ')')).orValue('')
+  """.trim()
+
+// The dragged position as a percentage of the card's own range, in JS — the
+// client-side twin of `percentExpr`'s CEL, spliced into the template so the
+// range arrives through the `min`/`max` SLOTS. It cannot read `minExpr`/
+// `maxExpr` instead: `cardDef` is shared by every slider on the page, and
+// reading this card's own entity there closes the `on`/`entity` mutual default
+// into a stack overflow.
+//
+// `evt.target.value` rather than the bound signal, because `data-bind` listens
+// for `input` on this same element and the earlier-registered listener wins —
+// off the event there is no ordering to get wrong.
+const local function posFrom(v: String): String =
+  "((\(v) - {{min}}) * 100 / ({{max}} - {{min}}))"
+
+const local dragPos: String = posFrom("evt.target.value")
+
+/// The client-owned position: what the control is SHOWING, which during a
+/// gesture is the finger and at rest is whatever the server last said.
+///
+/// It has to be a second signal rather than the value slot itself, and the
+/// reason is not tidiness: `data-on-signal-patch` fires on every write to a
+/// name, local ones included, so a card cannot tell the SERVER's write from
+/// its own drag on one signal. "Where the device is" and "where the control
+/// is" therefore need two names to be distinguishable at all (ADR 0025).
+///
+/// The corollary is what makes this a fix rather than a refactor: while the
+/// drag wrote the server's own slot, the session's `holds` — what the server
+/// believes this DOM has — was false, so a commit that FAILED produced no
+/// correcting frame (the server's value never moved) and the slider kept
+/// showing a position the device never took.
+const local slideSig: String = "_{{id}}__slide"
+
+/// Adopt what the device says: confirmation and CORRECTION are the same line,
+/// so HA clamping a brightness needs no case of its own. Filtered to the value
+/// signal, which only the server writes now.
+const local adoptCommitted: String =
+  #"data-on-signal-patch-filter="{include:/^\#(slotMod.signalRef("value"))$/}" data-on-signal-patch="$\#(slideSig) = $\#(slotMod.signalRef("value"))""#
+
+// The same statement as [[adoptCommitted]] — "show what the device last said"
+// — reached when nothing is coming. `fill` and `state` are RECOMPUTED rather
+// than shadowed, because they are functions of the position: restoring the
+// position restores them, and the formula is the one the drag already uses.
+//
+// Sourced from the committed signal, not from the just-assigned `slideSig`, so
+// the three writes have no ordering between them. Comma-separated because this
+// splices inside a `&&`, where a `;` would not parse.
+const local rollbackToCommitted: String =
+  let (committed = "$" + slotMod.signalRef("value"))
+    "$\(slideSig) = \(committed), " +
+      "$\(slotMod.signalRef("fill")) = (100 - \(posFrom(committed))) + '%'" +
+      "{{#dragPercent}}, $\(slotMod.signalRef("state")) = " +
+      "Math.round(\(posFrom(committed))) + ' %'{{/dragPercent}}"
+
+/// The two ways an ask ends with no commit coming (ADR 0025), both answered by
+/// [[rollbackToCommitted]]: the stream the commit would have ridden is DOWN
+/// (`_sse`, the shell's own counter), or the server REFUSED — which it says by
+/// patching this node's error signal, since a refused action answers 200
+/// carrying signals rather than a status (ADR 0024). Neither is a timeout.
+///
+/// They are two attributes on two ELEMENTS, and that is not cosmetic. The
+/// refusal half reads a signal, so it would want the input's one
+/// `data-on-signal-patch` — already spent on [[adoptCommitted]] — and merging
+/// them breaks the slider: `failedOn` clears the error signal when the NEXT
+/// commit starts, so a merged handler would take its else-branch mid-flight and
+/// snap the thumb back to the committed value under the finger that just moved
+/// it. On the track wrapper the two never meet.
+const local restoreOnDeadStream: String =
+  #"data-effect="$_sse > 0 && (\#(rollbackToCommitted))""#
+
+const local restoreOnRefusal: String =
+  #"data-on-signal-patch-filter="{include:/^\#(tapMod.errorSig)$/}" data-on-signal-patch="$\#(tapMod.errorSig) && (\#(rollbackToCommitted))""#
+
+// A slider config slot (action/key/min/max): author override, else the spec
+// literal (stringified — the backend slot decoder rejects numbers).
+//
+// There used to be a third tier, a `$lookup($domain)` JSONata transform, for a
+// slider whose entity was a `$self` placeholder. It was the plan's motivating
+// example: four `reads = "once"` transforms per member computing a BUILD-TIME
+// fact at runtime, because the entity was unknown at build time. A candidate
+// set knows it, so all four are literals and the tier is gone.
+// `override` is a Pkl reserved word — the param is `ovr`.
+const local function sliderConfig(ovr: String?, spec: SliderSpec, get: (SliderSpec) -> Any): String =
+  if (ovr != null) ovr else "\(get.apply(spec))"
+
+/// What a [[Slider]] drives: an ENTITY (its domain's default axis — a light's
+/// brightness, a cover's position) or one of that entity's capability GROUPS
+/// (`l.colourTemp`). The group carries its `owner`, so passing one names the
+/// entity exactly once and the slider derives everything else from it.
+///
+/// This union is the "which axis" decision as a VALUE rather than a name, which
+/// is what keeps a wrong choice visible in the editor: `c.slider(l.colourTemp)`
+/// on a light with no kelvin range is a nullability mismatch pkl-lsp reports
+/// without evaluating. A selector enum or a `.colourTemp()` builder method
+/// would both hide the choice from it — see ADR 0013, "Shapes considered".
+typealias SlideAxis = hass.Entity|hass.ColourTemp
+
+/// The named readings a slider's line offers beside its label — the two that
+/// need the card's own axis config, plus "nothing". Anything else is an
+/// [[Expr]]; see [[Slider.readout]].
+typealias Readout = "state"|"percent"|"none"
+
+/// Value slider. Takes an entity whose domain has a sliderSpec row, and bakes
+/// that config in at build time. A slider on e.g. a sensor is a BUILD error
+/// naming the dashboard line — including inside a query, where the fold drops a
+/// branch whose guard cannot hold before its render lambda is applied.
+///
+/// Give it MEMBERS and the same card is a GROUP: the slider becomes the head
+/// (the group light, the cover group) and the members are the rows it
+/// stands for, stacked inside it with the master's fill painted across the
+/// whole card behind them — one control with its parts shown, not a titled
+/// list.
+///
+///   (c.slider(dump.entities.light_lys)) {
+///     icon = "mdi:lightbulb-group"
+///     secondary = c.exprOf(dump.entities.sensor_kitchen_temp, #"state + ' °C'"#)
+///     tap = c.toggle
+///     members { c.slider(a).readout("percent") c.slider(b).readout("percent") }
+///   }
+///
+/// One card rather than a separate group card, because the members are
+/// ORDINARY nodes: a member can be another grouped slider (nesting works by
+/// construction), an [[EntityCard]], or a [[DynamicGroup]] of everything in an
+/// area, and each keeps its own entity, its own domain config and its own live
+/// patch. [[Slider.withSubSliders]] is the chain form of the common "a master
+/// and its member entities" case.
+///
+/// The head and the members are two REGIONS of the card, so a state change on
+/// the master repaints the head alone and never the rows (ADR 0012) — the
+/// reason this is a structural card even when it holds nothing.
+/// The slider's own row — label, readout, track, action — as a NODE.
+///
+/// It is a node rather than a part of [[Slider]] because only a LEAF can be
+/// patched, and the head sits beside the members: they are two regions of one
+/// card. So a brightness change re-renders this and never the rows under it.
+///
+/// Built by [[Slider]], never by an author: it takes the slots the slider
+/// already computed, so its fifteen values are derived in exactly one place.
+class SliderHead extends nodes.Node {
+  card = "sliderHead"
+  // `display:contents`, so the backend's own `.fh-cell` wrapper does not become
+  // a box between `.slider-card` and this row — and so the group's grid rules
+  // can still name the chain that distinguishes the MASTER's head from its
+  // members' (see `sliderCss`).
+  cell = new nodes.Cell { classes { "slider-head-cell" } }
+  cardDef = new nodes.CardDef {
+    // TWO regions, and between them they are everything on this row that is not
+    // a signal or a literal.
+    //
+    // `text` holds the label and its second line — the ONLY bytes here that
+    // move. Everything else that changes on this card is a signal (ADR 0017),
+    // which is what lets the head be structure at all: a signal never becomes
+    // bytes in this element, so it does not need this element patched.
+    //
+    // A rename now repaints a `<strong>`, where it used to repaint the whole
+    // row — track, badge and all.
+    regions = new Mapping {
+      ["text"] = new nodes.Region {}
+      ["actions"] = new nodes.Region {}
+    }
+    template = """
+      <div class="slider-body">
+        <div class="slider-head">
+          {{#icon}}<div class="slider-icon"{{#busyVisual}} \(tapMod.busyClassChange) \(tapMod.busyShapeClassChange){{/busyVisual}}><i class="mdi {{icon}}"></i></div>{{/icon}}
+          {{#text}}{{{html}}}{{/text}}
+          \(slotMod.ifSlot("state"))<span class="fh-reading" \(slotMod.signalBind("state"))>{{state}}</span>\(slotMod.endIfSlot("state"))
+          <div class="slider-actions">{{#actions}}{{{html}}}{{/actions}}</div>
+        </div>
+        <div class="slider max" style="--_start: 0%;--_end: {{fill}}" \(slotMod.signalBind("fill")) \(restoreOnRefusal){{#busyVisual}} \(tapMod.busyClassChange){{/busyVisual}}>
+          {{^toggle}}<input type="range" min="{{min}}" max="{{max}}" value="{{value}}"
+            \(slotMod.signalBind("value"))
+            data-signals__ifmissing="{ \(slideSig): '{{value}}' }"
+            data-bind="\(slideSig)"
+            \(adoptCommitted)
+            \(restoreOnDeadStream)
+            \(tapMod.busyAttrsChange)
+            data-on:input="$\(slotMod.signalRef("fill")) = (100 - \(dragPos)) + '%'{{#dragPercent}}; $\(slotMod.signalRef("state")) = Math.round(\(dragPos)) + ' %'{{/dragPercent}}"
+            data-on:change="\(tapMod.busyGuardChange)@post('sse/action/{{dashboardSlug}}/{{{action}}}/{{{entity_id}}}/{{key}}/' + $\(slideSig) + '?node={{id}}', \(tapMod.noSignals))" />{{/toggle}}
+          <span style="background:{{fillColor}}" \(slotMod.signalBind("fillColor"))></span>
+          {{#toggle}}<button type="button" class="slider-toggle" aria-label="{{label}}"
+            \(slotMod.signalBind("value"))
+            data-on:click="\(tapMod.busyGuardChange)\(tapMod.click)"
+            \(slotMod.ifSlot("inert"))\(slotMod.signalBind("inert"))\(slotMod.endIfSlot("inert"))
+            \(tapMod.busyAttrsChange)></button>{{/toggle}}
+        </div>
+      </div>
+      """
+    // `state` is NOT declared: a grouped head omits the slot entirely (see
+    // [[Slider.readout]]), and a declared slot is one every node of the card
+    // must have.
+    //
+    // `label` stays declared even though the visible label moved into `text`:
+    // the toggle variant's whole-track button needs an `aria-label`, and that
+    // is drawn when the card is drawn. It is an `onRender` slot on this node
+    // for exactly that reason — read every render, never a reason to have one,
+    // which is what an accessible name on static markup wants. (`once` would
+    // also be legal on structure and is wrong here: a rename would never
+    // reach the label at all.)
+    slots { "label"; "value"; "action"; "min"; "max"; "key"; "entity_id" }
+  }
+}
+
+/// The label and its second line — the head's only moving BYTES, so its own
+/// node and its own patch target.
+///
+/// Split out when the head became structure ([[SliderHead]]): a card holding
+/// regions is never patched, and these two are the values that need patching.
+/// The upside was not the point but is real — a friendly-name change now
+/// re-renders a `<strong>`, not a whole slider row.
+///
+/// `display:contents` on its cell, so `strong` and `.fh-sub` stay layout
+/// children of `.slider-head` and the group's grid still places them.
+class SliderText extends nodes.Node {
+  card = "sliderText"
+  cell = new nodes.Cell { classes { "slider-text" } }
+  cardDef = new nodes.CardDef {
+    template = """
+      <strong class="\(textMod.BOX)">\(textMod.run("label"))</strong>{{#secondary}}<span class="fh-sub \(textMod.BOX)">\(textMod.run("secondary"))</span>{{/secondary}}
+      """
+    // `secondary` is optional (a plain row carries none), so it is not declared
+    // — an absent slot renders "" and the section collapses.
+    slots { "label"; "entity_id" }
+  }
+}
+
+/// One button at the right of a slider's head — the group's on/off, and now
+/// anything else an author wants there (#151).
+///
+/// It is an ordinary [[control.Button]] in its round icon form, not a card of
+/// its own: what it needed over `c.pill` was a glyph, no label, and the `lit`
+/// tint, and none of those three is about sliders. They are now [[Button]]'s,
+/// so the library has ONE icon button and the slider just uses it.
+///
+/// What matters here is that each action is a NODE. ADR 0019 allows one
+/// busy-guarded element per node, so a single shared `_<id>__busy` could only
+/// ever arm ONE button; each action owning its id means two can be in flight
+/// independently, and neither disables the other.
+///
+///     c.slider(l).actions(List(
+///       c.sliderAction(l, c.tap.toggle),
+///       c.sliderAction(l, c.moreInfo(l)).icon("mdi:information").lit(false)
+///     ))
+///
+/// `const` because [[Slider.allActions]] calls it from a class body, which Pkl
+/// allows only for a const method.
+const function sliderAction(e: hass.Entity, t: tapMod.TapAction): control.Button =
+  (control.iconButton("mdi:power", t)) { entity = e; lit = true }
+
+class Slider extends nodes.Node {
+  card = "slider"
+  /// WHAT this slider drives — see [[SlideAxis]]. Setting `entity` directly
+  /// still works and means the domain's default axis; the two default to each
+  /// other, so exactly one of them is ever needed.
+  hidden on: SlideAxis = entity
+  hidden entity: hass.Entity(sliderSpec.containsKey(domain)) =
+    if (on is hass.ColourTemp) on.owner else on
+  hidden label: (String|slotMod.Expr)? = null
+  // Per-instance overrides of the domain default. Each DEFAULTS to what the
+  // axis says, so a capability axis configures the whole slider and an author
+  // amending one of these still wins (late binding re-derives `slots`).
+  hidden action: String? = if (on is hass.ColourTemp) "light/turn_on" else null
+  hidden key: String? = if (on is hass.ColourTemp) "color_temp_kelvin" else null
+  hidden min: Int? = if (on is hass.ColourTemp) on.min_kelvin else null
+  hidden max: Int? = if (on is hass.ColourTemp) on.max_kelvin else null
+  // The ATTRIBUTE holding the live position, overriding the domain default
+  // (`brightness` for a light) — so a slider driving a second axis of the same
+  // entity tracks the value it actually writes.
+  hidden valueAttr: String? =
+    if (on is hass.ColourTemp) "color_temp_kelvin" else null
+  // Never null: the `entity` constraint above admits only a domain with a row,
+  // and a slider's subject is always a known entity now that a set's candidates
+  // are. That is what retired the runtime `lookup`-style config tier — it
+  // existed for a member whose domain was unknown until it matched.
+  hidden spec: SliderSpec = sliderSpec[entity.domain]!!
+  // What the subject reports live, as the dump derives it (a cover or a fan is
+  // no light and reports neither colour attribute).
+  hidden reportsRgb: Boolean =
+    if (entity is hass.LightEntity) entity.reportsRgbColour else false
+  hidden reportsKelvin: Boolean =
+    if (entity is hass.LightEntity)
+      entity.colourModes.toList().contains("color_temp")
+    else false
+  // The fill-colour expression, chosen from the AXIS this slider drives —
+  // see the piece definitions above for the two live shapes. A temperature
+  // axis gets the ramp over the very `min`/`max` the range input is baked
+  // from; an entity axis on a colour-capable light gets the light's current
+  // colour; everything else bakes the constant `''`.
+  hidden fillColorExpr: String =
+    if (fillColourMoves) (
+      if (on is hass.ColourTemp && reportsKelvin) sliderFillColourRamp(min!!, max!!)
+      else sliderFillColourRgb
+    ) else "''"
+  /// Whether this slider's fill colour can CHANGE — the light reports a colour
+  /// the ramp or the rgb shape can read.
+  ///
+  /// Where it cannot, [[fillColorExpr]] is the constant `''` and the slot's
+  /// `default` paints the fill. That constant was still a live signal slot:
+  /// a CEL program compiled and evaluated per node per paint to produce an
+  /// empty string, a `data-style:background` binding on the element, an entry
+  /// in the element's seed and a slot in every signals frame — all for a value
+  /// that cannot move. A light whose only colour mode is brightness is the
+  /// COMMON case, so this was the majority path.
+  hidden fillColourMoves: Boolean =
+    (on is hass.ColourTemp && reportsKelvin) || reportsRgb
+  // The CEL pieces of the `fill` computation, honouring the same two config
+  // tiers as the input's own slots: author override → build-time spec literal.
+  //
+  // `valueExpr` is the GUARDED attribute read: `attr['x']` on an absent key is
+  // an eval error, so every read is guarded. It yields an OPTIONAL — a missing
+  // position (a light that is off) is an empty one — so an author splicing it
+  // continues with `.optMap(v, …)` for the present case and `.orValue(…)` for
+  // the absent one, rather than testing a null.
+  hidden valueExpr: String =
+    if (valueAttr != null) "attr[?'\(valueAttr!!)']"
+    else "attr[?'\(spec.value)']"
+  // The attribute the axis reads, as a NAME — what the opted-in Simple shapes
+  // ([[simpleMod.percent]]/[[simpleMod.fill]]/[[simpleMod.attr]]) take, and
+  // what [[valueExpr]] spells out for authors composing their own expression.
+  hidden valueAttrName: String = valueAttr ?? spec.value
+  // The axis range as NUMBERS for the Simple shapes ([[minExpr]]/[[maxExpr]]
+  // are their float-literal spelling for spliced CEL).
+  hidden rangeMin: Number = min ?? spec.min
+  hidden rangeMax: Number = max ?? spec.max
+  // Float literals: CEL's `/` on two ints is INTEGER division, so the range
+  // arithmetic below needs doubles to divide as JSONata's number type did. And
+  // because an attribute POSITION arrives as a Long, the range arithmetic
+  // coerces it with `double(v)` before subtracting — CEL's double overloads
+  // have no (Long, double) operand, so a bare `v - 1.0` compiles but throws at
+  // evaluation (the Phase-0 sweep's `double(v)` was doing real work).
+  hidden minExpr: String = if (min != null) "\(min!!).0" else "\(spec.min).0"
+  hidden maxExpr: String = if (max != null) "\(max!!).0" else "\(spec.max).0"
+  /// Whether the axis this card drives EXISTS on its entity. A light whose only
+  /// colour mode is `onoff` has no brightness to set, so a slider on it would
+  /// be a track that never fills posting a `brightness` HA discards.
+  ///
+  /// The card carries the variant rather than the caller choosing a different
+  /// card, so a member of a group still reads as one of the rows around it:
+  /// same pill, same head, but filled all-or-nothing and tapped rather than
+  /// dragged. Only a light can report this — every other axis is settable by
+  /// construction (a `colourTemp` group exists only where the range does).
+  ///
+  /// Positive test, NOT `!supportsBrightness`: colour modes come from the state
+  /// snapshot, and an entity that was unavailable when the dump was taken
+  /// reports almost none of its attributes — so "says nothing" has to keep the
+  /// slider it has always had. `onoff` is HA's own statement that this light
+  /// switches and nothing more (their rule: it is the SOLE mode when present).
+  hidden toggleOnly: Boolean =
+    if (on is hass.LightEntity) on.colourModes.toList() == List("onoff") else false
+  /// What a tap on a [[toggleOnly]] row does — the domain's own toggle service
+  /// (`hass/actions.pkl`), which every domain with a `sliderSpec` row has. It is
+  /// a property so an author can point the row at something else without
+  /// reaching for a different card.
+  hidden toggleTap: tapMod.TapAction = tapMod.byDomain(entity) ?? tapMod.toggle
+  /// The badge left of the label, defaulting to the entity's OWN icon in Home
+  /// Assistant's resolution order (see [[iconFor]]) — so a slider looks like
+  /// what it drives without being told. An MDI name (`mdi:lightbulb-group`)
+  /// overrides it; an explicit `icon = null` renders no badge at all.
+  hidden icon: String? = icons.iconFor(entity)
+  /// A button at the right of the line — the group's on/off. Null renders none.
+  hidden tapAction: tapMod.TapAction? = null
+  /// Whether this slider's busy LOOK shows at all — the commit's immediate
+  /// `fh-disabled` dim on the track and badge, its delayed spinner on the
+  /// badge, AND the power button's. The GUARD and the
+  /// input freeze (`data-attr:disabled`) are signal-driven and stay either way;
+  /// false only hides the visuals. The power button additionally honours its
+  /// OWN tap's `TapAction.busyVisual`, so the two knobs compose.
+  hidden busyVisual: Boolean = true
+  /// Second line under the label — an attribute name, or an [[expr]] naming a
+  /// DIFFERENT entity (the room's temperature beside its lights). Null renders
+  /// no second line.
+  hidden secondary: (String|slotMod.Expr)? = null
+  /// What the line reads out beside the label: the entity's state (`on`/`off`),
+  /// the LEVEL as a percentage of min..max, nothing, or an [[Expr]] of your own.
+  ///
+  /// The two names are shorthands, not a closed set — they exist because they
+  /// need the axis config this card resolved (which attribute holds the value,
+  /// and over which range), not because a readout has to be one of them. That
+  /// config is `hidden` properties, so an expression can splice the pieces
+  /// instead of re-deriving the range:
+  ///
+  ///   (c.slider(l)) { readout = c.expr("\(percentExpr) + ' · ' + state") }
+  ///   (c.slider(l)) { readout = c.exprOf(power, #"state + ' W'"#) }
+  ///
+  /// Defaults by SHAPE: a head that has member rows under it does not repeat a
+  /// readout (the rows carry their own), a plain row shows its state.
+  hidden readout: (Readout|slotMod.Expr) = if (members.isEmpty) "state" else "none"
+  // The `fill` percentage the other way round (value, not distance from the
+  // right edge), rounded and suffixed — a readout, not a geometry, so unlike
+  // `fill` it wants whole numbers. No position attribute (a light that is off)
+  // reads 0 %, which is what the row shows: an empty track.
+  hidden percentExpr: String =
+    "\(valueExpr).optMap(v, str(math.round((double(v) - \(minExpr)) * 100.0 / (\(maxExpr) - \(minExpr)))) + ' %').orValue('0 %')"
+  // A percentage of an axis the entity does not have is a permanent "0 %", so a
+  // toggle-only row reads out its STATE instead — a group's rows are usually
+  // given `percent` in one `map`, without knowing which can dim. An author's own
+  // [[Expr]] is left alone: it may well be about something else entirely.
+  hidden shownReadout: (Readout|slotMod.Expr) =
+    if (toggleOnly && readout == "percent") "state" else readout
+  // The track fill, as the `--_end` percentage — see the `fill` slot, which
+  // opts in ([[simpleMod.fill]] / the toggle-only [[simpleMod.enumOf]]).
+  // (`percentExpr` above stays a string deliberately: it is the documented
+  // splice surface for composed readouts, which no atomic Simple shape covers.)
+  // No `inlineSurfaces` here any more: every tap this card can make is an
+  // action NODE now, and each carries its own (see [[sliderAction]]). Copying
+  // them up to the slider as well would declare the same surface twice, under
+  // two node ids — and the one that owns the popup should be the one that
+  // opens it.
+  // Resolved here rather than inline in `slots`, because a body that AMENDS an
+  // inherited property does not see the inherited `icon` by name — only this
+  // class's own members and the module.
+  hidden resolvedIcon: String? = if (icon != null) icons.mdiClass(icon!!) else null
+  // Everything the ROW shows, computed here and handed to [[SliderHead]]: the
+  // slider owns the domain config and the expressions, so they are derived in
+  // one place and the head is a card that only knows how to draw them.
+  hidden headSlots: Mapping<String, slotMod.Slot|String> = new {
+    ["entity_id"] = entity.entity_id
+    // `onRender`, not live: the visible label is [[SliderText]]'s now, and what
+    // is left of it here is the toggle variant's `aria-label`. The head holds
+    // regions, so it is never patched — an `onRender` read is right whenever
+    // the card IS drawn and never asks for a drawing of its own, which is
+    // exactly what an accessible name on static markup wants.
+    ["label"] = let (l = slotMod.labelSlot(entity, label))
+      if (l is slotMod.Slot) (l) { reads = "onRender" } else l
+    when (resolvedIcon != null) {
+      ["icon"] = resolvedIcon!!
+    }
+    // The commit's busy LOOK (the wrapper + badge `fh-disabled` bindings) is
+    // gated on the card's own `busyVisual`. Each head action carries its own
+    // now — see [[sliderAction]].
+    when (busyVisual) {
+      ["busyVisual"] = "1"
+    }
+    // The display header (inherits entity_id, bypassUnavailable default).
+    // Omitted entirely when the readout is "none", which the template reads as
+    // the slot's ABSENCE rather than its emptiness — a signal slot's value is
+    // blank in the patch form, so a section over the value itself dropped the
+    // span and its binding on the first patch and never restored them.
+    // A TEXT signal slot (ADR 0017): the readout is one of the four things on
+    // this card that move when brightness does, and all four are signals — see
+    // `value`/`fill`/`fillColor` below. Between them they are the whole reason a
+    // slider used to re-render on every tick.
+    when (shownReadout != "none") {
+      ["state"] =
+        if (shownReadout is slotMod.Expr)
+          new slotMod.Slot { entityId = shownReadout.entityId; transform = shownReadout.transform; signal = slotMod.asText }
+        else if (shownReadout == "percent")
+          new slotMod.Slot {
+            transform = simpleMod.percent(valueAttrName, rangeMin, rangeMax)
+            default = "0 %"
+            bypassUnavailable = false
+            signal = slotMod.asText
+          }
+        else new slotMod.Slot { transform = simpleMod.state(); signal = slotMod.asText }
+    }
+    // The range input's numeric position: opt OUT of bypass so an unavailable
+    // entity falls back to `default` ("0") rather than "unavailable".
+    //
+    // WHERE THE DEVICE IS — server-written, and never touched by this card.
+    // It used to be the input's `data-bind`, which made the drag write it, and
+    // that is the bug [[slideSig]] describes: the session's `holds` went stale,
+    // so a FAILED commit produced no correcting frame and the thumb stayed
+    // where the finger left it.
+    //
+    // `data-attr:value` is a PLACEMENT, not a binding that does anything: this
+    // signal is read by [[adoptCommitted]] and [[rollbackToCommitted]], and it
+    // has no DOM home of its own. ADR 0017 requires every signal slot to place
+    // its bind somewhere, so it lands on the attribute the value would
+    // naturally have had — where `data-bind` beats it from the first pass and
+    // it is inert for the life of the page.
+    //
+    // Measured, and contradicting what the spec alone suggested (the dirty-value
+    // flag is real, but `data-bind` sets `.value` through the IDL before any
+    // user touches it, so the attribute never positions the thumb even once):
+    // `DatastarMorphContractSuite`, "data-bind makes a co-located
+    // data-attr:value inert from the start". The live position is [[slideSig]].
+    ["value"] = new slotMod.Slot {
+      // The guarded position read, opted in ([[simpleMod.attr]] — presence is
+      // the structure; an absent position renders "" and [[default]] takes
+      // over).
+      transform = simpleMod.attr(valueAttrName)
+      default = "0"
+      bypassUnavailable = false
+      signal = slotMod.asAttr("value")
+    }
+    // The track fill, as the `--_end` percentage (distance from the RIGHT
+    // edge, per BeerCSS's span/clip-path convention): 100 - value% of the
+    // min..max range. Null-guarded — an absent position attribute (light off)
+    // means an empty fill (end = 100), not a JSONata type error.
+    //
+    // NOT rounded: beer.min.js recomputes the same percentage unrounded on
+    // load and after every morph, so a rounded server value visibly twitched
+    // into place (brightness 155 of 1..255: `39%` baked, `39.37…%` a frame
+    // later). Full precision makes the JS rewrite a no-op.
+    //
+    // A STYLE signal slot bound to `--_end`, so the fill follows a brightness
+    // change without the card being re-rendered. The value carries its own `%`
+    // — the binding reads the signal bare, so the unit is decided in the
+    // transform and nowhere else.
+    ["fill"] = new slotMod.Slot {
+      // Opted in: a toggle-only row has no position to express, so it maps the
+      // state all-or-nothing ([[simpleMod.enumOf]]); every other axis reads the
+      // position as the distance from the RIGHT edge
+      // ([[simpleMod.fill]] — 100 - value% of the range, unrounded; see the
+      // NOT-rounded note above for why the complement stays full-precision).
+      transform =
+        if (toggleOnly) simpleMod.enumOf("on", "0%", "100%")
+        else simpleMod.fill(valueAttrName, rangeMin, rangeMax)
+      default = "100%"
+      bypassUnavailable = false
+      signal = slotMod.asStyle("--_end")
+    }
+    // The fill COLOUR, on the `<span>`'s own style attribute — NOT the
+    // wrapper's, which beer.min.js overwrites wholesale (`style.cssText = …`)
+    // every time it repaints the fill. The fill paints WHAT THIS SLIDER
+    // DRIVES ([[fillColorExpr]]): a temperature slider the warm→cool ramp
+    // over its own range, an entity-axis slider on a colour-capable light the
+    // light's current colour — and nothing otherwise, where the slot default
+    // hands the paint back to the theme.
+    ["fillColor"] = new slotMod.Slot {
+      transform = fillColorExpr
+      // A toggle-only row has no colour of its own to report (HA allows `onoff`
+      // only as a light's SOLE colour mode), and `currentcolor` on a full-width
+      // fill reads as text, not as "this is on" — so it takes
+      // `--fh-default-color`, the contract's paint for exactly this case: a
+      // colour a card had to assume because the device named none.
+      default = if (toggleOnly) "var(--fh-default-color)" else "currentcolor"
+      bypassUnavailable = false
+      // Bound to the span's OWN `background`, which is also why this one has to
+      // be a signal: it moves with a light's colour, and leaving it as bytes
+      // would re-render the card on exactly the ticks the other three avoid.
+      //
+      // Only where it MOVES, though ([[fillColourMoves]]) — a constant is
+      // neither a signal nor a re-read, and `once` is the mode for a value that
+      // is a function of which entity this is rather than of its state.
+      signal = if (fillColourMoves) slotMod.asStyle("background") else null
+      reads = if (fillColourMoves) "live" else "once"
+    }
+    // Whether a DRAG should also move the readout — only a percent one is a
+    // function of the position; `"state"` is on/off and any [[Expr]] is the
+    // author's own. A section flag, not the expression itself: the expression
+    // names signals, and a signal's name is a template var the renderer fills.
+    when (shownReadout == "percent") {
+      ["dragPercent"] = "1"
+    }
+    // The toggle variant: no range input, the track itself is the button. A
+    // section flag plus the click expression, because `cardDef` is one template
+    // shared by every slider on the page — the shape has to travel as a slot.
+    when (toggleOnly) {
+      ["toggle"] = "1"
+      // The head's ONE tap route. The commit beside it looks like a second, but
+      // it assembles its own URL from `action`/`key` and never touches these —
+      // and the two arms are mutually exclusive anyway.
+      // A CLASS, not `disabled`: this track already binds `disabled` to the
+      // commit's in-flight signal (`busyAttrsChange`), and one element cannot
+      // carry two bindings for one attribute. `tapMod.click`'s guard is what
+      // actually refuses the press here.
+      for (k, v in tapMod.tapRoute(toggleTap, new Listing {}, "class")) {
+        [k] = v
+      }
+    }
+    ["action"] = sliderConfig(action, spec, (s) -> s.action)
+    ["key"] = sliderConfig(key, spec, (s) -> s.key)
+    ["min"] = sliderConfig(if (min != null) "\(min)" else null, spec, (s) -> s.min)
+    ["max"] = sliderConfig(if (max != null) "\(max)" else null, spec, (s) -> s.max)
+  }
+  // What [[SliderText]] draws: the label and its optional second line, the two
+  // values on this row that move as BYTES. Live here, unlike the head's own
+  // `label` — this node IS a patch target, which is why they were split out.
+  hidden textSlots: Mapping<String, slotMod.Slot|String> = new {
+    ["entity_id"] = entity.entity_id
+    ["label"] = slotMod.labelSlot(entity, label)
+    when (secondary != null) {
+      ["secondary"] = slotMod.secondarySlot(secondary!!)
+    }
+  }
+  /// The buttons at the right of the head, left to right (#151). Empty renders
+  /// none, which is what a plain row has.
+  ///
+  /// [[tapAction]] is the one-button shorthand and simply prepends to this, so
+  /// the two compose: a group that keeps its power button and adds a scene
+  /// button sets both.
+  hidden actions: Listing<control.Button> = new {}
+  // `tapAction` as what it always was — one action, first. Kept as its own
+  // property rather than folded into `actions` because it is the shape almost
+  // every group wants, and because it carries the card's `busyVisual` down,
+  // which a hand-built action would have to repeat.
+  hidden allActions: Listing<control.Button> = new {
+    when (tapAction != null) {
+      (sliderAction(entity, tapAction!!))
+    }
+    ...actions
+  }
+  /// The rows this slider stands for. Named `members` rather than `children`
+  /// because `children` now says WHICH REGION on every node, and this card has
+  /// two — the head is one, these are the other.
+  hidden members: Listing<nodes.LayoutNode> = new {}
+  // The one difference the card's markup takes from having members: the group
+  // modifier class. Everything else the two shapes need is an optional piece a
+  // plain row does not carry anyway.
+  slots {
+    when (!members.isEmpty) {
+      ["group"] = "slider-group"
+    }
+  }
+  children = new Mapping {
+    ["head"] = new Listing {
+      (new SliderHead {}) {
+        slots = headSlots
+        children = new Mapping {
+          ["text"] = new Listing { (new SliderText {}) { slots = textSlots } }
+          ["actions"] = allActions
+        }
+      }
+    }
+    ["children"] = members
+  }
+
+  // Fluent config (see [[EntityCard]]'s builder methods). The per-instance
+  // overrides mirror the `hidden` props above; amending re-runs the two-tier
+  // `sliderConfig` resolution with the new value.
+  function label(l: String|slotMod.Expr): Slider = let (self = this) (self) { label = l }
+  function action(a: String): Slider = let (self = this) (self) { action = a }
+  function key(k: String): Slider = let (self = this) (self) { key = k }
+  function min(m: Int): Slider = let (self = this) (self) { min = m }
+  function max(m: Int): Slider = let (self = this) (self) { max = m }
+  function valueAttr(a: String): Slider = let (self = this) (self) { valueAttr = a }
+  function readout(r: Readout|slotMod.Expr): Slider = let (self = this) (self) { readout = r }
+  /// The member rows this slider heads, as ready-made [[Slider]]s — so the
+  /// group is one chain over the master's own members:
+  ///
+  ///   c.slider(l).withSubSliders(
+  ///     l.members.map((m) -> c.slider(m).readout("percent").icon(null))
+  ///   )
+  ///
+  /// Each row is composed by the CALLER, which is the point: what a row reads
+  /// out, whether it carries a badge and what it is bound to are the author's,
+  /// one row at a time. A member that is not a slider (an [[EntityCard]], a
+  /// [[DynamicGroup]] of an area) goes through `children` directly.
+  function withSubSliders(sliders: List<Slider>): Slider =
+    let (self = this) (self) { members = sliders.toListing() }
+  // Nullable so `.icon(null)` is how a chain says "no badge" — the property
+  // already means that, and a second `noIcon()` builder would be a parallel way
+  // to say the same thing.
+  function icon(i: String?): Slider = let (self = this) (self) { icon = i }
+  function tapAction(t: tapMod.TapAction): Slider = let (self = this) (self) { tapAction = t }
+  /// The head's buttons, left to right (#151) — see [[actions]]. Composes with
+  /// [[tapAction]], which stays first.
+  ///
+  ///     c.slider(l)
+  ///       .tapAction(c.tap.toggle)
+  ///       .actions(List(c.sliderAction(l, c.tap.moreInfo(l))
+  ///         .icon("mdi:information").lit(false)))
+  function actions(xs: List<control.Button>): Slider =
+    let (self = this) (self) { actions = xs.toListing() }
+  function busyVisual(b: Boolean): Slider = let (self = this) (self) { busyVisual = b }
+  function secondary(s: String|slotMod.Expr): Slider = let (self = this) (self) { secondary = s }
+  // The range input rides inside BeerCSS's slider markup (`.slider` wrapper +
+  // trailing `<span>` = the painted MD3 track, `max` = full card width; NO
+  // `.tooltip` — its value text bled through behind the track, and the live
+  // value already shows in the head line). The FILL is OURS, never BeerCSS's:
+  // its own fill is an inline style its JS writes on `input`, which a Datastar
+  // morph wipes — and with the vars defaulting to 0% the track then snaps to
+  // fully-filled. The `fill` slot owns `--_end` instead, baked into the style
+  // attribute for the first paint and bound as a signal after it, with
+  // `data-on:input` keeping it under the thumb mid-gesture. The label line is a
+  // `.slider-head` class contract (both themes style it) — NOT a `<header>`
+  // (BeerCSS styles header as a 4rem app-bar grid, which swallowed the text)
+  // and NOT BeerCSS `.row`/`.max` (inline-size:100% squeezes the state span
+  // into per-character wrapping).
+  //
+  // A drag is LIVE client-side (`data-on:input`) but only COMMITS on release
+  // (`data-on:change` → the value POST), so a drag back on while that POST is
+  // in flight must not fire a second commit. `\(tapMod.busyAttrsChange)`
+  // (indicator + `data-attr:disabled`) and `\(tapMod.busyGuardChange)` are the
+  // same busy pieces the power button uses, under the input's own
+  // `_<id>__busy_change` signal — see `tap.pkl` for why the name is separate
+  // and why disabling is safe.
+  //
+  // A [[toggleOnly]] row drops the range input and puts a full-bleed button in
+  // its place, LAST so it sits over the painted fill without either of them
+  // needing a stacking rule. It reuses the input's own `_<id>__busy_change`
+  // signal rather than a tap's `_<id>__busy`: it stands exactly where the commit
+  // did, and the power button may still be holding the other name (the
+  // one-guarded-element-per-node rule in ADR 0019).
+  //
+  // TWO regions: the head is a [[SliderHead]] node, the members are the author's
+  // rows. That is what keeps a brightness change off the rows — a patch targets
+  // the head, and the members are not inside it (ADR 0012). This card is
+  // STRUCTURE, so it is never itself a patch target.
+  //
+  // A member-less slider still renders an empty `.slider-members` the theme
+  // hides, because a card is one shape and its optional pieces (icon, second
+  // line, button, members) are absent rather than different.
+  cardDef = new nodes.CardDef {
+    regions = new Mapping {
+      ["head"] = new nodes.Region {}
+      [nodes.defaultRegion] = new nodes.Region {}
+    }
+    template = """
+      <article class="card slider-card{{#group}} {{group}}{{/group}}">{{#head}}{{{html}}}{{/head}}<div class="slider-members">{{#children}}{{{html}}}{{/children}}</div></article>
+      """
+    css = sliderCss
+  }
+}
+
+// The slider's own structure — the largest card in the library and the one that
+// most needs its CSS next to its markup. Colour goes through the `--fh-*`
+// variables (`core/css.pkl`); what stays with the theme is paint and BeerCSS's
+// private knobs (`--_padding`, `.shape`), because those name things this card
+// does not emit.
+//
+// `.slider.max` IS emitted here (BeerCSS's slider markup — wrapper + trailing
+// `<span>` painted as the MD3 track), so the rules keyed on it are this card's
+// even though the class name is the framework's.
+const local sliderCss: String = """
+  /* The label line: label left, live state right. It is PAINTED OVER the track
+     (`.slider.max` is an absolutely-positioned overlay filling the card), so it
+     must not take the pointer — without this the label and the live value are
+     two dead strips the user has to aim around.
+     The readout is pushed right rather than the line being `space-between`,
+     because the line has THREE items once a slider carries its entity's icon
+     badge — and "spread evenly" would centre the label between the badge and
+     the readout instead of keeping it next to what it names.
+     An explicit line-height, because `normal` is the FONT's own figure: the line
+     box then changes size with whatever font resolved, which is half of how the
+     same markup ends up looking different per engine. 1.5 is what the current
+     stack already computed, so this pins today's rhythm rather than changing it.
+     The label and its second line are text BOXES (`core/text.pkl`); the readout
+     deliberately is not — it is a level or an on/off, not prose to clip.
+     It does RESERVE its width, though, and that is the point of
+     `--fh-readout-size`: shrink-wrapped, the box was as wide as whatever it
+     currently reads, so a drag from `9 %` to `100 %` widened it and slid its
+     left edge — and the label, which caps against that edge, re-clipped on
+     every frame. Reserving the widest ordinary reading and aligning to the END
+     pins the edge, so the number changes and nothing moves. A LONGER reading
+     (`unavailable`) still gets its room; the floor only stops the box from
+     collapsing below it. */
+  /* `min-inline-size:0` is what keeps the readout on the card. A member row lays
+     the head out as a GRID item (`.slider-members .card` below), and a grid
+     item's automatic minimum is its min-content width — which `nowrap` text
+     makes the WHOLE label, so the row grew past the card, `overflow:hidden`
+     clipped it, and a long name pushed the reading off the right edge entirely.
+     Zero lets the label shrink and clip as it does on a plain row, where the
+     head is an ordinary block and never had the problem. */
+  .slider-head{display:flex;gap:.75rem;align-items:center;padding:.5rem;line-height:1.5;z-index:3;pointer-events:none;min-inline-size:0}
+  .slider-head>.fh-reading{margin-inline-start:auto;flex:0 0 auto;
+  min-inline-size:var(--fh-readout-size,3.25rem);text-align:end}
+  /* The edge of the control, drawn OVER the fill and never under it. Without it
+     a nearly-full slider has no visible end: the fill runs to the card's own
+     boundary and, on a bright light against a light palette, the last few
+     percent are the same brightness as the page behind them — so the row reads
+     as "some colour ending somewhere". The ring is what says where.
+     A pseudo-element rather than the card's own `box-shadow:inset`, which is
+     painted BEHIND the descendants and therefore behind the fill — that is the
+     rule this replaces, and it was invisible on exactly the rows (a member near
+     100 %) it was added for. `border-radius:inherit` takes the card's, since
+     that is the box it traces. */
+  .slider-card{position:relative}
+  .slider-card:after{content:"";position:absolute;inset:0;border-radius:inherit;
+  box-shadow:inset 0 0 0 .0625rem var(--fh-border);pointer-events:none;z-index:4}
+  /* A slider is dragged sideways, so say so: the grab hand reads as "pick this
+     up and move it anywhere". */
+  .slider.max,.slider.max>input{cursor:ew-resize}
+  .slider.max>input::-webkit-slider-thumb{cursor:ew-resize}
+  .slider.max>input::-moz-range-thumb{cursor:ew-resize}
+  /* The loading commit overrides the drag affordance once a slider's value POST
+     has held past the loading delay: the wrapper and the input each set their own
+     ew-resize, so `.fh-loading` alone (which matches the input only by
+     inheritance) never beats them. Pairs with `.fh-disabled`'s dim (which lands
+     instantly, before this), so the whole control says "wait" together. */
+  .slider.max.fh-loading,.slider.max.fh-loading>input{cursor:progress}
+  .slider.max.fh-loading>input::-webkit-slider-thumb{cursor:progress}
+  .slider.max.fh-loading>input::-moz-range-thumb{cursor:progress}
+  /* Slide the fill to a state change instead of snapping. `inset` is what
+     BeerCSS derives from `--_start`/`--_end`, so animating it covers every
+     writer of those props alike; `background` covers a light changing colour.
+     Suppressed while the slider is being dragged — there the fill must track the
+     thumb frame by frame, and a transition reads as lag. :active alone is not
+     enough: a pointer drag ends with the input still focused, and the echoed
+     state should land where the user let go. */
+  .slider.max>span:not([class]){transition:inset .3s cubic-bezier(.2,0,0,1),background .3s linear}
+  .slider.max:is(:active,:focus-within,.fh-armed)>span:not([class]){transition:none}
+  /* Touch: the CSS half of the axis-intent gate (theme.pkl's sliderHoldScript
+     owns the timing). The range input is inert so a swipe that starts on a card
+     scrolls the list instead of setting a value, and `pan-y` keeps that scroll
+     native; the script drives the value itself — on a drag once armed, and on a
+     TAP, which an inert input would otherwise swallow entirely. */
+  @media (pointer:coarse){
+  .slider.max{touch-action:pan-y}
+  .slider.max>input{pointer-events:none}
+  .slider.max.fh-armed{box-shadow:inset 0 0 0 .125rem var(--fh-accent)}
+  }
+  /* The toggle variant's whole-track button (a light that only switches). It is
+     invisible on purpose — the fill IS the feedback — so every one of a
+     framework's button paints has to be undone, `all:unset` being unavailable
+     here because it would also drop the box the click needs. `cursor:pointer`
+     rather than the `ew-resize` above, which is the point: this row is pressed,
+     not dragged.
+     `block-size:auto` is load-bearing, not tidiness: BeerCSS gives every
+     `button` a fixed `2.5rem` height, which OVER-CONSTRAINS `inset:0` — the
+     browser keeps the top and the height and throws the bottom away, so the
+     button was a 40 px strip at the top of a 64 px card. Invisible in itself,
+     except that a hover paints the framework's overlay across exactly that box:
+     the press target sat above the middle of the row it belongs to. */
+  .slider-toggle{position:absolute;inset:0;block-size:auto;inline-size:auto;
+  z-index:1;margin:0;padding:0;border:0;
+  background:none;box-shadow:none;color:inherit;font:inherit;border-radius:inherit;
+  appearance:none;-webkit-appearance:none;cursor:pointer}
+  /* The card's two structural wrappers, both boxless. `.slider-body` is one so
+     the head and the track are laid out by the CARD, exactly as they were when
+     this was a single element rather than a node holding regions. */
+  .slider-body{display:contents}
+  /* The head is a NODE, so the backend wraps it in an id'd `.fh-cell`. That
+     wrapper must not become a box between the card and the row — and it must
+     stay IN the group chain below, which is what tells the master's head from
+     its members' (theirs sit under `.slider-members` and their own card). */
+  .slider-head-cell{display:contents}
+  .slider-members:empty{display:none}
+  /* A slider that HOLDS sliders. The master's fill is the whole card's
+     background, painted BEHIND the member rows, which is what makes the group
+     read as one control rather than a titled list — `.slider.max` already fills
+     the card, so the group only has to keep the rows on top of it and the drag
+     surface off them.
+
+     The head is the same markup a plain row has: the badge, the second line and
+     the button are pieces a plain row simply does not carry, so only the
+     arrangement changes — a two-row grid with the badge and the button spanning
+     both rows. */
+  .slider-group{overflow:hidden}
+  /* Scoped through `.slider-body` on purpose: `display:contents` removes its BOX,
+     not its place in the DOM, so it still has to appear in a selector — and every
+     one of these rules must miss the members' own heads and tracks, which are
+     `.slider-head`/`.slider.max` too.
+     Rows are DECLARED, not implicit, so the label and its second line are one
+     block of ordinary text: an implicit grid sizes its rows to whatever spans
+     them, and the badge (taller than two lines together) pushed the two lines
+     apart to fill itself. Declaring them makes the text keep its own rhythm and
+     the badge centre against the pair. Same reason the spans say `1/3` rather
+     than `1/-1`: `-1` is the last line of the EXPLICIT grid, which is only well
+     defined now that there is one. */
+  .slider-group>.slider-head-cell>.slider-body>.slider-head{display:grid;grid-template-columns:auto 1fr auto auto;
+  grid-template-rows:auto auto;align-items:center;align-content:center;
+  min-block-size:4.5rem;box-sizing:border-box;gap:0 .75rem}
+  .slider-group>.slider-head-cell>.slider-body>.slider-head>.slider-text>strong{grid-column:2;grid-row:1}
+  .slider-group>.slider-head-cell>.slider-body>.slider-head>.slider-text>.fh-sub{grid-column:2;grid-row:2}
+  .slider-group>.slider-head-cell>.slider-body>.slider-head>.slider-icon{grid-row:1/3}
+  .slider-group>.slider-head-cell>.slider-body>.slider-head>.fh-reading{grid-column:3;grid-row:1/3}
+  .slider-group>.slider-head-cell>.slider-body>.slider-head>.slider-actions{grid-column:4;grid-row:1/3}
+  /* `flex:0 0 auto` because the badge is a CIRCLE with a fixed glyph in it: as a
+     shrinkable flex item it gave width away to a long label (2rem measured down
+     to 1.5rem at a phone's 360px), which turns the circle into an ellipse and
+     leaves the 1.25rem glyph painting over its own edge. The label is the thing
+     with somewhere to go — it clips. */
+  .slider-icon{display:flex;align-items:center;justify-content:center;
+  flex:0 0 auto;inline-size:2rem;block-size:2rem;border-radius:50%;
+  background:var(--fh-surface-alt);color:var(--fh-accent)}
+  .slider-icon>i{font-size:1.25rem}
+  /* Bigger on a group's head alone, where the badge reads as a card header
+     rather than a row's icon. */
+  .slider-group>.slider-head-cell>.slider-body>.slider-head>.slider-icon{inline-size:2.75rem;block-size:2.75rem}
+  .slider-group>.slider-head-cell>.slider-body>.slider-head>.slider-icon>i{font-size:1.5rem}
+  /* The head's two node regions. Both wrappers are boxless for the same reason
+     `.slider-head-cell` is: the backend gives every node an `.fh-cell`, and
+     neither of these should become a box between the row and what it holds —
+     the group's grid places `strong`, `.fh-sub` and the button strip
+     itself. The actions are ordinary `c.iconButton`s, so the rule names the
+     STRIP's cells rather than a class only this card's buttons carry. */
+  .slider-text,.slider-actions>.fh-cell{display:contents}
+  /* The button strip. It takes the pointer back from `.slider-head`'s
+     `pointer-events:none` — the buttons are the only things in the row that ARE
+     controls — and `:empty` removes it on a slider with no actions, which is
+     every plain row. A card is ONE shape: its optional pieces are absent, not
+     different (same reason `.slider-members:empty` is here), and without the
+     `:empty` rule the flex gap and the group's fourth grid column would hold
+     space for nothing. */
+  .slider-actions{display:flex;align-items:center;gap:.25rem;pointer-events:auto}
+  .slider-actions:empty{display:none}
+  /* The head's buttons are the shared round icon button, so this paints them by
+     POSITION rather than by a class of their own — the card says how a control
+     in its head looks, which is the same thing `.slider-members .card` does for
+     a member row. */
+  .slider-actions>.fh-cell>button{background:var(--fh-surface-alt);color:var(--fh-text)}
+  .slider-actions>.fh-cell>button.lit{background:var(--fh-accent);color:var(--fh-on-accent)}
+  /* BeerCSS's `.slider.max` is already `position:absolute;inset:0` of the card,
+     so the master's track — and its painted span — span the WHOLE card, members
+     included. Nothing constrains the master's range input to the head strip
+     either, and it should not: the member rows are painted over it (opaque,
+     stacked below), so a drag lands on the master exactly where its own fill is
+     what the finger is on. */
+  .slider-group>.slider-head-cell>.slider-body>.slider.max>span:not([class]){inset:0 var(--_end) 0 0;block-size:auto;border-radius:0;opacity:.45;pointer-events:none}
+  /* Above the master's painted `<span>`, which is positioned and would otherwise
+     cover the member rows' own backgrounds — the fill belongs AROUND the rows,
+     not through them.
+     Indented to start where the head's BADGE does, not where its card does — so
+     the rows read as belonging to the head rather than as a second list. It also
+     lands each row's own label at the head's label, since the row is inset by
+     exactly the difference between the two badge sizes. */
+  .slider-members{display:flex;flex-direction:column;gap:.25rem;
+  padding:0 .5rem .5rem;z-index:2}
+  /* A member is an ordinary slider card collapsed onto its own track: card and
+     track share one grid cell, so the label and the live value ride ON the fill
+     instead of sitting in a line above it. Members carry their own surface and no
+     elevation — a shadow over the master's coloured fill reads as grime.
+     Its edge is the shared `.slider-card:after` ring above, which is also what a
+     DARK palette needs to see the row at all: a sunken surface and a card
+     surface are a couple of percent apart there, so an OFF member (no fill,
+     nothing but its own background) all but vanished into the group. */
+  .slider-members .card{display:grid;min-block-size:3rem;margin:0;
+  background:var(--fh-surface-sunken);
+  border-radius:1.5rem;overflow:hidden}
+  .slider-members :is(.slider-head,.slider.max){grid-area:1/1}
+  /* Block padding off: a row is sized by `min-block-size`, so its own padding
+     would only make it taller than the pill it is. */
+  .slider-members .slider-head{align-items:center;padding-block:0;padding-inline:.75rem}
+  .slider-members .slider.max{margin:0;block-size:100%}
+  .slider-members .slider.max>input{block-size:100%}
+  .slider-members .slider.max:before{display:none}
+  .slider-members .slider.max>span:not([class]){inset:0 var(--_end) 0 0;block-size:auto;border-radius:0}
+  """
+
+/// Value slider as a call (see [[Slider]] for the domain contract). Takes an
+/// entity for its domain's default axis, or a capability group for that axis:
+/// `c.slider(l)` is brightness, `c.slider(l.colourTemp)` is colour temperature.
+function slider(a: SlideAxis): Slider = new Slider { on = a }
+/// The slider constructor as a VALUE, for a query's render positions.
+hidden slider: (hass.Entity) -> Slider = (e) -> slider(e)

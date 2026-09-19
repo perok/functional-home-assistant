@@ -1,0 +1,116 @@
+/// The ENTRYPOINT's shape (ADR 0021): one module naming every dashboard the
+/// instance serves, keyed by slug.
+///
+/// Worth pinning because the whole authoring story rests on two Pkl properties
+/// that are easy to break by accident and silent when broken: the mapping's
+/// default must be an `entry`, so a key amends into existence without `new`,
+/// and an imported module that amends `entry.pkl` must satisfy the same type,
+/// so a big dashboard can live in its own file.
+///
+/// Outside `lib/` for the usual reason — see `components.test.pkl`.
+amends "pkl:test"
+
+import "../../main/resources/dashboards/lib/site.pkl" as siteMod
+import "../../main/resources/dashboards/lib/components.pkl" as c
+import "../../main/resources/dashboards/lib/hass.pkl"
+
+// A stand-in for a dump user: this suite has no `@fh-home`, and what it pins is
+// the SHAPE an access rule takes, not where the users came from.
+local const function u(id: String): hass.User = new {
+  user_id = id
+  user_name = id
+  is_admin = false
+  is_owner = false
+}
+
+// An inline dashboard: no `new`, just a key amended into existence.
+local inlineSite = (siteMod) {
+  default = "home"
+  dashboards {
+    ["home"] {
+      title = "Home"
+      card = c.title("hi")
+    }
+  }
+}
+
+// A dashboard living in its own module, pointed at by a key. Note the CALL
+// form of `import` — the declaration form does not parse in a value position.
+local importedSite = (siteMod) {
+  dashboards {
+    ["kitchen"] = import("site-kitchen.pkl")
+  }
+}
+
+// A site whose dashboards do not all share one access rule (issue #89): the
+// site sets the strict default and individual dashboards step out of it.
+local accessSite = (siteMod) {
+  access = c.access.admin
+  dashboards {
+    ["wall"] { access = c.access.public; card = c.title("hall") }
+    ["secret"] { access = c.access.admin; card = c.title("shh") }
+    ["mine"] { access = c.access.users(List(u("u1"), u("u2"))); card = c.title("mine") }
+    ["home"] { card = c.title("hi") }
+  }
+}
+
+// Every `*.dashboard.pkl` beside this module, keyed by its filename — the
+// glob-import recipe, which needs no support from the library: an entrypoint
+// can name its dashboards by CONVENTION rather than one line each, and pkl's
+// analyzer resolves the glob, so the server watches each matched file.
+local globbedSite = (siteMod) {
+  dashboards {
+    for (path, dash in import*("*.dashboard.pkl")) {
+      [path.replaceAll(".dashboard.pkl", "")] = dash
+    }
+  }
+}
+
+facts {
+  ["an empty site names no dashboards and has no default"] {
+    siteMod.dashboards.isEmpty
+    siteMod.default == null
+  }
+
+  ["a key amends into existence, no `new` needed"] {
+    inlineSite.dashboards.keys == Set("home")
+    inlineSite.dashboards["home"].title == "Home"
+    inlineSite.default == "home"
+  }
+
+  ["the key is the slug, and an imported module is the same type"] {
+    importedSite.dashboards.keys == Set("kitchen")
+    importedSite.dashboards["kitchen"].title == "Kitchen"
+  }
+
+  ["a glob import names dashboards by filename convention"] {
+    globbedSite.dashboards.keys == Set("site-attic")
+    globbedSite.dashboards["site-attic"].title == "Attic"
+  }
+
+  ["every dashboard carries the entry scaffold — cards and a theme"] {
+    !inlineSite.dashboards["home"].cards.isEmpty
+    inlineSite.dashboards["home"].theme != null
+  }
+
+  // Access (issue #89). The two halves that matter are the DEFAULT (a site that
+  // says nothing still demands a login — the rule must not fail open) and the
+  // null-means-inherit shape, which is what lets the backend tell "this
+  // dashboard has no opinion" apart from "this dashboard chose the default".
+  ["a site requires a logged-in user unless it says otherwise"] {
+    inlineSite.access.kind == "authenticated"
+  }
+
+  ["a dashboard that names no rule inherits — it does not pick one"] {
+    inlineSite.dashboards["home"].access == null
+  }
+
+  ["a dashboard can override its site, in both directions"] {
+    accessSite.dashboards["wall"].access.kind == "public"
+    accessSite.dashboards["secret"].access.kind == "admin"
+    accessSite.dashboards["mine"].access.kind == "users"
+    accessSite.dashboards["mine"].access.ids.toList() == List("u1", "u2")
+    // The site's own rule is still the one the others inherit.
+    accessSite.access.kind == "admin"
+  }
+}

@@ -1,0 +1,74 @@
+/// Icon resolution — the MDI name a card shows for an entity, in Home
+/// Assistant's own order: the entity's own `icon` attribute (a user or
+/// integration override) beats its device_class, which beats its domain.
+///
+/// Shared, because more than one card wants it (an entity card's header, a
+/// slider's badge) and because a third-party card should be able to look like a
+/// shipped one without copying the tables.
+module core.icon
+
+import "../hass.pkl"
+import "simple.pkl" as simpleMod
+import "../hass/icons.pkl" as tables
+
+/// `mdi:thermometer` -> `mdi-thermometer`, the class the MDI stylesheet styles.
+/// Accepts either spelling so an author's `.icon("mdi-foo")` also works.
+const function mdiClass(name: String): String =
+  name.replaceFirst("mdi:", "mdi-")
+
+/// The icon for an entity, resolved AT BUILD TIME, in Home Assistant's own
+/// order: the entity's own `icon` attribute (a user or integration override)
+/// beats its device_class, which beats its domain.
+///
+/// `getPropertyOrNull` rather than a declared field, because ADR 0013 puts
+/// capability attributes on the class generated PER ENTITY — an entity that
+/// reports no `icon` has no such property, and reading it directly is an eval
+/// error rather than a null.
+///
+/// A non-MDI override falls THROUGH to the tables: a custom icon set (this
+/// instance has six `hue:` entities from a HACS integration) ships no glyph
+/// here, and a class the stylesheet does not define renders as blank space —
+/// visibly worse than the domain default.
+const function iconFor(e: hass.Entity?): String? =
+  if (e == null) null
+  else
+    let (own = e.getPropertyOrNull("icon"))
+    let (dc = e.getPropertyOrNull("device_class"))
+      if (own is String && own.startsWith("mdi:")) mdiClass(own)
+      else if (dc is String && tables.deviceClassIcons.containsKey(dc))
+        mdiClass(tables.deviceClassIcons[dc])
+      else if (tables.domainIcons.containsKey(e.domain)) mdiClass(tables.domainIcons[e.domain])
+      else null
+
+
+/// The live icon for an entity, or null when it does not have one.
+///
+/// Null in three cases, and each is a rule rather than an omission:
+///
+///   - the domain is not in [[tables.stateIcons]] — most are not;
+///   - the entity carries its OWN `icon`, which a user or integration set
+///     deliberately and which must beat anything derived (the same precedence
+///     [[iconFor]] applies, and the reason this is checked here too);
+///   - the entity has a `device_class`, whose glyph is more specific than a
+///     domain default and which HA also prefers.
+///
+/// The fallback arm is [[iconFor]]'s own answer, so an unknown state degrades
+/// to exactly the icon this card would have shown anyway rather than blanking —
+/// HA adds states (`open`/`opening` arrived in `lock` after the domain
+/// shipped).
+const function stateIconFor(e: hass.Entity?): simpleMod.Simple? =
+  if (e == null || !tables.stateIcons.containsKey(e.domain)) null
+  else
+    let (own = e.getPropertyOrNull("icon"))
+    let (dc = e.getPropertyOrNull("device_class"))
+      if (own is String || dc is String) null
+      else
+        let (table = tables.stateIcons[e.domain])
+          simpleMod.matchOf(
+            new Mapping {
+              for (st, name in table) {
+                [st] = "mdi " + mdiClass(name)
+              }
+            },
+            "mdi " + (iconFor(e) ?? "")
+          )

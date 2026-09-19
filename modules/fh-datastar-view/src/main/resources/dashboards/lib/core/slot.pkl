@@ -1,0 +1,262 @@
+/// Slot values — what a card puts in a template hole, and the shared builders
+/// that shape the common ones the same way every card does.
+///
+/// A slot is either a bare String (a constant literal) or a [[Slot]] object: a
+/// live CEL transform over the card's entity ([[Slot.transform]], the engine
+/// tier) or an opted-in [[simpleMod.Simple]] structure in that SAME field (the
+/// fast tier — the form IS the tier selection; nothing recognizes expression
+/// spelling).
+/// The builders are the reason a third-party card can look like a shipped one:
+/// `labelSlot` falls back to friendly_name, `valueSlot` appends the entity's
+/// unit, `secondarySlot` keeps the mustache section collapsed when blank.
+module core.slot
+
+import "../hass.pkl"
+import "simple.pkl" as simpleMod
+
+/// The object form of a slot (fh.view.model.SlotSource): a CEL expression
+/// over the card's entity. [[Slot.reads]] says when it is read.
+class Slot {
+  entityId: String? = null
+  /// The value — ONE fact, two forms (ADR 0028): a CEL string over the card's
+  /// entity (the engine tier) or an opted-in [[simpleMod.Simple]] structure
+  /// (the fast tier — the object form IS the tier selection; nothing
+  /// recognizes expression spelling). Defaults to the raw state.
+  transform: (String|simpleMod.Simple) = "state"
+  default: String? = null
+  bypassUnavailable: Boolean = true
+  /// WHEN this value is read, and whether reading it is a reason to re-render.
+  ///
+  ///   - `live` — read every render, and a change to the entity IS a render.
+  ///     A brightness, a state readout.
+  ///   - `onRender` — read every render, and never a reason to have one. A
+  ///     friendly name, a unit: right whenever the card is drawn, costing no
+  ///     subscription. The only mode a STRUCTURAL card may use on an entity,
+  ///     since structure is never patched.
+  ///   - `once` — resolved once per (entity, transform) and reused for the
+  ///     dashboard's life. For a value that is a function of WHICH entity this
+  ///     is rather than of its state: a service action from `domain`, an id in
+  ///     a URL. Wrong for anything that can move — a rename would not show
+  ///     until the dashboard rebuilds.
+  ///
+  /// Three values and not two flags: `reactive: Boolean` could say "track and
+  /// re-read" or "ignore and read once", and the pairing an author keeps
+  /// wanting — a value that CAN move but is not worth waking the card for —
+  /// was the one it could not express.
+  reads: "live"|"onRender"|"once" = "live"
+  /// Carry this value as a Datastar SIGNAL rather than as bytes in the element,
+  /// so a change to it costs a signals frame instead of re-rendering the whole
+  /// card (ADR 0017). The value says WHERE it lands — see [[SignalBind]] —
+  /// because that is the one thing the backend cannot infer.
+  ///
+  /// The card's template MUST place [[signalBind]] for this slot, or the value
+  /// stops updating; the backend rejects the dashboard if it does not.
+  signal: SignalBind? = null
+}
+
+/// WHERE a signal slot's value lands in the DOM. Spelled as a constrained
+/// String rather than a class hierarchy for two reasons: the wire form IS one
+/// string (so a class would need flattening on the way out), and the
+/// parameterised kinds take a property/attribute/class NAME, which a plain
+/// union of literals cannot express.
+///
+/// The constraint is what a union would have bought — a typo is an eval error
+/// naming the value, not a slot that silently binds nothing. Build one with
+/// [[asText]] / [[asBind]] / [[asStyle]] / [[asAttr]] / [[asClass]] /
+/// [[asHandler]] rather than writing the string, so the spelling lives in one
+/// place.
+typealias SignalBind =
+  String(matches(Regex(#"text|bind|handler|(style|attr|class):\S+"#)))
+
+/// `data-text` — the element's whole text content. The common case: a reading,
+/// a label, a state.
+const asText: SignalBind = "text"
+
+/// `data-bind` — TWO-WAY on a form control. The backend writes the signal and
+/// the user's input writes it back. What a range input's position wants, and
+/// what a checkbox's `checked` wants: setting the ATTRIBUTE does not move the
+/// property the browser reads once the element exists.
+const asBind: SignalBind = "bind"
+
+/// `data-style:<property>` — one CSS property, custom properties included. The
+/// VALUE carries its own unit (`39.37%`, `#ffb46b`), so nothing composes an
+/// expression around it: the transform decides the shape, in one place.
+const function asStyle(property: String): SignalBind = "style:" + property
+
+/// `data-attr:<name>` — one attribute, filled by the slot's value.
+///
+/// A STRING value is the attribute's value (`value`, `href`, `aria-label`). A
+/// BOOLEAN value sets or removes it, which is what a boolean attribute —
+/// `disabled`, `hidden`, `inert`, `readonly`, `open` — needs: HTML spells ON as
+/// `disabled=""`, so `""` SETS one and only a real `false` turns it off. Give
+/// such a slot a [[simpleMod.matchOf]] with boolean arms, or
+/// [[simpleMod.stateIn]].
+///
+/// NOT for a form control's state; see [[asBind]].
+///
+/// For a control unavailable because of the ENTITY'S STATE — already moving,
+/// offline — prefer a boolean `disabled` here over [[asClass]] plus CSS: a real
+/// `disabled` leaves the tab order and stops the click in the browser, where a
+/// dimming class needs a JS guard to mean anything.
+///
+/// NOT for an action in flight. ADR 0019 settled that: a disabled button loses
+/// focus and fires no events at all, which is worse for a card than an inert
+/// one, so `busy` guards the click expression instead.
+const function asAttr(name: String): SignalBind = "attr:" + name
+
+/// `data-class:<name>` — one class, present while the value is truthy. A
+/// BOOLEAN state: the transform must yield `""` for off, because an empty
+/// string is the only falsy thing a slot can produce — `"false"` reads as ON.
+const function asClass(name: String): SignalBind = "class:" + name
+
+/// NO binding — the value is carried as a signal and read by an EVENT HANDLER
+/// rather than painted, so there is no attribute to emit. The card composes
+/// [[signalRef]] into an expression of its own.
+///
+/// What it is for: a value that is a function of live state but that only a
+/// click ever consumes. Rendered as a transform it would be in the element's
+/// bytes, so the element would re-render on every state change to repaint a
+/// URL nobody looks at; carried as a signal it costs a frame entry shared by
+/// every card on that entity, and the markup goes constant. ADR 0017, "Which
+/// runtime evaluates a state-dependent value".
+///
+/// The transform still runs on the SERVER, in one place, with the same parity
+/// suite behind it — only the READ moves to the browser. That is why this is a
+/// binding kind and not a second expression language.
+const asHandler: SignalBind = "handler"
+
+/// The binding a signal slot's card places, beside the ordinary `{{name}}`
+/// hole:
+///
+/// ```
+/// <span class="fh-reading" \(signalBind("value"))>{{value}}</span>
+/// ```
+///
+/// The backend fills `name__bind` with the whole attribute — whichever of
+/// `data-text`/`data-bind`/`data-style:…`/`data-attr:…` the slot's [[Slot.signal]]
+/// named, and NOTHING when the value is not signal-backed. That is why the
+/// backend owns it: a card that wrote `data-text` itself could not have it
+/// un-written, and the plain (no-signals) rendering would stop being reachable.
+/// Raw (`{{{…}}}`) because it IS markup.
+const function signalBind(name: String): String = "{{{" + name + "__bind}}}"
+
+/// The signal's NAME, for the one thing a canned binding cannot cover: a card
+/// composing it into an expression of its own (a slider's action URL reads its
+/// own bound position). Not a binding — but a card that uses it is relying on
+/// the signal existing, so it is not usable by a client that takes no signals.
+const function signalRef(name: String): String = "{{" + name + "__signal}}"
+
+/// The slot's value as a JS EXPRESSION, for a card composing it into a handler
+/// of its own — an action URL above all:
+///
+/// ```
+/// @post('sse/action/{{dashboardSlug}}/' + \(slotRead("service")) + '/{{entity_id}}')
+/// ```
+///
+/// **The card never learns which tier filled the slot.** A literal reads back
+/// as `'light/toggle'` and a signal as `$_e.lock.front.t4d7a74a1`, so ONE
+/// template serves a static tap and one whose service the live state picks —
+/// which is the whole reason a card does not branch on it. Contrast
+/// [[signalRef]], which is the signal's bare NAME and therefore signal-only.
+///
+/// Answered for a literal, an identity-`once` value and a signal. A LIVE slot
+/// that is not a signal is a build error: such a value moves in the element's
+/// bytes every tick, which is what carrying it as a signal exists to stop.
+///
+/// Raw (`{{{…}}}`) because it IS code.
+const function slotRead(name: String): String = "{{{" + name + "__read}}}"
+
+/// The section a card wraps optional markup in, when that markup holds a slot:
+///
+/// ```
+/// \(ifSlot("icon"))<i class="{{icon}}" \(signalBind("icon"))></i>\(endIfSlot("icon"))
+/// ```
+///
+/// **Never `{{#icon}}` for this.** A signal slot's value is withheld in the
+/// patch form, and a withheld value is a FALSE Mustache section — so a section
+/// keyed on the VALUE renders once and then deletes its own element, and the
+/// binding inside it, on the first patch. Nothing writes to a binding that has
+/// left the DOM, so the card stays blank until a full repaint. That is what
+/// took the lock's glyph away on the first tap and brought it back on reload.
+///
+/// The backend fills `name__has` for every slot the node declares, signal-backed
+/// or not, so one section works whichever tier the value came from — which
+/// `entityCard`'s icon needs, being a signal where the domain has a state glyph
+/// and a literal everywhere else.
+const function ifSlot(name: String): String = "{{#" + name + "__has}}"
+
+/// Closes [[ifSlot]].
+const function endIfSlot(name: String): String = "{{/" + name + "__has}}"
+
+/// [[ifSlot]]'s inverse — the markup for when the node does NOT declare the
+/// slot. A card with two spellings of one thing places both.
+const function ifNoSlot(name: String): String = "{{^" + name + "__has}}"
+
+/// Closes [[ifNoSlot]].
+const function endIfNoSlot(name: String): String = "{{/" + name + "__has}}"
+
+/// [[valueSlot]] as a text signal slot — the same value, carried as a signal.
+/// The card must place `signalBind("value")`.
+const function signalValueSlot(value: (String|Expr|simpleMod.Simple)?): Slot =
+  (valueSlot(value)) { signal = asText }
+
+/// A live value expression for a display field that also accepts a plain
+/// string: `label = expr(#"attr[?'friendly_name'].orValue('') + ' ' + state"#)`
+/// vs the literal `label = "Kitchen"`.
+class Expr {
+  entityId: String? = null
+  transform: String
+}
+
+function expr(s: String): Expr = new { transform = s }
+
+/// A live value expression bound to an EXPLICIT entity (a cross-entity read):
+/// the emitted slot names its own `entityId` instead of inheriting the card's.
+function exprOf(eo: hass.Entity, s: String): Expr = new { entityId = eo.entity_id; transform = s }
+
+// Auto-appended unit for a value display: the entity's unit_of_measurement,
+// space-separated, when it has one. Guarded, because `attr['x']` on an absent
+// key is an eval error — `[?` yields an optional instead, `optMap` runs only
+// when there is a value, and `orValue` supplies the absent case.
+const UNIT_EXPR =
+  #"attr[?'unit_of_measurement'].optMap(u, ' ' + u).orValue('')"#
+
+// label: Expr -> live (still resolving when unavailable, so a label shows the
+// name, not "unavailable"); Simple -> the opted-in structure (same bypass
+// semantics as Expr); String -> literal; null -> the entity's
+// friendly_name (falling back to its id) baked as a literal.
+const function labelSlot(entity: hass.Entity?, label: (String|Expr|simpleMod.Simple)?): Slot|String =
+  if (label is Expr) new Slot { entityId = label.entityId; transform = label.transform; bypassUnavailable = false }
+  else if (label is simpleMod.Simple) new Slot { transform = label; bypassUnavailable = false }
+  else if (label != null) label
+  else if (entity != null) entity.friendly_name ?? entity.entity_id
+  else ""
+
+// value: null -> the state with the entity's unit appended, OPTED IN
+// ([[simpleMod.suffixUnit]] — the auto-unit shape); String -> that attribute guarded
+// plus the unit — TWO reads (the attribute and the unit), so no Simple shape
+// covers it and it stays CEL; Expr -> your expression verbatim (you own the
+// unit); Simple -> the opted-in structure verbatim (you own everything — no
+// unit is auto-appended; [[simpleMod.suffixUnit]] is the unit shape).
+const function valueSlot(value: (String|Expr|simpleMod.Simple)?): Slot =
+  if (value is Expr) new Slot { entityId = value.entityId; transform = value.transform }
+  else if (value is simpleMod.Simple) new Slot { transform = value }
+  else if (value == null) new Slot { transform = simpleMod.suffixUnit("unit_of_measurement") }
+  else new Slot {
+    transform =
+      "attr[?'" + value + "'].orValue('')" +
+      " + (" + UNIT_EXPR + ")"
+  }
+
+// secondary (only built when authored): String -> that attribute, guarded, no
+// unit — now opted in ([[simpleMod.attr]]); Expr -> live; Simple -> the
+// opted-in structure. Empty default keeps the mustache section collapsed when
+// blank.
+const function secondarySlot(secondary: String|Expr|simpleMod.Simple): Slot =
+  if (secondary is Expr) new Slot {
+    entityId = secondary.entityId
+    transform = secondary.transform
+    default = ""
+  }
+  else if (secondary is simpleMod.Simple) new Slot { transform = secondary; default = "" }
+  else new Slot { transform = simpleMod.attr(secondary); default = "" }

@@ -1,0 +1,49 @@
+/// The house-wide lists every generated dump has — declared here as a CONTRACT
+/// rather than left to what `PklDump` happens to emit.
+///
+/// Why this module exists at all: `site.pkl`, the starter seeded into every
+/// fresh workspace, names no concrete entity — each section is a query over one
+/// of these lists, so it renders on any installation. That makes them the one
+/// part of the dump an entry can rely on WITHOUT having looked at the dump, and
+/// a generated property is the wrong shape for that: if the generator ever
+/// stopped emitting one, the failure would be `Cannot find property` at eval, on
+/// somebody's first boot. A declaration with a `List()` default cannot fail that
+/// way — an empty house answers `List()`, not an error.
+///
+/// The house is the only scope that carries per-domain lists. A smaller scope
+/// answers `all`, and a domain comes out of it through the selector that owns
+/// that domain (`hass.pkl`), so a query's `from` takes either:
+///
+///     q.from(dump.lights)                          // the house
+///     q.from(hass.lights(dump.areas.stue.all))     // one room
+///     q.from(hass.lights(dump.floors.loft.all))    // one floor
+///
+/// Which is why only `all` is generated, per scope: the domain lists here
+/// are derived from it by the same selectors an author calls, so a generated
+/// list and a hand-written filter cannot answer differently.
+///
+/// `entities`/`areas`/`floors`/`devices` are NOT declared here: their types are
+/// generated per home (`class Entities { light_taklys: E_light_taklys … }`), so
+/// there is nothing generic to declare. This module covers exactly the part that
+/// can be typed once for every home.
+///
+/// `open` because the generated `dump.pkl` EXTENDS it — `amends` would forbid
+/// the class declarations that are most of what a dump is ("Class needs a
+/// `local` modifier"; the error names `extends` as the way out).
+open module dumpBase
+
+import "../hass.pkl"
+
+/// Every entity in the home, in entity-id order — the one list the generator
+/// fills, and the one an empty house answers `List()` for.
+hidden all: List<hass.Entity> = List()
+
+/// Every light in the home, in entity-id order. A dashboard wanting another
+/// order sorts the list with plain Pkl before `from`.
+hidden lights: List<hass.LightEntity> = hass.lights(all)
+hidden locks: List<hass.LockEntity> = hass.locks(all)
+hidden sensors: List<hass.SensorEntity> = hass.sensors(all)
+hidden binarySensors: List<hass.BinarySensorEntity> = hass.binarySensors(all)
+hidden switches: List<hass.SwitchEntity> = hass.switches(all)
+/// Every entity no other list claims, so these lists partition `all`.
+hidden generic: List<hass.Entity> = hass.generic(all)

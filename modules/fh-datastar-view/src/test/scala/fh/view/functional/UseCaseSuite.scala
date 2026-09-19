@@ -4,19 +4,20 @@ import cats.data.NonEmptyList
 import cats.effect.IO
 import com.comcast.ip4s.{host, port}
 import fh.view.build.{
-  AddonBootstrap,
   DashboardBuild,
   DumpPackage,
   LibPackage,
   Pins,
+  PklBuild,
   PklDump,
+  Site,
   SourceEval,
   SystemPkl
 }
 import fh.view.model.Dashboard
 import fh.view.runtime.TestServer
 
-import fh.view.testkit.{HouseFixture, PklFixture}
+import fh.view.testkit.{HouseFixture, PklFixture, PklWorkspace}
 
 import org.http4s.*
 import org.http4s.ember.server.EmberServerBuilder
@@ -56,12 +57,7 @@ class UseCaseSuite extends munit.CatsEffectSuite {
   private def stageWorkspace(withDump: Boolean): os.Path = {
     val root = os.temp.dir()
     val ws = root / "fh-dashboards"
-    val _ = AddonBootstrap.run(
-      ws,
-      bundledLib = bundled,
-      cacheDir = root / "pkl-cache",
-      loopbackUrl = "http://127.0.0.1:8080"
-    )
+    val _ = PklWorkspace.bootstrapInto(ws, bundled, root / "pkl-cache")
     if (withDump) {
       val _ = DumpPackage.seedFromText(
         ws,
@@ -102,12 +98,7 @@ class UseCaseSuite extends munit.CatsEffectSuite {
     // nothing here is fetched.
     val root = os.temp.dir()
     val ws = root / "fh-dashboards"
-    val _ = AddonBootstrap.run(
-      ws,
-      bundledLib = bundled,
-      cacheDir = root / "pkl-cache",
-      loopbackUrl = "http://127.0.0.1:8080"
-    )
+    val _ = PklWorkspace.bootstrapInto(ws, bundled, root / "pkl-cache")
     val _ =
       DumpPackage.seedFromText(
         ws,
@@ -118,6 +109,37 @@ class UseCaseSuite extends munit.CatsEffectSuite {
 
     val result = SourceEval.eval(ws, "mine.pkl")
     assert(result.isRight, clue = result)
+  }
+
+  test("end user on /edit: a saved file says whether the site reads it") {
+    // The editor's note after a write, on a workspace whose analysis really
+    // RUNS (the stub in EditorSuite cannot, and answers conservatively). Here
+    // `mine.pkl` is a module nothing names, so the false is the true answer —
+    // and it flips the moment the entrypoint imports it, without a reload,
+    // because the answer comes from the sources rather than the live site.
+    val ws = stageWorkspace(withDump = true)
+    os.write(ws / "mine.pkl", entryNeedingDump)
+    // One evaluation first, as a running instance has always done by the time
+    // anyone saves: it writes the lockfile the static analyser needs. Without
+    // it the analysis cannot resolve the package imports and answers with the
+    // conservative superset — everything read — which is the right failure
+    // direction but says nothing about this test's question.
+    val _ = SourceEval.eval(ws, Site.EntryFile)
+
+    def used(): Boolean =
+      PklBuild
+        .fileImports(ws, Site.EntryFile)
+        .contains(ws / "mine.pkl")
+
+    assert(!used(), clue = "an unreferenced module counted as read")
+
+    os.write.over(
+      ws / Site.EntryFile,
+      """amends "@fh-dashboard/site.pkl"
+        |dashboards { ["mine"] = import("mine.pkl") }
+        |""".stripMargin
+    )
+    assert(used(), clue = "a module the entrypoint imports counted as unread")
   }
 
   // ---------------------------------------------------------------- persona 2
@@ -140,7 +162,7 @@ class UseCaseSuite extends munit.CatsEffectSuite {
         SystemPkl.fromDisk(instance)
       )
       .use { ts =>
-        val app = ts.server.routes.orNotFound
+        val app = ts.gatedApp
         for {
           pulled <- app.run(Request[IO](Method.GET, uri))
           body <- pulled.body.through(fs2.text.utf8.decode).compile.string
@@ -175,12 +197,7 @@ class UseCaseSuite extends munit.CatsEffectSuite {
     val root = os.temp.dir()
     val instance = root / "fh-dashboards"
     val instanceCache = root / "pkl-cache"
-    val _ = AddonBootstrap.run(
-      instance,
-      bundledLib = bundled,
-      cacheDir = instanceCache,
-      loopbackUrl = "http://127.0.0.1:8080"
-    )
+    val _ = PklWorkspace.bootstrapInto(instance, bundled, instanceCache)
     val _ =
       DumpPackage.seedFromText(
         instance,
@@ -228,13 +245,13 @@ class UseCaseSuite extends munit.CatsEffectSuite {
           .default[IO]
           .withHost(host"127.0.0.1")
           .withPort(port"0")
-          .withHttpApp(ts.server.routes.orNotFound)
+          .withHttpApp(ts.gatedApp)
           .withShutdownTimeout(0.seconds)
           .build
           .map(bound => (ts, bound.baseUri))
       }
       .use { case (ts, base) =>
-        val app = ts.server.routes.orNotFound
+        val app = ts.gatedApp
         val get = (file: String) =>
           app.run(
             Request[IO](
@@ -295,12 +312,7 @@ class UseCaseSuite extends munit.CatsEffectSuite {
     // versions + metadata sha256 of both packages, as JSON.
     val root = os.temp.dir()
     val instance = root / "fh-dashboards"
-    val _ = AddonBootstrap.run(
-      instance,
-      bundledLib = bundled,
-      cacheDir = root / "pkl-cache",
-      loopbackUrl = "http://127.0.0.1:8080"
-    )
+    val _ = PklWorkspace.bootstrapInto(instance, bundled, root / "pkl-cache")
     val _ =
       DumpPackage.seedFromText(
         instance,
@@ -315,7 +327,7 @@ class UseCaseSuite extends munit.CatsEffectSuite {
         SystemPkl.fromDisk(instance)
       )
       .use { ts =>
-        val app = ts.server.routes.orNotFound
+        val app = ts.gatedApp
         for {
           json <- app.run(Request[IO](Method.GET, uri"/system/pkl/packages"))
           jsonBody <- json.body.through(fs2.text.utf8.decode).compile.string
@@ -348,12 +360,7 @@ class UseCaseSuite extends munit.CatsEffectSuite {
     // artifacts are served too — which is exactly what `pull` re-pins to.
     val root = os.temp.dir()
     val instance = root / "fh-dashboards"
-    val _ = AddonBootstrap.run(
-      instance,
-      bundledLib = bundled,
-      cacheDir = root / "pkl-cache",
-      loopbackUrl = "http://127.0.0.1:8080"
-    )
+    val _ = PklWorkspace.bootstrapInto(instance, bundled, root / "pkl-cache")
     val _ =
       DumpPackage.seedFromText(
         instance,
@@ -368,7 +375,7 @@ class UseCaseSuite extends munit.CatsEffectSuite {
         SystemPkl.fromDisk(instance)
       )
       .use { ts =>
-        val app = ts.server.routes.orNotFound
+        val app = ts.gatedApp
         val get = (path: String) =>
           app.run(Request[IO](Method.GET, Uri.unsafeFromString(path)))
 
@@ -424,7 +431,7 @@ class UseCaseSuite extends munit.CatsEffectSuite {
     import org.pkl.core.http.HttpClient
     import org.pkl.core.packages.PackageResolver
     import org.pkl.core.project.{Project, ProjectDependenciesResolver}
-    import org.pkl.core.{EvaluatorBuilder, ModuleSource, SecurityManagers}
+    import org.pkl.core.{EvaluatorBuilder, ModuleSource}
 
     val http = HttpClient
       .builder()
@@ -433,33 +440,59 @@ class UseCaseSuite extends munit.CatsEffectSuite {
         java.net.URI.create(s"${base.renderString}/system/pkl/packages/")
       )
       .build()
-    val resolver = new ProjectDependenciesResolver(
-      Project.loadFromPath((laptop / "PklProject").toNIO),
-      PackageResolver.getInstance(
-        SecurityManagers.defaultManager,
-        http,
-        laptopCache.toNIO
-      ),
-      new java.io.PrintWriter(new java.io.StringWriter)
+    // A real laptop gets this from the base.pkl `fh init` fetched, which scopes
+    // the allowance to its own instance. Here the port is only known now, so
+    // append the equivalent block before loading.
+    os.write.append(
+      laptop / "PklProject",
+      s"""|evaluatorSettings {
+          |  // Declaring the field REPLACES pkl's defaults, so they are relisted
+          |  // here (this manifest amends pkl:Project directly, not base.pkl).
+          |  allowedResources {
+          |    "prop:"
+          |    "env:"
+          |    "file:"
+          |    "modulepath:"
+          |    "package:"
+          |    "projectpackage:"
+          |    "https:"
+          |    "^${base.renderString.stripSuffix("/").replace(".", "[.]")}/"
+          |  }
+          |}
+          |""".stripMargin
     )
-    val out =
-      new java.io.FileOutputStream(
-        (laptop / "PklProject.deps.json").toNIO.toFile
+    fh.view.build.PklBuild.serialized {
+      val laptopProject = Project.loadFromPath((laptop / "PklProject").toNIO)
+      val resolver = new ProjectDependenciesResolver(
+        laptopProject,
+        PackageResolver.getInstance(
+          // The manifest's own allowedResources, exactly as production derives
+          // it — a laptop resolving from the instance goes over plain http.
+          fh.view.build.PklBuild.securityManagerFor(laptopProject),
+          http,
+          laptopCache.toNIO
+        ),
+        new java.io.PrintWriter(new java.io.StringWriter)
       )
-    try resolver.resolve().writeTo(out)
-    finally out.close()
+      val out =
+        new java.io.FileOutputStream(
+          (laptop / "PklProject.deps.json").toNIO.toFile
+        )
+      try resolver.resolve().writeTo(out)
+      finally out.close()
 
-    val evaluator = EvaluatorBuilder
-      .preconfigured()
-      .setHttpClient(http)
-      .setModuleCacheDir(laptopCache.toNIO)
-      .applyFromProject(Project.loadFromPath((laptop / "PklProject").toNIO))
-      .build()
-    try
-      evaluator
-        .evaluate(ModuleSource.path((laptop / "mine.pkl").toNIO))
-        .getProperties
-    finally evaluator.close()
+      val evaluator = EvaluatorBuilder
+        .preconfigured()
+        .setHttpClient(http)
+        .setModuleCacheDir(laptopCache.toNIO)
+        .applyFromProject(laptopProject)
+        .build()
+      try
+        evaluator
+          .evaluate(ModuleSource.path((laptop / "mine.pkl").toNIO))
+          .getProperties
+      finally evaluator.close()
+    }
   }
 
   // ---------------------------------------------------------------- persona 3
@@ -474,15 +507,15 @@ class UseCaseSuite extends munit.CatsEffectSuite {
     // (a restart re-seeds the cache), so only the entry itself (and any loose
     // imports) is watched. Iterating on `lib/` is a restart or `fh push`.
     val dir = stageWorkspace(withDump = true)
-    // Bootstrap already seeded the starter `dashboard.pkl`; overwrite it with
+    // Bootstrap already seeded the starter `site.pkl`; overwrite it with
     // the entry this test needs.
-    os.write.over(dir / "dashboard.pkl", entryNeedingDump)
+    os.write.over(dir / "site.pkl", entryNeedingDump)
 
     val imports = SourceEval
-      .eval(dir, "dashboard.pkl")
+      .eval(dir, "site.pkl")
       .fold(err => fail(s"eval failed: $err"), _.imports)
 
-    assertEquals(imports, Set(dir / "dashboard.pkl"), clue = imports)
+    assertEquals(imports, Set(dir / "site.pkl"), clue = imports)
   }
 
   // ---------------------------------------------------------------- persona 4
@@ -492,13 +525,16 @@ class UseCaseSuite extends munit.CatsEffectSuite {
     * `componentModules`.
     */
   private val privateComponent =
+    // A card author imports the KIT (`core/node.pkl`), not the shipped
+    // components: `components.pkl` is the dashboard-authoring facade and holds
+    // no card contract at all.
     """module mycards
       |
-      |import "@fh-dashboard/components.pkl" as c
+      |import "@fh-dashboard/core/node.pkl" as nodes
       |
-      |class Gauge extends c.Node {
+      |class Gauge extends nodes.Node {
       |  card = "gauge"
-      |  cardDef = new c.LeafCard {
+      |  cardDef = new nodes.CardDef {
       |    template = "<article class=\"mine\">{{label}}</article>"
       |    slots { "label" }
       |  }
@@ -555,7 +591,7 @@ class UseCaseSuite extends munit.CatsEffectSuite {
     TestServer
       .resource(PklFixture.buildDashboard("home", entryNeedingDump), Nil)
       .use { ts =>
-        val app = ts.server.routes.orNotFound
+        val app = ts.gatedApp
         val push = (slug: String, body: String) =>
           app.run(
             Request[IO](
@@ -595,6 +631,83 @@ class UseCaseSuite extends munit.CatsEffectSuite {
           assert(bogusBody.contains("nosuchcard"), clue = bogusBody)
 
           assertEquals(notJson.status, Status.BadRequest)
+        }
+      }
+  }
+
+  test("component developer: pushing the whole SITE installs every key") {
+    // `fh push site.pkl` is the natural thing to type since ADR 0021, so the
+    // push route takes an evaluated entrypoint as well as a single dashboard.
+    // Then the KEYS are the slugs — the URL's is ignored, because a site names
+    // its own — and it is all-or-nothing: a site whose one dashboard is
+    // invalid installs nothing, since a half-installed site is not a state
+    // anybody asked for.
+    val dir = stageWorkspace(withDump = true)
+    os.write.over(
+      dir / Site.EntryFile,
+      s"""amends "@fh-dashboard/site.pkl"
+         |
+         |import "@fh-dashboard/components.pkl" as c
+         |import "@fh-dashboard/theme.pkl" as th
+         |
+         |dashboards {
+         |  ["one"] { theme = ${PklFixture.dummyTheme}; card = c.title("first") }
+         |  ["two"] { theme = ${PklFixture.dummyTheme}; card = c.title("second") }
+         |}
+         |""".stripMargin
+    )
+    val site = SourceEval
+      .eval(dir, Site.EntryFile)
+      .fold(err => fail(s"site eval failed: $err"), _.value.noSpaces)
+
+    // The same shape with one unknown card: the push must reject it whole.
+    val broken = io.circe.parser
+      .parse(site)
+      .toOption
+      .get
+      .hcursor
+      .downField("dashboards")
+      .downField("two")
+      .downField("card")
+      .downField("card")
+      .withFocus(_ => io.circe.Json.fromString("nosuchcard"))
+      .top
+      .get
+      .noSpaces
+
+    TestServer
+      .resource(PklFixture.buildDashboard("home", entryNeedingDump), Nil)
+      .use { ts =>
+        val app = ts.gatedApp
+        val push = (slug: String, body: String) =>
+          app.run(
+            Request[IO](
+              Method.POST,
+              Uri.unsafeFromString(s"/system/push/$slug")
+            ).withEntity(body)
+          )
+        for {
+          rejected <- push("ignored", broken)
+          rejectedBody <- rejected.body
+            .through(fs2.text.utf8.decode)
+            .compile
+            .string
+          // Nothing from the rejected site landed.
+          afterReject <- app.run(Request[IO](Method.GET, uri"/d/one"))
+          pushed <- push("ignored", site)
+          one <- app.run(Request[IO](Method.GET, uri"/d/one"))
+          two <- app.run(Request[IO](Method.GET, uri"/d/two"))
+          // The URL's slug is not one of them: a site names its own.
+          urlSlug <- app.run(Request[IO](Method.GET, uri"/d/ignored"))
+        } yield {
+          assertEquals(rejected.status, Status.BadRequest)
+          assert(rejectedBody.contains("nosuchcard"), clue = rejectedBody)
+          assertEquals(afterReject.status, Status.NotFound)
+
+          assertEquals(pushed.status, Status.Ok)
+          assertEquals(one.status, Status.Ok)
+          assertEquals(two.status, Status.Ok)
+          assertEquals(urlSlug.status, Status.NotFound)
         }
       }
   }

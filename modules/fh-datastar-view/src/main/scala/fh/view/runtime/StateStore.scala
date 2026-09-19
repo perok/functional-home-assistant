@@ -23,7 +23,14 @@ case class EntityState(
     // state is applied only if it isn't older than the stored one, so a
     // reconnect's full set can't clobber a fresher delta. `None` when the frame
     // carried no timestamp; then updates fall back to value dedup.
-    lastUpdated: Option[Instant] = None
+    lastUpdated: Option[Instant] = None,
+    // The store version at which this entity's CONTENT last moved — stamped by
+    // [[StateStore.update]], carried over unchanged when a newer-but-identical
+    // state lands. So it moves exactly when `sameContent` says something moved,
+    // which makes it a `Long` stand-in for "the rendered value of this entity"
+    // ([[Renderer.renderInputs]], ADR 0012). NOT the store
+    // version: entities that did not move in a batch keep their older stamp.
+    contentVersion: Long = 0L
 ) {
 
   /** The entity's domain, i.e. the entity-id prefix (`light.kitchen` ->
@@ -39,13 +46,16 @@ case class EntityState(
     */
   def unavailable: Boolean = EntityState.unavailableStates(state)
 
-  /** The attributes as plain Java values for JSONata's `$attr.*` navigation,
-    * converted **once per state version** and reused across every
-    * slot/transform on this entity (a card with three `$attr` slots converts
-    * the map once, not three times). A fresh `EntityState` is built on every
-    * change, so this cache invalidates naturally. Numbers stay numeric (so
-    * `$attr.brightness` arithmetic works), nested objects/arrays recurse, null
-    * fields drop out.
+  /** The attributes as plain Java values — what CEL binds as `attr` and what
+    * the `Transform.Simple` fast tier reads directly. Converted **once per
+    * state version** and reused across every slot on this entity (a card with
+    * three attribute slots converts the map once, not three times). A fresh
+    * `EntityState` is built on every change, so this cache invalidates
+    * naturally — and re-converts, which is measured: 3.4% of a signals tick's
+    * allocation (`RenderBench.resumeSignals`), the number that says carrying it
+    * across a tick is not worth the type it would take. Numbers stay numeric
+    * (so `attr['brightness']` arithmetic works), nested objects/arrays recurse,
+    * null fields drop out.
     */
   lazy val javaAttributes: java.util.Map[String, Any] =
     EntityState.toJavaObject(attributes)
@@ -53,6 +63,13 @@ case class EntityState(
 
 object EntityState {
   val unavailableStates: Set[String] = Set("unavailable", "unknown")
+
+  /** The subject supplied where there is none to supply — a surface's state
+    * condition, which names every entity it reads. Nothing reads this; it
+    * exists because `Conditions.matchesIn` takes a subject, and
+    * `Dashboard.validate` rejects the comparison that would fall back to it.
+    */
+  val none: EntityState = EntityState("", "", Map.empty)
 
   /** HA's compressed feed timestamps are epoch SECONDS as a float; millisecond
     * resolution is more than recency needs.
@@ -78,16 +95,21 @@ object EntityState {
   def sameContent(a: EntityState, b: EntityState): Boolean =
     a.state == b.state && a.attributes == b.attributes
 
-  /** Convert a circe attribute map to a Java map for JSONata. Kept here (with
-    * the cached [[EntityState.javaAttributes]]) rather than in [[Transform]],
-    * so the conversion happens once per state, not once per transform
-    * evaluation.
+  /** Convert a circe attribute map to a Java map. Kept here (with the cached
+    * [[EntityState.javaAttributes]]) rather than in `Transform`, so the
+    * conversion happens once per state, not once per transform evaluation.
     */
   private[runtime] def toJavaObject(
       attrs: Map[String, Json]
   ): java.util.Map[String, Any] = {
     val m = new java.util.LinkedHashMap[String, Any](attrs.size)
-    attrs.foreach { case (k, v) => m.put(k, toJava(v)) }
+    // A JSON null attribute is DROPPED, so `'k' in attr` is false and the slot's
+    // default takes over — the same "null is absent" rule `jsonToString` applies
+    // to state. (A kept null would make CEL's map index throw instead.)
+    attrs.foreach {
+      case (k, v) if !v.isNull => { m.put(k, toJava(v)); () }
+      case _                   => ()
+    }
     m
   }
 
@@ -112,7 +134,7 @@ object EntityState {
 
 /** One applied state change: the entity, its `previous` value (None if newly
   * seen), and its `current` value. Carrying both lets a consumer decide whether
-  * a change affects a data-dependent view (a dynamic group) by testing the
+  * a change affects a data-dependent view (a candidate set) by testing the
   * group's query against the before AND after state — so an add, a remove, or
   * an in-place update all register, while an unrelated entity is skipped,
   * without any per-consumer membership tracking.
@@ -217,7 +239,7 @@ class StateStore private (
 
   /** Apply a batch of ingests in ONE ref update, publishing a [[StateChange]]
     * per entity whose content actually changed. The previous value rides along
-    * so a dynamic group can tell whether the change crossed its membership
+    * so a candidate set can tell whether the change crossed its membership
     * boundary.
     *
     * A newer-but-identical state is stored (to advance the timestamp) but not
@@ -226,6 +248,17 @@ class StateStore private (
     * as a [[Ingest.Replace]], and only the ones that actually moved during the
     * outage produce a change, so every connected browser catches up over its
     * live SSE stream with no per-client tracking.
+    *
+    * The saving is DOWNSTREAM of this fold, which walks every ingest either
+    * way: what an empty `changes` buys is the frame behind it — no
+    * `topic.publish1`, and a `version` that stays put, so no client's cursor
+    * goes stale and no publisher pass runs at all.
+    *
+    * A reconnect's full set does not even reach `put`: HA re-sends the
+    * `last_updated` it gave us, so [[EntityState.stale]] (equal counts as not
+    * newer) drops each [[Ingest.Replace]] one level up. What lands in `put`'s
+    * dedup arm is the narrower case of a state whose timestamp really did move
+    * while its content did not.
     */
   private[runtime] def update(ingests: Iterable[Ingest]): IO[Unit] =
     ref
@@ -239,17 +272,29 @@ class StateStore private (
               def put(
                   value: EntityState,
                   previous: Option[EntityState]
-              ) = {
-                val m2 = m.updated(value.entityId, value)
-                if (previous.exists(EntityState.sameContent(_, value)))
-                  (m2, changes, removed)
-                else
-                  (
-                    m2,
-                    StateChange(value.entityId, previous, value) :: changes,
-                    removed
-                  )
-              }
+              ) =
+                // The stamp rides WITH the value, so whatever is stored and
+                // whatever is published carry the same one — a StateChange
+                // whose `current` disagreed with the store would key a render
+                // to a version the snapshot never had.
+                previous.filter(EntityState.sameContent(_, value)) match {
+                  case Some(same) =>
+                    (
+                      m.updated(
+                        value.entityId,
+                        value.copy(contentVersion = same.contentVersion)
+                      ),
+                      changes,
+                      removed
+                    )
+                  case None =>
+                    val stamped = value.copy(contentVersion = batch)
+                    (
+                      m.updated(value.entityId, stamped),
+                      StateChange(value.entityId, previous, stamped) :: changes,
+                      removed
+                    )
+                }
 
               val previous = m.get(ingest.entityId)
               ingest match {

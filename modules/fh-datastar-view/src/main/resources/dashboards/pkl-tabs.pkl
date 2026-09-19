@@ -1,12 +1,12 @@
-// A Pkl-authored tabs dashboard, served at /d/pkl-tabs (slug = filename) — the
-// typed counterpart of tabs.jsonnet. Demonstrates the `Tabs` sugar: one bar over
-// a single inline panel, one tab visible at a time.
+// A Pkl-authored tabs dashboard — point a key at it from `site.pkl`
+// to serve it (ADR 0021). Demonstrates the `Tabs` sugar: one bar over a single
+// inline panel, one tab visible at a time.
 //
 // `(c.tabs) { tabs { ["Label"] { ...cards... } } }` is pure composition — each
 // tab amends into existence off the mapping default (its body lists the panel's
 // cards directly; the Row wrap is automatic), the build-phase hoist lifts each
 // panel into the surfaces registry (sharing one exclusivity group + one inline
-// mount), the bar buttons open them, the first tab bakes inline for an instant
+// host), the bar buttons open them, the first tab bakes inline for an instant
 // first paint, and the active tab is tracked in a signal (+ URL param) for the
 // highlight and reload-restore. Switching reuses the same surface open/close
 // machinery as popups.
@@ -27,7 +27,7 @@ card = (c.column) {
 
     (c.row) {
       children {
-        c.button("« Home", c.navigate("dashboard"))
+        c.button("« Home", c.tap.navigate("home"))
       }
     }
     (c.tabs) {
@@ -35,16 +35,16 @@ card = (c.column) {
         // Entity cards toggled on tap (options amended onto the call).
         ["Lights"] {
           (c.entityCard(dump.entities.light_skyconnect_v1_0_light_group_overetasje_stue_sittegruppe_gang)) {
-            tap = c.toggleTap
+            tapAction = c.tap.toggle
           }
         }
         // Live value expressions (own unit).
         ["Sensors"] {
           (c.entityCard(dump.entities.sensor_ams_1a4e_q)) {
-            value = c.expr(#"$round($number($state), 1) & " " & $attr.unit_of_measurement"#)
+            value = c.expr(#"str(math.round(num(state) * 10.0) / 10.0) + ' ' + attr[?'unit_of_measurement'].orValue('')"#)
           }
           (c.entityCard(dump.entities.sensor_ams_1a4e_u1)) {
-            value = c.expr(#"$round($number($state), 1) & " " & $attr.unit_of_measurement"#)
+            value = c.expr(#"str(math.round(num(state) * 10.0) / 10.0) + ' ' + attr[?'unit_of_measurement'].orValue('')"#)
           }
         }
       }

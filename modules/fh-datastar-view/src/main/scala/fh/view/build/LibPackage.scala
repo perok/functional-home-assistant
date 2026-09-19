@@ -45,9 +45,10 @@ object LibPackage {
   /** The workspace's effective lib pin — the version the ENTRY resolves
     * `@fh-dashboard` to, which the dump package must declare to keep module
     * identity. Read off the LOADED pkl project's declared dependencies
-    * (spike-verified on 0.31.1: `getDependencies.getRemoteDependencies`), so
-    * pkl itself applies the amends chain — a user override in `PklProject`
-    * shadows the base default, otherwise the machine pin `base.pkl` read from
+    * (spike-verified on 0.31.1: `getDependencies.remoteDependencies` — the
+    * record accessor; the `get`-prefixed one is deprecated as of 0.32), so pkl
+    * itself applies the amends chain — a user override in `PklProject` shadows
+    * the base default, otherwise the machine pin `base.pkl` read from
     * `.fh/pins.json` comes through. (An earlier text-regex scan of the manifest
     * matched the pin EXAMPLE in the seeded doc header — exactly the class of
     * bug delegating to the real parser removes.) `None` when the workspace has
@@ -55,15 +56,19 @@ object LibPackage {
     * bootstrapped package-form workspace).
     */
   def effectivePin(dashboardsDir: os.Path): Option[String] =
-    scala.util
-      .Try(
-        org.pkl.core.project.Project
-          .loadFromPath((dashboardsDir / "PklProject").toNIO)
-      )
-      .toOption
-      .flatMap(p => Option(p.getDependencies.getRemoteDependencies.get(Name)))
-      .map(_.getPackageUri.toString)
-      .flatMap(uri => PackageRef.parse(uri).map(_.version))
+    // `loadFromPath` EVALUATES the manifest — `pkl.Project` is one of the two
+    // stdlib modules #226's race was caught inside — so it takes the same claim.
+    PklBuild.serialized(
+      scala.util
+        .Try(
+          org.pkl.core.project.Project
+            .loadFromPath((dashboardsDir / "PklProject").toNIO)
+        )
+        .toOption
+        .flatMap(p => Option(p.getDependencies.remoteDependencies.get(Name)))
+        .map(_.getPackageUri.toString)
+        .flatMap(uri => PackageRef.parse(uri).map(_.version))
+    )
 
   /** The lib's BASE version, from the `version = "…"` line of its `PklProject`
     * text — the ONE place a human-declared version lives (decoupled from the

@@ -1,72 +1,32 @@
 package fh.view.smoke
 
 import cats.effect.{IO, Resource}
-import com.microsoft.playwright.{Browser, BrowserType, Page, Playwright}
-import com.microsoft.playwright.options.ViewportSize
+import com.microsoft.playwright.{Browser, Page}
+import com.microsoft.playwright.options.{ServiceWorkerPolicy, ViewportSize}
 import fh.view.runtime.TestServer
-import fh.view.testkit.Scene
+import fh.view.testkit.{FakeConfig, Scene}
 
-import scala.compiletime.uninitialized
 import scala.concurrent.duration.*
-import scala.jdk.CollectionConverters.*
 
-/** Base for the browser smoke suites (ADR 0009): one Playwright + headless
-  * Chromium per suite (cheap page creation off the shared browser), a fresh
-  * bound [[TestServer]] + `BrowserContext`/[[Page]] per test — so recorded
-  * calls, seeded state, and ui state (the tabs selection) never bleeds between
-  * tests — navigated to the dashboard under test. Every [[withPage]] call fails
-  * the test on any browser console `error`: a silent JS exception (a wrong
-  * `data-on:click` selector, a dropped SSE continuation line) is exactly the
-  * class of bug a wire-level test can't see — that's the whole reason this
-  * suite exists.
+/** Base for the browser smoke suites (ADR 0009): a dashboard served by a
+  * freshly bound [[TestServer]] and driven through a fresh
+  * `BrowserContext`/[[Page]] per test — so recorded calls, seeded state, and ui
+  * state (the tabs selection) never bleeds between tests.
+  *
+  * The browser itself belongs to [[BrowserSuite]]; what this adds is the served
+  * dashboard. Every [[withPage]] call fails the test on any browser console
+  * `error`: a silent JS exception (a wrong `data-on:click` selector, a dropped
+  * SSE continuation line) is exactly the class of bug a wire-level test can't
+  * see — that's the whole reason this suite exists.
   */
-abstract class SmokeSuite extends munit.CatsEffectSuite {
+abstract class SmokeSuite extends BrowserSuite {
 
-  private var playwright: Playwright = uninitialized
-  private var browser: Browser = uninitialized
-
-  override def beforeAll(): Unit = {
-    // The sbt server's own env predates this session's `PLAYWRIGHT_*` vars
-    // (sbt 2.0's persistent server keeps its start-time env), and the Java
-    // driver only skips its own browser install when it sees
-    // `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD` — so it's passed explicitly here
-    // rather than relied on from the process environment. The browser is
-    // preinstalled at this Playwright version's pinned revision (see the GHA
-    // `playwright install` step / `PLAYWRIGHT_BROWSERS_PATH`), so the driver
-    // resolves its own executable under that path — no explicit
-    // `executablePath` needed (ADR 0009).
-    playwright = Playwright.create(
-      new Playwright.CreateOptions().setEnv(
-        (sys.env ++ Map("PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD" -> "1")).asJava
-      )
-    )
-    browser = playwright
-      .chromium()
-      .launch(
-        new BrowserType.LaunchOptions()
-          .setHeadless(true)
-          .setArgs(
-            List(
-              // https://github.com/microsoft/playwright/issues/8161#issuecomment-3643962063
-              "--disable-gpu",
-              "--disable-font-subpixel-positioning",
-              "--disable-lcd-text",
-              "--disable-threaded-animation",
-              "--disable-threaded-scrolling",
-              "--disable-in-process-stack-traces",
-              "--disable-checker-imaging",
-              "--force-color-profile=srgb"
-            ).asJava
-          )
-      )
-  }
-
-  override def afterAll(): Unit = {
-    if (browser != null) browser.close()
-    if (playwright != null) playwright.close()
-  }
-
-  /** Serve `scene`'s dashboard — seeded with the entities it references (plus
+  /** ONE page, held open for the test — see ADR 0009 §4 "Known gap": no smoke
+    * suite has two browsers on a dashboard at once, and none drops and reopens
+    * an SSE stream, so anything that only goes wrong on a reconnect or between
+    * two clients is invisible here (it has already hidden two real bugs).
+    *
+    * Serve `scene`'s dashboard — seeded with the entities it references (plus
     * any `.entity(...)` extras), auto-derived by the [[Scene]] builder so the
     * served world can't drift from the dashboard — on a freshly bound
     * [[TestServer]], open a fresh `BrowserContext`/[[Page]] against it,
@@ -75,7 +35,10 @@ abstract class SmokeSuite extends munit.CatsEffectSuite {
     * browser opens its OWN SSE connection, so a test that emits a change still
     * must await it, exactly as [[TestServer.observePatch]] does for the
     * HTTP-body-stream suites). Everything is released after; a global timeout
-    * so a missed assertion fails fast rather than hanging the suite.
+    * so a test that hangs outright still ends the suite. It is deliberately
+    * several times [[BrowserSuite.AssertionTimeout]]: a test makes a handful of
+    * retrying assertions in sequence, and this bound exists to catch a hang,
+    * not to be the thing that decides a failure.
     *
     * Fails on any uncaught JS exception ([[Page.onPageError]]) — a wrong
     * `data-on:click` selector or a dropped SSE continuation line surfaces
@@ -86,17 +49,34 @@ abstract class SmokeSuite extends munit.CatsEffectSuite {
     */
   def withPage[A](
       scene: Scene,
-      viewport: Option[(Int, Int)] = None
+      viewport: Option[(Int, Int)] = None,
+      // The [[FakeConfig]] knobs for THIS test's fake — a delayed or failing
+      // `call_service`, for the guarded-action feedback tests.
+      fakeConfig: FakeConfig = FakeConfig(),
+      // A phone rather than a desktop: enables `page.touchscreen()` AND flips
+      // the `(pointer:coarse)` media query, which is the half of the slider's
+      // touch gate that lives in CSS. Both or neither — a touch event on a
+      // page still styled for a mouse would exercise a combination no device
+      // has.
+      touch: Boolean = false
   )(
       f: (Page, TestServer) => IO[A]
   ): IO[A] = {
     val pageErrors = collection.mutable.Buffer.empty[String]
     val contextOptions = new Browser.NewContextOptions()
+    // No service worker, because none of these suites is about the PWA and a
+    // live worker is a second actor in every one of them: `fhRegisterSw` runs
+    // on localhost (a secure context), the worker claims the page mid-test, and
+    // from then on the page has a fetch path the test never set up. Playwright
+    // offers this knob for exactly that reason. `ServerRoutesSuite` still
+    // covers `/sw.js` at the wire level, so nothing is left untested.
+    contextOptions.setServiceWorkers(ServiceWorkerPolicy.BLOCK)
     viewport.foreach { case (w, h) =>
       contextOptions.setViewportSize(new ViewportSize(w, h))
     }
+    if (touch) { val _ = contextOptions.setHasTouch(true) }
     val resource = for {
-      served <- TestServer.served(scene.dashboard, scene.entities)
+      served <- TestServer.served(scene.dashboard, scene.entities, fakeConfig)
       (ts, uri) = served
       context <- Resource.make(IO.blocking(browser.newContext(contextOptions)))(
         c => IO.blocking(c.close())
@@ -107,12 +87,31 @@ abstract class SmokeSuite extends munit.CatsEffectSuite {
       _ <- Resource.eval(IO.blocking(page.onPageError { err =>
         pageErrors += err
       }))
+      _ <- Resource.eval(IO.blocking {
+        if (sys.env.contains("FH_SMOKE_TRACE_URL")) {
+          val _ = page.addInitScript(
+            """window.__rs = [];
+              |const o = history.replaceState.bind(history);
+              |history.replaceState = (a,b,u) => { window.__rs.push(String(u)); return o(a,b,u); };
+              |""".stripMargin
+          )
+        }
+      })
+      _ <- Resource.eval(IO.blocking {
+        val rate = sys.env.getOrElse("FH_SMOKE_CPU_THROTTLE", "0").toDouble
+        if (rate > 1.0) {
+          val cdp = page.context().newCDPSession(page)
+          val p = new com.google.gson.JsonObject()
+          p.addProperty("rate", rate)
+          val _ = cdp.send("Emulation.setCPUThrottlingRate", p)
+        }
+      })
       _ <- Resource.eval(IO.blocking(page.navigate(uri.renderString)))
     } yield (page, ts)
 
     resource
       .use { case (p, ts) => f(p, ts) }
-      .timeout(45.seconds)
+      .timeout(90.seconds)
       .flatTap(_ => IO(assert(pageErrors.isEmpty, clue = pageErrors.toList)))
   }
 
@@ -124,7 +123,7 @@ abstract class SmokeSuite extends munit.CatsEffectSuite {
     */
   def eventually[A](
       io: IO[A],
-      timeout: FiniteDuration = 5.seconds,
+      timeout: FiniteDuration = BrowserSuite.AssertionTimeout,
       interval: FiniteDuration = 20.millis
   )(cond: A => Boolean): IO[A] =
     fs2.Stream
@@ -135,14 +134,88 @@ abstract class SmokeSuite extends munit.CatsEffectSuite {
       .lastOrError
       .timeout(timeout)
 
+  /** Wait for what a click was supposed to CAUSE, and give up the moment the
+    * control says it was refused instead.
+    *
+    * The failure it removes is a timeout that blames the wrong thing. A test
+    * that clicks and then waits for a consequence has no way to learn that the
+    * consequence is never coming: it burns its full timeout and reports "never
+    * saw X", which is true and says nothing about why. The cause is usually
+    * three layers away, and finding it has cost whole debugging sessions here.
+    *
+    * `_<id>__error` is what makes the shortcut possible (ADR 0019/0024): a
+    * refusal now LANDS on the control that was pressed, carrying HA's own
+    * message, so "this will never happen" is an observable state rather than an
+    * inference from silence. The refusal watcher has no timeout of its own on
+    * purpose — it must resolve only when a refusal actually appears, so the
+    * race is decided by whichever really occurs, not by whichever deadline
+    * lands first.
+    *
+    * Use it wherever a click is followed by "and then the page does X". A test
+    * ABOUT refusal wants the plain `fh-error` assertion instead — this one
+    * treats a refusal as the thing that went wrong.
+    */
+  def awaitAction[A](control: com.microsoft.playwright.Locator)(
+      outcome: IO[A]
+  ): IO[A] = {
+    // The control holds the STATE; the toast holds the words. Both come from
+    // the same refusal frame, so reading them together turns "never saw X"
+    // into the message HA actually gave.
+    val refused: IO[String] =
+      fs2.Stream
+        .repeatEval(
+          IO.blocking(
+            control.evaluate(
+              """el => el.classList.contains('fh-error')
+                |  ? ((el.dataset.fhNode || '?') + ': ' +
+                |     (document.querySelector('.fh-toast')?.textContent || 'no message'))
+                |  : null""".stripMargin
+            )
+          ).map(Option(_).map(_.toString)) <* IO.sleep(20.millis)
+        )
+        .unNone
+        .head
+        .compile
+        .lastOrError
+
+    IO.race(outcome, refused).flatMap {
+      case Left(a)    => IO.pure(a)
+      case Right(why) =>
+        IO.raiseError(
+          new AssertionError(
+            s"the action was REFUSED, so what this test waited for was never " +
+              s"going to happen — $why"
+          )
+        )
+    }
+  }
+
   /** Quiesce a page before a screenshot ([[ComponentVisualSuite]]): wait for
-    * web fonts (the vendored Material Symbols glyphs) to finish loading, and
-    * kill CSS transitions/animations so a screenshot can never land
-    * mid-transition — the two sources of screenshot-to-screenshot noise a
-    * byte-identity snapshot can't tolerate.
+    * every stylesheet and the web fonts it pulls to finish loading, and kill
+    * CSS transitions/animations so a screenshot can never land mid-transition —
+    * the two sources of screenshot-to-screenshot noise a byte-identity snapshot
+    * can't tolerate.
+    *
+    * `document.fonts.ready` ALONE is not that wait, and the gap is not
+    * theoretical: a theme's deferred sheet (`theme-beer`'s MDI, via
+    * `Theme.deferredStylesheets`) reaches the page as a `<link rel=preload>`
+    * that an `onload` handler swaps to `rel=stylesheet`, so until that swap its
+    * `@font-face` is not in the document's font set at all and `fonts.ready`
+    * resolves without ever having heard of it. The screenshot then catches the
+    * page mid-load, and which side of the race it lands on is a coin flip:
+    * `full-dashboard.png` has failed CI once with the icons missing on CI's
+    * side, from a baseline that was not touched and has passed on either side
+    * of it.
     */
   def settle(page: Page): Unit = {
-    page.evaluate("document.fonts.ready")
+    page.waitForFunction(
+      """() => !document.querySelector('link[rel="preload"][as="style"]')"""
+    )
+    // The layout read forces the style recalc the swap queued, so the font
+    // load it triggers is already pending when `ready` is asked for.
+    page.evaluate(
+      "() => { document.body.offsetHeight; return document.fonts.ready }"
+    )
     page.addStyleTag(
       new Page.AddStyleTagOptions().setContent(
         "*,*::before,*::after{transition:none!important;animation:none!important;caret-color:transparent!important}"

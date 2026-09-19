@@ -1,6 +1,5 @@
 package fh.view.functional
 
-import fh.view.model.{Op, Predicate}
 import fh.view.testkit.{
   FixtureDashboard,
   FixtureEntity,
@@ -35,13 +34,16 @@ class DashboardBehaviourSuite extends FunctionalSuite {
   private def offLight(id: String, name: String): FixtureEntity =
     onLight(id, name).copy(state = "off")
 
-  // A group of the lights currently on, and one of ALL lights (state-agnostic).
-  private def onGroup = FixtureDashboard.group(
-    Predicate.Cmp("state", Op.Eq, Json.fromString("on"))
-  )
-  private def lightGroup = FixtureDashboard.group(
-    Predicate.Cmp("domain", Op.Eq, Json.fromString("light"))
-  )
+  // A set shown while each light is on, and one showing them unconditionally.
+  // The candidates are named up front — that is the point of a candidate set —
+  // so each helper takes the lights the test drives.
+  private def onSet(lights: FixtureEntity*) =
+    FixtureDashboard.set(
+      lights.map(_.entityId).toList,
+      Some(FixtureDashboard.stateIs("on"))
+    )
+  private def lightSet(lights: FixtureEntity*) =
+    FixtureDashboard.set(lights.map(_.entityId).toList)
 
   test("initial page render reflects the seeded snapshot") {
     withServer(
@@ -83,8 +85,14 @@ class DashboardBehaviourSuite extends FunctionalSuite {
     // subsequent real one — driven through the fake's queue, not a private seam.
     withServer(scene.card(FixtureDashboard.reading(outside))) { ts =>
       for {
-        firstChange <- ts.store.changes.take(1).compile.lastOrError.start
+        // TWO gates, and the order matters. The per-slug recorder subscribes to
+        // `changes` on its own, so waiting for ONE subscriber is answered by the
+        // recorder — and the emits below could then land before this test's
+        // fiber has subscribed, leaving `take(1)` waiting forever on changes it
+        // never saw. Wait for the recorder first, then for this fiber on top.
         _ <- ts.awaitChangeSubscribers(1)
+        firstChange <- ts.store.changes.take(1).compile.lastOrError.start
+        _ <- ts.awaitChangeSubscribers(2)
         // No-op: same value the fixture already seeded -> dropped by update.
         _ <- ts.fake.emit(outside.entityId, outside.state, outside.attributes)
         // A real change -> published.
@@ -94,17 +102,24 @@ class DashboardBehaviourSuite extends FunctionalSuite {
     }.assertEquals("13.1")
   }
 
+  // The card is not decoration here: an action may only reach an entity its
+  // dashboard NAMES (ADR 0023), so a seeded-but-unrendered entity is refused —
+  // correctly. The smallest world that records a call is one that shows it.
   test("a control click calls the service back into HA") {
-    withServer(scene.entity(kitchen)) { ts =>
-      ts.post("sse/action/light/toggle/light.kitchen") *> ts.fake.recordedCalls
+    withServer(scene.card(FixtureDashboard.light("Kitchen", kitchen))) { ts =>
+      ts.post(
+        s"sse/action/${ts.slug}/light/toggle/light.kitchen"
+      ) *> ts.fake.recordedCalls
     }.assertEquals(
       Vector(ServiceCall("light", "toggle", "light.kitchen", Json.obj()))
     )
   }
 
   test("a value-carrying control passes its data through to HA") {
-    withServer(scene.entity(kitchen)) { ts =>
-      ts.post("sse/action/light/turn_on/light.kitchen/brightness/200") *>
+    withServer(scene.card(FixtureDashboard.light("Kitchen", kitchen))) { ts =>
+      ts.post(
+        s"sse/action/${ts.slug}/light/turn_on/light.kitchen/brightness/200"
+      ) *>
         ts.fake.recordedCalls
     }.assertEquals(
       Vector(
@@ -121,7 +136,7 @@ class DashboardBehaviourSuite extends FunctionalSuite {
   test("round-trip: act on HA, then the consequent state reaches the browser") {
     withServer(scene.card(FixtureDashboard.light("Kitchen", kitchen))) { ts =>
       for {
-        _ <- ts.post("sse/action/light/turn_off/light.kitchen")
+        _ <- ts.post(s"sse/action/${ts.slug}/light/turn_off/light.kitchen")
         _ <- ts.observePatch(
           marker = "Kitchen: <span>off</span>",
           // The fake records the call; HA's resulting state change is emitted
@@ -137,14 +152,14 @@ class DashboardBehaviourSuite extends FunctionalSuite {
   }
 
   // ---------------------------------------------------------------------------
-  // Dynamic groups end-to-end. The group matches by QUERY, so its members are
+  // Candidate sets end-to-end. Members are decided by live guards, so they are
   // named in no slot — they are seeded through the Scene's `.entities(..)`
   // extras (exactly the case that builder exists for). These pin the membership
-  // machinery `RendererSuite` unit-tests (`affectedDynamics`, per-entity render)
+  // machinery `RendererSuite` unit-tests (`affectedSets`, per-entity render)
   // at the wire: the actual SSE patch a group emits as members enter/leave.
   // ---------------------------------------------------------------------------
 
-  test("an entity entering a dynamic group streams its card in over SSE") {
+  test("an entity entering a candidate set streams its card in over SSE") {
     // beta is off (outside the `state == on` group); when it turns on the group
     // re-renders and the pushed fragment carries beta's now-visible member card.
     // (The emit carries beta's attributes so its member card keeps its name —
@@ -152,7 +167,7 @@ class DashboardBehaviourSuite extends FunctionalSuite {
     // friendly_name.)
     val alpha = onLight("alpha", "Alpha")
     val beta = offLight("beta", "Beta")
-    withServer(scene.card(onGroup).entities(alpha, beta)) { ts =>
+    withServer(scene.card(onSet(alpha, beta)).entities(alpha, beta)) { ts =>
       ts.observePatch(
         marker = "Beta: <span>on</span>",
         trigger = ts.fake.emit(beta.entityId, "on", beta.attributes)
@@ -160,7 +175,7 @@ class DashboardBehaviourSuite extends FunctionalSuite {
     }
   }
 
-  test("an entity leaving a dynamic group is removed per-entity over SSE") {
+  test("an entity leaving a candidate set is removed per-entity over SSE") {
     // Three members on (a minority-churn group, so a single departure takes the
     // per-entity path, not a whole-group repaint). The first change establishes
     // the group in the diff cache (its first membership change always repaints);
@@ -169,7 +184,9 @@ class DashboardBehaviourSuite extends FunctionalSuite {
     val alpha = onLight("alpha", "Alpha")
     val beta = onLight("beta", "Beta")
     val gamma = offLight("gamma", "Gamma")
-    withServer(scene.card(onGroup).entities(alpha, beta, gamma)) { ts =>
+    withServer(
+      scene.card(onSet(alpha, beta, gamma)).entities(alpha, beta, gamma)
+    ) { ts =>
       for {
         // Establish: gamma joins (2 -> 3 members, a boundary repaint). Observing
         // its card confirms the group is now cached before we drive the removal.
@@ -194,7 +211,7 @@ class DashboardBehaviourSuite extends FunctionalSuite {
     // state, never a membership delta.
     withServer(
       scene
-        .card(lightGroup)
+        .card(lightSet(kitchen, HouseFixture.livingRoomLight))
         .entities(kitchen, HouseFixture.livingRoomLight)
     ) { ts =>
       ts.observePatch(

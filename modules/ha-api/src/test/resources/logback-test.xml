@@ -1,0 +1,15 @@
+<!-- Test-only. logback with no configuration at all defaults to DEBUG on the
+     root, which for this module means every WebSocket frame (HAWSApiLowLevel
+     traces at DEBUG) — so the config exists to pick WARN, not to add anything.
+     Lower a single logger here when you want the frames. -->
+<configuration>
+  <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+    <encoder>
+      <pattern>%-5level %logger{24} - %msg%n</pattern>
+    </encoder>
+  </appender>
+
+  <root level="WARN">
+    <appender-ref ref="STDOUT"/>
+  </root>
+</configuration>

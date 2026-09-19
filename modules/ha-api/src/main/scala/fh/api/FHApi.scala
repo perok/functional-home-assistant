@@ -5,6 +5,7 @@ import api.homeassistant.ws.HAWSApiLowLevel
 import cats.effect.IO
 import cats.effect.Resource
 import cats.syntax.all.*
+import cats.effect.std.{Env => CEnv}
 import org.http4s.Uri
 import org.http4s.jdkhttpclient.JdkWSClient
 
@@ -49,12 +50,15 @@ object FHApi {
     */
   def resolveEnv: IO[Env] =
     for {
-      server <- IO(lookup("SERVER"))
+      server <- CEnv[IO]
+        .get("SERVER")
         .flatMap(_.liftTo[IO](new Exception("Missing SERVER")))
         .flatMap(s => IO(Uri.unsafeFromString(s)))
-      secretToken <- IO(lookup("SECRET"))
+      secretToken <- CEnv[IO]
+        .get("SECRET")
         .flatMap(_.liftTo[IO](new Exception("Missing SECRET")))
-      serverWs <- IO(lookup("SERVER_WS"))
+      serverWs <- CEnv[IO]
+        .get("SERVER_WS")
         .flatMap(_.traverse(s => IO(Uri.unsafeFromString(s))))
     } yield Env(server, secretToken, serverWs)
 
@@ -78,53 +82,6 @@ object FHApi {
       env: Env
   ): Resource[IO, (HAWSApiLowLevel[IO], IO[Unit])] =
     lowLevelWithClose(env.server, env.secretToken, env.serverWs)
-
-  /** A config value: the process environment first (when set and non-empty),
-    * then the discovered `.env`.
-    */
-  private def lookup(key: String): Option[String] =
-    sys.env
-      .get(key)
-      .filter(_.nonEmpty)
-      .orElse(dotEnv.get(key).filter(_.nonEmpty))
-
-  /** Parsed `.env` (once), or empty if none is found. */
-  private lazy val dotEnv: Map[String, String] =
-    findDotEnv() match {
-      case None    => Map.empty
-      case Some(f) =>
-        val src = scala.io.Source.fromFile(f)
-        try
-          src
-            .getLines()
-            .map(_.trim)
-            .filter(l => l.nonEmpty && !l.startsWith("#"))
-            .flatMap { l =>
-              l.split("=", 2) match {
-                case Array(k, v) =>
-                  Some(k.trim -> v.trim.stripPrefix("\"").stripSuffix("\""))
-                case _ => None
-              }
-            }
-            .toMap
-        finally src.close()
-    }
-
-  /** Walk up from the working directory (the app runs with cwd = its module
-    * dir) to find the repo-root `.env`. Bounded so a missing file never walks
-    * the whole filesystem.
-    */
-  private def findDotEnv(): Option[java.io.File] =
-    Iterator
-      .iterate(
-        new java.io.File(System.getProperty("user.dir")).getAbsoluteFile
-      )(
-        _.getParentFile
-      )
-      .takeWhile(_ != null)
-      .take(8)
-      .map(new java.io.File(_, ".env"))
-      .find(_.isFile)
 
   // TODO websocket api https://developers.home-assistant.io/docs/api/websocket
   def from(
@@ -166,13 +123,8 @@ object FHApi {
       httpClient <- IO(HttpClient.newHttpClient()).toResource
       wsClient = JdkWSClient[IO](httpClient)
 
-      wsApi <- HAWSApiLowLevel(
-        wsClient,
-        wsUri,
-        secretToken,
-        // Frame tracing stays a deliberate opt-out of the default quiet, chosen
-        // at the composition root rather than hidden inside the transport.
-        debugFrames = sys.env.contains("FH_WS_DEBUG")
-      )
+      // Frame tracing is a logger level now, not a constructor flag: set
+      // `api.homeassistant.ws.HAWSApiLowLevel` to DEBUG in logback.xml.
+      wsApi <- HAWSApiLowLevel(wsClient, wsUri, secretToken)
     } yield (wsApi, wsApi.awaitClosed)
 }

@@ -1,7 +1,7 @@
 package fh.view.functional
 
 import cats.effect.{IO, Resource}
-import fh.view.runtime.{HaFeed, StateStore}
+import fh.view.runtime.HaFeed
 import fh.view.testkit.{FakeHomeAssistant, HouseFixture}
 
 import scala.concurrent.duration.*

@@ -1,0 +1,181 @@
+/// The simple tier: the EXPLICIT fast path for slot values (ADR 0028).
+///
+/// A slot's value is either a CEL expression (`Slot.transform` as a String, the
+/// engine tier) or one of these structures (the fast tier) — the FORM is the
+/// tier selection; nothing recognizes expression spelling.
+///
+/// **What may join.** A shape belongs here when it is a STATIC LOOKUP and
+/// TOTAL: decided entirely at build time, and defined over every value a live
+/// entity can produce. Totality is the load-bearing half — CEL's `double(state)`
+/// ERRORS on `unknown`, and an error renders as its own message on a wall
+/// panel, so a shape whose garbage case has an honest rendering is worth
+/// having here even when it is nowhere near a hot path. Anything needing a
+/// second operator, a cross-entity read, or a decision the live value drives
+/// is CEL, explicitly.
+///
+/// **Two shapes, not one per case.** [[SimpleValue]] is an operator name plus
+/// its arguments; [[SimpleMatch]] is beside it because a lookup table carries a
+/// Mapping and `String|Boolean` arms, which no flat argument list models.
+///
+/// `kind` says WHICH SHAPE (the spelling `LayoutNode` and `Predicate` already
+/// use) and [[SimpleValue.op]] says which OPERATOR — two fields because they
+/// answer two questions, and because circe derives the Scala decoder off a
+/// discriminator that maps one constructor to one fixed string, which an `op`
+/// varying per operator cannot be. The
+/// constructors below are the only door — nothing constructs these classes
+/// directly, and nothing amends one — so the typed signatures here ARE the
+/// authoring contract, and the flat shape costs no checking at the call site.
+///
+/// Every operator is defined by its idiomatic CEL spelling, documented on its
+/// constructor; the parity suite in TransformSuite pins the rendered bytes
+/// EQUAL to that expression over the hostile sweep, so the fast path is a
+/// faithful implementation of the documented expression, never a second
+/// answer. Where the engine would ERROR on a mistyped value, the structure
+/// renders its absent-value form instead — the documented divergence, itself
+/// pinned in the suite.
+module core.simple
+
+/// The operator names. The Scala side decodes this same set
+/// (`Transform.SimpleWire.toSimple`) and REJECTS anything else, so a name added
+/// here without an arm there is a build error rather than a dead slot.
+typealias Op = "state"|"attr"|"suffixUnit"|"prefix"|"suffix"|"percent"|"fill"|"duration"
+
+/// An operator over one read: `op` names it, `value` is its single String
+/// argument (an attribute name, or a literal), and `params` carries whatever
+/// else it needs.
+///
+/// The String argument is a FIELD rather than another `params` key because
+/// five of the seven operators take exactly one and nothing else — so their
+/// evaluation never touches a Mapping at all.
+///
+/// Both extras default to `null` rather than to an empty value: Pkl's JSON
+/// renderer omits a null property, and an empty `params` object emitted on
+/// every slot of every card is bytes in a wire whose CONTENT HASH is the
+/// package version.
+///
+/// The nullable default is why every construction below spells `new Mapping`
+/// and not a bare `new`: with no non-null default to amend into, `new { … }`
+/// infers `Dynamic` and the assignment fails at EVAL time, in the author's
+/// dashboard rather than here.
+class SimpleValue {
+  kind = "value"
+  op: Op
+  value: String? = null
+  params: Mapping<String, String|Number>? = null
+}
+
+/// The state as a lookup. Idiomatic CEL:
+/// `cel.bind(m, {'k': 'v', ...}, state in m ? m[state] : 'otherwise')`.
+///
+/// Beside [[SimpleValue]] rather than an operator on it: the payload is a Mapping
+/// plus arms that may be Boolean, and flattening that into an argument list
+/// would mean encoding a table inside a field — a parser, which is the thing
+/// this tier exists to avoid.
+///
+/// A Mapping, not a list of arms: the match is on equality, so nothing about it
+/// is sequential, and Pkl already rejects a duplicate key.
+///
+/// The values may be Strings or BOOLEANS, and a boolean is the only value that
+/// can turn a boolean attribute OFF: `""` SETS one, because `disabled=""` is
+/// how HTML spells on. So a `disabled`/`hidden`/`inert` slot is
+/// `matchOf(states, elseV)` with boolean arms, bound with [[slot.asAttr]].
+/// Mixing the two in one Match is a build error rather than a silent coercion
+/// — CEL requires one type across a map's values and both ternary arms, so a
+/// mixed lookup has no idiomatic spelling to be equivalent to.
+///
+/// `otherwise` is REQUIRED — it is not "these cases are exhaustive". Nothing
+/// downstream knows a domain's state vocabulary, and HA adds states (`open` and
+/// `opening` arrived in `lock` after the domain shipped), so an unmatched state
+/// has to degrade rather than blank the card. A helper that covers every
+/// variant of a vendored state union belongs in the domain module, where the
+/// vocabulary is.
+class SimpleMatch {
+  kind = "match"
+  cases: Mapping<String, String|Boolean>
+  otherwise: String|Boolean
+}
+
+typealias Simple = SimpleValue|SimpleMatch
+
+// The constructors. `const` because components call them from class bodies;
+// parameters are suffixed so none shadows the property it initialises (the
+// `name = name` recursion).
+
+/// Idiomatic CEL: `state`.
+const function state(): Simple = new SimpleValue { op = "state" }
+
+/// A guarded attribute read. Idiomatic CEL: `attr[?'name']` — an absent
+/// attribute renders `""` (the slot's `default` then applies).
+const function attr(attrName: String): Simple =
+  new SimpleValue { op = "attr"; value = attrName }
+
+/// The state with the named attribute appended after a space when it has one.
+/// Idiomatic CEL: `state + attr[?'name'].optMap(u, ' ' + u).orValue('')`. A
+/// unit that is present but not a String renders the state alone — the
+/// documented divergence from the engine's `' ' + nonString` error.
+const function suffixUnit(attrName: String): Simple =
+  new SimpleValue { op = "suffixUnit"; value = attrName }
+
+/// Idiomatic CEL: `'literal' + state`.
+const function prefix(lit: String): Simple =
+  new SimpleValue { op = "prefix"; value = lit }
+
+/// Idiomatic CEL: `state + 'literal'`.
+const function suffix(lit: String): Simple =
+  new SimpleValue { op = "suffix"; value = lit }
+
+const function matchOf(byState: Mapping<String, String|Boolean>, elseV: String|Boolean): Simple =
+  new SimpleMatch { cases = byState; otherwise = elseV }
+
+/// The one-armed shorthand — what a two-valued state test reads as at the call
+/// site, so a card testing `on` does not spell out a Mapping.
+const function enumOf(eq: String, thenV: String|Boolean, elseV: String|Boolean): Simple =
+  new SimpleMatch { cases = new { [eq] = thenV }; otherwise = elseV }
+
+/// Whether the state is one of these — the boolean shape, spelled as the
+/// membership test it reads as. Sugar over [[matchOf]] and nothing more, so
+/// there is one mechanism: `stateIn(["open"])` IS `matchOf(["open"] -> true,
+/// false)`, and the inverse is [[matchOf]] with `elseV = true`.
+const function stateIn(states: Listing<String>): Simple =
+  new SimpleMatch {
+    cases = new { for (s in states) { [s] = true } }
+    otherwise = false
+  }
+
+/// The named attribute as a percentage of `[min, max]`, rounded
+/// half-away-from-zero — the engine's own `math.round`. The numeric domain
+/// mirrors `double()` (a number, or a string that parses as one); absent or
+/// unparseable renders `"0 %"` — the documented divergence.
+const function percent(attrName: String, minV: Number, maxV: Number): Simple =
+  new SimpleValue {
+    op = "percent"
+    value = attrName
+    params = new Mapping { ["min"] = minV; ["max"] = maxV }
+  }
+
+/// [[percent]]'s complement for a right-anchored track, and UNROUNDED: this
+/// feeds a CSS length, where rounding would visibly quantize a slider's fill
+/// mid-drag. Absent or unparseable renders `"100%"`.
+const function fill(attrName: String, minV: Number, maxV: Number): Simple =
+  new SimpleValue {
+    op = "fill"
+    value = attrName
+    params = new Mapping { ["min"] = minV; ["max"] = maxV }
+  }
+
+/// The STATE read as a number, scaled into seconds and rendered as `4h 13m` /
+/// `13m` / `45s`. Absent or unparseable renders the EMPTY string — the
+/// documented divergence, and the ordinary case rather than an exotic one: an
+/// appliance between programmes reports `unknown`, where `0s` would claim it
+/// had just finished.
+///
+/// `unitSeconds` is what one unit of the reading is worth — pass
+/// `e.durationSeconds`, which is null for a sensor whose unit has no fixed
+/// length, so a card has to decide rather than get a plausible wrong number.
+/// HA's `duration` device class fixes no unit: the same "45 minutes left"
+/// arrives as `45` from one appliance and `2700` from another.
+const function duration(unitSeconds: Number): Simple =
+  new SimpleValue {
+    op = "duration"
+    params = new Mapping { ["scale"] = unitSeconds }
+  }

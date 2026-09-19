@@ -26,11 +26,9 @@ JDK) showed [Pkl](https://pkl-lang.org) offers what jsonnet structurally cannot:
 
 ## Decision
 
-Pkl is **the** authoring language — the only one the backend evaluates. The
-jsonnet sources (`components.libsonnet`, the `*.jsonnet` entries) remain on disk
-only as **inert porting references** while the five real dashboards are ported
-to Pkl by hand; the backend can no longer evaluate them and they are not
-extended. Once the hand-port completes they are deleted.
+Pkl is **the** authoring language, and the only one that exists here: the
+jsonnet sources were kept on disk as porting references until the hand-port
+finished, and are deleted (issue #23).
 
 1. **`SourceEval` seam** (`fh.view.build.SourceEval`): owns
    `Result(value: Json, imports: Set[os.Path])` and evaluates `.pkl` entries via
@@ -46,11 +44,18 @@ extended. Once the hand-port completes they are deleted.
    semantics the slot decoder relies on are enforced in one place.
 3. **`lib/` convention**: Pkl library modules (`hass.pkl`, `components.pkl`,
    the `theme.pkl` contract + its `theme-beer.pkl` implementation (the
-   default and only shipped theme), `tokens.pkl`, the entry scaffold `entry.pkl`, and generated
-   `dump.pkl`) live in `dashboards/lib/`; top-level `*.pkl` files are dashboard
-   entries. A directory convention separates the two (Pkl has one file
-   extension). Discovery (`ServerApp.discoverEntries`) scans `*.pkl` only and is
-   non-recursive; the slug is the filename sans `.pkl`.
+   default and only shipped theme), `tokens.pkl`, the `site.pkl` entrypoint base
+   + the `entry.pkl` dashboard scaffold, and generated `dump.pkl`) live in
+   `dashboards/lib/`. Above it sits ONE authored entrypoint, `site.pkl`,
+   naming every dashboard the instance serves (ADR 0021) — the slug is its
+   mapping key, and any other top-level `*.pkl` is an ordinary module a key may
+   import.
+
+   How that library is laid out INSIDE `lib/` — the `core/` kit a component
+   author extends, the `components/` families behind the `components.pkl`
+   facade, and the two editor constraints every re-export obeys — is
+   **ADR 0015**. This ADR owns the choice of Pkl as the language; 0015 owns the
+   shape of what is written in it.
 4. **Typed dump**: `PklDump` renders the transformed `DataDump` JSON as a typed
    `lib/dump.pkl` — every floor/area/entity a named property typed against the
    hand-written `lib/hass.pkl` schema (entity class picked by domain;
@@ -59,7 +64,7 @@ extended. Once the hand-port completes they are deleted.
    hand-curated per domain (HA's attribute shapes exist only in its developer
    docs, not machine-readably); it types only what the dump extracts.
 5. **The output contract is the existing one**: Pkl components emit
-   `{kind: "component", card, slots, children}` nodes and a
+   `{kind: "component", card, slots, regions}` nodes and a
    `{cards, theme, card, surfaces?}` top level. A slot is a bare string
    (literal) or the `SlotSource` object form. **Literal slots must be JSON
    strings, never numbers** (the slot decoder rejects numbers) — numeric config
@@ -70,15 +75,15 @@ extended. Once the hand-port completes they are deleted.
    fully supported. On top of the classes, entity-first **factory methods** make
    the common case read as a call — `c.entityCard(e)`, `c.slider(e)` — with
    options applied by a **parenthesized amend** of the call result:
-   `(c.entityCard(e)) { tap = ...; label = ... }` (the outer parens are
+   `(c.entityCard(e)) { tapAction = ...; label = ... }` (the outer parens are
    mandatory; the parens-free form is a parse error). Each option is **also a
    fluent builder method** on the card class, so options can instead chain
-   paren-free — `c.entityCard(e).tap(...).label(...)`: the method amends `this`
+   paren-free — `c.entityCard(e).tapAction(...).label(...)`: the method amends `this`
    and returns the same class, and because slots are late-bound off the hidden
    props the emitted node is **byte-identical** to the amend/`new` forms
    (spike-verified on pkl-core 0.31.1; guarded by the builder-vs-amend identity
    test + the wire snapshots). Methods and properties are separate namespaces, so
-   `function tap(t)` coexists with the `hidden tap` prop; the builder covers the
+   `function tapAction(t)` coexists with the `hidden tapAction` prop; the builder covers the
    parameterized case `|>` mixins cannot (a mixin takes no arguments). `|>` is
    reserved for
    **additions** — a mixin like `tappable` chains on the end
@@ -129,23 +134,30 @@ extended. Once the hand-port completes they are deleted.
    Entries do not repeat the
    registry line — they `amends "lib/entry.pkl"`, the base scaffold
    that sets it (decision 9).
-8. **Dynamic groups: Mapping branches + render lambdas.** A dynamic group is an
-   amendable `DynamicGroup` (extends `LayoutNode`, `kind = "dynamic"`) whose
-   branches are a **`Mapping<Predicate, (hass.Entity) -> Node>`** — one line per
-   branch, `[predicate] = renderFn`. Author order is preserved (= first-match
-   dispatch order), a structurally-equal duplicate predicate key is a build error
-   naming the line, and a branch is replaceable by key when amending a base group
-   (a Listing amend is append-only). An optional `render` fallback covers
-   entities no branch matched (and is the only card when `branches` is empty).
-   Each render fn is a **function of the matched entity** —
-   `(e) -> (c.entityCard(e)) { … }`, or a bare factory value `c.slider` — so the
-   author writes exactly where the entity flows. `hass.SELF`/`DynamicEntity` are
-   now **internal only**: the derived `cases` listing feeds each branch through
-   `const local caseOf`, which applies the lambda to `hass.SELF` and strips the
-   build-time `entity_id` slot (the renderer injects the matched entity per
-   match); the emitted `Case` (`when`/`card`/`slots`) JSON is byte-identical to
-   before. This **replaced an earlier `group`/`groupCases`/`dynWhen`/`dynCase`
-   function-nesting API** (removed pre-v1). Predicate combinators became **fluent methods** on
+8. **Candidate sets: `q.from(...)` chains, not a node an author builds.**
+   *Superseded — recorded because the reasoning outlived the mechanism.* A
+   dynamic group was an amendable `DynamicGroup` (`kind = "dynamic"`) whose
+   branches were a **`Mapping<Predicate, (hass.Entity) -> Node>`** — one line per
+   branch, author order preserved (= dispatch order), a duplicate predicate key a
+   build error naming the line, and a branch replaceable by key when amending.
+   Each render fn was a **function of the matched entity**, so the author wrote
+   where the entity flowed and never saw the `hass.SELF` sentinel the derived
+   `cases` fed it through. (That itself **replaced an earlier
+   `group`/`groupCases`/`dynWhen`/`dynCase` function-nesting API**, removed
+   pre-v1.)
+
+   All of it is deleted. Membership is decided at BUILD time now, so the
+   authoring surface is a query chain in its own module —
+   `q.from(xs).where(...).caseOf(...).render(...).build()`
+   (`lib/query.pkl`, ADR 0003) — over wire classes it owns jointly with nothing
+   else: they live in `lib/core/predicate.pkl`, which is why the query language
+   no longer imports the card library at all (ADR 0015). Two things carried
+   over: a render lambda is still
+   `(hass.Entity) -> Node`, and branches are still ordered with first match
+   winning. What went is the sentinel entity, and with it the reason an author
+   ever had to think about one.
+
+   Predicate combinators became **fluent methods** on
    `Predicate` (`domainIs("light").and(stateIs("on"))`, `.or(…)`, `.not()`), and
    the leaf helpers read in position — `domainIs`/`stateIs`/`deviceClassIs`/
    `stateBelow`/`attrBelow` (+ `always`, `lowBattery(n)`); the old
@@ -174,14 +186,20 @@ extended. Once the hand-port completes they are deleted.
 
 Implemented on the Pkl authoring surface (owning ADRs in parentheses):
 
-- Containers (grid/row/column)/sectionTitle/entityCard/button/slider; `expr`,
+- Containers (grid/row/column)/sectionTitle/entityCard/button/slider (one card:
+  give it `children` and it is a group — the slider is the head and the children
+  are member rows, which are ordinary nodes, so nesting and mixing card kinds cost
+  nothing; `c.slider(master).withSubSliders(rows)` is the chain form); `expr`,
   and `exprOf` multi-entity slots (0001/0004); `cssClass` slot on
   grid/row/col; the layout-cell builders on the `LayoutNode` base —
   `columns(n)`/`fullWidth()`/`centered()`/`cellClass` appending to the
   node-level `cell.classes` (the `fh-` layout contract; model + rationale in
   ADR 0008).
-- `serviceTap`/`toggleTap`/`navigate`; popups/surfaces — `SurfaceDef`,
-  `inlineSurfaces` on `Node`+`Tap`, the `@@NODE_ID@@` hoist token, `popup`
+- the `c.tap` namespace — `service`/`toggle`/`stateService`/`byDomain`/`navigate`,
+  named without a `Tap` suffix because the namespace carries the noun (what a card
+  clicks by default, and the vendored domain table behind it, is ADR 0016);
+  popups/surfaces — `SurfaceDef`,
+  `inlineSurfaces` on `Node`+`TapAction`, the `@@NODE_ID@@` hoist token, `popup`
   card + `Popup` class, `closePopup`/`openPopup(surfaceId)`/
   `openPopupInline(body)`, popup CSS in the theme modules (0002). A registered
   popup surface amends into existence via `entry.pkl`'s `surfaces` mapping
@@ -197,15 +215,14 @@ Implemented on the Pkl authoring surface (owning ADRs in parentheses):
 - Comma-free container authoring: hidden amendable base instances `(c.row)`,
   `(c.column)`, `(c.popup)`, `(c.tabs)` — parens mandatory (Pkl requires them
   around any amend parent that isn't a `new` expression).
-- Dynamic groups: typed `Predicate` AST (`Cmp`/`And`/`Or`/`Not`; the
-  `PredicateOp` union type makes a misspelled op a build error), fluent
-  predicate methods + leaf helpers, and the
-  `DynamicGroup` Mapping-branch + render-lambda authoring model (decision 8);
-  live `friendly_name ? : entity_id` label default (0003).
-- Slider three-tier config: author override → build-time spec (static entity)
-  → runtime `$lookup($domain)` over the manifested domain map (dynamic `$self`
-  entity); one typed `sliderSpec` table (incl. cover/fan rows) is the single
-  source for both tiers.
+- Candidate sets: typed `Predicate` AST (`Cmp`/`And`/`Or`/`Not`/`Count`; the
+  `PredicateOp` union type makes a misspelled op a build error), built by
+  `lib/query.pkl` rather than by hand — there are no free constructors, so every
+  term carries a binding (decision 8, ADR 0003).
+- Slider two-tier config: author override → build-time spec literal. One typed
+  `sliderSpec` table (incl. cover/fan rows) is the single source. There was a
+  third tier — a runtime `$lookup($domain)` — for a member whose domain was
+  unknown until it matched; a candidate is a known entity, so it is gone.
 
 **Deliberate API shape** (Pkl has no untyped union-dispatch):
 `openPopup(id: String)` and `openPopupInline(body: Node)` are two named
@@ -222,8 +239,9 @@ slot key remains `"class"`.
 - **A fresh `Evaluator.preconfigured()` per eval** (~0.5 s cold, per entry per
   reload). Fine at current scale; reuse an evaluator (or restrict re-eval to
   affected entries) if reload latency grows with the dump.
-- `BuildApp` reads `DASHBOARD_ENTRY` (default `dashboard.pkl`) to build a
-  Pkl artifact — the default errors until the `dashboard.pkl` port lands.
+- `BuildApp` takes NO argument (`sbt dashboardBuild`): a workspace has one
+  entrypoint and the artifact is the whole site (ADR 0021), so there is nothing
+  for the caller to choose.
 - Generated-code safety in `PklDump`: every identifier backticked, strings
   escaped (backslash first also neutralizes `\(` interpolation), null
   `friendly_name` omitted, floor slugs guarded against the module's own
@@ -234,6 +252,16 @@ slot key remains `"class"`.
 - `override` and `class` are reserved words (hence `cssClass`).
 - Module properties referenced from class bodies must be `const`
   (`const local` for helpers).
+- `String.replaceAll` is a LITERAL replace — no regex; a pattern-matched
+  replace needs `split`/`trim`/`join` or another route.
+- Raw strings (`#"…"#`) do not interpolate — a `\(x)` inside one ships as the
+  literal characters. An embedded source that needs values takes a regular
+  multi-line string (`"""…"""`), which is safe as long as the text carries no
+  backslash or `"""`.
+- Multi-line strings DEDENT: the indentation shared by every content line
+  (in practice, the closing delimiter's) is stripped from all lines, so the
+  shipped bytes depend on where the delimiters sit — an embedded-language
+  string's exact shape is asserted in tests, not assumed.
 - Amending a null-defaulted `Listing` is an error — assign `= new Listing {…}`.
 - A doc comment in an entry (no `module` clause) attaches to the first import,
   which Pkl rejects — use plain `//` comments in entries.
@@ -250,10 +278,24 @@ slot key remains `"class"`.
   self-contained (an instance-property reference has no instance to resolve
   against). The reflect stdlib needs Paguro at runtime; it is a declared
   pkl-core dependency, so nothing extra to ship.
-- Amending a **method-call result** requires outer parens —
-  `(c.entityCard(e)) { … }`; the parens-free `c.entityCard(e) { … }` is a parse
-  error (Pkl's own message suggests the parenthesized form). `|>` binds looser
+- Amending **any parent that is not a `new` expression** requires outer parens —
+  a method-call result (`(c.entityCard(e)) { … }`), a qualified read
+  (`(c.row) { … }`), even a bare in-scope name; the parens-free form is a parse
+  error (Pkl's own message suggests the parenthesized one). `|>` binds looser
   than call/amend, so a mixin chains after construction, including after an amend.
+- A **typed-object amend body accepts only properties**: a bare element is
+  "Object of type `Row` cannot have an element" and `["key"]` entries are
+  Mapping/Dynamic-only. So there is no trailing-block call form (`row { a b }`
+  is unreachable) — comma-free children always go through a Listing-typed
+  property (`children { … }`).
+- A **Mapping `default` enables amend-into-existence**: with
+  `default = (_) -> new PopupSurface {}`, `surfaces { ["detail"] { … } }`
+  instantiates the default and amends it, across an `amends` boundary and with
+  no `new`. A `Listing`-valued default goes one further — the amended-into-
+  existence value is a Listing, so the body adds elements directly (how a tab
+  lists its cards with no `children` key). `Mapping.keys.toList()` preserves
+  insertion order, which is what makes a Mapping-keyed class able to derive an
+  index (`Tabs`' per-tab surface keys and `bakeIndex`).
 - **Methods aren't first-class values.** To pass a factory *as a value* (a
   `Mapping` branch's render fn) you need either an explicit `.apply` at the call
   site or the dual-name **method + function-value delegate** pattern
@@ -266,9 +308,15 @@ slot key remains `"class"`.
 - A fluent method returning `new SomeClass { … this … }` needs `let (l = this)`
   first: a bare `this` inside the `new {}` body rebinds to the freshly-built
   object, not the receiver. The same guard applies to a **self-amending builder
-  method** (`function tap(t) = let (self = this) (self) { tap = t }`): capture the
+  method** (`function tapAction(t) = let (self = this) (self) { tapAction = t }`): capture the
   receiver before the amend body, and name the parameter differently from the
   property it sets (a same-named param self-references in the amend).
+- **Pkl has no default method parameters**, and a bare `new { … }` cannot infer
+  its parent from a method's parameter type ("Cannot tell which parent to
+  amend") — so a `Listing`-typed argument is passed as `new Listing { … }`, one
+  element at a time, or via the amend form. `then` is a legal identifier;
+  `else` is reserved and needs backticks at the declaration, in an amend body,
+  and at every call site (ADR 0007's `iff` builder is the case that proved it).
 - **`const` is transitive**: a `const` property (or any reference from a class
   body) may only call `const` functions — so helpers reached that way are
   `const`/`const local` all the way down (why `cmp`, and thus `always`, are

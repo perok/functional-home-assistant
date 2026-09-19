@@ -15,6 +15,26 @@ import io.circe.Json
   */
 object DashboardBuilders {
 
+  /** Narrow a node to the shape the test just built, failing with what it
+    * actually got rather than a `ClassCastException` that names neither the
+    * node nor the assertion that wanted it.
+    *
+    * A test reading a component's regions or slots knows the shape; the model's
+    * type does not carry it. These are the seam that knowledge goes through.
+    */
+  extension (node: LayoutNode) {
+    def asComponent: LayoutNode.Component = node match {
+      case c: LayoutNode.Component => c
+      case other                   =>
+        throw new AssertionError(s"expected a Component, got: $other")
+    }
+
+    def asSetNode: LayoutNode.SetNode = node match {
+      case s: LayoutNode.SetNode => s
+      case other => throw new AssertionError(s"expected a SetNode, got: $other")
+    }
+  }
+
   /** An [[EntityState]] with optional typed attributes. */
   def st(entityId: String, state: String, attrs: (String, Json)*): EntityState =
     EntityState(entityId, state, attrs.toMap)
@@ -33,9 +53,9 @@ object DashboardBuilders {
     * defines).
     */
   def col(kids: LayoutNode*): LayoutNode.Component =
-    LayoutNode.Component("col", children = kids.toList)
+    LayoutNode.Component("col", regions = LayoutNode.kids(kids*))
 
   /** A `row` container over `kids`. */
   def row(kids: LayoutNode*): LayoutNode.Component =
-    LayoutNode.Component("row", children = kids.toList)
+    LayoutNode.Component("row", regions = LayoutNode.kids(kids*))
 }
