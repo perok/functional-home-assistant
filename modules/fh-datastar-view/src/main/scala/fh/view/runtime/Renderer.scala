@@ -2,6 +2,7 @@ package fh.view.runtime
 
 import com.github.mustachejava.Mustache
 import fh.view.build.LibPackage
+import fh.view.history.SeriesBuckets
 import fh.view.model.{
   Access,
   Cell,
@@ -11,6 +12,7 @@ import fh.view.model.{
   LayoutNode,
   NodeId,
   Reads,
+  SeriesRead,
   SetId,
   Transform,
   SignalBind,
@@ -91,20 +93,48 @@ private[runtime] enum SlotForm derives CanEqual {
   * client bytes that no longer match its state, silently and permanently. When
   * in doubt, over-discriminate.
   */
-case class RenderInputs(entities: Map[String, Long]) derives CanEqual {
+case class RenderInputs(
+    entities: Map[String, Long],
+    /** The BUCKET each series this node read was fetched in, as epoch seconds
+      * (`fh.view.history.Window.bucketOf`).
+      *
+      * Deliberately the same shape as `entities` — a name to a version that
+      * only goes up — so one comparison answers both halves. A bucket works as
+      * a version for the reason the whole series design rests on: the past is
+      * immutable, so two renders of the same `(entity, window)` in the same
+      * bucket read the same points, and a later bucket is strictly fresher.
+      *
+      * Empty for every node that reads no series, which today is all of them
+      * outside a test.
+      */
+    series: Map[SeriesRead, Long] = Map.empty
+) derives CanEqual {
 
   /** Whether this was rendered from a snapshot at or ahead of `other` on every
-    * entity it reads — the partial order [[RenderCache]] uses to refuse an
-    * install that would replace current bytes with superseded ones.
+    * entity AND every series it reads — the partial order [[RenderCache]] uses
+    * to refuse an install that would replace current bytes with superseded
+    * ones.
     *
     * PARTIAL on purpose. Different key sets are not ordered at all: an entity
     * appearing or vanishing changes what the node reads, not how fresh it is,
     * and calling that "behind" would let a stale generation sit unchallenged.
     * Only a same-shaped, entity-for-entity comparison answers `true`.
+    *
+    * The series half follows the same rule, and that is what makes a per-viewer
+    * window safe here: two viewers on different windows read different series,
+    * so their keys are different SHAPES and neither is "behind" the other. They
+    * get separate generations rather than one overwriting the other with a
+    * chart of the wrong span.
     */
   def isAtLeast(other: RenderInputs): Boolean =
-    entities.sizeIs == other.entities.size &&
-      other.entities.forall((e, v) => entities.get(e).exists(_ >= v))
+    sameOrAhead(entities, other.entities) && sameOrAhead(series, other.series)
+
+  private def sameOrAhead[K](
+      mine: Map[K, Long],
+      theirs: Map[K, Long]
+  ): Boolean =
+    mine.sizeIs == theirs.size &&
+      theirs.forall((k, v) => mine.get(k).exists(_ >= v))
 }
 
 /** A container is just a Component whose template splices its rendered
@@ -322,6 +352,17 @@ class Renderer(
     allIndexed.get(id) match {
       case Some((c: LayoutNode.Component, _)) => c.liveEntitiesAsBytes
       case _ => members.liveEntitiesAsBytesOf(id)
+    }
+
+  /** A member's series reads come from the member graph, not from here: a
+    * member is not in `allIndexed` at all, which is the same split
+    * [[entitiesAsBytesForNode]] makes. `Nil` for anything else is right rather
+    * than defensive — a node with no series slot reads no series.
+    */
+  private def seriesReadsForNode(id: NodeId): List[SeriesRead] =
+    allIndexed.get(id) match {
+      case Some((c: LayoutNode.Component, _)) => c.seriesReads
+      case _                                  => Nil
     }
 
   /** Whether this dashboard names `entityId` at all — the bound an action POST
@@ -889,7 +930,8 @@ class Renderer(
     */
   def renderInputs(
       id: NodeId,
-      states: Map[String, EntityState]
+      states: Map[String, EntityState],
+      series: SeriesBuckets = SeriesBuckets.none
   ): Option[RenderInputs] =
     members
       .memberAt(id, states)
@@ -901,12 +943,16 @@ class Renderer(
           versions(
             m.node.subjectEntity.toList ++ m.node.liveEntitiesAsBytes,
             states
-          )
+          ),
+          series.forReads(m.node.seriesReads)
         )
       )
       .orElse(
         Option.when(hasOwnRendering(id))(
-          RenderInputs(versions(entitiesAsBytesForNode(id), states))
+          RenderInputs(
+            versions(entitiesAsBytesForNode(id), states),
+            series.forReads(seriesReadsForNode(id))
+          )
         )
       )
 

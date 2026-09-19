@@ -52,6 +52,19 @@ class Slot {
   /// The card's template MUST place [[signalBind]] for this slot, or the value
   /// stops updating; the backend rejects the dashboard if it does not.
   signal: SignalBind? = null
+  /// This value is a rendered chart of the slot's entity over this WINDOW,
+  /// rather than a transform over live state.
+  ///
+  /// The entity is the ordinary one — [[Slot.entityId]], or the card's subject.
+  /// What differs is where the value comes from: HA's recorder, fetched, rather
+  /// than the live state the backend already holds. That is why it is a field
+  /// and not a transform spelling — a transform names a read of state, and this
+  /// names a read of something state does not contain.
+  ///
+  /// Pair it with `reads = "onRender"`. A series slot must not be `live`: that
+  /// would make its card a candidate on every state tick, so a sensor that
+  /// moves every second would re-fetch its own history every second.
+  series: ("1h"|"24h"|"7d"|"30d")? = null
 }
 
 /// WHERE a signal slot's value lands in the DOM. Spelled as a constrained
