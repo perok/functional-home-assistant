@@ -108,8 +108,8 @@ object ServerApp extends IOApp {
       // `FH_WATCH_REGISTRY`: registry-driven dump refresh, on by default.
       watchRegistry: Boolean,
       // `PKL_LSP_JAR`: the pkl-lsp CLI jar the LSP subprocess runs. Staged by
-      // the build (`pkl-lsp-dist/stagePklLsp`) and pointed at by the add-on
-      // image / the `dashboardServe` alias; absent just means no LSP.
+      // the build (`stagePklLsp`) and pointed at by the add-on image / the
+      // `dashboardServe` alias; absent just means no LSP.
       pklLspJar: Option[String]
   )
 
@@ -426,9 +426,6 @@ object ServerApp extends IOApp {
         meterProvider = otel.meterProvider,
         meters = meters
       )
-      // The editor surface (/edit + /lsp/pkl). The pkl-lsp jar backs the LSP
-      // subprocess; None just disables completion/diagnostics (the editor and
-      // local highlighting still work).
       pklLspJar <- resolvePklLspJar(config.pklLspJar, log).toResource
       editor = new EditorRoutes(
         dashboardsDir,
@@ -1208,12 +1205,15 @@ object ServerApp extends IOApp {
         )
     }
 
-  /** Locate the pkl-lsp CLI jar the LSP subprocess runs. The build resolves it
-    * (`pkl-lsp-dist/stagePklLsp` -> `target/addon/pkl-lsp.jar`); the add-on
-    * image and the `dashboardServe` alias both point `PKL_LSP_JAR` at the
-    * staged copy. `None` — unset, or naming a file that is not there — degrades
-    * to no LSP: the editor and its local highlighting still work, only
-    * completion/hover/diagnostics go away.
+  /** Locate the pkl-lsp CLI jar the LSP subprocess runs — `stagePklLsp` writes
+    * it and both the add-on image and the `dashboardServe` alias point
+    * `PKL_LSP_JAR` at it.
+    *
+    * `None` is a degraded editor, not a failure: /edit and its local
+    * highlighting work, and only completion/hover/diagnostics go away. Hence
+    * the warning instead of a raise — an unset variable is a deployment that
+    * did not stage the jar, which is worth saying once and not worth refusing
+    * to boot over.
     */
   private def resolvePklLspJar(
       jarOverride: Option[String],

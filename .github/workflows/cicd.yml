@@ -210,19 +210,19 @@ jobs:
       # which runs for a pull request only while it is NOT a draft. Hence the
       # draft arm rather than a flat `!= 'pull_request'` — a draft PR builds no
       # image, so it needs no jar and pays no assembly.
-      - name: Assemble fat jar + stage pkl-lsp
+      - name: Assemble fat jar
         if: github.event_name != 'pull_request' || !github.event.pull_request.draft
-        run: sbt 'fh-datastar-view/assembly ; pkl-lsp-dist/stagePklLsp'
+        run: sbt 'fh-datastar-view/assembly'
 
-      - name: Upload jars for cd
+      - name: Upload jars for image + cd
         if: github.event_name != 'pull_request' || !github.event.pull_request.draft
         uses: actions/upload-artifact@v7
         with:
           name: addon-jar
-          # The DIRECTORY, not one file: it also holds both platforms' GraalJS
-          # isolate jars (`stageIsolateJars`) and the pkl-lsp CLI jar, all of
-          # which the image build COPYs. Every one is resolved by coursier as
-          # an ordinary dependency, so nothing downloads inside the container.
+          # The DIRECTORY, not one file: `assembly` also stages both platforms'
+          # GraalJS isolate jars and the pkl-lsp CLI jar here, and the image
+          # build COPYs all three. Every one is resolved by coursier as an
+          # ordinary dependency, so nothing downloads inside the container.
           path: target/addon/
           retention-days: 1
 

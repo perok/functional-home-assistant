@@ -103,10 +103,8 @@ class EditorSuite extends munit.FunSuite {
   }
 
   test("no pkl-lsp jar disables the socket, not the editor") {
-    // The jar is staged by the build, so its absence is a misconfigured
-    // deployment rather than a failed download — and the editor still has to
-    // serve. `wsb` is null here, which is safe precisely because the None
-    // branch answers before anything touches it.
+    // `wsb` is null here, which is safe only because the None branch answers
+    // before anything touches it — so this also pins that ordering.
     workspace { ws =>
       val r = routes(ws).orNotFound
       val (fileStatus, _) = get(ws, "/edit/files")
