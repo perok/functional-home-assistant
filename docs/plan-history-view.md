@@ -1,8 +1,10 @@
 # Plan — history in the more-info view
 
 **Status:** phases 1–5 built — more-info shows a numeric sensor's last 24 hours. What is left is
-window selection (phase 6), the page path, and the docs. Issue: more-info should show where a
-reading has *been*, not only where it is.
+the transform stage (phase 6), every render path resolving what it reads (phase 7 — a defect, not
+a deferral), and the docs. Interactive window selection has **moved to issue #209**: it is that
+issue's node-variable mechanism with a query slot as one more reader, not a thing this plan
+builds. Issue: more-info should show where a reading has *been*, not only where it is.
 
 Two questions were asked. The charting one is settled by a spike (§2): **ECharts runs on the
 server, under GraalJS, and emits SVG** — so a chart is bytes, like every other card. The retrieval
@@ -267,8 +269,9 @@ enum SlotShape:
 Three consequences, and the first is the whole point:
 
 - the four guards **delete**. Every site that asks what a slot is matches on `SlotShape`, and the
-  `Query` arm has no `reads`, no `transform` and no `signal` to read — so the combinations are
-  unreachable rather than rejected;
+  `Query` arm has no `reads` and no `signal` to read — so the combinations are unreachable rather
+  than rejected. (`transform` is the one field both shapes have, and they read different arms of
+  it — see "What a query answers with" below;)
 - `fh.view.model` never imports `fh.view.history`. The model does not know what a window is —
   `Queries.parse` turns `params` into a typed `QueryRequest` during `validate`, and a bad window is
   a build error naming the four that exist;
@@ -316,68 +319,216 @@ card author gets wrong. `Templates` already inspects the parsed template AST (th
 `{{#region}}` bodies that are exactly `{{{html}}}`), so **requiring the raw hole for a query slot
 is a build-time check**, not a convention.
 
-### What a query answers with: markup now, data later
+### What a query answers with: the transform decides
 
 Nothing built. Written down because it is the first thing a third-party card author will ask for,
 and because the answer decides whether `Fragment` is the right shape today — it is, and this says
 why.
 
-A query answers with **markup**: `Fragment(version, html)`, dropped in a raw hole. That is the
-whole contract, and it is what makes a chart an ordinary leaf. The two things somebody outside this
-repo might want instead are different sizes of ask, and only one of them is about `Fragment` at
-all.
+A query answers with **JSON**. What reaches the hole is decided by the slot's `transform` — the
+field that already answers "how does this value become what the card puts in the hole" on the other
+shape. A query slot does not get a second field for the same question, and `chartSlot` sets the
+transform rather than the provider deciding to draw.
 
-**Layer 1 — a different picture, still drawn here.** "I want a bar chart", "I want a threshold
-band", "I want the axis pinned to 0–100". None of that needs the browser: it needs the option
-object the provider builds to be extensible. The extension point already exists — `params` is a
-`Map[String, String]` that the provider parses — so this is a named, closed set of knobs
-(`kind = line|bar|step`, `min`, `max`, `band`) parsed in `HistoryQuery.parse`, exactly like `width`
-is today. A bad value stays a build error.
-
-Every property of the query slot survives unchanged: the answer is still bytes, still not a
-candidate on a state tick, still cached on the bucket, still needs no JavaScript in the browser.
-And the caching is *right by construction* rather than by care, because `params` IS the cache key:
-two option overrides are two drawings of one fetch, which is what the series/chart cache split
-already measures.
-
-The trap to avoid is opening the whole ECharts option object as a passthrough JSON param. It looks
-generous and it makes ECharts our public API by accident — a version bump then breaks a dashboard
-we have never seen, and the cache key becomes an arbitrary blob. Closed knobs first; the raw
-escape hatch only if something real needs one, and with the version pin stated as part of it.
-
-**Layer 2 — the rows themselves, for someone else's chart.** A third party who wants a draggable
-axis or their own library wants `[[t, v], …]`, not our SVG. That is a real ask and it is *additive*
-— but it is bigger than it looks, because the payload has nowhere safe to land yet.
-
-What changes on the server is small and fully specified:
+`transform` is ONE wire fact with two forms today, and the query shape adds a third plus an
+absence:
 
 ```scala
-enum Fragment derives CanEqual:
-  case Markup(version: Long, html: String)
-  case Data(version: Long, json: Json)
+transform: String | Transform.Simple | Transform.Stage | Null
 ```
 
-- the **version semantics are untouched** — same bucket, same non-decreasing rule, same
-  `RenderInputs` component. So a data query is cached, shared and woken exactly as a markup one is;
-- it costs **no extra fetch**: the JSON is the downsampled series the SVG was drawn from, so the
-  series cache serves both and the second consumer costs one serialisation;
-- the **raw-hole check becomes conditional on the media**, which is the one validation change:
-  markup MUST be `{{{x}}}` (or the page shows `&lt;svg` as text), data MUST NOT be — it is an
-  attribute value and wants escaping. Today's rule is the markup half of that rule, so it
-  generalises rather than being replaced;
-- size is not the objection: ~300 points as JSON is a few KB against ~19 KB of SVG.
+- `null` — **passthrough**. The provider's JSON, escaped into the hole. This is the third-party
+  contract: whoever wants `[[t, v], …]` for their own chart library asks for no transform at all.
+- `Transform.Stage.Chart(spec)` — the built-in renderer: series in, SVG out. What `chartSlot` sets.
+- a CEL string / `Transform.Simple` — belong to `SlotShape.State` and stay there.
 
-What it is blocked on is the DOM, and this is the part to be honest about: **the payload must ride
-an attribute, not a signal** (ADR 0011 — every non-`_` signal is serialised into every action POST
-and every SSE reconnect for the life of the page), and an element that reads an attribute and keeps
-chart state beside it is severed by the next morph with no error. The Appendix has the measured fix
-— a custom element holding its DOM in a shadow root, which the pinned Datastar bundle does not walk
-— so layer 2 is **not usable until that element exists**. Shipping `Fragment.Data` without it would
-hand third parties a payload they cannot hold onto.
+Which arms are legal where is the two-shape split doing the job it already does: `State` takes the
+string/`Simple` pair, `Query` takes `Stage` or nothing.
 
-So: layer 1 when someone asks, layer 2 with a real consumer and the shadow-root host in the same
-change. Neither is foreclosed by what is built, and `Fragment` stays a flat case class until one of
-them is actually being built — a sum with one case is a shape nobody has to read.
+This falsifies half a claim the code currently makes. `SlotShape`'s doc says "`reads`, `transform`
+and `signal` belong to `SlotShape.State` alone", and after phase 6 `transform` is the one field
+both shapes have — they read different arms of it. That sentence is part of the change.
+
+**Where a stage RUNS, which is the load-bearing part.** Drawing is `IO` — a WebSocket fetch and a
+JavaScript isolate — and a render is a synchronous walk building a string. That constraint is why
+the provider draws today, and it does not go away by moving the decision: it says only that a stage
+cannot run *during* the walk.
+
+It runs in the same place the fetch already does. `Fragments.resolve` is the pre-walk snapshot, it
+is `IO`, and it already knows every query a render reads; it learns the STAGE beside each one and
+answers with finished bytes, exactly as now. So the walk is untouched — it still drops a string in a
+hole — and three things fall out of the key widening from `SlotQuery` to `(SlotQuery, Stage)`:
+
+- **the fetch/draw split stops being the provider's private business and becomes structural.** One
+  fetch per query, one drawing per pair: two widths of one sensor-window are deduplicated at
+  different levels because they are different keys, rather than because `HistoryProvider` holds two
+  caches internally and a test asserts it;
+- **`ChartStyle` leaves the query**, which the code has already written down without being able to
+  act on it: `HistoryQuery.parse`'s own doc says "`entity` and `window` are the question; the rest
+  is how it is drawn". The inversion is exactly moving "the rest" across the seam. `width`,
+  `height` and `unit` stop being wire parameters and become the `Chart` stage's spec,
+  `QueryRequest.History` becomes `(entityId, window)`, `parse` loses its `intParam`, `chartSlot`
+  stops threading `unit` through the params, and `QueryRenderInputsSuite`'s fixture — which
+  currently distinguishes its two queries by `width` — needs a different second axis;
+- **the drawing cache needs no expiry function.** `BucketCache` exists because the SERIES has a
+  shelf life; a drawing is a deterministic function of an answer, so keying it by `(pair, version)`
+  and replacing in place is enough — an entry for a superseded version is dead the moment the
+  version moves. Bucket expiry stays where it belongs, on the thing that decides when a version
+  moves at all.
+
+`Fragment` still crosses into the walk as `(version, html)`. What changes is one layer down: the
+PROVIDER answers `(version, json)`, and the stage is what turns that into the bytes.
+
+**Why `null` rather than a `{kind: "passthrough"}` object.** A bare string in this field means a
+CEL expression, so `"passthrough"` would compile as CEL and die on an undeclared identifier. And it
+does not belong in `Transform.Simple`, whose documented membership rule is a static, TOTAL lookup —
+a chart renderer is neither, and putting it there would falsify the type's own definition. Absence
+is what identity actually is, and unlike the other two spellings it is unambiguous.
+
+**The default is derived, exactly like `reads`.** `transform = if (query == null) "state" else null`
+in `core/slot.pkl`. `"state"` is the identity for a STATE slot and is meaningless beside a query, so
+deriving it keeps the wire truthful on both shapes instead of carrying a default that only reads
+correctly on one. Same rule, same reason, same build-time check as the `reads` derivation above.
+
+**The raw-hole check generalises rather than being replaced.** Today: a query slot's hole must be
+`{{{x}}}`. With the transform deciding the media it becomes **the last stage decides the hole** — a
+renderer emits markup and needs the raw hole; passthrough emits a value and must NOT have one, since
+it is an attribute value and wants escaping. One property of the pipeline instead of a rule per
+shape.
+
+**Chaining is not foreclosed and constrains nothing now.** Widening one stage to a list is
+decoder-local and additive — the wire is Pkl-produced and decode-only, and a single stage still
+serialises as a scalar, so no snapshot moves. The eventual shape is `Reshape* Render?`: any number
+of `Json => Json` stages then at most one renderer, so `cel` then `chart` is legal and `chart` then
+`cel` is a build error rather than a runtime surprise. A CEL stage over rows needs one thing that
+does not exist yet: `Cel.scala` declares five ENTITY-shaped variables (`state`, `attr`, `entity_id`,
+`domain`, `dashboard_slug`), so a transform over rows has no `rows` to name. Same engine, same
+registered extensions (comprehensions, `join`, `filter`, `map` are all already there), second
+variable declaration. Not now.
+
+**No sum type anywhere.** `Fragment` stays flat because a passthrough answer is a string in a hole
+like any other, and the provider's own `(version, json)` is one shape and not two — the stage is
+where the branch lives, which is the whole point of putting it there. The version semantics are
+untouched at every level: same bucket, same non-decreasing rule, same `RenderInputs` component,
+whichever stage produced the bytes.
+
+Cost, measured: the passthrough JSON is the same downsampled series the SVG was drawn from, so the
+series cache serves both and a second consumer costs one serialisation rather than a second fetch.
+~300 points is a few KB against the SVG's ~19 KB — size is not the objection anywhere here.
+
+**The signal route is unblocked, and is a separate decision.** A client element that wants the rows
+reactively rather than once wants them in a signal, and the objection that looked fatal is not: a
+`_`-prefixed name is excluded by the pinned bundle's default `filterSignals.exclude = /(^|\.)_/`, so
+`_series` is never serialised into an action POST or an SSE reconnect and ADR 0011's cost does not
+apply. First paint needs no template helper either — `Datastar.SignalSeed` already owns the one
+`data-signals` attribute per node (present in the document render, absent from the patch), so a
+JSON-valued variant of `escapeJsInto` is the whole change.
+
+Three things to settle before that is built, not after:
+
+- **It makes `signal` legal on the query shape too**, which is the rest of the `SlotShape` doc
+  claim above. Worth saying out loud, because that field being unreachable is what the split bought
+  — a query slot carrying kilobytes into every action POST was one of the four original guards.
+- **A JSON null in a signals frame DELETES that signal**, orphaning every binding on it with no
+  error anywhere. History data genuinely has `unavailable` gaps, so gaps must be POSITIONAL:
+  `[[t, null], …]` is an array element and is fine, `{"t": …, "v": null}` is a deletion.
+  `Datastar.signalsJson` already carries the rule.
+- **Whatever element holds the payload is severed by the next morph** if it keeps chart state beside
+  it — no error, a dead chart. The Appendix has the measured fix (a shadow root, which the pinned
+  bundle does not walk), and it is the same fix whether the payload arrives by signal or attribute.
+  So passthrough is shippable on its own; a LIVE client chart is not, until that host exists.
+
+The remaining third-party ask is a different picture drawn HERE — a bar chart, a threshold band, an
+axis pinned to 0–100. That is the `Chart` stage's spec being extensible, a named closed set of knobs
+parsed where `width` is parsed today, and it needs nothing from this section. The trap to avoid is
+opening the whole ECharts option object as passthrough JSON: it looks generous and makes ECharts our
+public API by accident, so a version bump breaks a dashboard we have never seen. Closed knobs first;
+a raw escape hatch only with a real need and the version pin stated as part of it.
+
+### Query parameters the client can set — this is issue #209, not a new mechanism
+
+Nothing built, and the shape is not this plan's to pick. **Issue #209 (node variables) already
+designs exactly this**, and an earlier draft of this section designed a second one beside it —
+which is the "one mechanism, not two parallel ones" failure, committed in the document rather than
+in code.
+
+#209's shape: a node **declares** a variable, a descendant **reads** it by name up the ancestor
+chain, an action **writes** it, and a read with no enclosing declarer is a build error naming the
+node and the variable. A settable query parameter is that, with a query slot as the reader:
+
+```pkl
+// declared where the scope is — the panel, or the chart itself
+vars { ["window"] = "24h" }
+
+// read by name; `entity` is a literal and stays one
+query { params { ["entity"] = "sensor.t"; ["window"] = varRef("window") } }
+
+// written by the SAME action a tab bar's selection uses
+setVar("window", "5h")
+```
+
+Three things the unification buys over what this section previously proposed:
+
+- **The mechanical-parameter rule stops needing a flag.** The draft had `settable: Listing<String>`
+  opting keys in, so `entity` could not be substituted. With variables the distinction is the
+  SPELLING: `["entity"] = "sensor.t"` is a literal and there is nowhere for a write to land;
+  `varRef("window")` is a read of a declared variable, and only declared variables are writable. An
+  illegal state that cannot be spelled, rather than a permission list somebody maintains — which is
+  what the rest of this design does everywhere else. `settable` deletes.
+- **One write feeds every reader beneath the declarer.** The draft's
+  `queryParam(node, slot, param, value)` named one slot on one node, so a control over three charts
+  needed three writes and had to know three node ids. Resolution up the ancestor chain is what the
+  actual case wants: "last 5 hours" applies to the panel, and a nested declaration shadows for the
+  one chart that should differ.
+- **The reference is build-checked**, which is what the maintainer asked for when they said a slot
+  reading another slot must carry the reference to it. #209 already specifies it, down to the error
+  naming the node and the variable.
+
+**What the query slot CONTRIBUTES to #209**, which its issue does not have yet — worth carrying
+over when that plan is written:
+
+- **A third reader kind, and it is the expensive one.** #209 is explicit that a variable change
+  must not collapse into "re-render every reader": the tab bar would go from zero bytes a click to
+  every button re-rendered. It names the two readings that must both survive — a plain slot
+  re-renders its reader, a signal slot pushes a value with no re-render. A QUERY slot is a third: a
+  change means **re-resolve, then re-render**, which is a fetch. It is also the only one that meets
+  the complete-first-render rule, and it meets it cleanly — a write is an UPDATE, so the new chart
+  may land after the press, with ADR 0025's pending/committed keeping the press instant while the
+  fetch is in flight.
+- **#209's stated caution is already spent, and it should know.** Its "the plan's stated foothold
+  is gone" note records that `RenderInputs` is entity versions only — a bake owner holds its
+  content in regions, structure is never cached, so no node's bytes mention a selection — and warns
+  that reintroducing a selection dimension should re-measure the contention
+  `RenderCacheContentionSuite` holds at one render per frame. **Phase 3 already reintroduced it**:
+  `RenderInputs` carries a second map today. The predicted cost is in §3 — two sessions on
+  divergent parameters have unordered keys, so neither is a straggler and each install evicts the
+  other — and it is a PREDICTION read off `RenderCache`'s source, not a measurement.
+  `RenderCacheContentionSuite` is where it stops being one.
+- **A variable may want a DOMAIN, not just a name.** `window` is a closed union. If a declaration
+  can carry its set, a bad write is refused generically and `Window.byName` never sees one; if it
+  cannot, `Queries.parse` rejects at the boundary as it does today and the control's error signal
+  says so. Either works. This is the use that makes the question concrete.
+
+**Recommendation: take this out of this plan.** It is #209's, it wants #209's plan first, and
+nothing else here waits on it — phases 6 and 7 are independent, and they are the two that matter.
+Building the parallel mechanism first and unifying afterwards is the expensive order.
+
+**What this costs the two caches, against what is actually built:**
+
+- **The series cache needs nothing added.** It is new like everything else here — `SeriesStore`
+  over `BucketCache`, built in phase 2 on this stack — but it is already the right shape for this:
+  it sweeps on every cold insert by asking each key when IT stops being current, so live keys are
+  bounded by what is in flight inside one bucket, not by how many distinct parameter sets have ever
+  been asked for. Two windows are two fetches; one window across twenty sessions is one. A value
+  the provider rejects never becomes a key at all.
+- **The HTML cache is where it shows, and the bound is deliberate.** `RenderCache` holds ONE
+  generation per node, and two sessions on different windows have `RenderInputs` that are
+  *unordered* — neither `isAtLeast` the other, which is precisely the rule that stops a chart of the
+  wrong span being served. So neither is a straggler and each install replaces the other's: two
+  sessions on divergent parameters alternate, costing one render per pull each. Never wrong bytes,
+  only no sharing. That is the trade `RenderCache`'s own doc names for its single slot, and its own
+  answer applies — if a real deployment shows it mattering, measure before widening the bound.
+  Nothing to build now.
 
 ### The HA side
 
@@ -429,21 +580,28 @@ Two more things the measurement settled:
 The pipeline needs exactly two things back from a provider:
 
 ```scala
-final case class Fragment(version: Long, html: String)
+final case class Answer(version: Long, data: Json)
 
 enum QueryRequest:
-  case History(entityId: String, window: Window, style: ChartStyle)
+  case History(entityId: String, window: Window)
 
 object Queries:
   def parse(q: SlotQuery): Either[String, QueryRequest]   // PURE
 
 final class QueryResolver(history: HistoryProvider):
-  def one(id: QueryIdentity, r: QueryRequest, asOf: Instant): IO[Fragment]
+  def one(id: QueryIdentity, r: QueryRequest, asOf: Instant): IO[Answer]
 ```
 
-Bytes, and a number saying **as of when this content became current**. Everything else — caching,
-dedupe, eviction — is private to the implementation, and that is a decision rather than an
-omission.
+Data, and a number saying **as of when this content became current**. Caching, dedupe and eviction
+of the FETCH stay private to the implementation, and that is a decision rather than an omission.
+Drawing is not the provider's, and the `style` that used to ride in `QueryRequest.History` is not
+either — see "the transform decides" above. A provider answers *what was recorded*; how it is
+presented is the slot's.
+
+This is a correction to what is built, not a migration: the whole stack is unmerged, so the
+provider's second cache and its `ChartDraw` argument are deleted rather than deprecated. Phase 6
+may well be cheaper as a rebase of phases 2 and 4 than as a phase that undoes them — the
+maintainer's call, since it is their branch stack.
 
 **A closed sum and a `match`, not a registry.** There is no plugin story to pay for here: a
 name→instance map says only what somebody remembered to wire up, where one `match` says in code what
@@ -467,9 +625,10 @@ The payoff is that **fall-through needs no mechanism**: it is what a version doe
 has no natural shelf life.
 
 - History returns `window.bucketOf(asOf)` — stable for the whole bucket, so every viewer looking
-  at "last 24h" shares one fetch **and one rendered SVG**, and the entry expires by the bucket
-  rolling rather than by a timer. That is also what keeps the JavaScript context off the hot path:
-  one drawing per bucket, not one per viewer.
+  at "last 24h" shares one fetch, and the entry expires by the bucket rolling rather than by a
+  timer. The drawing is shared by the same number, one level up: the stage cache keys on that
+  version, so one bucket is one SVG however many viewers, which is what keeps the JavaScript
+  context off the hot path.
 - A provider with nothing better returns `asOf.toEpochMilli` — different every render, so
   `RenderInputs` never matches, the node never serves from cache, and the provider is called every
   time. Uncached by construction, with no opt-out flag and no special case.
@@ -498,13 +657,134 @@ wins" looks obviously right. Inside the history provider every key carries its o
 rather than natural. The fix is still needed wherever the code lands: `SeriesStore` carries the
 same line on the branch below this one.
 
-#### What the pipeline still owes
+#### The first render is COMPLETE, and that decides what absence means
 
-- **Failure isolation.** A provider that raises leaves a hole in the page, not a blank page, and
-  claims no version — so the next render asks again rather than repeating the error until the
-  bucket rolls.
-- **A bounded wait**, which does NOT exist yet. Nothing stops a slow provider from stalling the
-  snapshot every render waits on. See §6.
+The standing rule this project has always held: **the first HTML a browser gets is fully rendered.**
+Only UPDATES are deferred. A hole that fills in later is not a slower render, it is a different
+product, and nothing here gets to introduce one.
+
+That rule settles a question this section used to get wrong, so it is worth stating what it rules
+out. Three things were tangled together as "no fragment", and they are not one state:
+
+- **Not yet arrived.** Stops existing. The render waits for its answers; there is no version of
+  this that reaches a browser.
+- **Empty.** A sensor added today has no recorded rows. That is a SUCCESSFUL answer whose data is
+  empty, and after phase 6 the stage renders it — an empty chart with its axes, a `[]`. It was
+  never the pipeline's business, and nothing needs designing for it.
+- **Failed.** The provider raised, or the stage did. This is the only one left, and it is an
+  ERROR: on the document path it raises `FHError.unavailable` and the page fails to load, which
+  is what the repo's terminal-error rule already says to do with "this cannot be served". On the
+  UPDATE path it must not — raising there kills the SSE stream — so a background refresh that
+  fails keeps the last good bytes, skips the patch, and **says so in the shell's toast**. The
+  mechanism exists: `Server.ToastSignal` (`_toast`) already carries HA's own words out of
+  `actionRefused`, and a refresh that could not redraw a chart is the same class of fact — the
+  page is fine, the operation failed. Silent-and-logged would leave a viewer looking at a chart
+  that quietly stopped being current.
+
+**Resolving before the walk is what makes the error path expressible**, and that is the argument
+this plan was missing. The document walk's writes ARE the response body (architecture §6a): once it
+starts, the status line and the `<head>` are gone. A query resolved beforehand can raise while an
+error response is still possible; one resolved lazily could only truncate a page already on the
+wire. Pre-resolution reads as a performance choice and is not one.
+
+**But it is not free either, and phase 7 is where it starts being charged for.** The effect type is
+not what decides this — a walk that starts every query at once, pushes as far as its dependencies
+allow and awaits only at the point of use is a real design, not a strawman, and it would put bytes
+on the wire EARLIER. What it costs is the status code: once the `<head>` is out, a failure can only
+render as content. So the honest statement of the trade is:
+
+- **resolve, then stream** (today) — a BARRIER: gather every query the render implies, fire them in
+  one `parTraverse`, await the batch, walk. What normally makes a barrier wrong is DYNAMIC
+  dependencies, where a request is only knowable after an earlier node resolves, so the barrier
+  stalls what could have proceeded and then has to gather again. **That case is designed out here**,
+  and not by luck: the query set is found by walking the static tree before the render
+  (`Renderer.queriesForSurface`), candidate sets carry static candidate lists whose conditions
+  evaluate against the state snapshot already in hand, and the one genuinely dynamic case — a
+  parameter coming from elsewhere in the tree — is what #209's DECLARED references make static. A
+  declared edge can be topologically ordered; an implicit one would have forced discovery mid-walk.
+  So there is never a second gather phase, and the barrier costs nothing it is usually charged for.
+  It also buys the thing phase 7 needs: **`Fragments` can be TOTAL only because of it** — if
+  queries could be discovered mid-walk, no value could carry the proof that every query this render
+  reads has an answer, and absence would have to be handled at every read instead of being
+  unrepresentable. The one real cost is time to first byte — nothing goes out until the slowest
+  query lands;
+- **stream, then await lazily**: TTFB untouched and the recorder fetch overlaps the browser's
+  subresource loading, at the price of every failure being a drawn "unavailable" rather than a
+  status.
+
+Both satisfy the rule above as long as a failure renders as something COMPLETE. The choice between
+them rests on a preference — that a timeout should be an error — and not on a constraint, which is
+worth knowing before it hardens into one.
+
+**The barrier covers the DRAWING too, not only the fetch.** After phase 6 the stage runs where the
+fetch runs, because drawing is `IO` (a Graal context) and the walk is synchronous. So what a render
+awaits is N fetches *and* N drawings. Two things follow that nobody has priced:
+
+- **Drawings are SERIALISED, deliberately.** `ChartRenderer` holds one context for the process
+  behind a `Mutex` — not because a Graal context is unsafe to share (a pool would fix that) but
+  because evaluating ECharts costs ~300 ms per context and a pool pays it per member. Shipped
+  numbers: a warm render is **29–32 ms** on the isolate, the first in the process ~190 ms. So a
+  page carrying eight distinct charts on a cold bucket is ~240 ms of serialised drawing before the
+  first byte — absorbable, and worth knowing it is there.
+- **It falsifies a claim `ChartRenderer`'s own doc makes**, which phase 7 must fix in the same
+  commit: "render rate is bounded by `SeriesStore` to roughly one per window per bucket, which one
+  context absorbs". That was true while charts lived only in popups. A page carries many ENTITIES
+  at once, so the bound is one per (entity, window) per bucket. One context still absorbs it; the
+  sentence is still wrong.
+
+**On memory, which is the third axis and the least of the three.** A barrier holds every answer for
+the render at once, where a lazy walk would hold each only until its node is written — and §6a took
+a page's peak from ~500 kB to one node precisely to avoid that shape. But the bytes here are
+**shared cache entries**: the series cache holds the rows and the stage cache holds the drawing
+whether or not a render is in flight, so `Fragments` holds REFERENCES, not copies, and N concurrent
+renders of one page cost one set of bytes rather than N. The document itself still streams.
+
+Where it would be real is an **uncached** provider — one answering `asOf.toEpochMilli`, uncached by
+construction — since every render then materialises its own answers and nothing is shared. That is
+the trigger to revisit, along with TTFB: **stay with the barrier until one of them bites, then
+measure flushing the `<head>` before awaiting.** Not before — it costs the error status, and
+neither cost is being paid today.
+
+The concrete consequence to weigh when phase 7 lands: §6a names time to first byte as one of three
+targets the streamed walk was built to serve (the browser fetching stylesheets and module scripts
+while the body is still being walked). **Making the page path resolve gives part of that back on
+any page carrying a chart** — the head waits on a recorder query. Nobody has paid that yet only
+because the page path resolves nothing at all, which is the defect phase 7 fixes. If it bites, the
+cheapest thing to measure first is flushing the `<head>` and then awaiting, which keeps the
+subresource overlap and loses only the error status.
+
+**A timeout is an error, not a fallback** — and it is not a number this design has to pick.
+Two bounds already exist and between them a hang is not the expected failure:
+`HAWSApiLowLevel.pingTimeout` (10 s) means a dead socket surfaces as a failed command rather than
+a wait, and `HaFeed.SeedTimeout` (60 s) is the existing precedent for the SHAPE — a boundary wait
+that raises `FHError` rather than degrading. What is genuinely slow here is slow, not hung: a 30 d
+read on a Pi with a large recorder, paid by the first viewer in a bucket and by nobody after.
+
+One thing the bound may NOT be: **ember's idle timeout.** It fires against a response that is
+already streaming, so it truncates a half-written document — which is the exact outcome the
+complete-first-render rule exists to forbid. A bound here has to sit on the pre-walk resolution.
+
+#### `Fragments.none` is a mistake, and it is the mechanism of the violation
+
+`Fragments.resolve` is called from exactly ONE place — the surface swap in `Server`. Nine other
+render entry points take `fragments: Fragments = Fragments.none` as a DEFAULT ARGUMENT. So the
+page path renders a chart's hole empty and has no way to fill it, and it compiles clean: not
+typing anything gets you the incomplete render.
+
+The empty set is not wrong as a VALUE — the signals path provably reads no query, and it is that
+path's honest answer. It is wrong as a default, and `html(query): Option[String]` is wrong with it.
+
+The fix is the repo's own parse-don't-validate rule applied one level down: **`Fragments` is TOTAL
+over the queries this render reads**, constructible only by resolving all of them, so the renderer
+indexes it instead of branching on an absence that can no longer occur. A path that reads a query
+and was handed no answers becomes unrepresentable rather than quiet.
+
+What that deletes, which is the tell that it is the right shape: the `forQueries` rule that a
+missing query is a distinct key from any version it could have — and its test — exists ONLY
+because `Fragments.none` can reach a node that reads a query. Remove the default and the rule it
+needed goes with it. The failing-query test keeps its point and changes its layer: after phase 6 it
+reaches failure through a drawing that throws, which is a STAGE failure, and what it should assert
+is the error, not a hole.
 
 ### Downsampling stays server-side
 
@@ -544,6 +824,11 @@ The field is a `Long` per query and says nothing about where the number comes fr
 is non-decreasing. For `history` it is the bucket; for a provider with nothing better it is the
 fetch time, which makes that provider uncached by construction. See §3.
 
+Phase 6 widens the key it is a map of from `SlotQuery` to `(SlotQuery, Stage)` — two widths of one
+sensor-window are one fetch and two drawings, so they are one version and two keys. The component's
+semantics do not move with it: still a `Long`, still non-decreasing, still the provider's number,
+since a stage is a deterministic function of the answer and has no version of its own.
+
 `docs/architecture-rendering-pipeline.md` §6 (the pull path) is the box that moves.
 
 ### Live updates ride SSE, unchanged
@@ -573,21 +858,39 @@ The two must be separate NODES, not two slots on one: only a node is a patch tar
 A tick on the current reading must never repaint the chart. Two regions is what guarantees that
 structurally, rather than by anyone remembering to.
 
-### Window selection is a bake group
+### Window selection is a node variable — the same fact as a tab selection
 
-"Changing the axis" is `1h / 24h / 7d / 30d` — a tab bar. That is a bake group with a
-state-independent selection, which is what `components/surface.pkl` already builds, including the
-pending/committed handling from ADR 0025 so the press is instant while the fetch is in flight. The
-window rides `ui_<group>` like any other selection and survives a reload in the URL.
+"Changing the axis" is a control writing a declared variable that the chart's query reads. Not a
+new capability: it is issue #209, and a window and a tab selection turn out to be the SAME fact —
+a per-connection named value a control writes and a descendant consumes. See §3.
 
-No new selection machinery. The one genuinely new thing is that baking a window must be able to
-*trigger a fetch*, which today's bake cannot — surfaces are rendered from state alone.
+Two earlier answers here were both wrong, and in opposite directions. **A bake group** was this
+plan's first answer, and a bake swaps STRUCTURE — it would have needed a genuinely new capability,
+that baking a selection can trigger a fetch, which it cannot, surfaces being rendered from state
+alone. **A per-slot settable parameter** was the second, and it was a second mechanism for what
+#209 already designs. What is actually true is narrower than either: a window is not a structure
+and not a chart-specific knob, it is a variable, and a chart is one more kind of reader.
 
-### Fetching is bounded by the surface
+The closed `Window` union does the job it always did wherever the write is checked — a value
+outside it is refused, and one that somehow is not fails `Queries.parse`. Interaction does not
+widen what the server accepts.
 
-More-info is a **triggered surface**, rendered only while open. So the fetch is bounded by the
-popup being open, which is the laziness we want and already have: nothing is fetched for a chart
-nobody is looking at, and closing the popup ends the obligation.
+### Fetching is bounded by what is being rendered, not by the surface
+
+More-info is a **triggered surface**, rendered only while open, so a chart nobody has opened is
+never fetched and closing the popup ends the obligation. That is a genuine bound and it is free —
+but it is a property of WHERE the first chart was put, not a design, and the plan previously leaned
+on it as though it were one.
+
+A chart on a page is bounded by the page being open and nothing else, so **a dashboard with N
+charts blocks its first paint on N recorder queries.** That is the one visible price of the
+complete-first-render rule, and it is the price rather than a defect: the alternative is a page
+that paints with holes in it. What softens it is sharing, not laziness — every viewer inside a
+bucket after the first pays nothing, because the series cache has already answered.
+
+So the laziness worth keeping is per-QUERY, not per-surface: a stage the page does not render is
+not run, and a window nobody is looking at is not fetched. Being cheap because the popup is shut
+is luck, and it runs out the first time a chart is placed on a dashboard.
 
 ---
 
@@ -598,9 +901,9 @@ Each is independently mergeable and independently useful.
 1. **`ha-api`**: the two WS commands and their decoders. Testable against `FakeHomeAssistant`, no
    live HA.
 2. **The history provider's guts**, pure core split from the fetch — the downsampler and the
-   bucket key are pure and are where the tests go. Its caching is its own: whether it holds one
-   store or two (a fetch shared across styles, a drawing per style) is private, settled by a test
-   that two styles of one series cost one fetch and two drawings, not by architecture. Source selection is decided by a learned
+   bucket key are pure and are where the tests go. It holds ONE store, the fetch's — phase 6 moves
+   the drawing and its cache out to the stage, where the fetch/draw split is structural rather than
+   a private implementation choice a test has to pin down. Source selection is decided by a learned
    `Retention` rather than a threshold: a window it already covers costs one call, an unproven one
    asks both sources in parallel and keeps whichever covers more time, and the history half is what
    teaches it. Retention is a lower bound taken as the MAXIMUM across entities, because per entity
@@ -612,7 +915,8 @@ Each is independently mergeable and independently useful.
    `Templates` check that a query slot's hole is the raw one. The prediction held — a chart is not
    a candidate on a state tick, and with the split it is not even spellable otherwise. What the
    phase does NOT include is the live half: nothing fills a version on the pull path yet, so a
-   rolled bucket does not wake its node; that is phase 6's.
+   rolled bucket does not wake its node; that is phase 7's, which is where the pull path starts
+   resolving queries at all.
 4. **The chart renderer**: the vendored ECharts bundle as a resource and a host behind a plain
    `IO[String]` — series in, SVG out. The engine is `JsIsolate`, already on the classpath and
    already a process-lifetime `Resource`, so this phase adds the `Source` and the context handling
@@ -630,13 +934,40 @@ Each is independently mergeable and independently useful.
    surface's queries are resolved before it renders (`Server.swapHost`), which is exactly where
    more-info is filled. The engine is LAZY (`Resource#memoizedAcquire`), so an instance whose
    dashboards hold no chart pays neither the ECharts evaluation nor the isolate's heap.
-6. **Window selection** as a bake group over the existing surface machinery.
-7. ~~`moreInfoBody` gains the chart~~ — done in phase 5, since it is the first use case and what
-   makes the rest demonstrable. What is left of it: the PAGE path resolves no queries, so a chart
-   placed on a dashboard rather than in a popup still renders empty. That is deliberate for now —
-   a page open would otherwise wait on a recorder query — and wants the window selection of phase 6
-   to decide it properly.
-8. **Docs**: terminology (series / window / provider / query slot), architecture §6, and an ADR for
+6. **The transform decides the answer** — the inversion, and the largest of what is left.
+   `transform` gains its `Stage` arm and its `null`; the Pkl default derives it from the query;
+   `chartSlot` sets `Chart` where the provider used to draw unconditionally; `QueryResolver`
+   answers `(version, json)`; `ChartStyle` and `width` leave the query for the stage's spec;
+   `Fragments` keys by `(query, stage)` and runs the stage where it already runs the fetch; the
+   drawing cache moves out of `HistoryProvider` and loses its expiry function, keying on the
+   version instead; and the raw-hole check generalises to "the last stage decides the hole".
+   Passthrough — a third party's `[[t, v], …]` — then falls out rather than being added.
+   Since none of the stack is merged this is a correction to phases 2 and 4 rather than a layer on
+   top of them, and folding it into a rebase of those two is likely cheaper than landing it as its
+   own phase.
+7. **Every render path resolves what it reads.** Unfinished work in this stack's own commit, not a
+   bug against main: `Fragments` arrived in `72a345fb`, which is on this branch and in no PR yet,
+   so this is a correction to make before the branch is opened rather than something to track.
+   `Fragments.resolve` has one caller (the surface swap); nine other entry points default to
+   `Fragments.none`, so a chart on a page, and an `Activation.State` bake member on the shared
+   per-slug pass, would ship an incomplete first paint. The phase makes `Fragments` total over the
+   queries a render reads, removes the default so a path that reads a query cannot be handed
+   nothing, drops `html`'s `Option`, deletes the absent-is-not-zero rule that only existed to
+   survive the default, and makes a bound raise rather than degrade. It also rewrites
+   `ChartRenderer`'s "roughly one per window per bucket" claim, which this phase falsifies by
+   putting many entities' charts on one page.
+
+   Like phase 6, this is cheapest folded back into the commit that introduced the shape. Three of
+   the four remaining items are now corrections to unmerged commits rather than layers on them,
+   which is a fact about the stack worth acting on: the shape to land is the one the design
+   arrived at, not the one it passed through.
+8. ~~**Settable query parameters, and the controls that write them.**~~ **Moved to issue #209** —
+   it is that issue's mechanism with a query slot as one more reader, and an earlier draft here
+   designed a second one beside it. §3 records what the query slot contributes to #209's plan: a
+   third reader kind whose change costs a fetch, the fact that phase 3 has already spent #209's
+   caution about reintroducing a selection dimension into `RenderInputs`, and the question of
+   whether a variable declares a DOMAIN. Nothing in this plan waits on it.
+9. **Docs**: terminology (series / window / provider / query slot), architecture §6, and an ADR for
    the query seam — the decision that needs a home readers will find is *why a fetched fragment is
    a second SHAPE of slot rather than a state slot with extra fields*, with "a chart is bytes, and
    the JS that makes them runs here" as its companion.
@@ -662,11 +993,12 @@ What is left needs a Pi or a rendered chart, not a decision.
    slicing it for narrower ones trades memory for round trips. Probably wrong for 30d, probably
    right for 1h/24h — and the retention finding pushes against it too, since the widest window is
    the one that has to come from a different command.
-5. **How long may a provider hold up a render?** The query snapshot is resolved before the walk,
-   so a slow provider stalls every render waiting on it, and nothing bounds that today. A timeout
-   needs a number, and a number needs a real provider being slow — the shape of the answer is
-   probably "the snapshot waits N and whatever has not arrived is absent", which the existing
-   absent-is-not-zero rule already handles correctly.
+5. ~~**How long may a provider hold up a render?**~~ *Answered, and the answer is "do not add
+   one yet".* The SHAPE is settled by the complete-first-render rule (§3): a bound raises rather
+   than degrading. Whether a bound is NEEDED is answered by what already exists — a 10 s WS ping
+   timeout means a dead socket fails a command instead of hanging, so the remaining case is slow
+   rather than stuck, and a number invented without a real provider being slow would be a guess
+   with a failure mode. `HaFeed.SeedTimeout` is the pattern to copy if one is ever wanted.
 
 ---
 
