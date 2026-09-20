@@ -11,6 +11,13 @@ import fh.view.model.{
   SlotShape,
   SlotSource
 }
+import fh.view.history.{
+  HistoryProvider,
+  Series,
+  SeriesProvider,
+  SeriesStore,
+  Window
+}
 import fh.view.runtime.RenderInputs
 
 import java.time.Instant
@@ -21,7 +28,13 @@ import java.time.Instant
 class QueryRenderInputsSuite extends munit.CatsEffectSuite {
 
   private def chart(window: String = "24h") =
-    SlotQuery("history", Map("entity" -> "sensor.t", "window" -> window))
+    SlotQuery(
+      "history",
+      Map("entity" -> "sensor.t", "window" -> window) ++
+        // The failing arm below is selected by width, so the two queries
+        // differ in their style as well as their window.
+        (if (window == "1h") Map("width" -> "1") else Map.empty)
+    )
 
   private def chartNode(window: String = "24h") =
     LayoutNode.Component(
@@ -101,19 +114,44 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
   }
 
   test("a failing query leaves a hole, and the others still resolve") {
+    // Through a real provider rather than a stub: a drawing that throws is the
+    // shape this actually takes, and the point is that the OTHER chart on the
+    // page still arrives.
     val ok = chart("24h")
     val bad = chart("1h")
-    val prepared = Map[SlotQuery, PreparedQuery](
-      ok -> ((_, _) => IO.pure(Fragment(1L, "<svg/>"))),
-      bad -> ((_, _) => IO.raiseError(RuntimeException("recorder is down")))
-    )
-    Fragments
-      .resolve(prepared, List(ok, bad), QueryIdentity.Instance, Instant.EPOCH)
-      .map { f =>
-        assertEquals(f.html(ok), Some("<svg/>"))
-        assertEquals(f.html(bad), None)
-        assertEquals(f.forQueries(List(ok, bad)), Map(ok -> 1L))
-      }
+    def request(q: SlotQuery) =
+      Queries.parse(q).fold(e => fail(e), identity)
+    for {
+      store <- SeriesStore.create(
+        new SeriesProvider {
+          def identify(req: org.http4s.Request[IO]) =
+            IO.pure(QueryIdentity.Instance)
+          def series(
+              identity: QueryIdentity,
+              entityId: String,
+              window: Window,
+              asOf: Instant
+          ) = IO.pure(Series(Vector.empty, 0))
+        }
+      )
+      history <- HistoryProvider.create(
+        store,
+        (_, style) =>
+          if (style.width == 1) IO.raiseError(RuntimeException("no engine"))
+          else IO.pure("<svg/>")
+      )
+      f <- Fragments.resolve(
+        QueryResolver(history),
+        Map(ok -> request(ok), bad -> request(bad)),
+        List(ok, bad),
+        QueryIdentity.Instance,
+        Instant.EPOCH
+      )
+    } yield {
+      assertEquals(f.html(ok), Some("<svg/>"))
+      assertEquals(f.html(bad), None)
+      assertEquals(f.forQueries(List(ok, bad)).keySet, Set(ok))
+    }
   }
 
   // --- The partial order ----------------------------------------------------
@@ -153,23 +191,20 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
       card = LayoutNode.Component(card = "chart", slots = Map("chart" -> src))
     )
 
-  test("an unregistered provider is a build error naming it") {
+  test("an unknown provider is a build error naming the ones that exist") {
     // Silent otherwise: no provider, no fragment, so the slot renders empty
     // forever and never enters the render key — a blank chart with nothing
     // anywhere saying why.
-    val errs = dashboard(SlotSource(query = Some(chart()))).validate()
-    assert(errs.exists(_.contains("history")), clue = errs)
+    val errs = dashboard(
+      SlotSource(query = Some(SlotQuery("forecast", Map.empty)))
+    ).validate()
     assert(errs.exists(_.contains("unknown query provider")), clue = errs)
+    assert(errs.exists(_.contains("history")), clue = errs)
   }
 
   test("an ESCAPED hole for a query slot is a build error") {
     // Silent otherwise, and visibly wrong only to whoever opens the page:
     // `{{chart}}` renders `&lt;svg …` as text.
-    val stub = new QueryProvider {
-      def name = "history"
-      def parse(params: Map[String, String]) =
-        Right((_, _) => IO.pure(Fragment(1L, "<svg/>")))
-    }
     def errsFor(hole: String) =
       Dashboard(
         cards = Map("chart" -> CardDef(s"""<div id="{{id}}">$hole</div>""")),
@@ -177,7 +212,7 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
           card = "chart",
           slots = Map("chart" -> SlotSource(query = Some(chart())))
         )
-      ).validate(providers = QueryProviders.of(stub))
+      ).validate()
 
     assert(
       errsFor("{{chart}}").exists(_.contains("ESCAPED hole")),
@@ -188,14 +223,11 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
     assertEquals(errsFor("{{{ chart }}}"), Nil)
   }
 
-  test("a registered provider's own parse error is the build error") {
-    val stub = new QueryProvider {
-      def name = "history"
-      def parse(params: Map[String, String]) =
-        Left(s"needs a 'window' (got ${params.keys.toList.sorted})")
-    }
+  test("the provider's own parse error is the build error") {
+    // No wiring: parsing is pure, so a dashboard is checked wherever it is
+    // built rather than only where a provider happened to be passed in.
     val errs = dashboard(SlotSource(query = Some(SlotQuery("history", Map()))))
-      .validate(providers = QueryProviders.of(stub))
-    assert(errs.exists(_.contains("needs a 'window'")), clue = errs)
+      .validate()
+    assert(errs.exists(_.contains("'entity' parameter")), clue = errs)
   }
 }

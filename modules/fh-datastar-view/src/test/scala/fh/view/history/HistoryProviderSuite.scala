@@ -2,7 +2,7 @@ package fh.view.history
 
 import cats.effect.{IO, Ref}
 import cats.syntax.all.*
-import fh.view.query.{PreparedQuery, QueryIdentity}
+import fh.view.query.{Fragment, QueryIdentity, QueryRequest, QueryResolver}
 import org.http4s.Request
 
 import java.time.Instant
@@ -26,8 +26,7 @@ class HistoryProviderSuite extends munit.CatsEffectSuite {
     ): IO[Series] = fetches.update(_ + 1).as(Series(Vector.empty, 0))
   }
 
-  private def fixture
-      : IO[(HistoryProvider, Ref[IO, Int], Ref[IO, Int])] =
+  private def fixture: IO[(HistoryProvider, Ref[IO, Int], Ref[IO, Int])] =
     for {
       fetches <- Ref[IO].of(0)
       draws <- Ref[IO].of(0)
@@ -38,13 +37,18 @@ class HistoryProviderSuite extends munit.CatsEffectSuite {
       )
     } yield (history, fetches, draws)
 
-  private def prepared(
-      p: HistoryProvider,
-      window: String,
-      extra: (String, String)*
-  ): PreparedQuery =
-    p.parse(Map("entity" -> "sensor.t", "window" -> window) ++ extra.toMap)
+  /** Parse is pure and instance-free; resolving is what needs the provider. */
+  private def request(window: String, extra: (String, String)*): QueryRequest =
+    HistoryQuery
+      .parse(Map("entity" -> "sensor.t", "window" -> window) ++ extra.toMap)
       .fold(e => fail(e), identity)
+
+  extension (p: HistoryProvider)
+    private def ask(
+        r: QueryRequest,
+        asOf: Instant,
+        identity: QueryIdentity = QueryIdentity.Instance
+    ): IO[Fragment] = QueryResolver(p).one(identity, r, asOf)
 
   // --- Sharing --------------------------------------------------------------
 
@@ -54,9 +58,9 @@ class HistoryProviderSuite extends munit.CatsEffectSuite {
     // a cold add-on inside one bucket are not, and that is the case this
     // covers.
     fixture.flatMap { case (p, fetches, draws) =>
-      val q = prepared(p, "24h")
+      val q = request("24h")
       List
-        .fill(10)(q.resolve(QueryIdentity.Instance, t0))
+        .fill(10)(p.ask(q, t0))
         .parSequence
         .flatMap { results =>
           (fetches.get, draws.get).tupled.map { case (f, d) =>
@@ -71,24 +75,24 @@ class HistoryProviderSuite extends munit.CatsEffectSuite {
 
   test("a rolled bucket is a new drawing, an unrolled one is not") {
     fixture.flatMap { case (p, _, draws) =>
-      val q = prepared(p, "24h")
+      val q = request("24h")
       val later = t0.plusSeconds(Window.LastDay.bucket.toSeconds)
-      q.resolve(QueryIdentity.Instance, t0) *>
-        q.resolve(QueryIdentity.Instance, t0.plusSeconds(1)) *>
+      p.ask(q, t0) *>
+        p.ask(q, t0.plusSeconds(1)) *>
         draws.get.map(assertEquals(_, 1)) *>
-        q.resolve(QueryIdentity.Instance, later) *>
+        p.ask(q, later) *>
         draws.get.map(assertEquals(_, 2))
     }
   }
 
   test("the version is the bucket, so it moves only when the bucket does") {
     fixture.flatMap { case (p, _, _) =>
-      val q = prepared(p, "24h")
+      val q = request("24h")
       val later = t0.plusSeconds(Window.LastDay.bucket.toSeconds)
       (
-        q.resolve(QueryIdentity.Instance, t0),
-        q.resolve(QueryIdentity.Instance, t0.plusSeconds(1)),
-        q.resolve(QueryIdentity.Instance, later)
+        p.ask(q, t0),
+        p.ask(q, t0.plusSeconds(1)),
+        p.ask(q, later)
       ).tupled.map { case (a, b, c) =>
         assertEquals(a.version, b.version)
         assert(c.version > a.version, clue = (a.version, c.version))
@@ -101,9 +105,9 @@ class HistoryProviderSuite extends munit.CatsEffectSuite {
     // a performance bug, which is why it is in the key before any per-user
     // provider exists.
     fixture.flatMap { case (p, fetches, _) =>
-      val q = prepared(p, "24h")
-      q.resolve(QueryIdentity.Instance, t0) *>
-        q.resolve(QueryIdentity.user("alice"), t0) *>
+      val q = request("24h")
+      p.ask(q, t0) *>
+        p.ask(q, t0, QueryIdentity.user("alice")) *>
         fetches.get.map(assertEquals(_, 2))
     }
   }
@@ -115,10 +119,8 @@ class HistoryProviderSuite extends munit.CatsEffectSuite {
     // deleting the series cache — of 854 tests nothing but its own noticed,
     // until this one.
     fixture.flatMap { case (p, fetches, draws) =>
-      prepared(p, "24h", "width" -> "600")
-        .resolve(QueryIdentity.Instance, t0) *>
-        prepared(p, "24h", "width" -> "320")
-          .resolve(QueryIdentity.Instance, t0) *>
+      p.ask(request("24h", "width" -> "600"), t0) *>
+        p.ask(request("24h", "width" -> "320"), t0) *>
         (fetches.get, draws.get).tupled.map { case (f, d) =>
           assertEquals(f, 1)
           assertEquals(d, 2)
@@ -133,45 +135,41 @@ class HistoryProviderSuite extends munit.CatsEffectSuite {
     // good for another 59 minutes. Measured at 3 drawings where 2 is correct,
     // which is the sharing this cache exists for, gone.
     fixture.flatMap { case (p, _, draws) =>
-      val month = prepared(p, "30d")
-      val hour = prepared(p, "1h")
+      val month = request("30d")
+      val hour = request("1h")
       val t1 = t0.plusSeconds(70)
-      month.resolve(QueryIdentity.Instance, t0) *>
-        hour.resolve(QueryIdentity.Instance, t1) *>
-        month.resolve(QueryIdentity.Instance, t1) *>
+      p.ask(month, t0) *>
+        p.ask(hour, t1) *>
+        p.ask(month, t1) *>
         draws.get.map(assertEquals(_, 2))
     }
   }
 
   // --- Parsing --------------------------------------------------------------
 
+  // Parsing needs no fixture at all, which is the point of it being pure: a
+  // dashboard is checked wherever it is built, not only where a provider was
+  // wired in.
+
   test("an unknown window is a build error naming the ones that exist") {
-    fixture.map { case (p, _, _) =>
-      val e = p
-        .parse(Map("entity" -> "sensor.t", "window" -> "last-week"))
-        .swap
-        .getOrElse(fail("expected a parse error"))
-      assert(e.contains("last-week"), clue = e)
-      assert(e.contains("24h"), clue = e)
-    }
+    val e = HistoryQuery
+      .parse(Map("entity" -> "sensor.t", "window" -> "last-week"))
+      .swap
+      .getOrElse(fail("expected a parse error"))
+    assert(e.contains("last-week"), clue = e)
+    assert(e.contains("24h"), clue = e)
   }
 
   test("a query with no entity or no window is a build error") {
-    fixture.map { case (p, _, _) =>
-      assert(p.parse(Map("window" -> "24h")).isLeft)
-      assert(p.parse(Map("entity" -> "sensor.t")).isLeft)
-    }
+    assert(HistoryQuery.parse(Map("window" -> "24h")).isLeft)
+    assert(HistoryQuery.parse(Map("entity" -> "sensor.t")).isLeft)
   }
 
   test("a non-numeric size is a build error rather than a silent default") {
-    fixture.map { case (p, _, _) =>
-      val e = p
-        .parse(
-          Map("entity" -> "sensor.t", "window" -> "24h", "width" -> "wide")
-        )
-        .swap
-        .getOrElse(fail("expected a parse error"))
-      assert(e.contains("width"), clue = e)
-    }
+    val e = HistoryQuery
+      .parse(Map("entity" -> "sensor.t", "window" -> "24h", "width" -> "wide"))
+      .swap
+      .getOrElse(fail("expected a parse error"))
+    assert(e.contains("width"), clue = e)
   }
 }

@@ -1,7 +1,7 @@
 package fh.view.history
 
 import cats.effect.IO
-import fh.view.query.{Fragment, PreparedQuery, QueryIdentity, QueryProvider}
+import fh.view.query.{Fragment, QueryIdentity, QueryRequest}
 
 import java.time.Instant
 
@@ -22,7 +22,54 @@ final case class ChartKey(series: SeriesKey, style: ChartStyle) {
   */
 type ChartDraw = (Series, ChartStyle) => IO[String]
 
-/** The `history` query provider: one entity's readings over one window, drawn.
+/** Parsing a history query. PURE and instance-free, deliberately: it needs no
+  * store, no HA connection and no JavaScript engine, so `Dashboard.validate`
+  * can reject a bad chart everywhere a dashboard is built rather than only
+  * where a provider happened to be wired in. What needs those is
+  * [[HistoryProvider]], and it is only reached at render time.
+  */
+object HistoryQuery {
+
+  val Name: String = "history"
+
+  /** `entity` and `window` are the question; the rest is how it is drawn, and
+    * every one of them is part of the cache key through [[ChartStyle]].
+    */
+  def parse(params: Map[String, String]): Either[String, QueryRequest] =
+    for {
+      entityId <- params
+        .get("entity")
+        .toRight(s"query '$Name' needs an 'entity' parameter")
+      name <- params
+        .get("window")
+        .toRight(s"query '$Name' needs a 'window' parameter")
+      window <- Window
+        .byName(name)
+        .toRight(
+          s"query '$Name' has unknown window '$name' — one of " +
+            Window.values.map(_.name).mkString(", ")
+        )
+      width <- intParam(params, "width", ChartStyle().width)
+      height <- intParam(params, "height", ChartStyle().height)
+    } yield QueryRequest.History(
+      entityId,
+      window,
+      ChartStyle(width = width, height = height, unit = params.get("unit"))
+    )
+
+  private def intParam(
+      params: Map[String, String],
+      key: String,
+      fallback: Int
+  ): Either[String, Int] =
+    params.get(key) match {
+      case None    => Right(fallback)
+      case Some(v) =>
+        v.toIntOption.toRight(s"query '$Name' has non-numeric $key '$v'")
+    }
+}
+
+/** Answers a history query: one entity's readings over one window, drawn.
   *
   * Two caches, and they are its own business rather than the pipeline's. They
   * expire together but are shared differently — one fetch feeds every style,
@@ -36,55 +83,20 @@ final class HistoryProvider private (
     series: SeriesStore,
     draw: ChartDraw,
     cache: BucketCache[ChartKey, String]
-) extends QueryProvider {
+) {
 
-  def name: String = HistoryProvider.Name
-
-  /** The params a chart slot carries. `entity` and `window` are the question;
-    * the rest is how it is drawn, and every one of them is part of the cache
-    * key through [[ChartStyle]].
+  /** The bucket is the version, and it works as one because the past is
+    * immutable: two renders inside it read the same points.
     */
-  def parse(
-      params: Map[String, String]
-  ): Either[String, PreparedQuery] =
-    for {
-      entity <- params
-        .get("entity")
-        .toRight("query 'history' needs an 'entity' parameter")
-      name <- params
-        .get("window")
-        .toRight("query 'history' needs a 'window' parameter")
-      window <- Window
-        .byName(name)
-        .toRight(
-          s"query 'history' has unknown window '$name' — one of " +
-            Window.values.map(_.name).mkString(", ")
-        )
-      width <- intParam(params, "width", ChartStyle().width)
-      height <- intParam(params, "height", ChartStyle().height)
-    } yield {
-      val style = ChartStyle(
-        width = width,
-        height = height,
-        unit = params.get("unit")
-      )
-      new PreparedQuery {
-        def resolve(identity: QueryIdentity, asOf: Instant): IO[Fragment] =
-          svg(identity, entity, window, style, asOf)
-            .map(Fragment(window.bucketOf(asOf).getEpochSecond, _))
-      }
-    }
-
-  private def intParam(
-      params: Map[String, String],
-      key: String,
-      fallback: Int
-  ): Either[String, Int] =
-    params.get(key) match {
-      case None    => Right(fallback)
-      case Some(v) =>
-        v.toIntOption.toRight(s"query 'history' has non-numeric $key '$v'")
-    }
+  def fragment(
+      identity: QueryIdentity,
+      entityId: String,
+      window: Window,
+      style: ChartStyle,
+      asOf: Instant
+  ): IO[Fragment] =
+    svg(identity, entityId, window, style, asOf)
+      .map(Fragment(window.bucketOf(asOf).getEpochSecond, _))
 
   def svg(
       identity: QueryIdentity,
@@ -109,8 +121,6 @@ final class HistoryProvider private (
 }
 
 object HistoryProvider {
-
-  val Name: String = "history"
 
   def create(series: SeriesStore, draw: ChartDraw): IO[HistoryProvider] =
     BucketCache

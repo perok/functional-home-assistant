@@ -75,13 +75,17 @@ class Slot {
 /// like [[chartSlot]] here, and `QueryProvider.parse` at validation, which turns
 /// a bad parameter into a build error naming the dashboard.
 class Query {
-  provider: String
+  /// A closed union rather than a free String: there is one provider, and a
+  /// second is a member here plus a case in the backend's `Queries.parse`.
+  /// Closed means a typo is an eval error the LSP reports before the dashboard
+  /// is ever built, which a registry of names could never give.
+  provider: "history"
   params: Mapping<String, String>
 }
 
 /// A slot filled by a provider. The general form; prefer a provider's own
 /// helper where there is one.
-const function querySlot(provider: String, params: Mapping<String, String>): Slot =
+const function querySlot(provider: "history", params: Mapping<String, String>): Slot =
   new Slot { query = new Query { provider = provider; params = params } }
 
 /// A chart of one entity's readings over one window, drawn by the server.

@@ -1,12 +1,6 @@
 package fh.view.runtime
 
-import fh.view.model.{
-  CardDef,
-  Dashboard,
-  LayoutNode,
-  SlotQuery,
-  SlotSource
-}
+import fh.view.model.{CardDef, Dashboard, LayoutNode, SlotQuery, SlotSource}
 import fh.view.query.{Fragment, Fragments}
 
 /** A series slot resolved into the walk: the bytes reach the page, and the
@@ -46,7 +40,8 @@ class ChartSlotSuite extends munit.FunSuite {
 
   test("a series slot renders its chart into the page") {
     val d = dashboardWith("{{{chart}}}")
-    val html = Renderer.create(d).renderBodyTraced(states, Map.empty, fragments()).html
+    val html =
+      Renderer.create(d).renderBodyTraced(states, Map.empty, fragments()).html
     assert(html.contains(svg), clue = html)
     assert(html.contains("21.4"), clue = html)
   }
@@ -68,7 +63,10 @@ class ChartSlotSuite extends munit.FunSuite {
   test("no chart yet renders the slot empty, not the slot's default") {
     val d = dashboardWith("{{{chart}}}")
     val html =
-      Renderer.create(d).renderBodyTraced(states, Map.empty, Fragments.none).html
+      Renderer
+        .create(d)
+        .renderBodyTraced(states, Map.empty, Fragments.none)
+        .html
     assert(!html.contains("<svg"), clue = html)
     assert(html.contains("21.4"), clue = html)
   }

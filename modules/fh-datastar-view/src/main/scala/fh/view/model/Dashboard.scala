@@ -1,6 +1,6 @@
 package fh.view.model
 
-import fh.view.query.{PreparedQuery, QueryProviders}
+import fh.view.query.{Queries, QueryRequest}
 import io.circe.{Decoder, Json}
 import io.circe.derivation.{Configuration, ConfiguredDecoder}
 
@@ -1159,12 +1159,7 @@ case class Dashboard(
     * ignores it (the model stays source-agnostic).
     */
   def validate(
-      locateTransform: String => Option[String] = _ => None,
-      // What answers a query slot. `empty` is the honest default outside the
-      // server: a dashboard with a query slot is then a build error naming the
-      // provider it asked for, rather than silently validating and rendering
-      // blank.
-      providers: QueryProviders = QueryProviders.empty
+      locateTransform: String => Option[String] = _ => None
   ): List[String] =
     // Every required template var is a slot, satisfied by an authored slot OR a
     // backend-`injected` name: `id`/`panel` always, plus the matched `entity_id`
@@ -1270,7 +1265,7 @@ case class Dashboard(
     ): List[String] =
       src.query.toList.flatMap { q =>
         val parseError =
-          providers.parse(q).left.toOption.map(e => s"$nodeId: slot '$name' $e")
+          Queries.parse(q).left.toOption.map(e => s"$nodeId: slot '$name' $e")
         // A query slot's value is MARKUP. Written `{{name}}` the page shows
         // `&lt;svg …` as text, with no error anywhere — the first thing a chart
         // card author gets wrong, and invisible until somebody looks at the
@@ -1905,24 +1900,20 @@ case class Dashboard(
     * `locateTransform` keeps the model source-agnostic (see [[validate]]).
     */
   def validated(
-      locateTransform: String => Option[String] = _ => None,
-      providers: QueryProviders = QueryProviders.empty
+      locateTransform: String => Option[String] = _ => None
   ): Either[List[String], Dashboard.Validated] =
-    validate(locateTransform, providers) match
+    validate(locateTransform) match
       case Nil =>
-        Right(Dashboard.Validated(this, compileTransforms, prepare(providers)))
+        Right(Dashboard.Validated(this, compileTransforms, parseQueries))
       case errs => Left(errs)
 
-  /** Every query slot's parameters, parsed into the thing that answers them.
-    * Total by contract: only [[validated]] calls it, and only after
-    * [[validate]] proved each one parses, so a `Left` cannot occur here and is
-    * dropped rather than defended against — exactly as [[compileTransforms]]
-    * treats a transform.
+  /** Every query slot's parameters, parsed into its request. Total by contract:
+    * only [[validated]] calls it, and only after [[validate]] proved each one
+    * parses, so a `Left` cannot occur here and is dropped rather than defended
+    * against — exactly as [[compileTransforms]] treats a transform.
     */
-  private def prepare(
-      providers: QueryProviders
-  ): Map[SlotQuery, PreparedQuery] =
-    allQueries.flatMap(q => providers.parse(q).toOption.map(q -> _)).toMap
+  private def parseQueries: Map[SlotQuery, QueryRequest] =
+    allQueries.flatMap(q => Queries.parse(q).toOption.map(q -> _)).toMap
 
   /** Compile every [[transformStrings]] expression. Total by contract: only
     * [[validated]] calls it, and only after [[validate]] proved each
@@ -1967,7 +1958,7 @@ object Dashboard:
       // Every query slot's params already parsed by its provider, for the same
       // reason `transforms` is here: validation is the one gate, so nothing
       // downstream re-parses or defends against a parameter that cannot work.
-      queries: Map[SlotQuery, PreparedQuery] = Map.empty,
+      queries: Map[SlotQuery, QueryRequest] = Map.empty,
       // The RESOLVED access rule (issue #89) — the dashboard's own if it named
       // one, else its site's. Resolved once by `Site.decode` via [[withAccess]]
       // rather than left as the model's `Option`, so no gate has to re-derive

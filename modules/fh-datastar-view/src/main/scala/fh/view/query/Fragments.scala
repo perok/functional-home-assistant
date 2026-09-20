@@ -52,21 +52,22 @@ object Fragments {
     * asks again rather than repeating the failure until the version would have
     * moved.
     *
-    * A query with no prepared form is dropped the same way and is not an error
+    * A query with no parsed request is dropped the same way and is not an error
     * here: `Dashboard.validate` is what rejects an unknown provider or a bad
     * parameter, so reaching this point without one is a bug already caught
     * upstream, and a render is the wrong place to discover it.
     */
   def resolve(
-      prepared: Map[SlotQuery, PreparedQuery],
+      resolver: QueryResolver,
+      requests: Map[SlotQuery, QueryRequest],
       queries: List[SlotQuery],
       identity: QueryIdentity,
       asOf: Instant
   ): IO[Fragments] =
     queries.distinct
-      .flatMap(q => prepared.get(q).map(q -> _))
-      .parTraverse { case (query, p) =>
-        p.resolve(identity, asOf).attempt.flatMap {
+      .flatMap(q => requests.get(q).map(q -> _))
+      .parTraverse { case (query, request) =>
+        resolver.one(identity, request, asOf).attempt.flatMap {
           case Right(fragment) => IO.pure(Some(query -> fragment))
           case Left(e)         =>
             log

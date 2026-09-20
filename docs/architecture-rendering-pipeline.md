@@ -854,8 +854,13 @@ past over a window, drawn to SVG. It reaches a render the same way state does, a
 resolved BEFORE the walk (`fh.view.query.Fragments`), because a render is a synchronous string build
 and answering a query is `IO` over a socket and a JavaScript engine.
 
-A provider answers with `Fragment(version, html)` and nothing else. **The version is also the
-caching policy**, which is what keeps the pipeline out of it:
+A provider answers with `Fragment(version, html)` and nothing else. Which providers exist is a
+closed `QueryRequest` enum and a `match`, not a registry — there is no plugin story here, and a
+name→instance map would say only what somebody remembered to wire up. Parsing one is PURE
+(`Queries.parse`), so `Dashboard.validate` checks a query with nothing wired; only `QueryResolver`
+holds the running machinery.
+
+**The version is also the caching policy**, which is what keeps the pipeline out of it:
 
 - a stable number — history returns its bucket, and a bucket works as a version because the past is
   immutable — means every viewer inside it shares one answer;

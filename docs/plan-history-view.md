@@ -43,8 +43,9 @@ Four words for `docs/terminology.md`, chosen to not collide with what is there:
 - **Window** — the span and resolution a series covers (`last 24h at 5 min`). A viewer
   **selection**, in the sense the codebase already uses: it belongs with bake index and open set,
   not with entity state.
-- **Provider** — the named thing that answers a query. `history` is the one we would ship; a third
-  party registers another under its own name.
+- **Provider** — the named thing that answers a query. `history` is the only one, and which
+  providers exist is a closed sum and a `match` rather than a registry: adding one is a case, a
+  member of a Pkl union and a resolver arm, all three of which a typechecker points at.
 - **Query slot** — a slot whose value is a rendered FRAGMENT from a provider rather than a
   transform over state. Distinct from `query.pkl`'s `q.` surface, which is a build-time filter
   over CANDIDATES and reaches no network: this one is a runtime read, and only a component author
@@ -362,15 +363,30 @@ The pipeline needs exactly two things back from a provider:
 ```scala
 final case class Fragment(version: Long, html: String)
 
-trait QueryProvider:
-  type Request
-  def parse(params: Map[String, String]): Either[String, Request]
-  def resolve(id: Identity, request: Request, asOf: Instant): IO[Fragment]
+enum QueryRequest:
+  case History(entityId: String, window: Window, style: ChartStyle)
+
+object Queries:
+  def parse(q: SlotQuery): Either[String, QueryRequest]   // PURE
+
+final class QueryResolver(history: HistoryProvider):
+  def one(id: QueryIdentity, r: QueryRequest, asOf: Instant): IO[Fragment]
 ```
 
 Bytes, and a number saying **as of when this content became current**. Everything else — caching,
 dedupe, eviction — is private to the implementation, and that is a decision rather than an
 omission.
+
+**A closed sum and a `match`, not a registry.** There is no plugin story to pay for here: a
+name→instance map says only what somebody remembered to wire up, where one `match` says in code what
+exists. Adding a provider is a case in the enum, a member of the union in `core/slot.pkl`, and an
+arm in the resolver — all three of which the compiler or the Pkl typechecker points at.
+
+**Parsing is pure and separate from resolving**, which is what removes the wiring hazard entirely:
+checking a chart needs no store, no HA connection and no JavaScript engine, so `Dashboard.validate`
+calls `Queries.parse` directly and a bad query is a build error wherever a dashboard is built. Only
+`QueryResolver` needs the running machinery, and it is reached at render time, by ordinary
+constructor wiring.
 
 **Bucket expiry is a property of append-only-past data, not of queries.** It works for history
 because the past is immutable and only the tail grows, so "now, floored to a resolution" is a
