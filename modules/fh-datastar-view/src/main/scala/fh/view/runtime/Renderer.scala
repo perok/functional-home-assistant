@@ -2405,7 +2405,7 @@ class Renderer(
     members
       .memberAt(id, states)
       // Signals only, so no fragments: a query slot has no signal to carry —
-      // it is a `ResolvedSlot.Query`, and this path resolves state slots.
+      // it is a `SlotShape.Query`, and this path resolves state slots.
       .map(m => memberSignalsOf(resolveMember(m, states, Fragments.none)))
       .orElse(
         // NOT gated on `hasOwnRendering`. Structure has signals like any other

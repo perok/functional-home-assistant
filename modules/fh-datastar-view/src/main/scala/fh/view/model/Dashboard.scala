@@ -115,7 +115,7 @@ case class SlotSource(
     // Present on a QUERY slot and on nothing else. When it is set, every
     // field above is unused: a query slot's value comes from a provider, not
     // from state, and it is MARKUP rather than an escaped scalar. `validate`
-    // parses this into the two-shape [[ResolvedSlot]] the renderer sees, so
+    // parses this into the two-shape [[SlotShape]] the renderer sees, so
     // the combinations that would be wrong here — a query that is `live`,
     // `once`, or a signal — are unrepresentable downstream rather than
     // rejected one by one.
@@ -1254,8 +1254,8 @@ case class Dashboard(
       *
       * Nothing here checks `reads`, `signal` or `transform` against the query.
       * Those combinations are not rejected, they are unrepresentable: a query
-      * slot becomes a [[ResolvedSlot.Query]], which has no such fields, and
-      * every state-slot path in the renderer takes the other case.
+      * slot becomes a [[SlotShape.Query]], which has no such fields, and every
+      * state-slot path in the renderer takes the other case.
       */
     def queryErrors(
         nodeId: String,
