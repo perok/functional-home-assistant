@@ -2,7 +2,7 @@ package fh.view.runtime
 
 import com.github.mustachejava.Mustache
 import fh.view.build.LibPackage
-import fh.view.query.{Fragments, QueryRequest}
+import fh.view.query.{Fragments, QueryRequest, StageRequest}
 import fh.view.model.{
   Access,
   Cell,
@@ -12,7 +12,7 @@ import fh.view.model.{
   LayoutNode,
   NodeId,
   Reads,
-  SlotQuery,
+  SlotRead,
   SlotShape,
   SetId,
   Transform,
@@ -108,7 +108,7 @@ case class RenderInputs(
       * Empty for every node that reads no series, which today is all of them
       * outside a test.
       */
-    queries: Map[SlotQuery, Long] = Map.empty
+    queries: Map[SlotRead, Long] = Map.empty
 ) derives CanEqual {
 
   /** Whether this was rendered from a snapshot at or ahead of `other` on every
@@ -165,7 +165,8 @@ class Renderer(
     // the `Validated` proof so nothing re-parses per render. Empty for the
     // test constructor, which is right: an unparsed query resolves to no
     // fragment, which renders empty and claims no version.
-    private val parsedQueries: Map[SlotQuery, QueryRequest] = Map.empty
+    private val parsedQueries: Map[SlotRead, (QueryRequest, StageRequest)] =
+      Map.empty
 ) {
 
   /** An addressable index over one layout tree; generated ids carry `idPrefix`
@@ -366,7 +367,7 @@ class Renderer(
     * [[entitiesAsBytesForNode]] makes. `Nil` for anything else is right rather
     * than defensive — a node with no query slot reads no query.
     */
-  private def queriesForNode(id: NodeId): List[SlotQuery] =
+  private def queriesForNode(id: NodeId): List[SlotRead] =
     allIndexed.get(id) match {
       case Some((c: LayoutNode.Component, _)) => c.queries
       case _                                  => Nil
@@ -678,9 +679,9 @@ class Renderer(
   /** Every query this surface's content reads, for resolving before it is
     * rendered — see `Dashboard.queriesIn`.
     */
-  def queryRequests: Map[SlotQuery, QueryRequest] = parsedQueries
+  def queryRequests: Map[SlotRead, (QueryRequest, StageRequest)] = parsedQueries
 
-  def queriesForSurface(surfaceId: String): List[SlotQuery] =
+  def queriesForSurface(surfaceId: String): List[SlotRead] =
     dashboard.surfaces
       .get(surfaceId)
       .toList
@@ -702,7 +703,7 @@ class Renderer(
     * the laziness worth keeping now that "bounded by the surface" has stopped
     * being true for the page path.
     */
-  def queriesForPage(open: Set[String]): List[SlotQuery] =
+  def queriesForPage(open: Set[String]): List[SlotRead] =
     (dashboard.queriesIn(dashboard.card) ++
       surfaces.bakedSurfaces.flatMap(queriesForSurface) ++
       open.toList.flatMap(queriesForSurface)).distinct
@@ -2536,14 +2537,14 @@ class Renderer(
       source: SlotSource,
       states: Map[String, EntityState],
       fragments: Fragments
-  ): SlotValue = source.query match {
+  ): SlotValue = source.shape match {
     // A query slot is not a transform over state and never enters the engine:
-    // its bytes were produced before the walk began. An unresolved one is EMPTY
-    // rather than `default` — an answer that has not arrived is not a missing
-    // value to substitute for, and `renderInputs` has already left it out of
-    // the key, so this render makes no claim to have drawn it.
-    case Some(query) => fragments.html(query)
-    case None        => resolveStateSlotValue(srcEntity, source, states)
+    // its value was produced before the walk began, by its provider AND its
+    // stage. Total, so there is no "not yet" arm here to get wrong — see
+    // `Fragments`, which raises rather than letting a render proceed without
+    // every answer it reads.
+    case SlotShape.Query(read) => fragments.html(read)
+    case SlotShape.State(st)   => resolveStateSlotValue(srcEntity, st, states)
   }
 
   private def resolveStateSlotValue(
@@ -2566,6 +2567,12 @@ class Renderer(
       val out: SlotValue = source.transform match {
         case sm: Transform.Simple => transforms.runValue(sm, st)
         case t: String            => transforms.runValue(t, st, dashboard.slug)
+        // A STAGE cannot reach here: this resolves the STATE arm of the split,
+        // and `Dashboard.validate` rejects a stage on a slot that reads no
+        // query. Answering with the raw state rather than throwing keeps a
+        // hand-written wire that slipped past validation readable instead of
+        // taking the render down.
+        case _: Transform.Stage => st.state
       }
       out match {
         case b: Boolean              => b

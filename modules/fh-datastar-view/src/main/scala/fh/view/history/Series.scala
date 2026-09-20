@@ -1,6 +1,7 @@
 package fh.view.history
 
 import api.homeassistant.ws.domain.{HistoryPoint, StatisticPoint}
+import io.circe.{Decoder, Json}
 
 import java.time.Instant
 
@@ -41,6 +42,51 @@ object Series {
   final case class Point(at: Instant, value: Double)
 
   val empty: Series = Series(Vector.empty, 0)
+
+  /** The wire form of a series, and the whole third-party contract: what a
+    * passthrough transform puts in the hole, and what the chart stage consumes.
+    *
+    * `[[epochMillis, value], …]` rather than `[{t, v}, …]`, and that is a rule
+    * rather than a preference. A gap in recorder data is genuinely null-valued,
+    * and this payload can ride a Datastar signal — where a JSON null DELETES
+    * the signal, orphaning every binding on it with no error anywhere. As a
+    * positional array entry a null is a value; as an object field it is a
+    * deletion.
+    *
+    * Milliseconds because that is what the chart option already uses, so the
+    * passthrough consumer and the built-in drawing read the same numbers.
+    */
+  def toJson(s: Series): Json =
+    Json.obj(
+      "points" -> Json.arr(
+        s.points.map(p =>
+          Json.arr(
+            Json.fromLong(p.at.toEpochMilli),
+            Json.fromDoubleOrNull(p.value)
+          )
+        )*
+      ),
+      "unavailable" -> Json.fromInt(s.unavailable)
+    )
+
+  /** [[toJson]]'s inverse, for a stage reading back what a provider answered.
+    *
+    * The round trip is deliberate rather than an oversight: the provider's
+    * contract IS the JSON, so a stage that decoded something else would be
+    * reading a payload no third party could produce. It costs one decode per
+    * drawing, which the stage cache makes once per bucket per style.
+    */
+  given Decoder[Series] = Decoder.instance { c =>
+    for {
+      pts <- c.get[Vector[(Long, Option[Double])]]("points")
+      un <- c.getOrElse[Int]("unavailable")(0)
+    } yield Series(
+      pts.collect { case (at, Some(v)) =>
+        Point(Instant.ofEpochMilli(at), v)
+      },
+      un
+    )
+  }
 
   /** Raw recorder rows. Non-numeric states are dropped and counted; ordering is
     * imposed rather than assumed, because nothing in the WS contract promises

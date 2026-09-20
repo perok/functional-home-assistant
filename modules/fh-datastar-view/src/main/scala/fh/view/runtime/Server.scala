@@ -20,6 +20,7 @@ import fh.view.FHError
 import fh.view.auth.{AuthGate, Requirement}
 import fh.view.history.{
   ChartRenderer,
+  ChartStage,
   HistoryProvider,
   Retention,
   SeriesProvider,
@@ -34,7 +35,7 @@ import fh.view.model.{
   NodeId,
   Permission,
   SignalId,
-  SlotQuery
+  SlotRead
 }
 import fs2.Stream
 import fs2.concurrent.{Signal, SignallingRef}
@@ -1510,7 +1511,7 @@ class Server(
     */
   private def answer(
       renderer: Renderer,
-      wanted: List[SlotQuery]
+      wanted: List[SlotRead]
   ): IO[Fragments] =
     (queries, wanted) match {
       case (Some(resolver), qs) if qs.nonEmpty =>
@@ -3008,13 +3009,12 @@ object Server {
           SeriesProvider.asInstance(SeriesSource.fromApi(api), retention)
         )
         .toResource
-      history <- HistoryProvider
-        .create(
-          store,
-          (series, style) => chart.flatMap(_.render(series, style))
-        )
-        .toResource
-    } yield QueryResolver(history)
+      // `chart` is the LAZY renderer (`memoizedAcquire`), and the stage keeps
+      // it that way: an instance whose dashboards hold no chart pays neither
+      // the ECharts evaluation nor the isolate's heap.
+      stage <- ChartStage.create(chart.map(_.render)).toResource
+      history <- HistoryProvider.create(store).toResource
+    } yield QueryResolver(history, stage)
 
   /** The `POST /system/dump/refresh` response body — status plus what a caller
     * (the /edit editor) shows the user: the backup name on a swap, the

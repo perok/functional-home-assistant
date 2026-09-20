@@ -16,6 +16,37 @@ final case class ChartStyle(
     unit: Option[String] = None
 )
 
+object ChartStyle {
+
+  /** Parse a `Transform.Stage.Chart`'s params. PURE and instance-free, for the
+    * same reason `HistoryQuery.parse` is: a bad chart is then a build error
+    * everywhere a dashboard is built, not only where a renderer was wired in.
+    *
+    * These params used to be the QUERY's. They are the stage's now, which is
+    * what makes two sizes of one series one fetch and two drawings rather than
+    * two of each.
+    */
+  def parse(params: Map[String, String]): Either[String, ChartStyle] = {
+    def int(name: String, fallback: Int): Either[String, Int] =
+      params.get(name) match {
+        case None    => Right(fallback)
+        case Some(v) =>
+          v.toIntOption.toRight(s"chart stage has non-numeric $name '$v'")
+      }
+    val d = ChartStyle()
+    for {
+      w <- int("width", d.width)
+      h <- int("height", d.height)
+    } yield ChartStyle(
+      width = w,
+      height = h,
+      line = params.getOrElse("line", d.line),
+      fill = params.get("fill"),
+      unit = params.get("unit")
+    )
+  }
+}
+
 /** The ECharts option object, built here rather than in JavaScript.
   *
   * Pure, so it is where the tests are: everything about what a chart SAYS is

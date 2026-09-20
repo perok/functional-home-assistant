@@ -886,17 +886,27 @@ because its value is not in the patch form and so cannot move these bytes (ADR 0
 
 ### The second kind of input: a query
 
-A node may also read a **query** — a named PROVIDER answering with markup, parameterised
+A node may also read a **query** — a named PROVIDER answering with DATA, parameterised
 (`docs/terminology.md`, "History"). `history` is the one provider that exists: one entity's recorded
-past over a window, drawn to SVG. It reaches a render the same way state does, as a snapshot
-resolved BEFORE the walk (`fh.view.query.Fragments`), because a render is a synchronous string build
-and answering a query is `IO` over a socket and a JavaScript engine.
+past over a window. It reaches a render the same way state does, as a snapshot resolved BEFORE the
+walk (`fh.view.query.Fragments`), because a render is a synchronous string build and answering a
+query is `IO` over a socket and a JavaScript engine.
 
-A provider answers with `Fragment(version, html)` and nothing else. Which providers exist is a
-closed `QueryRequest` enum and a `match`, not a registry — there is no plugin story here, and a
-name→instance map would say only what somebody remembered to wire up. Parsing one is PURE
-(`Queries.parse`), so `Dashboard.validate` checks a query with nothing wired; only `QueryResolver`
-holds the running machinery.
+**A provider fetches; what its answer BECOMES is the slot's `transform`.** That split is the whole
+of the second kind of input. A provider answers `Answer(version, json)` and has no opinion about
+presentation; a STAGE — the third arm of `transform`, beside a CEL string and a `Transform.Simple` —
+turns that into what the card puts in its hole. `Stage.Chart` draws SVG, and `Stage.Passthrough` is
+the absence of a transform: the provider's JSON, which is the contract a third party reads against.
+
+Both halves are closed sums matched, not registries — there is no plugin story here, and a
+name→instance map would say only what somebody remembered to wire up. Both parses are PURE
+(`Queries.parse`, `Queries.parseStage`), so `Dashboard.validate` checks a query AND its stage with
+nothing wired; only `QueryResolver` holds the running machinery.
+
+**The hole follows the stage, not the shape.** A stage that emits markup needs the raw
+`{{{chart}}}` — written `{{chart}}` the page shows `&lt;svg …` as text, with no error anywhere —
+and passthrough must NOT have one, because its value is an attribute payload and wants escaping.
+One rule over the pipeline rather than a property of query slots.
 
 **The version is also the caching policy**, which is what keeps the pipeline out of it:
 
@@ -909,9 +919,18 @@ holds the running machinery.
 Bucket expiry is a property of append-only-past data, not of queries — a forecast changes in the
 future, a camera still changes continuously — so caching lives inside the provider, never here.
 
+**Two caches, at two levels, and only one of them needs expiry.** `Fragments.resolve` deduplicates
+a FETCH per query and a DRAWING per `(query, stage)`, so two cards charting one sensor over one
+window at different sizes cost one fetch and two drawings — which the keys say rather than a
+provider arranging it privately. The series cache expires by the bucket rolling, because a series
+has a shelf life. A drawing has none: it is a deterministic function of an answer, so `ChartStage`
+keys by version and replaces in place, and eviction is that replacement.
+
 Three boxes move, and no others:
 
-- **`RenderInputs` gains a second map**, `SlotQuery -> version`. `isAtLeast` compares both halves, so
+- **`RenderInputs` gains a second map**, `SlotRead -> version` — a `SlotRead` being a query paired
+  with the stage applied to it, because the two deduplicate at different levels and the key has to
+  say which. `isAtLeast` compares both halves, so
   two viewers on different windows have differently-SHAPED keys, are unordered, and get separate
   generations rather than one overwriting the other with a chart of the wrong span.
 - **`SlotShape`**, which is what a slot IS: `State` or `Query`. The wire keeps one `SlotSource`
@@ -928,16 +947,21 @@ entity lists are built from STATE slots, so a query slot has no entity to contri
 not a candidate on a state tick**. Without that, a sensor moving every second would re-fetch its own
 history every second.
 
-A query slot's value is markup, so its hole must be the raw `{{{slot}}}`. `Dashboard.validate`
-rejects an escaped one: written `{{slot}}` the page shows `&lt;svg …` as text, with no error
-anywhere.
+**The STAGE decides the hole**, not the shape. A stage that emits markup needs the raw
+`{{{slot}}}` — written `{{slot}}` the page shows `&lt;svg …` as text, with no error anywhere — and
+`passthrough` must NOT have one, because its value is an attribute payload and wants escaping.
+`Dashboard.validate` rejects either mistake.
 
-**One path resolves queries today: a SURFACE being filled** (`Server.swapHost` →
-`Patches.hostFill` → `renderSurfaceTraced`). That is where more-info is rendered, and it is the
-right place for the first one — a triggered surface is fetched only while open, so nothing is
-fetched for a popup nobody has opened. What a surface owes is read off the STATIC tree
-(`Dashboard.queriesIn`), because a render is a synchronous string build and which set clauses match
-is decided during it.
+**EVERY render path resolves what it reads**, and `Fragments` is total over it: a path that reads a
+query cannot be handed nothing, because there is no default argument left to hand it. What a render
+owes is read off the STATIC tree — `Renderer.queriesForPage` for a page and a pull,
+`queriesForSurface` for a surface fill — because a render is a synchronous string build and the set
+has to be known before it starts.
+
+A page's set includes every BAKED surface, active or not. A bake swap renders from state alone and
+cannot fetch, so a chart inside a tab panel is answered when the page is or never. What it excludes
+is a popup nobody has opened, which is the laziness worth keeping: bounded by what is being
+rendered rather than by which surface happens to hold it.
 
 Still missing, and deliberately: the PAGE path and the live patch path resolve nothing
 (`Patches.bytes` passes `Fragments.none`), so a chart outside a surface renders empty and a version
@@ -1195,15 +1219,12 @@ Live list — delete an entry when it is answered, and say where the answer land
   element was in no DOM and offered its id as an insert anchor. Candidates now come from the dump,
   and an entity vanishing is a registry change that rebuilds the renderer — there is nothing left to
   go stale (ADR 0003).
-- **The query path violates §0 on every route but one** — and must not reach main that way.
-  `Fragments.resolve` has a single caller (the surface swap); nine other render entry points take
-  `fragments: Fragments = Fragments.none` as a DEFAULT argument, so a chart on a page, and an
-  `Activation.State` bake member riding the shared per-slug pass, render an empty hole on the
-  document path with nothing behind it to fill it. The default is the mechanism: not typing
-  anything gets you the incomplete render, and it compiles. This is unshipped — the whole query
-  path arrived on the history stack — so the entry exists to be DELETED by the fix rather than
-  lived with: `Fragments` becomes total over the queries a render reads, and a path that reads one
-  cannot be handed nothing (`docs/plan-history-view.md` phase 7).
+- ~~**The query path violates §0 on every route but one.**~~ *Closed by making `Fragments` total.*
+  `Fragments.resolve` had one caller and nine render entry points defaulted to "I have no answers",
+  so a chart on a page shipped an empty hole. The DEFAULT was the mechanism — not typing anything
+  got you the incomplete render, and it compiled. There is no default now, so a path that reads a
+  query cannot be handed nothing, and removing it is what found the paths: the compiler named six,
+  of which the page path and the whole pull path had never resolved anything at all.
 
 - **Ordering across sessions is assumed, not stated.** Sessions render on their own fibers and can
   sit at different positions. Nothing in the design depends on them agreeing — each pull is computed

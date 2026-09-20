@@ -1,10 +1,10 @@
 # Plan — history in the more-info view
 
-**Status:** phases 1–5 built — more-info shows a numeric sensor's last 24 hours. What is left is
-the transform stage (phase 6), every render path resolving what it reads (phase 7 — a defect, not
-a deferral), and the docs. Interactive window selection has **moved to issue #209**: it is that
-issue's node-variable mechanism with a query slot as one more reader, not a thing this plan
-builds. Issue: more-info should show where a reading has *been*, not only where it is.
+**Status:** phases 1–7 built. A provider now fetches and the slot's `transform` decides what its
+answer becomes; every render path resolves what it reads. What is left is the DOCS phase, and then
+this file is deleted. Interactive window selection has **moved to issue #209**: it is that issue's
+node-variable mechanism with a query slot as one more reader, not a thing this plan builds. Issue:
+more-info should show where a reading has *been*, not only where it is.
 
 Two questions were asked. The charting one is settled by a spike (§2): **ECharts runs on the
 server, under GraalJS, and emits SVG** — so a chart is bytes, like every other card. The retrieval
@@ -43,13 +43,14 @@ Four words for `docs/terminology.md`, chosen to not collide with what is there:
 - **Window** — the span and resolution a series covers (`last 24h at 5 min`). A viewer
   **selection**, in the sense the codebase already uses: it belongs with bake index and open set,
   not with entity state.
-- **Provider** — the named thing that answers a query. `history` is the only one, and which
-  providers exist is a closed sum and a `match` rather than a registry: adding one is a case, a
-  member of a Pkl union and a resolver arm, all three of which a typechecker points at.
-- **Query slot** — a slot whose value is a rendered FRAGMENT from a provider rather than a
-  transform over state. Distinct from `query.pkl`'s `q.` surface, which is a build-time filter
-  over CANDIDATES and reaches no network: this one is a runtime read, and only a component author
-  ever writes one.
+- **Provider** — the named thing that answers a query, with DATA. `history` is the only one, and
+  which providers exist is a closed sum and a `match` rather than a registry: adding one is a case,
+  a member of a Pkl union and a resolver arm, all three of which a typechecker points at.
+- **Query slot** — a slot whose value comes from a provider rather than from live state. What that
+  value BECOMES is the slot's `transform` (a **stage**: a chart, or passthrough), which is the one
+  field both slot shapes carry. Distinct from `query.pkl`'s `q.` surface, which is a build-time
+  filter over CANDIDATES and reaches no network: this one is a runtime read, and only a component
+  author ever writes one.
 
 Note what *isn't* new: a window is a selection, so it rides the machinery selections already have.
 
@@ -934,7 +935,7 @@ Each is independently mergeable and independently useful.
    surface's queries are resolved before it renders (`Server.swapHost`), which is exactly where
    more-info is filled. The engine is LAZY (`Resource#memoizedAcquire`), so an instance whose
    dashboards hold no chart pays neither the ECharts evaluation nor the isolate's heap.
-6. **The transform decides the answer** — the inversion, and the largest of what is left.
+6. ~~**The transform decides the answer**~~ — DONE. The inversion, and the largest of them.
    `transform` gains its `Stage` arm and its `null`; the Pkl default derives it from the query;
    `chartSlot` sets `Chart` where the provider used to draw unconditionally; `QueryResolver`
    answers `(version, json)`; `ChartStyle` and `width` leave the query for the stage's spec;
@@ -945,8 +946,8 @@ Each is independently mergeable and independently useful.
    Since none of the stack is merged this is a correction to phases 2 and 4 rather than a layer on
    top of them, and folding it into a rebase of those two is likely cheaper than landing it as its
    own phase.
-7. **Every render path resolves what it reads.** Unfinished work in this stack's own commit, not a
-   bug against main: `Fragments` arrived in `72a345fb`, which is on this branch and in no PR yet,
+7. ~~**Every render path resolves what it reads.**~~ DONE. Unfinished work in this stack's own
+   commit rather than a bug against main: `Fragments` arrived in `72a345fb`, which is on this branch and in no PR yet,
    so this is a correction to make before the branch is opened rather than something to track.
    `Fragments.resolve` has one caller (the surface swap); nine other entry points default to
    `Fragments.none`, so a chart on a page, and an `Activation.State` bake member on the shared

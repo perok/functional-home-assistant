@@ -53,13 +53,17 @@
                                 "query" : {
                                   "params" : {
                                     "entity" : "sensor.outside_temp",
-                                    "unit" : "°C",
                                     "window" : "24h"
                                   },
                                   "provider" : "history"
                                 },
                                 "reads" : "onRender",
-                                "transform" : "state"
+                                "transform" : {
+                                  "params" : {
+                                    "unit" : "°C"
+                                  },
+                                  "stage" : "chart"
+                                }
                               }
                             }
                           },
@@ -834,13 +838,17 @@
                                     "query" : {
                                       "params" : {
                                         "entity" : "sensor.outside_temp",
-                                        "unit" : "°C",
                                         "window" : "24h"
                                       },
                                       "provider" : "history"
                                     },
                                     "reads" : "onRender",
-                                    "transform" : "state"
+                                    "transform" : {
+                                      "params" : {
+                                        "unit" : "°C"
+                                      },
+                                      "stage" : "chart"
+                                    }
                                   }
                                 }
                               },

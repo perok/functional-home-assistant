@@ -3,7 +3,7 @@ package fh.view.query
 import cats.effect.IO
 import cats.syntax.all.*
 import fh.view.FHError
-import fh.view.model.SlotQuery
+import fh.view.model.{SlotQuery, SlotRead}
 
 import java.time.Instant
 
@@ -31,30 +31,30 @@ import java.time.Instant
   * could tell the two readings of it apart.
   */
 final class Fragments private (
-    private val answers: Map[SlotQuery, Fragment]
+    private val answers: Map[SlotRead, Fragment]
 ) {
 
   /** The version entry for each query, for the render key. Total, so a node
     * rendered before its answer arrived is not a case this has to describe —
     * there is no such render.
     */
-  def forQueries(queries: List[SlotQuery]): Map[SlotQuery, Long] =
-    queries.view.map(q => q -> fragment(q).version).toMap
+  def forQueries(reads: List[SlotRead]): Map[SlotRead, Long] =
+    reads.view.map(r => r -> fragment(r).version).toMap
 
-  def html(query: SlotQuery): String = fragment(query).html
+  def html(read: SlotRead): String = fragment(read).html
 
   /** What this holds, for tests and for [[Fragments.resolve]]'s own dedupe. */
-  def queries: Set[SlotQuery] = answers.keySet
+  def reads: Set[SlotRead] = answers.keySet
 
-  private def fragment(query: SlotQuery): Fragment =
+  private def fragment(read: SlotRead): Fragment =
     answers.getOrElse(
-      query,
+      read,
       // Reachable only by rendering a node whose queries were not among those
       // resolved for this render — which is a wiring bug in the render path,
       // not a state. It is loud because the alternative is the hole this type
       // exists to make unrepresentable.
       throw FHError.internal(
-        s"render reads query '${query.provider} ${query.params}' but it was " +
+        s"render reads ${Fragments.describe(read)} but it was " +
           "not resolved for this render — the caller resolved a different " +
           "set, or none at all"
       )
@@ -74,7 +74,7 @@ object Fragments {
     * it takes the whole map rather than offering an `updated`: a snapshot is
     * assembled once and then read, never grown while a walk is under way.
     */
-  def of(answers: Map[SlotQuery, Fragment]): Fragments = new Fragments(answers)
+  def of(answers: Map[SlotRead, Fragment]): Fragments = new Fragments(answers)
 
   /** Answer every query a render needs, in parallel, or raise.
     *
@@ -93,33 +93,59 @@ object Fragments {
     */
   def resolve(
       resolver: QueryResolver,
-      requests: Map[SlotQuery, QueryRequest],
-      queries: List[SlotQuery],
+      requests: Map[SlotRead, (QueryRequest, StageRequest)],
+      reads: List[SlotRead],
       identity: QueryIdentity,
       asOf: Instant
-  ): IO[Fragments] =
-    queries.distinct
-      .parTraverse { query =>
-        requests
-          .get(query)
-          .liftTo[IO](
-            FHError.internal(
-              s"query '${query.provider} ${query.params}' reached a render " +
-                "with no parsed request — validate did not run on this build"
-            )
+  ): IO[Fragments] = {
+    val wanted = reads.distinct
+    def parsed(read: SlotRead): IO[(QueryRequest, StageRequest)] =
+      requests
+        .get(read)
+        .liftTo[IO](
+          FHError.internal(
+            s"${describe(read)} reached a render with no parsed request — " +
+              "validate did not run on this build"
           )
-          .flatMap(resolver.one(identity, _, asOf))
-          .recoverWith {
-            case e: FHError => IO.raiseError(e)
-            case e          =>
-              IO.raiseError(
-                FHError.unavailable(
-                  s"query '${query.provider} ${query.params}' could not be " +
-                    s"answered: ${e.getMessage}"
-                )
-              )
-          }
-          .map(query -> _)
+        )
+
+    // TWO levels, and the nesting IS the dedupe rule: one fetch per QUERY, one
+    // drawing per (query, stage). Two cards charting the same sensor and window
+    // at different sizes ask HA once and draw twice — which the provider used
+    // to arrange privately with a second cache, and which is now what the key
+    // says. Both levels are `parTraverse`d, so the fan-out is unchanged.
+    for {
+      plans <- wanted.traverse(r => parsed(r).map(r -> _)).map(_.toMap)
+      answers <- plans.toList
+        .map { case (read, (qr, _)) => read.query -> qr }
+        .distinctBy(_._1)
+        .parTraverse { case (q, qr) =>
+          guard(q)(resolver.answer(identity, qr, asOf)).map(q -> _)
+        }
+        .map(_.toMap)
+      staged <- wanted.parTraverse { read =>
+        guard(read.query)(resolver.stage(plans(read)._2, answers(read.query)))
+          .map(read -> _)
       }
-      .map(entries => new Fragments(entries.toMap))
+    } yield new Fragments(staged.toMap)
+  }
+
+  private def describe(read: SlotRead): String =
+    s"query '${read.query.provider} ${read.query.params}'"
+
+  /** Any non-`FHError` failure becomes a 503 naming the query. 503 and not 500
+    * because the dashboard is fine and the recorder or the engine is not — the
+    * difference between "come back" and "this build is broken".
+    */
+  private def guard[A](query: SlotQuery)(io: IO[A]): IO[A] =
+    io.recoverWith {
+      case e: FHError => IO.raiseError(e)
+      case e          =>
+        IO.raiseError(
+          FHError.unavailable(
+            s"query '${query.provider} ${query.params}' could not be " +
+              s"answered: ${e.getMessage}"
+          )
+        )
+    }
 }

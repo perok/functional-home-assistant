@@ -1,7 +1,8 @@
 package fh.view.query
 
 import fh.view.query.Fragments
-import cats.effect.IO
+import cats.effect.{IO, Ref}
+import cats.syntax.all.*
 import fh.view.model.{
   CardDef,
   Dashboard,
@@ -9,12 +10,15 @@ import fh.view.model.{
   Reads,
   SignalBind,
   SlotQuery,
+  SlotRead,
   Region,
   SlotShape,
   SlotSource,
-  Surface
+  Surface,
+  Transform
 }
 import fh.view.history.{
+  ChartStage,
   HistoryProvider,
   Series,
   SeriesProvider,
@@ -32,12 +36,22 @@ import java.time.Instant
 class QueryRenderInputsSuite extends munit.CatsEffectSuite {
 
   private def chart(window: String = "24h") =
-    SlotQuery(
-      "history",
-      Map("entity" -> "sensor.t", "window" -> window) ++
-        // The failing arm below is selected by width, so the two queries
-        // differ in their style as well as their window.
-        (if (window == "1h") Map("width" -> "1") else Map.empty)
+    SlotQuery("history", Map("entity" -> "sensor.t", "window" -> window))
+
+  /** A chart STAGE. The size lives here now rather than in the query, which is
+    * what makes two sizes of one window one fetch and two drawings.
+    */
+  private def drawn(width: Int = 600) =
+    Transform.Stage.Chart(Map("width" -> width.toString))
+
+  private def read(window: String = "24h", width: Int = 600) =
+    SlotRead(chart(window), drawn(width))
+
+  private def chartSource(window: String = "24h", width: Int = 600) =
+    SlotSource(
+      query = Some(chart(window)),
+      transform = drawn(width),
+      reads = Reads.OnRender
     )
 
   private def chartNode(window: String = "24h") =
@@ -45,10 +59,7 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
       card = "historyChart",
       slots = Map(
         "entity_id" -> SlotSource(literal = Some("sensor.t")),
-        "chart" -> SlotSource(
-          query = Some(chart(window)),
-          reads = Reads.OnRender
-        ),
+        "chart" -> chartSource(window),
         "name" -> SlotSource(transform = "state")
       )
     )
@@ -68,7 +79,7 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
           card = "historyChart",
           slots = Map(
             "entity_id" -> SlotSource(literal = Some("sensor.t")),
-            "chart" -> SlotSource(query = Some(chart()), reads = Reads.OnRender)
+            "chart" -> chartSource()
           )
         )
         .liveEntities,
@@ -79,12 +90,11 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
   test("a query slot is not a signal slot, whatever it says") {
     // Not a rule that rejects the combination — a `SlotShape.Query` has no
     // signal to read, so the signal path cannot reach it.
-    val src = SlotSource(
-      query = Some(chart()),
+    val src = chartSource().copy(
       signal = Some(SignalBind.Text),
       reads = Reads.Live
     )
-    assertEquals(src.shape, SlotShape.Query(chart()))
+    assertEquals(src.shape, SlotShape.Query(read()))
     assertEquals(
       LayoutNode
         .Component(card = "c", slots = Map("chart" -> src))
@@ -94,16 +104,16 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
   }
 
   test("a node's queries are its query slots, deduplicated") {
-    assertEquals(chartNode().queries, List(chart()))
+    assertEquals(chartNode().queries, List(read()))
     val two = LayoutNode.Component(
       card = "twoCharts",
       slots = Map(
-        "a" -> SlotSource(query = Some(chart("1h")), reads = Reads.OnRender),
-        "b" -> SlotSource(query = Some(chart("1h")), reads = Reads.OnRender),
-        "c" -> SlotSource(query = Some(chart("30d")), reads = Reads.OnRender)
+        "a" -> chartSource("1h"),
+        "b" -> chartSource("1h"),
+        "c" -> chartSource("30d")
       )
     )
-    assertEquals(two.queries.toSet, Set(chart("1h"), chart("30d")))
+    assertEquals(two.queries.toSet, Set(read("1h"), read("30d")))
   }
 
   // --- The snapshot ---------------------------------------------------------
@@ -116,7 +126,7 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
     // What is worth asserting instead is that the case it guarded against —
     // rendering a query nobody resolved — is loud rather than an empty hole,
     // because that is the shape the defect took.
-    val q = chart()
+    val q = read()
     val f = Fragments.of(Map(q -> Fragment(100L, "<svg/>")))
     assertEquals(f.forQueries(List(q)), Map(q -> 100L))
     assertEquals(f.html(q), "<svg/>")
@@ -126,15 +136,15 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
     assert(miss.getMessage.contains("not resolved for this render"))
   }
 
-  test("a failing query fails the render rather than leaving a hole") {
-    // Through a real provider rather than a stub: a drawing that throws is the
-    // shape this actually takes. The OTHER chart resolving is no longer the
-    // point — a page carrying one good chart and one blank one is exactly the
-    // incomplete first paint the rule forbids, so the whole render goes.
-    val ok = chart("24h")
-    val bad = chart("1h")
-    def request(q: SlotQuery) =
-      Queries.parse(q).fold(e => fail(e), identity)
+  /** A resolver over a counting fetch and a counting draw. Neither needs a
+    * JavaScript engine or an HA connection, which is what makes the two-level
+    * dedupe testable at all.
+    */
+  private def resolver(
+      fetches: Ref[IO, Int],
+      draws: Ref[IO, Int],
+      failWidth: Option[Int] = None
+  ): IO[QueryResolver] =
     for {
       store <- SeriesStore.create(
         new SeriesProvider {
@@ -145,48 +155,114 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
               entityId: String,
               window: Window,
               asOf: Instant
-          ) = IO.pure(Series(Vector.empty, 0))
+          ) = fetches.update(_ + 1).as(Series(Vector.empty, 0))
         }
       )
-      history <- HistoryProvider.create(
-        store,
-        (_, style) =>
-          if (style.width == 1) IO.raiseError(RuntimeException("no engine"))
-          else IO.pure("<svg/>")
+      history <- HistoryProvider.create(store)
+      stage <- ChartStage.create(
+        IO.pure((_, style) =>
+          draws.update(_ + 1) *>
+            (if (failWidth.contains(style.width))
+               IO.raiseError(RuntimeException("no engine"))
+             else IO.pure(s"<svg>${style.width}</svg>"))
+        )
       )
+    } yield QueryResolver(history, stage)
+
+  private def plan(reads: SlotRead*) =
+    reads.map(r => r -> Queries.parseRead(r).fold(e => fail(e), identity)).toMap
+
+  test("two sizes of one window are ONE fetch and TWO drawings") {
+    // The property the split exists for, and the one no single component can
+    // assert any more: the provider deduplicates by QUERY, the stage by
+    // (query, stage). It used to be arranged inside `HistoryProvider` by two
+    // private caches, with a test pinning down an implementation choice; it is
+    // what the keys say now.
+    val wide = read(width = 600)
+    val narrow = read(width = 320)
+    for {
+      fetches <- Ref[IO].of(0)
+      draws <- Ref[IO].of(0)
+      r <- resolver(fetches, draws)
+      f <- Fragments.resolve(
+        r,
+        plan(wide, narrow),
+        List(wide, narrow),
+        QueryIdentity.Instance,
+        Instant.EPOCH
+      )
+      counts <- (fetches.get, draws.get).tupled
+    } yield {
+      assertEquals(counts, (1, 2))
+      assertEquals(f.html(wide), "<svg>600</svg>")
+      assertEquals(f.html(narrow), "<svg>320</svg>")
+    }
+  }
+
+  test("passthrough puts the provider's DATA in the hole, undrawn") {
+    // The third-party contract: no transform, no drawing, and the JSON a
+    // client library would read. Nothing is drawn at all, which is what makes
+    // this cheaper than a chart rather than a chart nobody looks at.
+    val raw = SlotRead(chart(), Transform.Stage.Passthrough)
+    for {
+      fetches <- Ref[IO].of(0)
+      draws <- Ref[IO].of(0)
+      r <- resolver(fetches, draws)
+      f <- Fragments.resolve(
+        r,
+        plan(raw),
+        List(raw),
+        QueryIdentity.Instance,
+        Instant.EPOCH
+      )
+      d <- draws.get
+    } yield {
+      assertEquals(d, 0)
+      assert(f.html(raw).contains("\"points\""), clue = f.html(raw))
+    }
+  }
+
+  test("a failing stage fails the render rather than leaving a hole") {
+    // A page carrying one good chart and one blank one is exactly the
+    // incomplete first paint the rule forbids, so the whole render goes.
+    val ok = read(width = 600)
+    val bad = read(width = 1)
+    for {
+      fetches <- Ref[IO].of(0)
+      draws <- Ref[IO].of(0)
+      r <- resolver(fetches, draws, failWidth = Some(1))
       raised <- Fragments
         .resolve(
-          QueryResolver(history),
-          Map(ok -> request(ok), bad -> request(bad)),
+          r,
+          plan(ok, bad),
           List(ok, bad),
           QueryIdentity.Instance,
           Instant.EPOCH
         )
         .attempt
-    } yield {
-      raised.left.getOrElse(fail("a failing drawing must fail resolve")) match {
-        case e: FHError =>
-          // 503 and not 500: the dashboard is fine, the recorder or the engine
-          // is not, so this is "come back" rather than "this build is broken".
-          assertEquals(e.status, 503)
-          // Naming the query is what makes a blank chart diagnosable at all,
-          // which is what the old log line did before failure became terminal.
-          assert(e.getMessage.contains("history"), clue = e.getMessage)
-          assert(e.getMessage.contains("no engine"), clue = e.getMessage)
-        case other => fail(s"expected an FHError, got $other")
-      }
+    } yield raised.left
+      .getOrElse(fail("a failing drawing must fail resolve")) match {
+      case e: FHError =>
+        // 503 and not 500: the dashboard is fine, the recorder or the engine
+        // is not, so this is "come back" rather than "this build is broken".
+        assertEquals(e.status, 503)
+        // Naming the query is what makes a blank chart diagnosable at all,
+        // which is what the old log line did before failure became terminal.
+        assert(e.getMessage.contains("history"), clue = e.getMessage)
+        assert(e.getMessage.contains("no engine"), clue = e.getMessage)
+      case other => fail(s"expected an FHError, got $other")
     }
   }
 
   // --- The partial order ----------------------------------------------------
 
-  private def key(queries: (SlotQuery, Long)*) =
+  private def key(queries: (SlotRead, Long)*) =
     RenderInputs(Map("sensor.t" -> 1L), queries.toMap)
 
   test("a later version is ahead of an earlier one") {
-    assert(key(chart() -> 200L).isAtLeast(key(chart() -> 100L)))
-    assert(!key(chart() -> 100L).isAtLeast(key(chart() -> 200L)))
-    assert(key(chart() -> 100L).isAtLeast(key(chart() -> 100L)))
+    assert(key(read() -> 200L).isAtLeast(key(read() -> 100L)))
+    assert(!key(read() -> 100L).isAtLeast(key(read() -> 200L)))
+    assert(key(read() -> 100L).isAtLeast(key(read() -> 100L)))
   }
 
   test("different queries are not ordered, so neither overwrites the other") {
@@ -194,17 +270,17 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
     // means separate generations — the alternative is one of them being served
     // a chart of the wrong span, which is the silent failure `RenderInputs`
     // warns about in its own doc.
-    assert(!key(chart("24h") -> 100L).isAtLeast(key(chart("1h") -> 100L)))
-    assert(!key(chart("1h") -> 100L).isAtLeast(key(chart("24h") -> 100L)))
+    assert(!key(read("24h") -> 100L).isAtLeast(key(read("1h") -> 100L)))
+    assert(!key(read("1h") -> 100L).isAtLeast(key(read("24h") -> 100L)))
   }
 
   test("gaining a query is not being ahead") {
-    assert(!key(chart() -> 100L).isAtLeast(key()))
-    assert(!key().isAtLeast(key(chart() -> 100L)))
+    assert(!key(read() -> 100L).isAtLeast(key()))
+    assert(!key().isAtLeast(key(read() -> 100L)))
   }
 
   test("a moved query alone moves the key, with state standing still") {
-    assertNotEquals(key(chart() -> 100L), key(chart() -> 200L))
+    assertNotEquals(key(read() -> 100L), key(read() -> 200L))
   }
 
   // --- What a surface owes before it renders --------------------------------
@@ -233,6 +309,7 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
                   slots = Map(
                     "chart" -> SlotSource(
                       query = Some(chart()),
+                      transform = drawn(),
                       reads = Reads.OnRender
                     )
                   )
@@ -244,7 +321,7 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
       )
     )
     val r = Renderer.create(d)
-    assertEquals(r.queriesForSurface("popup"), List(chart()))
+    assertEquals(r.queriesForSurface("popup"), List(read()))
     // A surface nobody declared owes nothing, rather than raising.
     assertEquals(r.queriesForSurface("nope"), Nil)
   }
@@ -280,7 +357,7 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
         card = LayoutNode.Component(
           card = "chart",
           slots = Map(
-            "chart" -> SlotSource(query = Some(chart()), reads = Reads.OnRender)
+            "chart" -> chartSource()
           )
         )
       ).validate()
@@ -300,7 +377,7 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
     // Pkl default derives `onRender` from the query, and a hand-written one
     // that says otherwise is a build error rather than a misleading document.
     val errs = dashboard(
-      SlotSource(query = Some(chart()), reads = Reads.Live)
+      chartSource().copy(reads = Reads.Live)
     ).validate()
     assert(errs.exists(_.contains("never pushed")), clue = errs)
   }

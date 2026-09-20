@@ -13,16 +13,27 @@ module core.slot
 
 import "../hass.pkl"
 import "simple.pkl" as simpleMod
+import "stage.pkl" as stageMod
 
 /// The object form of a slot (fh.view.model.SlotSource): a CEL expression
 /// over the card's entity. [[Slot.reads]] says when it is read.
 class Slot {
   entityId: String? = null
-  /// The value — ONE fact, two forms (ADR 0028): a CEL string over the card's
-  /// entity (the engine tier) or an opted-in [[simpleMod.Simple]] structure
-  /// (the fast tier — the object form IS the tier selection; nothing
-  /// recognizes expression spelling). Defaults to the raw state.
-  transform: (String|simpleMod.Simple) = "state"
+  /// The value — ONE fact, now three forms. A CEL string over the card's entity
+  /// (the engine tier) or an opted-in [[simpleMod.Simple]] structure (the fast
+  /// tier — the object form IS the tier selection; nothing recognizes
+  /// expression spelling, ADR 0028); or, on a QUERY slot, a
+  /// [[stageMod.Stage]], which turns a PROVIDER's answer into the hole's
+  /// content instead of reading an entity.
+  ///
+  /// The default is DERIVED from the shape, like [[reads]] and for the same
+  /// reason: `"state"` is the identity for a state slot and means nothing
+  /// beside a query, so a fixed default would make the wire lie on one of the
+  /// two shapes. A query slot therefore defaults to
+  /// [[stageMod.passthrough]] — no transform, the provider's data as the
+  /// slot's value — and the backend rejects the wrong arm on either shape.
+  transform: (String|simpleMod.Simple|stageMod.Stage) =
+    if (query == null) "state" else stageMod.passthrough
   default: String? = null
   bypassUnavailable: Boolean = true
   /// WHEN this value is read, and whether reading it is a reason to re-render.
@@ -101,21 +112,22 @@ const function querySlot(name: "history", args: Mapping<String, String>): Slot =
 /// `window` is one of `1h`/`24h`/`7d`/`30d`. `unit` is drawn beside the y axis
 /// and should be the entity's own `unit_of_measurement`, because the card
 /// beside the chart reads the same field and the two must agree.
+///
+/// The QUESTION is the entity and the window; the DRAWING is the transform. The
+/// unit used to ride in the query, which made two sizes of one series two
+/// different questions — so sharing the fetch between them depended on a cache
+/// being keyed carefully rather than on the types saying so.
 const function chartSlot(
   entityId: String,
   window: String,
   unit: String?
 ): Slot =
-  querySlot("history", new Mapping {
+  (querySlot("history", new Mapping {
     ["entity"] = entityId
     ["window"] = window
-    // `when` inside the body, because `Mapping` has no `+` — an absent unit
-    // must leave the key out entirely, since the params are part of the
-    // server's cache key and `unit = ""` is a different question from no unit.
-    when (unit != null) {
-      ["unit"] = unit
-    }
-  })
+  })) {
+    transform = stageMod.chart(null, null, unit)
+  }
 
 /// WHERE a signal slot's value lands in the DOM. Spelled as a constrained
 /// String rather than a class hierarchy for two reasons: the wire form IS one

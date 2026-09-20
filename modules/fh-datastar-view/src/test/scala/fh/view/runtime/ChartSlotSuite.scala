@@ -1,6 +1,14 @@
 package fh.view.runtime
 
-import fh.view.model.{CardDef, Dashboard, LayoutNode, SlotQuery, SlotSource}
+import fh.view.model.{
+  CardDef,
+  Dashboard,
+  LayoutNode,
+  SlotQuery,
+  SlotRead,
+  SlotSource,
+  Transform
+}
 import fh.view.query.{Fragment, Fragments}
 
 /** A series slot resolved into the walk: the bytes reach the page, and the
@@ -10,6 +18,8 @@ class ChartSlotSuite extends munit.FunSuite {
 
   private val query =
     SlotQuery("history", Map("entity" -> "sensor.t", "window" -> "24h"))
+  private val stage = Transform.Stage.Chart(Map("width" -> "600"))
+  private val read = SlotRead(query, stage)
   private val svg = """<svg width="600"><path d="M0 0"/></svg>"""
 
   private def dashboardWith(hole: String) =
@@ -24,7 +34,7 @@ class ChartSlotSuite extends munit.FunSuite {
         card = "chart",
         slots = Map(
           "entity_id" -> SlotSource(literal = Some("sensor.t")),
-          "chart" -> SlotSource(query = Some(query)),
+          "chart" -> SlotSource(query = Some(query), transform = stage),
           "name" -> SlotSource(transform = "state")
         )
       )
@@ -34,7 +44,7 @@ class ChartSlotSuite extends munit.FunSuite {
     Map("sensor.t" -> EntityState("sensor.t", "21.4", Map.empty))
 
   private def fragments(bytes: String = svg, version: Long = 100L) =
-    Fragments.of(Map(query -> Fragment(version, bytes)))
+    Fragments.of(Map(read -> Fragment(version, bytes)))
 
   private def rootId(d: Dashboard) = LayoutNode.rootId("", d.card)
 
