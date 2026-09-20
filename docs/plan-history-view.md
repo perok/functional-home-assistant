@@ -1,10 +1,8 @@
 # Plan — history in the more-info view
 
-**Status:** proposal, nothing built. Issue: more-info should show where a reading has *been*, not
-only where it is.
-
-`components/moreinfo.pkl` says so itself today: *"HA's own more-info also carries history and
-settings; neither is here."* This is the design for the first half.
+**Status:** phases 1–5 built — more-info shows a numeric sensor's last 24 hours. What is left is
+window selection (phase 6), the page path, and the docs. Issue: more-info should show where a
+reading has *been*, not only where it is.
 
 Two questions were asked. The charting one is settled by a spike (§2): **ECharts runs on the
 server, under GraalJS, and emits SVG** — so a chart is bytes, like every other card. The retrieval
@@ -260,29 +258,36 @@ carries one special case (a bare string is a literal); this adds no second one.
 The split happens at **validation**, which is where this codebase already puts proofs:
 
 ```scala
-// what the renderer sees — produced only by Dashboard.validate
-enum ResolvedSlot:
-  case State(transform: Transform, reads: String, signal: Option[SignalBind], …)
-  case Query(provider: Provider, request: provider.Request)
+// what every slot-classification site matches on
+enum SlotShape:
+  case State(source: SlotSource)
+  case Query(query: SlotQuery)
 ```
 
-`Dashboard.Validated` already carries pre-compiled CEL transforms so `Renderer`/`Transforms` never
-re-check them; a parsed query rides the same proof. Three consequences, and the first is the whole
-point:
+Three consequences, and the first is the whole point:
 
-- the four guards **delete**. A `ResolvedSlot.Query` has no `reads`, no `transform` and no `signal`
-  field to set wrongly;
-- `fh.view.model` never imports `fh.view.history`. The model does not know what a window is — the
-  provider parses `params` into its own typed request during `validate`, and a bad window is a
-  build error naming the four that exist;
-- a second provider is a registration, not a pipeline change.
+- the four guards **delete**. Every site that asks what a slot is matches on `SlotShape`, and the
+  `Query` arm has no `reads`, no `transform` and no `signal` to read — so the combinations are
+  unreachable rather than rejected;
+- `fh.view.model` never imports `fh.view.history`. The model does not know what a window is —
+  `Queries.parse` turns `params` into a typed `QueryRequest` during `validate`, and a bad window is
+  a build error naming the four that exist;
+- a second provider is a case in a closed sum — `QueryRequest`, `Queries.parse`, `QueryResolver`,
+  and the union in `core/slot.pkl` — not a registration. There is no plugin story to pay for, and
+  one `match` says in code what providers exist where a name→instance map says only what somebody
+  remembered to put in it.
+
+`reads` is INERT on a query slot, which raises the question of what the wire should say. It says
+`onRender`, derived by the Pkl default and checked at build time — not because anything acts on it,
+but because `"reads": "live"` beside a query is a lie the document tells whoever reads it, a
+third-party tool included.
 
 ### Identity still rides the request
 
 `ServiceCalls` is the precedent for the seam because **identity is the question**: HA attributes a
 call to whoever owns the connection, so the one shared socket makes every tap the add-on's own.
 Recorder data is permission-scoped the same way, so a provider derives its identity from the
-`Request` once and carries it — which is why `SeriesIdentity` is already the first component of the
+`Request` once and carries it — which is why `QueryIdentity` is already the first component of the
 cache key, before any per-user provider exists. A cache key that omits identity is a permission
 leak rather than a performance bug, and retrofitting one is how that leak gets written.
 
@@ -310,6 +315,69 @@ page displays `&lt;svg …` as text — a failure with no error anywhere, and th
 card author gets wrong. `Templates` already inspects the parsed template AST (that is how it finds
 `{{#region}}` bodies that are exactly `{{{html}}}`), so **requiring the raw hole for a query slot
 is a build-time check**, not a convention.
+
+### What a query answers with: markup now, data later
+
+Nothing built. Written down because it is the first thing a third-party card author will ask for,
+and because the answer decides whether `Fragment` is the right shape today — it is, and this says
+why.
+
+A query answers with **markup**: `Fragment(version, html)`, dropped in a raw hole. That is the
+whole contract, and it is what makes a chart an ordinary leaf. The two things somebody outside this
+repo might want instead are different sizes of ask, and only one of them is about `Fragment` at
+all.
+
+**Layer 1 — a different picture, still drawn here.** "I want a bar chart", "I want a threshold
+band", "I want the axis pinned to 0–100". None of that needs the browser: it needs the option
+object the provider builds to be extensible. The extension point already exists — `params` is a
+`Map[String, String]` that the provider parses — so this is a named, closed set of knobs
+(`kind = line|bar|step`, `min`, `max`, `band`) parsed in `HistoryQuery.parse`, exactly like `width`
+is today. A bad value stays a build error.
+
+Every property of the query slot survives unchanged: the answer is still bytes, still not a
+candidate on a state tick, still cached on the bucket, still needs no JavaScript in the browser.
+And the caching is *right by construction* rather than by care, because `params` IS the cache key:
+two option overrides are two drawings of one fetch, which is what the series/chart cache split
+already measures.
+
+The trap to avoid is opening the whole ECharts option object as a passthrough JSON param. It looks
+generous and it makes ECharts our public API by accident — a version bump then breaks a dashboard
+we have never seen, and the cache key becomes an arbitrary blob. Closed knobs first; the raw
+escape hatch only if something real needs one, and with the version pin stated as part of it.
+
+**Layer 2 — the rows themselves, for someone else's chart.** A third party who wants a draggable
+axis or their own library wants `[[t, v], …]`, not our SVG. That is a real ask and it is *additive*
+— but it is bigger than it looks, because the payload has nowhere safe to land yet.
+
+What changes on the server is small and fully specified:
+
+```scala
+enum Fragment derives CanEqual:
+  case Markup(version: Long, html: String)
+  case Data(version: Long, json: Json)
+```
+
+- the **version semantics are untouched** — same bucket, same non-decreasing rule, same
+  `RenderInputs` component. So a data query is cached, shared and woken exactly as a markup one is;
+- it costs **no extra fetch**: the JSON is the downsampled series the SVG was drawn from, so the
+  series cache serves both and the second consumer costs one serialisation;
+- the **raw-hole check becomes conditional on the media**, which is the one validation change:
+  markup MUST be `{{{x}}}` (or the page shows `&lt;svg` as text), data MUST NOT be — it is an
+  attribute value and wants escaping. Today's rule is the markup half of that rule, so it
+  generalises rather than being replaced;
+- size is not the objection: ~300 points as JSON is a few KB against ~19 KB of SVG.
+
+What it is blocked on is the DOM, and this is the part to be honest about: **the payload must ride
+an attribute, not a signal** (ADR 0011 — every non-`_` signal is serialised into every action POST
+and every SSE reconnect for the life of the page), and an element that reads an attribute and keeps
+chart state beside it is severed by the next morph with no error. The Appendix has the measured fix
+— a custom element holding its DOM in a shadow root, which the pinned Datastar bundle does not walk
+— so layer 2 is **not usable until that element exists**. Shipping `Fragment.Data` without it would
+hand third parties a payload they cannot hold onto.
+
+So: layer 1 when someone asks, layer 2 with a real consumer and the shadow-root host in the same
+change. Neither is foreclosed by what is built, and `Fragment` stays a flat case class until one of
+them is actually being built — a sum with one case is a shape nobody has to read.
 
 ### The HA side
 
@@ -539,7 +607,8 @@ Each is independently mergeable and independently useful.
    a daily purge and a day-old sensor give the same answer.
 3. **The query slot, and `RenderInputs` gains its component.** The pipeline change, on its own,
    with the architecture doc updated in the same commit: `SlotQuery` on the wire, the two-shape
-   `ResolvedSlot` produced by `validate`, the provider registry that parses `params`, and the
+   `SlotShape` split matched at every classification site, `Queries.parse` turning `params` into a
+   `QueryRequest`, and the
    `Templates` check that a query slot's hole is the raw one. The prediction held — a chart is not
    a candidate on a state tick, and with the split it is not even spellable otherwise. What the
    phase does NOT include is the live half: nothing fills a version on the pull path yet, so a
