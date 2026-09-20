@@ -1,5 +1,6 @@
 package fh.view.runtime
 
+import fh.view.query.Fragments
 import fh.view.runtime.RendererTestOps.*
 
 import fh.view.model.{
@@ -126,7 +127,8 @@ class SignalSlotSuite extends ServerHarness {
   }
 
   test("the patch form carries neither the value nor the seed") {
-    val patch = renderer.renderNodeById(leaf, at("21.4")).get
+    val patch =
+      renderer.renderNodeById(leaf, at("21.4"), fragments = Fragments.empty).get
     assertEquals(patch.contains("21.4"), false, clue = patch)
     assertEquals(patch.contains("data-signals"), false, clue = patch)
     // The BINDING stays: it is what the frame feeds, and a morph that dropped
@@ -163,7 +165,7 @@ class SignalSlotSuite extends ServerHarness {
     // construction, one template execute (the walk builds no second rendering
     // of a signal-free node).
     val freeR = Renderer.create(plain)
-    val free = freeR.renderBodyTraced(at("21.4"))
+    val free = freeR.renderBodyTraced(at("21.4"), fragments = Fragments.empty)
     val freeId = free.own.keys.head
     // The trace holds digests now, so "the two forms are the same bytes" is
     // asserted as the same fingerprint: a signal-free node's patch form IS its
@@ -173,9 +175,12 @@ class SignalSlotSuite extends ServerHarness {
       clue = "a signal-free node rendered twice"
     )
     // ...and the same walk over the signal card really does produce two forms.
-    val signalled = renderer.renderBodyTraced(at("21.4"))
+    val signalled =
+      renderer.renderBodyTraced(at("21.4"), fragments = Fragments.empty)
     val signalledId = signalled.own.keys.head
-    val signalledPatch = renderer.renderNodeById(signalledId, at("21.4")).get
+    val signalledPatch = renderer
+      .renderNodeById(signalledId, at("21.4"), fragments = Fragments.empty)
+      .get
     assert(signalled.own(signalledId).digest == Digest.of(signalledPatch))
     assert(signalled.own(signalledId).digest != Digest.of(signalled.html))
     assert(signalled.html.contains("21.4"), clue = signalled.html)
@@ -790,7 +795,10 @@ class SignalSlotSuite extends ServerHarness {
     val page = r.renderPage(states)
     assertEquals(page.contains("sensor.unseen"), false, clue = page)
     // ...so the fill has to carry both the binding and the value.
-    val fill = r.renderSurfaceTraced("panel", states).map(_.html).get
+    val fill = r
+      .renderSurfaceTraced("panel", states, fragments = Fragments.empty)
+      .map(_.html)
+      .get
     assert(fill.contains("data-text=\"$_e.sensor.unseen.state\""), clue = fill)
     assert(
       fill.contains("data-signals=\"{_e: {sensor: {unseen: {state: '7'"),

@@ -175,7 +175,17 @@ trait ServerHarness extends munit.CatsEffectSuite {
   ): List[Addressed] =
     RenderCache.create
       .flatMap(
-        Patches.resume(renderer, _, log, holds, states, v, open, uiState)
+        Patches.resume(
+          renderer,
+          _,
+          log,
+          holds,
+          states,
+          Fragments.empty,
+          v,
+          open,
+          uiState
+        )
       )
       .unsafeRunSync()
 
@@ -201,7 +211,17 @@ trait ServerHarness extends munit.CatsEffectSuite {
       .flatMap(sessions.register("recordAndPull", _)) *>
       server.recordFrame("dashboard", renderer, log, changes) *>
       (log.get, store.current, RenderCache.create).flatMapN((l, now, rc) =>
-        Patches.resume(renderer, rc, l, holds, now.entities, from, open, ui)
+        Patches.resume(
+          renderer,
+          rc,
+          l,
+          holds,
+          now.entities,
+          Fragments.empty,
+          from,
+          open,
+          ui
+        )
       )
 
   // A minimal tabs dashboard: a `tabs` component (id "c") with two panels baked
@@ -358,7 +378,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
         (
           log.touched(id, 0L),
           renderer
-            .renderLogged(id, states)
+            .renderLogged(id, states, Map.empty, Fragments.empty)
             .fold(holds)(html => holds + (id -> Held.of(html)))
         )
     }
@@ -474,7 +494,15 @@ trait ServerHarness extends munit.CatsEffectSuite {
       (cache.get, store.current, holds.get, position.get, RenderCache.create)
         .flatMapN { (log, now, held, from, rc) =>
           Patches
-            .resume(renderer, rc, log, held, now.entities, from + 1)
+            .resume(
+              renderer,
+              rc,
+              log,
+              held,
+              now.entities,
+              Fragments.empty,
+              from + 1
+            )
             .flatMap { patches =>
               holds.set(
                 patches.foldLeft(held)(

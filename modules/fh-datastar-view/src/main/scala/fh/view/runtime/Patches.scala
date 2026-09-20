@@ -524,6 +524,7 @@ private[runtime] object Patches {
       log: FragmentLog,
       holds: Map[NodeId, Held],
       states: Map[String, EntityState],
+      fragments: Fragments,
       v: Long,
       open: Set[String] = Set.empty,
       uiState: Map[String, String] = Map.empty
@@ -556,7 +557,7 @@ private[runtime] object Patches {
       .toList
       .sortBy(_._1)
       .flatMap { case (gid, entries) =>
-        val content = renderer.renderHost(gid, states, uiState)
+        val content = renderer.renderHost(gid, states, uiState, fragments)
         branchPatch(
           renderer,
           gid,
@@ -598,7 +599,7 @@ private[runtime] object Patches {
               // Rendered NOW, not read back: the snapshot is at least as fresh as
               // anything the log could have kept, and it is what lets the log hold
               // a version instead of bytes.
-              bytes(renderer, cache, nodeId, states, uiState).map(
+              bytes(renderer, cache, nodeId, states, uiState, fragments).map(
                 _.toList.flatMap { case NodeBytes(html, digest) =>
                   // Every current member is a usable anchor here: emitting
                   // descending by position means a node's successor was either
@@ -629,7 +630,7 @@ private[runtime] object Patches {
     // having only because it replaced a whole-BODY repaint.
     val refills = owed.refill.sorted.map { gid =>
       val asSet = renderer.members.setContainer(gid)
-      val content = renderer.renderHost(gid, states, uiState)
+      val content = renderer.renderHost(gid, states, uiState, fragments)
       Addressed(
         Patch.Insert(
           content.parts.map(_._2).mkString,
@@ -680,10 +681,10 @@ private[runtime] object Patches {
       }).distinct
     for {
       morphs <- changed.traverseFilter(
-        morph(renderer, cache, holds, states, uiState, _)
+        morph(renderer, cache, holds, states, uiState, fragments, _)
       )
       open <- fromOpenIds.traverseFilter(
-        morph(renderer, cache, holds, states, uiState, _)
+        morph(renderer, cache, holds, states, uiState, fragments, _)
       )
       placed <- places
     } yield signalFrame(renderer, holds, states, touchedIds) ++
@@ -772,9 +773,10 @@ private[runtime] object Patches {
       holds: Map[NodeId, Held],
       states: Map[String, EntityState],
       uiState: Map[String, String],
+      fragments: Fragments,
       id: NodeId
   ): IO[Option[Addressed]] =
-    bytes(renderer, cache, id, states, uiState).map(_.flatMap {
+    bytes(renderer, cache, id, states, uiState, fragments).map(_.flatMap {
       case NodeBytes(html, digest) =>
         Option.when(!holds.get(id).flatMap(_.digest).contains(digest))(
           Addressed(Patch.Morph(html), Map(id -> Held.bytes(digest)))
@@ -801,7 +803,7 @@ private[runtime] object Patches {
       // provider, so a version moving does not wake its node. Explicit rather
       // than defaulted so the seam is visible at the one site that has to
       // grow.
-      fragments: Fragments = Fragments.none
+      fragments: Fragments
   ): IO[Option[NodeBytes]] =
     renderer.renderInputs(id, states, fragments) match {
       case Some(inputs) =>
@@ -884,7 +886,7 @@ private[runtime] object Patches {
       arriving: Option[String],
       states: Map[String, EntityState],
       uiState: Map[String, String],
-      fragments: Fragments = Fragments.none
+      fragments: Fragments
   ): Option[(Addressed, String)] =
     arriving
       .flatMap(renderer.renderSurfaceTraced(_, states, uiState, fragments))

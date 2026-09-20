@@ -492,7 +492,7 @@ class Renderer(
   private[runtime] def renderBodyTraced(
       states: Map[String, EntityState],
       uiState: Map[String, String] = Map.empty,
-      fragments: Fragments = Fragments.none
+      fragments: Fragments
   ): Traced =
     traced(
       dashboard.card,
@@ -540,7 +540,7 @@ class Renderer(
       states: Map[String, EntityState],
       uiState: Map[String, String] = Map.empty,
       popup: Option[String] = None,
-      fragments: Fragments = Fragments.none
+      fragments: Fragments
   ): Map[NodeId, Painted] = {
     val own = new java.util.HashMap[NodeId, Painted]()
     val pageOut = out
@@ -622,7 +622,7 @@ class Renderer(
       surfaceId: String,
       states: Map[String, EntityState],
       uiState: Map[String, String] = Map.empty,
-      fragments: Fragments = Fragments.none
+      fragments: Fragments
   ): Option[Traced] =
     dashboard.surfaces.get(surfaceId).map { s =>
       traced(
@@ -647,7 +647,7 @@ class Renderer(
       // walk is what asks for the other one. A caller wanting bytes to put in a
       // client's DOM wholesale wants `Document`.
       form: SlotForm = SlotForm.Patch,
-      fragments: Fragments = Fragments.none
+      fragments: Fragments
   ): Option[String] =
     members
       .memberAt(id, states)
@@ -675,12 +675,6 @@ class Renderer(
   def surfaceContentId(surfaceId: String): NodeId =
     LayoutNode.nodeId(Renderer.surfacePrefix(surfaceId), Nil)
 
-  /** The resume path's SECOND candidate set. A surface a client has open holds
-    * nodes the cursor alone would not name, because nothing may have rendered
-    * that surface at all while nobody was viewing it — so the log has no
-    * version to compare and only re-rendering can tell whether the DOM is
-    * current.
-    */
   /** Every query this surface's content reads, for resolving before it is
     * rendered — see `Dashboard.queriesIn`.
     */
@@ -693,6 +687,32 @@ class Renderer(
       .flatMap(s => dashboard.queriesIn(s.content))
       .distinct
 
+  /** Every query a PAGE render reads, for resolving before the walk starts.
+    *
+    * Three sources, and the middle one is the non-obvious one:
+    *
+    *   - the body;
+    *   - every BAKED surface, active or not, because a bake swap renders from
+    *     state alone and cannot fetch (see `SurfaceGraph.bakedSurfaces`) — so a
+    *     tab panel's chart is answered now or never;
+    *   - the surfaces this viewer has open, which is what a restored dialog is.
+    *
+    * What it deliberately does NOT include is every query the dashboard
+    * declares. A chart in a popup nobody has opened is not fetched, which is
+    * the laziness worth keeping now that "bounded by the surface" has stopped
+    * being true for the page path.
+    */
+  def queriesForPage(open: Set[String]): List[SlotQuery] =
+    (dashboard.queriesIn(dashboard.card) ++
+      surfaces.bakedSurfaces.flatMap(queriesForSurface) ++
+      open.toList.flatMap(queriesForSurface)).distinct
+
+  /** The resume path's SECOND candidate set. A surface a client has open holds
+    * nodes the cursor alone would not name, because nothing may have rendered
+    * that surface at all while nobody was viewing it — so the log has no
+    * version to compare and only re-rendering can tell whether the DOM is
+    * current.
+    */
   def surfaceNodeIds(surfaceId: String): Set[NodeId] =
     surfaceIndexes.get(surfaceId).fold(Set.empty)(_.indexed.keySet)
 
@@ -703,7 +723,7 @@ class Renderer(
   def renderMembers(
       groupId: SetId,
       states: Map[String, EntityState],
-      fragments: Fragments = Fragments.none
+      fragments: Fragments
   ): List[(NodeId, String)] =
     members
       .membersOf(groupId, states)
@@ -721,11 +741,12 @@ class Renderer(
   private[runtime] def renderHost(
       container: NodeId,
       states: Map[String, EntityState],
-      uiState: Map[String, String] = Map.empty
+      uiState: Map[String, String],
+      fragments: Fragments
   ): HostContent =
     members.setContainer(container) match {
       case Some(setId) =>
-        val parts = renderMembers(setId, states)
+        val parts = renderMembers(setId, states, fragments)
         HostContent(
           parts,
           parts.map { case (id, html) => id -> Held.of(html) }.toMap
@@ -735,7 +756,7 @@ class Renderer(
           .resolveActiveByState(container, states)
           .flatMap(surfaces.bakeGroup(container).lift)
           .flatMap(sid =>
-            renderSurfaceTraced(sid, states, uiState).map(t =>
+            renderSurfaceTraced(sid, states, uiState, fragments).map(t =>
               HostContent(List(surfaceContentId(sid) -> t.html), t.claims)
             )
           )
@@ -761,8 +782,10 @@ class Renderer(
   def renderLogged(
       id: NodeId,
       states: Map[String, EntityState],
-      uiState: Map[String, String] = Map.empty
-  ): Option[String] = renderNodeById(id, states, uiState)
+      uiState: Map[String, String],
+      fragments: Fragments
+  ): Option[String] =
+    renderNodeById(id, states, uiState, fragments = fragments)
 
   /** The backend-injected structural template vars for one node — the ids an
     * author never composes.
@@ -963,7 +986,7 @@ class Renderer(
   def renderInputs(
       id: NodeId,
       states: Map[String, EntityState],
-      fragments: Fragments = Fragments.none
+      fragments: Fragments
   ): Option[RenderInputs] =
     members
       .memberAt(id, states)
@@ -1333,7 +1356,7 @@ class Renderer(
             val bakedHtml: Map[String, List[String]] =
               bakeSel match {
                 case Some((region, sid)) if !inline.contains(region) =>
-                  renderSurfaceTraced(sid, states, uiState)
+                  renderSurfaceTraced(sid, states, uiState, fragments)
                     .map { t =>
                       t.own.foreach { case (nid, p) => trace.put(nid, p) }
                       Map(region -> List(t.html))
@@ -1544,7 +1567,7 @@ class Renderer(
       setId: SetId,
       entityId: String,
       states: Map[String, EntityState],
-      fragments: Fragments = Fragments.none
+      fragments: Fragments
   ): Option[String] =
     members
       .membersOf(setId, states)
@@ -2406,7 +2429,7 @@ class Renderer(
       .memberAt(id, states)
       // Signals only, so no fragments: a query slot has no signal to carry —
       // it is a `SlotShape.Query`, and this path resolves state slots.
-      .map(m => memberSignalsOf(resolveMember(m, states, Fragments.none)))
+      .map(m => memberSignalsOf(resolveMember(m, states, Fragments.empty)))
       .orElse(
         // NOT gated on `hasOwnRendering`. Structure has signals like any other
         // node — its seed already rides its own `.fh-cell` wrapper in the
@@ -2519,7 +2542,7 @@ class Renderer(
     // rather than `default` — an answer that has not arrived is not a missing
     // value to substitute for, and `renderInputs` has already left it out of
     // the key, so this render makes no claim to have drawn it.
-    case Some(query) => fragments.html(query).getOrElse("")
+    case Some(query) => fragments.html(query)
     case None        => resolveStateSlotValue(srcEntity, source, states)
   }
 

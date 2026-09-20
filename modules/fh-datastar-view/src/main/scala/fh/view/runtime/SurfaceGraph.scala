@@ -82,6 +82,19 @@ private[runtime] final class SurfaceGraph(
   def bakeGroup(gid: NodeId): List[String] =
     bakeGroups.getOrElse(gid, Nil)
 
+  /** Every surface a page can come to show WITHOUT another round trip: the
+    * members of every bake group, whichever one is active right now.
+    *
+    * Not over-eagerness, and the distinction matters for what a render
+    * resolves. A bake swap re-renders from state alone — it cannot fetch, which
+    * is exactly why window selection had to become a variable rather than a
+    * bake — so a query inside a tab panel has to have been answered when the
+    * PAGE was, or switching to that tab shows an empty hole and nothing will
+    * ever fill it.
+    */
+  def bakedSurfaces: List[String] =
+    bakeGroups.values.toList.flatten.distinct
+
   /** "Shown on first paint, with no selection and no click." */
   private def defaultOpenUser(s: Surface): Boolean = s.activation match {
     case Activation.User(d) => d

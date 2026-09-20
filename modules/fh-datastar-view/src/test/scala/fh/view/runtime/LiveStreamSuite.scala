@@ -1,5 +1,6 @@
 package fh.view.runtime
 
+import fh.view.query.Fragments
 import api.homeassistant.HomeAssistantApi
 import cats.effect.IO
 import fh.view.model.{
@@ -351,7 +352,8 @@ class LiveStreamSuite extends ServerHarness {
               renderer
                 .renderNodeById(
                   "s_det__c_0",
-                  Map("sensor.a" -> es("sensor.a", "cold"))
+                  Map("sensor.a" -> es("sensor.a", "cold")),
+                  fragments = Fragments.empty
                 )
                 .get
             )
@@ -492,19 +494,31 @@ class LiveStreamSuite extends ServerHarness {
       "sensor.a" -> es("sensor.a", "A0")
     )
     val (patch, _) =
-      Patches.hostFill(r, r.hostId("c_0"), Some("then"), armed, Map.empty).get
+      Patches
+        .hostFill(
+          r,
+          r.hostId("c_0"),
+          Some("then"),
+          armed,
+          Map.empty,
+          fragments = Fragments.empty
+        )
+        .get
 
     // The leaf the fill places is claimed, holding exactly what a patch for
     // that node alone would carry — which is what makes the two comparable.
     val leaf: NodeId = "s_then__c_0"
     assertEquals(
       patch.establishes.get(leaf),
-      r.renderNodeById(leaf, armed).map(Held.of)
+      r.renderNodeById(leaf, armed, fragments = Fragments.empty).map(Held.of)
     )
     // And the branch ROOT gets nothing: it has no rendering of its own, so a
     // claim there could never be resolved.
     val root = NodeId.derived("s_then__c")
-    assertEquals(r.renderNodeById(root, armed), None)
+    assertEquals(
+      r.renderNodeById(root, armed, fragments = Fragments.empty),
+      None
+    )
     assert(!patch.establishes.contains(root), clue = patch.establishes.keySet)
   }
 
@@ -532,7 +546,11 @@ class LiveStreamSuite extends ServerHarness {
     // earlier connect on tab 0 would have left behind.
     val log = FragmentLog("w23").touched(host, 5L)
     val holds: Map[NodeId, Held] =
-      Map(host -> Held.of(r.renderNodeById(host, states).get))
+      Map(
+        host -> Held.of(
+          r.renderNodeById(host, states, fragments = Fragments.empty).get
+        )
+      )
     val owed = resumeNow(
       r,
       log,
@@ -583,7 +601,8 @@ class LiveStreamSuite extends ServerHarness {
       (r.surfaceNodeIds("det") ++ r.surfaceNodeIds("t1")).toList.sorted
     val seeded = FragmentLog("w18")
     val held = ids.flatMap { id =>
-      r.renderLogged(id, before, mine).map(h => id -> Held.of(h))
+      r.renderLogged(id, before, mine, fragments = Fragments.empty)
+        .map(h => id -> Held.of(h))
     }.toMap
 
     // (1) A change inside TAB 0's panel. Invisible to this viewer, and its

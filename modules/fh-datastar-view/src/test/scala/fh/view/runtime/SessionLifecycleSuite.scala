@@ -1,5 +1,6 @@
 package fh.view.runtime
 
+import fh.view.query.Fragments
 import api.homeassistant.HomeAssistantApi
 import cats.effect.IO
 import cats.effect.kernel.{Deferred, Ref}
@@ -156,7 +157,11 @@ class SessionLifecycleSuite extends ServerHarness {
       .timeout(30.seconds)
       .map { case (held, epoch, renderer, snapshot) =>
         // Its own render, node by node — not a projection of anyone else's.
-        val body = renderer.renderNodeById("c_0", snapshot.entities)
+        val body = renderer.renderNodeById(
+          "c_0",
+          snapshot.entities,
+          fragments = Fragments.empty
+        )
         assertEquals(
           held.flatMap(_.get("c_0")),
           body.map(Held.of),

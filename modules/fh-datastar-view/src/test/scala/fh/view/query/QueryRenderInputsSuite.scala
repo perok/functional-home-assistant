@@ -1,5 +1,6 @@
 package fh.view.query
 
+import fh.view.query.Fragments
 import cats.effect.IO
 import fh.view.model.{
   CardDef,
@@ -21,6 +22,7 @@ import fh.view.history.{
   Window
 }
 import fh.view.runtime.{RenderInputs, Renderer}
+import fh.view.FHError
 
 import java.time.Instant
 
@@ -106,22 +108,29 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
 
   // --- The snapshot ---------------------------------------------------------
 
-  test("a query with no fragment is absent from the key, not zero") {
-    // Absent and zero are different renders: one happened before the answer
-    // arrived, the other after it arrived empty. Collapsing them would serve
-    // the empty one to someone whose data had landed.
+  test("the answers a render holds are total, and a miss is loud") {
+    // This replaced "a missing query is absent from the key, not zero", which
+    // was the right rule for a snapshot that could be PARTIAL. It cannot be
+    // now: a render either has every answer or never starts (architecture §0),
+    // so the distinction that rule protected has nothing left to describe.
+    // What is worth asserting instead is that the case it guarded against —
+    // rendering a query nobody resolved — is loud rather than an empty hole,
+    // because that is the shape the defect took.
     val q = chart()
-    assertEquals(Fragments.none.forQueries(List(q)), Map.empty)
-    assertEquals(Fragments.none.html(q), None)
-    val f = Fragments(Map(q -> Fragment(100L, "<svg/>")))
+    val f = Fragments.of(Map(q -> Fragment(100L, "<svg/>")))
     assertEquals(f.forQueries(List(q)), Map(q -> 100L))
-    assertEquals(f.html(q), Some("<svg/>"))
+    assertEquals(f.html(q), "<svg/>")
+
+    val miss = intercept[FHError](Fragments.empty.html(q))
+    assertEquals(miss.status, 500)
+    assert(miss.getMessage.contains("not resolved for this render"))
   }
 
-  test("a failing query leaves a hole, and the others still resolve") {
+  test("a failing query fails the render rather than leaving a hole") {
     // Through a real provider rather than a stub: a drawing that throws is the
-    // shape this actually takes, and the point is that the OTHER chart on the
-    // page still arrives.
+    // shape this actually takes. The OTHER chart resolving is no longer the
+    // point — a page carrying one good chart and one blank one is exactly the
+    // incomplete first paint the rule forbids, so the whole render goes.
     val ok = chart("24h")
     val bad = chart("1h")
     def request(q: SlotQuery) =
@@ -145,17 +154,27 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
           if (style.width == 1) IO.raiseError(RuntimeException("no engine"))
           else IO.pure("<svg/>")
       )
-      f <- Fragments.resolve(
-        QueryResolver(history),
-        Map(ok -> request(ok), bad -> request(bad)),
-        List(ok, bad),
-        QueryIdentity.Instance,
-        Instant.EPOCH
-      )
+      raised <- Fragments
+        .resolve(
+          QueryResolver(history),
+          Map(ok -> request(ok), bad -> request(bad)),
+          List(ok, bad),
+          QueryIdentity.Instance,
+          Instant.EPOCH
+        )
+        .attempt
     } yield {
-      assertEquals(f.html(ok), Some("<svg/>"))
-      assertEquals(f.html(bad), None)
-      assertEquals(f.forQueries(List(ok, bad)).keySet, Set(ok))
+      raised.left.getOrElse(fail("a failing drawing must fail resolve")) match {
+        case e: FHError =>
+          // 503 and not 500: the dashboard is fine, the recorder or the engine
+          // is not, so this is "come back" rather than "this build is broken".
+          assertEquals(e.status, 503)
+          // Naming the query is what makes a blank chart diagnosable at all,
+          // which is what the old log line did before failure became terminal.
+          assert(e.getMessage.contains("history"), clue = e.getMessage)
+          assert(e.getMessage.contains("no engine"), clue = e.getMessage)
+        case other => fail(s"expected an FHError, got $other")
+      }
     }
   }
 

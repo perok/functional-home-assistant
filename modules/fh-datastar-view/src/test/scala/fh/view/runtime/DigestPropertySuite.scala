@@ -1,5 +1,6 @@
 package fh.view.runtime
 
+import fh.view.query.Fragments
 import fh.view.model.*
 import fh.view.testkit.TestIds.setId
 import hedgehog.*
@@ -92,9 +93,20 @@ class DigestPropertySuite extends HedgehogSuite {
       // The trace records the DIGEST now, so the property is asserted where
       // the code actually uses it: the fingerprint the walk wrote must be the
       // one the live path's bytes hash to.
-      val recorded = r.renderBodyTraced(at(v)).own.values.head.digest
+      val recorded = r
+        .renderBodyTraced(at(v), fragments = Fragments.empty)
+        .own
+        .values
+        .head
+        .digest
       val rendered =
-        Digest.of(r.renderNodeById(NodeId.derived("c"), at(v)).get)
+        Digest.of(
+          r.renderNodeById(
+            NodeId.derived("c"),
+            at(v),
+            fragments = Fragments.empty
+          ).get
+        )
       assert(recorded == rendered)
     }
   }
@@ -106,8 +118,14 @@ class DigestPropertySuite extends HedgehogSuite {
     } yield {
       val r = Renderer.create(setDashboard(signal))
       val mid = NodeId.derived(r.members.memberIdOf(setId("c"), "alpha"))
-      val recorded = r.renderBodyTraced(at(v)).own.get(mid).get.digest
-      val rendered = Digest.of(r.renderNodeById(mid, at(v)).get)
+      val recorded = r
+        .renderBodyTraced(at(v), fragments = Fragments.empty)
+        .own
+        .get(mid)
+        .get
+        .digest
+      val rendered =
+        Digest.of(r.renderNodeById(mid, at(v), fragments = Fragments.empty).get)
       assert(recorded == rendered)
     }
   }
