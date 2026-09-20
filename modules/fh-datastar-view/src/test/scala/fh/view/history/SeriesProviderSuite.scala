@@ -6,6 +6,7 @@ import api.homeassistant.ws.domain.{
   StatisticsPeriod
 }
 import cats.effect.{IO, Ref}
+import fh.view.query.QueryIdentity
 import cats.syntax.all.*
 
 import java.time.Instant
@@ -107,7 +108,7 @@ class SeriesProviderSuite extends munit.CatsEffectSuite {
         ),
         r
       )
-      _ <- p.series(SeriesIdentity.Instance, entity, Window.LastHour, now)
+      _ <- p.series(QueryIdentity.Instance, entity, Window.LastHour, now)
       made <- calls.get
     } yield assertEquals(made, Vector("raw"))
   }
@@ -121,7 +122,7 @@ class SeriesProviderSuite extends munit.CatsEffectSuite {
         new StubSource(rowsFrom(oldest), hourlyStats(oldest), calls),
         r
       )
-      _ <- p.series(SeriesIdentity.Instance, entity, Window.LastMonth, now)
+      _ <- p.series(QueryIdentity.Instance, entity, Window.LastMonth, now)
       made <- calls.get
       learned <- r.observed
       _ <- IO(assertEquals(made.sorted, Vector("raw", "statistics:hour")))
@@ -144,7 +145,7 @@ class SeriesProviderSuite extends munit.CatsEffectSuite {
         new StubSource(rowsFrom(oldRaw), hourlyStats(fullStats), calls),
         r
       )
-      s <- p.series(SeriesIdentity.Instance, entity, Window.LastMonth, now)
+      s <- p.series(QueryIdentity.Instance, entity, Window.LastMonth, now)
     } yield assert(
       s.span.exists(_.toDays >= 29),
       clue = s.span.map(_.toDays)
@@ -160,7 +161,7 @@ class SeriesProviderSuite extends munit.CatsEffectSuite {
         new StubSource(rowsFrom(from), hourlyStats(from), calls),
         r
       )
-      s <- p.series(SeriesIdentity.Instance, entity, Window.LastWeek, now)
+      s <- p.series(QueryIdentity.Instance, entity, Window.LastWeek, now)
       // The raw series starts exactly at `from`; the statistics series is
       // plotted at bucket ENDS, so it starts an hour later and is narrower.
     } yield assertEquals(s.points.headOption.map(_.at), Some(from))
@@ -180,7 +181,7 @@ class SeriesProviderSuite extends munit.CatsEffectSuite {
         r,
         target = 100
       )
-      s <- p.series(SeriesIdentity.Instance, entity, Window.LastMonth, now)
+      s <- p.series(QueryIdentity.Instance, entity, Window.LastMonth, now)
     } yield assertEquals(s.points.length, 100)
   }
 
@@ -190,10 +191,10 @@ class SeriesProviderSuite extends munit.CatsEffectSuite {
       fetches: Ref[IO, Int],
       delay: FiniteDuration = Duration.Zero
   ): SeriesProvider = new SeriesProvider {
-    def identify(req: org.http4s.Request[IO]): IO[SeriesIdentity] =
-      IO.pure(SeriesIdentity.Instance)
+    def identify(req: org.http4s.Request[IO]): IO[QueryIdentity] =
+      IO.pure(QueryIdentity.Instance)
     def series(
-        identity: SeriesIdentity,
+        identity: QueryIdentity,
         entityId: String,
         window: Window,
         asOf: Instant
@@ -208,7 +209,7 @@ class SeriesProviderSuite extends munit.CatsEffectSuite {
       store <- SeriesStore.create(countingProvider(fetches, 50.millis))
       _ <- List
         .fill(10)(
-          store.get(SeriesIdentity.Instance, entity, Window.LastDay, now)
+          store.get(QueryIdentity.Instance, entity, Window.LastDay, now)
         )
         .parSequence
       count <- fetches.get
@@ -219,10 +220,10 @@ class SeriesProviderSuite extends munit.CatsEffectSuite {
     for {
       fetches <- Ref[IO].of(0)
       store <- SeriesStore.create(countingProvider(fetches))
-      _ <- store.get(SeriesIdentity.Instance, entity, Window.LastDay, now)
+      _ <- store.get(QueryIdentity.Instance, entity, Window.LastDay, now)
       // Same bucket: still one fetch.
       _ <- store.get(
-        SeriesIdentity.Instance,
+        QueryIdentity.Instance,
         entity,
         Window.LastDay,
         now.plusSeconds(60)
@@ -231,7 +232,7 @@ class SeriesProviderSuite extends munit.CatsEffectSuite {
       _ <- IO(assertEquals(afterSameBucket, 1))
       // Next 5-minute bucket.
       _ <- store.get(
-        SeriesIdentity.Instance,
+        QueryIdentity.Instance,
         entity,
         Window.LastDay,
         now.plusSeconds(600)
@@ -251,8 +252,8 @@ class SeriesProviderSuite extends munit.CatsEffectSuite {
     for {
       fetches <- Ref[IO].of(0)
       store <- SeriesStore.create(countingProvider(fetches))
-      _ <- store.get(SeriesIdentity.Instance, entity, Window.LastDay, now)
-      _ <- store.get(SeriesIdentity.user("alice"), entity, Window.LastDay, now)
+      _ <- store.get(QueryIdentity.Instance, entity, Window.LastDay, now)
+      _ <- store.get(QueryIdentity.user("alice"), entity, Window.LastDay, now)
       count <- fetches.get
     } yield assertEquals(count, 2)
   }
@@ -261,10 +262,10 @@ class SeriesProviderSuite extends munit.CatsEffectSuite {
     for {
       attempts <- Ref[IO].of(0)
       provider = new SeriesProvider {
-        def identify(req: org.http4s.Request[IO]): IO[SeriesIdentity] =
-          IO.pure(SeriesIdentity.Instance)
+        def identify(req: org.http4s.Request[IO]): IO[QueryIdentity] =
+          IO.pure(QueryIdentity.Instance)
         def series(
-            identity: SeriesIdentity,
+            identity: QueryIdentity,
             entityId: String,
             window: Window,
             asOf: Instant
@@ -276,12 +277,12 @@ class SeriesProviderSuite extends munit.CatsEffectSuite {
       }
       store <- SeriesStore.create(provider)
       first <- store
-        .get(SeriesIdentity.Instance, entity, Window.LastDay, now)
+        .get(QueryIdentity.Instance, entity, Window.LastDay, now)
         .attempt
       _ <- IO(assert(first.isLeft))
       // The retry is the point: a series that failed because HA blinked should
       // come back when it stops, not at the next bucket.
-      second <- store.get(SeriesIdentity.Instance, entity, Window.LastDay, now)
+      second <- store.get(QueryIdentity.Instance, entity, Window.LastDay, now)
       count <- attempts.get
       _ <- IO(assertEquals(second, Series.empty))
     } yield assertEquals(count, 2)

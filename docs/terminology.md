@@ -281,5 +281,19 @@ answers a too-long window with whatever survives rather than an error, so the on
 a lower bound taken as the MAXIMUM across every entity asked for. Per entity it cannot be read at
 all — a sensor created yesterday and a daily purge give the same short answer.
 
-**Provider** — the seam a series is read through, and the read counterpart of `ServiceCalls`. It
-exists because HA scopes recorder data per user, so who is reading is a property of the request.
+**Query slot** — a slot whose value comes from a **provider** and is MARKUP, not a transform over
+state and not an escaped scalar. It is the other half of `SlotShape`, opposite a state slot, and it
+has no `reads`, no `transform` and no signal: where a value comes from and when it is read are not
+separate questions for one. Distinct from `query.pkl`'s `q.` surface, which filters CANDIDATES at
+build time and reaches no network — only a component author writes a query slot.
+
+**Provider** — the named thing that answers a query, and the read counterpart of `ServiceCalls`. It
+exists as a seam because HA scopes recorder data per user, so who is reading is a property of the
+request. `history` is the only one. A provider answers with a **fragment** and owns its own caching:
+expiring by a **bucket** rolling works for recorder data because the past is immutable, and would be
+wrong for a forecast or a camera.
+
+**Fragment** — what a provider answers with: markup plus a **version**, travelling together so a
+version with no bytes cannot be written. The version says AS OF WHEN this content became current,
+must be non-decreasing, and doubles as the caching policy — a stable one is shared by every viewer,
+one that moves every call is uncached by construction.

@@ -2,30 +2,10 @@ package fh.view.history
 
 import cats.effect.IO
 import cats.syntax.all.*
+import fh.view.query.QueryIdentity
 import org.http4s.Request
 
 import java.time.Instant
-
-/** Who a series is read as.
-  *
-  * A cache key component, and that is the whole reason it exists as a type:
-  * recorder data is permission-scoped in HA, so two people who must not see the
-  * same rows must not share a [[SeriesStore]] entry. Making it part of the key
-  * means a future per-user provider cannot leak by omission — it fills this in
-  * differently and the sharing stops by construction, rather than by someone
-  * remembering to change the key at the same time.
-  */
-opaque type SeriesIdentity = String
-
-object SeriesIdentity {
-
-  /** The add-on's own identity: everybody shares one fetch, which is correct
-    * while the server reads as itself.
-    */
-  val Instance: SeriesIdentity = "instance"
-
-  def user(id: String): SeriesIdentity = s"user:$id"
-}
 
 /** How a chart gets its data — the read counterpart of
   * [[fh.view.runtime.ServiceCalls]], and a seam for the same reason: HA
@@ -42,10 +22,10 @@ trait SeriesProvider {
   /** Who this request reads as. Derived once per request, then carried, so
     * nothing downstream has to hold an http4s `Request` to know.
     */
-  def identify(req: Request[IO]): IO[SeriesIdentity]
+  def identify(req: Request[IO]): IO[QueryIdentity]
 
   def series(
-      identity: SeriesIdentity,
+      identity: QueryIdentity,
       entityId: String,
       window: Window,
       asOf: Instant
@@ -78,11 +58,11 @@ object SeriesProvider {
       target: Int = Downsample.DefaultTarget
   ): SeriesProvider = new SeriesProvider {
 
-    def identify(req: Request[IO]): IO[SeriesIdentity] =
-      IO.pure(SeriesIdentity.Instance)
+    def identify(req: Request[IO]): IO[QueryIdentity] =
+      IO.pure(QueryIdentity.Instance)
 
     def series(
-        identity: SeriesIdentity,
+        identity: QueryIdentity,
         entityId: String,
         window: Window,
         asOf: Instant

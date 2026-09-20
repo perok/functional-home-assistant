@@ -3,6 +3,7 @@ package fh.view.runtime
 import cats.effect.IO
 import cats.syntax.traverse.*
 import cats.syntax.traverseFilter.*
+import fh.view.query.Fragments
 import fh.view.model.{DomId, NodeId, SetId, SignalId, SlotValue}
 import fh.view.model.DomId.selector
 import io.circe.Json
@@ -795,20 +796,39 @@ private[runtime] object Patches {
       cache: RenderCache,
       id: NodeId,
       states: Map[String, EntityState],
-      uiState: Map[String, String]
+      uiState: Map[String, String],
+      // The live path answers no queries yet: nothing here resolves a
+      // provider, so a version moving does not wake its node. Explicit rather
+      // than defaulted so the seam is visible at the one site that has to
+      // grow.
+      fragments: Fragments = Fragments.none
   ): IO[Option[NodeBytes]] =
-    renderer.renderInputs(id, states) match {
+    renderer.renderInputs(id, states, fragments) match {
       case Some(inputs) =>
         cache(
           id,
           renderer,
           inputs,
-          renderer.byteSlotValues(id, states)
+          renderer.byteSlotValues(id, states, fragments)
         )(
-          IO(mustRender(renderer.renderNodeById(id, states, uiState), id))
+          IO(
+            mustRender(
+              renderer.renderNodeById(
+                id,
+                states,
+                uiState,
+                fragments = fragments
+              ),
+              id
+            )
+          )
         ).map(Some(_))
       case None =>
-        IO(renderer.renderNodeById(id, states, uiState).map(NodeBytes.of))
+        IO(
+          renderer
+            .renderNodeById(id, states, uiState, fragments = fragments)
+            .map(NodeBytes.of)
+        )
     }
 
   /** ONE anchor rule for both the live add path and the resume replay, because

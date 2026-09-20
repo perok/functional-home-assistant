@@ -52,20 +52,52 @@ class Slot {
   /// The card's template MUST place [[signalBind]] for this slot, or the value
   /// stops updating; the backend rejects the dashboard if it does not.
   signal: SignalBind? = null
-  /// This value is a rendered chart of the slot's entity over this WINDOW,
-  /// rather than a transform over live state.
+  /// This value comes from a PROVIDER rather than from live state, and it is
+  /// MARKUP rather than an escaped scalar.
   ///
-  /// The entity is the ordinary one — [[Slot.entityId]], or the card's subject.
-  /// What differs is where the value comes from: HA's recorder, fetched, rather
-  /// than the live state the backend already holds. That is why it is a field
-  /// and not a transform spelling — a transform names a read of state, and this
-  /// names a read of something state does not contain.
+  /// Setting it makes this a query slot, and every field above is then unused:
+  /// a query slot has no transform, no `reads` and no signal, because where its
+  /// value comes from and when it is read are not separate questions. The
+  /// backend splits the two shapes apart at validation, so the pairings that
+  /// would be wrong are not rejected — they are unreachable.
   ///
-  /// Pair it with `reads = "onRender"`. A series slot must not be `live`: that
-  /// would make its card a candidate on every state tick, so a sensor that
-  /// moves every second would re-fetch its own history every second.
-  series: ("1h"|"24h"|"7d"|"30d")? = null
+  /// Build one with [[querySlot]] or a provider's own helper rather than
+  /// writing it here; the card's template must place it in the RAW hole
+  /// (`{{{slot}}}`), which the backend checks.
+  query: Query? = null
 }
+
+/// A read of a named PROVIDER — what fills a query slot.
+///
+/// `params` is untyped on the wire on purpose: the provider parses them, so the
+/// backend's model knows nothing about what any provider does and a third-party
+/// one needs no change there. The typing lives at both ends instead — a helper
+/// like [[chartSlot]] here, and `QueryProvider.parse` at validation, which turns
+/// a bad parameter into a build error naming the dashboard.
+class Query {
+  provider: String
+  params: Mapping<String, String>
+}
+
+/// A slot filled by a provider. The general form; prefer a provider's own
+/// helper where there is one.
+const function querySlot(provider: String, params: Mapping<String, String>): Slot =
+  new Slot { query = new Query { provider = provider; params = params } }
+
+/// A chart of one entity's readings over one window, drawn by the server.
+///
+/// `window` is one of `1h`/`24h`/`7d`/`30d`. `unit` is drawn beside the y axis
+/// and should be the entity's own `unit_of_measurement`, because the card
+/// beside the chart reads the same field and the two must agree.
+const function chartSlot(
+  entityId: String,
+  window: String,
+  unit: String?
+): Slot =
+  querySlot("history", new Mapping {
+    ["entity"] = entityId
+    ["window"] = window
+  } + (if (unit == null) new Mapping {} else new Mapping { ["unit"] = unit }))
 
 /// WHERE a signal slot's value lands in the DOM. Spelled as a constrained
 /// String rather than a class hierarchy for two reasons: the wire form IS one

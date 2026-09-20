@@ -1,5 +1,6 @@
 package fh.view.runtime
 
+import fh.view.query.Fragments
 import cats.effect.IO
 import cats.syntax.all.*
 import fh.view.model.{
@@ -131,12 +132,13 @@ class RenderCacheContentionSuite extends ServerHarness {
         id: NodeId,
         states: Map[String, EntityState],
         uiState: Map[String, String],
-        form: SlotForm
+        form: SlotForm,
+        fragments: Fragments
     ): Option[String] = {
       val _ = counts
         .computeIfAbsent(id, _ => new AtomicInteger(0))
         .incrementAndGet()
-      super.renderNodeById(id, states, uiState, form)
+      super.renderNodeById(id, states, uiState, form, fragments)
     }
 
     def reset: IO[Unit] = IO(counts.clear())

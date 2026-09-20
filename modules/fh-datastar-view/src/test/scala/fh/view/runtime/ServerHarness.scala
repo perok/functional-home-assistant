@@ -1,5 +1,6 @@
 package fh.view.runtime
 
+import fh.view.query.Fragments
 import api.homeassistant.HomeAssistantApi
 import cats.effect.IO
 import cats.effect.kernel.Ref
@@ -268,10 +269,11 @@ trait ServerHarness extends munit.CatsEffectSuite {
         id: NodeId,
         states: Map[String, EntityState],
         uiState: Map[String, String],
-        form: SlotForm
+        form: SlotForm,
+        fragments: Fragments
     ): Option[String] = {
       count.incrementAndGet()
-      super.renderNodeById(id, states, uiState, form)
+      super.renderNodeById(id, states, uiState, form, fragments)
     }
   }
 
