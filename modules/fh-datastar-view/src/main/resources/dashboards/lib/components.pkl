@@ -36,6 +36,7 @@ import "components/entity.pkl" as entityMod
 import "components/control.pkl" as control
 import "components/slider.pkl" as sliderMod
 import "components/surface.pkl" as surfaces
+import "components/history.pkl" as historyMod
 import "components/light.pkl" as lightMod
 import "components/lock.pkl" as lockMod
 import "components/moreinfo.pkl" as moreinfo
@@ -154,6 +155,11 @@ function progress(remaining: hass.SensorEntity): progressMod.ProgressCard =
 /// entity is on. See [[Slider.actions]].
 function sliderAction(e: hass.Entity, t: tapMod.TapAction): control.Button =
   sliderMod.sliderAction(e, t)
+/// A chart of a sensor's last 24 hours, drawn on the server — `.over("7d")`
+/// for any other window. Numeric sensors only; ask `e.isNumeric` first where
+/// the entity is not known to be one.
+function historyChart(e: hass.SensorEntity): historyMod.HistoryChart =
+  historyMod.historyChart(e)
 /// A conditional section, shown while `p` holds over live entity state.
 function iff(p: pred.Predicate|Boolean): surfaces.If = surfaces.iff(p)
 /// A live value expression: `c.expr(#"str(math.round(num(state) * 10.0) / 10.0) + ' V'"#)`.
@@ -197,6 +203,7 @@ const modules: List<Module> = List(
   surfaces,
   surfaceMod,
   moreinfo,
+  historyMod,
   progressMod
 )
 

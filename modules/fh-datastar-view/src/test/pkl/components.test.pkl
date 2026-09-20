@@ -21,6 +21,13 @@ local dimmer: hass.LightEntity = new {
   colourModes { "brightness" }
 }
 local outside: hass.SensorEntity = new { entity_id = "sensor.outside" }
+// Numeric: HA records statistics for it, which is the strong signal that the
+// reading is a number worth charting.
+local power: hass.SensorEntity = new {
+  entity_id = "sensor.power"
+  state_class = "measurement"
+  unit_of_measurement = "W"
+}
 // The appliance trio, in the shape the live instances report: the Electrolux
 // washer has a remaining time and NO programme length, the dishwasher has both,
 // and the status sensor is words rather than a modelled vocabulary.
@@ -228,7 +235,25 @@ facts {
       == List("entityCard", "fhcol", "entityInfo", "button")
   }
 
+  ["a numeric sensor's popup carries a chart of where the reading has been"] {
+    local body = c.moreInfo(power).inlineSurfaces["self"].content.children[0]
+    body.children.toList().map((n) -> n.card)
+      == List("entityCard", "historyChart", "entityInfo", "button")
+  }
+
+  ["whether a chart makes sense is answered at BUILD time"] {
+    // The gate the popup composes on. A sensor with neither a state_class nor
+    // a unit is not a number HA records, so no chart is composed at all — and
+    // therefore no recorder call is made when the popup opens.
+    power.isNumeric
+    !outside.isNumeric
+  }
+
   ["a domain with no controls still shows the card and the facts"] {
+    // Also the NEGATIVE half of the chart gate: `outside` is a sensor, but a
+    // non-numeric one, so no `historyChart` appears between the card and the
+    // facts.
+    //
     // The property the default flip will rest on: there is no entity for which
     // this popup is empty.
     local body = c.moreInfo(outside).inlineSurfaces["self"].content.children[0]

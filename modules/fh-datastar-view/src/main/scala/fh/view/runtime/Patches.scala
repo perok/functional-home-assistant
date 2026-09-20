@@ -883,10 +883,11 @@ private[runtime] object Patches {
       host: DomId,
       arriving: Option[String],
       states: Map[String, EntityState],
-      uiState: Map[String, String]
+      uiState: Map[String, String],
+      fragments: Fragments = Fragments.none
   ): Option[(Addressed, String)] =
     arriving
-      .flatMap(renderer.renderSurfaceTraced(_, states, uiState))
+      .flatMap(renderer.renderSurfaceTraced(_, states, uiState, fragments))
       .map { t =>
         (
           Addressed(

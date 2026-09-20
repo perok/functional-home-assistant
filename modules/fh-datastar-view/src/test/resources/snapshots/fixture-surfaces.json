@@ -59,6 +59,25 @@
                                         }
                                       },
                                       {
+                                        "card" : "historyChart",
+                                        "kind" : "component",
+                                        "slots" : {
+                                          "chart" : {
+                                            "bypassUnavailable" : true,
+                                            "query" : {
+                                              "params" : {
+                                                "entity" : "sensor.outside_temp",
+                                                "unit" : "°C",
+                                                "window" : "24h"
+                                              },
+                                              "provider" : "history"
+                                            },
+                                            "reads" : "live",
+                                            "transform" : "state"
+                                          }
+                                        }
+                                      },
+                                      {
                                         "card" : "entityInfo",
                                         "kind" : "component",
                                         "slots" : {
@@ -275,6 +294,25 @@
                                         }
                                       },
                                       {
+                                        "card" : "historyChart",
+                                        "kind" : "component",
+                                        "slots" : {
+                                          "chart" : {
+                                            "bypassUnavailable" : true,
+                                            "query" : {
+                                              "params" : {
+                                                "entity" : "sensor.outside_temp",
+                                                "unit" : "°C",
+                                                "window" : "24h"
+                                              },
+                                              "provider" : "history"
+                                            },
+                                            "reads" : "live",
+                                            "transform" : "state"
+                                          }
+                                        }
+                                      },
+                                      {
                                         "card" : "entityInfo",
                                         "kind" : "component",
                                         "slots" : {
@@ -482,6 +520,12 @@
       "slots" : [
       ],
       "template" : "<div class=\"fh-row{{#class}} {{class}}{{/class}}\">{{#children}}{{{html}}}{{/children}}</div>"
+    },
+    "historyChart" : {
+      "slots" : [
+        "chart"
+      ],
+      "template" : "<div class=\"card fh-chart\">{{{chart}}}</div>"
     },
     "ifhost" : {
       "regions" : {

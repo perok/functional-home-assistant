@@ -548,13 +548,25 @@ Each is independently mergeable and independently useful.
    `IO[String]` — series in, SVG out. The engine is `JsIsolate`, already on the classpath and
    already a process-lifetime `Resource`, so this phase adds the `Source` and the context handling
    and nothing else. Its tests are ordinary: no browser, no HA, just a function.
-5. **The authoring surface, in two tiers.** `querySlot` / `chartSlot` in `core/slot.pkl` beside
-   the other slot builders — that is the whole API a COMPONENT author needs, and it is where the
-   feature is actually declared. A shipped `c.historyChart(e)` in `components.pkl` is a separate,
-   smaller thing on top, with the theme's colours folded into the option object.
+5. **The authoring surface, in two tiers, and the popup that uses it.** `querySlot` / `chartSlot`
+   in `core/slot.pkl` beside the other slot builders; `c.historyChart(e)` in `components.pkl` on
+   top. `moreInfoBody` composes one **conditionally on `SensorEntity.isNumeric`**, which the dump
+   already knows — so "where a chart makes sense" is answered at BUILD time and a `binary_sensor`,
+   a light or an `enum` sensor composes no chart rather than composing one that fetches nothing.
+   Theme colour needs nothing folded in after all: inline SVG inherits the page's custom
+   properties, so `var(--fh-accent)` reaches the stroke verbatim (measured — zrender passes it
+   through rather than normalising it, which a library that parsed colours would not).
+
+   The surface path is wired with it, because a chart nobody can see is not a phase: a triggered
+   surface's queries are resolved before it renders (`Server.swapHost`), which is exactly where
+   more-info is filled. The engine is LAZY (`Resource#memoizedAcquire`), so an instance whose
+   dashboards hold no chart pays neither the ECharts evaluation nor the isolate's heap.
 6. **Window selection** as a bake group over the existing surface machinery.
-7. **`moreInfoBody` gains the chart**, and `moreinfo.pkl`'s "neither is here" comment stops being
-   true and gets rewritten.
+7. ~~`moreInfoBody` gains the chart~~ — done in phase 5, since it is the first use case and what
+   makes the rest demonstrable. What is left of it: the PAGE path resolves no queries, so a chart
+   placed on a dashboard rather than in a popup still renders empty. That is deliberate for now —
+   a page open would otherwise wait on a recorder query — and wants the window selection of phase 6
+   to decide it properly.
 8. **Docs**: terminology (series / window / provider / query slot), architecture §6, and an ADR for
    the query seam — the decision that needs a home readers will find is *why a fetched fragment is
    a second SHAPE of slot rather than a state slot with extra fields*, with "a chart is bytes, and

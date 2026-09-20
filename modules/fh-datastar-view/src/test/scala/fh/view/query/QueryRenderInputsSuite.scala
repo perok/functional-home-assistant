@@ -8,8 +8,10 @@ import fh.view.model.{
   Reads,
   SignalBind,
   SlotQuery,
+  Region,
   SlotShape,
-  SlotSource
+  SlotSource,
+  Surface
 }
 import fh.view.history.{
   HistoryProvider,
@@ -18,7 +20,7 @@ import fh.view.history.{
   SeriesStore,
   Window
 }
-import fh.view.runtime.RenderInputs
+import fh.view.runtime.{RenderInputs, Renderer}
 
 import java.time.Instant
 
@@ -181,6 +183,43 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
 
   test("a moved query alone moves the key, with state standing still") {
     assertNotEquals(key(chart() -> 100L), key(chart() -> 200L))
+  }
+
+  // --- What a surface owes before it renders --------------------------------
+
+  test("a surface's queries are found before it is rendered") {
+    // The popup path: more-info is a triggered surface, so what it reads has
+    // to be answerable from the STATIC tree — a render is a synchronous string
+    // build, and a provider is `IO`.
+    val d = Dashboard(
+      cards = Map(
+        "chart" -> CardDef("""<div>{{{chart}}}</div>"""),
+        "col" -> CardDef(
+          """<div>{{#children}}{{{html}}}{{/children}}</div>""",
+          regions = Map("children" -> Region())
+        )
+      ),
+      card = LayoutNode.Component(card = "col"),
+      surfaces = Map(
+        "popup" -> Surface(
+          content = LayoutNode.Component(
+            card = "col",
+            regions = Map(
+              "children" -> List(
+                LayoutNode.Component(
+                  card = "chart",
+                  slots = Map("chart" -> SlotSource(query = Some(chart())))
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+    val r = Renderer.create(d)
+    assertEquals(r.queriesForSurface("popup"), List(chart()))
+    // A surface nobody declared owes nothing, rather than raising.
+    assertEquals(r.queriesForSurface("nope"), Nil)
   }
 
   // --- Validation -----------------------------------------------------------

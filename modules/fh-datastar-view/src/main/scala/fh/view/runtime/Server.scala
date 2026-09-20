@@ -18,6 +18,15 @@ import fh.view.build.{
 }
 import fh.view.FHError
 import fh.view.auth.{AuthGate, Requirement}
+import fh.view.history.{
+  ChartRenderer,
+  HistoryProvider,
+  Retention,
+  SeriesProvider,
+  SeriesSource,
+  SeriesStore
+}
+import fh.view.query.{Fragments, QueryIdentity, QueryResolver}
 import fh.view.model.{
   ChromeColors,
   Dashboard,
@@ -126,7 +135,13 @@ class Server(
     loggerFactory: LoggerFactory[IO] = Logging.console,
     // The unsampled counterpart of the spans above ([[Meters]]). No-op by
     // default, like the tracer, and for the same reason.
-    meters: Meters = Meters.noop
+    meters: Meters = Meters.noop,
+    // What answers a card's query slot ([[fh.view.query.QueryResolver]]) — the
+    // history provider and its caches. `None` (tests, and an instance with no
+    // chart on any dashboard) resolves nothing, so a query slot renders empty
+    // and claims no version: the node is not then cached as though it had been
+    // drawn.
+    queries: Option[QueryResolver] = None
 ) {
 
   /** `logger`, not `log`: `renderPage` already takes a `log: FragmentLog`, and
@@ -1391,11 +1406,18 @@ class Server(
       }
       store <- stateStore.current
       states = store.entities
+      // A surface's queries are answered BEFORE it is rendered, because a
+      // render is a synchronous string build and a provider is `IO`. This is
+      // the path more-info takes, and it is the only one wired: a chart lives
+      // in a triggered surface, so nothing is fetched for a popup nobody has
+      // opened, and a page open is not made to wait on a recorder query.
+      fragments <- resolveQueries(renderer, newSurface)
       // The arriving surface, rendered once — the bytes go to this connection
       // and the per-node trace to THIS SESSION's record. Nothing shared is
       // touched: one client switching a tab says nothing about anyone else's
       // DOM, and no [[Mutation]] is recorded for the same reason.
-      filled = Patches.hostFill(renderer, host, newSurface, states, uiState)
+      filled =
+        Patches.hostFill(renderer, host, newSurface, states, uiState, fragments)
       _ <- filled match {
         case Some((patch, html)) =>
           session.holds.update(Patches.applied(renderer.ancestry, _, patch)) *>
@@ -1440,6 +1462,28 @@ class Server(
           )
         }
     } yield ()
+
+  /** What an arriving surface's query slots resolve to, or nothing when no
+    * provider is wired and nothing to do when the surface reads no query — the
+    * common case, and one that must not cost an `IO` round trip.
+    */
+  private def resolveQueries(
+      renderer: Renderer,
+      arriving: Option[String]
+  ): IO[Fragments] = {
+    val wanted = arriving.toList.flatMap(renderer.queriesForSurface)
+    (queries, wanted) match {
+      case (Some(resolver), qs) if qs.nonEmpty =>
+        Fragments.resolve(
+          resolver,
+          renderer.queryRequests,
+          qs,
+          QueryIdentity.Instance,
+          java.time.Instant.now()
+        )
+      case _ => IO.pure(Fragments.none)
+    }
+  }
 
   /** Resolve the connection (`conn` rides in the POST body among Datastar
     * signals) to its session + current renderer, and run `f`.
@@ -2825,7 +2869,8 @@ object Server {
       lingerWindow: FiniteDuration = LingerWindow,
       tracer: Tracer[IO] = Tracer.noop,
       loggerFactory: LoggerFactory[IO] = Logging.console,
-      meters: Meters = Meters.noop
+      meters: Meters = Meters.noop,
+      queries: Option[QueryResolver] = None
   ): Resource[IO, Server] =
     for {
       supervisor <- Supervisor[IO]
@@ -2844,7 +2889,8 @@ object Server {
         lingerWindow,
         tracer,
         loggerFactory,
-        meters
+        meters,
+        queries
       )
       _ <- server.sharedPatchPublishers.compile.drain.background
     } yield server
@@ -2875,20 +2921,50 @@ object Server {
       loggerFactory: LoggerFactory[IO] = Logging.console,
       meters: Meters = Meters.noop
   ): Resource[IO, Server] =
-    withSite(
-      actions(feed.api),
-      feed.store,
-      site,
-      sessions,
-      gate,
-      assets,
-      feed.healthy,
-      systemPkl,
-      dumpRefresh,
-      tracer = tracer,
-      loggerFactory = loggerFactory,
-      meters = meters
+    historyQueries(feed.api).flatMap(queries =>
+      withSite(
+        actions(feed.api),
+        feed.store,
+        site,
+        sessions,
+        gate,
+        assets,
+        feed.healthy,
+        systemPkl,
+        dumpRefresh,
+        tracer = tracer,
+        loggerFactory = loggerFactory,
+        meters = meters,
+        queries = Some(queries)
+      )
     )
+
+  /** The `history` provider, over the feed's own connection.
+    *
+    * `memoizedAcquire` is what makes the JavaScript engine LAZY: it is
+    * allocated at most once, on the first chart anyone actually opens, and
+    * released with this scope. An instance whose dashboards hold no chart pays
+    * neither the ~300 ms of evaluating ECharts nor the isolate's native heap —
+    * while a second viewer in the same bucket pays nothing at all.
+    */
+  private def historyQueries(
+      api: HomeAssistantApi[IO]
+  ): Resource[IO, QueryResolver] =
+    for {
+      chart <- ChartRenderer.resource.memoizedAcquire
+      retention <- Retention.create.toResource
+      store <- SeriesStore
+        .create(
+          SeriesProvider.asInstance(SeriesSource.fromApi(api), retention)
+        )
+        .toResource
+      history <- HistoryProvider
+        .create(
+          store,
+          (series, style) => chart.flatMap(_.render(series, style))
+        )
+        .toResource
+    } yield QueryResolver(history)
 
   /** The `POST /system/dump/refresh` response body — status plus what a caller
     * (the /edit editor) shows the user: the backup name on a swap, the

@@ -1867,6 +1867,18 @@ case class Dashboard(
       .toList
       .distinct
 
+  /** Every query under one node — what a SURFACE owes before it can be
+    * rendered.
+    *
+    * Static, so a set clause that will not match still contributes its query.
+    * That over-fetches in principle; it is what a snapshot resolved BEFORE the
+    * walk can know, since which clauses match is decided during it. No shipped
+    * card puts a chart inside a candidate set, and narrowing this needs the
+    * walk's answer, not a cleverer query.
+    */
+  def queriesIn(n: LayoutNode): List[SlotQuery] =
+    slotSources(n).flatMap(_.query).distinct
+
   /** Every slot on every node, the layout's own and its set members' alike. */
   private def slotSources(n: LayoutNode): List[SlotSource] = n match
     case c: LayoutNode.Component =>

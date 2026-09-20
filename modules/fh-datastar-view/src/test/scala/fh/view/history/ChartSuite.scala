@@ -137,6 +137,19 @@ class ChartSuite extends munit.FunSuite {
     assert(svg.contains("""width="600""""), clue = svg.take(200))
   }
 
+  test("a CSS variable reaches the SVG verbatim, so the theme colours it") {
+    // The whole theming story, and it only works if zrender passes the colour
+    // through instead of parsing it: inline SVG inherits the page's custom
+    // properties, so `stroke="var(--fh-accent)"` follows whichever theme is
+    // active with the server knowing nothing about it. Asserted rather than
+    // assumed, because a library that normalised colours to `#rrggbb` would
+    // silently pin every chart to one palette.
+    val svg = withRenderer(
+      _.render(series(1, 5, 2), ChartStyle(line = "var(--fh-accent)"))
+    )
+    assert(svg.contains("var(--fh-accent)"), clue = svg.take(1200))
+  }
+
   test("the SVG is self-contained — no script, no external reference") {
     // It is morphed into the page as ordinary bytes. Anything it reached out
     // for would be blocked, and anything it executed would be a surprise.

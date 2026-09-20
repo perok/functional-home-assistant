@@ -1,0 +1,62 @@
+/// A chart of one entity's recorded past, drawn on the server.
+///
+/// The chart arrives as SVG in the card's bytes — no chart JavaScript reaches
+/// the browser, so it morphs, caches and resumes like any other leaf. The whole
+/// of the authoring surface is [[historyChart]]; how the picture is fetched and
+/// drawn is the `history` query provider's business.
+module components.history
+
+import "../core/node.pkl" as nodes
+import "../core/slot.pkl" as slotMod
+import "../hass.pkl"
+
+/// How far back a chart looks. A closed set, because the window is what the
+/// server's cache keys on — an arbitrary duration would give every viewer their
+/// own key and the sharing would quietly stop.
+typealias Window = "1h"|"24h"|"7d"|"30d"
+
+/// One entity's readings over one window.
+///
+/// The SVG goes in a RAW hole (`{{{chart}}}`) because it is markup, not a
+/// value; written `{{chart}}` the page would show the markup as text, and the
+/// backend rejects that at build time rather than letting it ship.
+class HistoryChart extends nodes.Node {
+  card = "historyChart"
+  cardDef = new nodes.CardDef {
+    template = """
+      <div class="card fh-chart">{{{chart}}}</div>
+      """
+    slots { "chart" }
+    // The SVG carries its own `viewBox`, so sizing it here rather than in the
+    // option object is what makes it responsive: the drawing is done once per
+    // cache bucket at one pixel size and then scaled by the browser to whatever
+    // the cell is, instead of a re-render per viewport.
+    css = """
+      .fh-chart{padding:.25rem}
+      .fh-chart svg{display:block;inline-size:100%;block-size:auto}
+      """
+  }
+
+  hidden entity: hass.SensorEntity
+
+  hidden window: Window = "24h"
+
+  slots {
+    // The unit is the entity's OWN `unit_of_measurement`, not a copy: the card
+    // beside the chart reads the same field, and two readings of it could
+    // disagree.
+    ["chart"] = slotMod.chartSlot(entity.entity_id, window, entity.unit_of_measurement)
+  }
+
+  function over(w: Window): HistoryChart = let (self = this) (self) { window = w }
+}
+
+/// A chart of `e`'s last 24 hours — `c.historyChart(sensor).over("7d")` for any
+/// other window.
+///
+/// Takes a [[hass.SensorEntity]] rather than any entity because a chart of a
+/// non-numeric reading is a flat line or nothing at all. Whether a given sensor
+/// is numeric is [[hass.SensorEntity.isNumeric]], which the dump already knows —
+/// so a composition can ask before it draws instead of finding out at runtime.
+function historyChart(e: hass.SensorEntity): HistoryChart =
+  new HistoryChart { entity = e }

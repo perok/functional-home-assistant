@@ -894,10 +894,17 @@ A query slot's value is markup, so its hole must be the raw `{{{slot}}}`. `Dashb
 rejects an escaped one: written `{{slot}}` the page shows `&lt;svg …` as text, with no error
 anywhere.
 
-Still missing, and deliberately: nothing yet RESOLVES a query on the live path, so a version moving
-does not currently wake its node, and `Patches.bytes` passes `Fragments.none`. The key is correct;
-the waking is the window-selection work. Nothing bounds how long a provider may hold up the snapshot
-either.
+**One path resolves queries today: a SURFACE being filled** (`Server.swapHost` →
+`Patches.hostFill` → `renderSurfaceTraced`). That is where more-info is rendered, and it is the
+right place for the first one — a triggered surface is fetched only while open, so nothing is
+fetched for a popup nobody has opened. What a surface owes is read off the STATIC tree
+(`Dashboard.queriesIn`), because a render is a synchronous string build and which set clauses match
+is decided during it.
+
+Still missing, and deliberately: the PAGE path and the live patch path resolve nothing
+(`Patches.bytes` passes `Fragments.none`), so a chart outside a surface renders empty and a version
+moving does not wake its node. The key is correct; the waking is the window-selection work. Nothing
+bounds how long a provider may hold up the snapshot either.
 
 **All of this section is the PATCH path.** The document path is a different shape and is described
 in §6a: it consults no cache, shares nothing, and streams straight to the client.

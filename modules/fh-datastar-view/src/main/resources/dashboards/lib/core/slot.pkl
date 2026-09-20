@@ -85,8 +85,11 @@ class Query {
 
 /// A slot filled by a provider. The general form; prefer a provider's own
 /// helper where there is one.
-const function querySlot(provider: "history", params: Mapping<String, String>): Slot =
-  new Slot { query = new Query { provider = provider; params = params } }
+/// Parameters are suffixed because Pkl binds `provider = provider` inside a
+/// `new Query {}` to the object's OWN member, not to the argument — a ~750-deep
+/// recursion whose trace points at the field rather than the cause.
+const function querySlot(name: "history", args: Mapping<String, String>): Slot =
+  new Slot { query = new Query { provider = name; params = args } }
 
 /// A chart of one entity's readings over one window, drawn by the server.
 ///
@@ -101,7 +104,13 @@ const function chartSlot(
   querySlot("history", new Mapping {
     ["entity"] = entityId
     ["window"] = window
-  } + (if (unit == null) new Mapping {} else new Mapping { ["unit"] = unit }))
+    // `when` inside the body, because `Mapping` has no `+` — an absent unit
+    // must leave the key out entirely, since the params are part of the
+    // server's cache key and `unit = ""` is a different question from no unit.
+    when (unit != null) {
+      ["unit"] = unit
+    }
+  })
 
 /// WHERE a signal slot's value lands in the DOM. Spelled as a constrained
 /// String rather than a class hierarchy for two reasons: the wire form IS one
