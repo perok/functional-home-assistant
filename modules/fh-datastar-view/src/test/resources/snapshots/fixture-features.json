@@ -58,7 +58,7 @@
                                   },
                                   "provider" : "history"
                                 },
-                                "reads" : "live",
+                                "reads" : "onRender",
                                 "transform" : "state"
                               }
                             }
@@ -839,7 +839,7 @@
                                       },
                                       "provider" : "history"
                                     },
-                                    "reads" : "live",
+                                    "reads" : "onRender",
                                     "transform" : "state"
                                   }
                                 }

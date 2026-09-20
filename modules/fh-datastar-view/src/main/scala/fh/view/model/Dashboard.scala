@@ -1264,6 +1264,17 @@ case class Dashboard(
         src: SlotSource
     ): List[String] =
       src.query.toList.flatMap { q =>
+        // NOT the guard the two-shape split replaced. That one existed because
+        // the renderer would ACT on a wrong `reads`; this one exists because
+        // the field is INERT, and an inert field that says `live` beside a
+        // query is a lie the wire tells anyone reading it — a third-party tool
+        // included. The value is derived by the Pkl default, so only a
+        // hand-written wire can get here.
+        val untruthfulReads = Option.when(src.reads != Reads.OnRender)(
+          s"$nodeId: slot '$name' reads a query, so its 'reads' must be " +
+            s"'${Reads.OnRender}' (it says '${src.reads}') — a provider's " +
+            "answer is never pushed, so nothing about it is a reason to render"
+        )
         val parseError =
           Queries.parse(q).left.toOption.map(e => s"$nodeId: slot '$name' $e")
         // A query slot's value is MARKUP. Written `{{name}}` the page shows
@@ -1280,7 +1291,7 @@ case class Dashboard(
               s"hole, but it reads a query, whose value is markup — write " +
               s"{{{$name}}}, or the page shows the markup as text"
           )
-        parseError.toList ++ escapedHole.toList
+        untruthfulReads.toList ++ parseError.toList ++ escapedHole.toList
       }
 
     /** `<slot>__read` is a card composing a slot's value into a handler

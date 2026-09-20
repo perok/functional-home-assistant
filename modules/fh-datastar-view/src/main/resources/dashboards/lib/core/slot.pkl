@@ -43,7 +43,12 @@ class Slot {
   /// re-read" or "ignore and read once", and the pairing an author keeps
   /// wanting — a value that CAN move but is not worth waking the card for —
   /// was the one it could not express.
-  reads: "live"|"onRender"|"once" = "live"
+  /// A QUERY slot defaults to `onRender` and must stay there: a provider's
+  /// answer is never pushed, so nothing about it is a reason to re-render. The
+  /// default is derived rather than fixed so the WIRE states it — `reads:
+  /// "live"` sitting beside a query would read as a live value to anyone (or
+  /// anything) reading the JSON, and the backend rejects that spelling.
+  reads: "live"|"onRender"|"once" = if (query == null) "live" else "onRender"
   /// Carry this value as a Datastar SIGNAL rather than as bytes in the element,
   /// so a change to it costs a signals frame instead of re-rendering the whole
   /// card (ADR 0017). The value says WHERE it lands — see [[SignalBind]] —

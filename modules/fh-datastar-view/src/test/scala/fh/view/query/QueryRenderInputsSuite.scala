@@ -43,7 +43,10 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
       card = "historyChart",
       slots = Map(
         "entity_id" -> SlotSource(literal = Some("sensor.t")),
-        "chart" -> SlotSource(query = Some(chart(window))),
+        "chart" -> SlotSource(
+          query = Some(chart(window)),
+          reads = Reads.OnRender
+        ),
         "name" -> SlotSource(transform = "state")
       )
     )
@@ -63,7 +66,7 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
           card = "historyChart",
           slots = Map(
             "entity_id" -> SlotSource(literal = Some("sensor.t")),
-            "chart" -> SlotSource(query = Some(chart()))
+            "chart" -> SlotSource(query = Some(chart()), reads = Reads.OnRender)
           )
         )
         .liveEntities,
@@ -93,9 +96,9 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
     val two = LayoutNode.Component(
       card = "twoCharts",
       slots = Map(
-        "a" -> SlotSource(query = Some(chart("1h"))),
-        "b" -> SlotSource(query = Some(chart("1h"))),
-        "c" -> SlotSource(query = Some(chart("30d")))
+        "a" -> SlotSource(query = Some(chart("1h")), reads = Reads.OnRender),
+        "b" -> SlotSource(query = Some(chart("1h")), reads = Reads.OnRender),
+        "c" -> SlotSource(query = Some(chart("30d")), reads = Reads.OnRender)
       )
     )
     assertEquals(two.queries.toSet, Set(chart("1h"), chart("30d")))
@@ -208,7 +211,12 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
               "children" -> List(
                 LayoutNode.Component(
                   card = "chart",
-                  slots = Map("chart" -> SlotSource(query = Some(chart())))
+                  slots = Map(
+                    "chart" -> SlotSource(
+                      query = Some(chart()),
+                      reads = Reads.OnRender
+                    )
+                  )
                 )
               )
             )
@@ -235,7 +243,10 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
     // forever and never enters the render key — a blank chart with nothing
     // anywhere saying why.
     val errs = dashboard(
-      SlotSource(query = Some(SlotQuery("forecast", Map.empty)))
+      SlotSource(
+        query = Some(SlotQuery("forecast", Map.empty)),
+        reads = Reads.OnRender
+      )
     ).validate()
     assert(errs.exists(_.contains("unknown query provider")), clue = errs)
     assert(errs.exists(_.contains("history")), clue = errs)
@@ -249,7 +260,9 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
         cards = Map("chart" -> CardDef(s"""<div id="{{id}}">$hole</div>""")),
         card = LayoutNode.Component(
           card = "chart",
-          slots = Map("chart" -> SlotSource(query = Some(chart())))
+          slots = Map(
+            "chart" -> SlotSource(query = Some(chart()), reads = Reads.OnRender)
+          )
         )
       ).validate()
 
@@ -262,10 +275,26 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
     assertEquals(errsFor("{{{ chart }}}"), Nil)
   }
 
+  test("a query slot whose wire says 'live' is rejected as untruthful") {
+    // The field is INERT — a `SlotShape.Query` never reads it — so this is not
+    // about behaviour. It is about the wire not lying to whoever reads it: the
+    // Pkl default derives `onRender` from the query, and a hand-written one
+    // that says otherwise is a build error rather than a misleading document.
+    val errs = dashboard(
+      SlotSource(query = Some(chart()), reads = Reads.Live)
+    ).validate()
+    assert(errs.exists(_.contains("never pushed")), clue = errs)
+  }
+
   test("the provider's own parse error is the build error") {
     // No wiring: parsing is pure, so a dashboard is checked wherever it is
     // built rather than only where a provider happened to be passed in.
-    val errs = dashboard(SlotSource(query = Some(SlotQuery("history", Map()))))
+    val errs = dashboard(
+      SlotSource(
+        query = Some(SlotQuery("history", Map())),
+        reads = Reads.OnRender
+      )
+    )
       .validate()
     assert(errs.exists(_.contains("'entity' parameter")), clue = errs)
   }
