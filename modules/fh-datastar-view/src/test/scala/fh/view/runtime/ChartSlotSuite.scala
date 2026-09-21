@@ -11,7 +11,7 @@ import fh.view.model.{
   SlotSource,
   Transform
 }
-import fh.view.query.{Fragment, Fragments}
+import fh.view.query.{Staged, QuerySnapshot}
 
 /** A series slot resolved into the walk: the bytes reach the page, and the
   * render key moves with them.
@@ -53,7 +53,7 @@ class ChartSlotSuite extends munit.FunSuite {
     Map("sensor.t" -> EntityState("sensor.t", "21.4", Map.empty))
 
   private def fragments(bytes: String = svg, version: Long = 100L) =
-    Fragments.of(Map(read -> Fragment(version, bytes)))
+    QuerySnapshot.of(Map(read -> Staged(version, bytes)))
 
   private def rootId(d: Dashboard) = LayoutNode.rootId("", d.card)
 
@@ -81,14 +81,16 @@ class ChartSlotSuite extends munit.FunSuite {
 
   test("rendering a chart nobody resolved is an error, not an empty slot") {
     // This replaced "no chart yet renders the slot empty". "No chart yet" was
-    // a state a render could be in while `Fragments` was partial and defaulted
+    // a state a render could be in while `QuerySnapshot` was partial and defaulted
     // to nothing; it is not one now, and the previous behaviour is exactly the
     // defect — a page rendered with a blank chart in it and no way to fill it,
     // which architecture §0 forbids. So the empty render must not be reachable
     // by forgetting to resolve.
     val d = dashboardWith("{{{chart}}}")
     val e = intercept[fh.view.FHError](
-      Renderer.create(d).renderBodyTraced(states, Map.empty, Fragments.empty)
+      Renderer
+        .create(d)
+        .renderBodyTraced(states, Map.empty, QuerySnapshot.empty)
     )
     assertEquals(e.status, 500)
     assert(e.getMessage.contains("not resolved for this render"))

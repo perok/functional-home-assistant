@@ -1,6 +1,6 @@
 package fh.view.runtime
 
-import fh.view.query.Fragments
+import fh.view.query.QuerySnapshot
 import api.homeassistant.HomeAssistantApi
 import cats.effect.IO
 import cats.effect.kernel.Ref
@@ -181,7 +181,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
           log,
           holds,
           states,
-          Fragments.empty,
+          QuerySnapshot.empty,
           v,
           open,
           uiState
@@ -217,7 +217,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
           l,
           holds,
           now.entities,
-          Fragments.empty,
+          QuerySnapshot.empty,
           from,
           open,
           ui
@@ -290,7 +290,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
         states: Map[String, EntityState],
         uiState: Map[String, String],
         form: SlotForm,
-        fragments: Fragments
+        fragments: QuerySnapshot
     ): Option[String] = {
       count.incrementAndGet()
       super.renderNodeById(id, states, uiState, form, fragments)
@@ -378,7 +378,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
         (
           log.touched(id, 0L),
           renderer
-            .renderLogged(id, states, Map.empty, Fragments.empty)
+            .renderLogged(id, states, Map.empty, QuerySnapshot.empty)
             .fold(holds)(html => holds + (id -> Held.of(html)))
         )
     }
@@ -500,7 +500,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
               log,
               held,
               now.entities,
-              Fragments.empty,
+              QuerySnapshot.empty,
               from + 1
             )
             .flatMap { patches =>

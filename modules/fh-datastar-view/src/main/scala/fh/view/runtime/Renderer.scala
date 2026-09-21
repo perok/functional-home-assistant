@@ -2,7 +2,7 @@ package fh.view.runtime
 
 import com.github.mustachejava.Mustache
 import fh.view.build.LibPackage
-import fh.view.query.{Fragments, QueryRequest, StageRequest}
+import fh.view.query.{QuerySnapshot, QueryRequest, StageRequest}
 import fh.view.model.{
   Access,
   Cell,
@@ -344,9 +344,9 @@ class Renderer(
   /** What every node's references resolve to FOR THIS VIEWER: the declared
     * value, with this session's choice where it made one.
     *
-    * Computed once per render and handed to `Fragments`, which is what keeps a
-    * viewer's values and the answers fetched for them inseparable — see its
-    * scaladoc. It is deliberately NOT cached on the renderer or on a
+    * Computed once per render and handed to `QuerySnapshot`, which is what
+    * keeps a viewer's values and the answers fetched for them inseparable — see
+    * its scaladoc. It is deliberately NOT cached on the renderer or on a
     * `NodePlan`: both outlive a session, and a chosen value held on either
     * would be served to the next viewer.
     */
@@ -567,7 +567,7 @@ class Renderer(
   private[runtime] def renderBodyTraced(
       states: Map[String, EntityState],
       uiState: Map[String, String] = Map.empty,
-      fragments: Fragments
+      fragments: QuerySnapshot
   ): Traced =
     traced(
       dashboard.card,
@@ -615,7 +615,7 @@ class Renderer(
       states: Map[String, EntityState],
       uiState: Map[String, String] = Map.empty,
       popup: Option[String] = None,
-      fragments: Fragments
+      fragments: QuerySnapshot
   ): Map[NodeId, Painted] = {
     val own = new java.util.HashMap[NodeId, Painted]()
     val pageOut = out
@@ -669,7 +669,7 @@ class Renderer(
       surfaceId: String,
       states: Map[String, EntityState],
       uiState: Map[String, String],
-      fragments: Fragments,
+      fragments: QuerySnapshot,
       trace: java.util.HashMap[NodeId, Painted]
   ): Option[java.io.Writer => Unit] =
     // The writer is IGNORED, exactly as the region walks ignore theirs: the
@@ -697,7 +697,7 @@ class Renderer(
       surfaceId: String,
       states: Map[String, EntityState],
       uiState: Map[String, String] = Map.empty,
-      fragments: Fragments
+      fragments: QuerySnapshot
   ): Option[Traced] =
     dashboard.surfaces.get(surfaceId).map { s =>
       traced(
@@ -722,7 +722,7 @@ class Renderer(
       // walk is what asks for the other one. A caller wanting bytes to put in a
       // client's DOM wholesale wants `Document`.
       form: SlotForm = SlotForm.Patch,
-      fragments: Fragments
+      fragments: QuerySnapshot
   ): Option[String] =
     members
       .memberAt(id, states)
@@ -734,7 +734,7 @@ class Renderer(
       states: Map[String, EntityState],
       uiState: Map[String, String],
       form: SlotForm,
-      fragments: Fragments
+      fragments: QuerySnapshot
   ): Option[String] =
     allIndexed
       .get(id)
@@ -810,7 +810,7 @@ class Renderer(
   def renderMembers(
       groupId: SetId,
       states: Map[String, EntityState],
-      fragments: Fragments
+      fragments: QuerySnapshot
   ): List[(NodeId, String)] =
     members
       .membersOf(groupId, states)
@@ -829,7 +829,7 @@ class Renderer(
       container: NodeId,
       states: Map[String, EntityState],
       uiState: Map[String, String],
-      fragments: Fragments
+      fragments: QuerySnapshot
   ): HostContent =
     members.setContainer(container) match {
       case Some(setId) =>
@@ -870,7 +870,7 @@ class Renderer(
       id: NodeId,
       states: Map[String, EntityState],
       uiState: Map[String, String],
-      fragments: Fragments
+      fragments: QuerySnapshot
   ): Option[String] =
     renderNodeById(id, states, uiState, fragments = fragments)
 
@@ -1073,7 +1073,7 @@ class Renderer(
   def renderInputs(
       id: NodeId,
       states: Map[String, EntityState],
-      fragments: Fragments
+      fragments: QuerySnapshot
   ): Option[RenderInputs] =
     members
       .memberAt(id, states)
@@ -1090,14 +1090,14 @@ class Renderer(
           // inside a set, because a member's id is minted at run time and has
           // no scope entry — so the empty environment is the whole answer here
           // rather than a gap.
-          fragments.forQueries(id, m.node.queries)
+          fragments.versions(id, m.node.queries)
         )
       )
       .orElse(
         Option.when(hasOwnRendering(id))(
           RenderInputs(
             versions(entitiesAsBytesForNode(id), states),
-            fragments.forQueries(id, queriesForNode(id))
+            fragments.versions(id, queriesForNode(id))
           )
         )
       )
@@ -1142,7 +1142,7 @@ class Renderer(
   private[runtime] def byteSlotValues(
       id: NodeId,
       states: Map[String, EntityState],
-      fragments: Fragments
+      fragments: QuerySnapshot
   ): Option[Map[String, String]] =
     allIndexed.get(id).flatMap {
       case (c: LayoutNode.Component, _) if hasOwnRendering(id) =>
@@ -1199,7 +1199,7 @@ class Renderer(
       states: Map[String, EntityState],
       uiState: Map[String, String],
       form: SlotForm,
-      fragments: Fragments
+      fragments: QuerySnapshot
   ): Option[String] = {
     val t = traced(node, id, idPrefix, states, uiState, fragments)
     if (form.isPatch) t.rootOwn else Some(t.html)
@@ -1252,7 +1252,7 @@ class Renderer(
       idPrefix: String,
       states: Map[String, EntityState],
       uiState: Map[String, String],
-      fragments: Fragments
+      fragments: QuerySnapshot
   ): Traced = {
     val own = new java.util.HashMap[NodeId, Painted]()
     val root = new Array[String](1)
@@ -1277,7 +1277,7 @@ class Renderer(
       idPrefix: String,
       states: Map[String, EntityState],
       uiState: Map[String, String],
-      fragments: Fragments,
+      fragments: QuerySnapshot,
       trace: java.util.HashMap[NodeId, Painted],
       // One slot for the WALK ROOT's own patch bytes — see [[Traced.rootOwn]].
       // `null` for a page, whose root is structure and has none.
@@ -1321,7 +1321,7 @@ class Renderer(
       idPrefix: String,
       states: Map[String, EntityState],
       uiState: Map[String, String],
-      fragments: Fragments,
+      fragments: QuerySnapshot,
       trace: java.util.HashMap[NodeId, Painted],
       // Where to leave the ROOT's own patch bytes, and which id that is. Only
       // the root's are kept; every other node contributes a digest alone.
@@ -1618,7 +1618,7 @@ class Renderer(
       cell: Option[Cell],
       states: Map[String, EntityState],
       form: SlotForm,
-      fragments: Fragments
+      fragments: QuerySnapshot
   ): String =
     setElement(
       id,
@@ -1663,7 +1663,7 @@ class Renderer(
       setId: SetId,
       entityId: String,
       states: Map[String, EntityState],
-      fragments: Fragments
+      fragments: QuerySnapshot
   ): Option[String] =
     members
       .membersOf(setId, states)
@@ -1682,7 +1682,7 @@ class Renderer(
       m: Member,
       states: Map[String, EntityState],
       form: SlotForm,
-      fragments: Fragments
+      fragments: QuerySnapshot
   ): String = renderResolvedMember(m, resolveMember(m, states, fragments), form)
 
   /** A member's card, resolved — and, recursively, every unaddressed node under
@@ -1724,7 +1724,7 @@ class Renderer(
   private def resolveMember(
       m: Member,
       states: Map[String, EntityState],
-      fragments: Fragments
+      fragments: QuerySnapshot
   ): ResolvedMember = {
     val plan = planOf(m.id, m.id, m.node, states)
     ResolvedMember(
@@ -1746,7 +1746,7 @@ class Renderer(
       path: List[LayoutNode.Step],
       clauseIdx: Int,
       states: Map[String, EntityState],
-      fragments: Fragments
+      fragments: QuerySnapshot
   ): ResolvedChild = node match {
     case c: LayoutNode.Component =>
       // A member's children have no ids of their own, so their plan key is the
@@ -2149,7 +2149,7 @@ class Renderer(
       // up by (issue #209), never the values themselves. A plan is memoised
       // per authored position and reused across sessions, so a viewer's chosen
       // window held here would be served to the next viewer; the id is static
-      // and the values come from the per-render `Fragments`.
+      // and the values come from the per-render `QuerySnapshot`.
       id: NodeId,
       // The node's `data-signals` attribute with its values cut out. Fixed by
       // the plan, because the NAMES are; see [[Datastar.SignalSeed]].
@@ -2356,7 +2356,7 @@ class Renderer(
       plan: NodePlan,
       states: Map[String, EntityState],
       bakeIndex: Map[String, String],
-      fragments: Fragments
+      fragments: QuerySnapshot
   ): Resolved = {
     if (plan.subjectDynamic) resolveDirect(plan, states, bakeIndex, fragments)
     else resolvePlannedSubject(plan, states, bakeIndex, fragments)
@@ -2369,7 +2369,7 @@ class Renderer(
       plan: NodePlan,
       states: Map[String, EntityState],
       bakeIndex: Map[String, String],
-      fragments: Fragments
+      fragments: QuerySnapshot
   ): Resolved = {
     // The only map a paint builds: the LIVE slot values. A card without any
     // (the common static case) builds nothing at all — the constants, the
@@ -2412,7 +2412,7 @@ class Renderer(
       plan: NodePlan,
       states: Map[String, EntityState],
       bakeIndex: Map[String, String],
-      fragments: Fragments
+      fragments: QuerySnapshot
   ): Resolved = {
     val injected = plan.structural ++ bakeIndex
     val slots = plan.node.slots
@@ -2534,7 +2534,7 @@ class Renderer(
       .memberAt(id, states)
       // Signals only, so no fragments: a query slot has no signal to carry —
       // it is a `SlotShape.Query`, and this path resolves state slots.
-      .map(m => memberSignalsOf(resolveMember(m, states, Fragments.empty)))
+      .map(m => memberSignalsOf(resolveMember(m, states, QuerySnapshot.empty)))
       .orElse(
         // NOT gated on `hasOwnRendering`. Structure has signals like any other
         // node — its seed already rides its own `.fh-cell` wrapper in the
@@ -2612,7 +2612,7 @@ class Renderer(
       srcEntity: Option[String],
       source: SlotSource,
       states: Map[String, EntityState],
-      fragments: Fragments,
+      fragments: QuerySnapshot,
       node: NodeId
   ): String =
     SlotValue.text(
@@ -2643,7 +2643,7 @@ class Renderer(
       srcEntity: Option[String],
       source: SlotSource,
       states: Map[String, EntityState],
-      fragments: Fragments,
+      fragments: QuerySnapshot,
       // The node being rendered — the address its node variables are looked
       // up by (issue #209). An address and not the values, so nothing here can
       // hold one viewer's choice across a render.
@@ -2652,9 +2652,9 @@ class Renderer(
     // A query slot is not a transform over state and never enters the engine:
     // its value was produced before the walk began, by its provider AND its
     // stage. Total, so there is no "not yet" arm here to get wrong — see
-    // `Fragments`, which raises rather than letting a render proceed without
+    // `QuerySnapshot`, which raises rather than letting a render proceed without
     // every answer it reads.
-    case SlotShape.Query(ask) => fragments.html(node, ask)
+    case SlotShape.Query(ask) => fragments.value(node, ask)
     case SlotShape.State(st)  => resolveStateSlotValue(srcEntity, st, states)
   }
 

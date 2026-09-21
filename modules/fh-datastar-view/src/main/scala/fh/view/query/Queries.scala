@@ -72,7 +72,7 @@ final case class Answer(version: Long, data: Json) derives CanEqual
   * unrepresentable. A render holding one would enter the cache claiming a
   * version it never drew, pinning the empty answer until the version moved.
   */
-final case class Fragment(version: Long, html: String) derives CanEqual
+final case class Staged(version: Long, value: String) derives CanEqual
 
 /** A query with its parameters parsed — one case per provider.
   *
@@ -150,16 +150,16 @@ final class QueryResolver(history: HistoryProvider, chart: ChartStage) {
       history.answer(identity, entityId, window, asOf)
   }
 
-  def stage(request: StageRequest, answered: Answer): IO[Fragment] =
+  def stage(request: StageRequest, answered: Answer): IO[Staged] =
     request match {
       case StageRequest.Passthrough =>
         // No transform: the provider's JSON, as the slot's value. It goes in an
         // ESCAPED hole — it is an attribute value, not markup — which is the
         // other half of the rule that a drawn stage needs the raw one.
-        IO.pure(Fragment(answered.version, answered.data.noSpaces))
+        IO.pure(Staged(answered.version, answered.data.noSpaces))
       case StageRequest.Chart(style) =>
         chart
           .draw(style, answered.version, answered.data)
-          .map(Fragment(answered.version, _))
+          .map(Staged(answered.version, _))
     }
 }

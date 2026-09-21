@@ -1,6 +1,6 @@
 package fh.view.runtime
 
-import fh.view.query.Fragments
+import fh.view.query.QuerySnapshot
 import api.homeassistant.HomeAssistantApi
 import cats.effect.IO
 import cats.effect.kernel.{Deferred, Ref}
@@ -160,7 +160,7 @@ class SessionLifecycleSuite extends ServerHarness {
         val body = renderer.renderNodeById(
           "c_0",
           snapshot.entities,
-          fragments = Fragments.empty
+          fragments = QuerySnapshot.empty
         )
         assertEquals(
           held.flatMap(_.get("c_0")),

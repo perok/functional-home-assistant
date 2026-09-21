@@ -1,6 +1,6 @@
 package fh.view.runtime
 
-import fh.view.query.Fragments
+import fh.view.query.QuerySnapshot
 import fh.view.runtime.RendererTestOps.*
 
 import fh.view.model.{
@@ -388,7 +388,7 @@ class RenderBench {
       .renderPageTraced(st)
       .own
       .keys
-      .flatMap(signalled.renderNodeById(_, st, fragments = Fragments.empty))
+      .flatMap(signalled.renderNodeById(_, st, fragments = QuerySnapshot.empty))
       .toList
     // The first leaves' own node ids — one per leaf, in fixture order — for
     // the tick render: `componentsFor` maps the entity to the node that
@@ -740,7 +740,7 @@ class RenderBench {
     val own = signalled.renderPageInto(
       Sink.streaming(w),
       st,
-      fragments = Fragments.empty
+      fragments = QuerySnapshot.empty
     )
     w.flush()
     bh.consume(own.size)
@@ -773,7 +773,11 @@ class RenderBench {
       Server.PageChunkBytes
     )
     val own =
-      plain.renderPageInto(Sink.streaming(w), st, fragments = Fragments.empty)
+      plain.renderPageInto(
+        Sink.streaming(w),
+        st,
+        fragments = QuerySnapshot.empty
+      )
     w.flush()
     bh.consume(own.size)
     bh.consume(sink.count)
@@ -799,7 +803,7 @@ class RenderBench {
     val own = signalled.renderPageInto(
       Sink.streaming(w),
       st,
-      fragments = Fragments.empty
+      fragments = QuerySnapshot.empty
     )
     w.flush()
     bh.consume(own.size)
@@ -831,7 +835,7 @@ class RenderBench {
           val own = signalled.renderPageInto(
             Sink.streaming(w),
             st,
-            fragments = Fragments.empty
+            fragments = QuerySnapshot.empty
           )
           w.flush()
           own.size
@@ -968,7 +972,7 @@ class RenderBench {
           log,
           Map.empty,
           flipStates,
-          Fragments.empty,
+          QuerySnapshot.empty,
           at
         )
       )
@@ -1248,7 +1252,7 @@ class RenderBench {
           log,
           held,
           moved,
-          Fragments.empty,
+          QuerySnapshot.empty,
           at,
           Set.empty,
           Map.empty
@@ -1348,7 +1352,7 @@ class RenderBench {
           id,
           moved,
           Map.empty,
-          fragments = Fragments.empty
+          fragments = QuerySnapshot.empty
         )
       )
     )
@@ -1464,7 +1468,7 @@ class RenderBench {
           id,
           moved,
           Map.empty,
-          fragments = Fragments.empty
+          fragments = QuerySnapshot.empty
         )
       )
     }

@@ -16,7 +16,7 @@ were considered and priced in "Alternatives" below; both fail on that sentence.
 
 There is also a property worth having for its own sake, and it is the one the architecture doc
 already leans on: **a declared reference is what keeps a render's input set statically
-enumerable.** `Fragments` is total over the queries a render reads, which is only expressible
+enumerable.** `QuerySnapshot` is total over the queries a render reads, which is only expressible
 while that set is known before the walk. A reference matched by string convention in the browser
 cannot be known there. §6's barrier-precondition block names this issue as what protects it.
 
@@ -82,10 +82,10 @@ Per session, keyed by declarer so a shadow is a different key:
 vars: Map[(NodeId, String), String]
 ```
 
-Untrusted, narrowed the way `SurfaceGraph.resolveActive` already narrows a tab index: a value
-survives only if the declaration admits it, else the default wins and the anomaly is reported.
-Defaults fill everything absent, so the map is total over declarations by construction and no
-reader handles a missing one.
+Untrusted. A choice naming a variable nothing declares matches no scope and is simply never read
+— inert rather than an error, the shape `SurfaceGraph.openPopup` already uses for a surface id
+this dashboard no longer has. The declared value fills everything a viewer has not chosen, so the
+environment is total over declarations by construction and no reader handles a missing one.
 
 ### What changes on the query path
 
@@ -204,7 +204,7 @@ served its own span, and the node still holds exactly one generation. The sharin
 intact — three viewers on one window are one render.
 
 **The eviction does not need bucketing, and the reason is structural.** What an evicted chart
-node re-renders is a mustache splice of SVG it already has: `renderNodeById` takes `Fragments`,
+node re-renders is a mustache splice of SVG it already has: `renderNodeById` takes `QuerySnapshot`,
 not a `QueryResolver`, so a node render cannot fetch and cannot draw. The two expensive levels
 are cached by `SlotRead` and by version — `BucketCache` for the fetch, `ChartStage` for the
 drawing — and neither is keyed by node, so neither is touched by this eviction. Bucketing the
@@ -222,7 +222,7 @@ DEFAULT, so nothing a viewer does moves one yet.
 Four things it settled that the design above had not:
 
 - **`SlotAsk` is the type the plan called a template**, and `SlotRead` did not move — the ask is
-  the tree's, the read is this render's. `Fragments`, `RenderInputs` and both caches were
+  the tree's, the read is this render's. `QuerySnapshot`, `RenderInputs` and both caches were
   untouched.
 - **Totality belongs at the WRITE, not in the build** — and this one was got wrong first. The
   first cut enumerated each variable's domain so the prepared request map would already hold
@@ -243,11 +243,11 @@ Four things it settled that the design above had not:
 values, resolved per render rather than per renderer, so two viewers of one dashboard hold
 different `SlotRead`s — which is what makes phase 0's measurement reachable end to end.
 
-**The environment travels INSIDE `Fragments`**, and that is the decision worth knowing. The
+**The environment travels INSIDE `QuerySnapshot`**, and that is the decision worth knowing. The
 alternative was a `Choices` type replacing `uiState` on every render signature — about 110 call
 sites, most of them tests. What settled it is that all three reader kinds resolve in the same
 place: a plain-slot reader (kind 1) resolves in `resolveSlotValue`, which already receives
-`Fragments`, so a separate channel would need threading to 110 sites to reach exactly where this
+`QuerySnapshot`, so a separate channel would need threading to 110 sites to reach exactly where this
 one already is. It also buys an invariant rather than only convenience — the answers and the
 values they were fetched FOR are one value, so looking up a read resolved against a different
 environment is not representable. It cost one real defect immediately: a test handing answers
@@ -279,10 +279,10 @@ point of the ask/read split. The third map is for a plain-slot reader, which pha
 build.
 
 Two things found on the way, neither caused by this work. `modules/benchmarks` had not compiled
-since `Fragments` became required — fixed here, because the benches are the measurement tool this
-work leans on. And `Fragments` is now badly named (it carries an environment as well as answers,
-and `Fragment` was already not a node's own HTML); renaming it is worth a commit of its own and is
-deliberately not bundled here.
+since the query snapshot became a required argument — fixed here, because the benches are the
+measurement tool this work leans on. And `Fragments` was renamed to `QuerySnapshot` (its element `Fragment` to `Staged`,
+whose `html` became `value`, since passthrough yields JSON) — the old names collided with the
+FRAGMENT this pipeline already means, a node’s own HTML.
 
 **3 — the write path, and it is where totality lives.** A `setVar` tap. The server narrows the
 proposed value by resolving each declared reader's ask with it and checking `Queries.parseRead`,

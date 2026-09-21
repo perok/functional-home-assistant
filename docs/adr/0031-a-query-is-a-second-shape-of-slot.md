@@ -107,7 +107,7 @@ None of this was designed separately; all of it fell out.
   payload can ride a Datastar signal, where a JSON null DELETES the signal and orphans every
   binding on it with no error anywhere, so a gap must be an array element and never an object
   field.
-- **The fetch/draw split is structural.** `Fragments.resolve` deduplicates one fetch per QUERY and
+- **The fetch/draw split is structural.** `QuerySnapshot.resolve` deduplicates one fetch per QUERY and
   one drawing per `(query, stage)` — `SlotRead` is that pair, and it is what `RenderInputs`
   carries. Two cards charting one sensor over one window at different sizes cost one fetch and two
   drawings *because the keys say so*, where before `HistoryProvider` held two private caches and a

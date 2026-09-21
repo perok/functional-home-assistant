@@ -1,6 +1,6 @@
 package fh.view.runtime
 
-import fh.view.query.Fragments
+import fh.view.query.QuerySnapshot
 import api.homeassistant.HomeAssistantApi
 import cats.effect.IO
 import fh.view.model.{
@@ -353,7 +353,7 @@ class LiveStreamSuite extends ServerHarness {
                 .renderNodeById(
                   "s_det__c_0",
                   Map("sensor.a" -> es("sensor.a", "cold")),
-                  fragments = Fragments.empty
+                  fragments = QuerySnapshot.empty
                 )
                 .get
             )
@@ -501,7 +501,7 @@ class LiveStreamSuite extends ServerHarness {
           Some("then"),
           armed,
           Map.empty,
-          fragments = Fragments.empty
+          fragments = QuerySnapshot.empty
         )
         .get
 
@@ -510,13 +510,14 @@ class LiveStreamSuite extends ServerHarness {
     val leaf: NodeId = "s_then__c_0"
     assertEquals(
       patch.establishes.get(leaf),
-      r.renderNodeById(leaf, armed, fragments = Fragments.empty).map(Held.of)
+      r.renderNodeById(leaf, armed, fragments = QuerySnapshot.empty)
+        .map(Held.of)
     )
     // And the branch ROOT gets nothing: it has no rendering of its own, so a
     // claim there could never be resolved.
     val root = NodeId.derived("s_then__c")
     assertEquals(
-      r.renderNodeById(root, armed, fragments = Fragments.empty),
+      r.renderNodeById(root, armed, fragments = QuerySnapshot.empty),
       None
     )
     assert(!patch.establishes.contains(root), clue = patch.establishes.keySet)
@@ -548,7 +549,7 @@ class LiveStreamSuite extends ServerHarness {
     val holds: Map[NodeId, Held] =
       Map(
         host -> Held.of(
-          r.renderNodeById(host, states, fragments = Fragments.empty).get
+          r.renderNodeById(host, states, fragments = QuerySnapshot.empty).get
         )
       )
     val owed = resumeNow(
@@ -601,7 +602,7 @@ class LiveStreamSuite extends ServerHarness {
       (r.surfaceNodeIds("det") ++ r.surfaceNodeIds("t1")).toList.sorted
     val seeded = FragmentLog("w18")
     val held = ids.flatMap { id =>
-      r.renderLogged(id, before, mine, fragments = Fragments.empty)
+      r.renderLogged(id, before, mine, fragments = QuerySnapshot.empty)
         .map(h => id -> Held.of(h))
     }.toMap
 

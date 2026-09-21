@@ -3,7 +3,7 @@ package fh.view.runtime
 import cats.effect.IO
 import cats.syntax.traverse.*
 import cats.syntax.traverseFilter.*
-import fh.view.query.Fragments
+import fh.view.query.QuerySnapshot
 import fh.view.model.{DomId, NodeId, SetId, SignalId, SlotValue}
 import fh.view.model.DomId.selector
 import io.circe.Json
@@ -524,7 +524,7 @@ private[runtime] object Patches {
       log: FragmentLog,
       holds: Map[NodeId, Held],
       states: Map[String, EntityState],
-      fragments: Fragments,
+      fragments: QuerySnapshot,
       v: Long,
       open: Set[String] = Set.empty,
       uiState: Map[String, String] = Map.empty
@@ -773,7 +773,7 @@ private[runtime] object Patches {
       holds: Map[NodeId, Held],
       states: Map[String, EntityState],
       uiState: Map[String, String],
-      fragments: Fragments,
+      fragments: QuerySnapshot,
       id: NodeId
   ): IO[Option[Addressed]] =
     bytes(renderer, cache, id, states, uiState, fragments).map(_.flatMap {
@@ -803,7 +803,7 @@ private[runtime] object Patches {
       // provider, so a version moving does not wake its node. Explicit rather
       // than defaulted so the seam is visible at the one site that has to
       // grow.
-      fragments: Fragments
+      fragments: QuerySnapshot
   ): IO[Option[NodeBytes]] =
     renderer.renderInputs(id, states, fragments) match {
       case Some(inputs) =>
@@ -886,7 +886,7 @@ private[runtime] object Patches {
       arriving: Option[String],
       states: Map[String, EntityState],
       uiState: Map[String, String],
-      fragments: Fragments
+      fragments: QuerySnapshot
   ): Option[(Addressed, String)] =
     arriving
       .flatMap(renderer.renderSurfaceTraced(_, states, uiState, fragments))

@@ -341,6 +341,8 @@ different sizes are ONE fetch and TWO drawings, so they share a version and must
 entry.
 
 What a stage produces carries the provider's version unchanged, because a stage is a deterministic
-function of an answer and has no version of its own. (The runtime type holding that pair is called
-`Fragment`, which is NOT the **fragment** defined above — that one is a node's own HTML. The
-collision is in the code and predates the split; do not spread it into prose.)
+function of an answer and has no version of its own. The runtime type holding that pair is
+`Staged`, and the collection of them for one render is a `QuerySnapshot` — the query counterpart
+of the `Map[String, EntityState]` the state half travels as. Both were called `Fragment`/
+`Fragments`, which collided with the **fragment** defined above (a node's own HTML); the names
+were fixed before any of this merged.

@@ -889,7 +889,7 @@ because its value is not in the patch form and so cannot move these bytes (ADR 0
 A node may also read a **query** — a named PROVIDER answering with DATA, parameterised
 (`docs/terminology.md`, "History"). `history` is the one provider that exists: one entity's recorded
 past over a window. It reaches a render the same way state does, as a snapshot resolved BEFORE the
-walk (`fh.view.query.Fragments`), because a render is a synchronous string build and answering a
+walk (`fh.view.query.QuerySnapshot`), because a render is a synchronous string build and answering a
 query is `IO` over a socket and a JavaScript engine.
 
 **A provider fetches; what its answer BECOMES is the slot's `transform`.** That split is the whole
@@ -919,7 +919,7 @@ One rule over the pipeline rather than a property of query slots.
 Bucket expiry is a property of append-only-past data, not of queries — a forecast changes in the
 future, a camera still changes continuously — so caching lives inside the provider, never here.
 
-**Two caches, at two levels, and only one of them needs expiry.** `Fragments.resolve` deduplicates
+**Two caches, at two levels, and only one of them needs expiry.** `QuerySnapshot.resolve` deduplicates
 a FETCH per query and a DRAWING per `(query, stage)`, so two cards charting one sensor over one
 window at different sizes cost one fetch and two drawings — which the keys say rather than a
 provider arranging it privately. The series cache expires by the bucket rolling, because a series
@@ -968,7 +968,7 @@ variables (`Component.vars`); a query parameter is a literal or a read of one
 (`Ref.Literal`/`Ref.Var`); a node holds a static `SlotAsk`, and `queriesForPage` resolves each one
 against the values in scope at that node into the `SlotRead` everything keys on.
 
-**The values ride inside `Fragments`**, beside the answers they were fetched for, and that pairing
+**The values ride inside `QuerySnapshot`**, beside the answers they were fetched for, and that pairing
 is load-bearing: a read resolved against one viewer's values cannot be looked up in a snapshot
 fetched for another's, because the resolution happens from the snapshot's own values. They are
 NOT on a `NodePlan` — a plan is memoised per authored position and reused across sessions, so a
@@ -999,10 +999,10 @@ reference can be topologically ordered before the walk, where a reference matche
 convention at evaluation time in the browser cannot. **Anything that lets one node read another's
 computed value must declare the edge**, or this barrier stops being correct — and it would stop
 silently, since the render would simply be missing an input nobody knew to resolve. It is also what
-lets `Fragments` be total at all: with the set unknown up front, no value could carry the proof
+lets `QuerySnapshot` be total at all: with the set unknown up front, no value could carry the proof
 that every input this render reads has an answer.
 
-**EVERY render path resolves what it reads**, and `Fragments` is total over it: a path that reads a
+**EVERY render path resolves what it reads**, and `QuerySnapshot` is total over it: a path that reads a
 query cannot be handed nothing, because there is no default argument left to hand it. What a render
 owes is read off the STATIC tree — `Renderer.queriesForPage` for a page and a pull,
 `queriesForSurface` for a surface fill — because a render is a synchronous string build and the set
@@ -1272,8 +1272,8 @@ Live list — delete an entry when it is answered, and say where the answer land
   element was in no DOM and offered its id as an insert anchor. Candidates now come from the dump,
   and an entity vanishing is a registry change that rebuilds the renderer — there is nothing left to
   go stale (ADR 0003).
-- ~~**The query path violates §0 on every route but one.**~~ *Closed by making `Fragments` total.*
-  `Fragments.resolve` had one caller and nine render entry points defaulted to "I have no answers",
+- ~~**The query path violates §0 on every route but one.**~~ *Closed by making `QuerySnapshot` total.*
+  `QuerySnapshot.resolve` had one caller and nine render entry points defaulted to "I have no answers",
   so a chart on a page shipped an empty hole. The DEFAULT was the mechanism — not typing anything
   got you the incomplete render, and it compiled. There is no default now, so a path that reads a
   query cannot be handed nothing, and removing it is what found the paths: the compiler named six,

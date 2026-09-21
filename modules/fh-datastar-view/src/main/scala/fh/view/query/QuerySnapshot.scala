@@ -25,10 +25,10 @@ import java.time.Instant
   *
   * The shape this replaced is worth knowing, because it looked harmless. A
   * failing query was dropped from the map and the slot rendered empty, and
-  * `Fragments.none` was a DEFAULT ARGUMENT on nine render entry points — so a
-  * path that read a query and was handed no answers compiled clean and shipped
-  * a hole. Absence is not modelled here any more precisely because nothing
-  * could tell the two readings of it apart.
+  * `QuerySnapshot.none` was a DEFAULT ARGUMENT on nine render entry points — so
+  * a path that read a query and was handed no answers compiled clean and
+  * shipped a hole. Absence is not modelled here any more precisely because
+  * nothing could tell the two readings of it apart.
   *
   * '''It also carries the NODE VARIABLES each node read''' (issue #209), and
   * that is not a convenience. A node declares an ASK — a query whose parameters
@@ -43,12 +43,14 @@ import java.time.Instant
   * plan is memoised per authored position and reused across sessions, so a
   * viewer's chosen window held there would be served to the next viewer.
   *
-  * (The name is a poor fit now and was already imperfect — `Fragment` here is
-  * not a node's own HTML, see `docs/terminology.md`. Renaming it is worth doing
-  * and is deliberately not bundled with this change.)
+  * One element of it is a [[Staged]]: what a provider's answer BECAME once its
+  * stage ran, and a `value` rather than `html` because `passthrough` yields the
+  * provider's JSON. Both names were `Fragment`/`Fragments` until this landed,
+  * which collided with the FRAGMENT this pipeline already means — a node's own
+  * HTML (`docs/terminology.md`).
   */
-final class Fragments private (
-    private val answers: Map[SlotRead, Fragment],
+final class QuerySnapshot private (
+    private val answers: Map[SlotRead, Staged],
     // What each node's variables hold for the viewer this render is for.
     // Absent for the overwhelming majority of nodes, which read none.
     private val vars: Map[NodeId, Map[String, String]]
@@ -69,15 +71,17 @@ final class Fragments private (
     * rendered before its answer arrived is not a case this has to describe —
     * there is no such render.
     */
-  def forQueries(node: NodeId, asks: List[SlotAsk]): Map[SlotRead, Long] =
-    asks.view.map(read(node, _)).map(r => r -> fragment(r).version).toMap
+  def versions(node: NodeId, asks: List[SlotAsk]): Map[SlotRead, Long] =
+    asks.view.map(read(node, _)).map(r => r -> staged(r).version).toMap
 
-  def html(node: NodeId, ask: SlotAsk): String = fragment(read(node, ask)).html
+  def value(node: NodeId, ask: SlotAsk): String =
+    staged(read(node, ask)).value
 
-  /** What this holds, for tests and for [[Fragments.resolve]]'s own dedupe. */
+  /** What this holds, for tests and for [[QuerySnapshot.resolve]]'s own dedupe.
+    */
   def reads: Set[SlotRead] = answers.keySet
 
-  private def fragment(read: SlotRead): Fragment =
+  private def staged(read: SlotRead): Staged =
     answers.getOrElse(
       read,
       // Reachable only by rendering a node whose queries were not among those
@@ -85,20 +89,20 @@ final class Fragments private (
       // not a state. It is loud because the alternative is the hole this type
       // exists to make unrepresentable.
       throw FHError.internal(
-        s"render reads ${Fragments.describe(read)} but it was " +
+        s"render reads ${QuerySnapshot.describe(read)} but it was " +
           "not resolved for this render — the caller resolved a different " +
           "set, or none at all"
       )
     )
 }
 
-object Fragments {
+object QuerySnapshot {
 
   /** What a render that reads NO query passes. Not a default argument anywhere:
     * a caller says this because it knows the render reads nothing, never
     * because it has nothing to hand over.
     */
-  val empty: Fragments = new Fragments(Map.empty, Map.empty)
+  val empty: QuerySnapshot = new QuerySnapshot(Map.empty, Map.empty)
 
   /** Answers already in hand — for tests, and for any caller that resolved by
     * some other route. Still a statement of what this render HAS, which is why
@@ -106,9 +110,9 @@ object Fragments {
     * assembled once and then read, never grown while a walk is under way.
     */
   def of(
-      answers: Map[SlotRead, Fragment],
+      answers: Map[SlotRead, Staged],
       vars: Map[NodeId, Map[String, String]] = Map.empty
-  ): Fragments = new Fragments(answers, vars)
+  ): QuerySnapshot = new QuerySnapshot(answers, vars)
 
   /** Answer every query a render needs, in parallel, or raise.
     *
@@ -132,7 +136,7 @@ object Fragments {
       vars: Map[NodeId, Map[String, String]],
       identity: QueryIdentity,
       asOf: Instant
-  ): IO[Fragments] = {
+  ): IO[QuerySnapshot] = {
     val wanted = reads.distinct
     def parsed(read: SlotRead): IO[(QueryRequest, StageRequest)] =
       requests
@@ -162,7 +166,7 @@ object Fragments {
         guard(read.query)(resolver.stage(plans(read)._2, answers(read.query)))
           .map(read -> _)
       }
-    } yield new Fragments(staged.toMap, vars)
+    } yield new QuerySnapshot(staged.toMap, vars)
   }
 
   private def describe(read: SlotRead): String =

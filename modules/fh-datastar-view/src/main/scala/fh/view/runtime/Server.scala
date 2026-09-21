@@ -27,7 +27,7 @@ import fh.view.history.{
   SeriesSource,
   SeriesStore
 }
-import fh.view.query.{Fragments, QueryIdentity, QueryResolver}
+import fh.view.query.{QuerySnapshot, QueryIdentity, QueryResolver}
 import fh.view.model.{
   ChromeColors,
   Dashboard,
@@ -1501,7 +1501,7 @@ class Server(
       renderer: Renderer,
       arriving: Option[String],
       env: VarEnv
-  ): IO[Fragments] =
+  ): IO[QuerySnapshot] =
     answer(
       renderer,
       arriving.toList.flatMap(renderer.queriesForSurface(_, env)),
@@ -1519,7 +1519,7 @@ class Server(
       renderer: Renderer,
       open: Set[String],
       env: VarEnv
-  ): IO[Fragments] =
+  ): IO[QuerySnapshot] =
     answer(renderer, renderer.queriesForPage(open, env), env)
 
   /** This session's node-variable environment for `renderer`.
@@ -1539,16 +1539,16 @@ class Server(
     * this still shrugs: a build carrying queries with no provider is a
     * misconfiguration, but failing every page for it would make the query
     * feature able to take a dashboard down that does not use it. A render
-    * reading one then raises from `Fragments` itself, naming the query.
+    * reading one then raises from `QuerySnapshot` itself, naming the query.
     */
   private def answer(
       renderer: Renderer,
       wanted: List[SlotRead],
       env: VarEnv
-  ): IO[Fragments] =
+  ): IO[QuerySnapshot] =
     (queries, wanted) match {
       case (Some(resolver), qs) if qs.nonEmpty =>
-        Fragments.resolve(
+        QuerySnapshot.resolve(
           resolver,
           renderer.queryRequests,
           qs,
@@ -1557,9 +1557,9 @@ class Server(
           java.time.Instant.now()
         )
       // The environment travels even with no answers: a render still resolves
-      // its asks against it, and `Fragments.empty` would silently hand every
+      // its asks against it, and `QuerySnapshot.empty` would silently hand every
       // node the declared value instead of this viewer's.
-      case _ => IO.pure(Fragments.of(Map.empty, env))
+      case _ => IO.pure(QuerySnapshot.of(Map.empty, env))
     }
 
   /** Resolve the connection (`conn` rides in the POST body among Datastar
@@ -2285,9 +2285,9 @@ class Server(
     * All app URLs (here and in the authored card templates) are RELATIVE and
     * resolve against the emitted `<base href>`: `/` when served directly,
     * `{X-Ingress-Path}/` behind the HA ingress proxy (which strips the prefix
-    * before proxying, so routing is unaffected). Fragments arriving later over
-    * the shared SSE stream therefore resolve correctly for both kinds of client
-    * with no per-connection rewriting.
+    * before proxying, so routing is unaffected). QuerySnapshot arriving later
+    * over the shared SSE stream therefore resolve correctly for both kinds of
+    * client with no per-connection rewriting.
     */
   private def pageInto(
       out: Sink,

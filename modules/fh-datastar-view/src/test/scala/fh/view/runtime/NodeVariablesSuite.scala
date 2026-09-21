@@ -1,7 +1,7 @@
 package fh.view.runtime
 
 import fh.view.model.*
-import fh.view.query.{Fragment, Fragments}
+import fh.view.query.{Staged, QuerySnapshot}
 import io.circe.parser.decode
 import fh.view.testkit.TestIds.given
 
@@ -251,8 +251,8 @@ class NodeVariablesSuite extends munit.FunSuite {
     r.renderBodyTraced(
       states,
       Map.empty,
-      Fragments.of(
-        drawn.map((w, svg) => readAt(w) -> Fragment(100L, svg)).toMap,
+      QuerySnapshot.of(
+        drawn.map((w, svg) => readAt(w) -> Staged(100L, svg)).toMap,
         env
       )
     ).html
@@ -304,7 +304,7 @@ class NodeVariablesSuite extends munit.FunSuite {
       r.renderInputs(
         chartId,
         states,
-        Fragments.of(Map(readAt(window) -> Fragment(100L, "<svg/>")), env)
+        QuerySnapshot.of(Map(readAt(window) -> Staged(100L, "<svg/>")), env)
       )
     assert(keyFor(a, "1h").isDefined)
     assertNotEquals(keyFor(a, "1h"), keyFor(b, "30d"))

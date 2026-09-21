@@ -1,6 +1,6 @@
 package fh.view.query
 
-import fh.view.query.Fragments
+import fh.view.query.QuerySnapshot
 import cats.effect.{IO, Ref}
 import cats.syntax.all.*
 import fh.view.model.{
@@ -149,11 +149,11 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
     // rendering a query nobody resolved — is loud rather than an empty hole,
     // because that is the shape the defect took.
     val q = read()
-    val f = Fragments.of(Map(q -> Fragment(100L, "<svg/>")))
-    assertEquals(f.forQueries("c_0", List(ask())), Map(q -> 100L))
-    assertEquals(f.html("c_0", ask()), "<svg/>")
+    val f = QuerySnapshot.of(Map(q -> Staged(100L, "<svg/>")))
+    assertEquals(f.versions("c_0", List(ask())), Map(q -> 100L))
+    assertEquals(f.value("c_0", ask()), "<svg/>")
 
-    val miss = intercept[FHError](Fragments.empty.html("c_0", ask()))
+    val miss = intercept[FHError](QuerySnapshot.empty.value("c_0", ask()))
     assertEquals(miss.status, 500)
     assert(miss.getMessage.contains("not resolved for this render"))
   }
@@ -206,7 +206,7 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
       fetches <- Ref[IO].of(0)
       draws <- Ref[IO].of(0)
       r <- resolver(fetches, draws)
-      f <- Fragments.resolve(
+      f <- QuerySnapshot.resolve(
         r,
         plan(wide, narrow),
         List(wide, narrow),
@@ -217,8 +217,8 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
       counts <- (fetches.get, draws.get).tupled
     } yield {
       assertEquals(counts, (1, 2))
-      assertEquals(f.html("n", ask(width = 600)), "<svg>600</svg>")
-      assertEquals(f.html("n", ask(width = 320)), "<svg>320</svg>")
+      assertEquals(f.value("n", ask(width = 600)), "<svg>600</svg>")
+      assertEquals(f.value("n", ask(width = 320)), "<svg>320</svg>")
     }
   }
 
@@ -231,7 +231,7 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
       fetches <- Ref[IO].of(0)
       draws <- Ref[IO].of(0)
       r <- resolver(fetches, draws)
-      f <- Fragments.resolve(
+      f <- QuerySnapshot.resolve(
         r,
         plan(raw),
         List(raw),
@@ -244,8 +244,8 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
       assertEquals(d, 0)
       val rawAsk = SlotAsk(chart(), Transform.Stage.Passthrough)
       assert(
-        f.html("n", rawAsk).contains("\"points\""),
-        clue = f.html("n", rawAsk)
+        f.value("n", rawAsk).contains("\"points\""),
+        clue = f.value("n", rawAsk)
       )
     }
   }
@@ -259,7 +259,7 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
       fetches <- Ref[IO].of(0)
       draws <- Ref[IO].of(0)
       r <- resolver(fetches, draws, failWidth = Some(1))
-      raised <- Fragments
+      raised <- QuerySnapshot
         .resolve(
           r,
           plan(ok, bad),

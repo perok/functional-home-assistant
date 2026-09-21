@@ -31,7 +31,7 @@ class ChartStageSuite extends munit.CatsEffectSuite {
 
   test("ten viewers of one version cost one drawing") {
     // The reason the JavaScript context is not on the hot path, and the reason
-    // the stage caches at all: `Fragments.resolve` runs BEFORE the render
+    // the stage caches at all: `QuerySnapshot.resolve` runs BEFORE the render
     // cache, so without this every page open would redraw.
     fixture().flatMap { case (stage, draws) =>
       List

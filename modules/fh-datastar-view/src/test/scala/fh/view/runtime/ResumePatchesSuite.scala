@@ -1,6 +1,6 @@
 package fh.view.runtime
 
-import fh.view.query.Fragments
+import fh.view.query.QuerySnapshot
 
 import fh.view.model.{CardDef, Dashboard, LayoutNode, Op, Predicate, SlotSource}
 import fh.view.model.NodeId
@@ -65,7 +65,8 @@ class ResumePatchesSuite extends munit.FunSuite {
   private def resume(log: FragmentLog, v: Long): List[String] =
     RenderCache.create
       .flatMap(
-        Patches.resume(renderer, _, log, Map.empty, states, Fragments.empty, v)
+        Patches
+          .resume(renderer, _, log, Map.empty, states, QuerySnapshot.empty, v)
       )
       .unsafeRunSync()
       .map(_.patch.toSse.render)
