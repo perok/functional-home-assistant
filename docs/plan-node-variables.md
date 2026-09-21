@@ -123,38 +123,56 @@ while the fetch is in flight.
 - **Signal slot readers:** nothing, by the same rule that keeps a signal slot's entity out of the
   key — its value is not in the patch form.
 
-That third map is the selection dimension the issue warned about, and it is why phase 0 exists.
+That third map is the selection dimension the issue warned about. Phase 0 priced it: two viewers
+on unordered keys evict each other, one render per pull each, never wrong bytes — and the render
+they pay for is a mustache splice, not a fetch or a drawing. No bucketing.
 
-## Open calls — these want a decision before phase 1
+## Decided
 
-1. **Scoped or global namespace?** Ancestor-chain scoping is what the issue specifies, and it
-   gives shadowing (one chart on a different window inside a panel that sets the rest). A
-   **dashboard-global** namespace is markedly cheaper — no scope stack, no ancestry walk, a flat
-   key — and still gives "one control, three charts", which is the case that motivated this. What
-   it loses is the nested override and any notion of lifetime. Recommendation: **scoped**, because
-   the resolution walk is ~30 lines over a tree we already walk and the flat version is the string
-   convention with a schema attached; but it is a real fork and it is cheap to take the other one.
-2. **Does a declaration carry a DOMAIN?** Recommendation: **yes, optional.** `window` is a closed
-   set; carrying it means a bad write is refused generically at the boundary and the provider's
-   parser never sees one, it matches how an untrusted tab index is already narrowed, and it is
-   what would let a control be GENERATED from the declaration rather than listing the four windows
-   twice. `domain = null` stays available for free text.
-3. **Does the bake selection become a variable?** Explicitly **not in this stack** — see "What
-   this does not do".
+1. **Scoped, and a global namespace needs no second mechanism.** A "global" variable IS a scoped
+   one declared on the ROOT node — every node is its descendant, so every reference resolves to
+   it. If the flat spelling is ever wanted it is Pkl sugar that writes a root declaration, not a
+   second resolution rule. Scoped is strictly the more general of the two, so there is nothing to
+   opt into later and nothing given up by starting here.
+2. **A declaration carries an optional DOMAIN** — the set of values the variable may hold, e.g.
+   `["1h","24h","7d","30d"]`. It buys three things: a write outside it is refused at the HTTP
+   boundary so `HistoryQuery.parse` never sees a bad value; a stale URL falls back to the default
+   instead of erroring, which is the narrowing `SurfaceGraph.resolveActive` already does for a tab
+   index it does not recognise; and the control can be GENERATED from the declaration rather than
+   listing the windows once in the buttons and again in the chart. `domain = null` for free text.
+3. **The bake selection does not become a variable** — see "What this does not do". Worth stating
+   why the obvious reason is wrong: it is not "that is pure client state". `ui_<gid>` lives in the
+   session, only the server writes the committed value (`SurfaceGraph.committedSelection`, after
+   the swap actually happened), and the `ui_*` signals are a mirror the server pushes. ADR 0025
+   exists precisely because the CLIENT used to assert it and a POST that never landed left the URL
+   claiming a panel the DOM did not have. It is the same kind of fact as a variable; the reason to
+   leave it alone is blast radius, not kind.
+
+**One name to avoid.** `Renderer` already calls a card's mustache context "vars", and `theme.pkl`
+calls CSS custom properties the same. The field can be `vars`, but prose and any new type must say
+*node variable* — a bare "vars" in a comment here will read as one of the other two.
 
 ## Phases
 
-**0 — cash the prediction.** `RenderCacheContentionSuite` holds one render per frame however many
-viewers and tabs. Add viewers on divergent `SlotRead`s and find out what actually happens. ADR
-0031 predicts, from reading `RenderCache`'s source and not from a measurement, that their keys are
-unordered so each install evicts the other — one render per pull each, never wrong bytes. The
-number decides whether the cache needs to bucket per variable value again, which is what it did
-before `vars` was removed (architecture §9).
+**0 — cash the prediction. DONE, and it confirms.** `RenderCacheSuite` now holds it directly
+rather than through the live world, because today every viewer of a node reads the same query —
+divergent reads are not reachable end-to-end until phase 2, and the claim is about
+`RenderCache`'s install rule, which is reachable now. Measured: two windows over one sensor are
+unordered in both directions, alternating asks render **every time** (4 of 4), each caller is
+served its own span, and the node still holds exactly one generation. The sharing itself is
+intact — three viewers on one window are one render.
 
-Two falsified comments belong with this phase because the query-slot changeset wrote them:
-`RenderCache`'s scaladoc still says "`RenderInputs` is entity versions and nothing else" and "a
-SELECTION is not part of the key"; architecture §6 still says the page and patch paths pass
-`Fragments.none`, a value that no longer exists.
+**The eviction does not need bucketing, and the reason is structural.** What an evicted chart
+node re-renders is a mustache splice of SVG it already has: `renderNodeById` takes `Fragments`,
+not a `QueryResolver`, so a node render cannot fetch and cannot draw. The two expensive levels
+are cached by `SlotRead` and by version — `BucketCache` for the fetch, `ChartStage` for the
+drawing — and neither is keyed by node, so neither is touched by this eviction. Bucketing the
+render cache per read would buy back a string build and cost the bound that `size == 1` asserts.
+So: **no bucketing in phase 2**, and reopen only if a profile puts a chart node's paint somewhere
+it shows.
+
+The two falsified comments this phase was also carrying landed on #381 instead, where the
+changeset that wrote them lives.
 
 **1 — declaration and reference, build time only.** `VarDecl`, `Ref`, the resolution walk, the
 build error, the Pkl surface. Every reference resolves to its DEFAULT; nothing moves at runtime.
