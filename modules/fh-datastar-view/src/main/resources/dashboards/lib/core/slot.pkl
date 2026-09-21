@@ -14,6 +14,7 @@ module core.slot
 import "../hass.pkl"
 import "simple.pkl" as simpleMod
 import "stage.pkl" as stageMod
+import "variable.pkl" as varMod
 
 /// The object form of a slot (fh.view.model.SlotSource): a CEL expression
 /// over the card's entity. [[Slot.reads]] says when it is read.
@@ -96,7 +97,12 @@ class Query {
   /// Closed means a typo is an eval error the LSP reports before the dashboard
   /// is ever built, which a registry of names could never give.
   provider: "history"
-  params: Mapping<String, String>
+  /// A parameter is a value written down, or a READ of a node variable
+  /// ([[varMod.read]]). The two spellings are the whole access story: a written
+  /// value has nowhere for a write to land, and only a declared variable is
+  /// writable — so "chart a sensor this dashboard never showed" is unspellable
+  /// rather than refused by a permission list.
+  params: Mapping<String, String|varMod.Ref>
 }
 
 /// A slot filled by a provider. The general form; prefer a provider's own
@@ -104,7 +110,10 @@ class Query {
 /// Parameters are suffixed because Pkl binds `provider = provider` inside a
 /// `new Query {}` to the object's OWN member, not to the argument — a ~750-deep
 /// recursion whose trace points at the field rather than the cause.
-const function querySlot(name: "history", args: Mapping<String, String>): Slot =
+const function querySlot(
+  name: "history",
+  args: Mapping<String, String|varMod.Ref>
+): Slot =
   new Slot { query = new Query { provider = name; params = args } }
 
 /// A chart of one entity's readings over one window, drawn by the server.
@@ -117,9 +126,13 @@ const function querySlot(name: "history", args: Mapping<String, String>): Slot =
 /// unit used to ride in the query, which made two sizes of one series two
 /// different questions — so sharing the fetch between them depended on a cache
 /// being keyed carefully rather than on the types saying so.
+/// `window` takes a written value or [[varMod.read]] of a declared variable —
+/// which is how one control moves every chart beneath it. The ENTITY does not:
+/// substituting it is an access question (ADR 0023), and the signature is where
+/// that is said.
 const function chartSlot(
   entityId: String,
-  window: String,
+  window: String|varMod.Ref,
   unit: String?
 ): Slot =
   (querySlot("history", new Mapping {

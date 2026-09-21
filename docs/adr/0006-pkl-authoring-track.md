@@ -249,7 +249,11 @@ slot key remains `"class"`.
 
 ## Pkl authoring gotchas (spike- and implementation-verified)
 
-- `override` and `class` are reserved words (hence `cssClass`).
+- `override` and `class` are reserved words (hence `cssClass`). So is **`read`**
+  (the resource reader) — and the error points at the DEFINITION rather than
+  the call, so a `const function read(…)` in a library module reports as a
+  parse failure in whichever module imported it. `core/variable.pkl`'s reader
+  is `ref` for this reason, not for taste.
 - Module properties referenced from class bodies must be `const`
   (`const local` for helpers).
 - `String.replaceAll` is a LITERAL replace — no regex; a pattern-matched

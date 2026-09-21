@@ -207,6 +207,40 @@ class Renderer(
       walk(root, LayoutNode.rootId(idPrefix, root)).toMap
     }
 
+    /** The NODE VARIABLES in scope at each node, already resolved to values
+      * (issue #209). Carried DOWN by the same walk that mints the ids, for the
+      * reason [[NodeAncestry]] gives for its own relation: a scope derived by a
+      * second traversal could disagree with the ids the first one made.
+      *
+      * Values and not declarations, because that is all a render needs. Today
+      * every value is the declaration's default, so this is fixed for the life
+      * of the renderer; when a viewer can choose one, this is the map their
+      * choice is overlaid on rather than a thing that has to move.
+      *
+      * A SET is a leaf here, as it is for [[indexed]]: a member's id is minted
+      * at run time from its entity, so it has no entry — which is why
+      * `Dashboard.validate` refuses a query slot that reads a variable from
+      * inside a set rather than letting one resolve against nothing.
+      */
+    val varValues: Map[NodeId, Map[String, String]] = {
+      def walk(
+          node: LayoutNode,
+          id: NodeId,
+          scope: Map[String, String]
+      ): List[(NodeId, Map[String, String])] = node match {
+        case c: LayoutNode.Component =>
+          val here = scope ++ c.vars.view.mapValues(_.default)
+          (id -> here) :: LayoutNode.steps(c.regions).flatMap {
+            case (step, ch) =>
+              walk(ch, LayoutNode.childId(idPrefix, id, step, ch), here)
+          }
+        case _: LayoutNode.SetNode => List(id -> scope)
+      }
+      walk(root, LayoutNode.rootId(idPrefix, root), Map.empty)
+        .filter(_._2.nonEmpty)
+        .toMap
+    }
+
     val byEntity: Map[String, Set[NodeId]] =
       indexed.toList
         .collect { case (id, c: LayoutNode.Component) => id -> c }
@@ -285,6 +319,19 @@ class Renderer(
     (mainIndex :: surfaceIndexes.values.toList).flatMap { idx =>
       idx.indexed.map { case (id, n) => id -> (n, idx.idPrefix) }
     }.toMap
+
+  /** Every node that has a node variable in scope -> its values. Empty for the
+    * overwhelming majority, which is why the indexes drop the empty entries
+    * rather than holding one per node.
+    */
+  private val varValues: Map[NodeId, Map[String, String]] =
+    (mainIndex :: surfaceIndexes.values.toList).flatMap(_.varValues).toMap
+
+  /** What a node's references resolve against. Empty is the common answer and
+    * the correct one: a template with no `Ref.Var` ignores it entirely.
+    */
+  private def varsFor(id: NodeId): Map[String, String] =
+    varValues.getOrElse(id, Map.empty)
 
   private val prefixToRoot: Map[String, String] =
     Map(mainIndex.idPrefix -> "") ++
@@ -369,8 +416,9 @@ class Renderer(
     */
   private def queriesForNode(id: NodeId): List[SlotRead] =
     allIndexed.get(id) match {
-      case Some((c: LayoutNode.Component, _)) => c.queries
-      case _                                  => Nil
+      case Some((c: LayoutNode.Component, _)) =>
+        c.queries.map(_.resolve(varsFor(id)))
+      case _ => Nil
     }
 
   /** Whether this dashboard names `entityId` at all — the bound an action POST
@@ -1000,7 +1048,11 @@ class Renderer(
             m.node.subjectEntity.toList ++ m.node.liveEntitiesAsBytes,
             states
           ),
-          fragments.forQueries(m.node.queries)
+          // A member reads no variable — `Dashboard.validate` refuses one
+          // inside a set, because a member's id is minted at run time and has
+          // no scope entry — so the empty environment is the whole answer here
+          // rather than a gap.
+          fragments.forQueries(m.node.queries.map(_.resolve(Map.empty)))
         )
       )
       .orElse(
@@ -1070,7 +1122,12 @@ class Renderer(
           val b = Map.newBuilder[String, String]
           plan.dynamic.foreach { case (slot, srcEntity, source) =>
             if (!plan.signalSlots.contains(slot))
-              b += ((slot, resolveSlot(srcEntity, source, states, fragments)))
+              b += (
+                (
+                  slot,
+                  resolveSlot(srcEntity, source, states, fragments, plan.vars)
+                )
+              )
           }
           Some(b.result())
         }
@@ -2050,6 +2107,10 @@ class Renderer(
       bindings: Map[String, String],
       signalSlots: List[String],
       signalNameBySlot: Map[String, SignalId],
+      // The node variables in scope at this node, resolved (issue #209). On
+      // the plan because it is fixed per authored position, exactly as the
+      // constants and the binding strings are.
+      vars: Map[String, String],
       // The node's `data-signals` attribute with its values cut out. Fixed by
       // the plan, because the NAMES are; see [[Datastar.SignalSeed]].
       signalSeed: Datastar.SignalSeed,
@@ -2230,6 +2291,7 @@ class Renderer(
       signalNameBySlot = named.map { case (slot, _, signal) =>
         slot -> signal
       }.toMap,
+      vars = varsFor(id),
       signalSeed = Datastar.seedFor(named.map(_._3)),
       subjectDynamic = subjectConst.isEmpty,
       ownRendering = hasOwnRendering(id),
@@ -2281,7 +2343,8 @@ class Renderer(
       if (plan.signalNameBySlot.isEmpty) None
       else Some(Map.newBuilder[SignalId, SlotValue])
     plan.dynamic.foreach { case (slot, srcEntity, source) =>
-      val value = resolveSlotValue(srcEntity, source, states, fragments)
+      val value =
+        resolveSlotValue(srcEntity, source, states, fragments, plan.vars)
       paintB += ((slot, value))
       plan.signalNameBySlot
         .get(slot)
@@ -2332,7 +2395,8 @@ class Renderer(
               (srcEntity.getOrElse(""), source.valueKey),
               _ => resolveStateSlot(srcEntity, source, states)
             )
-          else resolveSlotValue(srcEntity, source, states, fragments)
+          else
+            resolveSlotValue(srcEntity, source, states, fragments, plan.vars)
       }
       slot -> value
     }
@@ -2508,9 +2572,12 @@ class Renderer(
       srcEntity: Option[String],
       source: SlotSource,
       states: Map[String, EntityState],
-      fragments: Fragments
+      fragments: Fragments,
+      vars: Map[String, String]
   ): String =
-    SlotValue.text(resolveSlotValue(srcEntity, source, states, fragments))
+    SlotValue.text(
+      resolveSlotValue(srcEntity, source, states, fragments, vars)
+    )
 
   /** [[resolveSlot]] at the sites that resolve only slots a query slot can
     * never BE — the subject, a `once` identity value, a signal. The signature
@@ -2536,15 +2603,19 @@ class Renderer(
       srcEntity: Option[String],
       source: SlotSource,
       states: Map[String, EntityState],
-      fragments: Fragments
+      fragments: Fragments,
+      // The node variables in scope here (issue #209). Read by a query slot
+      // and by nothing else, which is why it is a plain map rather than
+      // something a state slot would have to ignore.
+      vars: Map[String, String]
   ): SlotValue = source.shape match {
     // A query slot is not a transform over state and never enters the engine:
     // its value was produced before the walk began, by its provider AND its
     // stage. Total, so there is no "not yet" arm here to get wrong — see
     // `Fragments`, which raises rather than letting a render proceed without
     // every answer it reads.
-    case SlotShape.Query(read) => fragments.html(read)
-    case SlotShape.State(st)   => resolveStateSlotValue(srcEntity, st, states)
+    case SlotShape.Query(ask) => fragments.html(ask.resolve(vars))
+    case SlotShape.State(st)  => resolveStateSlotValue(srcEntity, st, states)
   }
 
   private def resolveStateSlotValue(

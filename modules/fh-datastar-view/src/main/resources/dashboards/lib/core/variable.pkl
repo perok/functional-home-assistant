@@ -1,0 +1,57 @@
+/// NODE VARIABLES — a node declares a named choice, a descendant reads it.
+///
+/// The declaration is what makes the reference a real edge rather than a string
+/// two places happen to spell the same. A reader with no declaring ancestor is a
+/// build error naming both; resolution is by NAME up the ancestor chain, so a
+/// node that declares nothing is transparent and a nested declaration of the
+/// same name shadows for its own subtree.
+///
+/// The one place this is load-bearing rather than tidy: a query parameter read
+/// from a variable is a per-viewer question the SERVER must answer before it
+/// renders, because the first HTML a browser gets is complete. A value matched
+/// by convention in the browser cannot be.
+module core.variable
+
+/// One declared variable (fh.view.model.VarDecl).
+///
+/// `domain` is a list of values and not a type. That is an enum spelled as
+/// data, deliberately: a type language on the wire is a much larger decision,
+/// and the authoring end is already typed — `oneOf` takes whatever union the
+/// caller has, and the list is what survives the trip. Null leaves the domain
+/// OPEN (free text), which a query parameter may not do: the build parses every
+/// request a slot can make, and it can only enumerate a closed set.
+class VarDecl {
+  default: String
+  domain: Listing<String>? = null
+}
+
+/// A reference to a declared variable (fh.view.model.Ref.Var), for the places
+/// that take `String|Ref` — a literal, or a read.
+///
+/// Backticked because `var` is the WIRE key and reads as one word there. Nobody
+/// writes this class directly; [[ref]] is the spelling.
+class Ref {
+  `var`: String
+}
+
+/// Read the variable `name`, wherever it is declared above this node.
+///
+/// Named `ref` and not `read`: `read` is a Pkl KEYWORD (the resource reader),
+/// and using it as a function name is a parse error pointing at the definition
+/// rather than at the call.
+const function ref(name: String): Ref = new Ref { `var` = name }
+
+/// A variable that may hold one of `values`, starting at `start`.
+///
+/// `start` is separate rather than "the first value" so that reordering the
+/// buttons a control shows cannot silently change what a first-time viewer
+/// sees. The backend rejects a start the domain does not list.
+const function oneOf(values: Listing<String>, start: String): VarDecl =
+  new VarDecl {
+    default = start
+    domain = values
+  }
+
+/// A variable with no declared domain: any string. Fine for anything a card
+/// merely displays; refused on a query parameter.
+const function free(start: String): VarDecl = new VarDecl { default = start }

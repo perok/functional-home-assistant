@@ -9,6 +9,9 @@ import fh.view.model.{
   LayoutNode,
   Reads,
   SignalBind,
+  QueryTemplate,
+  Ref as SlotRef,
+  SlotAsk,
   SlotQuery,
   SlotRead,
   Region,
@@ -35,8 +38,26 @@ import java.time.Instant
   */
 class QueryRenderInputsSuite extends munit.CatsEffectSuite {
 
+  /** As AUTHORED, with both parameters written down. A query whose parameters
+    * are all literal resolves to itself against any environment, which is what
+    * keeps every assertion below about the query slot rather than about
+    * variables.
+    */
   private def chart(window: String = "24h") =
+    QueryTemplate(
+      "history",
+      Map(
+        "entity" -> SlotRef.Literal("sensor.t"),
+        "window" -> SlotRef.Literal(window)
+      )
+    )
+
+  /** The same, RESOLVED — what the caches and the render key see. */
+  private def resolved(window: String = "24h") =
     SlotQuery("history", Map("entity" -> "sensor.t", "window" -> window))
+
+  private def ask(window: String = "24h", width: Int = 600) =
+    SlotAsk(chart(window), drawn(width))
 
   /** A chart STAGE. The size lives here now rather than in the query, which is
     * what makes two sizes of one window one fetch and two drawings.
@@ -45,7 +66,7 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
     Transform.Stage.Chart(Map("width" -> width.toString))
 
   private def read(window: String = "24h", width: Int = 600) =
-    SlotRead(chart(window), drawn(width))
+    SlotRead(resolved(window), drawn(width))
 
   private def chartSource(window: String = "24h", width: Int = 600) =
     SlotSource(
@@ -94,7 +115,7 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
       signal = Some(SignalBind.Text),
       reads = Reads.Live
     )
-    assertEquals(src.shape, SlotShape.Query(read()))
+    assertEquals(src.shape, SlotShape.Query(ask()))
     assertEquals(
       LayoutNode
         .Component(card = "c", slots = Map("chart" -> src))
@@ -104,7 +125,7 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
   }
 
   test("a node's queries are its query slots, deduplicated") {
-    assertEquals(chartNode().queries, List(read()))
+    assertEquals(chartNode().queries, List(ask()))
     val two = LayoutNode.Component(
       card = "twoCharts",
       slots = Map(
@@ -113,7 +134,7 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
         "c" -> chartSource("30d")
       )
     )
-    assertEquals(two.queries.toSet, Set(read("1h"), read("30d")))
+    assertEquals(two.queries.toSet, Set(ask("1h"), ask("30d")))
   }
 
   // --- The snapshot ---------------------------------------------------------
@@ -203,7 +224,7 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
     // The third-party contract: no transform, no drawing, and the JSON a
     // client library would read. Nothing is drawn at all, which is what makes
     // this cheaper than a chart rather than a chart nobody looks at.
-    val raw = SlotRead(chart(), Transform.Stage.Passthrough)
+    val raw = SlotRead(resolved(), Transform.Stage.Passthrough)
     for {
       fetches <- Ref[IO].of(0)
       draws <- Ref[IO].of(0)
@@ -340,7 +361,7 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
     // anywhere saying why.
     val errs = dashboard(
       SlotSource(
-        query = Some(SlotQuery("forecast", Map.empty)),
+        query = Some(QueryTemplate("forecast", Map.empty)),
         reads = Reads.OnRender
       )
     ).validate()
@@ -387,7 +408,7 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
     // built rather than only where a provider happened to be passed in.
     val errs = dashboard(
       SlotSource(
-        query = Some(SlotQuery("history", Map())),
+        query = Some(QueryTemplate("history", Map())),
         reads = Reads.OnRender
       )
     )

@@ -4,6 +4,8 @@ import fh.view.model.{
   CardDef,
   Dashboard,
   LayoutNode,
+  QueryTemplate,
+  Ref,
   SlotQuery,
   SlotRead,
   SlotSource,
@@ -16,10 +18,17 @@ import fh.view.query.{Fragment, Fragments}
   */
 class ChartSlotSuite extends munit.FunSuite {
 
-  private val query =
-    SlotQuery("history", Map("entity" -> "sensor.t", "window" -> "24h"))
+  private val query = QueryTemplate(
+    "history",
+    Map("entity" -> Ref.Literal("sensor.t"), "window" -> Ref.Literal("24h"))
+  )
   private val stage = Transform.Stage.Chart(Map("width" -> "600"))
-  private val read = SlotRead(query, stage)
+  // Every parameter is written down, so the ask resolves to this whatever the
+  // environment — which is what keeps this suite about the chart slot.
+  private val read = SlotRead(
+    SlotQuery("history", Map("entity" -> "sensor.t", "window" -> "24h")),
+    stage
+  )
   private val svg = """<svg width="600"><path d="M0 0"/></svg>"""
 
   private def dashboardWith(hole: String) =

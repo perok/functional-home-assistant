@@ -963,6 +963,24 @@ does not arise for three reasons that have to stay true:
   snapshot already in hand, so which members render is computable before the walk;
 - nothing lets a node's input depend on a value produced DURING the walk.
 
+**A query parameter may now be a REFERENCE**, and this is where it is resolved. A node declares
+node variables (`Component.vars`); a query parameter is a literal or a read of one
+(`Ref.Literal`/`Ref.Var`); a node holds a static `SlotAsk`, and `queriesForPage` resolves each one
+against the values in scope at that node into the `SlotRead` everything keys on. Today every value
+is the declaration's default, so the answer is fixed for the life of the renderer — but the seam
+is where a viewer's choice will enter, and the resolution is already on the correct side of the
+barrier.
+
+Two consequences worth stating, because neither is obvious:
+
+- **The build still parses every request a slot can make.** It enumerates the declared DOMAIN
+  rather than the current value (`Dashboard.possibleQueriesIn`), which is why a query parameter
+  may only read a variable whose values are listed. That is what keeps `Validated.queries` total
+  once a value is chosen at render time rather than at build time.
+- **No topological ordering is needed, and none is built.** A variable's value never comes from
+  the walk — it is ambient, declared above and resolved before. The barrier holds because the
+  value is already in hand, not because anything was sequenced.
+
 That third one is the fragile one, and it is what issue #209 (node variables) protects: a declared
 reference can be topologically ordered before the walk, where a reference matched by string
 convention at evaluation time in the browser cannot. **Anything that lets one node read another's

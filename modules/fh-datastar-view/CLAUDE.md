@@ -404,9 +404,13 @@ gotchas"):
   help, because the union still closes the loop. Keep the alias for the non-recursive positions
   and let the one or two that would close it take `Any`, with a comment saying why.
 - Reserved words that bite as field, property or METHOD names: **`case`**, **`out`**, **`is`**
-  (the type-test operator), `import`, `else`, `when`. Backtick them or pick another name —
-  `shape` rather than `case`, `stateIs` rather than `is`. Backticking reads badly at the CALL
-  site, so for a method prefer renaming.
+  (the type-test operator), **`read`** (the resource reader), **`var`**, `import`, `else`,
+  `when`. Backtick them or pick another name —
+  `shape` rather than `case`, `stateIs` rather than `is`, `ref` rather than `read`. Backticking
+  reads badly at the CALL site, so for a method prefer renaming; for a WIRE field there is no
+  choice, which is why `core/variable.pkl` declares `` `var` `` and hides it behind `ref`.
+  **A reserved word in a library module reports at the DEFINITION**, so the error names whichever
+  module imported it rather than the one that is wrong.
 - `getProperty(name)` / `getPropertyOrNull(name)` / `hasProperty(name)` let the build read a
   property BY NAME — the basis for resolving a named property against candidates.
 - Structural equality holds for independently-built objects, and `Map`/`distinct`/`groupBy`

@@ -192,9 +192,25 @@ it shows.
 The two falsified comments this phase was also carrying landed on #381 instead, where the
 changeset that wrote them lives.
 
-**1 — declaration and reference, build time only.** `VarDecl`, `Ref`, the resolution walk, the
-build error, the Pkl surface. Every reference resolves to its DEFAULT; nothing moves at runtime.
-Pure, and testable without a server.
+**1 — declaration and reference, build time only. DONE.** `VarDecl`, `Ref`, `QueryTemplate`,
+`SlotAsk`, the scope walk, the build errors, `core/variable.pkl`. Every reference resolves to its
+DEFAULT, so nothing a viewer does moves one yet.
+
+Four things it settled that the design above had not:
+
+- **`SlotAsk` is the type the plan called a template**, and `SlotRead` did not move — the ask is
+  the tree's, the read is this render's. `Fragments`, `RenderInputs` and both caches were
+  untouched.
+- **The build enumerates the DOMAIN, not the value** (`possibleQueriesIn`), which is what keeps
+  `Validated.queries` total once a value is chosen at render time. That is what makes a domain
+  REQUIRED on anything a query parameter reads, where the design had it merely recommended —
+  a stronger rule than decision 2 reached, arrived at from the totality proof rather than from
+  taste.
+- **A surface is its own scope root**, because a baked one can be swapped into a host and
+  inheriting from wherever it is shown would let one content resolve differently per host.
+- **A variable read from inside a candidate set is refused, for now.** A member's id is minted at
+  run time, so it has no scope entry. Narrow — a query slot inside a set still works — and held
+  by a test so lifting it is deliberate.
 
 **2 — the value reaches a render.** Session `vars`, narrowing, defaults; template resolution in
 `queriesForPage`/`queriesForSurface`; `RenderInputs` gains the third map if phase 0 says so. The

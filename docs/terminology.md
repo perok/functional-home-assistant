@@ -36,6 +36,25 @@ would let one card's gesture drive another card's readout. ADR 0017, ADR 0025.
 **Subject entity** — the entity a card is "about", carried as the magic `entity_id` slot. Other
 slots on the same node read it unless they name an entity of their own.
 
+**Node variable** — a named choice a node DECLARES (`Component.vars`) and its descendants READ. The
+word is always two words: `Renderer` already calls a card's mustache context "vars", and a theme
+calls CSS custom properties the same, so a bare "vars" in prose is ambiguous three ways.
+
+Three words go with it, and they are not interchangeable:
+
+- **Declarer** — the node whose `vars` a reference resolved to. Resolution is by NAME up the
+  ancestor chain, so a node declaring nothing is transparent and the NEAREST declarer wins.
+- **Reference** (`Ref.Var`) — a read of one, as opposed to a **literal** (`Ref.Literal`, a value
+  written down). The distinction is the access story rather than a convenience: only a declared
+  variable is writable, so a literal parameter has nowhere for a write to land.
+- **Shadow** — a nested declaration of a name an ancestor also declares, winning for its own
+  subtree and nothing else. What "one control over three charts, except this one" is made of.
+
+**Domain** — the values a node variable may hold, listed on the declaration. Optional in general
+and REQUIRED on anything a query parameter reads, because the build parses every request a slot
+can make and can only enumerate a closed set. A list of strings rather than a type, which is an
+enum spelled as data and is deliberate — see issue #209.
+
 **Cell** — the wrapper element the renderer puts around every node, carrying the layout classes
 (`fh-cols-3`, `fh-hug`). Layout is the backend's job, not each card's. ADR 0008.
 
@@ -306,10 +325,18 @@ party writing their own chart library reads against. A query slot's default is d
 shape, the same rule `reads` follows, so the wire states which tier is in play rather than leaving a
 reader to infer it.
 
-**Read** — a query paired with the stage applied to it (`SlotRead`), and what the render key
-carries. The pair rather than the query alone because the two deduplicate at different levels: two
-cards charting one sensor over one window at different sizes are ONE fetch and TWO drawings, so they
-share a version and must not share a cache entry.
+**Ask** vs **read** — the same pair (a query and the stage applied to it) at two different times,
+and the distinction is what lets a query parameter be per-viewer at all.
+
+An **ask** (`SlotAsk`) is what a node statically declares: its parameters may still be
+**references** to node variables. It is a property of the TREE, so a node holds its own, and the
+static input set stays enumerable before the walk.
+
+A **read** (`SlotRead`) is the same pair with every reference resolved — what this render actually
+asked for, and what the render key and both caches carry. The pair rather than the query alone
+because the two deduplicate at different levels: two cards charting one sensor over one window at
+different sizes are ONE fetch and TWO drawings, so they share a version and must not share a cache
+entry.
 
 What a stage produces carries the provider's version unchanged, because a stage is a deterministic
 function of an answer and has no version of its own. (The runtime type holding that pair is called
