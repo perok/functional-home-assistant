@@ -359,6 +359,27 @@ class Renderer(
         }.toMap
       }.toMap
 
+  /** Every node whose reads would move if `(declarer, name)` did — the declared
+    * edge, inverted.
+    *
+    * EXACT, and this is the first thing the declaration is load-bearing for
+    * rather than merely tidy. A write needs the set twice: to decide whether a
+    * proposed value is acceptable at all (by asking whether every reader can
+    * still parse what it would then ask) and to decide what to re-render. A
+    * reference matched by convention in the browser could answer neither.
+    */
+  def readersOf(declarer: NodeId, name: String): List[NodeId] =
+    varScopes.toList.collect {
+      case (id, scope)
+          if scope.get(name).exists(_.declarer == declarer) &&
+            queriesForNode(id).exists(_.query.references.contains(name)) =>
+        id
+    }
+
+  /** What `id` would ask with these values in scope. */
+  def readsAt(id: NodeId, env: VarEnv): List[SlotRead] =
+    queriesForNode(id).map(_.resolve(env.getOrElse(id, Map.empty)))
+
   private val prefixToRoot: Map[String, String] =
     Map(mainIndex.idPrefix -> "") ++
       surfaceIndexes.map { case (sid, idx) => idx.idPrefix -> sid }

@@ -27,7 +27,7 @@ import fh.view.history.{
   SeriesSource,
   SeriesStore
 }
-import fh.view.query.{QuerySnapshot, QueryIdentity, QueryResolver}
+import fh.view.query.{Queries, QueryIdentity, QueryResolver, QuerySnapshot}
 import fh.view.model.{
   ChromeColors,
   Dashboard,
@@ -384,6 +384,15 @@ class Server(
     case req @ POST -> Root / "sse" / "popup" / slug / "close" =>
       withSession(req, slug)((session, renderer, uiState) =>
         swapHost(session, renderer, Dashboard.PopupHostId, None, uiState)
+      )
+
+    // A node variable's value, addressed to the node that DECLARED it (issue
+    // #209). The value rides in the path for the same reason a service call's
+    // does — Datastar builds the URL client-side by concatenation — and the
+    // slug bounds it exactly as it bounds an action (ADR 0023).
+    case req @ POST -> Root / "sse" / "var" / slug / node / name / value =>
+      withSession(req, slug)((session, renderer, uiState) =>
+        setVar(session, renderer, NodeId.derived(node), name, value, uiState)
       )
   }
 
@@ -1521,6 +1530,97 @@ class Server(
       env: VarEnv
   ): IO[QuerySnapshot] =
     answer(renderer, renderer.queriesForPage(open, env), env)
+
+  /** Set a NODE VARIABLE for this viewer, and re-render exactly the nodes that
+    * read it (issue #209).
+    *
+    * '''This is where a value stops being untrusted.''' It arrives off a URL
+    * path, so it can be anything; what makes it acceptable is that every
+    * DECLARED reader can still parse what it would then ask. That check needs
+    * no list of allowed values beside the declaration — the reader's own parser
+    * is the authority a list could only copy — and it needs the declared edge,
+    * which is what makes `readersOf` exact rather than a guess.
+    *
+    * Refusing RAISES, and [[withSession]] turns a 4xx into ADR 0024's 200 of
+    * signals — the request was served and the operation failed, which is page
+    * state. So a value that could not render never reaches the session, and the
+    * viewer is told rather than left wondering.
+    *
+    * What it does NOT yet do is ADR 0025's pending/committed pair: the press is
+    * not optimistic and there is no `_pending` signal to clear, so a slow fetch
+    * shows the old chart until the new one lands. That is the next thing this
+    * path wants, and the reason it is not here is that the control that would
+    * press it does not exist yet.
+    *
+    * Per SESSION and nothing shared: one viewer's window says nothing about
+    * anyone else's, so no `Mutation` is recorded and the changelog is untouched
+    * — exactly as a tab switch is treated.
+    */
+  private def setVar(
+      session: Session,
+      renderer: Renderer,
+      declarer: NodeId,
+      name: String,
+      value: String,
+      uiState: Map[String, String]
+  ): IO[Unit] = {
+    val readers = renderer.readersOf(declarer, name)
+    for {
+      _ <- IO.raiseWhen(readers.isEmpty)(
+        FHError.notFound(
+          s"no node reads the variable '$name' declared on '$declarer'"
+        )
+      )
+      current <- session.vars.get
+      proposed = current + ((declarer, name) -> value)
+      env = renderer.varEnv(proposed)
+      refused = readers
+        .flatMap(renderer.readsAt(_, env))
+        .flatMap(Queries.parseRead(_).left.toOption)
+        .distinct
+      _ <- IO.raiseWhen(refused.nonEmpty)(
+        FHError.badCondition(
+          s"'$value' is not a value '$name' can take: ${refused.mkString("; ")}"
+        )
+      )
+      _ <- session.vars.set(proposed)
+      open <- session.open.get
+      snapshot <- resolvePageQueries(renderer, open, env)
+      store <- stateStore.current
+      _ <- readers.traverse_(
+        repaintNode(session, renderer, _, store.entities, uiState, snapshot)
+      )
+    } yield ()
+  }
+
+  /** Re-render one node FOR THIS CLIENT and morph it, unless this DOM already
+    * holds those bytes.
+    *
+    * The suppression is the same question `Patches.resume` asks, asked of one
+    * node: a viewer who picks the window they are already on costs nothing.
+    */
+  private def repaintNode(
+      session: Session,
+      renderer: Renderer,
+      id: NodeId,
+      states: Map[String, EntityState],
+      uiState: Map[String, String],
+      snapshot: QuerySnapshot
+  ): IO[Unit] =
+    renderer.renderNodeById(id, states, uiState, fragments = snapshot) match {
+      case None       => IO.unit
+      case Some(html) =>
+        val digest = Digest.of(html)
+        session.holds.get.map(_.get(id).flatMap(_.digest)).flatMap {
+          case Some(held) if held == digest => IO.unit
+          case _                            =>
+            session.holds.update(h =>
+              h.updated(id, h.getOrElse(id, Held()).merge(Held.bytes(digest)))
+            ) *> session.control.offer(
+              Datastar.patch(html, PatchMode.Outer, None)
+            )
+        }
+    }
 
   /** This session's node-variable environment for `renderer`.
     *

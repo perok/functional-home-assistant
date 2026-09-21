@@ -24,11 +24,11 @@ import java.time.Instant
   * — it either has every answer, or it never starts.
   *
   * The shape this replaced is worth knowing, because it looked harmless. A
-  * failing query was dropped from the map and the slot rendered empty, and
-  * an empty one was a DEFAULT ARGUMENT on nine render entry points — so
-  * a path that read a query and was handed no answers compiled clean and
-  * shipped a hole. Absence is not modelled here any more precisely because
-  * nothing could tell the two readings of it apart.
+  * failing query was dropped from the map and the slot rendered empty, and an
+  * empty one was a DEFAULT ARGUMENT on nine render entry points — so a path
+  * that read a query and was handed no answers compiled clean and shipped a
+  * hole. Absence is not modelled here any more precisely because nothing could
+  * tell the two readings of it apart.
   *
   * '''It also carries the NODE VARIABLES each node read''' (issue #209), and
   * that is not a convenience. A node declares an ASK — a query whose parameters
@@ -124,10 +124,14 @@ object QuerySnapshot {
     * has and says so in the toast. Neither of those is expressible from here,
     * which is why this does not choose.
     *
-    * A query with no parsed request is a bug already caught upstream —
-    * `Dashboard.validate` rejects an unknown provider or a bad parameter — so
-    * it raises here too rather than being skipped: reaching a render without
-    * one means validation was bypassed, and rendering on is how that ships.
+    * '''`requests` is a MEMO, not a totality proof, and that changed with node
+    * variables.''' It holds what `Dashboard.validate` parsed, which is every
+    * read the dashboard makes at its DECLARED values — and a viewer who picks a
+    * different window asks something the build never saw. So a read that is not
+    * in it is parsed here rather than refused; what keeps that sound is the
+    * write boundary, which already refused any value a declared reader could
+    * not parse. Only a read that fails BOTH is a wiring bug worth raising on,
+    * and it says so.
     */
   def resolve(
       resolver: QueryResolver,
@@ -141,10 +145,12 @@ object QuerySnapshot {
     def parsed(read: SlotRead): IO[(QueryRequest, StageRequest)] =
       requests
         .get(read)
+        .orElse(Queries.parseRead(read).toOption)
         .liftTo[IO](
           FHError.internal(
-            s"${describe(read)} reached a render with no parsed request — " +
-              "validate did not run on this build"
+            s"${describe(read)} reached a render and does not parse — the " +
+              "build did not see it (a chosen value) and it is not a request " +
+              "either, so something wrote a value the write path never checked"
           )
         )
 
