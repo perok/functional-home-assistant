@@ -46,17 +46,29 @@ private[runtime] object NodeBytes {
   * old ones are never asked for again — unbounded retention of HTML in exchange
   * for hits that do not happen.
   *
-  * One generation per node, replaced in place. `RenderInputs` is entity
-  * versions and nothing else, and those CHURN — every frame moves one, so the
-  * generation for the previous version is dead the moment it is replaced.
+  * One generation per node, replaced in place. That bound was sized against
+  * ENTITY versions, which churn — every frame moves one, so the generation for
+  * the previous version is dead the moment it is replaced.
   *
-  * A SELECTION is not part of the key, and does not need to be: a bake owner
-  * holds its content in regions, which makes it structure, and structure is
-  * never a patch target and so never cached. What renders per frame is the leaf
-  * beside it, whose bytes mention no selection at all — so two viewers on two
-  * tabs are owed the same bytes and share one render.
+  * A bake SELECTION is not part of the key, and does not need to be: a bake
+  * owner holds its content in regions, which makes it structure, and structure
+  * is never a patch target and so never cached. What renders per frame is the
+  * leaf beside it, whose bytes mention no selection at all — so two viewers on
+  * two tabs are owed the same bytes and share one render.
   * `RenderCacheContentionSuite` holds that at 1.0 renders a frame however many
   * viewers and however many tabs.
+  *
+  * '''A per-viewer dimension is back, though, and it does not churn.'''
+  * [[RenderInputs]] also carries `SlotRead -> version` (ADR 0031), and a query
+  * read is per VIEWER in a way a bake selection is not: two viewers charting
+  * one sensor over different windows hold differently-SHAPED keys, so neither
+  * `isAtLeast` the other — which is what stops a chart of the wrong span being
+  * served, and is why the shapes must stay unordered. What that costs the
+  * single slot is the open part: the prediction is that neither is a straggler
+  * and each install evicts the other, one render per pull each and never wrong
+  * bytes. Read off the code below rather than measured — issue #209 is where it
+  * stops being a prediction, and where bucketing per read comes back if the
+  * number says so.
   *
   * '''A STRAGGLER NEVER DISPLACES THE CURRENT GENERATION.''' Sessions pull in
   * parallel and read the store when they get there, so they do not all render

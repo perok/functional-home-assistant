@@ -982,10 +982,13 @@ cannot fetch, so a chart inside a tab panel is answered when the page is or neve
 is a popup nobody has opened, which is the laziness worth keeping: bounded by what is being
 rendered rather than by which surface happens to hold it.
 
-Still missing, and deliberately: the PAGE path and the live patch path resolve nothing
-(`Patches.bytes` passes `Fragments.none`), so a chart outside a surface renders empty and a version
-moving does not wake its node. The key is correct; the waking is the window-selection work. Nothing
-bounds how long a provider may hold up the snapshot either.
+Two things are still missing, and both are deliberate. **Nothing wakes a node because a query's
+version moved**: the recorder watches entity state, and a bucket rolling is not a state change, so
+a chart on an open page goes stale until something else that node reads happens to move. The key
+is correct — a render at the new bucket gets new bytes — but nothing asks for that render. And
+**nothing bounds how long a provider may hold up the pre-walk resolution**; §0 says that bound is
+an error rather than a fallback and belongs here rather than on the response, but it is not
+written yet.
 
 **All of this section is the PATCH path.** The document path is a different shape and is described
 in §6a: it consults no cache, shares nothing, and streams straight to the client.
