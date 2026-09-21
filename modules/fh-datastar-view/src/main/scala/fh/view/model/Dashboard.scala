@@ -247,12 +247,16 @@ object Ref:
   * data, which is a real limitation and a deliberate one: a type language on
   * the wire is a much larger decision than this needs, and the authoring end is
   * already typed (`Window` is a Pkl union; the list is what survives the trip).
-  * What it buys meanwhile is that a write outside it is refused at the boundary
-  * — so a provider's parser never sees a bad value — and that a control can be
-  * built FROM the declaration rather than listing the values once in the
-  * buttons and again in the chart.
+  * What it buys is that a write outside it is refused generically — so a
+  * provider's parser never sees a bad value — and that a control can be built
+  * FROM the declaration rather than listing the values once in the buttons and
+  * again in the chart.
   *
-  * `None` is an open domain, not an empty one: a free-text variable.
+  * `None` is an open domain, not an empty one: a free-text variable, and it is
+  * allowed ANYWHERE, a query parameter included. What keeps an open one safe is
+  * the WRITE boundary, which resolves each declared reader's ask with the
+  * proposed value and refuses one that would not parse. A domain makes that
+  * check a lookup and gives a better message; it is not what makes it sound.
   */
 case class VarDecl(default: String, domain: Option[List[String]] = None)
     derives CanEqual,
@@ -331,40 +335,6 @@ case class SlotAsk(query: QueryTemplate, stage: Transform.Stage)
 
   def resolve(env: Map[String, String]): SlotRead =
     SlotRead(query.resolve(env), stage)
-
-  /** Every read this ask can ever become, over the declared domains of the
-    * variables it names.
-    *
-    * '''This is what keeps the build-time proof.''' A query's parameters used
-    * to be decided at build time, so `Dashboard.validate` could parse each one
-    * and `Validated` could carry the parsed requests as a total map. A
-    * per-viewer parameter would end that — the value arrives at render time —
-    * unless the build can enumerate what it might be, which a CLOSED domain
-    * lets it do. So a query parameter may only read a variable that declares
-    * one, and `validate` says so; an open domain stays fine everywhere else.
-    *
-    * Bounded by [[SlotAsk.MaxExpansions]], which `validate` checks: this is a
-    * product over domains, and a chart reading two four-valued variables is 16
-    * requests to parse, not a hazard — but nothing in the types stops a third.
-    */
-  def expand(scope: Map[String, VarDecl]): List[SlotRead] =
-    query.references.distinct
-      .filter(scope.contains)
-      .foldLeft(List(Map.empty[String, String])) { (envs, n) =>
-        val decl = scope(n)
-        val values = decl.domain.getOrElse(List(decl.default))
-        envs.flatMap(e => values.map(v => e.updated(n, v)))
-      }
-      .map(resolve)
-      .distinct
-
-object SlotAsk:
-
-  /** The product a single ask may expand to. Arbitrary, and picked to be far
-    * above anything a dashboard would mean and far below anything that costs:
-    * two four-valued variables is 16.
-    */
-  val MaxExpansions: Int = 64
 
 /** What ONE slot reads: a query, and the stage that turns its answer into the
   * hole's content.
@@ -1512,38 +1482,26 @@ case class Dashboard(
                   "ancestor declares — declare it on the node that owns the " +
                   "choice, or write the value down"
               )
-            case Some(d) if d.domain.exists(_.isEmpty) =>
-              List(
-                s"$nodeId: slot '$name' reads the variable '$v', whose " +
-                  "domain is empty — it can hold no value at all"
-              )
-            case Some(d) if d.domain.isEmpty =>
-              List(
-                s"$nodeId: slot '$name' reads the variable '$v', which " +
-                  "declares no domain — a query parameter may only read a " +
-                  "variable whose values are listed, because the build parses " +
-                  "every request this slot can make"
-              )
             case Some(_) => Nil
           }
         }
-        val reads =
+        // Parsed at the DEFAULTS, which is what the build can know. A value a
+        // viewer picks later is untrusted input and is not a thing the build
+        // gets to enumerate — it is narrowed where it ENTERS, against the
+        // domain if one is declared and against the provider's own parse
+        // otherwise, so a value that could not render is refused at the write
+        // rather than discovered at the render. Same discipline as
+        // `SurfaceGraph.resolveActive` for an untrusted tab index.
+        val parseError =
           if (refErrors.nonEmpty) Nil
-          else SlotAsk(template, src.stage).expand(scope)
-        val tooMany = Option.when(reads.sizeIs > SlotAsk.MaxExpansions)(
-          s"$nodeId: slot '$name' can ask ${reads.size} different questions " +
-            s"(at most ${SlotAsk.MaxExpansions}) — the variables it reads " +
-            "have too many values between them for the build to check each"
-        )
-        val parseError = reads
-          .take(SlotAsk.MaxExpansions)
-          .flatMap(r => Queries.parse(r.query).left.toOption.map(r -> _))
-          .distinctBy(_._2)
-          .map { case (r, e) =>
-            val at =
-              if (r.query == template.resolve(Map.empty)) ""
-              else s" with ${r.query.params.toList.sorted.mkString(", ")}"
-            s"$nodeId: slot '$name'$at $e"
+          else {
+            val env = scope.view.mapValues(_.default).toMap
+            Queries
+              .parse(template.resolve(env))
+              .left
+              .toOption
+              .map(e => s"$nodeId: slot '$name' $e")
+              .toList
           }
         // The stage is the other half of the same question, and it is parsed
         // here for the same reason the query is: both are pure, so a bad chart
@@ -1592,7 +1550,7 @@ case class Dashboard(
             }
           }
         untruthfulReads.toList ++ inSetErrors.toList ++ refErrors ++
-          tooMany.toList ++ parseError ++ stageError.toList ++ rawHole.toList
+          parseError ++ stageError.toList ++ rawHole.toList
       }
 
     /** A declaration's own coherence, checked where it is written rather than
@@ -2227,26 +2185,9 @@ case class Dashboard(
     * role [[transformStrings]] plays for CEL.
     */
   def allQueries: List[SlotRead] =
-    (possibleQueriesIn(card) ++ surfaces.values.toList.flatMap(s =>
-      possibleQueriesIn(s.content)
+    (queriesIn(card) ++ surfaces.values.toList.flatMap(s =>
+      queriesIn(s.content)
     )).distinct
-
-  /** Every read a tree can EVER make — each ask over every value its variables
-    * may take (see [[SlotAsk.expand]]).
-    *
-    * The superset of what any one render asks for, and the right input to
-    * [[validated]]'s parse: the prepared request map has to hold an entry for
-    * whatever a viewer later selects, and a value chosen at render time is not
-    * something the build can go back and check. Bounded by the declared
-    * domains, which is why a query parameter may only read a variable that has
-    * one.
-    */
-  def possibleQueriesIn(n: LayoutNode): List[SlotRead] =
-    scopedSlots(n, Map.empty).flatMap { case (s, scope) =>
-      s.shape match
-        case SlotShape.Query(ask) => ask.expand(scope)
-        case SlotShape.State(_)   => Nil
-    }.distinct
 
   /** Every query under one node — what a SURFACE owes before it can be
     * rendered.
@@ -2256,6 +2197,11 @@ case class Dashboard(
     * walk can know, since which clauses match is decided during it. No shipped
     * card puts a chart inside a candidate set, and narrowing this needs the
     * walk's answer, not a cleverer query.
+    *
+    * Every reference resolves to its declarer's DEFAULT here, which is what a
+    * dashboard asks before anybody has chosen anything. A viewer's choice is
+    * not resolved from the model at all — it arrives per session, and the
+    * renderer overlays it.
     */
   def queriesIn(n: LayoutNode): List[SlotRead] =
     scopedSlots(n, Map.empty).flatMap { case (s, scope) =>
@@ -2333,6 +2279,16 @@ case class Dashboard(
     * only [[validated]] calls it, and only after [[validate]] proved each one
     * parses, so a `Left` cannot occur here and is dropped rather than defended
     * against — exactly as [[compileTransforms]] treats a transform.
+    *
+    * '''What keeps it total once a viewer can choose a parameter''' is the
+    * WRITE, not this. A node variable's value is untrusted input arriving per
+    * session, so the build cannot enumerate it — trying to would mean forcing
+    * every variable a query reads to list its values, which buys a build-time
+    * proof of something the build does not decide. Instead the boundary that
+    * accepts a value narrows it: against the declared domain where there is
+    * one, and otherwise by resolving each declared reader's ask and checking it
+    * parses. A value that could not render is refused where it is written, so
+    * no session ever holds one and this map is asked only for reads that work.
     */
   private def parseQueries: Map[SlotRead, (QueryRequest, StageRequest)] =
     allQueries.flatMap(r => Queries.parseRead(r).toOption.map(r -> _)).toMap

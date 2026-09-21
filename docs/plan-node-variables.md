@@ -140,7 +140,9 @@ they pay for is a mustache splice, not a fetch or a drawing. No bucketing.
    the default instead of erroring, which is the narrowing `SurfaceGraph.resolveActive` already
    does for a tab index it does not recognise; and the control can be GENERATED from the
    declaration rather than listing the windows once in the buttons and again in the chart.
-   `domain = null` for free text. A list of strings and not a type — see "Future work".
+   `domain = null` for free text, and that is allowed EVERYWHERE, a query parameter included: a
+   value is untrusted input whatever the declaration says, so the write is what narrows it. A list
+   of strings and not a type — see "Future work".
 3. **The bake selection does not become a variable** — see "What this does not do".
 
 ## Future work — these belong in the ADR phase 5 writes, not in this stack
@@ -201,11 +203,15 @@ Four things it settled that the design above had not:
 - **`SlotAsk` is the type the plan called a template**, and `SlotRead` did not move — the ask is
   the tree's, the read is this render's. `Fragments`, `RenderInputs` and both caches were
   untouched.
-- **The build enumerates the DOMAIN, not the value** (`possibleQueriesIn`), which is what keeps
-  `Validated.queries` total once a value is chosen at render time. That is what makes a domain
-  REQUIRED on anything a query parameter reads, where the design had it merely recommended —
-  a stronger rule than decision 2 reached, arrived at from the totality proof rather than from
-  taste.
+- **Totality belongs at the WRITE, not in the build** — and this one was got wrong first. The
+  first cut enumerated each variable's domain so the prepared request map would already hold
+  whatever a viewer later picked, and made a domain REQUIRED on anything a query parameter reads
+  to keep that possible. That is a build-time proof of something the build does not decide: a
+  value is untrusted input arriving per session, and forcing every author to list values they may
+  not have was the price of pretending otherwise. The build now parses the DEFAULTS, which is a
+  real build-time fact, and phase 3's write boundary resolves each declared reader's ask with a
+  proposed value and refuses one that would not parse. A domain stays optional everywhere and
+  makes that check a lookup rather than what makes it sound.
 - **A surface is its own scope root**, because a baked one can be swapped into a host and
   inheriting from wherever it is shown would let one content resolve differently per host.
 - **A variable read from inside a candidate set is refused, for now.** A member's id is minted at
@@ -217,8 +223,13 @@ Four things it settled that the design above had not:
 URL mirror restores it on refresh (ADR 0005). Still no writer — the URL is the only way to move
 one, which is a complete and testable product.
 
-**3 — the write path.** A `setVar` tap; the server validates against the domain, commits, and
-patches exactly the declared readers. Pending/committed per ADR 0025.
+**3 — the write path, and it is where totality lives.** A `setVar` tap. The server narrows the
+proposed value — against the declared domain where there is one, and in every case by resolving
+each declared reader's ask with it and checking `Queries.parseRead` — then commits and patches
+exactly those readers. The declared edge is what makes that set exact rather than a guess, which
+is the first thing it is load-bearing for. A refused write keeps the old value and says so
+(`actionRefused`); pending/committed per ADR 0025 keeps the press instant. The URL mirror is the
+other door an untrusted value comes through and takes the same narrowing.
 
 **4 — the window control.** The first real user: window buttons in the more-info popup, the chart
 beneath them reading `window`, the active button highlighted through a signal slot.

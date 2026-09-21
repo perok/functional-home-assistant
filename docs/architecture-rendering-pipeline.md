@@ -973,10 +973,13 @@ barrier.
 
 Two consequences worth stating, because neither is obvious:
 
-- **The build still parses every request a slot can make.** It enumerates the declared DOMAIN
-  rather than the current value (`Dashboard.possibleQueriesIn`), which is why a query parameter
-  may only read a variable whose values are listed. That is what keeps `Validated.queries` total
-  once a value is chosen at render time rather than at build time.
+- **The build parses what the DASHBOARD asks — the defaults — and nothing else.** A viewer's
+  value is untrusted input arriving per session, so what keeps `Validated.queries` total is the
+  WRITE, not the build: the boundary that accepts a value resolves each declared reader's ask with
+  it and refuses one that would not parse, so no session ever holds a value that cannot render.
+  That is `SurfaceGraph.resolveActive`'s discipline for an untrusted tab index, one input over.
+  A declared domain makes the check a lookup; it is not what makes it sound, which is why a
+  domain is optional everywhere.
 - **No topological ordering is needed, and none is built.** A variable's value never comes from
   the walk — it is ambient, declared above and resolved before. The barrier holds because the
   value is already in hand, not because anything was sequenced.

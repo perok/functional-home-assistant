@@ -52,7 +52,10 @@ class NodeVariablesSuite extends munit.FunSuite {
   ): LayoutNode.Component =
     LayoutNode.Component("box", regions = LayoutNode.kids(kids*), vars = vars)
 
-  private def dash(root: LayoutNode, surfaces: Map[String, Surface] = Map.empty) =
+  private def dash(
+      root: LayoutNode,
+      surfaces: Map[String, Surface] = Map.empty
+  ) =
     Dashboard(
       cards = Map("chart" -> chartCard, "plain" -> plainCard, "box" -> boxCard),
       card = root,
@@ -132,14 +135,15 @@ class NodeVariablesSuite extends munit.FunSuite {
     assert(errs.head.startsWith("c_0:"), clue = errs.head)
   }
 
-  test("a query parameter may not read a variable with an OPEN domain") {
-    // Not a taste rule. `validated` parses every request a slot can make so a
-    // bad one is a build error rather than a viewer's surprise, and it can only
-    // enumerate a CLOSED set. An open domain stays fine everywhere else.
-    val errs =
-      dash(box(Map("window" -> VarDecl("24h")), chartNode())).validate()
-    assertEquals(errs.size, 1, clue = errs)
-    assert(errs.head.contains("declares no domain"), clue = errs.head)
+  test("a query parameter MAY read a variable with an open domain") {
+    // This replaced a rule that refused one. The rule came from trying to
+    // enumerate, at build time, a value that arrives per session — which is a
+    // build-time proof of something the build does not decide, paid for by
+    // making every author list values they may not have. A value is untrusted
+    // input whatever the declaration says; the WRITE is where it is narrowed.
+    val d = dash(box(Map("window" -> VarDecl("24h")), chartNode()))
+    assertEquals(d.validate(), Nil)
+    assertEquals(windowOf(d.queriesIn(d.card)), List("24h"))
   }
 
   test("a default outside its own domain is refused") {
@@ -148,16 +152,24 @@ class NodeVariablesSuite extends munit.FunSuite {
     val errs =
       dash(box(Map("window" -> VarDecl("4h", Some(windows))), chartNode()))
         .validate()
-    assertEquals(errs.size, 1, clue = errs)
-    assert(errs.head.contains("'4h'"), clue = errs.head)
-    assert(errs.head.contains("does not list"), clue = errs.head)
+    // TWO errors, and both are worth having: the declaration names the fix,
+    // and the reader shows what it cost. They arrive together because the
+    // build now parses at the default, so a bad default is also a bad request.
+    assert(
+      errs.exists(e => e.contains("'4h'") && e.contains("does not list")),
+      clue = errs
+    )
+    assert(errs.exists(_.contains("unknown window '4h'")), clue = errs)
   }
 
   test("a declaration is checked where it is WRITTEN, reader or not") {
     // So declaring one ahead of its reader is safe — otherwise a broken
     // declaration would sit silent until somebody referenced it.
     val d = dash(
-      box(Map("window" -> VarDecl("4h", Some(windows))), chartNode(Ref.Literal("1h")))
+      box(
+        Map("window" -> VarDecl("4h", Some(windows))),
+        chartNode(Ref.Literal("1h"))
+      )
     )
     val errs = d.validate()
     assertEquals(errs.size, 1, clue = errs)
@@ -166,18 +178,21 @@ class NodeVariablesSuite extends munit.FunSuite {
 
   test("an empty domain is refused, and says what to do instead") {
     val errs =
-      dash(box(Map("w" -> VarDecl("x", Some(Nil))), chartNode(Ref.Literal("1h"))))
+      dash(
+        box(Map("w" -> VarDecl("x", Some(Nil))), chartNode(Ref.Literal("1h")))
+      )
         .validate()
     assert(errs.exists(_.contains("empty domain")), clue = errs)
   }
 
-  test("a variable a provider cannot parse is caught for EVERY value") {
-    // The proof the expansion buys. `4h` is not a window, and no viewer has
-    // selected it yet — the build still refuses, because it checks what the
-    // slot CAN ask rather than what it asks today.
+  test("a DEFAULT the provider cannot parse is a build error") {
+    // The build checks what the dashboard asks before anybody chooses, which is
+    // the default — a real build-time fact. It does not check `4h` in the
+    // domain below, and should not: that value only ever arrives as untrusted
+    // input, and the write is where it is refused.
     val errs = dash(
       box(
-        Map("window" -> VarDecl("24h", Some(List("24h", "4h")))),
+        Map("window" -> VarDecl("4h", Some(List("4h", "24h")))),
         chartNode()
       )
     ).validate()
@@ -226,24 +241,17 @@ class NodeVariablesSuite extends munit.FunSuite {
 
   // ---- what the build ENUMERATES -------------------------------------------
 
-  test("the possible reads cover the domain; this render's read is the default") {
-    // Two different questions, and the split is what lets the prepared request
-    // map stay total once a viewer can choose: `possibleQueriesIn` is what the
-    // build proves parseable, `queriesIn` is what a render actually asks.
+  test("the build asks what the dashboard asks: one read, at the default") {
+    // NOT every value the domain admits. An earlier cut enumerated the domain
+    // so the prepared request map would already hold whatever a viewer later
+    // picked; what keeps that map total is the write boundary refusing a value
+    // that cannot render, which is where an untrusted value belongs.
     val d = dash(box(Map("window" -> window("7d")), chartNode()))
-    assertEquals(windowOf(d.possibleQueriesIn(d.card)).sorted, windows.sorted)
     assertEquals(windowOf(d.queriesIn(d.card)), List("7d"))
-    assertEquals(windowOf(d.allQueries).sorted, windows.sorted)
-  }
+    assertEquals(windowOf(d.allQueries), List("7d"))
 
-  test("the prepared request map holds every value a viewer could pick") {
-    val d = dash(box(Map("window" -> window("7d")), chartNode()))
     val v = d.validated().fold(e => fail(e.mkString("; ")), identity)
-    assertEquals(
-      windowOf(v.dashboard.allQueries).sorted,
-      windows.sorted
-    )
-    assertEquals(v.queries.size, windows.size)
+    assertEquals(v.queries.size, 1)
   }
 
   // ---- the render path -----------------------------------------------------

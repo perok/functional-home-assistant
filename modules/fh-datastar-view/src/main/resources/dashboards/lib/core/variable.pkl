@@ -17,9 +17,13 @@ module core.variable
 /// `domain` is a list of values and not a type. That is an enum spelled as
 /// data, deliberately: a type language on the wire is a much larger decision,
 /// and the authoring end is already typed — `oneOf` takes whatever union the
-/// caller has, and the list is what survives the trip. Null leaves the domain
-/// OPEN (free text), which a query parameter may not do: the build parses every
-/// request a slot can make, and it can only enumerate a closed set.
+/// caller has, and the list is what survives the trip.
+///
+/// Null leaves the domain OPEN (free text), and that is allowed anywhere,
+/// including on a query parameter. A value is untrusted input whatever the
+/// declaration says, so what keeps it safe is the WRITE: a value that would not
+/// render is refused where it enters. Declaring a domain makes that a lookup
+/// and gives a better message — it is not what makes it sound.
 class VarDecl {
   default: String
   domain: Listing<String>? = null
@@ -52,6 +56,7 @@ const function oneOf(values: Listing<String>, start: String): VarDecl =
     domain = values
   }
 
-/// A variable with no declared domain: any string. Fine for anything a card
-/// merely displays; refused on a query parameter.
+/// A variable with no declared domain: any string. Prefer [[oneOf]] where the
+/// values ARE a closed set — a control can then be built from the declaration
+/// instead of listing them twice — but this is a real option, not a fallback.
 const function free(start: String): VarDecl = new VarDecl { default = start }
