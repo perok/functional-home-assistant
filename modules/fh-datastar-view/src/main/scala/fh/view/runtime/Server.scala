@@ -999,7 +999,8 @@ class Server(
           // same bytes a version this client is owed nothing for produces.
           // `rendererOf` is the tuple's option: a None short-circuits the
           // flatMap before any of the refs below are even run.
-          resolvePageQueries(renderer, open)
+          envOf(session, renderer)
+            .flatMap(env => resolvePageQueries(renderer, open, env))
             .flatMap(fragments =>
               Patches.resume(
                 renderer,
@@ -1125,8 +1126,12 @@ class Server(
         if (cursor.exists(_.headHash != renderer.headHash))
           OptionT.pure[IO](List(Server.reloadPatch))
         else
-          OptionT.liftF(resolvePageQueries(renderer, open)).flatMap {
-            fragments =>
+          OptionT
+            .liftF(
+              envOf(session, renderer)
+                .flatMap(env => resolvePageQueries(renderer, open, env))
+            )
+            .flatMap { fragments =>
               val head =
                 if (cursor.exists(_.styleHash != renderer.styleHash))
                   Server.headPatches(renderer, slug)
@@ -1161,19 +1166,21 @@ class Server(
                     log.reaches(c.version) && c.version >= told
                 )
                 .traverse(c =>
-                  resolvePageQueries(renderer, open).flatMap(fragments =>
-                    Patches.resume(
-                      renderer,
-                      live.cache,
-                      log,
-                      holds,
-                      store.entities,
-                      fragments,
-                      resumeFrom(req, c),
-                      open,
-                      uiState
+                  envOf(session, renderer)
+                    .flatMap(env => resolvePageQueries(renderer, open, env))
+                    .flatMap(fragments =>
+                      Patches.resume(
+                        renderer,
+                        live.cache,
+                        log,
+                        holds,
+                        store.entities,
+                        fragments,
+                        resumeFrom(req, c),
+                        open,
+                        uiState
+                      )
                     )
-                  )
                 )
               // Lazy: rendering the whole body is the cost this exists to avoid.
               // TRACED, because a repaint is the largest thing that ever puts
@@ -1242,7 +1249,7 @@ class Server(
               }
 
               OptionT.liftF(result)
-          }
+            }
       }
       .value
       // A failed slug has no document to open, so no claim to bookkeep:
@@ -1311,7 +1318,14 @@ class Server(
               (session.open.set(r.surfaces.selectedSurfaces(uiState)) *>
                 (stateStore.current, live.log.get).tupled)
                 .flatMap { case (store, log) =>
-                  resolvePageQueries(r, r.surfaces.selectedSurfaces(uiState))
+                  envOf(session, r)
+                    .flatMap(env =>
+                      resolvePageQueries(
+                        r,
+                        r.surfaces.selectedSurfaces(uiState),
+                        env
+                      )
+                    )
                     .flatMap { fragments =>
                       val head =
                         if (prev.styleHash != r.styleHash)
@@ -1426,7 +1440,8 @@ class Server(
       // the path more-info takes, and it is the only one wired: a chart lives
       // in a triggered surface, so nothing is fetched for a popup nobody has
       // opened, and a page open is not made to wait on a recorder query.
-      fragments <- resolveQueries(renderer, newSurface)
+      env <- envOf(session, renderer)
+      fragments <- resolveQueries(renderer, newSurface, env)
       // The arriving surface, rendered once — the bytes go to this connection
       // and the per-node trace to THIS SESSION's record. Nothing shared is
       // touched: one client switching a tab says nothing about anyone else's
@@ -1484,9 +1499,14 @@ class Server(
     */
   private def resolveQueries(
       renderer: Renderer,
-      arriving: Option[String]
+      arriving: Option[String],
+      env: VarEnv
   ): IO[Fragments] =
-    answer(renderer, arriving.toList.flatMap(renderer.queriesForSurface))
+    answer(
+      renderer,
+      arriving.toList.flatMap(renderer.queriesForSurface(_, env)),
+      env
+    )
 
   /** What a PAGE or a PULL resolves: the body, every baked surface, and
     * whatever this viewer has open — see [[Renderer.queriesForPage]].
@@ -1497,8 +1517,20 @@ class Server(
     */
   private def resolvePageQueries(
       renderer: Renderer,
-      open: Set[String]
-  ): IO[Fragments] = answer(renderer, renderer.queriesForPage(open))
+      open: Set[String],
+      env: VarEnv
+  ): IO[Fragments] =
+    answer(renderer, renderer.queriesForPage(open, env), env)
+
+  /** This session's node-variable environment for `renderer`.
+    *
+    * Read from the SESSION and not from the request, because the paths that
+    * need it most have no request: a live pull runs on the session's own fiber.
+    * Same reason a pull reconstructs the bake selections from `session.open`
+    * rather than from a `ui.` param.
+    */
+  private def envOf(session: Session, renderer: Renderer): IO[VarEnv] =
+    session.vars.get.map(renderer.varEnv)
 
   /** Resolve a query list, or hand back the empty answer when there is nothing
     * to ask — the common case, and one that must not cost an `IO` round trip.
@@ -1511,7 +1543,8 @@ class Server(
     */
   private def answer(
       renderer: Renderer,
-      wanted: List[SlotRead]
+      wanted: List[SlotRead],
+      env: VarEnv
   ): IO[Fragments] =
     (queries, wanted) match {
       case (Some(resolver), qs) if qs.nonEmpty =>
@@ -1519,10 +1552,14 @@ class Server(
           resolver,
           renderer.queryRequests,
           qs,
+          env,
           QueryIdentity.Instance,
           java.time.Instant.now()
         )
-      case _ => IO.pure(Fragments.empty)
+      // The environment travels even with no answers: a render still resolves
+      // its asks against it, and `Fragments.empty` would silently hand every
+      // node the declared value instead of this viewer's.
+      case _ => IO.pure(Fragments.of(Map.empty, env))
     }
 
   /** Resolve the connection (`conn` rides in the POST body among Datastar
@@ -2039,6 +2076,11 @@ class Server(
       // only known once the last byte is out, which is why `holds` is
       // committed in the stream's finalizer below rather than here.
       ownRef <- IO.ref(Map.empty[NodeId, Painted])
+      // This viewer's node-variable choices, off the URL — the same door the
+      // bake selections came through, and the reason a refresh keeps a chart
+      // on the window it was showing. Recorded on the session because a PULL
+      // has no request to read them off again.
+      _ <- session.vars.set(Server.varChoicesOf(req))
       _ <- session.position.set(store.version)
       // The page renders the cursor into its own signals, so the document
       // IS an announcement — and the first one. Without this a client
@@ -2094,9 +2136,11 @@ class Server(
       // resolved now can still raise into an error response, where one
       // resolved lazily could only truncate a page already on the wire
       // (architecture §0).
+      env <- envOf(session, renderer)
       fragments <- resolvePageQueries(
         renderer,
-        renderer.surfaces.openPopup(uiState).toSet
+        renderer.surfaces.openPopup(uiState).toSet,
+        env
       )
       body = fs2.io
         .readOutputStream[IO](Server.PageChunkBytes) { os =>
@@ -3139,6 +3183,56 @@ object Server {
     */
   val UiParamPrefix: String = "ui."
   val UiSignalPrefix: String = "ui_"
+
+  /** The same two carriers for a NODE VARIABLE's chosen value (issue #209),
+    * addressed `<declarer node id>.<variable name>`.
+    *
+    * A prefix of its own rather than a key shape inside `ui.`, because they are
+    * different FACTS even though they travel the same way: a `ui.` entry is
+    * which branch of a bake group is showing, narrowed by `SurfaceGraph`
+    * against that group's members, and a variable is a value narrowed by
+    * whoever reads it. Sharing the map would make `SurfaceGraph` see entries it
+    * must ignore and give `committedSelections` half a question to answer.
+    */
+  val VarParamPrefix: String = "v."
+  val VarSignalPrefix: String = "v_"
+
+  /** This viewer's chosen variable values, off the URL and off the signals —
+    * the same two doors `uiStateOf` reads, for the same reason: the URL is what
+    * survives a refresh and is unique per document.
+    *
+    * UNTRUSTED, and deliberately not narrowed here. A name nothing declares
+    * simply never matches a scope, so it is inert; a value no reader can use is
+    * the write path's business (phase 3), and this is the read side.
+    */
+  def varChoicesOf(req: Request[IO]): Map[(NodeId, String), String] = {
+    def split(k: String, v: String): Option[((NodeId, String), String)] =
+      k.split('.').toList match {
+        case node :: name :: Nil if node.nonEmpty && name.nonEmpty =>
+          Some((NodeId.derived(node), name) -> v)
+        case _ => None
+      }
+    val fromQuery = req.uri.query.params.toList.collect {
+      case (k, v) if k.startsWith(VarParamPrefix) =>
+        split(k.drop(VarParamPrefix.length), v)
+    }.flatten
+    val fromSignals = signalsOf(req).toList.flatMap { c =>
+      c.keys.toList.flatten
+        .filter(_.startsWith(VarSignalPrefix))
+        .flatMap { k =>
+          c.downField(k)
+            .focus
+            .flatMap(j => j.asString.orElse(j.asNumber.map(_.toString)))
+            // A signal name cannot carry a dot — the bundle reads those as
+            // path separators — so the two segments are joined with `__`,
+            // the separator the node-scoped interaction signals already use.
+            .flatMap(v =>
+              split(k.drop(VarSignalPrefix.length).replace("__", "."), v)
+            )
+        }
+    }
+    (fromQuery ++ fromSignals).toMap
+  }
 
   /** The ingress path prefix the HA supervisor proxy announces via
     * `X-Ingress-Path` (e.g. `/api/hassio_ingress/<token>`), used as the page's

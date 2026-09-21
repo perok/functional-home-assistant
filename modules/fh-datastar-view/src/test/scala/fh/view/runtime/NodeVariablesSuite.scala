@@ -3,6 +3,7 @@ package fh.view.runtime
 import fh.view.model.*
 import fh.view.query.{Fragment, Fragments}
 import io.circe.parser.decode
+import fh.view.testkit.TestIds.given
 
 /** NODE VARIABLES (issue #209): a node declares a named choice, a descendant
   * reads it by name, and the chain decides which declaration wins.
@@ -45,7 +46,21 @@ class NodeVariablesSuite extends munit.FunSuite {
       vars: Map[String, String],
       kids: LayoutNode*
   ): LayoutNode.Component =
-    LayoutNode.Component("box", regions = LayoutNode.kids(kids*), vars = vars)
+    LayoutNode.Component(
+      "box",
+      regions = LayoutNode.kids(kids*),
+      vars = vars
+    )
+
+  /** A declarer with a NAME, so a test about ADDRESSING a choice does not
+    * depend on where the node happens to sit.
+    */
+  private def named(
+      id: String,
+      vars: Map[String, String],
+      kids: LayoutNode*
+  ): LayoutNode.Component =
+    box(vars, kids*).copy(id = Some(id))
 
   private def dash(
       root: LayoutNode,
@@ -221,21 +236,107 @@ class NodeVariablesSuite extends munit.FunSuite {
 
   // ---- the render path -----------------------------------------------------
 
+  private val states =
+    Map("sensor.t" -> EntityState("sensor.t", "21.4", Map.empty))
+
+  private def readAt(window: String) = SlotRead(
+    SlotQuery("history", Map("entity" -> "sensor.t", "window" -> window)),
+    Transform.Stage.Chart(Map("width" -> "600"))
+  )
+
+  /** One viewer's render: the answers they were given, and the values those
+    * answers were fetched FOR.
+    */
+  private def paint(r: Renderer, env: VarEnv, drawn: (String, String)*) =
+    r.renderBodyTraced(
+      states,
+      Map.empty,
+      Fragments.of(
+        drawn.map((w, svg) => readAt(w) -> Fragment(100L, svg)).toMap,
+        env
+      )
+    ).html
+
   test("the renderer resolves a chart's window from the declaring ancestor") {
     val d = dash(box(Map("window" -> "7d"), chartNode()))
-    val read = SlotRead(
-      SlotQuery("history", Map("entity" -> "sensor.t", "window" -> "7d")),
-      Transform.Stage.Chart(Map("width" -> "600"))
-    )
-    val html = Renderer
-      .create(d)
-      .renderBodyTraced(
-        Map("sensor.t" -> EntityState("sensor.t", "21.4", Map.empty)),
-        Map.empty,
-        Fragments.of(Map(read -> Fragment(100L, "<svg id='seven'/>")))
-      )
-      .html
+    val r = Renderer.create(d)
+    val html = paint(r, r.varEnv(Map.empty), "7d" -> "<svg id='seven'/>")
     assert(html.contains("<svg id='seven'/>"), clue = html)
+  }
+
+  // ---- what a VIEWER chose -------------------------------------------------
+
+  test("a viewer's choice overrides the declared value") {
+    val d = dash(named("panel", Map("window" -> "24h"), chartNode()))
+    val r = Renderer.create(d)
+    val chose7d = r.varEnv(Map(("panel": NodeId, "window") -> "7d"))
+    assertEquals(r.queriesForPage(Set.empty, chose7d), List(readAt("7d")))
+    assert(
+      paint(r, chose7d, "7d" -> "<svg id='chosen'/>").contains("chosen")
+    )
+  }
+
+  test("two viewers on two windows are two reads, and neither sees the other") {
+    // The property phase 0 measured on the cache, now reachable end to end:
+    // the same node, the same dashboard, two viewers, two different reads.
+    // Nothing is shared between them but the renderer.
+    val d = dash(named("panel", Map("window" -> "24h"), chartNode()))
+    val r = Renderer.create(d)
+    val a = r.varEnv(Map(("panel": NodeId, "window") -> "1h"))
+    val b = r.varEnv(Map(("panel": NodeId, "window") -> "30d"))
+
+    assertEquals(r.queriesForPage(Set.empty, a), List(readAt("1h")))
+    assertEquals(r.queriesForPage(Set.empty, b), List(readAt("30d")))
+    assert(paint(r, a, "1h" -> "<svg id='hour'/>").contains("hour"))
+    assert(paint(r, b, "30d" -> "<svg id='month'/>").contains("month"))
+
+    // And the render KEY moves with them, which is what stops one viewer's
+    // bytes being served for the other's span. Asked of the CHART, not the
+    // panel: the panel holds regions, so it is structure and has no key at
+    // all.
+    val chartId = LayoutNode.childId(
+      "",
+      LayoutNode.rootId("", d.card),
+      LayoutNode.Step(LayoutNode.DefaultRegion, 0),
+      chartNode()
+    )
+    def keyFor(env: VarEnv, window: String) =
+      r.renderInputs(
+        chartId,
+        states,
+        Fragments.of(Map(readAt(window) -> Fragment(100L, "<svg/>")), env)
+      )
+    assert(keyFor(a, "1h").isDefined)
+    assertNotEquals(keyFor(a, "1h"), keyFor(b, "30d"))
+  }
+
+  test("a choice is addressed to the DECLARER, so a shadow is untouched") {
+    // Two `window`s in one tree from two declarations. Choosing on the outer
+    // one must not move the chart that shadows it — the same fact shadowing
+    // rests on, seen from the write side.
+    val inner = named("inner", Map("window" -> "1h"), chartNode())
+    val d = dash(named("panel", Map("window" -> "24h"), chartNode(), inner))
+    val r = Renderer.create(d)
+    val env = r.varEnv(Map(("panel": NodeId, "window") -> "30d"))
+    assertEquals(
+      r.queriesForPage(Set.empty, env).toSet,
+      Set(readAt("30d"), readAt("1h"))
+    )
+  }
+
+  test("a choice naming a variable nothing declares is inert, not an error") {
+    // Untrusted input: a stale URL naming a node that was renamed or removed.
+    // It matches no scope, so it is simply never read — the same shape
+    // `SurfaceGraph.openPopup` uses for a surface id this dashboard lost.
+    val d = dash(named("panel", Map("window" -> "24h"), chartNode()))
+    val r = Renderer.create(d)
+    val env = r.varEnv(
+      Map(
+        ("gone": NodeId, "window") -> "7d",
+        ("panel": NodeId, "nosuch") -> "7d"
+      )
+    )
+    assertEquals(r.queriesForPage(Set.empty, env), List(readAt("24h")))
   }
 
   test("two windows under two declarations are two reads, not one") {

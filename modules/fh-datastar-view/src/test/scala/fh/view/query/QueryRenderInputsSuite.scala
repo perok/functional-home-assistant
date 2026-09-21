@@ -29,6 +29,7 @@ import fh.view.history.{
   Window
 }
 import fh.view.runtime.{RenderInputs, Renderer}
+import fh.view.testkit.TestIds.given
 import fh.view.FHError
 
 import java.time.Instant
@@ -149,10 +150,10 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
     // because that is the shape the defect took.
     val q = read()
     val f = Fragments.of(Map(q -> Fragment(100L, "<svg/>")))
-    assertEquals(f.forQueries(List(q)), Map(q -> 100L))
-    assertEquals(f.html(q), "<svg/>")
+    assertEquals(f.forQueries("c_0", List(ask())), Map(q -> 100L))
+    assertEquals(f.html("c_0", ask()), "<svg/>")
 
-    val miss = intercept[FHError](Fragments.empty.html(q))
+    val miss = intercept[FHError](Fragments.empty.html("c_0", ask()))
     assertEquals(miss.status, 500)
     assert(miss.getMessage.contains("not resolved for this render"))
   }
@@ -209,14 +210,15 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
         r,
         plan(wide, narrow),
         List(wide, narrow),
+        Map.empty,
         QueryIdentity.Instance,
         Instant.EPOCH
       )
       counts <- (fetches.get, draws.get).tupled
     } yield {
       assertEquals(counts, (1, 2))
-      assertEquals(f.html(wide), "<svg>600</svg>")
-      assertEquals(f.html(narrow), "<svg>320</svg>")
+      assertEquals(f.html("n", ask(width = 600)), "<svg>600</svg>")
+      assertEquals(f.html("n", ask(width = 320)), "<svg>320</svg>")
     }
   }
 
@@ -233,13 +235,18 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
         r,
         plan(raw),
         List(raw),
+        Map.empty,
         QueryIdentity.Instance,
         Instant.EPOCH
       )
       d <- draws.get
     } yield {
       assertEquals(d, 0)
-      assert(f.html(raw).contains("\"points\""), clue = f.html(raw))
+      val rawAsk = SlotAsk(chart(), Transform.Stage.Passthrough)
+      assert(
+        f.html("n", rawAsk).contains("\"points\""),
+        clue = f.html("n", rawAsk)
+      )
     }
   }
 
@@ -257,6 +264,7 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
           r,
           plan(ok, bad),
           List(ok, bad),
+          Map.empty,
           QueryIdentity.Instance,
           Instant.EPOCH
         )
@@ -342,9 +350,9 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
       )
     )
     val r = Renderer.create(d)
-    assertEquals(r.queriesForSurface("popup"), List(read()))
+    assertEquals(r.queriesForSurface("popup", Map.empty), List(read()))
     // A surface nobody declared owes nothing, rather than raising.
-    assertEquals(r.queriesForSurface("nope"), Nil)
+    assertEquals(r.queriesForSurface("nope", Map.empty), Nil)
   }
 
   // --- Validation -----------------------------------------------------------

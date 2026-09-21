@@ -239,31 +239,50 @@ Four things it settled that the design above had not:
   run time, so it has no scope entry. Narrow — a query slot inside a set still works — and held
   by a test so lifting it is deliberate.
 
-**2 — the value comes from the SESSION.** Today `Renderer.varValues` is a per-renderer map of
-declared values, read through `varsFor(id)` and parked on each `NodePlan`. Phase 2 makes the
-session's choices an overlay on it, resolved per render rather than per renderer — which is what
-makes two viewers of one dashboard hold different `SlotRead`s for the first time, and so what
-makes phase 0's measurement reachable end to end.
+**2 — the value comes from the SESSION. DONE.** A viewer's choices now overlay the declared
+values, resolved per render rather than per renderer, so two viewers of one dashboard hold
+different `SlotRead`s — which is what makes phase 0's measurement reachable end to end.
 
-Three things it has to settle, and the last is the one with a trap in it:
+**The environment travels INSIDE `Fragments`**, and that is the decision worth knowing. The
+alternative was a `Choices` type replacing `uiState` on every render signature — about 110 call
+sites, most of them tests. What settled it is that all three reader kinds resolve in the same
+place: a plain-slot reader (kind 1) resolves in `resolveSlotValue`, which already receives
+`Fragments`, so a separate channel would need threading to 110 sites to reach exactly where this
+one already is. It also buys an invariant rather than only convenience — the answers and the
+values they were fetched FOR are one value, so looking up a read resolved against a different
+environment is not representable. It cost one real defect immediately: a test handing answers
+without their environment now fails loudly instead of silently resolving to the wrong window.
 
-- **Where a session's values live and how they reach a render.** `uiState` is already threaded to
-  every render entry point for exactly this shape of fact, and a node variable is the same kind of
-  fact as a bake selection — per session, server-committed, URL-restored. Riding that channel is
-  the first thing to try; keeping it a separate map beside it is the alternative, and the choice
-  is whether they are one fact or two (see "What this does not do", which says they are the same
-  KIND but keeps them apart for blast radius).
-- **The URL mirror restores it on refresh** (ADR 0005), which makes this a complete product with
-  no writer at all: the URL is the only way to move a variable, and that is testable.
-- **`NodePlan.vars` has to stop being on the plan.** The plan is memoised per authored position
-  and reused across sessions, so a per-session value on it would serve one viewer's window to
-  another. It is correct today only because the value is fixed for the renderer's life. Whoever
-  does phase 2 moves it to the per-paint side beside `bakeIndex`, which is already the per-client
-  input travelling that way — and a test with two sessions on two windows is what proves it.
+The rest, as built:
 
-`RenderInputs` gains nothing here: a query reader's `SlotRead` already differs, which is the whole
+- **`NodePlan` holds the node's ID, not its values.** The trap flagged above is closed by
+  construction: a plan is memoised across sessions, so it carries an address and the values come
+  from the per-render snapshot.
+- **A choice is addressed to the DECLARER** (`(NodeId, name)`), not to the reader. That is what
+  makes a shadow safe from the write side — choosing on an outer panel cannot move a chart that
+  declares its own — and `Renderer.InScope` carries the declarer beside the declared value so the
+  overlay knows where to look.
+- **The URL restores it** — `v.<declarer>.<name>` query params, read by `Server.varChoicesOf` at
+  the same point `uiStateOf` reads the bake selections, and recorded on the session because a PULL
+  has no request to read them off again. There is no writer, so the URL is the only way to move
+  one, which is a complete and testable product.
+- **A separate prefix from `ui.`, deliberately.** They travel the same way and are the same KIND
+  of fact, but a `ui.` entry is a bake branch narrowed by `SurfaceGraph` against that group's
+  members, and a variable is a value narrowed by whoever reads it. Sharing the map would make
+  `SurfaceGraph` see entries it must ignore and leave `committedSelections` answering half a
+  question.
+- **An unmatched choice is inert, not an error** — a stale URL naming a node that was renamed
+  matches no scope and is simply never read, the shape `SurfaceGraph.openPopup` already uses.
+
+`RenderInputs` gained nothing: a query reader's `SlotRead` already differs, which is the whole
 point of the ask/read split. The third map is for a plain-slot reader, which phase 2 does not
 build.
+
+Two things found on the way, neither caused by this work. `modules/benchmarks` had not compiled
+since `Fragments` became required — fixed here, because the benches are the measurement tool this
+work leans on. And `Fragments` is now badly named (it carries an environment as well as answers,
+and `Fragment` was already not a node's own HTML); renaming it is worth a commit of its own and is
+deliberately not bundled here.
 
 **3 — the write path, and it is where totality lives.** A `setVar` tap. The server narrows the
 proposed value by resolving each declared reader's ask with it and checking `Queries.parseRead`,

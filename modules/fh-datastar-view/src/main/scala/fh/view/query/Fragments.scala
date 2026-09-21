@@ -3,7 +3,7 @@ package fh.view.query
 import cats.effect.IO
 import cats.syntax.all.*
 import fh.view.FHError
-import fh.view.model.{SlotQuery, SlotRead}
+import fh.view.model.{NodeId, SlotAsk, SlotQuery, SlotRead}
 
 import java.time.Instant
 
@@ -29,19 +29,50 @@ import java.time.Instant
   * path that read a query and was handed no answers compiled clean and shipped
   * a hole. Absence is not modelled here any more precisely because nothing
   * could tell the two readings of it apart.
+  *
+  * '''It also carries the NODE VARIABLES each node read''' (issue #209), and
+  * that is not a convenience. A node declares an ASK — a query whose parameters
+  * may be references — and what it actually asked depends on the values in
+  * scope for THIS viewer. Holding the environment beside the answers makes the
+  * pair inseparable: there is no way to look up a read resolved against one set
+  * of values in a snapshot fetched for another, because the resolution happens
+  * here, from the values this snapshot was built with.
+  *
+  * The values are per RENDER and the plans that name the asks are per RENDERER
+  * — which is the whole reason they live here rather than on a `NodePlan`. A
+  * plan is memoised per authored position and reused across sessions, so a
+  * viewer's chosen window held there would be served to the next viewer.
+  *
+  * (The name is a poor fit now and was already imperfect — `Fragment` here is
+  * not a node's own HTML, see `docs/terminology.md`. Renaming it is worth doing
+  * and is deliberately not bundled with this change.)
   */
 final class Fragments private (
-    private val answers: Map[SlotRead, Fragment]
+    private val answers: Map[SlotRead, Fragment],
+    // What each node's variables hold for the viewer this render is for.
+    // Absent for the overwhelming majority of nodes, which read none.
+    private val vars: Map[NodeId, Map[String, String]]
 ) {
+
+  /** The values in scope at `node`, already folded over the ancestor chain and
+    * over this viewer's choices. Empty is the common answer and the right one.
+    */
+  def varsAt(node: NodeId): Map[String, String] =
+    vars.getOrElse(node, Map.empty)
+
+  /** What `node` actually asked, resolving its references against this render's
+    * values — the one place an ask becomes a read.
+    */
+  def read(node: NodeId, ask: SlotAsk): SlotRead = ask.resolve(varsAt(node))
 
   /** The version entry for each query, for the render key. Total, so a node
     * rendered before its answer arrived is not a case this has to describe —
     * there is no such render.
     */
-  def forQueries(reads: List[SlotRead]): Map[SlotRead, Long] =
-    reads.view.map(r => r -> fragment(r).version).toMap
+  def forQueries(node: NodeId, asks: List[SlotAsk]): Map[SlotRead, Long] =
+    asks.view.map(read(node, _)).map(r => r -> fragment(r).version).toMap
 
-  def html(read: SlotRead): String = fragment(read).html
+  def html(node: NodeId, ask: SlotAsk): String = fragment(read(node, ask)).html
 
   /** What this holds, for tests and for [[Fragments.resolve]]'s own dedupe. */
   def reads: Set[SlotRead] = answers.keySet
@@ -67,14 +98,17 @@ object Fragments {
     * a caller says this because it knows the render reads nothing, never
     * because it has nothing to hand over.
     */
-  val empty: Fragments = new Fragments(Map.empty)
+  val empty: Fragments = new Fragments(Map.empty, Map.empty)
 
   /** Answers already in hand — for tests, and for any caller that resolved by
     * some other route. Still a statement of what this render HAS, which is why
     * it takes the whole map rather than offering an `updated`: a snapshot is
     * assembled once and then read, never grown while a walk is under way.
     */
-  def of(answers: Map[SlotRead, Fragment]): Fragments = new Fragments(answers)
+  def of(
+      answers: Map[SlotRead, Fragment],
+      vars: Map[NodeId, Map[String, String]] = Map.empty
+  ): Fragments = new Fragments(answers, vars)
 
   /** Answer every query a render needs, in parallel, or raise.
     *
@@ -95,6 +129,7 @@ object Fragments {
       resolver: QueryResolver,
       requests: Map[SlotRead, (QueryRequest, StageRequest)],
       reads: List[SlotRead],
+      vars: Map[NodeId, Map[String, String]],
       identity: QueryIdentity,
       asOf: Instant
   ): IO[Fragments] = {
@@ -127,7 +162,7 @@ object Fragments {
         guard(read.query)(resolver.stage(plans(read)._2, answers(read.query)))
           .map(read -> _)
       }
-    } yield new Fragments(staged.toMap)
+    } yield new Fragments(staged.toMap, vars)
   }
 
   private def describe(read: SlotRead): String =

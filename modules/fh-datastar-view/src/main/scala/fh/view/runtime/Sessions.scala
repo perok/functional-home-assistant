@@ -122,6 +122,15 @@ enum Tenure derives CanEqual {
 case class Session(
     slug: String,
     open: Ref[IO, Set[String]],
+    // What this viewer has chosen for each node variable in scope, addressed
+    // by the node that DECLARED it (issue #209). Beside `open` and for the
+    // same reason: a PULL has no request to read it off, so what the document
+    // arrived with has to be remembered or a live tick would re-render a
+    // chart at the declared window instead of this viewer's.
+    //
+    // A `Ref` because phase 3 makes it writable; today only the document that
+    // created the session ever sets it.
+    vars: Ref[IO, Map[(NodeId, String), String]],
     control: Queue[IO, SseFrame],
     holds: Ref[IO, Map[NodeId, Held]],
     haDown: Ref[IO, Option[Boolean]],
@@ -189,6 +198,7 @@ object Session {
   def create(slug: String): IO[Session] =
     for {
       o <- Ref[IO].of(Set.empty[String])
+      v <- Ref[IO].of(Map.empty[(NodeId, String), String])
       q <- Queue.unbounded[IO, SseFrame]
       h <- Ref[IO].of(Map.empty[NodeId, Held])
       // `None`, not `Some(false)`: a session minted by a stream (a bookmarked
@@ -201,7 +211,7 @@ object Session {
       // so a resume against it re-sends rather than under-sends.
       s <- Ref[IO].of(-1L)
       t <- SignallingRef[IO].of(Tenure.Fresh: Tenure)
-    } yield Session(slug, o, q, h, d, p, s, t)
+    } yield Session(slug, o, v, q, h, d, p, s, t)
 }
 
 /** Registry of live connections keyed by their minted `conn` id, so an action

@@ -12,6 +12,7 @@ import fh.view.model.{
   LayoutNode,
   NodeId,
   Reads,
+  SlotAsk,
   SlotRead,
   SlotShape,
   SetId,
@@ -94,6 +95,12 @@ private[runtime] enum SlotForm derives CanEqual {
   * client bytes that no longer match its state, silently and permanently. When
   * in doubt, over-discriminate.
   */
+/** What every node's node variables hold for one render — the environment a
+  * `SlotAsk` is resolved against. Per RENDER, never per renderer: see
+  * [[Renderer.varEnv]].
+  */
+type VarEnv = Map[NodeId, Map[String, String]]
+
 case class RenderInputs(
     entities: Map[String, Long],
     /** The BUCKET each series this node read was fetched in, as epoch seconds
@@ -222,14 +229,21 @@ class Renderer(
       * `Dashboard.validate` refuses a query slot that reads a variable from
       * inside a set rather than letting one resolve against nothing.
       */
-    val varValues: Map[NodeId, Map[String, String]] = {
+    val varScopes: Map[NodeId, Map[String, Renderer.InScope]] = {
       def walk(
           node: LayoutNode,
           id: NodeId,
-          scope: Map[String, String]
-      ): List[(NodeId, Map[String, String])] = node match {
+          scope: Map[String, Renderer.InScope]
+      ): List[(NodeId, Map[String, Renderer.InScope])] = node match {
         case c: LayoutNode.Component =>
-          val here = scope ++ c.vars
+          // The DECLARER travels with the value, because that is what a
+          // viewer's choice is addressed to: two nodes can have a `window` in
+          // scope from different declarations, and a choice made on one must
+          // not move the other. A nested declaration replaces the entry here,
+          // which is what shadowing IS.
+          val here = scope ++ c.vars.map { case (n, v) =>
+            n -> Renderer.InScope(id, v)
+          }
           (id -> here) :: LayoutNode.steps(c.regions).flatMap {
             case (step, ch) =>
               walk(ch, LayoutNode.childId(idPrefix, id, step, ch), here)
@@ -320,18 +334,30 @@ class Renderer(
       idx.indexed.map { case (id, n) => id -> (n, idx.idPrefix) }
     }.toMap
 
-  /** Every node that has a node variable in scope -> its values. Empty for the
-    * overwhelming majority, which is why the indexes drop the empty entries
-    * rather than holding one per node.
+  /** Every node that has a node variable in scope -> the declaration each name
+    * resolved to. Empty for the overwhelming majority, which is why the indexes
+    * drop the empty entries rather than holding one per node.
     */
-  private val varValues: Map[NodeId, Map[String, String]] =
-    (mainIndex :: surfaceIndexes.values.toList).flatMap(_.varValues).toMap
+  private val varScopes: Map[NodeId, Map[String, Renderer.InScope]] =
+    (mainIndex :: surfaceIndexes.values.toList).flatMap(_.varScopes).toMap
 
-  /** What a node's references resolve against. Empty is the common answer and
-    * the correct one: a template with no `Ref.Var` ignores it entirely.
+  /** What every node's references resolve to FOR THIS VIEWER: the declared
+    * value, with this session's choice where it made one.
+    *
+    * Computed once per render and handed to `Fragments`, which is what keeps a
+    * viewer's values and the answers fetched for them inseparable — see its
+    * scaladoc. It is deliberately NOT cached on the renderer or on a
+    * `NodePlan`: both outlive a session, and a chosen value held on either
+    * would be served to the next viewer.
     */
-  private def varsFor(id: NodeId): Map[String, String] =
-    varValues.getOrElse(id, Map.empty)
+  def varEnv(choices: Map[(NodeId, String), String]): VarEnv =
+    if (varScopes.isEmpty) Map.empty
+    else
+      varScopes.view.mapValues { scope =>
+        scope.view.map { case (name, in) =>
+          name -> choices.getOrElse((in.declarer, name), in.declared)
+        }.toMap
+      }.toMap
 
   private val prefixToRoot: Map[String, String] =
     Map(mainIndex.idPrefix -> "") ++
@@ -414,10 +440,10 @@ class Renderer(
     * [[entitiesAsBytesForNode]] makes. `Nil` for anything else is right rather
     * than defensive — a node with no query slot reads no query.
     */
-  private def queriesForNode(id: NodeId): List[SlotRead] =
+  private def queriesForNode(id: NodeId): List[SlotAsk] =
     allIndexed.get(id) match {
       case Some((c: LayoutNode.Component, _)) =>
-        c.queries.map(_.resolve(varsFor(id)))
+        c.queries
       case _ => Nil
     }
 
@@ -729,12 +755,24 @@ class Renderer(
     */
   def queryRequests: Map[SlotRead, (QueryRequest, StageRequest)] = parsedQueries
 
-  def queriesForSurface(surfaceId: String): List[SlotRead] =
-    dashboard.surfaces
-      .get(surfaceId)
-      .toList
-      .flatMap(s => dashboard.queriesIn(s.content))
-      .distinct
+  /** Every read one layout tree makes for THIS viewer.
+    *
+    * Walked over the renderer's own index rather than the model's tree, because
+    * resolving an ask needs the node's id — the address a chosen value is held
+    * under. A candidate SET is a leaf of that index (its members are minted at
+    * run time), so its clauses go through the model's walk, which resolves
+    * against the declared values; `Dashboard.validate` refuses a variable read
+    * from inside a set, so there is nothing there for a choice to have changed.
+    */
+  private def readsIn(idx: Index, env: VarEnv): List[SlotRead] =
+    idx.indexed.toList.flatMap {
+      case (id, c: LayoutNode.Component) =>
+        c.queries.map(_.resolve(env.getOrElse(id, Map.empty)))
+      case (_, s: LayoutNode.SetNode) => dashboard.queriesIn(s)
+    }.distinct
+
+  def queriesForSurface(surfaceId: String, env: VarEnv): List[SlotRead] =
+    surfaceIndexes.get(surfaceId).toList.flatMap(readsIn(_, env)).distinct
 
   /** Every query a PAGE render reads, for resolving before the walk starts.
     *
@@ -751,10 +789,10 @@ class Renderer(
     * the laziness worth keeping now that "bounded by the surface" has stopped
     * being true for the page path.
     */
-  def queriesForPage(open: Set[String]): List[SlotRead] =
-    (dashboard.queriesIn(dashboard.card) ++
-      surfaces.bakedSurfaces.flatMap(queriesForSurface) ++
-      open.toList.flatMap(queriesForSurface)).distinct
+  def queriesForPage(open: Set[String], env: VarEnv): List[SlotRead] =
+    (readsIn(mainIndex, env) ++
+      surfaces.bakedSurfaces.flatMap(queriesForSurface(_, env)) ++
+      open.toList.flatMap(queriesForSurface(_, env))).distinct
 
   /** The resume path's SECOND candidate set. A surface a client has open holds
     * nodes the cursor alone would not name, because nothing may have rendered
@@ -1052,14 +1090,14 @@ class Renderer(
           // inside a set, because a member's id is minted at run time and has
           // no scope entry — so the empty environment is the whole answer here
           // rather than a gap.
-          fragments.forQueries(m.node.queries.map(_.resolve(Map.empty)))
+          fragments.forQueries(id, m.node.queries)
         )
       )
       .orElse(
         Option.when(hasOwnRendering(id))(
           RenderInputs(
             versions(entitiesAsBytesForNode(id), states),
-            fragments.forQueries(queriesForNode(id))
+            fragments.forQueries(id, queriesForNode(id))
           )
         )
       )
@@ -1125,7 +1163,7 @@ class Renderer(
               b += (
                 (
                   slot,
-                  resolveSlot(srcEntity, source, states, fragments, plan.vars)
+                  resolveSlot(srcEntity, source, states, fragments, plan.id)
                 )
               )
           }
@@ -2107,16 +2145,12 @@ class Renderer(
       bindings: Map[String, String],
       signalSlots: List[String],
       signalNameBySlot: Map[String, SignalId],
-      // The node variables in scope at this node, resolved (issue #209). On
-      // the plan because it is fixed per authored position, exactly as the
-      // constants and the binding strings are.
-      //
-      // '''That stops being true the moment a VIEWER can choose one.''' A plan
-      // is memoised per authored position and reused across sessions, so a
-      // per-session value held here would serve one viewer's window to
-      // another. It belongs beside `bakeIndex` then — the per-client input
-      // that already rides the paint rather than the plan, for this reason.
-      vars: Map[String, String],
+      // The node this plan is FOR — the address its node variables are looked
+      // up by (issue #209), never the values themselves. A plan is memoised
+      // per authored position and reused across sessions, so a viewer's chosen
+      // window held here would be served to the next viewer; the id is static
+      // and the values come from the per-render `Fragments`.
+      id: NodeId,
       // The node's `data-signals` attribute with its values cut out. Fixed by
       // the plan, because the NAMES are; see [[Datastar.SignalSeed]].
       signalSeed: Datastar.SignalSeed,
@@ -2297,7 +2331,7 @@ class Renderer(
       signalNameBySlot = named.map { case (slot, _, signal) =>
         slot -> signal
       }.toMap,
-      vars = varsFor(id),
+      id = id,
       signalSeed = Datastar.seedFor(named.map(_._3)),
       subjectDynamic = subjectConst.isEmpty,
       ownRendering = hasOwnRendering(id),
@@ -2350,7 +2384,7 @@ class Renderer(
       else Some(Map.newBuilder[SignalId, SlotValue])
     plan.dynamic.foreach { case (slot, srcEntity, source) =>
       val value =
-        resolveSlotValue(srcEntity, source, states, fragments, plan.vars)
+        resolveSlotValue(srcEntity, source, states, fragments, plan.id)
       paintB += ((slot, value))
       plan.signalNameBySlot
         .get(slot)
@@ -2402,7 +2436,7 @@ class Renderer(
               _ => resolveStateSlot(srcEntity, source, states)
             )
           else
-            resolveSlotValue(srcEntity, source, states, fragments, plan.vars)
+            resolveSlotValue(srcEntity, source, states, fragments, plan.id)
       }
       slot -> value
     }
@@ -2579,10 +2613,10 @@ class Renderer(
       source: SlotSource,
       states: Map[String, EntityState],
       fragments: Fragments,
-      vars: Map[String, String]
+      node: NodeId
   ): String =
     SlotValue.text(
-      resolveSlotValue(srcEntity, source, states, fragments, vars)
+      resolveSlotValue(srcEntity, source, states, fragments, node)
     )
 
   /** [[resolveSlot]] at the sites that resolve only slots a query slot can
@@ -2610,17 +2644,17 @@ class Renderer(
       source: SlotSource,
       states: Map[String, EntityState],
       fragments: Fragments,
-      // The node variables in scope here (issue #209). Read by a query slot
-      // and by nothing else, which is why it is a plain map rather than
-      // something a state slot would have to ignore.
-      vars: Map[String, String]
+      // The node being rendered — the address its node variables are looked
+      // up by (issue #209). An address and not the values, so nothing here can
+      // hold one viewer's choice across a render.
+      node: NodeId
   ): SlotValue = source.shape match {
     // A query slot is not a transform over state and never enters the engine:
     // its value was produced before the walk began, by its provider AND its
     // stage. Total, so there is no "not yet" arm here to get wrong — see
     // `Fragments`, which raises rather than letting a render proceed without
     // every answer it reads.
-    case SlotShape.Query(ask) => fragments.html(ask.resolve(vars))
+    case SlotShape.Query(ask) => fragments.html(node, ask)
     case SlotShape.State(st)  => resolveStateSlotValue(srcEntity, st, states)
   }
 
@@ -2661,6 +2695,16 @@ class Renderer(
 }
 
 object Renderer {
+
+  /** One name in scope at a node: which node DECLARED it, and what that
+    * declaration holds.
+    *
+    * The declarer is carried because it is the address a viewer's choice is
+    * made against. Two subtrees can each have a `window` in scope from
+    * different declarations, and a choice on one must not move the other —
+    * which is the same fact shadowing rests on, seen from the write side.
+    */
+  private[runtime] case class InScope(declarer: NodeId, declared: String)
 
   /** The chrome template's scope: nothing to resolve, two holes to write.
     *

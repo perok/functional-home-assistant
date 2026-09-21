@@ -963,13 +963,23 @@ does not arise for three reasons that have to stay true:
   snapshot already in hand, so which members render is computable before the walk;
 - nothing lets a node's input depend on a value produced DURING the walk.
 
-**A query parameter may now be a REFERENCE**, and this is where it is resolved. A node declares
-node variables (`Component.vars`); a query parameter is a literal or a read of one
+**A query parameter may be a REFERENCE, and it resolves PER VIEWER.** A node declares node
+variables (`Component.vars`); a query parameter is a literal or a read of one
 (`Ref.Literal`/`Ref.Var`); a node holds a static `SlotAsk`, and `queriesForPage` resolves each one
-against the values in scope at that node into the `SlotRead` everything keys on. Today every value
-is the declaration's default, so the answer is fixed for the life of the renderer — but the seam
-is where a viewer's choice will enter, and the resolution is already on the correct side of the
-barrier.
+against the values in scope at that node into the `SlotRead` everything keys on.
+
+**The values ride inside `Fragments`**, beside the answers they were fetched for, and that pairing
+is load-bearing: a read resolved against one viewer's values cannot be looked up in a snapshot
+fetched for another's, because the resolution happens from the snapshot's own values. They are
+NOT on a `NodePlan` — a plan is memoised per authored position and reused across sessions, so a
+chosen window held there would be served to the next viewer; the plan carries the node's id and
+the values come from the render.
+
+A choice is addressed to the node that DECLARED the variable, which is what keeps a shadow
+independent from the write side. It reaches the server as a `v.<declarer>.<name>` query param
+(`Server.varChoicesOf`), is recorded on the session because a pull has no request to read it off
+again, and a choice matching no declaration is inert rather than an error — the same treatment
+`SurfaceGraph.openPopup` gives a surface id this dashboard no longer has.
 
 Two consequences worth stating, because neither is obvious:
 
