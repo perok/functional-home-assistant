@@ -25,11 +25,6 @@ class NodeVariablesSuite extends munit.FunSuite {
     regions = Map("children" -> Region())
   )
 
-  private val windows = List("1h", "24h", "7d", "30d")
-
-  private def window(start: String = "24h") =
-    VarDecl(start, Some(windows))
-
   /** A chart slot whose window comes from wherever `window` is declared. */
   private def chartSlot(param: Ref = Ref.Var("window")) =
     SlotSource(
@@ -47,7 +42,7 @@ class NodeVariablesSuite extends munit.FunSuite {
     LayoutNode.Component("chart", slots = Map("chart" -> chartSlot(param)))
 
   private def box(
-      vars: Map[String, VarDecl],
+      vars: Map[String, String],
       kids: LayoutNode*
   ): LayoutNode.Component =
     LayoutNode.Component("box", regions = LayoutNode.kids(kids*), vars = vars)
@@ -68,7 +63,7 @@ class NodeVariablesSuite extends munit.FunSuite {
   // ---- resolution ----------------------------------------------------------
 
   test("a reference resolves to the nearest declaring ancestor's value") {
-    val d = dash(box(Map("window" -> window("7d")), chartNode()))
+    val d = dash(box(Map("window" -> "7d"), chartNode()))
     assertEquals(d.validate(), Nil)
     assertEquals(windowOf(d.queriesIn(d.card)), List("7d"))
   }
@@ -79,7 +74,7 @@ class NodeVariablesSuite extends munit.FunSuite {
     // the scope is threaded, and a node with no declaration adds nothing.
     val d = dash(
       box(
-        Map("window" -> window("30d")),
+        Map("window" -> "30d"),
         box(Map.empty, box(Map.empty, chartNode()))
       )
     )
@@ -92,9 +87,9 @@ class NodeVariablesSuite extends munit.FunSuite {
     // that makes ancestor-chain resolution load-bearing rather than tidier.
     val d = dash(
       box(
-        Map("window" -> window("24h")),
+        Map("window" -> "24h"),
         chartNode(),
-        box(Map("window" -> window("1h")), chartNode())
+        box(Map("window" -> "1h"), chartNode())
       )
     )
     assertEquals(d.validate(), Nil)
@@ -106,7 +101,7 @@ class NodeVariablesSuite extends munit.FunSuite {
       LayoutNode.Component(
         "chart",
         slots = Map("chart" -> chartSlot()),
-        vars = Map("window" -> window("7d"))
+        vars = Map("window" -> "7d")
       )
     )
     assertEquals(d.validate(), Nil)
@@ -135,68 +130,38 @@ class NodeVariablesSuite extends munit.FunSuite {
     assert(errs.head.startsWith("c_0:"), clue = errs.head)
   }
 
-  test("a query parameter MAY read a variable with an open domain") {
-    // This replaced a rule that refused one. The rule came from trying to
-    // enumerate, at build time, a value that arrives per session — which is a
-    // build-time proof of something the build does not decide, paid for by
-    // making every author list values they may not have. A value is untrusted
-    // input whatever the declaration says; the WRITE is where it is narrowed.
-    val d = dash(box(Map("window" -> VarDecl("24h")), chartNode()))
+  test("a declaration is a NAME and a value, and nothing else is checked") {
+    // An earlier cut carried a `domain` — the values the variable may hold —
+    // with three rules policing the field itself (empty, duplicated, and a
+    // default it did not list). All of it is gone: what a variable may hold is
+    // decided by whoever READS it, and a list on the wire was a second, weaker
+    // copy of that, free to disagree with the control the author rendered.
+    // What survives is the one thing a declaration can be wrong about on its
+    // own.
+    val d = dash(box(Map("window" -> "24h"), chartNode()))
     assertEquals(d.validate(), Nil)
     assertEquals(windowOf(d.queriesIn(d.card)), List("24h"))
   }
 
-  test("a default outside its own domain is refused") {
-    // The common case, not a corner: the default is what every viewer who has
-    // chosen nothing gets, and every first paint.
+  test("a name that is not a plain token is refused where it is WRITTEN") {
+    // Checked at the declaration and not at a reader, so declaring one ahead
+    // of its reader is safe — a broken name would otherwise sit silent until
+    // somebody referenced it. It has to be a token because it is spelled into
+    // signal names and the URL mirror.
     val errs =
-      dash(box(Map("window" -> VarDecl("4h", Some(windows))), chartNode()))
+      dash(box(Map("my window" -> "24h"), chartNode(Ref.Literal("1h"))))
         .validate()
-    // TWO errors, and both are worth having: the declaration names the fix,
-    // and the reader shows what it cost. They arrive together because the
-    // build now parses at the default, so a bad default is also a bad request.
-    assert(
-      errs.exists(e => e.contains("'4h'") && e.contains("does not list")),
-      clue = errs
-    )
-    assert(errs.exists(_.contains("unknown window '4h'")), clue = errs)
-  }
-
-  test("a declaration is checked where it is WRITTEN, reader or not") {
-    // So declaring one ahead of its reader is safe — otherwise a broken
-    // declaration would sit silent until somebody referenced it.
-    val d = dash(
-      box(
-        Map("window" -> VarDecl("4h", Some(windows))),
-        chartNode(Ref.Literal("1h"))
-      )
-    )
-    val errs = d.validate()
     assertEquals(errs.size, 1, clue = errs)
-    assert(errs.head.contains("does not list"), clue = errs.head)
+    assert(errs.head.contains("'my window'"), clue = errs.head)
+    assert(errs.head.contains("plain name"), clue = errs.head)
   }
 
-  test("an empty domain is refused, and says what to do instead") {
-    val errs =
-      dash(
-        box(Map("w" -> VarDecl("x", Some(Nil))), chartNode(Ref.Literal("1h")))
-      )
-        .validate()
-    assert(errs.exists(_.contains("empty domain")), clue = errs)
-  }
-
-  test("a DEFAULT the provider cannot parse is a build error") {
-    // The build checks what the dashboard asks before anybody chooses, which is
-    // the default — a real build-time fact. It does not check `4h` in the
-    // domain below, and should not: that value only ever arrives as untrusted
-    // input, and the write is where it is refused.
-    val errs = dash(
-      box(
-        Map("window" -> VarDecl("4h", Some(List("4h", "24h")))),
-        chartNode()
-      )
-    ).validate()
-    assert(errs.exists(_.contains("4h")), clue = errs)
+  test("a declared value the provider cannot parse is a build error") {
+    // The build checks what the dashboard asks before anybody chooses — a real
+    // build-time fact about this dashboard, and the whole of what the build can
+    // honestly say. Every later value is untrusted input, refused at the write.
+    val errs = dash(box(Map("window" -> "4h"), chartNode())).validate()
+    assert(errs.exists(_.contains("unknown window '4h'")), clue = errs)
   }
 
   test("a variable read from inside a candidate set is refused, for now") {
@@ -205,7 +170,7 @@ class NodeVariablesSuite extends munit.FunSuite {
     // variable. Stated as a test so lifting it is a deliberate act.
     val d = dash(
       box(
-        Map("window" -> window()),
+        Map("window" -> "24h"),
         LayoutNode.SetNode(
           candidates = List("sensor.t"),
           members = Map(
@@ -228,7 +193,7 @@ class NodeVariablesSuite extends munit.FunSuite {
     // declares what it needs, and the build says so rather than resolving
     // against a page the surface may not be under.
     val errs = dash(
-      box(Map("window" -> window()), LayoutNode.Component("plain")),
+      box(Map("window" -> "24h"), LayoutNode.Component("plain")),
       surfaces = Map("popup" -> Surface(chartNode()))
     ).validate()
     assert(
@@ -246,7 +211,7 @@ class NodeVariablesSuite extends munit.FunSuite {
     // so the prepared request map would already hold whatever a viewer later
     // picked; what keeps that map total is the write boundary refusing a value
     // that cannot render, which is where an untrusted value belongs.
-    val d = dash(box(Map("window" -> window("7d")), chartNode()))
+    val d = dash(box(Map("window" -> "7d"), chartNode()))
     assertEquals(windowOf(d.queriesIn(d.card)), List("7d"))
     assertEquals(windowOf(d.allQueries), List("7d"))
 
@@ -257,7 +222,7 @@ class NodeVariablesSuite extends munit.FunSuite {
   // ---- the render path -----------------------------------------------------
 
   test("the renderer resolves a chart's window from the declaring ancestor") {
-    val d = dash(box(Map("window" -> window("7d")), chartNode()))
+    val d = dash(box(Map("window" -> "7d"), chartNode()))
     val read = SlotRead(
       SlotQuery("history", Map("entity" -> "sensor.t", "window" -> "7d")),
       Transform.Stage.Chart(Map("width" -> "600"))
@@ -278,9 +243,9 @@ class NodeVariablesSuite extends munit.FunSuite {
     // chart standing in for another span's.
     val d = dash(
       box(
-        Map("window" -> window("24h")),
+        Map("window" -> "24h"),
         chartNode(),
-        box(Map("window" -> window("1h")), chartNode())
+        box(Map("window" -> "1h"), chartNode())
       )
     )
     assertEquals(d.queriesIn(d.card).size, 2)
@@ -306,6 +271,6 @@ class NodeVariablesSuite extends munit.FunSuite {
         case c: LayoutNode.Component => c.vars
         case other                   => fail(s"expected a component: $other")
       }
-    assertEquals(d, Right(Map.empty[String, VarDecl]), clue = d)
+    assertEquals(d, Right(Map.empty[String, String]), clue = d)
   }
 }

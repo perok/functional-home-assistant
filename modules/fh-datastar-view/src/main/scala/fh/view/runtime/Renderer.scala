@@ -229,7 +229,7 @@ class Renderer(
           scope: Map[String, String]
       ): List[(NodeId, Map[String, String])] = node match {
         case c: LayoutNode.Component =>
-          val here = scope ++ c.vars.view.mapValues(_.default)
+          val here = scope ++ c.vars
           (id -> here) :: LayoutNode.steps(c.regions).flatMap {
             case (step, ch) =>
               walk(ch, LayoutNode.childId(idPrefix, id, step, ch), here)

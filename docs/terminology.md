@@ -50,12 +50,12 @@ Three words go with it, and they are not interchangeable:
 - **Shadow** — a nested declaration of a name an ancestor also declares, winning for its own
   subtree and nothing else. What "one control over three charts, except this one" is made of.
 
-**Domain** — the values a node variable may hold, listed on the declaration. Always OPTIONAL,
-including on a query parameter: a value is untrusted input whatever the declaration says, so what
-keeps one safe is the write refusing a value that could not render, not the build enumerating what
-a viewer might pick. Declaring a domain makes that check a lookup and gives a better message. A
-list of strings rather than a type — an enum spelled as data, deliberately, because a type
-language on the wire is a much larger decision than this needs.
+A declaration is a NAME and the value the variable holds before anybody chooses — that is the
+whole of it. **There is no "allowed values" on the wire**, deliberately: what a variable may hold
+is decided by whoever READS it (a chart's provider refuses a window it cannot parse), and a list
+beside the declaration would be a second, weaker copy of that, free to disagree with the control
+the author actually rendered. Where a closed set of values is the point, it lives in the Pkl that
+emits the declaration and its control from one list.
 
 **Cell** — the wrapper element the renderer puts around every node, carrying the layout classes
 (`fh-cols-3`, `fh-hug`). Layout is the backend's job, not each card's. ADR 0008.

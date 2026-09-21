@@ -10,27 +10,33 @@
 /// from a variable is a per-viewer question the SERVER must answer before it
 /// renders, because the first HTML a browser gets is complete. A value matched
 /// by convention in the browser cannot be.
+///
+/// ## Declaring one
+///
+/// A declaration is a NAME and the value it holds before anybody chooses — so
+/// it is written directly, with no wrapper to learn:
+///
+///     (c.column) {
+///       vars { ["window"] = "24h" }
+///       children { c.historyChart(sensor, varMod.ref("window")) }
+///     }
+///
+/// There is deliberately no "set of allowed values" field beside it. What a
+/// variable may hold is decided by whoever READS it — a chart's provider
+/// refuses a window it cannot parse, and the write boundary refuses a value no
+/// declared reader can use — so a list here would be a second, weaker copy of
+/// that, free to disagree with the control the author actually rendered.
+///
+/// Where a closed set of values IS the point, it is PKL's job and belongs in
+/// one place: a function that emits the declaration and the control it belongs
+/// to from the same list, so they cannot drift.
+///
+///     const function windowControl(name: String, choices: Listing<String>,
+///                                  start: String) = …
 module core.variable
 
-/// One declared variable (fh.view.model.VarDecl).
-///
-/// `domain` is a list of values and not a type. That is an enum spelled as
-/// data, deliberately: a type language on the wire is a much larger decision,
-/// and the authoring end is already typed — `oneOf` takes whatever union the
-/// caller has, and the list is what survives the trip.
-///
-/// Null leaves the domain OPEN (free text), and that is allowed anywhere,
-/// including on a query parameter. A value is untrusted input whatever the
-/// declaration says, so what keeps it safe is the WRITE: a value that would not
-/// render is refused where it enters. Declaring a domain makes that a lookup
-/// and gives a better message — it is not what makes it sound.
-class VarDecl {
-  default: String
-  domain: Listing<String>? = null
-}
-
 /// A reference to a declared variable (fh.view.model.Ref.Var), for the places
-/// that take `String|Ref` — a literal, or a read.
+/// that take `String|Ref` — a value written down, or a read.
 ///
 /// Backticked because `var` is the WIRE key and reads as one word there. Nobody
 /// writes this class directly; [[ref]] is the spelling.
@@ -44,19 +50,3 @@ class Ref {
 /// and using it as a function name is a parse error pointing at the definition
 /// rather than at the call.
 const function ref(name: String): Ref = new Ref { `var` = name }
-
-/// A variable that may hold one of `values`, starting at `start`.
-///
-/// `start` is separate rather than "the first value" so that reordering the
-/// buttons a control shows cannot silently change what a first-time viewer
-/// sees. The backend rejects a start the domain does not list.
-const function oneOf(values: Listing<String>, start: String): VarDecl =
-  new VarDecl {
-    default = start
-    domain = values
-  }
-
-/// A variable with no declared domain: any string. Prefer [[oneOf]] where the
-/// values ARE a closed set — a control can then be built from the declaration
-/// instead of listing them twice — but this is a real option, not a fallback.
-const function free(start: String): VarDecl = new VarDecl { default = start }

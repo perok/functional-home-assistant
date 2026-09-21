@@ -240,36 +240,6 @@ object Ref:
       .map[Ref](Ref.Literal.apply)
       .or(Decoder.instance(_.get[String]("var").map(Ref.Var.apply)))
 
-/** One node variable a node declares: what it holds when nobody has chosen, and
-  * — optionally — the set of values it may hold at all.
-  *
-  * The domain is a `List[String]` and not a type. It is an enum spelled as
-  * data, which is a real limitation and a deliberate one: a type language on
-  * the wire is a much larger decision than this needs, and the authoring end is
-  * already typed (`Window` is a Pkl union; the list is what survives the trip).
-  * What it buys is that a write outside it is refused generically — so a
-  * provider's parser never sees a bad value — and that a control can be built
-  * FROM the declaration rather than listing the values once in the buttons and
-  * again in the chart.
-  *
-  * `None` is an open domain, not an empty one: a free-text variable, and it is
-  * allowed ANYWHERE, a query parameter included. What keeps an open one safe is
-  * the WRITE boundary, which resolves each declared reader's ask with the
-  * proposed value and refuses one that would not parse. A domain makes that
-  * check a lookup and gives a better message; it is not what makes it sound.
-  */
-case class VarDecl(default: String, domain: Option[List[String]] = None)
-    derives CanEqual,
-      ConfiguredDecoder:
-
-  /** Untrusted in, a value this variable may actually hold out — the same
-    * narrowing `SurfaceGraph.resolveActive` does for a tab index it does not
-    * recognise, and for the same reason: a stale URL is a normal thing to
-    * arrive with, not an error to serve.
-    */
-  def narrow(raw: String): String =
-    if (domain.forall(_.contains(raw))) raw else default
-
 /** A query as AUTHORED: a provider by name, and parameters that may not be
   * decided yet.
   *
@@ -756,13 +726,23 @@ object LayoutNode:
       // one rather than have layout decide it. `Dashboard.validate` checks it —
       // see `authoredIdErrors`, which owns the reason it needs checking at all.
       id: Option[String] = None,
-      // NODE VARIABLES this node declares (issue #209), by name. A descendant
-      // reads one through a `Ref.Var`, resolved by NAME up the ancestor chain,
-      // so an intermediate node that declares nothing is transparent and a
-      // nested declaration of the same name shadows. A reference with no
-      // declarer is a build error naming both — where an unresolved
-      // `@@NODE_ID@@` used to render literally into the DOM.
-      vars: Map[String, VarDecl] = Map.empty
+      // NODE VARIABLES this node declares (issue #209): name -> the value it
+      // holds before anybody chooses one. A descendant reads one through a
+      // `Ref.Var`, resolved by NAME up the ancestor chain, so an intermediate
+      // node that declares nothing is transparent and a nested declaration of
+      // the same name shadows. A reference with no declarer is a build error
+      // naming both — where an unresolved `@@NODE_ID@@` used to render
+      // literally into the DOM.
+      //
+      // A VALUE and not a record, and that is the whole declaration. An
+      // earlier cut carried a `domain` beside it — the values the variable may
+      // hold — which bought nothing the write boundary does not already do
+      // (it refuses a value no declared reader can parse) and introduced a
+      // second place for "what is legal" to live, free to disagree with the
+      // control the author actually rendered. Where a set of values IS the
+      // point, it belongs in the Pkl that emits both the declaration and the
+      // control, not in a `List[String]` on the wire pretending to be a type.
+      vars: Map[String, String] = Map.empty
   ) extends LayoutNode:
 
     /** Every child, in one list — what a traversal that only needs to REACH
@@ -1345,7 +1325,7 @@ case class Dashboard(
         nodeId: String,
         cardName: String,
         slots: Map[String, SlotSource],
-        scope: Map[String, VarDecl],
+        scope: Map[String, String],
         inSet: Boolean
     ): List[String] =
       slots.toList.sortBy(_._1).flatMap { case (name, src) =>
@@ -1443,7 +1423,7 @@ case class Dashboard(
         cardName: String,
         name: String,
         src: SlotSource,
-        scope: Map[String, VarDecl],
+        scope: Map[String, String],
         inSet: Boolean
     ): List[String] =
       src.query.toList.flatMap { template =>
@@ -1474,35 +1454,30 @@ case class Dashboard(
               "set, which is not supported yet — a member's scope is not " +
               "resolved. Write the value down, or move the query out of the set"
           )
-        val refErrors = template.references.distinct.sorted.flatMap { v =>
-          scope.get(v) match {
-            case None =>
-              List(
-                s"$nodeId: slot '$name' reads the variable '$v', which no " +
-                  "ancestor declares — declare it on the node that owns the " +
-                  "choice, or write the value down"
-              )
-            case Some(_) => Nil
-          }
-        }
-        // Parsed at the DEFAULTS, which is what the build can know. A value a
+        val refErrors = template.references.distinct.sorted
+          .filterNot(scope.contains)
+          .map(v =>
+            s"$nodeId: slot '$name' reads the variable '$v', which no " +
+              "ancestor declares — declare it on the node that owns the " +
+              "choice, or write the value down"
+          )
+        // Parsed at the DECLARED values, which is what the build can know. A value a
         // viewer picks later is untrusted input and is not a thing the build
-        // gets to enumerate — it is narrowed where it ENTERS, against the
-        // domain if one is declared and against the provider's own parse
-        // otherwise, so a value that could not render is refused at the write
-        // rather than discovered at the render. Same discipline as
-        // `SurfaceGraph.resolveActive` for an untrusted tab index.
+        // gets to enumerate — it is narrowed where it ENTERS, by resolving
+        // each declared reader's ask with it and refusing one that cannot
+        // parse. So a value that could not render is refused at the write
+        // rather than discovered at the render, which is the discipline
+        // `SurfaceGraph.resolveActive` already uses for an untrusted tab
+        // index.
         val parseError =
           if (refErrors.nonEmpty) Nil
-          else {
-            val env = scope.view.mapValues(_.default).toMap
+          else
             Queries
-              .parse(template.resolve(env))
+              .parse(template.resolve(scope))
               .left
               .toOption
               .map(e => s"$nodeId: slot '$name' $e")
               .toList
-          }
         // The stage is the other half of the same question, and it is parsed
         // here for the same reason the query is: both are pure, so a bad chart
         // size is a build error naming the dashboard rather than something a
@@ -1557,34 +1532,19 @@ case class Dashboard(
       * where it is read — so a variable nothing references yet is still wrong
       * loudly, which is what makes it safe to declare one ahead of its reader.
       */
-    def varErrors(nodeId: String, vars: Map[String, VarDecl]): List[String] =
-      vars.toList.sortBy(_._1).flatMap { case (name, d) =>
-        val badName = Option.when(!name.matches("[A-Za-z][A-Za-z0-9_]*"))(
-          s"$nodeId: variable '$name' is not a plain name " +
-            "([A-Za-z][A-Za-z0-9_]*) — it is spelled into signal names and " +
-            "the URL mirror"
-        )
-        val emptyDomain = Option.when(d.domain.exists(_.isEmpty))(
-          s"$nodeId: variable '$name' declares an empty domain, so it can " +
-            "hold no value at all — drop the domain to leave it open"
-        )
-        val dupes = d.domain.toList.flatMap { values =>
-          Option.when(values.distinct.sizeIs != values.size)(
-            s"$nodeId: variable '$name' lists a value twice in its domain " +
-              s"(${values.mkString(", ")})"
+    def varErrors(nodeId: String, vars: Map[String, String]): List[String] =
+      vars.keys.toList.sorted.flatMap { name =>
+        // The only thing there is to check about a declaration itself. Whether
+        // its VALUE is any good is a question for whoever reads it — a query
+        // slot's provider says so at build time for the initial value, and the
+        // write boundary says so for every later one.
+        Option
+          .when(!name.matches("[A-Za-z][A-Za-z0-9_]*"))(
+            s"$nodeId: variable '$name' is not a plain name " +
+              "([A-Za-z][A-Za-z0-9_]*) — it is spelled into signal names and " +
+              "the URL mirror"
           )
-        }
-        // The default is what a viewer who has chosen nothing gets, which is
-        // most of them and every first paint — so a default outside the domain
-        // is not a corner, it is the common case rendering a value the
-        // variable claims it cannot hold.
-        val badDefault = Option.when(
-          d.domain.exists(vs => vs.nonEmpty && !vs.contains(d.default))
-        )(
-          s"$nodeId: variable '$name' defaults to '${d.default}', which its " +
-            s"own domain does not list (${d.domain.toList.flatten.mkString(", ")})"
-        )
-        badName.toList ++ emptyDomain.toList ++ dupes ++ badDefault.toList
+          .toList
       }
 
     /** `<slot>__read` is a card composing a slot's value into a handler
@@ -1678,7 +1638,7 @@ case class Dashboard(
     def childErrors(
         kids: Map[String, List[LayoutNode]],
         id: NodeId,
-        scope: Map[String, VarDecl],
+        scope: Map[String, String],
         inSet: Boolean
     ): List[String] =
       LayoutNode.steps(kids).flatMap { case (step, n) =>
@@ -1708,7 +1668,7 @@ case class Dashboard(
     def walk(
         node: LayoutNode,
         nodeId: NodeId,
-        scope: Map[String, VarDecl],
+        scope: Map[String, String],
         inSet: Boolean
     ): List[String] =
       node match
@@ -2207,7 +2167,7 @@ case class Dashboard(
     scopedSlots(n, Map.empty).flatMap { case (s, scope) =>
       s.shape match
         case SlotShape.Query(ask) =>
-          List(ask.resolve(scope.view.mapValues(_.default).toMap))
+          List(ask.resolve(scope))
         case SlotShape.State(_) => Nil
     }.distinct
 
@@ -2233,8 +2193,8 @@ case class Dashboard(
     */
   private def scopedSlots(
       n: LayoutNode,
-      scope: Map[String, VarDecl]
-  ): List[(SlotSource, Map[String, VarDecl])] = n match
+      scope: Map[String, String]
+  ): List[(SlotSource, Map[String, String])] = n match
     case c: LayoutNode.Component =>
       val here = scope ++ c.vars
       c.slots.values.toList.map(_ -> here) ++

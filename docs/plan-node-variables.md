@@ -34,12 +34,13 @@ and the plan should not build machinery for a hazard that does not arise.
 ### Declaration
 
 ```scala
-case class VarDecl(default: String, domain: Option[List[String]] = None)
-// LayoutNode.Component.vars: Map[String, VarDecl]
+// LayoutNode.Component.vars: Map[String, String]  — name -> the value it holds
+//                                                    before anybody chooses
 ```
 
-In Pkl, typed at the authoring end and stringly on the wire — the same division ADR 0031 settled
-for query params: `vars { ["window"] = varMod.oneOf(Window.all, default = "24h") }`.
+In Pkl, written directly, with no wrapper to learn: `vars { ["window"] = "24h" }`. A declaration
+is a name and a value and nothing else — see decision 2 for why there is no set of allowed values
+beside it.
 
 ### Reference
 
@@ -134,15 +135,17 @@ they pay for is a mustache splice, not a fetch or a drawing. No bucketing.
    it. If the flat spelling is ever wanted it is Pkl sugar that writes a root declaration, not a
    second resolution rule. Scoped is strictly the more general of the two, so there is nothing to
    opt into later and nothing given up by starting here.
-2. **A declaration carries an optional DOMAIN** — the set of values the variable may hold, as a
-   `List[String]`: `["1h","24h","7d","30d"]`. It buys three things: a write outside it is refused
-   at the HTTP boundary so `HistoryQuery.parse` never sees a bad value; a stale URL falls back to
-   the default instead of erroring, which is the narrowing `SurfaceGraph.resolveActive` already
-   does for a tab index it does not recognise; and the control can be GENERATED from the
-   declaration rather than listing the windows once in the buttons and again in the chart.
-   `domain = null` for free text, and that is allowed EVERYWHERE, a query parameter included: a
-   value is untrusted input whatever the declaration says, so the write is what narrows it. A list
-   of strings and not a type — see "Future work".
+2. **A declaration is a NAME and a value** — `vars { ["window"] = "24h" }` — and carries no set of
+   allowed values. This went the other way twice before landing here, so the reasoning is worth
+   keeping. A `domain: List[String]` bought two things: a generic refusal at the write, and a
+   control that could be built from the declaration. The first is redundant — the write already
+   refuses a value no declared reader can parse, and the reader is the authority a domain could
+   only copy. The second is real and belongs in **Pkl**, where one function emits the declaration
+   and the buttons from one list so they cannot drift; on the wire it is a second place for "what
+   is legal" to live, and five buttons against a four-value domain is one silently dead button
+   that the field itself introduced. It was also a half type system — a `List[String]` that
+   cannot say "a number in this range" or "an entity id" — which is the shape to avoid rather
+   than to extend. See "Future work" for what a real one would have to be.
 3. **The bake selection does not become a variable** — see "What this does not do".
 
 ## Future work — these belong in the ADR phase 5 writes, not in this stack
@@ -150,13 +153,31 @@ they pay for is a mustache splice, not a fetch or a drawing. No bucketing.
 Three things that are deliberately out of scope here and should be recorded where a later reader
 finds them, rather than rediscovered.
 
-- **A domain wants to be a TYPE, not a list of strings.** `["1h","24h","7d","30d"]` is an enum
-  spelled as data, and the same is true of any variable worth declaring — a number with a range, a
-  boolean, an entity id. The authoring end already has this: `Window` is a real Pkl union, and the
-  list is what survives the trip to the wire. What a typed domain would buy is validation that
-  says *what kind of thing is wrong* rather than "not one of these four", and a control generated
-  from the type rather than from a list. What it costs is a type language on the wire, which is a
-  much larger decision than this work needs. Ship the list; investigate the types.
+- **A variable declared with NO value — "nothing selected yet".** A real UI state (an unapplied
+  filter, a comparison entity not yet picked), and deliberately not built, because no reader can
+  use it today: `history` takes `entity` and `window` and both are required, so an absent one is
+  a build error and nothing else. The thing that WOULD make it worth building is a provider with
+  an optional parameter, where absence means "your default, not one I restated".
+
+  Two findings to save whoever picks it up. **Null cannot spell it**: the JSON renderer's
+  `omitNullProperties` drops a null Mapping ENTRY, so `["compare"] = null` declares nothing at all
+  and every reference to it becomes "no ancestor declares" (measured; ADR 0006 carries it). The
+  spelling that works is the bare-string-or-object rule `SlotSource` and `Ref` already use —
+  `"24h"` for a value, `{}` for unset. And `""` is not the same question: `core/stage.pkl` already
+  distinguishes absent from empty for exactly this reason, so do not fold them.
+
+- **If a variable ever needs a TYPE, it needs a real one — and it must be named as such.** The
+  temptation is a `domain: List[String]` beside the declaration, which was built and then removed
+  here: it is an enum spelled as data, and it cannot say the other things a variable might be — a
+  number in a range, a boolean, an entity id, a duration. A half type system is worse than none,
+  because it looks extensible and is not, and because it duplicates what the reader already
+  decides.
+
+  So the bar for revisiting: a named concept (a `ValueType`, not a "domain") that covers more than
+  string enums, with one answer for where it is checked and one for how a control is derived from
+  it. Until then the closed set lives in the **Pkl** that emits both the declaration and its
+  control — which is composition doing the job a wire field was doing badly, and which needs
+  nothing from the model.
 - **A global namespace, if the root declaration ever reads badly.** It is Pkl sugar over a
   declaration on the root node, never a second resolution rule — recorded so nobody builds one.
 - **Whether the bake selection becomes a variable.** It is the same KIND of fact: `ui_<gid>` lives
@@ -208,10 +229,10 @@ Four things it settled that the design above had not:
   whatever a viewer later picked, and made a domain REQUIRED on anything a query parameter reads
   to keep that possible. That is a build-time proof of something the build does not decide: a
   value is untrusted input arriving per session, and forcing every author to list values they may
-  not have was the price of pretending otherwise. The build now parses the DEFAULTS, which is a
-  real build-time fact, and phase 3's write boundary resolves each declared reader's ask with a
-  proposed value and refuses one that would not parse. A domain stays optional everywhere and
-  makes that check a lookup rather than what makes it sound.
+  not have was the price of pretending otherwise. The build now parses the DECLARED values, which
+  is a real build-time fact, and phase 3's write boundary resolves each declared reader's ask with
+  a proposed value and refuses one that would not parse. Pulling that thread is what removed the
+  domain field entirely — see decision 2.
 - **A surface is its own scope root**, because a baked one can be swapped into a host and
   inheriting from wherever it is shown would let one content resolve differently per host.
 - **A variable read from inside a candidate set is refused, for now.** A member's id is minted at

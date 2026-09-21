@@ -973,13 +973,13 @@ barrier.
 
 Two consequences worth stating, because neither is obvious:
 
-- **The build parses what the DASHBOARD asks — the defaults — and nothing else.** A viewer's
-  value is untrusted input arriving per session, so what keeps `Validated.queries` total is the
-  WRITE, not the build: the boundary that accepts a value resolves each declared reader's ask with
-  it and refuses one that would not parse, so no session ever holds a value that cannot render.
-  That is `SurfaceGraph.resolveActive`'s discipline for an untrusted tab index, one input over.
-  A declared domain makes the check a lookup; it is not what makes it sound, which is why a
-  domain is optional everywhere.
+- **The build parses what the DASHBOARD asks — the declared values — and nothing else.** A
+  viewer's value is untrusted input arriving per session, so what keeps `Validated.queries` total
+  is the WRITE, not the build: the boundary that accepts a value resolves each declared reader's
+  ask with it and refuses one that would not parse, so no session ever holds a value that cannot
+  render. That is `SurfaceGraph.resolveActive`'s discipline for an untrusted tab index, one input
+  over. A declaration carries no list of allowed values for this reason — the reader already
+  decides, and a second copy could only disagree with it.
 - **No topological ordering is needed, and none is built.** A variable's value never comes from
   the walk — it is ambient, declared above and resolved before. The barrier holds because the
   value is already in hand, not because anything was sequenced.
