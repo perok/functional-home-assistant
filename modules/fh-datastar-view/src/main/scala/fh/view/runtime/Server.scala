@@ -3184,8 +3184,8 @@ object Server {
   val UiParamPrefix: String = "ui."
   val UiSignalPrefix: String = "ui_"
 
-  /** The same two carriers for a NODE VARIABLE's chosen value (issue #209),
-    * addressed `<declarer node id>.<variable name>`.
+  /** The URL carrier for a NODE VARIABLE's chosen value (issue #209), addressed
+    * `<declarer node id>.<variable name>`.
     *
     * A prefix of its own rather than a key shape inside `ui.`, because they are
     * different FACTS even though they travel the same way: a `ui.` entry is
@@ -3193,46 +3193,32 @@ object Server {
     * against that group's members, and a variable is a value narrowed by
     * whoever reads it. Sharing the map would make `SurfaceGraph` see entries it
     * must ignore and give `committedSelections` half a question to answer.
+    *
+    * The URL and NOT the signals, unlike `uiStateOf`, because nothing writes a
+    * variable yet: a signal reader here would be a branch no client can reach.
+    * The write path is what earns one, and it is what will decide the name.
     */
   val VarParamPrefix: String = "v."
-  val VarSignalPrefix: String = "v_"
 
-  /** This viewer's chosen variable values, off the URL and off the signals —
-    * the same two doors `uiStateOf` reads, for the same reason: the URL is what
+  /** This viewer's chosen variable values, off the page URL — the carrier that
     * survives a refresh and is unique per document.
     *
     * UNTRUSTED, and deliberately not narrowed here. A name nothing declares
     * simply never matches a scope, so it is inert; a value no reader can use is
-    * the write path's business (phase 3), and this is the read side.
+    * the write path's business, and this is the read side.
     */
-  def varChoicesOf(req: Request[IO]): Map[(NodeId, String), String] = {
-    def split(k: String, v: String): Option[((NodeId, String), String)] =
-      k.split('.').toList match {
-        case node :: name :: Nil if node.nonEmpty && name.nonEmpty =>
-          Some((NodeId.derived(node), name) -> v)
-        case _ => None
+  def varChoicesOf(req: Request[IO]): Map[(NodeId, String), String] =
+    req.uri.query.params.toList
+      .collect {
+        case (k, v) if k.startsWith(VarParamPrefix) =>
+          k.drop(VarParamPrefix.length).split('.').toList match {
+            case node :: name :: Nil if node.nonEmpty && name.nonEmpty =>
+              Some((NodeId.derived(node), name) -> v)
+            case _ => None
+          }
       }
-    val fromQuery = req.uri.query.params.toList.collect {
-      case (k, v) if k.startsWith(VarParamPrefix) =>
-        split(k.drop(VarParamPrefix.length), v)
-    }.flatten
-    val fromSignals = signalsOf(req).toList.flatMap { c =>
-      c.keys.toList.flatten
-        .filter(_.startsWith(VarSignalPrefix))
-        .flatMap { k =>
-          c.downField(k)
-            .focus
-            .flatMap(j => j.asString.orElse(j.asNumber.map(_.toString)))
-            // A signal name cannot carry a dot — the bundle reads those as
-            // path separators — so the two segments are joined with `__`,
-            // the separator the node-scoped interaction signals already use.
-            .flatMap(v =>
-              split(k.drop(VarSignalPrefix.length).replace("__", "."), v)
-            )
-        }
-    }
-    (fromQuery ++ fromSignals).toMap
-  }
+      .flatten
+      .toMap
 
   /** The ingress path prefix the HA supervisor proxy announces via
     * `X-Ingress-Path` (e.g. `/api/hassio_ingress/<token>`), used as the page's
