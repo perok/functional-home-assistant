@@ -471,7 +471,7 @@ lazy val `fh-datastar-view` = project
       // shapes, because a missed input fails silently and permanently.
       "qa.hedgehog" %% "hedgehog-core" % "0.14.0" % Test,
       "qa.hedgehog" %% "hedgehog-runner" % "0.14.0" % Test,
-      "qa.hedgehog" %% "hedgehog-munit" % "0.14.0" % Test,
+      "qa.hedgehog" %% "hedgehog-munit" % "0.15.0" % Test,
       // TestControl.executeEmbed: simulated time for ServerHarness suites
       // (issue #109 item 3) so IO.sleep-based polling in test bodies costs
       // nothing in wall clock instead of needing to be sped up.
