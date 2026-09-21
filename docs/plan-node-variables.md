@@ -284,15 +284,26 @@ measurement tool this work leans on. And `Fragments` was renamed to `QuerySnapsh
 whose `html` became `value`, since passthrough yields JSON) — the old names collided with the
 FRAGMENT this pipeline already means, a node’s own HTML.
 
-**3 — the write path, and it is where totality lives.** A `setVar` tap. The server narrows the
-proposed value by resolving each declared reader's ask with it and checking `Queries.parseRead`,
-then commits and patches exactly those readers. The declared edge is what makes that set exact
-rather than a guess, which is the first thing it is load-bearing for. A refused write keeps the
-old value and says so (`actionRefused`); pending/committed per ADR 0025 keeps the press instant.
-The URL mirror is the other door an untrusted value comes through and takes the same narrowing.
+**3 — the write path. DONE, and pulled forward as a vertical slice.** Two phases had produced
+nothing observable and the shape was validated only by its own tests, so phase 4's first real user
+was brought up alongside the write rather than after it. `POST /sse/var/:slug/:node/:name/:value`
+sets a variable for one viewer and re-renders exactly the nodes that read it (`Renderer.readersOf`,
+the declared edge inverted). A refused value raises and `withSession` turns it into ADR 0024's
+200-of-signals.
 
-**4 — the window control.** The first real user: window buttons in the more-info popup, the chart
-beneath them reading `window`, the active button highlighted through a signal slot.
+**The slice immediately found a defect no unit test could.** `Validated.queries` holds what the
+BUILD parsed — every read at the DECLARED values — so a viewer choosing `7d` asks something that
+map has never seen, and `QuerySnapshot.resolve` raised "no parsed request" on the very first write.
+That map is a memo, not a totality proof, and it stopped being one the moment a value could be
+chosen at render time. It now falls back to parsing, and only a read that fails BOTH is a wiring
+bug. What keeps it sound is the write boundary refusing anything a declared reader cannot parse —
+which is the argument for moving totality there, cashed rather than asserted.
+
+**4 — the control itself. NOT DONE, and it is what remains.** The server side is complete and
+tested end to end (`VarTapSuite`); what is missing is the Pkl: a window control that POSTs the
+route, the `historyChart` card reading `varMod.ref("window")`, and the active button highlighted
+through a signal slot. ADR 0025's pending/committed belongs with it rather than before it — there
+is nothing to make optimistic until something presses.
 
 **5 — docs.** An ADR, which this needs: why resolution is up the ancestor chain, why a reference
 is not a CEL expression, why a declaration carries no set of allowed values, and why totality
