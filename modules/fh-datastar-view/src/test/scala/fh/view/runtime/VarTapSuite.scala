@@ -40,8 +40,8 @@ class VarTapSuite extends ServerHarness {
   override protected def simulateTime: Boolean = false
 
   /** A passthrough chart, so the test can read the WINDOW back out of the
-    * rendered value: the fake provider puts the window's span in the one
-    * point it answers with, and passthrough puts that JSON in the hole.
+    * rendered value: the fake provider puts the window's span in the one point
+    * it answers with, and passthrough puts that JSON in the hole.
     *
     * A drawn chart could not do this — `ChartStage` is handed a `Series` and a
     * style, never the window — which is itself the split working: the drawing
