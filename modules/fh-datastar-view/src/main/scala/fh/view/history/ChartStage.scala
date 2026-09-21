@@ -27,8 +27,8 @@ type ChartDraw = (Series, ChartStyle) => IO[String]
   * shelf life — it stops being current when its bucket rolls, which is a fact
   * about recorder data and the thing that decides when a version moves. A
   * DRAWING has none: it is a deterministic function of an answer, so an entry
-  * for a superseded version is dead the moment the version moves, and
-  * replacing in place is the whole of eviction.
+  * for a superseded version is dead the moment the version moves, and replacing
+  * in place is the whole of eviction.
   */
 final class ChartStage private (
     renderer: IO[ChartDraw],

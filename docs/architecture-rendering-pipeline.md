@@ -952,6 +952,25 @@ history every second.
 `passthrough` must NOT have one, because its value is an attribute payload and wants escaping.
 `Dashboard.validate` rejects either mistake.
 
+**WHY resolving first is legal, which nothing else states.** A pre-walk barrier — gather what the
+render implies, fire it, await, then walk — is the wrong shape when dependencies are DYNAMIC: a
+request knowable only after an earlier node resolves means the barrier stalls what could have
+proceeded, and then has to gather again. It works here because that case does not arise, and it
+does not arise for three reasons that have to stay true:
+
+- the tree is walked for its queries before the render (`queriesForPage`, `queriesForSurface`);
+- a candidate set carries a STATIC candidate list, and its conditions evaluate against the state
+  snapshot already in hand, so which members render is computable before the walk;
+- nothing lets a node's input depend on a value produced DURING the walk.
+
+That third one is the fragile one, and it is what issue #209 (node variables) protects: a declared
+reference can be topologically ordered before the walk, where a reference matched by string
+convention at evaluation time in the browser cannot. **Anything that lets one node read another's
+computed value must declare the edge**, or this barrier stops being correct — and it would stop
+silently, since the render would simply be missing an input nobody knew to resolve. It is also what
+lets `Fragments` be total at all: with the set unknown up front, no value could carry the proof
+that every input this render reads has an answer.
+
 **EVERY render path resolves what it reads**, and `Fragments` is total over it: a path that reads a
 query cannot be handed nothing, because there is no default argument left to hand it. What a render
 owes is read off the STATIC tree — `Renderer.queriesForPage` for a page and a pull,

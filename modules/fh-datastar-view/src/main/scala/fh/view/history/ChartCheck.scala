@@ -18,8 +18,10 @@ import java.time.Instant
   * it inside the built image for the same reason it runs `JsIsolateCheck`
   * there.
   *
-  * It also prints the timings a Pi run needs (plan-history-view §6), which are
-  * otherwise only measurable from a scratch harness that no longer exists.
+  * It also prints the timings a Pi run needs — ADR 0032's table is x86_64, and
+  * its open question is what those numbers look like on the target hardware.
+  * Otherwise they are only measurable from a scratch harness that no longer
+  * exists.
   */
 object ChartCheck extends IOApp.Simple {
 

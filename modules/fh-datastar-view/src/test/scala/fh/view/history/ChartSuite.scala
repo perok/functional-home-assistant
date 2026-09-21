@@ -13,10 +13,10 @@ import scala.concurrent.duration.*
   * The JavaScript runs on whatever engine this machine ships — the polyglot
   * ISOLATE where GraalVM publishes one (linux/amd64, linux/arm64), which is
   * also what the add-on runs, and interpreted where it does not (macOS). The
-  * SVG is byte-identical between the two (measured,
-  * `docs/plan-history-view.md`), so either proves the other; what running the
-  * isolate adds is that the engine serving users is the one under test, instead
-  * of a stand-in exercised nowhere but the `image` CI job.
+  * SVG is byte-identical between the two (measured, ADR 0032), so either proves
+  * the other; what running the isolate adds is that the engine serving users is
+  * the one under test, instead of a stand-in exercised nowhere but the `image`
+  * CI job.
   */
 class ChartSuite extends munit.FunSuite {
 
