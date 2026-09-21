@@ -239,27 +239,52 @@ Four things it settled that the design above had not:
   run time, so it has no scope entry. Narrow — a query slot inside a set still works — and held
   by a test so lifting it is deliberate.
 
-**2 — the value reaches a render.** Session `vars`, narrowing, defaults; template resolution in
-`queriesForPage`/`queriesForSurface`; `RenderInputs` gains the third map if phase 0 says so. The
-URL mirror restores it on refresh (ADR 0005). Still no writer — the URL is the only way to move
-one, which is a complete and testable product.
+**2 — the value comes from the SESSION.** Today `Renderer.varValues` is a per-renderer map of
+declared values, read through `varsFor(id)` and parked on each `NodePlan`. Phase 2 makes the
+session's choices an overlay on it, resolved per render rather than per renderer — which is what
+makes two viewers of one dashboard hold different `SlotRead`s for the first time, and so what
+makes phase 0's measurement reachable end to end.
+
+Three things it has to settle, and the last is the one with a trap in it:
+
+- **Where a session's values live and how they reach a render.** `uiState` is already threaded to
+  every render entry point for exactly this shape of fact, and a node variable is the same kind of
+  fact as a bake selection — per session, server-committed, URL-restored. Riding that channel is
+  the first thing to try; keeping it a separate map beside it is the alternative, and the choice
+  is whether they are one fact or two (see "What this does not do", which says they are the same
+  KIND but keeps them apart for blast radius).
+- **The URL mirror restores it on refresh** (ADR 0005), which makes this a complete product with
+  no writer at all: the URL is the only way to move a variable, and that is testable.
+- **`NodePlan.vars` has to stop being on the plan.** The plan is memoised per authored position
+  and reused across sessions, so a per-session value on it would serve one viewer's window to
+  another. It is correct today only because the value is fixed for the renderer's life. Whoever
+  does phase 2 moves it to the per-paint side beside `bakeIndex`, which is already the per-client
+  input travelling that way — and a test with two sessions on two windows is what proves it.
+
+`RenderInputs` gains nothing here: a query reader's `SlotRead` already differs, which is the whole
+point of the ask/read split. The third map is for a plain-slot reader, which phase 2 does not
+build.
 
 **3 — the write path, and it is where totality lives.** A `setVar` tap. The server narrows the
-proposed value — against the declared domain where there is one, and in every case by resolving
-each declared reader's ask with it and checking `Queries.parseRead` — then commits and patches
-exactly those readers. The declared edge is what makes that set exact rather than a guess, which
-is the first thing it is load-bearing for. A refused write keeps the old value and says so
-(`actionRefused`); pending/committed per ADR 0025 keeps the press instant. The URL mirror is the
-other door an untrusted value comes through and takes the same narrowing.
+proposed value by resolving each declared reader's ask with it and checking `Queries.parseRead`,
+then commits and patches exactly those readers. The declared edge is what makes that set exact
+rather than a guess, which is the first thing it is load-bearing for. A refused write keeps the
+old value and says so (`actionRefused`); pending/committed per ADR 0025 keeps the press instant.
+The URL mirror is the other door an untrusted value comes through and takes the same narrowing.
 
 **4 — the window control.** The first real user: window buttons in the more-info popup, the chart
 beneath them reading `window`, the active button highlighted through a signal slot.
 
-**5 — docs.** An ADR (this needs one: where domain validation lives, why the ancestor chain, why
-not CEL — none of which the code can state, plus "Future work" above verbatim). Architecture §6's
-barrier-precondition block changes
-from "protected by #209" to "satisfied, and here is how". `terminology.md` gains *variable*,
-*declarer*, *reference*, *shadow*. Close #210. Delete this file.
+**5 — docs.** An ADR, which this needs: why resolution is up the ancestor chain, why a reference
+is not a CEL expression, why a declaration carries no set of allowed values, and why totality
+lives at the write rather than in the build — none of which the code can state, plus "Future work"
+above verbatim, since a plan gets deleted and a decision only findable there is lost.
+Architecture §6's barrier-precondition block changes from "protected by #209" to "satisfied, and
+here is how". Close #210. Delete this file.
+
+`terminology.md` is already done — it gained *node variable*, *declarer*, *reference*, *shadow*
+and the *ask* / *read* split in phase 1, because a change that coins a term updates it in the same
+commit.
 
 ## What this does not do
 

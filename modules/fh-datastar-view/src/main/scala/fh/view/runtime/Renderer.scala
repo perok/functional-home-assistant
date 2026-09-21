@@ -2110,6 +2110,12 @@ class Renderer(
       // The node variables in scope at this node, resolved (issue #209). On
       // the plan because it is fixed per authored position, exactly as the
       // constants and the binding strings are.
+      //
+      // '''That stops being true the moment a VIEWER can choose one.''' A plan
+      // is memoised per authored position and reused across sessions, so a
+      // per-session value held here would serve one viewer's window to
+      // another. It belongs beside `bakeIndex` then — the per-client input
+      // that already rides the paint rather than the plan, for this reason.
       vars: Map[String, String],
       // The node's `data-signals` attribute with its values cut out. Fixed by
       // the plan, because the NAMES are; see [[Datastar.SignalSeed]].
