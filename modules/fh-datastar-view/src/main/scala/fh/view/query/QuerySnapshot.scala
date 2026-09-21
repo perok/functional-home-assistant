@@ -18,14 +18,14 @@ import java.time.Instant
   *
   * '''TOTAL over the queries it was built for.''' [[resolve]] is the only way
   * to build a non-empty one and it raises rather than returning a partial
-  * answer, so [[html]] cannot miss and has no `Option` to unwrap. That is
+  * answer, so [[value]] cannot miss and has no `Option` to unwrap. That is
   * architecture §0 carried in a type: the first render a browser gets is
   * COMPLETE, so "the answer has not arrived" is not a state a render may be in
   * — it either has every answer, or it never starts.
   *
   * The shape this replaced is worth knowing, because it looked harmless. A
   * failing query was dropped from the map and the slot rendered empty, and
-  * `QuerySnapshot.none` was a DEFAULT ARGUMENT on nine render entry points — so
+  * an empty one was a DEFAULT ARGUMENT on nine render entry points — so
   * a path that read a query and was handed no answers compiled clean and
   * shipped a hole. Absence is not modelled here any more precisely because
   * nothing could tell the two readings of it apart.
