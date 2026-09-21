@@ -134,19 +134,37 @@ they pay for is a mustache splice, not a fetch or a drawing. No bucketing.
    it. If the flat spelling is ever wanted it is Pkl sugar that writes a root declaration, not a
    second resolution rule. Scoped is strictly the more general of the two, so there is nothing to
    opt into later and nothing given up by starting here.
-2. **A declaration carries an optional DOMAIN** — the set of values the variable may hold, e.g.
-   `["1h","24h","7d","30d"]`. It buys three things: a write outside it is refused at the HTTP
-   boundary so `HistoryQuery.parse` never sees a bad value; a stale URL falls back to the default
-   instead of erroring, which is the narrowing `SurfaceGraph.resolveActive` already does for a tab
-   index it does not recognise; and the control can be GENERATED from the declaration rather than
-   listing the windows once in the buttons and again in the chart. `domain = null` for free text.
-3. **The bake selection does not become a variable** — see "What this does not do". Worth stating
-   why the obvious reason is wrong: it is not "that is pure client state". `ui_<gid>` lives in the
-   session, only the server writes the committed value (`SurfaceGraph.committedSelection`, after
-   the swap actually happened), and the `ui_*` signals are a mirror the server pushes. ADR 0025
-   exists precisely because the CLIENT used to assert it and a POST that never landed left the URL
-   claiming a panel the DOM did not have. It is the same kind of fact as a variable; the reason to
-   leave it alone is blast radius, not kind.
+2. **A declaration carries an optional DOMAIN** — the set of values the variable may hold, as a
+   `List[String]`: `["1h","24h","7d","30d"]`. It buys three things: a write outside it is refused
+   at the HTTP boundary so `HistoryQuery.parse` never sees a bad value; a stale URL falls back to
+   the default instead of erroring, which is the narrowing `SurfaceGraph.resolveActive` already
+   does for a tab index it does not recognise; and the control can be GENERATED from the
+   declaration rather than listing the windows once in the buttons and again in the chart.
+   `domain = null` for free text. A list of strings and not a type — see "Future work".
+3. **The bake selection does not become a variable** — see "What this does not do".
+
+## Future work — these belong in the ADR phase 5 writes, not in this stack
+
+Three things that are deliberately out of scope here and should be recorded where a later reader
+finds them, rather than rediscovered.
+
+- **A domain wants to be a TYPE, not a list of strings.** `["1h","24h","7d","30d"]` is an enum
+  spelled as data, and the same is true of any variable worth declaring — a number with a range, a
+  boolean, an entity id. The authoring end already has this: `Window` is a real Pkl union, and the
+  list is what survives the trip to the wire. What a typed domain would buy is validation that
+  says *what kind of thing is wrong* rather than "not one of these four", and a control generated
+  from the type rather than from a list. What it costs is a type language on the wire, which is a
+  much larger decision than this work needs. Ship the list; investigate the types.
+- **A global namespace, if the root declaration ever reads badly.** It is Pkl sugar over a
+  declaration on the root node, never a second resolution rule — recorded so nobody builds one.
+- **Whether the bake selection becomes a variable.** It is the same KIND of fact: `ui_<gid>` lives
+  in the session, only the server writes the committed value
+  (`SurfaceGraph.committedSelection`, after the swap actually happened), and the `ui_*` signals
+  are a mirror the server pushes — ADR 0025 exists precisely because the CLIENT used to assert it
+  and a POST that never landed left the URL claiming a panel the DOM did not have. So "that is
+  pure client state" is the plausible wrong reason to leave it alone, and the real one is blast
+  radius: ADRs 0005, 0007 and 0025 and the one shipped interactive control, for no new capability.
+  Revisit once node variables have a real user.
 
 **One name to avoid.** `Renderer` already calls a card's mustache context "vars", and `theme.pkl`
 calls CSS custom properties the same. The field can be `vars`, but prose and any new type must say
@@ -190,7 +208,8 @@ patches exactly the declared readers. Pending/committed per ADR 0025.
 beneath them reading `window`, the active button highlighted through a signal slot.
 
 **5 — docs.** An ADR (this needs one: where domain validation lives, why the ancestor chain, why
-not CEL — none of which the code can state). Architecture §6's barrier-precondition block changes
+not CEL — none of which the code can state, plus "Future work" above verbatim). Architecture §6's
+barrier-precondition block changes
 from "protected by #209" to "satisfied, and here is how". `terminology.md` gains *variable*,
 *declarer*, *reference*, *shadow*. Close #210. Delete this file.
 
