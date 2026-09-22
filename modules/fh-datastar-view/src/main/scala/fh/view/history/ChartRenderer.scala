@@ -3,8 +3,10 @@ package fh.view.history
 import cats.effect.std.Mutex
 import cats.effect.{IO, Resource}
 import fh.view.runtime.JsIsolate
+import fh.view.telemetry.Logging
 import io.circe.Json
 import org.graalvm.polyglot.{Context, Engine, HostAccess, Source}
+import org.typelevel.log4cats.LoggerFactory
 
 import java.nio.charset.StandardCharsets.UTF_8
 import scala.util.Using
@@ -46,12 +48,25 @@ final class ChartRenderer private (context: Context, lock: Mutex[IO]) {
 
 object ChartRenderer {
 
-  /** What the add-on runs: the polyglot isolate. */
-  def resource: Resource[IO, ChartRenderer] =
-    JsIsolate.engine.flatMap(fromEngine)
+  /** The polyglot isolate where this machine has one, the interpreter where it
+    * does not — see [[JsIsolate.engineOrInHeap]] for why there is a fallback.
+    */
+  def resource(
+      loggerFactory: LoggerFactory[IO] = Logging.console
+  ): Resource[IO, ChartRenderer] =
+    JsIsolate
+      .engineOrInHeap(e =>
+        loggerFactory
+          .getLoggerFromName("fh.view.history.ChartRenderer")
+          .warn(
+            "no GraalJS isolate on the classpath, drawing charts interpreted " +
+              s"instead — slower, and not what the add-on image runs: ${e.getMessage}"
+          )
+      )
+      .flatMap(fromEngine)
 
-  /** For an engine somebody else built — the in-heap one tests use, since the
-    * isolate exists only inside the add-on image.
+  /** For an engine somebody else built — how a test pins WHICH engine it drew
+    * on, rather than taking whichever this machine happens to offer.
     */
   def fromEngine(engine: Engine): Resource[IO, ChartRenderer] =
     for {
@@ -90,11 +105,12 @@ object ChartRenderer {
     *
     * Measured at 2 000 points: a JSON string costs 0.48 ms across the isolate
     * boundary against 0.02 ms for a primitive `double[]`, so the faster shape
-    * is known. It is not used yet because splitting the series out of the
-    * option object means handing over host arrays, whose access rules interact
-    * with `HostAccess.SCOPED` — and that combination cannot be verified outside
-    * the add-on image, where these tests do not run. Sub-millisecond once per
-    * cache bucket is not what to spend an unverifiable change on.
+    * is known and is not used. It WAS unverifiable — splitting the series out
+    * of the option object hands over host arrays, whose access rules interact
+    * with `HostAccess.SCOPED`, and nothing outside the add-on image ran the
+    * isolate. That is no longer true, so the reason is now the plain one: 0.46
+    * ms once per cache bucket, against a real change to how the option object
+    * is built. Do it if a profile ever puts a render somewhere it shows.
     */
   private val entry: Source =
     js(

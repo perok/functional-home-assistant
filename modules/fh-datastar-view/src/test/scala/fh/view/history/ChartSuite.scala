@@ -4,19 +4,19 @@ import cats.effect.IO
 import cats.effect.unsafe.implicits.global
 import cats.syntax.all.*
 import io.circe.Json
-import org.graalvm.polyglot.Engine
 
 import java.time.Instant
 import scala.concurrent.duration.*
 
 /** The chart, both halves.
   *
-  * The JavaScript runs on an IN-HEAP GraalJS engine, which is a test-only
-  * dependency: what the add-on ships is the polyglot isolate, and that exists
-  * only inside its image, so without this the renderer would be exercised
-  * nowhere but the `image` CI job. The SVG is byte-identical between the two
-  * modes (measured, `docs/plan-history-view.md`), so the mode is a pure
-  * performance switch and testing on one proves the other.
+  * The JavaScript runs on whatever engine this machine ships — the polyglot
+  * ISOLATE where GraalVM publishes one (linux/amd64, linux/arm64), which is
+  * also what the add-on runs, and interpreted where it does not (macOS). The
+  * SVG is byte-identical between the two (measured,
+  * `docs/plan-history-view.md`), so either proves the other; what running the
+  * isolate adds is that the engine serving users is the one under test, instead
+  * of a stand-in exercised nowhere but the `image` CI job.
   */
 class ChartSuite extends munit.FunSuite {
 
@@ -106,24 +106,25 @@ class ChartSuite extends munit.FunSuite {
 
   // --- The renderer --------------------------------------------------------
 
-  /** One in-heap engine for the suite: building it and evaluating ECharts is ~1
-    * s interpreted, and nothing here needs a fresh one.
+  /** One renderer for the suite, on whatever engine this machine ships —
+    * normally the ISOLATE, which is what the add-on runs.
+    *
+    * `ChartRenderer.resource` and not a hand-built engine, so what these tests
+    * exercise is the entry point production uses, engine choice included. It
+    * falls back interpreted where GraalVM publishes no isolate (macOS), which
+    * is sound because the SVG is byte-identical between the two (ADR 0032) —
+    * but it is a FALLBACK now rather than what every run did, so a break that
+    * only the isolate shows is visible here instead of only in the image job.
+    *
+    * Built once: evaluating ECharts is ~0.3 s on the isolate and ~1 s
+    * interpreted, and nothing here needs a fresh one.
     */
   private def withRenderer[A](f: ChartRenderer => IO[A]): A =
-    Engine
-      .newBuilder("js")
-      .option("engine.WarnInterpreterOnly", "false")
-      .build()
-      .pipe { engine =>
-        ChartRenderer
-          .fromEngine(engine)
-          .use(f)
-          .timeout(120.seconds)
-          .guarantee(IO.blocking(engine.close()))
-          .unsafeRunSync()
-      }
-
-  extension [A](a: A) private def pipe[B](f: A => B): B = f(a)
+    ChartRenderer
+      .resource()
+      .use(f)
+      .timeout(120.seconds)
+      .unsafeRunSync()
 
   test("a series renders to an SVG carrying a path") {
     val svg = withRenderer(_.render(series(1, 5, 2, 8, 3), ChartStyle()))

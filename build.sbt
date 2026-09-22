@@ -28,6 +28,39 @@ lazy val stageIsolateJars = taskKey[Seq[File]](
   "Stage both platforms' GraalJS isolate jars beside the add-on jar"
 )
 
+// The isolate artifact for THIS machine, or none where GraalVM publishes none.
+// Used on the compile classpath only — the image gets its copy from
+// `stageIsolateJars`, which stages both architectures regardless of this.
+//
+// `os.arch` reports the JVM's own architecture, which is the one that can load
+// a native library, so a JVM under Rosetta or qemu resolves what it can
+// actually run rather than what the hardware is.
+lazy val hostIsolateArtifact: Option[String] =
+  Option
+    .when(sys.props.get("os.name").exists(_.toLowerCase.startsWith("linux")))(
+      sys.props.getOrElse("os.arch", "")
+    )
+    .flatMap {
+      case "amd64" | "x86_64"  => Some("js-isolate-linux-amd64")
+      case "aarch64" | "arm64" => Some("js-isolate-linux-aarch64")
+      case _                   => None
+    }
+
+// Everything the fat jar must NOT contain, as ZIP entry prefixes.
+//
+// Asserted against the BUILT ARTIFACT rather than against the exclude list,
+// because the exclude list cannot see the failure that matters. An isolate
+// payload reaching the jar makes it architecture-specific: it builds, it
+// passes CI on amd64, and it dies on a Pi. Checking names would only tell us
+// the names we wrote are still spelled right.
+lazy val forbiddenJarEntries: Map[String, String] = Map(
+  "com/oracle/truffle/isolate/" -> "a GraalJS ISOLATE (architecture-specific)",
+  "META-INF/resources/engine/js-isolate-" ->
+    "a GraalJS isolate native library (architecture-specific)",
+  "com/oracle/truffle/js/" -> "the in-heap GraalJS language",
+  "com/ibm/icu/" -> "ICU, which only the in-heap language needs"
+)
+
 // The hand-off point to the add-on image build, named once at BUILD level
 // because it belongs to no single module: `home-addon/Dockerfile` COPYs out of
 // it (its paths are relative to the repo root, which is the build context),
@@ -309,6 +342,10 @@ lazy val `fh-datastar-view` = project
     assembly / assemblyOutputPath := Def.uncached(
       (ThisBuild / addonStage).value / "fh-dashboard.jar"
     ),
+    // Separate from the main list because it is CONDITIONAL — see
+    // `hostIsolateArtifact`, which is empty off linux/amd64 and linux/arm64.
+    libraryDependencies ++=
+      hostIsolateArtifact.map("org.graalvm.js" % _ % graalVmVersion).toSeq,
     ivyConfigurations += JsIsolate,
     // Named by BUILDX's architecture spelling, not GraalVM's (`arm64`, not
     // `aarch64`), and with the version dropped. That is the whole reason this
@@ -350,9 +387,64 @@ lazy val `fh-datastar-view` = project
         }
       }
     },
+    // GraalJS is on the COMPILE classpath so a local run draws charts on the
+    // same engine the image does, and must not reach the fat jar: the image
+    // loads the isolate from a staged file, and an isolate INSIDE the jar
+    // would make the jar architecture-specific.
+    //
+    // Matched by jar NAME, which is a weak way to say this — sbt 2 keys
+    // classpath metadata by `StringAttributeKey` and no longer hands back a
+    // `ModuleID` to match on organisation. It is only half the guard, and
+    // deliberately: the post-assembly check below reads the built jar, so a
+    // name that stops matching fails the build rather than shipping.
+    assembly / assemblyExcludedJars := {
+      val drop = Set(
+        "js-language",
+        "js-isolate-linux-amd64",
+        "js-isolate-linux-aarch64",
+        "regex",
+        "icu4j",
+        "xz",
+        "truffle-runtime",
+        "truffle-compiler"
+      )
+      (assembly / fullClasspath).value.filter { entry =>
+        val name = entry.data.name.stripSuffix(".jar")
+        drop.exists(d => name.startsWith(s"$d-"))
+      }
+    },
     // So `sbt fh-datastar-view/assembly` leaves a build context the Dockerfile
-    // can use, rather than one that is complete only if you knew to ask.
-    assembly := assembly.dependsOn(stageIsolateJars).value,
+    // can use, rather than one that is complete only if you knew to ask — and
+    // then READ THE JAR BACK, because the exclusion above is a list of
+    // intentions and this is the artifact.
+    assembly := {
+      val built = assembly.dependsOn(stageIsolateJars).value
+      // The task hands back a `HashedVirtualFileRef` in sbt 2; the real path is
+      // the one `assemblyOutputPath` named, which is also what the Dockerfile
+      // COPYs — so this reads the same bytes the image gets.
+      val jar = (assembly / assemblyOutputPath).value
+      val zip = new java.util.zip.ZipFile(jar)
+      val found =
+        try {
+          import scala.jdk.CollectionConverters.*
+          zip
+            .entries()
+            .asScala
+            .map(_.getName)
+            .flatMap(n =>
+              forbiddenJarEntries.find { case (p, _) => n.startsWith(p) }
+            )
+            .map { case (prefix, what) => s"$what ($prefix…)" }
+            .toSet
+        } finally zip.close()
+      if (found.nonEmpty)
+        sys.error(
+          s"${jar.getName} contains ${found.toList.sorted.mkString("; ")} — " +
+            "the add-on jar must run on both architectures and carry no " +
+            "JavaScript of its own; see assembly/assemblyExcludedJars"
+        )
+      built
+    },
     assembly / assemblyMergeStrategy := {
       // JPMS descriptors from multi-release deps (circe/cats/pkl-core) —
       // meaningless on a flat classpath. Do NOT blanket-discard META-INF:
@@ -418,21 +510,28 @@ lazy val `fh-datastar-view` = project
       "org.graalvm.truffle" % "truffle-api" % graalVmVersion,
       "org.graalvm.sdk" % "nativebridge" % graalVmVersion,
       "org.graalvm.sdk" % "jniutils" % graalVmVersion,
+      // THIS machine's isolate, when it has one, so a local run draws charts on
+      // the same engine the add-on does — which is what removes "cannot be
+      // verified outside the image" from `ChartRenderer` and lets `ChartSuite`
+      // exercise production's engine rather than a stand-in.
+      //
+      // Machine-dependent, and that is the cost: the artifact is published for
+      // linux/amd64 and linux/arm64 only, so a macOS contributor resolves none
+      // of it and falls back in-heap. The build is no longer byte-identical
+      // across developer machines; the shipped jar still is, which is the
+      // property that actually matters and the post-assembly check asserts.
       // The libraries themselves, in the hidden configuration above: staged
-      // into the image per architecture, never onto a classpath here.
+      // into the image per architecture, never into the fat jar.
       "org.graalvm.js" % "js-isolate-linux-amd64" % graalVmVersion % JsIsolate,
       "org.graalvm.js" % "js-isolate-linux-aarch64" % graalVmVersion % JsIsolate,
-      // IN-HEAP GraalJS, tests only. The shipped engine is the isolate, which
-      // exists only inside the add-on image — so without this there is no
-      // JavaScript to run a chart test against anywhere else, and the renderer
-      // would be verified only by the `image` job.
+      // IN-HEAP GraalJS — the engine a chart is drawn on wherever the isolate
+      // is not, which is every machine that is not the add-on image.
       //
-      // Testing on a different engine than production is sound HERE and would
+      // Running on a different engine than production is sound HERE and would
       // not be in general: the SVG is byte-identical between the two modes
       // (checked, docs/plan-history-view.md), so the mode is a pure performance
-      // switch. It stays out of `Compile` because its 48 MB of language jars
-      // are exactly what the isolate replaces.
-      "org.graalvm.polyglot" % "js" % graalVmVersion % Test,
+      // switch, and `JsIsolate.engineOrInHeap` says in the log which one ran.
+      "org.graalvm.polyglot" % "js" % graalVmVersion,
       // Logging, and the ONE slf4j binding in the build. log4cats and an
       // unbound slf4j-api were already on the classpath via http4s, which
       // means http4s' own logging went nowhere; logback lights that up too.
