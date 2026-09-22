@@ -11,15 +11,10 @@ import org.graalvm.polyglot.{Context, Engine, HostAccess}
   * native heap instead of ours, measuring 152 MB RSS against 322 MB for the
   * same workload interpreted in-heap, at half the render time.
   *
-  * Nothing is configured here because the classpath supplies it all: the
-  * `js-isolate-linux-<arch>` jar is what registers the isolate, and
-  * `polyglot.engine.userResourceCache` says where Truffle may unpack its native
-  * resources — which it does by itself, once, the first time this is built.
-  *
-  * `build.sbt` puts THIS machine's isolate on the compile classpath where
-  * GraalVM publishes one (linux/amd64, linux/arm64) and stages both into the
-  * image, so a local run and the add-on normally draw on the same engine. Where
-  * it publishes none — macOS — [[engineOrInHeap]] is what happens instead.
+  * Nothing is configured here: the `js-isolate-linux-<arch>` jar on the
+  * classpath registers the isolate, and `polyglot.engine.userResourceCache`
+  * says where Truffle unpacks it. GraalVM publishes no macOS isolate; there
+  * [[engineOrInHeap]] falls back.
   */
 object JsIsolate {
 
@@ -31,31 +26,17 @@ object JsIsolate {
       Engine.newBuilder("js").spawnIsolate(true).build()
     })
 
-  /** The isolate where this machine has one, the interpreter where it does not,
-    * and `onFallback` told which happened.
-    *
-    * Not a second design: ADR 0032 measured both columns and the SVG is
-    * byte-identical, so this is a performance switch — ECharts evaluates in
-    * ~1.0 s against ~0.3 s, a warm render in ~51 ms against ~30 ms, and the
-    * interpreted one grows with the point count where the isolate stays flat.
-    *
-    * It exists because the alternative is worse than a slow chart: more-info
-    * composes one for every numeric sensor, so an engine that raises means a
-    * 503 on the popup of half the house. Loud rather than quiet, because in the
-    * add-on image this must never fire and `JsIsolateCheck` is what proves it
-    * in CI.
+  /** The interpreter where there is no isolate. The SVG is byte-identical, so
+    * it only costs speed (ADR 0032), where raising would fail more-info for
+    * every numeric sensor. Never fires in the image; `JsIsolateCheck` proves
+    * it.
     */
   def engineOrInHeap(onFallback: Throwable => IO[Unit]): Resource[IO, Engine] =
     engine.handleErrorWith((e: Throwable) =>
       Resource.eval(onFallback(e)) *> inHeap
     )
 
-  /** GraalJS interpreted, in this JVM's own heap.
-    *
-    * `WarnInterpreterOnly` off because the warning is addressed to someone who
-    * could install a compiler, and here nobody can: the choice was already made
-    * by the isolate not being on the classpath.
-    */
+  // `WarnInterpreterOnly` off: [[engineOrInHeap]] already logs the fallback.
   def inHeap: Resource[IO, Engine] =
     Resource.fromAutoCloseable(IO.blocking {
       Engine
