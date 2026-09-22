@@ -45,26 +45,47 @@
                             }
                           },
                           {
-                            "card" : "historyChart",
+                            "card" : "historyWindows",
+                            "cell" : {
+                              "classes" : [
+                                "fh-cols-full"
+                              ]
+                            },
                             "kind" : "component",
-                            "slots" : {
-                              "chart" : {
-                                "bypassUnavailable" : true,
-                                "query" : {
-                                  "params" : {
-                                    "entity" : "sensor.outside_temp",
-                                    "window" : "24h"
-                                  },
-                                  "provider" : "history"
-                                },
-                                "reads" : "onRender",
-                                "transform" : {
-                                  "params" : {
-                                    "unit" : "°C"
-                                  },
-                                  "stage" : "chart"
+                            "regions" : {
+                              "children" : [
+                                {
+                                  "card" : "historyChart",
+                                  "kind" : "component",
+                                  "slots" : {
+                                    "chart" : {
+                                      "bypassUnavailable" : true,
+                                      "query" : {
+                                        "params" : {
+                                          "entity" : "sensor.outside_temp",
+                                          "window" : {
+                                            "var" : "window"
+                                          }
+                                        },
+                                        "provider" : "history"
+                                      },
+                                      "reads" : "onRender",
+                                      "transform" : {
+                                        "params" : {
+                                          "unit" : "°C"
+                                        },
+                                        "stage" : "chart"
+                                      }
+                                    }
+                                  }
                                 }
-                              }
+                              ]
+                            },
+                            "slots" : {
+                              "start" : "24h"
+                            },
+                            "vars" : {
+                              "window" : "24h"
                             }
                           },
                           {
@@ -841,26 +862,47 @@
                                 }
                               },
                               {
-                                "card" : "historyChart",
+                                "card" : "historyWindows",
+                                "cell" : {
+                                  "classes" : [
+                                    "fh-cols-full"
+                                  ]
+                                },
                                 "kind" : "component",
-                                "slots" : {
-                                  "chart" : {
-                                    "bypassUnavailable" : true,
-                                    "query" : {
-                                      "params" : {
-                                        "entity" : "sensor.outside_temp",
-                                        "window" : "24h"
-                                      },
-                                      "provider" : "history"
-                                    },
-                                    "reads" : "onRender",
-                                    "transform" : {
-                                      "params" : {
-                                        "unit" : "°C"
-                                      },
-                                      "stage" : "chart"
+                                "regions" : {
+                                  "children" : [
+                                    {
+                                      "card" : "historyChart",
+                                      "kind" : "component",
+                                      "slots" : {
+                                        "chart" : {
+                                          "bypassUnavailable" : true,
+                                          "query" : {
+                                            "params" : {
+                                              "entity" : "sensor.outside_temp",
+                                              "window" : {
+                                                "var" : "window"
+                                              }
+                                            },
+                                            "provider" : "history"
+                                          },
+                                          "reads" : "onRender",
+                                          "transform" : {
+                                            "params" : {
+                                              "unit" : "°C"
+                                            },
+                                            "stage" : "chart"
+                                          }
+                                        }
+                                      }
                                     }
-                                  }
+                                  ]
+                                },
+                                "slots" : {
+                                  "start" : "24h"
+                                },
+                                "vars" : {
+                                  "window" : "24h"
                                 }
                               },
                               {

@@ -150,7 +150,7 @@ they pay for is a mustache splice, not a fetch or a drawing. No bucketing.
 
 ## Future work — these belong in the ADR phase 5 writes, not in this stack
 
-Four things that are deliberately out of scope here and should be recorded where a later reader
+Five things that are deliberately out of scope here and should be recorded where a later reader
 finds them, rather than rediscovered.
 
 - **A variable declared with NO value — "nothing selected yet".** A real UI state (an unapplied
@@ -186,6 +186,22 @@ finds them, rather than rediscovered.
   resolve it to the button's. What it needs is an explicit marker meaning "I own the tokens in my
   subtree". Worth doing when a second component wants it; until then `c.windowChooser` renders its
   own bar and the generic chooser in `core/variable.pkl`'s docs stays a sketch.
+
+- **Declaring on the PAGE ROOT, so a control need not contain its readers.** The shipped shape
+  makes the chooser the declarer, which forces the charts to sit beneath it — so a bar in a header
+  steering charts in a sibling column is unwritable. A declaration on the tree root would remove
+  that entirely: every node is its descendant, and the root's id is a value a control can address
+  without the `@@NODE_ID@@` splice above, because it is not the control's own id it would need.
+
+  Two things to settle before building it, neither hard: the root id is `c` only until an author
+  sets one on the root node, and inside a surface the root is `s_<sid>__c` — so a control must
+  address it through a reserved segment the server resolves to "this tree's root" rather than by
+  spelling `c`. And it is one window per page by construction, which is the right default and not
+  a general answer.
+
+  Deliberately NOT built now: the composition shape below does the same job for the case that
+  exists (more-info), and a rule about a magic scope is worth adding only once something wants it
+  that composition cannot reach.
 
 - **A global namespace, if the root declaration ever reads badly.** It is Pkl sugar over a
   declaration on the root node, never a second resolution rule — recorded so nobody builds one.

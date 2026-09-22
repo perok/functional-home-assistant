@@ -237,8 +237,15 @@ facts {
 
   ["a numeric sensor's popup carries a chart of where the reading has been"] {
     local body = c.moreInfo(power).inlineSurfaces["self"].content.children[0]
+    // The chart arrives under a window chooser, not beside the card: the
+    // chooser is what DECLARES the window, so the nesting is what puts the
+    // chart in scope of it. Composed here so no dashboard ever writes it.
     body.children.toList().map((n) -> n.card)
-      == List("entityCard", "historyChart", "entityInfo", "button")
+      == List("entityCard", "historyWindows", "entityInfo", "button")
+    body.children[1].children[0].card == "historyChart"
+    body.children[1].vars["window"] == "24h"
+    body.children[1].children[0].slots["chart"].query.params["window"].`var`
+      == "window"
   }
 
   ["a chooser declares the window its charts read, and nothing spells it twice"] {

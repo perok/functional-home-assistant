@@ -150,6 +150,37 @@ None of this was designed separately; all of it fell out.
   two sessions holding different reads have *unordered* keys, so neither is a straggler and each
   install evicts the other — read off `RenderCache`'s source, not measured.
 
+## Open questions
+
+- **Nothing wakes a node because a query's VERSION moved.** The live path is driven by
+  `stateStore.changes`; a bucket rolling is not a state change, so a chart on an open page goes
+  stale until something else that node reads happens to move. On a wall tablet — the case this
+  frontend exists for — that is indefinitely. The key is already correct: a render at the new
+  bucket produces new bytes. Nothing asks for that render.
+
+  Three shapes, with what each costs:
+
+  - **Ring the same doorbell on a timer.** A per-slug ticker at the finest bucket granularity (a
+    1 h window buckets by the minute) asks whether any live read's version moved and, if so,
+    records a frame. Everything downstream — mutations, the per-session pull, the digest
+    suppression — is untouched, which is the argument for it. Two pieces of real work: the read
+    set is per-session now that a variable can steer it (#209), so the ticker needs the union
+    across live sessions; and `recordFrame` takes a `List[StateChange]`, so "these nodes are
+    dirty with no entity behind it" needs an entry point it does not have. The standing cost is
+    that every open dashboard holding a 1 h chart re-renders once a minute — correct, since the
+    chart did change, but it is new load on a house where nothing is happening.
+  - **Piggyback the existing tick.** Check query versions whenever a state change already fires.
+    Nearly free, and it does not fix the case that motivates this: a quiet house never ticks.
+    Worth adding alongside the timer, useless alone.
+  - **Let the browser ask** (`data-on-interval` on chart nodes). Cheapest to build and the one to
+    argue against: it moves a server-truth decision into the page, costs a request per chart per
+    interval, and contradicts §0's shape, where the server decides what a client is owed.
+
+- **Nothing bounds how long a provider may hold up the pre-walk resolution.** §0 makes that bound
+  an error rather than a fallback, and it belongs on the resolution rather than on the response —
+  but it is not written, so a hung recorder currently means no page at all rather than a page
+  reporting a failed query.
+
 ## What this does not decide
 
 How a chart is DRAWN — ECharts under GraalJS, and why not a browser chart — is
