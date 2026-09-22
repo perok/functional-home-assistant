@@ -53,10 +53,6 @@ final class ChartStage private (
         .rethrow
     }
 
-  /** For a caller that only ever draws ONE question. */
-  def draw(style: ChartStyle, version: Long, data: Json): IO[String] =
-    draw("", style, version, data)
-
   private def compute(style: ChartStyle, data: Json): IO[String] =
     data
       .as[Series]
