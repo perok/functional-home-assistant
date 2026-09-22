@@ -415,6 +415,8 @@ lazy val `fh-datastar-view` = project
       // runtime; bundles the extension libraries — string/list/math/bindings/
       // comprehensions — in the same jar).
       "dev.cel" % "cel" % "0.14.0",
+      // LTTB for chart series; the major version tracks the Java baseline.
+      "com.ggalmazor" % "downsampling" % "25.2.0",
       // GraalJS, run in a polyglot ISOLATE (docs/plan-graaljs-isolate.md).
       // Note what is NOT here: no js-language and no Truffle runtime. The
       // JavaScript lives entirely in the isolate library, which the add-on

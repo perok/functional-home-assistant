@@ -301,7 +301,7 @@ render per bucket, not one per viewer.
 ### Downsampling stays server-side
 
 ECharts' `sampling: 'lttb'` decides how many points it *draws*. We downsample before that anyway —
-LTTB, target ~300 points — because the fetch itself should not carry thousands of rows through the
+LTTB from `com.ggalmazor:downsampling`, target ~300 points — because the fetch itself should not carry thousands of rows through the
 process for every bucket, and because it is the one place the work is done once for every viewer.
 
 ---
