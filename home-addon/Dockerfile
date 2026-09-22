@@ -1,18 +1,22 @@
-# FH Dashboard add-on image. Build context = repo root; the fat jar must be
-# assembled first:
+# FH Dashboard add-on image. Build context = repo root; everything it COPYs is
+# staged into target/addon/ by one command:
 #   sbt fh-datastar-view/assembly
 #   docker buildx build -f home-addon/Dockerfile -t ghcr.io/perok/fh-dashboard:dev .
-# The fat jar is arch-independent JVM bytecode; the multi-arch temurin builder
-# + hassio base yield linux/amd64 + linux/arm64 without cross-compiling Scala.
-# jlink is the only stage that runs emulated per-arch; the one
-# architecture-specific artifact, the GraalJS isolate jar, is selected by
-# TARGETARCH and merely copied.
+# The app and pkl-lsp jars are arch-independent JVM bytecode; the multi-arch
+# temurin builder + hassio base yield linux/amd64 + linux/arm64 without
+# cross-compiling Scala. jlink is the only stage that runs emulated per-arch;
+# the one architecture-specific artifact, the GraalJS isolate jar, is selected
+# by TARGETARCH and merely copied.
 #
 # GLIBC, not musl, and that is a requirement rather than a preference: the
 # GraalJS polyglot isolate library staged below links libc.so.6 with versioned
-# GLIBC_2.x symbols and names musl nowhere. Both stages have to agree, so the
-# alpine builder AND the alpine runtime base moved together — a glibc JRE on a
-# musl base does not load.
+# GLIBC_2.x symbols and names musl nowhere. Both stages have to agree — a glibc
+# JRE on a musl base does not load — so the builder and the runtime base are
+# one decision, not two.
+#
+# The JDK floor is 23: pkl-lsp is class file 67 and its subprocess runs on this
+# same runtime, so anything lower gives /edit no completion at all, via an
+# UnsupportedClassVersionError nothing surfaces to the user.
 # https://hub.docker.com/_/eclipse-temurin#creating-a-jre-using-jlink
 FROM eclipse-temurin:25-jdk AS jre-build
 
@@ -21,7 +25,10 @@ FROM eclipse-temurin:25-jdk AS jre-build
 # target/addon/fh-dashboard.jar) + jdk.crypto.ec, which jdeps cannot see
 # statically but TLS needs for the HTTPS theme-asset fetches, + jdk.zipfs,
 # which jdeps likewise cannot see statically but pkl-core needs at runtime to
-# open its cached packages via a "jar:" NIO FileSystemProvider.
+# open its cached packages via a "jar:" NIO FileSystemProvider, + java.logging
+# and java.desktop, which the pkl-lsp CHILD needs and jdeps cannot see at all
+# because it is a separate jar run as a subprocess (lsp4j logs via
+# java.util.logging).
 #
 # The second line is the DIAGNOSTIC set, which jdeps will never name because
 # nothing in the jar calls it: it exists so the running add-on can be asked
@@ -41,7 +48,7 @@ FROM eclipse-temurin:25-jdk AS jre-build
 #
 # The whole set costs ~2 MB of runtime image.
 RUN $JAVA_HOME/bin/jlink \
-         --add-modules java.base,java.compiler,java.management,java.naming,java.net.http,java.sql,jdk.unsupported,jdk.crypto.ec,jdk.zipfs \
+         --add-modules java.base,java.compiler,java.logging,java.management,java.naming,java.net.http,java.sql,java.desktop,jdk.unsupported,jdk.crypto.ec,jdk.zipfs \
          --add-modules jdk.jcmd,jdk.attach,jdk.management,jdk.jfr,jdk.management.jfr \
          --strip-debug \
          --no-man-pages \
@@ -86,6 +93,14 @@ ENV FH_GRAAL_CACHE=/data/graal-cache
 
 # The sbt-assembly fat jar (sbt fh-datastar-view/assembly).
 COPY target/addon/fh-dashboard.jar /opt/fh-dashboard.jar
+
+# The pkl-lsp CLI jar backing /edit's language server. A separate file run as a
+# SUBPROCESS, not a classpath entry: its `exit` notification — which every LSP
+# client sends on disconnect — calls exitProcess(0), so embedding it would let
+# a closed editor tab kill the dashboard, and its shaded jar bundles an
+# unrelocated JNA 5.14.0 that collides with appdirs' 5.18.1.
+COPY target/addon/pkl-lsp.jar /opt/pkl-lsp.jar
+ENV PKL_LSP_JAR=/opt/pkl-lsp.jar
 
 # The starter ENTRY and the authoring LIBRARY for `AddonBootstrap` (run by the
 # server at startup) both ride inside the fat jar as classpath resources
