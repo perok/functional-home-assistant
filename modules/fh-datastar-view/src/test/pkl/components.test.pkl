@@ -241,6 +241,28 @@ facts {
       == List("entityCard", "historyChart", "entityInfo", "button")
   }
 
+  ["a chooser declares the window its charts read, and nothing spells it twice"] {
+    local picked = (c.windowChooser) {
+      children { c.historyChart(power).chosen() }
+    }
+    // The DECLARATION and the REFERENCE, produced by two calls that take no
+    // name between them — which is the property, not the string: an author
+    // cannot misspell one side of this pair because neither side is typed.
+    picked.vars["window"] == "24h"
+    picked.children[0].slots["chart"].query.params["window"].`var` == "window"
+    // The entity is still written down beside it. Only a declared variable is
+    // writable, so this chart's subject has nowhere for a write to land.
+    picked.children[0].slots["chart"].query.params["entity"] == "sensor.power"
+  }
+
+  ["the declared window moves with `starting`, and the seed follows it"] {
+    local week = (c.windowChooser).starting("7d")
+    week.vars["window"] == "7d"
+    // The bar's `__ifmissing` seed reads this slot, so the first paint
+    // highlights the window the charts beneath were actually drawn at.
+    week.slots["start"] == "7d"
+  }
+
   ["whether a chart makes sense is answered at BUILD time"] {
     // The gate the popup composes on. A sensor with neither a state_class nor
     // a unit is not a number HA records, so no chart is composed at all — and

@@ -176,6 +176,20 @@ class VarTapSuite extends ServerHarness {
   private val Day = 24.hours.toMillis.toString
   private val Week = 7.days.toMillis.toString
 
+  /** Everything the write offered this client, in order. Drained rather than
+    * taken one at a time because the COUNT is half of what these assert: ADR
+    * 0025 says a refused write offers nothing and an accepted one always
+    * commits, so "and nothing else" is the claim.
+    */
+  private def drain(session: Option[Session]): IO[List[SseFrame]] =
+    session.fold(IO.pure(List.empty[SseFrame]))(s => s.control.tryTakeN(None))
+
+  /** The committed frame ADR 0025 ends the ask with — what the control's
+    * highlight falls back to once its pending value clears.
+    */
+  private def committed(value: String): String =
+    s"""signals {"_var_panel__window":"$value"}"""
+
   test("writing the variable re-renders the chart at the new window") {
     served { (routes, sessions) =>
       for {
@@ -186,7 +200,7 @@ class VarTapSuite extends ServerHarness {
         status <- post(routes, conn, "/sse/var/dashboard/panel/window/7d")
           .map(_.status)
         chose <- session.traverse(_.vars.get)
-        queued <- session.flatTraverse(_.control.tryTake)
+        queued <- drain(session)
       } yield {
         assertEquals(status, Status.NoContent)
         assertEquals(
@@ -195,8 +209,12 @@ class VarTapSuite extends ServerHarness {
         )
         // The patch carries the WEEK's series, which is the whole claim: the
         // write moved the query, not just a signal.
-        assert(queued.flatMap(_.data).exists(_.contains(Week)), clue = queued)
-        assert(!queued.flatMap(_.data).exists(_.contains(Day)), clue = queued)
+        val painted = queued.flatMap(_.data).mkString
+        assert(painted.contains(Week), clue = painted)
+        assert(!painted.contains(Day), clue = painted)
+        // And the commit rides LAST, after the bytes it describes — so the
+        // highlight stops being a guess only once the chart beneath it agrees.
+        assertEquals(queued.lastOption.flatMap(_.data), Some(committed("7d")))
       }
     }
   }
@@ -212,14 +230,18 @@ class VarTapSuite extends ServerHarness {
         res <- post(routes, conn, "/sse/var/dashboard/panel/window/4h")
         body <- res.bodyText.compile.string
         chose <- session.traverse(_.vars.get)
-        queued <- session.flatTraverse(_.control.tryTake)
+        queued <- drain(session)
       } yield {
         // ADR 0024: refused is a 200 of signals, not a 4xx.
         assertEquals(res.status, Status.Ok)
         assert(body.contains("4h"), clue = body)
         // The session keeps what it had — a refused write is not a half-write.
         assertEquals(chose, Some(Map.empty))
-        assertEquals(queued, None)
+        // Nothing committed either, which is what lets the control show the
+        // press optimistically: the pending value is ended by the REFUSAL's own
+        // signal frame (`Server.actionSignals`, the `group` query param), so it
+        // falls back to a committed value that never moved.
+        assertEquals(queued, Nil)
       }
     }
   }
@@ -239,16 +261,63 @@ class VarTapSuite extends ServerHarness {
     }
   }
 
-  test("choosing the window already showing costs no patch") {
+  test("choosing the window already showing costs no element patch") {
     // The suppression `Patches.resume` does per node, asked of one node: the
-    // bytes did not move, so this client is owed nothing.
+    // bytes did not move, so nothing is re-sent. The COMMIT still is — a
+    // control that pressed `24h` while on `24h` has an outstanding pending
+    // value, and only a committed value agreeing with it ends that ask.
     served { (routes, sessions) =>
       for {
         conn <- connect(routes)
         session <- sessions.get(conn)
         _ <- post(routes, conn, "/sse/var/dashboard/panel/window/24h")
-        queued <- session.flatTraverse(_.control.tryTake)
-      } yield assertEquals(queued, None)
+        queued <- drain(session)
+      } yield assertEquals(queued.flatMap(_.data), List(committed("24h")))
     }
+  }
+
+  test("a refusal ends the control's pending ask by name") {
+    // The URL the chooser actually posts (`components/history.pkl`), whose
+    // `group` is what lets a refusal end THIS control's ask and no other —
+    // ADR 0024's half of ADR 0025.
+    served { (routes, _) =>
+      for {
+        conn <- connect(routes)
+        res <- post(
+          routes,
+          conn,
+          "/sse/var/dashboard/panel/window/4h?group=var_panel__window"
+        )
+        body <- res.bodyText.compile.string
+      } yield {
+        assertEquals(res.status, Status.Ok)
+        assert(body.contains("\"_var_panel__window__pending\":\"\""), body)
+      }
+    }
+  }
+
+  test("the opening frame states every declared variable, chosen or not") {
+    // TOTAL over the declarations, which is what makes a lost session safe: a
+    // control still highlighting last session's window is corrected on connect
+    // rather than disagreeing with the chart beside it.
+    val renderer = Renderer.fromValidated(
+      dash.validated().fold(e => sys.error(e.mkString("; ")), identity)
+    )
+    val declared = Server
+      .openingSignals(renderer, Set.empty, Map.empty, "log", 0L)
+      .data
+      .getOrElse("")
+    val chosen = Server
+      .openingSignals(
+        renderer,
+        Set.empty,
+        Map((("panel": fh.view.model.NodeId), "window") -> "7d"),
+        "log",
+        0L
+      )
+      .data
+      .getOrElse("")
+    assert(declared.contains("\"_var_panel__window\":\"24h\""), declared)
+    assert(chosen.contains("\"_var_panel__window\":\"7d\""), chosen)
   }
 }

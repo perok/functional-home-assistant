@@ -98,7 +98,7 @@ class Query {
   /// is ever built, which a registry of names could never give.
   provider: "history"
   /// A parameter is a value written down, or a READ of a node variable
-  /// ([[varMod.read]]). The two spellings are the whole access story: a written
+  /// ([[varMod.ref]]). The two spellings are the whole access story: a written
   /// value has nowhere for a write to land, and only a declared variable is
   /// writable — so "chart a sensor this dashboard never showed" is unspellable
   /// rather than refused by a permission list.

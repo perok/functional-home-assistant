@@ -359,6 +359,23 @@ class Renderer(
         }.toMap
       }.toMap
 
+  /** Every declaration in the build -> the value it holds before anybody
+    * chooses.
+    *
+    * The set a connection's variable signals are TOTAL over, which is what lets
+    * a control's highlight be told the truth rather than left asserting a value
+    * a lost session no longer holds: a session that has forgotten a choice is
+    * back at the declared value, and saying so is only possible from here.
+    *
+    * Derived from the scopes rather than walked again, so a name that is
+    * declared twice (a shadow) contributes one entry per DECLARER — which is
+    * the identity a choice is addressed to.
+    */
+  val declarations: Map[(NodeId, String), String] =
+    varScopes.values.flatten.map { case (name, in) =>
+      (in.declarer, name) -> in.declared
+    }.toMap
+
   /** Every node whose reads would move if `(declarer, name)` did — the declared
     * edge, inverted.
     *

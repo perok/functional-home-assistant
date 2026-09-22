@@ -1233,28 +1233,30 @@ class Server(
               // from. A repaint painted the whole snapshot, so it claims that; a
               // resume could only answer for what the changelog covered when this
               // connection began, so it claims THAT — see the doorbell note above.
-              val result = resumedIO.flatMap { resumed =>
-                val claim = resumed.fold(store.version)(_ => covered)
-                val record = resumed.fold(
-                  session.holds.set(painted.own.map { case (id, p) =>
-                    id -> Held(Some(p.digest), p.signals)
-                  })
-                )(patches =>
-                  session.holds.update(
-                    patches
-                      .foldLeft(_)(Patches.applied(renderer.ancestry, _, _))
+              val result = (resumedIO, session.vars.get).tupled.flatMap {
+                (resumed, chosen) =>
+                  val claim = resumed.fold(store.version)(_ => covered)
+                  val record = resumed.fold(
+                    session.holds.set(painted.own.map { case (id, p) =>
+                      id -> Held(Some(p.digest), p.signals)
+                    })
+                  )(patches =>
+                    session.holds.update(
+                      patches
+                        .foldLeft(_)(Patches.applied(renderer.ancestry, _, _))
+                    )
+                  ) *> session.position.set(claim) *> session.told.set(claim)
+                  record.as(
+                    head ++ resumed.fold(List(repaint))(_.map(_.patch.toSse)) ++
+                      orphan :+
+                      // The cursor, carrying this connection's selections with it. A
+                      // swap commits its own entry, but the patch and the signal are
+                      // two writes, so a stream that died between them left a DOM
+                      // holding one panel and a signal naming another — and a pending
+                      // value with nothing to catch up to.
+                      Server
+                        .openingSignals(renderer, open, chosen, log.id, claim)
                   )
-                ) *> session.position.set(claim) *> session.told.set(claim)
-                record.as(
-                  head ++ resumed.fold(List(repaint))(_.map(_.patch.toSse)) ++
-                    orphan :+
-                    // The cursor, carrying this connection's selections with it. A
-                    // swap commits its own entry, but the patch and the signal are
-                    // two writes, so a stream that died between them left a DOM
-                    // holding one panel and a signal naming another — and a pending
-                    // value with nothing to catch up to.
-                    Server.openingSignals(renderer, open, log.id, claim)
-                )
               }
 
               OptionT.liftF(result)
@@ -1546,11 +1548,11 @@ class Server(
     * state. So a value that could not render never reaches the session, and the
     * viewer is told rather than left wondering.
     *
-    * What it does NOT yet do is ADR 0025's pending/committed pair: the press is
-    * not optimistic and there is no `_pending` signal to clear, so a slow fetch
-    * shows the old chart until the new one lands. That is the next thing this
-    * path wants, and the reason it is not here is that the control that would
-    * press it does not exist yet.
+    * The value is COMMITTED last, after the repaints, and that ordering is ADR
+    * 0025: the control's highlight already moved on the press (its own pending
+    * signal), so this frame is what ENDS that ask by agreeing with it. Sent
+    * even when every repaint was suppressed — choosing the window already
+    * showing moves no bytes, but the ask still has to end.
     *
     * Per SESSION and nothing shared: one viewer's window says nothing about
     * anyone else's, so no `Mutation` is recorded and the changelog is untouched
@@ -1589,6 +1591,11 @@ class Server(
       store <- stateStore.current
       _ <- readers.traverse_(
         repaintNode(session, renderer, _, store.entities, uiState, snapshot)
+      )
+      _ <- session.control.offer(
+        Datastar.patchSignals(
+          Server.varJson(Map((declarer, name) -> value)).noSpaces
+        )
       )
     } yield ()
   }
@@ -2180,7 +2187,18 @@ class Server(
       // bake selections came through, and the reason a refresh keeps a chart
       // on the window it was showing. Recorded on the session because a PULL
       // has no request to read them off again.
-      _ <- session.vars.set(Server.varChoicesOf(req))
+      //
+      // NARROWED to declarations here and not where it is read: an undeclared
+      // key is inert to `varEnv` but becomes a SIGNAL NAME in the opening
+      // frame, so the one place it can do harm is the one place the map is not
+      // consulted by name.
+      _ <- session.vars.set(
+        Server
+          .varChoicesOf(req)
+          .view
+          .filterKeys(renderer.declarations.contains)
+          .toMap
+      )
       _ <- session.position.set(store.version)
       // The page renders the cursor into its own signals, so the document
       // IS an announcement — and the first one. Without this a client
@@ -3294,11 +3312,44 @@ object Server {
     * whoever reads it. Sharing the map would make `SurfaceGraph` see entries it
     * must ignore and give `committedSelections` half a question to answer.
     *
-    * The URL and NOT the signals, unlike `uiStateOf`, because nothing writes a
-    * variable yet: a signal reader here would be a branch no client can reach.
-    * The write path is what earns one, and it is what will decide the name.
+    * The URL and NOT the signals, unlike `uiStateOf`: a control writes its
+    * choice through the route, and the server reads it back from the SESSION,
+    * so a signal reader here would be a second way in that answers the same
+    * question worse — from a payload the client composes rather than from what
+    * this connection was actually granted. What the signals DO carry is the
+    * other direction ([[varSignal]]).
     */
   val VarParamPrefix: String = "v."
+
+  /** The group id a variable's pending/committed pair is built from (ADR 0025),
+    * and the committed signal itself — what a control reads to show which value
+    * `name` HOLDS for this connection.
+    *
+    * A namespace of its own and not `ui_`, for the reason [[VarParamPrefix]]
+    * gives twice over: [[uiFromSignals]] reads every `ui_` signal back as a
+    * bake-group selection, so a variable spelled there would be reported as an
+    * unknown group by `SurfaceGraph` on every request that carried it.
+    *
+    * `_`-prefixed, so it never rides a request. Nothing needs it to — the
+    * server learns what was asked for from the URL path — and the pending twin
+    * `_<group>__pending` then falls out of the names the rest of ADR 0025
+    * already uses, `Server.PendingSweep`'s `/__pending$/` included.
+    *
+    * Keyed by DECLARER and not by the node that pressed: two panels can each
+    * declare a `window`, and a choice made in one must not move the other.
+    */
+  private[runtime] def varGroupId(declarer: NodeId, name: String): String =
+    s"var_${declarer}__$name"
+
+  private[runtime] def varSignal(declarer: NodeId, name: String): String =
+    "_" + varGroupId(declarer, name)
+
+  private[runtime] def varJson(
+      values: Map[(NodeId, String), String]
+  ): io.circe.Json =
+    io.circe.Json.obj(values.toList.map { case ((declarer, name), value) =>
+      varSignal(declarer, name) -> io.circe.Json.fromString(value)
+    }*)
 
   /** This viewer's chosen variable values, off the page URL — the carrier that
     * survives a refresh and is unique per document.
@@ -3857,10 +3908,16 @@ object Server {
   ): SseFrame =
     Datastar.patchSignals(cursorJson(renderer, logId, version).noSpaces)
 
-  /** A connect's last event: the cursor, PLUS what this connection's DOM is
-    * showing as the `ui_*` signals (ADR 0025). Only the server writes those; a
-    * tap says what it ASKED for in a pending signal, and the ask ends when one
-    * of these agrees with it.
+  /** A connect's last event: the cursor, PLUS everything this connection holds
+    * that only the server may assert (ADR 0025) — its bake selections as
+    * `ui_*`, and its node variables as `_var_*`. A tap says what it ASKED for
+    * in a pending signal, and the ask ends when one of these agrees with it.
+    *
+    * The variables are TOTAL over the build's declarations and not just over
+    * the choices this session made, which is what makes a LOST session safe: a
+    * session that has forgotten a choice is back at the declared value, and a
+    * control left highlighting the old one is told so here rather than
+    * disagreeing with the chart beside it for the rest of the connection.
     *
     * Merged into the cursor's frame rather than sent beside it, for the reason
     * `SessionLifecycleSuite` states as one event: an opening block that grows
@@ -3870,12 +3927,18 @@ object Server {
   private[runtime] def openingSignals(
       renderer: Renderer,
       open: Set[String],
+      chosen: Map[(NodeId, String), String],
       logId: String,
       version: Long
   ): SseFrame =
     Datastar.patchSignals(
       cursorJson(renderer, logId, version)
         .deepMerge(selectionJson(renderer, open))
+        .deepMerge(
+          varJson(renderer.declarations.map { case (key, declared) =>
+            key -> chosen.getOrElse(key, declared)
+          })
+        )
         .noSpaces
     )
 

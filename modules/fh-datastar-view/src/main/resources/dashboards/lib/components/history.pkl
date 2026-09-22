@@ -8,6 +8,8 @@ module components.history
 
 import "../core/node.pkl" as nodes
 import "../core/slot.pkl" as slotMod
+import "../core/tap.pkl" as tapMod
+import "../core/variable.pkl" as varMod
 import "../hass.pkl"
 
 /// How far back a chart looks. A closed set, because the window is what the
@@ -39,7 +41,14 @@ class HistoryChart extends nodes.Node {
 
   hidden entity: hass.SensorEntity
 
-  hidden window: Window = "24h"
+  /// The window drawn, or a READ of a node variable holding one
+  /// ([[varMod.ref]]) — which is what puts the chart under a [[WindowChooser]]
+  /// and makes it move when somebody presses a button.
+  ///
+  /// A reference cannot be narrowed to [[Window]] here and deliberately is not:
+  /// what a window may be is `HistoryQuery.parse`'s to say, at the write, and a
+  /// second list in the type would be free to disagree with it.
+  hidden window: Window|varMod.Ref = "24h"
 
   slots {
     // The unit is the entity's OWN `unit_of_measurement`, not a copy: the card
@@ -48,7 +57,14 @@ class HistoryChart extends nodes.Node {
     ["chart"] = slotMod.chartSlot(entity.entity_id, window, entity.unit_of_measurement)
   }
 
-  function over(w: Window): HistoryChart = let (self = this) (self) { window = w }
+  function over(w: Window|varMod.Ref): HistoryChart = let (self = this) (self) { window = w }
+
+  /// Read the window from the [[windowVar]] node variable instead of fixing
+  /// one — what puts this chart under a [[WindowChooser]]. The chooser declares
+  /// that name and this reads it, which is why neither takes it as an argument:
+  /// a name spelled twice is a pair that can drift, and the nearest declaring
+  /// ancestor is what tells two choosers on one page apart.
+  function chosen(): HistoryChart = over(varMod.ref(windowVar))
 }
 
 /// A chart of `e`'s last 24 hours — `c.historyChart(sensor).over("7d")` for any
@@ -60,3 +76,79 @@ class HistoryChart extends nodes.Node {
 /// so a composition can ask before it draws instead of finding out at runtime.
 function historyChart(e: hass.SensorEntity): HistoryChart =
   new HistoryChart { entity = e }
+
+/// The node variable a [[WindowChooser]] declares and [[HistoryChart.chosen]]
+/// reads. Fixed rather than an argument on either: see [[HistoryChart.chosen]].
+const windowVar: String = "window"
+
+/// The windows the bar offers, which is every [[Window]] there is.
+///
+/// A second list beside the typealias, and the one place this library keeps
+/// one: `Listing<Window>` makes it impossible to OFFER a window that is not a
+/// window, so the only drift available is omitting one — visible the moment
+/// anybody looks at the bar. The general "declare a variable and a control over
+/// the same list" component is still wanted (`core/variable.pkl`); it needs a
+/// node to be able to spell its own id from a child, which the build's
+/// `@@NODE_ID@@` splice only does for a node that also carries inline surfaces.
+const windows: Listing<Window> = new { "1h"; "24h"; "7d"; "30d" }
+
+// The pending/committed pair (ADR 0025) for the variable this chooser declares,
+// named from the chooser's OWN `{{id}}` — which is the declarer's id, the
+// identity a choice is addressed to (`Server.varGroupId`/`varSignal`). Mustache
+// fills `{{id}}` before any of it reaches the browser, so what the DOM sees is
+// an ordinary signal name.
+const local varGroup: String = "var_{{id}}__\(windowVar)"
+const local varCommitted: String = "_\(varGroup)"
+
+// One button. The press writes PENDING and nothing else — the committed value
+// is the server's, sent after it has re-rendered the charts that read it, and
+// agreeing with pending is what ends the ask. So a window the chart cannot draw
+// (refused at the write boundary) leaves the highlight where it was instead of
+// claiming a chart nobody is looking at.
+const local function windowButton(w: Window): String = """
+  <a data-class="{active: \(tapMod.pendingOrCommittedOf(varGroup, varCommitted)) === '\(w)'}" data-on:click="$\(tapMod.pendingSignal(varGroup)) = '\(w)'; @post('sse/var/{{dashboardSlug}}/{{id}}/\(windowVar)/\(w)?group=\(varGroup)')">\(w)</a>
+  """
+
+/// A window bar over the charts beneath it: press `7d` and every
+/// [[HistoryChart.chosen]] in this subtree redraws at a week.
+///
+/// It DECLARES the variable as well as offering the choice, and that is the
+/// whole reason the two live in one component rather than two: the button has
+/// to name the declaring node in the route it posts to and in the signal it
+/// reads, and the only node id a template can spell is its own.
+///
+///     (c.windowChooser) {
+///       children { c.historyChart(sensor).chosen() }
+///     }
+///
+/// The charts need not be direct children — resolution is by name up the
+/// ancestor chain, so a chart nested three containers down still finds this
+/// one, and a nested chooser shadows it for its own subtree.
+///
+/// The bar is BeerCSS's `.tabs` (its styling is the structural selector
+/// `.tabs > a`, so the anchors are literal children of it) and carries no live
+/// value of its own: the highlight is client-side off the two selection
+/// signals, seeded here with `__ifmissing` so the first paint shows the
+/// declared window rather than nothing until the opening frame lands.
+class WindowChooser extends nodes.Node {
+  card = "historyWindows"
+  cardDef = new nodes.CardDef {
+    regions = new Mapping { [nodes.defaultRegion] = new nodes.Region {} }
+    template = """
+      <div class="fh-col"><nav class="tabs" data-signals__ifmissing="{ \(varCommitted): '{{start}}', \(tapMod.pendingSeedEntry(varGroup)) }" \(tapMod.pendingClearAgainst(varGroup, varCommitted))>\(windows.toList().map((w) -> windowButton(w)).join(""))</nav>{{#children}}{{{html}}}{{/children}}</div>
+      """
+    slots { "start" }
+  }
+  /// The window shown before anybody presses anything — the DECLARED value, so
+  /// it is also what a viewer is handed back if their session is forgotten.
+  hidden start: Window = "24h"
+  vars = new Mapping { [windowVar] = start }
+  slots { ["start"] = start }
+  // A chooser is a section header over its charts, not a third of a grid row.
+  cell = new nodes.Cell { classes { "fh-cols-full" } }
+
+  function starting(w: Window): WindowChooser = let (self = this) (self) { start = w }
+}
+
+/// Amendable base instance — `(c.windowChooser) { children { ... } }`.
+hidden windowChooser: WindowChooser = new WindowChooser {}
