@@ -5,15 +5,8 @@ import cats.syntax.all.*
 
 import java.time.Instant
 
-/** What a cached series is keyed by.
-  *
-  * `bucket` is the window's own floor of "now", so the entry expires by time
-  * moving rather than by a timer: every viewer asking for the same window
-  * inside the same bucket gets one fetch, and the moment the bucket rolls the
-  * old key is simply never asked for again.
-  *
-  * `identity` is first because it is the one component whose omission would be
-  * a permission leak rather than a performance bug — see [[SeriesIdentity]].
+/** `bucket` is the window's floor of "now", so an entry expires by its bucket
+  * rolling rather than by a timer.
   */
 final case class SeriesKey(
     identity: SeriesIdentity,
@@ -22,19 +15,12 @@ final case class SeriesKey(
     bucket: Instant
 )
 
-/** The pull-side counterpart of `StateStore`: one fetch per key, shared by
-  * everyone who asks for it, dropped when its bucket rolls.
+/** One fetch per key, shared by everyone who asks, dropped when its bucket
+  * rolls.
   *
-  * A `Deferred` per key rather than a plain value, so the SECOND caller of a
-  * cold key waits for the first caller's fetch instead of starting its own. A
-  * chart appearing on ten open tabs at once is the normal case, not the
-  * exceptional one, and ten parallel history calls for one series would be the
-  * default behaviour without it.
-  *
-  * A failure is not cached. It is removed on completion, so the next asker
-  * retries — the opposite of the memoized `None` that suits a one-shot lookup,
-  * because a series that failed because HA was briefly down should come back
-  * when it is up rather than at the next bucket.
+  * A `Deferred` per key so concurrent callers of a cold key wait on one fetch.
+  * A failure is removed rather than cached, so the next asker retries instead
+  * of waiting for the next bucket.
   */
 final class SeriesStore private (
     entries: Ref[IO, Map[SeriesKey, Deferred[IO, Either[Throwable, Series]]]],
@@ -54,12 +40,11 @@ final class SeriesStore private (
           current.get(key) match {
             case Some(existing) => (current, Left(existing))
             case None           =>
-              // Everything for an older bucket is unreachable — a key names
-              // its bucket, so nothing will ask for it again. Swept here
-              // rather than on a schedule because this is the only moment the
-              // map is already being written.
+              // Each key against its OWN window's current bucket: windows
+              // bucket at different sizes, so comparing with `key.bucket`
+              // would sweep a live 7d entry whenever a 1h one is asked for.
               val live = current.filter { case (k, _) =>
-                k.bucket.compareTo(key.bucket) >= 0
+                k.bucket.compareTo(k.window.bucketOf(asOf)) >= 0
               }
               (live + (key -> slot), Right(slot))
           }
@@ -79,7 +64,6 @@ final class SeriesStore private (
     }
   }
 
-  /** What is currently held, for tests and diagnostics. */
   def keys: IO[Set[SeriesKey]] = entries.get.map(_.keySet)
 }
 
