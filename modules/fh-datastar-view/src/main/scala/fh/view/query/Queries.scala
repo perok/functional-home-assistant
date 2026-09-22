@@ -108,7 +108,7 @@ final class QueryResolver(history: HistoryProvider, chart: ChartStage) {
       case StageRequest.Chart(style) =>
         chart
           .draw(
-            ChartStage.question(identity, query),
+            (identity, query),
             style,
             answered.version,
             answered.data

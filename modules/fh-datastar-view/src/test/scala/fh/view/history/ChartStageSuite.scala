@@ -3,6 +3,7 @@ package fh.view.history
 import cats.effect.{IO, Ref}
 import cats.syntax.all.*
 import fh.view.FHError
+import fh.view.query.{QueryIdentity, QueryRequest}
 import io.circe.Json
 
 /** What a DRAWING costs: keyed by question and every field of its style, and
@@ -10,7 +11,10 @@ import io.circe.Json
   */
 class ChartStageSuite extends munit.CatsEffectSuite {
 
-  private val q = "sensor.t|24h"
+  private def question(entity: String): ChartStage.Question =
+    (QueryIdentity.Instance, QueryRequest.History(entity, Window.LastDay))
+
+  private val q = question("sensor.t")
 
   private val data = Series.toJson(
     Series(Vector(Series.Point(java.time.Instant.EPOCH, 1.0)), 0)
@@ -78,8 +82,8 @@ class ChartStageSuite extends munit.CatsEffectSuite {
     fixture(draw = (s, _) => IO.pure(s"<svg>${s.points.head.value}</svg>"))
       .flatMap { case (stage, draws) =>
         for {
-          a <- stage.draw("sensor.a", ChartStyle(), 100L, dataOf(1.0))
-          b <- stage.draw("sensor.b", ChartStyle(), 100L, dataOf(2.0))
+          a <- stage.draw(question("sensor.a"), ChartStyle(), 100L, dataOf(1.0))
+          b <- stage.draw(question("sensor.b"), ChartStyle(), 100L, dataOf(2.0))
           d <- draws.get
         } yield {
           assertEquals((a, b), ("<svg>1.0</svg>", "<svg>2.0</svg>"))

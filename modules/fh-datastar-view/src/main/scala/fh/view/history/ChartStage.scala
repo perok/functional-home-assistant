@@ -20,20 +20,21 @@ type ChartDraw = (Series, ChartStyle) => IO[String]
   */
 final class ChartStage private (
     renderer: IO[ChartDraw],
-    entries: Ref[IO, Map[(String, String), ChartStage.Entry]]
+    entries: Ref[IO, Map[ChartStage.Key, ChartStage.Entry]]
 ) {
 
-  /** `question` names what was answered ([[ChartStage.question]]); concurrent
-    * callers of a cold key wait on one drawing.
+  /** Concurrent callers of a cold key wait on one drawing. Every style field is
+    * in the key: a 600px drawing served for a 300px ask is a squashed axis
+    * rather than a visible error.
     */
   def draw(
-      question: String,
+      question: ChartStage.Question,
       style: ChartStyle,
       version: Long,
       data: Json
   ): IO[String] =
     Deferred[IO, Either[Throwable, String]].flatMap { mine =>
-      val key = (question, ChartStage.keyOf(style))
+      val key = (question, style)
       entries
         .modify { current =>
           current.get(key) match {
@@ -64,29 +65,25 @@ final class ChartStage private (
       .liftTo[IO]
       .flatMap(s => renderer.flatMap(_(s, style)))
 
-  def keys: IO[Set[(String, String)]] = entries.get.map(_.keySet)
+  def keys: IO[Set[ChartStage.Key]] = entries.get.map(_.keySet)
 }
 
 object ChartStage {
+
+  /** Who asked, and what: identity is part of it because what a provider
+    * answers may depend on who reads.
+    */
+  type Question = (QueryIdentity, QueryRequest)
+
+  type Key = (Question, ChartStyle)
 
   private case class Entry(
       version: Long,
       slot: Deferred[IO, Either[Throwable, String]]
   )
 
-  /** Who asked, and what: identity is part of it because what a provider
-    * answers may depend on who reads.
-    */
-  def question(identity: QueryIdentity, request: QueryRequest): String =
-    s"$identity|$request"
-
-  // Every field: a 600px drawing served for a 300px ask is a squashed axis
-  // rather than a visible error.
-  private def keyOf(s: ChartStyle): String =
-    s"${s.width}x${s.height}|${s.line}|${s.fill.getOrElse("")}|${s.unit.getOrElse("")}"
-
   def create(renderer: IO[ChartDraw]): IO[ChartStage] =
     Ref[IO]
-      .of(Map.empty[(String, String), Entry])
+      .of(Map.empty[Key, Entry])
       .map(new ChartStage(renderer, _))
 }
