@@ -331,6 +331,13 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   nullability mismatch pkl-lsp reports BEFORE eval. `lightControls` is the `when`-per-capability
   shortcut. Do not "simplify" this into a builder method or a selector enum — both hide the choice
   from static analysis; ADR 0013 "Shapes considered" has the four attempts),
+  **node variables** (issue #209 — a node DECLARES a named value (`vars`) and a descendant reads it
+  by name in a query parameter (`varMod.ref`), resolving up the ancestor chain so a nested
+  declaration shadows; a viewer's choice is per SESSION, keyed by declaring node, and the write
+  boundary refuses a value no declared reader can parse, which is why a declaration carries no list
+  of allowed values. `c.windowChooser` is the one shipped control: it declares `window` AND renders
+  the bar, because only a node's own template can spell its id, and `c.historyChart(s).chosen()`
+  reads it),
   tabs, popups/surfaces, more-info (`c.entityCard(e) |> c.informative`, or the `c.moreInfo(e)` tap:
   an INLINE popup holding the entity's card, its domain controls, and `c.entityInfo(e)` — the id plus
   every attribute it reports, as one live text block, since a template cannot loop over attributes.
