@@ -3,50 +3,37 @@ package fh.view.history
 import cats.effect.{Deferred, IO, Ref}
 import cats.syntax.all.*
 import fh.view.FHError
+import fh.view.query.{QueryIdentity, QueryRequest}
 import io.circe.Json
 
-/** How a series becomes bytes.
-  *
-  * Narrow on purpose, and the reason outlived its first home: taking the whole
-  * [[ChartRenderer]] would put a JavaScript engine in every test that only
-  * wants to know what the cache does — the same reason [[SeriesProvider]] takes
-  * a [[SeriesSource]] rather than the HA client.
+/** How a series becomes bytes — a function rather than [[ChartRenderer]], so a
+  * cache test needs no JavaScript engine.
   */
 type ChartDraw = (Series, ChartStyle) => IO[String]
 
 /** The built-in drawing stage: a provider's series in, SVG out.
   *
-  * It sits where the FETCH already happens — before the walk — because drawing
-  * is `IO` (a Graal context) and a render is a synchronous string build. What
-  * moved is only whose job it is: the provider answers data, and what that data
-  * becomes is the slot's `transform`.
-  *
-  * '''One drawing per (stage, version), and the cache needs no expiry.''' That
-  * is the half of [[BucketCache]] this does NOT need, and the reason is worth
-  * stating because the two caches now look similar and are not. A SERIES has a
-  * shelf life — it stops being current when its bucket rolls, which is a fact
-  * about recorder data and the thing that decides when a version moves. A
-  * DRAWING has none: it is a deterministic function of an answer, so an entry
-  * for a superseded version is dead the moment the version moves, and replacing
-  * in place is the whole of eviction.
+  * One drawing per (question, style), replaced in place when the version moves,
+  * so it needs no expiry: unlike a series, a drawing is a pure function of its
+  * answer. The question is in the key because the version alone does not name
+  * an answer — two sensors over one window share a bucket.
   */
 final class ChartStage private (
     renderer: IO[ChartDraw],
-    entries: Ref[IO, Map[String, ChartStage.Entry]]
+    entries: Ref[IO, Map[(String, String), ChartStage.Entry]]
 ) {
 
-  /** Draw `data` at `style`, or serve the drawing already made for this
-    * version.
-    *
-    * The `Deferred` is the same trick [[BucketCache]] uses and for the same
-    * reason: concurrent page opens are the case that matters, so the second
-    * caller of a cold key waits for the first rather than starting a second
-    * drawing — which here would also mean a second turn through the renderer's
-    * process-wide mutex.
+  /** `question` names what was answered ([[ChartStage.question]]); concurrent
+    * callers of a cold key wait on one drawing.
     */
-  def draw(style: ChartStyle, version: Long, data: Json): IO[String] =
+  def draw(
+      question: String,
+      style: ChartStyle,
+      version: Long,
+      data: Json
+  ): IO[String] =
     Deferred[IO, Either[Throwable, String]].flatMap { mine =>
-      val key = ChartStage.keyOf(style)
+      val key = (question, ChartStage.keyOf(style))
       entries
         .modify { current =>
           current.get(key) match {
@@ -55,10 +42,7 @@ final class ChartStage private (
               (
                 current.updated(key, ChartStage.Entry(version, mine)),
                 compute(style, data).attempt.flatTap(r =>
-                  // A failure is not cached: it is removed on completion so the
-                  // next asker retries, the same rule the series cache keeps.
-                  // Otherwise one bad draw would blank a chart until its bucket
-                  // rolled.
+                  // Not cached on failure, so the next asker retries.
                   mine.complete(r) *>
                     entries.update(_ - key).whenA(r.isLeft)
                 )
@@ -68,6 +52,10 @@ final class ChartStage private (
         .flatten
         .rethrow
     }
+
+  /** For a caller that only ever draws ONE question. */
+  def draw(style: ChartStyle, version: Long, data: Json): IO[String] =
+    draw("", style, version, data)
 
   private def compute(style: ChartStyle, data: Json): IO[String] =
     data
@@ -80,8 +68,7 @@ final class ChartStage private (
       .liftTo[IO]
       .flatMap(s => renderer.flatMap(_(s, style)))
 
-  /** What is currently drawn, for tests and diagnostics. */
-  def keys: IO[Set[String]] = entries.get.map(_.keySet)
+  def keys: IO[Set[(String, String)]] = entries.get.map(_.keySet)
 }
 
 object ChartStage {
@@ -91,13 +78,19 @@ object ChartStage {
       slot: Deferred[IO, Either[Throwable, String]]
   )
 
-  /** A style's identity. Every field, because every one of them changes the
-    * picture — serving a 600px drawing for a 300px ask is a squashed axis
-    * rather than a visible error.
+  /** Who asked, and what: identity is part of it because what a provider
+    * answers may depend on who reads.
     */
+  def question(identity: QueryIdentity, request: QueryRequest): String =
+    s"$identity|$request"
+
+  // Every field: a 600px drawing served for a 300px ask is a squashed axis
+  // rather than a visible error.
   private def keyOf(s: ChartStyle): String =
     s"${s.width}x${s.height}|${s.line}|${s.fill.getOrElse("")}|${s.unit.getOrElse("")}"
 
   def create(renderer: IO[ChartDraw]): IO[ChartStage] =
-    Ref[IO].of(Map.empty[String, Entry]).map(new ChartStage(renderer, _))
+    Ref[IO]
+      .of(Map.empty[(String, String), Entry])
+      .map(new ChartStage(renderer, _))
 }

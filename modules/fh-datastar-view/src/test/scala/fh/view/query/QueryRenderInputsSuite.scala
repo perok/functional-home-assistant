@@ -199,6 +199,51 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
     }
   }
 
+  test("two sensors over one window each get their own drawing") {
+    // Same window means same bucket, so same version and same style: only the
+    // question tells the two drawings apart.
+    def sensor(e: String) =
+      SlotRead(
+        SlotQuery("history", Map("entity" -> e, "window" -> "24h")),
+        drawn()
+      )
+    val a = sensor("sensor.a")
+    val b = sensor("sensor.b")
+    for {
+      store <- SeriesStore.create(
+        new SeriesProvider {
+          def identify(req: org.http4s.Request[IO]) =
+            IO.pure(QueryIdentity.Instance)
+          def series(
+              identity: QueryIdentity,
+              entityId: String,
+              window: Window,
+              asOf: Instant
+          ) = IO.pure(
+            Series(
+              Vector(Series.Point(asOf, if (entityId == "sensor.a") 1 else 2)),
+              0
+            )
+          )
+        }
+      )
+      history <- HistoryProvider.create(store)
+      stage <- ChartStage.create(
+        IO.pure((s, _) => IO.pure(s"<svg>${s.points.head.value}</svg>"))
+      )
+      f <- Fragments.resolve(
+        QueryResolver(history, stage),
+        plan(a, b),
+        List(a, b),
+        QueryIdentity.Instance,
+        Instant.EPOCH
+      )
+    } yield {
+      assertEquals(f.html(a), "<svg>1.0</svg>")
+      assertEquals(f.html(b), "<svg>2.0</svg>")
+    }
+  }
+
   test("passthrough puts the provider's DATA in the hole, undrawn") {
     // The third-party contract: no transform, no drawing, and the JSON a
     // client library would read. Nothing is drawn at all, which is what makes

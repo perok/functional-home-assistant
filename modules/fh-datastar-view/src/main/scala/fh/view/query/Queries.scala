@@ -128,15 +128,9 @@ object Queries {
     (parse(read.query), parseStage(read.stage)).tupled
 }
 
-/** Answers parsed queries and runs parsed stages. Holds what resolving needs
-  * and parsing does not: the per-provider caches, the HA connection, the
-  * JavaScript context.
-  *
-  * The two halves are deliberately separate methods rather than one call. They
-  * deduplicate at different levels — one fetch per query, one drawing per
-  * (query, stage) — and a single entry point would have to rediscover that
-  * split internally, which is what the provider used to do with two private
-  * caches.
+/** Answers parsed queries and runs parsed stages. Two methods because they
+  * dedupe at different levels: one fetch per query, one drawing per (query,
+  * stage).
   */
 final class QueryResolver(history: HistoryProvider, chart: ChartStage) {
 
@@ -149,16 +143,23 @@ final class QueryResolver(history: HistoryProvider, chart: ChartStage) {
       history.answer(identity, entityId, window, asOf)
   }
 
-  def stage(request: StageRequest, answered: Answer): IO[Fragment] =
+  def stage(
+      identity: QueryIdentity,
+      query: QueryRequest,
+      request: StageRequest,
+      answered: Answer
+  ): IO[Fragment] =
     request match {
       case StageRequest.Passthrough =>
-        // No transform: the provider's JSON, as the slot's value. It goes in an
-        // ESCAPED hole — it is an attribute value, not markup — which is the
-        // other half of the rule that a drawn stage needs the raw one.
         IO.pure(Fragment(answered.version, answered.data.noSpaces))
       case StageRequest.Chart(style) =>
         chart
-          .draw(style, answered.version, answered.data)
+          .draw(
+            ChartStage.question(identity, query),
+            style,
+            answered.version,
+            answered.data
+          )
           .map(Fragment(answered.version, _))
     }
 }

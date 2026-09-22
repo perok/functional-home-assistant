@@ -72,6 +72,24 @@ class ChartStageSuite extends munit.CatsEffectSuite {
     }
   }
 
+  test("two questions in one bucket are two drawings of their own data") {
+    // Two sensors over one window share a version (the bucket), so the
+    // version alone cannot say whose drawing an entry is.
+    def dataOf(v: Double) =
+      Series.toJson(Series(Vector(Series.Point(java.time.Instant.EPOCH, v)), 0))
+    fixture(draw = (s, _) => IO.pure(s"<svg>${s.points.head.value}</svg>"))
+      .flatMap { case (stage, draws) =>
+        for {
+          a <- stage.draw("sensor.a", ChartStyle(), 100L, dataOf(1.0))
+          b <- stage.draw("sensor.b", ChartStyle(), 100L, dataOf(2.0))
+          d <- draws.get
+        } yield {
+          assertEquals((a, b), ("<svg>1.0</svg>", "<svg>2.0</svg>"))
+          assertEquals(d, 2)
+        }
+      }
+  }
+
   test("a failed drawing is not cached, so the next asker retries") {
     // Same rule the series cache keeps, and for the same reason: otherwise one
     // bad draw blanks a chart until its version moves, which for a 30 d window
