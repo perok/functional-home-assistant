@@ -2972,7 +2972,7 @@ object Server {
       loggerFactory: LoggerFactory[IO] = Logging.console,
       meters: Meters = Meters.noop
   ): Resource[IO, Server] =
-    historyQueries(feed.api).flatMap(queries =>
+    historyQueries(feed.api, loggerFactory).flatMap(queries =>
       withSite(
         actions(feed.api),
         feed.store,
@@ -2999,10 +2999,11 @@ object Server {
     * while a second viewer in the same bucket pays nothing at all.
     */
   private def historyQueries(
-      api: HomeAssistantApi[IO]
+      api: HomeAssistantApi[IO],
+      loggerFactory: LoggerFactory[IO]
   ): Resource[IO, QueryResolver] =
     for {
-      chart <- ChartRenderer.resource.memoizedAcquire
+      chart <- ChartRenderer.resource(loggerFactory).memoizedAcquire
       retention <- Retention.create.toResource
       store <- SeriesStore
         .create(
