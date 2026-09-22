@@ -5,15 +5,8 @@ import fh.view.query.QueryIdentity
 
 import java.time.Instant
 
-/** What a cached series is keyed by.
-  *
-  * `bucket` is the window's own floor of "now", so the entry expires by time
-  * moving rather than by a timer: every viewer asking for the same window
-  * inside the same bucket gets one fetch, and the moment the bucket rolls the
-  * old key is simply never asked for again.
-  *
-  * `identity` is first because it is the one component whose omission would be
-  * a permission leak rather than a performance bug — see [[QueryIdentity]].
+/** `bucket` is the window's floor of "now", so an entry expires by its bucket
+  * rolling rather than by a timer.
   */
 final case class SeriesKey(
     identity: QueryIdentity,
@@ -22,15 +15,12 @@ final case class SeriesKey(
     bucket: Instant
 ) {
 
-  /** When this entry stops being current: its bucket plus its OWN window's
-    * bucket length. Per key, because a 1 h read and a 30 d read do not expire
-    * on the same schedule — see [[BucketCache]].
-    */
+  /** Per key: a 1 h and a 30 d read expire on different schedules. */
   def expiresAt: Instant = bucket.plusSeconds(window.bucket.toSeconds)
 }
 
-/** The pull-side counterpart of `StateStore`: one fetch per key, shared by
-  * everyone who asks for it, dropped when its bucket rolls.
+/** One fetch per key, shared by everyone who asks, dropped when its bucket
+  * rolls.
   */
 final class SeriesStore private (
     cache: BucketCache[SeriesKey, Series],
@@ -47,7 +37,6 @@ final class SeriesStore private (
     cache.get(key, asOf)(provider.series(identity, entityId, window, asOf))
   }
 
-  /** What is currently held, for tests and diagnostics. */
   def keys: IO[Set[SeriesKey]] = cache.keys
 }
 

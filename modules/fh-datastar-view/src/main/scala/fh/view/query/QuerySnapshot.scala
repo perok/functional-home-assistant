@@ -169,8 +169,10 @@ object QuerySnapshot {
         }
         .map(_.toMap)
       staged <- wanted.parTraverse { read =>
-        guard(read.query)(resolver.stage(plans(read)._2, answers(read.query)))
-          .map(read -> _)
+        val (qr, sr) = plans(read)
+        guard(read.query)(
+          resolver.stage(identity, qr, sr, answers(read.query))
+        ).map(read -> _)
       }
     } yield new QuerySnapshot(staged.toMap, vars)
   }

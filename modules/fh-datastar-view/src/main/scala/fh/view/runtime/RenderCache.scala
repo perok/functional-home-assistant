@@ -58,17 +58,10 @@ private[runtime] object NodeBytes {
   * `RenderCacheContentionSuite` holds that at 1.0 renders a frame however many
   * viewers and however many tabs.
   *
-  * '''A per-viewer dimension is back, though, and it does not churn.'''
-  * [[RenderInputs]] also carries `SlotRead -> version` (ADR 0031), and a query
-  * read is per VIEWER in a way a bake selection is not: two viewers charting
-  * one sensor over different windows hold differently-SHAPED keys, so neither
-  * `isAtLeast` the other — which is what stops a chart of the wrong span being
-  * served, and is why the shapes must stay unordered. What that costs the
-  * single slot is the open part: the prediction is that neither is a straggler
-  * and each install evicts the other, one render per pull each and never wrong
-  * bytes. Read off the code below rather than measured — issue #209 is where it
-  * stops being a prediction, and where bucketing per read comes back if the
-  * number says so.
+  * Query reads ARE per viewer (ADR 0031): two viewers on different windows hold
+  * differently-shaped keys, so neither `isAtLeast` the other and neither is
+  * served the wrong span. The unmeasured cost is that they evict each other
+  * from the one slot (issue #209).
   *
   * '''A STRAGGLER NEVER DISPLACES THE CURRENT GENERATION.''' Sessions pull in
   * parallel and read the store when they get there, so they do not all render

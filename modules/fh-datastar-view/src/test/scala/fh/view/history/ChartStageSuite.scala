@@ -14,6 +14,8 @@ import io.circe.Json
   */
 class ChartStageSuite extends munit.CatsEffectSuite {
 
+  private val q = "sensor.t|24h"
+
   private val data = Series.toJson(
     Series(Vector(Series.Point(java.time.Instant.EPOCH, 1.0)), 0)
   )
@@ -35,7 +37,7 @@ class ChartStageSuite extends munit.CatsEffectSuite {
     // cache, so without this every page open would redraw.
     fixture().flatMap { case (stage, draws) =>
       List
-        .fill(10)(stage.draw(ChartStyle(), 100L, data))
+        .fill(10)(stage.draw(q, ChartStyle(), 100L, data))
         .parSequence
         .flatMap { results =>
           draws.get.map { d =>
@@ -51,8 +53,8 @@ class ChartStageSuite extends munit.CatsEffectSuite {
     // they share is not visible from here any more, which is the point of the
     // split — see `QueryRenderInputsSuite` for the property that spans both.
     fixture().flatMap { case (stage, draws) =>
-      stage.draw(ChartStyle(width = 600), 100L, data) *>
-        stage.draw(ChartStyle(width = 320), 100L, data) *>
+      stage.draw(q, ChartStyle(width = 600), 100L, data) *>
+        stage.draw(q, ChartStyle(width = 320), 100L, data) *>
         draws.get.map(assertEquals(_, 2))
     }
   }
@@ -63,13 +65,31 @@ class ChartStageSuite extends munit.CatsEffectSuite {
     // superseded version is dead the moment the version moves and replacing in
     // place is the whole of eviction.
     fixture().flatMap { case (stage, draws) =>
-      stage.draw(ChartStyle(), 100L, data) *>
-        stage.draw(ChartStyle(), 100L, data) *>
+      stage.draw(q, ChartStyle(), 100L, data) *>
+        stage.draw(q, ChartStyle(), 100L, data) *>
         draws.get.map(assertEquals(_, 1)) *>
-        stage.draw(ChartStyle(), 200L, data) *>
+        stage.draw(q, ChartStyle(), 200L, data) *>
         draws.get.map(assertEquals(_, 2)) *>
         stage.keys.map(ks => assertEquals(ks.size, 1))
     }
+  }
+
+  test("two questions in one bucket are two drawings of their own data") {
+    // Two sensors over one window share a version (the bucket), so the
+    // version alone cannot say whose drawing an entry is.
+    def dataOf(v: Double) =
+      Series.toJson(Series(Vector(Series.Point(java.time.Instant.EPOCH, v)), 0))
+    fixture(draw = (s, _) => IO.pure(s"<svg>${s.points.head.value}</svg>"))
+      .flatMap { case (stage, draws) =>
+        for {
+          a <- stage.draw("sensor.a", ChartStyle(), 100L, dataOf(1.0))
+          b <- stage.draw("sensor.b", ChartStyle(), 100L, dataOf(2.0))
+          d <- draws.get
+        } yield {
+          assertEquals((a, b), ("<svg>1.0</svg>", "<svg>2.0</svg>"))
+          assertEquals(d, 2)
+        }
+      }
   }
 
   test("a failed drawing is not cached, so the next asker retries") {
@@ -87,8 +107,10 @@ class ChartStageSuite extends munit.CatsEffectSuite {
           )
         )
         .flatMap { stage =>
-          stage.draw(ChartStyle(), 100L, data).attempt *>
-            stage.draw(ChartStyle(), 100L, data).map(assertEquals(_, "<svg/>"))
+          stage.draw(q, ChartStyle(), 100L, data).attempt *>
+            stage
+              .draw(q, ChartStyle(), 100L, data)
+              .map(assertEquals(_, "<svg/>"))
         }
     }
   }
@@ -99,7 +121,7 @@ class ChartStageSuite extends munit.CatsEffectSuite {
     // a blank chart would be the worst way to report it.
     fixture().flatMap { case (stage, _) =>
       stage
-        .draw(ChartStyle(), 100L, Json.obj("nope" -> Json.True))
+        .draw(q, ChartStyle(), 100L, Json.obj("nope" -> Json.True))
         .attempt
         .map { r =>
           r.left.getOrElse(fail("expected a failure")) match {

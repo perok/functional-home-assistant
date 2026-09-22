@@ -122,10 +122,14 @@ None of this was designed separately; all of it fell out.
 
 ## Consequences
 
-- **A provider is a case in a closed sum**, not a registration: `QueryRequest`, `Queries.parse`,
-  `QueryResolver`, and a member of the union in `core/slot.pkl` — all four pointed at by the
-  compiler or the Pkl typechecker. Same for a stage. There is no plugin story to pay for, and one
-  `match` says in code what exists where a name→instance map says only what somebody remembered.
+- **A provider is a case in a closed sum**, not a registration: `QueryRequest`, `Queries.parse`
+  and `QueryResolver`, all pointed at by the compiler. Same for a stage. There is no plugin story
+  to pay for, and one `match` says in code what exists where a name→instance map says only what
+  somebody remembered.
+- **The Pkl core names no provider and no drawing stage.** `core/slot.pkl`'s `Query.provider` is a
+  plain String and `core/stage.pkl` knows only `passthrough`; the provider's name, its parameters
+  and the chart stage are typed in the component that offers them (`components/history.pkl`). An
+  unknown provider is still a build error — from `Queries.parse`, not the Pkl typechecker.
 - **The model never NAMES a history type.** `fh.view.model` does not know what a window or a chart
   size is: `params` are untyped on the wire, and the typing lives at both ends — a typed Pkl
   builder, and a pure `parse` at validation. Stated precisely, because the obvious stronger claim
