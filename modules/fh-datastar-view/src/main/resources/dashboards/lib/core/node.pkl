@@ -164,17 +164,10 @@ abstract class Node extends LayoutNode {
     if (children is Mapping) children
     else if (children.isEmpty) null
     else new Mapping { [defaultRegion] = children }
-  /// NODE VARIABLES this node declares ([[varMod]]): a name, and the value it
-  /// holds before anybody chooses one.
-  ///
-  /// Declare one on the node that OWNS the choice — the panel a window control
-  /// sits in, not the chart beneath it — because that is the subtree the choice
-  /// applies to. Declaring on the dashboard's root node is what "a global
-  /// variable" is: every node is its descendant, so there is no second
-  /// mechanism to reach for.
-  ///
-  /// Null (dropped from the wire by omitNullProperties) for the overwhelming
-  /// majority of nodes, which declare nothing.
+  /// NODE VARIABLES this node declares ([[varMod]]): name -> initial value.
+  /// Declare on the node that owns the choice; its subtree is where it
+  /// applies. A surface (popup, tab panel) is its own scope root and does not
+  /// see the page's declarations.
   vars: Mapping<String, String>? = null
   // A node-level map of inline surfaces the build-phase hoist lifts into the
   // top-level `surfaces` registry (keyed `<node-id>_<localKey>`), splicing the

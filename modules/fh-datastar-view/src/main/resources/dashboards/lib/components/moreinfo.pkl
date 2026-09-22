@@ -100,12 +100,8 @@ function moreInfoBody(e: hass.Entity): layout.Column = new layout.Column {
       light.controls(e as hass.LightEntity)
     }
     when (e is hass.SensorEntity && (e as hass.SensorEntity).isNumeric) {
-      // The chooser DECLARES the window and the chart reads it, so the scope
-      // relationship is composed here and never written by a dashboard author
-      // — which is the point of putting it in this function rather than
-      // offering it as a shape to assemble. The chart is nested because that
-      // is what puts it in the declaration's subtree; nothing else about the
-      // popup's layout depends on the nesting.
+      // Composed here so no dashboard author writes the scope: the chart is
+      // nested to sit in the chooser's declaration.
       (historyMod.windowChooser) {
         children { historyMod.historyChart(e as hass.SensorEntity).chosen() }
       }

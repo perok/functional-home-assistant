@@ -652,14 +652,8 @@ const function pendingSeedEntry(groupId: String): String =
 const function pendingClear(groupId: String): String =
   pendingClearAgainst(groupId, "ui_\(groupId)")
 
-/// [[pendingClear]] against a committed signal that is not `ui_<groupId>` —
-/// what a NODE VARIABLE's control needs, since its committed value travels
-/// under `_var_` rather than in the bake-selection namespace
-/// (`Server.varSignal`).
-///
-/// The rule itself is identical and stays in one place: the two selection kinds
-/// differ in where the server writes the answer, not in what ending an ask
-/// means.
+/// [[pendingClear]] against a named committed signal — a node variable's
+/// lives under `_var_`, not `ui_` (`Server.varSignal`).
 const function pendingClearAgainst(groupId: String, committed: String): String =
   let (sig = pendingSignal(groupId))
     #"data-effect="$\#(sig) !== '' && $\#(committed) == $\#(sig) && ($\#(sig) = '')""#
@@ -671,8 +665,7 @@ const function pendingClearAgainst(groupId: String, committed: String): String =
 const function pendingOrCommitted(groupId: String): String =
   pendingOrCommittedOf(groupId, "ui_\(groupId)")
 
-/// [[pendingOrCommitted]] against a named committed signal — the `_var_` twin,
-/// for the same reason [[pendingClearAgainst]] exists.
+/// [[pendingOrCommitted]] against a named committed signal.
 const function pendingOrCommittedOf(groupId: String, committed: String): String =
   "($" + pendingSignal(groupId) + " || $" + committed + ")"
 

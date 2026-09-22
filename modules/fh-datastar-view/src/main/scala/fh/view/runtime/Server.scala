@@ -138,11 +138,8 @@ class Server(
     // The unsampled counterpart of the spans above ([[Meters]]). No-op by
     // default, like the tracer, and for the same reason.
     meters: Meters = Meters.noop,
-    // What answers a card's query slot ([[fh.view.query.QueryResolver]]) — the
-    // history provider and its caches. `None` (tests, and an instance with no
-    // chart on any dashboard) resolves nothing, so a query slot renders empty
-    // and claims no version: the node is not then cached as though it had been
-    // drawn.
+    // What answers query slots. `None` resolves nothing; a render that reads
+    // a query then raises from `QuerySnapshot`, naming it (see [[answer]]).
     queries: Option[QueryResolver] = None
 ) {
 
@@ -1504,10 +1501,6 @@ class Server(
         }
     } yield ()
 
-  /** What an arriving surface's query slots resolve to, or nothing when no
-    * provider is wired and nothing to do when the surface reads no query — the
-    * common case, and one that must not cost an `IO` round trip.
-    */
   private def resolveQueries(
       renderer: Renderer,
       arriving: Option[String],
@@ -1519,12 +1512,8 @@ class Server(
       env
     )
 
-  /** What a PAGE or a PULL resolves: the body, every baked surface, and
-    * whatever this viewer has open — see [[Renderer.queriesForPage]].
-    *
-    * The page path passed nothing at all until this existed, which is how a
-    * chart on a dashboard shipped an empty hole on first paint. Architecture §0
-    * is the rule that makes that a defect rather than a deferral.
+  /** See [[Renderer.queriesForPage]]; answered before the walk (architecture
+    * §0).
     */
   private def resolvePageQueries(
       renderer: Renderer,
@@ -1536,27 +1525,13 @@ class Server(
   /** Set a NODE VARIABLE for this viewer, and re-render exactly the nodes that
     * read it (issue #209).
     *
-    * '''This is where a value stops being untrusted.''' It arrives off a URL
-    * path, so it can be anything; what makes it acceptable is that every
-    * DECLARED reader can still parse what it would then ask. That check needs
-    * no list of allowed values beside the declaration — the reader's own parser
-    * is the authority a list could only copy — and it needs the declared edge,
-    * which is what makes `readersOf` exact rather than a guess.
+    * Where the untrusted path value is checked: accepted only if every declared
+    * reader ([[Renderer.readersOf]]) can still parse its ask. A refusal raises,
+    * which [[withSession]] answers as ADR 0024's 200 of signals.
     *
-    * Refusing RAISES, and [[withSession]] turns a 4xx into ADR 0024's 200 of
-    * signals — the request was served and the operation failed, which is page
-    * state. So a value that could not render never reaches the session, and the
-    * viewer is told rather than left wondering.
-    *
-    * The value is COMMITTED last, after the repaints, and that ordering is ADR
-    * 0025: the control's highlight already moved on the press (its own pending
-    * signal), so this frame is what ENDS that ask by agreeing with it. Sent
-    * even when every repaint was suppressed — choosing the window already
-    * showing moves no bytes, but the ask still has to end.
-    *
-    * Per SESSION and nothing shared: one viewer's window says nothing about
-    * anyone else's, so no `Mutation` is recorded and the changelog is untouched
-    * — exactly as a tab switch is treated.
+    * The value is committed LAST, even when no bytes moved, because the commit
+    * is what ends the control's pending ask (ADR 0025). Per session only, like
+    * a tab switch: no `Mutation`, no changelog entry.
     */
   private def setVar(
       session: Session,
@@ -1600,11 +1575,8 @@ class Server(
     } yield ()
   }
 
-  /** Re-render one node FOR THIS CLIENT and morph it, unless this DOM already
-    * holds those bytes.
-    *
-    * The suppression is the same question `Patches.resume` asks, asked of one
-    * node: a viewer who picks the window they are already on costs nothing.
+  /** Re-render one node for this client, unless its DOM already holds those
+    * bytes (the `Patches.resume` question, for one node).
     */
   private def repaintNode(
       session: Session,
@@ -1629,24 +1601,13 @@ class Server(
         }
     }
 
-  /** This session's node-variable environment for `renderer`.
-    *
-    * Read from the SESSION and not from the request, because the paths that
-    * need it most have no request: a live pull runs on the session's own fiber.
-    * Same reason a pull reconstructs the bake selections from `session.open`
-    * rather than from a `ui.` param.
-    */
+  // From the SESSION, not the request: a live pull has no request.
   private def envOf(session: Session, renderer: Renderer): IO[VarEnv] =
     session.vars.get.map(renderer.varEnv)
 
-  /** Resolve a query list, or hand back the empty answer when there is nothing
-    * to ask — the common case, and one that must not cost an `IO` round trip.
-    *
-    * No resolver wired is NOT the same as nothing to ask, and is the one place
-    * this still shrugs: a build carrying queries with no provider is a
-    * misconfiguration, but failing every page for it would make the query
-    * feature able to take a dashboard down that does not use it. A render
-    * reading one then raises from `QuerySnapshot` itself, naming the query.
+  /** No `IO` round trip when nothing is asked. With no resolver wired this does
+    * not fail the page: only a render that reads a query raises, from
+    * `QuerySnapshot`, so a dashboard without charts still works.
     */
   private def answer(
       renderer: Renderer,
@@ -1663,9 +1624,7 @@ class Server(
           QueryIdentity.Instance,
           java.time.Instant.now()
         )
-      // The environment travels even with no answers: a render still resolves
-      // its asks against it, and `QuerySnapshot.empty` would silently hand every
-      // node the declared value instead of this viewer's.
+      // Keep the env: `QuerySnapshot.empty` would resolve declared values.
       case _ => IO.pure(QuerySnapshot.of(Map.empty, env))
     }
 
@@ -2183,15 +2142,10 @@ class Server(
       // only known once the last byte is out, which is why `holds` is
       // committed in the stream's finalizer below rather than here.
       ownRef <- IO.ref(Map.empty[NodeId, Painted])
-      // This viewer's node-variable choices, off the URL — the same door the
-      // bake selections came through, and the reason a refresh keeps a chart
-      // on the window it was showing. Recorded on the session because a PULL
-      // has no request to read them off again.
-      //
-      // NARROWED to declarations here and not where it is read: an undeclared
-      // key is inert to `varEnv` but becomes a SIGNAL NAME in the opening
-      // frame, so the one place it can do harm is the one place the map is not
-      // consulted by name.
+      // Choices off the URL (`v.` params), kept on the session for pulls.
+      // Nothing writes `v.` into the URL yet, so a refresh does NOT keep a
+      // chosen window. Narrowed to declarations here because an undeclared
+      // key would become a signal name in the opening frame.
       _ <- session.vars.set(
         Server
           .varChoicesOf(req)
@@ -2248,12 +2202,8 @@ class Server(
       // sides — this writer, and fs2's reader — so under simulated time
       // whichever is ticked first parks the only thread and the other never
       // runs. That is a harness limitation, not a defect in this path.
-      // BEFORE the first byte, and that is the whole reason it is here rather
-      // than inside the walk. The walk's writes ARE this response's body, so
-      // once it starts the status line and the `<head>` are gone — a query
-      // resolved now can still raise into an error response, where one
-      // resolved lazily could only truncate a page already on the wire
-      // (architecture §0).
+      // Before the first byte, so a failed query can still become an error
+      // response instead of truncating a page already sent (architecture §0).
       env <- envOf(session, renderer)
       fragments <- resolvePageQueries(
         renderer,
@@ -2403,9 +2353,9 @@ class Server(
     * All app URLs (here and in the authored card templates) are RELATIVE and
     * resolve against the emitted `<base href>`: `/` when served directly,
     * `{X-Ingress-Path}/` behind the HA ingress proxy (which strips the prefix
-    * before proxying, so routing is unaffected). QuerySnapshot arriving later
-    * over the shared SSE stream therefore resolve correctly for both kinds of
-    * client with no per-connection rewriting.
+    * before proxying, so routing is unaffected). Fragments arriving later over
+    * the shared SSE stream therefore resolve correctly for both kinds of client
+    * with no per-connection rewriting.
     */
   private def pageInto(
       out: Sink,
@@ -3152,13 +3102,8 @@ object Server {
       )
     )
 
-  /** The `history` provider, over the feed's own connection.
-    *
-    * `memoizedAcquire` is what makes the JavaScript engine LAZY: it is
-    * allocated at most once, on the first chart anyone actually opens, and
-    * released with this scope. An instance whose dashboards hold no chart pays
-    * neither the ~300 ms of evaluating ECharts nor the isolate's native heap —
-    * while a second viewer in the same bucket pays nothing at all.
+  /** `memoizedAcquire` makes the JavaScript engine lazy: an instance with no
+    * chart never pays ECharts' ~300 ms or the isolate's heap.
     */
   private def historyQueries(
       api: HomeAssistantApi[IO],
@@ -3172,9 +3117,6 @@ object Server {
           SeriesProvider.asInstance(SeriesSource.fromApi(api), retention)
         )
         .toResource
-      // `chart` is the LAZY renderer (`memoizedAcquire`), and the stage keeps
-      // it that way: an instance whose dashboards hold no chart pays neither
-      // the ECharts evaluation nor the isolate's heap.
       stage <- ChartStage.create(chart.map(_.render)).toResource
       history <- HistoryProvider.create(store).toResource
     } yield QueryResolver(history, stage)
@@ -3302,41 +3244,17 @@ object Server {
   val UiParamPrefix: String = "ui."
   val UiSignalPrefix: String = "ui_"
 
-  /** The URL carrier for a NODE VARIABLE's chosen value (issue #209), addressed
-    * `<declarer node id>.<variable name>`.
-    *
-    * A prefix of its own rather than a key shape inside `ui.`, because they are
-    * different FACTS even though they travel the same way: a `ui.` entry is
-    * which branch of a bake group is showing, narrowed by `SurfaceGraph`
-    * against that group's members, and a variable is a value narrowed by
-    * whoever reads it. Sharing the map would make `SurfaceGraph` see entries it
-    * must ignore and give `committedSelections` half a question to answer.
-    *
-    * The URL and NOT the signals, unlike `uiStateOf`: a control writes its
-    * choice through the route, and the server reads it back from the SESSION,
-    * so a signal reader here would be a second way in that answers the same
-    * question worse — from a payload the client composes rather than from what
-    * this connection was actually granted. What the signals DO carry is the
-    * other direction ([[varSignal]]).
+  /** URL param prefix for a node variable's choice:
+    * `v.<declarer node id>.<name>`. Not inside `ui.`, which `SurfaceGraph`
+    * reads as bake selections. Read from the URL only, never from signals: a
+    * choice enters through the route and lives on the session.
     */
   val VarParamPrefix: String = "v."
 
-  /** The group id a variable's pending/committed pair is built from (ADR 0025),
-    * and the committed signal itself — what a control reads to show which value
-    * `name` HOLDS for this connection.
-    *
-    * A namespace of its own and not `ui_`, for the reason [[VarParamPrefix]]
-    * gives twice over: [[uiFromSignals]] reads every `ui_` signal back as a
-    * bake-group selection, so a variable spelled there would be reported as an
-    * unknown group by `SurfaceGraph` on every request that carried it.
-    *
-    * `_`-prefixed, so it never rides a request. Nothing needs it to — the
-    * server learns what was asked for from the URL path — and the pending twin
-    * `_<group>__pending` then falls out of the names the rest of ADR 0025
-    * already uses, `Server.PendingSweep`'s `/__pending$/` included.
-    *
-    * Keyed by DECLARER and not by the node that pressed: two panels can each
-    * declare a `window`, and a choice made in one must not move the other.
+  /** The ADR 0025 group for a variable, keyed by DECLARER so two choosers do
+    * not move each other. Not `ui_`, which [[uiFromSignals]] reads as bake
+    * selections; the committed signal is `_`-prefixed so it never rides a
+    * request, and its pending twin matches `PendingSweep`'s `/__pending$/`.
     */
   private[runtime] def varGroupId(declarer: NodeId, name: String): String =
     s"var_${declarer}__$name"
@@ -3351,12 +3269,8 @@ object Server {
       varSignal(declarer, name) -> io.circe.Json.fromString(value)
     }*)
 
-  /** This viewer's chosen variable values, off the page URL — the carrier that
-    * survives a refresh and is unique per document.
-    *
-    * UNTRUSTED, and deliberately not narrowed here. A name nothing declares
-    * simply never matches a scope, so it is inert; a value no reader can use is
-    * the write path's business, and this is the read side.
+  /** Choices off the page URL. Untrusted and not narrowed here; the caller
+    * narrows to declarations.
     */
   def varChoicesOf(req: Request[IO]): Map[(NodeId, String), String] =
     req.uri.query.params.toList
@@ -3913,16 +3827,9 @@ object Server {
     * `ui_*`, and its node variables as `_var_*`. A tap says what it ASKED for
     * in a pending signal, and the ask ends when one of these agrees with it.
     *
-    * The variables are TOTAL over the build's declarations and not just over
-    * the choices this session made, which is what makes a LOST session safe: a
-    * session that has forgotten a choice is back at the declared value, and a
-    * control left highlighting the old one is told so here rather than
-    * disagreeing with the chart beside it for the rest of the connection.
-    *
-    * Merged into the cursor's frame rather than sent beside it, for the reason
-    * `SessionLifecycleSuite` states as one event: an opening block that grows
-    * is how re-sending creeps back in. The cursor still rides last, because
-    * this IS last.
+    * Variables are total over the build's declarations, so a session that
+    * forgot a choice has its highlight reset to the declared value. One frame
+    * with the cursor, which still rides last.
     */
   private[runtime] def openingSignals(
       renderer: Renderer,

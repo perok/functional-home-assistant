@@ -1,52 +1,27 @@
 /// NODE VARIABLES — a node declares a named choice, a descendant reads it.
 ///
-/// The declaration is what makes the reference a real edge rather than a string
-/// two places happen to spell the same. A reader with no declaring ancestor is a
-/// build error naming both; resolution is by NAME up the ancestor chain, so a
-/// node that declares nothing is transparent and a nested declaration of the
-/// same name shadows for its own subtree.
-///
-/// The one place this is load-bearing rather than tidy: a query parameter read
-/// from a variable is a per-viewer question the SERVER must answer before it
-/// renders, because the first HTML a browser gets is complete. A value matched
-/// by convention in the browser cannot be.
-///
-/// ## Declaring one
-///
-/// A declaration is a NAME and the value it holds before anybody chooses — so
-/// it is written directly, with no wrapper to learn:
+/// Resolution is by NAME up the ancestor chain: a node that declares nothing is
+/// transparent, a nested declaration shadows, and a reader with no declarer is
+/// a build error naming both. The server resolves it before rendering, because
+/// the first HTML a browser gets is complete.
 ///
 ///     (c.column) {
 ///       vars { ["window"] = "24h" }
-///       children { c.historyChart(sensor, varMod.ref("window")) }
+///       children { c.historyChart(sensor).over(varMod.ref("window")) }
 ///     }
 ///
-/// There is deliberately no "set of allowed values" field beside it. What a
-/// variable may hold is decided by whoever READS it — a chart's provider
-/// refuses a window it cannot parse, and the write boundary refuses a value no
-/// declared reader can use — so a list here would be a second, weaker copy of
-/// that, free to disagree with the control the author actually rendered.
-///
-/// Where a closed set of values IS the point, it is PKL's job and belongs in
-/// one place: a function that emits the declaration and the control it belongs
-/// to from the same list, so they cannot drift.
-///
-///     const function windowControl(name: String, choices: Listing<String>,
-///                                  start: String) = …
+/// No list of allowed values: the write boundary refuses a value no declared
+/// reader can parse. Where a closed set IS the point, emit the declaration and
+/// its control from one list in Pkl (`components/history.pkl`'s
+/// `WindowChooser`).
 module core.variable
 
-/// A reference to a declared variable (fh.view.model.Ref.Var), for the places
-/// that take `String|Ref` — a value written down, or a read.
-///
-/// Backticked because `var` is the WIRE key and reads as one word there. Nobody
-/// writes this class directly; [[ref]] is the spelling.
+/// A reference to a declared variable (fh.view.model.Ref.Var). `var` is the
+/// wire key, hence the backticks; write [[ref]] instead.
 class Ref {
   `var`: String
 }
 
-/// Read the variable `name`, wherever it is declared above this node.
-///
-/// Named `ref` and not `read`: `read` is a Pkl KEYWORD (the resource reader),
-/// and using it as a function name is a parse error pointing at the definition
-/// rather than at the call.
+/// Read the variable `name` from the nearest declaring ancestor. Not `read`,
+/// which is a Pkl keyword.
 const function ref(name: String): Ref = new Ref { `var` = name }
