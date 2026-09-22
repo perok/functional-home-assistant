@@ -86,6 +86,11 @@ private[runtime] enum SlotForm derives CanEqual {
   def isPatch: Boolean = this == SlotForm.Patch
 }
 
+/** What every node's variables hold for ONE render — never cached on the
+  * renderer, see [[Renderer.varEnv]].
+  */
+type VarEnv = Map[NodeId, Map[String, String]]
+
 /** What a node's own rendering reads, reduced to a comparable value — see
   * [[Renderer.renderInputs]] for what goes in each half and why.
   *
@@ -95,44 +100,21 @@ private[runtime] enum SlotForm derives CanEqual {
   * client bytes that no longer match its state, silently and permanently. When
   * in doubt, over-discriminate.
   */
-/** What every node's node variables hold for one render — the environment a
-  * `SlotAsk` is resolved against. Per RENDER, never per renderer: see
-  * [[Renderer.varEnv]].
-  */
-type VarEnv = Map[NodeId, Map[String, String]]
-
 case class RenderInputs(
     entities: Map[String, Long],
-    /** The BUCKET each series this node read was fetched in, as epoch seconds
-      * (`fh.view.history.Window.bucketOf`).
-      *
-      * Deliberately the same shape as `entities` — a name to a version that
-      * only goes up — so one comparison answers both halves. A bucket works as
-      * a version for the reason the whole series design rests on: the past is
-      * immutable, so two renders of the same `(entity, window)` in the same
-      * bucket read the same points, and a later bucket is strictly fresher.
-      *
-      * Empty for every node that reads no series, which today is all of them
-      * outside a test.
+    /** Each query read -> its provider's version, the same shape as `entities`
+      * so one comparison covers both.
       */
     queries: Map[SlotRead, Long] = Map.empty
 ) derives CanEqual {
 
   /** Whether this was rendered from a snapshot at or ahead of `other` on every
-    * entity AND every series it reads — the partial order [[RenderCache]] uses
-    * to refuse an install that would replace current bytes with superseded
-    * ones.
+    * entity and query it reads — the partial order [[RenderCache]] uses to
+    * refuse installing superseded bytes.
     *
-    * PARTIAL on purpose. Different key sets are not ordered at all: an entity
-    * appearing or vanishing changes what the node reads, not how fresh it is,
-    * and calling that "behind" would let a stale generation sit unchallenged.
-    * Only a same-shaped, entity-for-entity comparison answers `true`.
-    *
-    * The series half follows the same rule, and that is what makes a per-viewer
-    * window safe here: two viewers on different windows read different series,
-    * so their keys are different SHAPES and neither is "behind" the other. They
-    * get separate generations rather than one overwriting the other with a
-    * chart of the wrong span.
+    * PARTIAL on purpose: different key sets are not ordered. That is also what
+    * keeps two viewers on different windows (different reads) from displacing
+    * each other with a chart of the wrong span.
     */
   def isAtLeast(other: RenderInputs): Boolean =
     sameOrAhead(entities, other.entities) &&
@@ -168,10 +150,7 @@ class Renderer(
     // predates access control still compile; the default is the restrictive
     // one, so forgetting to resolve demands a login rather than serving to all.
     val access: Access = Access.default,
-    // Every query slot's params already parsed by its provider, carried from
-    // the `Validated` proof so nothing re-parses per render. Empty for the
-    // test constructor, which is right: an unparsed query resolves to no
-    // fragment, which renders empty and claims no version.
+    // From the `Validated` proof, so nothing re-parses per render.
     private val parsedQueries: Map[SlotRead, (QueryRequest, StageRequest)] =
       Map.empty
 ) {
@@ -214,20 +193,11 @@ class Renderer(
       walk(root, LayoutNode.rootId(idPrefix, root)).toMap
     }
 
-    /** The NODE VARIABLES in scope at each node, already resolved to values
-      * (issue #209). Carried DOWN by the same walk that mints the ids, for the
-      * reason [[NodeAncestry]] gives for its own relation: a scope derived by a
-      * second traversal could disagree with the ids the first one made.
-      *
-      * Values and not declarations, because that is all a render needs. Today
-      * every value is the declaration's default, so this is fixed for the life
-      * of the renderer; when a viewer can choose one, this is the map their
-      * choice is overlaid on rather than a thing that has to move.
-      *
-      * A SET is a leaf here, as it is for [[indexed]]: a member's id is minted
-      * at run time from its entity, so it has no entry — which is why
-      * `Dashboard.validate` refuses a query slot that reads a variable from
-      * inside a set rather than letting one resolve against nothing.
+    /** The NODE VARIABLES in scope at each node, with their declarers (issue
+      * #209). Built by the same walk that mints the ids, so the two cannot
+      * disagree ([[NodeAncestry]]). Holds declared values only; a viewer's
+      * choice is overlaid per render by [[Renderer.varEnv]]. A SET is a leaf,
+      * which is why `validate` refuses a variable read inside one.
       */
     val varScopes: Map[NodeId, Map[String, Renderer.InScope]] = {
       def walk(
@@ -236,11 +206,8 @@ class Renderer(
           scope: Map[String, Renderer.InScope]
       ): List[(NodeId, Map[String, Renderer.InScope])] = node match {
         case c: LayoutNode.Component =>
-          // The DECLARER travels with the value, because that is what a
-          // viewer's choice is addressed to: two nodes can have a `window` in
-          // scope from different declarations, and a choice made on one must
-          // not move the other. A nested declaration replaces the entry here,
-          // which is what shadowing IS.
+          // The declarer travels with the value because a choice is addressed
+          // to it. A nested declaration replacing the entry IS shadowing.
           val here = scope ++ c.vars.map { case (n, v) =>
             n -> Renderer.InScope(id, v)
           }
@@ -334,21 +301,12 @@ class Renderer(
       idx.indexed.map { case (id, n) => id -> (n, idx.idPrefix) }
     }.toMap
 
-  /** Every node that has a node variable in scope -> the declaration each name
-    * resolved to. Empty for the overwhelming majority, which is why the indexes
-    * drop the empty entries rather than holding one per node.
-    */
   private val varScopes: Map[NodeId, Map[String, Renderer.InScope]] =
     (mainIndex :: surfaceIndexes.values.toList).flatMap(_.varScopes).toMap
 
-  /** What every node's references resolve to FOR THIS VIEWER: the declared
-    * value, with this session's choice where it made one.
-    *
-    * Computed once per render and handed to `QuerySnapshot`, which is what
-    * keeps a viewer's values and the answers fetched for them inseparable — see
-    * its scaladoc. It is deliberately NOT cached on the renderer or on a
-    * `NodePlan`: both outlive a session, and a chosen value held on either
-    * would be served to the next viewer.
+  /** Declared values with this session's choices overlaid. Per render and never
+    * cached on the renderer or a `NodePlan`: both outlive a session, so a
+    * choice held there would be served to the next viewer.
     */
   def varEnv(choices: Map[(NodeId, String), String]): VarEnv =
     if (varScopes.isEmpty) Map.empty
@@ -359,31 +317,18 @@ class Renderer(
         }.toMap
       }.toMap
 
-  /** Every declaration in the build -> the value it holds before anybody
-    * chooses.
-    *
-    * The set a connection's variable signals are TOTAL over, which is what lets
-    * a control's highlight be told the truth rather than left asserting a value
-    * a lost session no longer holds: a session that has forgotten a choice is
-    * back at the declared value, and saying so is only possible from here.
-    *
-    * Derived from the scopes rather than walked again, so a name that is
-    * declared twice (a shadow) contributes one entry per DECLARER — which is
-    * the identity a choice is addressed to.
+  /** Every (declarer, name) -> declared value. The opening signals are total
+    * over this, so a session that forgot a choice is told its highlight is back
+    * at the declared value.
     */
   val declarations: Map[(NodeId, String), String] =
     varScopes.values.flatten.map { case (name, in) =>
       (in.declarer, name) -> in.declared
     }.toMap
 
-  /** Every node whose reads would move if `(declarer, name)` did — the declared
-    * edge, inverted.
-    *
-    * EXACT, and this is the first thing the declaration is load-bearing for
-    * rather than merely tidy. A write needs the set twice: to decide whether a
-    * proposed value is acceptable at all (by asking whether every reader can
-    * still parse what it would then ask) and to decide what to re-render. A
-    * reference matched by convention in the browser could answer neither.
+  /** Every node whose reads move if `(declarer, name)` does. Exact, because a
+    * write uses it twice: to validate a value against every reader, and to
+    * decide what to re-render.
     */
   def readersOf(declarer: NodeId, name: String): List[NodeId] =
     varScopes.toList.collect {
@@ -473,11 +418,8 @@ class Renderer(
       case _ => members.liveEntitiesAsBytesOf(id)
     }
 
-  /** A member's queries come from the member graph, not from here: a member is
-    * not in `allIndexed` at all, which is the same split
-    * [[entitiesAsBytesForNode]] makes. `Nil` for anything else is right rather
-    * than defensive — a node with no query slot reads no query.
-    */
+  // Set members are not in `allIndexed`; their queries come from the member
+  // graph, as in [[entitiesAsBytesForNode]].
   private def queriesForNode(id: NodeId): List[SlotAsk] =
     allIndexed.get(id) match {
       case Some((c: LayoutNode.Component, _)) =>
@@ -793,14 +735,9 @@ class Renderer(
     */
   def queryRequests: Map[SlotRead, (QueryRequest, StageRequest)] = parsedQueries
 
-  /** Every read one layout tree makes for THIS viewer.
-    *
-    * Walked over the renderer's own index rather than the model's tree, because
-    * resolving an ask needs the node's id — the address a chosen value is held
-    * under. A candidate SET is a leaf of that index (its members are minted at
-    * run time), so its clauses go through the model's walk, which resolves
-    * against the declared values; `Dashboard.validate` refuses a variable read
-    * from inside a set, so there is nothing there for a choice to have changed.
+  /** Every read one layout tree makes for THIS viewer — over the renderer's
+    * index, because resolving needs node ids. A set's clauses use the model's
+    * walk at declared values, since no variable can be read inside a set.
     */
   private def readsIn(idx: Index, env: VarEnv): List[SlotRead] =
     idx.indexed.toList.flatMap {
@@ -812,20 +749,9 @@ class Renderer(
   def queriesForSurface(surfaceId: String, env: VarEnv): List[SlotRead] =
     surfaceIndexes.get(surfaceId).toList.flatMap(readsIn(_, env)).distinct
 
-  /** Every query a PAGE render reads, for resolving before the walk starts.
-    *
-    * Three sources, and the middle one is the non-obvious one:
-    *
-    *   - the body;
-    *   - every BAKED surface, active or not, because a bake swap renders from
-    *     state alone and cannot fetch (see `SurfaceGraph.bakedSurfaces`) — so a
-    *     tab panel's chart is answered now or never;
-    *   - the surfaces this viewer has open, which is what a restored dialog is.
-    *
-    * What it deliberately does NOT include is every query the dashboard
-    * declares. A chart in a popup nobody has opened is not fetched, which is
-    * the laziness worth keeping now that "bounded by the surface" has stopped
-    * being true for the page path.
+  /** Every query a PAGE render reads: the body, every BAKED surface (a bake
+    * swap cannot fetch, see `SurfaceGraph.bakedSurfaces`), and the surfaces
+    * this viewer has open. A chart in an unopened popup is not fetched.
     */
   def queriesForPage(open: Set[String], env: VarEnv): List[SlotRead] =
     (readsIn(mainIndex, env) ++
@@ -1124,10 +1050,7 @@ class Renderer(
             m.node.subjectEntity.toList ++ m.node.liveEntitiesAsBytes,
             states
           ),
-          // A member reads no variable — `Dashboard.validate` refuses one
-          // inside a set, because a member's id is minted at run time and has
-          // no scope entry — so the empty environment is the whole answer here
-          // rather than a gap.
+          // A member reads no variable (`validate` refuses one in a set).
           fragments.versions(id, m.node.queries)
         )
       )
@@ -2183,11 +2106,8 @@ class Renderer(
       bindings: Map[String, String],
       signalSlots: List[String],
       signalNameBySlot: Map[String, SignalId],
-      // The node this plan is FOR — the address its node variables are looked
-      // up by (issue #209), never the values themselves. A plan is memoised
-      // per authored position and reused across sessions, so a viewer's chosen
-      // window held here would be served to the next viewer; the id is static
-      // and the values come from the per-render `QuerySnapshot`.
+      // The address node variables are looked up by, never their values: a
+      // plan is shared across sessions.
       id: NodeId,
       // The node's `data-signals` attribute with its values cut out. Fixed by
       // the plan, because the NAMES are; see [[Datastar.SignalSeed]].
@@ -2289,12 +2209,8 @@ class Renderer(
               // `live` and `onRender` both re-resolve; they differ in whether
               // the entity is SUBSCRIBED, which is `liveEntities`' business,
               // not this one. That is why the memo asks only about `once`.
-              // A query slot is never a plan constant and never a memo entry:
-              // its bytes come from a snapshot that moves with the provider's
-              // version, where the `once` memo is keyed by ENTITY and shared
-              // process-wide. The match is what makes that structural — the
-              // `once` branch below is unreachable for a query by type, not by
-              // a check someone could drop.
+              // A query slot is never a constant or a `once` memo entry (that
+              // memo is keyed by entity, process-wide); the match makes it so.
               source.shape match
                 case SlotShape.Query(_)  => dynB += ((slot, srcEntity, source))
                 case SlotShape.State(st) =>
@@ -2570,8 +2486,7 @@ class Renderer(
   ): Map[SignalId, SlotValue] =
     members
       .memberAt(id, states)
-      // Signals only, so no fragments: a query slot has no signal to carry —
-      // it is a `SlotShape.Query`, and this path resolves state slots.
+      // Signals only: a query slot has none.
       .map(m => memberSignalsOf(resolveMember(m, states, QuerySnapshot.empty)))
       .orElse(
         // NOT gated on `hasOwnRendering`. Structure has signals like any other
@@ -2657,12 +2572,8 @@ class Renderer(
       resolveSlotValue(srcEntity, source, states, fragments, node)
     )
 
-  /** [[resolveSlot]] at the sites that resolve only slots a query slot can
-    * never BE — the subject, a `once` identity value, a signal. The signature
-    * is the statement: no fragments reach here because none are needed, and a
-    * site that acquires a query slot stops compiling rather than silently
-    * rendering it empty. [[buildPlan]] is what keeps them apart, matching on
-    * `SlotShape` so the `once` branch is unreachable for a query by type.
+  /** For sites that can never hold a query slot (subject, `once`, signal):
+    * taking no snapshot means a site that gains one stops compiling.
     */
   private def resolveStateSlot(
       srcEntity: Option[String],
@@ -2682,16 +2593,9 @@ class Renderer(
       source: SlotSource,
       states: Map[String, EntityState],
       fragments: QuerySnapshot,
-      // The node being rendered — the address its node variables are looked
-      // up by (issue #209). An address and not the values, so nothing here can
-      // hold one viewer's choice across a render.
       node: NodeId
   ): SlotValue = source.shape match {
-    // A query slot is not a transform over state and never enters the engine:
-    // its value was produced before the walk began, by its provider AND its
-    // stage. Total, so there is no "not yet" arm here to get wrong — see
-    // `QuerySnapshot`, which raises rather than letting a render proceed without
-    // every answer it reads.
+    // Answered before the walk began; `QuerySnapshot` raises on a miss.
     case SlotShape.Query(ask) => fragments.value(node, ask)
     case SlotShape.State(st)  => resolveStateSlotValue(srcEntity, st, states)
   }
@@ -2716,11 +2620,7 @@ class Renderer(
       val out: SlotValue = source.transform match {
         case sm: Transform.Simple => transforms.runValue(sm, st)
         case t: String            => transforms.runValue(t, st, dashboard.slug)
-        // A STAGE cannot reach here: this resolves the STATE arm of the split,
-        // and `Dashboard.validate` rejects a stage on a slot that reads no
-        // query. Answering with the raw state rather than throwing keeps a
-        // hand-written wire that slipped past validation readable instead of
-        // taking the render down.
+        // Rejected by `validate`; the raw state keeps a bypass readable.
         case _: Transform.Stage => st.state
       }
       out match {
@@ -2734,13 +2634,8 @@ class Renderer(
 
 object Renderer {
 
-  /** One name in scope at a node: which node DECLARED it, and what that
-    * declaration holds.
-    *
-    * The declarer is carried because it is the address a viewer's choice is
-    * made against. Two subtrees can each have a `window` in scope from
-    * different declarations, and a choice on one must not move the other —
-    * which is the same fact shadowing rests on, seen from the write side.
+  /** One name in scope: who declared it (what a choice is addressed to) and the
+    * declared value.
     */
   private[runtime] case class InScope(declarer: NodeId, declared: String)
 
