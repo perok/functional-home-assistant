@@ -106,13 +106,8 @@ trait HomeAssistantApi[F[_]] {
 
   def getServices: F[List[ServiceDomain]]
 
-  /** Raw recorder rows for each entity, within the window.
-    *
-    * An entity with no rows is simply absent from the map — including an entity
-    * id that does not exist, which is a SUCCESS with an empty result, not an
-    * error. The recorder's retention also bounds this silently: a window
-    * reaching past `purge_keep_days` returns what survives. Past that,
-    * [[statisticsDuringPeriod]] is the only source.
+  /** An entity with no rows — including one that does not exist — is absent
+    * from the map, not an error.
     */
   def historyDuringPeriod(
       start: Instant,
@@ -120,12 +115,7 @@ trait HomeAssistantApi[F[_]] {
       entityIds: List[String]
   ): F[Map[String, List[HistoryPoint]]]
 
-  /** Pre-bucketed long-term statistics per statistic id.
-    *
-    * Only entities HA computes statistics for (those with a `state_class`)
-    * appear; anything else is absent rather than an error. `end` is optional
-    * and open-ended when absent.
-    */
+  /** Only entities with a `state_class` have statistics; others are absent. */
   def statisticsDuringPeriod(
       start: Instant,
       end: Option[Instant],

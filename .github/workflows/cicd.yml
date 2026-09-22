@@ -214,15 +214,15 @@ jobs:
         if: github.event_name != 'pull_request' || !github.event.pull_request.draft
         run: sbt 'fh-datastar-view/assembly'
 
-      - name: Upload jar for cd
+      - name: Upload jars for image + cd
         if: github.event_name != 'pull_request' || !github.event.pull_request.draft
         uses: actions/upload-artifact@v7
         with:
           name: addon-jar
-          # The DIRECTORY: `stageIsolateJars` puts both platforms' GraalJS
-          # isolate jars here too, and the image build needs them (they are
-          # resolved by coursier as ordinary dependencies, so nothing
-          # downloads them inside the container).
+          # The DIRECTORY, not one file: `assembly` also stages both platforms'
+          # GraalJS isolate jars and the pkl-lsp CLI jar here, and the image
+          # build COPYs all three. Every one is resolved by coursier as an
+          # ordinary dependency, so nothing downloads inside the container.
           path: target/addon/
           retention-days: 1
 
@@ -311,15 +311,12 @@ jobs:
         run: docker run --rm --entrypoint java fh-dashboard:ci -version
 
       # And JavaScript runs, which `java -version` says nothing about: the
-      # staged library has to be the right architecture and has to link
-      # against the base image's glibc and zlib, and every way of getting that
-      # wrong builds cleanly and dies at the first chart.
-      #
-      # The cache is cold here, so this also pays the one-time unpack a user's
-      # first start pays — the check and the thing it checks are the same code
-      # path. It prints the isolate's RSS too, which on the main-push run is
-      # aarch64, the number issue #237 wants.
-      - name: JavaScript runs in the isolate
+      # staged library has to be the right architecture and link against the
+      # base image's glibc, and getting that wrong builds cleanly and dies at
+      # the first chart. `ChartSuite` already draws on the isolate in `testFull`;
+      # this is the same check on the IMAGE's library, on a cold cache. It
+      # prints RSS and chart timings, which on main are aarch64 (issue #237).
+      - name: JavaScript and a chart run in the isolate
         # Through `sh` so the classpath and cache path come from the IMAGE's
         # own environment — the same two variables `run.sh` launches with.
         # Spelled out here instead, they would be a second copy that can drift
@@ -329,18 +326,6 @@ jobs:
             exec java --enable-native-access=ALL-UNNAMED \
               -Dpolyglot.engine.userResourceCache="$FH_GRAAL_CACHE" \
               -cp "$FH_APP_CLASSPATH" fh.view.runtime.JsIsolateCheck'
-
-      # ECharts on the SHIPPED engine. `ChartSuite` covers what a chart says,
-      # but it runs on an in-heap GraalJS that is a test-only dependency — a
-      # different VM from the isolate, and not the one users get. This is the
-      # only place the production combination is exercised, and it prints the
-      # render timings the Pi question needs (plan-history-view §6).
-      - name: A chart renders in the isolate
-        run: |
-          docker run --rm --entrypoint sh fh-dashboard:ci -c '
-            exec java --enable-native-access=ALL-UNNAMED \
-              -Dpolyglot.engine.userResourceCache="$FH_GRAAL_CACHE" \
-              -cp "$FH_APP_CLASSPATH" fh.view.history.ChartCheck'
 
   cd:
     needs: ci
@@ -382,7 +367,7 @@ jobs:
             echo "released=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Fetch ci-built jar
+      - name: Fetch ci-built jars
         if: steps.ver.outputs.published == 'false'
         uses: actions/download-artifact@v8
         with:

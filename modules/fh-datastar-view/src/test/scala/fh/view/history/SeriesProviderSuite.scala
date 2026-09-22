@@ -245,6 +245,26 @@ class SeriesProviderSuite extends munit.CatsEffectSuite {
     } yield assertEquals(keys.size, 1)
   }
 
+  test("every window's current entry survives the others being asked for") {
+    // Windows bucket at different sizes, so mid-hour the 7d floor is older
+    // than the 1h floor while both are current. Longest first, so each
+    // shorter window's miss runs the sweep over a longer one's live entry.
+    val midHour = now.plusSeconds(25 * 60)
+    val windows = Window.values.toList.sortBy(-_.span.toSeconds)
+    for {
+      fetches <- Ref[IO].of(0)
+      store <- SeriesStore.create(countingProvider(fetches))
+      ask = windows.traverse_(w =>
+        store.get(QueryIdentity.Instance, entity, w, midHour)
+      )
+      _ <- ask
+      _ <- ask
+      count <- fetches.get
+      keys <- store.keys
+      _ <- IO(assertEquals(keys.map(_.window), windows.toSet))
+    } yield assertEquals(count, windows.size)
+  }
+
   test("two identities do not share an entry") {
     // The cache key carries identity so a per-user provider cannot leak by
     // omission — the sharing stops by construction rather than by someone

@@ -323,23 +323,13 @@ object client {
     // Recorder
     //
 
-    /** Raw recorder rows per entity, keyed by `entity_id`.
-      *
-      * The two flags are defaults rather than parameters because the
-      * alternative is not a variant anyone here wants: without them every point
-      * repeats the entity's whole attribute map, which measured 37 KB against 8
-      * KB for the same 223 points. [[HistoryPoint]] decodes only the compact
+    /** Without the two flags every row repeats the attribute map (37 KB vs 8 KB
+      * for 223 points, measured); [[HistoryPoint]] decodes only the compact
       * shape.
       *
-      * Two shapes of "nothing" both come back as a SUCCESS with `{}`, measured:
-      * an entity id that does not exist, and a window whose end precedes its
-      * start. So an empty map is the normal answer for "no rows", and a caller
-      * cannot use it to detect a bad request.
-      *
-      * The window is also bounded by the recorder's own retention
-      * (`purge_keep_days`, ~10 days on the instance this was measured against),
-      * silently: asking for 30 days returns what survives, not an error. Past
-      * that horizon [[`recorder/statistics_during_period`]] is the only source.
+      * An unknown entity and an end before the start both answer `{}`, so an
+      * empty map cannot detect a bad request. Retention (`purge_keep_days`)
+      * truncates the window silently.
       */
     case class `history/history_during_period`(
         start_time: Instant,
@@ -351,16 +341,8 @@ object client {
         with CommandResponse.AsResult[Map[String, List[HistoryPoint]]]
         derives ConfiguredEncoder
 
-    /** Pre-bucketed long-term statistics per statistic id.
-      *
-      * Available only for entities HA computes statistics for — a `state_class`
-      * on the entity, which `recorder/list_statistic_ids` enumerates. For
-      * anything else this answers an empty map rather than an error (measured
-      * on a `binary_sensor` and a `light`), so absence is not a failure and the
-      * caller decides from the schema, not from the response.
-      *
-      * Buckets shorter than the window's own resolution simply do not exist
-      * yet: a one-hour window at `Hour` returns nothing at all.
+    /** An entity without a `state_class` answers `{}`, not an error. A bucket
+      * that has not closed yet does not exist: one hour at `Hour` is empty.
       */
     case class `recorder/statistics_during_period`(
         start_time: Instant,
@@ -372,10 +354,8 @@ object client {
 
     object `recorder/statistics_during_period` {
 
-      /** An open-ended window omits `end_time`; it must not send null. HA
-        * validates the field with `vol.Coerce(str)` and answers
-        * `invalid_format: expected str at 'end_time'. Got None` — measured, and
-        * the same trap [[subscribe_entities]] documents.
+      /** Omit `end_time` rather than send null: HA answers `invalid_format:
+        * expected str at 'end_time'. Got None`.
         */
       given Encoder.AsObject[`recorder/statistics_during_period`] =
         ConfiguredEncoder
