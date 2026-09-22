@@ -150,7 +150,7 @@ they pay for is a mustache splice, not a fetch or a drawing. No bucketing.
 
 ## Future work — these belong in the ADR phase 5 writes, not in this stack
 
-Three things that are deliberately out of scope here and should be recorded where a later reader
+Four things that are deliberately out of scope here and should be recorded where a later reader
 finds them, rather than rediscovered.
 
 - **A variable declared with NO value — "nothing selected yet".** A real UI state (an unapplied
@@ -178,6 +178,15 @@ finds them, rather than rediscovered.
   it. Until then the closed set lives in the **Pkl** that emits both the declaration and its
   control — which is composition doing the job a wire field was doing badly, and which needs
   nothing from the model.
+- **A node that can spell its own id from a CHILD.** `@@NODE_ID@@` already means "the id of the
+  node whose class wrote this token", and `DashboardBuild.hoistInlineSurfaces` already splices it
+  — but only for a node that carries `inlineSurfaces`, which is an accident of where the pass
+  lives rather than a decision. It cannot simply become unconditional: a `TabButton` nested inside
+  a `Tabs` writes the token meaning the TABS' id, so making every node a splice point would
+  resolve it to the button's. What it needs is an explicit marker meaning "I own the tokens in my
+  subtree". Worth doing when a second component wants it; until then `c.windowChooser` renders its
+  own bar and the generic chooser in `core/variable.pkl`'s docs stays a sketch.
+
 - **A global namespace, if the root declaration ever reads badly.** It is Pkl sugar over a
   declaration on the root node, never a second resolution rule — recorded so nobody builds one.
 - **Whether the bake selection becomes a variable.** It is the same KIND of fact: `ui_<gid>` lives
@@ -299,18 +308,36 @@ chosen at render time. It now falls back to parsing, and only a read that fails 
 bug. What keeps it sound is the write boundary refusing anything a declared reader cannot parse —
 which is the argument for moving totality there, cashed rather than asserted.
 
-**4 — the control itself. NOT DONE, and it is what remains.** The server side is complete and
-tested end to end (`VarTapSuite`); what is missing is the Pkl: a window control that POSTs the
-route, the `historyChart` card reading `varMod.ref("window")`, and the active button highlighted
-through a signal slot. ADR 0025's pending/committed belongs with it rather than before it — there
-is nothing to make optimistic until something presses.
+**4 — the control itself. DONE.** `c.windowChooser` declares `window` and renders the bar;
+`c.historyChart(s).chosen()` reads it. Neither takes the name as an argument, so the pair cannot
+drift, and two choosers on one page stay independent through the ancestor chain alone.
 
-**5 — docs.** An ADR, which this needs: why resolution is up the ancestor chain, why a reference
-is not a CEL expression, why a declaration carries no set of allowed values, and why totality
-lives at the write rather than in the build — none of which the code can state, plus "Future work"
-above verbatim, since a plan gets deleted and a decision only findable there is lost.
-Architecture §6's barrier-precondition block changes from "protected by #209" to "satisfied, and
-here is how". Close #210. Delete this file.
+ADR 0025 came with it, as predicted: the press writes only `_var_<declarer>__<name>__pending`, the
+server commits `_var_<declarer>__<name>` after the repaints, and agreeing with pending ends the
+ask. The opening frame is TOTAL over declarations rather than over the session's choices — the
+case that forces it is a FORGOTTEN session, where a control still highlighting last session's
+window would otherwise disagree with the chart beside it for the whole connection.
+
+**One thing the implementation decided that the plan had not.** The bar lives in the chooser's own
+template, not in child button nodes. A button has to name the declaring node in the route it posts
+to and in the signal it reads, and the only id a template can spell is its own; `@@NODE_ID@@`
+would give a child its parent's id, but `DashboardBuild.hoistInlineSurfaces` splices it only for a
+node that also carries inline surfaces. So the generic "declare a variable and a control over the
+same list" component named in `core/variable.pkl` is still future work, and it needs that splice
+to become something a node can ask for on its own. What ships instead is one component with the
+four `Window` values fixed — the one list this library keeps beside a typealias, where
+`Listing<Window>` makes offering a non-window impossible and omission is the only drift left.
+
+**5 — docs. What remains.** An ADR, which this needs: why resolution is up the ancestor chain, why
+a reference is not a CEL expression, why a declaration carries no set of allowed values, and why
+totality lives at the write rather than in the build — none of which the code can state, plus
+"Future work" above verbatim (now four entries, the id-owner splice being the new one), since a
+plan gets deleted and a decision only findable there is lost. Close #210. Delete this file.
+
+Architecture §6 is already updated — it gained the write/commit paragraph and the authoring note
+in the same commit as the control, per the repo's rule. Its barrier-precondition block needed no
+flip: it states a standing invariant ("anything that lets one node read another's computed value
+must declare the edge"), not a pending guard.
 
 `terminology.md` is already done — it gained *node variable*, *declarer*, *reference*, *shadow*
 and the *ask* / *read* split in phase 1, because a change that coins a term updates it in the same

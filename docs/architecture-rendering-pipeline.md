@@ -976,10 +976,27 @@ chosen window held there would be served to the next viewer; the plan carries th
 the values come from the render.
 
 A choice is addressed to the node that DECLARED the variable, which is what keeps a shadow
-independent from the write side. It reaches the server as a `v.<declarer>.<name>` query param
-(`Server.varChoicesOf`), is recorded on the session because a pull has no request to read it off
-again, and a choice matching no declaration is inert rather than an error — the same treatment
+independent from the write side. It arrives two ways, both narrowed to real declarations before
+they are recorded on the session (a pull has no request to read either off again): as a
+`v.<declarer>.<name>` query param on the document (`Server.varChoicesOf` — the carrier that
+survives a refresh), and as `POST /sse/var/:slug/:declarer/:name/:value` while the page is live.
+A choice matching no declaration is inert rather than an error — the same treatment
 `SurfaceGraph.openPopup` gives a surface id this dashboard no longer has.
+
+**The write re-renders exactly the readers, and commits last.** `Renderer.readersOf` inverts the
+declared edge, which the write needs twice over: to decide whether the value is acceptable at all
+(can every reader still parse what it would then ask?) and to decide what to repaint. Each reader
+is re-rendered against a snapshot resolved with the new values, suppressed where the bytes did not
+move, and then the value is COMMITTED as `_var_<declarer>__<name>` — ADR 0025's pair, so a control
+shows the press immediately from its own pending signal and the ask ends only when the server
+agrees. A refused value ends the ask instead (ADR 0024's 200 of signals, naming the group), leaving
+the display on a value that never moved. The committed signals also ride the opening frame, TOTAL
+over the build's declarations rather than over the session's choices, so a forgotten session
+corrects a stale control instead of letting it disagree with the chart beside it.
+
+The authoring side is one component (`c.windowChooser`): it declares the variable AND renders the
+bar, because a button has to name the declaring node both in the route it posts to and in the
+signal it reads, and the only node id a template can spell is its own.
 
 Two consequences worth stating, because neither is obvious:
 

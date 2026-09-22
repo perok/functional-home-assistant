@@ -653,6 +653,61 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
       .timeout(60.seconds)
   }
 
+  test("a window chooser reaches the browser addressing its own node") {
+    // The join this control is built on, and the only thing a real page can
+    // prove: the bar is composed in Pkl from `{{id}}` tokens, and `{{id}}` is
+    // minted by the RENDERER from the node's tree position — the same id
+    // `Server.setVar` resolves a declarer by. Nothing makes those agree except
+    // that they are one value, so an end-to-end page is where that is checked.
+    val windowEntry =
+      s"""amends "@fh-dashboard/entry.pkl"
+         |
+         |import "@fh-dashboard/components.pkl" as c
+         |import "@fh-home/dump.pkl" as dump
+         |
+         |card = (c.column) {
+         |  children {
+         |    ((c.windowChooser).starting("7d")) {
+         |      children {
+         |        c.entityCard(dump.entities.${HouseFixture.outsideTemp.dumpKey})
+         |      }
+         |    }
+         |  }
+         |}
+         |""".stripMargin
+    TestServer
+      .fromWorkspace("fixture-windows", windowEntry, entities)
+      .use { ts =>
+        ts.page().map { html =>
+          // An unfilled token is the failure this is really guarding: it ships
+          // as a literal, the page looks fine, and every press 404s.
+          assert(!html.contains("{{id}}"), clue = html)
+          val ids = """_var_([A-Za-z0-9_]+)__window\b""".r
+            .findAllMatchIn(html)
+            .map(_.group(1))
+            .toSet
+          // ONE node declares it, and both signals plus the route name that
+          // same node.
+          assertEquals(ids.size, 1, clue = ids)
+          val id = ids.head
+          assert(
+            html.contains(
+              s"@post('sse/var/fixture-windows/$id/window/7d?" +
+                s"group=var_${id}__window')"
+            ),
+            clue = html
+          )
+          // The seed is the DECLARED window, so the first paint highlights what
+          // the charts beneath were drawn at rather than nothing.
+          assert(html.contains(s"_var_${id}__window: '7d'"), clue = html)
+          // All four windows are offered, once each.
+          List("1h", "24h", "7d", "30d")
+            .foreach(w => assert(html.contains(s">$w</a>"), clue = w))
+        }
+      }
+      .timeout(60.seconds)
+  }
+
   test("a dashboard says what happens to a label that does not fit") {
     // The knob is authored in two places at once — the entry's default and one
     // card that differs — and only a real page proves they meet: the default is
