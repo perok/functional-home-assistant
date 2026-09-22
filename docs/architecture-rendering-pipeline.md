@@ -24,6 +24,44 @@ what its viewer has selected).
 
 ---
 
+## 0. The rule everything else is arranged around
+
+**The first HTML a browser gets is COMPLETE. Only updates are deferred.**
+
+It has always been so and was never written down, which is why it is first here: every mechanism
+below either serves it or is bounded by it, and a change that breaks it will look locally
+reasonable.
+
+What it forbids is a **hole that fills in later** — an element rendered empty on the document path
+because its input had not arrived, with a patch behind it. That is not a slower page, it is a
+different product, and no input gets to introduce one. Waiting is the permitted response to a slow
+input; shipping without it is not.
+
+Two things already enforce it, and they are the shape a new render input should copy:
+
+- **`HaFeed` will not hand out a value until the store is populated** — "a HaFeed value MEANS the
+  store is populated", so the wait has no expression in the API because it cannot be skipped. A
+  boot that never fills raises `FHError.internal` after 60 s rather than serving a dashboard of
+  blank cards. The invariant is carried by the TYPE, not by a caller remembering to check.
+- **Every render input is resolved BEFORE the walk** — today that is the `Map[String, EntityState]`
+  snapshot. It reads as a performance choice and is not one: see §6a, where the walk's writes ARE
+  the response body, so once it starts the status line and `<head>` are gone. **Resolving first is
+  what keeps a failure expressible** — it raises while an error response is still possible, where a
+  lazily-resolved input could only truncate a page already on the wire.
+
+**Streaming is not deferral.** §6a streams the document as it is walked, so the browser has the
+`<head>` before the body is finished. That is one complete document arriving progressively, not a
+document completed later — and it is the distinction most likely to be blurred by someone reading
+§6a and concluding that holes-then-patches is in the spirit of the thing. It is not.
+
+A corollary worth stating because a bound will eventually be wanted: **a timeout on a render input
+is an error, not a fallback.** "Wait N and render what arrived" ships an incomplete first paint.
+Ember's own idle timeout cannot serve as that bound either — it fires against a response already
+streaming, so it truncates. The bound belongs on the pre-walk resolution, where `SeedTimeout` above
+is the pattern.
+
+---
+
 ## 1. End to end
 
 ```mermaid

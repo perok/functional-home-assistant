@@ -54,11 +54,8 @@ final class EditorRoutes(
     dashboardsDir: os.Path,
     // Every route here declares `Requirement.Admin` through this (ADR 0023).
     gate: AuthGate,
-    // Resolved on FIRST USE, not at boot: obtaining it can mean a ~30 MB
-    // download from Maven Central, and almost no start of this server ever
-    // opens the editor. Memoized by the caller, so concurrent LSP sockets share
-    // one download and later ones cost nothing.
-    pklLspJar: IO[Option[os.Path]],
+    // `None` means no LSP: the editor still serves, without completion.
+    pklLspJar: Option[os.Path],
     // Read per request from the live site, never captured: both change while
     // the editor is open — that is the point of editing the entrypoint.
     defaultSlug: IO[String],
@@ -130,7 +127,7 @@ final class EditorRoutes(
         })
 
       case GET -> Root / "lsp" / "pkl" =>
-        (pklLspJar.flatMap {
+        (pklLspJar match {
           case Some(jar) => LspBridge.wsResponse(wsb, jar)
           case None      =>
             ServiceUnavailable("""{"error":"pkl-lsp jar not available"}""")

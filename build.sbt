@@ -17,15 +17,27 @@ val otelMiddlewareVersion = "0.18.0"
 // pair is not reported, it just runs as a different GraalJS than this names.
 val graalVmVersion = "25.3.4.1"
 
-// The isolate libraries are RESOLVED but never on a classpath. `hide` keeps
-// this configuration out of compile, test and assembly, so the fat jar stays
-// architecture-independent (159 MB of `.so` per platform would otherwise land
-// in it twice) while coursier still fetches, checksums and caches them like
-// any other dependency, and `stageIsolateJars` hands them to the image build.
+// Two artifacts the image needs and no classpath may see. `hide` is what keeps
+// them off compile, test and assembly while coursier still fetches and
+// checksums them, and dependabot still reads the version.
+//
+// One configuration each, because the reason differs:
+//   js-isolate  159 MB of `.so` per platform, against a fat jar that must be
+//               the same bytes in both images.
+//   pkl-lsp     an unrelocated JNA 5.14.0 inside a shaded CLI jar, which
+//               collides with appdirs' 5.18.1 and fails `assembly`; and its
+//               `exit` notification, which every LSP client sends on
+//               disconnect, calls exitProcess(0) — embedded, a closed editor
+//               tab would kill the dashboard.
 lazy val JsIsolate = config("js-isolate").hide
+lazy val PklLsp = config("pkl-lsp").hide
 
 lazy val stageIsolateJars = taskKey[Seq[File]](
   "Stage both platforms' GraalJS isolate jars beside the add-on jar"
+)
+
+lazy val stagePklLsp = taskKey[File](
+  "Stage the pkl-lsp CLI jar beside the add-on jar"
 )
 
 // The hand-off point to the add-on image build, named once at BUILD level
@@ -38,6 +50,28 @@ lazy val stageIsolateJars = taskKey[Seq[File]](
 lazy val addonStage =
   settingKey[File]("Where the add-on image build picks its inputs up")
 ThisBuild / addonStage := (ThisBuild / baseDirectory).value / "target" / "addon"
+
+/** Copy one resolved jar into the stage under a name that carries no version,
+  * so the Dockerfile holds no coordinate and no architecture mapping.
+  *
+  * The stamp records the SOURCE's file name, because after the rename nothing
+  * about the target says which version is sitting there. Size and mtime cannot
+  * substitute: `IO.copyFile` preserves mtime, and two versions of one jar can
+  * be the same size, so a skip would leave the wrong bytes under the right name
+  * — the silent library/jar drift of
+  * `docs/issue-report-3-graalvm-polyglot-isolate.md`, self-inflicted. Without a
+  * stamp at all it is 220 MB of copying per `assembly`.
+  */
+def stageResolvedJar(source: File, target: File, log: sbt.util.Logger): File = {
+  val stamp = file(target.getPath + ".source")
+  val want = source.getName
+  if (!target.exists || !stamp.exists || IO.read(stamp).trim != want) {
+    IO.copyFile(source, target)
+    IO.write(stamp, want)
+    log.info(s"staged $want -> $target")
+  }
+  target
+}
 val MUnitFramework = new TestFramework("munit.Framework")
 
 // Warnings are advisory while you work and fatal where the flag says so (#115).
@@ -99,7 +133,9 @@ addCommandAlias(
   // writes. So naming a directory that does not exist yet is how you get a
   // fresh scratch workspace, not an error.
   "dashboardServe",
-  "fh-datastar-view/runMain fh.view.runtime.ServerApp"
+  // stagePklLsp first: `run / envVars` points PKL_LSP_JAR at what it writes,
+  // and a dev run never assembles, which is the other thing that stages it.
+  "; fh-datastar-view/stagePklLsp ; fh-datastar-view/runMain fh.view.runtime.ServerApp"
 )
 // Rebaseline snapshots after an INTENTIONAL change.
 //
@@ -275,6 +311,10 @@ lazy val `fh-datastar-view` = project
     // GIVEN (`sbt 'dashboardServe <dir>'`), and refuses to guess one. See the
     // `dashboardServe` alias above.
     run / envVars ++= (Test / envFromFile).value,
+    // The pkl-lsp CLI jar the build stages. The add-on image sets the same
+    // variable at its own path; nothing downloads it at runtime.
+    run / envVars += "PKL_LSP_JAR" ->
+      ((ThisBuild / addonStage).value / "pkl-lsp.jar").toString,
     // Fat jar for the HA add-on image (home-addon/Dockerfile COPYs it from
     // this fixed, gitignored path).
     assembly / mainClass := Some("fh.view.runtime.ServerApp"),
@@ -286,11 +326,10 @@ lazy val `fh-datastar-view` = project
     assembly / assemblyOutputPath := Def.uncached(
       (ThisBuild / addonStage).value / "fh-dashboard.jar"
     ),
-    ivyConfigurations += JsIsolate,
+    ivyConfigurations ++= Seq(JsIsolate, PklLsp),
     // Named by BUILDX's architecture spelling, not GraalVM's (`arm64`, not
-    // `aarch64`), and with the version dropped. That is the whole reason this
-    // renames at all: the Dockerfile can then say `js-isolate-$TARGETARCH.jar`
-    // and contain no version, no coordinate and no architecture mapping.
+    // `aarch64`). That is the whole reason this renames at all: the Dockerfile
+    // can then say `js-isolate-$TARGETARCH.jar`.
     //
     // `Def.uncached` for the reason `NpmPlugin` documents: sbt 2 caches task
     // results by default and a `File` is not a valid cached output, because
@@ -298,6 +337,7 @@ lazy val `fh-datastar-view` = project
     stageIsolateJars := {
       val out = (ThisBuild / addonStage).value
       val resolved = update.value.select(configurationFilter(JsIsolate.name))
+      val log = streams.value.log
       Def.uncached {
         IO.createDirectory(out)
         Seq("amd64" -> "amd64", "arm64" -> "aarch64").map {
@@ -307,29 +347,27 @@ lazy val `fh-datastar-view` = project
               .getOrElse(
                 sys.error(s"no js-isolate-linux-$graalArch jar resolved")
               )
-            val target = out / s"js-isolate-$dockerArch.jar"
-            // 140 MB of copying on every `assembly` otherwise, and `assembly`
-            // runs constantly. The stamp records the SOURCE's name, which is
-            // the only thing here that carries a version: the target's name
-            // deliberately does not, so "same name, same size" would compare a
-            // 25.3.4.1 jar against a 25.2.4 one and skip on a collision. That
-            // is the silent library/jar drift of
-            // docs/issue-report-3-graalvm-polyglot-isolate.md, self-inflicted.
-            val stamp = out / s"js-isolate-$dockerArch.source"
-            val want = source.getName
-            if (
-              !target.exists || !stamp.exists || IO.read(stamp).trim != want
-            ) {
-              IO.copyFile(source, target)
-              IO.write(stamp, want)
-            }
-            target
+            stageResolvedJar(source, out / s"js-isolate-$dockerArch.jar", log)
         }
       }
     },
-    // So `sbt fh-datastar-view/assembly` leaves a build context the Dockerfile
-    // can use, rather than one that is complete only if you knew to ask.
-    assembly := assembly.dependsOn(stageIsolateJars).value,
+    stagePklLsp := {
+      val out = (ThisBuild / addonStage).value
+      val resolved = update.value.select(configurationFilter(PklLsp.name))
+      val log = streams.value.log
+      Def.uncached {
+        IO.createDirectory(out)
+        // By name, not `.head`: the configuration resolves pkl-lsp's declared
+        // dependencies too, and only the shaded CLI jar is runnable.
+        val source = resolved
+          .find(_.getName.startsWith("pkl-lsp-"))
+          .getOrElse(sys.error("no pkl-lsp jar resolved"))
+        stageResolvedJar(source, out / "pkl-lsp.jar", log)
+      }
+    },
+    // So one `assembly` leaves a build context the Dockerfile can use, instead
+    // of one that is complete only if you knew to ask.
+    assembly := assembly.dependsOn(stageIsolateJars, stagePklLsp).value,
     assembly / assemblyMergeStrategy := {
       // JPMS descriptors from multi-release deps (circe/cats/pkl-core) —
       // meaningless on a flat classpath. Do NOT blanket-discard META-INF:
@@ -399,6 +437,9 @@ lazy val `fh-datastar-view` = project
       // into the image per architecture, never onto a classpath here.
       "org.graalvm.js" % "js-isolate-linux-amd64" % graalVmVersion % JsIsolate,
       "org.graalvm.js" % "js-isolate-linux-aarch64" % graalVmVersion % JsIsolate,
+      // The language server behind /edit, in the other hidden configuration:
+      // staged beside the app jar and run as a subprocess (ADR 0010).
+      "org.pkl-lang" % "pkl-lsp" % "0.8.0" % PklLsp,
       // Logging, and the ONE slf4j binding in the build. log4cats and an
       // unbound slf4j-api were already on the classpath via http4s, which
       // means http4s' own logging went nowhere; logback lights that up too.

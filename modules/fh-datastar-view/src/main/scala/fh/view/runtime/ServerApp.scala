@@ -107,7 +107,9 @@ object ServerApp extends IOApp {
       bindPort: Port,
       // `FH_WATCH_REGISTRY`: registry-driven dump refresh, on by default.
       watchRegistry: Boolean,
-      // `PKL_LSP_JAR`: explicit pkl-lsp jar override (else cached/downloaded).
+      // `PKL_LSP_JAR`: the pkl-lsp CLI jar the LSP subprocess runs. Staged by
+      // the build (`stagePklLsp`) and pointed at by the add-on image / the
+      // `dashboardServe` alias; absent just means no LSP.
       pklLspJar: Option[String]
   )
 
@@ -424,22 +426,7 @@ object ServerApp extends IOApp {
         meterProvider = otel.meterProvider,
         meters = meters
       )
-      // The editor surface (/edit + /lsp/pkl). The pkl-lsp jar backs the LSP
-      // subprocess; None just disables completion/diagnostics (the editor and
-      // local highlighting still work).
-      //
-      // NOT resolved here — `memoize` defers it to the first `/lsp/pkl`
-      // socket. On a cold cache this is a ~30 MB download from Maven Central,
-      // and it used to sit on the boot path of every start, including the
-      // overwhelming majority that never open the editor. Memoized rather than
-      // re-run per request so concurrent sockets share one download; a failure
-      // is cached as `None`, which is exactly what resolving once at boot
-      // already did.
-      pklLspJar <- resolvePklLspJar(
-        httpClient,
-        config.pklLspJar,
-        log
-      ).memoize.toResource
+      pklLspJar <- resolvePklLspJar(config.pklLspJar, log).toResource
       editor = new EditorRoutes(
         dashboardsDir,
         gate,
@@ -1218,72 +1205,31 @@ object ServerApp extends IOApp {
         )
     }
 
-  private val PklLspVersion = "0.8.0"
-  private val PklLspUrl =
-    s"https://repo1.maven.org/maven2/org/pkl-lang/pkl-lsp/$PklLspVersion/" +
-      s"pkl-lsp-$PklLspVersion.jar"
-
-  /** Locate the pkl-lsp jar the LSP subprocess runs: `PKL_LSP_JAR` if set, else
-    * a cached copy under `.pkl-lsp/`, else download it from Maven Central once
-    * (the shaded CLI jar, run as `java -jar`). Returns `None` — LSP degraded,
-    * editor + local highlighting still work — if it can't be obtained.
+  /** Locate the pkl-lsp CLI jar the LSP subprocess runs — `stagePklLsp` writes
+    * it and both the add-on image and the `dashboardServe` alias point
+    * `PKL_LSP_JAR` at it.
     *
-    * Run on FIRST USE, not at boot: the caller `memoize`s it and hands
-    * [[EditorRoutes]] the deferred value, so the ~30 MB cold-cache download
-    * happens when somebody opens the editor rather than on every start of a
-    * server that mostly never serves one.
+    * `None` is a degraded editor, not a failure: /edit and its local
+    * highlighting work, and only completion/hover/diagnostics go away. Hence
+    * the warning instead of a raise — an unset variable is a deployment that
+    * did not stage the jar, which is worth saying once and not worth refusing
+    * to boot over.
     */
   private def resolvePklLspJar(
-      client: java.net.http.HttpClient,
       jarOverride: Option[String],
       log: SelfAwareStructuredLogger[IO]
   ): IO[Option[os.Path]] =
-    jarOverride match {
+    jarOverride.filter(_.nonEmpty) match {
+      case None =>
+        log.warn("pkl-lsp: PKL_LSP_JAR unset; LSP features disabled").as(None)
       case Some(p) =>
         val path = os.Path(p, os.pwd)
         IO.blocking(os.exists(path)).flatMap {
           case true  => IO.pure(Some(path))
           case false =>
-            log.warn(s"pkl-lsp: PKL_LSP_JAR=$p does not exist").as(None)
-        }
-      case None =>
-        val cache = os.pwd / ".pkl-lsp" / s"pkl-lsp-$PklLspVersion.jar"
-        IO.blocking(os.exists(cache)).flatMap {
-          case true  => IO.pure(Some(cache))
-          case false =>
-            downloadPklLsp(client, cache, log).attempt.flatMap {
-              case Right(_)  => IO.pure(Some(cache))
-              case Left(err) =>
-                log
-                  .warn(err)("pkl-lsp: could not obtain jar; LSP disabled")
-                  .as(None)
-            }
+            log
+              .warn(s"pkl-lsp: PKL_LSP_JAR=$p does not exist; LSP disabled")
+              .as(None)
         }
     }
-
-  /** Download the pkl-lsp jar to `dest` via the JDK http client (write to a
-    * `.part` sibling, then move — never leave a truncated jar).
-    */
-  private def downloadPklLsp(
-      client: java.net.http.HttpClient,
-      dest: os.Path,
-      log: SelfAwareStructuredLogger[IO]
-  ): IO[Unit] =
-    log.info(s"pkl-lsp: downloading $PklLspUrl") *>
-      IO.blocking {
-        os.makeDir.all(dest / os.up)
-        val tmp = dest / os.up / (dest.last + ".part")
-        val req = java.net.http.HttpRequest
-          .newBuilder(java.net.URI.create(PklLspUrl))
-          .build()
-        val resp = client.send(
-          req,
-          java.net.http.HttpResponse.BodyHandlers.ofFile(tmp.toNIO)
-        )
-        if (resp.statusCode() != 200) {
-          os.remove.all(tmp)
-          throw new RuntimeException(s"HTTP ${resp.statusCode()}")
-        }
-        os.move.over(tmp, dest)
-      } *> log.info(s"pkl-lsp: cached at $dest")
 }
