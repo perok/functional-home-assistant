@@ -5,12 +5,8 @@ import cats.syntax.all.*
 import fh.view.FHError
 import io.circe.Json
 
-/** What a DRAWING costs, now that drawing is a transform stage rather than
-  * something the provider does.
-  *
-  * The properties here were `HistoryProviderSuite`'s until the inversion. They
-  * did not change — a picture is still keyed by every field of its style, and
-  * still shared by everyone reading one version — only whose they are.
+/** What a DRAWING costs: keyed by question and every field of its style, and
+  * shared by everyone reading one version.
   */
 class ChartStageSuite extends munit.CatsEffectSuite {
 

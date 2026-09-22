@@ -122,14 +122,9 @@ enum Tenure derives CanEqual {
 case class Session(
     slug: String,
     open: Ref[IO, Set[String]],
-    // What this viewer has chosen for each node variable in scope, addressed
-    // by the node that DECLARED it (issue #209). Beside `open` and for the
-    // same reason: a PULL has no request to read it off, so what the document
-    // arrived with has to be remembered or a live tick would re-render a
-    // chart at the declared window instead of this viewer's.
-    //
-    // A `Ref` because phase 3 makes it writable; today only the document that
-    // created the session ever sets it.
+    // This viewer's node-variable choices, keyed by declarer (issue #209).
+    // Held here like `open` because a pull has no request to read them off.
+    // Set by the document and by `Server.setVar`.
     vars: Ref[IO, Map[(NodeId, String), String]],
     control: Queue[IO, SseFrame],
     holds: Ref[IO, Map[NodeId, Held]],

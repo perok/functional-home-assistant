@@ -1443,11 +1443,9 @@ class Server(
       }
       store <- stateStore.current
       states = store.entities
-      // A surface's queries are answered BEFORE it is rendered, because a
-      // render is a synchronous string build and a provider is `IO`. This is
-      // the path more-info takes, and it is the only one wired: a chart lives
-      // in a triggered surface, so nothing is fetched for a popup nobody has
-      // opened, and a page open is not made to wait on a recorder query.
+      // Answered before rendering: a render is a synchronous string build and
+      // a provider is `IO`. Only the arriving surface's queries, so an unopened
+      // popup costs nothing.
       env <- envOf(session, renderer)
       fragments <- resolveQueries(renderer, newSurface, env)
       // The arriving surface, rendered once — the bytes go to this connection

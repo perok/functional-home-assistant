@@ -10,10 +10,7 @@ import java.time.Instant
 /** What a FETCH costs when many viewers want it, and what the provider refuses
   * to accept before anyone does.
   *
-  * Drawing used to be in here too, and its tests moved to `ChartStageSuite`
-  * with it. That is the inversion showing up in the test layout: the provider
-  * answers data, and what the data BECOMES is the slot's transform, so a suite
-  * about the provider has nothing to say about pictures.
+  * Drawing is `ChartStageSuite`'s: the provider answers data only.
   */
 class HistoryProviderSuite extends munit.CatsEffectSuite {
 
@@ -110,11 +107,8 @@ class HistoryProviderSuite extends munit.CatsEffectSuite {
   }
 
   test("a 1h bucket does not evict a live 30d entry") {
-    // Regression. The sweep used to keep only entries at or after the NEWLY
-    // inserted key's bucket — but a 1 h read buckets by the minute and a 30 d
-    // read by the hour, so every 1 h insert threw away a 30 d entry that was
-    // good for another 59 minutes. Measured at 3 fetches where 2 is correct,
-    // which is the sharing this cache exists for, gone.
+    // A 1 h read buckets by the minute and a 30 d read by the hour; sweeping
+    // by the newest key's bucket would evict the live 30 d entry.
     fixture.flatMap { case (p, fetches) =>
       val month = request("30d")
       val hour = request("1h")

@@ -358,9 +358,7 @@ class RenderCacheSuite extends munit.FunSuite {
   // ---- what two viewers reading DIFFERENT queries cost ---------------------
 
   /** Two windows over one sensor: the same node, keyed on reads that are not
-    * comparable. What a per-viewer query parameter (issue #209) would produce
-    * the moment one exists — today every viewer of a node reads the same query,
-    * so the situation is reachable here and nowhere else.
+    * comparable — what two viewers on different node-variable values produce.
     */
   private def readOf(window: String): SlotRead =
     SlotRead(

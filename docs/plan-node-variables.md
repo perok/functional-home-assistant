@@ -289,8 +289,9 @@ The rest, as built:
   overlay knows where to look.
 - **The URL restores it** — `v.<declarer>.<name>` query params, read by `Server.varChoicesOf` at
   the same point `uiStateOf` reads the bake selections, and recorded on the session because a PULL
-  has no request to read them off again. There is no writer, so the URL is the only way to move
-  one, which is a complete and testable product.
+  has no request to read them off again. The route (`POST /sse/var/…`) writes the session; nothing
+  writes `v.` back into the URL yet, so a refresh falls back to the declared value until the URL
+  mirror lands.
 - **A separate prefix from `ui.`, deliberately.** They travel the same way and are the same KIND
   of fact, but a `ui.` entry is a bake branch narrowed by `SurfaceGraph` against that group's
   members, and a variable is a value narrowed by whoever reads it. Sharing the map would make

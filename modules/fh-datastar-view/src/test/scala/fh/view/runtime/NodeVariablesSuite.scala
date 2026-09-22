@@ -146,13 +146,8 @@ class NodeVariablesSuite extends munit.FunSuite {
   }
 
   test("a declaration is a NAME and a value, and nothing else is checked") {
-    // An earlier cut carried a `domain` — the values the variable may hold —
-    // with three rules policing the field itself (empty, duplicated, and a
-    // default it did not list). All of it is gone: what a variable may hold is
-    // decided by whoever READS it, and a list on the wire was a second, weaker
-    // copy of that, free to disagree with the control the author rendered.
-    // What survives is the one thing a declaration can be wrong about on its
-    // own.
+    // What a variable may hold is its readers' question; the only thing a
+    // declaration can get wrong on its own is its name.
     val d = dash(box(Map("window" -> "24h"), chartNode()))
     assertEquals(d.validate(), Nil)
     assertEquals(windowOf(d.queriesIn(d.card)), List("24h"))
@@ -222,10 +217,7 @@ class NodeVariablesSuite extends munit.FunSuite {
   // ---- what the build ENUMERATES -------------------------------------------
 
   test("the build asks what the dashboard asks: one read, at the default") {
-    // NOT every value the domain admits. An earlier cut enumerated the domain
-    // so the prepared request map would already hold whatever a viewer later
-    // picked; what keeps that map total is the write boundary refusing a value
-    // that cannot render, which is where an untrusted value belongs.
+    // Only the declared value: a viewer's later value is checked at the write.
     val d = dash(box(Map("window" -> "7d"), chartNode()))
     assertEquals(windowOf(d.queriesIn(d.card)), List("7d"))
     assertEquals(windowOf(d.allQueries), List("7d"))
@@ -277,9 +269,8 @@ class NodeVariablesSuite extends munit.FunSuite {
   }
 
   test("two viewers on two windows are two reads, and neither sees the other") {
-    // The property phase 0 measured on the cache, now reachable end to end:
-    // the same node, the same dashboard, two viewers, two different reads.
-    // Nothing is shared between them but the renderer.
+    // Same node and dashboard, two viewers, two reads; only the renderer is
+    // shared.
     val d = dash(named("panel", Map("window" -> "24h"), chartNode()))
     val r = Renderer.create(d)
     val a = r.varEnv(Map(("panel": NodeId, "window") -> "1h"))

@@ -80,12 +80,8 @@ class ChartSlotSuite extends munit.FunSuite {
   }
 
   test("rendering a chart nobody resolved is an error, not an empty slot") {
-    // This replaced "no chart yet renders the slot empty". "No chart yet" was
-    // a state a render could be in while `QuerySnapshot` was partial and defaulted
-    // to nothing; it is not one now, and the previous behaviour is exactly the
-    // defect — a page rendered with a blank chart in it and no way to fill it,
-    // which architecture §0 forbids. So the empty render must not be reachable
-    // by forgetting to resolve.
+    // A blank chart with no way to fill it is what architecture §0 forbids, so
+    // forgetting to resolve must fail, not render empty.
     val d = dashboardWith("{{{chart}}}")
     val e = intercept[fh.view.FHError](
       Renderer
@@ -95,9 +91,8 @@ class ChartSlotSuite extends munit.FunSuite {
     assertEquals(e.status, 500)
     assert(e.getMessage.contains("not resolved for this render"))
 
-    // …and the rest of the card still renders from state when the chart IS
-    // resolved, which is the half of the old assertion that still means
-    // something: the slot's `default` is not what fills a query slot.
+    // …and when it IS resolved the rest of the card still renders from state;
+    // the slot's `default` is not what fills a query slot.
     val html =
       Renderer.create(d).renderBodyTraced(states, Map.empty, fragments()).html
     assert(html.contains(svg), clue = html)

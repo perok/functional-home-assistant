@@ -141,13 +141,8 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
   // --- The snapshot ---------------------------------------------------------
 
   test("the answers a render holds are total, and a miss is loud") {
-    // This replaced "a missing query is absent from the key, not zero", which
-    // was the right rule for a snapshot that could be PARTIAL. It cannot be
-    // now: a render either has every answer or never starts (architecture §0),
-    // so the distinction that rule protected has nothing left to describe.
-    // What is worth asserting instead is that the case it guarded against —
-    // rendering a query nobody resolved — is loud rather than an empty hole,
-    // because that is the shape the defect took.
+    // A render has every answer or never starts (architecture §0), so reading
+    // a query nobody resolved is loud rather than an empty hole.
     val q = read()
     val f = QuerySnapshot.of(Map(q -> Staged(100L, "<svg/>")))
     assertEquals(f.versions("c_0", List(ask())), Map(q -> 100L))
@@ -195,11 +190,7 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
     reads.map(r => r -> Queries.parseRead(r).fold(e => fail(e), identity)).toMap
 
   test("two sizes of one window are ONE fetch and TWO drawings") {
-    // The property the split exists for, and the one no single component can
-    // assert any more: the provider deduplicates by QUERY, the stage by
-    // (query, stage). It used to be arranged inside `HistoryProvider` by two
-    // private caches, with a test pinning down an implementation choice; it is
-    // what the keys say now.
+    // The provider dedupes by QUERY, the stage by (query, stage).
     val wide = read(width = 600)
     val narrow = read(width = 320)
     for {
@@ -328,8 +319,7 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
         // 503 and not 500: the dashboard is fine, the recorder or the engine
         // is not, so this is "come back" rather than "this build is broken".
         assertEquals(e.status, 503)
-        // Naming the query is what makes a blank chart diagnosable at all,
-        // which is what the old log line did before failure became terminal.
+        // Naming the query is what makes the failure diagnosable.
         assert(e.getMessage.contains("history"), clue = e.getMessage)
         assert(e.getMessage.contains("no engine"), clue = e.getMessage)
       case other => fail(s"expected an FHError, got $other")
