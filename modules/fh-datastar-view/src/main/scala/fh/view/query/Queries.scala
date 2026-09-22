@@ -79,9 +79,8 @@ final case class Fragment(version: Long, html: String) derives CanEqual
   * A closed sum rather than a registry of trait instances, because there is no
   * plugin story here to pay for: one `match` says in code what providers exist,
   * where a name→instance map says only what somebody remembered to put in it.
-  * Adding a provider is a case here, a member of the union in `core/slot.pkl`,
-  * and an arm in [[QueryResolver]] — all three of which the compiler and the
-  * Pkl typechecker point at.
+  * Adding a provider is a case here, an arm in [[parse]] and in
+  * [[QueryResolver]], and a typed helper in its component's Pkl module.
   */
 enum QueryRequest derives CanEqual {
   case History(entityId: String, window: Window)

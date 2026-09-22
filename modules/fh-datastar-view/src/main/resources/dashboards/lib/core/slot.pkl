@@ -19,19 +19,10 @@ import "stage.pkl" as stageMod
 /// over the card's entity. [[Slot.reads]] says when it is read.
 class Slot {
   entityId: String? = null
-  /// The value — ONE fact, now three forms. A CEL string over the card's entity
-  /// (the engine tier) or an opted-in [[simpleMod.Simple]] structure (the fast
-  /// tier — the object form IS the tier selection; nothing recognizes
-  /// expression spelling, ADR 0028); or, on a QUERY slot, a
-  /// [[stageMod.Stage]], which turns a PROVIDER's answer into the hole's
-  /// content instead of reading an entity.
-  ///
-  /// The default is DERIVED from the shape, like [[reads]] and for the same
-  /// reason: `"state"` is the identity for a state slot and means nothing
-  /// beside a query, so a fixed default would make the wire lie on one of the
-  /// two shapes. A query slot therefore defaults to
-  /// [[stageMod.passthrough]] — no transform, the provider's data as the
-  /// slot's value — and the backend rejects the wrong arm on either shape.
+  /// A CEL string over the card's entity (the engine tier), an opted-in
+  /// [[simpleMod.Simple]] (the fast tier, ADR 0028), or on a QUERY slot a
+  /// [[stageMod.Stage]] over the provider's answer. The default follows the
+  /// shape, so the wire never carries `"state"` beside a query.
   transform: (String|simpleMod.Simple|stageMod.Stage) =
     if (query == null) "state" else stageMod.passthrough
   default: String? = null
@@ -54,11 +45,9 @@ class Slot {
   /// re-read" or "ignore and read once", and the pairing an author keeps
   /// wanting — a value that CAN move but is not worth waking the card for —
   /// was the one it could not express.
-  /// A QUERY slot defaults to `onRender` and must stay there: a provider's
-  /// answer is never pushed, so nothing about it is a reason to re-render. The
-  /// default is derived rather than fixed so the WIRE states it — `reads:
-  /// "live"` sitting beside a query would read as a live value to anyone (or
-  /// anything) reading the JSON, and the backend rejects that spelling.
+  ///
+  /// A QUERY slot is `onRender` and must stay there: a provider's answer is
+  /// never pushed. The backend rejects `live` beside a query.
   reads: "live"|"onRender"|"once" = if (query == null) "live" else "onRender"
   /// Carry this value as a Datastar SIGNAL rather than as bytes in the element,
   /// so a change to it costs a signals frame instead of re-rendering the whole
@@ -68,66 +57,24 @@ class Slot {
   /// The card's template MUST place [[signalBind]] for this slot, or the value
   /// stops updating; the backend rejects the dashboard if it does not.
   signal: SignalBind? = null
-  /// This value comes from a PROVIDER rather than from live state, and it is
-  /// MARKUP rather than an escaped scalar.
-  ///
-  /// Setting it makes this a query slot, and every field above is then unused:
-  /// a query slot has no transform, no `reads` and no signal, because where its
-  /// value comes from and when it is read are not separate questions. The
-  /// backend splits the two shapes apart at validation, so the pairings that
-  /// would be wrong are not rejected — they are unreachable.
-  ///
-  /// Build one with [[querySlot]] or a provider's own helper rather than
-  /// writing it here; the card's template must place it in the RAW hole
-  /// (`{{{slot}}}`), which the backend checks.
+  /// Makes this a QUERY slot: the value comes from a provider, not live state.
+  /// Build one with a provider's helper (`components/history.pkl`'s
+  /// `chartSlot`) or [[querySlot]].
   query: Query? = null
 }
 
-/// A read of a named PROVIDER — what fills a query slot.
-///
-/// `params` is untyped on the wire on purpose: the provider parses them, so the
-/// backend's model knows nothing about what any provider does and a third-party
-/// one needs no change there. The typing lives at both ends instead — a helper
-/// like [[chartSlot]] here, and `QueryProvider.parse` at validation, which turns
-/// a bad parameter into a build error naming the dashboard.
+/// A read of a named PROVIDER. The core names no provider: `provider` and
+/// `params` are checked by the backend's `Queries.parse` at build time, and
+/// typed by the component that offers the provider.
 class Query {
-  /// A closed union rather than a free String: there is one provider, and a
-  /// second is a member here plus a case in the backend's `Queries.parse`.
-  /// Closed means a typo is an eval error the LSP reports before the dashboard
-  /// is ever built, which a registry of names could never give.
-  provider: "history"
+  provider: String
   params: Mapping<String, String>
 }
 
-/// A slot filled by a provider. The general form; prefer a provider's own
-/// helper where there is one.
-/// Parameters are suffixed because Pkl binds `provider = provider` inside a
-/// `new Query {}` to the object's OWN member, not to the argument — a ~750-deep
-/// recursion whose trace points at the field rather than the cause.
-const function querySlot(name: "history", args: Mapping<String, String>): Slot =
+/// Parameters are suffixed because `provider = provider` inside `new Query {}`
+/// binds to the object's own member and recurses.
+const function querySlot(name: String, args: Mapping<String, String>): Slot =
   new Slot { query = new Query { provider = name; params = args } }
-
-/// A chart of one entity's readings over one window, drawn by the server.
-///
-/// `window` is one of `1h`/`24h`/`7d`/`30d`. `unit` is drawn beside the y axis
-/// and should be the entity's own `unit_of_measurement`, because the card
-/// beside the chart reads the same field and the two must agree.
-///
-/// The QUESTION is the entity and the window; the DRAWING is the transform. The
-/// unit used to ride in the query, which made two sizes of one series two
-/// different questions — so sharing the fetch between them depended on a cache
-/// being keyed carefully rather than on the types saying so.
-const function chartSlot(
-  entityId: String,
-  window: String,
-  unit: String?
-): Slot =
-  (querySlot("history", new Mapping {
-    ["entity"] = entityId
-    ["window"] = window
-  })) {
-    transform = stageMod.chart(null, null, unit)
-  }
 
 /// WHERE a signal slot's value lands in the DOM. Spelled as a constrained
 /// String rather than a class hierarchy for two reasons: the wire form IS one

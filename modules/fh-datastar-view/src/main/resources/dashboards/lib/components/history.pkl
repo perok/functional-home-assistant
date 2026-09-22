@@ -1,25 +1,58 @@
 /// A chart of one entity's recorded past, drawn on the server.
 ///
-/// The chart arrives as SVG in the card's bytes — no chart JavaScript reaches
-/// the browser, so it morphs, caches and resumes like any other leaf. The whole
-/// of the authoring surface is [[historyChart]]; how the picture is fetched and
-/// drawn is the `history` query provider's business.
+/// The chart arrives as SVG in the card's bytes, so it morphs, caches and
+/// resumes like any other leaf. This module owns everything history-specific
+/// the authoring side knows: the provider's name and parameters, the windows,
+/// and the chart stage.
 module components.history
 
 import "../core/node.pkl" as nodes
 import "../core/slot.pkl" as slotMod
+import "../core/stage.pkl" as stageMod
 import "../hass.pkl"
 
-/// How far back a chart looks. A closed set, because the window is what the
-/// server's cache keys on — an arbitrary duration would give every viewer their
-/// own key and the sharing would quietly stop.
+/// How far back a chart looks. Closed because the server's cache keys on it
+/// (`fh.view.history.Window`).
 typealias Window = "1h"|"24h"|"7d"|"30d"
 
-/// One entity's readings over one window.
-///
-/// The SVG goes in a RAW hole (`{{{chart}}}`) because it is markup, not a
-/// value; written `{{chart}}` the page would show the markup as text, and the
-/// backend rejects that at build time rather than letting it ship.
+/// The `history` provider's question: one entity over one window.
+const function historyQuery(entityId: String, w: Window): slotMod.Slot =
+  slotMod.querySlot("history", new Mapping {
+    ["entity"] = entityId
+    ["window"] = w
+  })
+
+/// Series in, SVG out. Size and unit say how the answer is DRAWN, not what was
+/// asked, so two sizes of one chart share one fetch. An absent value leaves its
+/// key out, so the backend's default applies.
+const function chartStage(
+  chartWidth: Int?,
+  chartHeight: Int?,
+  chartUnit: String?
+): stageMod.Stage = new stageMod.Stage {
+  stage = "chart"
+  params = new Mapping {
+    when (chartWidth != null) {
+      ["width"] = chartWidth.toString()
+    }
+    when (chartHeight != null) {
+      ["height"] = chartHeight.toString()
+    }
+    when (chartUnit != null) {
+      ["unit"] = chartUnit
+    }
+  }
+}
+
+/// A chart of one entity over one window. `unit` should be the entity's own
+/// `unit_of_measurement`, so the chart agrees with the card beside it.
+const function chartSlot(entityId: String, w: Window, unit: String?): slotMod.Slot =
+  (historyQuery(entityId, w)) {
+    transform = chartStage(null, null, unit)
+  }
+
+/// One entity's readings over one window. The SVG goes in a RAW hole
+/// (`{{{chart}}}`); the backend rejects an escaped one at build time.
 class HistoryChart extends nodes.Node {
   card = "historyChart"
   cardDef = new nodes.CardDef {
@@ -27,10 +60,8 @@ class HistoryChart extends nodes.Node {
       <div class="card fh-chart">{{{chart}}}</div>
       """
     slots { "chart" }
-    // The SVG carries its own `viewBox`, so sizing it here rather than in the
-    // option object is what makes it responsive: the drawing is done once per
-    // cache bucket at one pixel size and then scaled by the browser to whatever
-    // the cell is, instead of a re-render per viewport.
+    // The SVG carries its own `viewBox`: drawn once per cache bucket, scaled
+    // by the browser to the cell.
     css = """
       .fh-chart{padding:.25rem}
       .fh-chart svg{display:block;inline-size:100%;block-size:auto}
@@ -42,21 +73,14 @@ class HistoryChart extends nodes.Node {
   hidden window: Window = "24h"
 
   slots {
-    // The unit is the entity's OWN `unit_of_measurement`, not a copy: the card
-    // beside the chart reads the same field, and two readings of it could
-    // disagree.
-    ["chart"] = slotMod.chartSlot(entity.entity_id, window, entity.unit_of_measurement)
+    ["chart"] = chartSlot(entity.entity_id, window, entity.unit_of_measurement)
   }
 
   function over(w: Window): HistoryChart = let (self = this) (self) { window = w }
 }
 
 /// A chart of `e`'s last 24 hours — `c.historyChart(sensor).over("7d")` for any
-/// other window.
-///
-/// Takes a [[hass.SensorEntity]] rather than any entity because a chart of a
-/// non-numeric reading is a flat line or nothing at all. Whether a given sensor
-/// is numeric is [[hass.SensorEntity.isNumeric]], which the dump already knows —
-/// so a composition can ask before it draws instead of finding out at runtime.
+/// other window. A [[hass.SensorEntity]] because only a numeric one charts;
+/// [[hass.SensorEntity.isNumeric]] lets a composition ask before it draws.
 function historyChart(e: hass.SensorEntity): HistoryChart =
   new HistoryChart { entity = e }

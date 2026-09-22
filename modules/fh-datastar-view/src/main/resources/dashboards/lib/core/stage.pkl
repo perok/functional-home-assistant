@@ -1,71 +1,19 @@
 /// What a QUERY slot's answer becomes — the third arm of [[slot.Slot.transform]].
 ///
-/// A provider fetches and answers with DATA. How that data becomes what the card
-/// puts in its hole is this, and it is the same field a state slot's CEL
-/// expression sits in because it answers the same question. What differs is the
-/// subject: a CEL string reads an ENTITY, a stage reads a provider's answer.
-///
-/// Two stages exist. [[passthrough]] is the absence of one — the raw JSON, which
-/// is the contract a third party writing their own chart library reads against —
-/// and [[chart]] is the built-in drawing. A stage nobody has written yet is a
-/// member of the backend's `StageRequest` and a constructor here.
+/// A provider answers with data; a stage turns it into the hole's content. The
+/// core knows only the shape and [[passthrough]]; a stage that draws something
+/// lives with the component that uses it (the chart: `components/history.pkl`).
 module core.stage
 
 /// The wire form (fh.view.model.Transform.Stage).
 ///
-/// `stage` rather than `kind`, which [[simple.Simple]] already uses: the two are
-/// arms of ONE union field, and the backend's decoder tells them apart by which
-/// key is present. Sharing a discriminator would make that a question about its
-/// VALUE, which is a worse thing to depend on.
-///
-/// `params` is untyped for the same reason a query's are: the model stays
-/// ignorant of what any stage does, and the typing lives at both ends — these
-/// constructors, and the stage's own parse at validation.
+/// `stage` rather than `kind`: [[simple.Simple]] already uses `kind`, and the
+/// backend tells the two union arms apart by which key is present.
 class Stage {
   stage: String
   params: Mapping<String, String> = new Mapping {}
 }
 
-/// NO transform: the provider's data, escaped into the hole.
-///
-/// What a query slot gets by default, derived rather than fixed so the WIRE says
-/// which tier is in play — the same rule [[slot.Slot.reads]] follows, and for the
-/// same reason: a default that only reads correctly on one of the two shapes is
-/// exactly what a reader (or a third-party tool) would misread.
-///
-/// Its hole is the ESCAPED one (`{{name}}`), because the value is DATA. The
-/// backend checks that, as it checks the opposite for a drawing.
+/// No transform: the provider's data, escaped into the hole. What a query slot
+/// gets by default.
 const passthrough: Stage = new Stage { stage = "passthrough" }
-
-/// The built-in chart: a series in, SVG out, drawn on the server.
-///
-/// `unit` is drawn beside the y axis and should be the entity's own
-/// `unit_of_measurement`, because the card beside the chart reads the same field
-/// and the two must agree.
-///
-/// These used to be QUERY parameters, and moving them here is the point of the
-/// split: they say how the answer is drawn, not what was asked. Two cards
-/// charting one sensor over one window at different sizes are now one question
-/// and two pictures — one fetch, two drawings — which the cache gets right by
-/// construction rather than by care.
-const function chart(
-  chartWidth: Int?,
-  chartHeight: Int?,
-  chartUnit: String?
-): Stage = new Stage {
-  stage = "chart"
-  // `when` inside the body, because `Mapping` has no `+` — an absent value must
-  // leave the key out entirely so the stage's own defaults apply, and `""` is a
-  // different question from "not given".
-  params = new Mapping {
-    when (chartWidth != null) {
-      ["width"] = chartWidth.toString()
-    }
-    when (chartHeight != null) {
-      ["height"] = chartHeight.toString()
-    }
-    when (chartUnit != null) {
-      ["unit"] = chartUnit
-    }
-  }
-}
