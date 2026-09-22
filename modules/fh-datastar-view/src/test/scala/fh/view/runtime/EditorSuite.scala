@@ -102,42 +102,17 @@ class EditorSuite extends munit.FunSuite {
     }
   }
 
-  test("the pkl-lsp jar is resolved on first use, and only once") {
-    // It is a ~30 MB download from Maven Central on a cold cache, and it used
-    // to run on the boot path of EVERY start — including the overwhelming
-    // majority that never open the editor. What this pins is that constructing
-    // the routes, and serving anything that is not the LSP socket, touches it
-    // zero times.
-    val calls = new java.util.concurrent.atomic.AtomicInteger(0)
-    val resolve = IO(calls.incrementAndGet()).as(Option.empty[os.Path])
+  test("no pkl-lsp jar disables the socket, not the editor") {
+    // `wsb` is null here, which is safe only because the None branch answers
+    // before anything touches it — so this also pins that ordering.
     workspace { ws =>
-      resolve.memoize
-        .flatMap { deferred =>
-          val routes = new EditorRoutes(
-            ws,
-            TestAuth.openGate,
-            deferred,
-            IO.pure("home"),
-            IO.pure(Nil)
-          ).routes(null).orNotFound
-          for {
-            _ <- IO(assertEquals(calls.get(), 0, "resolved while constructing"))
-            _ <- routes.run(Request[IO](Method.GET, uri"/edit/files"))
-            _ <- IO(
-              assertEquals(calls.get(), 0, "resolved by an ordinary route")
-            )
-            // The socket is what needs it. `wsb` is null here, so this asserts
-            // only the resolution — which is reached first, and is the point.
-            first <- routes.run(Request[IO](Method.GET, uri"/lsp/pkl"))
-            _ <- IO(assertEquals(first.status, Status.ServiceUnavailable))
-            _ <- IO(assertEquals(calls.get(), 1))
-            // ...and memoized, so a second socket shares the first download
-            // rather than racing a parallel one.
-            _ <- routes.run(Request[IO](Method.GET, uri"/lsp/pkl"))
-            _ <- IO(assertEquals(calls.get(), 1, "resolved twice"))
-          } yield ()
-        }
-        .unsafeRunSync()
+      val r = routes(ws).orNotFound
+      val (fileStatus, _) = get(ws, "/edit/files")
+      assertEquals(fileStatus, Status.Ok)
+      assertEquals(
+        r.run(Request[IO](Method.GET, uri"/lsp/pkl")).unsafeRunSync().status,
+        Status.ServiceUnavailable
+      )
     }
   }
 
@@ -170,7 +145,7 @@ class EditorSuite extends munit.FunSuite {
     new EditorRoutes(
       ws,
       TestAuth.openGate,
-      IO.pure(None),
+      None,
       IO.pure("home"),
       IO.pure(List("home", "kitchen"))
     ).routes(null)
