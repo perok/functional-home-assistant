@@ -34,7 +34,8 @@ docker run --rm --entrypoint java ghcr.io/perok/fh-dashboard:latest \
   fh.view.runtime.JsIsolateCheck
 ```
 
-It runs a line of JavaScript and prints RSS before and after, which is the
+It runs a line of JavaScript, draws a chart with its timings, and prints RSS
+before and after, which is the
 only way to see memory a foreign library allocates outside the JVM heap. CI
 runs it inside the built image — amd64 on a pull request, aarch64 under
 emulation on main. (A throwaway cache path here so the check does not warm

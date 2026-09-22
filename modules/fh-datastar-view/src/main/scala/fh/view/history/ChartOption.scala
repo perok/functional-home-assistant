@@ -9,29 +9,16 @@ final case class ChartStyle(
     height: Int = 180,
     line: String = "var(--fh-accent)",
     fill: Option[String] = None,
-    /** Drawn beside the y axis. The entity's own `unit_of_measurement`; nothing
-      * here derives it, because the card beside the chart reads the same field
-      * and the two must agree.
-      */
+    /** The entity's own `unit_of_measurement`, so it agrees with the card. */
     unit: Option[String] = None
 )
 
-/** The ECharts option object, built here rather than in JavaScript.
+/** The ECharts option object, built in Scala so what a chart says is tested on
+  * `Json` rather than on SVG.
   *
-  * Pure, so it is where the tests are: everything about what a chart SAYS is
-  * decided in Scala, and the guest does nothing but turn an option object into
-  * SVG. A bug in the axis config is then an assertion on a `Json`, not a regex
-  * over 20 KB of markup.
-  *
-  * Two settings are not cosmetic and must not be "cleaned up":
-  *
-  *   - `animation: false`. zrender starts an animation loop at init, and SSR
-  *     renders one frame — with animation on, that frame is the START of every
-  *     transition, so a chart renders empty or half-drawn.
-  *   - `xAxis.type: "time"` with `[millis, value]` pairs rather than a category
-  *     axis. A category axis would space points evenly whatever their
-  *     timestamps, which is exactly wrong for recorder data: raw rows are
-  *     written when a value MOVES, so the gaps carry meaning.
+  * Not cosmetic: `animation: false` (SSR renders one frame, which would be the
+  * start of every transition), and a `time` x axis (recorder rows are written
+  * when a value moves, so the gaps mean something).
   */
 object ChartOption {
 
@@ -44,9 +31,7 @@ object ChartOption {
 
     Json.obj(
       "animation" -> Json.False,
-      // No title, no legend, no toolbox: a chart inside a more-info popup is
-      // already labelled by the card around it, and every pixel spent on chrome
-      // is one not spent on the line.
+      // No title or legend: the card around the chart already labels it.
       "grid" -> Json.obj(
         "left" -> Json.fromInt(if (style.unit.isDefined) 48 else 36),
         "right" -> Json.fromInt(12),
@@ -61,9 +46,7 @@ object ChartOption {
       ),
       "yAxis" -> Json.obj(
         "type" -> "value".asJson,
-        // `scale` so the line uses the height it has. A y axis anchored at zero
-        // renders an indoor temperature as a flat line at the top of the box,
-        // which is true and useless.
+        // Not anchored at zero, or 21.4–21.6 °C is a flat line.
         "scale" -> Json.True,
         "name" -> style.unit.fold(Json.Null)(Json.fromString),
         "nameLocation" -> "end".asJson,
@@ -72,8 +55,6 @@ object ChartOption {
       "series" -> Json.arr(
         Json.obj(
           "type" -> "line".asJson,
-          // The points are already thinned to about the chart's pixel width,
-          // so a symbol per point would be a solid band.
           "showSymbol" -> Json.False,
           "lineStyle" -> Json.obj(
             "width" -> Json.fromInt(2),
@@ -89,10 +70,7 @@ object ChartOption {
     )
   }
 
-  /** A non-finite value has no place on an axis, and `Json.fromDouble` returns
-    * `None` for one rather than emitting invalid JSON. Sent as null, which
-    * ECharts renders as a break in the line.
-    */
+  // Null for a non-finite value, which ECharts draws as a break in the line.
   private def doubleOrNull(d: Double): Json =
     Json.fromDouble(d).getOrElse(Json.Null)
 }

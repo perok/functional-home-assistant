@@ -11,23 +11,12 @@ import org.typelevel.log4cats.LoggerFactory
 import java.nio.charset.StandardCharsets.UTF_8
 import scala.util.Using
 
-/** Series in, SVG out.
+/** Series in, SVG out — server-side because a morph silently kills a canvas
+  * chart (ADR 0032).
   *
-  * Server-rendered SVG rather than a canvas chart in the browser, and that is
-  * forced rather than preferred: Datastar morphs the DOM, which severs a
-  * canvas's element association silently — no error, a dead chart — and
-  * `data-ignore-morph` cannot rescue it, because its guard is one-sided and
-  * unconditional, so marking a chart host also kills every live update beneath
-  * it. As SVG a chart is an ordinary leaf card: it patches, caches, digests,
-  * resumes, and survives a morph.
-  *
-  * ONE context for the process, serialised by a mutex. Two reasons, and the
-  * obvious one is the weaker: a Graal context is not safe for concurrent use,
-  * which a pool would also solve. The real one is that evaluating ECharts costs
-  * ~300 ms in the isolate and a context does not share that with its siblings,
-  * so a pool pays it per member. Render rate is bounded by [[SeriesStore]] to
-  * roughly one per window per bucket, which one context absorbs; a pool becomes
-  * worth its memory only if that stops being true.
+  * ONE context behind a mutex rather than a pool: each context pays ~300 ms to
+  * evaluate ECharts, and [[SeriesStore]] bounds renders to about one per window
+  * per bucket.
   */
 final class ChartRenderer private (context: Context, lock: Mutex[IO]) {
 
@@ -48,9 +37,6 @@ final class ChartRenderer private (context: Context, lock: Mutex[IO]) {
 
 object ChartRenderer {
 
-  /** The polyglot isolate where this machine has one, the interpreter where it
-    * does not — see [[JsIsolate.engineOrInHeap]] for why there is a fallback.
-    */
   def resource(
       loggerFactory: LoggerFactory[IO] = Logging.console
   ): Resource[IO, ChartRenderer] =
@@ -65,9 +51,7 @@ object ChartRenderer {
       )
       .flatMap(fromEngine)
 
-  /** For an engine somebody else built — how a test pins WHICH engine it drew
-    * on, rather than taking whichever this machine happens to offer.
-    */
+  /** On an engine the caller chose; `JsIsolateCheck` pins the isolate. */
   def fromEngine(engine: Engine): Resource[IO, ChartRenderer] =
     for {
       context <- Resource.fromAutoCloseable(
@@ -87,10 +71,8 @@ object ChartRenderer {
       lock <- Resource.eval(Mutex[IO])
     } yield new ChartRenderer(context, lock)
 
-  /** zrender starts an animation loop at init, so these must EXIST. With
-    * `animation: false` they are never actually fired, which is why no-ops are
-    * enough and no timer machinery is needed.
-    */
+  // zrender's animation loop needs these to exist; with `animation: false`
+  // they never fire.
   private val shim: Source =
     js(
       "fh-shim.js",
@@ -101,17 +83,9 @@ object ChartRenderer {
         |""".stripMargin
     )
 
-  /** The option object arrives as a JSON STRING rather than as a host object.
-    *
-    * Measured at 2 000 points: a JSON string costs 0.48 ms across the isolate
-    * boundary against 0.02 ms for a primitive `double[]`, so the faster shape
-    * is known and is not used. It WAS unverifiable — splitting the series out
-    * of the option object hands over host arrays, whose access rules interact
-    * with `HostAccess.SCOPED`, and nothing outside the add-on image ran the
-    * isolate. That is no longer true, so the reason is now the plain one: 0.46
-    * ms once per cache bucket, against a real change to how the option object
-    * is built. Do it if a profile ever puts a render somewhere it shows.
-    */
+  // A JSON string crosses the isolate in 0.48 ms at 2 000 points, a
+  // `double[]` in 0.02 ms (measured). Not worth reshaping the option object
+  // for, once per cache bucket.
   private val entry: Source =
     js(
       "fh-chart.js",
@@ -129,9 +103,6 @@ object ChartRenderer {
         |""".stripMargin
     )
 
-  /** Read once per process, from the classpath, where the build put it
-    * (`node_modules/echarts/dist` -> managed resources).
-    */
   private lazy val echarts: Source = {
     val bytes = Using.resource(
       Option(getClass.getResourceAsStream("/chart/echarts.min.js"))
@@ -144,10 +115,7 @@ object ChartRenderer {
     js("echarts.min.js", String(bytes, UTF_8))
   }
 
-  /** `cached(true)` is the default and is what makes one parse serve every
-    * context built later; naming the source is what puts a readable file in a
-    * guest stack trace instead of `<eval>`.
-    */
+  // Named so a guest stack trace shows a file rather than `<eval>`.
   private def js(name: String, code: String): Source =
     Source.newBuilder("js", code, name).buildLiteral()
 }

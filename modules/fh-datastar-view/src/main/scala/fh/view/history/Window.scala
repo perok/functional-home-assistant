@@ -5,19 +5,14 @@ import api.homeassistant.ws.domain.StatisticsPeriod
 import java.time.Instant
 import scala.concurrent.duration.*
 
-/** How far back a chart looks, and how coarsely it is allowed to go stale.
+/** How far back a chart looks, and how stale it may go.
   *
-  * A closed set rather than an arbitrary duration, because `bucket` is what
-  * makes the cache work: every viewer asking for the same window inside the
-  * same bucket shares one fetch and one rendered chart, and the entry expires
-  * by the bucket rolling over rather than by a timer. An arbitrary window would
-  * give every viewer their own key and the sharing would quietly stop.
+  * A closed set because `bucket` is the cache key's time part: viewers inside
+  * one bucket share one fetch and one drawing. An arbitrary duration would give
+  * each viewer their own key.
   *
-  * `statistics` is the period to ask for when the window reaches past what HA's
-  * recorder still holds. It is deliberately FINER than `bucket` for the short
-  * windows — five-minute buckets for a one-hour view — because the statistics
-  * table only has what it has, and asking for `hour` on a one-hour window
-  * returns nothing at all (measured).
+  * `statistics` is finer than `bucket` for short windows because `hour` on a
+  * one-hour window returns nothing (measured).
   */
 enum Window(
     val span: FiniteDuration,
@@ -32,11 +27,6 @@ enum Window(
 
   def startAt(asOf: Instant): Instant = asOf.minusSeconds(span.toSeconds)
 
-  /** `asOf` floored to this window's bucket — the time component of a cache
-    * key. Floored rather than rounded so the bucket a series was fetched in is
-    * the one it is looked up in; rounding would move the boundary under a
-    * request that arrived just before it.
-    */
   def bucketOf(asOf: Instant): Instant = {
     val step = bucket.toSeconds
     Instant.ofEpochSecond(Math.floorDiv(asOf.getEpochSecond, step) * step)
@@ -45,7 +35,6 @@ enum Window(
 
 object Window {
 
-  /** The name a dashboard author writes and a URL carries. */
   def byName(name: String): Option[Window] =
     values.find(_.name == name)
 
