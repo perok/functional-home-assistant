@@ -475,35 +475,15 @@ object Transform {
   ): SlotValue =
     Cel.runValue(expr, entity, dashboardSlug)
 
-  /** How a QUERY's answer becomes what the card puts in the hole — the third
-    * arm of `SlotSource.transform`, beside the CEL string and [[Simple]].
-    *
-    * It is the same field and not a new one because it answers the same
-    * question those two do. What differs is the subject: a CEL string and a
-    * Simple transform read an ENTITY, a stage reads a provider's DATA, and
-    * `SlotShape` is what keeps each arm on the shape that can use it.
-    *
-    * Deliberately NOT a member of [[Simple]], which would have been the obvious
-    * place. That type's membership rule is "a static lookup and TOTAL",
-    * evaluated without the engine; a chart renderer is neither, and putting it
-    * there would falsify the rule its own scaladoc states.
-    *
-    * `params` is untyped for the same reason [[SlotQuery.params]] is: the model
-    * stays ignorant of what any stage does, so `fh.view.model` never imports
-    * `fh.view.history` and a third-party stage needs no change here. The typing
-    * lives at both ends — a typed Pkl builder, and the stage's own parse at
-    * validation.
+  /** How a QUERY's answer becomes the hole's content — the third arm of
+    * `SlotSource.transform`. Not a [[Simple]]: that tier is a total static
+    * lookup, and a chart renderer is neither. `params` stay untyped so the
+    * model never imports `fh.view.history`.
     */
   enum Stage derives CanEqual {
 
-    /** No transform: the provider's data, escaped into the hole.
-      *
-      * The third-party contract, and the reason it is spelled rather than left
-      * absent: a query slot's `transform` is DERIVED by the Pkl default (the
-      * same rule `reads` follows), so the wire states which tier is in play
-      * instead of leaving a reader to infer it from a missing key. A default
-      * that only reads correctly on one of the two shapes is the thing that
-      * derivation exists to avoid.
+    /** No transform: the provider's data, escaped into the hole. Spelled on the
+      * wire rather than absent, because the Pkl default derives it.
       */
     case Passthrough
 
@@ -513,10 +493,7 @@ object Transform {
 
   object Stage {
 
-    /** The identity of one stage, for keying bytes by what produced them.
-      * Structure rather than spelling, and disjoint by prefix, exactly as
-      * [[Simple.key]] is.
-      */
+    /** Disjoint by prefix, like [[Simple.key]]. */
     def key(s: Stage): String = s match {
       case Stage.Passthrough => "passthrough"
       case Stage.Chart(ps)   =>
@@ -525,10 +502,8 @@ object Transform {
           .mkString("chart:", ",", "")
     }
 
-    /** Wire form: `{"stage": "chart", "params": {…}}`. Flat and
-      * kind-discriminated like [[SimpleWire]], and distinguishable from it by
-      * key — `Simple` carries `op` or `cases`, never `stage` — which is what
-      * lets the union decoder try the arms in turn without a shared tag.
+    /** `{"stage": "chart", "params": {…}}`. Told apart from [[SimpleWire]] by
+      * key (`stage` vs `op`/`cases`), so the union decoder tries each arm.
       */
     case class Wire(stage: String, params: Map[String, String] = Map.empty)
         derives ConfiguredDecoder
