@@ -173,7 +173,7 @@ final class FakeHomeAssistant private (
       // A recorder that has kept every numeric fixture at its current state,
       // with a ripple so a chart has a line to draw, sampled across whatever
       // span was asked — so charts of two windows differ by their time axis.
-      // No statistics: `SeriesProvider` then charts the raw history.
+      // No statistics: `History` then charts the raw history.
       case h: `history/history_during_period` =>
         stateRef.get.map { states =>
           h.entity_ids.flatMap { id =>

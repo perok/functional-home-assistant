@@ -110,8 +110,7 @@ None of this was designed separately; all of it fell out.
 - **The fetch/draw split is structural.** `QuerySnapshot.resolve` deduplicates one fetch per QUERY and
   one drawing per `(query, stage)` — `SlotRead` is that pair, and it is what `RenderInputs`
   carries. Two cards charting one sensor over one window at different sizes cost one fetch and two
-  drawings *because the keys say so*, where before `HistoryProvider` held two private caches and a
-  test pinned the choice down.
+  drawings *because the keys say so*.
 - **The drawing cache needs no expiry.** A series has a shelf life — it stops being current when
   its bucket rolls, which is what decides when a version moves. A drawing has none: it is a
   deterministic function of an answer, so `ChartStage` keys by version and replaces in place. That

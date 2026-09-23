@@ -3,8 +3,8 @@ package fh.view.runtime
 import api.homeassistant.HomeAssistantApi
 import cats.effect.IO
 import cats.syntax.all.*
-import fh.view.history.{ChartStage, HistoryProvider, Series, SeriesProvider}
-import fh.view.history.{SeriesStore, Window}
+import api.homeassistant.ws.domain.{HistoryPoint, StatisticsPeriod}
+import fh.view.history.{ChartStage, History, SeriesSource}
 import fh.view.model.{
   CardDef,
   Dashboard,
@@ -16,7 +16,7 @@ import fh.view.model.{
   SlotSource,
   Transform
 }
-import fh.view.query.{QueryIdentity, QueryResolver}
+import fh.view.query.QueryResolver
 import fh.view.testkit.{FakeHomeAssistant, TestAuth}
 import fh.view.testkit.TestIds.given
 import fs2.concurrent.SignallingRef
@@ -91,28 +91,23 @@ class VarTapSuite extends ServerHarness {
     */
   private def resolver: IO[QueryResolver] =
     for {
-      store <- SeriesStore.create(
-        new SeriesProvider {
-          def identify(req: Request[IO]) = IO.pure(QueryIdentity.Instance)
-          def series(
-              identity: QueryIdentity,
-              entityId: String,
-              window: Window,
-              asOf: Instant
-          ) = IO.pure(
-            Series(
-              Vector(
-                Series.Point(
-                  Instant.ofEpochMilli(window.span.toMillis),
-                  1.0
-                )
-              ),
-              0
+      history <- History.create(new SeriesSource {
+        def raw(start: Instant, end: Instant, entityId: String) =
+          IO.pure(
+            List(
+              HistoryPoint(
+                "1.0",
+                Instant.ofEpochMilli(end.toEpochMilli - start.toEpochMilli)
+              )
             )
           )
-        }
-      )
-      history <- HistoryProvider.create(store)
+        def statistics(
+            start: Instant,
+            end: Instant,
+            entityId: String,
+            period: StatisticsPeriod
+        ) = IO.pure(Nil)
+      })
       stage <- ChartStage.create(IO.pure((_, _) => IO.pure("<svg/>")))
     } yield QueryResolver(history, stage)
 

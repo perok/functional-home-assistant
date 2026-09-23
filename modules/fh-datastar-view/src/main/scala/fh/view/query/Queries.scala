@@ -1,7 +1,7 @@
 package fh.view.query
 
 import cats.effect.IO
-import fh.view.history.{ChartStage, HistoryProvider, HistoryQuery, Window}
+import fh.view.history.{ChartStage, History, HistoryQuery, Window}
 import fh.view.model.{SlotQuery, Transform}
 
 import io.circe.Json
@@ -62,7 +62,7 @@ object Queries {
   * dedupe at different levels: one fetch per query, one drawing per (query,
   * stage).
   */
-final class QueryResolver(history: HistoryProvider, chart: ChartStage) {
+final class QueryResolver(history: History, chart: ChartStage) {
 
   def answer(
       identity: QueryIdentity,

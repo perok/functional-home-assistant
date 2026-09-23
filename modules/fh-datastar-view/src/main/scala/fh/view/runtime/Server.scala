@@ -18,15 +18,7 @@ import fh.view.build.{
 }
 import fh.view.FHError
 import fh.view.auth.{AuthGate, Requirement}
-import fh.view.history.{
-  ChartRenderer,
-  ChartStage,
-  HistoryProvider,
-  Retention,
-  SeriesProvider,
-  SeriesSource,
-  SeriesStore
-}
+import fh.view.history.{ChartRenderer, ChartStage, History, SeriesSource}
 import fh.view.query.{Queries, QueryIdentity, QueryResolver, QuerySnapshot}
 import fh.view.model.{
   ChromeColors,
@@ -3108,14 +3100,8 @@ object Server {
   ): Resource[IO, QueryResolver] =
     for {
       chart <- ChartRenderer.resource(loggerFactory).memoizedAcquire
-      retention <- Retention.create.toResource
-      store <- SeriesStore
-        .create(
-          SeriesProvider.asInstance(SeriesSource.fromApi(api), retention)
-        )
-        .toResource
+      history <- History.create(SeriesSource.fromApi(api)).toResource
       stage <- ChartStage.create(chart.map(_.render)).toResource
-      history <- HistoryProvider.create(store).toResource
     } yield QueryResolver(history, stage)
 
   /** The `POST /system/dump/refresh` response body — status plus what a caller
