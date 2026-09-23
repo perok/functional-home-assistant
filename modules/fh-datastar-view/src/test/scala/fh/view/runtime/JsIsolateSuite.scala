@@ -7,8 +7,9 @@ import scala.util.Using
 
 /** The isolate library and the polyglot jars are resolved from one version
   * string in `build.sbt`, and a mismatch between them runs silently — correct
-  * output, a different GraalJS (`docs/issue-report-3-graalvm-polyglot-isolate.md`).
-  * `Engine.getVersion` reports the LIBRARY's version, so compare it to the jars'.
+  * output, a different GraalJS
+  * (`docs/issue-report-3-graalvm-polyglot-isolate.md`). `Engine.getVersion`
+  * reports the LIBRARY's version, so compare it to the jars'.
   */
 class JsIsolateSuite extends munit.CatsEffectSuite {
 
