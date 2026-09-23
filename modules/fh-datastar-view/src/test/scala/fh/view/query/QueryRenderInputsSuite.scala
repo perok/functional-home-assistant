@@ -4,9 +4,13 @@ import fh.view.query.QuerySnapshot
 import cats.effect.{IO, Ref}
 import cats.syntax.all.*
 import fh.view.model.{
+  Activation,
   CardDef,
   Dashboard,
   LayoutNode,
+  NodeId,
+  Op,
+  Predicate,
   Reads,
   SignalBind,
   QueryTemplate,
@@ -22,7 +26,8 @@ import fh.view.model.{
 }
 import api.homeassistant.ws.domain.{HistoryPoint, StatisticsPeriod}
 import fh.view.history.{ChartStage, ChartStyle, History, SeriesSource}
-import fh.view.runtime.{RenderInputs, Renderer}
+import fh.view.runtime.{EntityState, RenderInputs, Renderer}
+import io.circe.Json
 import fh.view.testkit.TestIds.given
 import fh.view.FHError
 
@@ -380,6 +385,64 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
     assertEquals(r.queriesForSurface("popup", Map.empty), List(read()))
     // A surface nobody declared owes nothing, rather than raising.
     assertEquals(r.queriesForSurface("nope", Map.empty), Nil)
+  }
+
+  test("a page resolves the tab it shows and the branch state picks, only") {
+    // An unselected tab is fetched by its own switch, and an inactive branch
+    // is not on screen; resolving either would draw charts nobody sees.
+    def panel(w: String) =
+      LayoutNode.Component(
+        card = "chart",
+        slots = Map("chart" -> chartSource(w))
+      )
+    def host(id: String) = LayoutNode.Component(card = "col", id = Some(id))
+    def baked(into: String, idx: Int, w: String, activation: Activation) =
+      Surface(
+        panel(w),
+        bakeInto = Some(NodeId.derived(into)),
+        bakeAs = Some("panel"),
+        bakeIndex = Some(idx),
+        activation = activation
+      )
+    val lightOn =
+      Predicate.Cmp("state", Op.Eq, Json.fromString("on"), Some("light.a"))
+    val r = Renderer.create(
+      Dashboard(
+        cards = Map(
+          "chart" -> CardDef(
+            """<div>{{{chart}}}</div>""",
+            slots = List("chart")
+          ),
+          "col" -> CardDef(
+            """<div>{{#children}}{{{html}}}{{/children}}</div>""",
+            regions = Map("children" -> Region())
+          )
+        ),
+        card = LayoutNode.Component(
+          card = "col",
+          regions = LayoutNode.kids(host("tabs"), host("branch"))
+        ),
+        surfaces = Map(
+          "t0" -> baked("tabs", 0, "1h", Activation.User(true)),
+          "t1" -> baked("tabs", 1, "7d", Activation.User()),
+          "on" -> baked("branch", 0, "24h", Activation.State(lightOn)),
+          "off" -> baked(
+            "branch",
+            1,
+            "30d",
+            Activation.State(Predicate.And(Nil))
+          )
+        )
+      )
+    )
+    def light(s: String) =
+      Map("light.a" -> EntityState("light.a", s, Map.empty))
+    def windows(selected: String, states: Map[String, EntityState]) =
+      r.queriesForPage(Set(selected), states, Map.empty)
+        .map(_.query.params("window"))
+        .toSet
+    assertEquals(windows("t0", light("on")), Set("1h", "24h"))
+    assertEquals(windows("t1", light("off")), Set("7d", "30d"))
   }
 
   // --- Validation -----------------------------------------------------------

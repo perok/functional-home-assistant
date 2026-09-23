@@ -997,8 +997,7 @@ class Server(
           // same bytes a version this client is owed nothing for produces.
           // `rendererOf` is the tuple's option: a None short-circuits the
           // flatMap before any of the refs below are even run.
-          envOf(session, renderer)
-            .flatMap(env => resolvePageQueries(renderer, open, env))
+          pageSnapshot(session, renderer, open, store.entities)
             .flatMap(fragments =>
               Patches.resume(
                 renderer,
@@ -1125,10 +1124,7 @@ class Server(
           OptionT.pure[IO](List(Server.reloadPatch))
         else
           OptionT
-            .liftF(
-              envOf(session, renderer)
-                .flatMap(env => resolvePageQueries(renderer, open, env))
-            )
+            .liftF(pageSnapshot(session, renderer, open, store.entities))
             .flatMap { fragments =>
               val head =
                 if (cursor.exists(_.styleHash != renderer.styleHash))
@@ -1164,8 +1160,7 @@ class Server(
                     log.reaches(c.version) && c.version >= told
                 )
                 .traverse(c =>
-                  envOf(session, renderer)
-                    .flatMap(env => resolvePageQueries(renderer, open, env))
+                  pageSnapshot(session, renderer, open, store.entities)
                     .flatMap(fragments =>
                       Patches.resume(
                         renderer,
@@ -1318,53 +1313,50 @@ class Server(
               (session.open.set(r.surfaces.selectedSurfaces(uiState)) *>
                 (stateStore.current, live.log.get).tupled)
                 .flatMap { case (store, log) =>
-                  envOf(session, r)
-                    .flatMap(env =>
-                      resolvePageQueries(
-                        r,
-                        r.surfaces.selectedSurfaces(uiState),
-                        env
-                      )
-                    )
-                    .flatMap { fragments =>
-                      val head =
-                        if (prev.styleHash != r.styleHash)
-                          Server.headPatches(r, session.slug)
-                        else Nil
-                      // A repaint painted the whole snapshot, so this client is
-                      // both served and told through it — the same claim
-                      // [[openingPatches]] makes for its own repaint. Leaving
-                      // `told` behind here would let the keepalive announce a LOWER
-                      // version than the swap just did.
-                      // TRACED, so the repaint says what it painted — the same
-                      // claim `openingPatches` makes for its own. Load-bearing for
-                      // signal slots: this body carries fresh inline seeds, so a
-                      // record left describing the PREVIOUS dashboard's values
-                      // would suppress the frame a value's return needs.
-                      val painted =
-                        r.renderBodyTraced(store.entities, uiState, fragments)
-                      session.holds.set(painted.own.map { case (id, p) =>
-                        id -> Held(Some(p.digest), p.signals)
-                      }) *>
-                        session.position.set(store.version) *>
-                        session.told
-                          .set(store.version)
-                          .as(
-                            head ++ List(
-                              Datastar.patch(
-                                painted.html,
-                                PatchMode.Inner,
-                                Some("#dashboard")
-                              ),
-                              // A swap rotates the log identity and can move the style
-                              // hash, and live batches carry only the version now — so
-                              // this is where the client learns the rest. Without it a
-                              // reconnect would quote a log that no longer exists and be
-                              // answered with a body repaint.
-                              Server.cursorSignals(r, log.id, store.version)
-                            )
+                  pageSnapshot(
+                    session,
+                    r,
+                    r.surfaces.selectedSurfaces(uiState),
+                    store.entities
+                  ).flatMap { fragments =>
+                    val head =
+                      if (prev.styleHash != r.styleHash)
+                        Server.headPatches(r, session.slug)
+                      else Nil
+                    // A repaint painted the whole snapshot, so this client is
+                    // both served and told through it — the same claim
+                    // [[openingPatches]] makes for its own repaint. Leaving
+                    // `told` behind here would let the keepalive announce a LOWER
+                    // version than the swap just did.
+                    // TRACED, so the repaint says what it painted — the same
+                    // claim `openingPatches` makes for its own. Load-bearing for
+                    // signal slots: this body carries fresh inline seeds, so a
+                    // record left describing the PREVIOUS dashboard's values
+                    // would suppress the frame a value's return needs.
+                    val painted =
+                      r.renderBodyTraced(store.entities, uiState, fragments)
+                    session.holds.set(painted.own.map { case (id, p) =>
+                      id -> Held(Some(p.digest), p.signals)
+                    }) *>
+                      session.position.set(store.version) *>
+                      session.told
+                        .set(store.version)
+                        .as(
+                          head ++ List(
+                            Datastar.patch(
+                              painted.html,
+                              PatchMode.Inner,
+                              Some("#dashboard")
+                            ),
+                            // A swap rotates the log identity and can move the style
+                            // hash, and live batches carry only the version now — so
+                            // this is where the client learns the rest. Without it a
+                            // reconnect would quote a log that no longer exists and be
+                            // answered with a body repaint.
+                            Server.cursorSignals(r, log.id, store.version)
                           )
-                    }
+                        )
+                  }
                 }
           }
           .flatMap(Stream.emits)
@@ -1505,12 +1497,15 @@ class Server(
   /** See [[Renderer.queriesForPage]]; answered before the walk (architecture
     * §0).
     */
-  private def resolvePageQueries(
+  private def pageSnapshot(
+      session: Session,
       renderer: Renderer,
       open: Set[String],
-      env: VarEnv
+      states: Map[String, EntityState]
   ): IO[QuerySnapshot] =
-    answer(renderer, renderer.queriesForPage(open, env), env)
+    envOf(session, renderer).flatMap(env =>
+      answer(renderer, renderer.queriesForPage(open, states, env), env)
+    )
 
   /** Set a NODE VARIABLE for this viewer, and re-render exactly the nodes that
     * read it (issue #209).
@@ -1551,12 +1546,27 @@ class Server(
         )
       )
       _ <- session.vars.set(proposed)
-      open <- session.open.get
-      snapshot <- resolvePageQueries(renderer, open, env)
+      snapshot <- answer(renderer, renderer.readsUnder(readers, env), env)
       store <- stateStore.current
-      _ <- readers.traverse_(
-        repaintNode(session, renderer, _, store.entities, uiState, snapshot)
+      holds <- session.holds.get
+      live <- liveFor(session.slug)
+      patches <- live.toList.flatTraverse(l =>
+        readers.traverseFilter(
+          Patches.morph(
+            renderer,
+            l.cache,
+            holds,
+            store.entities,
+            uiState,
+            snapshot,
+            _
+          )
+        )
       )
+      _ <- session.holds.update(
+        patches.foldLeft(_)(Patches.applied(renderer.ancestry, _, _))
+      )
+      _ <- patches.traverse_(p => session.control.offer(p.patch.toSse))
       _ <- session.control.offer(
         Datastar.patchSignals(
           Server.varJson(Map((declarer, name) -> value)).noSpaces
@@ -1564,32 +1574,6 @@ class Server(
       )
     } yield ()
   }
-
-  /** Re-render one node for this client, unless its DOM already holds those
-    * bytes (the `Patches.resume` question, for one node).
-    */
-  private def repaintNode(
-      session: Session,
-      renderer: Renderer,
-      id: NodeId,
-      states: Map[String, EntityState],
-      uiState: Map[String, String],
-      snapshot: QuerySnapshot
-  ): IO[Unit] =
-    renderer.renderNodeById(id, states, uiState, fragments = snapshot) match {
-      case None       => IO.unit
-      case Some(html) =>
-        val digest = Digest.of(html)
-        session.holds.get.map(_.get(id).flatMap(_.digest)).flatMap {
-          case Some(held) if held == digest => IO.unit
-          case _                            =>
-            session.holds.update(h =>
-              h.updated(id, h.getOrElse(id, Held()).merge(Held.bytes(digest)))
-            ) *> session.control.offer(
-              Datastar.patch(html, PatchMode.Outer, None)
-            )
-        }
-    }
 
   // From the SESSION, not the request: a live pull has no request.
   private def envOf(session: Session, renderer: Renderer): IO[VarEnv] =
@@ -2193,11 +2177,11 @@ class Server(
       // runs. That is a harness limitation, not a defect in this path.
       // Before the first byte, so a failed query can still become an error
       // response instead of truncating a page already sent (architecture §0).
-      env <- envOf(session, renderer)
-      fragments <- resolvePageQueries(
+      fragments <- pageSnapshot(
+        session,
         renderer,
-        renderer.surfaces.openPopup(uiState).toSet,
-        env
+        renderer.surfaces.selectedSurfaces(uiState),
+        store.entities
       )
       body = fs2.io
         .readOutputStream[IO](Server.PageChunkBytes) { os =>

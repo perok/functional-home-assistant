@@ -263,7 +263,10 @@ class NodeVariablesSuite extends munit.FunSuite {
     val d = dash(named("panel", Map("window" -> "24h"), chartNode()))
     val r = Renderer.create(d)
     val chose7d = r.varEnv(Map(("panel": NodeId, "window") -> "7d"))
-    assertEquals(r.queriesForPage(Set.empty, chose7d), List(readAt("7d")))
+    assertEquals(
+      r.queriesForPage(Set.empty, Map.empty, chose7d),
+      List(readAt("7d"))
+    )
     assert(
       paint(r, chose7d, "7d" -> "<svg id='chosen'/>").contains("chosen")
     )
@@ -277,8 +280,8 @@ class NodeVariablesSuite extends munit.FunSuite {
     val a = r.varEnv(Map(("panel": NodeId, "window") -> "1h"))
     val b = r.varEnv(Map(("panel": NodeId, "window") -> "30d"))
 
-    assertEquals(r.queriesForPage(Set.empty, a), List(readAt("1h")))
-    assertEquals(r.queriesForPage(Set.empty, b), List(readAt("30d")))
+    assertEquals(r.queriesForPage(Set.empty, Map.empty, a), List(readAt("1h")))
+    assertEquals(r.queriesForPage(Set.empty, Map.empty, b), List(readAt("30d")))
     assert(paint(r, a, "1h" -> "<svg id='hour'/>").contains("hour"))
     assert(paint(r, b, "30d" -> "<svg id='month'/>").contains("month"))
 
@@ -311,7 +314,7 @@ class NodeVariablesSuite extends munit.FunSuite {
     val r = Renderer.create(d)
     val env = r.varEnv(Map(("panel": NodeId, "window") -> "30d"))
     assertEquals(
-      r.queriesForPage(Set.empty, env).toSet,
+      r.queriesForPage(Set.empty, Map.empty, env).toSet,
       Set(readAt("30d"), readAt("1h"))
     )
   }
@@ -328,7 +331,10 @@ class NodeVariablesSuite extends munit.FunSuite {
         ("panel": NodeId, "nosuch") -> "7d"
       )
     )
-    assertEquals(r.queriesForPage(Set.empty, env), List(readAt("24h")))
+    assertEquals(
+      r.queriesForPage(Set.empty, Map.empty, env),
+      List(readAt("24h"))
+    )
   }
 
   test("two windows under two declarations are two reads, not one") {

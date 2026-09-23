@@ -1029,10 +1029,11 @@ owes is read off the STATIC tree — `Renderer.queriesForPage` for a page and a 
 `queriesForSurface` for a surface fill — because a render is a synchronous string build and the set
 has to be known before it starts.
 
-A page's set includes every BAKED surface, active or not. A bake swap renders from state alone and
-cannot fetch, so a chart inside a tab panel is answered when the page is or never. What it excludes
-is a popup nobody has opened, which is the laziness worth keeping: bounded by what is being
-rendered rather than by which surface happens to hold it.
+A page's set is what it shows: the body, the viewer's open surfaces (selected tab panels, the
+popup), and the branch each state group picks at the snapshot's states — so a flip in this render is
+answered. An unselected tab is not; switching to it fetches its own (`swapHost`). A pull still
+resolves this whole set although it renders only the nodes its log names, which is the known waste
+on the live path.
 
 Two things are still missing, and both are deliberate. **Nothing wakes a node because a query's
 version moved**: the recorder watches entity state, and a bucket rolling is not a state change, so

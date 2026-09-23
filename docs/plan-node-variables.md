@@ -382,12 +382,10 @@ the document and must already know the window, so either the default always wins
 §0 forbids. It is also the second mechanism the dropped draft was rejected for.
 
 **Make the window a bake group.** Four surfaces, one chart each, a tab bar selecting among them.
-Zero new machinery — the tab bar already ships. The cost is in `SurfaceGraph.bakedSurfaces`: a
-page resolves every baked surface whether or not it is showing, because a bake swap renders from
-state alone and cannot fetch. So a page open is four fetches and four drawings for the one chart
-anybody sees, ~30 ms of serialised GraalJS each (ADR 0032), and a control over three charts is
-twelve surfaces. The code comment on `bakedSurfaces` already records this as the reason window
-selection became a variable.
+Zero new machinery — the tab bar already ships, and a page resolves only the selected panel's
+queries (a tab switch fetches its own). The cost is authoring: a control over three charts is
+twelve surfaces, each chart written four times, and one window cannot steer charts that are not
+in the same panel.
 
 **Resolve by node id instead of by name.** `varRef("c_2", "window")`. Authors do not know node
 ids — they are position-derived (ADR 0022), which is why `@@NODE_ID@@` exists at all.

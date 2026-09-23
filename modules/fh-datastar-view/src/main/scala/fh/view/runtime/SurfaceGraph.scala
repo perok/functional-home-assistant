@@ -82,13 +82,6 @@ private[runtime] final class SurfaceGraph(
   def bakeGroup(gid: NodeId): List[String] =
     bakeGroups.getOrElse(gid, Nil)
 
-  /** Every surface a page can show without another round trip: all members of
-    * every bake group. A bake swap cannot fetch, so a query in any tab panel
-    * must be answered with the page.
-    */
-  def bakedSurfaces: List[String] =
-    bakeGroups.values.toList.flatten.distinct
-
   /** "Shown on first paint, with no selection and no click." */
   private def defaultOpenUser(s: Surface): Boolean = s.activation match {
     case Activation.User(d) => d

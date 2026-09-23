@@ -767,7 +767,7 @@ private[runtime] object Patches {
     * one client. A MISSING entry counts as "send" — unknown, so tell the
     * client.
     */
-  private def morph(
+  private[runtime] def morph(
       renderer: Renderer,
       cache: RenderCache,
       holds: Map[NodeId, Held],
@@ -799,10 +799,7 @@ private[runtime] object Patches {
       id: NodeId,
       states: Map[String, EntityState],
       uiState: Map[String, String],
-      // The live path answers no queries yet: nothing here resolves a
-      // provider, so a version moving does not wake its node. Explicit rather
-      // than defaulted so the seam is visible at the one site that has to
-      // grow.
+      // Resolved by the caller: a version moving does not wake its node.
       fragments: QuerySnapshot
   ): IO[Option[NodeBytes]] =
     renderer.renderInputs(id, states, fragments) match {

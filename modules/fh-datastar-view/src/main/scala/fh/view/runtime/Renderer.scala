@@ -192,6 +192,20 @@ class Renderer(
       walk(root, LayoutNode.rootId(idPrefix, root)).toMap
     }
 
+    /** The nodes that read a query, so a render's reads cost the charts rather
+      * than the tree. A set's clauses are static, so their reads are too.
+      */
+    val asks: List[(NodeId, List[SlotAsk])] =
+      indexed.toList.sortBy(_._1).collect {
+        case (id, c: LayoutNode.Component) if c.queries.nonEmpty =>
+          id -> c.queries
+      }
+    val setReads: List[SlotRead] =
+      indexed.values.toList.flatMap {
+        case s: LayoutNode.SetNode => dashboard.queriesIn(s)
+        case _                     => Nil
+      }.distinct
+
     /** The NODE VARIABLES in scope at each node, with their declarers (issue
       * #209). Built by the same walk that mints the ids, so the two cannot
       * disagree ([[NodeAncestry]]). Holds declared values only; a viewer's
@@ -336,6 +350,17 @@ class Renderer(
             queriesForNode(id).exists(_.query.references.contains(name)) =>
         id
     }
+
+  /** What rendering `ids` would ask: their own reads and their descendants',
+    * since a node whose bytes carry its children renders them too.
+    */
+  def readsUnder(ids: List[NodeId], env: VarEnv): List[SlotRead] =
+    (ids ++ ids.flatMap(ancestry.descendantsOf)).distinct.flatMap { id =>
+      allIndexed.get(id) match {
+        case Some((s: LayoutNode.SetNode, _)) => dashboard.queriesIn(s)
+        case _                                => readsAt(id, env)
+      }
+    }.distinct
 
   /** What `id` would ask with these values in scope. */
   def readsAt(id: NodeId, env: VarEnv): List[SlotRead] =
@@ -729,33 +754,35 @@ class Renderer(
   def surfaceContentId(surfaceId: String): NodeId =
     LayoutNode.nodeId(Renderer.surfacePrefix(surfaceId), Nil)
 
-  /** Every query this surface's content reads, for resolving before it is
-    * rendered — see `Dashboard.queriesIn`.
-    */
+  /** Every query the build parsed, at declared values. */
   def queryRequests: Map[SlotRead, QueryRequest] = parsedQueries
 
-  /** Every read one layout tree makes for THIS viewer — over the renderer's
-    * index, because resolving needs node ids. A set's clauses use the model's
-    * walk at declared values, since no variable can be read inside a set.
+  /** Every read one layout tree makes for THIS viewer. A set's clauses are read
+    * at declared values, since no variable can be read inside a set.
     */
   private def readsIn(idx: Index, env: VarEnv): List[SlotRead] =
-    idx.indexed.toList.flatMap {
-      case (id, c: LayoutNode.Component) =>
-        c.queries.map(_.resolve(env.getOrElse(id, Map.empty)))
-      case (_, s: LayoutNode.SetNode) => dashboard.queriesIn(s)
-    }.distinct
+    (idx.asks.flatMap { case (id, asks) =>
+      asks.map(_.resolve(env.getOrElse(id, Map.empty)))
+    } ++ idx.setReads).distinct
 
   def queriesForSurface(surfaceId: String, env: VarEnv): List[SlotRead] =
-    surfaceIndexes.get(surfaceId).toList.flatMap(readsIn(_, env)).distinct
+    surfaceIndexes.get(surfaceId).toList.flatMap(readsIn(_, env))
 
-  /** Every query a PAGE render reads: the body, every BAKED surface (a bake
-    * swap cannot fetch, see `SurfaceGraph.bakedSurfaces`), and the surfaces
-    * this viewer has open. A chart in an unopened popup is not fetched.
+  /** Every query a PAGE render reads: the body, the surfaces this viewer has
+    * open (its selected tabs and popup), and the branch each state group shows
+    * at `states`. An unselected tab is not fetched: switching to it fetches its
+    * own (`Server.swapHost`).
     */
-  def queriesForPage(open: Set[String], env: VarEnv): List[SlotRead] =
+  def queriesForPage(
+      open: Set[String],
+      states: Map[String, EntityState],
+      env: VarEnv
+  ): List[SlotRead] = {
+    val shown = open ++ surfaces.activeStateSurfaces(states) ++
+      open.flatMap(surfaces.activeStateSurfacesIn(_, states))
     (readsIn(mainIndex, env) ++
-      surfaces.bakedSurfaces.flatMap(queriesForSurface(_, env)) ++
-      open.toList.flatMap(queriesForSurface(_, env))).distinct
+      shown.toList.sorted.flatMap(queriesForSurface(_, env))).distinct
+  }
 
   /** The resume path's SECOND candidate set. A surface a client has open holds
     * nodes the cursor alone would not name, because nothing may have rendered
