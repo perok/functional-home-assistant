@@ -1426,7 +1426,7 @@ class Server(
       // a provider is `IO`. Only the arriving surface's queries, so an unopened
       // popup costs nothing.
       env <- envOf(session, renderer)
-      fragments <- resolveQueries(renderer, newSurface, env)
+      fragments <- resolveQueries(renderer, newSurface, states, uiState, env)
       // The arriving surface, rendered once — the bytes go to this connection
       // and the per-node trace to THIS SESSION's record. Nothing shared is
       // touched: one client switching a tab says nothing about anyone else's
@@ -1481,11 +1481,15 @@ class Server(
   private def resolveQueries(
       renderer: Renderer,
       arriving: Option[String],
+      states: Map[String, EntityState],
+      uiState: Map[String, String],
       env: VarEnv
   ): IO[QuerySnapshot] =
     answer(
       renderer,
-      arriving.toList.flatMap(renderer.queriesForSurface(_, env)),
+      arriving.toList.flatMap(
+        renderer.queriesForSurface(_, states, uiState, env)
+      ),
       env
     )
 

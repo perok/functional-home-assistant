@@ -800,7 +800,23 @@ class Renderer(
       asks.map(_.resolve(env.getOrElse(id, Map.empty)))
     } ++ idx.setReads).distinct
 
-  def queriesForSurface(surfaceId: String, env: VarEnv): List[SlotRead] =
+  /** Every read a fill of `surfaceId` makes, the surfaces shown inside it
+    * included.
+    */
+  def queriesForSurface(
+      surfaceId: String,
+      states: Map[String, EntityState],
+      uiState: Map[String, String],
+      env: VarEnv
+  ): List[SlotRead] =
+    surfaces
+      .shownWithin(surfaceId, states, uiState)
+      .toList
+      .sorted
+      .flatMap(readsOfSurface(_, env))
+      .distinct
+
+  private def readsOfSurface(surfaceId: String, env: VarEnv): List[SlotRead] =
     surfaceIndexes.get(surfaceId).toList.flatMap(readsIn(_, env))
 
   /** Every query a PAGE render reads: the body, the surfaces this viewer has
@@ -816,7 +832,7 @@ class Renderer(
     val shown = open ++ surfaces.activeStateSurfaces(states) ++
       open.flatMap(surfaces.activeStateSurfacesIn(_, states))
     (readsIn(mainIndex, env) ++
-      shown.toList.sorted.flatMap(queriesForSurface(_, env))).distinct
+      shown.toList.sorted.flatMap(readsOfSurface(_, env))).distinct
   }
 
   /** The resume path's SECOND candidate set. A surface a client has open holds

@@ -382,9 +382,15 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
       )
     )
     val r = Renderer.create(d)
-    assertEquals(r.queriesForSurface("popup", Map.empty), List(read()))
+    assertEquals(
+      r.queriesForSurface("popup", Map.empty, Map.empty, Map.empty),
+      List(read())
+    )
     // A surface nobody declared owes nothing, rather than raising.
-    assertEquals(r.queriesForSurface("nope", Map.empty), Nil)
+    assertEquals(
+      r.queriesForSurface("nope", Map.empty, Map.empty, Map.empty),
+      Nil
+    )
   }
 
   test("a page resolves the tab it shows and the branch state picks, only") {

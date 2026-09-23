@@ -1029,8 +1029,10 @@ that every input this render reads has an answer.
 **EVERY render path resolves what it reads**, and `QuerySnapshot` is total over it: a path that reads a
 query cannot be handed nothing, because there is no default argument left to hand it. What a render
 owes is read off the STATIC tree — `Renderer.queriesForPage` for a page and a pull,
-`queriesForSurface` for a surface fill — because a render is a synchronous string build and the set
-has to be known before it starts.
+`queriesForSurface` for a surface fill (the surfaces shown inside it included) — because a render is
+a synchronous string build and the set has to be known before it starts. Deciding the set is code
+that is not the walk, so the two can drift; `QueryDriftSuite` renders the fixtures and a dashboard
+with a chart in every position against exactly the decided set, and fails on any miss.
 
 A page's set is what it shows: the body, the viewer's open surfaces (selected tab panels, the
 popup), and the branch each state group picks at the snapshot's states — so a flip in this render is
