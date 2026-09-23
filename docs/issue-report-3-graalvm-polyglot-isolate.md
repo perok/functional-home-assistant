@@ -9,7 +9,7 @@
   multi-classloader problem.
 - **Our workarounds:** issue 1 is avoided by not pre-unpacking at all (Truffle's own first-use
   extraction into a cache we relocate); issue 2 is avoided by resolving both halves from one
-  version string, and now *detected* by `fh.view.runtime.JsIsolateCheck`.
+  version string, and now *detected* by `fh.view.runtime.JsIsolateSuite`.
 
 Both were found while packaging GraalJS for a Home Assistant add-on. Neither blocks us. Both
 would cost someone else a day.
@@ -141,7 +141,7 @@ enough.
 
 ### Our detection, which anyone can copy
 
-`JsIsolateCheck` compares the two and fails:
+`JsIsolateSuite` compares the two and fails:
 
 ```
 GraalJS drift: polyglot jars are 25.3.4.1, the isolate library is 25.2.4

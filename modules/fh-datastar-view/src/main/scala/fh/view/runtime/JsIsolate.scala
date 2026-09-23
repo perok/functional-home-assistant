@@ -28,8 +28,8 @@ object JsIsolate {
 
   /** The interpreter where there is no isolate. The SVG is byte-identical, so
     * it only costs speed (ADR 0032), where raising would fail more-info for
-    * every numeric sensor. Never fires in the image; `JsIsolateCheck` proves
-    * it.
+    * every numeric sensor. Should never fire in the image, so the warning is
+    * the signal that the staged library is wrong.
     */
   def engineOrInHeap(onFallback: Throwable => IO[Unit]): Resource[IO, Engine] =
     engine.handleErrorWith((e: Throwable) =>
