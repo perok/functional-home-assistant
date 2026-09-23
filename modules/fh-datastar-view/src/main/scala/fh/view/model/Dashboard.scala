@@ -1,6 +1,6 @@
 package fh.view.model
 
-import fh.view.query.{Queries, QueryRequest, StageRequest}
+import fh.view.query.{Queries, QueryRequest}
 import io.circe.{Decoder, Json}
 import io.circe.derivation.{Configuration, ConfiguredDecoder}
 
@@ -261,21 +261,18 @@ object SlotSource:
   given Decoder[SlotSource] =
     Decoder[String].map(s => SlotSource(literal = Some(s))).or(objDecoder)
 
-  /** A slot's transform is ONE wire fact with two forms: a bare JSON string (a
-    * CEL expression — the engine tier) or an object (the opted-in
-    * [[Transform.Simple]] structure — the fast tier, `kind`-discriminated).
+  /** A slot's transform: a bare JSON string (a CEL expression — the engine
+    * tier), a `stage`-discriminated [[Transform.Stage]], or a
+    * `kind`-discriminated [[Transform.Simple]]. Chosen by key rather than by
+    * trying each in turn, so a bad chart param reports the stage's error and
+    * not the last arm's.
     */
   given Decoder[String | Transform.Simple | Transform.Stage] =
-    Decoder[String]
-      .map[String | Transform.Simple | Transform.Stage](identity)
-      .or(
-        summon[Decoder[Transform.Stage]]
-          .map[String | Transform.Simple | Transform.Stage](identity)
-      )
-      .or(
-        summon[Decoder[Transform.Simple]]
-          .map[String | Transform.Simple | Transform.Stage](identity)
-      )
+    Decoder.instance { c =>
+      if (c.value.isString) c.as[String]
+      else if (c.downField("stage").succeeded) c.as[Transform.Stage]
+      else c.as[Transform.Simple]
+    }
 
 /** WHERE a signal slot's value lands in the DOM — the Datastar attribute the
   * renderer emits for it (ADR 0017).
@@ -1342,18 +1339,10 @@ case class Dashboard(
         )
         val parseError =
           Queries.parse(q).left.toOption.map(e => s"$nodeId: slot '$name' $e")
-        // The stage is the other half of the same question, and it is parsed
-        // here for the same reason the query is: both are pure, so a bad chart
-        // size is a build error naming the dashboard rather than something a
-        // viewer discovers.
+        // A stage's own params were parsed when the wire was decoded.
         val stageError = src.transform match {
-          case st: Transform.Stage =>
-            Queries
-              .parseStage(st)
-              .left
-              .toOption
-              .map(e => s"$nodeId: slot '$name' $e")
-          case _ =>
+          case _: Transform.Stage => None
+          case _                  =>
             Some(
               s"$nodeId: slot '$name' reads a query, so its transform must " +
                 "be a STAGE (a chart, or passthrough) — a CEL expression and " +
@@ -2040,8 +2029,8 @@ case class Dashboard(
     * parses, so a `Left` cannot occur here and is dropped rather than defended
     * against — exactly as [[compileTransforms]] treats a transform.
     */
-  private def parseQueries: Map[SlotRead, (QueryRequest, StageRequest)] =
-    allQueries.flatMap(r => Queries.parseRead(r).toOption.map(r -> _)).toMap
+  private def parseQueries: Map[SlotRead, QueryRequest] =
+    allQueries.flatMap(r => Queries.parse(r.query).toOption.map(r -> _)).toMap
 
   /** Compile every [[transformStrings]] expression. Total by contract: only
     * [[validated]] calls it, and only after [[validate]] proved each
@@ -2086,7 +2075,7 @@ object Dashboard:
       // Every query slot's params already parsed by its provider, for the same
       // reason `transforms` is here: validation is the one gate, so nothing
       // downstream re-parses or defends against a parameter that cannot work.
-      queries: Map[SlotRead, (QueryRequest, StageRequest)] = Map.empty,
+      queries: Map[SlotRead, QueryRequest] = Map.empty,
       // The RESOLVED access rule (issue #89) — the dashboard's own if it named
       // one, else its site's. Resolved once by `Site.decode` via [[withAccess]]
       // rather than left as the model's `Option`, so no gate has to re-derive

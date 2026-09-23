@@ -1,6 +1,6 @@
 package fh.view.history
 
-import io.circe.Json
+import io.circe.{Decoder, Json}
 import io.circe.syntax.*
 
 /** Everything about a chart that is not its data. */
@@ -15,9 +15,12 @@ final case class ChartStyle(
 
 object ChartStyle {
 
-  /** A chart stage's params. Pure, so `Dashboard.validate` rejects a bad one
-    * with no renderer wired.
+  /** A chart stage's params, all strings on the wire because the stage's
+    * `params` is a generic `Mapping<String, String>`.
     */
+  given Decoder[ChartStyle] =
+    Decoder[Map[String, String]].emap(parse)
+
   def parse(params: Map[String, String]): Either[String, ChartStyle] = {
     def int(name: String, fallback: Int): Either[String, Int] =
       params.get(name) match {

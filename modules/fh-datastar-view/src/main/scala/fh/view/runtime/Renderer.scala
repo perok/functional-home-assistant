@@ -2,7 +2,7 @@ package fh.view.runtime
 
 import com.github.mustachejava.Mustache
 import fh.view.build.LibPackage
-import fh.view.query.{Fragments, QueryRequest, StageRequest}
+import fh.view.query.{Fragments, QueryRequest}
 import fh.view.model.{
   Access,
   Cell,
@@ -165,8 +165,7 @@ class Renderer(
     // the `Validated` proof so nothing re-parses per render. Empty for the
     // test constructor, which is right: an unparsed query resolves to no
     // fragment, which renders empty and claims no version.
-    private val parsedQueries: Map[SlotRead, (QueryRequest, StageRequest)] =
-      Map.empty
+    private val parsedQueries: Map[SlotRead, QueryRequest] = Map.empty
 ) {
 
   /** An addressable index over one layout tree; generated ids carry `idPrefix`
@@ -679,7 +678,7 @@ class Renderer(
   /** Every query this surface's content reads, for resolving before it is
     * rendered — see `Dashboard.queriesIn`.
     */
-  def queryRequests: Map[SlotRead, (QueryRequest, StageRequest)] = parsedQueries
+  def queryRequests: Map[SlotRead, QueryRequest] = parsedQueries
 
   def queriesForSurface(surfaceId: String): List[SlotRead] =
     dashboard.surfaces

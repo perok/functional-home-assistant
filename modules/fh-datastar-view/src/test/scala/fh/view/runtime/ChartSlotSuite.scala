@@ -9,6 +9,7 @@ import fh.view.model.{
   SlotSource,
   Transform
 }
+import fh.view.history.ChartStyle
 import fh.view.query.{Fragment, Fragments}
 
 /** A series slot resolved into the walk: the bytes reach the page, and the
@@ -18,7 +19,7 @@ class ChartSlotSuite extends munit.FunSuite {
 
   private val query =
     SlotQuery("history", Map("entity" -> "sensor.t", "window" -> "24h"))
-  private val stage = Transform.Stage.Chart(Map("width" -> "600"))
+  private val stage = Transform.Stage.Chart(ChartStyle(width = 600))
   private val read = SlotRead(query, stage)
   private val svg = """<svg width="600"><path d="M0 0"/></svg>"""
 

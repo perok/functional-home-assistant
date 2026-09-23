@@ -1,15 +1,8 @@
 package fh.view.query
 
 import cats.effect.IO
-import cats.syntax.all.*
-import fh.view.history.{
-  ChartStage,
-  ChartStyle,
-  HistoryProvider,
-  HistoryQuery,
-  Window
-}
-import fh.view.model.{SlotQuery, SlotRead, Transform}
+import fh.view.history.{ChartStage, HistoryProvider, HistoryQuery, Window}
+import fh.view.model.{SlotQuery, Transform}
 
 import io.circe.Json
 
@@ -50,11 +43,6 @@ enum QueryRequest derives CanEqual {
   case History(entityId: String, window: Window)
 }
 
-enum StageRequest derives CanEqual {
-  case Passthrough
-  case Chart(style: ChartStyle)
-}
-
 object Queries {
 
   /** Pure, so `Dashboard.validate` makes a bad query a build error with nothing
@@ -68,17 +56,6 @@ object Queries {
           s"unknown query provider '$other' — one of ${HistoryQuery.Name}"
         )
     }
-
-  def parseStage(stage: Transform.Stage): Either[String, StageRequest] =
-    stage match {
-      case Transform.Stage.Passthrough => Right(StageRequest.Passthrough)
-      case Transform.Stage.Chart(ps)   =>
-        ChartStyle.parse(ps).map(StageRequest.Chart.apply)
-    }
-
-  /** Both halves of one slot's read. */
-  def parseRead(read: SlotRead): Either[String, (QueryRequest, StageRequest)] =
-    (parse(read.query), parseStage(read.stage)).tupled
 }
 
 /** Answers parsed queries and runs parsed stages. Two methods because they
@@ -99,13 +76,13 @@ final class QueryResolver(history: HistoryProvider, chart: ChartStage) {
   def stage(
       identity: QueryIdentity,
       query: QueryRequest,
-      request: StageRequest,
+      stage: Transform.Stage,
       answered: Answer
   ): IO[Fragment] =
-    request match {
-      case StageRequest.Passthrough =>
+    stage match {
+      case Transform.Stage.Passthrough =>
         IO.pure(Fragment(answered.version, answered.data.noSpaces))
-      case StageRequest.Chart(style) =>
+      case Transform.Stage.Chart(style) =>
         chart
           .draw(
             (identity, query),

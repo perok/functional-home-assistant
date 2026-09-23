@@ -1,5 +1,6 @@
 package fh.view.model
 
+import fh.view.history.ChartStyle
 import fh.view.runtime.{Cel, EntityState}
 import io.circe.{Decoder, DecodingFailure}
 import io.circe.derivation.{Configuration, ConfiguredDecoder}
@@ -487,33 +488,30 @@ object Transform {
       */
     case Passthrough
 
-    /** Series in, markup out — the built-in chart. */
-    case Chart(params: Map[String, String])
+    /** Series in, markup out — the built-in chart. `params` because that is the
+      * wire's generic field (`core/stage.pkl`); parsed while decoding, so a bad
+      * size fails the build.
+      */
+    case Chart(params: ChartStyle = ChartStyle())
   }
 
   object Stage {
 
     /** Disjoint by prefix, like [[Simple.key]]. */
     def key(s: Stage): String = s match {
-      case Stage.Passthrough => "passthrough"
-      case Stage.Chart(ps)   =>
-        ps.toList.sorted
-          .map { case (k, v) => s"$k=$v" }
-          .mkString("chart:", ",", "")
+      case Stage.Passthrough  => "passthrough"
+      case Stage.Chart(style) => s"chart:$style"
     }
 
     /** `{"stage": "chart", "params": {…}}`. Told apart from [[SimpleWire]] by
-      * key (`stage` vs `op`/`cases`), so the union decoder tries each arm.
+      * key (`stage` vs `kind`), so the union decoder tries each arm.
       */
-    case class Wire(stage: String, params: Map[String, String] = Map.empty)
-        derives ConfiguredDecoder
+    private given Configuration =
+      Configuration.default.withDefaults
+        .withDiscriminator("stage")
+        .withTransformConstructorNames(_.toLowerCase)
 
-    given Decoder[Stage] = Decoder[Wire].emap {
-      case Wire("passthrough", _) => Right(Stage.Passthrough)
-      case Wire("chart", params)  => Right(Stage.Chart(params))
-      case Wire(other, _)         =>
-        Left(s"unknown transform stage '$other' — one of passthrough, chart")
-    }
+    given Decoder[Stage] = ConfiguredDecoder.derived
   }
 
   // (The attribute JSON -> Java conversion lives on EntityState.javaAttributes,

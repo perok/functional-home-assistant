@@ -19,6 +19,7 @@ import fh.view.model.{
 }
 import fh.view.history.{
   ChartStage,
+  ChartStyle,
   HistoryProvider,
   Series,
   SeriesProvider,
@@ -42,7 +43,7 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
     * what makes two sizes of one window one fetch and two drawings.
     */
   private def drawn(width: Int = 600) =
-    Transform.Stage.Chart(Map("width" -> width.toString))
+    Transform.Stage.Chart(ChartStyle(width = width))
 
   private def read(window: String = "24h", width: Int = 600) =
     SlotRead(chart(window), drawn(width))
@@ -170,7 +171,9 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
     } yield QueryResolver(history, stage)
 
   private def plan(reads: SlotRead*) =
-    reads.map(r => r -> Queries.parseRead(r).fold(e => fail(e), identity)).toMap
+    reads
+      .map(r => r -> Queries.parse(r.query).fold(e => fail(e), identity))
+      .toMap
 
   test("two sizes of one window are ONE fetch and TWO drawings") {
     // The property the split exists for, and the one no single component can
