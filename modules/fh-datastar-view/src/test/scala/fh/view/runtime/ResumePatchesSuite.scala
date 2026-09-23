@@ -5,6 +5,7 @@ import fh.view.query.QuerySnapshot
 import fh.view.model.{CardDef, Dashboard, LayoutNode, Op, Predicate, SlotSource}
 import fh.view.model.NodeId
 import fh.view.testkit.TestIds.{setId, given}
+import cats.effect.IO
 import cats.effect.unsafe.implicits.global
 import io.circe.Json
 
@@ -66,7 +67,15 @@ class ResumePatchesSuite extends munit.FunSuite {
     RenderCache.create
       .flatMap(
         Patches
-          .resume(renderer, _, log, Map.empty, states, QuerySnapshot.empty, v)
+          .resume(
+            renderer,
+            _,
+            log,
+            Map.empty,
+            states,
+            IO.pure(QuerySnapshot.empty),
+            v
+          )
       )
       .unsafeRunSync()
       .map(_.patch.toSse.render)

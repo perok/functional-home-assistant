@@ -181,7 +181,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
           log,
           holds,
           states,
-          QuerySnapshot.empty,
+          IO.pure(QuerySnapshot.empty),
           v,
           open,
           uiState
@@ -217,7 +217,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
           l,
           holds,
           now.entities,
-          QuerySnapshot.empty,
+          IO.pure(QuerySnapshot.empty),
           from,
           open,
           ui
@@ -500,7 +500,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
               log,
               held,
               now.entities,
-              QuerySnapshot.empty,
+              IO.pure(QuerySnapshot.empty),
               from + 1
             )
             .flatMap { patches =>

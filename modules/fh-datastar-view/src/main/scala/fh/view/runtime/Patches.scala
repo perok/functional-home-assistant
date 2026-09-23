@@ -524,7 +524,9 @@ private[runtime] object Patches {
       log: FragmentLog,
       holds: Map[NodeId, Held],
       states: Map[String, EntityState],
-      fragments: QuerySnapshot,
+      // Asked only when a node this pull renders can reach a query
+      // ([[Renderer.mayReadQueries]]); most pulls touch no chart.
+      answers: IO[QuerySnapshot],
       v: Long,
       open: Set[String] = Set.empty,
       uiState: Map[String, String] = Map.empty
@@ -547,101 +549,6 @@ private[runtime] object Patches {
       renderer.members.setContainer(m.container).isDefined
     }
     val gone = memberMoves.collect { case (nodeId, _: Mutation.Gone) => nodeId }
-    // Replaying a flip is the whole reason it is recorded structurally: without
-    // it a client that was away across one gets the removal and nothing else,
-    // and sits on an EMPTY host until something unrelated moves. ONE `Inner` per
-    // affected container, through the same primitive the live flip uses — so a
-    // client that missed a flip is treated byte-identically to one that did not.
-    val branchFills = branch
-      .groupBy { case (_, m) => m.container }
-      .toList
-      .sortBy(_._1)
-      .flatMap { case (gid, entries) =>
-        val content = renderer.renderHost(gid, states, uiState, fragments)
-        branchPatch(
-          renderer,
-          gid,
-          content.parts.map(_._2).reduceOption(_ + _),
-          entries.map(_._1).sorted.headOption
-        ).map(
-          // A branch's content ids are `s_<surface>__…`, which no prefix of the
-          // container's id reaches — so the host says which nodes it holds.
-          Addressed(
-            _,
-            content.claims,
-            invalidates = hostEvicts(renderer, renderer.hostId(gid))
-          )
-        )
-      }
-    val places = memberMoves
-      .collect { case (nodeId, p: Mutation.Placed) => (nodeId, p) }
-      .groupBy { case (_, p) => p.container }
-      .toList
-      .sortBy(_._1)
-      .flatTraverse { case (container, moves) =>
-        // `memberMoves` is exactly the moves whose container the graph knows,
-        // so this always answers — and it is the one place a log key becomes a
-        // set id.
-        renderer.members.setContainer(container).toList.flatTraverse { gid =>
-          val members = renderer.members.memberEntities(gid, states)
-          val position = members.zipWithIndex.toMap
-          moves
-            // Still a member; anything an ancestor is re-supplying was already
-            // dropped by `since`.
-            .flatMap { case (nodeId, p) =>
-              p.member match {
-                case MemberKey.Entity(e)  => position.get(e).map((nodeId, e, _))
-                case _: MemberKey.Surface => None
-              }
-            }
-            .sortBy { case (_, _, at) => -at }
-            .flatTraverse { case (nodeId, entityId, _) =>
-              // Rendered NOW, not read back: the snapshot is at least as fresh as
-              // anything the log could have kept, and it is what lets the log hold
-              // a version instead of bytes.
-              bytes(renderer, cache, nodeId, states, uiState, fragments).map(
-                _.toList.flatMap { case NodeBytes(html, digest) =>
-                  // Every current member is a usable anchor here: emitting
-                  // descending by position means a node's successor was either
-                  // already in the client's DOM or placed a moment ago.
-                  List(
-                    Addressed(Patch.Remove(renderer.elementId(nodeId))),
-                    Addressed(
-                      insertInto(
-                        renderer,
-                        gid,
-                        members,
-                        entityId,
-                        _ => true,
-                        html
-                      ),
-                      Map(nodeId -> Held.bytes(digest))
-                    )
-                  )
-                }
-              )
-            }
-        }
-      }
-    // Containers whose membership history no longer reaches this cursor: the
-    // delta is uncomputable, so the host is filled wholesale. `Inner` is
-    // all-or-nothing over a host's children, so this cannot be partial — which
-    // is precisely why it is the fallback of last resort, and why it is worth
-    // having only because it replaced a whole-BODY repaint.
-    val refills = owed.refill.sorted.map { gid =>
-      val asSet = renderer.members.setContainer(gid)
-      val content = renderer.renderHost(gid, states, uiState, fragments)
-      Addressed(
-        Patch.Insert(
-          content.parts.map(_._2).mkString,
-          PatchMode.Inner,
-          renderer.hostId(gid)
-        ),
-        content.claims,
-        if (asSet.isDefined) Set(gid)
-        else hostEvicts(renderer, renderer.hostId(gid))
-      )
-    }
     // The second candidate set: an open surface's nodes, which the cursor alone
     // would not name. Sorted for a deterministic order (ids are location-derived,
     // so this is document order among siblings), and dropped when a mutation or a
@@ -679,20 +586,126 @@ private[runtime] object Patches {
       (changed ++ fromOpenIds ++ memberMoves.collect {
         case (nodeId, _: Mutation.Placed) => nodeId
       }).distinct
-    for {
-      morphs <- changed.traverseFilter(
-        morph(renderer, cache, holds, states, uiState, fragments, _)
-      )
-      open <- fromOpenIds.traverseFilter(
-        morph(renderer, cache, holds, states, uiState, fragments, _)
-      )
-      placed <- places
-    } yield signalFrame(renderer, holds, states, touchedIds) ++
-      morphs ++ open ++
-      gone.toList.sorted.map(id =>
-        Addressed(Patch.Remove(renderer.elementId(id)))
-      ) ++
-      branchFills ++ placed ++ refills
+    // The same targets the renders below use, so the gate cannot skip a read
+    // a render needs; a miss would raise in `QuerySnapshot.value`.
+    val needsAnswers =
+      (touchedIds ++ branch.map(_._2.container) ++ owed.refill)
+        .exists(renderer.mayReadQueries)
+    (if (needsAnswers) answers else IO.pure(QuerySnapshot.empty)).flatMap {
+      fragments =>
+        // Replaying a flip is the whole reason it is recorded structurally: without
+        // it a client that was away across one gets the removal and nothing else,
+        // and sits on an EMPTY host until something unrelated moves. ONE `Inner` per
+        // affected container, through the same primitive the live flip uses — so a
+        // client that missed a flip is treated byte-identically to one that did not.
+        val branchFills = branch
+          .groupBy { case (_, m) => m.container }
+          .toList
+          .sortBy(_._1)
+          .flatMap { case (gid, entries) =>
+            val content = renderer.renderHost(gid, states, uiState, fragments)
+            branchPatch(
+              renderer,
+              gid,
+              content.parts.map(_._2).reduceOption(_ + _),
+              entries.map(_._1).sorted.headOption
+            ).map(
+              // A branch's content ids are `s_<surface>__…`, which no prefix of the
+              // container's id reaches — so the host says which nodes it holds.
+              Addressed(
+                _,
+                content.claims,
+                invalidates = hostEvicts(renderer, renderer.hostId(gid))
+              )
+            )
+          }
+        val places = memberMoves
+          .collect { case (nodeId, p: Mutation.Placed) => (nodeId, p) }
+          .groupBy { case (_, p) => p.container }
+          .toList
+          .sortBy(_._1)
+          .flatTraverse { case (container, moves) =>
+            // `memberMoves` is exactly the moves whose container the graph knows,
+            // so this always answers — and it is the one place a log key becomes a
+            // set id.
+            renderer.members.setContainer(container).toList.flatTraverse {
+              gid =>
+                val members = renderer.members.memberEntities(gid, states)
+                val position = members.zipWithIndex.toMap
+                moves
+                  // Still a member; anything an ancestor is re-supplying was already
+                  // dropped by `since`.
+                  .flatMap { case (nodeId, p) =>
+                    p.member match {
+                      case MemberKey.Entity(e) =>
+                        position.get(e).map((nodeId, e, _))
+                      case _: MemberKey.Surface => None
+                    }
+                  }
+                  .sortBy { case (_, _, at) => -at }
+                  .flatTraverse { case (nodeId, entityId, _) =>
+                    // Rendered NOW, not read back: the snapshot is at least as fresh as
+                    // anything the log could have kept, and it is what lets the log hold
+                    // a version instead of bytes.
+                    bytes(renderer, cache, nodeId, states, uiState, fragments)
+                      .map(
+                        _.toList.flatMap { case NodeBytes(html, digest) =>
+                          // Every current member is a usable anchor here: emitting
+                          // descending by position means a node's successor was either
+                          // already in the client's DOM or placed a moment ago.
+                          List(
+                            Addressed(Patch.Remove(renderer.elementId(nodeId))),
+                            Addressed(
+                              insertInto(
+                                renderer,
+                                gid,
+                                members,
+                                entityId,
+                                _ => true,
+                                html
+                              ),
+                              Map(nodeId -> Held.bytes(digest))
+                            )
+                          )
+                        }
+                      )
+                  }
+            }
+          }
+        // Containers whose membership history no longer reaches this cursor: the
+        // delta is uncomputable, so the host is filled wholesale. `Inner` is
+        // all-or-nothing over a host's children, so this cannot be partial — which
+        // is precisely why it is the fallback of last resort, and why it is worth
+        // having only because it replaced a whole-BODY repaint.
+        val refills = owed.refill.sorted.map { gid =>
+          val asSet = renderer.members.setContainer(gid)
+          val content = renderer.renderHost(gid, states, uiState, fragments)
+          Addressed(
+            Patch.Insert(
+              content.parts.map(_._2).mkString,
+              PatchMode.Inner,
+              renderer.hostId(gid)
+            ),
+            content.claims,
+            if (asSet.isDefined) Set(gid)
+            else hostEvicts(renderer, renderer.hostId(gid))
+          )
+        }
+        for {
+          morphs <- changed.traverseFilter(
+            morph(renderer, cache, holds, states, uiState, fragments, _)
+          )
+          open <- fromOpenIds.traverseFilter(
+            morph(renderer, cache, holds, states, uiState, fragments, _)
+          )
+          placed <- places
+        } yield signalFrame(renderer, holds, states, touchedIds) ++
+          morphs ++ open ++
+          gone.toList.sorted.map(id =>
+            Addressed(Patch.Remove(renderer.elementId(id)))
+          ) ++
+          branchFills ++ placed ++ refills
+    }
   }
 
   /** The one `datastar-patch-signals` frame a batch carries, or nothing (ADR

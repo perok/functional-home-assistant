@@ -1031,9 +1031,10 @@ has to be known before it starts.
 
 A page's set is what it shows: the body, the viewer's open surfaces (selected tab panels, the
 popup), and the branch each state group picks at the snapshot's states — so a flip in this render is
-answered. An unselected tab is not; switching to it fetches its own (`swapHost`). A pull still
-resolves this whole set although it renders only the nodes its log names, which is the known waste
-on the live path.
+answered. An unselected tab is not; switching to it fetches its own (`swapHost`). A pull asks for
+this set only when a node it renders can reach a query (`Renderer.mayReadQueries`: a chart, an
+ancestor of one, a host of a surface holding one, a member of a set reading one) — so a pull that
+moves only plain cards answers nothing.
 
 **A failed read is its chart's, not the render's.** A fetch or drawing that fails or passes
 `QuerySnapshot.AnswerTimeout` is answered with `Staged.failed` — an error card, and a version below

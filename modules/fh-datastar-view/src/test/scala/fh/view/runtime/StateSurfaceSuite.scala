@@ -410,7 +410,7 @@ class StateSurfaceSuite extends ServerHarness {
                   l,
                   Map.empty,
                   now.entities,
-                  QuerySnapshot.empty,
+                  IO.pure(QuerySnapshot.empty),
                   0L
                 )
             )

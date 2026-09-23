@@ -502,7 +502,7 @@ class SetMembershipSuite extends ServerHarness {
                   l,
                   Map.empty,
                   now.entities,
-                  QuerySnapshot.empty,
+                  IO.pure(QuerySnapshot.empty),
                   0L,
                   Set("c_t0"),
                   renderer.surfaces.uiStateFrom(Set("c_t0"))
@@ -696,7 +696,7 @@ class SetMembershipSuite extends ServerHarness {
                   l,
                   seed._2,
                   now.entities,
-                  QuerySnapshot.empty,
+                  IO.pure(QuerySnapshot.empty),
                   0L,
                   Set("other"),
                   Map.empty

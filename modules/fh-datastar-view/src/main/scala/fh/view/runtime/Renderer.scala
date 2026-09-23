@@ -362,6 +362,41 @@ class Renderer(
       }
     }.distinct
 
+  /** Whether rendering `id` can read a query: through its own slots, its
+    * descendants, a surface it hosts, or the set it is a member of. Over-
+    * inclusive by design — a pull that says no renders with no answers, so a
+    * wrong no would raise.
+    */
+  def mayReadQueries(id: NodeId): Boolean =
+    reachesQuery(id) || ancestry.ancestorsOf(id).exists(querySets)
+
+  private lazy val querySets: Set[NodeId] =
+    allIndexed.collect {
+      case (id, (s: LayoutNode.SetNode, _))
+          if dashboard.queriesIn(s).nonEmpty =>
+        id
+    }.toSet
+
+  /** Every node a query can be reached from, closed over hosting: a surface
+    * holding one makes its host reach, which can put another surface's content
+    * in the set.
+    */
+  private lazy val reachesQuery: Set[NodeId] = {
+    def up(ids: Set[NodeId]) = ids ++ ids.flatMap(ancestry.ancestorsOf)
+    def close(acc: Set[NodeId]): Set[NodeId] = {
+      val hosts = dashboard.surfaces.toList.collect {
+        case (sid, s)
+            if surfaceIndexes.get(sid).exists(_.indexed.keys.exists(acc)) =>
+          s.bakeInto
+      }.flatten
+      val next = up(acc ++ hosts)
+      if (next == acc) acc else close(next)
+    }
+    close(up(allIndexed.collect {
+      case (id, (c: LayoutNode.Component, _)) if c.queries.nonEmpty => id
+    }.toSet ++ querySets))
+  }
+
   /** What `id` would ask with these values in scope. */
   def readsAt(id: NodeId, env: VarEnv): List[SlotRead] =
     queriesForNode(id).map(_.resolve(env.getOrElse(id, Map.empty)))

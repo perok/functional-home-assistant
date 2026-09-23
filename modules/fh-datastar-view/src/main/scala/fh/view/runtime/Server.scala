@@ -997,21 +997,19 @@ class Server(
           // same bytes a version this client is owed nothing for produces.
           // `rendererOf` is the tuple's option: a None short-circuits the
           // flatMap before any of the refs below are even run.
-          pageSnapshot(session, renderer, open, store.entities)
-            .flatMap(fragments =>
-              Patches.resume(
-                renderer,
-                live.cache,
-                log,
-                holds,
-                store.entities,
-                fragments,
-                position + 1,
-                open,
-                // The LIVE selection, not the one this connection arrived
-                // with: a tab select moves it mid-stream.
-                renderer.surfaces.uiStateFrom(open)
-              )
+          Patches
+            .resume(
+              renderer,
+              live.cache,
+              log,
+              holds,
+              store.entities,
+              pageSnapshot(session, renderer, open, store.entities),
+              position + 1,
+              open,
+              // The LIVE selection, not the one this connection arrived
+              // with: a tab select moves it mid-stream.
+              renderer.surfaces.uiStateFrom(open)
             )
             .flatMap { patches =>
               session.holds
@@ -1160,20 +1158,17 @@ class Server(
                     log.reaches(c.version) && c.version >= told
                 )
                 .traverse(c =>
-                  pageSnapshot(session, renderer, open, store.entities)
-                    .flatMap(fragments =>
-                      Patches.resume(
-                        renderer,
-                        live.cache,
-                        log,
-                        holds,
-                        store.entities,
-                        fragments,
-                        resumeFrom(req, c),
-                        open,
-                        uiState
-                      )
-                    )
+                  Patches.resume(
+                    renderer,
+                    live.cache,
+                    log,
+                    holds,
+                    store.entities,
+                    pageSnapshot(session, renderer, open, store.entities),
+                    resumeFrom(req, c),
+                    open,
+                    uiState
+                  )
                 )
               // Lazy: rendering the whole body is the cost this exists to avoid.
               // TRACED, because a repaint is the largest thing that ever puts

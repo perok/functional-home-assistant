@@ -18,6 +18,7 @@ import fh.view.model.{
   Surface,
   Transform
 }
+import cats.effect.IO
 import cats.effect.unsafe.implicits.global
 import cats.syntax.traverse.*
 import io.circe.Json
@@ -972,7 +973,7 @@ class RenderBench {
           log,
           Map.empty,
           flipStates,
-          QuerySnapshot.empty,
+          IO.pure(QuerySnapshot.empty),
           at
         )
       )
@@ -1252,7 +1253,7 @@ class RenderBench {
           log,
           held,
           moved,
-          QuerySnapshot.empty,
+          IO.pure(QuerySnapshot.empty),
           at,
           Set.empty,
           Map.empty
