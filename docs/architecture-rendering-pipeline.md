@@ -48,6 +48,9 @@ Two things already enforce it, and they are the shape a new render input should 
   the response body, so once it starts the status line and `<head>` are gone. **Resolving first is
   what keeps a failure expressible** — it raises while an error response is still possible, where a
   lazily-resolved input could only truncate a page already on the wire.
+  Query answers hold the same line with a narrower failure: a read that fails or times out is its
+  chart's error card, never the page's, so they need no error status and are resolved WHILE the
+  head is written (§6a) — the walk itself still starts with every answer in hand.
 
 **Streaming is not deferral.** §6a streams the document as it is walked, so the browser has the
 `<head>` before the body is finished. That is one complete document arriving progressively, not a
@@ -1138,6 +1141,9 @@ Server.renderPage    fs2.io.readOutputStream(8 kB) -> the response body
     Server.pageInto      scripts + closing tags -> the wire
   onFinalize(Succeeded)  session.holds.set(own)
 ```
+
+The page's query answers are started before the response and awaited inside `bodyInto`, after the
+head has been flushed, so a cold chart's fetch overlaps the browser fetching stylesheets.
 
 The walk is push-based — `Renderer.executeInto` takes a `Writer`, a region is a `Writer => Unit` in
 `regionWalk`, and `Sink` IS the writer the whole document goes through, shell included. Three things

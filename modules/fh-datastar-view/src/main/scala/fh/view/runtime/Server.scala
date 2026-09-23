@@ -2172,14 +2172,22 @@ class Server(
       // sides — this writer, and fs2's reader — so under simulated time
       // whichever is ticked first parks the only thread and the other never
       // runs. That is a harness limitation, not a defect in this path.
-      // Before the first byte (architecture §0). A failed or slow read becomes
-      // that chart's error card; only a wiring bug raises here.
-      fragments <- pageSnapshot(
+      // Answered WHILE the head goes out, since the head reads no query: a
+      // cold chart's fetch overlaps the browser fetching stylesheets, and the
+      // body waits for it on the blocking thread below. A failed or slow read
+      // is that chart's error card, so only a wiring bug can raise, and that
+      // truncates the page (architecture §0).
+      pending = new java.util.concurrent.CompletableFuture[QuerySnapshot]()
+      _ <- pageSnapshot(
         session,
         renderer,
         renderer.surfaces.selectedSurfaces(uiState),
         store.entities
-      )
+      ).attempt.flatMap { r =>
+        IO {
+          val _ = r.fold(pending.completeExceptionally, pending.complete)
+        }
+      }.start
       body = fs2.io
         .readOutputStream[IO](Server.PageChunkBytes) { os =>
           IO.blocking {
@@ -2200,14 +2208,17 @@ class Server(
               // Every painted node, not just the open surfaces' — the
               // document contains all of it, so recording less would be a
               // claim that is merely narrower, not safer.
-              sink =>
+              sink => {
+                // Out of the buffer, or the head waits for the answers too.
+                if (!pending.isDone) w.flush()
                 own = renderer.renderPageInto(
                   sink,
                   store.entities,
                   uiState,
                   renderer.surfaces.openPopup(uiState),
-                  fragments
-                ),
+                  Server.awaitAnswers(pending)
+                )
+              },
               renderer.themeColorTags,
               renderer.stylesheets.map(assets.rewrite),
               renderer.deferredStylesheets.map(assets.rewrite),
@@ -3248,6 +3259,18 @@ object Server {
       }
       .flatten
       .toMap
+
+  /** The page's answers, blocking the walk's thread until they arrive — the
+    * failure rethrown as itself rather than wrapped.
+    */
+  private[runtime] def awaitAnswers(
+      pending: java.util.concurrent.CompletableFuture[QuerySnapshot]
+  ): QuerySnapshot =
+    try pending.join()
+    catch {
+      case e: java.util.concurrent.CompletionException =>
+        throw Option(e.getCause).getOrElse(e)
+    }
 
   /** The ingress path prefix the HA supervisor proxy announces via
     * `X-Ingress-Path` (e.g. `/api/hassio_ingress/<token>`), used as the page's

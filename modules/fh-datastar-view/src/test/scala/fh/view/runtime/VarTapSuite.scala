@@ -1,7 +1,8 @@
 package fh.view.runtime
 
 import api.homeassistant.HomeAssistantApi
-import cats.effect.IO
+import cats.effect.{Deferred, IO}
+import cats.effect.kernel.Ref as CeRef
 import cats.syntax.all.*
 import api.homeassistant.ws.domain.{HistoryPoint, StatisticsPeriod}
 import fh.view.history.{ChartStage, History, SeriesSource}
@@ -211,6 +212,51 @@ class VarTapSuite extends ServerHarness {
           },
       down
     )
+  }
+
+  test("the head is sent before a slow chart is answered") {
+    // The head reads no query, so a cold fetch overlaps the browser fetching
+    // stylesheets rather than holding up the first byte.
+    (Deferred[IO, Unit], CeRef[IO].of(false), CeRef[IO].of(false)).tupled
+      .flatMap { case (gate, fetched, headFirst) =>
+        val slow = for {
+          history <- History.create(new SeriesSource {
+            def raw(start: Instant, end: Instant, entityId: String) =
+              gate.get *> fetched.set(true).as(List(HistoryPoint("1.0", end)))
+            def statistics(
+                start: Instant,
+                end: Instant,
+                entityId: String,
+                period: StatisticsPeriod
+            ) = IO.pure(Nil)
+          })
+          stage <- ChartStage.create(IO.pure((_, _) => IO.pure("<svg/>")))
+        } yield QueryResolver(history, stage)
+        served(
+          (routes, _) =>
+            routes
+              .run(Request[IO](Method.GET, uri"/d/dashboard"))
+              .flatMap(
+                _.bodyText
+                  .evalScan("") { (acc, chunk) =>
+                    val page = acc + chunk
+                    IO.whenA(page.contains("</head>"))(
+                      fetched.get.flatMap(f => headFirst.set(!f).whenA(!f)) *>
+                        gate.complete(()).void
+                    ).as(page)
+                  }
+                  .compile
+                  .lastOrError
+              )
+              .flatMap(page =>
+                headFirst.get.map { first =>
+                  assert(first, clue = "the head waited for the fetch")
+                  assert(page.contains("</html>"), clue = page)
+                }
+              ),
+          slow
+        )
+      }
   }
 
   test("writing the variable re-renders the chart at the new window") {
