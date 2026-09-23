@@ -899,9 +899,11 @@ turns that into what the card puts in its hole. `Stage.Chart` draws SVG, and `St
 the absence of a transform: the provider's JSON, which is the contract a third party reads against.
 
 Both halves are closed sums matched, not registries — there is no plugin story here, and a
-name→instance map would say only what somebody remembered to wire up. Both parses are PURE
-(`Queries.parse`, `Queries.parseStage`), so `Dashboard.validate` checks a query AND its stage with
-nothing wired; only `QueryResolver` holds the running machinery.
+name→instance map would say only what somebody remembered to wire up. Both parses are PURE, so
+a bad query or stage fails the build with nothing wired: a stage's params are parsed as the wire
+is decoded (`Stage.Chart` carries a `ChartStyle`), a query's by `Queries.parse` in
+`Dashboard.validate`. Only `QueryResolver` holds the
+running machinery.
 
 **The hole follows the stage, not the shape.** A stage that emits markup needs the raw
 `{{{chart}}}` — written `{{chart}}` the page shows `&lt;svg …` as text, with no error anywhere —

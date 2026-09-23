@@ -72,17 +72,17 @@ object QuerySnapshot {
     */
   def resolve(
       resolver: QueryResolver,
-      requests: Map[SlotRead, (QueryRequest, StageRequest)],
+      requests: Map[SlotRead, QueryRequest],
       reads: List[SlotRead],
       vars: Map[NodeId, Map[String, String]],
       identity: QueryIdentity,
       asOf: Instant
   ): IO[QuerySnapshot] = {
     val wanted = reads.distinct
-    def parsed(read: SlotRead): IO[(QueryRequest, StageRequest)] =
+    def parsed(read: SlotRead): IO[QueryRequest] =
       requests
         .get(read)
-        .orElse(Queries.parseRead(read).toOption)
+        .orElse(Queries.parse(read.query).toOption)
         .liftTo[IO](
           FHError.internal(
             s"${describe(read)} reached a render and does not parse — the " +
@@ -95,16 +95,15 @@ object QuerySnapshot {
     for {
       plans <- wanted.traverse(r => parsed(r).map(r -> _)).map(_.toMap)
       answers <- plans.toList
-        .map { case (read, (qr, _)) => read.query -> qr }
+        .map { case (read, qr) => read.query -> qr }
         .distinctBy(_._1)
         .parTraverse { case (q, qr) =>
           guard(q)(resolver.answer(identity, qr, asOf)).map(q -> _)
         }
         .map(_.toMap)
       staged <- wanted.parTraverse { read =>
-        val (qr, sr) = plans(read)
         guard(read.query)(
-          resolver.stage(identity, qr, sr, answers(read.query))
+          resolver.stage(identity, plans(read), read.stage, answers(read.query))
         ).map(read -> _)
       }
     } yield new QuerySnapshot(staged.toMap, vars)

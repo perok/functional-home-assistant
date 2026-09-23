@@ -1,6 +1,7 @@
 package fh.view.runtime
 
 import fh.view.model.*
+import fh.view.history.ChartStyle
 import fh.view.query.{Staged, QuerySnapshot}
 import io.circe.parser.decode
 import fh.view.testkit.TestIds.given
@@ -35,7 +36,7 @@ class NodeVariablesSuite extends munit.FunSuite {
           Map("entity" -> Ref.Literal("sensor.t"), "window" -> param)
         )
       ),
-      transform = Transform.Stage.Chart(Map("width" -> "600")),
+      transform = Transform.Stage.Chart(ChartStyle(width = 600)),
       reads = Reads.OnRender
     )
 
@@ -233,7 +234,7 @@ class NodeVariablesSuite extends munit.FunSuite {
 
   private def readAt(window: String) = SlotRead(
     SlotQuery("history", Map("entity" -> "sensor.t", "window" -> window)),
-    Transform.Stage.Chart(Map("width" -> "600"))
+    Transform.Stage.Chart(ChartStyle(width = 600))
   )
 
   /** One viewer's render: the answers they were given, and the values those

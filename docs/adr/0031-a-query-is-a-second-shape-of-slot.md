@@ -130,16 +130,18 @@ None of this was designed separately; all of it fell out.
   plain String and `core/stage.pkl` knows only `passthrough`; the provider's name, its parameters
   and the chart stage are typed in the component that offers them (`components/history.pkl`). An
   unknown provider is still a build error — from `Queries.parse`, not the Pkl typechecker.
-- **The model never NAMES a history type.** `fh.view.model` does not know what a window or a chart
-  size is: `params` are untyped on the wire, and the typing lives at both ends — a typed Pkl
-  builder, and a pure `parse` at validation. Stated precisely, because the obvious stronger claim
-  is false: `Dashboard.scala` imports `fh.view.query` for `Queries.parse`, and `query` imports
-  `history`. The seam is `Queries`, not the package boundary — a second provider adds a case
-  there and nothing in the model changes.
+- **A provider is untyped in the model; a stage is typed.** `fh.view.model` does not know what a
+  window is: a query's `params` are strings on the wire, parsed by their provider in
+  `Queries.parse`, so a second provider adds a case there and nothing in the model changes. A
+  stage is the other way round — `Stage.Chart` carries a `ChartStyle`, typed at both ends
+  (`components/history.pkl`'s `ChartParams`) and decoded with the wire. The model already had to
+  name each stage to check its hole, so typing its settings adds no new dependency, and it
+  removes a second parse of the same value.
 - **Parsing is pure and separate from resolving**, which removes the wiring hazard entirely.
   Checking a chart needs no store, no HA connection and no JavaScript engine, so
-  `Dashboard.validate` rejects a bad query or a bad chart size wherever a dashboard is built,
-  rather than wherever somebody remembered to pass a provider in.
+  a bad query or a bad chart size fails wherever a dashboard is built (the size as the wire is
+  decoded, the query in `Dashboard.validate`), rather than wherever somebody remembered to pass a
+  provider in.
 - **Identity is the first component of every cache key**, before any per-user provider exists.
   Recorder data is permission-scoped, so a key that omits it is a permission leak rather than a
   performance bug — and retrofitting one is how that leak gets written. Today every read is the

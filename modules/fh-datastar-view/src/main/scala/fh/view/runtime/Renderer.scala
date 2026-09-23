@@ -2,7 +2,7 @@ package fh.view.runtime
 
 import com.github.mustachejava.Mustache
 import fh.view.build.LibPackage
-import fh.view.query.{QuerySnapshot, QueryRequest, StageRequest}
+import fh.view.query.{QuerySnapshot, QueryRequest}
 import fh.view.model.{
   Access,
   Cell,
@@ -151,8 +151,7 @@ class Renderer(
     // one, so forgetting to resolve demands a login rather than serving to all.
     val access: Access = Access.default,
     // From the `Validated` proof, so nothing re-parses per render.
-    private val parsedQueries: Map[SlotRead, (QueryRequest, StageRequest)] =
-      Map.empty
+    private val parsedQueries: Map[SlotRead, QueryRequest] = Map.empty
 ) {
 
   /** An addressable index over one layout tree; generated ids carry `idPrefix`
@@ -733,7 +732,7 @@ class Renderer(
   /** Every query this surface's content reads, for resolving before it is
     * rendered — see `Dashboard.queriesIn`.
     */
-  def queryRequests: Map[SlotRead, (QueryRequest, StageRequest)] = parsedQueries
+  def queryRequests: Map[SlotRead, QueryRequest] = parsedQueries
 
   /** Every read one layout tree makes for THIS viewer — over the renderer's
     * index, because resolving needs node ids. A set's clauses use the model's

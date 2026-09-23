@@ -1,6 +1,7 @@
 package fh.view.history
 
-import io.circe.Json
+import io.circe.{Decoder, Json}
+import io.circe.derivation.{Configuration, ConfiguredDecoder}
 import io.circe.syntax.*
 
 /** Everything about a chart that is not its data. */
@@ -15,28 +16,16 @@ final case class ChartStyle(
 
 object ChartStyle {
 
-  /** A chart stage's params. Pure, so `Dashboard.validate` rejects a bad one
-    * with no renderer wired.
+  private given Configuration = Configuration.default.withDefaults
+
+  /** `components/history.pkl`'s `ChartParams`; an absent field is the default
+    * here. Pkl already refuses a size that is not positive, which this repeats
+    * for a hand-written wire.
     */
-  def parse(params: Map[String, String]): Either[String, ChartStyle] = {
-    def int(name: String, fallback: Int): Either[String, Int] =
-      params.get(name) match {
-        case None    => Right(fallback)
-        case Some(v) =>
-          v.toIntOption.toRight(s"chart stage has non-numeric $name '$v'")
-      }
-    val d = ChartStyle()
-    for {
-      w <- int("width", d.width)
-      h <- int("height", d.height)
-    } yield ChartStyle(
-      width = w,
-      height = h,
-      line = params.getOrElse("line", d.line),
-      fill = params.get("fill"),
-      unit = params.get("unit")
-    )
-  }
+  given Decoder[ChartStyle] =
+    ConfiguredDecoder
+      .derived[ChartStyle]
+      .ensure(s => s.width > 0 && s.height > 0, "chart size must be positive")
 }
 
 /** The ECharts option object, built in Scala so what a chart says is tested on

@@ -11,6 +11,7 @@ import "../../main/resources/dashboards/lib/core/node.pkl" as nodes
 import "../../main/resources/dashboards/lib/core/css.pkl" as cssMod
 import "../../main/resources/dashboards/lib/core/slot.pkl" as slotMod
 import "../../main/resources/dashboards/lib/core/simple.pkl" as simpleMod
+import "../../main/resources/dashboards/lib/components/history.pkl" as historyMod
 import "../../main/resources/dashboards/lib/core/text.pkl" as textMod
 import "../../main/resources/dashboards/lib/query.pkl" as q
 import "../../main/resources/dashboards/lib/hass.pkl" as hass
@@ -920,5 +921,12 @@ facts {
     // ON. That is why this can be `attr:disabled` at all (ADR 0017).
     inert.otherwise == false
     latch.slots["inert"].signal == "attr:disabled"
+  }
+
+  ["a chart stage's params are typed on the wire, and an unset one is absent"] {
+    // The JSON `ChartStyleSuite` decodes: a number, not a string, and no null.
+    new JsonRenderer { omitNullProperties = true; indent = "" }
+      .renderValue(historyMod.chartStage(320, null, "°C"))
+      == #"{"stage":"chart","params":{"width":320,"unit":"°C"}}"#
   }
 }

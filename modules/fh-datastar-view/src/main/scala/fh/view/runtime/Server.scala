@@ -1551,7 +1551,7 @@ class Server(
       env = renderer.varEnv(proposed)
       refused = readers
         .flatMap(renderer.readsAt(_, env))
-        .flatMap(Queries.parseRead(_).left.toOption)
+        .flatMap(r => Queries.parse(r.query).left.toOption)
         .distinct
       _ <- IO.raiseWhen(refused.nonEmpty)(
         FHError.badCondition(

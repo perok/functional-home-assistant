@@ -11,6 +11,7 @@ import fh.view.model.{
   SlotSource,
   Transform
 }
+import fh.view.history.ChartStyle
 import fh.view.query.{Staged, QuerySnapshot}
 
 /** A series slot resolved into the walk: the bytes reach the page, and the
@@ -22,7 +23,7 @@ class ChartSlotSuite extends munit.FunSuite {
     "history",
     Map("entity" -> Ref.Literal("sensor.t"), "window" -> Ref.Literal("24h"))
   )
-  private val stage = Transform.Stage.Chart(Map("width" -> "600"))
+  private val stage = Transform.Stage.Chart(ChartStyle(width = 600))
   // Every parameter is written down, so the ask resolves to this whatever the
   // environment — which is what keeps this suite about the chart slot.
   private val read = SlotRead(
