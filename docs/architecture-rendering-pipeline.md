@@ -1290,6 +1290,40 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 
 Live list — delete an entry when it is answered, and say where the answer landed.
 
+- **Should the walk resolve queries itself, asynchronously?** Possible, and not needed yet: the
+  pre-walk set is decided per render (§6, checked by `QueryDriftSuite`) and answered while the head
+  streams (§6a). What was established, for when it is:
+  - **mustache.java supports it** (0.9.14, verified in `ValueCode.handleCallable`): with an
+    `ExecutorService` on the factory, a `Callable` value is submitted and the rest of the template
+    is written into a `LatchedWriter` that flushes in order when it completes. Started from IO
+    through a `Dispatcher` (`unsafeToCompletableFuture`), awaited by a `Callable` that `get()`s on
+    a virtual thread.
+  - **It collides with three synchronous-write invariants here**: `Sink.Streaming.digesting` takes
+    a node's digest from its contiguous run (latched bytes bypass the sink, so digests and bytes
+    desynchronise, and `holds` with them), the region code writes children straight into the sink,
+    and `RenderInputs` needs each read's version before the render. A latch failure also surfaces
+    late, at close. So if built, do it in our `Sink` instead: a query hole hands the sink a deferred
+    segment, and the body is a segment stream evaluated with fs2's order-preserving `parEvalMap`;
+    only the chart leaf's digest is computed late.
+  - **Parallelism is the same either way**: the walk reaches every chart within ~1 ms (a page walk
+    is ~0.9 ms for 200 cards), so discovery order barely matters. What serialises is drawing — one
+    GraalJS context behind a mutex, ~30 ms per chart — and HA's recorder. A small pool of chart
+    contexts is the lever. HA requests already pipeline on one connection (`ha-api`'s id-routed
+    queue).
+  - **Mid-stream errors**: a reset, malformed chunk or trailer does nothing useful for a browser
+    loading a document (it renders what arrived; Datastar never starts). An in-band error written
+    before closing works, since we own both ends. A failed read is its chart's error card anyway
+    (§6), so none of this is needed today.
+  - **Measured** (JMH, 200 cards + 4 charts, warm): pre-pass 54 µs, finding the reads 0.8 µs,
+    an `IO` per node ~0.4 µs (within error), a pull 72–164 µs.
+
+- **Is the node's HTML the right thing to cache?** `RenderCache` keys a node's bytes by its inputs,
+  and a chart's version is only known by answering it — so a render-cache hit on a chart still costs
+  the answer lookups, and a failed answer can only be kept out of the cache by a version it does not
+  share. A provider that states a version without answering (history's is its bucket) would let a
+  hit skip the answer; caching at the answer or stage level instead of bytes is the other end. Not
+  explored.
+
 - **A cluster of stragglers at one older version no longer shares.** The accepted cost of the
   straggler rule in §5: they each render, where before the first to arrive would install and the
   rest would hit it. Deliberate — the newest snapshot is what more arrivals are coming for, so
