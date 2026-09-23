@@ -51,7 +51,7 @@ object ChartRenderer {
       )
       .flatMap(fromEngine)
 
-  /** On an engine the caller chose; `JsIsolateCheck` pins the isolate. */
+  /** On an engine the caller chose. */
   def fromEngine(engine: Engine): Resource[IO, ChartRenderer] =
     for {
       context <- Resource.fromAutoCloseable(

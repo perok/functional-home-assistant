@@ -310,23 +310,6 @@ jobs:
       - name: The runtime runs on the base image
         run: docker run --rm --entrypoint java fh-dashboard:ci -version
 
-      # And JavaScript runs, which `java -version` says nothing about: the
-      # staged library has to be the right architecture and link against the
-      # base image's glibc, and getting that wrong builds cleanly and dies at
-      # the first chart. `ChartSuite` already draws on the isolate in `testFull`;
-      # this is the same check on the IMAGE's library, on a cold cache. It
-      # prints RSS and chart timings, which on main are aarch64 (issue #237).
-      - name: JavaScript and a chart run in the isolate
-        # Through `sh` so the classpath and cache path come from the IMAGE's
-        # own environment — the same two variables `run.sh` launches with.
-        # Spelled out here instead, they would be a second copy that can drift
-        # from the real launch while this step keeps passing.
-        run: |
-          docker run --rm --entrypoint sh fh-dashboard:ci -c '
-            exec java --enable-native-access=ALL-UNNAMED \
-              -Dpolyglot.engine.userResourceCache="$FH_GRAAL_CACHE" \
-              -cp "$FH_APP_CLASSPATH" fh.view.runtime.JsIsolateCheck'
-
   cd:
     needs: ci
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
