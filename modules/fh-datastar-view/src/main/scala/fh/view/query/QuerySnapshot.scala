@@ -3,16 +3,17 @@ package fh.view.query
 import cats.effect.IO
 import cats.syntax.all.*
 import fh.view.FHError
-import fh.view.model.{NodeId, SlotAsk, SlotQuery, SlotRead}
+import fh.view.model.{NodeId, SlotAsk, SlotRead}
 
 import java.time.Instant
+import scala.concurrent.duration.*
 
 /** Every query a render reads, answered — a second snapshot beside the
   * `Map[String, EntityState]` one, resolved BEFORE the walk because a render is
   * a synchronous string build and answering is `IO`.
   *
-  * TOTAL over what it was built for: [[resolve]] raises rather than returning a
-  * partial answer, so [[value]] cannot miss (architecture §0).
+  * TOTAL over what it was built for, so [[value]] cannot miss (architecture
+  * §0): a read [[resolve]] could not answer holds [[Staged.failed]].
   *
   * It also carries this viewer's node variables, so a read is always resolved
   * against the values its answers were fetched for. They are per render, not on
@@ -20,7 +21,9 @@ import java.time.Instant
   */
 final class QuerySnapshot private (
     private val answers: Map[SlotRead, Staged],
-    private val vars: Map[NodeId, Map[String, String]]
+    private val vars: Map[NodeId, Map[String, String]],
+    /** Reads answered with [[Staged.failed]], and why — for the log. */
+    val failures: List[String] = Nil
 ) {
 
   def varsAt(node: NodeId): Map[String, String] =
@@ -51,6 +54,11 @@ final class QuerySnapshot private (
 
 object QuerySnapshot {
 
+  /** How long one fetch or one drawing may hold up a render before it is that
+    * read's failure (architecture §0: a bound is an error, not a fallback).
+    */
+  val AnswerTimeout: FiniteDuration = 10.seconds
+
   /** For a render that reads no query. Never a default argument. */
   val empty: QuerySnapshot = new QuerySnapshot(Map.empty, Map.empty)
 
@@ -62,9 +70,8 @@ object QuerySnapshot {
       vars: Map[NodeId, Map[String, String]] = Map.empty
   ): QuerySnapshot = new QuerySnapshot(answers, vars)
 
-  /** Answer every query a render needs, in parallel, or raise — each caller
-    * decides what a failure means for its path (an error page, or kept bytes
-    * and a toast).
+  /** Answer every query a render needs, in parallel. Only a read that does not
+    * parse raises, since that is a wiring bug.
     *
     * `requests` is a memo of what `validate` parsed at DECLARED values; a
     * viewer's chosen value is parsed here instead. The write boundary already
@@ -91,39 +98,42 @@ object QuerySnapshot {
           )
         )
 
-    // Two levels: one fetch per QUERY, one drawing per (query, stage).
+    // Two levels: one fetch per QUERY, one drawing per (query, stage). A
+    // failure is that read's, not the render's.
     for {
       plans <- wanted.traverse(r => parsed(r).map(r -> _)).map(_.toMap)
       answers <- plans.toList
         .map { case (read, qr) => read.query -> qr }
         .distinctBy(_._1)
         .parTraverse { case (q, qr) =>
-          guard(q)(resolver.answer(identity, qr, asOf)).map(q -> _)
+          resolver
+            .answer(identity, qr, asOf)
+            .timeout(AnswerTimeout)
+            .attempt
+            .map(q -> _)
         }
         .map(_.toMap)
       staged <- wanted.parTraverse { read =>
-        guard(read.query)(
-          resolver.stage(identity, plans(read), read.stage, answers(read.query))
-        ).map(read -> _)
+        (answers(read.query) match {
+          case Left(e)  => IO.pure(Left(e))
+          case Right(a) =>
+            resolver
+              .stage(identity, plans(read), read.stage, a)
+              .timeout(AnswerTimeout)
+              .attempt
+        }).map(read -> _)
       }
-    } yield new QuerySnapshot(staged.toMap, vars)
+    } yield new QuerySnapshot(
+      staged.map { case (r, s) =>
+        r -> s.getOrElse(Staged.failed(r.stage))
+      }.toMap,
+      vars,
+      staged.collect { case (r, Left(e)) =>
+        s"${describe(r)} could not be answered: ${e.getMessage}"
+      }
+    )
   }
 
   private def describe(read: SlotRead): String =
     s"query '${read.query.provider} ${read.query.params}'"
-
-  /** A non-`FHError` failure becomes a 503 naming the query: the dashboard is
-    * fine, the recorder or engine is not.
-    */
-  private def guard[A](query: SlotQuery)(io: IO[A]): IO[A] =
-    io.recoverWith {
-      case e: FHError => IO.raiseError(e)
-      case e          =>
-        IO.raiseError(
-          FHError.unavailable(
-            s"query '${query.provider} ${query.params}' could not be " +
-              s"answered: ${e.getMessage}"
-          )
-        )
-    }
 }

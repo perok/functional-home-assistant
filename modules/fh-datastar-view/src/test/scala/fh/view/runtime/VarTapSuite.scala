@@ -112,7 +112,8 @@ class VarTapSuite extends ServerHarness {
     } yield QueryResolver(history, stage)
 
   private def served[A](
-      f: (HttpApp[IO], Sessions) => IO[A]
+      f: (HttpApp[IO], Sessions) => IO[A],
+      queries: IO[QueryResolver] = resolver
   ): IO[A] =
     (for {
       store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "1")))
@@ -125,7 +126,7 @@ class VarTapSuite extends ServerHarness {
       )
       sessions <- Sessions.create
       fake <- FakeHomeAssistant.create(Nil)
-      qr <- resolver
+      qr <- queries
       out <- Server
         .withSite(
           ServiceCalls.asInstance(HomeAssistantApi.fromWs(fake)),
@@ -184,6 +185,33 @@ class VarTapSuite extends ServerHarness {
     */
   private def committed(value: String): String =
     s"""signals {"_var_panel__window":"$value"}"""
+
+  test("a chart whose recorder fails costs that chart, not the page") {
+    val down = for {
+      history <- History.create(new SeriesSource {
+        def raw(start: Instant, end: Instant, entityId: String) =
+          IO.raiseError(RuntimeException("recorder is down"))
+        def statistics(
+            start: Instant,
+            end: Instant,
+            entityId: String,
+            period: StatisticsPeriod
+        ) = IO.pure(Nil)
+      })
+      stage <- ChartStage.create(IO.pure((_, _) => IO.pure("<svg/>")))
+    } yield QueryResolver(history, stage)
+    served(
+      (routes, _) =>
+        routes
+          .run(Request[IO](Method.GET, uri"/d/dashboard"))
+          .flatMap(r => r.bodyText.compile.string.map(r.status -> _))
+          .map { case (status, page) =>
+            assertEquals(status, Status.Ok)
+            assert(page.contains("<span></span>"), clue = page)
+          },
+      down
+    )
+  }
 
   test("writing the variable re-renders the chart at the new window") {
     served { (routes, sessions) =>

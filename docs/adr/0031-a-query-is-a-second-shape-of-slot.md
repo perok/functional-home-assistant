@@ -181,10 +181,10 @@ None of this was designed separately; all of it fell out.
     argue against: it moves a server-truth decision into the page, costs a request per chart per
     interval, and contradicts §0's shape, where the server decides what a client is owed.
 
-- **Nothing bounds how long a provider may hold up the pre-walk resolution.** §0 makes that bound
-  an error rather than a fallback, and it belongs on the resolution rather than on the response —
-  but it is not written, so a hung recorder currently means no page at all rather than a page
-  reporting a failed query.
+- **A failure is the chart's, not the page's.** A fetch or drawing that fails, or takes longer
+  than `QuerySnapshot.AnswerTimeout`, is answered with `Staged.failed`: an error card in its hole
+  and a version below any real one, so the next good answer moves the render key. The page and the
+  live stream carry on; only a read that does not parse — a wiring bug — raises.
 
 ## What this does not decide
 

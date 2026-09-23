@@ -1035,13 +1035,14 @@ answered. An unselected tab is not; switching to it fetches its own (`swapHost`)
 resolves this whole set although it renders only the nodes its log names, which is the known waste
 on the live path.
 
-Two things are still missing, and both are deliberate. **Nothing wakes a node because a query's
+**A failed read is its chart's, not the render's.** A fetch or drawing that fails or passes
+`QuerySnapshot.AnswerTimeout` is answered with `Staged.failed` — an error card, and a version below
+any real one — and logged; the page and the live stream carry on.
+
+One thing is still missing, and it is deliberate. **Nothing wakes a node because a query's
 version moved**: the recorder watches entity state, and a bucket rolling is not a state change, so
 a chart on an open page goes stale until something else that node reads happens to move. The key
-is correct — a render at the new bucket gets new bytes — but nothing asks for that render. And
-**nothing bounds how long a provider may hold up the pre-walk resolution**; §0 says that bound is
-an error rather than a fallback and belongs here rather than on the response, but it is not
-written yet.
+is correct — a render at the new bucket gets new bytes — but nothing asks for that render.
 
 **All of this section is the PATCH path.** The document path is a different shape and is described
 in §6a: it consults no cache, shares nothing, and streams straight to the client.

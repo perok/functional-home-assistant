@@ -283,35 +283,35 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
     }
   }
 
-  test("a failing stage fails the render rather than leaving a hole") {
-    // A page carrying one good chart and one blank one is exactly the
-    // incomplete first paint the rule forbids, so the whole render goes.
+  test("a failing stage is that chart's error, not the render's") {
+    // One sensor's recorder or drawing failing must not take the page, or the
+    // live stream that re-resolves on every pull, down with it.
     val ok = read(width = 600)
     val bad = read(width = 1)
     for {
       fetches <- Ref[IO].of(0)
       draws <- Ref[IO].of(0)
       r <- resolver(fetches, draws, failWidth = Some(1))
-      raised <- QuerySnapshot
-        .resolve(
-          r,
-          plan(ok, bad),
-          List(ok, bad),
-          Map.empty,
-          QueryIdentity.Instance,
-          Instant.EPOCH
-        )
-        .attempt
-    } yield raised.left
-      .getOrElse(fail("a failing drawing must fail resolve")) match {
-      case e: FHError =>
-        // 503 and not 500: the dashboard is fine, the recorder or the engine
-        // is not, so this is "come back" rather than "this build is broken".
-        assertEquals(e.status, 503)
-        // Naming the query is what makes the failure diagnosable.
-        assert(e.getMessage.contains("history"), clue = e.getMessage)
-        assert(e.getMessage.contains("no engine"), clue = e.getMessage)
-      case other => fail(s"expected an FHError, got $other")
+      f <- QuerySnapshot.resolve(
+        r,
+        plan(ok, bad),
+        List(ok, bad),
+        Map.empty,
+        QueryIdentity.Instance,
+        Instant.EPOCH
+      )
+    } yield {
+      assertEquals(f.value("n", ask(width = 600)), "<svg>600</svg>")
+      assertEquals(f.value("n", ask(width = 1)), Staged.failed(drawn()).value)
+      // Below any real version, so the next good answer moves the key.
+      assertEquals(
+        f.versions("n", List(ask(width = 1))),
+        Map(bad -> Staged.FailedVersion)
+      )
+      // Named, so the log says which chart and why.
+      assertEquals(f.failures.size, 1)
+      assert(f.failures.head.contains("history"), clue = f.failures)
+      assert(f.failures.head.contains("no engine"), clue = f.failures)
     }
   }
 

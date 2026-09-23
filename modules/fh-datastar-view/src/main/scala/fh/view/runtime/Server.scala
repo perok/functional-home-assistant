@@ -1590,14 +1590,16 @@ class Server(
   ): IO[QuerySnapshot] =
     (queries, wanted) match {
       case (Some(resolver), qs) if qs.nonEmpty =>
-        QuerySnapshot.resolve(
-          resolver,
-          renderer.queryRequests,
-          qs,
-          env,
-          QueryIdentity.Instance,
-          java.time.Instant.now()
-        )
+        QuerySnapshot
+          .resolve(
+            resolver,
+            renderer.queryRequests,
+            qs,
+            env,
+            QueryIdentity.Instance,
+            java.time.Instant.now()
+          )
+          .flatTap(_.failures.traverse_(logger.warn(_)))
       // Keep the env: `QuerySnapshot.empty` would resolve declared values.
       case _ => IO.pure(QuerySnapshot.of(Map.empty, env))
     }
@@ -2175,8 +2177,8 @@ class Server(
       // sides — this writer, and fs2's reader — so under simulated time
       // whichever is ticked first parks the only thread and the other never
       // runs. That is a harness limitation, not a defect in this path.
-      // Before the first byte, so a failed query can still become an error
-      // response instead of truncating a page already sent (architecture §0).
+      // Before the first byte (architecture §0). A failed or slow read becomes
+      // that chart's error card; only a wiring bug raises here.
       fragments <- pageSnapshot(
         session,
         renderer,

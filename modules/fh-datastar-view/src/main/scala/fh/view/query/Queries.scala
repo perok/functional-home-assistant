@@ -35,6 +35,26 @@ final case class Answer(version: Long, data: Json) derives CanEqual
   */
 final case class Staged(version: Long, value: String) derives CanEqual
 
+object Staged {
+
+  /** Below every real version, so the first answer after a failure moves the
+    * render key.
+    */
+  val FailedVersion: Long = -1L
+
+  /** A read that could not be answered, in its own hole: one chart's error,
+    * never the page's. Data (passthrough) is simply absent.
+    */
+  def failed(stage: Transform.Stage): Staged = stage match {
+    case Transform.Stage.Chart(_) =>
+      Staged(
+        FailedVersion,
+        """<div class="fh-query-error" role="status">History unavailable</div>"""
+      )
+    case Transform.Stage.Passthrough => Staged(FailedVersion, "")
+  }
+}
+
 /** A query with its parameters parsed. A closed sum, not a registry: adding a
   * provider is a case here, an arm in [[Queries.parse]] and [[QueryResolver]],
   * and a typed helper in its component's Pkl module.
