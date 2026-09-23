@@ -17,15 +17,8 @@ import fh.view.model.{
   Surface,
   Transform
 }
-import fh.view.history.{
-  ChartStage,
-  ChartStyle,
-  HistoryProvider,
-  Series,
-  SeriesProvider,
-  SeriesStore,
-  Window
-}
+import api.homeassistant.ws.domain.{HistoryPoint, StatisticsPeriod}
+import fh.view.history.{ChartStage, ChartStyle, History, SeriesSource}
 import fh.view.runtime.{RenderInputs, Renderer}
 import fh.view.FHError
 
@@ -137,6 +130,20 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
     assert(miss.getMessage.contains("not resolved for this render"))
   }
 
+  /** A recorder answering `rows(entity, end)`, and no statistics. */
+  private def source(
+      rows: (String, Instant) => IO[List[HistoryPoint]]
+  ): SeriesSource = new SeriesSource {
+    def raw(start: Instant, end: Instant, entityId: String) =
+      rows(entityId, end)
+    def statistics(
+        start: Instant,
+        end: Instant,
+        entityId: String,
+        period: StatisticsPeriod
+    ) = IO.pure(Nil)
+  }
+
   /** A resolver over a counting fetch and a counting draw. Neither needs a
     * JavaScript engine or an HA connection, which is what makes the two-level
     * dedupe testable at all.
@@ -147,19 +154,7 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
       failWidth: Option[Int] = None
   ): IO[QueryResolver] =
     for {
-      store <- SeriesStore.create(
-        new SeriesProvider {
-          def identify(req: org.http4s.Request[IO]) =
-            IO.pure(QueryIdentity.Instance)
-          def series(
-              identity: QueryIdentity,
-              entityId: String,
-              window: Window,
-              asOf: Instant
-          ) = fetches.update(_ + 1).as(Series(Vector.empty, 0))
-        }
-      )
-      history <- HistoryProvider.create(store)
+      history <- History.create(source((_, _) => fetches.update(_ + 1).as(Nil)))
       stage <- ChartStage.create(
         IO.pure((_, style) =>
           draws.update(_ + 1) *>
@@ -213,24 +208,10 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
     val a = sensor("sensor.a")
     val b = sensor("sensor.b")
     for {
-      store <- SeriesStore.create(
-        new SeriesProvider {
-          def identify(req: org.http4s.Request[IO]) =
-            IO.pure(QueryIdentity.Instance)
-          def series(
-              identity: QueryIdentity,
-              entityId: String,
-              window: Window,
-              asOf: Instant
-          ) = IO.pure(
-            Series(
-              Vector(Series.Point(asOf, if (entityId == "sensor.a") 1 else 2)),
-              0
-            )
-          )
-        }
-      )
-      history <- HistoryProvider.create(store)
+      history <- History.create(source { (entityId, end) =>
+        val v = if (entityId == "sensor.a") "1.0" else "2.0"
+        IO.pure(List(HistoryPoint(v, end)))
+      })
       stage <- ChartStage.create(
         IO.pure((s, _) => IO.pure(s"<svg>${s.points.head.value}</svg>"))
       )
