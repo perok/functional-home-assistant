@@ -488,9 +488,8 @@ object Transform {
       */
     case Passthrough
 
-    /** Series in, markup out — the built-in chart. `params` because that is the
-      * wire's generic field (`core/stage.pkl`); parsed while decoding, so a bad
-      * size fails the build.
+    /** Series in, markup out — the built-in chart. Typed on the wire, unlike a
+      * query's params, which their provider parses (ADR 0031).
       */
     case Chart(params: ChartStyle = ChartStyle())
   }

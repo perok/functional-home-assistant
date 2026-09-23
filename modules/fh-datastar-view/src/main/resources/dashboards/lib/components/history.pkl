@@ -23,25 +23,34 @@ const function historyQuery(entityId: String, w: Window): slotMod.Slot =
   })
 
 /// Series in, SVG out. Size and unit say how the answer is DRAWN, not what was
-/// asked, so two sizes of one chart share one fetch. An absent value leaves its
-/// key out, so the backend's default applies.
+/// asked, so two sizes of one chart share one fetch.
 const function chartStage(
   chartWidth: Int?,
   chartHeight: Int?,
   chartUnit: String?
-): stageMod.Stage = new stageMod.Stage {
-  stage = "chart"
-  params = new Mapping {
-    when (chartWidth != null) {
-      ["width"] = chartWidth.toString()
-    }
-    when (chartHeight != null) {
-      ["height"] = chartHeight.toString()
-    }
-    when (chartUnit != null) {
-      ["unit"] = chartUnit
-    }
+): ChartStage = new ChartStage {
+  params {
+    width = chartWidth
+    height = chartHeight
+    unit = chartUnit
   }
+}
+
+/// How a chart is drawn (`fh.view.history.ChartStyle`). A null is left off the
+/// wire, so the backend's default applies.
+class ChartParams {
+  width: Int(isPositive)?
+  height: Int(isPositive)?
+  /// A CSS colour for the line; `var(--fh-accent)` by default.
+  line: String?
+  /// A CSS colour under the line; none by default.
+  fill: String?
+  unit: String?
+}
+
+class ChartStage extends stageMod.Stage {
+  stage = "chart"
+  params: ChartParams = new ChartParams {}
 }
 
 /// A chart of one entity over one window. `unit` should be the entity's own
