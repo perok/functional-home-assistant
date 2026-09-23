@@ -111,6 +111,7 @@ const windows: Listing<Window> = new { "1h"; "24h"; "7d"; "30d" }
 // because a choice is addressed to its declarer (`Server.varGroupId`).
 const local varGroup: String = "var_{{id}}__\(windowVar)"
 const local varCommitted: String = "_\(varGroup)"
+const local urlParam: String = "v.{{id}}.\(windowVar)"
 
 // A press writes PENDING only; the server commits after re-rendering the
 // charts, so a refused window leaves the highlight where it was.
@@ -129,13 +130,18 @@ const local function windowButton(w: Window): String = """
 ///     }
 ///
 /// Charts may be nested at any depth; a nested chooser shadows this one. The
-/// anchors are literal children of `.tabs` because BeerCSS styles `.tabs > a`.
+/// anchors are literal children of `.tabs` because BeerCSS styles `.tabs > a`,
+/// and the bar is a `div`: under a `nav`, BeerCSS stops each anchor shrinking,
+/// so every one is the bar's full width and only `1h` is on screen.
+///
+/// The committed window is mirrored into the URL, where `Server.varChoicesOf`
+/// reads it back on a refresh.
 class WindowChooser extends nodes.Node {
   card = "historyWindows"
   cardDef = new nodes.CardDef {
     regions = new Mapping { [nodes.defaultRegion] = new nodes.Region {} }
     template = """
-      <div class="fh-col"><nav class="tabs" data-signals__ifmissing="{ \(varCommitted): '{{start}}', \(tapMod.pendingSeedEntry(varGroup)) }" \(tapMod.pendingClearAgainst(varGroup, varCommitted))>\(windows.toList().map((w) -> windowButton(w)).join(""))</nav>{{#children}}{{{html}}}{{/children}}</div>
+      <div class="fh-col" data-effect="fhUrl('\(urlParam)', $\(varCommitted))"><div class="tabs" data-signals__ifmissing="{ \(varCommitted): '{{start}}', \(tapMod.pendingSeedEntry(varGroup)) }" \(tapMod.pendingClearAgainst(varGroup, varCommitted))>\(windows.toList().map((w) -> windowButton(w)).join(""))</div>{{#children}}{{{html}}}{{/children}}</div>
       """
     slots { "start" }
   }

@@ -3,7 +3,7 @@ package fh.view.testkit
 import api.homeassistant.ws.HAWSApiLowLevel
 import api.homeassistant.ws.protocol.client.{CommandPhase, CommandResponse}
 import api.homeassistant.ws.protocol.client.CommandPhase.*
-import api.homeassistant.ws.domain.EntitiesEvent
+import api.homeassistant.ws.domain.{EntitiesEvent, HistoryPoint, StatisticPoint}
 import cats.effect.{IO, Resource}
 import cats.syntax.all.*
 import cats.effect.std.Queue
@@ -55,7 +55,8 @@ final case class FakeConfig(
   *     ([[fh.view.build.RegistryDump.fetch]]), which joins them against that
   *     same opening state frame — so a Tier-A dashboard is built through the
   *     REAL `prepareDumps` path against the very fixtures the feed serves, and
-  *   - `sendCommand(call_service)` records the call for later assertion.
+  *   - `sendCommand(call_service)` records the call for later assertion, and
+  *   - the recorder's history answers a synthetic line for numeric fixtures.
   *
   * Anything else raises `NotImplementedError`: not on the runtime hot path, so
   * an unexpected command is a loud test failure rather than a silent stub. This
@@ -168,6 +169,28 @@ final class FakeHomeAssistant private (
       // through the dump they build, not through the fake.
       case _: `config/auth/list` =>
         IO.pure(Nil)
+
+      // A recorder that has kept every numeric fixture at its current state,
+      // with a ripple so a chart has a line to draw, sampled across whatever
+      // span was asked — so charts of two windows differ by their time axis.
+      // No statistics: `SeriesProvider` then charts the raw history.
+      case h: `history/history_during_period` =>
+        stateRef.get.map { states =>
+          h.entity_ids.flatMap { id =>
+            states.get(id).flatMap(_.state.toDoubleOption).map { v =>
+              val step =
+                (h.end_time.toEpochMilli - h.start_time.toEpochMilli) / 30
+              id -> List.tabulate(31) { i =>
+                HistoryPoint(
+                  (v + math.sin(i / 3.0)).toString,
+                  h.start_time.plusMillis(step * i)
+                )
+              }
+            }
+          }.toMap
+        }
+      case _: `recorder/statistics_during_period` =>
+        IO.pure(Map.empty[String, List[StatisticPoint]])
 
       case _ => na
     }

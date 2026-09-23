@@ -2140,10 +2140,9 @@ class Server(
       // only known once the last byte is out, which is why `holds` is
       // committed in the stream's finalizer below rather than here.
       ownRef <- IO.ref(Map.empty[NodeId, Painted])
-      // Choices off the URL (`v.` params), kept on the session for pulls.
-      // Nothing writes `v.` into the URL yet, so a refresh does NOT keep a
-      // chosen window. Narrowed to declarations here because an undeclared
-      // key would become a signal name in the opening frame.
+      // Choices off the URL (`v.` params, mirrored there by the control),
+      // kept on the session for pulls. Narrowed to declarations here because
+      // an undeclared key would become a signal name in the opening frame.
       _ <- session.vars.set(
         Server
           .varChoicesOf(req)

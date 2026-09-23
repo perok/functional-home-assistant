@@ -992,7 +992,9 @@ shows the press immediately from its own pending signal and the ask ends only wh
 agrees. A refused value ends the ask instead (ADR 0024's 200 of signals, naming the group), leaving
 the display on a value that never moved. The committed signals also ride the opening frame, TOTAL
 over the build's declarations rather than over the session's choices, so a forgotten session
-corrects a stale control instead of letting it disagree with the chart beside it.
+corrects a stale control instead of letting it disagree with the chart beside it. The control
+mirrors the committed value into the `v.` param with `fhUrl`, as a tab bar mirrors `ui.`, so the
+URL follows what the server did rather than what was pressed.
 
 The authoring side is one component (`c.windowChooser`): it declares the variable AND renders the
 bar, because a button has to name the declaring node both in the route it posts to and in the
