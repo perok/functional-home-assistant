@@ -764,6 +764,7 @@ class PklBuildSuite extends munit.FunSuite {
       "fhcol" -> Nil,
       "fhgrid" -> Nil,
       "sectionTitle" -> List("label"),
+      "label" -> List("label", "tone"),
       "entityCard" -> List("label", "value", "entity_id"),
       // The more-info facts card: its subject, and one live slot holding every
       // attribute the entity reports as text.

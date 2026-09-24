@@ -716,6 +716,13 @@
       ],
       "template" : "<div class=\"fh-ifhost\" id=\"{{hostId}}\">{{#branch}}{{{html}}}{{/branch}}</div>"
     },
+    "label" : {
+      "slots" : [
+        "label",
+        "tone"
+      ],
+      "template" : "<span class=\"fh-label fh-label-{{tone}} fh-text\"><span class=\"fh-text-run\">{{label}}</span></span>"
+    },
     "pill" : {
       "slots" : [
         "label"

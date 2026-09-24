@@ -87,6 +87,9 @@ typealias Popup = surfaceMod.Popup
 typealias TapAction = tapMod.TapAction
 typealias Expr = slotMod.Expr
 typealias SectionTitle = textMod.SectionTitle
+typealias Label = textMod.Label
+/// How a label is coloured — `"normal"`, `"dim"`, `"error"` or `"warning"`.
+typealias Tone = coreTextMod.Tone
 typealias EntityCard = entityMod.EntityCard
 typealias EntityInfo = moreinfo.EntityInfo
 typealias Button = control.Button
@@ -132,6 +135,8 @@ hidden informative: Mixin<entityMod.EntityCard> = moreinfo.informative
 
 /// Static title text: `c.title("Active now")`.
 function title(t: String): textMod.SectionTitle = textMod.title(t)
+/// A short line of text in a tone: `c.label("Away until Monday")`.
+function label(t: String): textMod.Label = textMod.label(t)
 /// HA-like entity card: icon + label + value.
 function entityCard(e: hass.Entity): entityMod.EntityCard = entityMod.entityCard(e)
 /// The raw facts about an entity — its id, and every attribute it reports.

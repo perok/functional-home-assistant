@@ -231,7 +231,7 @@ class HistorySuite extends munit.CatsEffectSuite {
     } yield assertEquals(count, 2)
   }
 
-  test("a failure is not cached") {
+  test("a failure is retried once its window passes") {
     // A series that failed because HA blinked comes back when it stops, not at
     // the next bucket.
     for {
@@ -242,7 +242,7 @@ class HistorySuite extends munit.CatsEffectSuite {
           case _ => IO.pure(Nil)
         }
       )
-      h <- History.create(src)
+      h <- History.create(src, failureTtl = Duration.Zero)
       first <- h.ask(Window.LastDay).attempt
       second <- h.ask(Window.LastDay)
       count <- attempts.get
@@ -250,6 +250,21 @@ class HistorySuite extends munit.CatsEffectSuite {
       assert(first.isLeft)
       assertEquals(second, Series.empty)
       assertEquals(count, 2)
+    }
+  }
+
+  test("inside its window a failure is answered without asking HA again") {
+    // Every live pull that shows the chart asks; with a recorder down, each
+    // of them would otherwise wait out a fresh fetch.
+    for {
+      src <- source((_, _) => IO.raiseError(new RuntimeException("HA is down")))
+      h <- History.create(src)
+      first <- h.ask(Window.LastDay).attempt
+      second <- h.ask(Window.LastDay).attempt
+      count <- src.fetches
+    } yield {
+      assert(first.isLeft && second.isLeft, clue = (first, second))
+      assertEquals(count, 1)
     }
   }
 

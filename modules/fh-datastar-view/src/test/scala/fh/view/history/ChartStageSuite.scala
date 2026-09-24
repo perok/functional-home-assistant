@@ -92,7 +92,7 @@ class ChartStageSuite extends munit.CatsEffectSuite {
       }
   }
 
-  test("a failed drawing is not cached, so the next asker retries") {
+  test("a failed drawing is retried once its window passes") {
     // Same rule the series cache keeps, and for the same reason: otherwise one
     // bad draw blanks a chart until its version moves, which for a 30 d window
     // is an hour.
@@ -104,7 +104,8 @@ class ChartStageSuite extends munit.CatsEffectSuite {
               case 1 => IO.raiseError(RuntimeException("no engine"))
               case _ => IO.pure("<svg/>")
             }
-          )
+          ),
+          failureTtl = scala.concurrent.duration.Duration.Zero
         )
         .flatMap { stage =>
           stage.draw(q, ChartStyle(), 100L, data).attempt *>

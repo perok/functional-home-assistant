@@ -5,6 +5,7 @@ import cats.syntax.all.*
 import fh.view.query.{Answer, QueryIdentity, QueryRequest}
 
 import java.time.{Duration as JDuration, Instant}
+import scala.concurrent.duration.FiniteDuration
 
 /** Parsing a history query — pure, so `Dashboard.validate` can reject a bad one
   * with nothing wired.
@@ -56,7 +57,7 @@ final case class SeriesKey(
   */
 final class History private (
     source: SeriesSource,
-    cache: BucketCache[SeriesKey, Series],
+    cache: SharedCache[SeriesKey, Series],
     retention: Ref[IO, JDuration],
     target: Int
 ) {
@@ -79,10 +80,9 @@ final class History private (
       window: Window,
       asOf: Instant
   ): IO[Series] =
-    cache.get(
-      SeriesKey(identity, entityId, window, window.bucketOf(asOf)),
-      asOf
-    )(fetch(entityId, window, asOf))
+    cache.get(SeriesKey(identity, entityId, window, window.bucketOf(asOf)))(
+      fetch(entityId, window, asOf)
+    )
 
   private[history] def keys: IO[Set[SeriesKey]] = cache.keys
 
@@ -116,10 +116,19 @@ object History {
 
   def create(
       source: SeriesSource,
-      target: Int = Downsample.DefaultTarget
+      target: Int = Downsample.DefaultTarget,
+      failureTtl: FiniteDuration = SharedCache.FailureTtl,
+      onFailure: SharedCache.OnFailure[SeriesKey] = SharedCache.ignore
   ): IO[History] =
     (
-      BucketCache.create[SeriesKey, Series](_.expiresAt),
+      // Expiry is asked PER KEY: windows bucket at different sizes, and
+      // sweeping by the newest key's bucket evicted live 30 d entries whenever
+      // a 1 h one landed.
+      SharedCache.create[SeriesKey, Series](
+        (added, other) => other.expiresAt.isAfter(added.bucket),
+        failureTtl,
+        onFailure
+      ),
       Ref[IO].of(JDuration.ZERO)
     ).mapN(new History(source, _, _, target))
 

@@ -271,6 +271,11 @@ facts {
     week.slots["start"] == "7d"
   }
 
+  ["a label node is the core label, its tone a slot"] {
+    c.label("Leak").cardDef.template == textMod.label("{{tone}}", "{{label}}")
+    ((c.label("Leak")) { tone = "error" }).slots["tone"] == "error"
+  }
+
   ["whether a chart makes sense is answered at BUILD time"] {
     // The gate the popup composes on. A sensor with neither a state_class nor
     // a unit is not a number HA records, so no chart is composed at all — and

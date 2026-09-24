@@ -187,6 +187,23 @@ class ChartSuite extends munit.FunSuite {
     assert(svg.contains("""height="90""""), clue = svg.take(200))
   }
 
+  test("a drawing that outlives its timeout stops, and the next one draws") {
+    // `IO.blocking` ignores cancellation, so without an interrupt a timeout
+    // would wait out the drawing it gave up on, still holding the lock every
+    // other chart queues behind.
+    val big = series((1 to 100000).map(i => (i % 97).toDouble)*)
+    val (full, cut, next) = withRenderer { r =>
+      for {
+        full <- r.render(big, ChartStyle()).timed.map(_._1)
+        cut <- r.render(big, ChartStyle()).timeout(full / 10).attempt.timed
+        next <- r.render(series(1, 2, 3), ChartStyle())
+      } yield (full, cut, next)
+    }
+    assert(cut._2.isLeft, clue = cut._2)
+    assert(cut._1 < full / 2, clue = s"the timeout waited out the draw: $cut")
+    assert(next.startsWith("<svg"), clue = next.take(200))
+  }
+
   test(
     "renders are serialised, so concurrent charts do not corrupt each other"
   ) {

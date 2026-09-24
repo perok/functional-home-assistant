@@ -1,10 +1,12 @@
 package fh.view.history
 
-import cats.effect.{Deferred, IO, Ref}
+import cats.effect.IO
 import cats.syntax.all.*
 import fh.view.FHError
 import fh.view.query.{QueryIdentity, QueryRequest}
 import io.circe.Json
+
+import scala.concurrent.duration.FiniteDuration
 
 /** How a series becomes bytes — a function rather than [[ChartRenderer]], so a
   * cache test needs no JavaScript engine.
@@ -20,7 +22,7 @@ type ChartDraw = (Series, ChartStyle) => IO[String]
   */
 final class ChartStage private (
     renderer: IO[ChartDraw],
-    entries: Ref[IO, Map[ChartStage.Key, ChartStage.Entry]]
+    cache: SharedCache[(ChartStage.Key, Long), String]
 ) {
 
   /** Concurrent callers of a cold key wait on one drawing. Every style field is
@@ -33,26 +35,7 @@ final class ChartStage private (
       version: Long,
       data: Json
   ): IO[String] =
-    Deferred[IO, Either[Throwable, String]].flatMap { mine =>
-      val key = (question, style)
-      entries
-        .modify { current =>
-          current.get(key) match {
-            case Some(e) if e.version === version => (current, e.slot.get)
-            case _                                =>
-              (
-                current.updated(key, ChartStage.Entry(version, mine)),
-                compute(style, data).attempt.flatTap(r =>
-                  // Not cached on failure, so the next asker retries.
-                  mine.complete(r) *>
-                    entries.update(_ - key).whenA(r.isLeft)
-                )
-              )
-          }
-        }
-        .flatten
-        .rethrow
-    }
+    cache.get(((question, style), version))(compute(style, data))
 
   private def compute(style: ChartStyle, data: Json): IO[String] =
     data
@@ -65,7 +48,7 @@ final class ChartStage private (
       .liftTo[IO]
       .flatMap(s => renderer.flatMap(_(s, style)))
 
-  def keys: IO[Set[ChartStage.Key]] = entries.get.map(_.keySet)
+  def keys: IO[Set[ChartStage.Key]] = cache.keys.map(_.map(_._1))
 }
 
 object ChartStage {
@@ -77,13 +60,16 @@ object ChartStage {
 
   type Key = (Question, ChartStyle)
 
-  private case class Entry(
-      version: Long,
-      slot: Deferred[IO, Either[Throwable, String]]
-  )
-
-  def create(renderer: IO[ChartDraw]): IO[ChartStage] =
-    Ref[IO]
-      .of(Map.empty[Key, Entry])
+  def create(
+      renderer: IO[ChartDraw],
+      failureTtl: FiniteDuration = SharedCache.FailureTtl,
+      onFailure: SharedCache.OnFailure[(Key, Long)] = SharedCache.ignore
+  ): IO[ChartStage] =
+    SharedCache
+      .create[(Key, Long), String](
+        (added, other) => other._1 != added._1,
+        failureTtl,
+        onFailure
+      )
       .map(new ChartStage(renderer, _))
 }

@@ -25,7 +25,7 @@ import io.circe.parser.parse
 
 /** The reads a render is handed are decided BEFORE the walk, by code that is
   * not the walk (`Renderer.queriesForPage`, `queriesForSurface`,
-  * `mayReadQueries`). If the two drift, a render misses an answer and raises.
+  * `readsForPull`). If the two drift, a render misses an answer and raises.
   * This renders each dashboard in every shape a viewer can put it in, against
   * exactly what was decided, so a drift fails here instead.
   */
@@ -215,10 +215,10 @@ class QueryDriftSuite extends munit.FunSuite {
     }
   }
 
-  test("a node the gate says cannot read a query renders with none") {
+  test("a pull renders each target and fills each host with what it asked") {
     for (c <- cases) {
       val r = c.renderer
-      val nodes: List[NodeId] =
+      val painted: List[NodeId] =
         (r.surfaces.stateBakeOwnerIds.toList ++
           c.dashboard.surfaces.keys.toList.flatMap(r.surfaceNodeIds) ++
           c.houses.flatMap(states =>
@@ -235,17 +235,30 @@ class QueryDriftSuite extends munit.FunSuite {
                 )
               )
             ).keys
-          )).distinct.sorted
-      val (reach, quiet) = nodes.partition(r.mayReadQueries)
-      // Both answers occur, or this checks nothing.
-      assert(quiet.nonEmpty && reach.nonEmpty, clue = c.name)
-      for (states <- c.houses; ui <- uiStates(c); id <- quiet) {
-        val _ =
-          r.renderNodeById(id, states, ui, fragments = QuerySnapshot.empty)
-        if (r.surfaces.stateBakeOwnerIds(id)) {
-          val _ = r.renderHost(id, states, ui, QuerySnapshot.empty)
+          )).distinct
+      val nodes =
+        (painted ++ painted.flatMap(r.ancestry.ancestorsOf)).distinct.sorted
+      val hosts = nodes.filter(id =>
+        r.surfaces.stateBakeOwnerIds(id) || r.members.setContainer(id).isDefined
+      )
+      for (states <- c.houses; ui <- uiStates(c)) {
+        def asked(targets: List[NodeId], hs: List[NodeId]) =
+          answered(r.readsForPull(targets, hs, states, ui, Map.empty))
+        nodes.foreach { id =>
+          val f = asked(List(id), Nil)
+          val _ = (
+            r.renderInputs(id, states, f),
+            r.renderNodeById(id, states, ui, fragments = f)
+          )
         }
+        hosts.foreach(h => r.renderHost(h, states, ui, asked(Nil, List(h))))
       }
+      // Precise, not everything: a plain node asks nothing, a chart asks.
+      val (quiet, loud) = nodes.partition(id =>
+        r.readsForPull(List(id), Nil, c.houses.head, Map.empty, Map.empty)
+          .isEmpty
+      )
+      assert(quiet.nonEmpty && loud.nonEmpty, clue = c.name)
     }
   }
 }

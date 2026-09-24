@@ -114,7 +114,8 @@ None of this was designed separately; all of it fell out.
 - **The drawing cache needs no expiry.** A series has a shelf life — it stops being current when
   its bucket rolls, which is what decides when a version moves. A drawing has none: it is a
   deterministic function of an answer, so `ChartStage` keys by version and replaces in place. That
-  is the half of `BucketCache` it does not need.
+  is the half of the series cache's eviction it does not need (both are a `SharedCache`, told
+  what retires an entry).
 - **The raw-hole rule generalises.** It was "a query slot's value is markup, so its hole must be
   `{{{x}}}`". It is now **the last stage decides the hole**: a drawing needs the raw one, and
   passthrough must NOT have one, because its value is an attribute payload and wants escaping.
@@ -182,9 +183,13 @@ None of this was designed separately; all of it fell out.
     interval, and contradicts §0's shape, where the server decides what a client is owed.
 
 - **A failure is the chart's, not the page's.** A fetch or drawing that fails, or takes longer
-  than `QuerySnapshot.AnswerTimeout`, is answered with `Staged.failed`: an error card in its hole
-  and a version below any real one, so the next good answer moves the render key. The page and the
-  live stream carry on; only a read that does not parse — a wiring bug — raises.
+  than `SharedCache.Timeout`, is answered with `Staged.failed` and a version below any real one,
+  so the next good answer moves the render key. A chart's hole gets the runtime's error LABEL — the
+  same structure as the library's `label`, styled by the base CSS every dashboard carries, so no
+  card has to remember to handle it; a data hole is left empty, since it is escaped. The page and
+  the live stream carry on; only a read that does not parse — a wiring bug — raises. A failure is
+  remembered for a short window rather than retried by every render, which would otherwise each
+  wait out the timeout again.
 
 ## What this does not decide
 

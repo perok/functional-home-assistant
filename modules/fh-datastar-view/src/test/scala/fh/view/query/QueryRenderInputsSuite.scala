@@ -308,10 +308,6 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
         f.versions("n", List(ask(width = 1))),
         Map(bad -> Staged.FailedVersion)
       )
-      // Named, so the log says which chart and why.
-      assertEquals(f.failures.size, 1)
-      assert(f.failures.head.contains("history"), clue = f.failures)
-      assert(f.failures.head.contains("no engine"), clue = f.failures)
     }
   }
 

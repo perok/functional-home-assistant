@@ -43,16 +43,22 @@ object Staged {
   val FailedVersion: Long = -1L
 
   /** A read that could not be answered, in its own hole: one chart's error,
-    * never the page's. Data (passthrough) is simply absent.
+    * never the page's. Data (passthrough) is simply absent — its hole is
+    * escaped, so it cannot hold markup.
     */
   def failed(stage: Transform.Stage): Staged = stage match {
     case Transform.Stage.Chart(_) =>
-      Staged(
-        FailedVersion,
-        """<div class="fh-query-error" role="status">History unavailable</div>"""
-      )
+      Staged(FailedVersion, label("error", "Chart unavailable"))
     case Transform.Stage.Passthrough => Staged(FailedVersion, "")
   }
+
+  /** The runtime's copy of `core/text.pkl`'s `label`: one structure, whose
+    * classes are the base CSS every dashboard carries, so what the runtime
+    * writes looks like a label an author placed. `FailureLabelSuite` holds the
+    * two copies equal. `text` is a constant, never a viewer's value.
+    */
+  def label(tone: String, text: String): String =
+    s"""<span class="fh-label fh-label-$tone fh-text"><span class="fh-text-run">$text</span></span>"""
 }
 
 /** A query with its parameters parsed. A closed sum, not a registry: adding a

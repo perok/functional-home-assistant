@@ -973,7 +973,8 @@ class RenderBench {
           log,
           Map.empty,
           flipStates,
-          IO.pure(QuerySnapshot.empty),
+          _ => IO.pure(QuerySnapshot.empty),
+          Map.empty,
           at
         )
       )
@@ -1253,7 +1254,8 @@ class RenderBench {
           log,
           held,
           moved,
-          IO.pure(QuerySnapshot.empty),
+          _ => IO.pure(QuerySnapshot.empty),
+          Map.empty,
           at,
           Set.empty,
           Map.empty

@@ -997,19 +997,22 @@ class Server(
           // same bytes a version this client is owed nothing for produces.
           // `rendererOf` is the tuple's option: a None short-circuits the
           // flatMap before any of the refs below are even run.
-          Patches
-            .resume(
-              renderer,
-              live.cache,
-              log,
-              holds,
-              store.entities,
-              pageSnapshot(session, renderer, open, store.entities),
-              position + 1,
-              open,
-              // The LIVE selection, not the one this connection arrived
-              // with: a tab select moves it mid-stream.
-              renderer.surfaces.uiStateFrom(open)
+          envOf(session, renderer)
+            .flatMap(env =>
+              Patches.resume(
+                renderer,
+                live.cache,
+                log,
+                holds,
+                store.entities,
+                answer(renderer, _, env),
+                env,
+                position + 1,
+                open,
+                // The LIVE selection, not the one this connection arrived
+                // with: a tab select moves it mid-stream.
+                renderer.surfaces.uiStateFrom(open)
+              )
             )
             .flatMap { patches =>
               session.holds
@@ -1122,8 +1125,8 @@ class Server(
           OptionT.pure[IO](List(Server.reloadPatch))
         else
           OptionT
-            .liftF(pageSnapshot(session, renderer, open, store.entities))
-            .flatMap { fragments =>
+            .liftF(envOf(session, renderer))
+            .flatMap { env =>
               val head =
                 if (cursor.exists(_.styleHash != renderer.styleHash))
                   Server.headPatches(renderer, slug)
@@ -1164,25 +1167,24 @@ class Server(
                     log,
                     holds,
                     store.entities,
-                    pageSnapshot(session, renderer, open, store.entities),
+                    answer(renderer, _, env),
+                    env,
                     resumeFrom(req, c),
                     open,
                     uiState
                   )
                 )
-              // Lazy: rendering the whole body is the cost this exists to avoid.
+              // Only on a repaint: answering and rendering the whole body is the
+              // cost a resume exists to avoid.
               // TRACED, because a repaint is the largest thing that ever puts
               // fragments in this DOM and it knows exactly what it put where — the
               // same claim the DOCUMENT makes from the same render. Clearing
               // `holds` instead would leave the client's open surfaces unclaimed
               // and re-sent on the very next pull.
-              lazy val painted =
-                renderer.renderBodyTraced(store.entities, uiState, fragments)
-              lazy val repaint = Datastar.patch(
-                painted.html,
-                PatchMode.Inner,
-                Some("#dashboard")
-              )
+              val painted =
+                pageAnswers(renderer, open, store.entities, env).map(
+                  renderer.renderBodyTraced(store.entities, uiState, _)
+                )
               // An open popup needs no restore branch of its own: its nodes are in
               // `open`, so the resume rule reconciles them on their own ids, and a
               // body repaint replaces `#dashboard` only — `#popups` lives in the
@@ -1216,18 +1218,32 @@ class Server(
                 (resumed, chosen) =>
                   val claim = resumed.fold(store.version)(_ => covered)
                   val record = resumed.fold(
-                    session.holds.set(painted.own.map { case (id, p) =>
-                      id -> Held(Some(p.digest), p.signals)
-                    })
-                  )(patches =>
-                    session.holds.update(
-                      patches
-                        .foldLeft(_)(Patches.applied(renderer.ancestry, _, _))
+                    painted.flatMap(p =>
+                      session.holds
+                        .set(p.own.map { case (id, n) =>
+                          id -> Held(Some(n.digest), n.signals)
+                        })
+                        .as(
+                          List(
+                            Datastar
+                              .patch(
+                                p.html,
+                                PatchMode.Inner,
+                                Some("#dashboard")
+                              )
+                          )
+                        )
                     )
-                  ) *> session.position.set(claim) *> session.told.set(claim)
-                  record.as(
-                    head ++ resumed.fold(List(repaint))(_.map(_.patch.toSse)) ++
-                      orphan :+
+                  )(patches =>
+                    session.holds
+                      .update(
+                        patches
+                          .foldLeft(_)(Patches.applied(renderer.ancestry, _, _))
+                      )
+                      .as(patches.map(_.patch.toSse))
+                  ) <* session.position.set(claim) <* session.told.set(claim)
+                  record.map(sent =>
+                    head ++ sent ++ orphan :+
                       // The cursor, carrying this connection's selections with it. A
                       // swap commits its own entry, but the patch and the signal are
                       // two writes, so a stream that died between them left a DOM
@@ -1502,9 +1518,15 @@ class Server(
       open: Set[String],
       states: Map[String, EntityState]
   ): IO[QuerySnapshot] =
-    envOf(session, renderer).flatMap(env =>
-      answer(renderer, renderer.queriesForPage(open, states, env), env)
-    )
+    envOf(session, renderer).flatMap(pageAnswers(renderer, open, states, _))
+
+  private def pageAnswers(
+      renderer: Renderer,
+      open: Set[String],
+      states: Map[String, EntityState],
+      env: VarEnv
+  ): IO[QuerySnapshot] =
+    answer(renderer, renderer.queriesForPage(open, states, env), env)
 
   /** Set a NODE VARIABLE for this viewer, and re-render exactly the nodes that
     * read it (issue #209).
@@ -1545,8 +1567,12 @@ class Server(
         )
       )
       _ <- session.vars.set(proposed)
-      snapshot <- answer(renderer, renderer.readsUnder(readers, env), env)
       store <- stateStore.current
+      snapshot <- answer(
+        renderer,
+        renderer.readsForPull(readers, Nil, store.entities, uiState, env),
+        env
+      )
       holds <- session.holds.get
       live <- liveFor(session.slug)
       patches <- live.toList.flatTraverse(l =>
@@ -1598,7 +1624,6 @@ class Server(
             QueryIdentity.Instance,
             java.time.Instant.now()
           )
-          .flatTap(_.failures.traverse_(logger.warn(_)))
       // Keep the env: `QuerySnapshot.empty` would resolve declared values.
       case _ => IO.pure(QuerySnapshot.of(Map.empty, env))
     }
@@ -2181,17 +2206,22 @@ class Server(
       // body waits for it on the blocking thread below. A failed or slow read
       // is that chart's error card, so only a wiring bug can raise, and that
       // truncates the page (architecture §0).
+      // Cancelled with the body, so an abandoned page stops waiting on it; the
+      // future is cancelled too, or a walk already parked on it never wakes.
       pending = new java.util.concurrent.CompletableFuture[QuerySnapshot]()
-      _ <- pageSnapshot(
+      fetch <- pageSnapshot(
         session,
         renderer,
         renderer.surfaces.selectedSurfaces(uiState),
         store.entities
-      ).attempt.flatMap { r =>
-        IO {
-          val _ = r.fold(pending.completeExceptionally, pending.complete)
+      ).attempt
+        .flatMap { r =>
+          IO {
+            val _ = r.fold(pending.completeExceptionally, pending.complete)
+          }
         }
-      }.start
+        .onCancel(IO(pending.cancel(false)).void)
+        .start
       body = fs2.io
         .readOutputStream[IO](Server.PageChunkBytes) { os =>
           IO.blocking {
@@ -2279,6 +2309,7 @@ class Server(
             logger.warn(e)(s"page render for '$slug' failed mid-walk")
           case Resource.ExitCase.Canceled => IO.unit
         }
+        .onFinalize(fetch.cancel)
       resp <- Ok(body)
     } yield resp.withContentType(`Content-Type`(MediaType.text.html))
   }
@@ -3096,8 +3127,27 @@ object Server {
   ): Resource[IO, QueryResolver] =
     for {
       chart <- ChartRenderer.resource(loggerFactory).memoizedAcquire
-      history <- History.create(SeriesSource.fromApi(api)).toResource
-      stage <- ChartStage.create(chart.map(_.render)).toResource
+      log = loggerFactory.getLoggerFromName("fh.view.history")
+      history <- History
+        .create(
+          SeriesSource.fromApi(api),
+          onFailure = (k, e) =>
+            log.warn(e)(
+              s"history of ${k.entityId} over ${k.window.name} could not " +
+                "be fetched; its charts show their error until a retry"
+            )
+        )
+        .toResource
+      stage <- ChartStage
+        .create(
+          chart.map(_.render),
+          onFailure = (k, e) =>
+            log.warn(e)(
+              s"a chart of ${k._1._1._2} could not be drawn; it shows its " +
+                "error until a retry"
+            )
+        )
+        .toResource
     } yield QueryResolver(history, stage)
 
   /** The `POST /system/dump/refresh` response body — status plus what a caller

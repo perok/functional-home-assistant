@@ -351,51 +351,44 @@ class Renderer(
         id
     }
 
-  /** What rendering `ids` would ask: their own reads and their descendants',
-    * since a node whose bytes carry its children renders them too.
+  /** What re-rendering `targets` and refilling `hosts` reads — a pull's, or a
+    * variable write's: each target's own reads, and what each host shows. A
+    * target is a leaf or a set member — a structural node has no rendering of
+    * its own ([[hasOwnRendering]]) — so its descendants are not asked.
     */
-  def readsUnder(ids: List[NodeId], env: VarEnv): List[SlotRead] =
-    (ids ++ ids.flatMap(ancestry.descendantsOf)).distinct.flatMap { id =>
-      allIndexed.get(id) match {
-        case Some((s: LayoutNode.SetNode, _)) => dashboard.queriesIn(s)
-        case _                                => readsAt(id, env)
-      }
-    }.distinct
+  def readsForPull(
+      targets: List[NodeId],
+      hosts: List[NodeId],
+      states: Map[String, EntityState],
+      uiState: Map[String, String],
+      env: VarEnv
+  ): List[SlotRead] =
+    (targets.flatMap(id => readsAt(id, env) ++ setReadsAbove(id)) ++
+      hosts.flatMap { gid =>
+        members.setContainer(gid) match {
+          case Some(_) =>
+            querySetReads.getOrElse(gid, Nil) ++ setReadsAbove(gid)
+          case None =>
+            surfaces
+              .resolveActiveByState(gid, states)
+              .flatMap(surfaces.bakeGroup(gid).lift)
+              .toList
+              .flatMap(queriesForSurface(_, states, uiState, env))
+        }
+      }).distinct
 
-  /** Whether rendering `id` can read a query: through its own slots, its
-    * descendants, a surface it hosts, or the set it is a member of. Over-
-    * inclusive by design — a pull that says no renders with no answers, so a
-    * wrong no would raise.
-    */
-  def mayReadQueries(id: NodeId): Boolean =
-    reachesQuery(id) || ancestry.ancestorsOf(id).exists(querySets)
+  // A member is not indexed, so what it reads is its set's.
+  private def setReadsAbove(id: NodeId): List[SlotRead] =
+    if (querySetReads.isEmpty) Nil
+    else
+      ancestry.ancestorsOf(id).toList.flatMap(querySetReads.getOrElse(_, Nil))
 
-  private lazy val querySets: Set[NodeId] =
+  private lazy val querySetReads: Map[NodeId, List[SlotRead]] =
     allIndexed.collect {
       case (id, (s: LayoutNode.SetNode, _))
           if dashboard.queriesIn(s).nonEmpty =>
-        id
-    }.toSet
-
-  /** Every node a query can be reached from, closed over hosting: a surface
-    * holding one makes its host reach, which can put another surface's content
-    * in the set.
-    */
-  private lazy val reachesQuery: Set[NodeId] = {
-    def up(ids: Set[NodeId]) = ids ++ ids.flatMap(ancestry.ancestorsOf)
-    def close(acc: Set[NodeId]): Set[NodeId] = {
-      val hosts = dashboard.surfaces.toList.collect {
-        case (sid, s)
-            if surfaceIndexes.get(sid).exists(_.indexed.keys.exists(acc)) =>
-          s.bakeInto
-      }.flatten
-      val next = up(acc ++ hosts)
-      if (next == acc) acc else close(next)
+        id -> dashboard.queriesIn(s)
     }
-    close(up(allIndexed.collect {
-      case (id, (c: LayoutNode.Component, _)) if c.queries.nonEmpty => id
-    }.toSet ++ querySets))
-  }
 
   /** What `id` would ask with these values in scope. */
   def readsAt(id: NodeId, env: VarEnv): List[SlotRead] =

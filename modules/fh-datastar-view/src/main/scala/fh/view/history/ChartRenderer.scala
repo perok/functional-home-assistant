@@ -19,6 +19,7 @@ import scala.util.Using
   * bucket.
   */
 final class ChartRenderer private (context: Context, lock: Mutex[IO]) {
+  import ChartRenderer.InterruptWait
 
   def render(series: Series, style: ChartStyle): IO[String] =
     renderOption(ChartOption(series, style), style)
@@ -31,11 +32,19 @@ final class ChartRenderer private (context: Context, lock: Mutex[IO]) {
           .getMember("fhRenderChart")
           .execute(option.noSpaces, style.width, style.height)
           .asString()
-      }
+      }.cancelable(
+        // A timed-out drawing would otherwise run on, holding the lock every
+        // other chart waits behind. Interrupting leaves the context usable.
+        IO.blocking(context.interrupt(InterruptWait))
+          .void
+          .handleError(_ => ())
+      )
     }
 }
 
 object ChartRenderer {
+
+  private val InterruptWait = java.time.Duration.ofSeconds(1)
 
   def resource(
       loggerFactory: LoggerFactory[IO] = Logging.console

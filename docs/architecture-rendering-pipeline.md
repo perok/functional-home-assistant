@@ -1028,7 +1028,7 @@ that every input this render reads has an answer.
 
 **EVERY render path resolves what it reads**, and `QuerySnapshot` is total over it: a path that reads a
 query cannot be handed nothing, because there is no default argument left to hand it. What a render
-owes is read off the STATIC tree — `Renderer.queriesForPage` for a page and a pull,
+owes is read off the STATIC tree — `Renderer.queriesForPage` for a page, `readsForPull` for a pull,
 `queriesForSurface` for a surface fill (the surfaces shown inside it included) — because a render is
 a synchronous string build and the set has to be known before it starts. Deciding the set is code
 that is not the walk, so the two can drift; `QueryDriftSuite` renders the fixtures and a dashboard
@@ -1037,13 +1037,23 @@ with a chart in every position against exactly the decided set, and fails on any
 A page's set is what it shows: the body, the viewer's open surfaces (selected tab panels, the
 popup), and the branch each state group picks at the snapshot's states — so a flip in this render is
 answered. An unselected tab is not; switching to it fetches its own (`swapHost`). A pull asks for
-this set only when a node it renders can reach a query (`Renderer.mayReadQueries`: a chart, an
-ancestor of one, a host of a surface holding one, a member of a set reading one) — so a pull that
-moves only plain cards answers nothing.
+exactly what it renders: each target's own reads (a set member's are its set's) and what each host
+it fills shows. A target is a leaf or a member, never structure, so a pull that moves only plain
+cards asks nothing. A chart in an open surface is asked on EVERY pull, since the resume re-checks
+every open-surface node and a chart's key holds its read's version; warm, that is a map lookup.
 
-**A failed read is its chart's, not the render's.** A fetch or drawing that fails or passes
-`QuerySnapshot.AnswerTimeout` is answered with `Staged.failed` — an error card, and a version below
-any real one — and logged; the page and the live stream carry on.
+**A failed read is its chart's, not the render's.** `Staged.failed` puts the runtime's error label
+in a chart's hole — `core/text.pkl`'s `label` structure, a base-CSS contract like the busy and
+offline classes, held equal to the library's copy by `FailureLabelSuite` — and leaves a data hole
+empty; the version is below any real one. The page and the live stream carry on.
+
+**A fetch and a drawing are each computed once, on a fiber of their own** (`history/SharedCache`),
+never on the fiber of whichever render asked first — a page abandoned mid-fetch cancels its asker,
+and a computation that died with it would leave every later asker waiting. Each is bounded by
+`SharedCache.Timeout`; a drawing is stopped by interrupting the JS context, since `IO.blocking`
+alone ignores cancellation. A failure is logged once and REMEMBERED for `SharedCache.FailureTtl`,
+so a recorder that is down costs a render its error card rather than a fresh wait; the first
+render after that window waits on the retry.
 
 One thing is still missing, and it is deliberate. **Nothing wakes a node because a query's
 version moved**: the recorder watches entity state, and a bucket rolling is not a state change, so
