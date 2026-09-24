@@ -64,7 +64,11 @@ class QueryBench {
     resolver = (for {
       history <- History.create(new SeriesSource {
         def raw(start: Instant, end: Instant, entityId: String) =
-          IO.pure(List.tabulate(200)(i => HistoryPoint("1.0", start.plusSeconds(i * 60L))))
+          IO.pure(
+            List.tabulate(200)(i =>
+              HistoryPoint("1.0", start.plusSeconds(i * 60L))
+            )
+          )
         def statistics(
             start: Instant,
             end: Instant,
