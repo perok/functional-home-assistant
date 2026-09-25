@@ -1316,16 +1316,28 @@ Live list — delete an entry when it is answered, and say where the answer land
     segment, and the body is a segment stream evaluated with fs2's order-preserving `parEvalMap`;
     only the chart leaf's digest is computed late.
   - **Parallelism is the same either way**: the walk reaches every chart within ~1 ms (a page walk
-    is ~0.9 ms for 200 cards), so discovery order barely matters. What serialises is drawing — one
-    GraalJS context behind a mutex, ~30 ms per chart — and HA's recorder. A small pool of chart
-    contexts is the lever. HA requests already pipeline on one connection (`ha-api`'s id-routed
-    queue).
+    is ~0.9 ms for 200 cards), so discovery order barely matters. What serialises is drawing (the
+    next entry) and HA's recorder. HA requests already pipeline on one connection (`ha-api`'s
+    id-routed queue).
   - **Mid-stream errors**: a reset, malformed chunk or trailer does nothing useful for a browser
     loading a document (it renders what arrived; Datastar never starts). An in-band error written
     before closing works, since we own both ends. A failed read is its chart's error label anyway
     (§6), so none of this is needed today.
   - **Measured** (JMH, 200 cards + 4 charts, warm): pre-pass 54 µs, finding the reads 0.8 µs,
     an `IO` per node ~0.4 µs (within error), a pull 72–164 µs.
+
+- **Chart drawing is serialised on one GraalJS context.** `ChartRenderer` holds one context behind
+  a `Mutex`, so a cold page's distinct charts draw one after another at ~30 ms each — eight is
+  ~240 ms before the body can finish, however the walk finds them. `SharedCache` only collapses
+  askers of the SAME drawing. The lever is a pool of N contexts on the one shared `Engine` (the
+  parsed ECharts source is shared; each context still pays ~300 ms to evaluate it and its own
+  heap), and N is what needs measuring on the Pi 4 target — per-context heap against the cold-page
+  time it buys. The shape, when built: a bounded `Queue[IO, Context]` borrowed per drawing
+  (`Resource.make(take)(offer)`), which is the `Mutex` generalised — the `Mutex` is N = 1 — and
+  keeps the interrupt-on-cancel as it is. Not worker fibers fed `(job, Deferred)`: a caller that
+  gives up (the `SharedCache` timeout) would then need its cancellation carried to the worker by
+  hand to interrupt the drawing, where a borrowed context is interrupted by the fiber holding it.
+  Neither blocks a thread while waiting; the `Mutex` does not either.
 
 - **Is the node's HTML the right thing to cache?** `RenderCache` keys a node's bytes by its inputs,
   and a chart's version is only known by answering it — so a render-cache hit on a chart still costs
