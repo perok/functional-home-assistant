@@ -15,7 +15,7 @@ import scala.concurrent.duration.*
   * instead.
   *
   * A failure is kept for `failureTtl` and then retried, so a recorder that is
-  * down costs each render its error card rather than a fresh wait. It is
+  * down costs each render its error label rather than a fresh wait. It is
   * reported once, to `onFailure`, rather than by every render that shows it.
   *
   * `keep(inserted, other)` says whether `other` survives `inserted` being

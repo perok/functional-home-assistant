@@ -2204,7 +2204,7 @@ class Server(
       // Answered WHILE the head goes out, since the head reads no query: a
       // cold chart's fetch overlaps the browser fetching stylesheets, and the
       // body waits for it on the blocking thread below. A failed or slow read
-      // is that chart's error card, so only a wiring bug can raise, and that
+      // is that chart's error label, so only a wiring bug can raise, and that
       // truncates the page (architecture §0).
       // Cancelled with the body, so an abandoned page stops waiting on it; the
       // future is cancelled too, or a walk already parked on it never wakes.

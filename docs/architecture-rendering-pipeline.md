@@ -49,7 +49,7 @@ Two things already enforce it, and they are the shape a new render input should 
   what keeps a failure expressible** — it raises while an error response is still possible, where a
   lazily-resolved input could only truncate a page already on the wire.
   Query answers hold the same line with a narrower failure: a read that fails or times out is its
-  chart's error card, never the page's, so they need no error status and are resolved WHILE the
+  chart's error label, never the page's, so they need no error status and are resolved WHILE the
   head is written (§6a) — the walk itself still starts with every answer in hand.
 
 **Streaming is not deferral.** §6a streams the document as it is walked, so the browser has the
@@ -1052,7 +1052,7 @@ never on the fiber of whichever render asked first — a page abandoned mid-fetc
 and a computation that died with it would leave every later asker waiting. Each is bounded by
 `SharedCache.Timeout`; a drawing is stopped by interrupting the JS context, since `IO.blocking`
 alone ignores cancellation. A failure is logged once and REMEMBERED for `SharedCache.FailureTtl`,
-so a recorder that is down costs a render its error card rather than a fresh wait; the first
+so a recorder that is down costs a render its error label rather than a fresh wait; the first
 render after that window waits on the retry.
 
 One thing is still missing, and it is deliberate. **Nothing wakes a node because a query's
@@ -1322,7 +1322,7 @@ Live list — delete an entry when it is answered, and say where the answer land
     queue).
   - **Mid-stream errors**: a reset, malformed chunk or trailer does nothing useful for a browser
     loading a document (it renders what arrived; Datastar never starts). An in-band error written
-    before closing works, since we own both ends. A failed read is its chart's error card anyway
+    before closing works, since we own both ends. A failed read is its chart's error label anyway
     (§6), so none of this is needed today.
   - **Measured** (JMH, 200 cards + 4 charts, warm): pre-pass 54 µs, finding the reads 0.8 µs,
     an `IO` per node ~0.4 µs (within error), a pull 72–164 µs.
