@@ -25,7 +25,7 @@ import fh.view.model.{
   Transform
 }
 import api.homeassistant.ws.domain.{HistoryPoint, StatisticsPeriod}
-import fh.view.history.{ChartStage, ChartStyle, History, SeriesSource}
+import fh.view.history.{ChartStyle, History, SeriesSource}
 import fh.view.runtime.{EntityState, RenderInputs, Renderer}
 import io.circe.Json
 import fh.view.testkit.TestIds.given
@@ -176,8 +176,12 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
       failWidth: Option[Int] = None
   ): IO[QueryResolver] =
     for {
-      history <- History.create(source((_, _) => fetches.update(_ + 1).as(Nil)))
-      stage <- ChartStage.create(
+      history <- History.create(
+        source((_, _) => fetches.update(_ + 1).as(Nil)),
+        now = IO.pure(Instant.EPOCH)
+      )
+      r <- QueryResolver.create(
+        history,
         IO.pure((_, style) =>
           draws.update(_ + 1) *>
             (if (failWidth.contains(style.width))
@@ -185,7 +189,7 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
              else IO.pure(s"<svg>${style.width}</svg>"))
         )
       )
-    } yield QueryResolver(history, stage)
+    } yield r
 
   private def plan(reads: SlotRead*) =
     reads
@@ -205,8 +209,7 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
         plan(wide, narrow),
         List(wide, narrow),
         Map.empty,
-        QueryIdentity.Instance,
-        Instant.EPOCH
+        QueryIdentity.Instance
       )
       counts <- (fetches.get, draws.get).tupled
     } yield {
@@ -234,20 +237,23 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
     val b = sensor("sensor.b")
     val reads = List(a, b).map(_.resolve(Map.empty))
     for {
-      history <- History.create(source { (entityId, end) =>
-        val v = if (entityId == "sensor.a") "1.0" else "2.0"
-        IO.pure(List(HistoryPoint(v, end)))
-      })
-      stage <- ChartStage.create(
+      history <- History.create(
+        source { (entityId, end) =>
+          val v = if (entityId == "sensor.a") "1.0" else "2.0"
+          IO.pure(List(HistoryPoint(v, end)))
+        },
+        now = IO.pure(Instant.EPOCH)
+      )
+      r <- QueryResolver.create(
+        history,
         IO.pure((s, _) => IO.pure(s"<svg>${s.points.head.value}</svg>"))
       )
       f <- QuerySnapshot.resolve(
-        QueryResolver(history, stage),
+        r,
         plan(reads*),
         reads,
         Map.empty,
-        QueryIdentity.Instance,
-        Instant.EPOCH
+        QueryIdentity.Instance
       )
     } yield {
       assertEquals(f.value("n", a), "<svg>1.0</svg>")
@@ -269,8 +275,7 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
         plan(raw),
         List(raw),
         Map.empty,
-        QueryIdentity.Instance,
-        Instant.EPOCH
+        QueryIdentity.Instance
       )
       d <- draws.get
     } yield {
@@ -297,8 +302,7 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
         plan(ok, bad),
         List(ok, bad),
         Map.empty,
-        QueryIdentity.Instance,
-        Instant.EPOCH
+        QueryIdentity.Instance
       )
     } yield {
       assertEquals(f.value("n", ask(width = 600)), "<svg>600</svg>")

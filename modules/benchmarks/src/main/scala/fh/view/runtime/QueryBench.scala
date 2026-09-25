@@ -3,7 +3,7 @@ package fh.view.runtime
 import api.homeassistant.ws.domain.{HistoryPoint, StatisticsPeriod}
 import cats.effect.IO
 import cats.effect.unsafe.implicits.global
-import fh.view.history.{ChartStage, History, SeriesSource}
+import fh.view.history.{History, SeriesSource}
 import fh.view.model.{
   Activation,
   CardDef,
@@ -62,22 +62,26 @@ class QueryBench {
     st = RenderBench.states(RenderBench.Leaves)
     renderer = Renderer.create(dashboard)
     resolver = (for {
-      history <- History.create(new SeriesSource {
-        def raw(start: Instant, end: Instant, entityId: String) =
-          IO.pure(
-            List.tabulate(200)(i =>
-              HistoryPoint("1.0", start.plusSeconds(i * 60L))
+      history <- History.create(
+        new SeriesSource {
+          def raw(start: Instant, end: Instant, entityId: String) =
+            IO.pure(
+              List.tabulate(200)(i =>
+                HistoryPoint("1.0", start.plusSeconds(i * 60L))
+              )
             )
-          )
-        def statistics(
-            start: Instant,
-            end: Instant,
-            entityId: String,
-            period: StatisticsPeriod
-        ) = IO.pure(Nil)
-      })
-      stage <- ChartStage.create(IO.pure((_, _) => IO.pure(Svg)))
-    } yield QueryResolver(history, stage)).unsafeRunSync()
+          def statistics(
+              start: Instant,
+              end: Instant,
+              entityId: String,
+              period: StatisticsPeriod
+          ) = IO.pure(Nil)
+        },
+        // Fixed, so a bucket never rolls mid-run and the warm stays warm.
+        now = IO.pure(asOf)
+      )
+      r <- QueryResolver.create(history, IO.pure((_, _) => IO.pure(Svg)))
+    } yield r).unsafeRunSync()
     cache = RenderCache.create.unsafeRunSync()
     // Warm: every read drawn once.
     val _ = answer(renderer.queriesForPage(Set("t0"), st, Map.empty))
@@ -93,8 +97,7 @@ class QueryBench {
         renderer.queryRequests,
         reads,
         Map.empty,
-        QueryIdentity.Instance,
-        asOf
+        QueryIdentity.Instance
       )
 
   private def pull(node: NodeId, open: Set[String]): List[Addressed] = {

@@ -5,8 +5,6 @@ import cats.syntax.all.*
 import fh.view.FHError
 import fh.view.model.{NodeId, SlotAsk, SlotRead}
 
-import java.time.Instant
-
 /** Every query a render reads, answered — a second snapshot beside the
   * `Map[String, EntityState]` one, resolved BEFORE the walk because a render is
   * a synchronous string build and answering is `IO`.
@@ -72,8 +70,7 @@ object QuerySnapshot {
       requests: Map[SlotRead, QueryRequest],
       reads: List[SlotRead],
       vars: Map[NodeId, Map[String, String]],
-      identity: QueryIdentity,
-      asOf: Instant
+      identity: QueryIdentity
   ): IO[QuerySnapshot] = {
     val wanted = reads.distinct
     def parsed(read: SlotRead): IO[QueryRequest] =
@@ -96,7 +93,7 @@ object QuerySnapshot {
         .map { case (read, qr) => read.query -> qr }
         .distinctBy(_._1)
         .parTraverse { case (q, qr) =>
-          resolver.answer(identity, qr, asOf).attempt.map(q -> _)
+          resolver.answer(identity, qr).attempt.map(q -> _)
         }
         .map(_.toMap)
       staged <- wanted.parTraverse { read =>

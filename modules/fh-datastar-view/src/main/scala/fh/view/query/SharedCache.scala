@@ -1,12 +1,12 @@
-package fh.view.history
+package fh.view.query
 
 import cats.effect.{Deferred, IO, Ref}
 import cats.syntax.all.*
 
 import scala.concurrent.duration.*
 
-/** One value per key, computed once however many callers ask — the series cache
-  * and the drawing cache both.
+/** One value per key, computed once however many callers ask — `History`'s
+  * series and [[QueryResolver]]'s staged values both.
   *
   * The computation runs on a fiber of its own, never the first asker's. An
   * asker is cancelled whenever its page is abandoned, and a computation that
@@ -19,8 +19,8 @@ import scala.concurrent.duration.*
   * reported once, to `onFailure`, rather than by every render that shows it.
   *
   * `keep(inserted, other)` says whether `other` survives `inserted` being
-  * added: a series retires when its bucket rolls, a drawing when its version
-  * moves.
+  * added: a series retires when its bucket rolls, a staged value when its
+  * version moves.
   */
 final class SharedCache[K, V] private (
     entries: Ref[IO, Map[K, SharedCache.Entry[V]]],

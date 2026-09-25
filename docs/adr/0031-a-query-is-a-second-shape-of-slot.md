@@ -111,11 +111,14 @@ None of this was designed separately; all of it fell out.
   one drawing per `(query, stage)` — `SlotRead` is that pair, and it is what `RenderInputs`
   carries. Two cards charting one sensor over one window at different sizes cost one fetch and two
   drawings *because the keys say so*.
-- **The drawing cache needs no expiry.** A series has a shelf life — it stops being current when
-  its bucket rolls, which is what decides when a version moves. A drawing has none: it is a
-  deterministic function of an answer, so `ChartStage` keys by version and replaces in place. That
-  is the half of the series cache's eviction it does not need (both are a `SharedCache`, told
-  what retires an entry).
+- **The staged-value cache needs no expiry, and no provider.** A series has a shelf life — it
+  stops being current when its bucket rolls, which is what decides when a version moves. A staged
+  value has none: it is a function of an answer, and a version names one, so `QueryResolver` keys
+  every stage's output by `(question, stage, version)` and replaces in place. That is the half of
+  the series cache's eviction it does not need (both are a `SharedCache`, told what retires an
+  entry). The ANSWER cache stays the provider's, because when an answer moves is the provider's
+  policy — a bucket, a push, never — and the runtime knows a version only as "same data, never
+  goes back".
 - **The raw-hole rule generalises.** It was "a query slot's value is markup, so its hole must be
   `{{{x}}}`". It is now **the last stage decides the hole**: a drawing needs the raw one, and
   passthrough must NOT have one, because its value is an attribute payload and wants escaping.

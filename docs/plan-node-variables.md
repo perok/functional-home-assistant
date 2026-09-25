@@ -231,7 +231,7 @@ intact — three viewers on one window are one render.
 **The eviction does not need bucketing, and the reason is structural.** What an evicted chart
 node re-renders is a mustache splice of SVG it already has: `renderNodeById` takes `QuerySnapshot`,
 not a `QueryResolver`, so a node render cannot fetch and cannot draw. The two expensive levels
-are cached by `SlotRead` and by version — `History` for the fetch, `ChartStage` for the
+are cached by `SlotRead` and by version — `History` for the fetch, `QueryResolver` for the
 drawing — and neither is keyed by node, so neither is touched by this eviction. Bucketing the
 render cache per read would buy back a string build and cost the bound that `size == 1` asserts.
 So: **no bucketing in phase 2**, and reopen only if a profile puts a chart node's paint somewhere

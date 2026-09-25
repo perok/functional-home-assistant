@@ -166,7 +166,9 @@ class HistorySuite extends munit.CatsEffectSuite {
       src <- source((_, _) => IO.sleep(50.millis).as(Nil))
       h <- History.create(src)
       answers <- List
-        .fill(10)(h.answer(QueryIdentity.Instance, entity, Window.LastDay, now))
+        .fill(10)(
+          h.answerAt(QueryIdentity.Instance, entity, Window.LastDay, now)
+        )
         .parSequence
       count <- src.fetches
     } yield {
@@ -180,7 +182,7 @@ class HistorySuite extends munit.CatsEffectSuite {
   ) {
     val later = now.plusSeconds(Window.LastDay.bucket.toSeconds)
     def version(h: History, at: Instant) =
-      h.answer(QueryIdentity.Instance, entity, Window.LastDay, at)
+      h.answerAt(QueryIdentity.Instance, entity, Window.LastDay, at)
         .map(_.version)
     for {
       src <- source()

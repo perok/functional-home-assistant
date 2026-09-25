@@ -1,12 +1,12 @@
 package fh.view.query
 
 import cats.effect.IO
-import fh.view.history.{ChartStage, History, HistoryQuery, Window}
+import fh.view.history.{ChartDraw, ChartStage, History, HistoryQuery, Window}
 import fh.view.model.{SlotQuery, Transform}
 
 import io.circe.Json
 
-import java.time.Instant
+import scala.concurrent.duration.FiniteDuration
 
 /** Who a query reads as — part of every provider cache key, because HA scopes
   * recorder data by user and a per-user provider must not share by omission.
@@ -23,10 +23,12 @@ object QueryIdentity {
 /** What a provider answers with: data (never markup — that is the stage's), and
   * the version it became current at.
   *
-  * The version is the render cache's key and the provider's caching policy: a
-  * stable one (history's bucket) is shared, one that moves every call is never
-  * cached. It must be NON-DECREASING (`RenderInputs.isAtLeast` compares with
-  * `>=`), so a content hash will not do.
+  * The version is all the runtime knows of when an answer moves, and it is
+  * meant only per question: the same version is the same data, and it never
+  * goes back (`RenderInputs.isAtLeast` compares with `>=`, so a content hash
+  * will not do). WHEN it moves is the provider's policy — history's is its
+  * bucket. It keys the render cache and the resolver's staged values, so one
+  * that moves every call is never shared.
   */
 final case class Answer(version: Long, data: Json) derives CanEqual
 
@@ -85,19 +87,27 @@ object Queries {
 }
 
 /** Answers parsed queries and runs parsed stages. Two methods because they
-  * dedupe at different levels: one fetch per query, one drawing per (query,
-  * stage).
+  * dedupe at different levels: one fetch per query, one staged value per
+  * (query, stage).
+  *
+  * The two levels are cached by different owners. An answer is cached by its
+  * PROVIDER, since when one moves is the provider's policy (a bucket, a push,
+  * never). A staged value is cached HERE, for every stage and every provider
+  * alike: a stage is a function of an answer, and a version names an answer, so
+  * nothing about a provider has to be known to share one.
   */
-final class QueryResolver(history: History, chart: ChartStage) {
+final class QueryResolver private (
+    history: History,
+    chart: IO[ChartDraw],
+    staged: SharedCache[QueryResolver.StageKey, String]
+) {
+  import QueryResolver.StageKey
 
-  def answer(
-      identity: QueryIdentity,
-      request: QueryRequest,
-      asOf: Instant
-  ): IO[Answer] = request match {
-    case QueryRequest.History(entityId, window) =>
-      history.answer(identity, entityId, window, asOf)
-  }
+  def answer(identity: QueryIdentity, request: QueryRequest): IO[Answer] =
+    request match {
+      case QueryRequest.History(entityId, window) =>
+        history.answer(identity, entityId, window)
+    }
 
   def stage(
       identity: QueryIdentity,
@@ -105,17 +115,54 @@ final class QueryResolver(history: History, chart: ChartStage) {
       stage: Transform.Stage,
       answered: Answer
   ): IO[Staged] =
+    staged
+      .get(StageKey((identity, query), stage, answered.version))(
+        run(stage, answered.data)
+      )
+      .map(Staged(answered.version, _))
+
+  private def run(stage: Transform.Stage, data: Json): IO[String] =
     stage match {
-      case Transform.Stage.Passthrough =>
-        IO.pure(Staged(answered.version, answered.data.noSpaces))
-      case Transform.Stage.Chart(style) =>
-        chart
-          .draw(
-            (identity, query),
-            style,
-            answered.version,
-            answered.data
-          )
-          .map(Staged(answered.version, _))
+      case Transform.Stage.Passthrough  => IO(data.noSpaces)
+      case Transform.Stage.Chart(style) => ChartStage.draw(chart, style, data)
     }
+
+  private[query] def keys: IO[Set[StageKey]] = staged.keys
+}
+
+object QueryResolver {
+
+  /** Who asked, and what: identity is part of it because what a provider
+    * answers may depend on who reads.
+    */
+  type Question = (QueryIdentity, QueryRequest)
+
+  /** The question is in the key because a version alone does not name an answer
+    * — two sensors over one window share a bucket. The stage carries every
+    * style field: a 600px drawing served for a 300px ask is a squashed axis
+    * rather than a visible error.
+    */
+  final case class StageKey(
+      question: Question,
+      stage: Transform.Stage,
+      version: Long
+  )
+
+  /** A staged value needs no expiry: it is replaced in place when its answer's
+    * version moves.
+    */
+  def create(
+      history: History,
+      chart: IO[ChartDraw],
+      failureTtl: FiniteDuration = SharedCache.FailureTtl,
+      onFailure: SharedCache.OnFailure[StageKey] = SharedCache.ignore
+  ): IO[QueryResolver] =
+    SharedCache
+      .create[StageKey, String](
+        (added, other) =>
+          other.question != added.question || other.stage != added.stage,
+        failureTtl,
+        onFailure
+      )
+      .map(new QueryResolver(history, chart, _))
 }

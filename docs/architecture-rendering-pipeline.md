@@ -913,23 +913,34 @@ running machinery.
 and passthrough must NOT have one, because its value is an attribute payload and wants escaping.
 One rule over the pipeline rather than a property of query slots.
 
-**The version is also the caching policy**, which is what keeps the pipeline out of it:
+**The version is also the caching policy**, which is what keeps the pipeline out of it. It means
+something only per question — the same version is the same data, and it never goes back — and
+WHEN it moves is the provider's call:
 
 - a stable number — history returns its bucket, and a bucket works as a version because the past is
   immutable — means every viewer inside it shares one answer;
-- a number that moves every call (`asOf.toEpochMilli`) never matches, so that provider's node never
+- a number that moves every call (a timestamp) never matches, so that provider's node never
   serves from cache and is asked every render. Uncached by construction, with no opt-out flag; the
   failure mode is cost, and it is visible.
 
 Bucket expiry is a property of append-only-past data, not of queries — a forecast changes in the
-future, a camera still changes continuously — so caching lives inside the provider, never here.
+future, a camera still changes continuously — so an ANSWER is cached inside its provider, never
+here, and so is the clock: history reads its own, since a pushed provider would have no use for one.
 
-**Two caches, at two levels, and only one of them needs expiry.** `QuerySnapshot.resolve` deduplicates
-a FETCH per query and a DRAWING per `(query, stage)`, so two cards charting one sensor over one
-window at different sizes cost one fetch and two drawings — which the keys say rather than a
-provider arranging it privately. The series cache expires by the bucket rolling, because a series
-has a shelf life. A drawing has none: it is a deterministic function of an answer, so `ChartStage`
-keys by version and replaces in place, and eviction is that replacement.
+**Two caches, at two levels, with two owners.** `QuerySnapshot.resolve` deduplicates a FETCH per
+query and a STAGED value per `(query, stage)`, so two cards charting one sensor over one window at
+different sizes cost one fetch and two drawings — which the keys say rather than a provider
+arranging it privately. The answer cache is the provider's, and history's expires by the bucket
+rolling, because a series has a shelf life. A staged value has none: it is a function of an
+answer, and a version names one, so `QueryResolver` keys every stage's output — a drawing and a
+passthrough alike, for any provider — by `(question, stage, version)` and replaces in place, and
+eviction is that replacement.
+
+**The render cache still keys a chart node, and earns it.** A node's bytes are the splice of its
+SVG plus that SVG's SHA-256 digest, so without the node cache every session re-renders a chart node
+each time it is pulled — measured at ~2 µs per kB of SVG (`QueryBench.pullChart`: 26 against
+13 µs at 5 kB, 48 against 19 at 15 kB). A warm hit costs the answer lookups and nothing more,
+since an answer is cached encoded.
 
 Three boxes move, and no others:
 
@@ -1047,7 +1058,7 @@ in a chart's hole — `core/text.pkl`'s `label` structure, a base-CSS contract l
 offline classes, held equal to the library's copy by `FailureLabelSuite` — and leaves a data hole
 empty; the version is below any real one. The page and the live stream carry on.
 
-**A fetch and a drawing are each computed once, on a fiber of their own** (`history/SharedCache`),
+**A fetch and a drawing are each computed once, on a fiber of their own** (`query/SharedCache`),
 never on the fiber of whichever render asked first — a page abandoned mid-fetch cancels its asker,
 and a computation that died with it would leave every later asker waiting. Each is bounded by
 `SharedCache.Timeout`; a drawing is stopped by interrupting the JS context, since `IO.blocking`
@@ -1339,12 +1350,11 @@ Live list — delete an entry when it is answered, and say where the answer land
   hand to interrupt the drawing, where a borrowed context is interrupted by the fiber holding it.
   Neither blocks a thread while waiting; the `Mutex` does not either.
 
-- **Is the node's HTML the right thing to cache?** `RenderCache` keys a node's bytes by its inputs,
-  and a chart's version is only known by answering it — so a render-cache hit on a chart still costs
-  the answer lookups, and a failed answer can only be kept out of the cache by a version it does not
-  share. A provider that states a version without answering (history's is its bucket) would let a
-  hit skip the answer; caching at the answer or stage level instead of bytes is the other end. Not
-  explored.
+- ~~**Is the node's HTML the right thing to cache?**~~ *Measured, and yes* (§6, "the render cache
+  still keys a chart node"). What made a warm chart cost more than a plain node was history
+  re-encoding its cached series on every ask, not the node cache; the answer is cached encoded now.
+  A provider stating its version without answering, to let a hit skip the lookups, buys nothing
+  once they are free — and when a version MOVES is ADR 0031's open question, not this one.
 
 - **A cluster of stragglers at one older version no longer shares.** The accepted cost of the
   straggler rule in §5: they each render, where before the first to arrive would install and the

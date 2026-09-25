@@ -5,7 +5,7 @@ import cats.effect.{Deferred, IO}
 import cats.effect.kernel.Ref as CeRef
 import cats.syntax.all.*
 import api.homeassistant.ws.domain.{HistoryPoint, StatisticsPeriod}
-import fh.view.history.{ChartStage, History, SeriesSource}
+import fh.view.history.{History, SeriesSource}
 import fh.view.model.{
   CardDef,
   Dashboard,
@@ -44,8 +44,8 @@ class VarTapSuite extends ServerHarness {
     * rendered value: the fake provider puts the window's span in the one point
     * it answers with, and passthrough puts that JSON in the hole.
     *
-    * A drawn chart could not do this — `ChartStage` is handed a `Series` and a
-    * style, never the window — which is itself the split working: the drawing
+    * A drawn chart could not do this — the chart stage is handed a `Series` and
+    * a style, never the window — which is itself the split working: the drawing
     * does not know what was asked.
     */
   private val chartCard = CardDef(
@@ -109,8 +109,8 @@ class VarTapSuite extends ServerHarness {
             period: StatisticsPeriod
         ) = IO.pure(Nil)
       })
-      stage <- ChartStage.create(IO.pure((_, _) => IO.pure("<svg/>")))
-    } yield QueryResolver(history, stage)
+      r <- QueryResolver.create(history, IO.pure((_, _) => IO.pure("<svg/>")))
+    } yield r
 
   private def served[A](
       f: (HttpApp[IO], Sessions) => IO[A],
@@ -199,8 +199,8 @@ class VarTapSuite extends ServerHarness {
             period: StatisticsPeriod
         ) = IO.pure(Nil)
       })
-      stage <- ChartStage.create(IO.pure((_, _) => IO.pure("<svg/>")))
-    } yield QueryResolver(history, stage)
+      r <- QueryResolver.create(history, IO.pure((_, _) => IO.pure("<svg/>")))
+    } yield r
     served(
       (routes, _) =>
         routes
@@ -230,8 +230,11 @@ class VarTapSuite extends ServerHarness {
                 period: StatisticsPeriod
             ) = IO.pure(Nil)
           })
-          stage <- ChartStage.create(IO.pure((_, _) => IO.pure("<svg/>")))
-        } yield QueryResolver(history, stage)
+          r <- QueryResolver.create(
+            history,
+            IO.pure((_, _) => IO.pure("<svg/>"))
+          )
+        } yield r
         served(
           (routes, _) =>
             routes

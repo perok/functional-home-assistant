@@ -18,7 +18,7 @@ import fh.view.build.{
 }
 import fh.view.FHError
 import fh.view.auth.{AuthGate, Requirement}
-import fh.view.history.{ChartRenderer, ChartStage, History, SeriesSource}
+import fh.view.history.{ChartRenderer, History, SeriesSource}
 import fh.view.query.{Queries, QueryIdentity, QueryResolver, QuerySnapshot}
 import fh.view.model.{
   ChromeColors,
@@ -27,7 +27,8 @@ import fh.view.model.{
   NodeId,
   Permission,
   SignalId,
-  SlotRead
+  SlotRead,
+  Transform
 }
 import fs2.Stream
 import fs2.concurrent.{Signal, SignallingRef}
@@ -1621,8 +1622,7 @@ class Server(
             renderer.queryRequests,
             qs,
             env,
-            QueryIdentity.Instance,
-            java.time.Instant.now()
+            QueryIdentity.Instance
           )
       // Keep the env: `QuerySnapshot.empty` would resolve declared values.
       case _ => IO.pure(QuerySnapshot.of(Map.empty, env))
@@ -3138,17 +3138,18 @@ object Server {
             )
         )
         .toResource
-      stage <- ChartStage
+      resolver <- QueryResolver
         .create(
+          history,
           chart.map(_.render),
           onFailure = (k, e) =>
             log.warn(e)(
-              s"a chart of ${k._1._1._2} could not be drawn; it shows its " +
-                "error until a retry"
+              s"${Transform.Stage.key(k.stage)} of ${k.question._2} failed; " +
+                "it shows its error until a retry"
             )
         )
         .toResource
-    } yield QueryResolver(history, stage)
+    } yield resolver
 
   /** The `POST /system/dump/refresh` response body — status plus what a caller
     * (the /edit editor) shows the user: the backup name on a swap, the

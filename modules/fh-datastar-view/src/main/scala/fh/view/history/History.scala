@@ -2,7 +2,7 @@ package fh.view.history
 
 import cats.effect.{IO, Ref}
 import cats.syntax.all.*
-import fh.view.query.{Answer, QueryIdentity, QueryRequest}
+import fh.view.query.{Answer, QueryIdentity, QueryRequest, SharedCache}
 
 import java.time.{Duration as JDuration, Instant}
 import scala.concurrent.duration.FiniteDuration
@@ -57,32 +57,46 @@ final case class SeriesKey(
   */
 final class History private (
     source: SeriesSource,
-    cache: SharedCache[SeriesKey, Series],
+    cache: SharedCache[SeriesKey, Answer],
     retention: Ref[IO, JDuration],
-    target: Int
+    target: Int,
+    now: IO[Instant]
 ) {
 
   /** The bucket is the version, and it works as one because the past is
-    * immutable: two renders inside it read the same points.
+    * immutable: two renders inside it read the same points. The clock is read
+    * here rather than handed in, because a bucket is this provider's policy — a
+    * provider whose data is pushed has no use for one.
     */
   def answer(
       identity: QueryIdentity,
       entityId: String,
+      window: Window
+  ): IO[Answer] = now.flatMap(answerAt(identity, entityId, window, _))
+
+  // Encoded once, on the fetch: re-encoding per ask was 5 µs a read, all of a
+  // warm chart pull's cost over a plain one (`QueryBench.pullChart`).
+  private[history] def answerAt(
+      identity: QueryIdentity,
+      entityId: String,
       window: Window,
       asOf: Instant
-  ): IO[Answer] =
-    series(identity, entityId, window, asOf)
-      .map(s => Answer(window.bucketOf(asOf).getEpochSecond, Series.toJson(s)))
+  ): IO[Answer] = {
+    val bucket = window.bucketOf(asOf)
+    cache.get(SeriesKey(identity, entityId, window, bucket))(
+      fetch(entityId, window, asOf)
+        .map(s => Answer(bucket.getEpochSecond, Series.toJson(s)))
+    )
+  }
 
-  def series(
+  private[history] def series(
       identity: QueryIdentity,
       entityId: String,
       window: Window,
       asOf: Instant
   ): IO[Series] =
-    cache.get(SeriesKey(identity, entityId, window, window.bucketOf(asOf)))(
-      fetch(entityId, window, asOf)
-    )
+    answerAt(identity, entityId, window, asOf)
+      .flatMap(_.data.as[Series].liftTo[IO])
 
   private[history] def keys: IO[Set[SeriesKey]] = cache.keys
 
@@ -118,19 +132,20 @@ object History {
       source: SeriesSource,
       target: Int = Downsample.DefaultTarget,
       failureTtl: FiniteDuration = SharedCache.FailureTtl,
-      onFailure: SharedCache.OnFailure[SeriesKey] = SharedCache.ignore
+      onFailure: SharedCache.OnFailure[SeriesKey] = SharedCache.ignore,
+      now: IO[Instant] = IO.realTimeInstant
   ): IO[History] =
     (
       // Expiry is asked PER KEY: windows bucket at different sizes, and
       // sweeping by the newest key's bucket evicted live 30 d entries whenever
       // a 1 h one landed.
-      SharedCache.create[SeriesKey, Series](
+      SharedCache.create[SeriesKey, Answer](
         (added, other) => other.expiresAt.isAfter(added.bucket),
         failureTtl,
         onFailure
       ),
       Ref[IO].of(JDuration.ZERO)
-    ).mapN(new History(source, _, _, target))
+    ).mapN(new History(source, _, _, target, now))
 
   // By time covered, not point count: statistics is coarser by design, so
   // counting points would always pick history. History wins a tie.

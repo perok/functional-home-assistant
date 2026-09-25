@@ -1,4 +1,4 @@
-package fh.view.history
+package fh.view.query
 
 import cats.effect.testkit.TestControl
 import cats.effect.{Deferred, IO, Ref}
@@ -6,8 +6,8 @@ import cats.effect.{Deferred, IO, Ref}
 import java.util.concurrent.TimeoutException
 import scala.concurrent.duration.*
 
-/** What both the series cache and the drawing cache rely on: one computation
-  * per key that no single asker can strand.
+/** What both the series cache and the staged-value cache rely on: one
+  * computation per key that no single asker can strand.
   */
 class SharedCacheSuite extends munit.CatsEffectSuite {
 
