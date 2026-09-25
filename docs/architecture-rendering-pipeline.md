@@ -1069,7 +1069,9 @@ render after that window waits on the retry.
 One thing is still missing, and it is deliberate. **Nothing wakes a node because a query's
 version moved**: the recorder watches entity state, and a bucket rolling is not a state change, so
 a chart on an open page goes stale until something else that node reads happens to move. The key
-is correct — a render at the new bucket gets new bytes — but nothing asks for that render.
+is correct — a render at the new bucket gets new bytes — but nothing asks for that render. The
+shape of the fix is decided and unbuilt (ADR 0031, open questions): the provider says which
+questions moved, and the recorder records a frame at a version the store mints for it.
 
 **All of this section is the PATCH path.** The document path is a different shape and is described
 in §6a: it consults no cache, shares nothing, and streams straight to the client.
