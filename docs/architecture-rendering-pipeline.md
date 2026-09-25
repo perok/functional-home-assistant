@@ -1354,7 +1354,8 @@ Live list — delete an entry when it is answered, and say where the answer land
 
 - ~~**Is the node's HTML the right thing to cache?**~~ *Measured, and yes* (§6, "the render cache
   still keys a chart node"). What made a warm chart cost more than a plain node was history
-  re-encoding its cached series on every ask, not the node cache; the answer is cached encoded now.
+  re-encoding its cached series on every ask, not the node cache, which is why an answer is cached
+  encoded.
   A provider stating its version without answering, to let a hit skip the lookups, buys nothing
   once they are free — and when a version MOVES is ADR 0031's open question, not this one.
 

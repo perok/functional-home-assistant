@@ -15,8 +15,8 @@ import scala.util.Using
   * chart (ADR 0032).
   *
   * ONE context behind a mutex rather than a pool: each context pays ~300 ms to
-  * evaluate ECharts, and [[History]] bounds renders to about one per window per
-  * bucket.
+  * evaluate ECharts, and the resolver's stage cache bounds drawings to one per
+  * chart per version. What that costs a cold page is architecture §8's.
   */
 final class ChartRenderer private (context: Context, lock: Mutex[IO]) {
   import ChartRenderer.InterruptWait
