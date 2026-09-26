@@ -95,7 +95,12 @@
 ///   4. `styles`: the palette, then the `--fh-*` re-pointing if your framework
 ///      has better roles than the HA tokens, then whatever your framework's own
 ///      classes need. You do NOT need to restate the layout contract or any
-///      card's structure — they arrive ahead of you.
+///      card's structure — they arrive ahead of you. A chart is drawn on the
+///      server and shared by every viewer, so it takes the theme ONLY through
+///      custom properties: `--fh-chart-line` (else `--fh-accent`),
+///      `--fh-chart-fill` (else none), `--fh-chart-grid` (else `--fh-border`)
+///      and `--fh-chart-label` (else `--fh-text-dim`). Its text inherits the
+///      page's font.
 ///   5. `classes`: the class names you want injected into card markup (today:
 ///      `busySpin`).
 ///   6. `chrome`: the page frame — MUST wrap `{{{body}}}` in an element with

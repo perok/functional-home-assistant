@@ -3,8 +3,8 @@ package fh.view.runtime
 import cats.effect.IO
 import cats.syntax.traverse.*
 import cats.syntax.traverseFilter.*
-import fh.view.query.Fragments
-import fh.view.model.{DomId, NodeId, SetId, SignalId, SlotValue}
+import fh.view.query.QuerySnapshot
+import fh.view.model.{DomId, NodeId, SetId, SignalId, SlotRead, SlotValue}
 import fh.view.model.DomId.selector
 import io.circe.Json
 
@@ -524,7 +524,10 @@ private[runtime] object Patches {
       log: FragmentLog,
       holds: Map[NodeId, Held],
       states: Map[String, EntityState],
-      fragments: Fragments,
+      // Asked for exactly the reads this pull renders
+      // ([[Renderer.readsForPull]]); most pulls render no chart, and ask none.
+      answers: List[SlotRead] => IO[QuerySnapshot],
+      env: VarEnv,
       v: Long,
       open: Set[String] = Set.empty,
       uiState: Map[String, String] = Map.empty
@@ -552,7 +555,7 @@ private[runtime] object Patches {
     // and sits on an EMPTY host until something unrelated moves. ONE `Inner` per
     // affected container, through the same primitive the live flip uses — so a
     // client that missed a flip is treated byte-identically to one that did not.
-    val branchFills = branch
+    def branchFills(fragments: QuerySnapshot) = branch
       .groupBy { case (_, m) => m.container }
       .toList
       .sortBy(_._1)
@@ -573,7 +576,7 @@ private[runtime] object Patches {
           )
         )
       }
-    val places = memberMoves
+    def places(fragments: QuerySnapshot) = memberMoves
       .collect { case (nodeId, p: Mutation.Placed) => (nodeId, p) }
       .groupBy { case (_, p) => p.container }
       .toList
@@ -628,7 +631,7 @@ private[runtime] object Patches {
     // all-or-nothing over a host's children, so this cannot be partial — which
     // is precisely why it is the fallback of last resort, and why it is worth
     // having only because it replaced a whole-BODY repaint.
-    val refills = owed.refill.sorted.map { gid =>
+    def refills(fragments: QuerySnapshot) = owed.refill.sorted.map { gid =>
       val asSet = renderer.members.setContainer(gid)
       val content = renderer.renderHost(gid, states, uiState, fragments)
       Addressed(
@@ -679,20 +682,24 @@ private[runtime] object Patches {
       (changed ++ fromOpenIds ++ memberMoves.collect {
         case (nodeId, _: Mutation.Placed) => nodeId
       }).distinct
+    val hosts = (branch.map(_._2.container) ++ owed.refill).distinct
     for {
+      fragments <- answers(
+        renderer.readsForPull(touchedIds, hosts, states, uiState, env)
+      )
       morphs <- changed.traverseFilter(
         morph(renderer, cache, holds, states, uiState, fragments, _)
       )
       open <- fromOpenIds.traverseFilter(
         morph(renderer, cache, holds, states, uiState, fragments, _)
       )
-      placed <- places
+      placed <- places(fragments)
     } yield signalFrame(renderer, holds, states, touchedIds) ++
       morphs ++ open ++
       gone.toList.sorted.map(id =>
         Addressed(Patch.Remove(renderer.elementId(id)))
       ) ++
-      branchFills ++ placed ++ refills
+      branchFills(fragments) ++ placed ++ refills(fragments)
   }
 
   /** The one `datastar-patch-signals` frame a batch carries, or nothing (ADR
@@ -767,13 +774,13 @@ private[runtime] object Patches {
     * one client. A MISSING entry counts as "send" — unknown, so tell the
     * client.
     */
-  private def morph(
+  private[runtime] def morph(
       renderer: Renderer,
       cache: RenderCache,
       holds: Map[NodeId, Held],
       states: Map[String, EntityState],
       uiState: Map[String, String],
-      fragments: Fragments,
+      fragments: QuerySnapshot,
       id: NodeId
   ): IO[Option[Addressed]] =
     bytes(renderer, cache, id, states, uiState, fragments).map(_.flatMap {
@@ -799,11 +806,8 @@ private[runtime] object Patches {
       id: NodeId,
       states: Map[String, EntityState],
       uiState: Map[String, String],
-      // The live path answers no queries yet: nothing here resolves a
-      // provider, so a version moving does not wake its node. Explicit rather
-      // than defaulted so the seam is visible at the one site that has to
-      // grow.
-      fragments: Fragments
+      // Resolved by the caller: a version moving does not wake its node.
+      fragments: QuerySnapshot
   ): IO[Option[NodeBytes]] =
     renderer.renderInputs(id, states, fragments) match {
       case Some(inputs) =>
@@ -886,7 +890,7 @@ private[runtime] object Patches {
       arriving: Option[String],
       states: Map[String, EntityState],
       uiState: Map[String, String],
-      fragments: Fragments
+      fragments: QuerySnapshot
   ): Option[(Addressed, String)] =
     arriving
       .flatMap(renderer.renderSurfaceTraced(_, states, uiState, fragments))

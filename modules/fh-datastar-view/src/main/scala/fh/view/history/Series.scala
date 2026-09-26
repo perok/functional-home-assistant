@@ -19,6 +19,18 @@ final case class Series(points: Vector[Series.Point], unavailable: Int) {
 
   def oldest: Option[Instant] = points.headOption.map(_.at)
 
+  /** The last reading carried to `at`. The recorder writes a row only when a
+    * value moves, so a sensor that held one value for the whole window answers
+    * ONE row — the state at its start — and a line through one point draws
+    * nothing.
+    */
+  def heldUntil(at: Instant): Series =
+    points.lastOption match {
+      case Some(last) if last.at.isBefore(at) =>
+        copy(points = points :+ Series.Point(at, last.value))
+      case _ => this
+    }
+
   def span: Option[java.time.Duration] =
     for {
       a <- points.headOption; b <- points.lastOption

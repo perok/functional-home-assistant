@@ -107,14 +107,18 @@ None of this was designed separately; all of it fell out.
   payload can ride a Datastar signal, where a JSON null DELETES the signal and orphans every
   binding on it with no error anywhere, so a gap must be an array element and never an object
   field.
-- **The fetch/draw split is structural.** `Fragments.resolve` deduplicates one fetch per QUERY and
+- **The fetch/draw split is structural.** `QuerySnapshot.resolve` deduplicates one fetch per QUERY and
   one drawing per `(query, stage)` — `SlotRead` is that pair, and it is what `RenderInputs`
   carries. Two cards charting one sensor over one window at different sizes cost one fetch and two
   drawings *because the keys say so*.
-- **The drawing cache needs no expiry.** A series has a shelf life — it stops being current when
-  its bucket rolls, which is what decides when a version moves. A drawing has none: it is a
-  deterministic function of an answer, so `ChartStage` keys by version and replaces in place. That
-  is the half of `BucketCache` it does not need.
+- **The staged-value cache needs no expiry, and no provider.** A series has a shelf life — it
+  stops being current when its bucket rolls, which is what decides when a version moves. A staged
+  value has none: it is a function of an answer, and a version names one, so `QueryResolver` keys
+  every stage's output by `(question, stage, version)` and replaces in place. That is the half of
+  the series cache's eviction it does not need (both are a `SharedCache`, told what retires an
+  entry). The ANSWER cache stays the provider's, because when an answer moves is the provider's
+  policy — a bucket, a push, never — and the runtime knows a version only as "same data, never
+  goes back".
 - **The raw-hole rule generalises.** It was "a query slot's value is markup, so its hole must be
   `{{{x}}}`". It is now **the last stage decides the hole**: a drawing needs the raw one, and
   passthrough must NOT have one, because its value is an attribute payload and wants escaping.
@@ -154,6 +158,73 @@ None of this was designed separately; all of it fell out.
   re-measure `RenderCacheContentionSuite`. It is back, deliberately. The predicted cost is that
   two sessions holding different reads have *unordered* keys, so neither is a straggler and each
   install evicts the other — read off `RenderCache`'s source, not measured.
+
+## Open questions
+
+- **Nothing wakes a node because a query's VERSION moved.** The live path is driven by
+  `stateStore.changes`; a bucket rolling is not a state change, so a chart on an open page goes
+  stale until something else that node reads happens to move. On a wall tablet — the case this
+  frontend exists for — that is indefinitely. The key is already correct: a render at the new
+  bucket produces new bytes. Nothing asks for that render.
+
+  **The shape is decided; nothing of it is built.** The PROVIDER rings, because only it knows when
+  its answer moves — a bucket rolling, a push arriving, or never — and the runtime knows a version
+  only as "same data, never goes back". So a provider gains one member beside `answer`:
+
+  ```scala
+  def moved: Stream[IO, Question => Boolean] // the questions whose answer just moved
+  ```
+
+  A predicate rather than a list of questions, so history needs no idea who is watching: at a
+  window's bucket boundary it emits `{ case (_, History(_, w)) => w == rolled }`, and a node
+  nobody can see costs nothing, since a pull renders only what its session can see. It fires AFTER the
+  answer has moved — for history, at the boundary by the clock `answer` reads — for the same reason
+  the state doorbell rings after the log is written. A static provider's stream is empty. The wake
+  is the DATA's, not the drawing's: a passthrough read of the same question wakes too, and no stage
+  is involved.
+
+  What the recorder does with it, and the one piece of real work:
+
+  - **It needs a version of its own.** The log, the doorbell and every session cursor count in
+    `StateStore` versions, and a bucket rolling mints none, so a session already at the current
+    version would never pull. The store mints one — a batch with no entity in it, publishing no
+    `StateChange` — and the recorder records the frame at it. "One version per HA event-loop tick"
+    becomes "one version per recorded frame", which is what the version was for.
+  - **It touches every node whose ask CAN resolve to a moved question**, not the exact set: with a
+    variable in a parameter (#209) the exact set is per session. Over-touching is the safe
+    direction — a session whose values resolve elsewhere re-renders to the same key, hits the
+    render cache, and sends nothing.
+  - The standing cost: every open dashboard holding a 1 h chart re-renders once a minute. Correct,
+    since the chart did change, and it is new load on a house where nothing is happening.
+
+  **A pushed provider also needs INTEREST**, which history does not: a subscription costs an open
+  HA stream, so it must end when nobody reads its question. Interest is per question, not per
+  session — a session's reads change while it lives (a tab closed, a variable set), and two
+  sessions on one question share one subscription. It is derived, not stored: a session's held
+  nodes, their asks, and its own values give its questions. A count per question acquires the
+  provider's `watch(question): Resource` on 0 → 1 and releases it one session-linger after
+  1 → 0, so a reconnect or a tab flicker does not churn it. **A first answer is awaited**, bounded
+  by `SharedCache.Timeout` and answered by the error label after it, like any answer — not a
+  placeholder filled in later, which would break §0's complete render (a subscription typically
+  sends its current value first).
+
+  Two alternatives were rejected. **Piggybacking the state tick** is nearly free and does not fix
+  the motivating case: a quiet house never ticks. **Letting the browser ask**
+  (`data-on-interval` on chart nodes) moves a server-truth decision into the page, costs a request
+  per chart per interval, and contradicts §0, where the server decides what a client is owed.
+
+  One consequence to carry: a failed chart recovers only when something next renders it. Its
+  failure is remembered for `FailureTtl` and then retried, but no ring says the retry is due, so
+  on a quiet page it waits for its next bucket.
+
+- **A failure is the chart's, not the page's.** A fetch or drawing that fails, or takes longer
+  than `SharedCache.Timeout`, is answered with `Staged.failed` and a version below any real one,
+  so the next good answer moves the render key. A chart's hole gets the runtime's error LABEL — the
+  same structure as the library's `label`, styled by the base CSS every dashboard carries, so no
+  card has to remember to handle it; a data hole is left empty, since it is escaped. The page and
+  the live stream carry on; only a read that does not parse — a wiring bug — raises. A failure is
+  remembered for a short window rather than retried by every render, which would otherwise each
+  wait out the timeout again.
 
 ## What this does not decide
 

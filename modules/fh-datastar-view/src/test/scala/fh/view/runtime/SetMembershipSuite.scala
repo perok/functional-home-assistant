@@ -1,6 +1,6 @@
 package fh.view.runtime
 
-import fh.view.query.Fragments
+import fh.view.query.QuerySnapshot
 
 import api.homeassistant.HomeAssistantApi
 import cats.effect.IO
@@ -502,7 +502,8 @@ class SetMembershipSuite extends ServerHarness {
                   l,
                   Map.empty,
                   now.entities,
-                  Fragments.empty,
+                  _ => IO.pure(QuerySnapshot.empty),
+                  Map.empty,
                   0L,
                   Set("c_t0"),
                   renderer.surfaces.uiStateFrom(Set("c_t0"))
@@ -696,7 +697,8 @@ class SetMembershipSuite extends ServerHarness {
                   l,
                   seed._2,
                   now.entities,
-                  Fragments.empty,
+                  _ => IO.pure(QuerySnapshot.empty),
+                  Map.empty,
                   0L,
                   Set("other"),
                   Map.empty

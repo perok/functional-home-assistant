@@ -107,6 +107,20 @@ class SeriesSuite extends munit.FunSuite {
     assertEquals(s.points.map(_.value), Vector(6.87))
   }
 
+  test("a value held for the whole window still draws a line") {
+    // The recorder writes a row only when a value moves, so an hour of a
+    // sensor sitting at 0 answers ONE row, and one point draws nothing.
+    val held =
+      Series.fromHistory(List(HistoryPoint("0.0", at(0)))).heldUntil(at(3600))
+    assertEquals(
+      held.points,
+      Vector(Series.Point(at(0), 0.0), Series.Point(at(3600), 0.0))
+    )
+    // Nothing to carry, and nothing past the end.
+    assertEquals(Series.empty.heldUntil(at(3600)), Series.empty)
+    assertEquals(held.heldUntil(at(3600)), held)
+  }
+
   test("span is what the data covers, not what was asked for") {
     val s = Series.fromHistory(
       List(HistoryPoint("1", at(0)), HistoryPoint("2", at(600)))

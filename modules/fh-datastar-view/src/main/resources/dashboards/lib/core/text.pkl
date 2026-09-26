@@ -80,6 +80,20 @@ const function liveRun(name: String): String =
 const function hole(name: String): String =
   #"<span class="\#(BOX)">\#(run(name))</span>"#
 
+/// What a [[label]] is coloured by: `"normal"` is the card's own text colour,
+/// the others the `--fh-*` role of the same name, so a theme recolours them.
+typealias Tone = "normal"|"dim"|"error"|"warning"
+
+/// A short line of text in a [[Tone]], for a card to place where it has
+/// something to SAY rather than show. `body` is template markup: literal text,
+/// or a `{{hole}}`. `tone` is a String so a card can hand it through a slot
+/// (`"{{tone}}"`).
+///
+/// The runtime writes this same structure itself where a chart could not be
+/// drawn (`Staged.label`, held equal by `FailureLabelSuite`), so change both.
+const function label(tone: String, body: String): String =
+  #"<span class="fh-label fh-label-\#(tone) \#(BOX)"><span class="fh-text-run">\#(body)</span></span>"#
+
 /// The whole contract, emitted once with the rest of the base CSS.
 ///
 /// `text-overflow` needs a BLOCK container to have anything to cut, so the box
@@ -93,6 +107,9 @@ const css: String = """
   text-overflow:var(--fh-text-ellipsis,ellipsis);
   container-type:var(--fh-text-track,normal)}
   .fh-text>.fh-text-run{display:var(--fh-text-run,inline);animation:var(--fh-text-motion,none)}
+  .fh-label-dim{color:var(--fh-text-dim)}
+  .fh-label-error{color:var(--fh-error)}
+  .fh-label-warning{color:var(--fh-warning)}
   \(modeCss)
   /* Slide by the overflow and no further: `100cqw` is the BOX (the query
      container above), `100%` in a translate is the RUN's own width, so the

@@ -9,14 +9,19 @@ module components.history
 import "../core/node.pkl" as nodes
 import "../core/slot.pkl" as slotMod
 import "../core/stage.pkl" as stageMod
+import "../core/tap.pkl" as tapMod
+import "../core/text.pkl" as textMod
+import "../core/variable.pkl" as varMod
 import "../hass.pkl"
 
 /// How far back a chart looks. Closed because the server's cache keys on it
 /// (`fh.view.history.Window`).
 typealias Window = "1h"|"24h"|"7d"|"30d"
 
-/// The `history` provider's question: one entity over one window.
-const function historyQuery(entityId: String, w: Window): slotMod.Slot =
+/// The `history` provider's question: one entity over one window. The window
+/// may be a [[varMod.ref]] of a declared variable; the entity may not, because
+/// substituting it is an access question (ADR 0023).
+const function historyQuery(entityId: String, w: Window|varMod.Ref): slotMod.Slot =
   slotMod.querySlot("history", new Mapping {
     ["entity"] = entityId
     ["window"] = w
@@ -41,9 +46,11 @@ const function chartStage(
 class ChartParams {
   width: Int(isPositive)?
   height: Int(isPositive)?
-  /// A CSS colour for the line; `var(--fh-accent)` by default.
+  /// A CSS colour for this chart's line. Unset, the theme's `--fh-chart-line`,
+  /// else `--fh-accent`.
   line: String?
-  /// A CSS colour under the line; none by default.
+  /// A CSS colour under this chart's line. Unset, the theme's
+  /// `--fh-chart-fill`, else none.
   fill: String?
   unit: String?
 }
@@ -55,7 +62,11 @@ class ChartStage extends stageMod.Stage {
 
 /// A chart of one entity over one window. `unit` should be the entity's own
 /// `unit_of_measurement`, so the chart agrees with the card beside it.
-const function chartSlot(entityId: String, w: Window, unit: String?): slotMod.Slot =
+const function chartSlot(
+  entityId: String,
+  w: Window|varMod.Ref,
+  unit: String?
+): slotMod.Slot =
   (historyQuery(entityId, w)) {
     transform = chartStage(null, null, unit)
   }
@@ -73,23 +84,172 @@ class HistoryChart extends nodes.Node {
     // by the browser to the cell.
     css = """
       .fh-chart{padding:.25rem}
-      .fh-chart svg{display:block;inline-size:100%;block-size:auto}
+      .fh-chart svg{display:block;inline-size:100%;block-size:auto;font-size:12px}
       """
   }
 
   hidden entity: hass.SensorEntity
 
-  hidden window: Window = "24h"
+  /// The window drawn, or a READ of a node variable holding one. A reference
+  /// is not narrowed to [[Window]]: the write boundary checks it against
+  /// `HistoryQuery.parse`, the one list.
+  hidden window: Window|varMod.Ref = "24h"
+
+  /// The drawing's own size in SVG units; null for the backend's default. The
+  /// SVG scales to its cell, so this sets the proportions and how large the
+  /// labels read against the line, not the pixels on screen (ADR 0032).
+  hidden chartWidth: Int(isPositive)? = null
+  hidden chartHeight: Int(isPositive)? = null
 
   slots {
-    ["chart"] = chartSlot(entity.entity_id, window, entity.unit_of_measurement)
+    ["chart"] = (historyQuery(entity.entity_id, window)) {
+      transform = chartStage(chartWidth, chartHeight, entity.unit_of_measurement)
+    }
   }
 
-  function over(w: Window): HistoryChart = let (self = this) (self) { window = w }
+  function over(w: Window|varMod.Ref): HistoryChart = let (self = this) (self) { window = w }
+
+  /// Draw at `w`×`h` instead of the default — wider for a full-width panel,
+  /// narrower so labels read larger on a small cell.
+  function size(w: Int(isPositive), h: Int(isPositive)): HistoryChart =
+    let (self = this) (self) { chartWidth = w; chartHeight = h }
+
+  /// Read the window from the nearest [[WindowChooser]] above this chart.
+  function chosen(): HistoryChart = over(varMod.ref(windowVar))
 }
+
+/// The history answer as DATA rather than a drawing: now, low and high over
+/// the window. The worked example of the passthrough stage for a component
+/// author, and what `WindowChooserSmokeSuite` drives.
+///
+/// A query slot is BYTES, never a signal (ADR 0031): the provider's JSON is
+/// text in this node's HTML, rendered again whenever the read moves. So the
+/// card lifts it into a client-only signal itself, `data-signals:_hist_<id>`
+/// over an ESCAPED hole — the browser decodes the attribute back into a JS
+/// object literal — and Datastar expressions read that. A re-query (a window
+/// press) morphs the attribute, and Datastar re-applies a `data-*` attribute
+/// whose value changed (read off the pinned bundle), so every expression on
+/// the signal re-runs. `_`-prefixed, so the series never rides a request.
+///
+/// The JSON is `{"points": [[epochMillis, value], …], "unavailable": n}`
+/// (`Series.toJson`), the provider's contract. The readings need JavaScript:
+/// the bytes carry only the data.
+class HistoryReadings extends nodes.Node {
+  card = "historyReadings"
+  cardDef = new nodes.CardDef {
+    template = """
+      <article class="card fh-readings" data-signals:\(readingsSignal)="{{readings}}">
+        <header>\(textMod.hole("label"))</header>
+        <dl>
+          <div><dt>Now</dt><dd data-text="\(stat("p[p.length - 1]"))"></dd></div>
+          <div><dt>Low</dt><dd data-text="\(stat("Math.min(...p)"))"></dd></div>
+          <div><dt>High</dt><dd data-text="\(stat("Math.max(...p)"))"></dd></div>
+          <div><dt>Covers</dt><dd class="fh-readings-span" data-text="\(covers)"></dd></div>
+        </dl>
+      </article>
+      """
+    slots { "label"; "readings"; "unit"; "entity_id" }
+    css = """
+      .fh-readings dl{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.5rem;margin:0}
+      .fh-readings dt{color:var(--fh-text-dim);font-size:.75rem}
+      .fh-readings dd{margin:0;font-variant-numeric:tabular-nums}
+      """
+  }
+
+  hidden entity: hass.SensorEntity
+  hidden window: Window|varMod.Ref = "24h"
+
+  slots {
+    ["entity_id"] = entity.entity_id
+    ["label"] = slotMod.labelSlot(entity, null)
+    ["unit"] = entity.unit_of_measurement ?? ""
+    // No `transform`: a query slot's default stage is passthrough.
+    ["readings"] = historyQuery(entity.entity_id, window)
+  }
+
+  function over(w: Window|varMod.Ref): HistoryReadings = let (self = this) (self) { window = w }
+  function chosen(): HistoryReadings = over(varMod.ref(windowVar))
+}
+
+// Named by the node, so two readings cards never share one signal.
+const local readingsSignal: String = "_hist_{{id}}"
+
+// One reading over the signal's values, rounded, with the unit; a dash when the
+// window holds nothing. `p` is the values, nulls dropped.
+const local function stat(of: String): String =
+  "(p => p.length ? Math.round(\(of) * 10) / 10 + '{{#unit}} {{unit}}{{/unit}}' : '–')" +
+    "($\(readingsSignal).points.map(x => x[1]).filter(v => v !== null))"
+
+// How many hours the answer spans, from the timestamps.
+const local covers: String =
+  "(q => q.length > 1 ? Math.round((q[q.length - 1][0] - q[0][0]) / 3600000) + ' h' : '–')" +
+    "($\(readingsSignal).points)"
+
+/// Now, low and high of `e` over the last 24 hours; `.chosen()` under a
+/// [[WindowChooser]].
+function historyReadings(e: hass.SensorEntity): HistoryReadings =
+  new HistoryReadings { entity = e }
 
 /// A chart of `e`'s last 24 hours — `c.historyChart(sensor).over("7d")` for any
 /// other window. A [[hass.SensorEntity]] because only a numeric one charts;
 /// [[hass.SensorEntity.isNumeric]] lets a composition ask before it draws.
 function historyChart(e: hass.SensorEntity): HistoryChart =
   new HistoryChart { entity = e }
+
+/// The node variable a [[WindowChooser]] declares and [[HistoryChart.chosen]]
+/// reads. Fixed rather than an argument on either: see [[HistoryChart.chosen]].
+const windowVar: String = "window"
+
+/// The windows the bar offers. A second list beside the typealias, but typed
+/// by it, so the only possible drift is an omission — visible on the bar.
+const windows: Listing<Window> = new { "1h"; "24h"; "7d"; "30d" }
+
+// The pending/committed pair (ADR 0025), named from the chooser's own `{{id}}`
+// because a choice is addressed to its declarer (`Server.varGroupId`).
+const local varGroup: String = "var_{{id}}__\(windowVar)"
+const local varCommitted: String = "_\(varGroup)"
+const local urlParam: String = "v.{{id}}.\(windowVar)"
+
+// A press writes PENDING only; the server commits after re-rendering the
+// charts, so a refused window leaves the highlight where it was.
+const local function windowButton(w: Window): String = """
+  <a data-class="{active: \(tapMod.pendingOrCommittedOf(varGroup, varCommitted)) === '\(w)'}" data-on:click="$\(tapMod.pendingSignal(varGroup)) = '\(w)'; @post('sse/var/{{dashboardSlug}}/{{id}}/\(windowVar)/\(w)?group=\(varGroup)')">\(w)</a>
+  """
+
+/// A window bar over the charts beneath it: press `7d` and every
+/// [[HistoryChart.chosen]] in this subtree redraws at a week.
+///
+/// It declares the variable AND renders the bar because a button must name the
+/// declaring node, and a template can only spell its own id.
+///
+///     (c.windowChooser) {
+///       children { c.historyChart(sensor).chosen() }
+///     }
+///
+/// Charts may be nested at any depth; a nested chooser shadows this one. The
+/// anchors are literal children of `.tabs` because BeerCSS styles `.tabs > a`,
+/// and the bar is a `div`: under a `nav`, BeerCSS stops each anchor shrinking,
+/// so every one is the bar's full width and only `1h` is on screen.
+///
+/// The committed window is mirrored into the URL, where `Server.varChoicesOf`
+/// reads it back on a refresh. The page seeds it, at the viewer's value: seeded
+/// here, it could only be the declared one, and the URL would briefly say so.
+class WindowChooser extends nodes.Node {
+  card = "historyWindows"
+  cardDef = new nodes.CardDef {
+    regions = new Mapping { [nodes.defaultRegion] = new nodes.Region {} }
+    template = """
+      <div class="fh-col" data-effect="fhUrl('\(urlParam)', $\(varCommitted))"><div class="tabs" data-signals__ifmissing="{ \(tapMod.pendingSeedEntry(varGroup)) }" \(tapMod.pendingClearAgainst(varGroup, varCommitted))>\(windows.toList().map((w) -> windowButton(w)).join(""))</div>{{#children}}{{{html}}}{{/children}}</div>
+      """
+  }
+  /// The declared window: shown first, and again if the session is forgotten.
+  hidden start: Window = "24h"
+  vars = new Mapping { [windowVar] = start }
+  // A chooser is a section header over its charts, not a third of a grid row.
+  cell = new nodes.Cell { classes { "fh-cols-full" } }
+
+  function starting(w: Window): WindowChooser = let (self = this) (self) { start = w }
+}
+
+/// Amendable base instance — `(c.windowChooser) { children { ... } }`.
+hidden windowChooser: WindowChooser = new WindowChooser {}

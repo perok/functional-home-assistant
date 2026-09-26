@@ -82,13 +82,6 @@ private[runtime] final class SurfaceGraph(
   def bakeGroup(gid: NodeId): List[String] =
     bakeGroups.getOrElse(gid, Nil)
 
-  /** Every surface a page can show without another round trip: all members of
-    * every bake group. A bake swap cannot fetch, so a query in any tab panel
-    * must be answered with the page.
-    */
-  def bakedSurfaces: List[String] =
-    bakeGroups.values.toList.flatten.distinct
-
   /** "Shown on first paint, with no selection and no click." */
   private def defaultOpenUser(s: Surface): Boolean = s.activation match {
     case Activation.User(d) => d
@@ -155,6 +148,23 @@ private[runtime] final class SurfaceGraph(
     surfaces.flatMap { case (sid, s) =>
       s.bakeInto.flatMap(rootOf).filter(_.nonEmpty).map(sid -> _)
     }
+
+  /** `sid` and every surface that renders inside it: a nested tab this viewer
+    * has selected, a nested branch `states` picks, and theirs in turn.
+    */
+  def shownWithin(
+      sid: String,
+      states: Map[String, EntityState],
+      uiState: Map[String, String]
+  ): Set[String] = {
+    val selected = selectedSurfaces(uiState)
+    def close(acc: Set[String]): Set[String] = {
+      val next = acc ++ acc.flatMap(activeStateSurfacesIn(_, states)) ++
+        selected.filter(s => surfaceParent.get(s).exists(acc))
+      if (next == acc) acc else close(next)
+    }
+    close(Set(sid))
+  }
 
   /** The tag deciding which clients a patch from `sid`'s tree may reach (`sid`
     * itself included).

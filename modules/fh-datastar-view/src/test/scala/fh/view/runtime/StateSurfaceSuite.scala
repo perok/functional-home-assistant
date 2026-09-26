@@ -1,6 +1,6 @@
 package fh.view.runtime
 
-import fh.view.query.Fragments
+import fh.view.query.QuerySnapshot
 
 import api.homeassistant.HomeAssistantApi
 import cats.effect.IO
@@ -410,7 +410,8 @@ class StateSurfaceSuite extends ServerHarness {
                   l,
                   Map.empty,
                   now.entities,
-                  Fragments.empty,
+                  _ => IO.pure(QuerySnapshot.empty),
+                  Map.empty,
                   0L
                 )
             )

@@ -85,7 +85,7 @@ COPY target/addon/js-isolate-$TARGETARCH.jar /opt/fh/js-isolate.jar
 
 # How this image launches a JVM against the app, read by `run.sh`. The JVM
 # SILENTLY IGNORES a classpath entry that does not exist, so a wrong path here
-# shows up only as the interpreted-chart warning.
+# shows up only as the `no GraalJS isolate` warning, and every chart failing.
 ENV FH_APP_CLASSPATH=/opt/fh-dashboard.jar:/opt/fh/js-isolate.jar
 ENV FH_GRAAL_CACHE=/data/graal-cache
 

@@ -15,10 +15,11 @@ import scala.util.Using
   * chart (ADR 0032).
   *
   * ONE context behind a mutex rather than a pool: each context pays ~300 ms to
-  * evaluate ECharts, and [[History]] bounds renders to about one per window per
-  * bucket.
+  * evaluate ECharts, and the resolver's stage cache bounds drawings to one per
+  * chart per version. What that costs a cold page is architecture §8's.
   */
 final class ChartRenderer private (context: Context, lock: Mutex[IO]) {
+  import ChartRenderer.InterruptWait
 
   def render(series: Series, style: ChartStyle): IO[String] =
     renderOption(ChartOption(series, style), style)
@@ -31,11 +32,19 @@ final class ChartRenderer private (context: Context, lock: Mutex[IO]) {
           .getMember("fhRenderChart")
           .execute(option.noSpaces, style.width, style.height)
           .asString()
-      }
+      }.cancelable(
+        // A timed-out drawing would otherwise run on, holding the lock every
+        // other chart waits behind. Interrupting leaves the context usable.
+        IO.blocking(context.interrupt(InterruptWait))
+          .void
+          .handleError(_ => ())
+      )
     }
 }
 
 object ChartRenderer {
+
+  private val InterruptWait = java.time.Duration.ofSeconds(1)
 
   def resource(
       loggerFactory: LoggerFactory[IO] = Logging.console
@@ -45,8 +54,9 @@ object ChartRenderer {
         loggerFactory
           .getLoggerFromName("fh.view.history.ChartRenderer")
           .warn(
-            "no GraalJS isolate on the classpath, drawing charts interpreted " +
-              s"instead — slower, and not what the add-on image runs: ${e.getMessage}"
+            "no GraalJS isolate, so charts are drawn in-heap where the classpath " +
+              "has JavaScript (slower) and fail where it does not, as in the " +
+              s"add-on image: ${e.getMessage}"
           )
       )
       .flatMap(fromEngine)

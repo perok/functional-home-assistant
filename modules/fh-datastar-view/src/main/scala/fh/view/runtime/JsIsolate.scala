@@ -4,8 +4,8 @@ import cats.effect.{IO, Resource}
 import cats.syntax.all.*
 import org.graalvm.polyglot.{Context, Engine, HostAccess}
 
-/** GraalJS, running in a polyglot isolate. Design and measurements:
-  * `docs/plan-graaljs-isolate.md`.
+/** GraalJS, running in a polyglot isolate. Why this engine, and what it
+  * measured: ADR 0032; how the image carries it: `home-addon/`.
   *
   * Counter-intuitively the cheap option — the guest heap lives in the isolate's
   * native heap instead of ours, measuring 152 MB RSS against 322 MB for the
@@ -26,10 +26,10 @@ object JsIsolate {
       Engine.newBuilder("js").spawnIsolate(true).build()
     })
 
-  /** The interpreter where there is no isolate. The SVG is byte-identical, so
-    * it only costs speed (ADR 0032), where raising would fail more-info for
-    * every numeric sensor. Should never fire in the image, so the warning is
-    * the signal that the staged library is wrong.
+  /** The interpreter where there is no isolate — macOS, and any sbt run, whose
+    * classpath carries in-heap JavaScript. The image's does not
+    * (`forbiddenJarEntries`), so there this fails too and every chart shows its
+    * error; the warning is what names the staged library as the cause.
     */
   def engineOrInHeap(onFallback: Throwable => IO[Unit]): Resource[IO, Engine] =
     engine.handleErrorWith((e: Throwable) =>

@@ -1,6 +1,6 @@
 package fh.view.runtime
 
-import fh.view.query.Fragments
+import fh.view.query.QuerySnapshot
 import fh.view.model.{CardDef, Dashboard, NodeId, Region, Theme}
 import fh.view.testkit.DashboardBuilders.{col, component, lit}
 
@@ -76,7 +76,7 @@ class SinkStreamingSuite extends munit.FunSuite {
     val own = renderer.renderPageInto(
       Sink.streaming(w),
       noStates,
-      fragments = Fragments.empty
+      fragments = QuerySnapshot.empty
     )
     w.flush()
     (rec, own)
@@ -143,11 +143,15 @@ class SinkStreamingSuite extends munit.FunSuite {
     val own = renderer.renderPageInto(
       Sink.streaming(direct),
       noStates,
-      fragments = Fragments.empty
+      fragments = QuerySnapshot.empty
     )
     val document = Sink.buffer(renderer.pageBytesHint)
     val _ =
-      renderer.renderPageInto(document, noStates, fragments = Fragments.empty)
+      renderer.renderPageInto(
+        document,
+        noStates,
+        fragments = QuerySnapshot.empty
+      )
 
     assert(own.nonEmpty, "the walk painted nothing")
     // What a node's rendering costs, from the renderer — so the bound moves
@@ -155,7 +159,7 @@ class SinkStreamingSuite extends munit.FunSuite {
     val largestNode =
       own.keys.toList
         .flatMap(
-          renderer.renderNodeById(_, noStates, fragments = Fragments.empty)
+          renderer.renderNodeById(_, noStates, fragments = QuerySnapshot.empty)
         )
         .map(_.length)
         .max
@@ -183,7 +187,7 @@ class SinkStreamingSuite extends munit.FunSuite {
 
     val buf = Sink.buffer(renderer.pageBytesHint)
     val bufferOwn =
-      renderer.renderPageInto(buf, noStates, fragments = Fragments.empty)
+      renderer.renderPageInto(buf, noStates, fragments = QuerySnapshot.empty)
 
     assertEquals(rec.text, buf.result)
     assertEquals(streamOwn, bufferOwn)

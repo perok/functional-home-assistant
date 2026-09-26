@@ -134,7 +134,7 @@ class ChartSuite extends munit.FunSuite {
     // still produces axes, so asserting on `<svg` alone would pass for a chart
     // with no data on it.
     assert(svg.contains("<path"), clue = svg.take(400))
-    assert(svg.contains("""width="600""""), clue = svg.take(200))
+    assert(svg.contains("""width="400""""), clue = svg.take(200))
   }
 
   test("a CSS variable reaches the SVG verbatim, so the theme colours it") {
@@ -148,6 +148,21 @@ class ChartSuite extends munit.FunSuite {
       _.render(series(1, 5, 2), ChartStyle(line = "var(--fh-accent)"))
     )
     assert(svg.contains("var(--fh-accent)"), clue = svg.take(1200))
+  }
+
+  test("no colour in the drawing is a literal, so a theme reaches all of it") {
+    // The bytes are shared by every viewer and cached across a light/dark
+    // switch, so a colour baked in — ECharts' own grey labels and grid lines,
+    // which is what the defaults drew — stays wrong on the other palette. The
+    // one `#000` is the clip path's mask, which is never painted.
+    val svg = withRenderer(
+      _.render(series(1, 5, 2), ChartStyle(unit = Some("°C")))
+    )
+    assertEquals(
+      """(fill|stroke)="#(?!000")""".r.findFirstIn(svg),
+      None,
+      clue = svg.take(1200)
+    )
   }
 
   test("the SVG is self-contained — no script, no external reference") {
@@ -185,6 +200,23 @@ class ChartSuite extends munit.FunSuite {
     )
     assert(svg.contains("""width="320""""), clue = svg.take(200))
     assert(svg.contains("""height="90""""), clue = svg.take(200))
+  }
+
+  test("a drawing that outlives its timeout stops, and the next one draws") {
+    // `IO.blocking` ignores cancellation, so without an interrupt a timeout
+    // would wait out the drawing it gave up on, still holding the lock every
+    // other chart queues behind.
+    val big = series((1 to 100000).map(i => (i % 97).toDouble)*)
+    val (full, cut, next) = withRenderer { r =>
+      for {
+        full <- r.render(big, ChartStyle()).timed.map(_._1)
+        cut <- r.render(big, ChartStyle()).timeout(full / 10).attempt.timed
+        next <- r.render(series(1, 2, 3), ChartStyle())
+      } yield (full, cut, next)
+    }
+    assert(cut._2.isLeft, clue = cut._2)
+    assert(cut._1 < full / 2, clue = s"the timeout waited out the draw: $cut")
+    assert(next.startsWith("<svg"), clue = next.take(200))
   }
 
   test(
