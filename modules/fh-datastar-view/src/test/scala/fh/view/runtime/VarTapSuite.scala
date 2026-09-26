@@ -27,26 +27,18 @@ import org.http4s.implicits.*
 import java.time.Instant
 import scala.concurrent.duration.*
 
-/** WRITING a node variable (issue #209): the tap that moves a chart's window,
-  * and what happens to a value the chart could not draw.
-  *
-  * The vertical slice this feature exists for. Everything below it — the
-  * declaration, the scope chain, the ask/read split — is only worth having if
-  * this works, so this is the suite that says whether it does.
+/** Writing a node variable (issue #209): the tap that moves a chart's window,
+  * and what happens to a value the chart could not draw. The slice the feature
+  * exists for.
   */
 class VarTapSuite extends ServerHarness {
 
-  // Opens a DOCUMENT, whose body streams through a blocking pipe simulated
-  // time cannot host.
+  // Opens a document; see [[ServerHarness.simulateTime]].
   override protected def simulateTime: Boolean = false
 
-  /** A passthrough chart, so the test can read the WINDOW back out of the
-    * rendered value: the fake provider puts the window's span in the one point
-    * it answers with, and passthrough puts that JSON in the hole.
-    *
-    * A drawn chart could not do this — the chart stage is handed a `Series` and
-    * a style, never the window — which is itself the split working: the drawing
-    * does not know what was asked.
+  /** Passthrough, so the window can be read back out: the fake provider puts
+    * its span in the one point it answers with. A drawn chart is handed a
+    * `Series`, never the window, which is the split working.
     */
   private val chartCard = CardDef(
     """<span>{{chart}}</span>""",
@@ -87,8 +79,8 @@ class VarTapSuite extends ServerHarness {
     )
   )
 
-  /** A chart whose ENTITY is the variable, beside a card naming `sensor.b` —
-    * the dashboard ADR 0023's bound is drawn around.
+  /** The chart's entity is the variable, beside a card naming `sensor.b`: the
+    * dashboard ADR 0023's bound is drawn around.
     */
   private val entityDash = Dashboard(
     cards = Map("chart" -> chartCard, "panel" -> panelCard),
@@ -122,9 +114,7 @@ class VarTapSuite extends ServerHarness {
     )
   )
 
-  /** The span of whatever window was asked for, as the series' one point — so
-    * `[[3600000,...]]` is an hour and `[[604800000,...]]` is a week.
-    */
+  /** `[[3600000,...]]` is an hour, `[[604800000,...]]` a week. */
   private def resolver: IO[QueryResolver] =
     for {
       history <- History.create(new SeriesSource {
@@ -190,7 +180,6 @@ class VarTapSuite extends ServerHarness {
         .use(server => f(server.routes.orNotFound, sessions))
     } yield out).timeout(30.seconds)
 
-  /** Open the page and pull the `conn` its `data-init` carries. */
   private def connect(routes: HttpApp[IO]): IO[String] =
     routes
       .run(Request[IO](Method.GET, uri"/d/dashboard"))
@@ -216,16 +205,14 @@ class VarTapSuite extends ServerHarness {
   private val Day = 24.hours.toMillis.toString
   private val Week = 7.days.toMillis.toString
 
-  /** Everything the write offered this client, in order. Drained rather than
-    * taken one at a time because the COUNT is half of what these assert: ADR
-    * 0025 says a refused write offers nothing and an accepted one always
-    * commits, so "and nothing else" is the claim.
+  /** Drained, since the count is half the claim: a refused write offers nothing
+    * and an accepted one always commits (ADR 0025).
     */
   private def drain(session: Option[Session]): IO[List[SseFrame]] =
     session.fold(IO.pure(List.empty[SseFrame]))(s => s.control.tryTakeN(None))
 
-  /** The committed frame ADR 0025 ends the ask with — what the control's
-    * highlight falls back to once its pending value clears.
+  /** What the control's highlight falls back to once its pending value clears
+    * (ADR 0025).
     */
   private def committed(value: String): String =
     s"""signals {"_var_panel__window":"$value"}"""
@@ -258,8 +245,8 @@ class VarTapSuite extends ServerHarness {
   }
 
   test("the head is sent before a slow chart is answered") {
-    // The head reads no query, so a cold fetch overlaps the browser fetching
-    // stylesheets rather than holding up the first byte.
+    // The head reads no query, so a cold fetch overlaps the stylesheet fetches
+    // rather than holding up the first byte.
     (Deferred[IO, Unit], CeRef[IO].of(false), CeRef[IO].of(false)).tupled
       .flatMap { case (gate, fetched, headFirst) =>
         val slow = for {
@@ -309,8 +296,7 @@ class VarTapSuite extends ServerHarness {
     served { (routes, sessions) =>
       for {
         conn <- connect(routes)
-        // The page was rendered at the DECLARED window, which is what a viewer
-        // who has chosen nothing gets.
+        // A viewer who has chosen nothing gets the declared window.
         session <- sessions.get(conn)
         status <- post(routes, conn, "/sse/var/dashboard/panel/window/7d")
           .map(_.status)
@@ -322,22 +308,20 @@ class VarTapSuite extends ServerHarness {
           chose,
           Some(Map(("panel": fh.view.model.NodeId, "window") -> "7d"))
         )
-        // The patch carries the WEEK's series, which is the whole claim: the
-        // write moved the query, not just a signal.
+        // The week's series: the write moved the query, not just a signal.
         val painted = queued.flatMap(_.data).mkString
         assert(painted.contains(Week), clue = painted)
         assert(!painted.contains(Day), clue = painted)
-        // And the commit rides LAST, after the bytes it describes — so the
-        // highlight stops being a guess only once the chart beneath it agrees.
+        // The commit rides last, so the highlight stops being a guess only once
+        // the chart agrees.
         assertEquals(queued.lastOption.flatMap(_.data), Some(committed("7d")))
       }
     }
   }
 
   test("a value no reader can parse is refused, and nothing moves") {
-    // The narrowing, and the reason a declaration needs no list of allowed
-    // values: `HistoryQuery.parse` is the authority on what a window may be,
-    // and a list beside the declaration could only copy it.
+    // `HistoryQuery.parse` is the authority on what a window may be, so a list
+    // beside the declaration could only copy it.
     served { (routes, sessions) =>
       for {
         conn <- connect(routes)
@@ -350,12 +334,11 @@ class VarTapSuite extends ServerHarness {
         // ADR 0024: refused is a 200 of signals, not a 4xx.
         assertEquals(res.status, Status.Ok)
         assert(body.contains("4h"), clue = body)
-        // The session keeps what it had — a refused write is not a half-write.
+        // A refused write is not a half-write.
         assertEquals(chose, Some(Map.empty))
-        // Nothing committed either, which is what lets the control show the
-        // press optimistically: the pending value is ended by the REFUSAL's own
-        // signal frame (`Server.actionSignals`, the `group` query param), so it
-        // falls back to a committed value that never moved.
+        // Nothing committed: the refusal's own signal frame
+        // (`Server.actionSignals`, the `group` param) ends the pending value,
+        // which falls back to a committed value that never moved.
         assertEquals(queued, Nil)
       }
     }
@@ -368,8 +351,7 @@ class VarTapSuite extends ServerHarness {
         res <- post(routes, conn, "/sse/var/dashboard/panel/nosuch/7d")
         chose <- sessions.get(conn).flatMap(_.traverse(_.vars.get))
       } yield {
-        // ADR 0024: a refused ACTION is a 200 carrying signals, never a 4xx —
-        // the request was served and the operation failed, which is page state.
+        // ADR 0024: a refused action is a 200 carrying signals.
         assertEquals(res.status, Status.Ok)
         assertEquals(chose, Some(Map.empty))
       }
@@ -377,10 +359,8 @@ class VarTapSuite extends ServerHarness {
   }
 
   test("choosing the window already showing costs no element patch") {
-    // The suppression `Patches.resume` does per node, asked of one node: the
-    // bytes did not move, so nothing is re-sent. The COMMIT still is — a
-    // control that pressed `24h` while on `24h` has an outstanding pending
-    // value, and only a committed value agreeing with it ends that ask.
+    // The bytes did not move, so nothing is re-sent, but the commit still is: a
+    // `24h` press while on `24h` has a pending value only a commit ends.
     served { (routes, sessions) =>
       for {
         conn <- connect(routes)
@@ -392,9 +372,8 @@ class VarTapSuite extends ServerHarness {
   }
 
   test("a refusal ends the control's pending ask by name") {
-    // The URL the chooser actually posts (`components/history.pkl`), whose
-    // `group` is what lets a refusal end THIS control's ask and no other —
-    // ADR 0024's half of ADR 0025.
+    // The URL the chooser posts (`components/history.pkl`); its `group` lets a
+    // refusal end this control's ask and no other.
     served { (routes, _) =>
       for {
         conn <- connect(routes)
@@ -412,9 +391,8 @@ class VarTapSuite extends ServerHarness {
   }
 
   test("a variable moves a chart only to an entity its dashboard shows") {
-    // ADR 0023's bound on the read side, at both places a value arrives: a
-    // write and a page URL. `sensor.b` is on the dashboard; the lock is not,
-    // and the recorder must never be asked for it.
+    // ADR 0023's bound on reads, at a write and at a page URL: the lock is not
+    // on the dashboard, so the recorder must never be asked for it.
     CeRef[IO].of(Set.empty[String]).flatMap { asked =>
       val recording = for {
         history <- History.create(new SeriesSource {
@@ -466,8 +444,8 @@ class VarTapSuite extends ServerHarness {
   test(
     "a link carrying a value no reader can parse is a 400, not a torn page"
   ) {
-    // The URL is the second way a value arrives, and it once skipped the
-    // write's check: the page answered 200 and died mid-walk.
+    // The URL once skipped the write's check: the page answered 200 and died
+    // mid-walk.
     served { (routes, _) =>
       routes
         .run(Request[IO](Method.GET, uri"/d/dashboard?v.panel.window=bogus"))
@@ -480,8 +458,8 @@ class VarTapSuite extends ServerHarness {
   }
 
   test("the document seeds a linked choice, not the declared value") {
-    // Seeded ahead of the body, so a control's URL mirror never writes the
-    // declared window over the linked one while the stream connects.
+    // Seeded ahead of the body, so the URL mirror never writes the declared
+    // window over the linked one while the stream connects.
     served { (routes, _) =>
       routes
         .run(Request[IO](Method.GET, uri"/d/dashboard?v.panel.window=7d"))
@@ -496,7 +474,6 @@ class VarTapSuite extends ServerHarness {
   }
 
   test("two choices landing together both stick") {
-    // Each write validates against, and commits onto, the other's result.
     served(
       (routes, sessions) =>
         for {
@@ -515,9 +492,8 @@ class VarTapSuite extends ServerHarness {
   }
 
   test("the opening frame states every declared variable, chosen or not") {
-    // TOTAL over the declarations, which is what makes a lost session safe: a
-    // control still highlighting last session's window is corrected on connect
-    // rather than disagreeing with the chart beside it.
+    // Total over the declarations, so a control still showing last session's
+    // window is corrected on connect.
     val renderer = Renderer.fromValidated(
       dash.validated().fold(e => sys.error(e.mkString("; ")), identity)
     )
