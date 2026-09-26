@@ -135,8 +135,8 @@ class DashboardBehaviourSuite extends FunctionalSuite {
     }
   }
 
-  // Candidate sets end to end. Members are decided by live guards and named in
-  // no slot, so they are seeded through the Scene's `.entities(..)` extras.
+  // Candidate sets end to end. The lights are not in the house registry, so
+  // they are seeded through the Scene's `.entities(..)` extras.
 
   test("an entity entering a candidate set streams its card in over SSE") {
     // HA sends full attributes on every state_changed, and the card reads

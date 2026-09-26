@@ -4,16 +4,10 @@ import api.homeassistant.ws.domain.EntitiesEvent
 import fh.view.runtime.EntityState
 import io.circe.Json
 
-/** One entity in a test fixture: its id, current `state`, and full attribute
-  * map — the SAME shape the runtime's [[EntityState]] carries, but as a plain,
-  * static value a test can declare inline.
-  *
-  * This is the single source of truth for a fixture entity. It renders to every
-  * face Home Assistant presents to the runtime — the compressed feed's full
-  * state ([[toFeedEntry]]) and delta ([[deltaFrom]]), and the authoring dump
-  * row ([[toDumpEntry]]) — so "the state the dashboard was built against" and
-  * "the live state the runtime serves" are derived from one declaration and
-  * cannot drift.
+/** A fixture entity, and the single source of every face HA presents: the
+  * feed's full state ([[toFeedEntry]]) and delta ([[deltaFrom]]), and the
+  * authoring dump row ([[toDumpEntry]]). So the state a dashboard was built
+  * against and the state served cannot drift.
   */
 case class FixtureEntity(
     entityId: String,
@@ -21,34 +15,21 @@ case class FixtureEntity(
     attributes: Map[String, Json] = Map.empty
 ) {
 
-  /** The runtime value this entity should seed to — used both as a convenience
-    * for assertions and as the oracle for the seed round-trip test.
-    */
+  /** Also the oracle for the seed round-trip test. */
   def toEntityState: EntityState =
     EntityState(entityId, state, attributes)
 
-  /** The entity's domain — the segment before the first `.` of its id. */
   def domain: String = entityId.takeWhile(_ != '.')
 
-  /** A Pkl-safe key for this entity in a generated `lib/dump.pkl` — the id with
-    * every non-alphanumeric character folded to `_` (so `dump.entities.<key>`
-    * is a legal dotted access). Matches the sanitizing `RegistryDump.transform`
-    * does.
+  /** Matches `RegistryDump.transform`'s sanitizing, so `dump.entities.<key>` is
+    * a legal access.
     */
   def dumpKey: String = entityId.replaceAll("[^A-Za-z0-9]", "_")
 
-  /** This entity as one row of a [[fh.view.build.RegistryDump.transform]]
-    * output object — the shape [[fh.view.build.PklDump.render]] consumes to
-    * emit the typed `lib/dump.pkl`. `entity_id`/`domain`/`friendly_name` are
-    * lifted to top-level fields (where `PklDump` reads them); the remaining
-    * attributes ride under `attributes` (from which `PklDump` picks only
-    * registry facts like `color_mode`).
-    *
-    * Deriving the AUTHORING dump from the same [[FixtureEntity]] the runtime
-    * SERVES is what keeps "the entities the dashboard was built against" and
-    * "the live state the runtime pushes" from drifting — the single-source-of-
-    * truth property the functional suite depends on, now extended to the Pkl
-    * (Tier-A) path.
+  /** One row of [[fh.view.build.RegistryDump.transform]]'s output, which
+    * [[fh.view.build.PklDump.render]] consumes.
+    * `entity_id`/`domain`/`friendly_name` are top level; the rest ride under
+    * `attributes`, from which `PklDump` picks registry facts like `color_mode`.
     */
   def toDumpEntry: (String, Json) = {
     val friendly = attributes.get("friendly_name")
@@ -60,9 +41,7 @@ case class FixtureEntity(
     dumpKey -> Json.fromFields(fields)
   }
 
-  /** This entity as one entry of a `subscribe_entities` opening (`a`) frame:
-    * its complete state, which the store applies as a replacement.
-    */
+  /** Its complete state, which the store applies as a replacement. */
   def toFeedEntry(lastUpdated: Double): (String, EntitiesEvent.Full) =
     entityId -> EntitiesEvent.Full(
       state = state,
@@ -71,12 +50,9 @@ case class FixtureEntity(
       lastUpdated = Some(lastUpdated)
     )
 
-  /** This entity as a `subscribe_entities` DELTA (`c`) against `prev` — only
-    * the fields and attributes that actually moved, plus the names of
-    * attributes that went away, exactly as HA sends them. Real deltas are what
-    * the store MERGES, so computing a true diff here is what keeps "the fixture
-    * map" and "the store's map" identical rather than accidentally accumulating
-    * stale attributes.
+  /** Only what moved, plus the attributes that went away, as HA sends them. The
+    * store merges deltas, so a true diff keeps its map identical to the
+    * fixture's.
     */
   def deltaFrom(
       prev: FixtureEntity,
@@ -101,10 +77,8 @@ case class FixtureEntity(
 
 object FixtureEntity {
 
-  /** A strictly-increasing feed timestamp (epoch seconds) for the nth emit, so
-    * a live change always reads as newer than the opening full set (`tick` 0)
-    * and than any earlier emit — the recency guard in
-    * [[fh.view.runtime.StateStore]] drops anything not newer.
+  /** Strictly increasing, since [[fh.view.runtime.StateStore]]'s recency guard
+    * drops anything not newer.
     */
   def epochAt(tick: Long): Double = tick.toDouble
 }
