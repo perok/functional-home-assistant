@@ -9,25 +9,13 @@ import io.circe.{Json, JsonObject}
 import fh.view.telemetry.Logging
 import org.typelevel.log4cats.LoggerFactory
 
-/** Turns the Pkl dashboard sources into a validated [[Dashboard]].
-  *
-  * Shared by both phases:
-  *   - the build phase ([[BuildApp]]) persists the evaluated JSON as
-  *     `dashboard.json`;
-  *   - the runtime phase ([[fh.view.runtime.ServerApp]]) evaluates it **in
-  *     memory** on startup — no artifact file required.
+/** Pkl sources to a validated [[Dashboard]], for both [[BuildApp]] and the
+  * in-memory runtime.
   */
 object DashboardBuild {
 
-  /** Fetch the live entity dump ONCE and seed it as the `@fh-home` content-
-    * versioned package ([[DumpPackage.seedFromText]]), so an entry's
-    * `import "@fh-home/dump.pkl"` resolves from the workspace cache. There is
-    * no loose `home/dump.pkl` on disk (ADR 0010): the dump is only ever a
-    * package, pinned via `.fh/pins.json`. This is the build phase's job — it
-    * owns fetching + packaging the dump — and the runtime
-    * ([[fh.view.runtime.ServerApp]]) calls through here rather than reaching
-    * into [[RegistryDump]]/[[PklDump]] directly: it seeds the dump once, then
-    * [[evalSite]] evaluates against the cached package.
+  /** Seed the live dump as the `@fh-home` package (ADR 0010); there is no loose
+    * dump file.
     */
   def prepareDumps(
       api: HomeAssistantApi[IO],
@@ -37,9 +25,7 @@ object DashboardBuild {
   ): IO[Unit] =
     RegistryDump.fetch(api).flatMap { dump =>
       val log = loggerFactory.getLoggerFromName("fh.view.build.DashboardBuild")
-      // Generation-time complaints about entities HA reported inconsistently
-      // (a half-populated capability group). Reported, never fatal: one odd
-      // integration must not stop the house's dump from building.
+      // Never fatal: one odd integration must not stop the dump.
       PklDump
         .warnings(dump)
         .traverse_(w => log.warn(s"dump warning: $w")) *>
@@ -49,13 +35,7 @@ object DashboardBuild {
         ).flatMap(_.traverse_(log.info(_)))
     }
 
-  /** Fetch + write the live dump ([[prepareDumps]]), then evaluate `entry` into
-    * JSON + the set of files read (entry + transitive imports).
-    *
-    * `bundledLib` is the boot's bundled `@fh-dashboard` artifacts, needed only
-    * to seed the VERY FIRST dump on a fresh workspace (no pins yet) — see
-    * [[DumpPackage.seedFromText]].
-    */
+  /** `bundledLib` is needed only for the first dump on a fresh workspace. */
   def evaluate(
       api: HomeAssistantApi[IO],
       dashboardsDir: os.Path,
@@ -67,12 +47,6 @@ object DashboardBuild {
       entry
     )
 
-  /** Evaluate the entry against the dump ALREADY on disk (no fetch, no write).
-    *
-    * `SourceEval.eval` reads files and runs pkl-core eagerly, so suspend it in
-    * `IO.blocking` (evaluation happens when the IO runs, on the blocking pool)
-    * before lifting its Either result.
-    */
   private def evalSource(
       dashboardsDir: os.Path,
       entry: String
@@ -83,90 +57,43 @@ object DashboardBuild {
           .liftTo[IO]
       )
 
-  /** The marker key an authored node carries to inline its surface definitions;
-    * [[hoistInlineSurfaces]] lifts them into the top-level `surfaces` registry
-    * and drops the key. Part of the authored-node JSON contract.
-    */
   val InlineSurfacesKey: String = "inlineSurfaces"
 
-  /** The layout-node field naming a container's child nodes BY REGION — the
-    * recursive layout-tree edge that [[hoistInlineSurfaces]] walks.
-    *
-    * One shape, always keyed. The authoring layer's bare `children { … }` sugar
-    * names the default region before it emits (`core/node.pkl`), so this pass
-    * and [[fh.view.model.LayoutNode.Component]] read the same thing. They did
-    * not always: while a bare array was also legal here, this walk read only
-    * that form and STOPPED at a region-keyed node, so nothing under a grouped
-    * slider's head was hoisted and its `@@NODE_ID@@` reached the DOM verbatim.
+  /** Always keyed: a walk that read only a bare array once stopped at a
+    * region-keyed node, and `@@NODE_ID@@` reached the DOM verbatim.
     */
   val RegionsKey: String = "regions"
 
-  /** The field naming a surface's (or inline-surface marker's) layout subtree
-    * root — part of the surface JSON contract [[hoistInlineSurfaces]] lifts.
-    */
   val ContentKey: String = "content"
 
-  /** A candidate set's layout-tree edges: `members` maps a candidate to its
-    * guarded renderings, `clauses` are those renderings in order, and `node` is
-    * the one each renders. The OTHER recursive edge [[hoistInlineSurfaces]]
-    * walks — a set holds no `children`.
-    */
+  // A candidate set's edges: it holds no `regions`.
   val MembersKey: String = "members"
   val ClausesKey: String = "clauses"
   val NodeKey: String = "node"
 
-  /** The literal token an authored node uses to refer to its own backend-minted
-    * id — the SAME id the renderer injects as `{{id}}` for that node
-    * ([[fh.view.model.LayoutNode.pathId]]). [[hoistInlineSurfaces]] mints it
-    * from the node's tree position and splices it in. Authors never type it
-    * directly — the `c.openPopup`/`c.tabs` builders embed it (so the authoring
-    * layer composes the trigger fully and only borrows the one value it cannot
-    * mint: the node's position-derived id).
+  /** Stands for the node's own id, which only this pass can mint; the
+    * `c.openPopup`/`c.tabs` builders embed it.
     */
   val NodeIdToken: String = "@@NODE_ID@@"
 
-  /** Hoist inline surface definitions into the `surfaces` registry.
-    *
-    * A node may carry an `inlineSurfaces: { <localKey>: { content, bakeInto?,
-    * bakeAs?, … } }` marker (the authoring layer can't mint a stable id or
-    * mutate the top-level registry, so it inlines the content and refers to the
-    * future id via [[NodeIdToken]]). This pass is deliberately generic — it
-    * knows nothing about popups, tabs, buttons, signals, or onclick wiring. For
-    * each marker-bearing node it:
-    *
-    *   1. mints a stable `idBase` from the node's position;
-    *   2. recurses each surface's `content` (nested inline surfaces resolve
-    *      first, bottom-up);
-    *   3. splices `idBase` into every [[NodeIdToken]] in the node's subtree, so
-    *      the author-composed onclick / active-binding / `initial` that
-    *      reference `<token>_<localKey>` now point at the real ids;
-    *   4. lifts each surface to `surfaces["<idBase>_<localKey>"]` and drops the
-    *      marker.
-    *
-    * All trigger structure (which template, the click expression, any
-    * highlight) is composed in the authoring layer; the runtime model is always
-    * the registry form. Idempotent on marker-free input.
+  /** Lift inline surfaces into the `surfaces` registry, splicing each node's
+    * position-derived id into its [[NodeIdToken]]s. Generic: it knows nothing
+    * about popups or tabs. Ids match the renderer's `{{id}}` exactly, or the
+    * surface is registered under a key no node asks for.
     */
   def hoistInlineSurfaces(json: Json): Json =
     json.asObject match {
       case None      => json
       case Some(obj) =>
-        // The card root's id namespace is the renderer's root `pathId` ("c"), so
-        // a node's hoist-time idBase equals its render-time `{{id}}` — one id
-        // story shared with `LayoutNode.pathId`/`surfacePrefix`.
         val (newCard, cardSurfaces) =
           obj("card")
             .map(walk(_, LayoutNode.pathId(Nil)))
             .getOrElse((Json.Null, Nil))
-        // Existing registered surfaces may themselves contain inline triggers.
         val existing =
           obj("surfaces").flatMap(_.asObject).getOrElse(JsonObject.empty)
         val rebuilt = existing.toList.map { case (sid, sv) =>
           sv.asObject.flatMap(_(ContentKey)) match {
             case Some(c) =>
-              // A surface's content root carries the renderer's surface-scoped id
-              // (`s_<sid>__c`), so a nested inline trigger's idBase equals what
-              // the renderer injects there — same one id story as the main tree.
               val (nc, extra) =
                 walk(c, LayoutNode.surfacePrefix(sid) + LayoutNode.pathId(Nil))
               (sid -> sv.mapObject(_.add(ContentKey, nc)), extra)
@@ -175,11 +102,9 @@ object DashboardBuild {
         }
         val collected =
           cardSurfaces ++ rebuilt.flatMap(_._2)
-        // `JsonObject.fromIterable` keeps the LAST of a repeated key, so a
-        // collision here silently drops a popup — it opens, and the registry
-        // hands back somebody else's content. The one shape that can produce
-        // it is two clauses of one candidate each owning an inline surface,
-        // since a member's id carries no clause index (`walkMembers`).
+        // `fromIterable` keeps the last of a repeated key, silently handing a
+        // popup someone else's content. Two clauses of one candidate share a
+        // member id, so both owning an inline surface collide.
         val clashes = collected.map(_._1).diff(collected.map(_._1).distinct)
         if (clashes.nonEmpty)
           throw FHError.badCondition(
@@ -196,25 +121,11 @@ object DashboardBuild {
         )
     }
 
-  /** Every `@@…@@` placeholder still standing after the build, deduplicated.
-    *
-    * The authoring layer writes these because the value is not knowable while
-    * authoring — [[NodeIdToken]] for a node's own id, `@@CLASSBIND:…@@` for a
-    * theme's class list — and a later pass fills them in. Nothing checked that
-    * the pass ran: an unresolved token is a plain String, so it decodes, it
-    * validates, and it renders into the DOM verbatim. The first symptom is a
-    * binding that quietly never matches.
-    *
-    * A check rather than a type because the tokens live inside arbitrary
-    * author-composed strings (an onclick expression, a `data-class` predicate),
-    * where the surrounding text is the author's and only the placeholder is
-    * ours.
+  /** An unresolved token decodes, validates and renders verbatim, so this is
+    * checked. A check, not a type: tokens live inside author-composed strings.
     */
   private[build] def unresolvedTokens(j: Json): List[String] = {
-    // `[^@]*` rather than a name charset: a token's payload is arbitrary
-    // (`@@CLASSBIND:busySpin:$b@@` carries a Datastar expression), and the
-    // delimiters are what identify it. Both `@@` are required, so a lone `@@`
-    // in prose and a bare `@post(…)` are not tokens.
+    // A payload can be arbitrary (`@@CLASSBIND:busySpin:$b@@`).
     val pattern = """@@[^@]*@@""".r
     def go(j: Json): List[String] =
       j.fold(
@@ -228,7 +139,6 @@ object DashboardBuild {
     go(j).distinct.sorted
   }
 
-  // Replace every occurrence of `token` in every String leaf of `j`.
   private def splice(j: Json, token: String, value: String): Json =
     j.fold(
       j,
@@ -239,9 +149,7 @@ object DashboardBuild {
       obj => Json.fromJsonObject(obj.mapValues(splice(_, token, value)))
     )
 
-  // A node's authored `id`, if it declared one — the same field
-  // `LayoutNode.Component.id` decodes. Read off the JSON because this pass runs
-  // before decoding.
+  // Off the JSON: this pass runs before decoding.
   private def authoredIdOf(node: Json): Option[String] =
     node.asObject.flatMap(_("id")).flatMap(_.asString)
 
@@ -261,20 +169,12 @@ object DashboardBuild {
       )
     )
 
-  // The registry id an inline surface is lifted to. Named because it is needed
-  // twice — to lift the surface, and to derive the id namespace its content is
-  // walked under — and those two MUST agree or the surface's nodes are indexed
-  // under ids nothing refers to.
+  // Both the lifted key and its content's namespace; they must agree.
   private def surfaceId(idBase: String, localKey: String): String =
     s"${idBase}_$localKey"
 
-  /** One region's children, walked under the ids the RENDERER will give them;
-    * returns the rewritten children and the surfaces collected from them.
-    *
-    * The segment comes from `LayoutNode.segment`, not from a local
-    * `s"${idBase}_$i"`: that spelling is right for the default region and wrong
-    * for every other one, and an id this pass invents is an id nothing else
-    * uses — the surface is registered under a key no node has.
+  /** Ids through `LayoutNode.segment`, as the renderer mints them, with an
+    * authored id winning as it does there.
     */
   private def walkRegion(
       region: String,
@@ -283,9 +183,6 @@ object DashboardBuild {
   ): (List[Json], List[(String, Json)]) = {
     val rs = children.asArray.getOrElse(Vector.empty).zipWithIndex.map {
       case (ch, i) =>
-        // An AUTHORED id replaces the position-derived one here too, or this
-        // pass would key a node's inline surfaces off an id the renderer never
-        // uses.
         val derived =
           s"${idBase}_${LayoutNode.segment(LayoutNode.Step(region, i))}"
         walk(ch, authoredIdOf(ch).getOrElse(derived))
@@ -293,19 +190,9 @@ object DashboardBuild {
     (rs.map(_._1).toList, rs.toList.flatMap(_._2))
   }
 
-  /** A candidate set's clause nodes, walked under the ids the RENDERER gives
-    * its members — [[LayoutNode.memberSegment]], the same function
-    * `MemberGraph.memberId` mints from.
-    *
-    * '''Both clauses of a candidate get the SAME id, and that is not an
-    * oversight here.''' A member's id deliberately carries no clause index
-    * (only a set NESTED in a clause needs one, so that two clauses holding sets
-    * cannot share one), because exactly one clause is ever rendered. Two
-    * clauses that each own an inline surface therefore collide on one registry
-    * key — caught in [[hoistInlineSurfaces]] rather than silently resolved,
-    * since whichever one won would be right half the time.
-    *
-    * A no-op for anything that is not a set, which is almost every node.
+  /** Clause nodes under [[LayoutNode.memberSegment]], as `MemberGraph` mints
+    * them. Both clauses of a candidate get the same id, since one is ever
+    * rendered; the collision that causes is refused in [[hoistInlineSurfaces]].
     */
   private def walkMembers(
       obj: JsonObject,
@@ -349,9 +236,7 @@ object DashboardBuild {
     node.asObject match {
       case None       => (node, Nil)
       case Some(obj0) =>
-        // Recurse into children first. Region ORDER does not enter an id — the
-        // index does, within its own region — so the object's key order is
-        // irrelevant here and the result stays keyed exactly as it arrived.
+        // Children first.
         val (obj1, childSurfaces) =
           obj0(RegionsKey).flatMap(_.asObject) match {
             case None          => (obj0, Nil)
@@ -368,28 +253,17 @@ object DashboardBuild {
                 rs.flatMap(_._2)
               )
           }
-        // A CANDIDATE SET holds its nodes under `members[…].clauses[…].node`,
-        // not under `children`, so it was invisible here — and an inline
-        // surface inside one was never hoisted. Not an exotic shape: the
-        // shipped starter's "Low battery" section renders `c.entityCard` over
-        // sensors, a sensor has no domain service, so its default tap is an
-        // INLINE more-info popup (ADR 0016).
+        // Sets too: the starter's "Low battery" set gives each sensor an
+        // inline more-info popup (ADR 0016), and was once never hoisted.
         val (obj2, setSurfaces) = walkMembers(obj1, idBase)
         obj2(InlineSurfacesKey).flatMap(_.asObject) match {
           case None =>
             (Json.fromJsonObject(obj2), childSurfaces ++ setSurfaces)
           case Some(marker) =>
-            // Resolve nested inline surfaces inside each panel first, so the
-            // only `NodeIdToken`s left in this subtree belong to THIS node.
-            //
-            // The panel's content is walked under the id namespace the RENDERER
-            // will give it — `surfacePrefix(sid) + pathId(Nil)`, exactly as the
-            // already-registered branch above does. It is not `<idBase>_<key>_c`:
-            // that reads like the same thing and is not, so a surface-owning
-            // card nested inside a panel (tabs inside an `If` branch) came out
-            // with a `bakeInto` naming a node that does not exist — an unbaked
-            // host, a blank `bakeIndex`, and a host id colliding with the
-            // node's own cell.
+            // Nested first, so the tokens left belong to this node. Under
+            // `surfacePrefix(sid) + pathId(Nil)`, not `<idBase>_<key>_c`: that
+            // left tabs inside an `If` branch baking into a node that did not
+            // exist.
             val resolved = marker.toList.map { case (key, sd) =>
               val sdObj = sd.asObject.getOrElse(JsonObject.empty)
               val (content, nested) =
@@ -408,7 +282,6 @@ object DashboardBuild {
                 )
               )
             )
-            // Splice this node's real id into the author-composed trigger.
             val spliced =
               splice(Json.fromJsonObject(withResolved), NodeIdToken, idBase)
             val splicedObj = spliced.asObject.getOrElse(JsonObject.empty)
@@ -428,23 +301,12 @@ object DashboardBuild {
         }
     }
 
-  /** Decode the dashboard JSON into the runtime model and fail fast if any card
-    * reference is unknown, an input is unsatisfied, or a slot transform fails
-    * to compile. Failing here means the dashboard does NOT load (live-reload
-    * keeps the previous working renderer), which beats swapping in a render
-    * whose values silently blank out.
-    *
-    * `sources` (the entry + transitive imports) is used only to point invalid
-    * transforms back at their source line; pass `Set.empty` when unavailable.
-    */
+  /** `sources` only locates bad transforms in their source. */
   def decode(
       json: Json,
       sources: Set[os.Path] = Set.empty,
-      // The slug this dashboard is being installed under — the entrypoint key
-      // (ADR 0021), or the URL/`--slug` on a push. Applied BEFORE validation so
-      // a `Validated` is final: anything derived from the dashboard during
-      // validation (the compiled transforms, which carry the slug into a tap's
-      // action URL) would otherwise be proven against a name it no longer has.
+      // Applied before validation, so a `Validated` is not proven against a
+      // slug it no longer has.
       slug: Option[String] = None
   ): IO[Dashboard.Validated] =
     for {
@@ -480,14 +342,8 @@ object DashboardBuild {
       }
     } yield validated
 
-  /** Evaluate the workspace's ONE entrypoint against the dump already on disk
-    * and decode every dashboard it names ([[Site.decode]]) — what both boot and
-    * live reload run.
-    *
-    * Failure splits in two, and the split is the point: an evaluation error is
-    * raised (nothing can be attributed to a slug — the site did not evaluate),
-    * while a single dashboard's decode/validate error is a `Left` inside the
-    * result and costs only that slug.
+  /** An evaluation error raises (no slug to blame); one dashboard's error is a
+    * `Left` that costs only that slug.
     */
   def evalSite(dashboardsDir: os.Path): IO[(Site.Decoded, Set[os.Path])] =
     evalSource(dashboardsDir, Site.EntryFile).flatMap { r =>
