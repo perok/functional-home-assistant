@@ -95,11 +95,24 @@ class HistoryChart extends nodes.Node {
   /// `HistoryQuery.parse`, the one list.
   hidden window: Window|varMod.Ref = "24h"
 
+  /// The drawing's own size in SVG units; null for the backend's default. The
+  /// SVG scales to its cell, so this sets the proportions and how large the
+  /// labels read against the line, not the pixels on screen (ADR 0032).
+  hidden chartWidth: Int(isPositive)? = null
+  hidden chartHeight: Int(isPositive)? = null
+
   slots {
-    ["chart"] = chartSlot(entity.entity_id, window, entity.unit_of_measurement)
+    ["chart"] = (historyQuery(entity.entity_id, window)) {
+      transform = chartStage(chartWidth, chartHeight, entity.unit_of_measurement)
+    }
   }
 
   function over(w: Window|varMod.Ref): HistoryChart = let (self = this) (self) { window = w }
+
+  /// Draw at `w`×`h` instead of the default — wider for a full-width panel,
+  /// narrower so labels read larger on a small cell.
+  function size(w: Int(isPositive), h: Int(isPositive)): HistoryChart =
+    let (self = this) (self) { chartWidth = w; chartHeight = h }
 
   /// Read the window from the nearest [[WindowChooser]] above this chart.
   function chosen(): HistoryChart = over(varMod.ref(windowVar))

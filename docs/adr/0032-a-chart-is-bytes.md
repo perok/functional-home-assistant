@@ -146,6 +146,16 @@ to a base `--fh-*` token; text inherits the page's font. `ChartSuite` fails on a
 - **The drawing is a transform STAGE, not the provider's job** — see
   [ADR 0031](0031-a-query-is-a-second-shape-of-slot.md). This ADR owns *how* a chart is made; that
   one owns *whose job it is*.
+- **Open: a chart does not truly resize.** It is drawn once at a fixed size (400×160 by
+  default, `c.historyChart(s).size(w, h)` to override) and the browser scales the whole
+  picture, labels and stroke included, because the server draws before any layout exists and
+  the first HTML must be complete. Real resizing means laying the chart out at its real width,
+  and the candidates are: several widths drawn into one card with a container query picking one
+  (first-paint-correct, shared bytes, ~3× the SVG); the client reporting its width as a node
+  variable, bucketed, so a resize is a re-query (exact, but the first paint guesses); a
+  stretching plot with HTML axis labels (one drawing, but we pick the ticks — what "why not
+  hand-rolled SVG" rejects); or drawing in the browser as recorded below, which would make this
+  server drawing the no-JS fallback rather than the chart. Not decided; explore before building.
 - **Open, and needing a Pi rather than a decision:** what these numbers look like on the target
   hardware — the question has narrowed to whether the FIRST chart in a session is acceptable,
   since every later one in the bucket is free, and to what the isolate's native heap costs

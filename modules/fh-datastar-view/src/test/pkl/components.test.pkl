@@ -263,6 +263,16 @@ facts {
     picked.children[0].slots["chart"].query.params["entity"] == "sensor.power"
   }
 
+  ["a chart's size is the author's to set, and unset leaves the backend's"] {
+    local wide = c.historyChart(power).size(720, 200)
+    wide.slots["chart"].transform.params.width == 720
+    wide.slots["chart"].transform.params.height == 200
+    // A size is how the answer is DRAWN, so the question stays the same one:
+    // two sizes of a chart share one fetch.
+    wide.slots["chart"].query == c.historyChart(power).slots["chart"].query
+    c.historyChart(power).slots["chart"].transform.params.width == null
+  }
+
   ["the declared window moves with `starting`"] {
     local week = (c.windowChooser).starting("7d")
     week.vars["window"] == "7d"
