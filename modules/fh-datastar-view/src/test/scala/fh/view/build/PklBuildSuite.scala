@@ -809,7 +809,11 @@ class PklBuildSuite extends munit.FunSuite {
       // An appliance mid-cycle. The countdown, the status and the bar's two
       // readings are all conditional on what the appliance actually reports,
       // so only the label and the subject are declared.
-      "progressCard" -> List("label", "entity_id")
+      "progressCard" -> List("label", "entity_id"),
+      // One slot and no subject: the chart's entity rides in the QUERY's
+      // params, so the card names no `entity_id` of its own and contributes
+      // nothing to the render key but the query's version.
+      "historyChart" -> List("chart")
     )
     assertEquals(
       cards.keys.map(_.toSet),

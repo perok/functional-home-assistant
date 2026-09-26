@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.query.Fragments
+
 import api.homeassistant.HomeAssistantApi
 import cats.effect.IO
 import cats.effect.kernel.Ref
@@ -402,7 +404,15 @@ class StateSurfaceSuite extends ServerHarness {
             // open — the other half of what the surface tag used to assert.
             without <- (log.get, store.current, RenderCache.create).flatMapN(
               (l, now, rc) =>
-                Patches.resume(renderer, rc, l, Map.empty, now.entities, 0L)
+                Patches.resume(
+                  renderer,
+                  rc,
+                  l,
+                  Map.empty,
+                  now.entities,
+                  Fragments.empty,
+                  0L
+                )
             )
           } yield (without, events(withPopup))
         }

@@ -1,6 +1,7 @@
 package fh.view.history
 
 import api.homeassistant.ws.domain.{HistoryPoint, StatisticPoint}
+import io.circe.{Decoder, Json}
 
 import java.time.Instant
 
@@ -29,6 +30,41 @@ object Series {
   final case class Point(at: Instant, value: Double)
 
   val empty: Series = Series(Vector.empty, 0)
+
+  /** The wire form, and the third-party contract: what passthrough puts in the
+    * hole and what the chart stage reads.
+    *
+    * `[[epochMillis, value], …]` rather than `[{t, v}, …]`: this can ride a
+    * Datastar signal, where a null object FIELD deletes the signal but a null
+    * array entry is a value.
+    */
+  def toJson(s: Series): Json =
+    Json.obj(
+      "points" -> Json.arr(
+        s.points.map(p =>
+          Json.arr(
+            Json.fromLong(p.at.toEpochMilli),
+            Json.fromDoubleOrNull(p.value)
+          )
+        )*
+      ),
+      "unavailable" -> Json.fromInt(s.unavailable)
+    )
+
+  /** [[toJson]]'s inverse. A stage decodes the JSON rather than taking a typed
+    * value because the JSON is the provider's contract.
+    */
+  given Decoder[Series] = Decoder.instance { c =>
+    for {
+      pts <- c.get[Vector[(Long, Option[Double])]]("points")
+      un <- c.getOrElse[Int]("unavailable")(0)
+    } yield Series(
+      pts.collect { case (at, Some(v)) =>
+        Point(Instant.ofEpochMilli(at), v)
+      },
+      un
+    )
+  }
 
   /** Sorted here: the WS contract does not promise row order. */
   def fromHistory(rows: List[HistoryPoint]): Series = {

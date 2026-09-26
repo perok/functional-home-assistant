@@ -13,16 +13,18 @@ module core.slot
 
 import "../hass.pkl"
 import "simple.pkl" as simpleMod
+import "stage.pkl" as stageMod
 
 /// The object form of a slot (fh.view.model.SlotSource): a CEL expression
 /// over the card's entity. [[Slot.reads]] says when it is read.
 class Slot {
   entityId: String? = null
-  /// The value — ONE fact, two forms (ADR 0028): a CEL string over the card's
-  /// entity (the engine tier) or an opted-in [[simpleMod.Simple]] structure
-  /// (the fast tier — the object form IS the tier selection; nothing
-  /// recognizes expression spelling). Defaults to the raw state.
-  transform: (String|simpleMod.Simple) = "state"
+  /// A CEL string over the card's entity (the engine tier), an opted-in
+  /// [[simpleMod.Simple]] (the fast tier, ADR 0028), or on a QUERY slot a
+  /// [[stageMod.Stage]] over the provider's answer. The default follows the
+  /// shape, so the wire never carries `"state"` beside a query.
+  transform: (String|simpleMod.Simple|stageMod.Stage) =
+    if (query == null) "state" else stageMod.passthrough
   default: String? = null
   bypassUnavailable: Boolean = true
   /// WHEN this value is read, and whether reading it is a reason to re-render.
@@ -43,7 +45,10 @@ class Slot {
   /// re-read" or "ignore and read once", and the pairing an author keeps
   /// wanting — a value that CAN move but is not worth waking the card for —
   /// was the one it could not express.
-  reads: "live"|"onRender"|"once" = "live"
+  ///
+  /// A QUERY slot is `onRender` and must stay there: a provider's answer is
+  /// never pushed. The backend rejects `live` beside a query.
+  reads: "live"|"onRender"|"once" = if (query == null) "live" else "onRender"
   /// Carry this value as a Datastar SIGNAL rather than as bytes in the element,
   /// so a change to it costs a signals frame instead of re-rendering the whole
   /// card (ADR 0017). The value says WHERE it lands — see [[SignalBind]] —
@@ -52,20 +57,24 @@ class Slot {
   /// The card's template MUST place [[signalBind]] for this slot, or the value
   /// stops updating; the backend rejects the dashboard if it does not.
   signal: SignalBind? = null
-  /// This value is a rendered chart of the slot's entity over this WINDOW,
-  /// rather than a transform over live state.
-  ///
-  /// The entity is the ordinary one — [[Slot.entityId]], or the card's subject.
-  /// What differs is where the value comes from: HA's recorder, fetched, rather
-  /// than the live state the backend already holds. That is why it is a field
-  /// and not a transform spelling — a transform names a read of state, and this
-  /// names a read of something state does not contain.
-  ///
-  /// Pair it with `reads = "onRender"`. A series slot must not be `live`: that
-  /// would make its card a candidate on every state tick, so a sensor that
-  /// moves every second would re-fetch its own history every second.
-  series: ("1h"|"24h"|"7d"|"30d")? = null
+  /// Makes this a QUERY slot: the value comes from a provider, not live state.
+  /// Build one with a provider's helper (`components/history.pkl`'s
+  /// `chartSlot`) or [[querySlot]].
+  query: Query? = null
 }
+
+/// A read of a named PROVIDER. The core names no provider: `provider` and
+/// `params` are checked by the backend's `Queries.parse` at build time, and
+/// typed by the component that offers the provider.
+class Query {
+  provider: String
+  params: Mapping<String, String>
+}
+
+/// Parameters are suffixed because `provider = provider` inside `new Query {}`
+/// binds to the object's own member and recurses.
+const function querySlot(name: String, args: Mapping<String, String>): Slot =
+  new Slot { query = new Query { provider = name; params = args } }
 
 /// WHERE a signal slot's value lands in the DOM. Spelled as a constrained
 /// String rather than a class hierarchy for two reasons: the wire form IS one

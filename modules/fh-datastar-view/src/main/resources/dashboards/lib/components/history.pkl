@@ -1,0 +1,95 @@
+/// A chart of one entity's recorded past, drawn on the server.
+///
+/// The chart arrives as SVG in the card's bytes, so it morphs, caches and
+/// resumes like any other leaf. This module owns everything history-specific
+/// the authoring side knows: the provider's name and parameters, the windows,
+/// and the chart stage.
+module components.history
+
+import "../core/node.pkl" as nodes
+import "../core/slot.pkl" as slotMod
+import "../core/stage.pkl" as stageMod
+import "../hass.pkl"
+
+/// How far back a chart looks. Closed because the server's cache keys on it
+/// (`fh.view.history.Window`).
+typealias Window = "1h"|"24h"|"7d"|"30d"
+
+/// The `history` provider's question: one entity over one window.
+const function historyQuery(entityId: String, w: Window): slotMod.Slot =
+  slotMod.querySlot("history", new Mapping {
+    ["entity"] = entityId
+    ["window"] = w
+  })
+
+/// Series in, SVG out. Size and unit say how the answer is DRAWN, not what was
+/// asked, so two sizes of one chart share one fetch.
+const function chartStage(
+  chartWidth: Int?,
+  chartHeight: Int?,
+  chartUnit: String?
+): ChartStage = new ChartStage {
+  params {
+    width = chartWidth
+    height = chartHeight
+    unit = chartUnit
+  }
+}
+
+/// How a chart is drawn (`fh.view.history.ChartStyle`). A null is left off the
+/// wire, so the backend's default applies.
+class ChartParams {
+  width: Int(isPositive)?
+  height: Int(isPositive)?
+  /// A CSS colour for the line; `var(--fh-accent)` by default.
+  line: String?
+  /// A CSS colour under the line; none by default.
+  fill: String?
+  unit: String?
+}
+
+class ChartStage extends stageMod.Stage {
+  stage = "chart"
+  params: ChartParams = new ChartParams {}
+}
+
+/// A chart of one entity over one window. `unit` should be the entity's own
+/// `unit_of_measurement`, so the chart agrees with the card beside it.
+const function chartSlot(entityId: String, w: Window, unit: String?): slotMod.Slot =
+  (historyQuery(entityId, w)) {
+    transform = chartStage(null, null, unit)
+  }
+
+/// One entity's readings over one window. The SVG goes in a RAW hole
+/// (`{{{chart}}}`); the backend rejects an escaped one at build time.
+class HistoryChart extends nodes.Node {
+  card = "historyChart"
+  cardDef = new nodes.CardDef {
+    template = """
+      <div class="card fh-chart">{{{chart}}}</div>
+      """
+    slots { "chart" }
+    // The SVG carries its own `viewBox`: drawn once per cache bucket, scaled
+    // by the browser to the cell.
+    css = """
+      .fh-chart{padding:.25rem}
+      .fh-chart svg{display:block;inline-size:100%;block-size:auto}
+      """
+  }
+
+  hidden entity: hass.SensorEntity
+
+  hidden window: Window = "24h"
+
+  slots {
+    ["chart"] = chartSlot(entity.entity_id, window, entity.unit_of_measurement)
+  }
+
+  function over(w: Window): HistoryChart = let (self = this) (self) { window = w }
+}
+
+/// A chart of `e`'s last 24 hours — `c.historyChart(sensor).over("7d")` for any
+/// other window. A [[hass.SensorEntity]] because only a numeric one charts;
+/// [[hass.SensorEntity.isNumeric]] lets a composition ask before it draws.
+function historyChart(e: hass.SensorEntity): HistoryChart =
+  new HistoryChart { entity = e }

@@ -8,7 +8,16 @@ import io.circe.Json
 import java.time.Instant
 import scala.concurrent.duration.*
 
-/** The chart, both halves: the option object, and the SVG drawn from it. */
+/** The chart, both halves.
+  *
+  * The JavaScript runs on whatever engine this machine ships — the polyglot
+  * ISOLATE where GraalVM publishes one (linux/amd64, linux/arm64), which is
+  * also what the add-on runs, and interpreted where it does not (macOS). The
+  * SVG is byte-identical between the two (measured, ADR 0032), so either proves
+  * the other; what running the isolate adds is that the engine serving users is
+  * the one under test, instead of a stand-in exercised nowhere but the `image`
+  * CI job.
+  */
 class ChartSuite extends munit.FunSuite {
 
   private val t0 = Instant.parse("2026-09-19T12:00:00Z")
@@ -97,8 +106,19 @@ class ChartSuite extends munit.FunSuite {
 
   // --- The renderer --------------------------------------------------------
 
-  // Production's entry point, engine choice included: the isolate on linux,
-  // the interpreter on macOS.
+  /** One renderer for the suite, on whatever engine this machine ships —
+    * normally the ISOLATE, which is what the add-on runs.
+    *
+    * `ChartRenderer.resource` and not a hand-built engine, so what these tests
+    * exercise is the entry point production uses, engine choice included. It
+    * falls back interpreted where GraalVM publishes no isolate (macOS), which
+    * is sound because the SVG is byte-identical between the two (ADR 0032) —
+    * but it is a FALLBACK now rather than what every run did, so a break that
+    * only the isolate shows is visible here instead of only in the image job.
+    *
+    * Built once: evaluating ECharts is ~0.3 s on the isolate and ~1 s
+    * interpreted, and nothing here needs a fresh one.
+    */
   private def withRenderer[A](f: ChartRenderer => IO[A]): A =
     ChartRenderer
       .resource()
@@ -115,6 +135,19 @@ class ChartSuite extends munit.FunSuite {
     // with no data on it.
     assert(svg.contains("<path"), clue = svg.take(400))
     assert(svg.contains("""width="600""""), clue = svg.take(200))
+  }
+
+  test("a CSS variable reaches the SVG verbatim, so the theme colours it") {
+    // The whole theming story, and it only works if zrender passes the colour
+    // through instead of parsing it: inline SVG inherits the page's custom
+    // properties, so `stroke="var(--fh-accent)"` follows whichever theme is
+    // active with the server knowing nothing about it. Asserted rather than
+    // assumed, because a library that normalised colours to `#rrggbb` would
+    // silently pin every chart to one palette.
+    val svg = withRenderer(
+      _.render(series(1, 5, 2), ChartStyle(line = "var(--fh-accent)"))
+    )
+    assert(svg.contains("var(--fh-accent)"), clue = svg.take(1200))
   }
 
   test("the SVG is self-contained — no script, no external reference") {

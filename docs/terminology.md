@@ -281,5 +281,37 @@ answers a too-long window with whatever survives rather than an error, so the on
 a lower bound taken as the MAXIMUM across every entity asked for. Per entity it cannot be read at
 all — a sensor created yesterday and a daily purge give the same short answer.
 
-**Provider** — the seam a series is read through, and the read counterpart of `ServiceCalls`. It
-exists because HA scopes recorder data per user, so who is reading is a property of the request.
+**Query slot** — a slot whose value comes from a **provider** rather than from live state. It is the
+other half of `SlotShape`, opposite a state slot, and it has no `reads` and no signal: where a value
+comes from and when it is read are not separate questions for one. It DOES have a `transform` — the
+one field both shapes carry, reading a different arm on each. Distinct from `query.pkl`'s `q.`
+surface, which filters CANDIDATES at build time and reaches no network — only a component author
+writes a query slot.
+
+**Provider** — the named thing that answers a query, and the read counterpart of `ServiceCalls`. It
+exists as a seam because HA scopes recorder data per user, so who is reading is a property of the
+request. `history` is the only one. A provider FETCHES and answers with an **answer**; it has no
+opinion about presentation and no way to express one. It owns the fetch's caching: expiring by a
+**bucket** rolling works for recorder data because the past is immutable, and would be wrong for a
+forecast or a camera.
+
+**Answer** — what a provider answers with: DATA plus a **version**, travelling together so a version
+with no content cannot be written. The version says AS OF WHEN this content became current, must be
+non-decreasing, and doubles as the caching policy — a stable one is shared by every viewer, one that
+moves every call is uncached by construction.
+
+**Stage** — what an answer BECOMES, and the third arm of a slot's `transform`. `chart` draws SVG;
+`passthrough` is the absence of a transform — the provider's JSON, which is the contract a third
+party writing their own chart library reads against. A query slot's default is derived from its
+shape, the same rule `reads` follows, so the wire states which tier is in play rather than leaving a
+reader to infer it.
+
+**Read** — a query paired with the stage applied to it (`SlotRead`), and what the render key
+carries. The pair rather than the query alone because the two deduplicate at different levels: two
+cards charting one sensor over one window at different sizes are ONE fetch and TWO drawings, so they
+share a version and must not share a cache entry.
+
+What a stage produces carries the provider's version unchanged, because a stage is a deterministic
+function of an answer and has no version of its own. (The runtime type holding that pair is called
+`Fragment`, which is NOT the **fragment** defined above — that one is a node's own HTML. The
+collision is in the code and predates the split; do not spread it into prose.)

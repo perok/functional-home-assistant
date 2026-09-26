@@ -47,3 +47,5 @@ to move it; 0003 and 0007 own two of the three node kinds it draws.
 - [0028 — The simple tier is opted into, not recognized](0028-simple-tier-is-opted-in.md)
 - [0029 — A node's fingerprint digests its render INPUTS, not its output bytes](0029-digest-render-inputs.md) *(rejected after measurement)*
 - [0030 — Subscribe to what we read](0030-subscribe-to-what-we-read.md)
+- [0031 — A query is a second SHAPE of slot, and what its answer becomes is the transform's](0031-a-query-is-a-second-shape-of-slot.md)
+- [0032 — A chart is bytes, and the JavaScript that makes them runs here](0032-a-chart-is-bytes.md)

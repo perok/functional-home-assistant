@@ -1,5 +1,6 @@
 package fh.view.model
 
+import fh.view.query.{Queries, QueryRequest}
 import io.circe.{Decoder, Json}
 import io.circe.derivation.{Configuration, ConfiguredDecoder}
 
@@ -91,7 +92,11 @@ case class SlotSource(
     // [[Transform.Simple]] structure as a JSON object (the fast tier — the
     // object form IS the tier selection, plan Phase 3 / ADR 0028). Defaults to
     // the entity's raw state.
-    transform: String | Transform.Simple = "state",
+    // …and a third arm on a QUERY slot: a [[Transform.Stage]], which turns a
+    // provider's DATA into the hole's content rather than an entity's state.
+    // Same field because it is the same question; `SlotShape` is what keeps
+    // each arm on the shape that can use it.
+    transform: String | Transform.Simple | Transform.Stage = "state",
     // Used when the transform yields "" (e.g. brightness when a light is off).
     // Keeps numeric signal initialisers like `{bri: {{x}}}` valid.
     default: Option[String] = None,
@@ -111,17 +116,32 @@ case class SlotSource(
     // re-render (ADR 0017). The value says WHERE it lands — see [[SignalBind]]
     // — and the card's template must place `{{{<slot>__bind}}}`.
     signal: Option[SignalBind] = None,
-    // This slot's value is a rendered chart of its entity over this WINDOW
-    // (`1h`/`24h`/`7d`/`30d` — `fh.view.history.Window`), not a transform over
-    // live state. Absent on every slot that is not one.
-    //
-    // The entity is the ordinary one: `entityId`, or the component's subject.
-    // What differs is where the value comes from — a fetched series rather than
-    // the `StateStore` — which is why it is a field here and not a transform
-    // spelling: a transform names a read of state, and this names a read of
-    // something state does not contain.
-    series: Option[String] = None
+    // Present on a QUERY slot and on nothing else. When it is set, every
+    // field above is unused: a query slot's value comes from a provider, not
+    // from state, and it is MARKUP rather than an escaped scalar. `validate`
+    // parses this into the two-shape [[SlotShape]] the renderer sees, so
+    // the combinations that would be wrong here — a query that is `live`,
+    // `once`, or a signal — are unrepresentable downstream rather than
+    // rejected one by one.
+    query: Option[SlotQuery] = None
 ) {
+
+  /** Which of the two shapes this slot is — see [[SlotShape]]. */
+  def shape: SlotShape =
+    query.fold(SlotShape.State(this))(q => SlotShape.Query(SlotRead(q, stage)))
+
+  /** The stage a QUERY slot applies, from its `transform` field.
+    *
+    * `Passthrough` is what a non-stage transform falls back to, and that is not
+    * a silent coercion: `Dashboard.validate` rejects a query slot carrying a
+    * CEL string or a [[Transform.Simple]], so by the time anything renders, a
+    * transform that is not a stage has already been reported. The fallback
+    * exists so this stays total for the validator itself to call.
+    */
+  def stage: Transform.Stage = transform match {
+    case st: Transform.Stage => st
+    case _                   => Transform.Stage.Passthrough
+  }
 
   /** The transform's IDENTITY, for every place the renderer keys a value by its
     * transform (signal names, the once-cache): the CEL string for an
@@ -136,6 +156,10 @@ case class SlotSource(
   lazy val valueKey: String = transform match {
     case s: String            => s
     case sm: Transform.Simple => Transform.Simple.key(sm)
+    // A stage never reaches the places this keys — signal names and the
+    // once-cache are both state-slot machinery — but it is part of the union
+    // now, so the answer is its identity rather than a crash.
+    case st: Transform.Stage => Transform.Stage.key(st)
   }
 }
 
@@ -166,19 +190,59 @@ case class SlotSource(
   * Three values rather than two flags because `(wake me, never re-read)` is
   * incoherent, and a pair of booleans would let it be written.
   */
-/** One series a node reads: an entity, over a named window.
+/** One query a node reads: a provider by NAME, and untyped parameters for it.
   *
-  * Two strings and no `Window`, so the MODEL keeps knowing nothing about how a
-  * series is fetched — the window name is a wire value like a card name is, and
-  * `fh.view.history` is what turns it into a span, a bucket and a statistics
-  * period. The alternative points the model at the runtime it is supposed to be
-  * independent of.
+  * A `Map[String, String]` and not a typed request, so the MODEL keeps knowing
+  * nothing about what any provider does — `history` turns `window` into a span,
+  * a bucket and a statistics period, and nothing here is aware that windows
+  * exist. The typing happens twice where it belongs: the Pkl builder that
+  * writes the params is typed, and `QueryProvider.parse` turns them back into a
+  * typed request at validation. A sum type here would make the model depend on
+  * every provider and put a third-party one out of reach.
   *
-  * No identity here either: who reads belongs to the request, not to the
-  * dashboard, and it enters the picture at the cache
-  * (`fh.view.history.SeriesKey`) rather than in a node's declaration.
+  * It doubles as the RENDER KEY for what it read, which is why it derives
+  * `CanEqual` and is used as a `Map` key: two nodes asking the same provider
+  * the same question are asking for the same bytes.
+  *
+  * No identity here: who reads belongs to the request, not to the dashboard,
+  * and it enters at the provider rather than in a node's declaration.
   */
-case class SeriesRead(entityId: String, window: String) derives CanEqual
+case class SlotQuery(provider: String, params: Map[String, String])
+    derives CanEqual,
+      ConfiguredDecoder
+
+/** What a slot IS, decided once from its wire form.
+  *
+  * The wire keeps one `SlotSource` because a discriminated sum would stamp a
+  * `"type"` tag onto every slot and churn every byte-identity snapshot for a
+  * distinction only the runtime cares about. This is where that distinction is
+  * made instead, and the point is the exhaustive `match`: a site that
+  * classifies slots has to say what it does with a query one, so the
+  * combinations that would be wrong — a query that is `live`, `once`, or a
+  * signal — are not rejected by a rule, they are never reachable.
+  *
+  * `reads`, `transform` and `signal` belong to [[SlotShape.State]] alone. A
+  * [[SlotShape.Query]] has none of them: its value comes from a provider, and
+  * WHEN it is read is not a thing an author gets to say.
+  */
+enum SlotShape derives CanEqual:
+  case State(source: SlotSource)
+  case Query(read: SlotRead)
+
+/** What ONE slot reads: a query, and the stage that turns its answer into the
+  * hole's content.
+  *
+  * The pair and not the query alone, because they are deduplicated at different
+  * levels and the render key has to say which. Two cards charting the same
+  * sensor and window at different sizes ask the provider ONE question and draw
+  * TWO pictures — one fetch, two drawings — so they share a version and must
+  * not share a cache entry. Keying by the query alone would serve one of them
+  * the other's picture; keying by the stage alone would fetch twice.
+  *
+  * It is also what `RenderInputs` carries, which is why it derives `CanEqual`
+  * and is used as a `Map` key.
+  */
+case class SlotRead(query: SlotQuery, stage: Transform.Stage) derives CanEqual
 
 object Reads:
   val Live: String = "live"
@@ -197,14 +261,18 @@ object SlotSource:
   given Decoder[SlotSource] =
     Decoder[String].map(s => SlotSource(literal = Some(s))).or(objDecoder)
 
-  /** A slot's transform is ONE wire fact with two forms: a bare JSON string (a
-    * CEL expression — the engine tier) or an object (the opted-in
-    * [[Transform.Simple]] structure — the fast tier, `kind`-discriminated).
+  /** A slot's transform: a bare JSON string (a CEL expression — the engine
+    * tier), a `stage`-discriminated [[Transform.Stage]], or a
+    * `kind`-discriminated [[Transform.Simple]]. Chosen by key rather than by
+    * trying each in turn, so a bad chart param reports the stage's error and
+    * not the last arm's.
     */
-  given Decoder[String | Transform.Simple] =
-    Decoder[String].or(
-      summon[Decoder[Transform.Simple]].map[Transform.Simple | String](identity)
-    )
+  given Decoder[String | Transform.Simple | Transform.Stage] =
+    Decoder.instance { c =>
+      if (c.value.isString) c.as[String]
+      else if (c.downField("stage").succeeded) c.as[Transform.Stage]
+      else c.as[Transform.Simple]
+    }
 
 /** WHERE a signal slot's value lands in the DOM — the Datastar attribute the
   * renderer emits for it (ADR 0017).
@@ -609,7 +677,7 @@ object LayoutNode:
       * patched.
       */
     lazy val liveEntities: List[String] =
-      slots.values.toList
+      stateSlots
         .filter(s => s.reads == Reads.Live && s.literal.isEmpty)
         .flatMap(s => s.entityId.orElse(subjectEntity))
         .distinct
@@ -629,38 +697,50 @@ object LayoutNode:
       * frames.
       */
     lazy val liveEntitiesAsBytes: List[String] =
-      slots.values.toList
+      stateSlots
         .filter(s =>
           s.reads == Reads.Live && s.literal.isEmpty && s.signal.isEmpty
         )
         .flatMap(s => s.entityId.orElse(subjectEntity))
         .distinct
 
-    /** The series this component's slots read — `(entity, window)` each.
+    /** The queries this component's slots read.
       *
       * Deliberately NOT part of [[liveEntities]], and it costs nothing to keep
-      * it out: a series slot is `onRender` ([[Reads]] — "read on every render,
-      * and never a reason to have one"), and that filter already excludes it.
-      * So a chart does not become a candidate on a state tick, which is the
-      * whole reason a per-viewer, per-window fetch can sit in this pipeline at
-      * all — an entity that moves every second would otherwise re-fetch its own
-      * history every second.
+      * it out: both lists are built from STATE slots, and a query slot is not
+      * one — it has no entity read to contribute. So a chart does not become a
+      * candidate on a state tick, which is the whole reason a per-viewer,
+      * per-window fetch can sit in this pipeline at all: an entity that moves
+      * every second would otherwise re-fetch its own history every second.
       *
       * It IS part of the render key ([[fh.view.runtime.RenderInputs]]), because
-      * the bytes do move when the series does. The two facts are separate for
-      * the same reason `liveEntities` and `liveEntitiesAsBytes` are: what makes
-      * a node a candidate and what makes its bytes stale are different
-      * questions.
+      * the bytes do move when the provider's answer does. The two facts are
+      * separate for the same reason `liveEntities` and `liveEntitiesAsBytes`
+      * are: what makes a node a candidate and what makes its bytes stale are
+      * different questions.
+      *
+      * A query names its own subject in its params — there is no inheritance
+      * from the card's `entity_id`, because a provider's parameters are its own
+      * business and the model cannot know which of them (if any) is an entity.
       */
-    lazy val seriesReads: List[SeriesRead] =
-      slots.values.toList
-        .flatMap(s =>
-          for {
-            window <- s.series
-            entity <- s.entityId.orElse(subjectEntity)
-          } yield SeriesRead(entity, window)
-        )
-        .distinct
+    lazy val queries: List[SlotRead] = shapes._2
+
+    /** The slots that read STATE — everything the two entity lists are built
+      * from. A query slot is absent, which is why a chart never becomes a
+      * candidate: there is no filter arranging that, the slot simply is not in
+      * the list the reverse index is derived from.
+      */
+    private def stateSlots: List[SlotSource] = shapes._1
+
+    private lazy val shapes: (List[SlotSource], List[SlotRead]) =
+      slots.values.toList.foldRight(
+        (List.empty[SlotSource], List.empty[SlotRead])
+      ) { case (s, (states, queries)) =>
+        s.shape match
+          case SlotShape.State(src) => (src :: states, queries)
+          case SlotShape.Query(q)   => (states, q :: queries)
+      } match
+        case (states, queries) => (states, queries.distinct)
 
   /** A set over a STATICALLY KNOWN candidate list.
     *
@@ -1151,7 +1231,11 @@ case class Dashboard(
     ): List[String] =
       slots.toList.sortBy(_._1).flatMap { case (name, src) =>
         val transformError =
-          if (src.literal.isDefined) None
+          // A QUERY slot's transform is checked by `queryErrors` instead: the
+          // two shapes take different ARMS of this one field, so asking the
+          // state-tier questions of a stage would report nonsense about a slot
+          // that is correct.
+          if (src.literal.isDefined || src.query.isDefined) None
           else
             src.transform match {
               // The fast tier: structure checks only — the degenerate-range
@@ -1201,41 +1285,100 @@ case class Dashboard(
                   s"$nodeId: slot '$name' has an invalid transform$at: $err"
                 }
               case _: Transform.Simple => None
+              // A STAGE on a state slot. Unreachable from Pkl, whose default
+              // derives the arm from the shape, so this is a hand-written wire
+              // — and worth naming rather than ignoring, because a stage reads
+              // a provider's DATA and there is none here to read.
+              case st: Transform.Stage =>
+                Some(
+                  s"$nodeId: slot '$name' has a '${Transform.Stage.key(st)}' " +
+                    "transform but reads no query — a stage turns a " +
+                    "provider's answer into the hole's content, and a state " +
+                    "slot has no answer to turn"
+                )
             }
         transformError.toList ++ signalErrors(nodeId, cardName, name, src) ++
           readErrors(nodeId, cardName, name, src) ++
-          seriesErrors(nodeId, name, src, slots)
+          queryErrors(nodeId, cardName, name, src)
       }
 
-    /** A series slot names a window and an entity, and both failures are
-      * otherwise SILENT: an unknown window resolves to no bucket, so the slot
-      * renders empty forever and the render key never mentions it — a chart
-      * that is simply blank, with nothing anywhere saying why.
+    /** A query slot is answered by its PROVIDER, which parses the params it was
+      * given. An unknown provider or a bad parameter is a build error naming
+      * the dashboard; otherwise the slot would render empty forever and never
+      * enter the render key — a blank card with nothing anywhere saying why.
+      *
+      * Nothing here checks `reads` or `signal` against the query. Those
+      * combinations are not rejected, they are unrepresentable: a query slot
+      * becomes a [[SlotShape.Query]], which has no such fields, and every
+      * state-slot path in the renderer takes the other case.
+      *
+      * `transform` IS checked, and it is the one field both shapes have. They
+      * read different arms of it — a state slot's is a CEL string or a
+      * [[Transform.Simple]], a query slot's is a [[Transform.Stage]] — so the
+      * wrong arm is a real mistake rather than an unrepresentable one, and it
+      * is reported here for the query half and beside the tier checks for the
+      * state half.
       */
-    def seriesErrors(
+    def queryErrors(
         nodeId: String,
+        cardName: String,
         name: String,
-        src: SlotSource,
-        slots: Map[String, SlotSource]
+        src: SlotSource
     ): List[String] =
-      src.series.toList.flatMap { window =>
-        val unknownWindow = Option.when(
-          !fh.view.history.Window.byName(window).isDefined
-        )(
-          s"$nodeId: slot '$name' reads series over unknown window '$window' — " +
-            s"one of ${fh.view.history.Window.values.map(_.name).mkString(", ")}"
+      src.query.toList.flatMap { q =>
+        // NOT the guard the two-shape split replaced. That one existed because
+        // the renderer would ACT on a wrong `reads`; this one exists because
+        // the field is INERT, and an inert field that says `live` beside a
+        // query is a lie the wire tells anyone reading it — a third-party tool
+        // included. The value is derived by the Pkl default, so only a
+        // hand-written wire can get here.
+        val untruthfulReads = Option.when(src.reads != Reads.OnRender)(
+          s"$nodeId: slot '$name' reads a query, so its 'reads' must be " +
+            s"'${Reads.OnRender}' (it says '${src.reads}') — a provider's " +
+            "answer is never pushed, so nothing about it is a reason to render"
         )
-        // Checked at the SLOT, not at the component: a slot may name its own
-        // entity, so a component with no subject is fine as long as every
-        // series slot on it carries one.
-        val noEntity = Option.when(
-          src.entityId.isEmpty &&
-            !slots.get(Dashboard.SubjectSlot).exists(_.literal.isDefined)
-        )(
-          s"$nodeId: slot '$name' reads a series but names no entity, and its " +
-            "card has no subject entity to inherit"
-        )
-        unknownWindow.toList ++ noEntity.toList
+        val parseError =
+          Queries.parse(q).left.toOption.map(e => s"$nodeId: slot '$name' $e")
+        // A stage's own params were parsed when the wire was decoded.
+        val stageError = src.transform match {
+          case _: Transform.Stage => None
+          case _                  =>
+            Some(
+              s"$nodeId: slot '$name' reads a query, so its transform must " +
+                "be a STAGE (a chart, or passthrough) — a CEL expression and " +
+                "a simple transform both read an entity's state, and a query " +
+                "slot has none"
+            )
+        }
+        // THE LAST STAGE DECIDES THE HOLE, and that is one rule rather than a
+        // property of query slots. A stage that emits MARKUP needs the raw
+        // hole — written `{{name}}` the page shows `&lt;svg …` as text, with
+        // no error anywhere, which is the first thing a chart card author gets
+        // wrong. Passthrough emits a VALUE and must not have one: it is an
+        // attribute payload and wants escaping, and a raw hole would put
+        // unescaped JSON into the document.
+        val rawHole =
+          cards.get(cardName).flatMap { cd =>
+            val hasRaw =
+              Dashboard.rawHole(name).findFirstIn(cd.template).isDefined
+            src.stage match {
+              case Transform.Stage.Passthrough if hasRaw =>
+                Some(
+                  s"$nodeId: card '$cardName' places slot '$name' in a RAW " +
+                    "hole, but its transform is passthrough, whose value is " +
+                    s"DATA — write {{$name}}, or the page emits unescaped JSON"
+                )
+              case Transform.Stage.Chart(_) if !hasRaw =>
+                Some(
+                  s"$nodeId: card '$cardName' places slot '$name' in an " +
+                    "ESCAPED hole, but its transform draws markup — write " +
+                    s"{{{$name}}}, or the page shows the markup as text"
+                )
+              case _ => None
+            }
+          }
+        untruthfulReads.toList ++ parseError.toList ++ stageError.toList ++
+          rawHole.toList
       }
 
     /** `<slot>__read` is a card composing a slot's value into a handler
@@ -1812,22 +1955,55 @@ case class Dashboard(
     else Nil
   }
 
+  /** Every distinct query in the layout and its surfaces — the single source
+    * for both [[validated]]'s parse and the renderer's prepared map, the same
+    * role [[transformStrings]] plays for CEL.
+    */
+  def allQueries: List[SlotRead] =
+    (slotSources(card) ++ surfaces.values.flatMap(s =>
+      slotSources(s.content)
+    )).toList
+      .map(_.shape)
+      .collect { case SlotShape.Query(read) => read }
+      .distinct
+
+  /** Every query under one node — what a SURFACE owes before it can be
+    * rendered.
+    *
+    * Static, so a set clause that will not match still contributes its query.
+    * That over-fetches in principle; it is what a snapshot resolved BEFORE the
+    * walk can know, since which clauses match is decided during it. No shipped
+    * card puts a chart inside a candidate set, and narrowing this needs the
+    * walk's answer, not a cleverer query.
+    */
+  def queriesIn(n: LayoutNode): List[SlotRead] =
+    slotSources(n)
+      .collect { case s if s.query.isDefined => s.shape }
+      .collect { case SlotShape.Query(read) =>
+        read
+      }
+      .distinct
+
+  /** Every slot on every node, the layout's own and its set members' alike. */
+  private def slotSources(n: LayoutNode): List[SlotSource] = n match
+    case c: LayoutNode.Component =>
+      c.slots.values.toList ++ c.allChildren.flatMap(slotSources)
+    case s: LayoutNode.SetNode =>
+      s.members.values.toList
+        .flatMap(_.clauses)
+        .flatMap(c => slotSources(c.node))
+
   /** Every distinct live-slot transform string in the layout and its surfaces
     * (constant `literal` slots carry no transform and are excluded). These are
     * exactly the expressions the renderer compiles — the single source for both
     * [[validated]]'s compile and `Transforms.from`.
     */
   def transformStrings: List[String] =
-    def slotsOf(n: LayoutNode): List[SlotSource] = n match
-      case c: LayoutNode.Component =>
-        c.slots.values.toList ++ c.allChildren.flatMap(slotsOf)
-      case s: LayoutNode.SetNode =>
-        s.members.values.toList
-          .flatMap(_.clauses)
-          .flatMap(c => slotsOf(c.node))
     // The CEL half of the two-tier union — the Simple objects have no string
     // to compile (plan Phase 3 / ADR 0028).
-    (slotsOf(card) ++ surfaces.values.flatMap(s => slotsOf(s.content))).toList
+    (slotSources(card) ++ surfaces.values.flatMap(s =>
+      slotSources(s.content)
+    )).toList
       .filter(_.literal.isEmpty)
       .map(_.transform)
       .collect { case t: String => t }
@@ -1844,8 +2020,17 @@ case class Dashboard(
       locateTransform: String => Option[String] = _ => None
   ): Either[List[String], Dashboard.Validated] =
     validate(locateTransform) match
-      case Nil  => Right(Dashboard.Validated(this, compileTransforms))
+      case Nil =>
+        Right(Dashboard.Validated(this, compileTransforms, parseQueries))
       case errs => Left(errs)
+
+  /** Every query slot's parameters, parsed into its request. Total by contract:
+    * only [[validated]] calls it, and only after [[validate]] proved each one
+    * parses, so a `Left` cannot occur here and is dropped rather than defended
+    * against — exactly as [[compileTransforms]] treats a transform.
+    */
+  private def parseQueries: Map[SlotRead, QueryRequest] =
+    allQueries.flatMap(r => Queries.parse(r.query).toOption.map(r -> _)).toMap
 
   /** Compile every [[transformStrings]] expression. Total by contract: only
     * [[validated]] calls it, and only after [[validate]] proved each
@@ -1870,6 +2055,15 @@ object Dashboard:
     */
   val SubjectSlot: String = "entity_id"
 
+  /** `{{{name}}}` — the UNESCAPED hole, allowing the whitespace mustache
+    * allows, so a template that spells it `{{{ name }}}` is not reported as
+    * escaping a value it does not escape.
+    */
+  private[model] def rawHole(name: String): scala.util.matching.Regex =
+    ("\\{\\{\\{\\s*" + scala.util.matching.Regex.quote(
+      name
+    ) + "\\s*\\}\\}\\}").r
+
   /** A dashboard PROVEN valid: every card reference resolves, every slot is
     * satisfied, and every slot transform compiled (kept in `transforms`, so the
     * renderer looks them up instead of recompiling or defending against a bad
@@ -1878,6 +2072,10 @@ object Dashboard:
   case class Validated(
       dashboard: Dashboard,
       transforms: Map[String, Transform.Compiled],
+      // Every query slot's params already parsed by its provider, for the same
+      // reason `transforms` is here: validation is the one gate, so nothing
+      // downstream re-parses or defends against a parameter that cannot work.
+      queries: Map[SlotRead, QueryRequest] = Map.empty,
       // The RESOLVED access rule (issue #89) — the dashboard's own if it named
       // one, else its site's. Resolved once by `Site.decode` via [[withAccess]]
       // rather than left as the model's `Option`, so no gate has to re-derive

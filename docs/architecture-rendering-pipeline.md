@@ -884,31 +884,113 @@ answer — a hit yields the bytes the render would have — only who pays for it
 of what the render reads, not all of it: an entity reached only through a signal slot is left out,
 because its value is not in the patch form and so cannot move these bytes (ADR 0012).
 
-### The second kind of input: a series
+### The second kind of input: a query
 
-A node may also read a **series** — an entity's recorded past over a **window** — which is not in
-the `StateStore` and is not a live value (`docs/terminology.md`, "History"). It reaches a render the
-same way state does, as a snapshot resolved BEFORE the walk (`SeriesBuckets`), because a render is a
-synchronous string build and a fetch is `IO` over a socket.
+A node may also read a **query** — a named PROVIDER answering with DATA, parameterised
+(`docs/terminology.md`, "History"). `history` is the one provider that exists: one entity's recorded
+past over a window. It reaches a render the same way state does, as a snapshot resolved BEFORE the
+walk (`fh.view.query.Fragments`), because a render is a synchronous string build and answering a
+query is `IO` over a socket and a JavaScript engine.
 
-Two boxes move, and no others:
+**A provider fetches; what its answer BECOMES is the slot's `transform`.** That split is the whole
+of the second kind of input. A provider answers `Answer(version, json)` and has no opinion about
+presentation; a STAGE — the third arm of `transform`, beside a CEL string and a `Transform.Simple` —
+turns that into what the card puts in its hole. `Stage.Chart` draws SVG, and `Stage.Passthrough` is
+the absence of a transform: the provider's JSON, which is the contract a third party reads against.
 
-- **`RenderInputs` gains a second map**, `SeriesRead -> bucket`. A bucket works as a version because
-  the past is immutable: two renders of the same `(entity, window)` in one bucket read the same
-  points, and a later bucket is strictly fresher. `isAtLeast` compares both halves, so two viewers
-  on different windows have differently-SHAPED keys, are unordered, and get separate generations
-  rather than one overwriting the other with a chart of the wrong span.
-- **`Component.seriesReads`**, derived from the slots, beside `liveEntities` and
-  `liveEntitiesAsBytes` and for the same reason the other two are separate: what makes a node a
-  candidate and what makes its bytes stale are different questions.
+Both halves are closed sums matched, not registries — there is no plugin story here, and a
+name→instance map would say only what somebody remembered to wire up. Both parses are PURE, so
+a bad query or stage fails the build with nothing wired: a stage's params are parsed as the wire
+is decoded (`Stage.Chart` carries a `ChartStyle`), a query's by `Queries.parse` in
+`Dashboard.validate`. Only `QueryResolver` holds the
+running machinery.
 
-What does NOT move is candidate selection, and that falls out rather than being arranged. A series
-slot is `reads = onRender` — "read on every render, and never a reason to have one" — which
-`liveEntities` already filters out, so **a chart is not a candidate on a state tick**. Without that,
-a sensor moving every second would re-fetch its own history every second.
+**The hole follows the stage, not the shape.** A stage that emits markup needs the raw
+`{{{chart}}}` — written `{{chart}}` the page shows `&lt;svg …` as text, with no error anywhere —
+and passthrough must NOT have one, because its value is an attribute payload and wants escaping.
+One rule over the pipeline rather than a property of query slots.
 
-Still missing, and deliberately: nothing yet FILLS a bucket on the live path, so a rolled bucket
-does not currently wake its node. The key is correct; the waking is the window-selection work.
+**The version is also the caching policy**, which is what keeps the pipeline out of it:
+
+- a stable number — history returns its bucket, and a bucket works as a version because the past is
+  immutable — means every viewer inside it shares one answer;
+- a number that moves every call (`asOf.toEpochMilli`) never matches, so that provider's node never
+  serves from cache and is asked every render. Uncached by construction, with no opt-out flag; the
+  failure mode is cost, and it is visible.
+
+Bucket expiry is a property of append-only-past data, not of queries — a forecast changes in the
+future, a camera still changes continuously — so caching lives inside the provider, never here.
+
+**Two caches, at two levels, and only one of them needs expiry.** `Fragments.resolve` deduplicates
+a FETCH per query and a DRAWING per `(query, stage)`, so two cards charting one sensor over one
+window at different sizes cost one fetch and two drawings — which the keys say rather than a
+provider arranging it privately. The series cache expires by the bucket rolling, because a series
+has a shelf life. A drawing has none: it is a deterministic function of an answer, so `ChartStage`
+keys by version and replaces in place, and eviction is that replacement.
+
+Three boxes move, and no others:
+
+- **`RenderInputs` gains a second map**, `SlotRead -> version` — a `SlotRead` being a query paired
+  with the stage applied to it, because the two deduplicate at different levels and the key has to
+  say which. `isAtLeast` compares both halves, so
+  two viewers on different windows have differently-SHAPED keys, are unordered, and get separate
+  generations rather than one overwriting the other with a chart of the wrong span.
+- **`SlotShape`**, which is what a slot IS: `State` or `Query`. The wire keeps one `SlotSource`
+  (a discriminated sum would stamp a `"type"` tag onto every slot and churn every byte-identity
+  snapshot), and this is where the two are told apart. Every site that CLASSIFIES slots matches on
+  it, so the combinations that would be wrong — a query that is `live`, `once`, or a signal — are
+  not rejected by rules, they are unreachable.
+- **`Component.queries`**, derived from the slots beside `liveEntities` and `liveEntitiesAsBytes`,
+  and separate for the same reason those two are: what makes a node a candidate and what makes its
+  bytes stale are different questions.
+
+What does NOT move is candidate selection, and that falls out rather than being arranged: both
+entity lists are built from STATE slots, so a query slot has no entity to contribute and **a chart is
+not a candidate on a state tick**. Without that, a sensor moving every second would re-fetch its own
+history every second.
+
+**The STAGE decides the hole**, not the shape. A stage that emits markup needs the raw
+`{{{slot}}}` — written `{{slot}}` the page shows `&lt;svg …` as text, with no error anywhere — and
+`passthrough` must NOT have one, because its value is an attribute payload and wants escaping.
+`Dashboard.validate` rejects either mistake.
+
+**WHY resolving first is legal, which nothing else states.** A pre-walk barrier — gather what the
+render implies, fire it, await, then walk — is the wrong shape when dependencies are DYNAMIC: a
+request knowable only after an earlier node resolves means the barrier stalls what could have
+proceeded, and then has to gather again. It works here because that case does not arise, and it
+does not arise for three reasons that have to stay true:
+
+- the tree is walked for its queries before the render (`queriesForPage`, `queriesForSurface`);
+- a candidate set carries a STATIC candidate list, and its conditions evaluate against the state
+  snapshot already in hand, so which members render is computable before the walk;
+- nothing lets a node's input depend on a value produced DURING the walk.
+
+That third one is the fragile one, and it is what issue #209 (node variables) protects: a declared
+reference can be topologically ordered before the walk, where a reference matched by string
+convention at evaluation time in the browser cannot. **Anything that lets one node read another's
+computed value must declare the edge**, or this barrier stops being correct — and it would stop
+silently, since the render would simply be missing an input nobody knew to resolve. It is also what
+lets `Fragments` be total at all: with the set unknown up front, no value could carry the proof
+that every input this render reads has an answer.
+
+**EVERY render path resolves what it reads**, and `Fragments` is total over it: a path that reads a
+query cannot be handed nothing, because there is no default argument left to hand it. What a render
+owes is read off the STATIC tree — `Renderer.queriesForPage` for a page and a pull,
+`queriesForSurface` for a surface fill — because a render is a synchronous string build and the set
+has to be known before it starts.
+
+A page's set includes every BAKED surface, active or not. A bake swap renders from state alone and
+cannot fetch, so a chart inside a tab panel is answered when the page is or never. What it excludes
+is a popup nobody has opened, which is the laziness worth keeping: bounded by what is being
+rendered rather than by which surface happens to hold it.
+
+Two things are still missing, and both are deliberate. **Nothing wakes a node because a query's
+version moved**: the recorder watches entity state, and a bucket rolling is not a state change, so
+a chart on an open page goes stale until something else that node reads happens to move. The key
+is correct — a render at the new bucket gets new bytes — but nothing asks for that render. And
+**nothing bounds how long a provider may hold up the pre-walk resolution**; §0 says that bound is
+an error rather than a fallback and belongs here rather than on the response, but it is not
+written yet.
 
 **All of this section is the PATCH path.** The document path is a different shape and is described
 in §6a: it consults no cache, shares nothing, and streams straight to the client.
@@ -1161,6 +1243,13 @@ Live list — delete an entry when it is answered, and say where the answer land
   element was in no DOM and offered its id as an insert anchor. Candidates now come from the dump,
   and an entity vanishing is a registry change that rebuilds the renderer — there is nothing left to
   go stale (ADR 0003).
+- ~~**The query path violates §0 on every route but one.**~~ *Closed by making `Fragments` total.*
+  `Fragments.resolve` had one caller and nine render entry points defaulted to "I have no answers",
+  so a chart on a page shipped an empty hole. The DEFAULT was the mechanism — not typing anything
+  got you the incomplete render, and it compiled. There is no default now, so a path that reads a
+  query cannot be handed nothing, and removing it is what found the paths: the compiler named six,
+  of which the page path and the whole pull path had never resolved anything at all.
+
 - **Ordering across sessions is assumed, not stated.** Sessions render on their own fibers and can
   sit at different positions. Nothing in the design depends on them agreeing — each pull is computed
   against the current snapshot from that session's own cursor — but that is an invariant worth

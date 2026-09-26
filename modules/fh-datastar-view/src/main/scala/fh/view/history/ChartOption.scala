@@ -1,6 +1,7 @@
 package fh.view.history
 
-import io.circe.Json
+import io.circe.{Decoder, Json}
+import io.circe.derivation.{Configuration, ConfiguredDecoder}
 import io.circe.syntax.*
 
 /** Everything about a chart that is not its data. */
@@ -12,6 +13,20 @@ final case class ChartStyle(
     /** The entity's own `unit_of_measurement`, so it agrees with the card. */
     unit: Option[String] = None
 )
+
+object ChartStyle {
+
+  private given Configuration = Configuration.default.withDefaults
+
+  /** `components/history.pkl`'s `ChartParams`; an absent field is the default
+    * here. Pkl already refuses a size that is not positive, which this repeats
+    * for a hand-written wire.
+    */
+  given Decoder[ChartStyle] =
+    ConfiguredDecoder
+      .derived[ChartStyle]
+      .ensure(s => s.width > 0 && s.height > 0, "chart size must be positive")
+}
 
 /** The ECharts option object, built in Scala so what a chart says is tested on
   * `Json` rather than on SVG.
