@@ -165,21 +165,16 @@ class PklDumpMembersSuite extends munit.FunSuite {
       ),
       clue = src
     )
-    // The per-domain lists are DERIVED in the base, by the same selectors an
-    // author calls. The generator emitting them too is the failure this guards:
-    // two sources for one list is how they come to disagree, and it is also
-    // what made adding a domain a five-place edit.
+    // The per-domain lists are derived in the base by the author's selectors;
+    // a second source from the generator is how they came to disagree.
     assert(!src.contains("lights ="), clue = src)
     assert(!src.contains("generic ="), clue = src)
   }
 
   test("an empty house emits no list assignments, and that is the point") {
-    // The failure this guards is specific: the starter dashboard queries these
-    // lists having never seen this dump, so a home with no switches must answer
-    // `List()` rather than `Cannot find property` on its first boot. Declaring
-    // them in the base is what makes the absence safe — so the generator is
-    // free to say nothing here, and `PklBuildSuite` proves the starter still
-    // builds against a house with no switches in it.
+    // The starter queries these lists unseen, so a home with no switches must
+    // answer `List()`, not `Cannot find property`, on first boot. The base
+    // declares them, so the generator may say nothing.
     val src = PklDump.render(dump())
     assert(!src.contains("all ="), clue = src)
     assert(
