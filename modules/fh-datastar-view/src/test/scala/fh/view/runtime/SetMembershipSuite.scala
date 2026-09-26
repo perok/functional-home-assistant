@@ -27,18 +27,13 @@ import io.circe.Json
 import scala.concurrent.duration.*
 
 /** Candidate sets on the recording pass (ADR 0003): a member ticking, arriving,
-  * leaving, switching case, and the churn heuristic that decides between a
-  * per-member delta and a whole-host fill.
+  * leaving and switching case, and the churn rule choosing between a per-member
+  * delta and a whole-host fill.
   */
 class SetMembershipSuite extends ServerHarness {
 
-  // ---------------------------------------------------------------------------
-  // Per-entity candidate-set patches (Tier 1 in-place + Tier 2 add/remove)
-  // ---------------------------------------------------------------------------
-
-  /** Two cases over ONE membership: an entity that stays a member while the
-    * case it dispatches to changes (`attr:mode`), which is the only way a
-    * member's node definition moves without its membership moving.
+  /** The only way a member's node moves without its membership moving: the case
+    * it dispatches to changes (`attr:mode`).
     */
 
   private def caseDash = Dashboard(
@@ -59,9 +54,7 @@ class SetMembershipSuite extends ServerHarness {
     )
   )
 
-  /** A case binding a SECOND entity — one the group's query does not match.
-    * Authorable all along; it just never ticked.
-    */
+  /** A case binding an entity the group's query does not match. */
 
   private def crossDash = Dashboard(
     cards = Map(
@@ -85,8 +78,8 @@ class SetMembershipSuite extends ServerHarness {
     )
   )
 
-  /** A case switch whose ARRIVING card binds nothing live — the shape that has
-    * no reverse-index edge to be found by.
+  /** The arriving card binds nothing live, so there is no reverse-index edge to
+    * find it by.
     */
 
   private def literalCaseDash = Dashboard(
@@ -107,32 +100,16 @@ class SetMembershipSuite extends ServerHarness {
     )
   )
 
-  /** Drive the shared per-slug diff for one change against `after` (the current
-    * snapshot) with an optional pre-seeded cache; return the emitted SSE
-    * patches (rendered to strings) and the resulting cache.
-    */
-
-  // Seeded through `set`, so the digest derivation is never duplicated here.
-  /** A viewer already CURRENT on these nodes, and a log that has recorded them.
-    *
-    * One map for both halves because they were one thing before: a seeded log
-    * entry meant "the group is established AND this node is not worth sending".
-    * The value is the id's live rendering rather than the literal, since what
-    * suppression compares is a digest of what the client actually holds.
-    */
-
-  /** The ELEMENT patches of a shared batch. Every non-empty batch also carries
-    * the resume cursor as a `patch-signals` event
-    * (docs/adr/0011-the-live-connection.md); these contracts are about what the
-    * DOM receives, and one dedicated test below covers the cursor itself.
+  /** One change through the shared diff against `after`; returns the element
+    * patches and what the viewer holds after applying them. The resume cursor
+    * also rides every non-empty batch (ADR 0011); one test below covers it.
     */
 
   private def runShared(
       dash: Dashboard,
       after: Map[String, EntityState],
       change: StateChange,
-      // What the viewer's DOM already holds, by node id -> HTML. It used to seed
-      // the shared log; the suppression it drives is now this client's own.
+      // What the viewer's DOM already holds, by node id -> HTML.
       seedCache: Map[String, String] = Map.empty,
       ui: Map[String, String] = Map.empty
   ): IO[(List[String], Map[NodeId, Held])] =
@@ -142,8 +119,8 @@ class SetMembershipSuite extends ServerHarness {
         Server.RendererState.Ready(Renderer.create(dash))
       )
       sessions <- Sessions.create
-      // Stub HA: the SSE/patch path never calls it (an unexpected registry call
-      // still raises); the store is driven in-memory, so the empty seed is inert.
+      // The patch path never calls HA; an unexpected registry call still
+      // raises.
       fake <- FakeHomeAssistant.create(Nil)
       out <- Server
         .resource(
@@ -169,8 +146,7 @@ class SetMembershipSuite extends ServerHarness {
               ui = ui,
               holds = seed._2
             )
-            // What the viewer holds AFTER applying what it was just sent —
-            // where a seeded log entry used to be the baseline, this is.
+            // What the viewer holds after applying what it was just sent.
           } yield (
             elementPatches(events(patches)),
             patches.foldLeft(seed._2)(Patches.applied(renderer.ancestry, _, _))
@@ -181,12 +157,11 @@ class SetMembershipSuite extends ServerHarness {
 
   test("in-place member tick patches ONE child, not the whole group") {
     val after = Map("light.a" -> on("light.a"), "light.b" -> on("light.b"))
-    // light.b ticks (a fresh EntityState, same "on" state) -> InPlace member.
     val change = StateChange("light.b", Some(on("light.b")), on("light.b"))
     runShared(dynDash, after, change).map { case (patches, _) =>
       assertEquals(patches.size, 1, clue = patches)
       val p = patches.head
-      // outer-morphs the child id (default mode, no mode line), not the group.
+      // Outer-morphs the child id, not the group.
       assert(
         p.contains("""elements <div class="fh-cell" id="c_light_b">"""),
         clue = p
@@ -199,11 +174,9 @@ class SetMembershipSuite extends ServerHarness {
   test(
     "a member that switches CASE is re-materialised, not left on the old one"
   ) {
-    // The trap materialisation creates: a member's node is state-derived, so a
-    // frame that moves the matched entity across a case boundary must REPLACE
-    // the node, not merely mark it changed. Getting this wrong is silent — the
-    // card renders happily, from the wrong branch, for as long as the entity
-    // stays a member.
+    // A member's node is state-derived, so crossing a case boundary must
+    // replace it. Getting this wrong is silent: the card renders from the wrong
+    // branch for as long as the entity stays a member.
     val after =
       Map("light.a" -> st("light.a", "on", "mode" -> Json.fromString("dim")))
     val change = StateChange(
@@ -220,11 +193,8 @@ class SetMembershipSuite extends ServerHarness {
   }
 
   test("a member ticks on a SECOND entity it binds, not only on its own") {
-    // A CORRECTION, and the one place this phase moves the wire. The only
-    // selector for a member used to be its group's query, so a case slot naming
-    // an entity the query does not match — authorable, and accounted for in the
-    // old cache key — silently never re-rendered. A materialised member is in
-    // the reverse index like any node, so the entity it binds names it.
+    // A member is in the reverse index like any node, so an entity its case
+    // binds names it even when the group's query does not match that entity.
     val after = Map(
       "light.a" -> on("light.a"),
       "sensor.outside" -> st("sensor.outside", "13.1")
@@ -243,10 +213,8 @@ class SetMembershipSuite extends ServerHarness {
   }
 
   test("a case switch to a card binding NOTHING is still recorded") {
-    // The hole the reverse index cannot cover: the arriving card has no live
-    // slot, so it contributes no entity edge and nothing would name it. The
-    // member's ID is the sound handle — it exists whatever the card does — so
-    // `syncMembers` reports what it replaced and `record` touches that.
+    // The arriving card contributes no entity edge, so the member's id is the
+    // handle: `syncMembers` reports what it replaced and `record` touches that.
     val after =
       Map("light.a" -> st("light.a", "on", "mode" -> Json.fromString("dim")))
     val change = StateChange(
@@ -262,8 +230,8 @@ class SetMembershipSuite extends ServerHarness {
     }
   }
 
-  /** A candidate set the log already knows: MEMBER entries, which is what
-    * "established" means now that no container logs a fragment of its own.
+  /** "Established" means the log has member entries; no container logs a
+    * fragment of its own.
     */
 
   private val establishedGroup = Map(
@@ -273,7 +241,7 @@ class SetMembershipSuite extends ServerHarness {
   )
 
   test("member add: per-entity insert BEFORE the DOM successor") {
-    // a,c,d already on; b turns on -> Added, churn 1 of shown 3 -> per-entity.
+    // Churn 1 of 3 shown: per-entity.
     val after = Map(
       "light.a" -> on("light.a"),
       "light.b" -> on("light.b"),
@@ -281,11 +249,9 @@ class SetMembershipSuite extends ServerHarness {
       "light.d" -> on("light.d")
     )
     val change = StateChange("light.b", Some(off("light.b")), on("light.b"))
-    // A group is ESTABLISHED by having member entries — there is no group-level
-    // fragment any more (it would be a fragment containing other nodes).
-    // An arrival is remove-then-insert: the pair is idempotent whatever the
-    // client's DOM holds, which is what lets an arrival and a re-order be the
-    // same operation (see `Patches.resume`).
+    // An arrival is remove-then-insert, idempotent whatever the client's DOM
+    // holds, so an arrival and a re-order are one operation (see
+    // `Patches.resume`).
     runShared(dynDash, after, change, seedCache = establishedGroup).map {
       case (patches, cache) =>
         assertEquals(patches.size, 2, clue = patches)
@@ -300,7 +266,6 @@ class SetMembershipSuite extends ServerHarness {
           p.contains("""elements <div class="fh-cell" id="c_light_b">"""),
           clue = p
         )
-        // the new child is logged; no node logs a fragment containing another.
         assert(cache.contains("c_light_b"), clue = cache)
         assert(!cache.contains("c"), clue = cache)
     }
@@ -328,7 +293,7 @@ class SetMembershipSuite extends ServerHarness {
   }
 
   test("member remove: per-entity remove patch (no elements), child pruned") {
-    // 4 on; b turns off -> Removed, churn 1 of shown 4 -> per-entity remove.
+    // Churn 1 of 4 shown: per-entity remove.
     val after = Map(
       "light.a" -> on("light.a"),
       "light.b" -> off("light.b"),
@@ -346,20 +311,17 @@ class SetMembershipSuite extends ServerHarness {
       val p = patches.head
       assert(p.contains("mode remove"), clue = p)
       assert(p.contains("selector #c_light_b"), clue = p)
-      // remove carries no HTML payload (the event name still says "…elements").
+      // The event name still says "…elements".
       assert(!p.contains("data: elements"), clue = p)
       assert(!cache.contains("c_light_b"), clue = cache)
     }
   }
 
   test("removing 1 of 2 members is a DELTA, not a fill") {
-    // This used to fill: churn was compared against a fraction of the group
-    // (half), and 1 of 2 is not a minority. It was the wrong call at its own
-    // motivating boundary — a `remove` carries NO HTML, where the fill it chose
-    // instead re-rendered the surviving member for nothing, and raised the
-    // host's horizon so every client below that cursor lost its delta path
-    // too. A fill now happens only where it costs nothing (everything arrived,
-    // or everything left) or where there is no baseline to patch against.
+    // A `remove` carries no HTML, where a fill re-renders the survivor and
+    // raises the host's horizon, costing every client below that cursor its
+    // delta path. A fill happens only where it costs nothing (all arrived or
+    // all left) or where there is no baseline.
     val after = Map("light.a" -> on("light.a"), "light.b" -> off("light.b"))
     val change = StateChange("light.b", Some(on("light.b")), off("light.b"))
     runShared(
@@ -372,8 +334,6 @@ class SetMembershipSuite extends ServerHarness {
       val p = patches.head
       assert(p.contains("mode remove"), clue = p)
       assert(p.contains("selector #c_light_b"), clue = p)
-      // The whole point: no HTML at all, where a fill would have re-sent the
-      // survivor's markup.
       assert(!p.contains("data: elements"), clue = p)
       assert(!cache.contains("c_light_b"), clue = cache)
       assert(!cache.contains("c"), clue = cache)
@@ -381,9 +341,8 @@ class SetMembershipSuite extends ServerHarness {
   }
 
   test("the LAST member leaving fills, because the fill carries nothing") {
-    // The other side of the same rule. Everything left, so there is no
-    // unchanged member for a fill to re-send: one empty `inner` beats one
-    // `remove`, and it leaves the host unambiguously empty.
+    // Everything left, so there is no survivor for a fill to re-send, and an
+    // empty `inner` leaves the host unambiguously empty.
     val after = Map("light.a" -> off("light.a"))
     val change = StateChange("light.a", Some(on("light.a")), off("light.a"))
     runShared(dynDash, after, change, seedCache = Map("c_light_a" -> "<a>"))
@@ -398,8 +357,8 @@ class SetMembershipSuite extends ServerHarness {
   }
 
   test("membership change on a not-yet-logged group falls back to a fill") {
-    // Same 1-of-4 remove that would be per-entity — but with an EMPTY log the
-    // group isn't established, so we fill to establish a known base.
+    // With an empty log the group is not established, so it fills to set a
+    // base.
     val after = Map(
       "light.a" -> on("light.a"),
       "light.b" -> off("light.b"),
@@ -411,15 +370,12 @@ class SetMembershipSuite extends ServerHarness {
       assertEquals(patches.size, 1, clue = patches)
       assert(patches.head.contains("mode inner"), clue = patches)
       assert(patches.head.contains("selector #c"), clue = patches)
-      // Established by its MEMBERS' entries, so the next churn takes the delta
-      // path — and by no entry of its own.
+      // Established by its members' entries, and by no entry of its own.
       assert(cache.contains("c_light_a"), clue = cache)
       assert(!cache.contains("c"), clue = cache)
     }
   }
 
-  // A candidate set inside an open SURFACE (id "det"); its group id is
-  // surface-namespaced `s_det__c`, children `s_det__c_<slug>`.
   private def surfaceDynDash = Dashboard(
     cards = Map(
       "col" -> CardDef(
@@ -439,14 +395,9 @@ class SetMembershipSuite extends ServerHarness {
     )
   )
 
-  /** '''A client is never sent a surface it is not viewing.'''
-    *
-    * Both directions are asserted deliberately. Without the second half this
-    * would pass just as well if the server sent NOBODY anything.
-    *
-    * It is now a property of the PULL rather than of a tag: each viewer renders
-    * against its own open set, so a tab nobody is viewing is not withheld from
-    * them — it is never produced for them at all.
+  /** '''A client is never sent a surface it is not viewing.''' Each viewer
+    * renders against its own open set. The second direction stops this passing
+    * if nobody were sent anything.
     */
 
   test(
@@ -456,7 +407,6 @@ class SetMembershipSuite extends ServerHarness {
       "sensor.a" -> es("sensor.a", "A0"),
       "sensor.b" -> es("sensor.b", "B1")
     )
-    // The change is inside tab 1's panel, which only B has open.
     val change =
       StateChange("sensor.b", Some(es("sensor.b", "B0")), es("sensor.b", "B1"))
     (for {
@@ -483,7 +433,6 @@ class SetMembershipSuite extends ServerHarness {
             _ <- sessions.register("b", viewingT1)
             renderer <- ref.get.map(_.rendererOf.get)
             log <- Ref[IO].of(FragmentLog("test"))
-            // Recorded ONCE for the slug; each viewer then pulls its own.
             forB <- recordAndPull(
               server,
               sessions,
@@ -520,8 +469,6 @@ class SetMembershipSuite extends ServerHarness {
           clue = bytes
         )
         assert(bytes.exists(_.contains("B1")), clue = bytes)
-        // A is looking at tab 0 and must not receive it; B, who IS looking at
-        // it, must — the second half is what stops this passing vacuously.
         assert(
           !events(forA).map(_.render).exists(_.contains("s_c_t1__c")),
           clue = events(forA).map(_.render)
@@ -538,8 +485,8 @@ class SetMembershipSuite extends ServerHarness {
         Server.RendererState.Ready(Renderer.create(surfaceDynDash))
       )
       sessions <- Sessions.create
-      // Stub HA: the SSE/patch path never calls it (an unexpected registry call
-      // still raises); the store is driven in-memory, so the empty seed is inert.
+      // The patch path never calls HA; an unexpected registry call still
+      // raises.
       fake <- FakeHomeAssistant.create(Nil)
       patches <- Server
         .resource(
@@ -573,7 +520,7 @@ class SetMembershipSuite extends ServerHarness {
       .map { patches =>
         val bytes = events(patches)
         assertEquals(patches.size, 1, clue = bytes.map(_.render))
-        // one child morph, surface-namespaced id — not the whole surface group.
+        // One child morph, not the whole surface group.
         assertEquals(
           bytes.head.elements,
           Some(
@@ -583,18 +530,10 @@ class SetMembershipSuite extends ServerHarness {
       }
   }
 
-  /** A set NESTED inside a member, inside a surface — a tile per room, on a
-    * tab.
-    *
-    * A member carries the layout tree it lives in, and that is what decides
-    * which clients its patch may reach. Only the OUTER set is in the static
-    * index; an inner one hangs off a member, so a `root` read from the index
-    * answered `""` — the main page — and every inner member's patch went to
-    * every connected client, tab open or not.
-    *
-    * Asserted at the level the bug actually shows: two viewers, one frame. The
-    * unit test on `Member.root` in `MemberGraphSuite` pins the fix; this pins
-    * the PROPERTY, which is what would have caught it in the first place.
+  /** A set nested inside a member, inside a surface: a tile per room, on a tab.
+    * Only the outer set is in the static index, so a `root` read from it
+    * answered `""`, the main page, and every inner member's patch reached every
+    * client. `MemberGraphSuite` pins `Member.root`; this pins the property.
     */
   private def nestedSurfaceDash = Dashboard(
     cards = Map(
@@ -635,7 +574,6 @@ class SetMembershipSuite extends ServerHarness {
 
   test("a member of a set nested in a surface never reaches a closed tab") {
     val lit = Map("light.a" -> on("light.a"), "light.b" -> on("light.b"))
-    // A bulb goes out: a membership departure inside the INNER set.
     val change = StateChange("light.b", Some(on("light.b")), off("light.b"))
     val after = lit.updated("light.b", off("light.b"))
     (for {
@@ -663,9 +601,8 @@ class SetMembershipSuite extends ServerHarness {
             _ <- elsewhere.open.set(Set("other"))
             _ <- sessions.register("elsewhere", elsewhere)
             renderer <- ref.get.map(_.rendererOf.get)
-            // Establish the inner host, so the frame produces a per-member
-            // delta rather than a wholesale fill — the delta is the path that
-            // has to get `root` right per member.
+            // Establish the inner host, so the frame takes the per-member
+            // delta: the path that must get `root` right per member.
             seed = seeded(
               renderer,
               lit,
@@ -675,7 +612,6 @@ class SetMembershipSuite extends ServerHarness {
               )
             )
             log <- Ref[IO].of(seed._1)
-            // Recorded once for the slug; then each viewer pulls its own.
             forWatching <- recordAndPull(
               server,
               sessions,
@@ -686,9 +622,7 @@ class SetMembershipSuite extends ServerHarness {
               open = Set("det"),
               holds = seed._2
             )
-            // Same DOM, same cursor — the OPEN SET is the only difference, so
-            // anything the second viewer receives is receiving it for that
-            // reason alone.
+            // Same DOM and cursor: the open set is the only difference.
             forElsewhere <- (log.get, store.current, RenderCache.create)
               .flatMapN((l, now, rc) =>
                 Patches.resume(
@@ -711,13 +645,11 @@ class SetMembershipSuite extends ServerHarness {
       .map { case (forWatching, forElsewhere) =>
         val seen = events(forWatching).map(_.render)
         val unseen = events(forElsewhere).map(_.render)
-        // The viewer WITH the tab open gets the departure. Without this half
-        // the assertion below would pass just as well if nobody got anything.
+        // Without this half the assertion below passes if nobody got anything.
         assert(
           seen.exists(_.contains("s_det__c_area_stue_0_0_light_b")),
           clue = seen
         )
-        // The viewer on another tab gets nothing that names the nested set.
         assert(
           !unseen.exists(_.contains("s_det__c_area_stue")),
           clue = unseen

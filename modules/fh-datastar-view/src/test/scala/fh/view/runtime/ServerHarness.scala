@@ -160,6 +160,11 @@ trait ServerHarness extends munit.CatsEffectSuite {
       )
       .unsafeRunSync()
 
+  /** One frame recorded for the slug, then pulled by one viewer: the path a
+    * live change takes. `holds` is what that viewer's DOM already has, and
+    * suppresses redundant patches; `from = 0` asks for everything the log
+    * knows.
+    */
   def recordAndPull(
       server: Server,
       sessions: Sessions,
@@ -326,6 +331,11 @@ trait ServerHarness extends munit.CatsEffectSuite {
     )
   )
 
+  /** A viewer already current on these nodes, and a log that has recorded them.
+    * The value is each id's live rendering, since suppression compares a digest
+    * of what the client holds; seeded through `set`, so the digest derivation
+    * is not duplicated here.
+    */
   def seeded(
       renderer: Renderer,
       states: Map[String, EntityState],
