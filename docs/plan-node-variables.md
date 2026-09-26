@@ -56,11 +56,13 @@ Wire spelling reuses the rule `SlotSource`'s decoder already carries — **a bar
 literal**, an object (`{"var": "window"}`) is a reference. No discriminator, so no churn through
 `PklBuildSuite`'s byte-identity snapshots for the slots that do not use this.
 
-**This is where the permission question dissolves.** The dropped draft needed an opt-in
+**The permission question moves to the write.** The dropped draft needed an opt-in
 `settable: Listing<String>` so a control could move a chart's `window` but not its `entity` —
 substituting the entity is "chart a sensor this dashboard never showed", an access question
-(ADR 0023). With references, `["entity"] = "sensor.t"` is a `Ref.Literal` and **there is nowhere
-for a write to land**. Only a declared variable is writable. Unspellable, not rejected.
+(ADR 0023). With references, `["entity"] = "sensor.t"` is a `Ref.Literal` and there is nowhere
+for a write to land. But a `Ref` is legal on any parameter, so a variable fed to `entity` is
+spellable, and the write (and the `v.` URL) refuse a value whose reads name an entity the
+dashboard does not show (`Renderer.refusals`).
 
 ### Resolution
 

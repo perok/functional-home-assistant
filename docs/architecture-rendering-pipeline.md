@@ -997,12 +997,18 @@ they are recorded on the session (a pull has no request to read either off again
 `v.<declarer>.<name>` query param on the document (`Server.varChoicesOf` — the carrier that
 survives a refresh), and as `POST /sse/var/:slug/:declarer/:name/:value` while the page is live.
 A choice matching no declaration is inert rather than an error — the same treatment
-`SurfaceGraph.openPopup` gives a surface id this dashboard no longer has.
+`SurfaceGraph.openPopup` gives a surface id this dashboard no longer has. A choice that does match
+one passes the same check either way (`Renderer.refusals`): every declared reader must still parse
+what it would then ask, and read only an entity the dashboard names or a query of it names at its
+declared values — ADR 0023's action bound, on the read side, so a variable fed to `entity` cannot
+chart a lock the dashboard never showed. A refused write is ADR 0024's 200 of signals; a refused
+URL is a 400, before any session exists, rather than a page that dies mid-walk.
 
-**The write re-renders exactly the readers, and commits last.** `Renderer.readersOf` inverts the
-declared edge, which the write needs twice over: to decide whether the value is acceptable at all
-(can every reader still parse what it would then ask?) and to decide what to repaint. Each reader
-is re-rendered against a snapshot resolved with the new values, suppressed where the bytes did not
+**The write re-renders the readers this viewer is shown, and commits last.** `Renderer.readersOf`
+inverts the declared edge, which the write needs twice over: to check the value against every
+reader, and to decide what to repaint — narrowed there to what `SurfaceGraph.visibleNode` says
+this session shows, the filter a pull uses, since a closed surface renders the value when it opens.
+Each reader is re-rendered against a snapshot resolved with the new values, suppressed where the bytes did not
 move, and then the value is COMMITTED as `_var_<declarer>__<name>` — ADR 0025's pair, so a control
 shows the press immediately from its own pending signal and the ask ends only when the server
 agrees. A refused value ends the ask instead (ADR 0024's 200 of signals, naming the group), leaving

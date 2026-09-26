@@ -11,7 +11,7 @@
 ///     }
 ///
 /// No list of allowed values: the write boundary refuses a value no declared
-/// reader can parse. Where a closed set IS the point, emit the declaration and
+/// reader can parse, or that names an entity the dashboard does not show. Where a closed set IS the point, emit the declaration and
 /// its control from one list in Pkl (`components/history.pkl`'s
 /// `WindowChooser`).
 module core.variable

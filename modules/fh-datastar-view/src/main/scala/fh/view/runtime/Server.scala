@@ -19,7 +19,7 @@ import fh.view.build.{
 import fh.view.FHError
 import fh.view.auth.{AuthGate, Requirement}
 import fh.view.history.{ChartRenderer, History, SeriesSource}
-import fh.view.query.{Queries, QueryIdentity, QueryResolver, QuerySnapshot}
+import fh.view.query.{QueryIdentity, QueryResolver, QuerySnapshot}
 import fh.view.model.{
   ChromeColors,
   Dashboard,
@@ -1529,12 +1529,13 @@ class Server(
   ): IO[QuerySnapshot] =
     answer(renderer, renderer.queriesForPage(open, states, env), env)
 
-  /** Set a NODE VARIABLE for this viewer, and re-render exactly the nodes that
-    * read it (issue #209).
+  /** Set a NODE VARIABLE for this viewer, and re-render the nodes that read it
+    * and that this viewer is shown (issue #209).
     *
-    * Where the untrusted path value is checked: accepted only if every declared
-    * reader ([[Renderer.readersOf]]) can still parse its ask. A refusal raises,
-    * which [[withSession]] answers as ADR 0024's 200 of signals.
+    * Where the untrusted path value is checked ([[Renderer.refusals]]). A
+    * refusal raises, which [[withSession]] answers as ADR 0024's 200 of
+    * signals. Checked inside the `modify`, so two choices landing together
+    * cannot drop one.
     *
     * The value is committed LAST, even when no bytes moved, because the commit
     * is what ends the control's pending ask (ADR 0025). Per session only, like
@@ -1550,34 +1551,36 @@ class Server(
   ): IO[Unit] = {
     val readers = renderer.readersOf(declarer, name)
     for {
-      _ <- IO.raiseWhen(readers.isEmpty)(
-        FHError.notFound(
-          s"no node reads the variable '$name' declared on '$declarer'"
-        )
-      )
-      current <- session.vars.get
-      proposed = current + ((declarer, name) -> value)
-      env = renderer.varEnv(proposed)
-      refused = readers
-        .flatMap(renderer.readsAt(_, env))
-        .flatMap(r => Queries.parse(r.query).left.toOption)
-        .distinct
-      _ <- IO.raiseWhen(refused.nonEmpty)(
-        FHError.badCondition(
-          s"'$value' is not a value '$name' can take: ${refused.mkString("; ")}"
-        )
-      )
-      _ <- session.vars.set(proposed)
       store <- stateStore.current
+      open <- session.open.get
+      shown = renderer.surfaces.visibleNode(_, open, store.entities)
+      _ <- IO.raiseWhen(readers.isEmpty || !shown(declarer))(
+        FHError.notFound(
+          s"no node this viewer is shown reads the variable '$name' declared on '$declarer'"
+        )
+      )
+      proposed <- session.vars
+        .modify { current =>
+          val proposed = current + ((declarer, name) -> value)
+          renderer.refusals(proposed) match {
+            case Nil     => (proposed, Right(proposed))
+            case refused => (current, Left(refused))
+          }
+        }
+        .flatMap(
+          _.leftMap(r => FHError.badCondition(r.mkString("; "))).liftTo[IO]
+        )
+      env = renderer.varEnv(proposed)
+      targets = readers.filter(shown)
       snapshot <- answer(
         renderer,
-        renderer.readsForPull(readers, Nil, store.entities, uiState, env),
+        renderer.readsForPull(targets, Nil, store.entities, uiState, env),
         env
       )
       holds <- session.holds.get
       live <- liveFor(session.slug)
       patches <- live.toList.flatTraverse(l =>
-        readers.traverseFilter(
+        targets.traverseFilter(
           Patches.morph(
             renderer,
             l.cache,
@@ -2065,7 +2068,20 @@ class Server(
         case Server.RendererState.Failed(message) =>
           errorPage(slug, message, req)
         case Server.RendererState.Ready(renderer) =>
-          renderPage(slug, renderer, log, conn, req)
+          // Choices off the URL (`v.` params, mirrored there by the
+          // control), narrowed to declarations because an undeclared key
+          // would become a signal name in the opening frame, and held to a
+          // write's check before any session exists.
+          val choices = Server
+            .varChoicesOf(req)
+            .view
+            .filterKeys(renderer.declarations.contains)
+            .toMap
+          renderer.refusals(choices) match {
+            case Nil     => renderPage(slug, renderer, log, conn, req, choices)
+            case refused =>
+              FHError.logged(FHError.badCondition(refused.mkString("; ")))
+          }
     }
 
   /** The full dashboard document ([[page]]) for a `Ready` slug: mint this
@@ -2077,7 +2093,8 @@ class Server(
       renderer: Renderer,
       log: FragmentLog,
       conn: String,
-      req: Request[IO]
+      req: Request[IO],
+      choices: Map[(NodeId, String), String]
   ): IO[Response[IO]] = {
     val uiState = Server.uiStateOf(req)
     // The editor embeds the dashboard as `?edit=1`; that turns on the
@@ -2142,16 +2159,7 @@ class Server(
       // only known once the last byte is out, which is why `holds` is
       // committed in the stream's finalizer below rather than here.
       ownRef <- IO.ref(Map.empty[NodeId, Painted])
-      // Choices off the URL (`v.` params, mirrored there by the control),
-      // kept on the session for pulls. Narrowed to declarations here because
-      // an undeclared key would become a signal name in the opening frame.
-      _ <- session.vars.set(
-        Server
-          .varChoicesOf(req)
-          .view
-          .filterKeys(renderer.declarations.contains)
-          .toMap
-      )
+      _ <- session.vars.set(choices)
       _ <- session.position.set(store.version)
       // The page renders the cursor into its own signals, so the document
       // IS an announcement — and the first one. Without this a client

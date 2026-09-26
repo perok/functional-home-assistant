@@ -180,12 +180,12 @@ case class SlotSource(
   * a render-key component. No identity: that belongs to the request.
   */
 case class SlotQuery(provider: String, params: Map[String, String])
-    derives CanEqual,
-      ConfiguredDecoder
+    derives CanEqual
 
 /** A query parameter: written down, or read from a NODE VARIABLE declared by
-  * this node or an ancestor (issue #209). A literal has nowhere for a write to
-  * land, so substituting an entity (ADR 0023) is unspellable, not refused.
+  * this node or an ancestor (issue #209). Only a variable can be written, and
+  * what it may make a query read is bounded at the write
+  * ([[fh.view.runtime.Renderer.refusals]]).
   */
 enum Ref derives CanEqual:
   case Literal(value: String)
@@ -1989,6 +1989,16 @@ case class Dashboard(
     (queriesIn(card) ++ surfaces.values.toList.flatMap(s =>
       queriesIn(s.content)
     )).distinct
+
+  /** What the queries read at their declared values. Not in
+    * [[referencedEntities]]: showing a sensor's history is not leave to act on
+    * it.
+    */
+  lazy val queriedEntities: Set[String] =
+    allQueries
+      .flatMap(r => Queries.parse(r.query).toOption)
+      .flatMap(_.entities)
+      .toSet
 
   /** Every query under one node, at declared defaults (a viewer's choice is
     * overlaid by the renderer). Static, so a set clause that will not match

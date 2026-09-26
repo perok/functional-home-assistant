@@ -2,7 +2,7 @@ package fh.view.runtime
 
 import com.github.mustachejava.Mustache
 import fh.view.build.LibPackage
-import fh.view.query.{QuerySnapshot, QueryRequest}
+import fh.view.query.{Queries, QuerySnapshot, QueryRequest}
 import fh.view.model.{
   Access,
   Cell,
@@ -13,6 +13,7 @@ import fh.view.model.{
   NodeId,
   Reads,
   SlotAsk,
+  SlotQuery,
   SlotRead,
   SlotShape,
   SetId,
@@ -349,6 +350,34 @@ class Renderer(
           if scope.get(name).exists(_.declarer == declarer) &&
             queriesForNode(id).exists(_.query.references.contains(name)) =>
         id
+    }
+
+  /** Why `choices` cannot be a viewer's values, one line per refused choice —
+    * the check a write and a page URL both pass. Every declared reader must
+    * still parse, and read only an entity this dashboard shows: the read-side
+    * twin of an action's bound (ADR 0023), without which a variable fed to
+    * `entity` charts any sensor in the house.
+    */
+  def refusals(choices: Map[(NodeId, String), String]): List[String] = {
+    val env = varEnv(choices)
+    choices.toList.flatMap { case ((declarer, name), value) =>
+      val why = readersOf(declarer, name)
+        .flatMap(readsAt(_, env))
+        .flatMap(r => refusal(r.query))
+        .distinct
+      Option.when(why.nonEmpty)(
+        s"'$value' is not a value '$name' can take: ${why.mkString("; ")}"
+      )
+    }
+  }
+
+  private def refusal(query: SlotQuery): Option[String] =
+    Queries.parse(query) match {
+      case Left(e)    => Some(e)
+      case Right(req) =>
+        req.entities
+          .find(e => !references(e) && !dashboard.queriedEntities(e))
+          .map(e => s"$e is not on this dashboard")
     }
 
   /** What re-rendering `targets` and refilling `hosts` reads — a pull's, or a

@@ -87,6 +87,41 @@ class VarTapSuite extends ServerHarness {
     )
   )
 
+  /** A chart whose ENTITY is the variable, beside a card naming `sensor.b` —
+    * the dashboard ADR 0023's bound is drawn around.
+    */
+  private val entityDash = Dashboard(
+    cards = Map("chart" -> chartCard, "panel" -> panelCard),
+    card = LayoutNode.Component(
+      "panel",
+      regions = LayoutNode.kids(
+        chartNode.copy(slots =
+          Map(
+            "chart" -> SlotSource(
+              query = Some(
+                QueryTemplate(
+                  "history",
+                  Map(
+                    "entity" -> Ref.Var("e"),
+                    "window" -> Ref.Var("window")
+                  )
+                )
+              ),
+              transform = Transform.Stage.Passthrough,
+              reads = Reads.OnRender
+            )
+          )
+        ),
+        LayoutNode.Component(
+          "chart",
+          slots = Map("chart" -> SlotSource(entityId = Some("sensor.b")))
+        )
+      ),
+      id = Some("panel"),
+      vars = Map("e" -> "sensor.a", "window" -> "24h")
+    )
+  )
+
   /** The span of whatever window was asked for, as the series' one point — so
     * `[[3600000,...]]` is an hour and `[[604800000,...]]` is a week.
     */
@@ -114,14 +149,22 @@ class VarTapSuite extends ServerHarness {
 
   private def served[A](
       f: (HttpApp[IO], Sessions) => IO[A],
-      queries: IO[QueryResolver] = resolver
+      queries: IO[QueryResolver] = resolver,
+      dashboard: Dashboard = dash
   ): IO[A] =
     (for {
-      store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "1")))
+      store <- StateStore.inMemory(
+        Map(
+          "sensor.a" -> es("sensor.a", "1"),
+          "sensor.b" -> es("sensor.b", "2")
+        )
+      )
       ref <- SignallingRef[IO].of(
         Server.RendererState.Ready(
           Renderer.fromValidated(
-            dash.validated().fold(e => sys.error(e.mkString("; ")), identity)
+            dashboard
+              .validated()
+              .fold(e => sys.error(e.mkString("; ")), identity)
           )
         )
       )
@@ -366,6 +409,93 @@ class VarTapSuite extends ServerHarness {
         assert(body.contains("\"_var_panel__window__pending\":\"\""), body)
       }
     }
+  }
+
+  test("a variable moves a chart only to an entity its dashboard shows") {
+    // ADR 0023's bound on the read side, at both places a value arrives: a
+    // write and a page URL. `sensor.b` is on the dashboard; the lock is not,
+    // and the recorder must never be asked for it.
+    CeRef[IO].of(Set.empty[String]).flatMap { asked =>
+      val recording = for {
+        history <- History.create(new SeriesSource {
+          def raw(start: Instant, end: Instant, entityId: String) =
+            asked.update(_ + entityId).as(List(HistoryPoint("1.0", end)))
+          def statistics(
+              start: Instant,
+              end: Instant,
+              entityId: String,
+              period: StatisticsPeriod
+          ) = IO.pure(Nil)
+        })
+        r <- QueryResolver.create(history, IO.pure((_, _) => IO.pure("<svg/>")))
+      } yield r
+      served(
+        (routes, sessions) =>
+          for {
+            conn <- connect(routes)
+            named <- post(routes, conn, "/sse/var/dashboard/panel/e/sensor.b")
+            refused <- post(
+              routes,
+              conn,
+              "/sse/var/dashboard/panel/e/lock.front_door"
+            )
+            chose <- sessions.get(conn).flatMap(_.traverse(_.vars.get))
+            linked <- routes.run(
+              Request[IO](
+                Method.GET,
+                uri"/d/dashboard?v.panel.e=lock.front_door"
+              )
+            )
+            entities <- asked.get
+          } yield {
+            assertEquals(named.status, Status.NoContent)
+            assertEquals(refused.status, Status.Ok)
+            assertEquals(
+              chose,
+              Some(Map(("panel": fh.view.model.NodeId, "e") -> "sensor.b"))
+            )
+            assertEquals(linked.status, Status.BadRequest)
+            assertEquals(entities, Set("sensor.a", "sensor.b"))
+          },
+        recording,
+        entityDash
+      )
+    }
+  }
+
+  test(
+    "a link carrying a value no reader can parse is a 400, not a torn page"
+  ) {
+    // The URL is the second way a value arrives, and it once skipped the
+    // write's check: the page answered 200 and died mid-walk.
+    served { (routes, _) =>
+      routes
+        .run(Request[IO](Method.GET, uri"/d/dashboard?v.panel.window=bogus"))
+        .flatMap(r => r.bodyText.compile.string.map(r.status -> _))
+        .map { case (status, body) =>
+          assertEquals(status, Status.BadRequest)
+          assert(body.contains("bogus"), clue = body)
+        }
+    }
+  }
+
+  test("two choices landing together both stick") {
+    // Each write validates against, and commits onto, the other's result.
+    served(
+      (routes, sessions) =>
+        for {
+          conn <- connect(routes)
+          _ <- (
+            post(routes, conn, "/sse/var/dashboard/panel/e/sensor.b"),
+            post(routes, conn, "/sse/var/dashboard/panel/window/7d")
+          ).parTupled
+          chose <- sessions.get(conn).flatMap(_.traverse(_.vars.get))
+        } yield assertEquals(
+          chose.map(_.keySet.map(_._2)),
+          Some(Set("e", "window"))
+        ),
+      dashboard = entityDash
+    )
   }
 
   test("the opening frame states every declared variable, chosen or not") {

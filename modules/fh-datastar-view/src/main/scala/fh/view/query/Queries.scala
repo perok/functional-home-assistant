@@ -69,6 +69,13 @@ object Staged {
   */
 enum QueryRequest derives CanEqual {
   case History(entityId: String, window: Window)
+
+  /** What this reads, held to the dashboard's names when a viewer's value
+    * resolved it (ADR 0023).
+    */
+  def entities: Set[String] = this match {
+    case History(entityId, _) => Set(entityId)
+  }
 }
 
 object Queries {

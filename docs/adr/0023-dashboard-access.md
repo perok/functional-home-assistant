@@ -239,6 +239,15 @@ direction: narrowing the subscription to this set would leave a dashboard that
 never reacts, and widening this set to that one would let a dashboard ACT on an
 entity it only reads, which is exactly what the bound exists to prevent.
 
+**A viewer's value may only make a query read an entity its dashboard shows.** A
+node variable can feed any query parameter (issue #209), `entity` included, and
+its value arrives from a path or a `v.` URL param, so without a bound it would
+chart the lock's history from a `Public` dashboard. `Renderer.refusals` holds
+every value, from a write and from a URL alike, to `referencedEntities` plus
+`Dashboard.queriedEntities` — what the queries read at their declared values.
+The second set stays out of `referencedEntities`: showing a sensor's history is
+not leave to act on it.
+
 The slug cannot be authored: a dashboard module does not know its own (the
 entrypoint supplies it as a key, and `fh push --slug` can rename it), so the
 renderer supplies it. Two spellings, one fact, and each names the mechanism
