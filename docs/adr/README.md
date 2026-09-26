@@ -49,3 +49,4 @@ to move it; 0003 and 0007 own two of the three node kinds it draws.
 - [0030 — Subscribe to what we read](0030-subscribe-to-what-we-read.md)
 - [0031 — A query is a second SHAPE of slot, and what its answer becomes is the transform's](0031-a-query-is-a-second-shape-of-slot.md)
 - [0032 — A chart is bytes, and the JavaScript that makes them runs here](0032-a-chart-is-bytes.md)
+- [0033 — A node variable: declared by a node, read by name, chosen per viewer](0033-node-variables.md)
