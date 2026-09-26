@@ -404,6 +404,9 @@ trait ServerHarness extends munit.CatsEffectSuite {
       activation = Activation.State(condition)
     )
 
+  /** `ifhost` at "c_0". `then` is active while alarm.h == armed, and the
+    * always-true `else` otherwise; by default they show sensor.a and sensor.b.
+    */
   def ifDash(
       thenContent: LayoutNode = branchCard("sensor.a"),
       elseContent: LayoutNode = branchCard("sensor.b")
@@ -423,6 +426,11 @@ trait ServerHarness extends munit.CatsEffectSuite {
 
   def es(id: String, state: String): EntityState = st(id, state)
 
+  /** One viewer over an evolving store: each [[step]] applies one update,
+    * deriving the StateChange as the WS ingest does, records the frame, and
+    * returns what this viewer's pull emits. `holds` and `position` accumulate
+    * across steps.
+    */
   class SharedHarness(
       store: StateStore,
       val server: Server,
