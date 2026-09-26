@@ -15,22 +15,12 @@ import perok.ha.{GetStatesData, ServiceDomain}
 import java.time.Instant
 
 // TODO add caching of rest + json response. triggers and actions usually don't change
-//
-// The trait is effect-polymorphic in `F`: methods return `F[...]` /
-// `Resource[F, *]`, not a hardcoded `IO`. The only production instance is built
-// at `F = IO` ([[HomeAssistantApi.fromWs]]) — consumers still work against
-// `HomeAssistantApi[IO]` — but honoring `F` keeps the type honest (a test double
-// or alternative interpreter can pick another effect) and confines the effect to
-// this "machinery" boundary.
 trait HomeAssistantApi[F[_]] {
 
-  /** https://developers.home-assistant.io/docs/device_registry_index/
-    * @return
-    */
+  /** https://developers.home-assistant.io/docs/device_registry_index/ */
   def configDeviceRegistryList: F[Map[DeviceId, Device]]
 
-  def configEntityRegistryList
-      : F[Map[EntityId, Entity]] // Exposes entity_id and device_id
+  def configEntityRegistryList: F[Map[EntityId, Entity]]
 
   def configEntityRegistryGet(entityId: EntityId): F[Json]
 
@@ -39,12 +29,9 @@ trait HomeAssistantApi[F[_]] {
 
   def configFloorRegistryList: F[List[Floor]]
 
-  /** Every account that can log in (`config/auth/list`) — admin-only, and asked
-    * on the machine connection, which is an admin.
-    */
+  /** Admin-only; the machine connection is an admin. */
   def configAuthList: F[List[HaAccount]]
 
-  // Not interesting
   def manifestList(): F[List[Manifest]]
 
   def configEntriesGet(
@@ -60,41 +47,27 @@ trait HomeAssistantApi[F[_]] {
 
   def getConfigWS: F[Json]
 
-  /** Who the token that authenticated this connection belongs to. On the shared
-    * feed that is the machine identity; the useful call is on a short-lived
-    * connection opened with a user's own OAuth token, which is how a browser
-    * login learns its user and role (issue #89).
+  /** The connection token's owner: the machine on the shared feed, the user on
+    * a connection opened with their OAuth token (issue #89).
     */
   def currentUser: F[HaUser]
 
-  /** HA's compressed state feed: the subscribed set in full, then deltas, over
-    * ONE subscription — so live state needs no separate snapshot fetch to race
-    * against. See [[api.homeassistant.ws.domain.EntitiesEvent]].
-    *
-    * `only` narrows the subscription HA-side, which is where narrowing is worth
-    * anything: the entities left out cost no serialisation, no bytes, no parse
-    * and no ingest. `None` subscribes to the whole house.
-    *
-    * '''An empty set is not expressible on the wire''' — HA reads an empty
-    * `entity_ids` as "no filter" — so a caller that wants nothing must not call
-    * this at all. `Some(Set.empty)` would subscribe to everything.
+  /** The subscribed set in full, then deltas, over one subscription, so no
+    * snapshot fetch races it. `None` is the whole house. HA reads an empty
+    * `entity_ids` as no filter, so `Some(Set.empty)` subscribes to everything:
+    * a caller that wants nothing must not call this.
     */
   def entities(only: Option[Set[String]]): Resource[F, Stream[F, EntitiesEvent]]
 
   def event(event: Option[String]): Resource[F, Stream[F, Event]]
 
-  /** Subscribe to an arbitrary HA event type, yielding the raw event JSON.
-    * Event payload shapes are event-type-specific (`entity_registry_updated`
-    * carries `{action, entity_id}`, not a state), so no decoding is imposed
-    * here — [[event]] is the typed `state_changed` special case.
+  /** Undecoded: payload shapes are event-type-specific. [[event]] is the typed
+    * `state_changed` case.
     */
   def rawEvents(eventType: String): Resource[F, Stream[F, Json]]
 
   def trigger(data: TriggerData*): Resource[F, Stream[F, Json]]
 
-  /** Call a Home Assistant service/action on an entity via the WebSocket API.
-    * `serviceData` carries extra parameters (e.g. `{ "brightness": 128 }`).
-    */
   def callService(
       domain: String,
       service: String,
@@ -129,11 +102,8 @@ trait HomeAssistantApi[F[_]] {
 
 object HomeAssistantApi {
 
-  /** Build the unified API over a single Home Assistant WebSocket connection.
-    * Everything — states, services, templates, subscriptions, `call_service` —
-    * rides this one transport (HA's WS API is a superset of what this app used
-    * REST for), so the whole API has exactly one connection to supervise and
-    * one place for a reconnecting facade to sit.
+  /** WS only: it covers everything REST did, so there is one connection to
+    * supervise and one place for a reconnecting facade.
     */
   def fromWs(
       in: HAWSApiLowLevel[IO]
@@ -176,8 +146,7 @@ object HomeAssistantApi {
       ): IO[List[ConfigEntry]] =
         in.sendCommand(
           `config_entries/get`(
-            //   Option.when(type_filter.nonEmpty)(type_filter),
-            //  domain
+            // TODO type_filter and domain are not sent
           )
         ).nested
           // Will crash on codegen if things are not there
@@ -203,9 +172,7 @@ object HomeAssistantApi {
         )
 
       def event(event: Option[String]): Resource[IO, Stream[IO, Event]] =
-        // The raw stream decoded into the state_changed shape (the only event
-        // type this method has ever subscribed to). `evalMapChunk` keeps the
-        // burst chunking the transport hands us.
+        // TODO `event` is ignored: this is always `state_changed`.
         in.subscribeStream(subscribe_events(Some("state_changed")))
           .map(_.evalMapChunk(_.as[Event].liftTo[IO]))
 
@@ -262,12 +229,8 @@ object HomeAssistantApi {
       def getServices: IO[List[ServiceDomain]] =
         in.sendCommand(`get_services`())
 
-      // `render_template` is a subscription: subscribe, take the single initial
-      // render, release (unsubscribe). The first-event race that would have
-      // dropped that lone render is fixed in `subscribeStream`. NOTE: a
-      // `| tojson` template renders to a JSON-encoded STRING (HA does not parse
-      // the filter output back), so `Body=Json` decodes to a `Json` string, not
-      // the structured value — a caller that wants the object parses it.
+      // A `| tojson` template renders to a JSON-encoded string, so `Body=Json`
+      // decodes to a `Json` string, not the structured value.
       def templateFunc[Body: Decoder](template: String): IO[Body] =
         in.subscribeStream(render_template(template))
           .use(_.head.compile.lastOrError)
