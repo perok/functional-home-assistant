@@ -380,7 +380,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
         (
           log.touched(id, 0L),
           renderer
-            .renderLogged(id, states, Map.empty, QuerySnapshot.empty)
+            .renderNodeById(id, states, fragments = QuerySnapshot.empty)
             .fold(holds)(html => holds + (id -> Held.of(html)))
         )
     }

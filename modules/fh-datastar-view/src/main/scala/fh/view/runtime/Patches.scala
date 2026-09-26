@@ -93,25 +93,16 @@ private[runtime] case class Addressed(
   */
 private[runtime] object Patches {
 
-  /** A selection of what one [[StateChange]] touches, ready for [[record]].
-    * Bundles the assembled `staticIds`/`sets`/`flips` with the render inputs
-    * (`change`/`states`/`before`) they are diffed with, rather than nine
-    * positional arguments at the call site.
+  /** What one frame touches, ready for [[record]]: the nodes to stamp, the sets
+    * whose membership to record, the state groups that flipped, and the
+    * snapshots they are recorded against.
     */
   case class DiffRequest(
-      // Each selected node carries WHOSE it is: the user-selected surface it
-      // sits inside, or `None` for the main page. The tag originates here,
-      // where the surface is known — it cannot be recovered from a node id
-      // afterwards, because a node's id encodes only its own surface, not the
-      // chain of surfaces containing it (a tab panel inside an `If` branch
-      // inside another tab panel is three independent prefixes).
-      staticIds: List[(NodeId, Option[String])],
-      // The affected groups. No entity list any more: a member that merely
-      // TICKED is selected by the reverse index like any other node, so what is
-      // left here is the membership question alone.
-      sets: List[(SetId, Option[String])],
-      flips: List[(NodeId, Option[String])],
-      changes: List[StateChange],
+      staticIds: List[NodeId],
+      // A member that merely TICKED is selected by the reverse index like any
+      // other node, so this is the membership question alone.
+      sets: List[SetId],
+      flips: List[NodeId],
       states: Map[String, EntityState],
       before: Map[String, EntityState],
       // What this frame did to each candidate set's membership, as
@@ -145,27 +136,23 @@ private[runtime] object Patches {
     }
 
   /** Select what one FRAME of changes touches for EVERY client on this
-    * dashboard, against `states` — one pass, whose patches are then addressed
-    * per client by their [[Addressed]] tag rather than re-selected per
-    * connection.
+    * dashboard, against `states`. Nothing is rendered: each session renders
+    * what it is owed from the record ([[resume]]).
     *
-    * `visible` is the union of the connected clients' open surfaces. It is a
-    * render GATE, not a correctness input: a surface nobody has open is not
-    * worth rendering. Erring wide costs bytes here and nothing on the wire (the
-    * tag still hides each patch from clients who cannot see it); erring narrow
-    * would drop an update someone needed.
+    * `visible` is the union of what the connected clients can SEE. It bounds
+    * what is recorded, not what is correct: erring wide records a node nobody
+    * pulls, erring narrow would drop an update someone needed.
     *
-    *   - '''Flips''': each state group whose selection this frame moves gets
-    *     its HOST re-rendered ([[Renderer]]'s bake picks the newly-selected
-    *     member against CURRENT state), morphed, and its members' cache entries
-    *     pruned ([[flipStateGroup]]).
+    *   - '''Flips''': each state group whose selection this frame moves is
+    *     recorded as a [[Mutation]] of its host ([[recordFlip]]), which every
+    *     session then fills for itself.
     *   - '''Active-member liveness''': each surface in the transitive active
     *     set — reachable from the main page or from a visible surface —
     *     contributes its components binding the changed entity plus its
     *     affected candidate sets. Just-flipped subtrees are excluded (the host
-    *     morph re-rendered them wholesale). Inactive members are never
-    *     consulted: the hidden-branch no-updates guarantee, structural — their
-    *     ids simply never enter the selection.
+    *     fill re-renders them wholesale). Inactive members are never consulted:
+    *     the hidden-branch no-updates guarantee, structural — their ids simply
+    *     never enter the selection.
     *
     * Nothing here reads a client's `uiState`. The one thing that depends on it
     * — which member of a USER-selected host a viewer chose — is not rendered at
@@ -206,48 +193,7 @@ private[runtime] object Patches {
     val sets =
       (renderer.members.affectedSets(changes) ++
         sids.flatMap(renderer.members.affectedSurfaceSets(_, changes))).distinct
-    request(
-      renderer,
-      staticIds,
-      sets,
-      flips,
-      changes,
-      states,
-      before,
-      membership,
-      at
-    )
-  }
-
-  /** Tag each selected node with the innermost user surface containing it, and
-    * bundle the request. The tag comes from the node's PLACE in the tree
-    * ([[SurfaceGraph.userSurfaceOfNode]]) — not from its id, which encodes only
-    * its own surface, and not from threading the originating surface down every
-    * branch of the selection above, which goes wrong the moment the walk grows
-    * a branch.
-    */
-  private def request(
-      renderer: Renderer,
-      staticIds: List[NodeId],
-      sets: List[SetId],
-      flips: List[NodeId],
-      changes: List[StateChange],
-      states: Map[String, EntityState],
-      before: Map[String, EntityState],
-      membership: Map[SetId, MemberDelta],
-      at: Long
-  ): DiffRequest = {
-    def tag(id: NodeId) = renderer.surfaces.userSurfaceOfNode(id)
-    DiffRequest(
-      staticIds.map(id => id -> tag(id)),
-      sets.map(gid => gid -> tag(gid)),
-      flips.map(gid => gid -> tag(gid)),
-      changes,
-      states,
-      before,
-      membership,
-      at
-    )
+    DiffRequest(staticIds, sets, flips, states, before, membership, at)
   }
 
   /** A key exists only where a rendering does — `renderInputs` is `Some`
@@ -312,22 +258,19 @@ private[runtime] object Patches {
     val at = req.at
     // Flips first: their prune must precede anything that could be suppressed
     // against a pre-flip entry.
-    val afterFlips = req.flips.foldLeft(log) { case (l, (gid, _)) =>
+    val afterFlips = req.flips.foldLeft(log) { (l, gid) =>
       recordFlip(renderer, l, gid, req.before, req.states, at)
     }
-    val afterNodes = req.staticIds.foldLeft(afterFlips) { case (l, (id, _)) =>
-      l.touched(id, at)
-    }
-    req.sets.foldLeft(afterNodes) { case (l, (gid, _)) =>
+    val afterNodes = req.staticIds.foldLeft(afterFlips)(_.touched(_, at))
+    req.sets.foldLeft(afterNodes) { (l, gid) =>
       req.membership
         .get(gid)
         .fold(l)(recordSet(renderer, l, gid, _, at))
     }
   }
 
-  /** [[flipStateGroup]] with the render taken out: evict the departing branch's
-    * entries and record WHERE the branch went. [[resume]]'s branch fill is the
-    * other half.
+  /** A state-group flip, recorded: evict the departing branch's entries and
+    * record WHERE the branch went. [[resume]]'s branch fill is the other half.
     */
   private def recordFlip(
       renderer: Renderer,

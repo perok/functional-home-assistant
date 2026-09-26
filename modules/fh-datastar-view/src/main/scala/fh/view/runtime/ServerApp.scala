@@ -78,18 +78,6 @@ object ServerApp extends IOApp {
   private val consoleLog: SelfAwareStructuredLogger[IO] =
     Logging.console.getLoggerFromName(LoggerName)
 
-  // Relative paths are resolved against the forked `run` working dir, which is
-  // the REPO ROOT (`Compile / run / baseDirectory` is `/work`, not the module)
-  // — so a relative path typed at `sbt dashboardServe` resolves where the
-  // person typing it expects.
-
-  // Persistent pkl package cache for a dev run: pkl's own default
-  // (`~/.pkl/cache`), shared with `BuildApp`, the laptop `fh`, the `pkl` CLI
-  // and pkl-lsp. The add-on overrides it to its persistent `/data/pkl-cache`
-  // via `FH_PKL_CACHE_DIR`.
-  private def defaultCacheDir: String =
-    AddonBootstrap.defaultCacheDir
-
   /** Everything the runtime reads from the environment, parsed once by
     * [[Config.load]] at the boundary so the rest of `run` is a pure wiring
     * table — no scattered `Env[IO].get`, no defaults re-stated per site.
@@ -121,7 +109,12 @@ object ServerApp extends IOApp {
           workspaceDir(args, dirEnv).leftMap(Exception(_))
         )
         dashboardsDir = os.Path(dir, os.pwd)
-        cacheDir <- pathFromEnv("FH_PKL_CACHE_DIR", defaultCacheDir)
+        // pkl's own `~/.pkl/cache` for a dev run, shared with the `pkl` CLI
+        // and pkl-lsp; the add-on points it at its persistent `/data`.
+        cacheDir <- pathFromEnv(
+          "FH_PKL_CACHE_DIR",
+          AddonBootstrap.defaultCacheDir
+        )
         assetsDir <- pathFromEnv("FH_ASSETS_DIR", "assets-cache")
         bindHost <- Env[IO]
           .get("HOST")
@@ -553,7 +546,7 @@ object ServerApp extends IOApp {
       * that only wants the failures (or the membership) should not pay it.
       */
     lazy val states: Map[String, Server.RendererState] =
-      dashboards.map { case (slug, result) => slug -> stateOf(result) }
+      dashboards.map { case (slug, result) => slug -> Server.stateOf(result) }
 
     /** What each slug currently EVALUATES to — the proven dashboard, or the
       * message it failed with. This is what a later reload compares against to
@@ -571,10 +564,6 @@ object ServerApp extends IOApp {
       case (slug, Server.RendererState.Failed(m)) => slug -> m
     }
   }
-
-  private def stateOf(
-      result: Either[String, Dashboard.Validated]
-  ): Server.RendererState = Server.stateOf(result)
 
   /** Dump and build every dashboard the entrypoint names — the source-to-
     * renderer path that precedes serving, extracted so [[run]] (production) and
@@ -1161,6 +1150,10 @@ object ServerApp extends IOApp {
   private def envOr(name: String, default: String): IO[String] =
     Env[IO].get(name).map(_.getOrElse(default))
 
+  /** Relative to the forked `run`'s working dir, which is the REPO ROOT, not
+    * the module — so a path typed at `sbt dashboardServe` lands where its
+    * author expects.
+    */
   private def pathFromEnv(name: String, default: String): IO[os.Path] =
     envOr(name, default).map(s => os.Path(s, os.pwd))
 
