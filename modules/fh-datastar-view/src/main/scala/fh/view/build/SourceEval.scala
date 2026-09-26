@@ -2,25 +2,14 @@ package fh.view.build
 
 import io.circe.Json
 
-/** The authoring-language seam: evaluate a dashboard entry file into JSON. Pkl
-  * is the only authoring language (`.pkl` → pkl-core via [[PklBuild]]);
-  * everything downstream (hoist/decode/validate) is source-agnostic and
-  * consumes the [[Result]].
-  */
+/** The authoring-language seam; Pkl is the only language. */
 object SourceEval {
 
-  /** Evaluation result: the JSON plus every file that was read to produce it
-    * (the entry and its transitive imports), so callers can watch them.
-    */
+  /** `imports` are the entry and its transitive imports, for watching. */
   case class Result(value: Json, imports: Set[os.Path])
 
-  /** Evaluate `entryFile` (relative to `dashboardsDir`). Returns the evaluated
-    * JSON + import set, or an error string.
-    *
-    * The pure-`Either` signature belies real work: this reads files and runs
-    * pkl-core eagerly when called. Callers must therefore suspend it —
-    * `DashboardBuild` invokes it inside `IO.blocking` so the evaluation happens
-    * when the IO runs, on the blocking pool.
+  /** Not pure despite the signature: it reads files and runs pkl-core, so
+    * callers suspend it in `IO.blocking`.
     */
   def eval(
       dashboardsDir: os.Path,
@@ -30,19 +19,10 @@ object SourceEval {
       PklBuild.eval(dashboardsDir, entryFile)
     else Left(s"unsupported dashboard source (expected .pkl): $entryFile")
 
-  /** Best-effort locator from a (post-evaluation) string literal back to where
-    * it appears in the authoring sources.
-    *
-    * Evaluation erases source positions, but an author-written literal (e.g. a
-    * transform expression) survives verbatim into the value, so we can grep the
-    * sources for it. Returns `file:line` for the first match (or, for a value
-    * spanning lines, a match on its first line). `None` when not found as a
-    * literal — e.g. it was assembled via string concatenation. Reads each
-    * source once; intended for the cold validation path, not the hot path.
+  /** Evaluation erases positions, but an author's literal survives verbatim, so
+    * grep for its first line. `None` for a concatenated one. Cold path only.
     */
   def literalLocator(sources: Set[os.Path]): String => Option[String] = {
-    // Skip the generated dump (large, never a transform source) and non-Pkl
-    // files.
     val files = sources.toList
       .filter(_.last.endsWith(".pkl"))
       .filterNot(_.last == "dump.pkl")
