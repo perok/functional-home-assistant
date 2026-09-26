@@ -97,9 +97,18 @@ flowchart TB
     SSE["SSE bytes to the browser<br/>Datastar morphs the DOM<br/>…and re-evaluates the bound elements"]
   end
 
+  subgraph QUERIES["GLOBAL — the query side, one for every dashboard"]
+    direction TB
+    QS["QuerySnapshot.resolve<br/>every query a render reads, resolved BEFORE the walk<br/>at THIS viewer's node-variable values<br/>a moved version does not wake a node yet (§8)"]
+    RES["QueryResolver · stage cache<br/>(question, stage, version) → SVG or JSON<br/>one drawing per version, for every viewer"]
+    HIST["History · series cache<br/>(identity, entity, window, bucket)<br/>one fetch per bucket, single-flight,<br/>a failure remembered 30 s"]
+    CHART["ChartRenderer<br/>ECharts SSR in a GraalJS isolate<br/>one context behind a Mutex (ADR 0032)"]
+  end
+
   GATE["AuthGate — a route (or route GROUP) declares its Requirement (ADR 0023)<br/>one rule per dashboard; the CALLER picks the refusal (orLogIn on a page, plain elsewhere)<br/>handleStream also cuts a running stream when the rule stops holding<br/>an action is bounded by its dashboard's OWN entities"]
   ACT["action POST<br/>surface/&lt;slug&gt;/open · popup/&lt;slug&gt;/close<br/>carries conn + ui-state<br/>a conn this process has forgotten is MINTED, not dropped (ADR 0024)<br/>the swap COMMITS ui_&lt;group&gt;; the tap only says what it asked for (ADR 0025)"]
-  SESS["Sessions registry<br/>conn maps to slug, open set, control queue,<br/>holds (what this DOM has: digest + signals)<br/>+ position"]
+  VAR["node variable (ADR 0033)<br/>POST var/&lt;slug&gt;/&lt;declarer&gt;/&lt;name&gt;/&lt;value&gt; · or v. on the page URL<br/>ONE check, Renderer.refusals: every reader parses,<br/>and reads only an entity this dashboard shows<br/>re-renders the readers this viewer is shown, commits LAST"]
+  SESS["Sessions registry<br/>conn maps to slug, open set, control queue,<br/>holds (what this DOM has: digest + signals)<br/>+ position + vars (this viewer's choices)"]
   LOG[("FragmentLog per slug — the CHANGELOG<br/>node -&gt; version · Gone/Placed · horizon<br/>absence means: unknown, send it")]
 
   HA --> PUMP --> STORE --> CH --> SYNC --> PLAN --> REC --> BELL
@@ -117,6 +126,14 @@ flowchart TB
   SESS -->|per-connection control queue| MERGE
   ACT -.->|hostFill claims into holds| SESS
   SESS -.->|openSets: which surfaces are worth recording| PLAN
+  GATE --> VAR
+  VAR -->|vars · morphs, then the commit| SESS
+  PULL -.->|the reads it will render| QS
+  OPEN -.->|and the document's| QS
+  QS --> RES
+  RES -->|answer| HIST
+  RES -->|stage: chart| CHART
+  HIST -.->|history_during_period · statistics_during_period| HA
 
   classDef global fill:#e0f2fe,stroke:#0369a1,color:#0f172a
   classDef shared fill:#dbeafe,stroke:#1d4ed8,color:#0f172a
@@ -129,7 +146,9 @@ flowchart TB
   class LOG,SESS store
   class HA,ACT ext
   classDef gate fill:#fee2e2,stroke:#b91c1c,color:#0f172a
-  class GATE gate
+  class GATE,VAR gate
+  classDef query fill:#ccfbf1,stroke:#0f766e,color:#0f172a
+  class QS,RES,HIST,CHART query
 ```
 
 **A route declares its own requirement; a route group declares one for all of it.** Only a PAGE
@@ -156,9 +175,9 @@ old renderer cannot be resumed.
 
 | Scope | One per | What lives there |
 |---|---|---|
-| Global | process | the HA WebSocket, `HaFeed`, **the `StateStore`**, the `changes` topic, the `Sessions` registry, the `AuthSessions` registry (a different fact — `Sessions` is keyed by `conn` and is a TAB, `AuthSessions` is keyed by a cookie and is a PERSON) |
+| Global | process | the HA WebSocket, `HaFeed`, **the `StateStore`**, the `changes` topic, the `Sessions` registry, the `AuthSessions` registry (a different fact — `Sessions` is keyed by `conn` and is a TAB, `AuthSessions` is keyed by a cookie and is a PERSON), and the query side: `QueryResolver` with its stage cache, `History` with its series cache, the one `ChartRenderer` |
 | Per slug | dashboard | the recorder fiber, the `RendererState` (in a `SignallingRef`: `Ready(renderer)` or `Failed(message)`, hot-swapped on edit) **and, when ready, the renderer and the member graph inside it**, the `FragmentLog`, the doorbell, the `RenderCache` |
-| Per connection | browser tab | the `Session` — normally created by the DOCUMENT and adopted by the stream, but MINTED by a stream or a surface tap that names a `conn` this process does not have, empty (slug, open surfaces, control queue, plus `holds`/`position`/`told` — what THIS client's DOM has, how far it has been served, and the newest version it was ANNOUNCED, which is the most it can echo back), the SSE stream, that viewer's selections |
+| Per connection | browser tab | the `Session` — normally created by the DOCUMENT and adopted by the stream, but MINTED by a stream or a surface tap that names a `conn` this process does not have, empty (slug, open surfaces, control queue, plus `holds`/`position`/`told` — what THIS client's DOM has, how far it has been served, and the newest version it was ANNOUNCED, which is the most it can echo back), the SSE stream, that viewer's selections and node-variable choices (`vars`) |
 
 There is exactly ONE store and ONE upstream subscription for every dashboard — `HaFeed.resource`
 creates the store, `Server.fromFeed` takes `feed.store`. Dashboards are views over one shared state,
@@ -852,7 +871,7 @@ flowchart LR
   RC["a pull: the doorbell rang,<br/>or a client reconnected with a cursor"] --> Q{"a CLIENT cursor?<br/>same logId · not ahead of<br/>the store · same head hash ·<br/>NOT BEHIND what we announced"}
   Q -->|no| REPAINT["full body repaint<br/>from the current snapshot<br/>— and it CLAIMS what it painted"]
   Q -->|yes, or a session's own position| SINCE["FragmentLog.since v"]
-  SINCE --> N["nodes whose version is at least v<br/>RENDERED NOW from the current<br/>snapshot, never from the log"]
+  SINCE --> N["nodes whose version is at least v<br/>RENDERED NOW from the current<br/>snapshot, never from the log —<br/>their queries answered first (§6, a query)"]
   SINCE --> M["moved: Gone / Placed mutations<br/>replayed as remove + insert"]
   SINCE --> R["refill: containers whose history<br/>no longer reaches the cursor<br/>last resort"]
   Q -->|yes, or a session's own position| OPENN["…AND every node in a surface this<br/>client has OPEN — the cursor cannot name<br/>what nothing rendered while nobody looked"]
