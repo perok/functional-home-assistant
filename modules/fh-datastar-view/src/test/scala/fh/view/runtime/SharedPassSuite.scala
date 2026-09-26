@@ -16,25 +16,13 @@ import org.http4s.implicits.*
 import java.util.concurrent.atomic.AtomicInteger
 import scala.concurrent.duration.*
 
-/** What the per-slug recorder does with one frame, and what it costs.
-  *
-  * The contract is that N viewers of one dashboard cost one render of each
-  * changed node — a number, not a shape, which is why these tests count renders
-  * rather than asserting on bytes.
+/** What the per-slug recorder does with one frame, and what it costs: N viewers
+  * cost one render of each changed node, a number, so these count renders.
   */
 class SharedPassSuite extends ServerHarness {
 
-  // ---------------------------------------------------------------------------
-  // Shared per-slug patch fan-out
-  // ---------------------------------------------------------------------------
-
-  /** Counts every live-patch render, so the test can assert a fragment was
-    * produced ONCE for N viewers.
-    */
-
-  // Two live leaves: one entity can change during the connect handshake and
-  // never again (so nothing later heals it), while the other provides an
-  // ordering barrier that proves the connection is live before we look.
+  // One entity changes during the connect handshake and never again, so nothing
+  // later heals it; the other is a barrier proving the connection is live.
   private def twoLeafDash = Dashboard(
     cards = Map(
       "col" -> CardDef(
@@ -57,11 +45,8 @@ class SharedPassSuite extends ServerHarness {
   )
 
   test("a session records what its own connection was actually sent") {
-    // The per-session record is written but not yet read — the shared log still
-    // decides — so nothing else in the suite would notice it drifting from what
-    // the client holds. This is the check that it does not: the digest it keeps
-    // must be the digest of the bytes that went out, and the position must be
-    // the version they were rendered at.
+    // The digest kept must be of the bytes that went out, and the position the
+    // version they were rendered at.
     val io = for {
       store <- StateStore.inMemory(
         Map(
@@ -89,11 +74,9 @@ class SharedPassSuite extends ServerHarness {
             .flatMap { resp =>
               resp.body.compile.drain.background.surround {
                 for {
-                  // BOTH subscriptions, and they are different ones: the
-                  // publisher's to the STORE, and this connection's to the
-                  // topic. Waiting only for the latter passes when the suite
-                  // runs alone and loses the update to a not-yet-subscribed
-                  // publisher when it runs under load.
+                  // Both subscriptions: the recorder's to the store and this
+                  // connection's. Waiting only for the latter loses the update
+                  // under load.
                   _ <- store.changeSubscribers.filter(_ >= 1).head.compile.drain
                   _ <- server.connectedSessions
                     .filter(_ >= 1)
@@ -105,9 +88,8 @@ class SharedPassSuite extends ServerHarness {
                     sessions.forSlug("dashboard").map(_.headOption))
                     .iterateUntil(_.isDefined)
                     .map(_.get)
-                  // The position is advanced AFTER the batch's items are
-                  // recorded, so waiting on it means both are settled — waiting
-                  // on `holds` instead would race the position's write.
+                  // The position advances after the items are recorded; waiting
+                  // on `holds` would race it.
                   at <- (IO.sleep(5.millis) *> session.position.get)
                     .iterateUntil(_ > 0)
                   held <- session.holds.get
@@ -118,10 +100,9 @@ class SharedPassSuite extends ServerHarness {
         }
     } yield out
     io.timeout(30.seconds).map { case (held, at, (version, renderer, states)) =>
-      // The repaint that opened this connection claimed everything it painted,
-      // and the tick then re-claimed the ONE node that moved — at its new
-      // bytes, which is the point: a record of what THIS connection was sent,
-      // not of what the dashboard looks like.
+      // The repaint claimed everything it painted, and the tick re-claimed the
+      // one node that moved at its new bytes: a record of what this connection
+      // was sent.
       assertEquals(
         held.get("c_0"),
         renderer
@@ -129,8 +110,7 @@ class SharedPassSuite extends ServerHarness {
           .map(Held.of),
         clue = held
       )
-      // The untouched sibling still carries what the repaint gave it, so the
-      // claim above is not simply "everything, re-derived".
+      // So the claim above is not "everything, re-derived".
       assertEquals(
         held.get("c_1"),
         renderer
@@ -152,12 +132,9 @@ class SharedPassSuite extends ServerHarness {
   test(
     "a change published during the connect handshake still reaches the connection"
   ) {
-    // The handshake window: `routes.run` computes the opening patches (reading
-    // the snapshot and the log) and returns, but the response body has not been
-    // pulled yet — so anything published before the stream's subscription is
-    // registered reaches this connection never. It heals on the NEXT reconnect
-    // (the cursor stays put and `since` is inclusive), but until then the client
-    // shows a pre-connect value with nothing to indicate it.
+    // `routes.run` computes the opening and returns before the body is pulled.
+    // A change in that window must still arrive, or the client shows a
+    // pre-connect value with nothing to say so.
     val missed = "gap_value_xq"
     val barrier = "barrier_value_xq"
     val renders = new AtomicInteger(0)
@@ -187,19 +164,16 @@ class SharedPassSuite extends ServerHarness {
         )
         .use { server =>
           for {
-            // The shared publisher is attached before anything changes.
             _ <- store.changeSubscribers.filter(_ >= 1).head.compile.drain
             resp <- server.routes.orNotFound
               .run(Request[IO](Method.GET, uri"/sse/dashboard/dashboard/patch"))
             _ <- store.update(EntityState("sensor.a", missed, Map.empty))
-            // Waiting for the RECORD proves the frame was written before the
-            // body was pulled — the gap this test is about — rather than the
-            // test racing ahead of a slow recorder. The publisher renders
-            // nothing now, so the render count cannot say this any more.
+            // The record proves the frame was written before the body was
+            // pulled, rather than the test racing a slow recorder.
             live <- server.liveSlug("dashboard")
             _ <- (IO.sleep(5.millis) *> live.doorbell.get).iterateUntil(_ >= 1)
             seen <- Ref[IO].of("")
-            // Pulling the body is what registers the subscription, and only now.
+            // Pulling the body registers the subscription.
             reader <- resp.body
               .through(fs2.text.utf8.decode)
               .evalMap(chunk => seen.updateAndGet(_ + chunk))
@@ -209,7 +183,6 @@ class SharedPassSuite extends ServerHarness {
               .start
             _ <- server.connectedSessions.filter(_ >= 1).head.compile.drain
             _ <- store.update(EntityState("sensor.b", barrier, Map.empty))
-            // The barrier arrived, so everything ordered before it has too.
             _ <- reader.joinWithNever
             text <- seen.get
           } yield text
@@ -220,17 +193,15 @@ class SharedPassSuite extends ServerHarness {
   }
 
   test("a connection that stops reading cannot stall the store") {
-    // `Topic.publish1` sends to every subscriber's channel in turn and blocks
-    // on a full one, so a bounded per-connection subscription would let ONE
-    // stalled browser freeze the HA feed — for every dashboard and every
-    // viewer, not just itself.
+    // `Topic.publish1` blocks on a full subscriber, so a bounded per-connection
+    // subscription would let one stalled browser freeze the HA feed for
+    // everyone.
     val io = for {
       store <- StateStore.inMemory(
         Map("sensor.a" -> EntityState("sensor.a", "a0", Map.empty))
       )
-      // A dashboard with a PER-SESSION node (a tabs host bakes the client's
-      // selected panel), so the per-connection pass really emits — the case
-      // that can block, unlike a page whose every node is shared.
+      // A per-session node (the tabs host bakes the client's panel), so the
+      // per-connection pass really emits.
       ref <- SignallingRef[IO].of(Server.RendererState.Ready(tabsRenderer))
       sessions <- Sessions.create
       fake <- FakeHomeAssistant.create(Nil)
@@ -247,9 +218,7 @@ class SharedPassSuite extends ServerHarness {
           server.routes.orNotFound
             .run(Request[IO](Method.GET, uri"/sse/dashboard/dashboard/patch"))
             .flatMap { resp =>
-              // Read normally until the test says stop — the connection has to
-              // be fully subscribed first, and it only subscribes once the body
-              // is being pulled.
+              // The connection subscribes only once the body is being pulled.
               IO.deferred[Unit].flatMap { stop =>
                 val reads = resp.body
                   .evalTap(_ =>
@@ -260,20 +229,18 @@ class SharedPassSuite extends ServerHarness {
                   .drain
                 reads.background.surround {
                   for {
-                    // The shared publisher — the only consumer of `changes`.
                     _ <- store.changeSubscribers
                       .filter(_ >= 1)
                       .head
                       .compile
                       .drain
                     _ <- stop.complete(())
-                    // The reader only stalls on the next event it takes, so
-                    // give it one (the keepalive is far too slow to wait for).
+                    // The reader stalls only on the next event, and the
+                    // keepalive is too slow.
                     _ <- store.update(
                       EntityState("sensor.a", "engage-the-stall", Map.empty)
                     )
                     _ <- IO.sleep(1.second)
-                    // Far more than a bounded subscription would hold.
                     _ <- (1 to 300).toList.traverse_(i =>
                       store.update(EntityState("sensor.a", s"v$i", Map.empty))
                     )
@@ -286,19 +253,10 @@ class SharedPassSuite extends ServerHarness {
     io.timeout(15.seconds)
   }
 
-  /** Two connections, one change, and the render count that goes with it.
-    *
-    * '''One render, not one per viewer.''' Each session pulls independently and
-    * renders what IT is owed, so the sharing is no longer structural — it is
-    * the per-slug [[RenderCache]], which both pulls go through: whoever gets
-    * there first renders and the other waits on the same slot. Two viewers of
-    * one dashboard have the same [[RenderInputs]] for a node unless their
-    * selections differ, which is what makes the hit the normal case rather than
-    * a lucky one.
-    *
-    * So this number is a cost contract: if it ever reads 2 again, the cache is
-    * being missed (a key that varies per viewer where it should not, or a pull
-    * that renders outside it), and the fan-out is back.
+  /** '''One render, not one per viewer.''' Each session pulls on its own; the
+    * sharing is the per-slug [[RenderCache]], where whoever arrives first
+    * renders and the other waits on the slot. A 2 here means the cache is being
+    * missed, a key varying per viewer or a pull rendering outside it.
     */
 
   test(
@@ -315,11 +273,10 @@ class SharedPassSuite extends ServerHarness {
         Server.RendererState.Ready(renderer: Renderer)
       )
       sessions <- Sessions.create
-      // Stub HA: the SSE/patch path never calls it (an unexpected registry call
-      // still raises); the store is driven in-memory, so the empty seed is inert.
+      // The patch path never calls HA; an unexpected registry call still
+      // raises.
       fake <- FakeHomeAssistant.create(Nil)
-      // `Server.resource` runs the shared publishers for the scope's lifetime —
-      // so the render count below is entirely the shared pass's doing.
+      // The render count is entirely the shared pass's doing.
       _ <- Server
         .resource(
           ServiceCalls.asInstance(HomeAssistantApi.fromWs(fake)),
@@ -332,11 +289,9 @@ class SharedPassSuite extends ServerHarness {
         .use { server =>
           val connect = server.routes.orNotFound
             .run(Request[IO](Method.GET, uri"/sse/dashboard/dashboard/patch"))
-          // Opened when THIS connection's opening block has finished (its
-          // cursor), done when it has seen the marker. Both are needed: a
-          // session is adopted before its opening block runs, so a change
-          // emitted on a session count alone can land in the opening REPAINT —
-          // which renders the body wholesale and counts nothing here.
+          // Opened on this connection's cursor: a session is adopted before its
+          // opening block, so a change emitted on a count alone can land in the
+          // opening repaint, which counts nothing here.
           val awaitMarker = (resp: Response[IO], opened: Deferred[IO, Unit]) =>
             resp.body
               .through(fs2.text.utf8.decode)
@@ -356,19 +311,15 @@ class SharedPassSuite extends ServerHarness {
             opened2 <- Deferred[IO, Unit]
             seen1 <- awaitMarker(resp1, opened1).start
             seen2 <- awaitMarker(resp2, opened2).start
-            // Deterministic readiness: both connections past their opening
-            // block, and the ONE recorder subscribed to the store's changes.
             _ <- opened1.get
             _ <- opened2.get
             _ <- store.changeSubscribers.filter(_ >= 1).head.compile.drain
             _ <- store.update(EntityState("sensor.a", marker, Map.empty))
-            // (a) both SSE streams receive the changed fragment...
             _ <- seen1.joinWithNever
             _ <- seen2.joinWithNever
           } yield ()
         }
     } yield count.get()
-    // ...and (b) it was rendered ONCE between them.
     io.timeout(30.seconds).assertEquals(1)
   }
 

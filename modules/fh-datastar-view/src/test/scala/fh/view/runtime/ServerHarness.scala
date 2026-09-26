@@ -256,6 +256,9 @@ trait ServerHarness extends munit.CatsEffectSuite {
   def get(params: (String, String)*): Request[IO] =
     Request[IO](Method.GET, uri"/".withQueryParams(params.toMap))
 
+  /** Counts every live-patch render, so a test can assert a fragment was
+    * produced once for N viewers.
+    */
   class CountingRenderer(dash: Dashboard, count: AtomicInteger)
       extends Renderer(dash, Templates.from(dash), Transforms.from(dash)) {
     override def renderNodeById(
