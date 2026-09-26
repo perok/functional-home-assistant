@@ -14,19 +14,11 @@ import fh.view.testkit.DashboardBuilders.st
 import fh.view.testkit.TestIds.given
 import io.circe.Json
 
-/** Selection and visibility, with no server anywhere.
-  *
-  * The counterpart to [[MemberGraphSuite]], and the reason `SurfaceGraph` was
-  * lifted out of `Renderer`: which branch of a bake group is showing, and which
-  * clients a patch at a given node may reach, are pure functions of (dashboard,
-  * uiState, entity state). Until the split the only way to ask was to boot a
-  * `Server`, which is why `StateSurfaceSuite` and `SetMembershipSuite` — both
-  * about the resulting PATCHES — were also the only cover the decisions had.
-  *
-  * The distinction under nearly every test here is the two activation modes. A
-  * USER group's selection is per-viewer (`uiState`), so two clients disagree
-  * legitimately; a STATE group's is a pure function of entity state, the same
-  * for everyone, which is why a state surface hides nothing from anybody.
+/** Selection and visibility, with no server: which branch of a bake group
+  * shows, and which clients a patch at a node may reach, are pure functions of
+  * (dashboard, uiState, entity state). A user group's selection is per viewer,
+  * so clients disagree legitimately; a state group's is the same for everyone,
+  * so a state surface hides nothing.
   */
 class SurfaceGraphSuite extends munit.FunSuite {
 
@@ -64,9 +56,8 @@ class SurfaceGraphSuite extends munit.FunSuite {
       activation = Activation.State(when)
     )
 
-  /** `SurfaceGraph` never walks the layout tree — it is handed each indexed
-    * id's root — so a suite states that map directly instead of building a
-    * dashboard shaped to produce it.
+  /** `SurfaceGraph` is handed each indexed id's root, so the map is stated
+    * directly.
     */
   private def graphOf(
       surfaces: Map[String, Surface],
@@ -84,14 +75,12 @@ class SurfaceGraphSuite extends munit.FunSuite {
 
   private val gid: NodeId = "c"
 
-  // ---- bake groups --------------------------------------------------------
-
   test("branches are ordered by bakeIndex, with the surface id as tiebreak") {
     val g = graphOf(
       Map(
         "zulu" -> user("c", "t1", 1),
         "alpha" -> user("c", "t0", 0),
-        // Same index: the id decides, so the order is total and stable.
+        // Same index: the id decides, so the order is total.
         "bravo" -> user("c", "t2", 1)
       )
     )
@@ -127,8 +116,6 @@ class SurfaceGraphSuite extends munit.FunSuite {
     assertEquals(s.userBakeOwnerIds, Set.empty[String])
   }
 
-  // ---- user selection: per viewer, and uiState is untrusted ---------------
-
   private def tabs = graphOf(
     Map(
       "t0" -> user("c", "t0", 0),
@@ -151,8 +138,8 @@ class SurfaceGraphSuite extends munit.FunSuite {
   }
 
   test("a malformed or out-of-range index falls back AND warns") {
-    // The warning is `Some` only when a value was present but unusable — the
-    // absent case above is not an anomaly, it is the normal first paint.
+    // `Some` only for a present but unusable value; absent is the normal first
+    // paint.
     val (garbage, gWarn) = tabs.resolveActive(gid, Map("c" -> "banana"))
     val (high, hWarn) = tabs.resolveActive(gid, Map("c" -> "9"))
     val (negative, nWarn) = tabs.resolveActive(gid, Map("c" -> "-1"))
@@ -176,11 +163,8 @@ class SurfaceGraphSuite extends munit.FunSuite {
     assertEquals(g.uiStateAnomalies(Map("c" -> "banana")), Nil)
   }
 
-  // ---- state selection: the same for every viewer -------------------------
-
   test("state selection is FIRST match in bakeIndex order") {
-    // Which is what makes `else` an ordinary last branch with an always-true
-    // condition, and `elseif` just one more branch.
+    // So `else` is an ordinary last branch with an always-true condition.
     val g = graphOf(
       Map(
         "hot" -> state("c", "t0", 0, isOn("light.a")),
@@ -193,7 +177,6 @@ class SurfaceGraphSuite extends munit.FunSuite {
     val neither = snapshot(st("light.a", "off"), st("light.b", "off"))
     assertEquals(g.resolveActiveByState(gid, both), Some(0))
     assertEquals(g.resolveActiveByState(gid, onlyB), Some(1))
-    // The empty conjunction is vacuously true, so the else always catches.
     assertEquals(g.resolveActiveByState(gid, neither), Some(2))
   }
 
@@ -222,12 +205,11 @@ class SurfaceGraphSuite extends munit.FunSuite {
         now
       )
     assertEquals(flips(on, off), List(gid))
-    // A tick that does not cross the condition moves nothing.
     assertEquals(flips(on, on), Nil)
   }
 
   test("a change to an entity no condition READS cannot flip anything") {
-    // The O(1) pre-test: the changed entities decide, not the surfaces.
+    // The changed entities decide, not the surfaces.
     val g = graphOf(
       Map("hot" -> state("c", "t0", 0, isOn("light.a"))),
       roots = Map("c" -> "")
@@ -254,12 +236,10 @@ class SurfaceGraphSuite extends munit.FunSuite {
     )
     val on = snapshot(st("light.a", "on"))
     assertEquals(g.activeStateSurfaces(on), Set("hot"))
-    // A group this round already flips renders its member wholesale, so
-    // patching its parts too would double-emit.
+    // A group already flipping renders its member wholesale; patching its parts
+    // too would double-emit.
     assertEquals(g.activeStateSurfaces(on, excluding = Set(gid)), Set.empty)
   }
-
-  // ---- visibility ---------------------------------------------------------
 
   test("a user surface is visible only to a client that has it open") {
     val g = graphOf(Map("t0" -> user("c", "t0", 0), "t1" -> user("c", "t1", 1)))
@@ -268,20 +248,18 @@ class SurfaceGraphSuite extends munit.FunSuite {
   }
 
   test("a STATE surface is visible on state alone — `open` says nothing") {
-    // Its liveness belongs to the shared per-slug pass, so it never enters a
-    // session's open set at all.
+    // Its liveness belongs to the shared pass, so it never enters an open set.
     val g = graphOf(Map("hot" -> state("c", "t0", 0, isOn("light.a"))))
     assert(g.visibleSurface("hot", Set.empty, snapshot(st("light.a", "on"))))
     assert(!g.visibleSurface("hot", Set("hot"), snapshot(st("light.a", "off"))))
   }
 
   test("a state surface is TRANSPARENT: the user tab above it decides") {
-    // Visibility walks through the state branch to whatever encloses it,
-    // because a branch of an If hides nothing — every client selects it alike.
+    // Visibility walks through a state branch to what encloses it: an If's
+    // branch hides nothing.
     val g = graphOf(
       Map(
         "tab" -> user("c", "t0", 0),
-        // The state group is hosted by a node inside the tab's tree.
         "branch" -> state("inner", "b0", 0, isOn("light.a"))
       ),
       roots = Map("c" -> "", "inner" -> "tab")
@@ -302,18 +280,15 @@ class SurfaceGraphSuite extends munit.FunSuite {
   }
 
   test("an id the graph cannot place counts as VISIBLE") {
-    // The safe direction on purpose: over-sending costs bytes, under-sending
-    // loses an update.
+    // The safe direction: over-sending costs bytes, under-sending loses an
+    // update.
     val g = graphOf(Map("t0" -> user("c", "t0", 0)), roots = Map("c" -> ""))
     assert(g.visibleNode("who_knows", Set.empty, Map.empty))
   }
 
-  // ---- selection <-> open set ---------------------------------------------
-
   test("selectedSurfaces and uiStateFrom are inverses over user groups") {
     assertEquals(tabs.selectedSurfaces(Map("c" -> "1")), Set("t1"))
     assertEquals(tabs.uiStateFrom(Set("t1")), Map("c" -> "1"))
-    // Round trip through the default, too.
     val defaulted = tabs.selectedSurfaces(Map.empty)
     assertEquals(defaulted, Set("t2"))
     assertEquals(tabs.uiStateFrom(defaulted), Map("c" -> "2"))
@@ -341,8 +316,6 @@ class SurfaceGraphSuite extends munit.FunSuite {
     assertEquals(g.selectedSurfaces(Map.empty), Set("shown"))
   }
 
-  // ---- popups -------------------------------------------------------------
-
   private def popups = graphOf(
     Map(
       "detail" -> Surface(col()),
@@ -351,8 +324,8 @@ class SurfaceGraphSuite extends munit.FunSuite {
   )
 
   test("a popup claim is honoured only for a surface this dashboard has") {
-    // A stale URL, or another dashboard's dialog, would otherwise put a session
-    // in a state its renderer cannot serve.
+    // A stale URL or another dashboard's dialog would put the session in a
+    // state its renderer cannot serve.
     val host: String = Dashboard.PopupHostId
     assertEquals(popups.openPopup(Map(host -> "detail")), Some("detail"))
     assertEquals(popups.openPopup(Map(host -> "ghost")), None)
@@ -375,12 +348,9 @@ class SurfaceGraphSuite extends munit.FunSuite {
     assertEquals(popups.surfacesAt(DomId.derived("elsewhere")), Set.empty)
   }
 
-  // ---- rootOf falls through to the member graph ---------------------------
-
   test("rootOf answers for the static index first, then the member graph") {
-    // The two node kinds the static index cannot place are a materialised
-    // member and a nested set container — both leaked a surface's patches to
-    // every client before `rootOf` consulted the graph for them.
+    // A materialised member and a nested set container, which the static index
+    // cannot place, both leaked a surface's patches to every client before.
     val setNode = LayoutNode.SetNode(
       candidates = List("light.a"),
       members = Map(
@@ -408,10 +378,8 @@ class SurfaceGraphSuite extends munit.FunSuite {
     )
     val setId = members.setContainer(outer).get
     val states = snapshot(st("light.a", "on"))
-    // `syncMembers` and nothing else fills the id index a member's root is read
-    // from — a plain `membersOf` READ materialises without installing, which is
-    // what keeps the graph a function of the state stream rather than of
-    // whoever looked first.
+    // Only `syncMembers` fills the id index; a `membersOf` read materialises
+    // without installing, keeping the graph a function of the state stream.
     val _ = members.syncMembers(
       List(StateChange("light.a", None, states("light.a"))),
       Map.empty,
@@ -433,14 +401,11 @@ class SurfaceGraphSuite extends munit.FunSuite {
 
   private def nestedSet = LayoutNode.SetNode(candidates = List("light.b"))
 
-  // ---- what a swap is entitled to assert -----------------------------------
-
   test("a committed selection round-trips through the state that reads it") {
-    // The property, not the spelling: whatever `committedSelection` says after
-    // a swap must be exactly what `resolveActive`/`openPopup` read back out of
-    // ui-state. The two ends were written apart — a value shape that only one
-    // of them understood would put the URL and the DOM back into the
-    // disagreement pending signals exist to remove.
+    // Whatever `committedSelection` says after a swap must be what
+    // `resolveActive`/`openPopup` read back. They were written apart, and a
+    // shape only one understands would re-open the URL/DOM disagreement pending
+    // signals exist to remove.
     val g = graphOf(
       Map(
         "t0" -> user("c", "panel", 0, defaultOpen = true),
@@ -472,9 +437,8 @@ class SurfaceGraphSuite extends munit.FunSuite {
   }
 
   test("nothing is committed where the client has no say") {
-    // A state group's branch is server truth every viewer shares, so there is
-    // no per-client selection to assert — asserting one would put a `ui_*` on
-    // the wire that `resolveActive` is never consulted about.
+    // A state branch is shared server truth, so asserting a selection would put
+    // a `ui_*` on the wire nothing reads.
     val g = graphOf(
       Map(
         "then" -> state("c", "branch", 0, isOn("light.a")),
@@ -483,8 +447,6 @@ class SurfaceGraphSuite extends munit.FunSuite {
     )
     val host = DomId.derived("c_branch")
     assertEquals(g.committedSelection(host, Some("else")), None)
-    // And a surface that is not a member of the host it arrived at names no
-    // index, so there is nothing truthful to say.
     assertEquals(g.committedSelection(host, Some("stranger")), None)
     assertEquals(
       g.committedSelection(DomId.derived("nobody"), Some("t0")),
