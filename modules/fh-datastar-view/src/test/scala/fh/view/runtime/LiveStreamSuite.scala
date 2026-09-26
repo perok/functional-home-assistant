@@ -22,116 +22,17 @@ import org.http4s.implicits.*
 
 import scala.concurrent.duration.*
 
-/** End to end over the REAL stream, with more than one client.
-  *
-  * These read the stream as EVENTS rather than as one string, and assert on
-  * every one of them rather than on the absence of a substring. What one
-  * connection is sent is only half the contract — the other half is what the
-  * OTHERS are not sent, and that cannot be observed from a single stream.
+/** End to end over the real stream, with several clients: what one connection
+  * is sent is half the contract, and what the others are not sent cannot be
+  * observed from a single stream. Events are asserted in full, since
+  * `!raw.contains(…)` also passes on a renamed selector or an event that never
+  * arrived.
   */
 class LiveStreamSuite extends ServerHarness {
 
-  // ---------------------------------------------------------------------------
-  // End to end over the REAL stream
-  // ---------------------------------------------------------------------------
-
-  /** These tests read the stream as EVENTS, not as one string, and assert on
-    * every one of them rather than on the absence of a substring.
-    *
-    * `assert(!raw.contains(…))` passes for every reason including the ones
-    * nobody meant — a renamed selector, an event that never arrived at all, a
-    * typo in the needle — so it pins almost nothing. Naming the exact sequence
-    * pins everything, and reads like the wire dump you would see in the
-    * browser.
-    *
-    * Decoding is http4s's own `ServerSentEvent.decoder`, so the tests parse the
-    * wire with the same type the server writes it with.
+  /** The property ADR 0002's collapse must preserve. Under-sending has no
+    * symptom: a withheld patch is just a value that quietly stops updating.
     */
-
-  /** The ready-made patches a shared batch produced, cursor signal dropped —
-    * what a test asserting on BYTES wants. A `Reveal` is not bytes: it is the
-    * instruction one connection finishes for itself, so it is not here.
-    */
-
-  /** An [[Addressed]] carries a [[Patch]] now — merging and encoding are the
-    * connection's job ([[Patches.encode]]) — so the bytes this suite asserts on
-    * are derived rather than stored. The resume cursor is an [[Encoded]], so
-    * "not the cursor" is the type rather than a predicate.
-    */
-
-  /** What a pull puts on the wire. Merging is [[Patches.encode]]'s job and is
-    * asserted where it matters; these contracts are about the patches.
-    */
-
-  /** The popup host's selection signal — `ui_` + the host id, exactly as the
-    * shell composes it.
-    */
-
-  /** The cursor handshake the connect path emits last — the end of the opening
-    * block, and the marker every one of these reads stops on.
-    */
-
-  /** Just the DOM events, as `(mode, selector, elements)`.
-    *
-    * The element stream is the contract worth pinning exactly. Signals are not:
-    * `haDown` rides its own merged stream, so its POSITION among the others is
-    * a scheduling detail, and asserting on it would buy a flaky test rather
-    * than a stronger one. So these tests state the element sequence in full and
-    * check for the signals they care about by presence.
-    */
-
-  /** ONE connected client, driven a step at a time.
-    *
-    * A test walks the interaction the way a browser experiences it — connect,
-    * assert; change, assert; change again, assert — instead of collecting one
-    * blob at the end and rummaging in it. Every assertion is then about a
-    * specific moment, and an event arriving at the wrong TIME fails as loudly
-    * as one that never arrives.
-    */
-
-  /** A booted server plus however many connected clients a test wants.
-    *
-    * MANY clients matter: what one connection is sent is only half the contract
-    * — the other half is what the OTHERS are not sent, and that cannot be
-    * observed from a single stream. `change` applies one entity update and
-    * waits for every client to fall quiet, so each `drain` afterwards is
-    * exactly what that client received for that change.
-    *
-    * In-process: `routes.run` on the `HttpApp`, no port and no socket, so this
-    * is deterministic and as fast as a unit test. What it adds over
-    * [[SharedHarness]] is the parts that harness deliberately skips — the
-    * publisher fibers, the topic, the per-connection merge — which is exactly
-    * where every bug the running app found had been hiding.
-    */
-
-  /** The `conn` a freshly-rendered document established, read off the
-    * `data-init` URL it advertises — what a browser's sessionStorage would
-    * keep.
-    */
-
-  /** How a document advertises its stream — the prefix of the `data-init`
-    * attribute, up to the URL itself. A REGEX, because `String.split` takes
-    * one: the `(` needs escaping or it reads as an unclosed group.
-    */
-
-  /** A main-page card plus a TWO-tab host (`c_1`), so two clients can be
-    * looking at different panels of the same dashboard at the same time — the
-    * shape the per-connection contract is actually about.
-    */
-
-  /** '''What one client is sent is only half the contract.'''
-    *
-    * The other half is what the OTHERS are not sent, and no single stream can
-    * show it. This is the property ADR 0002's collapse must PRESERVE — today it
-    * falls out of the per-session pass rendering only `open` surfaces; after
-    * the collapse it has to be a deliberate per-connection filter — so it is
-    * pinned here first, at the level the change will be judged on.
-    *
-    * Under-sending is the failure mode with no symptom: a patch withheld from a
-    * client that needed it produces no error, just a value that quietly stops
-    * updating.
-    */
-
   test("two clients on different tabs: each sees only its own") {
     liveWorld(
       twoTabsDash,
@@ -147,7 +48,6 @@ class LiveStreamSuite extends ServerHarness {
         _ <- onT0.drain
         _ <- onT1.drain
 
-        // A change inside TAB 0's panel.
         _ <- world.change(es("sensor.a", "A1"))
         a0 <- onT0.drain
         a1 <- onT1.drain
@@ -161,7 +61,6 @@ class LiveStreamSuite extends ServerHarness {
           clue = ("viewer of tab 1 must get nothing", a1)
         )
 
-        // ...and one inside TAB 1's, the mirror image.
         _ <- world.change(es("sensor.b", "B1"))
         b0 <- onT0.drain
         b1 <- onT1.drain
@@ -175,8 +74,8 @@ class LiveStreamSuite extends ServerHarness {
           clue = ("viewer of tab 1 must get it", b1)
         )
 
-        // A MAIN-PAGE change reaches both — the filter must not swallow what is
-        // not surface-scoped at all.
+        // A main-page change reaches both: the filter must not swallow what is
+        // not surface-scoped.
         _ <- world.change(es("sensor.shared", "s1"))
         s0 <- onT0.drain
         s1 <- onT1.drain
@@ -192,14 +91,10 @@ class LiveStreamSuite extends ServerHarness {
     }
   }
 
-  /** Tabs INSIDE a flipping branch — the shape that still forces
-    * [[Renderer.sessionOnlyStateGroups]] onto the per-session pass.
-    *
-    * A flip is decided by entity state, so the branch renders once for the slug
-    * — but the tabs host inside it holds a host whose contents each client
-    * chose for itself. Rendering that host on the shared pass would hand every
-    * client the DEFAULT tab, silently yanking a viewer off the tab they picked.
-    * Pinned here before the collapse deletes the pass that hides it.
+  /** Tabs inside a flipping branch, the shape that keeps
+    * [[Renderer.sessionOnlyStateGroups]] on the per-session pass. Rendering the
+    * tabs host on the shared pass would hand every client the default tab,
+    * yanking viewers off the tab they picked.
     */
 
   private def tabsInBranchDash = Dashboard(
@@ -229,7 +124,6 @@ class LiveStreamSuite extends ServerHarness {
       )
     ),
     surfaces = Map(
-      // The armed branch IS a tabs host (node `s_then__c`).
       "then" -> stateMember(LayoutNode.Component("tabs"), "c_1", 0, armedCond),
       "else" -> stateMember(branchCard("sensor.z"), "c_1", 1, always),
       "t0" -> Surface(
@@ -248,21 +142,16 @@ class LiveStreamSuite extends ServerHarness {
     )
   )
 
-  /** STRUCTURE has no rendering of its own: rendering it by id would render its
-    * whole subtree, hosts included, so it is refused. The log is per SLUG, so a
-    * digest recorded for one is one viewer's bytes presented as everyone's, and
-    * a resume re-rendering it hands that viewer's variant to whoever asks.
-    *
-    * Concretely, and this is the failure it caused: a client on tab 1
-    * reconnects and is morphed onto tab 0 — over a change inside tab 0's panel,
-    * which it could not see and did not ask for.
+  /** Structure is refused by id: its rendering holds hosts, and the log is per
+    * slug, so a digest for it is one viewer's bytes presented as everyone's.
+    * The failure it caused: a client on tab 1 reconnected and was morphed onto
+    * tab 0.
     */
 
   private def barePopupTabsDash = Dashboard(
     cards = Map(
-      // PURE STRUCTURE, exactly as the shipped `Column` is: one region and
-      // nothing else. That shape is the whole point — it has no markup of its
-      // own to fingerprint.
+      // Pure structure, like the shipped `Column`: no markup of its own to
+      // fingerprint.
       "col" -> CardDef(
         template = "<div>{{#children}}{{{html}}}{{/children}}</div>",
         regions = Map("children" -> Region())
@@ -275,7 +164,6 @@ class LiveStreamSuite extends ServerHarness {
     ),
     card = LayoutNode.Component("col"),
     surfaces = Map(
-      // The popup's content root is a bare `col` wrapping the tabs host.
       "det" -> Surface(
         LayoutNode.Component(
           "col",
@@ -299,14 +187,9 @@ class LiveStreamSuite extends ServerHarness {
   )
 
   test("a fill records what it put there, so the next tick suppresses") {
-    // The point of the trace. Opening a surface renders it and patches it into
-    // the host; the log now learns each node's bytes from that same render. So
-    // when an entity inside it ticks to the SAME value, the diff can tell
-    // "unchanged" from "never told" and sends nothing.
-    //
-    // Before, a fill dropped those entries, and the first tick after any
-    // surface open re-sent every node in it once — the cost W10b named and
-    // could not pay, because fingerprinting meant walking the subtree twice.
+    // Opening a surface teaches the log each node's bytes from the same render,
+    // so a tick to the same value is "unchanged", not "never told", and sends
+    // nothing.
     val dash = Dashboard(
       cards = Map(
         "col" -> CardDef(
@@ -358,22 +241,16 @@ class LiveStreamSuite extends ServerHarness {
                 .get
             )
             node = NodeId.derived("s_det__c_0")
-            // Nothing is claimed for a surface nobody has opened.
             beforeFill <- session.holds.get.map(_.get(node).contains(painted))
-            // Open the popup the way a tap does.
             _ <- server.routes.orNotFound.run(
               Request[IO](Method.POST, uri"/sse/surface/dashboard/open/det")
                 .withEntity(s"""{"${Server.ConnSignal}":"$conn"}""")
             )
-            // The fill told the SESSION what it painted...
             afterFill <- session.holds.get.map(_.get(node).contains(painted))
             held <- session.holds.get
-            // ...so a tick that renders identically produces nothing for it.
-            //
-            // A SYNTHETIC change against an unchanged store, deliberately: a
-            // real `store.update` wakes the background recorder, and whichever
-            // reaches the log first leaves the other seeing an empty frame. The
-            // suppression under test is the session's, not a race's.
+            // A synthetic change against an unchanged store: a real
+            // `store.update` wakes the background recorder, and whichever
+            // reaches the log first leaves the other an empty frame.
             same <- recordAndPull(
               server,
               sessions,
@@ -403,10 +280,8 @@ class LiveStreamSuite extends ServerHarness {
   }
 
   test("a queued flip that a later one superseded is dropped, not sent") {
-    // Two flips reach one slow client's queue. The first was planned against a
-    // selection that has since moved, so its bytes are not merely redundant —
-    // they would put the wrong branch on screen until the item behind them
-    // corrected it. The log already knows: the later flip recorded that
+    // The first flip was planned against a selection that has since moved, so
+    // its bytes would put the wrong branch on screen; the log recorded that
     // member as Gone.
     for {
       h <- SharedHarness.create(
@@ -422,16 +297,15 @@ class LiveStreamSuite extends ServerHarness {
       )
     } yield {
       assertEquals(out.size, 1, clue = out)
-      // The surviving branch, not the one that flashed past.
       assert(out.head.contains("""id="s_then__c""""), clue = out.head)
       assert(!out.head.contains("""id="s_else__c""""), clue = out.head)
     }
   }
 
   test("a branch that empties removes its content, never the host") {
-    // An `If` with no matching member: the host must survive, because every
-    // later fill targets it by id and a patch at a missing id is a silent
-    // no-op — the group would go permanently dead for that client.
+    // The host must survive: every later fill targets it by id, and a patch at
+    // a missing id is a silent no-op, so the group would go dead for that
+    // client.
     val d = ifDash().copy(surfaces =
       Map("then" -> stateMember(branchCard("sensor.a"), "c_0", 0, armedCond))
     )
@@ -448,21 +322,17 @@ class LiveStreamSuite extends ServerHarness {
     } yield {
       val removes = emptied.filter(_.contains("mode remove"))
       assertEquals(removes.size, 1, clue = emptied)
-      // The branch's CONTENT element, not the host it sat in.
       assert(removes.head.contains("selector #s_then__c"), clue = removes.head)
       assert(!removes.head.contains("#c_0_branch"), clue = removes.head)
-      // And the host is still there to be filled again.
       assertEquals(refilled.size, 1, clue = refilled)
       assert(refilled.head.contains("selector #c_0_branch"), clue = refilled)
     }
   }
 
   test("a fill fingerprints the nodes it placed, not the blob") {
-    // The obligation every fill meets: it re-supplies a whole subtree, so the
-    // session has to know what it put in EACH node. Claiming the composed
-    // subtree under the branch's ROOT does not do that — that root is a bare
-    // container, so it has no rendering of its own, nothing can ever resolve
-    // the entry, and the members it placed stay unknown.
+    // A fill re-supplies a whole subtree, so the session must know what it put
+    // in each node. A claim under the branch root, a bare container, could
+    // never be resolved.
     val d = Dashboard(
       cards = ifCards ++ Map(
         "col" -> CardDef(
@@ -476,7 +346,6 @@ class LiveStreamSuite extends ServerHarness {
           regions = LayoutNode.kids(LayoutNode.Component("ifhost"))
         ),
       surfaces = Map(
-        // The branch's root is a `col` — pure structure.
         "then" -> stateMember(
           LayoutNode.Component(
             "col",
@@ -505,16 +374,14 @@ class LiveStreamSuite extends ServerHarness {
         )
         .get
 
-    // The leaf the fill places is claimed, holding exactly what a patch for
-    // that node alone would carry — which is what makes the two comparable.
+    // Holding exactly what a patch for that node alone would carry, which makes
+    // the two comparable.
     val leaf: NodeId = "s_then__c_0"
     assertEquals(
       patch.establishes.get(leaf),
       r.renderNodeById(leaf, armed, fragments = QuerySnapshot.empty)
         .map(Held.of)
     )
-    // And the branch ROOT gets nothing: it has no rendering of its own, so a
-    // claim there could never be resolved.
     val root = NodeId.derived("s_then__c")
     assertEquals(
       r.renderNodeById(root, armed, fragments = QuerySnapshot.empty),
@@ -524,16 +391,10 @@ class LiveStreamSuite extends ServerHarness {
   }
 
   test("a resume sends one viewer's bar bytes that fit every viewer") {
-    // This used to be "a resume renders a VARIANT-BEARING node for THIS
-    // viewer": a node whose own markup read its own selection had one rendering
-    // per member, so a resume that rendered by id without knowing the viewer
-    // handed a tab-1 client tab 0's bar and flipped its highlight.
-    //
-    // There is no such node now. The selection lives on the STRUCTURE (rendered
-    // on the document path, where the viewer is known) and in the client's own
-    // signal; the live bar is a leaf whose bytes read entities and nothing
-    // else. So a resume's bytes fit every viewer by construction — asserted
-    // here, because the failure mode it replaces was silent.
+    // The selection lives on the structure (rendered where the viewer is known)
+    // and in the client's own signal, so a resume's bytes fit every viewer.
+    // Asserted because the failure it replaced, a tab-1 client handed tab 0's
+    // bar, was silent.
     val r = Renderer.create(serverHighlightDash)
     val states = Map(
       "sensor.title" -> es("sensor.title", "T1"),
@@ -542,9 +403,7 @@ class LiveStreamSuite extends ServerHarness {
     )
     val host: NodeId = "c_0_bar_0"
     val mine = Map("c_0" -> "1")
-    // The bar moved at v5. What this viewer is recorded as holding is the
-    // DEFAULT variant's bytes — tab 0's bar, which is what a repaint or an
-    // earlier connect on tab 0 would have left behind.
+    // Recorded as holding what a tab-0 connect left behind.
     val log = FragmentLog("w23").touched(host, 5L)
     val holds: Map[NodeId, Held] =
       Map(
@@ -562,10 +421,6 @@ class LiveStreamSuite extends ServerHarness {
       mine
     )
 
-    // The bar is owed NOTHING. It moved at v5, and this viewer is recorded as
-    // holding what a tab-0 connect left behind — which used to be the WRONG
-    // bytes for a tab-1 viewer and had to be re-sent per viewer. The bar reads
-    // entities and nothing else now, so those bytes are already right.
     assert(
       !owed.exists(_.patch.toSse.render.contains(host: String)),
       clue = (
@@ -573,13 +428,12 @@ class LiveStreamSuite extends ServerHarness {
         owed.map(_.patch.toSse.render)
       )
     )
-    // What IS owed is this viewer's own panel — which is per-viewer because it
-    // is a different SURFACE, not because one node has two renderings.
+    // Owed per viewer because it is a different surface, not because one node
+    // has two renderings.
     assert(
       owed.exists(_.patch.toSse.render.contains("s_t1__c")),
       clue = owed.map(_.patch.toSse.render)
     )
-    // And nothing owed carries a selection at all.
     assert(
       !owed.exists(_.patch.toSse.render.contains("active-")),
       clue = owed.map(_.patch.toSse.render)
@@ -593,11 +447,9 @@ class LiveStreamSuite extends ServerHarness {
         "sensor.a" -> es("sensor.a", "A0"),
         "sensor.b" -> es("sensor.b", "B0")
       )
-    // This viewer holds tab 1.
     val open = Set("det", "t1")
     val mine = Map("s_det__c_0" -> "1")
-    // What this viewer's DOCUMENT put on screen, exactly as `pageResponse`
-    // records it: rendered at ITS ui state, straight into its own session.
+    // Exactly as `pageResponse` records it.
     val ids =
       (r.surfaceNodeIds("det") ++ r.surfaceNodeIds("t1")).toList.sorted
     val seeded = FragmentLog("w18")
@@ -606,8 +458,6 @@ class LiveStreamSuite extends ServerHarness {
         .map(h => id -> Held.of(h))
     }.toMap
 
-    // (1) A change inside TAB 0's panel. Invisible to this viewer, and its
-    //     content must not reach it by ANY route.
     val tab0Moved = before.updated("sensor.a", es("sensor.a", "A1"))
     val owed = resumeNow(
       r,
@@ -624,8 +474,7 @@ class LiveStreamSuite extends ServerHarness {
     )
     assert(!owed.exists(_.patch.toSse.render.contains("A1")), clue = owed)
 
-    // (2) ...and the guard is not vacuous: a change in ITS OWN panel does
-    //     arrive. Without this the test would pass by sending nothing, ever.
+    // Not vacuous: without this the test would pass by sending nothing, ever.
     val tab1Moved = before.updated("sensor.b", es("sensor.b", "B1"))
     val mineOwed = resumeNow(
       r,
@@ -642,21 +491,16 @@ class LiveStreamSuite extends ServerHarness {
     )
   }
 
-  /** An inactive branch costs nothing — the guarantee ADR 0007 states — and it
-    * has to hold for a USER surface nested inside one too.
-    *
-    * `selectedSurfaces` reports a selection for every bake group whether or not
-    * that group is on screen, so a tab panel inside a hidden `If` is in its
-    * client's open set while nothing of it exists in any DOM. Rendering and
-    * pushing it is harmless (the morph targets an id the DOM lacks) and is pure
-    * waste, per tick of every entity it binds.
+  /** ADR 0007's "an inactive branch costs nothing", for a user surface nested
+    * in one. `selectedSurfaces` reports a selection for every bake group
+    * whether on screen or not, so a tab panel in a hidden `If` is in the open
+    * set; pushing it is harmless and pure waste.
     */
 
   test("a tab panel inside a HIDDEN branch costs nothing") {
     liveWorld(
       tabsInBranchDash,
       Map(
-        // Disarmed: the `then` branch, which holds the tabs, is NOT active.
         "alarm.h" -> es("alarm.h", "disarmed"),
         "sensor.shared" -> es("sensor.shared", "s0"),
         "sensor.a" -> es("sensor.a", "A0"),
@@ -667,14 +511,11 @@ class LiveStreamSuite extends ServerHarness {
       for {
         c <- world.connect()
         _ <- c.drain
-        // sensor.a is bound ONLY inside tab 0's panel, inside the hidden
-        // branch. Nothing on screen shows it.
         _ <- world.change(es("sensor.a", "A1"))
         hidden <- c.drain
         _ = assertEquals(domEvents(hidden), Nil, clue = hidden)
 
-        // ...and the guard is not vacuous: a change the client CAN see still
-        // arrives, through the same pass.
+        // Not vacuous: a change the client can see still arrives.
         _ <- world.change(es("sensor.shared", "s1"))
         seen <- c.drain
         _ = assert(
@@ -686,10 +527,9 @@ class LiveStreamSuite extends ServerHarness {
   }
 
   test("a reconnect is not owed another client's tab") {
-    // Two viewers, different tabs, both inside the ACTIVE branch. A change in
-    // tab 0's panel is rendered (its viewer needs it) and logged — so the
-    // cursor names it. The tab-1 viewer's resume must not carry it: the cursor
-    // knows what changed, not who is looking.
+    // A change in tab 0's panel is logged, so the cursor names it; the tab-1
+    // viewer's resume must not carry it. The cursor knows what changed, not who
+    // is looking.
     val r = Renderer.create(tabsInBranchDash)
     val states = Map(
       "alarm.h" -> es("alarm.h", "armed"),
@@ -715,13 +555,9 @@ class LiveStreamSuite extends ServerHarness {
     )
   }
 
-  /** A bar that renders its ACTIVE tab server-side rather than through a
-    * `$ui_<id>` expression — `{{bakeIndex}}` on the card's own template.
-    *
-    * It used to paint correctly and then blank itself on the first tick: the
-    * document path passed `bakeIndex`, the patch path did not. Now both do, and
-    * the node is per-viewer as a result — one rendering per member of its own
-    * group.
+  /** A bar rendering its active tab server-side via `{{bakeIndex}}`. It painted
+    * correctly and then blanked on the first tick: the document path passed
+    * `bakeIndex`, the patch path did not.
     */
 
   private def serverHighlightDash = Dashboard(
@@ -731,9 +567,6 @@ class LiveStreamSuite extends ServerHarness {
         regions = Map("children" -> Region())
       ),
       "card" -> CardDef("<span>{{state}}</span>", slots = List("state")),
-      // A live bar BESIDE the panel: the bar is its own node, so a title tick
-      // re-renders it and cannot reach the panel. The active-tab class stays on
-      // the structure, which is where a selection is known.
       "tabs" -> CardDef(
         template =
           """<div class="active-{{bakeIndex}}">{{#bar}}{{{html}}}{{/bar}}</div><div id="{{hostId}}">{{{panel}}}</div>""",
@@ -775,10 +608,8 @@ class LiveStreamSuite extends ServerHarness {
   )
 
   test("a variant keeps its own digest, so an unchanged tick is suppressed") {
-    // The set of variants for a bake owner is STATIC — one per member — so each
-    // is an entry of its own rather than one shared digest that could only ever
-    // describe one viewer's bytes. Two viewers on different tabs each get their
-    // own suppression, and neither consumes the other's patch.
+    // Variants of a bake owner are static, one per member, so each has its own
+    // digest: two viewers on different tabs get their own suppression.
     liveWorld(
       serverHighlightDash,
       Map(
@@ -792,7 +623,6 @@ class LiveStreamSuite extends ServerHarness {
         onT1 <- world.connect("?ui.c_0=1")
         _ <- onT0.drain
         _ <- onT1.drain
-        // A real change: both viewers get their own bar.
         _ <- world.change(es("sensor.title", "T1"))
         a1 <- onT0.drain
         b1 <- onT1.drain
@@ -804,9 +634,8 @@ class LiveStreamSuite extends ServerHarness {
           domEvents(b1).exists(_._3.exists(_.contains("T1"))),
           clue = b1
         )
-        // The SAME entity ticks to a value this node renders identically —
-        // the title is unchanged, only an attribute moved. Each variant's own
-        // digest says so, and nothing goes out to either viewer.
+        // Only an attribute moved, so the title renders identically and nothing
+        // goes out.
         _ <- world.change(
           es("sensor.title", "T1").copy(attributes =
             Map("unrelated" -> io.circe.Json.fromInt(7))
@@ -820,14 +649,6 @@ class LiveStreamSuite extends ServerHarness {
     }
   }
 
-  /** A tick on the bar's entity sends the SAME bytes to both viewers, and
-    * neither carries a selection — where this used to assert that each viewer
-    * kept its own index inside those bytes.
-    *
-    * The index is on the structure and in each client's `ui_` signal now, so a
-    * tick cannot disturb it: there is nothing per-viewer in the patch to get
-    * wrong.
-    */
   test("a tick sends both viewers the same bar, carrying no selection") {
     liveWorld(
       serverHighlightDash,
@@ -842,8 +663,6 @@ class LiveStreamSuite extends ServerHarness {
         onT1 <- world.connect("?ui.c_0=1")
         _ <- onT0.drain
         _ <- onT1.drain
-        // A tick of the bar's OWN entity: the patch must keep each viewer's
-        // index, not blank it and not swap it for the other's.
         _ <- world.change(es("sensor.title", "T1"))
         a <- onT0.drain
         b <- onT1.drain
@@ -855,8 +674,6 @@ class LiveStreamSuite extends ServerHarness {
           domEvents(b).exists(_._3.exists(_.contains("T1"))),
           clue = ("tab 1's viewer gets the new title", b)
         )
-        // Neither is handed ANY selection: there is none in the bytes to be
-        // right or wrong about, which is what makes one render serve both.
         _ = assert(
           !domEvents(a).exists(_._3.exists(_.contains("active-"))),
           clue = a
@@ -885,8 +702,6 @@ class LiveStreamSuite extends ServerHarness {
         onT1 <- world.connect("?ui.s_then__c=1")
         open0 <- onT0.drain
         open1 <- onT1.drain
-        // First paint already differs per client: the default tab vs the one
-        // the second client asked for.
         _ = assert(
           open0.exists(_.renderString.contains("A0")),
           clue = ("tab 0's viewer opens on A", open0)
@@ -904,8 +719,6 @@ class LiveStreamSuite extends ServerHarness {
           clue = open1
         )
 
-        // The branch goes away — for both, identically. Nothing tab-shaped is
-        // left in the DOM.
         _ <- world.change(es("alarm.h", "disarmed"))
         off0 <- onT0.drain
         off1 <- onT1.drain
@@ -918,7 +731,6 @@ class LiveStreamSuite extends ServerHarness {
           clue = off1
         )
 
-        // ...and comes back. THE assertion: each client is re-shown ITS tab.
         _ <- world.change(es("alarm.h", "armed"))
         on0 <- onT0.drain
         on1 <- onT1.drain
@@ -939,7 +751,6 @@ class LiveStreamSuite extends ServerHarness {
           clue = ("...which is exactly the silent regression", on1)
         )
 
-        // Both are still live inside their own tab afterwards.
         _ <- world.change(es("sensor.a", "A1"))
         a0 <- onT0.drain
         a1 <- onT1.drain
@@ -961,10 +772,9 @@ class LiveStreamSuite extends ServerHarness {
   }
 
   test("one frame is ONE batch: both elements, one cursor") {
-    // An HA frame carries many entity diffs and the store applies it in one
-    // update, bumping the version once. Publishing per entity split that
-    // instant into N passes, each ending with its own copy of the SAME cursor —
-    // observable on the wire as `storeVersion: 150` twice.
+    // A frame's diffs bump the store version once. Publishing per entity split
+    // that instant into N passes, seen on the wire as `storeVersion: 150`
+    // twice.
     val twoCards = Dashboard(
       cards = Map(
         "col" -> CardDef(
@@ -999,29 +809,22 @@ class LiveStreamSuite extends ServerHarness {
         _ <- world.frame(List(es("sensor.a", "A1"), es("sensor.b", "B1")))
         seen <- client.drain
       } yield {
-        // ONE element event carrying BOTH nodes. A morph names its target by
-        // the id inside its own HTML, so a run of them shares an event.
+        // A morph names its target by the id inside its own HTML, so a run
+        // shares an event.
         val elements = domEvents(seen)
         assertEquals(elements.size, 1, clue = seen)
         assert(elements.head._3.exists(_.contains("A1")), clue = seen)
         assert(elements.head._3.exists(_.contains("B1")), clue = seen)
-        // ...and the frame ends ONCE. A second cursor here means the pass ran
-        // twice over one instant.
         assertEquals(seen.count(isCursor), 1, clue = seen)
       }
     }
   }
 
   test("viewers SHARING a selection each get the fill, not just the first") {
-    // What is memoised is the VERDICT, not the render. Share the render and the
-    // first viewer to force it writes the digest, so the second is told its
-    // branch is unchanged — and sits on an empty host until something
-    // unrelated moves. Every other multi-client test here puts its clients on
-    // DIFFERENT selections, where one render each is the right answer anyway,
-    // so nothing pinned the case where sharing is the whole point.
-    //
-    // It became reachable for fills in this design: a branch used to be
-    // rendered once per connection, which cannot exhibit it.
+    // The verdict is memoised, not the render. Sharing the render let the first
+    // viewer write the digest, so the second was told its branch was unchanged
+    // and sat on an empty host. The other multi-client tests use different
+    // selections, so none pinned this.
     liveWorld(
       tabsInBranchDash,
       Map(
@@ -1033,16 +836,14 @@ class LiveStreamSuite extends ServerHarness {
       )
     ) { world =>
       for {
-        // Two viewers on tab 0 — the same selection, so ONE render serves both.
         firstOnT0 <- world.connect()
         secondOnT0 <- world.connect()
-        // ...and one elsewhere, so the shared verdict is not simply "everyone".
+        // So the shared verdict is not simply "everyone".
         onT1 <- world.connect("?ui.s_then__c=1")
         _ <- firstOnT0.drain
         _ <- secondOnT0.drain
         _ <- onT1.drain
 
-        // Away and back: the return is the fill both tab-0 viewers must get.
         _ <- world.change(es("alarm.h", "disarmed"))
         _ <- firstOnT0.drain
         _ <- secondOnT0.drain
@@ -1064,8 +865,6 @@ class LiveStreamSuite extends ServerHarness {
             back2
           )
         )
-        // Not vacuous by way of everyone getting everything: the other
-        // selection still gets its own panel and neither of the others'.
         assert(
           backT1.exists(_.renderString.contains("B0")),
           clue = ("tab 1's viewer gets ITS panel", backT1)
@@ -1076,10 +875,6 @@ class LiveStreamSuite extends ServerHarness {
       }
     }
   }
-
-  /** A connection's LIFETIME: what a late arrival is owed, and that two clients
-    * on one shared pass both stay live.
-    */
 
   test("a client joining late is caught up, and both stay live after") {
     liveWorld(liveLeafDash, Map("sensor.a" -> es("sensor.a", "cold"))) {
@@ -1093,16 +888,14 @@ class LiveStreamSuite extends ServerHarness {
             domEvents(early).exists(_._3.exists(_.contains("warm"))),
             clue = early
           )
-          // A SECOND client arrives after that change. It never saw the patch, so
-          // its opening block must carry the current value — from the document
-          // path, since it connects with no cursor.
+          // It never saw the patch and connects with no cursor, so its opening
+          // block carries the current value from the document path.
           late <- world.connect()
           opening <- late.drain
           _ = assert(
             domEvents(opening).exists(_._3.exists(_.contains("warm"))),
             clue = opening
           )
-          // Both are now live on the same shared pass.
           _ <- world.change(es("sensor.a", "hot"))
           e1 <- first.drain
           e2 <- late.drain
@@ -1119,10 +912,8 @@ class LiveStreamSuite extends ServerHarness {
   }
 
   test("end to end: flipping there and back, one host overwrite each time") {
-    // The shape the running app showed wrong twice. Driving the diff core
-    // directly could not see either: the first bug was in the resume path, the
-    // second in how a replay was assembled, and both only appear once events
-    // have actually travelled down a connection.
+    // The running app got this wrong twice, in the resume path and in replay
+    // assembly; both only appear once events travel down a connection.
     liveClient(
       ifDash(),
       Map(
@@ -1131,17 +922,15 @@ class LiveStreamSuite extends ServerHarness {
         "sensor.b" -> es("sensor.b", "B0")
       )
     ) { (world, client) =>
-      // This fixture's branch content is a single card, so the branch root IS
-      // the node — no Row wrapper (the shipped `If` wraps, the fixture does not).
+      // The fixture's branch content is one card, so the branch root is the
+      // node (the shipped `If` wraps in a Row).
       def branch(sid: String, inner: String) =
         Some(
           s"""<div class="fh-cell" id="s_${sid}__c"><span>$inner</span></div>"""
         )
       for {
-        // 1. This client connects with NO cursor — it never loaded a document —
-        //    so the honest answer is the whole body, once. (The document case is
-        //    the separate first-load test, where the page hands its cursor back
-        //    and the opening block carries no elements at all.)
+        // 1. No cursor, since it never loaded a document, so the whole body
+        // once.
         opening <- client.drain
         _ = assertEquals(
           domEvents(opening).map { case (m, s, _) => (m, s) },
@@ -1150,7 +939,6 @@ class LiveStreamSuite extends ServerHarness {
         )
         _ = assert(opening.exists(isCursor), clue = opening)
 
-        // 2. A tick inside the ACTIVE branch: one morph of that node alone.
         tick <- world.change(es("sensor.a", "A1")) *> client.drain
         _ = assertEquals(
           domEvents(tick),
@@ -1166,17 +954,16 @@ class LiveStreamSuite extends ServerHarness {
           clue = tick
         )
 
-        // 3. A tick inside the HIDDEN branch: nothing at all, not even a cursor.
-        //    Silence is structural — its ids never enter the selection.
+        // 3. A tick inside the hidden branch: its ids never enter the
+        // selection.
         hidden <-
           world.change(es("sensor.b", "B1")) *> client.drain
-        // No DOM patch. The cursor still moves — a pull reports where it got
-        // to even when it owed this client nothing.
+        // The cursor still moves: a pull reports where it got to even when it
+        // owed this client nothing.
         _ = assertEquals(domEvents(hidden), Nil, clue = hidden)
 
-        // 4. The flip: ONE overwrite of the host, carrying the branch
-        //    rendered at CURRENT state (B1, which this client never saw). The
-        //    browser reported three events here — two removals and an append.
+        // 4. One overwrite of the host, at current state (B1, never seen here).
+        // The browser reported three events here: two removals and an append.
         flip <- world.change(es("alarm.h", "disarmed")) *> client.drain
         _ = assertEquals(
           domEvents(flip),
@@ -1184,8 +971,7 @@ class LiveStreamSuite extends ServerHarness {
           clue = flip
         )
 
-        // 5. And back again — symmetric, and the then-branch returns at its
-        //    CURRENT value rather than the one it had when it left.
+        // 5. The then-branch returns at its current value.
         back <- world.change(es("alarm.h", "armed")) *> client.drain
         _ = assertEquals(
           domEvents(back),
@@ -1195,18 +981,4 @@ class LiveStreamSuite extends ServerHarness {
       } yield ()
     }
   }
-
-  /** '''A first page load must not send the body twice.'''
-    *
-    * Reported from the running app: loading `pkl-if` produced an
-    * `Inner #dashboard` carrying the entire dashboard — every byte of which the
-    * document already contained. The document knows what it is showing, so it
-    * hands that back on connect (`Restore`) and the stream resumes from it
-    * instead of taking the no-cursor branch.
-    *
-    * Follows the REAL wiring: the SSE url is read out of the rendered page's
-    * `data-init`, so a mismatch between what the page advertises and what the
-    * route accepts fails here rather than in a browser.
-    */
-
 }
