@@ -36,6 +36,7 @@ import "components/entity.pkl" as entityMod
 import "components/control.pkl" as control
 import "components/slider.pkl" as sliderMod
 import "components/surface.pkl" as surfaces
+import "components/history.pkl" as historyMod
 import "components/light.pkl" as lightMod
 import "components/lock.pkl" as lockMod
 import "components/moreinfo.pkl" as moreinfo
@@ -86,6 +87,9 @@ typealias Popup = surfaceMod.Popup
 typealias TapAction = tapMod.TapAction
 typealias Expr = slotMod.Expr
 typealias SectionTitle = textMod.SectionTitle
+typealias Label = textMod.Label
+/// How a label is coloured — `"normal"`, `"dim"`, `"error"` or `"warning"`.
+typealias Tone = coreTextMod.Tone
 typealias EntityCard = entityMod.EntityCard
 typealias EntityInfo = moreinfo.EntityInfo
 typealias Button = control.Button
@@ -131,6 +135,8 @@ hidden informative: Mixin<entityMod.EntityCard> = moreinfo.informative
 
 /// Static title text: `c.title("Active now")`.
 function title(t: String): textMod.SectionTitle = textMod.title(t)
+/// A short line of text in a tone: `c.label("Away until Monday")`.
+function label(t: String): textMod.Label = textMod.label(t)
 /// HA-like entity card: icon + label + value.
 function entityCard(e: hass.Entity): entityMod.EntityCard = entityMod.entityCard(e)
 /// The raw facts about an entity — its id, and every attribute it reports.
@@ -154,6 +160,18 @@ function progress(remaining: hass.SensorEntity): progressMod.ProgressCard =
 /// entity is on. See [[Slider.actions]].
 function sliderAction(e: hass.Entity, t: tapMod.TapAction): control.Button =
   sliderMod.sliderAction(e, t)
+/// A chart of a sensor's last 24 hours, drawn on the server — `.over("7d")`
+/// for any other window. Numeric sensors only; ask `e.isNumeric` first where
+/// the entity is not known to be one.
+function historyChart(e: hass.SensorEntity): historyMod.HistoryChart =
+  historyMod.historyChart(e)
+/// Now, low and high of a sensor over the last 24 hours, from the history
+/// provider's JSON — `.over(…)` and `.chosen()` like [[historyChart]].
+function historyReadings(e: hass.SensorEntity): historyMod.HistoryReadings =
+  historyMod.historyReadings(e)
+/// A window bar over the charts beneath it — `(c.windowChooser) { children {
+/// c.historyChart(s).chosen() } }`. Amendable, like [[column]].
+hidden windowChooser: historyMod.WindowChooser = historyMod.windowChooser
 /// A conditional section, shown while `p` holds over live entity state.
 function iff(p: pred.Predicate|Boolean): surfaces.If = surfaces.iff(p)
 /// A live value expression: `c.expr(#"str(math.round(num(state) * 10.0) / 10.0) + ' V'"#)`.
@@ -197,6 +215,7 @@ const modules: List<Module> = List(
   surfaces,
   surfaceMod,
   moreinfo,
+  historyMod,
   progressMod
 )
 

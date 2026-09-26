@@ -83,11 +83,9 @@ COPY --from=jre-build /javaruntime $JAVA_HOME
 ARG TARGETARCH
 COPY target/addon/js-isolate-$TARGETARCH.jar /opt/fh/js-isolate.jar
 
-# How this image launches a JVM against the app, defined ONCE. `run.sh` reads
-# both, and so does the CI step that runs JsIsolateCheck in the finished
-# image — otherwise those two spell out the same classpath separately and can
-# drift, and the JVM SILENTLY IGNORES a classpath entry that does not exist:
-# the add-on would start normally and fail at the first chart.
+# How this image launches a JVM against the app, read by `run.sh`. The JVM
+# SILENTLY IGNORES a classpath entry that does not exist, so a wrong path here
+# shows up only as the `no GraalJS isolate` warning, and every chart failing.
 ENV FH_APP_CLASSPATH=/opt/fh-dashboard.jar:/opt/fh/js-isolate.jar
 ENV FH_GRAAL_CACHE=/data/graal-cache
 

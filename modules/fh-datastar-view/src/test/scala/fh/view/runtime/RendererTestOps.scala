@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.query.QuerySnapshot
+
 /** The convenience forms of the render entry points, for tests that want the
   * bytes back as a `String`.
   *
@@ -25,7 +27,8 @@ private[runtime] object RendererTestOps {
     def renderBody(
         states: Map[String, EntityState],
         uiState: Map[String, String] = Map.empty
-    ): String = r.renderBodyTraced(states, uiState).html
+    ): String =
+      r.renderBodyTraced(states, uiState, fragments = QuerySnapshot.empty).html
 
     def renderPage(
         states: Map[String, EntityState],
@@ -40,7 +43,13 @@ private[runtime] object RendererTestOps {
         popup: Option[String] = None
     ): r.Traced = {
       val out = Sink.buffer(r.pageBytesHint)
-      val own = r.renderPageInto(out, states, uiState, popup)
+      val own = r.renderPageInto(
+        out,
+        states,
+        uiState,
+        popup,
+        fragments = QuerySnapshot.empty
+      )
       // The whole page is never a patch target — a repaint replaces
       // `#dashboard` wholesale — so it has no second form of its own. Its
       // NODES do, and those are in `own`.

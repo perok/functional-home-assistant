@@ -12,6 +12,8 @@ import fs2.Stream
 import io.circe.{Decoder, Json}
 import perok.ha.{GetStatesData, ServiceDomain}
 
+import java.time.Instant
+
 // TODO add caching of rest + json response. triggers and actions usually don't change
 //
 // The trait is effect-polymorphic in `F`: methods return `F[...]` /
@@ -103,6 +105,23 @@ trait HomeAssistantApi[F[_]] {
   def getStates: F[List[GetStatesData]]
 
   def getServices: F[List[ServiceDomain]]
+
+  /** An entity with no rows — including one that does not exist — is absent
+    * from the map, not an error.
+    */
+  def historyDuringPeriod(
+      start: Instant,
+      end: Instant,
+      entityIds: List[String]
+  ): F[Map[String, List[HistoryPoint]]]
+
+  /** Only entities with a `state_class` have statistics; others are absent. */
+  def statisticsDuringPeriod(
+      start: Instant,
+      end: Option[Instant],
+      statisticIds: List[String],
+      period: StatisticsPeriod
+  ): F[Map[String, List[StatisticPoint]]]
 
   // Assumes | to_json as the end
   def templateFunc[Body: Decoder](template: String): F[Body]
@@ -214,6 +233,25 @@ object HomeAssistantApi {
 
       def getStates: IO[List[GetStatesData]] =
         in.sendCommand(`get_states`())
+
+      def historyDuringPeriod(
+          start: Instant,
+          end: Instant,
+          entityIds: List[String]
+      ): IO[Map[String, List[HistoryPoint]]] =
+        in.sendCommand(
+          `history/history_during_period`(start, end, entityIds)
+        )
+
+      def statisticsDuringPeriod(
+          start: Instant,
+          end: Option[Instant],
+          statisticIds: List[String],
+          period: StatisticsPeriod
+      ): IO[Map[String, List[StatisticPoint]]] =
+        in.sendCommand(
+          `recorder/statistics_during_period`(start, end, statisticIds, period)
+        )
 
       def getConfigWS: IO[Json] =
         in.sendCommand(`get_config`())

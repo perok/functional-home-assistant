@@ -49,6 +49,9 @@ map:
 # The names are the leaf of FH_PKL_CACHE_DIR / FH_ASSETS_DIR in run.sh; if one
 # moves, this moves. `graal-cache` is Truffle's own unpack of the GraalJS
 # native library, re-extracted whenever a GraalVM bump changes its hash.
+# A BARE name prunes the whole subtree (PurePath.match from the right, and
+# securetar filters a directory before descending); `graal-cache/**` would
+# silently match nothing, because `match` does not treat `**` as recursive.
 backup_exclude:
   - pkl-cache
   - assets-cache

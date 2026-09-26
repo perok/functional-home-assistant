@@ -13,6 +13,7 @@ module core.node
 import "slot.pkl" as slotMod
 import "surface.pkl" as surfaceMod
 import "text.pkl" as textMod
+import "variable.pkl" as varMod
 import "pkl:reflect"
 
 /// Per-node layout-cell parameters (mirrors fh.view.model.Cell): extra CSS
@@ -163,6 +164,11 @@ abstract class Node extends LayoutNode {
     if (children is Mapping) children
     else if (children.isEmpty) null
     else new Mapping { [defaultRegion] = children }
+  /// NODE VARIABLES this node declares ([[varMod]]): name -> initial value.
+  /// Declare on the node that owns the choice; its subtree is where it
+  /// applies. A surface (popup, tab panel) is its own scope root and does not
+  /// see the page's declarations.
+  vars: Mapping<String, String>? = null
   // A node-level map of inline surfaces the build-phase hoist lifts into the
   // top-level `surfaces` registry (keyed `<node-id>_<localKey>`), splicing the
   // node's real id into every [[NODE_ID]] token in the subtree. Null (dropped

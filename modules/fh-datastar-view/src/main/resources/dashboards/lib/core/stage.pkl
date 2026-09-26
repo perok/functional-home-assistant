@@ -1,0 +1,19 @@
+/// What a QUERY slot's answer becomes — the third arm of [[slot.Slot.transform]].
+///
+/// A provider answers with data; a stage turns it into the hole's content. The
+/// core knows only the shape and [[passthrough]]; a stage that draws something
+/// lives with the component that uses it (the chart: `components/history.pkl`).
+module core.stage
+
+/// The wire form (fh.view.model.Transform.Stage). A stage with settings
+/// extends this with its own typed `params`.
+///
+/// `stage` rather than `kind`: [[simple.Simple]] already uses `kind`, and the
+/// backend tells the two union arms apart by which key is present.
+open class Stage {
+  stage: String
+}
+
+/// No transform: the provider's data, escaped into the hole. What a query slot
+/// gets by default.
+const passthrough: Stage = new Stage { stage = "passthrough" }

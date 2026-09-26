@@ -122,6 +122,10 @@ enum Tenure derives CanEqual {
 case class Session(
     slug: String,
     open: Ref[IO, Set[String]],
+    // This viewer's node-variable choices, keyed by declarer (issue #209).
+    // Held here like `open` because a pull has no request to read them off.
+    // Set by the document and by `Server.setVar`.
+    vars: Ref[IO, Map[(NodeId, String), String]],
     control: Queue[IO, SseFrame],
     holds: Ref[IO, Map[NodeId, Held]],
     haDown: Ref[IO, Option[Boolean]],
@@ -189,6 +193,7 @@ object Session {
   def create(slug: String): IO[Session] =
     for {
       o <- Ref[IO].of(Set.empty[String])
+      v <- Ref[IO].of(Map.empty[(NodeId, String), String])
       q <- Queue.unbounded[IO, SseFrame]
       h <- Ref[IO].of(Map.empty[NodeId, Held])
       // `None`, not `Some(false)`: a session minted by a stream (a bookmarked
@@ -201,7 +206,7 @@ object Session {
       // so a resume against it re-sends rather than under-sends.
       s <- Ref[IO].of(-1L)
       t <- SignallingRef[IO].of(Tenure.Fresh: Tenure)
-    } yield Session(slug, o, q, h, d, p, s, t)
+    } yield Session(slug, o, v, q, h, d, p, s, t)
 }
 
 /** Registry of live connections keyed by their minted `conn` id, so an action

@@ -13,6 +13,8 @@ import io.circe.syntax.*
 import cats.syntax.all.*
 import perok.ha.{GetStatesData, ServiceDomain, ServicesData}
 
+import java.time.Instant
+
 object client {
   // https://github.com/zachowj/node-red-contrib-home-assistant-websocket/blob/main/src/homeAssistant/Websocket.ts#L659
 
@@ -316,6 +318,50 @@ object client {
         extends CommandPhase
         with CommandResponse.AsResult[List[DeviceTrigger]]
         derives ConfiguredEncoder
+
+    //
+    // Recorder
+    //
+
+    /** Without the two flags every row repeats the attribute map (37 KB vs 8 KB
+      * for 223 points, measured); [[HistoryPoint]] decodes only the compact
+      * shape.
+      *
+      * An unknown entity and an end before the start both answer `{}`, so an
+      * empty map cannot detect a bad request. Retention (`purge_keep_days`)
+      * truncates the window silently.
+      */
+    case class `history/history_during_period`(
+        start_time: Instant,
+        end_time: Instant,
+        entity_ids: List[String],
+        minimal_response: Boolean = true,
+        no_attributes: Boolean = true
+    ) extends CommandPhase
+        with CommandResponse.AsResult[Map[String, List[HistoryPoint]]]
+        derives ConfiguredEncoder
+
+    /** An entity without a `state_class` answers `{}`, not an error. A bucket
+      * that has not closed yet does not exist: one hour at `Hour` is empty.
+      */
+    case class `recorder/statistics_during_period`(
+        start_time: Instant,
+        end_time: Option[Instant],
+        statistic_ids: List[String],
+        period: StatisticsPeriod
+    ) extends CommandPhase
+        with CommandResponse.AsResult[Map[String, List[StatisticPoint]]]
+
+    object `recorder/statistics_during_period` {
+
+      /** Omit `end_time` rather than send null: HA answers `invalid_format:
+        * expected str at 'end_time'. Got None`.
+        */
+      given Encoder.AsObject[`recorder/statistics_during_period`] =
+        ConfiguredEncoder
+          .derived[`recorder/statistics_during_period`]
+          .mapJsonObject(_.filter { case (_, v) => !v.isNull })
+    }
 
     //
     // Subscriptions

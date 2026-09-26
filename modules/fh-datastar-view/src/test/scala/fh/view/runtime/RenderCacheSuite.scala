@@ -4,7 +4,15 @@ import cats.effect.IO
 import cats.effect.std.CountDownLatch
 import cats.effect.unsafe.implicits.global
 import cats.syntax.parallel.*
-import fh.view.model.{Dashboard, LayoutNode, NodeId}
+import cats.syntax.traverse.*
+import fh.view.model.{
+  Dashboard,
+  LayoutNode,
+  NodeId,
+  SlotQuery,
+  SlotRead,
+  Transform
+}
 import fh.view.testkit.TestIds.given
 
 import java.util.concurrent.atomic.AtomicInteger
@@ -345,5 +353,75 @@ class RenderCacheSuite extends munit.FunSuite {
     assertEquals(waited, "<b>finished anyway</b>")
     assertEquals(renders, 1)
     assertEquals(n, 1)
+  }
+
+  // ---- what two viewers reading DIFFERENT queries cost ---------------------
+
+  /** Two windows over one sensor: the same node, keyed on reads that are not
+    * comparable — what two viewers on different node-variable values produce.
+    */
+  private def readOf(window: String): SlotRead =
+    SlotRead(
+      SlotQuery("history", Map("entity" -> "sensor.t", "window" -> window)),
+      Transform.Stage.Passthrough
+    )
+
+  private val day =
+    RenderInputs(Map("sensor.t" -> 1L), Map(readOf("24h") -> 9L))
+  private val week =
+    RenderInputs(Map("sensor.t" -> 1L), Map(readOf("7d") -> 9L))
+
+  test("two windows are UNORDERED, which is what stops the wrong span") {
+    // The premise the cost below rests on, and the property that matters more
+    // than the cost: if either direction answered true, the straggler rule
+    // would serve one viewer a chart of the other's span rather than merely
+    // costing a render.
+    assert(!day.isAtLeast(week))
+    assert(!week.isAtLeast(day))
+    assert(day.isAtLeast(day))
+  }
+
+  test("viewers on two windows evict each other — a render each, every pull") {
+    // ADR 0031 predicted this from reading the install rule; here it is
+    // measured. One generation per node means the two never coexist, so
+    // alternating asks never hit. The bound holds: the cost is renders, not
+    // retained HTML.
+    val renders = new AtomicInteger(0)
+    val (served, n, count) = (for {
+      cache <- RenderCache.create
+      one <- List(day, week, day, week).traverse { inputs =>
+        val html = if (inputs == day) "<i>24h</i>" else "<i>7d</i>"
+        cache(id, r, inputs)(IO(renders.incrementAndGet()).as(html))
+      }
+      n <- cache.generations
+    } yield (one.map(_.html), n, renders.get()))
+      .timeout(10.seconds)
+      .unsafeRunSync()
+
+    // Never wrong bytes — each caller is served ITS window, which is the half
+    // that would be a defect rather than a cost.
+    assertEquals(
+      served,
+      List("<i>24h</i>", "<i>7d</i>", "<i>24h</i>", "<i>7d</i>")
+    )
+    assertEquals(count, 4, "each ask rendered: neither generation survives")
+    assertEquals(n, 1, "one generation per node, whatever the read")
+  }
+
+  test("viewers on the SAME window still share one render") {
+    // The control. Without it "4 renders" is unreadable: it could equally mean
+    // the query half of the key had broken sharing outright.
+    val renders = new AtomicInteger(0)
+    val (served, count) = (for {
+      cache <- RenderCache.create
+      out <- List(day, day, day).traverse { inputs =>
+        cache(id, r, inputs)(IO(renders.incrementAndGet()).as("<i>24h</i>"))
+      }
+    } yield (out.map(_.html).distinct, renders.get()))
+      .timeout(10.seconds)
+      .unsafeRunSync()
+
+    assertEquals(served, List("<i>24h</i>"))
+    assertEquals(count, 1)
   }
 }

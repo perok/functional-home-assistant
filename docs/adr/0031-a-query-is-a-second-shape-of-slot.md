@@ -1,0 +1,232 @@
+# ADR 0031 — A query is a second SHAPE of slot, and what its answer becomes is the transform's
+
+A slot whose value comes from a provider is a different SHAPE from a slot that reads state —
+not a state slot with extra fields. And a provider FETCHES: how its answer becomes what the
+card puts in the hole is the slot's `transform`, not the provider's business.
+
+## Context
+
+Every slot value was a transform over one entity's current state, held in the `StateStore` and
+free to read. History is not: it lives in HA's recorder, takes a round trip, is parameterised by
+entity and window, and — the part that decides everything else — is **immutable below its newest
+point**.
+
+Two decisions came out of fitting that into the pipeline. They are here together because the
+second only became visible after the first shipped, and reading either alone gives a misleading
+picture of why the types look as they do.
+
+## Decision 1 — the wire keeps one `SlotSource`; validation produces two shapes
+
+`SlotSource` gains `query: Option[SlotQuery]`. `Dashboard.validate` turns that into
+
+```scala
+enum SlotShape:
+  case State(source: SlotSource)
+  case Query(read: SlotRead)
+```
+
+and every site that classifies a slot matches on it.
+
+### Why not a discriminated sum on the wire
+
+The obvious alternative, and worse: circe's `withDiscriminator` stamps a `"type"` tag onto
+**every** slot and churns every byte-identity snapshot in `PklBuildSuite`, for a distinction only
+the runtime cares about. `SlotSource`'s decoder already carries one special case (a bare string is
+a literal); this adds no second one.
+
+### Why a shape and not fields
+
+The first attempt hung `series: Option[String]` beside `transform`/`reads`/`signal`. It needed
+**four guards**, which is the tell:
+
+- `series` + `reads = live` puts the entity in `liveEntities`, so a sensor moving every second
+  re-fetches its own history every second — correct output, silent cost;
+- `series` + `reads = once` freezes the first chart in a process-wide memo keyed by entity;
+- `series` + `signal` puts kilobytes of SVG into every action POST and every SSE reconnect;
+- and the `once` memo needed an explicit bypass in `buildPlan` on top of the validation.
+
+Four rejections of combinations that should not have been spellable. **`reads` answers *when is
+this re-read, and does reading it wake the node*; a query answers *where does this value come
+from*.** Two axes, and folding them fakes one with the other.
+
+With the split, the guards do not get fixed — they **delete**. A `SlotShape.Query` has no `reads`
+and no `signal` to read, so the combinations are unreachable rather than rejected. The property
+that matters most falls out of the same fact: both entity lists are built from STATE slots, so a
+query slot has no entity to contribute and **a chart is not a candidate on a state tick**. Nothing
+arranges that; it is a property of the type.
+
+### What is checked rather than made unrepresentable
+
+`reads` is INERT on a query slot, which raises what the wire should SAY. It says `onRender`,
+derived by the Pkl default and checked at build time — not because anything acts on it, but
+because `"reads": "live"` beside a query is a lie the document tells whoever reads it, a
+third-party tool included.
+
+## Decision 2 — the provider fetches; the transform draws
+
+The first build had the provider answer with markup: `Fragment(version, html)`, with the chart
+style riding in the query's params. That put the presentation of a fetched value inside the thing
+that fetches it.
+
+`HistoryQuery.parse`'s own doc had already written the division down without the types being able
+to act on it: *"`entity` and `window` are the question; the rest is how it is drawn."*
+
+So: `QueryResolver.answer` returns `Answer(version, json)`, `QueryRequest.History` is
+`(entityId, window)`, and `width`/`height`/`unit` moved to the slot's `transform`.
+
+### Why the same field, and not a new one
+
+`transform` already answers *how does this value become what the card puts in the hole*. What
+differs between the shapes is the SUBJECT: a CEL string and a `Transform.Simple` read an ENTITY, a
+`Transform.Stage` reads a provider's answer. A query slot does not get a second field for the same
+question, and `SlotShape` keeps each arm on the shape that can use it.
+
+Two spellings were rejected:
+
+- **a bare string** (`transform = "passthrough"`) — a bare string in that field means a CEL
+  expression, so it would compile as one and die on an undeclared identifier;
+- **a member of `Transform.Simple`** — that type's documented membership rule is "a static lookup
+  and TOTAL", evaluated without the engine. A chart renderer is neither, and putting it there
+  would falsify the rule its own scaladoc states.
+
+### Why the default is derived
+
+`transform` defaults to `"state"`, which is the identity for a STATE slot and means nothing beside
+a query. So the Pkl default is derived from the shape — `if (query == null) "state" else
+passthrough` — exactly as `reads` is, and for the same reason: a fixed default makes the wire lie
+on one of the two shapes. The evidence is in the snapshots this change regenerated, where a query
+slot had been carrying `"transform": "state"`, which was never true of it.
+
+### What the split bought
+
+None of this was designed separately; all of it fell out.
+
+- **Passthrough is the third-party contract, and it is an absence rather than a feature.** No
+  transform means the provider's JSON — `[[epochMillis, value], …]` — which is what someone using
+  their own chart library reads against. The positional array is a rule, not a preference: the
+  payload can ride a Datastar signal, where a JSON null DELETES the signal and orphans every
+  binding on it with no error anywhere, so a gap must be an array element and never an object
+  field.
+- **The fetch/draw split is structural.** `QuerySnapshot.resolve` deduplicates one fetch per QUERY and
+  one drawing per `(query, stage)` — `SlotRead` is that pair, and it is what `RenderInputs`
+  carries. Two cards charting one sensor over one window at different sizes cost one fetch and two
+  drawings *because the keys say so*.
+- **The staged-value cache needs no expiry, and no provider.** A series has a shelf life — it
+  stops being current when its bucket rolls, which is what decides when a version moves. A staged
+  value has none: it is a function of an answer, and a version names one, so `QueryResolver` keys
+  every stage's output by `(question, stage, version)` and replaces in place. That is the half of
+  the series cache's eviction it does not need (both are a `SharedCache`, told what retires an
+  entry). The ANSWER cache stays the provider's, because when an answer moves is the provider's
+  policy — a bucket, a push, never — and the runtime knows a version only as "same data, never
+  goes back".
+- **The raw-hole rule generalises.** It was "a query slot's value is markup, so its hole must be
+  `{{{x}}}`". It is now **the last stage decides the hole**: a drawing needs the raw one, and
+  passthrough must NOT have one, because its value is an attribute payload and wants escaping.
+
+## Consequences
+
+- **A provider is a case in a closed sum**, not a registration: `QueryRequest`, `Queries.parse`
+  and `QueryResolver`, all pointed at by the compiler. Same for a stage. There is no plugin story
+  to pay for, and one `match` says in code what exists where a name→instance map says only what
+  somebody remembered.
+- **The Pkl core names no provider and no drawing stage.** `core/slot.pkl`'s `Query.provider` is a
+  plain String and `core/stage.pkl` knows only `passthrough`; the provider's name, its parameters
+  and the chart stage are typed in the component that offers them (`components/history.pkl`). An
+  unknown provider is still a build error — from `Queries.parse`, not the Pkl typechecker.
+- **A provider is untyped in the model; a stage is typed.** `fh.view.model` does not know what a
+  window is: a query's `params` are strings on the wire, parsed by their provider in
+  `Queries.parse`, so a second provider adds a case there and nothing in the model changes. A
+  stage is the other way round — `Stage.Chart` carries a `ChartStyle`, typed at both ends
+  (`components/history.pkl`'s `ChartParams`) and decoded with the wire. The model already had to
+  name each stage to check its hole, so typing its settings adds no new dependency, and it
+  removes a second parse of the same value.
+- **Parsing is pure and separate from resolving**, which removes the wiring hazard entirely.
+  Checking a chart needs no store, no HA connection and no JavaScript engine, so
+  a bad query or a bad chart size fails wherever a dashboard is built (the size as the wire is
+  decoded, the query in `Dashboard.validate`), rather than wherever somebody remembered to pass a
+  provider in.
+- **Identity is the first component of every cache key**, before any per-user provider exists.
+  Recorder data is permission-scoped, so a key that omits it is a permission leak rather than a
+  performance bug — and retrofitting one is how that leak gets written. Today every read is the
+  add-on's own identity and everyone shares. Whether it should be the person's token is open, and
+  it is the same question issue #198 asked of taps — "what happens if we use the access_token we
+  are given on login?" — which was closed without being answered in the code: every call is still
+  the add-on's. For reads the cost is a second HA connection per user, and whether history is
+  worth that is a judgement about cost, not a technical blocker.
+- **The render key gained a second dimension**, which issue #209 should know about: its own note
+  says `RenderInputs` is entity versions only and that reintroducing a selection dimension should
+  re-measure `RenderCacheContentionSuite`. It is back, deliberately. The predicted cost is that
+  two sessions holding different reads have *unordered* keys, so neither is a straggler and each
+  install evicts the other — read off `RenderCache`'s source, not measured.
+
+## Open questions
+
+- **Nothing wakes a node because a query's VERSION moved.** The live path is driven by
+  `stateStore.changes`; a bucket rolling is not a state change, so a chart on an open page goes
+  stale until something else that node reads happens to move. On a wall tablet — the case this
+  frontend exists for — that is indefinitely. The key is already correct: a render at the new
+  bucket produces new bytes. Nothing asks for that render.
+
+  **The shape is decided; nothing of it is built.** The PROVIDER rings, because only it knows when
+  its answer moves — a bucket rolling, a push arriving, or never — and the runtime knows a version
+  only as "same data, never goes back". So a provider gains one member beside `answer`:
+
+  ```scala
+  def moved: Stream[IO, Question => Boolean] // the questions whose answer just moved
+  ```
+
+  A predicate rather than a list of questions, so history needs no idea who is watching: at a
+  window's bucket boundary it emits `{ case (_, History(_, w)) => w == rolled }`, and a node
+  nobody can see costs nothing, since a pull renders only what its session can see. It fires AFTER the
+  answer has moved — for history, at the boundary by the clock `answer` reads — for the same reason
+  the state doorbell rings after the log is written. A static provider's stream is empty. The wake
+  is the DATA's, not the drawing's: a passthrough read of the same question wakes too, and no stage
+  is involved.
+
+  What the recorder does with it, and the one piece of real work:
+
+  - **It needs a version of its own.** The log, the doorbell and every session cursor count in
+    `StateStore` versions, and a bucket rolling mints none, so a session already at the current
+    version would never pull. The store mints one — a batch with no entity in it, publishing no
+    `StateChange` — and the recorder records the frame at it. "One version per HA event-loop tick"
+    becomes "one version per recorded frame", which is what the version was for.
+  - **It touches every node whose ask CAN resolve to a moved question**, not the exact set: with a
+    variable in a parameter (#209) the exact set is per session. Over-touching is the safe
+    direction — a session whose values resolve elsewhere re-renders to the same key, hits the
+    render cache, and sends nothing.
+  - The standing cost: every open dashboard holding a 1 h chart re-renders once a minute. Correct,
+    since the chart did change, and it is new load on a house where nothing is happening.
+
+  **A pushed provider also needs INTEREST**, which history does not: a subscription costs an open
+  HA stream, so it must end when nobody reads its question. Interest is per question, not per
+  session — a session's reads change while it lives (a tab closed, a variable set), and two
+  sessions on one question share one subscription. It is derived, not stored: a session's held
+  nodes, their asks, and its own values give its questions. A count per question acquires the
+  provider's `watch(question): Resource` on 0 → 1 and releases it one session-linger after
+  1 → 0, so a reconnect or a tab flicker does not churn it. **A first answer is awaited**, bounded
+  by `SharedCache.Timeout` and answered by the error label after it, like any answer — not a
+  placeholder filled in later, which would break §0's complete render (a subscription typically
+  sends its current value first).
+
+  Two alternatives were rejected. **Piggybacking the state tick** is nearly free and does not fix
+  the motivating case: a quiet house never ticks. **Letting the browser ask**
+  (`data-on-interval` on chart nodes) moves a server-truth decision into the page, costs a request
+  per chart per interval, and contradicts §0, where the server decides what a client is owed.
+
+  One consequence to carry: a failed chart recovers only when something next renders it. Its
+  failure is remembered for `FailureTtl` and then retried, but no ring says the retry is due, so
+  on a quiet page it waits for its next bucket.
+
+- **A failure is the chart's, not the page's.** A fetch or drawing that fails, or takes longer
+  than `SharedCache.Timeout`, is answered with `Staged.failed` and a version below any real one,
+  so the next good answer moves the render key. A chart's hole gets the runtime's error LABEL — the
+  same structure as the library's `label`, styled by the base CSS every dashboard carries, so no
+  card has to remember to handle it; a data hole is left empty, since it is escaped. The page and
+  the live stream carry on; only a read that does not parse — a wiring bug — raises. A failure is
+  remembered for a short window rather than retried by every render, which would otherwise each
+  wait out the timeout again.
+
+## What this does not decide
+
+How a chart is DRAWN — ECharts under GraalJS, and why not a browser chart — is
+[ADR 0032](0032-a-chart-is-bytes.md).
