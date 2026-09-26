@@ -819,7 +819,10 @@ class PklBuildSuite extends munit.FunSuite {
       // viewer's value, and the rest (the choices, the pending signal, the
       // route) is fixed markup composed from the node's own `{{id}}`, which is
       // the declarer's.
-      "historyWindows" -> Nil
+      "historyWindows" -> Nil,
+      // The passthrough example: the provider's JSON as data, plus the
+      // subject, its label and its unit for the readings.
+      "historyReadings" -> List("label", "readings", "unit", "entity_id")
     )
     assertEquals(
       cards.keys.map(_.toSet),

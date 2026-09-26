@@ -653,6 +653,54 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
       .timeout(60.seconds)
   }
 
+  test(
+    "passthrough JSON rides a signal attribute, and a new window re-queries it"
+  ) {
+    // `c.historyReadings`, the passthrough example: the provider's JSON is in
+    // the node's BYTES (escaped, since it is data), inside the attribute that
+    // lifts it into a client-only signal. A linked window is a different read,
+    // so the same node carries a different answer.
+    val readingsEntry =
+      s"""amends "@fh-dashboard/entry.pkl"
+         |
+         |import "@fh-dashboard/components.pkl" as c
+         |import "@fh-home/dump.pkl" as dump
+         |
+         |card = (c.column) {
+         |  children {
+         |    (c.windowChooser) {
+         |      children {
+         |        c.historyReadings(dump.entities.${HouseFixture.outsideTemp.dumpKey}).chosen()
+         |      }
+         |    }
+         |  }
+         |}
+         |""".stripMargin
+    val lifted =
+      """data-signals:(_hist_[A-Za-z0-9_]+)="(\{&quot;points&quot;:[^"]*)"""".r
+    TestServer
+      .fromWorkspace("fixture-readings", readingsEntry, entities)
+      .use { ts =>
+        for {
+          day <- ts.page()
+          declarer = """fhUrl\('v\.([A-Za-z0-9_]+)\.window'""".r
+            .findFirstMatchIn(day)
+            .map(_.group(1))
+            .getOrElse(fail("no chooser on the page", clues(day)))
+          week <- ts.page(s"?v.$declarer.window=7d")
+        } yield {
+          val (dayAt, weekAt) =
+            (lifted.findFirstMatchIn(day), lifted.findFirstMatchIn(week))
+          assert(dayAt.isDefined, clue = day)
+          assert(weekAt.isDefined, clue = week)
+          // `_`-prefixed, so the series never rides an action or a reconnect.
+          assert(dayAt.get.group(1).startsWith("_"), clue = dayAt.get.group(1))
+          assertNotEquals(weekAt.get.group(2), dayAt.get.group(2))
+        }
+      }
+      .timeout(60.seconds)
+  }
+
   test("a window chooser reaches the browser addressing its own node") {
     // The join this control is built on, and the only thing a real page can
     // prove: the bar is composed in Pkl from `{{id}}` tokens, and `{{id}}` is

@@ -695,6 +695,15 @@
       ],
       "template" : "<div class=\"card fh-chart\">{{{chart}}}</div>"
     },
+    "historyReadings" : {
+      "slots" : [
+        "label",
+        "readings",
+        "unit",
+        "entity_id"
+      ],
+      "template" : "<article class=\"card fh-readings\" data-signals:_hist_{{id}}=\"{{readings}}\">\n  <header><span class=\"fh-text\"><span class=\"fh-text-run\">{{label}}</span></span></header>\n  <dl>\n    <div><dt>Now</dt><dd data-text=\"(p => p.length ? Math.round(p[p.length - 1] * 10) / 10 + '{{#unit}} {{unit}}{{/unit}}' : '–')($_hist_{{id}}.points.map(x => x[1]).filter(v => v !== null))\"></dd></div>\n    <div><dt>Low</dt><dd data-text=\"(p => p.length ? Math.round(Math.min(...p) * 10) / 10 + '{{#unit}} {{unit}}{{/unit}}' : '–')($_hist_{{id}}.points.map(x => x[1]).filter(v => v !== null))\"></dd></div>\n    <div><dt>High</dt><dd data-text=\"(p => p.length ? Math.round(Math.max(...p) * 10) / 10 + '{{#unit}} {{unit}}{{/unit}}' : '–')($_hist_{{id}}.points.map(x => x[1]).filter(v => v !== null))\"></dd></div>\n    <div><dt>Covers</dt><dd class=\"fh-readings-span\" data-text=\"(q => q.length > 1 ? Math.round((q[q.length - 1][0] - q[0][0]) / 3600000) + ' h' : '–')($_hist_{{id}}.points)\"></dd></div>\n  </dl>\n</article>"
+    },
     "historyWindows" : {
       "regions" : {
         "children" : {

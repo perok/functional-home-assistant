@@ -165,6 +165,10 @@ function sliderAction(e: hass.Entity, t: tapMod.TapAction): control.Button =
 /// the entity is not known to be one.
 function historyChart(e: hass.SensorEntity): historyMod.HistoryChart =
   historyMod.historyChart(e)
+/// Now, low and high of a sensor over the last 24 hours, from the history
+/// provider's JSON — `.over(…)` and `.chosen()` like [[historyChart]].
+function historyReadings(e: hass.SensorEntity): historyMod.HistoryReadings =
+  historyMod.historyReadings(e)
 /// A window bar over the charts beneath it — `(c.windowChooser) { children {
 /// c.historyChart(s).chosen() } }`. Amendable, like [[column]].
 hidden windowChooser: historyMod.WindowChooser = historyMod.windowChooser

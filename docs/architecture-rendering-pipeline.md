@@ -919,6 +919,10 @@ of the second kind of input. A provider answers `Answer(version, json)` and has 
 presentation; a STAGE — the third arm of `transform`, beside a CEL string and a `Transform.Simple` —
 turns that into what the card puts in its hole. `Stage.Chart` draws SVG, and `Stage.Passthrough` is
 the absence of a transform: the provider's JSON, which is the contract a third party reads against.
+It is BYTES, never a signal, like every query slot: a component that wants the data client-side
+lifts it into a `_` signal itself, `data-signals:_hist_{{id}}="{{readings}}"`, and Datastar
+re-applies that attribute when a re-query morphs it — `c.historyReadings` is the worked example,
+and `WindowChooserSmokeSuite` holds the re-run.
 
 Both halves are closed sums matched, not registries — there is no plugin story here, and a
 name→instance map would say only what somebody remembered to wire up. Both parses are PURE, so
