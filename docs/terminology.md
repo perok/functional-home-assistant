@@ -177,6 +177,10 @@ state rather than swapping the node out.
 **Recorder / publisher** — the one fiber per dashboard that watches entity state and writes down
 what moved. It renders nothing and sends nothing.
 
+Home Assistant has a component of its own called the recorder — the database behind charts — and
+the two have nothing to do with each other. Unqualified, "the recorder" is ours; HA's is always
+**HA's recorder**.
+
 **Session** — one browser tab's server-side record: what it holds, how far it has read, which
 surfaces it has open.
 
@@ -254,3 +258,28 @@ but no server.
 **Snapshot (wire)** — a byte-for-byte recorded copy of a dashboard's evaluated JSON, so a refactor
 that should change nothing can prove it. Distinct from the **visual snapshots**, which are PNG
 baselines behind their own gate.
+
+## History — what a chart is drawn from
+
+Separate from the log/cursor vocabulary above, which is also about "history" in the sense of what a
+session has already been sent. Nothing here interacts with **horizon**, **floor** or **position**.
+
+**Series** — a numeric line ready to draw: points in time order, already downsampled, carrying no
+unit and no name (those belong to the entity's live state, and a copy here could disagree with the
+card beside it).
+
+**Window** — how far back a chart looks, from a closed set (`1h`/`24h`/`7d`/`30d`). Closed because
+each window carries the **bucket** its cache keys on; an arbitrary duration would give every viewer
+their own key and the sharing would stop.
+
+**Bucket** — two unrelated uses, so say which. A **cache bucket** is "now" floored to a window's
+step, and is what makes a series expire by time moving rather than by a timer. A **statistics
+bucket** is one pre-aggregated interval in HA's own table.
+
+**Retention** — how far back HA's recorder still holds raw rows. Learned, never configured: HA
+answers a too-long window with whatever survives rather than an error, so the only sound reading is
+a lower bound taken as the MAXIMUM across every entity asked for. Per entity it cannot be read at
+all — a sensor created yesterday and a daily purge give the same short answer.
+
+**Provider** — the seam a series is read through, and the read counterpart of `ServiceCalls`. It
+exists because HA scopes recorder data per user, so who is reading is a property of the request.
