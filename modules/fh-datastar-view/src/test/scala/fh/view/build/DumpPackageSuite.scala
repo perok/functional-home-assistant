@@ -3,11 +3,9 @@ package fh.view.build
 import fh.view.testkit.{HouseFixture, PklWorkspace}
 import io.circe.parser.parse
 
-/** The content-versioned dump package (ADR 0010, "resolved by content-derived
-  * versions"): the instance packages every dump it renders — immutably per
-  * version — into the same cache the packages route serves and its own eval
-  * resolves `@fh-home` from, and records the pin in `.fh/pins.json`. There is
-  * no loose `home/dump.pkl`.
+/** The content-versioned dump package (ADR 0010): every rendered dump is
+  * packaged immutably per version into the cache the packages route serves and
+  * `@fh-home` resolves from, and pinned in `.fh/pins.json`.
   */
 class DumpPackageSuite extends munit.FunSuite {
 
@@ -18,10 +16,7 @@ class DumpPackageSuite extends munit.FunSuite {
 
   private val dump = PklDump.render(HouseFixture.transformedDump)
 
-  /** A bootstrapped package-form workspace (lib package seeded, static
-    * base.pkl, NO pins.json yet) — the state right before the first
-    * `prepareDumps`.
-    */
+  /** The state right before the first `prepareDumps`: no pins.json yet. */
   private def stage(): (os.Path, os.Path) = {
     val root = os.temp.dir()
     val ws = root / "fh-dashboards"
@@ -47,16 +42,14 @@ class DumpPackageSuite extends munit.FunSuite {
     val version = DumpPackage.build(dump, libVersion, libMetaSha(cache)).version
     assert(version.startsWith("1.0.0-g"), clue = version)
 
-    // The pin file names this version.
     assertEquals(Pins.homeVersion(ws), Some(version))
 
     val entry = DumpPackage.cacheEntryDir(cache, version)
     val meta = parse(os.read(entry / s"fh-home@$version.json"))
       .fold(err => fail(s"metadata not JSON: $err"), identity)
 
-    // The metadata carries the @fh-dashboard dependency (uri + the cached lib
-    // metadata's sha) — what makes the dump's schema import resolve onto the
-    // same artifact the entry's alias uses (module identity, spike-verified).
+    // The @fh-dashboard dependency is what lands the dump's schema import on
+    // the artifact the entry's alias uses (module identity, spike-verified).
     val dep = meta.hcursor.downField("dependencies").downField("fh-dashboard")
     assertEquals(
       dep.get[String]("uri").toOption,
@@ -66,7 +59,6 @@ class DumpPackageSuite extends munit.FunSuite {
       dep.downField("checksums").get[String]("sha256").toOption,
       Some(libMetaSha(cache))
     )
-    // And the zip checksum in the metadata matches the seeded zip.
     assertEquals(
       meta.hcursor
         .downField("packageZipChecksums")
@@ -75,7 +67,6 @@ class DumpPackageSuite extends munit.FunSuite {
       Some(LibPackage.sha256(os.read.bytes(entry / s"fh-home@$version.zip")))
     )
 
-    // Idempotent: same dump, same version, nothing to seed and no pin to move.
     assertEquals(DumpPackage.seedFromText(ws, dump), Nil)
   }
 
@@ -94,15 +85,14 @@ class DumpPackageSuite extends munit.FunSuite {
     assertEquals(before.size, 1)
     assertEquals(after.size, 2, clue = after)
     assert(log.exists(_.contains("seeded dump package")), clue = log)
-    // The original snapshot is untouched — a laptop pinned to it keeps
-    // resolving.
+    // A laptop pinned to the original keeps resolving.
     assert(before.toSet.subsetOf(after.toSet))
   }
 
   test("the version hashes the lib dependency too, not just the dump") {
-    // A lib pin bump under an unchanged dump must mint a new version — the
-    // metadata (which carries the dependency) is immutable per version, or a
-    // laptop cache holding the old bytes is stranded (the spike-9 trap).
+    // The metadata carries the dependency and is immutable per version, so a
+    // lib bump must mint one, or a laptop cache holding the old bytes is
+    // stranded.
     val d = "// same dump\n"
     val a = DumpPackage.build(d, "0.1.0", "a" * 64)
     val b = DumpPackage.build(d, "0.2.0", "b" * 64)
@@ -136,8 +126,7 @@ class DumpPackageSuite extends munit.FunSuite {
       .get[String]("version")
       .toOption
       .getOrElse(fail("no fh-home version"))
-    // The index's sha is the seeded metadata's — the artifact a manifest
-    // checksum pins.
+    // The artifact a manifest checksum pins.
     assertEquals(
       index.hcursor.downField("fh-home").get[String]("sha256").toOption,
       Some(
@@ -152,8 +141,8 @@ class DumpPackageSuite extends munit.FunSuite {
   }
 
   test("a workspace with no @fh-dashboard pin neither seeds nor indexes") {
-    // The None guard: without a package pin (and its metadata in the cache) a
-    // workspace cannot build the dependency-carrying dump package.
+    // Without a package pin and its cached metadata the dependency-carrying
+    // package cannot be built.
     val ws = os.temp.dir()
     os.write(
       ws / "PklProject",

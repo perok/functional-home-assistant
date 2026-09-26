@@ -7,26 +7,19 @@ import org.http4s.*
 
 import scala.concurrent.duration.*
 
-/** **The names the server writes are the names the page reads.**
-  *
-  * A refusal's signal names are declared TWICE — `"_{{id}}__error"` in
-  * `core/tap.pkl`, `s"_${id}__error"` in [[Server.actionSignals]] — in two
-  * languages, with a Mustache pass and a CEL evaluation between them. Nothing
-  * else makes them agree, and disagreement is SILENT in the worst way: the
-  * server patches a signal nobody binds, so the POST still answers 200, the
-  * suite still passes, and the control simply never lights up.
-  *
-  * So this renders a real Pkl page, takes the ids out of the MARKUP, and asks
-  * the server to build its frame from those same ids — the two sides meeting on
-  * a value neither of them chose. `WireShapeSuite` does the same job for the
-  * wire model, and exists because that pair drifted.
+/** '''The names the server writes are the names the page reads.''' A refusal's
+  * signal names are declared twice, `"_{{id}}__error"` in `core/tap.pkl` and
+  * `s"_${id}__error"` in [[Server.actionSignals]], and disagreement is silent:
+  * the server patches a signal nobody binds and the control never lights up. So
+  * the ids come out of a real page's markup and the server builds its frame
+  * from them.
   */
 class ActionSignalNamesSuite extends CatsEffectSuite {
 
   private val light = HouseFixture.kitchenLight
 
-  /** One guarded tap (which is what carries a node id) and one tab group (which
-    * is what carries a pending selection) — the two halves of a refusal frame.
+  /** A guarded tap carries a node id and a tab group a pending selection: the
+    * two halves of a refusal frame.
     */
   private val entry =
     s"""amends "@fh-dashboard/entry.pkl"
@@ -61,8 +54,8 @@ class ActionSignalNamesSuite extends CatsEffectSuite {
       .fromWorkspace("fixture-names", entry, List(light))
       .use { ts =>
         ts.page().map { html =>
-          // Taken from the MARKUP, so a rename on the Pkl side moves these and
-          // the server has to follow.
+          // From the markup, so a Pkl rename moves these and the server must
+          // follow.
           val nodeId =
             firstMatch("""data-fh-node="([A-Za-z0-9_]+)"""".r, html, "node id")
           val groupId =
@@ -78,10 +71,8 @@ class ActionSignalNamesSuite extends CatsEffectSuite {
           val names =
             Server.actionSignals(req, "refused").asObject.get.keys.toSet
 
-          // Every name the server would patch is one this page reads. `$<name>`
-          // rather than the bare name: an expression READING it is the thing
-          // that has to match, and a substring of some longer signal would pass
-          // a bare check.
+          // `$<name>`: an expression reading it is what must match, and a
+          // substring of a longer signal would pass a bare check.
           val bound = names - Server.ToastSignal
           assertEquals(
             bound,
@@ -92,10 +83,8 @@ class ActionSignalNamesSuite extends CatsEffectSuite {
             assert(html.contains(s"$$$n"), s"the page never reads $$$n")
           )
 
-          // The toast is the third name, and its reader is the page's own
-          // handler calling a shell global — so both ends are pinned here too.
-          // It has been possible to ship a page whose toast handler called a
-          // function no build emitted.
+          // The toast's reader is the page's handler calling a shell global,
+          // and a page has shipped calling a function no build emitted.
           assert(names.contains(Server.ToastSignal), clue = names)
           assert(html.contains(s"$$${Server.ToastSignal} = ''"), clue = html)
           assert(

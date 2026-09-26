@@ -12,19 +12,15 @@ import org.typelevel.otel4s.trace.Tracer
 
 import scala.jdk.CollectionConverters.*
 
-/** The claim [[Logging]] rests on, and the only place anything checks it: a log
-  * record written inside a span leaves carrying THAT span's ids.
-  *
-  * Worth a real SDK rather than a stub, because the failure mode this guards
-  * against is precisely a context that looks present and is empty — which is
-  * what the logback appender would have produced, and what a stub asserting on
-  * our own `withContext` call would have missed.
+/** The claim [[Logging]] rests on: a record written inside a span carries that
+  * span's ids. A real SDK, because the failure is a context that looks present
+  * and is empty, which a stub asserting on our own `withContext` call would
+  * miss.
   */
 class LoggingSuite extends munit.CatsEffectSuite {
 
-  /** One SDK writing spans and records to memory, wrapped as the `Telemetry`
-    * value the runtime is given. `SimpleLogRecordProcessor` rather than a batch
-    * one so a record is exported by the time `emit` returns.
+  /** `SimpleLogRecordProcessor`, so a record is exported by the time `emit`
+    * returns.
     */
   private def collecting
       : Resource[IO, (Telemetry.Otel, InMemoryLogRecordExporter)] =
@@ -67,9 +63,8 @@ class LoggingSuite extends munit.CatsEffectSuite {
         factory <- Logging.factory(otel)
         tracer <- otel.tracerProvider.get("test")
         log = factory.getLoggerFromName("fh.test")
-        // The span's own ids, captured inside it, are what the record has to
-        // match — reading them from the record alone would pass on any two
-        // equal-looking hex strings.
+        // Captured inside the span; reading them from the record alone would
+        // pass on any two equal-looking hex strings.
         ids <- tracer
           .span("under-test")
           .surround(
@@ -88,16 +83,15 @@ class LoggingSuite extends munit.CatsEffectSuite {
           Some("something to correlate")
         )
         assertEquals(record.getSeverityText, "WARN")
-        // The scope is the logger's NAME, which is what lets a backend tell
-        // this project's lines from ember's without being told the mapping.
+        // The logger's name lets a backend tell this project's lines from
+        // ember's.
         assertEquals(record.getInstrumentationScopeInfo.getName, "fh.test")
       }
     }
   }
 
   test("a record written outside any span is still exported, with no ids") {
-    // The other half: correlation is a bonus, never a precondition. A wrapper
-    // that dropped or refused untraced lines would lose exactly the boot and
+    // Correlation is a bonus: dropping untraced lines would lose the boot and
     // shutdown lines that explain a failure to start.
     collecting.use { (otel, records) =>
       for {
@@ -112,9 +106,7 @@ class LoggingSuite extends munit.CatsEffectSuite {
   }
 
   test("the console leg still gets the line, with the ids in its context") {
-    // Both legs, from one call. The add-on's Log tab is plain text, so the ids
-    // have to be IN the line there — the record's own context is no help to a
-    // reader looking at stdout.
+    // The add-on's Log tab is plain text, so the ids must be in the line.
     collecting.use { (otel, records) =>
       val console = StructuredTestingLogger.impl[IO]()
       for {
@@ -140,9 +132,8 @@ class LoggingSuite extends munit.CatsEffectSuite {
   }
 
   test("with no endpoint configured, nothing is recorded at all") {
-    // The promise `Telemetry` makes, on the leg it did not used to have: a
-    // no-op logger provider must not merely drop records, it must report
-    // itself disabled so the message is never even built.
+    // A no-op provider must report itself disabled, so the message is never
+    // built.
     val log = Logging.logger(
       "fh.test",
       StructuredTestingLogger.impl[IO](),
