@@ -26,33 +26,24 @@ import org.http4s.implicits.*
 
 import scala.concurrent.duration.*
 
-/** One test per consumer in ADR 0010's "Use cases" table.
-  *
-  * Not unit tests of a class: each pins the load-bearing PROPERTY one persona's
-  * workflow depends on. The four stories are meant to be ONE design, so a
-  * change that quietly serves three of them should fail here rather than in
-  * someone's home.
-  *
-  * The invariant under all four: **evaluation always runs against a fully-local
-  * project**; an instance is synced FROM and pushed TO, never imported from.
+/** One test per consumer in ADR 0010's "Use cases" table, each pinning the
+  * property that persona's workflow depends on, so a change serving only three
+  * of them fails here. The invariant under all four: evaluation always runs
+  * against a fully local project; an instance is synced from and pushed to,
+  * never imported from.
   */
 class UseCaseSuite extends munit.CatsEffectSuite {
 
   private val dashboards =
     os.pwd / "modules" / "fh-datastar-view" / "src" / "main" / "resources" / "dashboards"
 
-  /** The bundled `@fh-dashboard` artifacts, needed to pin the FIRST dump on a
-    * fresh workspace (no pins.json yet) — see [[DumpPackage.seedFromText]].
+  /** Needed to pin the first dump on a fresh workspace with no pins.json
+    * ([[DumpPackage.seedFromText]]).
     */
   private val bundled = LibPackage.build(dashboards / "lib")
 
-  /** Stage a package-form dashboards workspace the way every persona has one
-    * (the ONE resolution mode, ADR 0010): the real `AddonBootstrap` seeds the
-    * lib package into a cache and writes the static base.pkl + consumer
-    * project. `withDump = true` seeds the dump package and writes the real
-    * pins; `withDump = false` is the laptop before a pull — no dump, so NO
-    * pins.json yet and `@fh-home` is unresolvable, which is also how a
-    * freshly-seeded add-on starts.
+  /** `withDump = false` is the laptop before a pull, and a freshly seeded
+    * add-on: no pins.json, so `@fh-home` is unresolvable.
     */
   private def stageWorkspace(withDump: Boolean): os.Path = {
     val root = os.temp.dir()
@@ -68,9 +59,8 @@ class UseCaseSuite extends munit.CatsEffectSuite {
     ws
   }
 
-  /** An entry that can only build if the live dump resolved: it names a real
-    * entity of this home, so an absent dump is a build error rather than a
-    * quietly emptier dashboard.
+  /** Names a real entity, so an absent dump is a build error rather than an
+    * emptier dashboard.
     */
   private val entryNeedingDump =
     s"""amends "@fh-dashboard/entry.pkl"
@@ -88,14 +78,9 @@ class UseCaseSuite extends munit.CatsEffectSuite {
        |}
        |""".stripMargin
 
-  // ---------------------------------------------------------------- persona 1
-
   test("end user on /edit: the seeded workspace builds server-side") {
-    // What a fresh add-on does: bootstrap the workspace (package-form
-    // manifests, lib pre-cached — AddonBootstrapSuite pins that machinery),
-    // write the dump from HA, evaluate. pkl-lsp behind /edit resolves the same
-    // manifests + cache (`moduleCacheDir` is declared IN the manifest), so
-    // nothing here is fetched.
+    // pkl-lsp behind /edit resolves the same manifests and cache
+    // (`moduleCacheDir` is declared in the manifest), so nothing is fetched.
     val root = os.temp.dir()
     val ws = root / "fh-dashboards"
     val _ = PklWorkspace.bootstrapInto(ws, bundled, root / "pkl-cache")
@@ -112,18 +97,14 @@ class UseCaseSuite extends munit.CatsEffectSuite {
   }
 
   test("end user on /edit: a saved file says whether the site reads it") {
-    // The editor's note after a write, on a workspace whose analysis really
-    // RUNS (the stub in EditorSuite cannot, and answers conservatively). Here
-    // `mine.pkl` is a module nothing names, so the false is the true answer —
-    // and it flips the moment the entrypoint imports it, without a reload,
-    // because the answer comes from the sources rather than the live site.
+    // A workspace whose analysis really runs, unlike EditorSuite's stub.
+    // `mine.pkl` is named by nothing, and the answer flips once the entrypoint
+    // imports it, without a reload: it comes from the sources, not the live
+    // site.
     val ws = stageWorkspace(withDump = true)
     os.write(ws / "mine.pkl", entryNeedingDump)
-    // One evaluation first, as a running instance has always done by the time
-    // anyone saves: it writes the lockfile the static analyser needs. Without
-    // it the analysis cannot resolve the package imports and answers with the
-    // conservative superset — everything read — which is the right failure
-    // direction but says nothing about this test's question.
+    // One evaluation first writes the lockfile the analyser needs; without it
+    // the analysis answers with the conservative superset.
     val _ = SourceEval.eval(ws, Site.EntryFile)
 
     def used(): Boolean =
@@ -142,16 +123,12 @@ class UseCaseSuite extends munit.CatsEffectSuite {
     assert(used(), clue = "a module the entrypoint imports counted as unread")
   }
 
-  // ---------------------------------------------------------------- persona 2
-
   test(
     "end user on a local editor: the instance serves its dump as text (ETag 304)"
   ) {
-    // The human/debug download of the live dump, extracted from the currently
-    // pinned `@fh-home` package (there is no loose `home/dump.pkl`). The actual
-    // laptop CONSUMPTION is the package pull below; this route is for reading the
-    // dump text and for tooling asking "did the home change?" cheaply — an
-    // unchanged home is a 304, the endpoint's only ETag consumer.
+    // The human/debug download, extracted from the pinned `@fh-home` package.
+    // Laptop consumption is the package pull below; this route's one ETag
+    // consumer asks "did the home change?" cheaply.
     val instance = stageWorkspace(withDump = true)
 
     val uri = uri"/system/pkl/dump.pkl"
@@ -173,7 +150,6 @@ class UseCaseSuite extends munit.CatsEffectSuite {
           )
         } yield {
           assertEquals(pulled.status, Status.Ok)
-          // The served text is the typed dump — it reaches its schema by alias.
           assert(
             body.contains("""import "@fh-dashboard/hass.pkl""""),
             clue = body.take(200)
@@ -187,13 +163,10 @@ class UseCaseSuite extends munit.CatsEffectSuite {
   test(
     "end user on a local editor, no checkout: both packages arrive from the instance"
   ) {
-    // The laptop with NEITHER lib nor checkout — only two
-    // `package://fh.invalid/…` pins (`@fh-dashboard` AND `@fh-home`) and one
-    // rewrite toward the instance's `/system/pkl/packages/` route. This is the
-    // whole laptop story for a user who never cloned the repo, and it is
-    // deliberately end-to-end: pkl's REAL package resolver over a REAL socket,
-    // so any drift in the metadata shape, the zip layout, or the route breaks
-    // here and not on someone's laptop.
+    // A laptop with neither lib nor checkout: two `package://fh.invalid/…` pins
+    // and one rewrite toward `/system/pkl/packages/`. pkl's real resolver over
+    // a real socket, so a drift in metadata shape, zip layout or route breaks
+    // here.
     val root = os.temp.dir()
     val instance = root / "fh-dashboards"
     val instanceCache = root / "pkl-cache"
@@ -215,8 +188,6 @@ class UseCaseSuite extends munit.CatsEffectSuite {
       )
     )
 
-    // The laptop workspace: just the two package pins (uri + the @fh-home
-    // checksum a pull writes) — no lib, no home/ dir, no dump file.
     val laptop = root / "laptop"
     os.makeDir.all(laptop)
     os.write(
@@ -260,18 +231,14 @@ class UseCaseSuite extends munit.CatsEffectSuite {
             )
           )
         for {
-          // The wire contract pkl's resolver consumes: metadata JSON naming
-          // the sha256 that the zip actually hashes to — the pin that will
-          // land in the laptop's lockfile.
+          // The metadata's sha256 is what the zip hashes to: the pin the
+          // laptop's lockfile gets.
           meta <- get(s"fh-dashboard@$v")
           metaBody <- meta.body.through(fs2.text.utf8.decode).compile.string
           zip <- get(s"fh-dashboard@$v.zip")
           zipBytes <- zip.body.compile.to(Array)
           missing <- get("fh-dashboard@9.9.9-nosuch")
 
-          // The laptop's whole flow, over the real socket: resolve (writes
-          // the lockfile, fetches metadata + zip into the laptop's own cache)
-          // then evaluate the entry against what arrived.
           properties <- IO.blocking(
             resolveAndEvalOverHttp(laptop, laptopCache, base)
           )
@@ -294,8 +261,6 @@ class UseCaseSuite extends munit.CatsEffectSuite {
           assertEquals(missing.status, Status.NotFound)
 
           assert(properties.containsKey("card"), clue = properties.keySet)
-          // The artifacts really crossed the wire: the laptop's own cache now
-          // holds the same package entry the instance evaluates from.
           assert(
             os.exists(
               LibPackage.cacheEntryDir(laptopCache, v) /
@@ -308,8 +273,7 @@ class UseCaseSuite extends munit.CatsEffectSuite {
   }
 
   test("the package-discovery index is served by the instance") {
-    // What `fh init`/`pull` read before rewriting the laptop's pins: current
-    // versions + metadata sha256 of both packages, as JSON.
+    // What `fh init`/`pull` read before rewriting the laptop's pins.
     val root = os.temp.dir()
     val instance = root / "fh-dashboards"
     val _ = PklWorkspace.bootstrapInto(instance, bundled, root / "pkl-cache")
@@ -351,13 +315,10 @@ class UseCaseSuite extends munit.CatsEffectSuite {
   test(
     "fh script interface: the @fh-home package the pins point at is served"
   ) {
-    // The server-side half of `fh init`/`pull`, driven at the interface the
-    // script consumes and no further (the script's own logic has its own
-    // suite, scripts/fh.test.scala; no subprocesses here): the discovery
-    // index names the current @fh-home version, that version's metadata +
-    // zip artifacts are fetchable, and when the home changes and the
-    // instance re-seeds, the index moves to a NEW content version whose
-    // artifacts are served too — which is exactly what `pull` re-pins to.
+    // The server half of `fh init`/`pull`, at the interface the script consumes
+    // (its logic has its own suite, scripts/fh.test.scala). When the home
+    // changes, the index moves to a new content version whose artifacts are
+    // served too: what `pull` re-pins to.
     val root = os.temp.dir()
     val instance = root / "fh-dashboards"
     val _ = PklWorkspace.bootstrapInto(instance, bundled, root / "pkl-cache")
@@ -379,7 +340,6 @@ class UseCaseSuite extends munit.CatsEffectSuite {
         val get = (path: String) =>
           app.run(Request[IO](Method.GET, Uri.unsafeFromString(path)))
 
-        // What fetchIndex in the script reads before rewriting the pins.
         val homeVersion = for {
           idx <- get("/system/pkl/packages")
           body <- idx.body.through(fs2.text.utf8.decode).compile.string
@@ -393,8 +353,6 @@ class UseCaseSuite extends munit.CatsEffectSuite {
           meta <- get(s"/system/pkl/packages/fh-home@$v1")
           zip <- get(s"/system/pkl/packages/fh-home@$v1.zip")
 
-          // The home changes; the instance seeds a NEW snapshot. This is the
-          // state `fh pull` finds and re-pins from.
           _ <- IO.blocking {
             DumpPackage.seedFromText(
               instance,
@@ -413,15 +371,9 @@ class UseCaseSuite extends munit.CatsEffectSuite {
       }
   }
 
-  // The script's own behavior (workspace-missing errors, `fh update`'s
-  // sha-compare + dated backup) is covered by the script's OWN suite,
-  // scripts/fh.test.scala, run in-process by scala-cli's test command:
-  //   cd scripts && SCALA_TEST_MODE=true scala-cli test .
-  // Here we keep only the server side of the interface the script drives.
-
-  /** What a laptop's pkl tooling does, minus the manifest-declared rewrite
-    * sugar: an HttpClient rewriting `https://fh.invalid/` to the instance's
-    * `/system/pkl/packages/`, driving pkl's real project resolver + evaluator.
+  /** A laptop's pkl tooling minus the manifest's rewrite sugar: an HttpClient
+    * rewriting `https://fh.invalid/` to the instance, driving pkl's real
+    * resolver and evaluator.
     */
   private def resolveAndEvalOverHttp(
       laptop: os.Path,
@@ -440,9 +392,8 @@ class UseCaseSuite extends munit.CatsEffectSuite {
         java.net.URI.create(s"${base.renderString}/system/pkl/packages/")
       )
       .build()
-    // A real laptop gets this from the base.pkl `fh init` fetched, which scopes
-    // the allowance to its own instance. Here the port is only known now, so
-    // append the equivalent block before loading.
+    // A real laptop gets this from the base.pkl `fh init` fetched; the port is
+    // only known now.
     os.write.append(
       laptop / "PklProject",
       s"""|evaluatorSettings {
@@ -466,8 +417,8 @@ class UseCaseSuite extends munit.CatsEffectSuite {
       val resolver = new ProjectDependenciesResolver(
         laptopProject,
         PackageResolver.getInstance(
-          // The manifest's own allowedResources, exactly as production derives
-          // it — a laptop resolving from the instance goes over plain http.
+          // Derived as production does; a laptop resolving from the instance
+          // uses plain http.
           fh.view.build.PklBuild.securityManagerFor(laptopProject),
           http,
           laptopCache.toNIO
@@ -495,20 +446,13 @@ class UseCaseSuite extends munit.CatsEffectSuite {
     }
   }
 
-  // ---------------------------------------------------------------- persona 3
-
   test(
     "repo developer: lib + dump are cache packages, excluded from the watch set"
   ) {
-    // The single package-form resolution mode (ADR 0010): `@fh-dashboard` and
-    // `@fh-home` are cache packages, so their modules resolve to `package://…`
-    // URIs — not `file:` paths — and are filtered out of the import/watch set.
-    // The library is immutable per version: editing `lib/` does not hot-reload
-    // (a restart re-seeds the cache), so only the entry itself (and any loose
-    // imports) is watched. Iterating on `lib/` is a restart or `fh push`.
+    // Cache packages resolve to `package://…` URIs and are filtered out of the
+    // watch set (ADR 0010), so only the entry and loose imports are watched.
+    // Iterating on `lib/` is a restart or `fh push`.
     val dir = stageWorkspace(withDump = true)
-    // Bootstrap already seeded the starter `site.pkl`; overwrite it with
-    // the entry this test needs.
     os.write.over(dir / "site.pkl", entryNeedingDump)
 
     val imports = SourceEval
@@ -518,16 +462,11 @@ class UseCaseSuite extends munit.CatsEffectSuite {
     assertEquals(imports, Set(dir / "site.pkl"), clue = imports)
   }
 
-  // ---------------------------------------------------------------- persona 4
-
-  /** A component module of their own: a card class in a plain (non-amending)
-    * module, which is the only place one can live — see `entry.pkl`'s
-    * `componentModules`.
+  /** A card class in a plain, non-amending module: the only place one can live
+    * (see `entry.pkl`'s `componentModules`).
     */
   private val privateComponent =
-    // A card author imports the KIT (`core/node.pkl`), not the shipped
-    // components: `components.pkl` is the dashboard-authoring facade and holds
-    // no card contract at all.
+    // A card author imports the kit; `components.pkl` holds no card contract.
     """module mycards
       |
       |import "@fh-dashboard/core/node.pkl" as nodes
@@ -548,9 +487,8 @@ class UseCaseSuite extends munit.CatsEffectSuite {
   test(
     "component developer: their own card class reaches the registry and renders"
   ) {
-    // Their components live only on their laptop, so the instance can never
-    // evaluate this entry — they evaluate locally and push the RESULT. Two
-    // properties make that workflow real, and this test pins both.
+    // Their components live only on their laptop, so they evaluate locally and
+    // push the result.
     val dir = stageWorkspace(withDump = true)
     os.write(dir / "mycards.pkl", privateComponent)
     os.write(
@@ -569,8 +507,8 @@ class UseCaseSuite extends munit.CatsEffectSuite {
          |""".stripMargin
     )
 
-    // 1. Registration: their class joins `cards` purely by being named in
-    //    `componentModules`, with no edit to the library.
+    // 1. Named in `componentModules`, the class joins `cards` with no library
+    // edit.
     val built = SourceEval
       .eval(dir, "mine.pkl")
       .fold(err => fail(s"eval failed: $err"), identity)
@@ -581,13 +519,10 @@ class UseCaseSuite extends munit.CatsEffectSuite {
 
     assert(dashboard.cards.contains("gauge"), clue = dashboard.cards.keys)
 
-    // 2. Push: the instance runs its OWN dashboard and has never seen
-    //    `mycards.pkl`. The developer POSTs the evaluated JSON — exactly what
-    //    `built.value` is — under a brand-new slug, skipping the Pkl layer
-    //    entirely. It works only because the wire model is self-contained:
-    //    every card carries its own template, so the server needs no source.
-    //    If rendering ever grew a dependency on resolving templates from disk,
-    //    this is what would catch it.
+    // 2. The instance has never seen `mycards.pkl`: the evaluated JSON is
+    // pushed under a new slug. That works only while every card carries its
+    // own template; a render-time dependency on template sources would break
+    // here.
     TestServer
       .resource(PklFixture.buildDashboard("home", entryNeedingDump), Nil)
       .use { ts =>
@@ -600,16 +535,14 @@ class UseCaseSuite extends munit.CatsEffectSuite {
             ).withEntity(body)
           )
         for {
-          // The slug does not exist yet — push is what mints it.
+          // Push is what mints the slug.
           before <- app.run(Request[IO](Method.GET, uri"/d/preview"))
           pushed <- push("preview", built.value.noSpaces)
           after <- app.run(Request[IO](Method.GET, uri"/d/preview"))
           html <- after.body.through(fs2.text.utf8.decode).compile.string
 
-          // A dashboard naming a card nobody defines must be REJECTED, not
-          // installed to render blank: push runs the same validation as the
-          // eval path, and the developer has no server log to read, so the
-          // error has to come back on the wire.
+          // Push runs the eval path's validation, and the developer has no
+          // server log, so the rejection comes back on the wire.
           bogus <- push(
             "bogus",
             """{"cards":{},"card":{"kind":"component","card":"nosuchcard",
@@ -624,9 +557,8 @@ class UseCaseSuite extends munit.CatsEffectSuite {
           assert(html.contains("from my own component"), clue = html)
           assert(html.contains("""class="mine""""), clue = html)
 
-          // Specifically a VALIDATION rejection, naming the offending card —
-          // not merely a 400 from failing to decode, which this body does
-          // cleanly. Without this the assertion above cannot tell the two apart.
+          // A validation rejection naming the card, not a decode 400: this body
+          // decodes cleanly.
           assertEquals(bogus.status, Status.BadRequest)
           assert(bogusBody.contains("nosuchcard"), clue = bogusBody)
 
@@ -636,12 +568,9 @@ class UseCaseSuite extends munit.CatsEffectSuite {
   }
 
   test("component developer: pushing the whole SITE installs every key") {
-    // `fh push site.pkl` is the natural thing to type since ADR 0021, so the
-    // push route takes an evaluated entrypoint as well as a single dashboard.
-    // Then the KEYS are the slugs — the URL's is ignored, because a site names
-    // its own — and it is all-or-nothing: a site whose one dashboard is
-    // invalid installs nothing, since a half-installed site is not a state
-    // anybody asked for.
+    // `fh push site.pkl` (ADR 0021): the keys are the slugs and the URL's is
+    // ignored. All-or-nothing, since a half-installed site is no state anybody
+    // asked for.
     val dir = stageWorkspace(withDump = true)
     os.write.over(
       dir / Site.EntryFile,
@@ -660,7 +589,6 @@ class UseCaseSuite extends munit.CatsEffectSuite {
       .eval(dir, Site.EntryFile)
       .fold(err => fail(s"site eval failed: $err"), _.value.noSpaces)
 
-    // The same shape with one unknown card: the push must reject it whole.
     val broken = io.circe.parser
       .parse(site)
       .toOption
@@ -692,12 +620,10 @@ class UseCaseSuite extends munit.CatsEffectSuite {
             .through(fs2.text.utf8.decode)
             .compile
             .string
-          // Nothing from the rejected site landed.
           afterReject <- app.run(Request[IO](Method.GET, uri"/d/one"))
           pushed <- push("ignored", site)
           one <- app.run(Request[IO](Method.GET, uri"/d/one"))
           two <- app.run(Request[IO](Method.GET, uri"/d/two"))
-          // The URL's slug is not one of them: a site names its own.
           urlSlug <- app.run(Request[IO](Method.GET, uri"/d/ignored"))
         } yield {
           assertEquals(rejected.status, Status.BadRequest)
