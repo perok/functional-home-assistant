@@ -102,16 +102,3 @@
 - [ ] TODO conditions here? for.ex when over X time, dont turn on sofies room light to max? or wrong place?
       "or wrong place" is the answer: this belongs in the `home` automations track, not the view
       layer. Parked in TODO2 on that basis.
-
----
-
-- [ ] Codebase review (fh-datastar-view + ha-api), in progress. Stacked PRs: #392 bugfixes,
-      #393 dead code, #394 comments, #395 main-source comment volume (11302 -> 3669 comment
-      lines), then `review-test-comments` for the test sources (7767 -> 4169 so far).
-      Left on the test cut: ~39 files with at most 24 comment lines each (StageCache,
-      SignalNamesFixed, RegistryDump, PklDumpMembers, HassVocabulary, DashboardBuilders,
-      RendererTestOps, Series, Telemetry and smaller). Rule: keep the why, the traps with their
-      symptom, and ADR/issue pointers; code must stay byte-identical once comments are stripped.
-      Then discuss: review items 1-7, 9, 10; HaLight is test-only (the module CLAUDE.md row is
-      stale); `HomeAssistantApi.event` ignores its argument; `configEntriesGet` ignores its
-      filters; whether `docs/plan-node-variables.md` can be deleted.
