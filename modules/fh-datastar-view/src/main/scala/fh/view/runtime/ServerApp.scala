@@ -125,14 +125,12 @@ object ServerApp extends IOApp {
         assetsDir <- pathFromEnv("FH_ASSETS_DIR", "assets-cache")
         bindHost <- Env[IO]
           .get("HOST")
-          .map(host =>
-            host
-              .map(
-                Host
-                  .fromString(_)
-                  .getOrElse(throw Exception(s"Could not parse $host"))
-              )
-              .getOrElse(host"127.0.0.1")
+          .flatMap(
+            _.fold(IO.pure(host"127.0.0.1"))(raw =>
+              Host
+                .fromString(raw)
+                .liftTo[IO](Exception(s"HOST='$raw' is not a host"))
+            )
           )
         portString <- envOr("PORT", "8080")
         bindPort = portString.toIntOption

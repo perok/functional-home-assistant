@@ -159,6 +159,28 @@ class AuthSessionsSuite extends munit.CatsEffectSuite {
     }
   }
 
+  /** Logins, token mints and the re-check all write the file, on their own
+    * fibers. Unserialised, two writes can interleave into a file that no longer
+    * decodes — and a file that does not decode refuses the next boot.
+    */
+  test("concurrent writes leave a file holding every session") {
+    import cats.syntax.all.*
+    val dir = os.temp.dir(prefix = "fh-sessions")
+    val store = new SessionStore(dir / "sessions.json")
+    for {
+      before <- AuthSessions.create(store)
+      ids <- (1 to 50).toList.parTraverse(i =>
+        before.create(admin, s"r$i", clientId)
+      )
+      after <- AuthSessions.create(store)
+      found <- ids.traverse(after.get)
+      leftovers <- IO.blocking(os.list(dir).map(_.last))
+    } yield {
+      assertEquals(found.flatten.size, 50)
+      assertEquals(leftovers, IndexedSeq("sessions.json"))
+    }
+  }
+
   /** The round-trip tests pass even if BOTH sides change together, so the shape
     * is pinned against a literal. The file is written by the previous run — and
     * a restart happens on every dashboard edit — so a silent codec change logs

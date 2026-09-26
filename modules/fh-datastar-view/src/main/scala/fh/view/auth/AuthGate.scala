@@ -322,11 +322,16 @@ object AuthGate {
   }
 
   /** [[nextOf]]'s counterpart on the way back: reject anything that is not a
-    * single-slash-rooted local path.
+    * single-slash-rooted local path. A backslash and a control character are
+    * refused anywhere, because a browser turns `/\host` and `/<tab>/host` into
+    * `//host` before it resolves the redirect.
     */
   def safeNext(raw: Option[String]): String =
     raw
-      .filter(s => s.startsWith("/") && !s.startsWith("//") && !s.contains(":"))
+      .filter(s =>
+        s.startsWith("/") && !s.startsWith("//") && !s.contains(":") &&
+          !s.exists(c => c == '\\' || c.isControl)
+      )
       .getOrElse("/")
 
   /** An `Identity` that says everyone is the same user — for a boot that has no
