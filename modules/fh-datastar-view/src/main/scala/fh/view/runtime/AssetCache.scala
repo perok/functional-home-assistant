@@ -14,44 +14,23 @@ import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import scala.util.matching.Regex
 
-/** Local cache of the themes' external assets, so a LAN dashboard doesn't
-  * depend on CDNs at runtime (offline HA is a feature, not an outage).
+/** The themes' external assets cached locally, so a LAN dashboard works with HA
+  * offline. Fetched once at startup under a URL-hashed name; a stylesheet's
+  * relative `url(...)` sub-resources too, rewritten to their cached names.
+  * Absolute refs are left alone, so a CDN fallback in an `@font-face` list
+  * still works.
   *
-  * [[AssetCache.build]] fetches every theme `stylesheets`/`scripts` URL ONCE at
-  * startup and persists each under a URL-hashed name in `dir`; `Server` then
-  * serves them from `GET /assets/:name` (via [[serve]]) and rewrites the page's
-  * `<link>`/`<script>` URLs through [[rewrite]]. A stylesheet's RELATIVE
-  * `url(...)` sub-resources (e.g. the Material Symbols woff2 files inside
-  * beer.min.css) are fetched and cached too, and the cached CSS is rewritten to
-  * their hashed names (still relative — they resolve against `/assets/`);
-  * absolute/`data:` refs are left alone, so a CDN fallback source inside an
-  * `@font-face` src-list keeps working.
-  *
-  * Failure = fallback, never an error: a URL that can't be fetched (offline
-  * startup with a cold cache) just keeps its original CDN URL in the page, and
-  * the next restart retries. Names are content-addressed by URL (hash +
-  * original filename), so a version bump in the URL is a new cache entry; stale
-  * entries are harmless (delete `dir` to reset). Theme URLs appearing via
-  * live-reload after startup pass through to their CDN until the next restart.
+  * A failed fetch keeps the CDN URL and retries next restart. URLs a reload
+  * introduces pass through until restart.
   */
 final class AssetCache private (
     dir: os.Path,
-    // original URL -> local route ("assets/<name>", base-relative); misses
-    // pass through.
     mapping: Map[String, String]
 ) {
 
-  /** The URL the page should reference: the local `/assets/...` route when
-    * cached, the original URL otherwise.
-    */
   def rewrite(url: String): String = mapping.getOrElse(url, url)
 
-  /** Serve a cached asset by name (the `GET /assets/:name` handler). The name
-    * must be a plain hashed filename ([[AssetCache.SafeName]]) that exists in
-    * the cache dir — anything else is a 404 (the dir listing IS the whitelist;
-    * the route match already guarantees a single path segment). Hash-named
-    * content never changes, so it's served immutable.
-    */
+  /** The cache dir is the allowlist; names are URL-hashed, so `immutable`. */
   def serve(name: String): IO[Response[IO]] =
     if (!AssetCache.SafeName.matches(name)) NotFound()
     else
@@ -75,16 +54,10 @@ final class AssetCache private (
 
 object AssetCache {
 
-  /** No cache: every rewrite passes through, every serve 404s. The `Server`
-    * default, so tests and callers without a cache need no ceremony.
-    */
   val empty: AssetCache =
     new AssetCache(os.root / "fh-assets-cache-unused", Map.empty)
 
-  /** Fetch-and-persist every URL (cache hits skip the network entirely) and
-    * return the cache. Per-URL failures log and fall back to the original URL —
-    * this never raises.
-    */
+  /** Never raises: a failed URL keeps its original. */
   def build(
       dir: os.Path,
       urls: List[String],
@@ -96,14 +69,11 @@ object AssetCache {
       urls.distinct
         .traverse { url =>
           cacheOne(dir, url, client, log).attempt.flatMap {
-            // Relative (resolves via the page's <base href>) so the same
-            // rendered HTML works directly and behind the ingress prefix.
+            // Relative, so it works behind the ingress prefix.
             case Right(name) => IO.pure(Some(url -> s"assets/$name"))
             case Left(err)   =>
-              // WARN, not info: the page keeps the CDN URL, so every dashboard
-              // open now waits on jsdelivr for the script that runs
-              // `data-init` — which reads as "the dashboard feels sluggish"
-              // and nothing else says why (issue #75).
+              // Warn: every page open now waits on the CDN for the script that
+              // runs `data-init`, and nothing else says why (issue #75).
               log
                 .warn(
                   s"asset cache: keeping original URL for $url (${err.getMessage})"
@@ -114,10 +84,7 @@ object AssetCache {
         .map(entries => new AssetCache(dir, entries.flatten.toMap))
   }
 
-  /** Cached filename for a URL: short content-address (of the URL, not the
-    * bytes) + the URL's filename, so names are unique per URL version but still
-    * readable (`a1b2c3d4e5f6-beer.min.css`).
-    */
+  /** `a1b2c3d4e5f6-beer.min.css`: a hash of the URL, not the bytes. */
   def hashName(url: String): String = {
     val digest = MessageDigest
       .getInstance("SHA-256")
@@ -128,15 +95,12 @@ object AssetCache {
     s"$hash-$safe"
   }
 
-  /** A cached name: leading alphanumeric (rejects dot-files and `..`), then
-    * filename characters only.
-    */
+  // A leading alphanumeric rejects dot-files and `..`.
   private[runtime] val SafeName: Regex = "^[A-Za-z0-9][A-Za-z0-9._-]*$".r
 
-  /** `url(...)` refs in CSS, quoted or bare; group 2 is the ref. */
+  // Group 2 is the ref.
   private val CssUrlRef: Regex = """url\(\s*(['"]?)([^)'"]+)\1\s*\)""".r
 
-  /** Relative = no scheme, not protocol-relative, not root-relative. */
   private def isRelativeRef(ref: String): Boolean =
     !ref.startsWith("/") && !ref.contains(":")
 
@@ -156,11 +120,8 @@ object AssetCache {
     }
   }
 
-  /** Fetch a stylesheet, cache its relative sub-resources, rewrite their refs
-    * to the cached names, persist. Sub-resources are written BEFORE the CSS so
-    * an interrupted run never leaves a stylesheet referencing missing files; a
-    * failed sub-fetch keeps that ref as-is (a same-src CDN fallback then still
-    * applies) and only logs.
+  /** Sub-resources are written first, so an interrupted run never leaves a
+    * stylesheet naming missing files.
     */
   private def cacheCss(
       dir: os.Path,
