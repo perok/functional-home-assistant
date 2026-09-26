@@ -216,7 +216,7 @@ class Server(
     // versions + metadata sha256 of the packages this home serves — what
     // `fh pull` reads before rewriting the laptop's pins.
     case GET -> Root / "system" / "pkl" / "packages" =>
-      guardSystemPkl(
+      answerErrors(
         systemPkl.packagesIndex.flatMap(json =>
           Ok(json).map(
             _.putHeaders(`Content-Type`(MediaType.application.json))
@@ -240,7 +240,7 @@ class Server(
         .map(_.putHeaders(`Content-Type`(MediaType.text.plain)))
 
     case req @ GET -> Root / "system" / "pkl" / name =>
-      guardSystemPkl(
+      answerErrors(
         systemPkl.module(name).flatMap(systemPklResponse(_, req))
       )
 
@@ -254,7 +254,7 @@ class Server(
     // proxy-cached zip would turn the dev-image drift case (lib bytes changed
     // under an unchanged version) into a confusing stale-checksum failure.
     case GET -> Root / "system" / "pkl" / "packages" / file =>
-      guardSystemPkl(systemPkl.packageArtifact(file).flatMap { bytes =>
+      answerErrors(systemPkl.packageArtifact(file).flatMap { bytes =>
         val mediaType =
           if (file.endsWith(".zip")) MediaType.application.zip
           else MediaType.application.json
@@ -319,11 +319,7 @@ class Server(
       gate.handleRequirement(req, Requirement.Admin)(dumpRefresh match {
         case None         => NotFound()
         case Some(action) =>
-          action.flatMap(result =>
-            Ok(Server.dumpRefreshJson(result).noSpaces).map(
-              _.putHeaders(`Content-Type`(MediaType.application.json))
-            )
-          )
+          action.flatMap(result => Ok(Server.dumpRefreshJson(result)))
       })
 
     case req @ GET -> Root / "sse" / "dashboard" / slug / "patch" =>
@@ -413,14 +409,12 @@ class Server(
           actionRefused(req, s"$entityId is not on this dashboard")
     }
 
-  /** The shared shape of the `/system/pkl/` routes: their `SystemPkl` calls
-    * raise [[FHError]] for anything a home does not serve, mapped here to its
-    * `status + message` — locally, the same as [[pushResponse]], so these
-    * routes behave identically whether exercised through the app-level
-    * [[FHError.handle]] or directly in a test; a non-`FHError` is an unnamed
-    * bug and becomes a 500, same as there.
+  /** A raised [[FHError]] answered as its `status + message` HERE rather than
+    * by the app-level [[FHError.handle]], so the `/system` routes behave the
+    * same when a test drives them without it. Anything else is an unnamed bug
+    * and a 500.
     */
-  private def guardSystemPkl(io: IO[Response[IO]]): IO[Response[IO]] =
+  private def answerErrors(io: IO[Response[IO]]): IO[Response[IO]] =
     io.handleErrorWith {
       case e: FHError => FHError.logged(e)
       case err        => InternalServerError(err.getMessage)
@@ -638,40 +632,45 @@ class Server(
         // group rather than the visible ones: the member graph tracks the state
         // stream, not who is watching. A frame that records nothing still moves
         // members, and the page that loads after it renders from the graph.
-        val membership =
-          renderer.members.syncMembers(changes, before, store.entities)
-        if (opens.isEmpty)
-          log.update(_.skipped(store.version)).as(store.version)
-        else {
-          // What is worth recording: the surfaces some client can actually SEE,
-          // not merely has selected. A tab panel inside a hidden `If` branch is
-          // in its client's open set and on nobody's screen. Each session is
-          // filtered against its OWN set before the union, because a chain is
-          // one client's.
-          val visible = opens
-            .flatMap(o =>
-              o.filter(renderer.surfaces.visibleSurface(_, o, store.entities))
-            )
-            .toSet
-          val req = Patches.plan(
-            renderer,
-            store.entities,
-            before,
-            membership,
-            store.version,
-            changes,
-            visible
-          )
-          // Written and pruned in ONE update, so the log a session reads is
-          // never one where this frame has landed but the stale history it
-          // makes prunable is still there — and, more to the point, so a
-          // concurrent write cannot be lost between two of them.
-          log
-            .update(l =>
-              floor.foldLeft(Patches.record(renderer, l, req))(_.pruned(_))
-            )
-            .as(store.version)
-        }
+        // Suspended: it WRITES the graph, so it must run when this effect
+        // does rather than whenever the lambda is built.
+        IO(renderer.members.syncMembers(changes, before, store.entities))
+          .flatMap { membership =>
+            if (opens.isEmpty)
+              log.update(_.skipped(store.version)).as(store.version)
+            else {
+              // What is worth recording: the surfaces some client can actually SEE,
+              // not merely has selected. A tab panel inside a hidden `If` branch is
+              // in its client's open set and on nobody's screen. Each session is
+              // filtered against its OWN set before the union, because a chain is
+              // one client's.
+              val visible = opens
+                .flatMap(o =>
+                  o.filter(
+                    renderer.surfaces.visibleSurface(_, o, store.entities)
+                  )
+                )
+                .toSet
+              val req = Patches.plan(
+                renderer,
+                store.entities,
+                before,
+                membership,
+                store.version,
+                changes,
+                visible
+              )
+              // Written and pruned in ONE update, so the log a session reads is
+              // never one where this frame has landed but the stale history it
+              // makes prunable is still there — and, more to the point, so a
+              // concurrent write cannot be lost between two of them.
+              log
+                .update(l =>
+                  floor.foldLeft(Patches.record(renderer, l, req))(_.pruned(_))
+                )
+                .as(store.version)
+            }
+          }
       }
 
   /** Drop the session a later document in the same tab superseded, unless a
@@ -1485,9 +1484,9 @@ class Server(
         .traverse_ { case (id, value) =>
           session.control.offer(
             Datastar.patchSignals(
-              io.circe.Json
+              Json
                 .obj(
-                  Server.UiSignalPrefix + id -> io.circe.Json.fromString(value)
+                  Server.UiSignalPrefix + id -> Json.fromString(value)
                 )
                 .noSpaces
             )
@@ -1859,8 +1858,7 @@ class Server(
       req: Request[IO],
       message: String
   ): IO[Response[IO]] =
-    Ok(Server.actionSignals(req, message).noSpaces)
-      .map(_.withContentType(`Content-Type`(MediaType.application.json)))
+    Ok(Server.actionSignals(req, message))
 
   /** Edit-mode "debug this node": the live state of every entity a rendered
     * node binds, as a JSON array of `{ entity_id, state, attributes }`. Backs
@@ -1898,8 +1896,7 @@ class Server(
             )
         }
       }*)
-      Ok(arr.noSpaces)
-        .map(_.withContentType(`Content-Type`(MediaType.application.json)))
+      Ok(arr)
     }
 
   /** Decode a pushed dashboard and install it live under `slug`.
@@ -1922,32 +1919,26 @@ class Server(
     * because a half-installed site is not a state the developer asked for.
     */
   private def pushResponse(slug: String, req: Request[IO]): IO[Response[IO]] =
-    req.bodyText.compile.string
-      .map(io.circe.parser.parse)
-      .flatMap {
-        case Left(err) =>
-          BadRequest(s"push body is not JSON: ${err.getMessage}")
-        case Right(json)
-            if json.asObject.exists(_.contains(Site.DashboardsKey)) =>
-          pushSite(json)
-        case Right(json) =>
-          DashboardBuild
-            .decode(json, slug = Some(slug))
-            .flatMap(v => push(v).as(v))
-            .flatMap(v =>
-              Ok(
-                s"pushed ${v.dashboard.slug} (${v.dashboard.cards.size} cards)"
+    answerErrors(
+      req.bodyText.compile.string
+        .map(io.circe.parser.parse)
+        .flatMap {
+          case Left(err) =>
+            BadRequest(s"push body is not JSON: ${err.getMessage}")
+          case Right(json)
+              if json.asObject.exists(_.contains(Site.DashboardsKey)) =>
+            pushSite(json)
+          case Right(json) =>
+            DashboardBuild
+              .decode(json, slug = Some(slug))
+              .flatMap(v => push(v).as(v))
+              .flatMap(v =>
+                Ok(
+                  s"pushed ${v.dashboard.slug} (${v.dashboard.cards.size} cards)"
+                )
               )
-            )
-            // decode raises FHError.badCondition for a malformed/invalid
-            // dashboard (mapped to its 400 here since this route is also
-            // exercised without the app-level FHError.handle); a non-FHError
-            // is an unnamed bug and becomes a 500.
-            .handleErrorWith {
-              case e: FHError => FHError.logged(e)
-              case err        => InternalServerError(err.getMessage)
-            }
-      }
+        }
+    )
 
   /** Install every dashboard a pushed SITE names, plus its default slug. */
   private def pushSite(json: Json): IO[Response[IO]] =
@@ -1972,10 +1963,6 @@ class Server(
                 errors.mkString("\n")
             )
         }
-      }
-      .handleErrorWith {
-        case e: FHError => FHError.logged(e)
-        case err        => InternalServerError(err.getMessage)
       }
 
   /** Serve one `/system/pkl/` artifact as `text/plain`, with `no-cache` + an
@@ -3321,9 +3308,9 @@ object Server {
 
   private[runtime] def varJson(
       values: Map[(NodeId, String), String]
-  ): io.circe.Json =
-    io.circe.Json.obj(values.toList.map { case ((declarer, name), value) =>
-      varSignal(declarer, name) -> io.circe.Json.fromString(value)
+  ): Json =
+    Json.obj(values.toList.map { case ((declarer, name), value) =>
+      varSignal(declarer, name) -> Json.fromString(value)
     }*)
 
   /** Choices off the page URL. Untrusted and not narrowed here; the caller
@@ -3362,7 +3349,7 @@ object Server {
     */
   def ingressPrefixOf(req: Request[IO]): Option[String] =
     req.headers
-      .get(org.typelevel.ci.CIString("X-Ingress-Path"))
+      .get(CIString("X-Ingress-Path"))
       .map(_.head.value)
       .filter(IngressPathPattern.matches)
 
@@ -3390,12 +3377,12 @@ object Server {
   def baseUriOf(req: Request[IO]): Uri = {
     val scheme =
       req.headers
-        .get(org.typelevel.ci.CIString("X-Forwarded-Proto"))
+        .get(CIString("X-Forwarded-Proto"))
         .map(_.head.value)
         .orElse(req.uri.scheme.map(_.value))
         .getOrElse("http")
     val authority = req.headers
-      .get(org.typelevel.ci.CIString("Host"))
+      .get(CIString("Host"))
       .map(_.head.value)
       .orElse(req.uri.authority.map(_.renderString))
       .getOrElse("localhost")
@@ -3860,13 +3847,13 @@ object Server {
   private[runtime] def selectionJson(
       renderer: Renderer,
       open: Set[String]
-  ): io.circe.Json =
-    io.circe.Json.obj(
+  ): Json =
+    Json.obj(
       renderer.surfaces
         .committedSelections(open)
         .toList
         .map { case (id, v) =>
-          UiSignalPrefix + id -> io.circe.Json.fromString(v)
+          UiSignalPrefix + id -> Json.fromString(v)
         }*
     )
 
@@ -3874,15 +3861,15 @@ object Server {
       renderer: Renderer,
       logId: String,
       version: Long
-  ): io.circe.Json =
-    io.circe.parser
-      .parse(
-        s"""{"$CursorSignal":{"$HeadHashSignal":"${renderer.headHash}",""" +
-          s""""$StyleHashSignal":"${renderer.styleHash}",""" +
-          s""""$LogIdSignal":"$logId",""" +
-          s""""$StoreVersionSignal":$version}}"""
+  ): Json =
+    Json.obj(
+      CursorSignal -> Json.obj(
+        HeadHashSignal -> Json.fromString(renderer.headHash),
+        StyleHashSignal -> Json.fromString(renderer.styleHash),
+        LogIdSignal -> Json.fromString(logId),
+        StoreVersionSignal -> Json.fromLong(version)
       )
-      .getOrElse(io.circe.Json.obj())
+    )
 
   private[runtime] def cursorSignals(
       renderer: Renderer,

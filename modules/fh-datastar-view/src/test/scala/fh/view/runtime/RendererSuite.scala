@@ -1873,7 +1873,7 @@ class RendererSuite extends munit.FunSuite {
     )
   }
 
-  test("userSurfaceOf: state surfaces are transparent, user surfaces are not") {
+  test("state surfaces are transparent to visibility, user surfaces are not") {
     // Two chains hanging off the main page, each two surfaces deep:
     //   main -> t0 (user)  -> if host -> b0 (state)
     //   main -> sx (state) -> tabs    -> u0 (user)
@@ -1917,24 +1917,18 @@ class RendererSuite extends munit.FunSuite {
       )
     )
     val r = Renderer.create(d)
+    def shown(id: String, open: Set[String]) =
+      r.surfaces.visibleNode(NodeId.derived(id), open, Map.empty)
 
-    // A user surface is its own tag — it is exactly what hides content.
-    assertEquals(r.surfaces.userSurfaceOf("t0"), Some("t0"))
-    assertEquals(r.surfaces.userSurfaceOf("u0"), Some("u0"))
-    // A state surface hides nothing (every client sees the same branch), so the
-    // walk passes THROUGH it to whatever encloses it...
-    assertEquals(r.surfaces.userSurfaceOf("b0"), Some("t0"))
-    // ...and reaching the main page means "no user surface above me".
-    assertEquals(r.surfaces.userSurfaceOf("sx"), None)
-
-    // The same, entered by node: a node is tagged by the tree it was indexed
-    // from, which is NOT derivable from its id (`s_b0__c` names only b0).
-    assertEquals(r.surfaces.userSurfaceOfNode("s_b0__c"), Some("t0"))
-    assertEquals(r.surfaces.userSurfaceOfNode("s_u0__c"), Some("u0"))
-    assertEquals(r.surfaces.userSurfaceOfNode("s_sx__c"), None)
-    assertEquals(r.surfaces.userSurfaceOfNode("c"), None)
-    // An id no tree owns has no tag to give.
-    assertEquals(r.surfaces.userSurfaceOfNode("c_nope"), None)
+    // A state surface hides nothing (every client sees the same branch), so
+    // b0's content is shown exactly when the user tab ABOVE it is open — which
+    // its id cannot say: `s_b0__c` names only b0.
+    assert(shown("s_b0__c", Set("t0")))
+    assert(!shown("s_b0__c", Set.empty))
+    // ...and u0 answers for itself, through the state surface it hangs off.
+    assert(shown("s_u0__c", Set("u0")))
+    assert(!shown("s_u0__c", Set.empty))
+    assert(shown("c", Set.empty))
   }
 
   test("affectedSets surfaces the membership delta per group") {
