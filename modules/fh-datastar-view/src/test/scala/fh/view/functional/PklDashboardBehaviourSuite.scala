@@ -682,10 +682,13 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
           // An unfilled token is the failure this is really guarding: it ships
           // as a literal, the page looks fine, and every press 404s.
           assert(!html.contains("{{id}}"), clue = html)
-          val ids = """_var_([A-Za-z0-9_]+)__window\b""".r
-            .findAllMatchIn(html)
-            .map(_.group(1))
-            .toSet
+          // Off the bar's own markup: the page's seed also names the chooser
+          // in the card's more-info popup, which is not on this page yet.
+          val ids =
+            """fhUrl\('v\.([A-Za-z0-9_]+)\.window', \$_var_\1__window\)""".r
+              .findAllMatchIn(html)
+              .map(_.group(1))
+              .toSet
           // ONE node declares it, and both signals plus the route name that
           // same node.
           assertEquals(ids.size, 1, clue = ids)
@@ -697,8 +700,8 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
             ),
             clue = html
           )
-          // The seed is the DECLARED window, so the first paint highlights what
-          // the charts beneath were drawn at rather than nothing.
+          // The page seeds the DECLARED window when the viewer chose none, so
+          // the first paint highlights what the charts beneath were drawn at.
           assert(html.contains(s"_var_${id}__window: '7d'"), clue = html)
           // All four windows are offered, once each.
           List("1h", "24h", "7d", "30d")

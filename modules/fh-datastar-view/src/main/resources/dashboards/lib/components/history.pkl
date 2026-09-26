@@ -144,20 +144,19 @@ const local function windowButton(w: Window): String = """
 /// so every one is the bar's full width and only `1h` is on screen.
 ///
 /// The committed window is mirrored into the URL, where `Server.varChoicesOf`
-/// reads it back on a refresh.
+/// reads it back on a refresh. The page seeds it, at the viewer's value: seeded
+/// here, it could only be the declared one, and the URL would briefly say so.
 class WindowChooser extends nodes.Node {
   card = "historyWindows"
   cardDef = new nodes.CardDef {
     regions = new Mapping { [nodes.defaultRegion] = new nodes.Region {} }
     template = """
-      <div class="fh-col" data-effect="fhUrl('\(urlParam)', $\(varCommitted))"><div class="tabs" data-signals__ifmissing="{ \(varCommitted): '{{start}}', \(tapMod.pendingSeedEntry(varGroup)) }" \(tapMod.pendingClearAgainst(varGroup, varCommitted))>\(windows.toList().map((w) -> windowButton(w)).join(""))</div>{{#children}}{{{html}}}{{/children}}</div>
+      <div class="fh-col" data-effect="fhUrl('\(urlParam)', $\(varCommitted))"><div class="tabs" data-signals__ifmissing="{ \(tapMod.pendingSeedEntry(varGroup)) }" \(tapMod.pendingClearAgainst(varGroup, varCommitted))>\(windows.toList().map((w) -> windowButton(w)).join(""))</div>{{#children}}{{{html}}}{{/children}}</div>
       """
-    slots { "start" }
   }
   /// The declared window: shown first, and again if the session is forgotten.
   hidden start: Window = "24h"
   vars = new Mapping { [windowVar] = start }
-  slots { ["start"] = start }
   // A chooser is a section header over its charts, not a third of a grid row.
   cell = new nodes.Cell { classes { "fh-cols-full" } }
 

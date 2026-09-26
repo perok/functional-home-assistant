@@ -263,12 +263,12 @@ facts {
     picked.children[0].slots["chart"].query.params["entity"] == "sensor.power"
   }
 
-  ["the declared window moves with `starting`, and the seed follows it"] {
+  ["the declared window moves with `starting`"] {
     local week = (c.windowChooser).starting("7d")
     week.vars["window"] == "7d"
-    // The bar's `__ifmissing` seed reads this slot, so the first paint
-    // highlights the window the charts beneath were actually drawn at.
-    week.slots["start"] == "7d"
+    // The page seeds the highlight from the viewer's value, so the bar
+    // carries no copy of the declared one to disagree with it.
+    !week.cardDef.template.contains("{{start}}")
   }
 
   ["a label node is the core label, its tone a slot"] {

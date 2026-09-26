@@ -479,6 +479,22 @@ class VarTapSuite extends ServerHarness {
     }
   }
 
+  test("the document seeds a linked choice, not the declared value") {
+    // Seeded ahead of the body, so a control's URL mirror never writes the
+    // declared window over the linked one while the stream connects.
+    served { (routes, _) =>
+      routes
+        .run(Request[IO](Method.GET, uri"/d/dashboard?v.panel.window=7d"))
+        .flatMap(_.bodyText.compile.string)
+        .map { page =>
+          val seed = page.indexOf("_var_panel__window: '7d'")
+          assert(seed >= 0, clue = page)
+          assert(seed < page.indexOf("id=\"panel\""), clue = page)
+          assert(!page.contains("_var_panel__window: '24h'"), clue = page)
+        }
+    }
+  }
+
   test("two choices landing together both stick") {
     // Each write validates against, and commits onto, the other's result.
     served(

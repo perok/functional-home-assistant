@@ -1012,9 +1012,10 @@ Each reader is re-rendered against a snapshot resolved with the new values, supp
 move, and then the value is COMMITTED as `_var_<declarer>__<name>` — ADR 0025's pair, so a control
 shows the press immediately from its own pending signal and the ask ends only when the server
 agrees. A refused value ends the ask instead (ADR 0024's 200 of signals, naming the group), leaving
-the display on a value that never moved. The committed signals also ride the opening frame, TOTAL
-over the build's declarations rather than over the session's choices, so a forgotten session
-corrects a stale control instead of letting it disagree with the chart beside it. The control
+the display on a value that never moved. The committed signals are seeded by the document's shell,
+ahead of the body, and ride the opening frame again — both TOTAL over the build's declarations at
+this viewer's values (`Server.committedVars`), so a forgotten session corrects a stale control and
+a control never seeds the declared value over a linked choice. The control
 mirrors the committed value into the `v.` param with `fhUrl`, as a tab bar mirrors `ui.`, so the
 URL follows what the server did rather than what was pressed.
 

@@ -2270,7 +2270,8 @@ class Server(
               Server.ingressPrefixOf(req),
               restore,
               editMode,
-              haDown = !live
+              haDown = !live,
+              committed = Server.committedVars(renderer, choices)
             )
             // Flush, do not close: `readOutputStream` owns the stream and
             // closes it when this effect completes, which is what ends the
@@ -2404,7 +2405,11 @@ class Server(
       // and corrects it — a wrong banner on the one screen whose job is to
       // report that. The stream still pushes the value on connect, because the
       // window between this render and that connect is real.
-      haDown: Boolean
+      haDown: Boolean,
+      // Seeded here, ahead of the body, for the same window: a control
+      // seeding its own highlight could only name the DECLARED value, and
+      // would mirror it into the URL over the viewer's choice until connect.
+      committed: Map[(NodeId, String), String]
   ): Unit = {
     // The theme's inline scripts come LAST of the three, but they are classic
     // scripts among deferred module ones, so they still run first — which is
@@ -2526,9 +2531,12 @@ class Server(
         restore.uiState.getOrElse(Dashboard.PopupHostId, "")
       )
     )
+    val varSeed = committed.toList.sorted.map { case ((declarer, name), v) =>
+      s", ${Server.varSignal(declarer, name)}: '${Server.escapeHtml(Server.escapeJsString(v))}'"
+    }.mkString
     val connBanner =
       s"""<div data-signals="{${Server.HaDownSignal}: $haDown, _sse: 0, ${Server.ToastSignal}: '', ${Server.ReloadSignal}: false, $popupSignalName: '$popupSeed', ${Server.ConnSignal}: '${Server
-          .escapeJsString(restore.conn)}'}"
+          .escapeJsString(restore.conn)}'$varSeed}"
          |     data-effect="$$${Server.ReloadSignal} && window.location.reload(); fhUrl('$popupParamName', $$$popupSignalName)"
          |     data-on-signal-patch-filter="{include:/^${Server.ToastSignal}$$/}"
          |     data-on-signal-patch="$$${Server.ToastSignal} && (fhToast($$${Server.ToastSignal}), $$${Server.ToastSignal} = '')"
@@ -3300,6 +3308,17 @@ object Server {
   private[runtime] def varSignal(declarer: NodeId, name: String): String =
     "_" + varGroupId(declarer, name)
 
+  /** Every declaration, at this viewer's value where it chose one. TOTAL, so a
+    * control seeded from it never shows the declared value over a choice.
+    */
+  private[runtime] def committedVars(
+      renderer: Renderer,
+      chosen: Map[(NodeId, String), String]
+  ): Map[(NodeId, String), String] =
+    renderer.declarations.map { case (key, declared) =>
+      key -> chosen.getOrElse(key, declared)
+    }
+
   private[runtime] def varJson(
       values: Map[(NodeId, String), String]
   ): io.circe.Json =
@@ -3891,11 +3910,7 @@ object Server {
     Datastar.patchSignals(
       cursorJson(renderer, logId, version)
         .deepMerge(selectionJson(renderer, open))
-        .deepMerge(
-          varJson(renderer.declarations.map { case (key, declared) =>
-            key -> chosen.getOrElse(key, declared)
-          })
-        )
+        .deepMerge(varJson(committedVars(renderer, chosen)))
         .noSpaces
     )
 

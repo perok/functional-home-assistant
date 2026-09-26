@@ -815,12 +815,11 @@ class PklBuildSuite extends munit.FunSuite {
       // params, so the card names no `entity_id` of its own and contributes
       // nothing to the render key but the query's version.
       "historyChart" -> List("chart"),
-      // The window bar. Its one slot is the DECLARED window — the seed for the
-      // committed signal, so the first paint highlights the window the charts
-      // beneath it were actually drawn at. Everything else about the control
-      // (the choices, both selection signals, the route) is fixed markup: it is
-      // composed from the node's own `{{id}}`, which is the declarer's.
-      "historyWindows" -> List("start")
+      // The window bar has no slot: the page seeds its committed signal at the
+      // viewer's value, and the rest (the choices, the pending signal, the
+      // route) is fixed markup composed from the node's own `{{id}}`, which is
+      // the declarer's.
+      "historyWindows" -> Nil
     )
     assertEquals(
       cards.keys.map(_.toSet),
