@@ -15,9 +15,6 @@ object DocumentJson {
       .decoders
   }
 
-  /** Decode circe JSON into a smithy4s type via its schema — how a command's
-    * result decoder plugs smithy types into the circe-typed protocol.
-    */
   def fromJson[A: smithy4s.Schema](json: Json): Either[Throwable, A] = {
     import smithy4s.Blob
     import io.circe.Printer
@@ -37,9 +34,8 @@ object DocumentJson {
       )
   }
 
-  /** A circe [[Decoder]] for any smithy4s-schema type — the one seam by which a
-    * smithy type plugs into the circe-typed WS protocol, so a command declares
-    * `AsResult[A]` with its schema and nothing else knows the difference.
+  /** How a command's `AsResult[A]` takes a smithy type into the circe-typed WS
+    * protocol.
     */
   def circeDecoderFor[A: smithy4s.Schema]: Decoder[A] =
     Decoder.instance(cursor =>
@@ -48,20 +44,6 @@ object DocumentJson {
     )
 
 }
-
-// https://github.com/disneystreaming/smithy4s/discussions/558#discussioncomment-3987014
-// raw string..
-/* object MyRestJsonBuilder
-    extends SimpleProtocolBuilder[smithy4s.http4s.SimpleRestJsonBuilder](
-      // notable change from the definition of `SimpleRestJsonBuilder`
-      CodecAPI.nativeStringsAndBlob(
-        //
-        smithy4s.http.json.codecs(
-          smithy4s.api.SimpleRestJson.protocol.hintMask ++ HintMask(InputOutput)
-        )
-      )
-    )
- */
 
 object Middleware {
   import org.http4s.client.*

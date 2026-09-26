@@ -15,41 +15,19 @@ import cats.syntax.all.*
 import ha.runtime.definitions.{DeviceId, ReadableEntityId}
 import io.circe.{Json, JsonObject}
 
-/** Build-phase dump: every entity, area, floor and device the house has, read
-  * from the WebSocket REGISTRIES plus the `subscribe_entities` snapshot.
+/** What the authoring layer can see; [[PklDump]] decides how it is typed.
   *
-  * This is the only dump. It produces `{floors, areas, devices, entities}`
-  * keyed by [[transform]], which [[PklDump.render]] turns into the typed
-  * `dump.pkl` module — so this file decides WHAT the authoring layer can see,
-  * and `PklDump` decides how it is typed.
-  *
-  * It reads registries rather than rendering a Jinja template through
-  * `/api/template` because that endpoint truncates its output at 262144
-  * characters, which the equivalent template already filled to ~228k — leaving
-  * no room for device ids, group members or a wider attribute set. The
-  * registries have no cap, and they carry two things a template provably cannot
-  * reach: `entity_category` (absent from state attributes) and any whole-device
-  * listing (`devices()` is undefined on this HA version; only the per-entity
-  * `device_id()` exists). See ADR 0013.
+  * Registries, not a Jinja template through `/api/template`: that truncates at
+  * 262144 characters (the template already filled ~228k), and cannot reach
+  * `entity_category` or a whole-device listing. See ADR 0013.
   */
 object RegistryDump {
 
-  /** Attributes copied into the dump by default.
-    *
-    * The cut is not size, and not staleness alone — it is **the dump's content
-    * version**. The dump is a content-addressed package
-    * (`fh-home@1.0.0-g<hash>`) and [[DumpRefresh]] re-seeds it and re-evaluates
-    * every dashboard whenever that hash moves. An attribute that changes while
-    * the server runs therefore does not merely go stale: it re-hashes the
-    * package on every change, turning a dimmed light into a full rebuild.
-    * Nothing volatile can live here however useful it looks; volatile values
-    * are read runtime-side, by a slot transform over live state.
-    *
-    * Every name below was checked against a live instance by watching
-    * `subscribe_entities` delta frames for 180s — none of them appeared in a
-    * single change. `entity_picture` DID (4 changes across 4 entities) and is
-    * deliberately excluded: camera and media_player picture URLs carry a
-    * rotating `access_token`. Re-run that check before adding to this set.
+  /** Only static attributes: any change re-hashes the dump package and
+    * re-evaluates every dashboard. Each was checked by watching
+    * `subscribe_entities` deltas for 180s with none appearing; `entity_picture`
+    * did (a rotating `access_token`) and is excluded. Re-run that check before
+    * adding one.
     */
   val CapabilityAttributes: Set[String] = Set(
     // any domain
@@ -85,27 +63,11 @@ object RegistryDump {
     "fan_speed_list"
   )
 
-  /** The two attributes that name an entity's MEMBERS, in precedence order.
-    *
-    * `entity_id` is the HA Light Group helper's member list (a `light.*` that
-    * fans out to other lights); `group_entities` is the Zigbee/ZHA group
-    * equivalent. They nest — a light group can hold a zigbee group, which holds
-    * bulbs — and both are plain `entity_id` lists, so one `members` edge covers
-    * them.
-    */
+  // A light group helper's members, then a ZHA group's.
   private val MemberAttributes: List[String] =
     List("entity_id", "group_entities")
 
-  /** Extra attribute names to carry, comma-separated, from
-    * `FH_DUMP_ATTRIBUTES`.
-    *
-    * Additive to [[CapabilityAttributes]]: the default set is the safe floor,
-    * and a home with an integration exposing something static and useful that
-    * ships here can widen it without a rebuild. The same caching rule applies —
-    * naming a volatile attribute re-hashes the dump on every change of it — so
-    * this is a sharp tool, which is why it is opt-in rather than a filter that
-    * ships wide.
-    */
+  /** Additive; the same static-only rule applies. */
   private def extraAttributes: IO[Set[String]] =
     Env[IO]
       .get("FH_DUMP_ATTRIBUTES")
@@ -133,30 +95,18 @@ object RegistryDump {
       api.configAuthList
     ).mapN(build(_, _, _, _, _, _, carried)).map(transform)
 
-  /** `subscribe_entities`' FIRST frame is a full snapshot of every entity with
-    * every attribute (see [[EntitiesEvent]]) — one command, no size cap, and no
-    * Jinja. Take that frame and release the subscription; the live feed is the
-    * runtime's job, not the dump's.
-    *
-    * UNFILTERED, and it has to stay that way even though the runtime's feed is
-    * narrowed to what the dashboards read: the dump is what an author writes
-    * the next dashboard AGAINST, so it must offer every entity, including the
-    * ones nothing references yet.
+  /** The first frame of `subscribe_entities`. Unfiltered, unlike the runtime
+    * feed: an author writes the next dashboard against entities nothing reads
+    * yet.
     */
   private def snapshot(
       api: HomeAssistantApi[IO]
   ): IO[Map[String, EntitiesEvent.Full]] =
     api.entities(None).use(_.head.compile.lastOrError).map(_.added)
 
-  /** The pure core: join the state snapshot against the registries.
-    *
-    * The STATE snapshot is the spine, not the entity registry. The registry
-    * lists every entity that ever existed — 2296 against 1069 with state on the
-    * dev instance, the difference being disabled ones — while an entity with no
-    * state is not something a dashboard can render. A handful of entities go
-    * the other way (`sun.sun` and friends have state but no registry row), so
-    * this is a LEFT join from states, with registry fields defaulted when
-    * absent.
+  /** A left join from states: the registry also lists disabled entities (2296
+    * against 1069 with state on the dev instance), and a few like `sun.sun`
+    * have state but no registry row.
     */
   def build(
       states: Map[String, EntitiesEvent.Full],
@@ -164,8 +114,6 @@ object RegistryDump {
       devices: List[Device],
       areas: List[Area],
       floors: List[Floor],
-      // Defaulted: a dump with no users is a valid dump (and every fixture
-      // that is not about users says nothing about them).
       accounts: List[HaAccount] = Nil,
       carried: Set[String] = CapabilityAttributes
   ): Json = {
@@ -179,8 +127,7 @@ object RegistryDump {
     val entityJson = states.toList.sortBy(_._1).map { case (entityId, full) =>
       val reg = byEntityId.get(entityId)
       val device = reg.flatMap(_.device_id).map(DeviceId.toString)
-      // An entity inherits its DEVICE's area unless it overrides it — the same
-      // fallback the Jinja `area_id()` function applies.
+      // The device's area unless overridden, as HA's `area_id()` does.
       val areaId =
         reg
           .flatMap(_.area_id)
@@ -190,9 +137,7 @@ object RegistryDump {
         List(
           "entity_id" -> Json.fromString(entityId),
           "domain" -> Json.fromString(entityId.takeWhile(_ != '.')),
-          // The COMPOSED display name, which only the state carries: the
-          // registry stores `name`/`original_name` and leaves assembling them
-          // with the device name to HA.
+          // Only the state carries the composed name.
           "friendly_name" -> full.attributes
             .get("friendly_name")
             .getOrElse(Json.Null),
@@ -213,10 +158,7 @@ object RegistryDump {
       )
     }
 
-    // Keyed HERE rather than in `transform`, which keys the three fields it was
-    // written for and passes anything else through untouched. Device NAMES are
-    // not unique the way area names are (two bulbs of the same model land on
-    // the same slug), so the key is deduplicated.
+    // Keyed here, deduplicated: two bulbs of one model share a name.
     val deviceJson = dedupeKeyed(
       devices.sortBy(d => DeviceId.toString(d.id)).map { d =>
         val name = d.name_by_user.getOrElse(d.name)
@@ -253,9 +195,7 @@ object RegistryDump {
       }),
       "devices" -> deviceJson,
       "entities" -> Json.fromValues(entityJson),
-      // Only real people. HA's own listing includes Supervisor, Cast and the
-      // content user, and two of those three are admins — offering them as
-      // somebody a dashboard could belong to is offering nonsense.
+      // Not Supervisor, Cast or the content user, two of which are admins.
       "users" -> Json.fromValues(
         accounts.filter(_.isPerson).sortBy(_.id).map { a =>
           Json.obj(
@@ -269,9 +209,8 @@ object RegistryDump {
     )
   }
 
-  /** Key an already-slugged list, suffixing `_2`, `_3`, ... on a repeat so no
-    * entry is silently dropped by the map. Input order decides who keeps the
-    * bare slug, so callers sort first for a stable dump.
+  /** `_2`, `_3`, ... on a repeat; input order decides who keeps the bare slug,
+    * so sort first.
     */
   private def dedupeKeyed(entries: List[(String, Json)]): Json = {
     val (out, _) =
@@ -291,16 +230,8 @@ object RegistryDump {
       .flatten
       .filter(_.isString)
 
-  /** Turn the `areas`/`floors`/`entities` lists into objects keyed by a
-    * sanitized field (a valid identifier), so authors reference them by name.
-    * Entities are keyed by `entity_id` (dots -> underscores); areas/floors by
-    * their NAME (`area_name`/`floor_name`), slugified for `dump.areas.<name>`
-    * access (e.g. `Kjøkken` -> `kjokken`, `Living Room` -> `living_room`).
-    *
-    * Each floor additionally carries a nested, slug-keyed `areas` sub-object of
-    * just the areas on that floor (matched by `floor_id`), so authors can drill
-    * `dump.floors.<floor>.areas.<area>.area_id` with editor autocomplete. The
-    * flat top-level `dump.areas` map is left intact — the nesting is additive.
+  /** Lists into objects keyed by identifier: entities by `entity_id`, the rest
+    * by slugged name. Each floor also gets its own areas, keyed the same way.
     */
   def transform(raw: Json): Json = {
     def keyBy(arr: Json, keyField: String, key: String => String): Json =
@@ -321,8 +252,6 @@ object RegistryDump {
         val areasArr = obj("areas").getOrElse(Json.arr())
         val areaItems = areasArr.asArray.getOrElse(Vector.empty)
 
-        // Add to each floor a slug-keyed `areas` sub-object of the areas whose
-        // `floor_id` references it.
         def withAreas(floor: Json): Json = {
           val fid = floor.hcursor.get[String]("floor_id").toOption
           val mine = Json.fromValues(
@@ -359,22 +288,16 @@ object RegistryDump {
     }
   }
 
-  /** Entity key: just dots -> underscores (entity_ids are already
-    * `[a-z0-9_]`-plus-one-dot).
-    */
   private[build] def entityKey(id: String): String = id.replace(".", "_")
 
-  /** A friendly, valid identifier from a free-form name: lower-cased, Nordic
-    * letters and diacritics folded to ASCII, runs of anything else collapsed to
-    * a single underscore (`Kjøkken` -> `kjokken`).
-    */
+  // `ø`/`æ` do not decompose under NFD, hence the explicit folds.
   private[build] def slug(name: String): String =
     java.text.Normalizer
       .normalize(
         name.toLowerCase.replace("ø", "o").replace("æ", "ae").replace("å", "a"),
         java.text.Normalizer.Form.NFD
       )
-      .replaceAll("\\p{M}+", "") // strip combining diacritics (é -> e)
+      .replaceAll("\\p{M}+", "")
       .replaceAll("[^a-z0-9]+", "_")
       .replaceAll("^_+|_+$", "")
 }

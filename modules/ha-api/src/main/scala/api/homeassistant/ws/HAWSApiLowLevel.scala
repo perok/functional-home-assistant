@@ -21,49 +21,35 @@ import org.http4s.client.websocket.{
 
 import scala.concurrent.duration.*
 
-/** The single WebSocket seam `HomeAssistantApi` is built on. Routes frames by
-  * id only; each command owns its codec, so this layer stays codec-agnostic.
-  */
+/** Routes frames by id only; each command owns its codec. */
 trait HAWSApiLowLevel[F[_]] {
 
   def sendCommand[Response](
       command: CommandPhase & CommandResponse.WithSingleResponse[Response]
   ): IO[Response]
 
-  /** Subscribe, yielding the decoded event stream. Acquire completes only when
-    * HA has ACCEPTED the subscription (its `result` ack has arrived — a
-    * rejection raises here, not on a later pull), so `use` begins with the
-    * subscription demonstrably live: a caller may safely issue a command whose
-    * events it must not miss afterwards. Release unsubscribes, best-effort.
+  /** Acquire completes once HA has acked the subscription (a rejection raises
+    * here), so a command issued in `use` cannot outrun it. Release
+    * unsubscribes, best-effort.
     */
   def subscribeStream[Result](
       msg: CommandPhase & CommandResponse.AsStream[Result]
   ): Resource[IO, Stream[IO, Result]]
 
-  /** Completes when this connection is no longer usable — the receive stream
-    * ended (socket closed) or a keepalive ping went unanswered — raising with
-    * the cause when the close was abnormal, returning `unit` on a clean end.
-    *
-    * The connection supervises its OWN liveness (idle ping/pong + receive-loop
-    * death) and reports it here; a holder races its work against this to learn
-    * that the resource has effectively closed itself, then tears it down and
-    * reconnects. Never completes while the connection is healthy.
+  /** Completes when the socket ends or a ping goes unanswered, raising the
+    * cause on an abnormal close. A holder races its work against this and
+    * reconnects.
     */
   def awaitClosed: IO[Unit]
 }
 
 object HAWSApiLowLevel {
 
-  // Frame tracing lives at DEBUG. With `subscribe_entities` that is a line per
-  // state change of the whole house, which is why it is not on by default —
-  // but it is now a logger level like everything else, not a flag threaded
-  // through the transport's constructor.
+  // Frame tracing is DEBUG: with `subscribe_entities` it is a line per state
+  // change of the whole house.
   private val log = Slf4jLogger.getLogger[IO]
 
-  /** The error a caller sees for work issued on a dead connection: the cause
-    * that killed it when there was one, since "closed" alone loses the only
-    * clue why (a clean socket end has no exception to reuse).
-    */
+  /** The cause is the only clue why; a clean socket end has none to reuse. */
   private def closed(cause: Either[Throwable, Unit]): Throwable =
     cause.fold(
       identity,
@@ -73,9 +59,8 @@ object HAWSApiLowLevel {
   private case class Command(
       message: CommandPhase,
       id: Deferred[IO, Int],
-      // Chunks, not payloads: a coalesced frame is handed over whole so the
-      // batch HA sent is the batch the consumer sees. `None` is the
-      // connection's death, which closes the route rather than stranding it.
+      // Whole frames, so a batch HA coalesced reaches the consumer as one.
+      // `None` is the connection's death.
       response: Queue[IO, Option[Chunk[WSCommandPhaseServerPayload]]]
   )
 
@@ -83,23 +68,14 @@ object HAWSApiLowLevel {
     def sendEncode[Body: Encoder](in: Body): IO[Unit] =
       wsClient.sendText(in.asJson.noSpaces)
 
-    /** Decode received frames, ONE ELEMENT PER PAYLOAD.
-      *
-      * With `coalesce_messages` enabled a frame is a JSON ARRAY of payloads (HA
-      * wraps even a single one), so a frame yields a whole fs2 `Chunk`. A bare
-      * object still decodes, so this works either way.
-      *
-      * The chunk is preserved all the way to the consumer: routing groups a
-      * frame's payloads by id and offers each group to its subscription as ONE
-      * chunk (see the receive loop and `subscribeStream`), so a burst HA
-      * coalesced into a frame stays one batch — which is what lets
-      * `HaFeed.pump` fold it into a single store update.
+    /** With `coalesce_messages` a frame is a JSON array (even of one); a bare
+      * object still decodes. The frame stays one chunk through routing to the
+      * consumer, which is what lets `HaFeed.pump` fold a burst into a single
+      * store update.
       */
     def receiveStreamDecode[Body: Decoder](): Stream[IO, Body] = {
-      // Branch on the SHAPE, and name `decodeList` explicitly rather than
-      // summoning `Decoder[List[Body]]` — that would resolve back to this very
-      // decoder. Not a `given` either, for the same reason: it is passed to
-      // `decode` by hand below.
+      // Not `Decoder[List[Body]]` and not a `given`: either resolves back to
+      // this very decoder.
       val batch: Decoder[List[Body]] = Decoder.instance(c =>
         if (c.value.isArray) Decoder.decodeList[Body].apply(c)
         else c.as[Body].map(List(_))
@@ -143,12 +119,9 @@ object HAWSApiLowLevel {
       client: WSClient[IO],
       uri: Uri,
       secretToken: String,
-      // Keepalive cadence. HA closes idle sockets and intermediaries drop quiet
-      // TCP connections, so when no frame has arrived for `pingInterval` we send
-      // a `ping` and expect a `pong` within `pingTimeout`; a missed pong marks
-      // the connection dead (see `awaitClosed`). Idle-based: live traffic
-      // (`state_changed` events) resets the timer, so a busy connection is never
-      // pinged. https://developers.home-assistant.io/docs/api/websocket/#pings-and-pongs
+      // Idle-based: any received frame resets it, so a busy connection is
+      // never pinged. A pong missing after `pingTimeout` kills the connection.
+      // https://developers.home-assistant.io/docs/api/websocket/#pings-and-pongs
       pingInterval: FiniteDuration = 30.seconds,
       pingTimeout: FiniteDuration = 10.seconds
   ): Resource[IO, HAWSApiLowLevel[IO]] = {
@@ -172,31 +145,20 @@ object HAWSApiLowLevel {
       }
       .flatMap { ha =>
         for {
-          // Always new unique id
           incrementer <- Ref[IO]
             .of(1)
             .map(ref => ref.getAndUpdate(_ + 1))
             .toResource
 
-          // Fired once when the connection dies (receive loop ended, or a ping
-          // went unanswered), carrying the cause; `awaitClosed` surfaces it so a
-          // holder can reconnect. Left = abnormal, Right = clean socket end.
+          // Left = abnormal, Right = clean socket end.
           terminated <- IO.deferred[Either[Throwable, Unit]].toResource
-          // Monotonic timestamp of the last frame received, as a SIGNAL: the
-          // keepalive watches it rather than polling it, so a frame does not
-          // just refresh a deadline, it cancels the pending ping outright.
+          // A signal, so a frame cancels the pending ping outright rather than
+          // refreshing a deadline.
           lastActivity <- IO.monotonic
             .flatMap(SignallingRef[IO].of)
             .toResource
 
-          // id -> waiting-queue for every in-flight command (single responses
-          // and subscriptions alike).
-          //
-          // A queue element is `Option[Chunk]`: a CHUNK so a coalesced frame is
-          // routed as one batch rather than element by element, and OPTIONAL so
-          // `None` can mean "this connection is over". A plain `Ref` rather than
-          // `MapRef` because death has to reach EVERY route at once, which needs
-          // the whole map.
+          // A `Ref`, not `MapRef`: death has to reach every route at once.
           routes <- Ref[IO]
             .of(
               Map
@@ -206,11 +168,9 @@ object HAWSApiLowLevel {
             )
             .toResource
 
-          // The single death rite: report the cause, then close every open
-          // route. Callers waiting on a reply see `None` and fail; subscription
-          // streams see `None` and TERMINATE — no one is left blocked on a queue
-          // that can never be fed again. Idempotent, so the receive loop and the
-          // keepalive can both call it.
+          // Every route gets `None`, so no caller or stream is left blocked on a
+          // queue nothing will feed. Idempotent: the receive loop, the drain
+          // fiber and the keepalive all call it.
           die = (cause: Either[Throwable, Unit]) =>
             terminated.complete(cause) *>
               routes.get.flatMap(_.values.toList.traverse_(_.offer(None)))
@@ -226,7 +186,7 @@ object HAWSApiLowLevel {
                 _ <- routes.update(_.updated(id, msg.response))
                 _ <- msg.id.complete(id)
                 _ <- {
-                  // Everything in command phase has id https://developers.home-assistant.io/docs/api/websocket/#command-phase
+                  // https://developers.home-assistant.io/docs/api/websocket/#command-phase
                   val idJson = Json.obj(("id" -> Json.fromInt(id)))
                   val toSend = msg.message.asJson.deepMerge(idJson)
                   log.debug(s"--> Sending ${toSend.noSpaces}") *>
@@ -236,22 +196,15 @@ object HAWSApiLowLevel {
             }
             .compile
             .drain
-            // A failed send kills this loop, and every command queued after
-            // that would block forever waiting for an id nobody allocates. So
-            // the same death rite as the receive loop: report it, close every
-            // route, and let the holder reconnect.
+            // Otherwise every later command waits for an id nobody allocates.
             .attempt
             .flatMap(die)
             .void
             .background
 
-          // Registration precedes the send, so the queue always exists when HA
-          // answers — ack and later events land in order, no first-event race.
+          // Registration precedes the send, so an ack can never beat its route.
           _ <- ha
             .receiveStreamDecode[WSCommandPhaseServerPayload]()
-            // Route a whole FRAME at a time: group its payloads by id and hand
-            // each subscription its group as one chunk. Doing this per payload
-            // would dissolve the batch HA deliberately coalesced.
             .chunks
             .evalTap { frame =>
               routes.get.flatMap { open =>
@@ -272,9 +225,6 @@ object HAWSApiLowLevel {
             }
             .compile
             .drain
-            // The receive loop only ends when the socket closes (or a frame
-            // fails to decode). Either way the connection is done: report it so
-            // the holder reconnects instead of hanging on a dead socket.
             .attempt
             .flatMap(die)
             .void
@@ -285,29 +235,14 @@ object HAWSApiLowLevel {
               def awaitClosed: IO[Unit] =
                 terminated.get.flatMap(IO.fromEither)
 
-              /** Fail if this connection has already died, carrying the cause
-                * that killed it (an abnormal close names itself; a clean one
-                * has no exception to reuse).
-                */
               private val raiseIfDead: IO[Unit] =
                 terminated.tryGet.flatMap(
                   _.traverse_(cause => IO.raiseError(closed(cause)))
                 )
 
-              /** Queue `msg` for the wire and route its response frames to a
-                * fresh queue. Acquire returns once the drain fiber has taken it
-                * and allocated an id — the frame may still be in flight, so
-                * this is NOT "HA has replied". Release runs the command's own
-                * unsubscribe (if any) and drops the route. Undecoded — each
-                * caller applies the command's own codec.
-                *
-                * The queue is handed over raw (not as a `Stream`) so a caller
-                * can take the leading `result` frame in `IO` and then read the
-                * rest as a stream: the QUEUE holds the position, so both views
-                * of it compose without losing a frame. Its elements are whole
-                * FRAMES (a chunk of this id's payloads), which is what keeps a
-                * coalesced batch intact, and a `None` element is the
-                * connection's death — see `die`.
+              /** Acquire returns once an id is allocated, not once HA replied.
+                * The queue is handed over raw so a caller can take the leading
+                * `result` frame in `IO` and stream the rest without losing one.
                 */
               private def openRoute(
                   msg: CommandPhase & CommandResponse[?]
@@ -316,9 +251,8 @@ object HAWSApiLowLevel {
                 Queue[IO, Option[Chunk[WSCommandPhaseServerPayload]]]
               ] = {
                 val send = for {
-                  // Already dead: fail here rather than queue a command onto a
-                  // socket that cannot answer. `die` has been and gone, so it
-                  // will never close a route registered after it.
+                  // `die` has been and gone; it will never close a route
+                  // registered after it.
                   _ <- raiseIfDead
                   payloadQueue <- Queue
                     .unbounded[IO, Option[Chunk[WSCommandPhaseServerPayload]]]
@@ -326,17 +260,13 @@ object HAWSApiLowLevel {
                   _ <- messageQueue.offer(
                     Command(msg, idDeferred, payloadQueue)
                   )
-                  // The id is allocated by the drain fiber, so waiting on it
-                  // blocks forever if that fiber is gone. Race the connection's
-                  // death (which a dead drain fiber now reports) so a caller
-                  // fails fast instead of hanging on an id nobody will mint.
+                  // The drain fiber may be gone, and then no id is ever minted.
                   id <- idDeferred.get.race(terminated.get).flatMap {
                     case Left(id)     => IO.pure(id)
                     case Right(cause) => IO.raiseError[Int](closed(cause))
                   }
-                  // ...and close the race the check above cannot: if `die` ran
-                  // between it and the registration, it passed over this route,
-                  // so close it here. Either order ends with a `None` queued.
+                  // `die` running between the check and the registration passed
+                  // over this route. Either order ends with a `None` queued.
                   _ <- terminated.tryGet.flatMap(
                     _.traverse_(_ => payloadQueue.offer(None))
                   )
@@ -350,12 +280,9 @@ object HAWSApiLowLevel {
                       case _ => IO.unit
                     }
 
-                    // A best-effort unsubscribe. It must neither fail nor block
-                    // teardown: HA errors on an id it has already forgotten (a
-                    // rejected subscription), and on a DEAD socket the reply can
-                    // never arrive — racing `terminated` is what stops teardown
-                    // hanging there, which would strand the supervisor instead
-                    // of letting it reconnect.
+                    // Must neither fail nor block teardown: HA errors on an id
+                    // it already forgot (a rejected subscription), and a dead
+                    // socket never replies, which would strand the supervisor.
                     finalizationIO.void
                       .race(terminated.get.void)
                       .attempt
@@ -371,10 +298,6 @@ object HAWSApiLowLevel {
                   .map((q, _) => q)
               }
 
-              /** The next frame for this route, or the connection's death. One
-                * `take`, so a caller can never block past the end of the
-                * connection: `die` closes every route.
-                */
               private def nextFrame(
                   queue: Queue[IO, Option[Chunk[WSCommandPhaseServerPayload]]]
               ): IO[Chunk[WSCommandPhaseServerPayload]] =
@@ -390,9 +313,6 @@ object HAWSApiLowLevel {
                   command: CommandPhase &
                     CommandResponse.WithSingleResponse[Response]
               ): IO[Response] =
-                // A one-shot answer is the first payload of the first frame for
-                // this id; nothing else can be addressed to it. A socket that
-                // dies mid-command raises here rather than blocking forever.
                 openRoute(command).use(
                   nextFrame(_).flatMap(frame => command.decodeMessage(frame(0)))
                 )
@@ -401,20 +321,12 @@ object HAWSApiLowLevel {
                   msg: CommandPhase & CommandResponse.AsStream[Result]
               ): Resource[IO, Stream[IO, Result]] =
                 openRoute(msg).evalMap { frames =>
-                  // ACQUIRE = ACCEPTED: consume the leading `result` ack here,
-                  // so `use` begins only once HA confirms the subscription and a
-                  // rejection raises at the acquire rather than on some later
-                  // pull.
                   nextFrame(frames).flatMap { first =>
                     msg
                       .decodeMessage(first(0))
                       .as(
-                        // HA can coalesce the ack and this subscription's first
-                        // events into ONE frame, so whatever shared the ack's
-                        // frame is replayed ahead of the queue — as a chunk, so
-                        // even that boundary case stays batched. The queue is
-                        // None-terminated, so the stream ENDS when the
-                        // connection does instead of hanging on a dead route.
+                        // HA can coalesce the ack with the first events, so the
+                        // rest of its frame is replayed ahead of the queue.
                         (Stream.chunk(first.drop(1)) ++
                           Stream.fromQueueNoneTerminatedChunk(frames))
                           .evalMapChunk(msg.decodeStreamMessage)
@@ -424,17 +336,11 @@ object HAWSApiLowLevel {
             }
           }
 
-          // The feature-enablement phase, before anything else is sent: HA
-          // then batches a burst of events into one frame, which the receive
-          // stream turns back into one chunk (see `receiveStreamDecode`).
+          // Before anything else is sent, so HA coalesces from the first event.
           _ <- op
             .sendCommand[Unit](CommandPhase.supported_features())
             .toResource
 
-          // Idle keepalive: HA closes idle sockets and intermediaries drop quiet
-          // TCP connections, so a connection that has heard nothing for
-          // `pingInterval` is pinged; an unanswered ping marks it dead and
-          // `awaitClosed` fires.
           _ <- {
             val ping: IO[Unit] =
               op.sendCommand[Unit](CommandPhase.ping())
@@ -442,13 +348,8 @@ object HAWSApiLowLevel {
                 .void
 
             lastActivity.discrete
-              // Every received frame CANCELS the pending sleep and starts it
-              // over, so a ping fires only after real silence and a busy
-              // connection is never pinged at all. Two things follow for free.
-              // A dead socket produces no activity, so there is nothing left to
-              // trigger this — it cannot spin against one, where a polling loop
-              // had to be stopped explicitly. And traffic arriving DURING a ping
-              // cancels it mid-flight, which is right: that traffic is the
+              // A dead socket produces no frames, so this cannot spin against
+              // one. Traffic during a ping cancels it: that traffic is the
               // liveness the ping was asking for.
               .switchMap(_ =>
                 Stream.sleep[IO](pingInterval) ++ Stream.eval(ping.attempt)

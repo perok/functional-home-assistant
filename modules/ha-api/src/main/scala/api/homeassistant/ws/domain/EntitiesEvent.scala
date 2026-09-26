@@ -2,57 +2,33 @@ package api.homeassistant.ws.domain
 
 import io.circe.{Decoder, Json}
 
-/** One `subscribe_entities` frame: HA's compressed state feed.
+/** One `subscribe_entities` frame: the first carries every entity, later ones
+  * only what moved. Snapshot and feed are one subscription, so no change can
+  * land between a `get_states` and a `subscribe_events`.
   *
-  * This is the command the HA frontend itself uses, and it makes the full
-  * snapshot and the change feed ONE subscription — the first frame carries
-  * every entity ([[added]]), every later frame carries only what moved. That
-  * removes the gap a separate `get_states` + `subscribe_events state_changed`
-  * pair has by construction (a change landing between the snapshot and the
-  * subscription is lost), which is why it replaces both.
-  *
-  * Field names are HA's single letters, kept verbatim in the wire types and
-  * given readable names here. The command is absent from the WebSocket API docs
-  * (which cover `subscribe_events`/`subscribe_trigger` only), but the format is
-  * pinned by readable source on BOTH ends:
-  *   - producer — core's `websocket_api/messages.py`: `ENTITY_EVENT_ADD/REMOVE/
-  *     CHANGE` = `a`/`r`/`c`, `STATE_DIFF_ADDITIONS/REMOVALS` = `+`/`-`; and
-  *     `homeassistant/const.py`: `COMPRESSED_STATE_*` = `s`/`a`/`c`/`lc`/`lu`.
-  *   - consumer — `home-assistant-js-websocket` (`lib/entities.ts`):
-  *     `StatesUpdates`/`EntityDiff`, whose apply step is
-  *     `Object.assign(attributes, toAdd.a)` then delete `toRemove.a` — i.e.
-  *     attributes MERGE, which is what [[EntitiesEvent.Delta]] reproduces.
-  *
-  * `EntitiesFeedSuite` pins it further against frames captured from a live
-  * instance (2026.7.2), since neither source is a stability promise.
+  * Undocumented. The format is read off core's `websocket_api/messages.py` and
+  * `const.py` (`COMPRESSED_STATE_*`), and `home-assistant-js-websocket`'s
+  * `lib/entities.ts`, whose apply step merges attributes as
+  * [[EntitiesEvent.Delta]] does. `EntitiesFeedSuite` pins frames captured from
+  * HA 2026.7.2.
   */
 case class EntitiesEvent(
-    /** `a` — full state, replacing whatever is stored. The whole entity set on
-      * the first frame after subscribing (also after a reconnect, which is what
-      * makes re-subscribing the catch-up mechanism).
+    /** Replaces what is stored. The whole set on the first frame, which makes
+      * re-subscribing the reconnect catch-up.
       */
     added: Map[String, EntitiesEvent.Full] = Map.empty,
-    /** `c` — a per-entity DELTA. Attributes merge; see [[EntitiesEvent.Delta]].
-      */
     changed: Map[String, EntitiesEvent.Delta] = Map.empty,
-    /** `r` — entities that no longer exist. */
     removed: List[String] = Nil
 )
 
 object EntitiesEvent {
 
-  // The feed's `c` (context: who/what caused the change — `{id, user_id,
-  // parent_id}`, or a bare id string) is DROPPED, not missing. It never travels
-  // alone (246 delta payloads observed, none context-only), so ignoring it
-  // cannot lose a change; nothing here renders attribution; and it changes on
-  // every single update, so carrying it would just be another always-differing
-  // field for `EntityState.sameContent` to ignore. Decode it if we ever want
-  // "changed by" — note the `Context | string` union.
+  // A delta's `c` (context) is dropped: it never travels alone (246 deltas
+  // observed) and differs on every update. It is `Context | string` if ever
+  // decoded.
 
-  /** An entity's complete state. `lastUpdated` is absent when it equals
-    * `lastChanged` (HA omits the duplicate), so read it as
-    * `lastUpdated orElse lastChanged`. Timestamps are epoch seconds as a float
-    * — NOT the ISO strings `state_changed` used.
+  /** HA omits `lastUpdated` when it equals `lastChanged`. Timestamps are float
+    * epoch seconds, not ISO strings.
     */
   case class Full(
       state: String,
@@ -61,10 +37,8 @@ object EntitiesEvent {
       lastUpdated: Option[Double] = None
   )
 
-  /** What changed about one entity: `plus` holds only the fields that moved and
-    * only the attributes that moved (so attributes MERGE into the stored map,
-    * they do not replace it), `minus` names attributes that went away. An
-    * absent `state` means only attributes/timestamps changed.
+  /** `plus` holds only what moved, so its attributes merge into the stored map;
+    * `minus` names the attributes that went away.
     */
   case class Delta(
       plus: Option[Patch] = None,

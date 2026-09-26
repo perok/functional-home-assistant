@@ -8,33 +8,15 @@ import org.typelevel.otel4s.oteljava.OtelJava
 import org.typelevel.otel4s.oteljava.context.Context
 import org.typelevel.otel4s.trace.TracerProvider
 
-/** Telemetry for the add-on (#75), and the switch that keeps it free when
-  * nobody is collecting.
+/** Telemetry (#75). Without an OTLP endpoint the SDK is never constructed: the
+  * add-on's memory on a Pi is what #75 set out to measure, so the default must
+  * not inflate it.
   *
-  * The motivating question was "opening a dashboard feels sluggish" on a
-  * Raspberry Pi, which the render benchmark could not answer: it prices the
-  * render at 2-3 ms, and the phases around it — reading the store, minting the
-  * session, the walk that writes the document — were not instrumented at all.
-  *
-  * **Nothing is produced unless an OTLP endpoint is configured.** With none,
-  * [[resource]] answers the no-op providers and the OpenTelemetry SDK is never
-  * constructed — so on the overwhelmingly common install the cost is a no-op
-  * call per instrument and no classes loaded. That is deliberate on this
-  * hardware: the add-on's memory footprint is the thing #75 was opened to
-  * understand, and instrumentation that inflated it by default would be
-  * measuring the observer.
-  *
-  * PROVIDERS rather than a `Tracer`/`Meter`, because that is what the http4s
-  * middleware takes: it names its own instrumentation scope, which is how its
-  * spans and metrics carry the conventional `http.*` names instead of ones this
-  * project invented.
+  * Providers, not a `Tracer`/`Meter`, because the http4s middleware names its
+  * own scope and so emits the conventional `http.*` names.
   */
 object Telemetry {
 
-  /** What the wiring needs, in one value. All three are no-op together or real
-    * together — there is one endpoint and one SDK, so splitting them would only
-    * invite a half-configured state that cannot occur.
-    */
   final case class Otel(
       tracerProvider: TracerProvider[IO],
       meterProvider: MeterProvider[IO],
@@ -43,42 +25,24 @@ object Telemetry {
 
   object Otel {
 
-    /** What an unconfigured install, a test and a standalone construction all
-      * get. Named rather than spelled out at each site so "off" is one value
-      * and cannot drift into a half-off one.
-      */
     val noop: Otel =
       Otel(TracerProvider.noop, MeterProvider.noop, LoggerProvider.noop)
   }
 
-  /** The endpoint's env var, which is OpenTelemetry's own standard name rather
-    * than an `FH_` one — `run.sh` sets it from the `otlp_endpoint` option, and
-    * a standalone `docker run` can set it directly, the way every other OTLP
-    * producer is configured.
-    */
+  /** OpenTelemetry's own name; `run.sh` sets it from `otlp_endpoint`. */
   val EndpointVar = "OTEL_EXPORTER_OTLP_ENDPOINT"
 
   def resource: Resource[IO, Otel] =
     Resource.eval(Env[IO].get(EndpointVar)).flatMap(resource)
 
-  /** The decision itself, with the environment lifted out.
-    *
-    * Split so both arms can be pinned by a test: reading the variable inside
-    * would make "is telemetry off by default" depend on the machine the suite
-    * runs on, and the default arm is exactly the one a developer with a
-    * collector configured would stop exercising.
-    */
+  // Environment lifted out, so the off-by-default arm is testable anywhere.
   private[telemetry] def resource(
       endpoint: Option[String]
   ): Resource[IO, Otel] =
     endpoint.map(_.trim).filter(_.nonEmpty) match {
       case Some(_) =>
-        // `autoConfigured` reads the standard `OTEL_*` variables, so protocol,
-        // headers, sampling and resource attributes are all configurable
-        // without this file growing an option for each of them. A variable it
-        // cannot make sense of throws here and kills boot — wanted, and not a
-        // gap: an endpoint was asked for, so a collector that is misconfigured
-        // should be loud rather than silently absent.
+        // Reads the standard `OTEL_*` variables; a bad one fails boot, which is
+        // wanted once an endpoint was asked for.
         OtelJava
           .autoConfigured[IO]()
           .map(otel =>

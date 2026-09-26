@@ -3,29 +3,15 @@ package fh.view.build
 import cats.syntax.all.*
 import io.circe.{Json, JsonObject}
 
-/** Renders the transformed [[RegistryDump]] JSON as the typed `dump.pkl`
-  * module, typed against the hand-written `lib/hass.pkl` schema.
+/** The typed `dump.pkl` module, against `lib/hass.pkl`: every floor, area and
+  * entity a named property, so a typo is an eval error (ADR 0013).
   *
-  * Every floor/area/entity becomes a NAMED, TYPED property, so
-  * `dump.entities.light_kitchen` and `dump.<floor>.<area>.<entityKey>`
-  * dot-complete in a Pkl editor and a typo is an eval error. Plain string
-  * templating, per project convention (scalameta does not support Scala 3).
-  *
-  * Generation safety rules:
-  *   - generated identifiers are backticked only when Pkl's own lexer says the
-  *     plain form is illegal — reserved words like `override` or a
-  *     digit-leading slug like `3rd_floor` (see [[tick]]);
-  *   - string values go through [[pklString]] (escaping `\` first also
-  *     neutralizes Pkl's `\(...)` interpolation trigger);
-  *   - nullable schema fields are omitted when absent (their default is null);
-  *   - `Listing` values are ASSIGNED (`= new Listing {...}`), never amended —
-  *     amending a null default is a type error when the value is forced.
+  * `Listing` values are assigned, never amended: amending a null default is a
+  * type error once forced. Nullable fields are omitted when absent.
   */
 object PklDump {
 
-  /** Render the module source. `transformed` is the OUTPUT of
-    * [[RegistryDump.transform]] (objects keyed by sanitized names).
-    */
+  /** `transformed` is the output of [[RegistryDump.transform]]. */
   def render(transformed: Json): String = {
     val root = transformed.asObject.getOrElse(JsonObject.empty)
 
@@ -42,18 +28,12 @@ object PklDump {
     val devices = keyed("devices")
     val users = keyed("users")
 
-    // Member/sibling edges are emitted as references to the `e_*` consts, so a
-    // group's members ARE the dump entities (same object, live `.members`
-    // recursion) rather than id strings the author has to look up again. Only
-    // ids that actually made it into the dump can be referenced — a group may
-    // name an entity that has since been removed or disabled, and a dangling
-    // `e_*` would be an eval error in every dashboard.
+    // Member edges reference `e_*` consts; a group naming a removed or disabled
+    // entity would otherwise dangle and fail every dashboard's eval.
     val known = entities.map(_._1).toSet
 
-    // One class PER ENTITY, carrying exactly the capabilities that entity
-    // reports. The domain class it extends carries none, so a light without
-    // color temperature has no `min_color_temp_kelvin` property at all and
-    // reading one is a Pkl error rather than a null (ADR 0013).
+    // One class per entity, carrying exactly its capabilities: reading one it
+    // lacks is a Pkl error, not a null.
     val entityDecls = entities.map { case (key, eo) =>
       val caps = capabilityDecls(eo) ++ schemaGroups(key, eo)
       val body = if (caps.isEmpty) "" else caps.mkString("\n") + "\n"
@@ -76,16 +56,8 @@ object PklDump {
          |
          |entities: Entities = new {}""".stripMargin
 
-    // The house's entities. DECLARED in `@fh-dashboard/internal/dump-base.pkl`
-    // (which this module extends) and merely filled here — so a home with no
-    // entities answers `List()` rather than "Cannot find property", and the
-    // starter dashboard can query it without having seen this dump. The
-    // per-domain lists are derived THERE, by the same selectors an author
-    // calls, so adding a modelled domain never touches this generator's lists.
-    //
-    // The assignment is omitted for an empty house: the declared default
-    // already says `List()`, and emitting it again is noise in a generated file
-    // a person does read.
+    // Declared (with a `List()` default) in `internal/dump-base.pkl`, which also
+    // derives the per-domain lists; only filled here.
     val domainLists =
       Option
         .when(entities.nonEmpty)(
@@ -93,8 +65,6 @@ object PklDump {
         )
         .getOrElse("")
 
-    // One class per area (from the flat map — floor nesting references these).
-    // Members = entities whose raw `area_id` matches the area's.
     val areaClasses = areas.map { case (slug, ao) =>
       val areaId = str(ao, "area_id")
       val members = entities.filter { case (_, eo) =>
@@ -103,8 +73,7 @@ object PklDump {
       val memberProps = members.map { case (key, _) =>
         s"  ${tick(key)}: ${entityClass(key)} = ${tick(s"e_$key")}"
       }
-      // One list, not one per domain: `hass.Area` carries only `all`, and a
-      // domain is picked out of it by a selector (`hass.lights(area.all)`).
+      // Domains are selected out of `all` (`hass.lights(area.all)`).
       val lists = Option
         .when(members.nonEmpty)(
           s"  all = List(${members.map { case (key, _) => tick(key) }.mkString(", ")})"
@@ -115,10 +84,7 @@ object PklDump {
          |}""".stripMargin
     }
 
-    // One property per PERSON who can log in, so a dashboard's access rule
-    // names a user the way it names an entity — `dump.users.peri` rather than
-    // a raw HA id nobody can check (ADR 0023). No per-user CLASS: a user has
-    // no members and nothing hangs off it, so the instance is the whole thing.
+    // So an access rule names `dump.users.x`, not a raw HA id (ADR 0023).
     val usersClass = Option.when(users.nonEmpty)(
       s"""class Users {
          |${users
@@ -148,8 +114,6 @@ object PklDump {
          |
          |areas: Areas = new {}""".stripMargin
 
-    // One class + one top-level property per floor; its areas come from the
-    // floor's nested slug-keyed `areas` object (same slugs as the flat map).
     val floorDecls = floors.map { case (slug, fo) =>
       val floorAreas = fo("areas")
         .flatMap(_.asObject)
@@ -168,8 +132,6 @@ object PklDump {
           .flatMap(_.toInt)
           .map(l => s"  level = $l")
       ).flatten
-      // Guard the module namespace: a floor named e.g. "Entities" must not
-      // shadow the fixed `entities`/`areas`/`output` properties.
       val propName =
         if (Set("entities", "areas", "output").contains(slug)) s"${slug}_floor"
         else slug
@@ -180,10 +142,6 @@ object PklDump {
          |${tick(propName)}: ${tick(s"Floor_$slug")} = new {}""".stripMargin
     }
 
-    // One class per device, holding references to the entities that report it
-    // as their `device_id` — the "one appliance, several entities" grouping,
-    // which is orthogonal to area/floor. Omitted entirely when the dump carries
-    // no devices (the legacy template path produces none).
     val deviceClasses = devices.map { case (slug, dvo) =>
       val deviceId = str(dvo, "device_id")
       val memberProps = entities.collect {
@@ -224,14 +182,9 @@ object PklDump {
          |devices: Devices = new {}""".stripMargin
     )
 
-    // The schema comes in BY ALIAS, not as a file sibling: `dump.pkl` lives in
-    // its own `@fh-home` package (it is live per-home data and can never ship
-    // inside the shared `@fh-dashboard` library), so it is no longer a sibling
-    // of `hass.pkl`. The alias resolves to
-    // `projectpackage://fh.invalid/fh-dashboard@1.0.0#/hass.pkl` — the SAME URI
-    // `components.pkl`'s own relative `import "hass.pkl"` lands on — which is
-    // what keeps a dump entity assignable to a card factory's `hass.Entity`
-    // parameter. See ADR 0010, "Module identity".
+    // By alias: it must resolve to the same URI the library's own
+    // `import "hass.pkl"` does, or a dump entity is not a card's `hass.Entity`
+    // (ADR 0010, "Module identity").
     s"""/// GENERATED from the live HA registry by PklDump — do not edit.
        |/// The entity/area/floor dump, typed against `hass.pkl`.
        |///
@@ -261,10 +214,6 @@ object PklDump {
        |""".stripMargin
   }
 
-  /** The device half of the module, or nothing at all when the dump carries no
-    * devices — an empty `class Devices {}` would still be valid Pkl, but it
-    * advertises a namespace with nothing in it.
-    */
   private def deviceSection(
       classes: List[String],
       devicesClass: Option[String]
@@ -274,7 +223,6 @@ object PklDump {
   private def str(o: JsonObject, field: String): Option[String] =
     o(field).flatMap(_.asString)
 
-  /** The hass.pkl class for an entity's domain (GenericEntity fallback). */
   private def entityType(eo: JsonObject): String =
     str(eo, "domain") match {
       case Some("light")         => "hass.LightEntity"
@@ -287,10 +235,7 @@ object PklDump {
       case _                     => "hass.GenericEntity"
     }
 
-  /** Property names `hass.Entity` and its domain subclasses already own. An
-    * incoming attribute that collides with one is skipped rather than
-    * redeclared, which would shadow the schema's own field.
-    */
+  /** Owned by `hass.Entity`; an attribute of the same name is skipped. */
   private val ReservedProperties = Set(
     "entity_id",
     "domain",
@@ -304,12 +249,7 @@ object PklDump {
     "volatileAttrs"
   )
 
-  /** Attributes a DOMAIN's schema models itself (as a capability group or a
-    * named field), so `capabilityDecls` must not also declare them on the
-    * per-entity class. Everything not listed keeps falling through to the
-    * per-entity class — that fallback is what lets an unmodeled domain keep
-    * working untouched.
-    */
+  /** Modelled by the domain's schema, so not redeclared per entity. */
   private val SchemaModelled: Map[String, Set[String]] = Map(
     "light" -> Set(
       "supported_color_modes",
@@ -318,13 +258,9 @@ object PklDump {
       "max_color_temp_kelvin",
       "effect_list"
     ),
-    // `code_format` is deliberately absent: no shipped card asks for a code, so
-    // it stays an ordinary per-entity attribute an author can read (see
-    // `hass.LockEntity`).
+    // Not `code_format`: no card asks for a code, so it stays per-entity.
     "lock" -> Set("supported_features"),
-    // `icon` stays OUT of both sensor rows: it is in the dump for every domain
-    // and `core/icon.pkl` already owns how one is chosen, so declaring it on
-    // the schema would give a card a second, competing source for the glyph.
+    // Not `icon`: `core/icon.pkl` owns the glyph choice.
     "sensor" -> Set(
       "device_class",
       "state_class",
@@ -334,14 +270,10 @@ object PklDump {
     "binary_sensor" -> Set("device_class")
   )
 
-  /** The generated class name for one entity. */
   private def entityClass(key: String): String = tick(s"E_$key")
 
-  /** The schema-modelled ASSIGNMENTS for one entity: the raw data its domain
-    * class declares and every entity of that domain has.
-    *
-    * Capability GROUPS are not here — they are narrowed declarations on the
-    * entity's own class ([[schemaGroups]]).
+  /** Assignments to fields the domain class declares; groups are
+    * [[schemaGroups]].
     */
   private def schemaFields(eo: JsonObject): List[String] = {
     val attrs = eo("attributes").flatMap(_.asObject).getOrElse(JsonObject.empty)
@@ -375,23 +307,10 @@ object PklDump {
     }
   }
 
-  /** The `device_class` assignment, emitted only when the value is one the
-    * vendored union in `hass/sensor.pkl` (or `hass/binary_sensor.pkl`) actually
-    * names.
-    *
-    * An unrecognised one is DROPPED to a comment rather than assigned, and the
-    * schema's null default stands. Assigning it verbatim would be the obvious
-    * thing and is the wrong bet for THIS attribute: `SensorDeviceClass` is a
-    * string enum HA grows most releases (it gained `area`, `energy_distance`
-    * and `temperature_delta` recently), so a home running a newer HA than this
-    * lib was synced against would fail to evaluate its whole dashboard —
-    * "Cannot assign" on somebody's first boot, over a reading no shipped card
-    * knows how to render anyway. Cards branch on the class, and a class we do
-    * not model has no branch, so null is also the behaviourally correct answer.
-    *
-    * This is NOT the bet `supported_color_modes` takes (declared as the
-    * `ColorMode` union and assigned verbatim). That one is a closed set of ten
-    * that has not moved in years; this one is sixty and moving.
+  /** A value outside the vendored union is dropped to a comment: HA grows
+    * `SensorDeviceClass` most releases, so assigning it would fail a newer HA's
+    * whole dashboard, and no card has a branch for it anyway.
+    * `supported_color_modes` is assigned verbatim because that set is closed.
     */
   private def deviceClassField(
       attrs: JsonObject,
@@ -402,29 +321,16 @@ object PklDump {
       else s"  // device_class $v is not in the vendored union; re-sync hass/"
     }
 
-  /** Each complete capability GROUP the entity reports, as a NARROWED
-    * declaration on the entity's own class: the domain class types the group
-    * `ColourTemp?`, and the entity that has one re-declares it `ColourTemp`.
-    *
-    * The narrowing is what lets a dashboard naming a specific entity reach
-    * through the group without proving anything —
-    * `c.withColourTemp(dump.entities.light_a.colourTemp)`, no `!!` — while
-    * generic code over `List<hass.LightEntity>` still meets the nullable type
-    * and still has to guard. One name, two views; a `hasColourTemp` twin would
-    * be a second name for the same fact (and would read as a Boolean).
-    *
-    * A group is emitted only when every field it needs is present — a partial
-    * one is dropped and reported by [[warnings]]. Pkl would not catch it: a
-    * required property with no value is lazy, so a half-filled group evaluates
-    * fine until someone reads the missing field, and then blames the class
-    * definition rather than the dump.
+  /** Each complete capability group, narrowed on the entity's own class
+    * (`ColourTemp?` on the domain, `ColourTemp` here), so a named entity needs
+    * no `!!` while generic code still guards. A partial group is dropped and
+    * reported by [[warnings]]: Pkl's lazy required properties would blame the
+    * schema much later.
     */
   private def schemaGroups(key: String, eo: JsonObject): List[String] = {
     val attrs = eo("attributes").flatMap(_.asObject).getOrElse(JsonObject.empty)
-    // Every group back-references the entity's own const, so a card given the
-    // group alone still knows its subject. Self-referential (the const's class
-    // names the const), which is fine: Pkl resolves module-level consts lazily
-    // and order-independently — the same property the `members` edges rely on.
+    // So a card given only the group knows its subject; the self-reference is
+    // fine, module consts resolve lazily.
     val owner = s"owner = ${tick(s"e_$key")}"
     str(eo, "domain") match {
       case Some("light") =>
@@ -449,13 +355,7 @@ object PklDump {
     }
   }
 
-  /** Generation-time complaints about entities HA reported inconsistently.
-    *
-    * Codegen is the right place to catch a half-populated capability: we hold
-    * the whole picture here, and the alternative is a Pkl error much later
-    * pointing at the schema instead of the entity. Reported rather than fatal —
-    * one odd integration must not stop the whole house's dump from building.
-    */
+  /** Not fatal: one odd integration must not stop the house's dump. */
   def warnings(transformed: Json): List[String] = {
     val entities = transformed.hcursor
       .downField("entities")
@@ -491,14 +391,8 @@ object PklDump {
       }
   }
 
-  /** The capability declarations for one entity: `name: Type = value`, one per
-    * attribute the entity actually reports.
-    *
-    * These go on the entity's OWN class, never on a shared schema class, and
-    * they are NOT nullable — the entity reports the capability, so the value
-    * exists. An entity without the capability simply has no such property, and
-    * reading it is a Pkl error instead of a silent null. That is the whole
-    * point: the dump answers "does this entity have X" by whether X is there.
+  /** Non-nullable, on the entity's own class: whether X exists is whether the
+    * property does.
     */
   private def capabilityDecls(eo: JsonObject): List[String] = {
     val attrs = eo("attributes").flatMap(_.asObject).getOrElse(JsonObject.empty)
@@ -511,9 +405,7 @@ object PklDump {
       .sortBy(_._1)
       .flatMap { case (name, value) =>
         pklTyped(value).map { case (tpe, rendered) =>
-          // `supported_color_modes` is HA's own ColorMode enum, so declare it as
-          // that union rather than a bare String list — a typo in an author's
-          // comparison then fails the eval instead of never matching.
+          // Typed as the union, so a typo in a comparison fails the eval.
           val declared =
             if (name == "supported_color_modes") "Listing<hass.ColorMode>"
             else tpe
@@ -548,22 +440,14 @@ object PklDump {
         .flatMap(_.asBoolean)
         .filter(identity)
         .as("  id_hidden = true")
-      // Capability VALUES are not assigned here — they are declared with their
-      // value as the default on the entity's OWN class, so `new {}` carries
-      // them. Capability PREDICATES are assigned, because they are declared on
-      // the shared domain class (defaulting to false) and this entity overrides.
+      // Capability values are defaults on the entity's own class, not here.
     ).flatten ++ schemaFields(eo) ++ members.toList
 
     s"new {\n${fields.mkString("\n")}\n}"
   }
 
-  /** A JSON attribute as a Pkl `(type, literal)` pair, or None when there is no
-    * faithful representation (an object, a mixed array, an explicit null).
-    *
-    * Dropping the unrepresentable is the honest move: a property is declared
-    * only when its type can be stated, so an author never meets a field whose
-    * type is a guess. A `null` in particular means HA reported the attribute
-    * with no value, which is indistinguishable from not having it.
+  /** None for objects, mixed arrays and nulls: a property is declared only when
+    * its type can be stated, and a null is the same as absent.
     */
   private def pklTyped(j: Json): Option[(String, String)] =
     j.fold(
@@ -601,17 +485,11 @@ object PklDump {
       str(ao, "floor_id").map(v => s"  floor_id = ${pklString(v)}")
     ).flatten
 
-  /** Render a generated identifier, backticked only when necessary. Delegates
-    * to Pkl's own lexer (pkl-parser, version-locked to pkl-core) so the keyword
-    * set and identifier grammar cannot drift from the evaluator: `kitchen`
-    * stays plain, `new`/`override`/`3rd_floor` come back quoted.
-    */
+  // Pkl's own lexer, so the keyword set cannot drift from the evaluator.
   private def tick(name: String): String =
     org.pkl.parser.Lexer.maybeQuoteIdentifier(name)
 
-  /** A double-quoted Pkl string literal. Escaping `\` first turns any `\(` in
-    * the input into a literal backslash + paren (no interpolation).
-    */
+  // Escaping `\` first also defuses `\(` interpolation.
   private def pklString(s: String): String = {
     val escaped = s
       .replace("\\", "\\\\")

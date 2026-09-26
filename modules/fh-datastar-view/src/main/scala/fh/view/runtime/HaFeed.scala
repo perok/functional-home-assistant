@@ -15,27 +15,16 @@ import org.typelevel.otel4s.trace.Tracer
 
 import scala.concurrent.duration.*
 
-/** A self-healing Home Assistant connection feeding a [[StateStore]].
+/** A self-healing HA connection feeding a [[StateStore]]. A dead socket says
+  * nothing on its own, hence ping/pong and `awaitClosed`.
   *
-  * A dropped upstream WebSocket freezes the whole dashboard — no state arrives,
-  * `call_service` hangs on the dead socket — and nothing in the socket's own
-  * API says it died, hence idle ping/pong and `awaitClosed`
-  * ([[api.homeassistant.ws.HAWSApiLowLevel]]).
+  * '''A `HaFeed` value means the store is populated''': [[resource]] waits for
+  * the first full state. [[healthy]] is the ongoing question, true once the
+  * socket is subscribed; the server pushes it as `haDown`.
   *
-  * **A HaFeed value means the store is populated**: [[resource]] does not hand
-  * one out until the opening full state has been applied (or gives up loudly,
-  * [[SeedTimeout]]), so the wait has no expression in the API because it cannot
-  * be skipped. That is the FIRST fill only; [[healthy]] answers the different,
-  * ongoing question.
-  *
-  *   - [[api]] routes each call to whatever connection is live now, so
-  *     consumers hold one value across reconnects. Issued while disconnected it
-  *     fails fast, and a subscription stream ENDS when its connection dies —
-  *     spanning reconnects means re-subscribing off [[healthy]].
-  *   - [[healthy]] is `true` from the moment the socket is up and subscribed,
-  *     before the full set has been applied. The Server pushes it as the
-  *     `haDown` signal, so the banner distinguishes an upstream freeze from a
-  *     browser-side drop.
+  * [[api]] routes to whichever connection is live and fails fast while
+  * disconnected; a subscription ends with its connection, so spanning
+  * reconnects means re-subscribing off [[healthy]].
   */
 final case class HaFeed(
     api: HomeAssistantApi[IO],
@@ -45,31 +34,21 @@ final case class HaFeed(
 
 object HaFeed {
 
-  /** A RATE limit, not a backoff, and deliberately flat. Exponential backoff
-    * assumes retries are expensive or the peer is shared; this is one WebSocket
-    * to one local instance, where a failed attempt is a refused TCP connect. It
-    * also gets the main case backwards: an HA restart takes half a minute, by
-    * which point an escalating delay has reached its cap, leaving the dashboard
-    * dark that long AFTER the instance is ready again.
+  /** A flat rate limit, not a backoff: an HA restart takes half a minute, by
+    * which point a backoff has reached its cap and keeps the dashboard dark
+    * after HA is back.
     */
   private val ReconnectDelay: FiniteDuration = 1.second
 
-  /** How long [[resource]] waits for the feed's opening state before failing
-    * the boot. Generous, since an add-on may start just before Home Assistant
-    * core is ready, but bounded so a misconfiguration fails loudly instead of
-    * hanging on the infinite reconnect loop.
+  /** Generous (an add-on may start before HA core), but bounded so a
+    * misconfiguration fails boot instead of hanging.
     */
   private val SeedTimeout: FiniteDuration = 60.seconds
 
-  /** The `IO[Unit]` completes when the WebSocket has died —
-    * `FHApi.lowLevelConnectWithClose` yields exactly this.
-    */
+  /** The `IO[Unit]` completes when the socket dies. */
   type Connect = Resource[IO, (HAWSApiLowLevel[IO], IO[Unit])]
 
-  /** `connect` is re-`.use`d on every reconnect (a fresh WebSocket + auth each
-    * time), so pass the full connection resource, not an established
-    * connection. ACQUISITION BLOCKS until the store has been filled once.
-    */
+  /** `connect` is re-used per reconnect. Acquisition blocks until seeded. */
   def resource(
       connect: Connect,
       wanted: Signal[IO, Option[Set[String]]] = Signal.constant(None),
@@ -95,9 +74,6 @@ object HaFeed {
         loggerFactory.getLoggerFromName("fh.view.runtime.HaFeed"),
         meters
       ).background
-      // Credentials are validated by the caller, so failing this wait means HA
-      // is configured but not answering — a boot error rather than a silent
-      // hang inside the reconnect loop.
       _ <- seeded.get
         .timeoutTo(
           SeedTimeout,
@@ -111,19 +87,11 @@ object HaFeed {
         .toResource
     } yield HaFeed(api, store, connection.map(_.isDefined))
 
-  /** The wait is UNCONDITIONAL, which is the whole reason this cannot spin,
-    * however a connection ended and however fast. A retry policy has to be told
-    * which endings count, so it spins on the one nobody thought to enumerate (a
-    * peer that accepts, auths and closes politely, over and over).
-    *
-    * `meteredStartImmediately` gives the two properties a backoff needs
-    * bookkeeping for: the first attempt is immediate, and `fixedRate` DAMPENS
-    * missed ticks, so a healthy link that drops reconnects at once while a
-    * flapping one is held to one attempt per period. No lifetime to measure.
-    *
-    * Cancellation is deliberately outside the `attempt`: that is the app
-    * shutting down, and it must stop the loop rather than look like another
-    * reconnect.
+  /** The wait is unconditional, so it cannot spin however a connection ended; a
+    * retry policy spins on the ending nobody enumerated (a peer that auths and
+    * closes politely). `meteredStartImmediately` reconnects at once after a
+    * healthy drop and holds a flapping link to one attempt per period.
+    * Cancellation is outside the `attempt`: shutdown stops the loop.
     */
   private def superviseLoop(
       connect: Connect,
@@ -148,11 +116,8 @@ object HaFeed {
         ).attempt
       )
       .meteredStartImmediately(ReconnectDelay)
-      // Why the last attempt ended, deduped: an instance that is down ends
-      // every attempt the same way, so this says it once instead of once a
-      // second. Dedupe is only safe because this is SUPPLEMENTARY detail —
-      // the transition itself is reported by [[logConnectivity]], which
-      // cannot lose one.
+      // Deduped, so a down instance is reported once, not once a second. Safe
+      // only because [[logConnectivity]] reports the transitions.
       .map(describe)
       .changes
       .evalMap(reason => log.info(s"attempt ended: $reason"))
@@ -160,12 +125,9 @@ object HaFeed {
       .compile
       .drain
 
-  /** Keyed on CONNECTIVITY, not on why an attempt ended, because a boolean
-    * alternates and `changes` can never swallow a transition. Keyed on the
-    * reason it silently can: two ends with the same cause an hour apart, with a
-    * healthy connection between them, are CONSECUTIVE in that stream — nothing
-    * between two ends emits anything — so the second is deduped away and a real
-    * disconnect goes unlogged.
+  /** On connectivity, which alternates, so `changes` cannot swallow a
+    * transition. Keyed on the reason, two same-cause drops an hour apart are
+    * consecutive and the second is lost.
     */
   private def logConnectivity(
       connection: SignallingRef[IO, Option[HAWSApiLowLevel[IO]]],
@@ -176,9 +138,7 @@ object HaFeed {
       .changes
       .zipWithPrevious
       .collect {
-        // A leading `false` is the starting state, not a connection lost; a
-        // leading `true` means we raced the first connect, which is still
-        // worth reporting.
+        // A leading `false` is the starting state.
         case (prev, true) if !prev.contains(true) =>
           "connected; subscribed to entity feed"
         case (Some(true), false) => "connection lost; retrying"
@@ -193,12 +153,9 @@ object HaFeed {
       _ => "closed cleanly"
     )
 
-  /** There is no separate seeding step: `subscribe_entities` opens with the
-    * full entity set, so a reconnect's catch-up IS the new subscription's first
-    * frame, with nothing to order against a snapshot fetch. That also makes the
-    * outage LOSSLESS without buffering — a delta that never arrived, or one in
-    * flight when the socket died, is superseded by the next full set rather
-    * than replayed.
+  /** No separate seeding: `subscribe_entities` opens with the full set, so a
+    * reconnect's catch-up is its first frame, and anything lost in the outage
+    * is superseded rather than replayed.
     */
   private def runConnection(
       connect: Connect,
@@ -211,8 +168,7 @@ object HaFeed {
   ): IO[Unit] =
     connect
       .use { case (ll, awaitClosed) =>
-        // The store's feed must ride the connection being established, not the
-        // routing facade, which still points at the previous one.
+        // On `ll`, not the facade, which still points at the old connection.
         val live = subscriptions(
           HomeAssistantApi.fromWs(ll),
           wanted,
@@ -222,19 +178,14 @@ object HaFeed {
           tracer,
           meters
         )
-        // The race covers the WHOLE lifetime, not just the pump: subscribing
-        // waits on the wire, so a socket dying there has to end this run too or
-        // the supervisor never gets to reconnect.
+        // The whole lifetime: a socket dying while subscribing must end the
+        // run too.
         live.race(awaitClosed).void
       }
       .guarantee(connection.set(None))
 
-  /** A chunk IS a coalesced frame — the transport groups a frame's payloads by
-    * subscription and hands them over whole — so a burst (an automation moving
-    * a dozen entities at once) costs one `ref.modify`, not one per entity.
-    *
-    * Latching `seeded` on the first batch is sound because the feed opens with
-    * the full entity set, so "a batch has landed" IS "the store is populated".
+  /** A chunk is one coalesced HA frame, so a burst costs one `ref.modify`. The
+    * feed opens with the full set, so the first batch means seeded.
     */
   private def pump(
       frames: Stream[IO, EntitiesEvent],
@@ -245,10 +196,7 @@ object HaFeed {
   ): Stream[IO, Unit] =
     frames.chunks
       .evalMap(batch =>
-        // One span per BATCH, which is one HA frame — not per entity, because
-        // a frame HA coalesced is one arrival and splitting it would report a
-        // burst as a crowd. High frequency by nature: if this is too much
-        // volume for a collector, that is what OTEL_TRACES_SAMPLER is for.
+        // Per batch, not per entity: one arrival, not a crowd.
         tracer
           .span(
             "ha.entities.apply",
@@ -259,24 +207,9 @@ object HaFeed {
       )
       .evalTap(_ => seeded.complete(()).void)
 
-  /** One subscription at a time, re-opened when the set of entities anyone
-    * reads changes ([[Dashboard.watchedEntities]], unioned over the registered
-    * slugs).
-    *
-    * `switchMap` ends the old subscription before opening the new one, and the
-    * window between them loses nothing for the same reason a RECONNECT does
-    * not: the new subscription opens with the full state of its set, so
-    * anything that moved while it was closed arrives in its first frame. That
-    * is the argument [[runConnection]] already makes for the outage case.
-    *
-    * (`Hotswap` would overlap instead, and the duplicate frames would be
-    * absorbed by `EntityState.stale`. It is not needed here, and this is one
-    * mechanism rather than a second beside the pump.)
-    *
-    * An EMPTY wanted set opens no subscription at all, because an empty
-    * `entity_ids` is how HA spells the whole house
-    * ([[HomeAssistantApi.entities]]). Nothing is registered, so nothing is owed
-    * any state.
+  /** One subscription, reopened when the watched set changes. The gap loses
+    * nothing, as with a reconnect. An empty set opens none: an empty
+    * `entity_ids` means the whole house to HA.
     */
   private def subscriptions(
       ha: HomeAssistantApi[IO],
@@ -292,23 +225,16 @@ object HaFeed {
       .flatMap { ended =>
         wanted.discrete.changes
           .switchMap {
-            // Wanted nothing: hold the connection with no subscription on it.
-            // `Stream.empty` would END here, and an end means the feed died
-            // (below), so an instance with no dashboards would reconnect in a
-            // loop.
+            // Not `Stream.empty`: an end means the feed died (below), and an
+            // instance with no dashboards would reconnect in a loop.
             case Some(ids) if ids.isEmpty => Stream.never[IO]
             case only                     =>
               Stream
                 .resource(ha.entities(only))
                 .evalTap(_ => established)
                 .flatMap(pump(_, store, seeded, tracer, meters)) ++
-                // A subscription that ends ON ITS OWN means the connection is
-                // gone — the transport closes every route when it dies — and
-                // this run must end so the supervisor reconnects. Under
-                // `switchMap` alone it would instead sit waiting for a `wanted`
-                // that will never arrive, and the feed would stay dark. A
-                // ROTATION does not reach this: switching INTERRUPTS the inner
-                // stream rather than letting it complete.
+                // Ending on its own means the connection is gone, so end the
+                // run; a rotation interrupts instead and never reaches this.
                 Stream.exec(ended.complete(()).void)
           }
           .interruptWhen(ended.get.attempt)
@@ -316,15 +242,8 @@ object HaFeed {
       .compile
       .drain
 
-  /** Pure routing, so consumers hold ONE value across reconnects. Nothing here
-    * strands a caller: both methods fail fast while disconnected, and within a
-    * connection a dead socket closes every open route, so a command raises and
-    * a subscription stream ENDS ([[HAWSApiLowLevel]]).
-    *
-    * It deliberately does NOT make subscriptions durable. Re-arming them here
-    * would duplicate the reconnect logic the supervisor owns, and the one
-    * consumer that must span reconnects — the state feed — does not need it: it
-    * rides the connection being established ([[runConnection]]).
+  /** Pure routing; it strands no caller. Subscriptions are deliberately not
+    * durable: that would duplicate the supervisor's reconnect logic.
     */
   private def routingFacade(
       currentRef: SignallingRef[IO, Option[HAWSApiLowLevel[IO]]]
@@ -350,9 +269,7 @@ object HaFeed {
           case None       => Resource.eval(disconnected[Stream[IO, Result]])
         }
 
-      // The facade outlives every connection. A per-connection close reaches
-      // the supervisor via that connection's own `awaitClosed`, and consumers
-      // as their subscription stream ending.
+      // The facade outlives every connection.
       def awaitClosed: IO[Unit] = IO.never
     }
   }
