@@ -99,10 +99,7 @@ class RegistryDumpSuite extends munit.FunSuite {
   private val ground =
     Floor(Nil, 0d, "ground", None, Some(1), Json.Null, "Ground")
 
-  /** `build` emits the raw list shape; `RegistryDump.fetch` keys it through
-    * [[RegistryDump.transform]] before anything reads it, so tests look at the
-    * same keyed result callers do.
-    */
+  /** Through [[RegistryDump.transform]], as `RegistryDump.fetch` does. */
   private def entityOf(dump: Json, key: String): Json =
     RegistryDump
       .transform(dump)
@@ -234,11 +231,9 @@ class RegistryDumpSuite extends munit.FunSuite {
   }
 
   test("entity_picture is NOT carried — it re-hashes the dump package") {
-    // Camera/media_player picture URLs carry a rotating access_token, so
-    // carrying this would change the dump's content version on every frame and
-    // trigger a full re-evaluation of every dashboard. Verified against a live
-    // instance: it was the ONLY attribute in the capability set observed
-    // changing over 180s of `subscribe_entities` deltas.
+    // Picture URLs carry a rotating access_token, which would move the dump's
+    // content version every frame and re-evaluate every dashboard. On a live
+    // instance it was the only capability attribute changing over 180s.
     assert(!RegistryDump.CapabilityAttributes.contains("entity_picture"))
   }
 
@@ -270,11 +265,9 @@ class RegistryDumpSuite extends munit.FunSuite {
     )
   }
 
-  /** The dump is what an access rule names its people from (ADR 0023), so who
-    * reaches it matters. HA's listing is not a list of people: it also carries
-    * Supervisor, Cast and the content user — and TWO of those three are admins,
-    * verified against the live instance. Offering them as somebody a dashboard
-    * could belong to would be offering nonsense.
+  /** An access rule names its people from the dump (ADR 0023). HA's listing
+    * also carries Supervisor, Cast and the content user, two of them admins on
+    * the live instance.
     */
   test("only real people reach the dump's users") {
     def account(
