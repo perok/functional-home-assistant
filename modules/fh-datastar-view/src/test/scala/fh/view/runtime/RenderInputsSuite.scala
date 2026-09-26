@@ -24,22 +24,15 @@ import io.circe.Json
 
 import scala.concurrent.duration.*
 
-/** The render key (ADR 0012): is [[Renderer.renderInputs]] a sound cache key?
+/** Is [[Renderer.renderInputs]] a sound cache key (ADR 0012)? A
+  * too-discriminating key costs a render; a too-coarse one serves bytes that no
+  * longer match state, silently. So the property is
   *
-  * Only one direction can hurt. A key that is too DISCRIMINATING costs a wasted
-  * render and nothing else. A key that is too COARSE serves a client bytes that
-  * no longer match its state — silently, and for as long as the entry lives. So
-  * the property under test is one implication:
+  * {{{renderInputs(a) == renderInputs(b) => render(a) == render(b)}}}
   *
-  * {{{renderInputs(a) == renderInputs(b)  =>  render(a) == render(b)}}}
-  *
-  * and it is checked over ALL PAIRS of a timeline, because the failure mode is
-  * a pair that agrees on the key and disagrees on the bytes — not a step. (Its
-  * contrapositive is the precision claim, so one loop covers both.)
-  *
-  * The timeline is driven through a real [[StateStore]] rather than
-  * hand-written `contentVersion`s: the stamp under test is the one the store
-  * assigns, including its dedup.
+  * over all pairs of a timeline, since the failure is a pair, not a step. The
+  * timeline runs through a real [[StateStore]], so the stamp tested is the one
+  * it assigns, dedup included.
   */
 class RenderInputsSuite extends munit.FunSuite {
 
@@ -52,10 +45,9 @@ class RenderInputsSuite extends munit.FunSuite {
       """<div><span>{{state}}</span> {{unit}}</div>""",
       slots = List("state", "unit")
     ),
-    // A bake owner with a live LEAF beside its branch. There is no longer a
-    // shape where one cached node reads both an entity and a selection: an
-    // owner holds regions, so it is structure and is never cached, and the leaf
-    // beside it cannot see the selection at all. The key is entity versions.
+    // A bake owner beside a live leaf: an owner holds regions, so it is
+    // structure and never cached, and the leaf cannot see the selection. The
+    // key is entity versions.
     "banner" -> CardDef(
       template =
         """<div><i>{{bakeIndex}}</i>{{#bar}}{{{html}}}{{/bar}}<div id="{{hostId}}">{{{branch}}}</div></div>""",
@@ -63,9 +55,8 @@ class RenderInputsSuite extends munit.FunSuite {
     ),
     "bannerBar" -> CardDef("""<b>{{title}}</b>""", slots = List("title")),
     "btn" -> CardDef("""<button>{{label}}</button>""", slots = List("label")),
-    // One plain slot and one SIGNAL slot, on different entities. The signal's
-    // entity reaches this card's patch form only as a binding, never as bytes
-    // (ADR 0017), which is the asymmetry the key has to reflect.
+    // The signal's entity reaches the patch form only as a binding (ADR 0017),
+    // the asymmetry the key must reflect.
     "gauge" -> CardDef(
       """<div><span>{{state}}</span><em {{{live__bind}}}>{{live}}</em></div>""",
       slots = List("state", "live")
@@ -83,7 +74,6 @@ class RenderInputsSuite extends munit.FunSuite {
     )
   )
 
-  // "At least one of these lights is on", as a count over the two it names.
   private val anyLightOn: Predicate =
     Predicate.Count(
       candidates = List("light.a", "light.b"),
@@ -95,10 +85,9 @@ class RenderInputsSuite extends munit.FunSuite {
       value = Json.fromInt(0)
     )
 
-  /** `c_0` binds sensor.t, `c_1` binds sensor.other, `c_2` is a banner bound to
-    * sensor.t whose bake group is chosen by a condition counting the lights —
-    * inputs that appear nowhere in its `entitiesForNode`. `c_3` is a candidate
-    * group over lights.
+  /** `c_2` is a banner bound to sensor.t whose bake group is chosen by a count
+    * of the lights: inputs that appear nowhere in its `entitiesForNode`. `c_3`
+    * is a candidate group over lights.
     */
   private val dashboard = Dashboard(
     cards,
@@ -184,9 +173,7 @@ class RenderInputsSuite extends munit.FunSuite {
     "light.b" -> st("light.b", "off")
   )
 
-  /** Every step's snapshot, the starting one included — as the store stamps
-    * them.
-    */
+  /** Every step's snapshot, the first included, as the store stamps them. */
   private def timeline(
       steps: List[EntityState]
   ): List[Map[String, EntityState]] =
@@ -197,34 +184,26 @@ class RenderInputsSuite extends munit.FunSuite {
     } yield first :: rest).timeout(10.seconds).unsafeRunSync()
 
   private val steps = List(
-    // Content moves: c_0 and c_2's title.
     st("sensor.t", "12.9", "unit_of_measurement" -> Json.fromString("°C")),
-    // A re-seed of the SAME content with a fresher timestamp: stored, deduped,
-    // and so no node's key may move.
+    // A re-seed of the same content with a fresher timestamp: deduped, so no
+    // key may move.
     st("sensor.t", "12.9", "unit_of_measurement" -> Json.fromString("°C"))
       .copy(lastUpdated =
         Some(java.time.Instant.parse("2026-08-04T10:00:00Z"))
       ),
-    // An entity only c_1 binds.
     st("sensor.other", "2"),
-    // Flips c_2's bake group (the count crosses 0) AND changes a set
-    // member's case.
+    // Flips c_2's bake group and changes a set member's case.
     st("light.a", "on"),
-    // THE adversarial step: an entity c_2 does not bind, whose change leaves
-    // the count's comparison where it already was. c_2's bytes must not move,
-    // and its key must say so.
+    // The adversarial step: an entity c_2 does not bind, leaving the count's
+    // comparison where it was. Neither its bytes nor its key may move.
     st("light.b", "on"),
     st("light.a", "off"),
-    // Back to no light on: the group flips to `dark`.
     st("light.b", "off")
   )
 
   private val line = timeline(steps)
 
-  /** The nodes with a rendering of their own, and so a cache entry. `c` (the
-    * root column) and `c_3` (the set root) compose rather than render, so
-    * neither is addressable.
-    */
+  /** `c` and `c_3` compose rather than render, so they have no entry. */
   private val ids: List[NodeId] = List("c_0", "c_1", "c_2", "c_4")
 
   test("agreeing on renderInputs means agreeing on the bytes") {
@@ -247,14 +226,9 @@ class RenderInputsSuite extends munit.FunSuite {
   }
 
   test("an entity reached ONLY through a signal slot is not in the key") {
-    // `c_4` binds sensor.t as bytes and sensor.other as a signal. A signal's
-    // value is absent from the patch form (ADR 0017), so sensor.other moving
-    // cannot move these bytes — keying on it would throw away a generation
-    // whose re-render is identical.
-    //
-    // The soundness direction is not asserted here: the all-pairs property
-    // above already covers `c_4`, and it is what would catch this narrowing if
-    // it went one entity too far.
+    // sensor.other is a signal on c_4, absent from the patch form (ADR 0017),
+    // so keying on it would throw away an identical generation. The all-pairs
+    // property above covers soundness if this narrowing goes too far.
     val key =
       renderer
         .renderInputs("c_4", line.head, fragments = QuerySnapshot.empty)
@@ -263,21 +237,16 @@ class RenderInputsSuite extends munit.FunSuite {
   }
 
   test("a signal slot's entity still reaches the reverse index") {
-    // The other half of the same fact, and the loud-vs-silent one: the key may
-    // drop sensor.other, but `componentsFor` may not — a signal has to make its
-    // node a candidate or no frame is ever computed for it, and nothing about
-    // that failure is visible in a render.
+    // The loud-vs-silent half: the key may drop sensor.other, but
+    // `componentsFor` may not, or no frame is ever computed for the signal.
     val nodes = renderer.componentsFor("sensor.other")
     assert(nodes.contains(NodeId.derived("c_4")), clue = nodes)
   }
 
   test("a set member's key covers everything its clause dispatch reads") {
-    // A member is a NODE now, keyed and rendered by id like any other — so this
-    // asks the same question of `renderInputs`/`renderNodeById` that the static
-    // ids above do. One renderer per step, because a member's node is
-    // state-derived: the case dispatch happens when the graph materialises the
-    // group, not on every render, so a renderer must not be asked about a
-    // snapshot it has not been moved to.
+    // One renderer per step: a member's node is state-derived and dispatched
+    // when the graph materialises the group, so a renderer must not be asked
+    // about a snapshot it has not been moved to.
     for {
       entity <- List("light.a", "light.b")
       (a, i) <- line.zipWithIndex
@@ -299,13 +268,10 @@ class RenderInputsSuite extends munit.FunSuite {
     def key(id: NodeId, at: Int) =
       renderer.renderInputs(id, line(at), fragments = QuerySnapshot.empty).get
 
-    // A timestamp-only re-seed (step 2) keys the same as the content change
-    // before it. Without this the cache would miss on every HA reconnect.
+    // Without this the cache would miss on every HA reconnect.
     assertEquals(key("c_0", 1), key("c_0", 2))
-    // An unrelated entity moving (step 3) leaves c_0 alone...
     assertEquals(key("c_0", 2), key("c_0", 3))
-    // Not `c_2`: a bake owner holds regions, so it is structure and has no
-    // key at all — asserted below.
+    // Not `c_2`: a bake owner is structure and has no key (below).
   }
 
   test("an absent entity keys differently from any version it could hold") {
@@ -319,16 +285,14 @@ class RenderInputsSuite extends munit.FunSuite {
         .renderInputs("c_0", line.head, fragments = QuerySnapshot.empty)
         .get
     )
-    // Not merely different — it carries no entry at all, so no stamp can
-    // collide with it.
+    // No entry at all, so no stamp can collide with it.
     assertEquals(absent.entities, Map.empty[String, Long])
   }
 
   test("STRUCTURE has NO key") {
-    // The root column holds a region, so its rendering moves when any
-    // descendant's entity moves. The key excludes children by design, so the
-    // only sound answer is that it cannot be cached at all — the difference
-    // between a `None` and a key a caller must know not to trust.
+    // The root column's rendering moves with any descendant, and the key
+    // excludes children, so it cannot be cached: `None`, not a key a caller
+    // must know not to trust.
     assertEquals(
       renderer.renderInputs("c", line.head, fragments = QuerySnapshot.empty),
       None
@@ -339,9 +303,8 @@ class RenderInputsSuite extends munit.FunSuite {
     )
   }
 
-  /** A card holding a region AND binding an entity: structure like any other.
-    * The authoring layer refuses the combination outright, so the model is
-    * built here directly — the point is what the RENDERER answers for it.
+  /** The authoring layer refuses this combination, so the model is built
+    * directly: the point is what the renderer answers.
     */
   private val tabsOwner: Dashboard =
     Dashboard(
@@ -364,9 +327,7 @@ class RenderInputsSuite extends munit.FunSuite {
       tabs.renderInputs("c", line.head, fragments = QuerySnapshot.empty),
       None
     )
-    // ...and not renderable by id either: its element contains what it holds,
-    // so patching it would re-send that. The things worth patching are the
-    // nodes inside.
+    // Its element contains what it holds, so patching it would re-send that.
     assertEquals(
       tabs.renderNodeById("c", line.head, fragments = QuerySnapshot.empty),
       None
@@ -374,8 +335,6 @@ class RenderInputsSuite extends munit.FunSuite {
   }
 
   test("a node that composes rather than renders has no key") {
-    // The candidate set root: its members are addressable in their own right,
-    // and `renderNodeById` refuses it.
     assertEquals(
       renderer.renderInputs("c_3", line.head, fragments = QuerySnapshot.empty),
       None
@@ -387,17 +346,11 @@ class RenderInputsSuite extends munit.FunSuite {
     )
   }
 
-  /** '''NO CACHEABLE NODE OWNS A BAKE GROUP.''' The key carries entity versions
-    * and nothing else, so a node whose bytes could depend on which member is
-    * selected must not have one — two viewers on two tabs would otherwise be
-    * served each other's bytes out of one cache slot.
-    *
-    * It holds because `Dashboard.validate` requires a `bakeInto` target's card
-    * to declare a BAKED REGION by that `bakeAs` name, and a card with any
-    * region is structure, which has no key. So this asserts the JOIN of two
-    * rules that live in different files and are checked at different times —
-    * the kind of thing that stays true right up until one of them is relaxed
-    * for a good local reason.
+  /** '''No cacheable node owns a bake group.''' The key is entity versions
+    * only, so two viewers on two tabs would otherwise share one slot. It holds
+    * because `Dashboard.validate` requires a `bakeInto` target to declare a
+    * baked region, and a card with a region is structure: the join of two rules
+    * in different files, true until one is relaxed for a good local reason.
     */
   test("no cacheable node owns a bake group") {
     def check(label: String, r: Renderer, states: Map[String, EntityState]) = {
@@ -412,9 +365,8 @@ class RenderInputsSuite extends munit.FunSuite {
         )
       )
     }
-    // BOTH activation kinds, because they resolve a selection by different
-    // means and only one of them reads the viewer: this suite's `dashboard` has
-    // a STATE-activated group, and `tabsOwner` a USER-selected one.
+    // Both activation kinds, since only one reads the viewer: `dashboard` is
+    // state-activated, `tabsOwner` user-selected.
     check("state-activated", renderer, line.head)
     check("user-selected", Renderer.create(tabsOwner), line.head)
   }
