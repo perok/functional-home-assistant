@@ -9,52 +9,26 @@ import io.circe.Json
 
 import java.time.Instant
 
-/** A single entity's current value as the runtime cares about it.
-  *
-  * Carries its own `entityId` so the entity's identity (id and `domain`)
-  * travels with its value — derived once at ingest from the fetched data, not
-  * recomputed from the id on every render.
-  */
 case class EntityState(
     entityId: String,
     state: String,
     attributes: Map[String, Json],
-    // HA's `last_updated` for this state, parsed once. Drives recency: a full
-    // state is applied only if it isn't older than the stored one, so a
-    // reconnect's full set can't clobber a fresher delta. `None` when the frame
-    // carried no timestamp; then updates fall back to value dedup.
+    // So a reconnect's full set cannot clobber a fresher delta. `None` falls
+    // back to value dedup.
     lastUpdated: Option[Instant] = None,
-    // The store version at which this entity's CONTENT last moved — stamped by
-    // [[StateStore.update]], carried over unchanged when a newer-but-identical
-    // state lands. So it moves exactly when `sameContent` says something moved,
-    // which makes it a `Long` stand-in for "the rendered value of this entity"
-    // ([[Renderer.renderInputs]], ADR 0012). NOT the store
-    // version: entities that did not move in a batch keep their older stamp.
+    // The store version at which this entity's content last moved — not the
+    // store's version, which untouched entities do not carry. The render key's
+    // stand-in for the value ([[Renderer.renderInputs]], ADR 0012).
     contentVersion: Long = 0L
 ) {
 
-  /** The entity's domain, i.e. the entity-id prefix (`light.kitchen` ->
-    * `light`) — the same value HA exposes as `state.domain`. A `val` so it is
-    * computed once per state rather than re-derived per transform/predicate.
-    */
   val domain: String = entityId.takeWhile(_ != '.')
 
-  /** HA's non-value states: the entity has no real reading. A value-display
-    * slot marked `bypassUnavailable` shows this verbatim instead of running its
-    * transform — which would otherwise error (`num(state)`) or be meaningless.
-    */
   def unavailable: Boolean = EntityState.unavailableStates(state)
 
-  /** The attributes as plain Java values — what CEL binds as `attr` and what
-    * the `Transform.Simple` fast tier reads directly. Converted **once per
-    * state version** and reused across every slot on this entity (a card with
-    * three attribute slots converts the map once, not three times). A fresh
-    * `EntityState` is built on every change, so this cache invalidates
-    * naturally — and re-converts, which is measured: 3.4% of a signals tick's
-    * allocation (`RenderBench.resumeSignals`), the number that says carrying it
-    * across a tick is not worth the type it would take. Numbers stay numeric
-    * (so `attr['brightness']` arithmetic works), nested objects/arrays recurse,
-    * null fields drop out.
+  /** What CEL binds as `attr`, converted once per state. Rebuilt per change on
+    * purpose: 3.4% of a signals tick (`RenderBench.resumeSignals`), not worth
+    * carrying across one.
     */
   lazy val javaAttributes: java.util.Map[String, Any] =
     EntityState.toJavaObject(attributes)
@@ -63,24 +37,16 @@ case class EntityState(
 object EntityState {
   val unavailableStates: Set[String] = Set("unavailable", "unknown")
 
-  /** The subject supplied where there is none to supply — a surface's state
-    * condition, which names every entity it reads. Nothing reads this; it
-    * exists because `Conditions.matchesIn` takes a subject, and
-    * `Dashboard.validate` rejects the comparison that would fall back to it.
-    */
+  /** For `Conditions.matchesIn` where there is no subject; nothing reads it. */
   val none: EntityState = EntityState("", "", Map.empty)
 
-  /** HA's compressed feed timestamps are epoch SECONDS as a float; millisecond
-    * resolution is more than recency needs.
-    */
+  // HA's compressed feed sends epoch seconds as a float.
   def fromEpoch(seconds: Double): Instant =
     Instant.ofEpochMilli(math.round(seconds * 1000d))
   def fromEpoch(seconds: Option[Double]): Option[Instant] =
     seconds.map(fromEpoch)
 
-  /** Stale iff both sides carry a timestamp and the incoming one is not newer —
-    * a reseed snapshot racing a fresher live event. Missing timestamps fall
-    * through (handled by value dedup at the call site).
+  /** Not newer counts as stale, which is what drops a reconnect's resent set.
     */
   def stale(next: EntityState, prev: EntityState): Boolean =
     (next.lastUpdated, prev.lastUpdated) match {
@@ -88,23 +54,15 @@ object EntityState {
       case _                  => false
     }
 
-  /** Same rendered content (ignoring timestamps), so a timestamp-only bump does
-    * not publish a redundant change.
-    */
   def sameContent(a: EntityState, b: EntityState): Boolean =
     a.state == b.state && a.attributes == b.attributes
 
-  /** Convert a circe attribute map to a Java map. Kept here (with the cached
-    * [[EntityState.javaAttributes]]) rather than in `Transform`, so the
-    * conversion happens once per state, not once per transform evaluation.
-    */
   private[runtime] def toJavaObject(
       attrs: Map[String, Json]
   ): java.util.Map[String, Any] = {
     val m = new java.util.LinkedHashMap[String, Any](attrs.size)
-    // A JSON null attribute is DROPPED, so `'k' in attr` is false and the slot's
-    // default takes over — the same "null is absent" rule `jsonToString` applies
-    // to state. (A kept null would make CEL's map index throw instead.)
+    // Null dropped, so `'k' in attr` is false; a kept null makes CEL's index
+    // throw.
     attrs.foreach {
       case (k, v) if !v.isNull => { m.put(k, toJava(v)); () }
       case _                   => ()
@@ -142,46 +100,25 @@ case class StateChange(
     current: EntityState
 )
 
-/** One unit of incoming state, naming HOW it combines with what is stored —
-  * because HA's compressed feed sends both whole states and partial deltas, and
-  * the difference is not recoverable from an `EntityState` alone.
+/** How incoming state combines with what is stored: HA's compressed feed sends
+  * whole states (`a`), deltas (`c`) and removals (`r`).
   */
 private[runtime] enum Ingest(val entityId: String) {
-
-  /** A complete state, replacing whatever is stored (the feed's `a` frames). */
   case Replace(state: EntityState) extends Ingest(state.entityId)
-
-  /** A partial change to an entity we already hold: changed fields and changed
-    * attributes only, so attributes MERGE (the feed's `c` frames).
-    */
   case Merge(id: String, delta: EntitiesEvent.Delta) extends Ingest(id)
-
-  /** The entity no longer exists (the feed's `r` frames). */
   case Remove(id: String) extends Ingest(id)
 }
 
-/** Everything the store holds, in ONE value so the state and the version that
-  * names it cannot be read torn.
-  *
-  * `version` is a monotonic batch counter, bumped once per applied batch that
-  * changed anything — and a batch IS a coalesced HA frame (see
-  * [[StateStore.applyEntities]]), so one version covers one HA event-loop tick.
-  * It exists to stamp rendered fragments with the store version they were
-  * rendered from (docs/adr/0011-the-live-connection.md); the store itself
-  * answers no "what changed since V" question — the fragment log does, one
-  * layer closer to the wire.
+/** One value, so state and version cannot be read torn. `version` bumps once
+  * per batch that changed anything — one coalesced HA frame (ADR 0011).
   */
 private[runtime] case class StoreState(
     entities: Map[String, EntityState],
     version: Long
 )
 
-/** The runtime single source of truth for all entity state.
-  *
-  * Filled and kept current by a background fiber consuming HA's compressed
-  * `subscribe_entities` feed ([[applyEntities]]) — full states first, deltas
-  * after. Every applied frame is published to `changes`, which each slug's
-  * recorder (`Server.publisherFor`) turns into its changelog.
+/** All entity state, driven by [[HaFeed]]; each applied frame is published to
+  * `changes` for the per-slug recorders.
   */
 class StateStore private (
     ref: Ref[IO, StoreState],
@@ -190,86 +127,45 @@ class StateStore private (
 
   def snapshot: IO[Map[String, EntityState]] = ref.get.map(_.entities)
 
-  /** The snapshot AND the version that names it, read together — so a fragment
-    * rendered from this snapshot cannot be stamped with a version its HTML does
-    * not reflect (docs/adr/0011-the-live-connection.md).
-    */
   private[runtime] def current: IO[StoreState] = ref.get
 
-  /** The current version alone, for asserting the clock's behaviour. */
   private[runtime] def version: IO[Long] = ref.get.map(_.version)
 
-  /** Stream of state changes, ONE ELEMENT PER FRAME — every entity an HA event
-    * carried, together.
+  /** One element per frame, because the version is per frame: per entity, the
+    * diff pass saw N views of one instant and rebuilt "befores" that never
+    * existed.
     *
-    * The frame is the unit because the version is: [[update]] applies a frame
-    * in one ref update and bumps the version once, so publishing per entity
-    * handed the diff pass N views of a single instant. Each ran its own pass,
-    * ended its own patch batch with its own (identical) cursor, and
-    * reconstructed a "before" holding every OTHER entity's NEW value — a state
-    * that never existed.
-    *
-    * UNBOUNDED, and that is a correctness requirement rather than a capacity
-    * choice: `Topic.publish1` sends to every subscriber's channel in turn and
-    * blocks on a full one, so a bounded subscription here would let a single
-    * slow consumer block [[update]], and with it the feed that drives the store
-    * for EVERY dashboard and every viewer. The subscribers are the per-slug
-    * recorders, which only write a log and ring a doorbell — sessions pull from
-    * those and never subscribe here, so a browser that stops reading cannot
-    * hold this up.
+    * '''Unbounded, for correctness''': `publish1` blocks on a full subscriber,
+    * so one slow recorder would stall the feed for every dashboard. Sessions
+    * never subscribe here, so a stalled browser cannot.
     */
   def changes: Stream[IO, List[StateChange]] = topic.subscribeUnbounded
 
-  /** Apply a batch of `subscribe_entities` frames — a burst arrives as one
-    * chunk and lands in one [[update]], so the ref is touched once per batch
-    * rather than once per frame.
-    */
   private[runtime] def applyEntities(frames: Chunk[EntitiesEvent]): IO[Unit] =
     update(frames.asSeq.flatMap(StateStore.ingests))
 
   private[runtime] def update(next: EntityState): IO[Unit] =
     update(List(Ingest.Replace(next)))
 
-  /** Apply a batch of ingests in ONE ref update, publishing a [[StateChange]]
-    * per entity whose content actually changed. The previous value rides along
-    * so a candidate set can tell whether the change crossed its membership
-    * boundary.
-    *
-    * A newer-but-identical state is stored (to advance the timestamp) but not
-    * published — only real content changes reach the SSE stream. That dedup is
-    * what makes a RECONNECT cheap: the new subscription re-sends every entity
-    * as a [[Ingest.Replace]], and only the ones that actually moved during the
-    * outage produce a change, so every connected browser catches up over its
-    * live SSE stream with no per-client tracking.
-    *
-    * The saving is DOWNSTREAM of this fold, which walks every ingest either
-    * way: what an empty `changes` buys is the frame behind it — no
-    * `topic.publish1`, and a `version` that stays put, so no client's cursor
-    * goes stale and no publisher pass runs at all.
-    *
-    * A reconnect's full set does not even reach `put`: HA re-sends the
-    * `last_updated` it gave us, so [[EntityState.stale]] (equal counts as not
-    * newer) drops each [[Ingest.Replace]] one level up. What lands in `put`'s
-    * dedup arm is the narrower case of a state whose timestamp really did move
-    * while its content did not.
+  /** One ref update per batch. An identical content is stored but not
+    * published, and a batch with no changes keeps its version, so a reconnect's
+    * resent full set costs no cursor, no publish and no recorder pass. Most of
+    * that set never reaches `put`: HA resends the same `last_updated`, which
+    * [[EntityState.stale]] drops.
     */
   private[runtime] def update(ingests: Iterable[Ingest]): IO[Unit] =
     ref
       .modify { state =>
-        // The version this batch takes if it turns out to change anything.
         val batch = state.version + 1
         val (updated, changes, removed) =
           ingests.foldLeft((state.entities, List.empty[StateChange], false)) {
             case ((m, changes, removed), ingest) =>
-              // Store `value` and publish it unless it is redundant.
               def put(
                   value: EntityState,
                   previous: Option[EntityState]
               ) =
-                // The stamp rides WITH the value, so whatever is stored and
-                // whatever is published carry the same one — a StateChange
-                // whose `current` disagreed with the store would key a render
-                // to a version the snapshot never had.
+                // Stored and published with the same stamp, or a render would
+                // be keyed to a version the snapshot never had.
                 previous.filter(EntityState.sameContent(_, value)) match {
                   case Some(same) =>
                     (
@@ -291,35 +187,25 @@ class StateStore private (
 
               val previous = m.get(ingest.entityId)
               ingest match {
-                // No StateChange: an entity appearing or vanishing changes what
-                // the dashboards were BUILT from, so it is handled by the
-                // registry watcher re-evaluating every entry, not by patching a
-                // node here. Deliberately coarse — it happens a few times a
-                // year (see `ServerApp.watchRegistryEvents`). A resume cursor
-                // still moves the version, since an `r` frame does not always
-                // have a registry event behind it.
+                // No StateChange: a vanished entity changes what dashboards
+                // were built from, which the registry watcher re-evaluates.
+                // The version still moves: an `r` frame may have no registry
+                // event behind it.
                 case Ingest.Remove(id) =>
                   (m - id, changes, removed || m.contains(id))
 
-                // A full state can be OLDER than what we hold (a reconnect's
-                // full set racing a delta that already arrived), so it yields to
-                // a fresher stored value.
                 case Ingest.Replace(value) =>
                   if (previous.exists(EntityState.stale(value, _)))
                     (m, changes, removed)
                   else put(value, previous)
 
-                // A delta only makes sense against a state we hold, and is
-                // always newer than it — no recency check.
+                // Always newer than what we hold.
                 case Ingest.Merge(_, delta) =>
                   previous.fold((m, changes, removed))(prev =>
                     put(StateStore.merge(prev, delta), previous)
                   )
               }
           }
-        // The version moves only on a batch that changed something a client
-        // could care about, so an idle reconnect's full set (all deduped) leaves
-        // every fragment stamp — and so every client's cursor — still current.
         val touched = changes.nonEmpty || removed
         (
           StoreState(
@@ -331,24 +217,16 @@ class StateStore private (
       }
       .flatMap(cs => IO.whenA(cs.nonEmpty)(topic.publish1(cs).void))
 
-  /** Current number of `changes` subscribers, as a signal stream — a test seam
-    * to await subscriptions deterministically (topic publishes reach only
-    * already-subscribed consumers).
-    */
+  // Test seam: a publish reaches only existing subscribers.
   private[runtime] def changeSubscribers: Stream[IO, Int] = topic.subscribers
 }
 
 object StateStore {
 
-  // JSON null is treated as absent so slot defaults apply (e.g. brightness is
-  // null when a light is off).
+  // Null is absent, so slot defaults apply (brightness while a light is off).
   def jsonToString(json: Json): String =
     if (json.isNull) "" else json.asString.getOrElse(json.noSpaces)
 
-  /** How one feed frame combines with the store: full states replace, deltas
-    * merge, removals drop. Pure, so the whole translation is testable without a
-    * socket.
-    */
   private[runtime] def ingests(event: EntitiesEvent): List[Ingest] =
     event.added.toList.map { (id, full) =>
       Ingest.Replace(
@@ -363,9 +241,6 @@ object StateStore {
       event.changed.toList.map(Ingest.Merge(_, _)) ++
       event.removed.map(Ingest.Remove(_))
 
-  /** Fold a delta into the state we hold: only the fields it carries move, its
-    * attributes merge over the stored ones, and `-` attributes drop out.
-    */
   private[runtime] def merge(
       prev: EntityState,
       delta: EntitiesEvent.Delta
@@ -383,19 +258,11 @@ object StateStore {
     )
   }
 
-  /** The store's ONLY constructor: an empty, passive sink with no feed of its
-    * own. It never subscribes for itself — [[HaFeed]] is its single driver,
-    * draining the one live `subscribe_entities` subscription into it via
-    * [[applyEntities]]. Keeping the subscription out of the store is what
-    * guarantees exactly one state feed from Home Assistant no matter how many
-    * consumers read the fan-out ([[changes]]); a store that subscribed for
-    * itself would be a second stream waiting to happen.
+  /** A passive sink: [[HaFeed]] is its one driver, which keeps it to exactly
+    * one state subscription to HA.
     */
   def empty: IO[StateStore] = inMemory(Map.empty)
 
-  /** A store seeded with `initial` and driven by explicit [[StateStore.update]]
-    * calls — no feed. The test/seed seam behind [[empty]].
-    */
   private[runtime] def inMemory(
       initial: Map[String, EntityState]
   ): IO[StateStore] =
