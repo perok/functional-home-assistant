@@ -17,11 +17,8 @@ class TelemetrySuite extends munit.CatsEffectSuite {
     List(None, Some(""), Some("   "))
 
   test("with no endpoint configured, the SDK is never built") {
-    // Asserted through the tracer's own `meta.isEnabled`, which is what every
-    // span site consults before doing any work — a no-op tracer reports false
-    // and the span never materialises. This is the property that keeps an
-    // ordinary Pi install paying nothing for #75, so it is worth pinning
-    // rather than trusting the branch to stay correct.
+    // Every span site consults `meta.isEnabled` first, so a no-op tracer makes
+    // a plain Pi install pay nothing for #75.
     unconfigured.traverse_(endpoint =>
       Telemetry
         .resource(endpoint)
@@ -37,9 +34,8 @@ class TelemetrySuite extends munit.CatsEffectSuite {
   }
 
   test("a no-op tracer still runs the effect it wraps") {
-    // The failure this guards against is the expensive one: instrumentation
-    // that quietly skips the work when disabled would mean a page renders on
-    // a traced install and not on an untraced one.
+    // Skipping the work when disabled would make a page render only on a
+    // traced install.
     Telemetry
       .resource(None)
       .use(otel =>
@@ -85,9 +81,8 @@ class TelemetrySuite extends munit.CatsEffectSuite {
   }
 
   test("every arity reaches the underlying logger") {
-    // 25 delegating methods written by hand is exactly where a copy-paste slip
-    // lands — a `warn` that calls `info`, or an arity that drops its throwable
-    // — and none of it would fail anywhere else.
+    // 25 hand-written delegations invite a `warn` calling `info` or a dropped
+    // throwable, which nothing else would catch.
     val underlying = StructuredTestingLogger.impl[IO]()
     val logger =
       Logging.logger("test", underlying, Tracer.noop[IO], Telemetry.Otel.noop)
