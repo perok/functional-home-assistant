@@ -15,18 +15,13 @@ import org.http4s.implicits.*
 import java.util.concurrent.atomic.AtomicInteger
 import scala.concurrent.duration.*
 
-/** A session's whole life: the document that establishes it, the stream that
-  * adopts it, displacement, the linger after a disconnect, the reap, and the
-  * handover a reload performs.
-  *
-  * Its state machine is `Tenure`, and every transition names the tenure it
-  * expects to replace — so these tests are mostly about the transitions a RACE
-  * can produce, not the happy path.
+/** A session's life, from document to reap. Every `Tenure` transition names the
+  * tenure it expects to replace, so these tests are mostly about what a race
+  * can produce.
   */
 class SessionLifecycleSuite extends ServerHarness {
 
-  // This suite opens DOCUMENTS, and the page route streams its body through a
-  // blocking pipe that simulated time cannot host — see [[ServerHarness.simulateTime]].
+  // Opens documents; see [[ServerHarness.simulateTime]].
   override protected def simulateTime: Boolean = false
 
   test("a first load resumes from the document instead of repainting it") {
@@ -57,8 +52,7 @@ class SessionLifecycleSuite extends ServerHarness {
             page <- routes
               .run(Request[IO](Method.GET, uri"/d/dashboard"))
               .flatMap(_.bodyText.compile.string)
-            // Take the URL the page itself advertises, unescaped as a browser
-            // would parse the attribute.
+            // Unescaped, as a browser parses the attribute.
             sseUrl = page
               .split("""data-init="@get\('""")(1)
               .split("'")(0)
@@ -73,19 +67,11 @@ class SessionLifecycleSuite extends ServerHarness {
     } yield out)
       .timeout(30.seconds)
       .map { case (page, opening) =>
-        // The document really does carry the dashboard...
         assert(page.contains(">cold<"), clue = page)
         assert(page.contains(">warm<"), clue = page)
-        // ...so the stream sends none of it again. Stated as the WHOLE opening
-        // block, event by event, so anything the server started re-sending
-        // shows up here as an extra event rather than slipping past a negative
-        // match.
-        //
-        // ONE event: the cursor. The `conn` used to lead it, and no longer
-        // does — the document seeds that signal and puts it on this URL, so
-        // announcing it back was telling the client its own id. The stream
-        // still sends it when it MINTED one (a bookmarked SSE endpoint), which
-        // is not this case.
+        // The whole opening block, so anything re-sent shows up as an extra
+        // event. One event, the cursor: the document seeds `conn` and puts it
+        // on this URL, so the stream sends it only when it minted one.
         assertEquals(opening.map(_.name), List(Signals), clue = opening)
         assert(isCursor(opening.head), clue = opening.head)
         assert(
@@ -95,10 +81,9 @@ class SessionLifecycleSuite extends ServerHarness {
       }
   }
 
-  /** The document, not the stream, creates the session — because the page
-    * render is the first thing that puts fragments in this client's DOM and the
-    * only place that knows what they were. So the suppression the test above
-    * asserts end to end has a per-client record behind it, not a shared one.
+  /** The page render is the first thing that puts fragments in this client's
+    * DOM, and the only place that knows what they were, so the document creates
+    * the session.
     */
 
   test("the document establishes the session its stream then adopts") {
@@ -133,20 +118,17 @@ class SessionLifecycleSuite extends ServerHarness {
               .split("""data-init="@get\('""")(1)
               .split("'")(0)
               .replace("&amp;", "&")
-            // The id the document minted, which the URL it advertises carries.
             conn = Uri
               .unsafeFromString("/" + sseUrl)
               .query
               .params(Server.ConnSignal)
             established <- sessions.get(conn)
             held <- established.traverse(_.holds.get)
-            // ...and the stream takes THAT session rather than making its own.
             _ <- routes
               .run(Request[IO](Method.GET, Uri.unsafeFromString("/" + sseUrl)))
               .flatMap(sseFrom(_)(isCursor))
-            // Read off the object the DOCUMENT made: a FIRST epoch there is
-            // the proof the stream took that session rather than minting one.
-            // Lingering by now, since this stream has read its opening block
+            // A first epoch on the document's object proves the stream took
+            // that session. Lingering by now: the stream read its opening block
             // and ended.
             epoch <- established.traverse(_.tenure.get)
             renderer <- ref.get.map(_.rendererOf.get)
@@ -156,7 +138,6 @@ class SessionLifecycleSuite extends ServerHarness {
     } yield out)
       .timeout(30.seconds)
       .map { case (held, epoch, renderer, snapshot) =>
-        // Its own render, node by node — not a projection of anyone else's.
         val body = renderer.renderNodeById(
           "c_0",
           snapshot.entities,
@@ -175,18 +156,12 @@ class SessionLifecycleSuite extends ServerHarness {
       }
   }
 
-  /** Two live streams on one session would each record bytes the other sent
-    * into one `holds` map, and each would then suppress a change the client
-    * never received — the one way a per-client record can go wrong by itself.
-    * So the second stream displaces the first.
+  /** Two live streams on one session would record each other's bytes into one
+    * `holds`, and each would suppress a change the client never got, so the
+    * second displaces the first. Server topology, so the real runtime. The
+    * `join` guards where `sseStream` applies its displacement `interruptWhen`:
+    * inside `Server.untilRevoked`'s merge the body never ends and this hangs.
     */
-
-  // Two live streams racing through one session is server topology, not
-  // Temporal logic, so this runs on the real runtime.
-  //
-  // The `join` below is the guard on where `sseStream` applies its displacement
-  // `interruptWhen`: inside `Server.untilRevoked`'s merge, the response body
-  // never ends and this hangs to its timeout.
   testReal("a second stream for one session displaces the first") {
     (for {
       store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "warm")))
@@ -218,13 +193,9 @@ class SessionLifecycleSuite extends ServerHarness {
             )
             conn = url.query.params(Server.ConnSignal)
             first <- routes.run(Request[IO](Method.GET, url))
-            // Nothing ends this stream but displacement: it is the keepalive
-            // path, with no client hanging up.
-            // A BYTE is what says this stream is running, and displacing a
-            // stream that has not started proves nothing. Registration is
-            // bracketed to the body, and the body emits only once that bracket
-            // has acquired — where every tenure this could await instead is
-            // already set by `adoptOrMint`, up in the handler.
+            // Only displacement ends this stream. A byte says it is running:
+            // the tenures are already set by `adoptOrMint` in the handler,
+            // before the body's bracket registers anything.
             opened <- Deferred[IO, Unit]
             drained <- first.body
               .evalTap(_ => opened.complete(()).void)
@@ -234,11 +205,9 @@ class SessionLifecycleSuite extends ServerHarness {
             _ <- opened.get.timeout(5.seconds)
             second <- routes.run(Request[IO](Method.GET, url))
             live <- second.body.compile.drain.start
-            // The join is the assertion. Without displacement the first stream
-            // runs forever and this times out.
+            // The join is the assertion: without displacement this times out.
             _ <- drained.join
-            // ...and the second still owns the session: the displaced stream's
-            // own release must not deregister it on the way out.
+            // The displaced stream's release must not deregister the session.
             survived <- sessions.get(conn)
             _ <- live.cancel
           } yield survived.isDefined
@@ -249,10 +218,8 @@ class SessionLifecycleSuite extends ServerHarness {
   test(
     "a document loaded while HA is down SAYS so, without waiting to connect"
   ) {
-    // The banner used to seed `haDown: false` as a literal, so a page loaded
-    // while HA was unreachable rendered as healthy and stayed that way until
-    // the stream connected and corrected it — a wrong banner on the one screen
-    // whose job is to report that.
+    // A literal `haDown: false` seed rendered a page loaded while HA was down
+    // as healthy until the stream corrected it.
     def pageWith(healthy: Boolean): IO[String] =
       for {
         store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "1")))
@@ -295,19 +262,14 @@ class SessionLifecycleSuite extends ServerHarness {
   }
 
   test("a first connect resumes from AFTER its document's version") {
-    // A document was rendered from one snapshot, so it has ALL of version V —
-    // asking for `>= V` hands back everything it already contains. It is
-    // complete through V, so it needs `> V`. `Server.resumeFrom` says exactly
-    // that, and told the two apart by whether the request carried signals...
-    // which a first connect DOES: Datastar sets `datastar={}` on every GET. So
-    // every page load took the reconnect branch, and the fix is `hasSignals`
-    // testing for a NON-EMPTY store.
+    // A document has all of version V, so it needs `> V`. `Server.resumeFrom`
+    // told first connect from reconnect by the presence of signals, but
+    // Datastar sets `datastar={}` on every GET, so every page load took the
+    // reconnect branch; `hasSignals` tests for a non-empty store.
     //
-    // Only RENDERS can see it — the document seeds its own `holds`, so the
-    // redundant work is suppressed before it reaches the wire. And only on a
-    // COLD cache: with another session already pulling, `RenderCache` serves
-    // those nodes and `renderNodeById` is never called, which is why the gate
-    // here is held open by a document that never connects.
+    // Only renders show it (the document's `holds` suppress the wire), and only
+    // on a cold cache: a pulling session would let `RenderCache` serve the
+    // nodes. Hence a document that never connects holds the gate open.
     val count = new AtomicInteger(0)
     (for {
       store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "A0")))
@@ -342,27 +304,20 @@ class SessionLifecycleSuite extends ServerHarness {
                 )
               )
           for {
-            // A document that never connects. Its session holds the recording
-            // gate open — a slug nobody is watching records nothing — WITHOUT
-            // pulling, so nothing warms the render cache.
+            // Holds the recording gate open without pulling, so nothing warms
+            // the cache.
             _ <- openDocument
             _ <- store.changeSubscribers.filter(_ >= 1).head.compile.drain
             _ <- store.update(es("sensor.a", "A1"))
-            // The recorder writes on its own fiber and nothing here can observe
-            // it (no stream to watch). Sabotage is what keeps this honest:
-            // reverting `hasSignals` fails this test, which it could not do if
-            // the wait were too short.
+            // The recorder's fiber is unobservable here. Reverting `hasSignals`
+            // fails this test, so the wait is long enough.
             _ <- IO.sleep(300.millis)
-            // Now a document rendered AT that version, and complete through it.
             _ <- IO(count.set(0))
             url <- openDocument
-            // `datastar={}` is what a BROWSER adds and the server-built
-            // `data-init` URL does not: Datastar serialises its signal store
-            // into every GET, and on a first connect that store is empty
-            // because `data-init` fires before the descendants' `data-signals`
-            // are merged. Without this the harness cannot see the difference at
-            // all — both branches read the query params — which is exactly why
-            // the bug survived.
+            // What a browser adds and the `data-init` URL does not: an empty
+            // store, since `data-init` fires before descendants' `data-signals`
+            // merge. Without it both branches read the query params, which is
+            // why the bug survived.
             resp <- routes.run(
               Request[IO](
                 Method.GET,
@@ -380,11 +335,9 @@ class SessionLifecycleSuite extends ServerHarness {
   }
 
   test("a connect does not repeat the health the document already rendered") {
-    // The document renders the banner's value into the page and records it on
-    // the session, so an ordinary load is already correct. Emitting it again on
-    // connect said nothing — and this is NOT caught by the opening-block tests,
-    // because `haDown` rides the merged streams and arrives after the cursor
-    // they stop on.
+    // The document records the banner on the session, so re-emitting it said
+    // nothing. The opening-block tests miss it: `haDown` rides the merged
+    // streams and arrives after the cursor they stop on.
     def eventsOn(healthy: Boolean): IO[List[ServerSentEvent]] =
       for {
         store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "1")))
@@ -423,9 +376,8 @@ class SessionLifecycleSuite extends ServerHarness {
                 .compile
                 .drain
                 .start
-              // Past the opening block, then a settle: `healthy.discrete` fires
-              // on SUBSCRIBE, so anything it was going to send has been sent
-              // well before this.
+              // `healthy.discrete` fires on subscribe, so anything it would
+              // send has gone by now.
               _ <- fs2.Stream
                 .repeatEval(seen.get <* IO.sleep(5.millis))
                 .find(_.exists(isCursor))
@@ -445,9 +397,7 @@ class SessionLifecycleSuite extends ServerHarness {
             !up.exists(_.data.exists(_.contains(Server.HaDownSignal))),
             clue = up
           )
-          // ...and the same when HA is DOWN: the page rendered `true`, so
-          // repeating it is just as redundant. Skipping is about agreement with
-          // the document, not about the value being false.
+          // Skipping is about agreeing with the document, not about the value.
           assert(
             !down.exists(_.data.exists(_.contains(Server.HaDownSignal))),
             clue = down
@@ -460,9 +410,8 @@ class SessionLifecycleSuite extends ServerHarness {
   test(
     "the document seeds `conn`; only a stream that MINTED one announces it"
   ) {
-    // Every ordinary load carries `conn` on the SSE URL because the document
-    // minted it, so echoing it back said nothing. A bookmarked SSE endpoint
-    // names no session, and there the client genuinely does not know.
+    // The document minted `conn` and put it on the URL; only a bookmarked SSE
+    // endpoint names no session.
     (for {
       store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "1")))
       ref <- SignallingRef[IO].of(
@@ -494,7 +443,6 @@ class SessionLifecycleSuite extends ServerHarness {
               )
               .query
               .params(Server.ConnSignal)
-            // No conn at all: the bookmarked case.
             bare <- routes
               .run(
                 Request[IO](
@@ -508,10 +456,9 @@ class SessionLifecycleSuite extends ServerHarness {
     } yield out)
       .timeout(30.seconds)
       .map { case (page, conn, bare) =>
-        // The page carries it as a signal, so an action POST can echo it
-        // without waiting for the stream to say what it already knows.
+        // As a signal, so an action POST can echo it without waiting for the
+        // stream.
         assert(page.contains(s"${Server.ConnSignal}: '$conn'"), clue = conn)
-        // ...and a stream that had to mint one still says so.
         assert(
           bare.exists(_.signals.exists(_.contains(Server.ConnSignal))),
           clue = bare
@@ -520,11 +467,10 @@ class SessionLifecycleSuite extends ServerHarness {
   }
 
   test("a reload's `prev` retires the session it superseded") {
-    // A reload mints a fresh `conn`, so without this the session it replaced
-    // sits in the registry for the whole linger window holding an old
-    // `position` — and the floor is the LOWEST position, so a few reloads keep
-    // the changelog un-prunable. The client names its predecessor from
-    // sessionStorage; the server drops it.
+    // A reload mints a fresh `conn`. The replaced session would linger with an
+    // old `position`, and the floor is the lowest, so a few reloads keep the
+    // changelog un-prunable. The client names its predecessor from
+    // sessionStorage.
     (for {
       store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "1")))
       ref <- SignallingRef[IO].of(
@@ -544,11 +490,9 @@ class SessionLifecycleSuite extends ServerHarness {
         .use { server =>
           val routes = server.routes.orNotFound
           for {
-            // A document nobody connected to: Tenure.Fresh, exactly what an
-            // abandoned load leaves behind.
+            // Tenure.Fresh, what an abandoned load leaves.
             first <- connOfPage(routes)
             before <- sessions.get(first)
-            // The reload's stream, naming its predecessor.
             resp <- routes.run(
               Request[IO](
                 Method.GET,
@@ -558,11 +502,9 @@ class SessionLifecycleSuite extends ServerHarness {
               )
             )
             live <- resp.body.compile.drain.start
-            // Read IMMEDIATELY, with no polling: the retirement happens while
-            // the handler builds its response, so it has already run by the
-            // time `resp` exists. Waiting instead would let `AdoptionWindow`
-            // reap this session on its own and the test would pass with the
-            // retirement deleted — which is exactly what a first draft did.
+            // Read immediately: retirement runs while the handler builds
+            // `resp`. Polling would let `AdoptionWindow` reap it anyway,
+            // passing with retirement deleted.
             after <- sessions.get(first)
             _ <- live.cancel
           } yield (before.isDefined, after.isDefined)
@@ -571,10 +513,9 @@ class SessionLifecycleSuite extends ServerHarness {
   }
 
   test("`prev` never retires a session a stream is still HOLDING") {
-    // sessionStorage is copied into a duplicated tab (and, in Chrome, into one
-    // opened via target=_blank), so the predecessor a document names can belong
-    // to a tab that is very much alive. Retiring only a non-Held session makes
-    // that a no-op instead of pulling the rug from under a live viewer.
+    // sessionStorage is copied into a duplicated tab (and Chrome's
+    // target=_blank), so the named predecessor can be alive. Only a non-Held
+    // session is retired.
     (for {
       store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "1")))
       ref <- SignallingRef[IO].of(
@@ -605,7 +546,6 @@ class SessionLifecycleSuite extends ServerHarness {
             )
             alive <- heldStream.body.compile.drain.start
             _ <- sessions.liveStreams.filter(_ >= 1).head.compile.drain
-            // The duplicated tab: its own document, naming the live one.
             other <- connOfPage(routes)
             resp <- routes.run(
               Request[IO](
@@ -626,11 +566,8 @@ class SessionLifecycleSuite extends ServerHarness {
   }
 
   test("a frame this client is owed nothing for puts NOTHING on its wire") {
-    // Not merely "no element patches" — no events at all. The cursor used to go
-    // out on every pull, which made a quiet frame cost one signal per client;
-    // it rides the keepalive now instead. This is the contract that removal
-    // creates, and the reason `LiveWorld.change` gates on the server rather
-    // than on a cursor arriving.
+    // No events at all: the cursor rides the keepalive rather than every pull,
+    // which is why `LiveWorld.change` gates on the server.
     liveWorld(
       twoTabsDash,
       Map(
@@ -644,7 +581,6 @@ class SessionLifecycleSuite extends ServerHarness {
         onT1 <- world.connect("?ui.c_1=1")
         _ <- onT0.drain
         _ <- onT1.drain
-        // Inside tab 0's panel only.
         _ <- world.change(es("sensor.a", "A1"))
         a0 <- onT0.drain
         a1 <- onT1.drain
@@ -655,11 +591,9 @@ class SessionLifecycleSuite extends ServerHarness {
     }
   }
 
-  /** A dropped SSE stream is the NORMAL case, not a goodbye: a phone sleeping,
-    * a lid closing, a wifi handover. The session outlives it, so the client
-    * that comes back is told what moved rather than repainted — and it is the
-    * SAME session, because a new one under the same `conn` would have an empty
-    * `holds` and could only claim what it re-sent.
+  /** A dropped stream is normal: a sleeping phone, a wifi handover. The same
+    * session must come back, since a new one under the same `conn` would have
+    * an empty `holds`.
     */
 
   test(
@@ -683,8 +617,8 @@ class SessionLifecycleSuite extends ServerHarness {
         )
         .use { server =>
           val routes = server.routes.orNotFound
-          // Sleeps, because a bare retry loop starves the very fibers it is
-          // waiting on when the runtime has few threads.
+          // Sleeps: a bare retry loop starves the fibers it waits on when
+          // threads are few.
           def awaitTenure(conn: String, t: Tenure): IO[Unit] =
             (IO.sleep(5.millis) *> sessions
               .get(conn)
@@ -703,12 +637,10 @@ class SessionLifecycleSuite extends ServerHarness {
             )
             conn = url.query.params(Server.ConnSignal)
             first <- routes.run(Request[IO](Method.GET, url))
-            // The stream's FIRST BYTE, not its tenure, is what says the body is
-            // running. `adoptOrMint` sets `Held(1)` in the handler above, so
-            // awaiting that tenure is satisfied before this fiber has run at
-            // all — and cancelling then skips the bracket that registers the
-            // stream, so the release that hands the session to its LINGER never
-            // happens and the wait below never ends.
+            // The first byte, not the tenure: `adoptOrMint` sets `Held(1)` in
+            // the handler, so cancelling on the tenure skips the bracket that
+            // registers the stream, the release never hands the session to its
+            // linger, and the wait never ends.
             opened <- Deferred[IO, Unit]
             reading <- first.body
               .evalTap(_ => opened.complete(()).void)
@@ -716,12 +648,11 @@ class SessionLifecycleSuite extends ServerHarness {
               .drain
               .start
             _ <- opened.get
-            // The client hangs up.
             _ <- reading.cancel
             _ <- awaitTenure(conn, Tenure.Lingering(1))
             before <- sessions.get(conn)
             heldBefore <- before.traverse(_.holds.get)
-            // ...and comes back to the same URL, as Datastar's own retry does.
+            // The same URL, as Datastar's retry does.
             second <- routes.run(Request[IO](Method.GET, url))
             live <- second.body.compile.drain.start
             _ <- awaitTenure(conn, Tenure.Held(2))
@@ -736,14 +667,14 @@ class SessionLifecycleSuite extends ServerHarness {
           before.isDefined && after.exists(a => before.exists(_ eq a)),
           clue = "the reconnect adopted the very session the drop left behind"
         )
-        // What makes that worth doing: the record of this client's DOM, which
-        // the document seeded and a fresh session could not have.
+        // The record of this client's DOM, which a fresh session could not
+        // have.
         assert(heldBefore.exists(_.nonEmpty), clue = heldBefore)
       }
   }
 
-  /** The other end of the same window: a client that never comes back must not
-    * cost a map read on every state batch for the life of the process.
+  /** A client that never comes back must not cost a map read on every batch for
+    * the life of the process.
     */
 
   test("a session nobody comes back for is reaped") {
@@ -778,11 +709,7 @@ class SessionLifecycleSuite extends ServerHarness {
             )
             conn = url.query.params(Server.ConnSignal)
             first <- routes.run(Request[IO](Method.GET, url))
-            // The first BYTE, not the tenure — `adoptOrMint` sets `Held(1)` in
-            // the handler, so a tenure barrier is satisfied before this fiber
-            // has run at all, and cancelling then skips the bracket that
-            // registers the stream. The session is never handed to its linger
-            // and the reap below never comes.
+            // The first byte, not the tenure; see the test above.
             opened <- Deferred[IO, Unit]
             reading <- first.body
               .evalTap(_ => opened.complete(()).void)
@@ -791,8 +718,6 @@ class SessionLifecycleSuite extends ServerHarness {
               .start
             _ <- opened.get.timeout(5.seconds)
             _ <- reading.cancel
-            // Registered while it lingers — that IS the point of the window —
-            // and gone once it closes.
             _ <- (IO.sleep(10.millis) *> sessions.get(conn))
               .iterateWhile(_.isDefined)
           } yield ()
@@ -832,11 +757,11 @@ class SessionLifecycleSuite extends ServerHarness {
               )
               .query
               .params(Server.ConnSignal)
-            // Present the moment the document is served — a stream opening a
-            // beat later must find it.
+            // Present when the document is served, for a stream opening a beat
+            // later.
             before <- sessions.get(conn)
-            // ...and gone once the window passes with nobody adopting it,
-            // because every live session is read on every state batch.
+            // Gone once the window passes: every live session is read on every
+            // batch.
             _ <- (IO.sleep(10.millis) *> sessions.get(conn))
               .iterateWhile(_.isDefined)
           } yield before.isDefined
@@ -851,9 +776,8 @@ class SessionLifecycleSuite extends ServerHarness {
     ) { (world, client) =>
       for {
         _ <- client.drain
-        // An outer morph: it targets the id inside its own HTML and names no
-        // selector — the leaf's whole rendering, cell and all — and the batch
-        // carries the cursor it advanced to.
+        // An outer morph targets the id inside its own HTML and names no
+        // selector.
         hot <- world.change(es("sensor.a", "hot")) *> client.drain
         _ = assertEquals(
           domEvents(hot),
@@ -867,9 +791,7 @@ class SessionLifecycleSuite extends ServerHarness {
           clue = hot
         )
         _ = assert(hot.exists(isCursor), clue = hot)
-        // The diff's whole purpose: a change that renders identically puts
-        // NOTHING on the wire — not even a cursor, since only a non-empty batch
-        // carries one.
+        // A change that renders identically sends nothing, not even a cursor.
         again <-
           world.change(es("sensor.a", "hot")) *> client.drain
         _ = assertEquals(domEvents(again), Nil, clue = again)
