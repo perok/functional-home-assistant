@@ -125,7 +125,7 @@ no warning, no error and correct output — you are simply running a GraalJS oth
 build declares. Worse, `Engine.getVersion()` reports the LIBRARY's version, so the engine holds
 both numbers and warns about neither (`docs/issue-report-3-graalvm-polyglot-isolate.md`). That
 trap is what shaped the packaging, and the answer to each half was to stop hand-rolling it —
-plus a check in `JsIsolateCheck` that compares the two and fails.
+plus `JsIsolateSuite`, which compares the two and fails.
 
 **Acquisition is dependency resolution.** The two platform jars are ordinary `libraryDependencies`
 in a hidden Ivy configuration (`js-isolate`, `.hide`), so coursier fetches, checksums and caches
@@ -272,20 +272,14 @@ Community remains a drop-in fallback at 3–4× the native memory if the licence
    and serve.
 3. Isolate dependency, engine construction, library staging in the Dockerfile, licence notes.
 
-## What proves commit 3, given nothing renders a chart yet
+## What proves it
 
-`fh.view.runtime.JsIsolate` has no production caller until the history view, so the usual answer —
-a unit test — would only prove that a `.so` on this machine loads on this machine. The claim worth
-proving is about the *image*: that the staged library is the right architecture and links against
-the base image's glibc and zlib. Every way of getting that wrong builds cleanly and dies at the
-first chart.
-
-So the check is `fh.view.runtime.JsIsolateCheck`, a main in the shipped jar that evaluates a line
-of JavaScript and prints RSS before and after, and the CI `image` job runs it **inside the built
-image** — amd64 on a pull request, aarch64 under emulation on main. On a cold cache it pays the
-one-time unpack too, so it exercises exactly what a user's first start does. That is also the
-diagnostic to run on a Pi, and the memory lines are there because no JVM instrument can see an
-isolate's heap.
+`ChartSuite` draws on the real isolate in `testFull`, and `JsIsolateSuite` fails on a library whose
+version differs from the jars'. Nothing checks the IMAGE's staged library (right architecture,
+links against the base image's glibc and zlib), deliberately: getting that wrong does not break
+charts, because `JsIsolate.engineOrInHeap` falls back to the interpreter with a `no GraalJS
+isolate` warning in the log. A main run inside the built image in CI did check it, and was dropped
+as more build machinery than a slower-but-correct failure is worth.
 
 ## Reproducing the measurements
 

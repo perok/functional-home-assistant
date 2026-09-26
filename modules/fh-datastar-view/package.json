@@ -14,7 +14,8 @@
     "@codemirror/lint": "^6",
     "@codemirror/lsp-client": "^6",
     "@codemirror/state": "^6",
-    "@codemirror/view": "^6"
+    "@codemirror/view": "^6",
+    "echarts": "5.6.0"
   },
   "devDependencies": {
     "@types/node": "^26.5.0",
