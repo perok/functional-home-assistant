@@ -1525,8 +1525,8 @@ case class Dashboard(
                   s"$nodeId: card '$card' has wrapAsCell=false but binds live " +
                     s"entities (${c.liveEntities.mkString(", ")}) — an " +
                     "unwrapped node has no morph target, so its live updates " +
-                    "would never apply; make those slots literal / " +
-                    "reactive=false or drop the opt-out"
+                    "would never apply; make those slots literal or " +
+                    s"reads='${Reads.OnRender}', or drop the opt-out"
                 )
                 .toList ++
                 Option
