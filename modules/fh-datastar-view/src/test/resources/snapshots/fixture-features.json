@@ -45,6 +45,50 @@
                             }
                           },
                           {
+                            "card" : "historyWindows",
+                            "cell" : {
+                              "classes" : [
+                                "fh-cols-full"
+                              ]
+                            },
+                            "kind" : "component",
+                            "regions" : {
+                              "children" : [
+                                {
+                                  "card" : "historyChart",
+                                  "kind" : "component",
+                                  "slots" : {
+                                    "chart" : {
+                                      "bypassUnavailable" : true,
+                                      "query" : {
+                                        "params" : {
+                                          "entity" : "sensor.outside_temp",
+                                          "window" : {
+                                            "var" : "window"
+                                          }
+                                        },
+                                        "provider" : "history"
+                                      },
+                                      "reads" : "onRender",
+                                      "transform" : {
+                                        "params" : {
+                                          "unit" : "°C"
+                                        },
+                                        "stage" : "chart"
+                                      }
+                                    }
+                                  }
+                                }
+                              ]
+                            },
+                            "slots" : {
+                              
+                            },
+                            "vars" : {
+                              "window" : "24h"
+                            }
+                          },
+                          {
                             "card" : "entityInfo",
                             "kind" : "component",
                             "slots" : {
@@ -645,6 +689,31 @@
       ],
       "template" : "<div class=\"fh-row{{#class}} {{class}}{{/class}}\">{{#children}}{{{html}}}{{/children}}</div>"
     },
+    "historyChart" : {
+      "slots" : [
+        "chart"
+      ],
+      "template" : "<div class=\"card fh-chart\">{{{chart}}}</div>"
+    },
+    "historyReadings" : {
+      "slots" : [
+        "label",
+        "readings",
+        "unit",
+        "entity_id"
+      ],
+      "template" : "<article class=\"card fh-readings\" data-signals:_hist_{{id}}=\"{{readings}}\">\n  <header><span class=\"fh-text\"><span class=\"fh-text-run\">{{label}}</span></span></header>\n  <dl>\n    <div><dt>Now</dt><dd data-text=\"(p => p.length ? Math.round(p[p.length - 1] * 10) / 10 + '{{#unit}} {{unit}}{{/unit}}' : '–')($_hist_{{id}}.points.map(x => x[1]).filter(v => v !== null))\"></dd></div>\n    <div><dt>Low</dt><dd data-text=\"(p => p.length ? Math.round(Math.min(...p) * 10) / 10 + '{{#unit}} {{unit}}{{/unit}}' : '–')($_hist_{{id}}.points.map(x => x[1]).filter(v => v !== null))\"></dd></div>\n    <div><dt>High</dt><dd data-text=\"(p => p.length ? Math.round(Math.max(...p) * 10) / 10 + '{{#unit}} {{unit}}{{/unit}}' : '–')($_hist_{{id}}.points.map(x => x[1]).filter(v => v !== null))\"></dd></div>\n    <div><dt>Covers</dt><dd class=\"fh-readings-span\" data-text=\"(q => q.length > 1 ? Math.round((q[q.length - 1][0] - q[0][0]) / 3600000) + ' h' : '–')($_hist_{{id}}.points)\"></dd></div>\n  </dl>\n</article>"
+    },
+    "historyWindows" : {
+      "regions" : {
+        "children" : {
+          "fill" : "eager"
+        }
+      },
+      "slots" : [
+      ],
+      "template" : "<div class=\"fh-col\" data-effect=\"fhUrl('v.{{id}}.window', $_var_{{id}}__window)\"><div class=\"tabs\" data-signals__ifmissing=\"{ _var_{{id}}__window__pending: '' }\" data-effect=\"$_var_{{id}}__window__pending !== '' && $_var_{{id}}__window == $_var_{{id}}__window__pending && ($_var_{{id}}__window__pending = '')\"><a data-class=\"{active: ($_var_{{id}}__window__pending || $_var_{{id}}__window) === '1h'}\" data-on:click=\"$_var_{{id}}__window__pending = '1h'; @post('sse/var/{{dashboardSlug}}/{{id}}/window/1h?group=var_{{id}}__window')\">1h</a><a data-class=\"{active: ($_var_{{id}}__window__pending || $_var_{{id}}__window) === '24h'}\" data-on:click=\"$_var_{{id}}__window__pending = '24h'; @post('sse/var/{{dashboardSlug}}/{{id}}/window/24h?group=var_{{id}}__window')\">24h</a><a data-class=\"{active: ($_var_{{id}}__window__pending || $_var_{{id}}__window) === '7d'}\" data-on:click=\"$_var_{{id}}__window__pending = '7d'; @post('sse/var/{{dashboardSlug}}/{{id}}/window/7d?group=var_{{id}}__window')\">7d</a><a data-class=\"{active: ($_var_{{id}}__window__pending || $_var_{{id}}__window) === '30d'}\" data-on:click=\"$_var_{{id}}__window__pending = '30d'; @post('sse/var/{{dashboardSlug}}/{{id}}/window/30d?group=var_{{id}}__window')\">30d</a></div>{{#children}}{{{html}}}{{/children}}</div>"
+    },
     "ifhost" : {
       "regions" : {
         "branch" : {
@@ -654,6 +723,13 @@
       "slots" : [
       ],
       "template" : "<div class=\"fh-ifhost\" id=\"{{hostId}}\">{{#branch}}{{{html}}}{{/branch}}</div>"
+    },
+    "label" : {
+      "slots" : [
+        "label",
+        "tone"
+      ],
+      "template" : "<span class=\"fh-label fh-label-{{tone}} fh-text\"><span class=\"fh-text-run\">{{label}}</span></span>"
     },
     "pill" : {
       "slots" : [
@@ -676,7 +752,7 @@
         "label",
         "entity_id"
       ],
-      "template" : "<article class=\"card fh-progress\">\n  <header>{{#icon}}<i class=\"mdi {{icon}}\"></i>{{/icon}}<span class=\"fh-text\"><span class=\"fh-text-run\">{{label}}</span></span></header>{{#hasBar}}\n  <div class=\"fh-progress-track\" role=\"progressbar\"\n    data-attr:data-remaining=\"${{remaining__signal}}\"\n    data-attr:data-total=\"${{total__signal}}\"\n    data-attr:aria-valuetext=\"${{left__signal}}\">\n    <div class=\"fh-progress-fill\" data-style:width=\"${{total__signal}} > 0 ? Math.min(100, Math.max(0, 100 - 100 * ${{remaining__signal}} / ${{total__signal}})) + '%' : '0%'\"></div>\n  </div>{{/hasBar}}\n  <div class=\"fh-progress-foot\">{{#hasStatus}}\n    <span class=\"fh-progress-status fh-sub fh-text\"><span class=\"fh-text-run\" {{{status__bind}}}>{{status}}</span></span>{{/hasStatus}}{{#hasLeft}}\n    <span class=\"fh-progress-left fh-reading fh-text\"><span class=\"fh-text-run\" {{{left__bind}}}>{{left}}</span></span>{{/hasLeft}}\n  </div>\n</article>"
+      "template" : "<article class=\"card fh-progress{{#tappable}} tappable{{/tappable}}{{#inert__has}} {{inert}}{{/inert__has}}\"{{#tappable}}\n  data-on:click=\"{{#busy}}$_{{id}}__busy ? '' : {{/busy}}{{#inert__has}}${{inert__signal}} ? '' : {{/inert__has}}{{#service__has}}@post('sse/action/{{dashboardSlug}}/' + {{{service__read}}} + '/{{entity_id}}{{#dataKey__has}}/{{dataKey}}/{{dataValue}}{{/dataKey__has}}?node={{id}}', {filterSignals:{exclude:'.*'}}){{/service__has}}{{^service__has}}{{{onclick}}}{{/service__has}}\"{{/tappable}}{{#inert__has}} {{{inert__bind}}}{{/inert__has}}{{#busy}} data-indicator=\"_{{id}}__busy\" data-on:datastar-fetch__document=\"evt.detail.el === el && (evt.detail.type === 'error' ? ($_{{id}}__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_{{id}}__error = ''))\" data-fh-node=\"{{id}}\"{{/busy}}{{#busyVisual}} data-class:fh-disabled=\"$_{{id}}__busy\" data-class:fh-loading=\"$_{{id}}__busy\" data-class:fh-error=\"$_{{id}}__error\"{{/busyVisual}}>\n  <header>{{#icon}}<i class=\"mdi {{icon}}\"></i>{{/icon}}<span class=\"fh-text\"><span class=\"fh-text-run\">{{label}}</span></span></header>{{#hasBar}}\n  <div class=\"fh-progress-track\" role=\"progressbar\"\n    data-attr:data-remaining=\"${{remaining__signal}}\"\n    data-attr:data-total=\"${{total__signal}}\"\n    data-attr:aria-valuetext=\"${{left__signal}}\">\n    <div class=\"fh-progress-fill\" data-style:width=\"${{total__signal}} > 0 ? Math.min(100, Math.max(0, 100 - 100 * ${{remaining__signal}} / ${{total__signal}})) + '%' : '0%'\"></div>\n  </div>{{/hasBar}}\n  <div class=\"fh-progress-foot\">{{#hasStatus}}\n    <span class=\"fh-progress-status fh-sub fh-text\"><span class=\"fh-text-run\" {{{status__bind}}}>{{status}}</span></span>{{/hasStatus}}{{#hasLeft}}\n    <span class=\"fh-progress-left fh-reading fh-text\"><span class=\"fh-text-run\" {{{left__bind}}}>{{left}}</span></span>{{/hasLeft}}\n  </div>\n</article>"
     },
     "sectionTitle" : {
       "slots" : [
@@ -798,6 +874,50 @@
                                       "value" : "unit_of_measurement"
                                     }
                                   }
+                                }
+                              },
+                              {
+                                "card" : "historyWindows",
+                                "cell" : {
+                                  "classes" : [
+                                    "fh-cols-full"
+                                  ]
+                                },
+                                "kind" : "component",
+                                "regions" : {
+                                  "children" : [
+                                    {
+                                      "card" : "historyChart",
+                                      "kind" : "component",
+                                      "slots" : {
+                                        "chart" : {
+                                          "bypassUnavailable" : true,
+                                          "query" : {
+                                            "params" : {
+                                              "entity" : "sensor.outside_temp",
+                                              "window" : {
+                                                "var" : "window"
+                                              }
+                                            },
+                                            "provider" : "history"
+                                          },
+                                          "reads" : "onRender",
+                                          "transform" : {
+                                            "params" : {
+                                              "unit" : "°C"
+                                            },
+                                            "stage" : "chart"
+                                          }
+                                        }
+                                      }
+                                    }
+                                  ]
+                                },
+                                "slots" : {
+                                  
+                                },
+                                "vars" : {
+                                  "window" : "24h"
                                 }
                               },
                               {

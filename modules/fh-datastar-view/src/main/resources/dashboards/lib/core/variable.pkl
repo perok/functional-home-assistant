@@ -1,0 +1,27 @@
+/// NODE VARIABLES — a node declares a named choice, a descendant reads it.
+///
+/// Resolution is by NAME up the ancestor chain: a node that declares nothing is
+/// transparent, a nested declaration shadows, and a reader with no declarer is
+/// a build error naming both. The server resolves it before rendering, because
+/// the first HTML a browser gets is complete.
+///
+///     (c.column) {
+///       vars { ["window"] = "24h" }
+///       children { c.historyChart(sensor).over(varMod.ref("window")) }
+///     }
+///
+/// No list of allowed values: the write boundary refuses a value no declared
+/// reader can parse, or that names an entity the dashboard does not show. Where a closed set IS the point, emit the declaration and
+/// its control from one list in Pkl (`components/history.pkl`'s
+/// `WindowChooser`).
+module core.variable
+
+/// A reference to a declared variable (fh.view.model.Ref.Var). `var` is the
+/// wire key, hence the backticks; write [[ref]] instead.
+class Ref {
+  `var`: String
+}
+
+/// Read the variable `name` from the nearest declaring ancestor. Not `read`,
+/// which is a Pkl keyword.
+const function ref(name: String): Ref = new Ref { `var` = name }

@@ -1,5 +1,6 @@
 package fh.view.runtime
 
+import fh.view.query.QuerySnapshot
 import api.homeassistant.HomeAssistantApi
 import cats.effect.IO
 import cats.effect.kernel.{Deferred, Ref}
@@ -123,14 +124,18 @@ class SharedPassSuite extends ServerHarness {
       // not of what the dashboard looks like.
       assertEquals(
         held.get("c_0"),
-        renderer.renderNodeById("c_0", states).map(Held.of),
+        renderer
+          .renderNodeById("c_0", states, fragments = QuerySnapshot.empty)
+          .map(Held.of),
         clue = held
       )
       // The untouched sibling still carries what the repaint gave it, so the
       // claim above is not simply "everything, re-derived".
       assertEquals(
         held.get("c_1"),
-        renderer.renderNodeById("c_1", states).map(Held.of),
+        renderer
+          .renderNodeById("c_1", states, fragments = QuerySnapshot.empty)
+          .map(Held.of),
         clue = held
       )
       assertEquals(at, version)

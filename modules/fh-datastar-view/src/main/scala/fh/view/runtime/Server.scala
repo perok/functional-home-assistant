@@ -18,13 +18,17 @@ import fh.view.build.{
 }
 import fh.view.FHError
 import fh.view.auth.{AuthGate, Requirement}
+import fh.view.history.{ChartRenderer, History, SeriesSource}
+import fh.view.query.{QueryIdentity, QueryResolver, QuerySnapshot}
 import fh.view.model.{
   ChromeColors,
   Dashboard,
   DomId,
   NodeId,
   Permission,
-  SignalId
+  SignalId,
+  SlotRead,
+  Transform
 }
 import fs2.Stream
 import fs2.concurrent.{Signal, SignallingRef}
@@ -126,7 +130,10 @@ class Server(
     loggerFactory: LoggerFactory[IO] = Logging.console,
     // The unsampled counterpart of the spans above ([[Meters]]). No-op by
     // default, like the tracer, and for the same reason.
-    meters: Meters = Meters.noop
+    meters: Meters = Meters.noop,
+    // What answers query slots. `None` resolves nothing; a render that reads
+    // a query then raises from `QuerySnapshot`, naming it (see [[answer]]).
+    queries: Option[QueryResolver] = None
 ) {
 
   /** `logger`, not `log`: `renderPage` already takes a `log: FragmentLog`, and
@@ -367,6 +374,15 @@ class Server(
     case req @ POST -> Root / "sse" / "popup" / slug / "close" =>
       withSession(req, slug)((session, renderer, uiState) =>
         swapHost(session, renderer, Dashboard.PopupHostId, None, uiState)
+      )
+
+    // A node variable's value, addressed to the node that DECLARED it (issue
+    // #209). The value rides in the path for the same reason a service call's
+    // does — Datastar builds the URL client-side by concatenation — and the
+    // slug bounds it exactly as it bounds an action (ADR 0023).
+    case req @ POST -> Root / "sse" / "var" / slug / node / name / value =>
+      withSession(req, slug)((session, renderer, uiState) =>
+        setVar(session, renderer, NodeId.derived(node), name, value, uiState)
       )
   }
 
@@ -982,18 +998,22 @@ class Server(
           // same bytes a version this client is owed nothing for produces.
           // `rendererOf` is the tuple's option: a None short-circuits the
           // flatMap before any of the refs below are even run.
-          Patches
-            .resume(
-              renderer,
-              live.cache,
-              log,
-              holds,
-              store.entities,
-              position + 1,
-              open,
-              // The LIVE selection, not the one this connection arrived with: a
-              // tab select moves it mid-stream.
-              renderer.surfaces.uiStateFrom(open)
+          envOf(session, renderer)
+            .flatMap(env =>
+              Patches.resume(
+                renderer,
+                live.cache,
+                log,
+                holds,
+                store.entities,
+                answer(renderer, _, env),
+                env,
+                position + 1,
+                open,
+                // The LIVE selection, not the one this connection arrived
+                // with: a tab select moves it mid-stream.
+                renderer.surfaces.uiStateFrom(open)
+              )
             )
             .flatMap { patches =>
               session.holds
@@ -1104,119 +1124,139 @@ class Server(
         val cursor = Server.cursorOf(req)
         if (cursor.exists(_.headHash != renderer.headHash))
           OptionT.pure[IO](List(Server.reloadPatch))
-        else {
-          val head =
-            if (cursor.exists(_.styleHash != renderer.styleHash))
-              Server.headPatches(renderer, slug)
-            else Nil
-          // `Patches.resume` is TOTAL — a container whose history aged out is
-          // answered with a fill for THAT host, not a refusal — so the only
-          // reasons left to repaint the body are the genuinely global ones
-          // checked here: no cursor at all, a cursor minted against another log
-          // (a restart or a renderer swap, which is every dashboard change),
-          // one ahead of this store (a restart with a rewound counter), or one
-          // from before a GAP — a stretch this slug passed over because nobody
-          // was watching it ([[FragmentLog.reaches]]), which is what a client
-          // returning after its session was reaped presents.
-          // ...plus the one thing only the CLIENT can answer: did it actually
-          // apply what we last claimed it has? A resume trusts `holds`, and
-          // `holds` records what was SENT, which is not proof of receipt — a
-          // stream that broke mid-batch, or a tab frozen while the socket kept
-          // filling, leaves this session claiming digests that DOM never got,
-          // and every later resume then computes "nothing owed" forever.
-          //
-          // The cursor is that proof. It is server-set, but it rides LAST in
-          // its batch (`pull`), so a client echoing version V demonstrably
-          // applied everything before it. Behind `told` ⇒ bytes we claimed were
-          // lost ⇒ `holds` is unproven and the body is repainted.
-          //
-          // This does NOT fire on an ordinary tab switch: while a stream is
-          // closed nothing is sent, so `told` cannot move, and the returning
-          // client's echo still matches it.
-          val resumedIO = cursor
-            .filter(c =>
-              c.logId == log.id && c.version <= store.version &&
-                log.reaches(c.version) && c.version >= told
-            )
-            .traverse(c =>
-              Patches
-                .resume(
-                  renderer,
-                  live.cache,
-                  log,
-                  holds,
-                  store.entities,
-                  resumeFrom(req, c),
-                  open,
-                  uiState
+        else
+          OptionT
+            .liftF(envOf(session, renderer))
+            .flatMap { env =>
+              val head =
+                if (cursor.exists(_.styleHash != renderer.styleHash))
+                  Server.headPatches(renderer, slug)
+                else Nil
+              // `Patches.resume` is TOTAL — a container whose history aged out is
+              // answered with a fill for THAT host, not a refusal — so the only
+              // reasons left to repaint the body are the genuinely global ones
+              // checked here: no cursor at all, a cursor minted against another log
+              // (a restart or a renderer swap, which is every dashboard change),
+              // one ahead of this store (a restart with a rewound counter), or one
+              // from before a GAP — a stretch this slug passed over because nobody
+              // was watching it ([[FragmentLog.reaches]]), which is what a client
+              // returning after its session was reaped presents.
+              // ...plus the one thing only the CLIENT can answer: did it actually
+              // apply what we last claimed it has? A resume trusts `holds`, and
+              // `holds` records what was SENT, which is not proof of receipt — a
+              // stream that broke mid-batch, or a tab frozen while the socket kept
+              // filling, leaves this session claiming digests that DOM never got,
+              // and every later resume then computes "nothing owed" forever.
+              //
+              // The cursor is that proof. It is server-set, but it rides LAST in
+              // its batch (`pull`), so a client echoing version V demonstrably
+              // applied everything before it. Behind `told` ⇒ bytes we claimed were
+              // lost ⇒ `holds` is unproven and the body is repainted.
+              //
+              // This does NOT fire on an ordinary tab switch: while a stream is
+              // closed nothing is sent, so `told` cannot move, and the returning
+              // client's echo still matches it.
+              val resumedIO = cursor
+                .filter(c =>
+                  c.logId == log.id && c.version <= store.version &&
+                    log.reaches(c.version) && c.version >= told
                 )
-            )
-          // Lazy: rendering the whole body is the cost this exists to avoid.
-          // TRACED, because a repaint is the largest thing that ever puts
-          // fragments in this DOM and it knows exactly what it put where — the
-          // same claim the DOCUMENT makes from the same render. Clearing
-          // `holds` instead would leave the client's open surfaces unclaimed
-          // and re-sent on the very next pull.
-          lazy val painted = renderer.renderBodyTraced(store.entities, uiState)
-          lazy val repaint = Datastar.patch(
-            painted.html,
-            PatchMode.Inner,
-            Some("#dashboard")
-          )
-          // An open popup needs no restore branch of its own: its nodes are in
-          // `open`, so the resume rule reconciles them on their own ids, and a
-          // body repaint replaces `#dashboard` only — `#popups` lives in the
-          // chrome outside it, so the dialog is never disturbed.
-          //
-          // What DOES need saying is a claim this dashboard no longer recognises
-          // (its surface renamed or removed): that dialog belongs to nothing, is
-          // in nobody's open set, and would otherwise sit on screen forever.
-          val orphan = Option
-            .when(
-              uiState.get(Dashboard.PopupHostId).exists(_.nonEmpty) &&
-                renderer.surfaces.openPopup(uiState).isEmpty
-            )(
-              Datastar.patch(
-                s"""<div id="${Dashboard.PopupHostId}"></div>""",
-                PatchMode.Outer,
-                None
-              )
-            )
-            .toList
-          // What this connection is about to be told, recorded against the
-          // session before it is told: a resume's patches establish and
-          // invalidate exactly as a live one's do, and a REPAINT forgets
-          // everything — it replaces the body wholesale with no per-node trace,
-          // so every claim the document made now describes bytes that are gone.
-          // ...and the position with it, which is what the pull loop starts
-          // from. A repaint painted the whole snapshot, so it claims that; a
-          // resume could only answer for what the changelog covered when this
-          // connection began, so it claims THAT — see the doorbell note above.
-          val result = resumedIO.flatMap { resumed =>
-            val claim = resumed.fold(store.version)(_ => covered)
-            val record = resumed.fold(
-              session.holds.set(painted.own.map { case (id, p) =>
-                id -> Held(Some(p.digest), p.signals)
-              })
-            )(patches =>
-              session.holds.update(
-                patches.foldLeft(_)(Patches.applied(renderer.ancestry, _, _))
-              )
-            ) *> session.position.set(claim) *> session.told.set(claim)
-            record.as(
-              head ++ resumed.fold(List(repaint))(_.map(_.patch.toSse)) ++
-                orphan :+
-                // The cursor, carrying this connection's selections with it. A
-                // swap commits its own entry, but the patch and the signal are
-                // two writes, so a stream that died between them left a DOM
-                // holding one panel and a signal naming another — and a pending
-                // value with nothing to catch up to.
-                Server.openingSignals(renderer, open, log.id, claim)
-            )
-          }
+                .traverse(c =>
+                  Patches.resume(
+                    renderer,
+                    live.cache,
+                    log,
+                    holds,
+                    store.entities,
+                    answer(renderer, _, env),
+                    env,
+                    resumeFrom(req, c),
+                    open,
+                    uiState
+                  )
+                )
+              // Only on a repaint: answering and rendering the whole body is the
+              // cost a resume exists to avoid.
+              // TRACED, because a repaint is the largest thing that ever puts
+              // fragments in this DOM and it knows exactly what it put where — the
+              // same claim the DOCUMENT makes from the same render. Clearing
+              // `holds` instead would leave the client's open surfaces unclaimed
+              // and re-sent on the very next pull.
+              val painted =
+                pageAnswers(renderer, open, store.entities, env).map(
+                  renderer.renderBodyTraced(store.entities, uiState, _)
+                )
+              // An open popup needs no restore branch of its own: its nodes are in
+              // `open`, so the resume rule reconciles them on their own ids, and a
+              // body repaint replaces `#dashboard` only — `#popups` lives in the
+              // chrome outside it, so the dialog is never disturbed.
+              //
+              // What DOES need saying is a claim this dashboard no longer recognises
+              // (its surface renamed or removed): that dialog belongs to nothing, is
+              // in nobody's open set, and would otherwise sit on screen forever.
+              val orphan = Option
+                .when(
+                  uiState.get(Dashboard.PopupHostId).exists(_.nonEmpty) &&
+                    renderer.surfaces.openPopup(uiState).isEmpty
+                )(
+                  Datastar.patch(
+                    s"""<div id="${Dashboard.PopupHostId}"></div>""",
+                    PatchMode.Outer,
+                    None
+                  )
+                )
+                .toList
+              // What this connection is about to be told, recorded against the
+              // session before it is told: a resume's patches establish and
+              // invalidate exactly as a live one's do, and a REPAINT forgets
+              // everything — it replaces the body wholesale with no per-node trace,
+              // so every claim the document made now describes bytes that are gone.
+              // ...and the position with it, which is what the pull loop starts
+              // from. A repaint painted the whole snapshot, so it claims that; a
+              // resume could only answer for what the changelog covered when this
+              // connection began, so it claims THAT — see the doorbell note above.
+              val result = (resumedIO, session.vars.get).tupled.flatMap {
+                (resumed, chosen) =>
+                  val claim = resumed.fold(store.version)(_ => covered)
+                  val record = resumed.fold(
+                    painted.flatMap(p =>
+                      session.holds
+                        .set(p.own.map { case (id, n) =>
+                          id -> Held(Some(n.digest), n.signals)
+                        })
+                        .as(
+                          List(
+                            Datastar
+                              .patch(
+                                p.html,
+                                PatchMode.Inner,
+                                Some("#dashboard")
+                              )
+                          )
+                        )
+                    )
+                  )(patches =>
+                    session.holds
+                      .update(
+                        patches
+                          .foldLeft(_)(Patches.applied(renderer.ancestry, _, _))
+                      )
+                      .as(patches.map(_.patch.toSse))
+                  ) <* session.position.set(claim) <* session.told.set(claim)
+                  record.map(sent =>
+                    head ++ sent ++ orphan :+
+                      // The cursor, carrying this connection's selections with it. A
+                      // swap commits its own entry, but the patch and the signal are
+                      // two writes, so a stream that died between them left a DOM
+                      // holding one panel and a signal naming another — and a pending
+                      // value with nothing to catch up to.
+                      Server
+                        .openingSignals(renderer, open, chosen, log.id, claim)
+                  )
+              }
 
-          OptionT.liftF(result)
-        }
+              OptionT.liftF(result)
+            }
       }
       .value
       // A failed slug has no document to open, so no claim to bookkeep:
@@ -1285,42 +1325,50 @@ class Server(
               (session.open.set(r.surfaces.selectedSurfaces(uiState)) *>
                 (stateStore.current, live.log.get).tupled)
                 .flatMap { case (store, log) =>
-                  val head =
-                    if (prev.styleHash != r.styleHash)
-                      Server.headPatches(r, session.slug)
-                    else Nil
-                  // A repaint painted the whole snapshot, so this client is
-                  // both served and told through it — the same claim
-                  // [[openingPatches]] makes for its own repaint. Leaving
-                  // `told` behind here would let the keepalive announce a LOWER
-                  // version than the swap just did.
-                  // TRACED, so the repaint says what it painted — the same
-                  // claim `openingPatches` makes for its own. Load-bearing for
-                  // signal slots: this body carries fresh inline seeds, so a
-                  // record left describing the PREVIOUS dashboard's values
-                  // would suppress the frame a value's return needs.
-                  val painted = r.renderBodyTraced(store.entities, uiState)
-                  session.holds.set(painted.own.map { case (id, p) =>
-                    id -> Held(Some(p.digest), p.signals)
-                  }) *>
-                    session.position.set(store.version) *>
-                    session.told
-                      .set(store.version)
-                      .as(
-                        head ++ List(
-                          Datastar.patch(
-                            painted.html,
-                            PatchMode.Inner,
-                            Some("#dashboard")
-                          ),
-                          // A swap rotates the log identity and can move the style
-                          // hash, and live batches carry only the version now — so
-                          // this is where the client learns the rest. Without it a
-                          // reconnect would quote a log that no longer exists and be
-                          // answered with a body repaint.
-                          Server.cursorSignals(r, log.id, store.version)
+                  pageSnapshot(
+                    session,
+                    r,
+                    r.surfaces.selectedSurfaces(uiState),
+                    store.entities
+                  ).flatMap { fragments =>
+                    val head =
+                      if (prev.styleHash != r.styleHash)
+                        Server.headPatches(r, session.slug)
+                      else Nil
+                    // A repaint painted the whole snapshot, so this client is
+                    // both served and told through it — the same claim
+                    // [[openingPatches]] makes for its own repaint. Leaving
+                    // `told` behind here would let the keepalive announce a LOWER
+                    // version than the swap just did.
+                    // TRACED, so the repaint says what it painted — the same
+                    // claim `openingPatches` makes for its own. Load-bearing for
+                    // signal slots: this body carries fresh inline seeds, so a
+                    // record left describing the PREVIOUS dashboard's values
+                    // would suppress the frame a value's return needs.
+                    val painted =
+                      r.renderBodyTraced(store.entities, uiState, fragments)
+                    session.holds.set(painted.own.map { case (id, p) =>
+                      id -> Held(Some(p.digest), p.signals)
+                    }) *>
+                      session.position.set(store.version) *>
+                      session.told
+                        .set(store.version)
+                        .as(
+                          head ++ List(
+                            Datastar.patch(
+                              painted.html,
+                              PatchMode.Inner,
+                              Some("#dashboard")
+                            ),
+                            // A swap rotates the log identity and can move the style
+                            // hash, and live batches carry only the version now — so
+                            // this is where the client learns the rest. Without it a
+                            // reconnect would quote a log that no longer exists and be
+                            // answered with a body repaint.
+                            Server.cursorSignals(r, log.id, store.version)
+                          )
                         )
-                      )
+                  }
                 }
           }
           .flatMap(Stream.emits)
@@ -1391,11 +1439,17 @@ class Server(
       }
       store <- stateStore.current
       states = store.entities
+      // Answered before rendering: a render is a synchronous string build and
+      // a provider is `IO`. Only the arriving surface's queries, so an unopened
+      // popup costs nothing.
+      env <- envOf(session, renderer)
+      fragments <- resolveQueries(renderer, newSurface, states, uiState, env)
       // The arriving surface, rendered once — the bytes go to this connection
       // and the per-node trace to THIS SESSION's record. Nothing shared is
       // touched: one client switching a tab says nothing about anyone else's
       // DOM, and no [[Mutation]] is recorded for the same reason.
-      filled = Patches.hostFill(renderer, host, newSurface, states, uiState)
+      filled =
+        Patches.hostFill(renderer, host, newSurface, states, uiState, fragments)
       _ <- filled match {
         case Some((patch, html)) =>
           session.holds.update(Patches.applied(renderer.ancestry, _, patch)) *>
@@ -1440,6 +1494,142 @@ class Server(
           )
         }
     } yield ()
+
+  private def resolveQueries(
+      renderer: Renderer,
+      arriving: Option[String],
+      states: Map[String, EntityState],
+      uiState: Map[String, String],
+      env: VarEnv
+  ): IO[QuerySnapshot] =
+    answer(
+      renderer,
+      arriving.toList.flatMap(
+        renderer.queriesForSurface(_, states, uiState, env)
+      ),
+      env
+    )
+
+  /** See [[Renderer.queriesForPage]]; answered before the walk (architecture
+    * §0).
+    */
+  private def pageSnapshot(
+      session: Session,
+      renderer: Renderer,
+      open: Set[String],
+      states: Map[String, EntityState]
+  ): IO[QuerySnapshot] =
+    envOf(session, renderer).flatMap(pageAnswers(renderer, open, states, _))
+
+  private def pageAnswers(
+      renderer: Renderer,
+      open: Set[String],
+      states: Map[String, EntityState],
+      env: VarEnv
+  ): IO[QuerySnapshot] =
+    answer(renderer, renderer.queriesForPage(open, states, env), env)
+
+  /** Set a NODE VARIABLE for this viewer, and re-render the nodes that read it
+    * and that this viewer is shown (issue #209).
+    *
+    * Where the untrusted path value is checked ([[Renderer.refusals]]). A
+    * refusal raises, which [[withSession]] answers as ADR 0024's 200 of
+    * signals. Checked inside the `modify`, so two choices landing together
+    * cannot drop one.
+    *
+    * The value is committed LAST, even when no bytes moved, because the commit
+    * is what ends the control's pending ask (ADR 0025). Per session only, like
+    * a tab switch: no `Mutation`, no changelog entry.
+    */
+  private def setVar(
+      session: Session,
+      renderer: Renderer,
+      declarer: NodeId,
+      name: String,
+      value: String,
+      uiState: Map[String, String]
+  ): IO[Unit] = {
+    val readers = renderer.readersOf(declarer, name)
+    for {
+      store <- stateStore.current
+      open <- session.open.get
+      shown = renderer.surfaces.visibleNode(_, open, store.entities)
+      _ <- IO.raiseWhen(readers.isEmpty || !shown(declarer))(
+        FHError.notFound(
+          s"no node this viewer is shown reads the variable '$name' declared on '$declarer'"
+        )
+      )
+      proposed <- session.vars
+        .modify { current =>
+          val proposed = current + ((declarer, name) -> value)
+          renderer.refusals(proposed) match {
+            case Nil     => (proposed, Right(proposed))
+            case refused => (current, Left(refused))
+          }
+        }
+        .flatMap(
+          _.leftMap(r => FHError.badCondition(r.mkString("; "))).liftTo[IO]
+        )
+      env = renderer.varEnv(proposed)
+      targets = readers.filter(shown)
+      snapshot <- answer(
+        renderer,
+        renderer.readsForPull(targets, Nil, store.entities, uiState, env),
+        env
+      )
+      holds <- session.holds.get
+      live <- liveFor(session.slug)
+      patches <- live.toList.flatTraverse(l =>
+        targets.traverseFilter(
+          Patches.morph(
+            renderer,
+            l.cache,
+            holds,
+            store.entities,
+            uiState,
+            snapshot,
+            _
+          )
+        )
+      )
+      _ <- session.holds.update(
+        patches.foldLeft(_)(Patches.applied(renderer.ancestry, _, _))
+      )
+      _ <- patches.traverse_(p => session.control.offer(p.patch.toSse))
+      _ <- session.control.offer(
+        Datastar.patchSignals(
+          Server.varJson(Map((declarer, name) -> value)).noSpaces
+        )
+      )
+    } yield ()
+  }
+
+  // From the SESSION, not the request: a live pull has no request.
+  private def envOf(session: Session, renderer: Renderer): IO[VarEnv] =
+    session.vars.get.map(renderer.varEnv)
+
+  /** No `IO` round trip when nothing is asked. With no resolver wired this does
+    * not fail the page: only a render that reads a query raises, from
+    * `QuerySnapshot`, so a dashboard without charts still works.
+    */
+  private def answer(
+      renderer: Renderer,
+      wanted: List[SlotRead],
+      env: VarEnv
+  ): IO[QuerySnapshot] =
+    (queries, wanted) match {
+      case (Some(resolver), qs) if qs.nonEmpty =>
+        QuerySnapshot
+          .resolve(
+            resolver,
+            renderer.queryRequests,
+            qs,
+            env,
+            QueryIdentity.Instance
+          )
+      // Keep the env: `QuerySnapshot.empty` would resolve declared values.
+      case _ => IO.pure(QuerySnapshot.of(Map.empty, env))
+    }
 
   /** Resolve the connection (`conn` rides in the POST body among Datastar
     * signals) to its session + current renderer, and run `f`.
@@ -1878,7 +2068,20 @@ class Server(
         case Server.RendererState.Failed(message) =>
           errorPage(slug, message, req)
         case Server.RendererState.Ready(renderer) =>
-          renderPage(slug, renderer, log, conn, req)
+          // Choices off the URL (`v.` params, mirrored there by the
+          // control), narrowed to declarations because an undeclared key
+          // would become a signal name in the opening frame, and held to a
+          // write's check before any session exists.
+          val choices = Server
+            .varChoicesOf(req)
+            .view
+            .filterKeys(renderer.declarations.contains)
+            .toMap
+          renderer.refusals(choices) match {
+            case Nil     => renderPage(slug, renderer, log, conn, req, choices)
+            case refused =>
+              FHError.logged(FHError.badCondition(refused.mkString("; ")))
+          }
     }
 
   /** The full dashboard document ([[page]]) for a `Ready` slug: mint this
@@ -1890,7 +2093,8 @@ class Server(
       renderer: Renderer,
       log: FragmentLog,
       conn: String,
-      req: Request[IO]
+      req: Request[IO],
+      choices: Map[(NodeId, String), String]
   ): IO[Response[IO]] = {
     val uiState = Server.uiStateOf(req)
     // The editor embeds the dashboard as `?edit=1`; that turns on the
@@ -1955,6 +2159,7 @@ class Server(
       // only known once the last byte is out, which is why `holds` is
       // committed in the stream's finalizer below rather than here.
       ownRef <- IO.ref(Map.empty[NodeId, Painted])
+      _ <- session.vars.set(choices)
       _ <- session.position.set(store.version)
       // The page renders the cursor into its own signals, so the document
       // IS an announcement — and the first one. Without this a client
@@ -2004,6 +2209,27 @@ class Server(
       // sides — this writer, and fs2's reader — so under simulated time
       // whichever is ticked first parks the only thread and the other never
       // runs. That is a harness limitation, not a defect in this path.
+      // Answered WHILE the head goes out, since the head reads no query: a
+      // cold chart's fetch overlaps the browser fetching stylesheets, and the
+      // body waits for it on the blocking thread below. A failed or slow read
+      // is that chart's error label, so only a wiring bug can raise, and that
+      // truncates the page (architecture §0).
+      // Cancelled with the body, so an abandoned page stops waiting on it; the
+      // future is cancelled too, or a walk already parked on it never wakes.
+      pending = new java.util.concurrent.CompletableFuture[QuerySnapshot]()
+      fetch <- pageSnapshot(
+        session,
+        renderer,
+        renderer.surfaces.selectedSurfaces(uiState),
+        store.entities
+      ).attempt
+        .flatMap { r =>
+          IO {
+            val _ = r.fold(pending.completeExceptionally, pending.complete)
+          }
+        }
+        .onCancel(IO(pending.cancel(false)).void)
+        .start
       body = fs2.io
         .readOutputStream[IO](Server.PageChunkBytes) { os =>
           IO.blocking {
@@ -2024,13 +2250,17 @@ class Server(
               // Every painted node, not just the open surfaces' — the
               // document contains all of it, so recording less would be a
               // claim that is merely narrower, not safer.
-              sink =>
+              sink => {
+                // Out of the buffer, or the head waits for the answers too.
+                if (!pending.isDone) w.flush()
                 own = renderer.renderPageInto(
                   sink,
                   store.entities,
                   uiState,
-                  renderer.surfaces.openPopup(uiState)
-                ),
+                  renderer.surfaces.openPopup(uiState),
+                  Server.awaitAnswers(pending)
+                )
+              },
               renderer.themeColorTags,
               renderer.stylesheets.map(assets.rewrite),
               renderer.deferredStylesheets.map(assets.rewrite),
@@ -2040,7 +2270,8 @@ class Server(
               Server.ingressPrefixOf(req),
               restore,
               editMode,
-              haDown = !live
+              haDown = !live,
+              committed = Server.committedVars(renderer, choices)
             )
             // Flush, do not close: `readOutputStream` owns the stream and
             // closes it when this effect completes, which is what ends the
@@ -2087,6 +2318,7 @@ class Server(
             logger.warn(e)(s"page render for '$slug' failed mid-walk")
           case Resource.ExitCase.Canceled => IO.unit
         }
+        .onFinalize(fetch.cancel)
       resp <- Ok(body)
     } yield resp.withContentType(`Content-Type`(MediaType.text.html))
   }
@@ -2173,7 +2405,11 @@ class Server(
       // and corrects it — a wrong banner on the one screen whose job is to
       // report that. The stream still pushes the value on connect, because the
       // window between this render and that connect is real.
-      haDown: Boolean
+      haDown: Boolean,
+      // Seeded here, ahead of the body, for the same window: a control
+      // seeding its own highlight could only name the DECLARED value, and
+      // would mirror it into the URL over the viewer's choice until connect.
+      committed: Map[(NodeId, String), String]
   ): Unit = {
     // The theme's inline scripts come LAST of the three, but they are classic
     // scripts among deferred module ones, so they still run first — which is
@@ -2295,9 +2531,12 @@ class Server(
         restore.uiState.getOrElse(Dashboard.PopupHostId, "")
       )
     )
+    val varSeed = committed.toList.sorted.map { case ((declarer, name), v) =>
+      s", ${Server.varSignal(declarer, name)}: '${Server.escapeHtml(Server.escapeJsString(v))}'"
+    }.mkString
     val connBanner =
       s"""<div data-signals="{${Server.HaDownSignal}: $haDown, _sse: 0, ${Server.ToastSignal}: '', ${Server.ReloadSignal}: false, $popupSignalName: '$popupSeed', ${Server.ConnSignal}: '${Server
-          .escapeJsString(restore.conn)}'}"
+          .escapeJsString(restore.conn)}'$varSeed}"
          |     data-effect="$$${Server.ReloadSignal} && window.location.reload(); fhUrl('$popupParamName', $$$popupSignalName)"
          |     data-on-signal-patch-filter="{include:/^${Server.ToastSignal}$$/}"
          |     data-on-signal-patch="$$${Server.ToastSignal} && (fhToast($$${Server.ToastSignal}), $$${Server.ToastSignal} = '')"
@@ -2825,7 +3064,8 @@ object Server {
       lingerWindow: FiniteDuration = LingerWindow,
       tracer: Tracer[IO] = Tracer.noop,
       loggerFactory: LoggerFactory[IO] = Logging.console,
-      meters: Meters = Meters.noop
+      meters: Meters = Meters.noop,
+      queries: Option[QueryResolver] = None
   ): Resource[IO, Server] =
     for {
       supervisor <- Supervisor[IO]
@@ -2844,7 +3084,8 @@ object Server {
         lingerWindow,
         tracer,
         loggerFactory,
-        meters
+        meters,
+        queries
       )
       _ <- server.sharedPatchPublishers.compile.drain.background
     } yield server
@@ -2875,20 +3116,56 @@ object Server {
       loggerFactory: LoggerFactory[IO] = Logging.console,
       meters: Meters = Meters.noop
   ): Resource[IO, Server] =
-    withSite(
-      actions(feed.api),
-      feed.store,
-      site,
-      sessions,
-      gate,
-      assets,
-      feed.healthy,
-      systemPkl,
-      dumpRefresh,
-      tracer = tracer,
-      loggerFactory = loggerFactory,
-      meters = meters
+    historyQueries(feed.api, loggerFactory).flatMap(queries =>
+      withSite(
+        actions(feed.api),
+        feed.store,
+        site,
+        sessions,
+        gate,
+        assets,
+        feed.healthy,
+        systemPkl,
+        dumpRefresh,
+        tracer = tracer,
+        loggerFactory = loggerFactory,
+        meters = meters,
+        queries = Some(queries)
+      )
     )
+
+  /** `memoizedAcquire` makes the JavaScript engine lazy: an instance with no
+    * chart never pays ECharts' ~300 ms or the isolate's heap.
+    */
+  private def historyQueries(
+      api: HomeAssistantApi[IO],
+      loggerFactory: LoggerFactory[IO]
+  ): Resource[IO, QueryResolver] =
+    for {
+      chart <- ChartRenderer.resource(loggerFactory).memoizedAcquire
+      log = loggerFactory.getLoggerFromName("fh.view.history")
+      history <- History
+        .create(
+          SeriesSource.fromApi(api),
+          onFailure = (k, e) =>
+            log.warn(e)(
+              s"history of ${k.entityId} over ${k.window.name} could not " +
+                "be fetched; its charts show their error until a retry"
+            )
+        )
+        .toResource
+      resolver <- QueryResolver
+        .create(
+          history,
+          chart.map(_.render),
+          onFailure = (k, e) =>
+            log.warn(e)(
+              s"${Transform.Stage.key(k.stage)} of ${k.question._2} failed; " +
+                "it shows its error until a retry"
+            )
+        )
+        .toResource
+    } yield resolver
 
   /** The `POST /system/dump/refresh` response body — status plus what a caller
     * (the /edit editor) shows the user: the backup name on a swap, the
@@ -3012,6 +3289,70 @@ object Server {
     */
   val UiParamPrefix: String = "ui."
   val UiSignalPrefix: String = "ui_"
+
+  /** URL param prefix for a node variable's choice:
+    * `v.<declarer node id>.<name>`. Not inside `ui.`, which `SurfaceGraph`
+    * reads as bake selections. Read from the URL only, never from signals: a
+    * choice enters through the route and lives on the session.
+    */
+  val VarParamPrefix: String = "v."
+
+  /** The ADR 0025 group for a variable, keyed by DECLARER so two choosers do
+    * not move each other. Not `ui_`, which [[uiFromSignals]] reads as bake
+    * selections; the committed signal is `_`-prefixed so it never rides a
+    * request, and its pending twin matches `PendingSweep`'s `/__pending$/`.
+    */
+  private[runtime] def varGroupId(declarer: NodeId, name: String): String =
+    s"var_${declarer}__$name"
+
+  private[runtime] def varSignal(declarer: NodeId, name: String): String =
+    "_" + varGroupId(declarer, name)
+
+  /** Every declaration, at this viewer's value where it chose one. TOTAL, so a
+    * control seeded from it never shows the declared value over a choice.
+    */
+  private[runtime] def committedVars(
+      renderer: Renderer,
+      chosen: Map[(NodeId, String), String]
+  ): Map[(NodeId, String), String] =
+    renderer.declarations.map { case (key, declared) =>
+      key -> chosen.getOrElse(key, declared)
+    }
+
+  private[runtime] def varJson(
+      values: Map[(NodeId, String), String]
+  ): io.circe.Json =
+    io.circe.Json.obj(values.toList.map { case ((declarer, name), value) =>
+      varSignal(declarer, name) -> io.circe.Json.fromString(value)
+    }*)
+
+  /** Choices off the page URL. Untrusted and not narrowed here; the caller
+    * narrows to declarations.
+    */
+  def varChoicesOf(req: Request[IO]): Map[(NodeId, String), String] =
+    req.uri.query.params.toList
+      .collect {
+        case (k, v) if k.startsWith(VarParamPrefix) =>
+          k.drop(VarParamPrefix.length).split('.').toList match {
+            case node :: name :: Nil if node.nonEmpty && name.nonEmpty =>
+              Some((NodeId.derived(node), name) -> v)
+            case _ => None
+          }
+      }
+      .flatten
+      .toMap
+
+  /** The page's answers, blocking the walk's thread until they arrive — the
+    * failure rethrown as itself rather than wrapped.
+    */
+  private[runtime] def awaitAnswers(
+      pending: java.util.concurrent.CompletableFuture[QuerySnapshot]
+  ): QuerySnapshot =
+    try pending.join()
+    catch {
+      case e: java.util.concurrent.CompletionException =>
+        throw Option(e.getCause).getOrElse(e)
+    }
 
   /** The ingress path prefix the HA supervisor proxy announces via
     * `X-Ingress-Path` (e.g. `/api/hassio_ingress/<token>`), used as the page's
@@ -3550,25 +3891,26 @@ object Server {
   ): SseFrame =
     Datastar.patchSignals(cursorJson(renderer, logId, version).noSpaces)
 
-  /** A connect's last event: the cursor, PLUS what this connection's DOM is
-    * showing as the `ui_*` signals (ADR 0025). Only the server writes those; a
-    * tap says what it ASKED for in a pending signal, and the ask ends when one
-    * of these agrees with it.
+  /** A connect's last event: the cursor, PLUS everything this connection holds
+    * that only the server may assert (ADR 0025) — its bake selections as
+    * `ui_*`, and its node variables as `_var_*`. A tap says what it ASKED for
+    * in a pending signal, and the ask ends when one of these agrees with it.
     *
-    * Merged into the cursor's frame rather than sent beside it, for the reason
-    * `SessionLifecycleSuite` states as one event: an opening block that grows
-    * is how re-sending creeps back in. The cursor still rides last, because
-    * this IS last.
+    * Variables are total over the build's declarations, so a session that
+    * forgot a choice has its highlight reset to the declared value. One frame
+    * with the cursor, which still rides last.
     */
   private[runtime] def openingSignals(
       renderer: Renderer,
       open: Set[String],
+      chosen: Map[(NodeId, String), String],
       logId: String,
       version: Long
   ): SseFrame =
     Datastar.patchSignals(
       cursorJson(renderer, logId, version)
         .deepMerge(selectionJson(renderer, open))
+        .deepMerge(varJson(committedVars(renderer, chosen)))
         .noSpaces
     )
 

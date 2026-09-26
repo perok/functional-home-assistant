@@ -5,6 +5,7 @@ import com.microsoft.playwright.{Browser, Page}
 import com.microsoft.playwright.options.{ServiceWorkerPolicy, ViewportSize}
 import fh.view.runtime.TestServer
 import fh.view.testkit.{FakeConfig, Scene}
+import org.http4s.Uri
 
 import scala.concurrent.duration.*
 
@@ -61,6 +62,22 @@ abstract class SmokeSuite extends BrowserSuite {
       touch: Boolean = false
   )(
       f: (Page, TestServer) => IO[A]
+  ): IO[A] =
+    withPageOn(
+      TestServer.served(scene.dashboard, scene.entities, fakeConfig),
+      viewport,
+      touch
+    )(f)
+
+  /** [[withPage]] on a server the test wires itself — a Pkl workspace
+    * ([[TestServer.servedWorkspace]]) rather than a [[Scene]].
+    */
+  def withPageOn[A](
+      served: Resource[IO, (TestServer, Uri)],
+      viewport: Option[(Int, Int)] = None,
+      touch: Boolean = false
+  )(
+      f: (Page, TestServer) => IO[A]
   ): IO[A] = {
     val pageErrors = collection.mutable.Buffer.empty[String]
     val contextOptions = new Browser.NewContextOptions()
@@ -76,8 +93,8 @@ abstract class SmokeSuite extends BrowserSuite {
     }
     if (touch) { val _ = contextOptions.setHasTouch(true) }
     val resource = for {
-      served <- TestServer.served(scene.dashboard, scene.entities, fakeConfig)
-      (ts, uri) = served
+      bound <- served
+      (ts, uri) = bound
       context <- Resource.make(IO.blocking(browser.newContext(contextOptions)))(
         c => IO.blocking(c.close())
       )

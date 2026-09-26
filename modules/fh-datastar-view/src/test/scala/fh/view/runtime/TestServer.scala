@@ -389,6 +389,54 @@ object TestServer {
       entities: List[FixtureEntity]
   ): Resource[IO, TestServer] =
     for {
+      tmp <- stageWorkspace(slug, entrySource, entities)
+      fake <- FakeHomeAssistant.create(entities).toResource
+      feed <- HaFeed.resource(fakeConnect(fake))
+      // The REAL source-to-renderer path — the same one production's `run` uses.
+      prepared <- ServerApp.prepareRenderers(feed, tmp, None).toResource
+      site <- siteOf(prepared, slug)
+      auth <- TestAuth.create(site.permissionFor).toResource
+      server <- ServerApp.liveServer(
+        feed,
+        site,
+        auth.gate,
+        systemPkl = SystemPkl.fromDisk(tmp)
+      )
+    } yield new TestServer(fake, feed.store, server, slug, auth)
+
+  /** [[fromWorkspace]] bound on a real port with the theme's assets, as
+    * [[served]] is: the browser suites' way to drive a component exactly as the
+    * Pkl library writes it. The entry must set `access = c.access.public`,
+    * since a Playwright page cannot be handed a cookie first.
+    */
+  def servedWorkspace(
+      slug: String,
+      entrySource: String,
+      entities: List[FixtureEntity]
+  ): Resource[IO, (TestServer, Uri)] =
+    for {
+      tmp <- stageWorkspace(slug, entrySource, entities)
+      fake <- FakeHomeAssistant.create(entities).toResource
+      feed <- HaFeed.resource(fakeConnect(fake))
+      prepared <- ServerApp.prepareRenderers(feed, tmp, None).toResource
+      renderer <- IO
+        .fromOption(prepared.states.get(slug).flatMap(_.rendererOf))(
+          RuntimeException(s"'$slug' did not build: ${prepared.states}")
+        )
+        .toResource
+      site <- siteOf(prepared, slug)
+      bound <- bind(fake, feed, site, slug, renderer)
+    } yield bound
+
+  /** A package-form workspace whose one entrypoint names `entrySource` under
+    * `slug`, with the `@fh-home` dump seeded from `entities`.
+    */
+  private def stageWorkspace(
+      slug: String,
+      entrySource: String,
+      entities: List[FixtureEntity]
+  ): Resource[IO, os.Path] =
+    for {
       tmp <- IO.blocking(os.temp.dir(prefix = "fh-workspace")).toResource
       _ <- IO.blocking {
         // Seed the workspace dump from the fixtures so `@fh-home` resolves;
@@ -414,10 +462,13 @@ object TestServer {
              |""".stripMargin
         )
       }.toResource
-      fake <- FakeHomeAssistant.create(entities).toResource
-      feed <- HaFeed.resource(fakeConnect(fake))
-      // The REAL source-to-renderer path — the same one production's `run` uses.
-      prepared <- ServerApp.prepareRenderers(feed, tmp, None).toResource
+    } yield tmp
+
+  private def siteOf(
+      prepared: ServerApp.Prepared,
+      slug: String
+  ): Resource[IO, Server.LiveSite] =
+    for {
       rendererRefs <- prepared.states.toList
         .traverse { case (s, state) => SignallingRef[IO].of(state).map(s -> _) }
         .map(_.toMap)
@@ -425,14 +476,7 @@ object TestServer {
       site <- Server.LiveSite
         .of(rendererRefs, prepared.content, slug)
         .toResource
-      auth <- TestAuth.create(site.permissionFor).toResource
-      server <- ServerApp.liveServer(
-        feed,
-        site,
-        auth.gate,
-        systemPkl = SystemPkl.fromDisk(tmp)
-      )
-    } yield new TestServer(fake, feed.store, server, slug, auth)
+    } yield site
 
   /** Same wiring as [[resource]], plus a real [[AssetCache]] built exactly as
     * `ServerApp` builds it — a JDK http client fetching the theme's CDN assets
@@ -458,6 +502,27 @@ object TestServer {
       rendererRef <- SignallingRef[IO]
         .of(Server.RendererState.Ready(renderer))
         .toResource
+      site <- Server.LiveSite
+        .of(
+          Map(dashboard.slug -> rendererRef),
+          Map(dashboard.slug -> Right(dashboard)),
+          dashboard.slug
+        )
+        .toResource
+      bound <- bind(fake, feed, site, dashboard.slug, renderer)
+    } yield bound
+
+  /** A real [[AssetCache]] built as `ServerApp` builds it, and an ember bind on
+    * an OS-assigned loopback port.
+    */
+  private def bind(
+      fake: FakeHomeAssistant,
+      feed: HaFeed,
+      site: Server.LiveSite,
+      slug: String,
+      renderer: Renderer
+  ): Resource[IO, (TestServer, Uri)] =
+    for {
       httpClient <- IO(java.net.http.HttpClient.newHttpClient()).toResource
       assetsDir <- IO
         .blocking(os.temp.dir(prefix = "fh-smoke-assets"))
@@ -467,13 +532,6 @@ object TestServer {
           assetsDir,
           Server.DatastarCdn :: renderer.stylesheets ++ renderer.scripts,
           JdkHttpClient[IO](httpClient)
-        )
-        .toResource
-      site <- Server.LiveSite
-        .of(
-          Map(dashboard.slug -> rendererRef),
-          Map(dashboard.slug -> Right(dashboard)),
-          dashboard.slug
         )
         .toResource
       auth <- TestAuth.create(site.permissionFor).toResource
@@ -486,7 +544,7 @@ object TestServer {
         .withShutdownTimeout(0.seconds)
         .build
     } yield (
-      new TestServer(fake, feed.store, server, dashboard.slug, auth),
+      new TestServer(fake, feed.store, server, slug, auth),
       bound.baseUri
     )
 

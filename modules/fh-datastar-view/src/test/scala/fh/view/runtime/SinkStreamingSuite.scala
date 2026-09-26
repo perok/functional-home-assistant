@@ -1,5 +1,6 @@
 package fh.view.runtime
 
+import fh.view.query.QuerySnapshot
 import fh.view.model.{CardDef, Dashboard, NodeId, Region, Theme}
 import fh.view.testkit.DashboardBuilders.{col, component, lit}
 
@@ -72,7 +73,11 @@ class SinkStreamingSuite extends munit.FunSuite {
       new java.io.OutputStreamWriter(rec, UTF_8),
       Server.PageChunkBytes
     )
-    val own = renderer.renderPageInto(Sink.streaming(w), noStates)
+    val own = renderer.renderPageInto(
+      Sink.streaming(w),
+      noStates,
+      fragments = QuerySnapshot.empty
+    )
     w.flush()
     (rec, own)
   }
@@ -135,16 +140,27 @@ class SinkStreamingSuite extends munit.FunSuite {
     }
     // No BufferedWriter here on purpose: it would coalesce the runs and hide
     // the very quantity being measured.
-    val own = renderer.renderPageInto(Sink.streaming(direct), noStates)
+    val own = renderer.renderPageInto(
+      Sink.streaming(direct),
+      noStates,
+      fragments = QuerySnapshot.empty
+    )
     val document = Sink.buffer(renderer.pageBytesHint)
-    val _ = renderer.renderPageInto(document, noStates)
+    val _ =
+      renderer.renderPageInto(
+        document,
+        noStates,
+        fragments = QuerySnapshot.empty
+      )
 
     assert(own.nonEmpty, "the walk painted nothing")
     // What a node's rendering costs, from the renderer — so the bound moves
     // with the fixture instead of being a number copied out of a past run.
     val largestNode =
       own.keys.toList
-        .flatMap(renderer.renderNodeById(_, noStates))
+        .flatMap(
+          renderer.renderNodeById(_, noStates, fragments = QuerySnapshot.empty)
+        )
         .map(_.length)
         .max
     val shell = renderer.themeStyleTag.length
@@ -170,7 +186,8 @@ class SinkStreamingSuite extends munit.FunSuite {
     val (rec, streamOwn) = streamed()
 
     val buf = Sink.buffer(renderer.pageBytesHint)
-    val bufferOwn = renderer.renderPageInto(buf, noStates)
+    val bufferOwn =
+      renderer.renderPageInto(buf, noStates, fragments = QuerySnapshot.empty)
 
     assertEquals(rec.text, buf.result)
     assertEquals(streamOwn, bufferOwn)

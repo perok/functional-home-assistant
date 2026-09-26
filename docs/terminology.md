@@ -36,6 +36,27 @@ would let one card's gesture drive another card's readout. ADR 0017, ADR 0025.
 **Subject entity** — the entity a card is "about", carried as the magic `entity_id` slot. Other
 slots on the same node read it unless they name an entity of their own.
 
+**Node variable** — a named choice a node DECLARES (`Component.vars`) and its descendants READ. The
+word is always two words: `Renderer` already calls a card's mustache context "vars", and a theme
+calls CSS custom properties the same, so a bare "vars" in prose is ambiguous three ways.
+
+Three words go with it, and they are not interchangeable:
+
+- **Declarer** — the node whose `vars` a reference resolved to. Resolution is by NAME up the
+  ancestor chain, so a node declaring nothing is transparent and the NEAREST declarer wins.
+- **Reference** (`Ref.Var`) — a read of one, as opposed to a **literal** (`Ref.Literal`, a value
+  written down). The distinction is the access story rather than a convenience: only a declared
+  variable is writable, so a literal parameter has nowhere for a write to land.
+- **Shadow** — a nested declaration of a name an ancestor also declares, winning for its own
+  subtree and nothing else. What "one control over three charts, except this one" is made of.
+
+A declaration is a NAME and the value the variable holds before anybody chooses — that is the
+whole of it. **There is no "allowed values" on the wire**, deliberately: what a variable may hold
+is decided by whoever READS it (a chart's provider refuses a window it cannot parse), and a list
+beside the declaration would be a second, weaker copy of that, free to disagree with the control
+the author actually rendered. Where a closed set of values is the point, it lives in the Pkl that
+emits the declaration and its control from one list.
+
 **Cell** — the wrapper element the renderer puts around every node, carrying the layout classes
 (`fh-cols-3`, `fh-hug`). Layout is the backend's job, not each card's. ADR 0008.
 
@@ -177,6 +198,10 @@ state rather than swapping the node out.
 **Recorder / publisher** — the one fiber per dashboard that watches entity state and writes down
 what moved. It renders nothing and sends nothing.
 
+Home Assistant has a component of its own called the recorder — the database behind charts — and
+the two have nothing to do with each other. Unqualified, "the recorder" is ours; HA's is always
+**HA's recorder**.
+
 **Session** — one browser tab's server-side record: what it holds, how far it has read, which
 surfaces it has open.
 
@@ -254,3 +279,70 @@ but no server.
 **Snapshot (wire)** — a byte-for-byte recorded copy of a dashboard's evaluated JSON, so a refactor
 that should change nothing can prove it. Distinct from the **visual snapshots**, which are PNG
 baselines behind their own gate.
+
+## History — what a chart is drawn from
+
+Separate from the log/cursor vocabulary above, which is also about "history" in the sense of what a
+session has already been sent. Nothing here interacts with **horizon**, **floor** or **position**.
+
+**Series** — a numeric line ready to draw: points in time order, already downsampled, carrying no
+unit and no name (those belong to the entity's live state, and a copy here could disagree with the
+card beside it).
+
+**Window** — how far back a chart looks, from a closed set (`1h`/`24h`/`7d`/`30d`). Closed because
+each window carries the **bucket** its cache keys on; an arbitrary duration would give every viewer
+their own key and the sharing would stop.
+
+**Bucket** — two unrelated uses, so say which. A **cache bucket** is "now" floored to a window's
+step, and is what makes a series expire by time moving rather than by a timer. A **statistics
+bucket** is one pre-aggregated interval in HA's own table.
+
+**Retention** — how far back HA's recorder still holds raw rows. Learned, never configured: HA
+answers a too-long window with whatever survives rather than an error, so the only sound reading is
+a lower bound taken as the MAXIMUM across every entity asked for. Per entity it cannot be read at
+all — a sensor created yesterday and a daily purge give the same short answer.
+
+**Query slot** — a slot whose value comes from a **provider** rather than from live state. It is the
+other half of `SlotShape`, opposite a state slot, and it has no `reads` and no signal: where a value
+comes from and when it is read are not separate questions for one. It DOES have a `transform` — the
+one field both shapes carry, reading a different arm on each. Distinct from `query.pkl`'s `q.`
+surface, which filters CANDIDATES at build time and reaches no network — only a component author
+writes a query slot.
+
+**Provider** — the named thing that answers a query, and the read counterpart of `ServiceCalls`. It
+exists as a seam because HA scopes recorder data per user, so who is reading is a property of the
+request. `history` is the only one. A provider FETCHES and answers with an **answer**; it has no
+opinion about presentation and no way to express one. It owns the fetch's caching: expiring by a
+**bucket** rolling works for recorder data because the past is immutable, and would be wrong for a
+forecast or a camera.
+
+**Answer** — what a provider answers with: DATA plus a **version**, travelling together so a version
+with no content cannot be written. The version says AS OF WHEN this content became current, must be
+non-decreasing, and doubles as the caching policy — a stable one is shared by every viewer, one that
+moves every call is uncached by construction.
+
+**Stage** — what an answer BECOMES, and the third arm of a slot's `transform`. `chart` draws SVG;
+`passthrough` is the absence of a transform — the provider's JSON, which is the contract a third
+party writing their own chart library reads against. A query slot's default is derived from its
+shape, the same rule `reads` follows, so the wire states which tier is in play rather than leaving a
+reader to infer it.
+
+**Ask** vs **read** — the same pair (a query and the stage applied to it) at two different times,
+and the distinction is what lets a query parameter be per-viewer at all.
+
+An **ask** (`SlotAsk`) is what a node statically declares: its parameters may still be
+**references** to node variables. It is a property of the TREE, so a node holds its own, and the
+static input set stays enumerable before the walk.
+
+A **read** (`SlotRead`) is the same pair with every reference resolved — what this render actually
+asked for, and what the render key and both caches carry. The pair rather than the query alone
+because the two deduplicate at different levels: two cards charting one sensor over one window at
+different sizes are ONE fetch and TWO drawings, so they share a version and must not share a cache
+entry.
+
+What a stage produces carries the provider's version unchanged, because a stage is a deterministic
+function of an answer and has no version of its own. The runtime type holding that pair is
+`Staged`, and the collection of them for one render is a `QuerySnapshot` — the query counterpart
+of the `Map[String, EntityState]` the state half travels as. Both were called `Fragment`/
+`Fragments`, which collided with the **fragment** defined above (a node's own HTML); the names
+were fixed before any of this merged.

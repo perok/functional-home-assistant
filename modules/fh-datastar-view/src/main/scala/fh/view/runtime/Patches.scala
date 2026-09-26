@@ -3,7 +3,8 @@ package fh.view.runtime
 import cats.effect.IO
 import cats.syntax.traverse.*
 import cats.syntax.traverseFilter.*
-import fh.view.model.{DomId, NodeId, SetId, SignalId, SlotValue}
+import fh.view.query.QuerySnapshot
+import fh.view.model.{DomId, NodeId, SetId, SignalId, SlotRead, SlotValue}
 import fh.view.model.DomId.selector
 import io.circe.Json
 
@@ -523,6 +524,10 @@ private[runtime] object Patches {
       log: FragmentLog,
       holds: Map[NodeId, Held],
       states: Map[String, EntityState],
+      // Asked for exactly the reads this pull renders
+      // ([[Renderer.readsForPull]]); most pulls render no chart, and ask none.
+      answers: List[SlotRead] => IO[QuerySnapshot],
+      env: VarEnv,
       v: Long,
       open: Set[String] = Set.empty,
       uiState: Map[String, String] = Map.empty
@@ -550,12 +555,12 @@ private[runtime] object Patches {
     // and sits on an EMPTY host until something unrelated moves. ONE `Inner` per
     // affected container, through the same primitive the live flip uses — so a
     // client that missed a flip is treated byte-identically to one that did not.
-    val branchFills = branch
+    def branchFills(fragments: QuerySnapshot) = branch
       .groupBy { case (_, m) => m.container }
       .toList
       .sortBy(_._1)
       .flatMap { case (gid, entries) =>
-        val content = renderer.renderHost(gid, states, uiState)
+        val content = renderer.renderHost(gid, states, uiState, fragments)
         branchPatch(
           renderer,
           gid,
@@ -571,7 +576,7 @@ private[runtime] object Patches {
           )
         )
       }
-    val places = memberMoves
+    def places(fragments: QuerySnapshot) = memberMoves
       .collect { case (nodeId, p: Mutation.Placed) => (nodeId, p) }
       .groupBy { case (_, p) => p.container }
       .toList
@@ -597,7 +602,7 @@ private[runtime] object Patches {
               // Rendered NOW, not read back: the snapshot is at least as fresh as
               // anything the log could have kept, and it is what lets the log hold
               // a version instead of bytes.
-              bytes(renderer, cache, nodeId, states, uiState).map(
+              bytes(renderer, cache, nodeId, states, uiState, fragments).map(
                 _.toList.flatMap { case NodeBytes(html, digest) =>
                   // Every current member is a usable anchor here: emitting
                   // descending by position means a node's successor was either
@@ -626,9 +631,9 @@ private[runtime] object Patches {
     // all-or-nothing over a host's children, so this cannot be partial — which
     // is precisely why it is the fallback of last resort, and why it is worth
     // having only because it replaced a whole-BODY repaint.
-    val refills = owed.refill.sorted.map { gid =>
+    def refills(fragments: QuerySnapshot) = owed.refill.sorted.map { gid =>
       val asSet = renderer.members.setContainer(gid)
-      val content = renderer.renderHost(gid, states, uiState)
+      val content = renderer.renderHost(gid, states, uiState, fragments)
       Addressed(
         Patch.Insert(
           content.parts.map(_._2).mkString,
@@ -677,20 +682,24 @@ private[runtime] object Patches {
       (changed ++ fromOpenIds ++ memberMoves.collect {
         case (nodeId, _: Mutation.Placed) => nodeId
       }).distinct
+    val hosts = (branch.map(_._2.container) ++ owed.refill).distinct
     for {
+      fragments <- answers(
+        renderer.readsForPull(touchedIds, hosts, states, uiState, env)
+      )
       morphs <- changed.traverseFilter(
-        morph(renderer, cache, holds, states, uiState, _)
+        morph(renderer, cache, holds, states, uiState, fragments, _)
       )
       open <- fromOpenIds.traverseFilter(
-        morph(renderer, cache, holds, states, uiState, _)
+        morph(renderer, cache, holds, states, uiState, fragments, _)
       )
-      placed <- places
+      placed <- places(fragments)
     } yield signalFrame(renderer, holds, states, touchedIds) ++
       morphs ++ open ++
       gone.toList.sorted.map(id =>
         Addressed(Patch.Remove(renderer.elementId(id)))
       ) ++
-      branchFills ++ placed ++ refills
+      branchFills(fragments) ++ placed ++ refills(fragments)
   }
 
   /** The one `datastar-patch-signals` frame a batch carries, or nothing (ADR
@@ -765,15 +774,16 @@ private[runtime] object Patches {
     * one client. A MISSING entry counts as "send" — unknown, so tell the
     * client.
     */
-  private def morph(
+  private[runtime] def morph(
       renderer: Renderer,
       cache: RenderCache,
       holds: Map[NodeId, Held],
       states: Map[String, EntityState],
       uiState: Map[String, String],
+      fragments: QuerySnapshot,
       id: NodeId
   ): IO[Option[Addressed]] =
-    bytes(renderer, cache, id, states, uiState).map(_.flatMap {
+    bytes(renderer, cache, id, states, uiState, fragments).map(_.flatMap {
       case NodeBytes(html, digest) =>
         Option.when(!holds.get(id).flatMap(_.digest).contains(digest))(
           Addressed(Patch.Morph(html), Map(id -> Held.bytes(digest)))
@@ -795,20 +805,36 @@ private[runtime] object Patches {
       cache: RenderCache,
       id: NodeId,
       states: Map[String, EntityState],
-      uiState: Map[String, String]
+      uiState: Map[String, String],
+      // Resolved by the caller: a version moving does not wake its node.
+      fragments: QuerySnapshot
   ): IO[Option[NodeBytes]] =
-    renderer.renderInputs(id, states) match {
+    renderer.renderInputs(id, states, fragments) match {
       case Some(inputs) =>
         cache(
           id,
           renderer,
           inputs,
-          renderer.byteSlotValues(id, states)
+          renderer.byteSlotValues(id, states, fragments)
         )(
-          IO(mustRender(renderer.renderNodeById(id, states, uiState), id))
+          IO(
+            mustRender(
+              renderer.renderNodeById(
+                id,
+                states,
+                uiState,
+                fragments = fragments
+              ),
+              id
+            )
+          )
         ).map(Some(_))
       case None =>
-        IO(renderer.renderNodeById(id, states, uiState).map(NodeBytes.of))
+        IO(
+          renderer
+            .renderNodeById(id, states, uiState, fragments = fragments)
+            .map(NodeBytes.of)
+        )
     }
 
   /** ONE anchor rule for both the live add path and the resume replay, because
@@ -863,10 +889,11 @@ private[runtime] object Patches {
       host: DomId,
       arriving: Option[String],
       states: Map[String, EntityState],
-      uiState: Map[String, String]
+      uiState: Map[String, String],
+      fragments: QuerySnapshot
   ): Option[(Addressed, String)] =
     arriving
-      .flatMap(renderer.renderSurfaceTraced(_, states, uiState))
+      .flatMap(renderer.renderSurfaceTraced(_, states, uiState, fragments))
       .map { t =>
         (
           Addressed(
