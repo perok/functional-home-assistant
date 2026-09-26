@@ -9,7 +9,9 @@ import scala.jdk.CollectionConverters.*
   */
 object Downsample {
 
-  /** Below a 600px chart's pixel resolution, and a few tens of KB of SVG. */
+  /** Below the default 400px chart's pixel resolution, and a few tens of KB of
+    * SVG.
+    */
   val DefaultTarget: Int = 300
 
   def lttb(points: Vector[Series.Point], target: Int): Vector[Series.Point] =

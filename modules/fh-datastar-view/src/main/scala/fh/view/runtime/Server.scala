@@ -34,8 +34,6 @@ import fs2.Stream
 import fs2.concurrent.{Signal, SignallingRef}
 import io.circe.{Decoder, Json}
 import org.http4s.*
-// `EntityEncoder[IO, Json]`, so a JSON route answers `Ok(json)` and takes its
-// content type from the encoder rather than restating it.
 import org.http4s.circe.*
 import org.http4s.dsl.io.*
 import org.http4s.headers.{
@@ -53,8 +51,8 @@ import java.nio.charset.StandardCharsets.UTF_8
 
 import scala.concurrent.duration.*
 
-/** HTTP surface for the dashboards. Construct via [[Server.resource]], which
-  * runs the per-slug recorders.
+/** HTTP surface for the dashboards. Construct via [[Server.fromFeed]] (or
+  * [[Server.withSite]]), which runs the per-slug recorders.
   *
   * Opening a surface, switching a tab and closing a popup are all one host-swap
   * ([[swapHost]]); going to ANOTHER dashboard is not a route here at all, but
@@ -469,10 +467,9 @@ class Server(
     * the same [[Patches.resume]] a reconnect uses.
     *
     * What that buys is that a client's DOM is decided against a record of THAT
-    * client's DOM, so one viewer's selections, filters and disconnections can
-    * no longer be baked into another's bytes. What it costs is the fan-out: N
-    * viewers of one slug currently render N times, which is what wiring the
-    * per-slug [[RenderCache]] into the resume path is for
+    * client's DOM, so one viewer's selections, filters and disconnections
+    * cannot be baked into another's bytes. The fan-out that costs — N viewers
+    * pulling the same node — is shared through the slug's [[RenderCache]]
     * (docs/adr/0012-each-session-renders-what-it-is-owed.md).
     *
     * Renderer hot-swap: `switchMap` re-arms on every reload with the CURRENT
@@ -603,9 +600,8 @@ class Server(
     * ring the doorbell.
     *
     * No client `uiState` reaches it and nothing is rendered, so what a slug
-    * pays per frame is one selection pass however many viewers it has — and
-    * there is no longer anything a viewer could be told that another viewer
-    * decided.
+    * pays per frame is one selection pass however many viewers it has, and
+    * nothing a viewer is told can have been decided by another viewer.
     *
     * '''A slug nobody is watching records nothing''' and says so
     * ([[FragmentLog.skipped]]). A dashboard with no browser on it is the NORMAL
@@ -685,11 +681,11 @@ class Server(
         s.supersede.flatMap(IO.whenA(_)(sessions.deregisterIf(conn, s)))
     }
 
-  /** The per-connection SSE stream: a `conn` signal, then the slug's shared
-    * patches (filtered to what this client can see, with any [[Varying]]
-    * resolved against its selections), the session control channel, live-reload
-    * body repaints, and a heartbeat. An unknown slug is a 404 — the gate lives
-    * at the tail, on the stream's own single lookup ([[liveFor]]).
+  /** The per-connection SSE stream: the opening patches ([[openingPatches]]),
+    * then what this session pulls off the slug's doorbell ([[pull]]), merged
+    * with its control channel, live-reload repaints, HA health and a heartbeat.
+    * An unknown slug is a 404 — the gate lives at the tail, on the stream's own
+    * single lookup ([[liveFor]]).
     */
   private def sseStream(
       slug: String,
@@ -698,15 +694,9 @@ class Server(
   ): IO[Response[IO]] =
     val uiState = Server.uiStateOf(req)
     for {
-      // The session was established by the document this stream belongs to,
-      // which is where its `holds` came from. A `conn` naming nothing — a
-      // reaped session, a bookmarked SSE URL, a server restart — is not an
-      // error: a fresh session is minted under the SAME id, so the client keeps
-      // the `conn` it already has and only loses the suppression its `holds`
-      // would have given (bytes, never staleness).
-      // `None` means this URL named no session — a bookmarked SSE endpoint, or
-      // a client whose document predates the signal. Every ordinary load
-      // carries one, because the document minted it.
+      // `None` means this URL named no session — a bookmarked SSE endpoint.
+      // Every ordinary load carries one, because the document minted it; one
+      // naming nothing is adopted-or-minted below ([[adoptOrMint]]).
       named = Server.connOf(req)
       conn <- named.fold(IO.randomUUID.map(_.toString))(IO.pure)
       // This tab's PREVIOUS session, named by the page that replaced it. A
@@ -724,52 +714,32 @@ class Server(
       rendererOpt <- liveOpt
         .traverse(_.renderer.get)
         .map(_.flatMap(_.rendererOf))
-      // Seed the open set from this client's ui state — its selected tab
-      // panels AND the popup it says it still has open, which is now the same
-      // kind of selection read from the same map — so all of them receive live
-      // updates from the first paint and a reconnect does not silently orphan
-      // the dialog on screen.
-      // Warn on any off ui-state value.
       _ <- Server
         .cursorAnomaly(req)
         .traverse_(w => logger.warn(w))
+      // Seed the open set from this client's ui state — its selected tab
+      // panels AND the popup it says it still has open — so all of them
+      // receive live updates from the first paint and a reconnect does not
+      // orphan the dialog on screen.
       _ <- rendererOpt.traverse_ { r =>
         warnAnomalies(r, uiState) *>
           session.open.set(
             r.surfaces.selectedSurfaces(uiState)
           )
       }
-      // On (re)connect, heal whatever the DOM missed while the stream was down —
-      // the shared/per-session passes only stream FUTURE changes, so without this
-      // a reconnected client would show pre-drop values until each entity next
-      // ticks. Either the cursor names precisely what this DOM holds (resume), or
-      // the whole body is repainted from the current snapshot.
       // Home-Assistant-feed liveness, PUSHED from the server (it owns the
-      // `healthy` signal). Emitted on connect as well as on transitions, even
-      // though the document now seeds the true value: the window between that
-      // render and this connect is a parse, a module load and a round trip, and
-      // health moving inside it would otherwise leave a wrong banner up until
-      // the next transition — which can be hours. One small signal per connect,
-      // and the alternative (having the client send its value back so the
-      // server can compare) costs the same bytes on every reconnect instead.
-      //
-      // This is concept 1 of the two disconnect concepts
-      // (see [[Server.pageInto]]): the backend knows when it can't reach HA, so it
-      // emits the `haDown` signal directly rather than the client inferring it
-      // from a stalled beat. Concept 2 (browser<->server transport) stays
-      // client-side — only the browser can observe its own dropped SSE.
+      // `healthy` signal) — concept 1 of the two disconnect concepts (see
+      // [[Server.pageInto]]); the browser<->server transport stays client-side.
       healthPatch = (h: Boolean) =>
         Datastar.patchSignals(s"""{"${Server.HaDownSignal}":${!h}}""")
 
       control = Stream.fromQueueUnterminated(session.control)
       reloads = reloadRepaints(session, uiState, rendererOpt)
-      // Emit `haDown` on connect (the initial `discrete` value) and on every
-      // health transition.
-      // ...and only when it differs from what this client was last told. The
-      // document renders the banner's value into the page and records it on the
-      // session, so an ordinary load is already correct and needs no patch;
-      // what survives is the case this exists for, health moving between that
-      // render and this connect.
+      // On connect and on every transition, but only when it differs from what
+      // this client was last told: the document renders the banner's value and
+      // records it on the session, so what survives is health moving in the
+      // window between that render and this connect — a window that would
+      // otherwise leave a wrong banner up until the next transition, hours.
       haDown = healthy.discrete.changes.evalMapFilter { h =>
         val down = !h
         session.haDown.modify {
@@ -777,14 +747,9 @@ class Server(
           case _            => (Some(down), Some(healthPatch(h)))
         }
       }
-      // What this client has actually been TOLD, as opposed to what it has been
-      // served (`session.position`), now lives on the SESSION: a reconnect
-      // measures its cursor against it ([[openingPatches]]), so it has to
-      // outlive the stream that announced it. The floor still reads `position`,
-      // whose semantics are written up on [[Session]].
       // Something for an idle connection to carry, so an intermediary doesn't
       // reap it — and the place the cursor catches up, since a pull that owed
-      // this client nothing now sends nothing at all. A quiet house still costs
+      // this client nothing sends nothing at all. A quiet house still costs
       // only the COMMENT (see [[Server.KeepAliveInterval]]); the signal goes out
       // once per position change and then stops.
       keepAlive = Stream
@@ -1376,8 +1341,8 @@ class Server(
   /** Open (or switch to) a surface for this connection: resolve its host —
     * [[fh.view.model.Surface.hostId]] — and hand off to [[swapHost]], the
     * single open/switch/close primitive.
-    */
-  /** A surface this renderer does not have is a STALE DOCUMENT, not a bad
+    *
+    * A surface this renderer does not have is a STALE DOCUMENT, not a bad
     * request: ids are location-derived, so an edit that adds a card above one
     * renames it, and a page open across that rebuild taps the old name. Raised
     * rather than ignored — it is the last way a tap could still do nothing and
@@ -1407,10 +1372,9 @@ class Server(
     * surface content, not backend chrome). No server state tracks "is a popup
     * open", and one host-swap primitive covers open, close and stack alike.
     *
-    * A swap of the POPUP host does NOT touch the client's `ui_<hostId>` — the
-    * tap that asked for the swap already set it, exactly as a tab button sets
-    * its own. One mechanism for every selection, and the browser keeps the one
-    * bit of per-session state a reconnect restores the dialog from.
+    * Every swap, the popup host's included, ends by COMMITTING the selection it
+    * made true as `ui_<hostId>` — the tap only wrote a pending value (ADR
+    * 0025).
     *
     * The fill itself — render, and say what it put where — is
     * [[Patches.hostFill]]. What stays here is the half a state-group flip does
@@ -1789,21 +1753,8 @@ class Server(
       .traverse_(w => logger.warn(w))
 
   /** Datastar reads live updates from the persistent SSE stream, so a service
-    * call that WORKS returns no content.
-    *
-    * One that fails answers **200 carrying signals**, not 4xx. The request was
-    * served — this route reached HA and got an answer — and what failed is the
-    * operation, which is a fact about the page and therefore travels as page
-    * state. The pinned bundle makes that the only workable shape: it parses a
-    * response body `if (M !== 200) { … return }`, so an error body is dropped
-    * unread and a status is all the client can ever learn from a 4xx. Datastar
-    * argues the same from the other side ("if you get a client error when you
-    * control both sides then it's a bug"); ADR 0024 named this answer and
-    * deferred it, and this is it arriving.
-    *
-    * The signals go to the control that was pressed ([[Server.nodeParam]]) and
-    * to the shell's toast, so the message HA actually gave — "entity not
-    * found", not "(400)" — is what both show.
+    * call that WORKS returns no content; one that fails is [[actionRefused]],
+    * carrying the message HA actually gave — "entity not found", not "(400)".
     */
   private def callService(
       domain: String,
@@ -1834,8 +1785,7 @@ class Server(
     * which is a fact about the page and travels as page state. The pinned
     * bundle leaves no alternative: it parses a body `if (M !== 200) { … return
     * }`, so a 4xx body is dropped unread and a bare status is all a client can
-    * learn from one. ADR 0024 named this answer, argued it was the better one,
-    * and deferred it; this is it arriving.
+    * learn from one (ADR 0024).
     *
     * Three signals, each the state of one thing the refusal touched:
     *
@@ -1844,10 +1794,10 @@ class Server(
     *     toast that expires.
     *   - `_<group>__pending` cleared — the ask ENDED, so a selection that was
     *     waiting on it stops claiming a panel this DOM does not have (ADR
-    *     0025). Server-sent, which is what let `pendingFail` go: the client was
-    *     inferring this from a status it will no longer see.
-    *   - `_toast` — the shell's transient bar, now carrying HA's own words
-    *     rather than a status code.
+    *     0025). Server-sent, because the client cannot infer it from a status
+    *     it never sees.
+    *   - `_toast` — the shell's transient bar, carrying HA's own words rather
+    *     than a status code.
     *
     * Both ids are the CLIENT's claim about itself, in the query string
     * ([[Server.actionSignals]] validates their shape before they become signal
@@ -2114,8 +2064,9 @@ class Server(
       // selection key: this render used THIS viewer's `uiState`, where a
       // shared record would have to hold one digest per selection to
       // avoid claiming somebody else's tab.
-      // ONE read, used twice: the banner this page renders and the
-      // record of what it told this client must be the same value, or the
+      //
+      // Health is read ONCE and used twice: the banner this page renders and
+      // the record of what it told this client must be the same value, or the
       // stream will either repeat it or skip a real change.
       live <- healthy.get
       session <- Session
@@ -2154,11 +2105,6 @@ class Server(
       // against -1 and trusted.
       _ <- session.told.set(store.version)
       _ <- warnAnomalies(renderer, uiState)
-      // What this document is showing, and so also what it must hand
-      // back on connect for the stream to agree with it — the ui state
-      // (the open popup included) AND the version it was rendered at.
-      // That last part is what stops the first connect repainting a body
-      // the document already contains.
       restore = Server.Restore(
         restoreUi,
         conn,
@@ -2171,45 +2117,19 @@ class Server(
           )
         )
       )
-      // The document is ONE stream of writes, shell included: `pageInto`
-      // writes the head and the closing tags around a WRITER HOLE the walk
-      // fills. Building the body as a String and splicing it into an
-      // interpolated document instead is a full copy of the page, and it has to
-      // exist before a single byte can go out.
-      //
-      // ONE walk, used twice: the bytes go to the browser and the per-node
-      // trace seeds `holds`. Fingerprinting separately means walking the open
-      // surfaces a second time, node by node, to re-derive what the page just
-      // composed.
-      //
-      // The document is WRITTEN AT THE CLIENT, never assembled here. The walk
-      // runs on a blocking thread whose writes ARE this response's body, so
-      // the peak a render holds is one node rather than the whole page, and
-      // the browser has the `<head>` — stylesheets, module scripts, base href
-      // — before the body has finished rendering. On a Pi both of those are
-      // worth more than the microseconds the bridge costs.
-      //
-      // `IO.blocking` HERE IS DELIBERATE and it is the reason `ServerHarness`
-      // runs the tests that fetch a document on the real runtime rather than
-      // under `TestControl` (see `testReal` there): `TestControl` ticks one
-      // fiber on one thread, and `readOutputStream` has two mutually-blocking
-      // sides — this writer, and fs2's reader — so under simulated time
-      // whichever is ticked first parks the only thread and the other never
-      // runs. That is a harness limitation, not a defect in this path.
       // Answered WHILE the head goes out, since the head reads no query: a
       // cold chart's fetch overlaps the browser fetching stylesheets, and the
       // body waits for it on the blocking thread below. A failed or slow read
       // is that chart's error label, so only a wiring bug can raise, and that
       // truncates the page (architecture §0).
-      // Cancelled with the body, so an abandoned page stops waiting on it; the
-      // future is cancelled too, or a walk already parked on it never wakes.
+      //
+      // A `CompletableFuture` rather than a `Deferred` because the side that
+      // waits is the walk: plain synchronous code on a blocking thread, with
+      // no `IO` to `get` in. Cancelled with the body, so an abandoned page
+      // stops waiting on it; the future is cancelled too, or a walk already
+      // parked on it never wakes.
       pending = new java.util.concurrent.CompletableFuture[QuerySnapshot]()
-      fetch <- pageSnapshot(
-        session,
-        renderer,
-        renderer.surfaces.selectedSurfaces(uiState),
-        store.entities
-      ).attempt
+      fetch <- pageSnapshot(session, renderer, open, store.entities).attempt
         .flatMap { r =>
           IO {
             val _ = r.fold(pending.completeExceptionally, pending.complete)
@@ -2217,6 +2137,15 @@ class Server(
         }
         .onCancel(IO(pending.cancel(false)).void)
         .start
+      // ONE stream of writes, shell included: `pageInto` writes the head and
+      // the closing tags around a WRITER HOLE the walk fills, on a blocking
+      // thread whose writes ARE this response's body — so a render holds one
+      // node rather than the page, and the browser has the `<head>` before the
+      // body is done. The same walk's per-node trace seeds `holds`.
+      //
+      // `IO.blocking` here is why `ServerHarness` fetches documents on the real
+      // runtime (`testReal`): `readOutputStream`'s two sides block each other,
+      // and `TestControl` ticks one fiber on one thread.
       body = fs2.io
         .readOutputStream[IO](Server.PageChunkBytes) { os =>
           IO.blocking {
@@ -2386,12 +2315,10 @@ class Server(
       ingressPrefix: Option[String],
       restore: Server.Restore,
       editMode: Boolean,
-      // Upstream HA liveness AT RENDER TIME. Seeded rather than hardcoded
-      // `false`, which is what it was: a page loaded while HA is unreachable
-      // then renders as healthy and stays that way until the stream connects
-      // and corrects it — a wrong banner on the one screen whose job is to
-      // report that. The stream still pushes the value on connect, because the
-      // window between this render and that connect is real.
+      // Upstream HA liveness AT RENDER TIME, so a page loaded while HA is
+      // unreachable says so before the stream connects. The stream still
+      // pushes the value on connect, because the window between this render
+      // and that connect is real.
       haDown: Boolean,
       // Seeded here, ahead of the body, for the same window: a control
       // seeding its own highlight could only name the DECLARED value, and
@@ -2487,30 +2414,32 @@ class Server(
     // override a stylesheet rule, so hiding these in the theme CSS would hide
     // them permanently.
     val hidden = """style="display:none""""
-    // The banner state is DEBOUNCED so a sub-second blip never paints. Two
-    // things flash without it: an ordinary visibility refetch (the phone-unlock
-    // path this whole resume design serves), and a page reload — navigating away
-    // aborts the stream, which fires `error` on the OUTGOING page and paints
-    // "Reconnecting…" for an instant before it is replaced. Datastar's retry
-    // backoff grows past this window, so a real outage still surfaces.
+    // The banner state is DEBOUNCED (`__debounce.600ms`, below) so a
+    // sub-second blip never paints. Two things flash without it: an ordinary
+    // visibility refetch (the phone-unlock path this whole resume design
+    // serves), and a page reload — navigating away aborts the stream, which
+    // fires `error` on the OUTGOING page and paints "Reconnecting…" for an
+    // instant before it is replaced. Datastar's retry backoff grows past this
+    // window, so a real outage still surfaces.
     //
-    // The modifier separator is `__`, with the value after a `.`
-    // (`__debounce.600ms`) — read off the pinned bundle's own parser
-    // (`attr.split("__")`, then `mod.split(".")`), NOT from the vendored docs,
-    // which show `.debounce_600ms`. That form silently becomes part of the EVENT
-    // NAME: the listener binds to `datastar-fetch.debounce_600ms`, which never
-    // fires, so `_sse` never updates and the banner never appears at all.
+    // The modifier separator is `__`, with the value after a `.` — read off
+    // the pinned bundle's own parser (`attr.split("__")`, then
+    // `mod.split(".")`), NOT from the docs, which show `.debounce_600ms`. That
+    // form silently becomes part of the EVENT NAME, so `_sse` never updates
+    // and the banner never appears at all.
+    val sseEvent = s"${Server.StreamEvent}__document__debounce.600ms"
     // The popup this document has open, seeded from the URL so a REFRESH
     // restores the dialog (the signal itself dies with the document); the
     // effect mirrors it back on every change. Together these are a hand-rolled
-    // `data-query-string` — see [[Server.UrlSyncScript]] and ADR 0005.
-    // Two nested contexts, so two escapes: the value sits in a JS string literal
-    // (Datastar parses the attribute as an expression) which sits in an HTML
-    // attribute. HTML-escaping alone is not enough — `&#39;` decodes back to a
-    // bare `'` and closes the literal early.
-    // The popup host is the ONE selection with no card template to seed it —
-    // it lives in `theme.chrome`, outside every node — so the shell declares
+    // `data-query-string` — see [[Server.UrlSyncScript]] and ADR 0005. The
+    // popup host is the ONE selection with no card template to seed it — it
+    // lives in `theme.chrome`, outside every node — so the shell declares
     // `ui_<hostId>` and mirrors it, exactly as a tabs host does for its own.
+    //
+    // Two nested contexts, so two escapes: the value sits in a JS string
+    // literal (Datastar parses the attribute as an expression) which sits in
+    // an HTML attribute. HTML-escaping alone is not enough — `&#39;` decodes
+    // back to a bare `'` and closes the literal early.
     val popupSignalName = Server.UiSignalPrefix + Dashboard.PopupHostId
     val popupParamName = Server.UiParamPrefix + Dashboard.PopupHostId
     val popupSeed = Server.escapeHtml(
@@ -2527,7 +2456,7 @@ class Server(
          |     data-effect="$$${Server.ReloadSignal} && window.location.reload(); fhUrl('$popupParamName', $$$popupSignalName)"
          |     data-on-signal-patch-filter="{include:/^${Server.ToastSignal}$$/}"
          |     data-on-signal-patch="$$${Server.ToastSignal} && (fhToast($$${Server.ToastSignal}), $$${Server.ToastSignal} = '')"
-         |     data-on:${Server.StreamEvent}__document__debounce.600ms="$$_sse = $sseLatched">
+         |     data-on:$sseEvent="$$_sse = $sseLatched">
          |  <div $hidden ${Server.PendingSweep}></div>
          |  <div class="fh-offline fh-offline-sse" $hidden role="status" aria-live="assertive" data-show="$$_sse > 0">
          |    <span $hidden data-show="$$_sse < 2">Reconnecting to the dashboard…</span>
@@ -2796,6 +2725,12 @@ object Server {
           .flatMap(_.traverse_(_.renderer.set(state)))
       }
 
+    /** The slug the SITE asks for at `/` — a preference, since it may name a
+      * dashboard that does not exist. Set by every reload ([[applySite]]) and
+      * by a pushed site, which names its own default the same way.
+      */
+    def setPreferred(slug: Option[String]): IO[Unit] = preferred.set(slug)
+
     /** Apply an evaluated entrypoint: install what is new or changed, leave
       * what is unchanged alone, and drop the slugs the site no longer names.
       *
@@ -2803,12 +2738,6 @@ object Server {
       * not the entrypoint's to reclaim, which the origin decides rather than
       * the caller remembering.
       */
-    /** The slug the SITE asks for at `/` — a preference, since it may name a
-      * dashboard that does not exist. Set by every reload ([[applySite]]) and
-      * by a pushed site, which names its own default the same way.
-      */
-    def setPreferred(slug: Option[String]): IO[Unit] = preferred.set(slug)
-
     def applySite(
         dashboards: List[(String, Either[String, Dashboard.Validated])],
         prefer: Option[String]
@@ -3155,7 +3084,7 @@ object Server {
     } yield resolver
 
   /** The `POST /system/dump/refresh` response body — status plus what a caller
-    * (the /edit editor) shows the user: the backup name on a swap, the
+    * (the /edit editor) shows the user: the new dump version on a swap, the
     * per-dashboard errors on a rejection.
     */
   def dumpRefreshJson(result: DumpRefresh.Result): Json = {
@@ -3422,8 +3351,8 @@ object Server {
   val ToastSignal: String = "_toast"
 
   /** **Nothing is coming, so no ask is still outstanding** — ONE rule for the
-    * whole page, on the shell, replacing the copy each selection group used to
-    * carry (ADR 0025).
+    * whole page, on the shell, rather than a copy on every selection group (ADR
+    * 0025).
     *
     * A pending value says "this client has asked for X and is waiting". Two
     * things end that wait without an answer, and neither is specific to any one
@@ -3489,11 +3418,10 @@ object Server {
     * so nesting the four cursor fields here keeps them out of every request BUT
     * the one that reads them.
     *
-    * They used to be four top-level signals, which meant every action POST
-    * carried them for a server that never looks. The SSE GET puts them back
-    * with an explicit `filterSignals` ([[SseOptions]]) — an include, because
-    * include and exclude are ANDed and the default exclude would otherwise
-    * still drop them.
+    * As top-level signals every action POST would carry them for a server that
+    * never looks. The SSE GET puts them back with an explicit `filterSignals`
+    * ([[SseRetry]]) — an include, because include and exclude are ANDed and the
+    * default exclude would otherwise still drop them.
     *
     * Nested rather than four `_cursor_x` names because Datastar MERGES nested
     * objects rather than replacing them (`Nt` in the pinned bundle keeps an
@@ -3527,16 +3455,10 @@ object Server {
     */
   val StreamEvent: String = "fh-stream"
 
-  /** The four resume signals (docs/adr/0011-the-live-connection.md), all PUSHED
-    * by the server and never declared client-side. Datastar sends every
-    * non-`_`-prefixed signal back with each backend action, so they ride the
-    * reconnect URL for free and the server keeps no per-client state between
-    * connections.
-    *
-    * NOT `_`-prefixed, and that is a deliberate exception: `_` is exactly the
-    * convention for per-connection client state (`_sse`, the SSE-down banner),
-    * which these ARE — but the prefix is what excludes a signal from the URL,
-    * and riding the URL is their entire purpose.
+  /** The four resume fields (docs/adr/0011-the-live-connection.md), nested
+    * under [[CursorSignal]] and all PUSHED by the server. The SSE GET's
+    * [[SseInclude]] is what brings them back on a reconnect; every other
+    * request leaves them behind.
     *
     *   - `headHash` — does the browser's `<head>` still match where it CANNOT
     *     be patched? Mismatch ⇒ page reload ([[Renderer.headHash]]).
@@ -3768,7 +3690,7 @@ object Server {
     * cursor survives the visibility refetch that closes and reopens the stream
     * (verified in a browser, and live against a real instance — ADR 0011).
     *
-    * `None` for anything short of all three fields, which covers a first load
+    * `None` for anything short of all four fields, which covers a first load
     * (empty store), a partial patch, and a garbled param alike — every one of
     * them a repaint.
     */
@@ -3781,11 +3703,11 @@ object Server {
     * ([[Restore]]), read from plain query params.
     *
     * Signals win where both exist, the same precedence [[uiStateOf]] and
-    * [[uiStateOf]] uses and for the same reason: a reconnect re-serialises the
-    * live signal store, and a stale param baked into the `data-init` URL at
-    * page render must never override it. Without that rule a client would
-    * resume from its ORIGINAL page version forever, and silently miss
-    * everything since.
+    * [[connOf]] use and for the same reason: a reconnect re-serialises the live
+    * signal store, and a stale param baked into the `data-init` URL at page
+    * render must never override it. Without that rule a client would resume
+    * from its ORIGINAL page version forever, and silently miss everything
+    * since.
     */
   private def cursorFromQuery(req: Request[IO]): Option[Cursor] = {
     val p = req.uri.query.params
@@ -3834,12 +3756,6 @@ object Server {
       .flatMap(io.circe.parser.parse(_).toOption)
       .map(_.hcursor)
 
-  /** The WHOLE cursor: three facts identifying which renderer and which log a
-    * client's DOM belongs to, plus where it has got to.
-    *
-    * Sent only where the first three can actually change — on connect, and on a
-    * renderer swap. Every live batch sends [[versionSignal]] alone.
-    */
   /** What this connection's DOM is showing, as the `ui_*` signals (ADR 0025).
     * Only the server writes these; a tap says what it ASKED for in a pending
     * signal, and a pending value ends when one of these agrees with it.
@@ -3857,6 +3773,12 @@ object Server {
         }*
     )
 
+  /** The WHOLE cursor: three facts identifying which renderer and which log a
+    * client's DOM belongs to, plus where it has got to.
+    *
+    * Sent only where the first three can actually change — on connect, and on a
+    * renderer swap. Every live batch sends [[versionSignal]] alone.
+    */
   private[runtime] def cursorJson(
       renderer: Renderer,
       logId: String,

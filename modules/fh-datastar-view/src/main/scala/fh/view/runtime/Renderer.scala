@@ -147,9 +147,8 @@ class Renderer(
     // because the rule changes exactly when the dashboard does — a live reload
     // swaps one value and the gate cannot be reading last build's rule.
     //
-    // Defaulted so the test helper `Renderer.create` and any construction that
-    // predates access control still compile; the default is the restrictive
-    // one, so forgetting to resolve demands a login rather than serving to all.
+    // The default is the restrictive one, so a construction that forgets to
+    // resolve demands a login rather than serving to all.
     val access: Access = Access.default,
     // From the `Validated` proof, so nothing re-parses per render.
     private val parsedQueries: Map[SlotRead, QueryRequest] = Map.empty
@@ -499,8 +498,8 @@ class Renderer(
       case _ => members.liveEntitiesAsBytesOf(id)
     }
 
-  // Set members are not in `allIndexed`; their queries come from the member
-  // graph, as in [[entitiesAsBytesForNode]].
+  // Set members are not in `allIndexed`, so they answer nothing here: what a
+  // member reads is its set's ([[setReadsAbove]]).
   private def queriesForNode(id: NodeId): List[SlotAsk] =
     allIndexed.get(id) match {
       case Some((c: LayoutNode.Component, _)) =>
@@ -975,8 +974,7 @@ class Renderer(
   private def hasOwnRendering(id: NodeId): Boolean =
     allIndexed.get(id).exists {
       // A LEAF renders itself and nothing else; STRUCTURE renders what it
-      // holds, so patching it would re-send that. One question, asked of the
-      // card — where it used to be three, asked of a template's spelling.
+      // holds, so patching it would re-send that.
       case (c: LayoutNode.Component, _) =>
         !dashboard.cards.get(c.card).exists(_.isStructure)
       // A member container composes its members and renders nothing of its
@@ -1178,8 +1176,7 @@ class Renderer(
     * no own rendering and is never cached (ADR 0012). The two conditions are
     * therefore mutually exclusive, and a `None` here would be indistinguishable
     * from the honest ones above while producing permanently stale bytes. Asking
-    * `bakeGroup` is a map lookup, not a resolution, so the check is cheaper
-    * than the fallback it replaced.
+    * `bakeGroup` is a map lookup, so the check costs nothing.
     */
   private[runtime] def byteSlotValues(
       id: NodeId,
@@ -1432,7 +1429,7 @@ class Renderer(
         // Regions whose loops the visitor made INLINE (body exactly
         // `{{{html}}}`): their children are traced INTO this node's buffer at
         // the hole position and no child String exists. Any other region keeps
-        // the string splice, rendered isolated exactly as before — a template
+        // the string splice, each child rendered in isolation — a template
         // written differently loses speed, never bytes.
         val inline = plan.inline
 
@@ -1732,9 +1729,8 @@ class Renderer(
     * patch unit.
     *
     * Worth more here than for a static node: a candidate set re-renders every
-    * matched member on every event, and a member used to be resolved three
-    * times per walk — once for the group's document bytes, once for its own
-    * patch bytes, and once again by `memberSignals` for the seed.
+    * matched member on every event, and one resolution serves the group's
+    * document bytes, the member's own patch bytes and its seed.
     */
   private case class ResolvedMember(
       cardName: String,
@@ -1818,14 +1814,7 @@ class Renderer(
       )
   }
 
-  /** Execute an already-resolved member in one form.
-    *
-    * Every member gets the SAME id'd `.fh-cell` wrapper as a static component,
-    * so it is an addressable patch target (in-place morph / insert / remove)
-    * rather than only ever re-rendered as part of the whole group — which is
-    * why the wrap here is UNCONDITIONAL (a `wrapAsCell = false` card has no
-    * member morph target and is not usable as a set clause).
-    */
+  /** Execute an already-resolved member in one form, as a String. */
   private def renderResolvedMember(
       m: Member,
       rm: ResolvedMember,
@@ -1860,11 +1849,10 @@ class Renderer(
       .append(m.id)
       .append('"')
     if (!form.isPatch) {
-      // Through the BAKED seed, like every static node since #286. The static
-      // tree got `Datastar.SignalSeed` then and members did not, so a member
-      // kept splitting each signal name on every paint and re-deriving the
-      // nesting: `SignalId.segments` + `signalsAttr` were 12.5% of a
-      // candidate-set page open (`RenderBench.pageSet`, async-profiler).
+      // Through the BAKED seed, like every static node: building the
+      // attribute per paint splits each signal name and re-derives the
+      // nesting, which was 12.5% of a candidate-set page open
+      // (`RenderBench.pageSet`, async-profiler).
       val values = memberSignalsOf(rm)
       Datastar.seedAttrInto(out, memberSeedOf(m, values), values)
     }
@@ -1930,12 +1918,6 @@ class Renderer(
       val _ = out.append("</div>")
   }
 
-  /** A resolved member's signals, children INCLUDED — they share its id and its
-    * patch. Stops at a nested set for the reason [[Member.entitiesOf]] does:
-    * that set is addressable in its own right, so its members own their own
-    * signals — which is why [[ResolvedChild.NestedSet]] holds no resolution to
-    * descend into.
-    */
   /** A member's seed shape, held per member id.
     *
     * The NAMES a member's wrapper seeds are a function of its node tree — its
@@ -1969,6 +1951,12 @@ class Renderer(
     }
   }
 
+  /** A resolved member's signals, children INCLUDED — they share its id and its
+    * patch. Stops at a nested set for the reason [[Member.entitiesOf]] does:
+    * that set is addressable in its own right, so its members own their own
+    * signals — which is why [[ResolvedChild.NestedSet]] holds no resolution to
+    * descend into.
+    */
   private def memberSignalsOf(rm: ResolvedMember): Map[SignalId, SlotValue] =
     rm.regions.values.flatten.foldLeft(rm.resolved.signals) {
       case (acc, ResolvedChild.Node(_, n))   => acc ++ memberSignalsOf(n)
@@ -1986,31 +1974,9 @@ class Renderer(
       )
     )
 
-  /** A card's slots resolved, which is everything the two forms SHARE.
-    *
-    * The forms differ in one step and one only — a signal slot's value is
-    * withheld from the patch form — so resolution happens once and
-    * [[executeResolved]] is run per form. Before this split, asking for both
-    * forms of a node re-ran the whole of [[resolvePlanned]] for the second:
-    * every JSONata transform again, every signal name again, to arrive at the
-    * same map and blank two entries in it. On a page of leaves with signal
-    * slots that duplicated transform evaluation was the single largest cost of
-    * a first paint.
-    *
-    * @param vars
-    *   the card's own resolved slots, its injected structural vars and its
-    *   signal bindings — form-independent, all of it.
-    * @param signalSlots
-    *   the slot names a PATCH form blanks. Empty for a card that opted into
-    *   nothing, which is what makes both forms the same string there.
-    * @param signals
-    *   the same slots' values under their signal names — what the document
-    *   form's seed carries and what `own` records as sent. Derived here rather
-    *   than by [[signalsOfSlots]] because that would resolve, for a THIRD time,
-    *   values this resolution already holds: the transform, the subject and the
-    *   signal name are all the same ones.
-    */
-  /** One paint's resolution — LAYERS, not a merged map.
+  /** One paint's resolution — LAYERS, not a merged map — and everything the two
+    * forms SHARE: they differ only in the patch form withholding a signal
+    * slot's value, so a node resolves once and executes per form.
     *
     * The plan's constant layers ride by reference; only what a paint can
     * actually change is built fresh, and only as large as it is. Assembling one
@@ -2098,9 +2064,8 @@ class Renderer(
         case _ =>
           if (form.isPatch && resolved.signalSlots.contains(name)) ""
           else {
-            // The layers, in the precedence the old merged map encoded by
-            // construction (its builder order, last-wins): a name answers from
-            // the first layer that has it, and the chain stops at the hit.
+            // The layers, in precedence order: a name answers from the first
+            // layer that has it, and the chain stops at the hit.
             //
             // FLAT, not nested `getOrElse`s. A by-name default that reads
             // `name` and `this` is a CAPTURING lambda, so nesting them
@@ -2388,8 +2353,7 @@ class Renderer(
     // (the common static case) builds nothing at all — the constants, the
     // structural vars and the binding strings ride the plan by reference, and
     // the name the template asks for is answered from whichever layer holds
-    // it ([[NodeContext.fhGet]]). The old assembly built one merged map per
-    // node per paint to say the same thing.
+    // it ([[NodeContext.fhGet]]).
     val paintB = Map.newBuilder[String, SlotValue]
     paintB.sizeHint(plan.dynamic.size)
     val signalB =
@@ -2495,11 +2459,10 @@ class Renderer(
 
   /** Render one card INTO the caller's buffer.
     *
-    * Into, rather than returning a `String`, because the caller is about to
-    * wrap this in a `.fh-cell` and that wrapper used to be a second
-    * interpolation — which copied the node's whole rendering again, and a
-    * node's rendering contains its entire subtree. One copy per node per level
-    * of nesting, for a wrapper of about forty bytes (issue #237).
+    * Into, rather than returning a `String`, because the caller wraps this in a
+    * `.fh-cell`, and wrapping a returned String copies the node's whole
+    * rendering — its entire subtree — once per level of nesting, for a wrapper
+    * of about forty bytes (issue #237).
     *
     * Not mustache.java's own `execute(ctx)` for the same reason: that allocates
     * a `StringWriter` over a `StringBuffer` of default capacity 16, so a
@@ -2549,10 +2512,10 @@ class Renderer(
       .map(m => memberSignalsOf(resolveMember(m, states, QuerySnapshot.empty)))
       .orElse(
         // NOT gated on `hasOwnRendering`. Structure has signals like any other
-        // node — its seed already rides its own `.fh-cell` wrapper in the
-        // document form — and gating here was the half that made a signal slot
-        // on structure seed once and then stand still forever. The two halves
-        // have to agree, so `Dashboard.validate` no longer rejects them either.
+        // node — its seed rides its own `.fh-cell` wrapper in the document
+        // form — and gating here would seed a signal slot on structure once and
+        // then leave it standing still forever (`Dashboard.validate` allows
+        // them for the same reason).
         allIndexed
           .get(id)
           .map(_._1)
@@ -2898,13 +2861,13 @@ object Renderer {
     case None => "_x"
   }
 
-  /** The transform, as ONE `\w+` segment. Readable for the two shapes that
-    * cover most slots, hashed for a computed expression (the slider's
+  /** The transform, as ONE `\w+` segment. Readable for the bare `state` read
+    * that covers most slots, hashed for anything else (the slider's
     * `percentExpr`). The slot NAME cannot be used here: two cards naming one
     * transform differently would stop sharing, and one name over two transforms
     * would collide — either way the deduplication is lost.
     *
-    * The three forms have disjoint prefixes, so the mapping stays injective.
+    * The two forms have disjoint prefixes, so the mapping stays injective.
     */
   private def transformSegment(transform: String): String = transform match {
     case "state" => "state"
