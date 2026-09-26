@@ -7,18 +7,11 @@ import org.http4s.ServerSentEvent
 
 import scala.concurrent.duration.*
 
-/** How a live stream ends (issue #89, ADR 0023).
-  *
-  * `Server.untilRevoked` merges the dashboard's own events with a side that
-  * stays silent until the access rule breaks, then emits `_reload` and ends. It
-  * therefore sits between the stream and EVERY other reason a stream stops —
-  * the client hanging up, a session being displaced, the server shutting down —
-  * and getting it wrong does not corrupt anything, it just fails to terminate.
-  *
-  * That failure mode is why this suite exists as a unit test rather than being
-  * left to `SessionLifecycleSuite`: there it shows up as a 31-second timeout
-  * under load, which reads like a flake. The first version (`mergeHaltR`) was
-  * exactly this bug — it waited for a side that never ends.
+/** How a live stream ends (issue #89, ADR 0023). `Server.untilRevoked` sits
+  * between the stream and every other reason it stops, and getting it wrong
+  * only fails to terminate: in `SessionLifecycleSuite` that reads as a
+  * 31-second flake under load. `mergeHaltR` was that bug, waiting for a side
+  * that never ends.
   */
 class UntilRevokedSuite extends munit.CatsEffectSuite {
 
@@ -26,10 +19,8 @@ class UntilRevokedSuite extends munit.CatsEffectSuite {
 
   private def event(id: String) = SseFrame.of(ServerSentEvent(data = Some(id)))
 
-  /** The case `SessionLifecycleSuite` exercises through two HTTP requests: the
-    * events end on their own (a displaced session interrupts them) while the
-    * rule still holds, so the revocation side never fires. The merged stream
-    * must still end.
+  /** The events end (a displaced session) while the rule holds, so the
+    * revocation side never fires; the merge must still end.
     */
   test("the stream ends when its EVENTS end, even though the rule holds") {
     Server
