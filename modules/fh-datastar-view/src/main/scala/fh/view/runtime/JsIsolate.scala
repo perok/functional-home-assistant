@@ -4,8 +4,8 @@ import cats.effect.{IO, Resource}
 import cats.syntax.all.*
 import org.graalvm.polyglot.{Context, Engine, HostAccess}
 
-/** GraalJS, running in a polyglot isolate. Design and measurements:
-  * `docs/plan-graaljs-isolate.md`.
+/** GraalJS, running in a polyglot isolate. Why this engine, and what it
+  * measured: ADR 0032; how the image carries it: `home-addon/`.
   *
   * Counter-intuitively the cheap option — the guest heap lives in the isolate's
   * native heap instead of ours, measuring 152 MB RSS against 322 MB for the

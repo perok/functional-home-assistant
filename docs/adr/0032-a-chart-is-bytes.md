@@ -74,6 +74,45 @@ Three findings worth keeping, each of which was a live risk:
 - **A four-line shim is required.** zrender starts an animation loop at init, so `setTimeout` and
   `clearTimeout` must exist. With `animation: false` they never need to fire, so no-ops do.
 
+### Which JavaScript: Oracle's polyglot isolate
+
+Four ways to run ECharts SSR, under the add-on's own flags (`-Xms64M -Xmx512M
+-XX:+UseSerialGC`), 300 points, 300 renders, median of three runs:
+
+| | warm median | RSS | anonymous |
+|---|---:|---:|---:|
+| interpreted, in-heap | 21 ms | 322 MB | 295 MB |
+| community isolate | 10 ms | 421 MB | 315 MB |
+| **Oracle isolate** | **10 ms** | **152 MB** | **80 MB** |
+| GraalVM JDK, compiled in-heap | 11 ms | 785 MB | 637 MB |
+
+**The isolate is cheaper in memory than interpreting**, because the guest heap and ECharts' AST
+live in the isolate's native heap instead of the JVM's — 2× faster and 170 MB smaller, so there is
+no trade to weigh, and on a 4 GB Pi (#237) memory decides. **Oracle over community** is memory
+too: they render identically, but Oracle's holds flat at 99 → 106 MB anonymous as the series grows
+17× where community goes 328 → 469 MB. **A GraalVM JDK base image is rejected**, not deferred: 5×
+the isolate's RSS for the same render time, and its one argument, Pkl, does not hold — Pkl's own
+`FunctionNode` bails out of compilation on every JDK, Oracle GraalVM included. Native image is
+rejected on reachability cost and because it would slow the non-chart render loop. The community
+isolate stays a drop-in if the licence is ever unwanted (`home-addon/README.md`).
+
+Four facts about running it, each of which looks wrong and is not:
+
+- **The host runs Truffle's FALLBACK runtime, deliberately.** `truffle-runtime` would drag
+  libgraal into the JVM for ~186 MB; guest code compiles inside the isolate, which has its own
+  compiler. Measured on the shipped classpath: 501 M ops/sec in the isolate against 15.9 M
+  in-heap. So **`Engine.supportsCompilation()` is not a health check** — it reports the host and
+  says `false` about an engine doing 501 M ops/sec.
+- **`spawnIsolate` goes on `Engine.Builder`, not `Context.Builder`**, where on a shared engine it
+  is silently ineffective. It exists there from 25.3 on, which is why polyglot is pinned to 25.3.x
+  rather than the 25.0 LTS line.
+- **A library and jars of different versions run silently** — no warning, correct output, a
+  GraalJS other than the one declared — and `Engine.getVersion()` reports the library's
+  (`docs/issue-report-3-graalvm-polyglot-isolate.md`). `JsIsolateSuite` compares the two and fails.
+- **Without the isolate jar, `js` is not a language at all** (`Available languages are: [pkl]`):
+  the image carries no in-heap JavaScript, so `JsIsolate.engineOrInHeap`'s fallback only ever
+  helps a development classpath. In the image a broken isolate means every chart shows its error.
+
 ### The runtime shape
 
 **ONE context for the process, serialised by a `Mutex`.** The obvious reason is the weaker one: a
@@ -105,8 +144,13 @@ rather than normalising them, which a library that parsed colours would not.
 - **Open, and needing a Pi rather than a decision:** what these numbers look like on the target
   hardware — the question has narrowed to whether the FIRST chart in a session is acceptable,
   since every later one in the bucket is free, and to what the isolate's native heap costs
-  alongside Pkl's Truffle. And whether ECharts' own SSR text estimate is good enough, or
-  `setPlatformAPI({ measureText })` needs real Java font metrics.
+  alongside Pkl's Truffle. Every number above is x86_64; CI runs the isolate on aarch64 only under
+  QEMU, which proves it runs and says nothing about cost. Nothing deployed can see that cost
+  either: the isolate's heap is native memory inside a `dlopen`ed library, invisible to JVM gauges
+  and to `NativeMemoryTracking`. RSS and anonymous from `/proc/self/smaps_rollup` do see it, and
+  publishing them as two gauges through the existing `MeterProvider` would make the Pi answerable
+  from a normal install — worth doing before that run. And whether ECharts' own SSR text estimate
+  is good enough, or `setPlatformAPI({ measureText })` needs real Java font metrics.
 
 ## The client-side option, if interaction is ever wanted
 
