@@ -12,14 +12,9 @@ import fh.view.model.{
 import fh.view.testkit.DashboardBuilders.{lit, st}
 import io.circe.Json
 
-/** Presence and order, with no server anywhere.
-  *
-  * This suite is the reason [[MemberGraph]] was lifted out of `Renderer`.
-  * Everything here — which candidates render, in what order, and what one frame
-  * did to that — is a pure function of (candidates, state), but until the split
-  * the only way to ask was to boot a `Server` through `ServerHarness` and read
-  * the answer back off the wire. `SetMembershipSuite` still does that, and
-  * should: it is about the PATCHES. This one is about the decision.
+/** Presence and order, with no server: which candidates render, in what order,
+  * and what one frame did, as a pure function of (candidates, state).
+  * `SetMembershipSuite` covers the resulting patches.
   */
 class MemberGraphSuite extends munit.FunSuite {
 
@@ -62,8 +57,6 @@ class MemberGraphSuite extends munit.FunSuite {
   private def prop(name: String, dir: String = "asc") =
     LayoutNode.SortTerm(LayoutNode.SortKey.Prop(name), dir)
 
-  // ---- presence -----------------------------------------------------------
-
   test("an unguarded clause is present whatever the state says") {
     val g = graphOf(set(List("light.a", "light.b")))
     assertEquals(
@@ -103,7 +96,7 @@ class MemberGraphSuite extends munit.FunSuite {
 
   test("a candidate HA has never heard of still gets its clauses evaluated") {
     // Evaluated against an empty state rather than dropped, so a clause guarded
-    // only on ANOTHER entity still decides.
+    // only on another entity still decides.
     val g = graphOf(
       set(List("light.ghost"), e => List(clause(e, Some(isOn("sensor.hall")))))
     )
@@ -126,8 +119,6 @@ class MemberGraphSuite extends munit.FunSuite {
     assertEquals(cardOf(snapshot(st("light.a", "on"))), List("slider"))
     assertEquals(cardOf(snapshot(st("light.a", "off"))), List("pill"))
   }
-
-  // ---- order --------------------------------------------------------------
 
   test("with no orderBy the AUTHORED candidate order is the order") {
     val g = graphOf(set(List("light.z", "light.a")))
@@ -172,14 +163,12 @@ class MemberGraphSuite extends munit.FunSuite {
         )
       )
     )
-    // The predicate names light.b explicitly, so it is what separates them.
     val states = snapshot(st("light.a", "on"), st("light.b", "on"))
     assertEquals(g.memberEntities(gid, states), List("light.a", "light.b"))
   }
 
   test("equal sort keys keep the authored order — the tiebreak is mandatory") {
-    // Without a stable sort a set ordered on a live value reshuffles its ties
-    // on every tick.
+    // Without a stable sort a live-ordered set reshuffles its ties every tick.
     val g = graphOf(
       set(List("light.z", "light.a", "light.m"), orderBy = List(prop("state")))
     )
@@ -205,11 +194,8 @@ class MemberGraphSuite extends munit.FunSuite {
       st("light.b", "off", "brightness" -> Json.fromInt(1)),
       st("light.c", "on", "brightness" -> Json.fromInt(20))
     )
-    // b is absent (guard), so the cut falls on the two that are present.
     assertEquals(g.memberEntities(gid, states), List("light.c", "light.a"))
   }
-
-  // ---- one frame ----------------------------------------------------------
 
   private def change(
       before: Map[String, EntityState],
@@ -236,8 +222,7 @@ class MemberGraphSuite extends munit.FunSuite {
   }
 
   test("a clause switch is reported as REPLACED, not as a departure") {
-    // The arriving card may bind nothing live, so no reverse-index edge would
-    // ever name it. The member id is the sound handle.
+    // The arriving card may bind nothing live, so the member id is the handle.
     val g = graphOf(
       set(
         List("light.a"),
@@ -289,8 +274,6 @@ class MemberGraphSuite extends munit.FunSuite {
     assertEquals(g.affectedSurfaceSets("detail", ch), List(gid))
   }
 
-  // ---- ids ----------------------------------------------------------------
-
   test("a member id is derived from its KEY, sanitized") {
     assertEquals(
       g0.memberIdOf(gid, "light.kitchen_1"): String,
@@ -298,20 +281,17 @@ class MemberGraphSuite extends munit.FunSuite {
     )
   }
 
-  /** `sanitize` IS this regex — it is hand-rolled only because
-    * `String.replaceAll` recompiles its pattern per call, and that ran once per
-    * member per paint. So the regex is the specification and this holds the two
-    * to equality, rather than asserting a handful of outputs the implementation
-    * would agree with either way.
+  /** `sanitize` is this regex, hand-rolled only because `String.replaceAll`
+    * recompiles per call, once per member per paint. So the regex is the
+    * specification.
     */
   test("sanitize is exactly the character class it replaced") {
     val Regex = "[^A-Za-z0-9_]"
     val alphabet =
       ('a' to 'e') ++ ('A' to 'B') ++ ('0' to '2') ++
         List('_', '.', '-', ' ', ':', '/', '@', '+', 'é', '☃', ' ')
-    // Supplementary code points are the case a per-`char` loop gets wrong: the
-    // regex matches a surrogate PAIR as one character, so it yields ONE `_`.
-    // Lone surrogates are one character each, for the same reason.
+    // The regex matches a surrogate pair as one character, one `_`, which a
+    // per-`char` loop gets wrong; a lone surrogate is one character.
     val astral = List("😀", "a😀b", "😀😀", "\uD83D", "\uDE00", "a\uD83Db")
     val corpus =
       List("", "_", "light.kitchen", "  ", "...", "ÆØÅ", "a" * 40) ++
@@ -331,9 +311,9 @@ class MemberGraphSuite extends munit.FunSuite {
   private val g0 = graphOf(set(List("light.kitchen_1")))
 
   test("a set nested in a member is enumerated, and inherits its tile's tree") {
-    // The root is what decides who a member's patch may reach. A nested set is
-    // not in the STATIC index, so reading the index directly answered "" — the
-    // main page — and leaked a surface's patches to every client.
+    // The root decides who a member's patch may reach. A nested set is not in
+    // the static index, which answered "" and leaked a surface's patches to
+    // everyone.
     val inner = set(List("light.b"))
     val outer = LayoutNode.SetNode(
       candidates = List("light.a"),
@@ -372,8 +352,7 @@ class MemberGraphSuite extends munit.FunSuite {
       "tile",
       Map(
         "entity_id" -> lit("light.a"),
-        // A literal slot binds nothing live; this one is what makes the tile
-        // itself track light.a.
+        // This is what makes the tile itself track light.a.
         "state" -> SlotSource(entityId = Some("light.a"))
       ),
       LayoutNode.kids(
@@ -384,8 +363,7 @@ class MemberGraphSuite extends munit.FunSuite {
         set(List("light.deep"))
       )
     )
-    // light.deep is absent on purpose: descending into a nested set would wake
-    // the whole tile on every bulb inside it.
+    // Descending into a nested set would wake the tile on every bulb inside it.
     assertEquals(
       Member.entitiesOf(nested).sorted,
       List("light.a", "sensor.k")

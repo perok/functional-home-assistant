@@ -4,18 +4,15 @@ import fh.view.model.SignalId
 
 import io.circe.Json
 
-/** The signal nesting, against the implementation it replaced.
-  *
-  * `nest`/`nestJs` grouped and sorted at every level; they now sort once by
-  * whole path and walk it by index, which is half a page open's allocation
-  * (async-profiler over `RenderBench.pageSignals`). Nothing asserted their
-  * output directly — the coverage was byte assertions in the server suites,
-  * which exercise one shape each — so the ORDER and the ESCAPING are pinned
-  * here against a reference that is the old code, kept in the test.
+/** The signal nesting against the implementation it replaced, kept here as the
+  * oracle. It sorts once by whole path and walks by index, half a page open's
+  * allocation (async-profiler over `RenderBench.pageSignals`); the server
+  * suites' byte assertions cover one shape each, so order and escaping are
+  * pinned here.
   */
 class DatastarNestSuite extends munit.FunSuite {
 
-  /** The pre-rewrite implementation, verbatim, as the oracle. */
+  /** Verbatim. */
   private object Reference {
     def nest(entries: List[(List[String], Json)]): Json =
       Json.obj(
@@ -56,13 +53,9 @@ class DatastarNestSuite extends munit.FunSuite {
   private def rows(names: String*): List[List[String]] =
     names.toList.map(_.split('.').toList)
 
-  /** Signal names as `Renderer.signalName` mints them, plus the shapes where
-    * sorting by dotted STRING would diverge from sorting by segment.
-    *
-    * `a.b` vs `ab` is NOT one of them — `.` sorts below every alphanumeric, so
-    * the two agree there, which is what makes the string sort look safe. They
-    * part only on a segment holding a character below `.` (0x2E): `a-b.c`
-    * against `a.b`, where `-` beats the separator.
+  /** Plus the shapes where sorting by dotted string diverges from by segment:
+    * not `a.b` vs `ab` (`.` sorts below every alphanumeric), but a segment
+    * holding a character below `.` (0x2E), `a-b.c` against `a.b`.
     */
   private val shapes: List[List[String]] = rows(
     "_e.sensor.a.state",
@@ -81,9 +74,8 @@ class DatastarNestSuite extends munit.FunSuite {
     "w"
   )
 
-  /** Values that exercise every branch of the escaping, and their combinations
-    * — the JS escape runs BEFORE the HTML one, so a backslash next to an
-    * ampersand is where a one-pass rewrite would diverge.
+  /** The JS escape runs before the HTML one, so a backslash beside an ampersand
+    * is where a one-pass rewrite would diverge.
     */
   private val values = List(
     "warm",
@@ -100,10 +92,8 @@ class DatastarNestSuite extends munit.FunSuite {
     "'; alert(1); '"
   )
 
-  /** Name sets that must be crossed with EACH OTHER, not merely appear in the
-    * fixture. A sliding window over [[shapes]] cannot do it: the first version
-    * of this suite listed `a-b.c` and `a.b` six apart, so no window held both
-    * and a comparator sorting by dotted string passed the whole suite.
+  /** Crossed with each other: a sliding window over [[shapes]] held `a-b.c` and
+    * `a.b` six apart, so a dotted-string comparator passed the whole suite.
     */
   private val orderingSets: List[List[List[String]]] = List(
     rows("a-b.c", "a.b"),
@@ -120,8 +110,6 @@ class DatastarNestSuite extends munit.FunSuite {
     }.toMap
 
   test("the JS seed matches the grouping implementation it replaced") {
-    // Every path shape against every value offset, so escaping and ordering
-    // are crossed rather than tested one at a time.
     val cases = for {
       size <- 1 to 4
       window <- shapes.sliding(size).toList ++ orderingSets
@@ -131,7 +119,7 @@ class DatastarNestSuite extends munit.FunSuite {
     cases.foreach { case (paths, vs) =>
       val distinct = paths.distinct
       val signals = signalsOf(distinct, vs)
-      // Only shapes that survive as a Map — a duplicate name is one signal.
+      // A duplicate name is one signal.
       if (signals.size == distinct.size) {
         val expected = Reference.nestJs(
           signals.toList.map((k, v) => (k: String).split('.').toList -> v)
@@ -173,17 +161,16 @@ class DatastarNestSuite extends munit.FunSuite {
   }
 
   test("a seeded value cannot close its own JS literal") {
-    // The trap the escaping exists for: `&#39;` decodes back to a bare quote,
-    // so HTML-escaping alone would end the literal early.
+    // `&#39;` decodes back to a bare quote, so HTML-escaping alone would end
+    // the literal early.
     val attr = Datastar.signalsAttr(Map(SignalId.derived("a.b") -> "it's"))
     assert(!attr.contains("&#39;"), clue = attr)
     assert(attr.contains("""\'"""), clue = attr)
   }
 
   test("a precomputed seed renders what signalsAttr would") {
-    // The fast path the renderer takes: the seed is built from the NAMES once
-    // and a paint only fills values. It must be byte-identical to building the
-    // whole attribute from the map, for every shape and every value.
+    // The renderer builds the seed from the names once and a paint fills
+    // values; it must match building the whole attribute from the map.
     val cases = for {
       size <- 1 to 4
       window <- shapes.sliding(size).toList ++ orderingSets
@@ -207,8 +194,8 @@ class DatastarNestSuite extends munit.FunSuite {
   }
 
   test("a seed handed the wrong signals falls back instead of lying") {
-    // The guard: a seed's SHAPE is fixed, so filling it with names it was not
-    // built for would emit a well-formed attribute nesting the wrong paths.
+    // A seed's shape is fixed, so the wrong names would nest the wrong paths in
+    // a well-formed attribute.
     val built = signalsOf(rows("_e.a.b.c", "_e.a.b.d"), List("1", "2"))
     val other = signalsOf(rows("x.y", "z"), List("3", "4"))
     val seed = Datastar.seedFor(built.keys)
