@@ -276,10 +276,11 @@ Community remains a drop-in fallback at 3–4× the native memory if the licence
 
 `ChartSuite` draws on the real isolate in `testFull`, and `JsIsolateSuite` fails on a library whose
 version differs from the jars'. Nothing checks the IMAGE's staged library (right architecture,
-links against the base image's glibc and zlib), deliberately: getting that wrong does not break
-charts, because `JsIsolate.engineOrInHeap` falls back to the interpreter with a `no GraalJS
-isolate` warning in the log. A main run inside the built image in CI did check it, and was dropped
-as more build machinery than a slower-but-correct failure is worth.
+links against the base image's glibc and zlib). Getting that wrong DOES break charts — the image
+has no in-heap JavaScript for `JsIsolate.engineOrInHeap` to fall back to, so every chart shows
+its error label and the log names the cause in a `no GraalJS isolate` warning. It is a build bug
+that surfaces on the first chart, not silent data damage, and the only checks found for it — a
+check main shipped in the jar, or booting the add-on in CI — cost more machinery than it does.
 
 ## Reproducing the measurements
 

@@ -24,5 +24,6 @@ Datastar dashboard (`fh-datastar-view`): dashboards authored in
   `/data/graal-cache` the first time an engine is built (161 MB, once per
   GraalVM version); `backup_exclude` keeps that out of HA backups.
 
-If the isolate cannot start, charts are drawn interpreted instead (the same
-SVG, slower) and the log says so with a `no GraalJS isolate` warning.
+If the isolate cannot start, charts show an error label and the log says why
+with a `no GraalJS isolate` warning. The image carries no in-heap JavaScript to
+fall back to; only a development classpath does.

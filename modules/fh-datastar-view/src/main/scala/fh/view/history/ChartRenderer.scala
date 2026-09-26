@@ -54,8 +54,9 @@ object ChartRenderer {
         loggerFactory
           .getLoggerFromName("fh.view.history.ChartRenderer")
           .warn(
-            "no GraalJS isolate on the classpath, drawing charts interpreted " +
-              s"instead — slower, and not what the add-on image runs: ${e.getMessage}"
+            "no GraalJS isolate, so charts are drawn in-heap where the classpath " +
+              "has JavaScript (slower) and fail where it does not, as in the " +
+              s"add-on image: ${e.getMessage}"
           )
       )
       .flatMap(fromEngine)

@@ -26,10 +26,10 @@ object JsIsolate {
       Engine.newBuilder("js").spawnIsolate(true).build()
     })
 
-  /** The interpreter where there is no isolate. The SVG is byte-identical, so
-    * it only costs speed (ADR 0032), where raising would fail more-info for
-    * every numeric sensor. Should never fire in the image, so the warning is
-    * the signal that the staged library is wrong.
+  /** The interpreter where there is no isolate — macOS, and any sbt run, whose
+    * classpath carries in-heap JavaScript. The image's does not
+    * (`forbiddenJarEntries`), so there this fails too and every chart shows its
+    * error; the warning is what names the staged library as the cause.
     */
   def engineOrInHeap(onFallback: Throwable => IO[Unit]): Resource[IO, Engine] =
     engine.handleErrorWith((e: Throwable) =>
