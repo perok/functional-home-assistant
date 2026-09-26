@@ -20,8 +20,10 @@ import "../core/icon.pkl" as icons
 import "../core/node.pkl" as nodes
 import "../core/simple.pkl" as simpleMod
 import "../core/slot.pkl" as slotMod
+import "../core/tap.pkl" as tapMod
 import "../core/text.pkl" as textMod
 import "../hass.pkl"
+import "moreinfo.pkl"
 
 /// The fill width, in JS, from the two signals the track carries.
 ///
@@ -44,7 +46,8 @@ class ProgressCard extends nodes.Node {
     // guarding on the slot itself deletes the element and its binding on the
     // first state change, permanently, and the card only comes back on reload.
     template = """
-      <article class="card fh-progress">
+      <article class="card fh-progress{{#tappable}} tappable{{/tappable}}\(slotMod.ifSlot("inert")) {{inert}}\(slotMod.endIfSlot("inert"))"{{#tappable}}
+        data-on:click="\(tapMod.guardClick)\(tapMod.click)"{{/tappable}}\(slotMod.ifSlot("inert")) \(slotMod.signalBind("inert"))\(slotMod.endIfSlot("inert"))\(tapMod.guard)>
         <header>{{#icon}}<i class="mdi {{icon}}"></i>{{/icon}}\(textMod.hole("label"))</header>{{#hasBar}}
         <div class="fh-progress-track" role="progressbar"
           data-attr:data-remaining="$\(slotMod.signalRef("remaining"))"
@@ -65,6 +68,7 @@ class ProgressCard extends nodes.Node {
     // role carries what the element would have carried.
     css = """
       .fh-progress{display:flex;flex-direction:column;gap:.5rem}
+      .fh-progress.tappable{cursor:pointer}
       .fh-progress header{display:flex;align-items:center;min-inline-size:0}
       .fh-progress header i{font-size:1.25rem;line-height:1;
       margin-inline-end:.375rem;color:var(--fh-accent)}
@@ -113,6 +117,11 @@ class ProgressCard extends nodes.Node {
   /// Whether a bar can be drawn: a denominator, in a unit that can be scaled.
   hidden hasBar: Boolean = total != null && total!!.durationSeconds != null
 
+  /// What a click does: the remaining-time sensor's more-info by default, which
+  /// is where its history chart lives. `tapAction = null` opts out.
+  hidden tapAction: tapMod.TapAction? = moreinfo.defaultTap(entity)
+  inlineSurfaces = if (tapAction != null) tapAction!!.inlineSurfaces else null
+
   hidden fillWidth: String =
     FILL_WIDTH
       .replaceAll("%1$s", slotMod.signalRef("total"))
@@ -160,7 +169,13 @@ class ProgressCard extends nodes.Node {
       }
       ["hasBar"] = "1"
     }
+    for (k, v in tapMod.tapSlots(tapAction, "class")) {
+      [k] = v
+    }
   }
+
+  function tapAction(t: tapMod.TapAction?): ProgressCard =
+    let (self = this) (self) { tapAction = t }
 
   function total(t: hass.SensorEntity): ProgressCard =
     let (self = this) (self) { total = t }
