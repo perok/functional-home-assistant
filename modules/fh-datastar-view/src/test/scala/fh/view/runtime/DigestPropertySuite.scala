@@ -6,15 +6,11 @@ import fh.view.testkit.TestIds.setId
 import hedgehog.*
 import hedgehog.munit.HedgehogSuite
 
-/** What a page's trace records and what the live path renders must be the same
-  * digest, node for node: `holds` is seeded from [[Renderer.Traced.own]], and
-  * `Patches.morph` compares against [[Renderer.renderNodeById]]'s bytes — two
-  * code paths that used to share one string by construction. Since the walk
-  * threads one buffer (#253) and members render inline (#254), they are two
-  * code paths agreeing, and these properties pin the agreement over GENERATED
-  * shapes (values from an interesting-character pool: the escape set, mustache
-  * tags, newlines, unicode, empties) rather than over the fixed fixtures the
-  * example suites use.
+/** A page's trace and the live path must agree on each node's digest: `holds`
+  * is seeded from [[Renderer.Traced.own]], and `Patches.morph` compares against
+  * [[Renderer.renderNodeById]]'s bytes. Two code paths, so the agreement is
+  * pinned over generated shapes from an awkward-character pool (the escape set,
+  * mustache tags, newlines, unicode, empties).
   *
   * A failing run names its seed; `HEDGEHOG_SEED=<seed>` replays it exactly.
   */
@@ -90,9 +86,8 @@ class DigestPropertySuite extends HedgehogSuite {
       signal <- genSignal.forAll
     } yield {
       val r = Renderer.create(dashboard(signal))
-      // The trace records the DIGEST now, so the property is asserted where
-      // the code actually uses it: the fingerprint the walk wrote must be the
-      // one the live path's bytes hash to.
+      // The trace records digests, so the fingerprint the walk wrote must be
+      // the one the live path's bytes hash to.
       val recorded = r
         .renderBodyTraced(at(v), fragments = QuerySnapshot.empty)
         .own
