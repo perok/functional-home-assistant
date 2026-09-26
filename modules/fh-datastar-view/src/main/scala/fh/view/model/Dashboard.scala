@@ -110,7 +110,17 @@ case class SlotSource(
     // element, so a change to it costs a signals frame instead of a card
     // re-render (ADR 0017). The value says WHERE it lands — see [[SignalBind]]
     // — and the card's template must place `{{{<slot>__bind}}}`.
-    signal: Option[SignalBind] = None
+    signal: Option[SignalBind] = None,
+    // This slot's value is a rendered chart of its entity over this WINDOW
+    // (`1h`/`24h`/`7d`/`30d` — `fh.view.history.Window`), not a transform over
+    // live state. Absent on every slot that is not one.
+    //
+    // The entity is the ordinary one: `entityId`, or the component's subject.
+    // What differs is where the value comes from — a fetched series rather than
+    // the `StateStore` — which is why it is a field here and not a transform
+    // spelling: a transform names a read of state, and this names a read of
+    // something state does not contain.
+    series: Option[String] = None
 ) {
 
   /** The transform's IDENTITY, for every place the renderer keys a value by its
@@ -156,6 +166,20 @@ case class SlotSource(
   * Three values rather than two flags because `(wake me, never re-read)` is
   * incoherent, and a pair of booleans would let it be written.
   */
+/** One series a node reads: an entity, over a named window.
+  *
+  * Two strings and no `Window`, so the MODEL keeps knowing nothing about how a
+  * series is fetched — the window name is a wire value like a card name is, and
+  * `fh.view.history` is what turns it into a span, a bucket and a statistics
+  * period. The alternative points the model at the runtime it is supposed to be
+  * independent of.
+  *
+  * No identity here either: who reads belongs to the request, not to the
+  * dashboard, and it enters the picture at the cache
+  * (`fh.view.history.SeriesKey`) rather than in a node's declaration.
+  */
+case class SeriesRead(entityId: String, window: String) derives CanEqual
+
 object Reads:
   val Live: String = "live"
   val OnRender: String = "onRender"
@@ -610,6 +634,32 @@ object LayoutNode:
           s.reads == Reads.Live && s.literal.isEmpty && s.signal.isEmpty
         )
         .flatMap(s => s.entityId.orElse(subjectEntity))
+        .distinct
+
+    /** The series this component's slots read — `(entity, window)` each.
+      *
+      * Deliberately NOT part of [[liveEntities]], and it costs nothing to keep
+      * it out: a series slot is `onRender` ([[Reads]] — "read on every render,
+      * and never a reason to have one"), and that filter already excludes it.
+      * So a chart does not become a candidate on a state tick, which is the
+      * whole reason a per-viewer, per-window fetch can sit in this pipeline at
+      * all — an entity that moves every second would otherwise re-fetch its own
+      * history every second.
+      *
+      * It IS part of the render key ([[fh.view.runtime.RenderInputs]]), because
+      * the bytes do move when the series does. The two facts are separate for
+      * the same reason `liveEntities` and `liveEntitiesAsBytes` are: what makes
+      * a node a candidate and what makes its bytes stale are different
+      * questions.
+      */
+    lazy val seriesReads: List[SeriesRead] =
+      slots.values.toList
+        .flatMap(s =>
+          for {
+            window <- s.series
+            entity <- s.entityId.orElse(subjectEntity)
+          } yield SeriesRead(entity, window)
+        )
         .distinct
 
   /** A set over a STATICALLY KNOWN candidate list.
@@ -1153,7 +1203,39 @@ case class Dashboard(
               case _: Transform.Simple => None
             }
         transformError.toList ++ signalErrors(nodeId, cardName, name, src) ++
-          readErrors(nodeId, cardName, name, src)
+          readErrors(nodeId, cardName, name, src) ++
+          seriesErrors(nodeId, name, src, slots)
+      }
+
+    /** A series slot names a window and an entity, and both failures are
+      * otherwise SILENT: an unknown window resolves to no bucket, so the slot
+      * renders empty forever and the render key never mentions it — a chart
+      * that is simply blank, with nothing anywhere saying why.
+      */
+    def seriesErrors(
+        nodeId: String,
+        name: String,
+        src: SlotSource,
+        slots: Map[String, SlotSource]
+    ): List[String] =
+      src.series.toList.flatMap { window =>
+        val unknownWindow = Option.when(
+          !fh.view.history.Window.byName(window).isDefined
+        )(
+          s"$nodeId: slot '$name' reads series over unknown window '$window' — " +
+            s"one of ${fh.view.history.Window.values.map(_.name).mkString(", ")}"
+        )
+        // Checked at the SLOT, not at the component: a slot may name its own
+        // entity, so a component with no subject is fine as long as every
+        // series slot on it carries one.
+        val noEntity = Option.when(
+          src.entityId.isEmpty &&
+            !slots.get(Dashboard.SubjectSlot).exists(_.literal.isDefined)
+        )(
+          s"$nodeId: slot '$name' reads a series but names no entity, and its " +
+            "card has no subject entity to inherit"
+        )
+        unknownWindow.toList ++ noEntity.toList
       }
 
     /** `<slot>__read` is a card composing a slot's value into a handler

@@ -388,7 +388,10 @@ Each is independently mergeable and independently useful.
    teaches it. Retention is a lower bound taken as the MAXIMUM across entities, because per entity
    a daily purge and a day-old sensor give the same answer.
 3. **`RenderInputs` gains the series component.** The pipeline change, on its own, with the
-   architecture doc updated in the same commit.
+   architecture doc updated in the same commit. The prediction held: a series slot is `onRender`,
+   which `liveEntities` already filters out, so a chart is not a candidate on a state tick without
+   anything being arranged for it. What the phase did NOT include is the live half — nothing fills
+   a bucket on the pull path yet, so a rolled bucket does not wake its node; that is phase 6's.
 4. **The chart renderer**: the vendored ECharts bundle as a resource and a host behind a plain
    `IO[String]` — series in, SVG out. The engine is `JsIsolate`, already on the classpath and
    already a process-lifetime `Resource`, so this phase adds the `Source` and the context handling

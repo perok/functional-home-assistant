@@ -884,6 +884,32 @@ answer — a hit yields the bytes the render would have — only who pays for it
 of what the render reads, not all of it: an entity reached only through a signal slot is left out,
 because its value is not in the patch form and so cannot move these bytes (ADR 0012).
 
+### The second kind of input: a series
+
+A node may also read a **series** — an entity's recorded past over a **window** — which is not in
+the `StateStore` and is not a live value (`docs/terminology.md`, "History"). It reaches a render the
+same way state does, as a snapshot resolved BEFORE the walk (`SeriesBuckets`), because a render is a
+synchronous string build and a fetch is `IO` over a socket.
+
+Two boxes move, and no others:
+
+- **`RenderInputs` gains a second map**, `SeriesRead -> bucket`. A bucket works as a version because
+  the past is immutable: two renders of the same `(entity, window)` in one bucket read the same
+  points, and a later bucket is strictly fresher. `isAtLeast` compares both halves, so two viewers
+  on different windows have differently-SHAPED keys, are unordered, and get separate generations
+  rather than one overwriting the other with a chart of the wrong span.
+- **`Component.seriesReads`**, derived from the slots, beside `liveEntities` and
+  `liveEntitiesAsBytes` and for the same reason the other two are separate: what makes a node a
+  candidate and what makes its bytes stale are different questions.
+
+What does NOT move is candidate selection, and that falls out rather than being arranged. A series
+slot is `reads = onRender` — "read on every render, and never a reason to have one" — which
+`liveEntities` already filters out, so **a chart is not a candidate on a state tick**. Without that,
+a sensor moving every second would re-fetch its own history every second.
+
+Still missing, and deliberately: nothing yet FILLS a bucket on the live path, so a rolled bucket
+does not currently wake its node. The key is correct; the waking is the window-selection work.
+
 **All of this section is the PATCH path.** The document path is a different shape and is described
 in §6a: it consults no cache, shares nothing, and streams straight to the client.
 
