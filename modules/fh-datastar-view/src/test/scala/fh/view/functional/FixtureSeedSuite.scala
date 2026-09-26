@@ -6,16 +6,10 @@ import fh.view.testkit.{FakeHomeAssistant, HouseFixture}
 
 import scala.concurrent.duration.*
 
-/** The fixture's builders are the foundation the whole functional suite trusts,
-  * so pin the round-trip: [[HouseFixture]] -> `FakeHomeAssistant`'s
-  * `subscribe_entities` opening frame -> the real [[StateStore]] reproduces
-  * each entity's state and attributes exactly. If this drifts, every downstream
-  * behaviour test is suspect.
-  *
-  * Driven through the real [[HaFeed]] (over a never-closing connection), since
-  * the store is a passive sink whose sole production driver is that feed — and
-  * a HaFeed exists only once the opening full-set frame has been applied, so
-  * the snapshot can be read straight off it.
+/** The round trip every functional suite trusts: [[HouseFixture]] through the
+  * fake's opening frame into the real [[StateStore]], via the real [[HaFeed]].
+  * A feed exists only once that frame is applied, so its snapshot is read
+  * directly.
   */
 class FixtureSeedSuite extends munit.CatsEffectSuite {
 
@@ -31,8 +25,7 @@ class FixtureSeedSuite extends munit.CatsEffectSuite {
           .use(_.store.snapshot)
       }
       .timeout(30.seconds)
-      // Timestamps come from the feed, not the fixture, so compare the values a
-      // dashboard actually renders.
+      // Timestamps come from the feed, so compare what a dashboard renders.
       .map(_.view.mapValues(s => (s.state, s.attributes)).toMap)
       .assertEquals(
         HouseFixture.all.map(e => e.entityId -> (e.state, e.attributes)).toMap
