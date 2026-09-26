@@ -8,37 +8,27 @@ import io.circe.parser.parse
 import io.circe.syntax.*
 import org.http4s.client.websocket.{WSClient, WSConnection, WSFrame}
 
-/** A Home Assistant WebSocket stub at the FRAME level: a `WSClient[IO]` the
-  * REAL [[api.homeassistant.ws.HAWSApiLowLevel]] connects through.
-  *
-  * `FakeHomeAssistant` (in fh-datastar-view) stubs one level higher — it
-  * implements `HAWSApiLowLevel` itself — which is right for dashboard tests but
-  * means the transport is never exercised: the auth handshake, the id routing,
-  * the ack-then-events ordering, coalesced framing, ping/pong liveness and the
-  * decode-failure path are all bypassed. This stub exists so those can be
-  * tested against the real implementation.
-  *
-  * It speaks enough of the protocol to be realistic, not all of it: the auth
-  * phase, an auto-ack for the commands the runtime issues, and `pong`. Test
-  * bodies drive everything else through [[emit]] / [[emitFrame]], so a test can
-  * produce framings real HA is hard to provoke into (an ack sharing a frame
-  * with its first event, a burst in one array, a malformed frame).
+/** An HA WebSocket stub at the frame level, which the real
+  * [[api.homeassistant.ws.HAWSApiLowLevel]] connects through.
+  * `FakeHomeAssistant` stubs a level higher, bypassing the transport. It
+  * answers the auth phase, auto-acks the runtime's commands and pongs; tests
+  * drive the rest through [[emit]] / [[emitFrame]], including framings real HA
+  * is hard to provoke (an ack sharing a frame with its first event, a malformed
+  * frame).
   */
 final class FakeHaSocket private (
     token: String,
-    // Frames the client will receive. `None` ends the stream, i.e. the socket
-    // closed.
+    // `None` ends the stream: the socket closed.
     outgoing: Queue[IO, Option[WSFrame]],
     sentRef: Ref[IO, Vector[Json]],
-    // Set once `supported_features` enables it, mirroring HA: from then on every
-    // frame is a JSON ARRAY of payloads, even a single one.
+    // As HA does, once `supported_features` enables it every frame is a JSON
+    // array, even of one.
     coalescing: Ref[IO, Boolean],
     answerPings: Ref[IO, Boolean],
     rejected: Ref[IO, Set[String]],
     held: Ref[IO, Set[String]]
 ) {
 
-  /** The client under test connects through this. */
   val client: WSClient[IO] =
     WSClient[IO](respondToPings = true)(_ => connection)
 
@@ -54,9 +44,6 @@ final class FakeHaSocket private (
       def subprotocol: Option[String] = None
     })
 
-  // --- What the client sent us ----------------------------------------------
-
-  /** Every command frame the client has sent, in order, decoded. */
   def sentCommands: IO[List[Json]] = sentRef.get.map(_.toList)
 
   private def commandType(json: Json): String =
@@ -79,9 +66,7 @@ final class FakeHaSocket private (
       }
     }
 
-  /** The default server: ack what the runtime issues, `pong` a `ping`. Anything
-    * a test wants to happen instead of (or after) this, it drives itself.
-    */
+  /** A test drives anything else itself. */
   private def autoRespond(json: Json, tpe: String): IO[Unit] = {
     val id = json.hcursor.get[Int]("id").getOrElse(0)
     (rejected.get, held.get).flatMapN { (rejects, holds) =>
@@ -95,19 +80,16 @@ final class FakeHaSocket private (
               IO.unit
             )
           case "supported_features" =>
-            // Ack BEFORE switching framing, so one connection exercises both the
-            // bare-object and the array shape.
+            // Ack before switching framing, so one connection exercises both
+            // shapes.
             emit(ack(id)) *> coalescing.set(true)
           case _ => emit(ack(id))
         }
     }
   }
 
-  // --- Driving the client ---------------------------------------------------
-
-  /** Send payloads to the client. Coalescing decides the framing: once enabled,
-    * everything given here rides in ONE array frame (which is how a burst stays
-    * a single fs2 chunk); before that, one frame each.
+  /** Once coalescing is on, all in one array frame, which is how a burst stays
+    * one fs2 chunk.
     */
   def emit(payloads: Json*): IO[Unit] =
     coalescing.get.flatMap {
@@ -115,27 +97,23 @@ final class FakeHaSocket private (
       case false => payloads.toList.traverse_(p => emitFrame(p.noSpaces))
     }
 
-  /** Send raw text, bypassing every shape check — for malformed frames and for
-    * pinning a framing regardless of the coalescing flag.
+  /** Bypassing every shape check, for malformed frames and for pinning a
+    * framing.
     */
   def emitFrame(text: String): IO[Unit] =
     outgoing.offer(Some(WSFrame.Text(text)))
 
-  /** End the receive stream: the socket closed. */
   def close: IO[Unit] = outgoing.offer(None)
 
-  /** Stop answering `ping`, so the keepalive marks the connection dead. */
   def stopAnsweringPings: IO[Unit] = answerPings.set(false)
 
-  /** Make HA refuse a command type, as it does for an unknown subscription. */
+  /** As HA does for an unknown subscription. */
   def reject(commandType: String): IO[Unit] = rejected.update(_ + commandType)
 
-  /** Record a command type but send NO automatic reply, so the test owns the
-    * response — the only way to control what shares a frame with what.
+  /** Recorded but unanswered, so the test owns the response: the only way to
+    * control what shares a frame.
     */
   def hold(commandType: String): IO[Unit] = held.update(_ + commandType)
-
-  // --- Payload builders -----------------------------------------------------
 
   def ack(id: Int): Json = Json.obj(
     "id" -> id.asJson,
@@ -160,8 +138,7 @@ final class FakeHaSocket private (
     "event" -> event
   )
 
-  /** The id the client allocated for its `n`th command (1-based), so a test can
-    * address a subscription it did not choose the id for.
+  /** 1-based, so a test can address a subscription whose id it did not choose.
     */
   def idOf(n: Int): IO[Int] =
     sentRef.get.map(_(n - 1).hcursor.get[Int]("id").getOrElse(0))
@@ -171,7 +148,7 @@ object FakeHaSocket {
 
   val Token = "test-token"
 
-  /** A socket already offering `auth_required`, as HA does on connect. */
+  /** Already offering `auth_required`, as HA does on connect. */
   def create(token: String = Token): IO[FakeHaSocket] =
     for {
       outgoing <- Queue.unbounded[IO, Option[WSFrame]]
