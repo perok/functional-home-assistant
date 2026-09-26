@@ -1,5 +1,6 @@
 package fh.view.runtime
 
+import fh.view.query.QuerySnapshot
 import fh.view.runtime.RendererTestOps.*
 
 import fh.view.model.{
@@ -17,6 +18,7 @@ import fh.view.model.{
   Surface,
   Transform
 }
+import cats.effect.IO
 import cats.effect.unsafe.implicits.global
 import cats.syntax.traverse.*
 import io.circe.Json
@@ -387,7 +389,7 @@ class RenderBench {
       .renderPageTraced(st)
       .own
       .keys
-      .flatMap(signalled.renderNodeById(_, st))
+      .flatMap(signalled.renderNodeById(_, st, fragments = QuerySnapshot.empty))
       .toList
     // The first leaves' own node ids — one per leaf, in fixture order — for
     // the tick render: `componentsFor` maps the entity to the node that
@@ -736,7 +738,11 @@ class RenderBench {
       new java.io.OutputStreamWriter(sink, UTF_8),
       Server.PageChunkBytes
     )
-    val own = signalled.renderPageInto(Sink.streaming(w), st)
+    val own = signalled.renderPageInto(
+      Sink.streaming(w),
+      st,
+      fragments = QuerySnapshot.empty
+    )
     w.flush()
     bh.consume(own.size)
     bh.consume(sink.count)
@@ -767,7 +773,12 @@ class RenderBench {
       new java.io.OutputStreamWriter(sink, UTF_8),
       Server.PageChunkBytes
     )
-    val own = plain.renderPageInto(Sink.streaming(w), st)
+    val own =
+      plain.renderPageInto(
+        Sink.streaming(w),
+        st,
+        fragments = QuerySnapshot.empty
+      )
     w.flush()
     bh.consume(own.size)
     bh.consume(sink.count)
@@ -790,7 +801,11 @@ class RenderBench {
   def pageWalkStreamUnbuffered(bh: Blackhole): Unit = {
     val sink = new RenderBench.CountingOutputStream
     val w = new java.io.OutputStreamWriter(sink, UTF_8)
-    val own = signalled.renderPageInto(Sink.streaming(w), st)
+    val own = signalled.renderPageInto(
+      Sink.streaming(w),
+      st,
+      fragments = QuerySnapshot.empty
+    )
     w.flush()
     bh.consume(own.size)
     bh.consume(sink.count)
@@ -818,7 +833,11 @@ class RenderBench {
             new java.io.OutputStreamWriter(os, UTF_8),
             Server.PageChunkBytes
           )
-          val own = signalled.renderPageInto(Sink.streaming(w), st)
+          val own = signalled.renderPageInto(
+            Sink.streaming(w),
+            st,
+            fragments = QuerySnapshot.empty
+          )
           w.flush()
           own.size
         }.void
@@ -948,7 +967,16 @@ class RenderBench {
     )
     (1 to clients).toList
       .traverse(_ =>
-        Patches.resume(flipped, flipCache, log, Map.empty, flipStates, at)
+        Patches.resume(
+          flipped,
+          flipCache,
+          log,
+          Map.empty,
+          flipStates,
+          _ => IO.pure(QuerySnapshot.empty),
+          Map.empty,
+          at
+        )
       )
       .unsafeRunSync()
   }
@@ -1226,6 +1254,8 @@ class RenderBench {
           log,
           held,
           moved,
+          _ => IO.pure(QuerySnapshot.empty),
+          Map.empty,
           at,
           Set.empty,
           Map.empty
@@ -1320,7 +1350,14 @@ class RenderBench {
   def tickRender(bh: Blackhole): Unit = {
     val moved = signalTick(wireRot)
     tickNodeIds.foreach(id =>
-      bh.consume(signalled.renderNodeById(id, moved, Map.empty))
+      bh.consume(
+        signalled.renderNodeById(
+          id,
+          moved,
+          Map.empty,
+          fragments = QuerySnapshot.empty
+        )
+      )
     )
   }
 
@@ -1429,7 +1466,14 @@ class RenderBench {
       )
     )
     wireNodeIds.foreach { id =>
-      bh.consume(signalled.renderNodeById(id, moved, Map.empty))
+      bh.consume(
+        signalled.renderNodeById(
+          id,
+          moved,
+          Map.empty,
+          fragments = QuerySnapshot.empty
+        )
+      )
     }
     wireRot += 1
   }

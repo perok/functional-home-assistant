@@ -1,5 +1,6 @@
 package fh.view.model
 
+import fh.view.history.ChartStyle
 import fh.view.runtime.{Cel, EntityState}
 import io.circe.{Decoder, DecodingFailure}
 import io.circe.derivation.{Configuration, ConfiguredDecoder}
@@ -474,6 +475,43 @@ object Transform {
       dashboardSlug: String
   ): SlotValue =
     Cel.runValue(expr, entity, dashboardSlug)
+
+  /** How a QUERY's answer becomes the hole's content — the third arm of
+    * `SlotSource.transform`. Not a [[Simple]]: that tier is a total static
+    * lookup, and a chart renderer is neither. `params` stay untyped so the
+    * model never imports `fh.view.history`.
+    */
+  enum Stage derives CanEqual {
+
+    /** No transform: the provider's data, escaped into the hole. Spelled on the
+      * wire rather than absent, because the Pkl default derives it.
+      */
+    case Passthrough
+
+    /** Series in, markup out — the built-in chart. Typed on the wire, unlike a
+      * query's params, which their provider parses (ADR 0031).
+      */
+    case Chart(params: ChartStyle = ChartStyle())
+  }
+
+  object Stage {
+
+    /** Disjoint by prefix, like [[Simple.key]]. */
+    def key(s: Stage): String = s match {
+      case Stage.Passthrough  => "passthrough"
+      case Stage.Chart(style) => s"chart:$style"
+    }
+
+    /** `{"stage": "chart", "params": {…}}`. Told apart from [[SimpleWire]] by
+      * key (`stage` vs `kind`), so the union decoder tries each arm.
+      */
+    private given Configuration =
+      Configuration.default.withDefaults
+        .withDiscriminator("stage")
+        .withTransformConstructorNames(_.toLowerCase)
+
+    given Decoder[Stage] = ConfiguredDecoder.derived
+  }
 
   // (The attribute JSON -> Java conversion lives on EntityState.javaAttributes,
   // cached per state version, so it runs once per entity rather than per eval.)

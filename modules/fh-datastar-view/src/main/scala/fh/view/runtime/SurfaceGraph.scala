@@ -149,6 +149,23 @@ private[runtime] final class SurfaceGraph(
       s.bakeInto.flatMap(rootOf).filter(_.nonEmpty).map(sid -> _)
     }
 
+  /** `sid` and every surface that renders inside it: a nested tab this viewer
+    * has selected, a nested branch `states` picks, and theirs in turn.
+    */
+  def shownWithin(
+      sid: String,
+      states: Map[String, EntityState],
+      uiState: Map[String, String]
+  ): Set[String] = {
+    val selected = selectedSurfaces(uiState)
+    def close(acc: Set[String]): Set[String] = {
+      val next = acc ++ acc.flatMap(activeStateSurfacesIn(_, states)) ++
+        selected.filter(s => surfaceParent.get(s).exists(acc))
+      if (next == acc) acc else close(next)
+    }
+    close(Set(sid))
+  }
+
   /** The tag deciding which clients a patch from `sid`'s tree may reach (`sid`
     * itself included).
     *

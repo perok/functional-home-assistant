@@ -3,13 +3,13 @@
 - **Against:** `org.graalvm.polyglot:polyglot`, `org.graalvm.truffle:truffle-api`,
   `org.graalvm.js:js-isolate-linux-{amd64,aarch64}` **25.3.4.1**, JDK 25, Linux, HotSpot with
   the fallback Truffle runtime (no `truffle-runtime` on the classpath — deliberate, see
-  `docs/plan-graaljs-isolate.md`)
+  `docs/adr/0032-a-chart-is-bytes.md`)
 - **Status:** neither filed upstream — this is the write-up to file from. A web search found no
   existing report of either; the only nearby `libtruffleattach` result is a different,
   multi-classloader problem.
 - **Our workarounds:** issue 1 is avoided by not pre-unpacking at all (Truffle's own first-use
   extraction into a cache we relocate); issue 2 is avoided by resolving both halves from one
-  version string, and now *detected* by `fh.view.runtime.JsIsolateCheck`.
+  version string, and now *detected* by `fh.view.runtime.JsIsolateSuite`.
 
 Both were found while packaging GraalJS for a Home Assistant add-on. Neither blocks us. Both
 would cost someone else a day.
@@ -141,7 +141,7 @@ enough.
 
 ### Our detection, which anyone can copy
 
-`JsIsolateCheck` compares the two and fails:
+`JsIsolateSuite` compares the two and fails:
 
 ```
 GraalJS drift: polyglot jars are 25.3.4.1, the isolate library is 25.2.4
@@ -158,8 +158,7 @@ It belongs to apple/pkl, not to GraalVM.
 We are not filing it, because it does not cost us anything worth the words: Pkl runs at startup
 and on dashboard edits, never on the render hot path, and loading the authoring library plus an
 entity dump is ~40 ms. The measurement that made it look expensive was `fib(33)`, a synthetic
-microbenchmark. The evidence lives in `docs/spike-compiled-truffle.md`, which arrives with the
-history-view branch.
+microbenchmark. What the spike measured is summarised in ADR 0032.
 
 The same reasoning would NOT apply to CEL, which does sit on the render hot path — but CEL is
 `dev.cel`, plain Java with no Truffle or GraalVM code or dependencies at all (checked), so none

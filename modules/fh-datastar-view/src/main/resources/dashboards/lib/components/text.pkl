@@ -21,3 +21,23 @@ class SectionTitle extends nodes.Node {
 
 /// Static title text as a call: `c.title("Active now")`.
 function title(t: String): SectionTitle = new SectionTitle { text = t }
+
+/// A short line of static text in a tone — the same label a card places for a
+/// status of its own (`core/text.pkl`'s `label`).
+class Label extends nodes.Node {
+  card = "label"
+  cardDef = new nodes.CardDef {
+    template = textMod.label("{{tone}}", "{{label}}")
+    slots { "label"; "tone" }
+  }
+  hidden text: String
+  hidden tone: textMod.Tone = "normal"
+  slots {
+    ["label"] = text
+    ["tone"] = tone
+  }
+}
+
+/// A label as a call: `c.label("Away until Monday")`, or
+/// `(c.label("Leak under the sink")) { tone = "error" }`.
+function label(t: String): Label = new Label { text = t }

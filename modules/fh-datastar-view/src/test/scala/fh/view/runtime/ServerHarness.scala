@@ -1,5 +1,6 @@
 package fh.view.runtime
 
+import fh.view.query.QuerySnapshot
 import api.homeassistant.HomeAssistantApi
 import cats.effect.IO
 import cats.effect.kernel.Ref
@@ -174,7 +175,18 @@ trait ServerHarness extends munit.CatsEffectSuite {
   ): List[Addressed] =
     RenderCache.create
       .flatMap(
-        Patches.resume(renderer, _, log, holds, states, v, open, uiState)
+        Patches.resume(
+          renderer,
+          _,
+          log,
+          holds,
+          states,
+          _ => IO.pure(QuerySnapshot.empty),
+          Map.empty,
+          v,
+          open,
+          uiState
+        )
       )
       .unsafeRunSync()
 
@@ -200,7 +212,18 @@ trait ServerHarness extends munit.CatsEffectSuite {
       .flatMap(sessions.register("recordAndPull", _)) *>
       server.recordFrame("dashboard", renderer, log, changes) *>
       (log.get, store.current, RenderCache.create).flatMapN((l, now, rc) =>
-        Patches.resume(renderer, rc, l, holds, now.entities, from, open, ui)
+        Patches.resume(
+          renderer,
+          rc,
+          l,
+          holds,
+          now.entities,
+          _ => IO.pure(QuerySnapshot.empty),
+          Map.empty,
+          from,
+          open,
+          ui
+        )
       )
 
   // A minimal tabs dashboard: a `tabs` component (id "c") with two panels baked
@@ -268,10 +291,11 @@ trait ServerHarness extends munit.CatsEffectSuite {
         id: NodeId,
         states: Map[String, EntityState],
         uiState: Map[String, String],
-        form: SlotForm
+        form: SlotForm,
+        fragments: QuerySnapshot
     ): Option[String] = {
       count.incrementAndGet()
-      super.renderNodeById(id, states, uiState, form)
+      super.renderNodeById(id, states, uiState, form, fragments)
     }
   }
 
@@ -356,7 +380,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
         (
           log.touched(id, 0L),
           renderer
-            .renderLogged(id, states)
+            .renderLogged(id, states, Map.empty, QuerySnapshot.empty)
             .fold(holds)(html => holds + (id -> Held.of(html)))
         )
     }
@@ -472,7 +496,16 @@ trait ServerHarness extends munit.CatsEffectSuite {
       (cache.get, store.current, holds.get, position.get, RenderCache.create)
         .flatMapN { (log, now, held, from, rc) =>
           Patches
-            .resume(renderer, rc, log, held, now.entities, from + 1)
+            .resume(
+              renderer,
+              rc,
+              log,
+              held,
+              now.entities,
+              _ => IO.pure(QuerySnapshot.empty),
+              Map.empty,
+              from + 1
+            )
             .flatMap { patches =>
               holds.set(
                 patches.foldLeft(held)(

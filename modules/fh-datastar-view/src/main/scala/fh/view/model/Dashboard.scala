@@ -1,5 +1,6 @@
 package fh.view.model
 
+import fh.view.query.{Queries, QueryRequest}
 import io.circe.{Decoder, Json}
 import io.circe.derivation.{Configuration, ConfiguredDecoder}
 
@@ -91,7 +92,9 @@ case class SlotSource(
     // [[Transform.Simple]] structure as a JSON object (the fast tier — the
     // object form IS the tier selection, plan Phase 3 / ADR 0028). Defaults to
     // the entity's raw state.
-    transform: String | Transform.Simple = "state",
+    // On a QUERY slot, a [[Transform.Stage]] over the provider's data;
+    // `SlotShape` keeps each arm on its shape.
+    transform: String | Transform.Simple | Transform.Stage = "state",
     // Used when the transform yields "" (e.g. brightness when a light is off).
     // Keeps numeric signal initialisers like `{bri: {{x}}}` valid.
     default: Option[String] = None,
@@ -110,8 +113,22 @@ case class SlotSource(
     // element, so a change to it costs a signals frame instead of a card
     // re-render (ADR 0017). The value says WHERE it lands — see [[SignalBind]]
     // — and the card's template must place `{{{<slot>__bind}}}`.
-    signal: Option[SignalBind] = None
+    signal: Option[SignalBind] = None,
+    // Set on a QUERY slot only, which then ignores `reads` and `signal`:
+    // [[SlotShape]] makes those combinations unrepresentable downstream.
+    query: Option[QueryTemplate] = None
 ) {
+
+  def shape: SlotShape =
+    query.fold(SlotShape.State(this))(q => SlotShape.Query(SlotAsk(q, stage)))
+
+  /** Total so `validate` can call it; `validate` rejects a query slot whose
+    * transform is not a stage, so the fallback never renders.
+    */
+  def stage: Transform.Stage = transform match {
+    case st: Transform.Stage => st
+    case _                   => Transform.Stage.Passthrough
+  }
 
   /** The transform's IDENTITY, for every place the renderer keys a value by its
     * transform (signal names, the once-cache): the CEL string for an
@@ -126,6 +143,8 @@ case class SlotSource(
   lazy val valueKey: String = transform match {
     case s: String            => s
     case sm: Transform.Simple => Transform.Simple.key(sm)
+    // Never reached by the signal/once machinery, but the union is total.
+    case st: Transform.Stage => Transform.Stage.key(st)
   }
 }
 
@@ -156,6 +175,77 @@ case class SlotSource(
   * Three values rather than two flags because `(wake me, never re-read)` is
   * incoherent, and a pair of booleans would let it be written.
   */
+/** A resolved query: a provider by name and untyped params, so the model knows
+  * nothing about any provider (`Queries.parse` types them at validation). Also
+  * a render-key component. No identity: that belongs to the request.
+  */
+case class SlotQuery(provider: String, params: Map[String, String])
+    derives CanEqual
+
+/** A query parameter: written down, or read from a NODE VARIABLE declared by
+  * this node or an ancestor (issue #209). Only a variable can be written, and
+  * what it may make a query read is bounded at the write
+  * ([[fh.view.runtime.Renderer.refusals]]).
+  */
+enum Ref derives CanEqual:
+  case Literal(value: String)
+  case Var(name: String)
+
+object Ref:
+
+  /** A bare JSON string is a literal, `{"var": …}` a reference — so existing
+    * params and snapshots do not change.
+    */
+  given Decoder[Ref] =
+    Decoder[String]
+      .map[Ref](Ref.Literal.apply)
+      .or(Decoder.instance(_.get[String]("var").map(Ref.Var.apply)))
+
+/** A query as AUTHORED, references unresolved. [[SlotQuery]] is the resolved
+  * form the caches key on; this is what a node declares statically.
+  */
+case class QueryTemplate(provider: String, params: Map[String, Ref])
+    derives CanEqual,
+      ConfiguredDecoder:
+
+  /** Every variable this template reads, for the resolution walk. */
+  def references: List[String] = params.values.toList.collect {
+    case Ref.Var(n) => n
+  }
+
+  def resolve(env: Map[String, String]): SlotQuery =
+    SlotQuery(
+      provider,
+      params.view.mapValues {
+        case Ref.Literal(v) => v
+        // Unresolved only if validation was bypassed; the name then fails
+        // the provider's parse instead of passing as an empty parameter.
+        case Ref.Var(n) => env.getOrElse(n, n)
+      }.toMap
+    )
+
+/** What a slot IS, decided once from its wire form. The wire keeps one
+  * `SlotSource` (a tagged sum would churn every snapshot); the exhaustive
+  * `match` here is what makes a `live`, `once` or signal query unreachable.
+  */
+enum SlotShape derives CanEqual:
+  case State(source: SlotSource)
+  case Query(ask: SlotAsk)
+
+/** What one slot ASKS for — a property of the TREE, references unresolved.
+  * [[SlotRead]] is the same pair resolved for one render, and is what keys.
+  */
+case class SlotAsk(query: QueryTemplate, stage: Transform.Stage)
+    derives CanEqual:
+
+  def resolve(env: Map[String, String]): SlotRead =
+    SlotRead(query.resolve(env), stage)
+
+/** What one slot reads this render: query AND stage, because two sizes of one
+  * chart share a fetch but must not share bytes. What `RenderInputs` keys on.
+  */
+case class SlotRead(query: SlotQuery, stage: Transform.Stage) derives CanEqual
+
 object Reads:
   val Live: String = "live"
   val OnRender: String = "onRender"
@@ -173,14 +263,18 @@ object SlotSource:
   given Decoder[SlotSource] =
     Decoder[String].map(s => SlotSource(literal = Some(s))).or(objDecoder)
 
-  /** A slot's transform is ONE wire fact with two forms: a bare JSON string (a
-    * CEL expression — the engine tier) or an object (the opted-in
-    * [[Transform.Simple]] structure — the fast tier, `kind`-discriminated).
+  /** A slot's transform: a bare JSON string (a CEL expression — the engine
+    * tier), a `stage`-discriminated [[Transform.Stage]], or a
+    * `kind`-discriminated [[Transform.Simple]]. Chosen by key rather than by
+    * trying each in turn, so a bad chart param reports the stage's error and
+    * not the last arm's.
     */
-  given Decoder[String | Transform.Simple] =
-    Decoder[String].or(
-      summon[Decoder[Transform.Simple]].map[Transform.Simple | String](identity)
-    )
+  given Decoder[String | Transform.Simple | Transform.Stage] =
+    Decoder.instance { c =>
+      if (c.value.isString) c.as[String]
+      else if (c.downField("stage").succeeded) c.as[Transform.Stage]
+      else c.as[Transform.Simple]
+    }
 
 /** WHERE a signal slot's value lands in the DOM — the Datastar attribute the
   * renderer emits for it (ADR 0017).
@@ -553,7 +647,12 @@ object LayoutNode:
       // into `ui.<id>`) and name every signal a card owns, so an author can pin
       // one rather than have layout decide it. `Dashboard.validate` checks it —
       // see `authoredIdErrors`, which owns the reason it needs checking at all.
-      id: Option[String] = None
+      id: Option[String] = None,
+      // NODE VARIABLES this node declares (issue #209): name -> initial value.
+      // A descendant's `Ref.Var` resolves by name up the ancestor chain; the
+      // nearest declarer wins. No list of allowed values: the write boundary
+      // refuses anything a declared reader cannot parse.
+      vars: Map[String, String] = Map.empty
   ) extends LayoutNode:
 
     /** Every child, in one list — what a traversal that only needs to REACH
@@ -585,7 +684,7 @@ object LayoutNode:
       * patched.
       */
     lazy val liveEntities: List[String] =
-      slots.values.toList
+      stateSlots
         .filter(s => s.reads == Reads.Live && s.literal.isEmpty)
         .flatMap(s => s.entityId.orElse(subjectEntity))
         .distinct
@@ -605,12 +704,32 @@ object LayoutNode:
       * frames.
       */
     lazy val liveEntitiesAsBytes: List[String] =
-      slots.values.toList
+      stateSlots
         .filter(s =>
           s.reads == Reads.Live && s.literal.isEmpty && s.signal.isEmpty
         )
         .flatMap(s => s.entityId.orElse(subjectEntity))
         .distinct
+
+    /** Not part of [[liveEntities]] — a chart is never a state-tick candidate,
+      * or a sensor moving every second would refetch its history every second —
+      * but part of the render key. A query names its own entity in its params;
+      * nothing is inherited from the card's `entity_id`.
+      */
+    lazy val queries: List[SlotAsk] = shapes._2
+
+    // What the entity lists are built from; a query slot is simply not in it.
+    private def stateSlots: List[SlotSource] = shapes._1
+
+    private lazy val shapes: (List[SlotSource], List[SlotAsk]) =
+      slots.values.toList.foldRight(
+        (List.empty[SlotSource], List.empty[SlotAsk])
+      ) { case (s, (states, queries)) =>
+        s.shape match
+          case SlotShape.State(src) => (src :: states, queries)
+          case SlotShape.Query(q)   => (states, q :: queries)
+      } match
+        case (states, queries) => (states, queries.distinct)
 
   /** A set over a STATICALLY KNOWN candidate list.
     *
@@ -1097,11 +1216,17 @@ case class Dashboard(
     def slotErrors(
         nodeId: String,
         cardName: String,
-        slots: Map[String, SlotSource]
+        slots: Map[String, SlotSource],
+        scope: Map[String, String],
+        inSet: Boolean
     ): List[String] =
       slots.toList.sortBy(_._1).flatMap { case (name, src) =>
         val transformError =
-          if (src.literal.isDefined) None
+          // A QUERY slot's transform is checked by `queryErrors` instead: the
+          // two shapes take different ARMS of this one field, so asking the
+          // state-tier questions of a stage would report nonsense about a slot
+          // that is correct.
+          if (src.literal.isDefined || src.query.isDefined) None
           else
             src.transform match {
               // The fast tier: structure checks only — the degenerate-range
@@ -1151,9 +1276,119 @@ case class Dashboard(
                   s"$nodeId: slot '$name' has an invalid transform$at: $err"
                 }
               case _: Transform.Simple => None
+              // A STAGE on a state slot. Unreachable from Pkl, whose default
+              // derives the arm from the shape, so this is a hand-written wire
+              // — and worth naming rather than ignoring, because a stage reads
+              // a provider's DATA and there is none here to read.
+              case st: Transform.Stage =>
+                Some(
+                  s"$nodeId: slot '$name' has a '${Transform.Stage.key(st)}' " +
+                    "transform but reads no query — a stage turns a " +
+                    "provider's answer into the hole's content, and a state " +
+                    "slot has no answer to turn"
+                )
             }
         transformError.toList ++ signalErrors(nodeId, cardName, name, src) ++
-          readErrors(nodeId, cardName, name, src)
+          readErrors(nodeId, cardName, name, src) ++
+          queryErrors(nodeId, cardName, name, src, scope, inSet)
+      }
+
+    /** An unknown provider or bad parameter is a build error; otherwise the
+      * slot renders blank forever with nothing saying why. `transform` is the
+      * one field both shapes share, so its wrong arm is checked here.
+      */
+    def queryErrors(
+        nodeId: String,
+        cardName: String,
+        name: String,
+        src: SlotSource,
+        scope: Map[String, String],
+        inSet: Boolean
+    ): List[String] =
+      src.query.toList.flatMap { template =>
+        // The field is inert on a query, but `live` beside one would be a lie
+        // on the wire. Only a hand-written wire gets here.
+        val untruthfulReads = Option.when(src.reads != Reads.OnRender)(
+          s"$nodeId: slot '$name' reads a query, so its 'reads' must be " +
+            s"'${Reads.OnRender}' (it says '${src.reads}') — a provider's " +
+            "answer is never pushed, so nothing about it is a reason to render"
+        )
+        // A set member's id is minted at run time, so it has no scope to
+        // resolve against yet. A query in a set works; it just cannot read a
+        // variable until members get their set's scope.
+        val inSetErrors =
+          Option.when(inSet && template.references.nonEmpty)(
+            s"$nodeId: slot '$name' reads a variable from inside a candidate " +
+              "set, which is not supported yet — a member's scope is not " +
+              "resolved. Write the value down, or move the query out of the set"
+          )
+        val refErrors = template.references.distinct.sorted
+          .filterNot(scope.contains)
+          .map(v =>
+            s"$nodeId: slot '$name' reads the variable '$v', which no " +
+              "ancestor declares — declare it on the node that owns the " +
+              "choice, or write the value down"
+          )
+        // At the DECLARED values. A viewer's later value is checked at the
+        // write, against every declared reader's parse.
+        val parseError =
+          if (refErrors.nonEmpty) Nil
+          else
+            Queries
+              .parse(template.resolve(scope))
+              .left
+              .toOption
+              .map(e => s"$nodeId: slot '$name' $e")
+              .toList
+        // A stage's own params were parsed when the wire was decoded.
+        val stageError = src.transform match {
+          case _: Transform.Stage => None
+          case _                  =>
+            Some(
+              s"$nodeId: slot '$name' reads a query, so its transform must " +
+                "be a STAGE (a chart, or passthrough) — a CEL expression and " +
+                "a simple transform both read an entity's state, and a query " +
+                "slot has none"
+            )
+        }
+        // The stage decides the hole: markup needs `{{{x}}}` (escaped, the
+        // page shows `&lt;svg` as text), data needs `{{x}}`.
+        val rawHole =
+          cards.get(cardName).flatMap { cd =>
+            val hasRaw =
+              Dashboard.rawHole(name).findFirstIn(cd.template).isDefined
+            src.stage match {
+              case Transform.Stage.Passthrough if hasRaw =>
+                Some(
+                  s"$nodeId: card '$cardName' places slot '$name' in a RAW " +
+                    "hole, but its transform is passthrough, whose value is " +
+                    s"DATA — write {{$name}}, or the page emits unescaped JSON"
+                )
+              case Transform.Stage.Chart(_) if !hasRaw =>
+                Some(
+                  s"$nodeId: card '$cardName' places slot '$name' in an " +
+                    "ESCAPED hole, but its transform draws markup — write " +
+                    s"{{{$name}}}, or the page shows the markup as text"
+                )
+              case _ => None
+            }
+          }
+        untruthfulReads.toList ++ inSetErrors.toList ++ refErrors ++
+          parseError ++ stageError.toList ++ rawHole.toList
+      }
+
+    /** Checked at the declaration, so an unreferenced variable is still wrong
+      * loudly. Its VALUE is its readers' question.
+      */
+    def varErrors(nodeId: String, vars: Map[String, String]): List[String] =
+      vars.keys.toList.sorted.flatMap { name =>
+        Option
+          .when(!name.matches("[A-Za-z][A-Za-z0-9_]*"))(
+            s"$nodeId: variable '$name' is not a plain name " +
+              "([A-Za-z][A-Za-z0-9_]*) — it is spelled into signal names and " +
+              "the URL mirror"
+          )
+          .toList
       }
 
     /** `<slot>__read` is a card composing a slot's value into a handler
@@ -1246,10 +1481,12 @@ case class Dashboard(
 
     def childErrors(
         kids: Map[String, List[LayoutNode]],
-        id: NodeId
+        id: NodeId,
+        scope: Map[String, String],
+        inSet: Boolean
     ): List[String] =
       LayoutNode.steps(kids).flatMap { case (step, n) =>
-        walk(n, LayoutNode.childId("", id, step, n))
+        walk(n, LayoutNode.childId("", id, step, n), scope, inSet)
       }
 
     // Cell classes are string-interpolated into the wrapper's `class`
@@ -1272,9 +1509,14 @@ case class Dashboard(
     def noWrap(cardName: String): Boolean =
       cards.get(cardName).exists(!_.wrapAsCell)
 
-    def walk(node: LayoutNode, nodeId: NodeId): List[String] =
+    def walk(
+        node: LayoutNode,
+        nodeId: NodeId,
+        scope: Map[String, String],
+        inSet: Boolean
+    ): List[String] =
       node match
-        case c @ LayoutNode.Component(card, slots, _, cell, _) =>
+        case c @ LayoutNode.Component(card, slots, _, cell, _, vars) =>
           val wrapErrors =
             if (!noWrap(card)) Nil
             else
@@ -1294,13 +1536,15 @@ case class Dashboard(
                       "card opts out of"
                   )
                   .toList
+          val here = scope ++ vars
           checkRef(
             nodeId,
             card,
             Dashboard.injectedStatic,
             slots.keySet
-          ) ++ slotErrors(nodeId, card, slots) ++ cellErrors(nodeId, cell) ++
-            wrapErrors ++ childErrors(c.regions, nodeId)
+          ) ++ slotErrors(nodeId, card, slots, here, inSet) ++
+            varErrors(nodeId, vars) ++ cellErrors(nodeId, cell) ++
+            wrapErrors ++ childErrors(c.regions, nodeId, here, inSet)
         // A set's clauses carry COMPLETE nodes — their own card, slots (the
         // candidate's `entity_id` among them) and cell — so each one validates
         // as the ordinary node it is. `noWrap` is rejected because every member
@@ -1321,7 +1565,9 @@ case class Dashboard(
                     nodeId,
                     LayoutNode.Step(LayoutNode.DefaultRegion, i),
                     clause.node
-                  )
+                  ),
+                  scope,
+                  inSet = true
                 ) ++ (clause.node match {
                   case c: LayoutNode.Component if noWrap(c.card) =>
                     List(
@@ -1690,10 +1936,15 @@ case class Dashboard(
       danglingBakes ++
       activationErrors ++
       unboundConditions ++
-      walk(card, LayoutNode.rootId("", card)) ++
+      walk(card, LayoutNode.rootId("", card), Map.empty, inSet = false) ++
+      // Each surface starts its own scope — see `scopedSlots`.
       surfaces.toList.sortBy(_._1).flatMap { case (sid, surface) =>
-        walk(surface.content, LayoutNode.rootId("", surface.content))
-          .map(err => s"surface '$sid': $err")
+        walk(
+          surface.content,
+          LayoutNode.rootId("", surface.content),
+          Map.empty,
+          inSet = false
+        ).map(err => s"surface '$sid': $err")
       }
 
   /** Non-fatal problems worth telling the author about: unlike [[validate]]'s
@@ -1730,22 +1981,72 @@ case class Dashboard(
     else Nil
   }
 
+  /** Every distinct query in the layout and its surfaces — the single source
+    * for both [[validated]]'s parse and the renderer's prepared map, the same
+    * role [[transformStrings]] plays for CEL.
+    */
+  def allQueries: List[SlotRead] =
+    (queriesIn(card) ++ surfaces.values.toList.flatMap(s =>
+      queriesIn(s.content)
+    )).distinct
+
+  /** What the queries read at their declared values. Not in
+    * [[referencedEntities]]: showing a sensor's history is not leave to act on
+    * it.
+    */
+  lazy val queriedEntities: Set[String] =
+    allQueries
+      .flatMap(r => Queries.parse(r.query).toOption)
+      .flatMap(_.entities)
+      .toSet
+
+  /** Every query under one node, at declared defaults (a viewer's choice is
+    * overlaid by the renderer). Static, so a set clause that will not match
+    * still contributes — the snapshot is resolved before the walk decides.
+    */
+  def queriesIn(n: LayoutNode): List[SlotRead] =
+    scopedSlots(n, Map.empty).flatMap { case (s, scope) =>
+      s.shape match
+        case SlotShape.Query(ask) =>
+          List(ask.resolve(scope))
+        case SlotShape.State(_) => Nil
+    }.distinct
+
+  /** Every slot on every node, the layout's own and its set members' alike. */
+  private def slotSources(n: LayoutNode): List[SlotSource] =
+    scopedSlots(n, Map.empty).map(_._1)
+
+  /** The slot walk, carrying node variables in scope — one traversal, so a
+    * reference cannot resolve against a scope its slot is not in.
+    *
+    * A SURFACE is its own scope root: a baked one can be swapped into any host,
+    * and inheriting from the host would resolve one content differently per
+    * host.
+    */
+  private def scopedSlots(
+      n: LayoutNode,
+      scope: Map[String, String]
+  ): List[(SlotSource, Map[String, String])] = n match
+    case c: LayoutNode.Component =>
+      val here = scope ++ c.vars
+      c.slots.values.toList.map(_ -> here) ++
+        c.allChildren.flatMap(scopedSlots(_, here))
+    case s: LayoutNode.SetNode =>
+      s.members.values.toList
+        .flatMap(_.clauses)
+        .flatMap(c => scopedSlots(c.node, scope))
+
   /** Every distinct live-slot transform string in the layout and its surfaces
     * (constant `literal` slots carry no transform and are excluded). These are
     * exactly the expressions the renderer compiles — the single source for both
     * [[validated]]'s compile and `Transforms.from`.
     */
   def transformStrings: List[String] =
-    def slotsOf(n: LayoutNode): List[SlotSource] = n match
-      case c: LayoutNode.Component =>
-        c.slots.values.toList ++ c.allChildren.flatMap(slotsOf)
-      case s: LayoutNode.SetNode =>
-        s.members.values.toList
-          .flatMap(_.clauses)
-          .flatMap(c => slotsOf(c.node))
     // The CEL half of the two-tier union — the Simple objects have no string
     // to compile (plan Phase 3 / ADR 0028).
-    (slotsOf(card) ++ surfaces.values.flatMap(s => slotsOf(s.content))).toList
+    (slotSources(card) ++ surfaces.values.flatMap(s =>
+      slotSources(s.content)
+    )).toList
       .filter(_.literal.isEmpty)
       .map(_.transform)
       .collect { case t: String => t }
@@ -1762,8 +2063,17 @@ case class Dashboard(
       locateTransform: String => Option[String] = _ => None
   ): Either[List[String], Dashboard.Validated] =
     validate(locateTransform) match
-      case Nil  => Right(Dashboard.Validated(this, compileTransforms))
+      case Nil =>
+        Right(Dashboard.Validated(this, compileTransforms, parseQueries))
       case errs => Left(errs)
+
+  /** Every query at its declared values, parsed. Only [[validated]] calls it,
+    * after [[validate]] proved each parses, so a `Left` is dropped (as
+    * [[compileTransforms]] does). A viewer's later value is kept parseable by
+    * the write boundary, which resolves every declared reader with it.
+    */
+  private def parseQueries: Map[SlotRead, QueryRequest] =
+    allQueries.flatMap(r => Queries.parse(r.query).toOption.map(r -> _)).toMap
 
   /** Compile every [[transformStrings]] expression. Total by contract: only
     * [[validated]] calls it, and only after [[validate]] proved each
@@ -1788,6 +2098,12 @@ object Dashboard:
     */
   val SubjectSlot: String = "entity_id"
 
+  /** `{{{name}}}`, with the whitespace mustache allows inside. */
+  private[model] def rawHole(name: String): scala.util.matching.Regex =
+    ("\\{\\{\\{\\s*" + scala.util.matching.Regex.quote(
+      name
+    ) + "\\s*\\}\\}\\}").r
+
   /** A dashboard PROVEN valid: every card reference resolves, every slot is
     * satisfied, and every slot transform compiled (kept in `transforms`, so the
     * renderer looks them up instead of recompiling or defending against a bad
@@ -1796,6 +2112,8 @@ object Dashboard:
   case class Validated(
       dashboard: Dashboard,
       transforms: Map[String, Transform.Compiled],
+      // Parsed once here, like `transforms`, so nothing downstream re-parses.
+      queries: Map[SlotRead, QueryRequest] = Map.empty,
       // The RESOLVED access rule (issue #89) — the dashboard's own if it named
       // one, else its site's. Resolved once by `Site.decode` via [[withAccess]]
       // rather than left as the model's `Option`, so no gate has to re-derive

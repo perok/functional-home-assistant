@@ -41,8 +41,8 @@ declare global {
  * An empty value DROPS the param, and that is not defensive: it is how a client
  * says "closed" (a dismissed popup). It does mean this cannot tell "cleared"
  * from "never initialised" — Datastar creates a signal as `""` the moment an
- * expression reads one — which is why the seeds that feed it must ASSERT rather
- * than initialise-if-missing. See `Tabs` in components.pkl.
+ * expression reads one — so an effect that runs before its seed drops the param
+ * until the seed lands and the effect runs again.
  */
 window.fhUrl = (key, value) => {
   const url = new URL(location.href)

@@ -331,6 +331,13 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   nullability mismatch pkl-lsp reports BEFORE eval. `lightControls` is the `when`-per-capability
   shortcut. Do not "simplify" this into a builder method or a selector enum — both hide the choice
   from static analysis; ADR 0013 "Shapes considered" has the four attempts),
+  **node variables** (issue #209 — a node DECLARES a named value (`vars`) and a descendant reads it
+  by name in a query parameter (`varMod.ref`), resolving up the ancestor chain so a nested
+  declaration shadows; a viewer's choice is per SESSION, keyed by declaring node, and the write
+  boundary refuses a value no declared reader can parse, which is why a declaration carries no list
+  of allowed values. `c.windowChooser` is the one shipped control: it declares `window` AND renders
+  the bar, because only a node's own template can spell its id, and `c.historyChart(s).chosen()`
+  reads it),
   tabs, popups/surfaces, more-info (`c.entityCard(e) |> c.informative`, or the `c.moreInfo(e)` tap:
   an INLINE popup holding the entity's card, its domain controls, and `c.entityInfo(e)` — the id plus
   every attribute it reports, as one live text block, since a template cannot loop over attributes.
@@ -404,9 +411,13 @@ gotchas"):
   help, because the union still closes the loop. Keep the alias for the non-recursive positions
   and let the one or two that would close it take `Any`, with a comment saying why.
 - Reserved words that bite as field, property or METHOD names: **`case`**, **`out`**, **`is`**
-  (the type-test operator), `import`, `else`, `when`. Backtick them or pick another name —
-  `shape` rather than `case`, `stateIs` rather than `is`. Backticking reads badly at the CALL
-  site, so for a method prefer renaming.
+  (the type-test operator), **`read`** (the resource reader), **`var`**, `import`, `else`,
+  `when`. Backtick them or pick another name —
+  `shape` rather than `case`, `stateIs` rather than `is`, `ref` rather than `read`. Backticking
+  reads badly at the CALL site, so for a method prefer renaming; for a WIRE field there is no
+  choice, which is why `core/variable.pkl` declares `` `var` `` and hides it behind `ref`.
+  **A reserved word in a library module reports at the DEFINITION**, so the error names whichever
+  module imported it rather than the one that is wrong.
 - `getProperty(name)` / `getPropertyOrNull(name)` / `hasProperty(name)` let the build read a
   property BY NAME — the basis for resolving a named property against candidates.
 - Structural equality holds for independently-built objects, and `Map`/`distinct`/`groupBy`

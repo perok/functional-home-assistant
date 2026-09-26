@@ -650,15 +650,24 @@ const function pendingSeedEntry(groupId: String): String =
 /// It settles because the assignment falsifies its own guard, and
 /// `DatastarMorphContractSuite` MEASURES that rather than assuming it.
 const function pendingClear(groupId: String): String =
+  pendingClearAgainst(groupId, "ui_\(groupId)")
+
+/// [[pendingClear]] against a named committed signal — a node variable's
+/// lives under `_var_`, not `ui_` (`Server.varSignal`).
+const function pendingClearAgainst(groupId: String, committed: String): String =
   let (sig = pendingSignal(groupId))
-    #"data-effect="$\#(sig) !== '' && $ui_\#(groupId) == $\#(sig) && ($\#(sig) = '')""#
+    #"data-effect="$\#(sig) !== '' && $\#(committed) == $\#(sig) && ($\#(sig) = '')""#
 
 /// What a control reads to show a selection: the pending value while one is
 /// outstanding, the committed one otherwise. `''` is falsy, so no pending means
 /// the server's answer shows — and nothing is ever rolled back, because nothing
 /// wrong was ever committed.
 const function pendingOrCommitted(groupId: String): String =
-  "($" + pendingSignal(groupId) + " || $ui_" + groupId + ")"
+  pendingOrCommittedOf(groupId, "ui_\(groupId)")
+
+/// [[pendingOrCommitted]] against a named committed signal.
+const function pendingOrCommittedOf(groupId: String, committed: String): String =
+  "($" + pendingSignal(groupId) + " || $" + committed + ")"
 
 /// The tab bar's own open-a-member click: [[openSurfaceOnclick]] preceded by
 /// the group's PENDING assignment. The committed `ui_<groupId>` is the SERVER's
