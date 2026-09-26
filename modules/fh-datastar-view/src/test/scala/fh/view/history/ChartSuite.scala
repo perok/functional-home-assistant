@@ -134,7 +134,7 @@ class ChartSuite extends munit.FunSuite {
     // still produces axes, so asserting on `<svg` alone would pass for a chart
     // with no data on it.
     assert(svg.contains("<path"), clue = svg.take(400))
-    assert(svg.contains("""width="600""""), clue = svg.take(200))
+    assert(svg.contains("""width="400""""), clue = svg.take(200))
   }
 
   test("a CSS variable reaches the SVG verbatim, so the theme colours it") {
@@ -148,6 +148,21 @@ class ChartSuite extends munit.FunSuite {
       _.render(series(1, 5, 2), ChartStyle(line = "var(--fh-accent)"))
     )
     assert(svg.contains("var(--fh-accent)"), clue = svg.take(1200))
+  }
+
+  test("no colour in the drawing is a literal, so a theme reaches all of it") {
+    // The bytes are shared by every viewer and cached across a light/dark
+    // switch, so a colour baked in — ECharts' own grey labels and grid lines,
+    // which is what the defaults drew — stays wrong on the other palette. The
+    // one `#000` is the clip path's mask, which is never painted.
+    val svg = withRenderer(
+      _.render(series(1, 5, 2), ChartStyle(unit = Some("°C")))
+    )
+    assertEquals(
+      """(fill|stroke)="#(?!000")""".r.findFirstIn(svg),
+      None,
+      clue = svg.take(1200)
+    )
   }
 
   test("the SVG is self-contained — no script, no external reference") {

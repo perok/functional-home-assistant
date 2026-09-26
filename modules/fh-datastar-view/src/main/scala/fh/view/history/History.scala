@@ -122,7 +122,9 @@ final class History private (
     retention.get
       .map(_.getSeconds >= window.span.toSeconds)
       .ifM(fromHistory, (fromHistory, fromStatistics).parMapN(History.widest))
-      .map(s => s.copy(points = Downsample.lttb(s.points, target)))
+      .map(s =>
+        s.copy(points = Downsample.lttb(s.heldUntil(asOf).points, target))
+      )
   }
 }
 

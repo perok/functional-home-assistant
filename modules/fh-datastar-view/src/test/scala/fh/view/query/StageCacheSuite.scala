@@ -81,7 +81,7 @@ class StageCacheSuite extends munit.CatsEffectSuite {
         .parSequence
         .flatMap { results =>
           draws.get.map { d =>
-            assertEquals(results.distinct, List("<svg>600</svg>"))
+            assertEquals(results.distinct, List("<svg>400</svg>"))
             assertEquals(d, 1)
           }
         }

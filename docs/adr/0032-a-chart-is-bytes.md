@@ -132,7 +132,12 @@ output. Hover, tooltips and a draggable axis are out.
 
 What it does **not** give up is theme: inline SVG inherits the page's custom properties, so
 `var(--fh-accent)` reaches the stroke verbatim — measured, because zrender passes colours through
-rather than normalising them, which a library that parsed colours would not.
+rather than normalising them, which a library that parsed colours would not. That makes custom
+properties the ONLY way a theme reaches a chart, and every colour in the option is one: the bytes
+are shared by every viewer and survive a light/dark switch, so a literal (ECharts' own grey
+labels and grid, which the defaults drew) is wrong on the other palette. A theme sets
+`--fh-chart-line`, `--fh-chart-fill`, `--fh-chart-grid` and `--fh-chart-label`, each falling back
+to a base `--fh-*` token; text inherits the page's font. `ChartSuite` fails on a literal colour.
 
 ## Consequences
 

@@ -272,6 +272,7 @@ class BeerTheme extends themeMod.Theme {
       --fh-border:var(--outline-variant);
       --fh-error:var(--error);
       --fh-on-error:var(--on-error);
+      --fh-chart-fill:color-mix(in srgb,var(--primary) 14%,transparent);
     }
 
     /* What is left is what BeerCSS itself needs, plus paint. The layout

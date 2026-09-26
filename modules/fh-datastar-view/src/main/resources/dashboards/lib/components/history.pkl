@@ -45,9 +45,11 @@ const function chartStage(
 class ChartParams {
   width: Int(isPositive)?
   height: Int(isPositive)?
-  /// A CSS colour for the line; `var(--fh-accent)` by default.
+  /// A CSS colour for this chart's line. Unset, the theme's `--fh-chart-line`,
+  /// else `--fh-accent`.
   line: String?
-  /// A CSS colour under the line; none by default.
+  /// A CSS colour under this chart's line. Unset, the theme's
+  /// `--fh-chart-fill`, else none.
   fill: String?
   unit: String?
 }
@@ -81,7 +83,7 @@ class HistoryChart extends nodes.Node {
     // by the browser to the cell.
     css = """
       .fh-chart{padding:.25rem}
-      .fh-chart svg{display:block;inline-size:100%;block-size:auto}
+      .fh-chart svg{display:block;inline-size:100%;block-size:auto;font-size:12px}
       """
   }
 
