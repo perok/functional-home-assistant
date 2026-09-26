@@ -43,7 +43,7 @@ object RegistryDump {
     * the server runs therefore does not merely go stale: it re-hashes the
     * package on every change, turning a dimmed light into a full rebuild.
     * Nothing volatile can live here however useful it looks; volatile values
-    * are read runtime-side as JSONata over the SSE stream.
+    * are read runtime-side, by a slot transform over live state.
     *
     * Every name below was checked against a live instance by watching
     * `subscribe_entities` delta frames for 180s — none of them appeared in a

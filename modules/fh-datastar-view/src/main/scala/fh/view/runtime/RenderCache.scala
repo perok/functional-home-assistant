@@ -8,7 +8,7 @@ import fh.view.model.NodeId
 import java.util.concurrent.ConcurrentHashMap
 
 /** One rendered node: its bytes and their digest, computed together so nothing
-  * hashes the same HTML twice. Distinct from [[Rendered]], which is a PATCH
+  * hashes the same HTML twice. Distinct from [[Addressed]], which is a PATCH
   * plus what it placed — this is the bytes of one node, before any of that.
   */
 private[runtime] case class NodeBytes(html: String, digest: Digest)

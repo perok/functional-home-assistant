@@ -338,8 +338,8 @@ object SessionStore {
       throw new IllegalStateException("rw------- is not a permission string")
     )
 
-  /** `.fh/sessions.json` under the workspace — beside `machine.json` and
-    * `pins.json`, the directory this instance already owns.
+  /** `.fh/sessions.json` under the workspace — beside `base.pkl` and
+    * `pins.json`, in the directory this instance already owns.
     */
   def inWorkspace(
       dashboardsDir: os.Path,

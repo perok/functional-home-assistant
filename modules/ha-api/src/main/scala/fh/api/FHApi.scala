@@ -13,12 +13,9 @@ import java.net.http.HttpClient
 
 object FHApi {
 
-  /** Resolve `SERVER`/`SECRET`/`SERVER_WS` from the process environment,
-    * falling back to a `.env` file (the same file `build.sbt` reads). The env
-    * var wins when set and non-empty; otherwise `.env` is consulted. This makes
-    * the app self-sufficient: forked `runMain` under sbt does not reliably
-    * inherit `run / envVars`, so relying on the process env alone is brittle —
-    * the `.env` fallback is deterministic.
+  /** Connect with `SERVER`/`SECRET`/`SERVER_WS` from the process environment
+    * ([[resolveEnv]]). Under sbt the repo-root `.env` reaches it through
+    * sbt-dotenv; nothing here reads the file.
     */
   def fromEnv: Resource[IO, HomeAssistantApi[IO]] =
     fromEnvWithClose.map(_._1)
@@ -32,11 +29,10 @@ object FHApi {
   def fromEnvWithClose: Resource[IO, (HomeAssistantApi[IO], IO[Unit])] =
     resolveEnv.toResource.flatMap(connectWithClose)
 
-  /** The connection config resolved from `SERVER`/`SECRET`/`SERVER_WS` (env,
-    * then `.env`). `serverWs` is the optional WS endpoint override — the HA
-    * supervisor proxy exposes the websocket at
-    * `ws://supervisor/core/websocket`, not the `/api/websocket` path derived
-    * from `SERVER`.
+  /** The connection config resolved from `SERVER`/`SECRET`/`SERVER_WS`.
+    * `serverWs` is the optional WS endpoint override — the HA supervisor proxy
+    * exposes the websocket at `ws://supervisor/core/websocket`, not the
+    * `/api/websocket` path derived from `SERVER`.
     */
   final case class Env(server: Uri, secretToken: String, serverWs: Option[Uri])
 
@@ -83,7 +79,6 @@ object FHApi {
   ): Resource[IO, (HAWSApiLowLevel[IO], IO[Unit])] =
     lowLevelWithClose(env.server, env.secretToken, env.serverWs)
 
-  // TODO websocket api https://developers.home-assistant.io/docs/api/websocket
   def from(
       api: Uri,
       secretToken: String,
@@ -123,8 +118,8 @@ object FHApi {
       httpClient <- IO(HttpClient.newHttpClient()).toResource
       wsClient = JdkWSClient[IO](httpClient)
 
-      // Frame tracing is a logger level now, not a constructor flag: set
-      // `api.homeassistant.ws.HAWSApiLowLevel` to DEBUG in logback.xml.
+      // Frame tracing: set `api.homeassistant.ws.HAWSApiLowLevel` to DEBUG in
+      // logback.xml.
       wsApi <- HAWSApiLowLevel(wsClient, wsUri, secretToken)
     } yield (wsApi, wsApi.awaitClosed)
 }

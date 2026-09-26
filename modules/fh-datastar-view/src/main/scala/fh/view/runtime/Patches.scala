@@ -43,11 +43,9 @@ private[runtime] enum Patch:
 
 /** One patch, and what it does to the record of the client it is going to.
   *
-  * There is no audience tag any more, and its absence is the point: a patch is
-  * produced BY the session that will send it ([[Patches.resume]]), against that
-  * session's own open set and own `holds`, so there is nobody left to hide it
-  * from. What used to be a shared patch plus a surface filter is now simply a
-  * patch nobody else was offered.
+  * It carries no audience: a patch is produced BY the session that will send it
+  * ([[Patches.resume]]), against that session's own open set and own `holds`,
+  * so there is nobody to hide it from.
   *
   * `establishes` is what this patch's BYTES put in the client's DOM: one entry
   * per node the patch renders, digest included. It is the only thing that can
@@ -58,13 +56,10 @@ private[runtime] enum Patch:
   * regions — so this is about the one patch that aims AT a host: an `Inner`
   * fill is all-or-nothing over its children by design.
   *
-  * Load-bearing where the fill carries no per-node trace (a branch fill, a
-  * refill, a body repaint): those nodes are still on screen showing fill-time
-  * bytes while `holds` claims older ones, and a value coming round again would
-  * be suppressed against a DOM that never had it. A fill that DOES trace what
-  * it painted covers itself through `establishes`, and its roots only clear
-  * members the fill deleted — kept anyway, so that "after applying a patch,
-  * `holds` describes the DOM" holds without a per-site exception.
+  * A fill traces what it painted, so `establishes` covers what it placed and
+  * `invalidates` only clears what it deleted — kept anyway, so that "after
+  * applying a patch, `holds` describes the DOM" holds without a per-site
+  * exception.
   *
   * A [[Patch.Remove]] needs neither: it places no bytes, and a stale claim for
   * an element that is GONE costs at most a morph at a missing id, which the
@@ -80,7 +75,7 @@ private[runtime] case class Addressed(
 
 /** The pure core, lifted out of [[Server]] so it is testable without a booted
   * server (no HA stub, no `Supervisor`, no SSE plumbing). Two paths meet here,
-  * and they no longer share a pass:
+  * and they do not share a pass:
   *
   *   - the PUBLISHER, once per slug per frame: [[plan]] SELECTS what one state
   *     change touches, [[record]] writes that to the changelog. No rendering.
@@ -197,9 +192,8 @@ private[runtime] object Patches {
   }
 
   /** A key exists only where a rendering does — `renderInputs` is `Some`
-    * exactly when the node has one of its own, and a `memberEntities` member is
-    * exactly what `renderMemberById` renders. Loud rather than caching an empty
-    * string forever if those ever drift apart.
+    * exactly when `renderNodeById` has something to render. Loud rather than
+    * caching an empty string forever if those ever drift apart.
     */
   private def mustRender(html: Option[String], id: NodeId): String =
     html.getOrElse(
@@ -408,16 +402,14 @@ private[runtime] object Patches {
     * Untagged — every patch here was already decided against THIS client's
     * `open` and `holds`, so there is nobody left to hide it from.
     *
-    * A fill establishes NOTHING and invalidates its host: composed bytes have
-    * no per-node trace here, so the honest record is "these nodes are unknown
-    * again", which costs redundant patches and never staleness.
+    * A fill invalidates its host and establishes what its walk traced
+    * ([[Renderer.renderHost]]), so the record says exactly what the fill put in
+    * each node.
     *
-    * '''ONE rule, one candidate set, one snapshot:'''
-    *
-    * > Candidates = nodes whose logged version is `>= v`, plus every node in an
-    * > OPEN surface. Render each from the current snapshot, and send it when
-    * its > fingerprint differs from what this viewer holds — a MISSING entry >
-    * counting as "send".
+    * '''ONE rule, one candidate set, one snapshot:''' candidates are the nodes
+    * whose logged version is `>= v`, plus every node in an OPEN surface. Render
+    * each from the current snapshot, and send it when its fingerprint differs
+    * from what this viewer holds — a MISSING entry counting as "send".
     *
     * The two candidate sets are two different ignorances. `version >= v` means
     * the node changed at or after the cursor, so the client may never have
@@ -571,9 +563,8 @@ private[runtime] object Patches {
       }
     // Containers whose membership history no longer reaches this cursor: the
     // delta is uncomputable, so the host is filled wholesale. `Inner` is
-    // all-or-nothing over a host's children, so this cannot be partial — which
-    // is precisely why it is the fallback of last resort, and why it is worth
-    // having only because it replaced a whole-BODY repaint.
+    // all-or-nothing over a host's children, so this cannot be partial — the
+    // fallback of last resort, and still far cheaper than a body repaint.
     def refills(fragments: QuerySnapshot) = owed.refill.sorted.map { gid =>
       val asSet = renderer.members.setContainer(gid)
       val content = renderer.renderHost(gid, states, uiState, fragments)
@@ -665,18 +656,14 @@ private[runtime] object Patches {
       states: Map[String, EntityState],
       ids: List[NodeId]
   ): List[Addressed] = {
-    // ONE pass building exactly the two maps the frame is made of. The shape
-    // this replaced went through a filtered Map, a List of pairs, a second
-    // List of (id, pair), a `toMap` and a `groupMap` — five intermediates for
-    // two results, and 19% of a signals tick's allocation
-    // (`RenderBench.resumeSignals`, async-profiler).
+    // ONE pass building exactly the two maps the frame is made of: a
+    // collections pipeline here (filter, pairs, `toMap`, `groupMap`) was 19%
+    // of a signals tick's allocation (`RenderBench.resumeSignals`).
     //
-    // The trap that shape existed to avoid is gone by construction rather than
-    // by care: mapping a node's signal Map to `(id, pair)` rebuilt a MAP, and
-    // every pair shared the node id, so all but one of a node's signals was
-    // silently dropped — invisible on a card with one signal slot, fatal on
-    // the slider's four. Nothing here maps a Map to pairs.
-    val payload = Map.newBuilder[SignalId, io.circe.Json]
+    // Nothing here maps a node's signal Map to `(id, pair)`: that rebuilds a
+    // MAP keyed by the node id, silently keeping one of a node's signals —
+    // invisible on a card with one signal slot, fatal on the slider's four.
+    val payload = Map.newBuilder[SignalId, Json]
     val heldB = Map.newBuilder[NodeId, Held]
     var anyMoved = false
     ids.foreach { id =>
@@ -692,8 +679,8 @@ private[runtime] object Patches {
           payload += ((
             name,
             value match
-              case b: Boolean => io.circe.Json.fromBoolean(b)
-              case s: String  => io.circe.Json.fromString(s)
+              case b: Boolean => Json.fromBoolean(b)
+              case s: String  => Json.fromString(s)
           ))
           nodeB += ((name, value))
           nodeMoved = true
@@ -740,8 +727,7 @@ private[runtime] object Patches {
     * Two cases: a node with a sound key ([[Renderer.renderInputs]]) goes
     * through the cache, and anything else — a container whose own bytes carry
     * its children — is rendered UNCACHED rather than cached wrongly. A set
-    * member needed a third until it became a node in the graph; it is keyed and
-    * rendered by id like everything else now.
+    * member is a node in the graph and takes the first case.
     */
   private def bytes(
       renderer: Renderer,
@@ -892,11 +878,10 @@ private[runtime] object Patches {
 
   /** Combine adjacent morphs, then put them on the wire.
     *
-    * Merging is still a property of ONE client's outgoing stream — it just no
-    * longer needs saying, because the list already is one client's. What
-    * survives is the barrier rule: an [[Patch.Insert]]/[[Patch.Remove]] names
-    * its own target and cannot join, and a morph after an insert may target the
-    * element that insert created, so nothing may be reordered across one.
+    * The list is one client's, so merging is too. The barrier rule: an
+    * [[Patch.Insert]]/[[Patch.Remove]] names its own target and cannot join,
+    * and a morph after an insert may target the element that insert created, so
+    * nothing may be reordered across one.
     *
     * Encoding happens after the merge, so a joined frame is rendered once
     * rather than once per source patch. This list is one client's, so every
