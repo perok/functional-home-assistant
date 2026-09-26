@@ -764,6 +764,7 @@ class PklBuildSuite extends munit.FunSuite {
       "fhcol" -> Nil,
       "fhgrid" -> Nil,
       "sectionTitle" -> List("label"),
+      "label" -> List("label", "tone"),
       "entityCard" -> List("label", "value", "entity_id"),
       // The more-info facts card: its subject, and one live slot holding every
       // attribute the entity reports as text.
@@ -809,7 +810,19 @@ class PklBuildSuite extends munit.FunSuite {
       // An appliance mid-cycle. The countdown, the status and the bar's two
       // readings are all conditional on what the appliance actually reports,
       // so only the label and the subject are declared.
-      "progressCard" -> List("label", "entity_id")
+      "progressCard" -> List("label", "entity_id"),
+      // One slot and no subject: the chart's entity rides in the QUERY's
+      // params, so the card names no `entity_id` of its own and contributes
+      // nothing to the render key but the query's version.
+      "historyChart" -> List("chart"),
+      // The window bar has no slot: the page seeds its committed signal at the
+      // viewer's value, and the rest (the choices, the pending signal, the
+      // route) is fixed markup composed from the node's own `{{id}}`, which is
+      // the declarer's.
+      "historyWindows" -> Nil,
+      // The passthrough example: the provider's JSON as data, plus the
+      // subject, its label and its unit for the readings.
+      "historyReadings" -> List("label", "readings", "unit", "entity_id")
     )
     assertEquals(
       cards.keys.map(_.toSet),

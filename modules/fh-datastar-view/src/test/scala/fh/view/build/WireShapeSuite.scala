@@ -1,6 +1,13 @@
 package fh.view.build
 
-import fh.view.model.{Access, Cell, LayoutNode, Predicate, SlotSource}
+import fh.view.model.{
+  Access,
+  Cell,
+  LayoutNode,
+  Predicate,
+  SlotQuery,
+  SlotSource
+}
 import fh.view.testkit.PklWorkspace
 import io.circe.Json
 
@@ -168,6 +175,10 @@ class WireShapeSuite extends munit.FunSuite {
     // not drift — which is exactly the kind of thing this test should force
     // somebody to write down rather than discover.
     check("Slot", SlotSource(), scalaOnly = Set("literal"))
+    // A query slot's second half. Pinned here for the same reason as `Slot`:
+    // `params` is untyped on the wire, so nothing else would notice if the two
+    // sides stopped agreeing on what a query IS.
+    check("Query", SlotQuery("history", Map.empty))
   }
 
   test("the access rule agrees on both sides") {

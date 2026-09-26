@@ -1,5 +1,6 @@
 package fh.view.runtime
 
+import fh.view.query.QuerySnapshot
 import fh.view.runtime.RendererTestOps.*
 
 import fh.view.model.{
@@ -188,7 +189,9 @@ class RendererSuite extends munit.FunSuite {
   test(
     "entity-bound component is wrapped in the id'd morph target; slots escaped"
   ) {
-    val html = renderer(card).renderNodeById("c", states).get
+    val html = renderer(card)
+      .renderNodeById("c", states, fragments = QuerySnapshot.empty)
+      .get
     // backend-owned morph target wraps the pure-content template
     assert(
       html.startsWith("""<div class="fh-cell" id="c"><div>"""),
@@ -214,14 +217,20 @@ class RendererSuite extends munit.FunSuite {
     val r = renderer(node)
     // A real value is transformed...
     assert(
-      r.renderNodeById("c", Map("sensor.t" -> st("sensor.t", "21.46")))
-        .get
+      r.renderNodeById(
+        "c",
+        Map("sensor.t" -> st("sensor.t", "21.46")),
+        fragments = QuerySnapshot.empty
+      ).get
         .contains("<span>21.5</span>")
     )
     // ...but "unavailable" never enters CEL (which would error) — shown raw.
     assert(
-      r.renderNodeById("c", Map("sensor.t" -> st("sensor.t", "unavailable")))
-        .get
+      r.renderNodeById(
+        "c",
+        Map("sensor.t" -> st("sensor.t", "unavailable")),
+        fragments = QuerySnapshot.empty
+      ).get
         .contains("<span>unavailable</span>")
     )
   }
@@ -242,8 +251,11 @@ class RendererSuite extends munit.FunSuite {
     )
     val r = renderer(node)
     assert(
-      r.renderNodeById("c", Map("sensor.t" -> st("sensor.t", "unavailable")))
-        .get
+      r.renderNodeById(
+        "c",
+        Map("sensor.t" -> st("sensor.t", "unavailable")),
+        fragments = QuerySnapshot.empty
+      ).get
         .contains("<span>unavailable!</span>"),
       clue = "transform should run, not be bypassed"
     )
@@ -263,14 +275,14 @@ class RendererSuite extends munit.FunSuite {
     // No state at all: the action still resolves from the entity's domain.
     assert(
       renderer(actionNode("scene.movie"))
-        .renderNodeById("c", Map.empty)
+        .renderNodeById("c", Map.empty, fragments = QuerySnapshot.empty)
         .get
         .contains("""href="scene/turn_on""""),
       clue = "scene domain -> scene/turn_on"
     )
     assert(
       renderer(actionNode("light.x"))
-        .renderNodeById("c", Map.empty)
+        .renderNodeById("c", Map.empty, fragments = QuerySnapshot.empty)
         .get
         .contains("""href="homeassistant/toggle""""),
       clue = "other domain -> homeassistant/toggle"
@@ -308,26 +320,62 @@ class RendererSuite extends munit.FunSuite {
 
     val frozen = renderer(node(Reads.Once))
     val a =
-      frozen.renderNodeById("c", Map("sensor.t" -> st("sensor.t", "one"))).get
+      frozen
+        .renderNodeById(
+          "c",
+          Map("sensor.t" -> st("sensor.t", "one")),
+          fragments = QuerySnapshot.empty
+        )
+        .get
     val b =
-      frozen.renderNodeById("c", Map("sensor.t" -> st("sensor.t", "two"))).get
+      frozen
+        .renderNodeById(
+          "c",
+          Map("sensor.t" -> st("sensor.t", "two")),
+          fragments = QuerySnapshot.empty
+        )
+        .get
     assert(a.contains("""href="one""""), clue = a)
     assertEquals(b, a) // memoized: the changed state is ignored
 
     val live = renderer(node(Reads.Live))
     val c1 =
-      live.renderNodeById("c", Map("sensor.t" -> st("sensor.t", "one"))).get
+      live
+        .renderNodeById(
+          "c",
+          Map("sensor.t" -> st("sensor.t", "one")),
+          fragments = QuerySnapshot.empty
+        )
+        .get
     val c2 =
-      live.renderNodeById("c", Map("sensor.t" -> st("sensor.t", "two"))).get
+      live
+        .renderNodeById(
+          "c",
+          Map("sensor.t" -> st("sensor.t", "two")),
+          fragments = QuerySnapshot.empty
+        )
+        .get
     assert(c1.contains("""href="one""""), clue = c1)
     assert(c2.contains("""href="two""""), clue = c2) // re-resolved
 
     // `onRender` re-resolves like `live`...
     val onRender = renderer(node(Reads.OnRender))
     val d1 =
-      onRender.renderNodeById("c", Map("sensor.t" -> st("sensor.t", "one"))).get
+      onRender
+        .renderNodeById(
+          "c",
+          Map("sensor.t" -> st("sensor.t", "one")),
+          fragments = QuerySnapshot.empty
+        )
+        .get
     val d2 =
-      onRender.renderNodeById("c", Map("sensor.t" -> st("sensor.t", "two"))).get
+      onRender
+        .renderNodeById(
+          "c",
+          Map("sensor.t" -> st("sensor.t", "two")),
+          fragments = QuerySnapshot.empty
+        )
+        .get
     assert(d1.contains("""href="one""""), clue = d1)
     assert(d2.contains("""href="two""""), clue = d2)
 
@@ -340,7 +388,9 @@ class RendererSuite extends munit.FunSuite {
   }
 
   test("missing entity renders empty slots rather than throwing") {
-    val html = renderer(card).renderNodeById("c", Map.empty).get
+    val html = renderer(card)
+      .renderNodeById("c", Map.empty, fragments = QuerySnapshot.empty)
+      .get
     assertEquals(
       html,
       """<div class="fh-cell" id="c"><div><span></span> </div></div>"""
@@ -365,9 +415,12 @@ class RendererSuite extends munit.FunSuite {
     // A container is STRUCTURE: it is wrapped and addressable as an element (a
     // remove/insert names it), but it is not rendered BY ID — its bytes hold
     // its children, so a patch would re-send them. The child is the target.
-    assertEquals(r.renderNodeById("c_0", Map.empty), None)
     assertEquals(
-      r.renderNodeById("c_0_0", Map.empty).get,
+      r.renderNodeById("c_0", Map.empty, fragments = QuerySnapshot.empty),
+      None
+    )
+    assertEquals(
+      r.renderNodeById("c_0_0", Map.empty, fragments = QuerySnapshot.empty).get,
       """<div class="fh-cell" id="c_0_0"><button>Go</button></div>"""
     )
   }
@@ -392,7 +445,7 @@ class RendererSuite extends munit.FunSuite {
     assertEquals(d.validate(), Nil)
     val r = Renderer.create(d)
     assertEquals(
-      r.renderNodeById("c", Map.empty).get,
+      r.renderNodeById("c", Map.empty, fragments = QuerySnapshot.empty).get,
       """<a class="tab" data-tab="c"><span>42</span></a>"""
     )
   }
@@ -457,7 +510,9 @@ class RendererSuite extends munit.FunSuite {
       cell = Some(Cell(classes = List("fh-cols-3", "hero")))
     )
     assertEquals(
-      renderer(sized).renderNodeById("c", Map.empty).get,
+      renderer(sized)
+        .renderNodeById("c", Map.empty, fragments = QuerySnapshot.empty)
+        .get,
       """<div class="fh-cell fh-cols-3 hero" id="c"><button>Go</button></div>"""
     )
 
@@ -481,7 +536,8 @@ class RendererSuite extends munit.FunSuite {
         .renderMemberById(
           setId("c"),
           "light.a",
-          Map("light.a" -> st("light.a", "on"))
+          Map("light.a" -> st("light.a", "on")),
+          fragments = QuerySnapshot.empty
         )
         .get,
       """<div class="fh-cell fh-cols-4" id="c_light_a"><button>L</button></div>"""
@@ -523,7 +579,11 @@ class RendererSuite extends munit.FunSuite {
     assert(
       baked.contains(
         s"""<div id="popups">${r
-            .renderSurfaceTraced("det", Map.empty)
+            .renderSurfaceTraced(
+              "det",
+              Map.empty,
+              fragments = QuerySnapshot.empty
+            )
             .map(_.html)
             .get}</div>"""
       ),
@@ -603,12 +663,21 @@ class RendererSuite extends munit.FunSuite {
     val r = renderer(g)
     val wrap =
       (inner: String) => s"""<div class="fh-cell" id="c">$inner</div>"""
-    assertEquals(r.renderNodeById("c", Map.empty).get, wrap("""<i>0</i>"""))
+    assertEquals(
+      r.renderNodeById("c", Map.empty, fragments = QuerySnapshot.empty).get,
+      wrap("""<i>0</i>""")
+    )
     val off = Map("light.x" -> st("light.x", "off", "brightness" -> Json.Null))
-    assertEquals(r.renderNodeById("c", off).get, wrap("""<i>0</i>"""))
+    assertEquals(
+      r.renderNodeById("c", off, fragments = QuerySnapshot.empty).get,
+      wrap("""<i>0</i>""")
+    )
     val on =
       Map("light.x" -> st("light.x", "on", "brightness" -> Json.fromInt(200)))
-    assertEquals(r.renderNodeById("c", on).get, wrap("""<i>200</i>"""))
+    assertEquals(
+      r.renderNodeById("c", on, fragments = QuerySnapshot.empty).get,
+      wrap("""<i>200</i>""")
+    )
   }
 
   test("a set dispatches per clause and wraps each member on its own") {
@@ -739,7 +808,9 @@ class RendererSuite extends munit.FunSuite {
       card = "btn",
       slots = Map("label" -> SlotSource(transform = "\"Hi\""))
     )
-    val html = renderer(node).renderNodeById("c", Map.empty).get
+    val html = renderer(node)
+      .renderNodeById("c", Map.empty, fragments = QuerySnapshot.empty)
+      .get
     assert(html.contains("<button>Hi</button>"), clue = html)
   }
 
@@ -868,14 +939,19 @@ class RendererSuite extends munit.FunSuite {
     )
     val r = Renderer.create(d)
     val states = Map("sensor.t" -> EntityState("sensor.t", "42", Map.empty))
-    val html = r.renderSurfaceTraced("detail", states).map(_.html).get
+    val html = r
+      .renderSurfaceTraced("detail", states, fragments = QuerySnapshot.empty)
+      .map(_.html)
+      .get
     assert(!html.contains("<dialog"), clue = html)
     assert(!html.contains("surface/close"), clue = html)
     assert(html.contains("<span>42</span>"), clue = html)
     // inner node ids are surface-namespaced and individually re-renderable
     assert(html.contains("""id="s_detail__c""""), clue = html)
     assert(
-      r.renderNodeById("s_detail__c", states).get.contains("<span>42</span>")
+      r.renderNodeById("s_detail__c", states, fragments = QuerySnapshot.empty)
+        .get
+        .contains("<span>42</span>")
     )
     // the surface's entity drives ONLY the surface index, not the main page
     assert(
@@ -887,7 +963,11 @@ class RendererSuite extends munit.FunSuite {
       Set("s_detail__c")
     )
     // unknown surface -> None
-    assertEquals(r.renderSurfaceTraced("nope", states).map(_.html), None)
+    assertEquals(
+      r.renderSurfaceTraced("nope", states, fragments = QuerySnapshot.empty)
+        .map(_.html),
+      None
+    )
   }
 
   test(
@@ -918,7 +998,10 @@ class RendererSuite extends munit.FunSuite {
     assert(!body.contains("<span>BB</span>"), clue = body)
 
     // An inline-mounted surface renders bare — no chrome wrapper, no <dialog>, no ✕.
-    val panelB = rr.renderSurfaceTraced("c_t1", states).map(_.html).get
+    val panelB = rr
+      .renderSurfaceTraced("c_t1", states, fragments = QuerySnapshot.empty)
+      .map(_.html)
+      .get
     assert(
       panelB.startsWith("""<div class="fh-cell" id="s_c_t1__c">"""),
       clue = panelB
@@ -1398,12 +1481,16 @@ class RendererSuite extends munit.FunSuite {
     // The live entity binds the HEADER node, not the host — the header is where
     // it is read, and the host holds regions.
     assertEquals(rr.componentsFor("sensor.title"), Set("c_bar_0"))
-    assertEquals(rr.renderNodeById("c", states), None)
+    assertEquals(
+      rr.renderNodeById("c", states, fragments = QuerySnapshot.empty),
+      None
+    )
 
     // THE contract, and the reason the whole design exists: a live tick patches
     // the header and carries NOTHING of the panel. A change to the title cannot
     // re-render what the tabs host holds.
-    val patch = rr.renderNodeById("c_bar_0", states).get
+    val patch =
+      rr.renderNodeById("c_bar_0", states, fragments = QuerySnapshot.empty).get
     assertEquals(
       patch,
       """<div class="fh-cell" id="c_bar_0"><span>Live</span></div>"""
@@ -1464,14 +1551,43 @@ class RendererSuite extends munit.FunSuite {
       "light.b" -> st("light.b", "off")
     )
     assertEquals(
-      r.renderMemberById(setId("c"), "light.a", states).get,
+      r.renderMemberById(
+        setId("c"),
+        "light.a",
+        states,
+        fragments = QuerySnapshot.empty
+      ).get,
       """<div class="fh-cell" id="c_light_a"><div><span>on</span> </div></div>"""
     )
     // fails the query -> not a member
-    assertEquals(r.renderMemberById(setId("c"), "light.b", states), None)
+    assertEquals(
+      r.renderMemberById(
+        setId("c"),
+        "light.b",
+        states,
+        fragments = QuerySnapshot.empty
+      ),
+      None
+    )
     // unknown entity / unknown group -> None
-    assertEquals(r.renderMemberById(setId("c"), "light.z", states), None)
-    assertEquals(r.renderMemberById(setId("zzz"), "light.a", states), None)
+    assertEquals(
+      r.renderMemberById(
+        setId("c"),
+        "light.z",
+        states,
+        fragments = QuerySnapshot.empty
+      ),
+      None
+    )
+    assertEquals(
+      r.renderMemberById(
+        setId("zzz"),
+        "light.a",
+        states,
+        fragments = QuerySnapshot.empty
+      ),
+      None
+    )
   }
 
   // ---------------------------------------------------------------------------
@@ -1566,7 +1682,10 @@ class RendererSuite extends munit.FunSuite {
       r.renderBody(states),
       """<div class="fh-cell" id="c"><div id="c_branch"></div></div>"""
     )
-    assertEquals(r.renderNodeById("c", states), None)
+    assertEquals(
+      r.renderNodeById("c", states, fragments = QuerySnapshot.empty),
+      None
+    )
   }
 
   // What the quantifiers became: a comparison on how many of a NAMED set are
@@ -1686,12 +1805,17 @@ class RendererSuite extends munit.FunSuite {
     )
     assertEquals(declared.validate(), Nil)
     val states = Map("sensor.a" -> st("sensor.a", "A0"))
-    assertEquals(Renderer.create(declared).renderNodeById("c", states), None)
+    assertEquals(
+      Renderer
+        .create(declared)
+        .renderNodeById("c", states, fragments = QuerySnapshot.empty),
+      None
+    )
     // ...while the child is.
     assert(
       Renderer
         .create(declared)
-        .renderNodeById("c_0", states)
+        .renderNodeById("c_0", states, fragments = QuerySnapshot.empty)
         .exists(_.contains("A0"))
     )
   }
@@ -1738,11 +1862,15 @@ class RendererSuite extends munit.FunSuite {
     )
     val states = Map("sensor.a" -> st("sensor.a", "A0"))
     // The head is the patch target and its bytes are its own...
-    val head = r.renderNodeById("c_head_0", states)
+    val head =
+      r.renderNodeById("c_head_0", states, fragments = QuerySnapshot.empty)
     assert(head.exists(_.contains("A0")), clue = head)
     assert(!head.exists(_.contains("m")), clue = head)
     // ...and the host, being structure, is not a patch target at all.
-    assertEquals(r.renderNodeById("c", states), None)
+    assertEquals(
+      r.renderNodeById("c", states, fragments = QuerySnapshot.empty),
+      None
+    )
   }
 
   test("userSurfaceOf: state surfaces are transparent, user surfaces are not") {
@@ -1934,9 +2062,13 @@ class RendererSuite extends munit.FunSuite {
     val r = splitRenderer
     val states = Map("sensor.t" -> st("sensor.t", "21"))
     // The container holds regions, so it is not rendered by id...
-    assertEquals(r.renderNodeById("c", states), None)
+    assertEquals(
+      r.renderNodeById("c", states, fragments = QuerySnapshot.empty),
+      None
+    )
     // ...and the live bar's patch is its own cell, with the live value.
-    val patch = r.renderNodeById("c_bar_0", states).get
+    val patch =
+      r.renderNodeById("c_bar_0", states, fragments = QuerySnapshot.empty).get
     assert(patch.contains("""id="c_bar_0""""), clue = patch)
     assert(patch.contains("21"), clue = patch)
     // What it is NOT — the point of the whole design.

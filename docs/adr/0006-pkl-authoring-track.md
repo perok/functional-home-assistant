@@ -249,7 +249,19 @@ slot key remains `"class"`.
 
 ## Pkl authoring gotchas (spike- and implementation-verified)
 
-- `override` and `class` are reserved words (hence `cssClass`).
+- **`omitNullProperties = true` drops a null MAPPING ENTRY, not only a null
+  property.** `["compare"] = null` inside a `Mapping<String, String?>` does not
+  emit `"compare": null` — the key is absent from the JSON entirely, so what
+  reads as "this key, with no value" on the authoring side reads as "no such
+  key" on the wire. Measured against the 0.32.1 pin. Anywhere the DIFFERENCE
+  between absent and value-less matters (a node variable declared but unset),
+  null cannot express it; the bare-string-or-object rule can
+  (`"24h"` vs `{}`), the way `SlotSource` and `Ref` already decode.
+- `override` and `class` are reserved words (hence `cssClass`). So is **`read`**
+  (the resource reader) — and the error points at the DEFINITION rather than
+  the call, so a `const function read(…)` in a library module reports as a
+  parse failure in whichever module imported it. `core/variable.pkl`'s reader
+  is `ref` for this reason, not for taste.
 - Module properties referenced from class bodies must be `const`
   (`const local` for helpers).
 - `String.replaceAll` is a LITERAL replace — no regex; a pattern-matched

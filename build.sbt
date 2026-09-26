@@ -40,6 +40,30 @@ lazy val stagePklLsp = taskKey[File](
   "Stage the pkl-lsp CLI jar beside the add-on jar"
 )
 
+// The isolate for THIS machine, compile classpath only; the image stages both
+// architectures itself. `os.arch` is the JVM's, so Rosetta/qemu resolve what
+// they can actually load.
+lazy val hostIsolateArtifact: Option[String] =
+  Option
+    .when(sys.props.get("os.name").exists(_.toLowerCase.startsWith("linux")))(
+      sys.props.getOrElse("os.arch", "")
+    )
+    .flatMap {
+      case "amd64" | "x86_64"  => Some("js-isolate-linux-amd64")
+      case "aarch64" | "arm64" => Some("js-isolate-linux-aarch64")
+      case _                   => None
+    }
+
+// ZIP entry prefixes the fat jar must not contain, checked on the BUILT jar:
+// an isolate inside it passes CI on amd64 and dies on a Pi.
+lazy val forbiddenJarEntries: Map[String, String] = Map(
+  "com/oracle/truffle/isolate/" -> "a GraalJS ISOLATE (architecture-specific)",
+  "META-INF/resources/engine/js-isolate-" ->
+    "a GraalJS isolate native library (architecture-specific)",
+  "com/oracle/truffle/js/" -> "the in-heap GraalJS language",
+  "com/ibm/icu/" -> "ICU, which only the in-heap language needs"
+)
+
 // The hand-off point to the add-on image build, named once at BUILD level
 // because it belongs to no single module: `home-addon/Dockerfile` COPYs out of
 // it (its paths are relative to the repo root, which is the build context),
@@ -307,6 +331,29 @@ lazy val `fh-datastar-view` = project
   .settings(
     commonSettings,
     run / fork := true,
+    // ECharts, shipped as a classpath resource for the SERVER to evaluate —
+    // not bundled for a browser, which is why it does not go through vite.
+    //
+    // An npm dependency rather than a vendored blob, for the reason #62 landed
+    // for pkl-lsp: the version lives in the lockfile where dependabot reads it,
+    // and nothing built is committed. `frontendInstall` is what puts it in
+    // node_modules, so this depends on it rather than assuming it ran.
+    Compile / resourceGenerators += Def.task {
+      val source = (Compile / frontendDirectory).value /
+        "node_modules" / "echarts" / "dist" / "echarts.min.js"
+      val target =
+        (Compile / resourceManaged).value / "chart" / "echarts.min.js"
+      (Compile / frontendInstall).value
+      Def.uncached {
+        if (!source.exists) sys.error(s"echarts not installed at $source")
+        if (
+          !target.exists || IO.getModifiedTimeOrZero(target) <
+            IO.getModifiedTimeOrZero(source)
+        )
+          IO.copyFile(source, target, preserveLastModified = true)
+        Seq(target)
+      }
+    }.taskValue,
     // No DASHBOARDS_DIR here on purpose: a local run serves the workspace it is
     // GIVEN (`sbt 'dashboardServe <dir>'`), and refuses to guess one. See the
     // `dashboardServe` alias above.
@@ -326,6 +373,8 @@ lazy val `fh-datastar-view` = project
     assembly / assemblyOutputPath := Def.uncached(
       (ThisBuild / addonStage).value / "fh-dashboard.jar"
     ),
+    libraryDependencies ++=
+      hostIsolateArtifact.map("org.graalvm.js" % _ % graalVmVersion).toSeq,
     ivyConfigurations ++= Seq(JsIsolate, PklLsp),
     // Named by BUILDX's architecture spelling, not GraalVM's (`arm64`, not
     // `aarch64`). That is the whole reason this renames at all: the Dockerfile
@@ -351,6 +400,25 @@ lazy val `fh-datastar-view` = project
         }
       }
     },
+    // GraalJS is on the compile classpath for local runs and kept out of the
+    // fat jar. By jar NAME because sbt 2 no longer exposes a `ModuleID` here;
+    // the post-assembly check is what catches a name that stops matching.
+    assembly / assemblyExcludedJars := {
+      val drop = Set(
+        "js-language",
+        "js-isolate-linux-amd64",
+        "js-isolate-linux-aarch64",
+        "regex",
+        "icu4j",
+        "xz",
+        "truffle-runtime",
+        "truffle-compiler"
+      )
+      (assembly / fullClasspath).value.filter { entry =>
+        val name = entry.data.name.stripSuffix(".jar")
+        drop.exists(d => name.startsWith(s"$d-"))
+      }
+    },
     stagePklLsp := {
       val out = (ThisBuild / addonStage).value
       val resolved = update.value.select(configurationFilter(PklLsp.name))
@@ -365,9 +433,34 @@ lazy val `fh-datastar-view` = project
         stageResolvedJar(source, out / "pkl-lsp.jar", log)
       }
     },
-    // So one `assembly` leaves a build context the Dockerfile can use, instead
-    // of one that is complete only if you knew to ask.
-    assembly := assembly.dependsOn(stageIsolateJars, stagePklLsp).value,
+    // One `assembly` leaves a complete build context for the Dockerfile, and
+    // the built jar is read back against `forbiddenJarEntries`.
+    assembly := {
+      val built = assembly.dependsOn(stageIsolateJars, stagePklLsp).value
+      // sbt 2 returns a `HashedVirtualFileRef`; this is the path it wrote.
+      val jar = (assembly / assemblyOutputPath).value
+      val zip = new java.util.zip.ZipFile(jar)
+      val found =
+        try {
+          import scala.jdk.CollectionConverters.*
+          zip
+            .entries()
+            .asScala
+            .map(_.getName)
+            .flatMap(n =>
+              forbiddenJarEntries.find { case (p, _) => n.startsWith(p) }
+            )
+            .map { case (prefix, what) => s"$what ($prefix…)" }
+            .toSet
+        } finally zip.close()
+      if (found.nonEmpty)
+        sys.error(
+          s"${jar.getName} contains ${found.toList.sorted.mkString("; ")} — " +
+            "the add-on jar must run on both architectures and carry no " +
+            "JavaScript of its own; see assembly/assemblyExcludedJars"
+        )
+      built
+    },
     assembly / assemblyMergeStrategy := {
       // JPMS descriptors from multi-release deps (circe/cats/pkl-core) —
       // meaningless on a flat classpath. Do NOT blanket-discard META-INF:
@@ -415,28 +508,23 @@ lazy val `fh-datastar-view` = project
       // runtime; bundles the extension libraries — string/list/math/bindings/
       // comprehensions — in the same jar).
       "dev.cel" % "cel" % "0.14.0",
-      // GraalJS, run in a polyglot ISOLATE (docs/plan-graaljs-isolate.md).
-      // Note what is NOT here: no js-language and no Truffle runtime. The
-      // JavaScript lives entirely in the isolate library, which the add-on
-      // image stages outside the jar so the jar stays the same bytes on both
-      // architectures.
-      //
-      // Nearly free in the fat jar, because pkl-core already brings polyglot
-      // and truffle-api — at 25.0.1, which these evict. So the four lines buy
-      // a Truffle version bump and three small jars, not 18 MB of new ones.
-      //
-      // The last three are what `org.graalvm.js:js-isolate-linux-<arch>` would
-      // bring transitively. Named here because depending on that artifact is
-      // exactly what we are avoiding: its payload is a 159 MB
-      // per-architecture `.so`, which would land in the fat jar twice.
+      // LTTB for chart series. The major version is the class-file baseline:
+      // 21, because CI tests on JDK 21 (25.x fails there to load).
+      "com.ggalmazor" % "downsampling" % "21.2.0",
+      // The polyglot API for the GraalJS isolate. pkl-core already brings
+      // polyglot and truffle-api (at 25.0.1, which these evict). The last two
+      // are what the isolate artifact would bring transitively; depending on
+      // it directly would put its 159 MB `.so` in the fat jar.
       "org.graalvm.polyglot" % "polyglot" % graalVmVersion,
       "org.graalvm.truffle" % "truffle-api" % graalVmVersion,
       "org.graalvm.sdk" % "nativebridge" % graalVmVersion,
       "org.graalvm.sdk" % "jniutils" % graalVmVersion,
-      // The libraries themselves, in the hidden configuration above: staged
-      // into the image per architecture, never onto a classpath here.
+      // The isolate libraries, staged into the image per architecture.
       "org.graalvm.js" % "js-isolate-linux-amd64" % graalVmVersion % JsIsolate,
       "org.graalvm.js" % "js-isolate-linux-aarch64" % graalVmVersion % JsIsolate,
+      // In-heap GraalJS, the fallback where no isolate exists (macOS). Sound
+      // because the SVG is byte-identical between the two modes.
+      "org.graalvm.polyglot" % "js" % graalVmVersion,
       // The language server behind /edit, in the other hidden configuration:
       // staged beside the app jar and run as a subprocess (ADR 0010).
       "org.pkl-lang" % "pkl-lsp" % "0.8.0" % PklLsp,
@@ -478,7 +566,7 @@ lazy val `fh-datastar-view` = project
       "org.typelevel" %% "cats-effect-testkit" % "3.7.1" % Test,
       // Browser smoke tests (docs/plan-playwright-smoke-tests.md): drives a
       // real Chromium in-JVM against the fixture-backed TestServer.
-      "com.microsoft.playwright" % "playwright" % "1.62.0" % Test
+      "com.microsoft.playwright" % "playwright" % "1.63.0" % Test
     )
   )
 
