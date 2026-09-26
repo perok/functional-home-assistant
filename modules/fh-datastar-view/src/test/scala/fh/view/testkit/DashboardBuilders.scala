@@ -4,23 +4,14 @@ import fh.view.model.{LayoutNode, SlotSource}
 import fh.view.runtime.EntityState
 import io.circe.Json
 
-/** The small constructors the runtime unit suites (`RendererSuite`,
-  * `ServerSuite`) used to each re-declare — entity states, literal slots, and
-  * the common container/leaf layout nodes. Pulled here so the scaffolding is
-  * written once and a suite reads as the behaviour under test, not its
-  * plumbing.
-  *
-  * Card *templates* and whole dashboards stay in the suites: their exact HTML
-  * is what those tests assert, so they are fixtures, not shared scaffolding.
+/** Shared constructors for the runtime suites. Card templates and whole
+  * dashboards stay in the suites, since their exact HTML is what those tests
+  * assert.
   */
 object DashboardBuilders {
 
-  /** Narrow a node to the shape the test just built, failing with what it
-    * actually got rather than a `ClassCastException` that names neither the
-    * node nor the assertion that wanted it.
-    *
-    * A test reading a component's regions or slots knows the shape; the model's
-    * type does not carry it. These are the seam that knowledge goes through.
+  /** Fails naming what the node actually was, where a `ClassCastException`
+    * names neither the node nor the assertion.
     */
   extension (node: LayoutNode) {
     def asComponent: LayoutNode.Component = node match {
