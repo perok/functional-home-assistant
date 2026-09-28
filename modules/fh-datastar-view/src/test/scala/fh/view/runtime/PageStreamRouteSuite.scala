@@ -1,14 +1,7 @@
 package fh.view.runtime
 
-import api.homeassistant.HomeAssistantApi
-import cats.effect.IO
 import fh.view.model.{CardDef, Dashboard, Region, Theme}
 import fh.view.testkit.DashboardBuilders.{col, component, lit}
-import fh.view.testkit.FakeHomeAssistant
-import fh.view.testkit.TestAuth
-import fs2.concurrent.SignallingRef
-import org.http4s.*
-import org.http4s.implicits.*
 
 import scala.concurrent.duration.*
 
@@ -16,9 +9,9 @@ import scala.concurrent.duration.*
   *
   * [[SinkStreamingSuite]] proves the walk hands its bytes down incrementally,
   * but it stops at the `Writer`. Everything after that — `readOutputStream`,
-  * the entity encoder, the response http4s builds — could still collect the
-  * body and hand it over whole, which would score identically in every
-  * benchmark and lose the peak this path exists for.
+  * the entity encoder, the middleware production wraps the route in — could
+  * still collect the body and hand it over whole, which would score identically
+  * in every benchmark and lose the peak this path exists for.
   */
 class PageStreamRouteSuite extends ServerHarness {
 
@@ -47,51 +40,36 @@ class PageStreamRouteSuite extends ServerHarness {
   )
 
   test("a page response is a stream of chunks, not one buffered body") {
-    (for {
-      store <- StateStore.inMemory(Map.empty)
-      ref <- SignallingRef[IO].of(
-        Server.RendererState.Ready(Renderer.create(wideDash))
-      )
-      sessions <- Sessions.create
-      fake <- FakeHomeAssistant.create(Nil)
-      out <- Server
-        .resource(
-          ServiceCalls.asInstance(HomeAssistantApi.fromWs(fake)),
-          store,
-          Map("dashboard" -> ref),
-          "dashboard",
-          sessions,
-          TestAuth.openGate
-        )
-        .use { server =>
-          server.routes.orNotFound
-            .run(Request[IO](Method.GET, uri"/d/dashboard"))
-            .flatMap { res =>
-              res.body.chunks
-                .map(_.size)
-                .compile
-                .toList
-                .map((res.contentLength, _))
-            }
+    TestServer
+      .resource(wideDash, Nil)
+      .use(
+        _.pageResponse().flatMap { res =>
+          res.body.chunks
+            .map(_.size)
+            .compile
+            .toList
+            .map((res.contentLength, _))
         }
-    } yield out).timeout(30.seconds).map { case (length, chunks) =>
-      val total = chunks.sum
-      assert(
-        total > 4 * Server.PageChunkBytes,
-        s"fixture too small to prove anything: $total bytes"
       )
-      // A `Content-Length` means the whole body was known before it was sent,
-      // which is exactly what streaming gives up.
-      assertEquals(length, None)
-      assert(
-        chunks.length > 1,
-        s"the whole document arrived in ${chunks.length} chunk(s) — " +
-          "something downstream of the walk is buffering the page"
-      )
-      assert(
-        chunks.forall(_ <= Server.PageChunkBytes),
-        s"chunk of ${chunks.max} B exceeds ${Server.PageChunkBytes}"
-      )
-    }
+      .timeout(30.seconds)
+      .map { (length, chunks) =>
+        val total = chunks.sum
+        assert(
+          total > 4 * Server.PageChunkBytes,
+          s"fixture too small to prove anything: $total bytes"
+        )
+        // A `Content-Length` means the whole body was known before it was sent,
+        // which is exactly what streaming gives up.
+        assertEquals(length, None)
+        assert(
+          chunks.length > 1,
+          s"the whole document arrived in ${chunks.length} chunk(s) — " +
+            "something downstream of the walk is buffering the page"
+        )
+        assert(
+          chunks.forall(_ <= Server.PageChunkBytes),
+          s"chunk of ${chunks.max} B exceeds ${Server.PageChunkBytes}"
+        )
+      }
   }
 }

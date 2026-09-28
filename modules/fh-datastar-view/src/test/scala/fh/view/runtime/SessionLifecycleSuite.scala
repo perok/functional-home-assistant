@@ -1,19 +1,14 @@
 package fh.view.runtime
 
 import fh.view.query.QuerySnapshot
-import api.homeassistant.HomeAssistantApi
 import cats.effect.IO
 import cats.effect.kernel.{Deferred, Ref}
 import cats.syntax.all.*
-import fh.view.testkit.{FakeHomeAssistant, FixtureEntity}
+import fh.view.testkit.FixtureEntity
 import fh.view.testkit.TestIds.given
-import fh.view.testkit.TestAuth
-import fs2.concurrent.SignallingRef
 import io.circe.Json
 import org.http4s.*
-import org.http4s.implicits.*
 
-import java.util.concurrent.atomic.AtomicInteger
 import scala.concurrent.duration.*
 
 /** A session's life, from document to reap. Every `Tenure` transition names the
@@ -25,51 +20,57 @@ class SessionLifecycleSuite extends ServerHarness {
   // Opens documents; see [[ServerHarness.simulateTime]].
   override protected def simulateTime: Boolean = false
 
+  private val warm = Map("sensor.a" -> es("sensor.a", "warm"))
+
+  private def patchWith(ts: TestServer, query: String): Uri =
+    Uri.unsafeFromString(s"/sse/dashboard/${ts.slug}/patch?$query")
+
+  /** Sleeps: a bare retry loop starves the fibers it waits on when threads are
+    * few.
+    */
+  private def awaitTenure(ts: TestServer, conn: String, t: Tenure): IO[Unit] =
+    (IO.sleep(5.millis) *> ts.sessions
+      .get(conn)
+      .flatMap(_.traverse(_.tenure.get)))
+      .iterateUntil(_.contains(t))
+      .void
+
+  private def awaitGone(ts: TestServer, conn: String): IO[Unit] =
+    (IO.sleep(10.millis) *> ts.sessions.get(conn))
+      .iterateWhile(_.isDefined)
+      .void
+
+  /** Cancelled on the first byte, not the tenure: `adoptOrMint` sets `Held(1)`
+    * in the handler, so cancelling on the tenure skips the bracket that
+    * registers the stream, the release never hands the session to its linger,
+    * and the wait never ends.
+    */
+  private def openThenDrop(ts: TestServer, stream: Uri): IO[Unit] =
+    for {
+      resp <- ts.get(stream)
+      opened <- Deferred[IO, Unit]
+      reading <- resp.body
+        .evalTap(_ => opened.complete(()).void)
+        .compile
+        .drain
+        .start
+      _ <- opened.get.timeout(5.seconds)
+      _ <- reading.cancel
+    } yield ()
+
+  private val mixed = Map(
+    "sensor.shared" -> es("sensor.shared", "cold"),
+    "sensor.a" -> es("sensor.a", "warm")
+  )
+
   test("a first load resumes from the document instead of repainting it") {
-    val dash = mixedTabsDash
-    val initial = Map(
-      "sensor.shared" -> es("sensor.shared", "cold"),
-      "sensor.a" -> es("sensor.a", "warm")
-    )
-    (for {
-      store <- StateStore.inMemory(initial)
-      ref <- SignallingRef[IO].of(
-        Server.RendererState.Ready(Renderer.create(dash))
-      )
-      sessions <- Sessions.create
-      fake <- FakeHomeAssistant.create(Nil)
-      out <- Server
-        .resource(
-          ServiceCalls.asInstance(HomeAssistantApi.fromWs(fake)),
-          store,
-          Map("dashboard" -> ref),
-          "dashboard",
-          sessions,
-          TestAuth.openGate
-        )
-        .use { server =>
-          val routes = server.routes.orNotFound
-          for {
-            page <- routes
-              .run(Request[IO](Method.GET, uri"/d/dashboard"))
-              .flatMap(_.bodyText.compile.string)
-            // Unescaped, as a browser parses the attribute.
-            sseUrl = page
-              .split("""data-init="@get\('""")(1)
-              .split("'")(0)
-              .replace("&amp;", "&")
-            opening <- routes
-              .run(
-                Request[IO](Method.GET, Uri.unsafeFromString("/" + sseUrl))
-              )
-              .flatMap(sseFrom(_)(isCursor))
-          } yield (page, opening)
-        }
-    } yield out)
-      .timeout(30.seconds)
-      .map { case (page, opening) =>
-        assert(page.contains(">cold<"), clue = page)
-        assert(page.contains(">warm<"), clue = page)
+    live(mixedTabsDash, mixed) { ts =>
+      for {
+        doc <- ts.load()
+        opening <- ts.get(doc.stream).flatMap(sseFrom(_)(isCursor))
+      } yield {
+        assert(doc.html.contains(">cold<"), clue = doc.html)
+        assert(doc.html.contains(">warm<"), clue = doc.html)
         // The whole opening block, so anything re-sent shows up as an extra
         // event. One event, the cursor: the document seeds `conn` and puts it
         // on this URL, so the stream sends it only when it minted one.
@@ -80,70 +81,33 @@ class SessionLifecycleSuite extends ServerHarness {
           clue = opening.head
         )
       }
+    }
   }
 
   /** The page render is the first thing that puts fragments in this client's
     * DOM, and the only place that knows what they were, so the document creates
     * the session.
     */
-
   test("the document establishes the session its stream then adopts") {
-    val dash = mixedTabsDash
-    val initial = Map(
-      "sensor.shared" -> es("sensor.shared", "cold"),
-      "sensor.a" -> es("sensor.a", "warm")
-    )
-    (for {
-      store <- StateStore.inMemory(initial)
-      ref <- SignallingRef[IO].of(
-        Server.RendererState.Ready(Renderer.create(dash))
-      )
-      sessions <- Sessions.create
-      fake <- FakeHomeAssistant.create(Nil)
-      out <- Server
-        .resource(
-          ServiceCalls.asInstance(HomeAssistantApi.fromWs(fake)),
-          store,
-          Map("dashboard" -> ref),
-          "dashboard",
-          sessions,
-          TestAuth.openGate
-        )
-        .use { server =>
-          val routes = server.routes.orNotFound
-          for {
-            page <- routes
-              .run(Request[IO](Method.GET, uri"/d/dashboard"))
-              .flatMap(_.bodyText.compile.string)
-            sseUrl = page
-              .split("""data-init="@get\('""")(1)
-              .split("'")(0)
-              .replace("&amp;", "&")
-            conn = Uri
-              .unsafeFromString("/" + sseUrl)
-              .query
-              .params(Server.ConnSignal)
-            established <- sessions.get(conn)
-            held <- established.traverse(_.holds.get)
-            _ <- routes
-              .run(Request[IO](Method.GET, Uri.unsafeFromString("/" + sseUrl)))
-              .flatMap(sseFrom(_)(isCursor))
-            // A first epoch on the document's object proves the stream took
-            // that session. Lingering by now: the stream read its opening block
-            // and ended.
-            epoch <- established.traverse(_.tenure.get)
-            renderer <- ref.get.map(_.rendererOf.get)
-            snapshot <- store.current
-          } yield (held, epoch, renderer, snapshot)
-        }
-    } yield out)
-      .timeout(30.seconds)
-      .map { case (held, epoch, renderer, snapshot) =>
-        val body = renderer.renderNodeById(
-          "c_0",
-          snapshot.entities,
-          fragments = QuerySnapshot.empty
-        )
+    live(mixedTabsDash, mixed) { ts =>
+      for {
+        doc <- ts.load()
+        established <- ts.sessions.get(doc.conn)
+        held <- established.traverse(_.holds.get)
+        _ <- ts.get(doc.stream).flatMap(sseFrom(_)(isCursor))
+        // A first epoch on the document's object proves the stream took that
+        // session. Lingering by now: the stream read its opening block and
+        // ended.
+        epoch <- established.traverse(_.tenure.get)
+        snapshot <- ts.store.current
+      } yield {
+        val body = Renderer
+          .create(mixedTabsDash)
+          .renderNodeById(
+            "c_0",
+            snapshot.entities,
+            fragments = QuerySnapshot.empty
+          )
         assertEquals(
           held.flatMap(_.get("c_0")),
           body.map(Held.of),
@@ -155,65 +119,39 @@ class SessionLifecycleSuite extends ServerHarness {
           clue = "the stream adopted it"
         )
       }
+    }
   }
 
   /** Two live streams on one session would record each other's bytes into one
     * `holds`, and each would suppress a change the client never got, so the
-    * second displaces the first. Server topology, so the real runtime. The
-    * `join` guards where `sseStream` applies its displacement `interruptWhen`:
-    * inside `Server.untilRevoked`'s merge the body never ends and this hangs.
+    * second displaces the first. The `join` guards where `sseStream` applies
+    * its displacement `interruptWhen`: inside `Server.untilRevoked`'s merge the
+    * body never ends and this hangs.
     */
-  testReal("a second stream for one session displaces the first") {
-    (for {
-      store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "warm")))
-      ref <- SignallingRef[IO].of(
-        Server.RendererState.Ready(Renderer.create(liveLeafDash))
-      )
-      sessions <- Sessions.create
-      fake <- FakeHomeAssistant.create(Nil)
-      out <- Server
-        .resource(
-          ServiceCalls.asInstance(HomeAssistantApi.fromWs(fake)),
-          store,
-          Map("dashboard" -> ref),
-          "dashboard",
-          sessions,
-          TestAuth.openGate
-        )
-        .use { server =>
-          val routes = server.routes.orNotFound
-          for {
-            page <- routes
-              .run(Request[IO](Method.GET, uri"/d/dashboard"))
-              .flatMap(_.bodyText.compile.string)
-            url = Uri.unsafeFromString(
-              "/" + page
-                .split("""data-init="@get\('""")(1)
-                .split("'")(0)
-                .replace("&amp;", "&")
-            )
-            conn = url.query.params(Server.ConnSignal)
-            first <- routes.run(Request[IO](Method.GET, url))
-            // Only displacement ends this stream. A byte says it is running:
-            // the tenures are already set by `adoptOrMint` in the handler,
-            // before the body's bracket registers anything.
-            opened <- Deferred[IO, Unit]
-            drained <- first.body
-              .evalTap(_ => opened.complete(()).void)
-              .compile
-              .drain
-              .start
-            _ <- opened.get.timeout(5.seconds)
-            second <- routes.run(Request[IO](Method.GET, url))
-            live <- second.body.compile.drain.start
-            // The join is the assertion: without displacement this times out.
-            _ <- drained.join
-            // The displaced stream's release must not deregister the session.
-            survived <- sessions.get(conn)
-            _ <- live.cancel
-          } yield survived.isDefined
-        }
-    } yield out).timeout(30.seconds).map(assert(_))
+  test("a second stream for one session displaces the first") {
+    live(liveLeafDash, warm) { ts =>
+      for {
+        doc <- ts.load()
+        first <- ts.get(doc.stream)
+        // Only displacement ends this stream. A byte says it is running: the
+        // tenures are already set by `adoptOrMint` in the handler, before the
+        // body's bracket registers anything.
+        opened <- Deferred[IO, Unit]
+        drained <- first.body
+          .evalTap(_ => opened.complete(()).void)
+          .compile
+          .drain
+          .start
+        _ <- opened.get.timeout(5.seconds)
+        second <- ts.get(doc.stream)
+        current <- second.body.compile.drain.start
+        // The join is the assertion: without displacement this times out.
+        _ <- drained.join
+        // The displaced stream's release must not deregister the session.
+        survived <- ts.sessions.get(doc.conn)
+        _ <- current.cancel
+      } yield assert(survived.isDefined)
+    }
   }
 
   test(
@@ -221,191 +159,66 @@ class SessionLifecycleSuite extends ServerHarness {
   ) {
     // A literal `haDown: false` seed rendered a page loaded while HA was down
     // as healthy until the stream corrected it.
-    def pageWith(healthy: Boolean): IO[String] =
-      for {
-        store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "1")))
-        ref <- SignallingRef[IO].of(
-          Server.RendererState.Ready(Renderer.create(liveLeafDash))
-        )
-        sessions <- Sessions.create
-        fake <- FakeHomeAssistant.create(Nil)
-        html <- Server
-          .resource(
-            ServiceCalls.asInstance(HomeAssistantApi.fromWs(fake)),
-            store,
-            Map("dashboard" -> ref),
-            "dashboard",
-            sessions,
-            TestAuth.openGate,
-            healthy = fs2.concurrent.Signal.constant(healthy)
-          )
-          .use(
-            _.routes.orNotFound
-              .run(Request[IO](Method.GET, uri"/d/dashboard"))
-              .flatMap(_.bodyText.compile.string)
-          )
-      } yield html
+    def pageWith(up: Boolean): IO[String] =
+      live(liveLeafDash, warm)(ts => IO.unlessA(up)(ts.haDown) *> ts.page())
 
-    (pageWith(false), pageWith(true))
-      .flatMapN { (down, up) =>
-        IO {
-          assert(
-            down.contains(s"${Server.HaDownSignal}: true"),
-            clue = down.linesIterator.find(_.contains("data-signals"))
-          )
-          assert(
-            up.contains(s"${Server.HaDownSignal}: false"),
-            clue = up.linesIterator.find(_.contains("data-signals"))
-          )
-        }
-      }
-      .timeout(30.seconds)
-  }
-
-  test("a first connect resumes from AFTER its document's version") {
-    // A document has all of version V, so it needs `> V`. `Server.resumeFrom`
-    // told first connect from reconnect by the presence of signals, but
-    // Datastar sets `datastar={}` on every GET, so every page load took the
-    // reconnect branch; `hasSignals` tests for a non-empty store.
-    //
-    // Only renders show it (the document's `holds` suppress the wire), and only
-    // on a cold cache: a pulling session would let `RenderCache` serve the
-    // nodes. Hence a document that never connects holds the gate open.
-    val count = new AtomicInteger(0)
-    (for {
-      store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "A0")))
-      ref <- SignallingRef[IO].of(
-        Server.RendererState.Ready(
-          new CountingRenderer(liveLeafDash, count): Renderer
+    (pageWith(false), pageWith(true)).flatMapN { (down, up) =>
+      IO {
+        assert(
+          down.contains(s"${Server.HaDownSignal}: true"),
+          clue = down.linesIterator.find(_.contains("data-signals"))
         )
-      )
-      sessions <- Sessions.create
-      fake <- FakeHomeAssistant.create(Nil)
-      out <- Server
-        .resource(
-          ServiceCalls.asInstance(HomeAssistantApi.fromWs(fake)),
-          store,
-          Map("dashboard" -> ref),
-          "dashboard",
-          sessions,
-          TestAuth.openGate
+        assert(
+          up.contains(s"${Server.HaDownSignal}: false"),
+          clue = up.linesIterator.find(_.contains("data-signals"))
         )
-        .use { server =>
-          val routes = server.routes.orNotFound
-          def openDocument: IO[Uri] =
-            routes
-              .run(Request[IO](Method.GET, uri"/d/dashboard"))
-              .flatMap(_.bodyText.compile.string)
-              .map(page =>
-                Uri.unsafeFromString(
-                  "/" + page
-                    .split(SseUrlMarker)(1)
-                    .split("'")(0)
-                    .replace("&amp;", "&")
-                )
-              )
-          for {
-            // Holds the recording gate open without pulling, so nothing warms
-            // the cache.
-            _ <- openDocument
-            _ <- store.changeSubscribers.filter(_ >= 1).head.compile.drain
-            _ <- store.update(es("sensor.a", "A1"))
-            // The recorder's fiber is unobservable here. Reverting `hasSignals`
-            // fails this test, so the wait is long enough.
-            _ <- IO.sleep(300.millis)
-            _ <- IO(count.set(0))
-            url <- openDocument
-            // What a browser adds and the `data-init` URL does not: an empty
-            // store, since `data-init` fires before descendants' `data-signals`
-            // merge. Without it both branches read the query params, which is
-            // why the bug survived.
-            resp <- routes.run(
-              Request[IO](
-                Method.GET,
-                url.withQueryParam("datastar", "{}")
-              )
-            )
-            block <- sseFrom(resp)(isCursor)
-          } yield (count.get(), block)
-        }
-    } yield out)
-      .timeout(30.seconds)
-      .map { case (renders, block) =>
-        assertEquals(renders, 0, clue = block)
       }
+    }
   }
 
   test("a connect does not repeat the health the document already rendered") {
     // The document records the banner on the session, so re-emitting it said
     // nothing. The opening-block tests miss it: `haDown` rides the merged
     // streams and arrives after the cursor they stop on.
-    def eventsOn(healthy: Boolean): IO[List[ServerSentEvent]] =
-      for {
-        store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "1")))
-        ref <- SignallingRef[IO].of(
-          Server.RendererState.Ready(Renderer.create(liveLeafDash))
-        )
-        sessions <- Sessions.create
-        fake <- FakeHomeAssistant.create(Nil)
-        out <- Server
-          .resource(
-            ServiceCalls.asInstance(HomeAssistantApi.fromWs(fake)),
-            store,
-            Map("dashboard" -> ref),
-            "dashboard",
-            sessions,
-            TestAuth.openGate,
-            healthy = fs2.concurrent.Signal.constant(healthy)
-          )
-          .use { server =>
-            val routes = server.routes.orNotFound
-            for {
-              page <- routes
-                .run(Request[IO](Method.GET, uri"/d/dashboard"))
-                .flatMap(_.bodyText.compile.string)
-              url = Uri.unsafeFromString(
-                "/" + page
-                  .split(SseUrlMarker)(1)
-                  .split("'")(0)
-                  .replace("&amp;", "&")
-              )
-              resp <- routes.run(Request[IO](Method.GET, url))
-              seen <- Ref[IO].of(Vector.empty[ServerSentEvent])
-              pump <- resp.body
-                .through(ServerSentEvent.decoder[IO])
-                .evalMap(e => seen.update(_ :+ e))
-                .compile
-                .drain
-                .start
-              // `healthy.discrete` fires on subscribe, so anything it would
-              // send has gone by now.
-              _ <- fs2.Stream
-                .repeatEval(seen.get <* IO.sleep(5.millis))
-                .find(_.exists(isCursor))
-                .compile
-                .drain
-              _ <- IO.sleep(250.millis)
-              got <- seen.get
-              _ <- pump.cancel
-            } yield got.toList
-          }
-      } yield out
-
-    (eventsOn(true), eventsOn(false))
-      .flatMapN { (up, down) =>
-        IO {
-          assert(
-            !up.exists(_.data.exists(_.contains(Server.HaDownSignal))),
-            clue = up
-          )
-          // Skipping is about agreeing with the document, not about the value.
-          assert(
-            !down.exists(_.data.exists(_.contains(Server.HaDownSignal))),
-            clue = down
-          )
-        }
+    def eventsOn(up: Boolean): IO[List[ServerSentEvent]] =
+      live(liveLeafDash, warm) { ts =>
+        for {
+          _ <- IO.unlessA(up)(ts.haDown)
+          doc <- ts.load()
+          resp <- ts.get(doc.stream)
+          seen <- Ref[IO].of(Vector.empty[ServerSentEvent])
+          pump <- resp.body
+            .through(ServerSentEvent.decoder[IO])
+            .evalMap(e => seen.update(_ :+ e))
+            .compile
+            .drain
+            .start
+          // `healthy.discrete` fires on subscribe, so anything it would send
+          // has gone by now.
+          _ <- fs2.Stream
+            .repeatEval(seen.get <* IO.sleep(5.millis))
+            .find(_.exists(isCursor))
+            .compile
+            .drain
+          _ <- IO.sleep(250.millis)
+          got <- seen.get
+          _ <- pump.cancel
+        } yield got.toList
       }
-      .timeout(30.seconds)
+
+    (eventsOn(true), eventsOn(false)).flatMapN { (up, down) =>
+      IO {
+        assert(
+          !up.exists(_.data.exists(_.contains(Server.HaDownSignal))),
+          clue = up
+        )
+        // Skipping is about agreeing with the document, not about the value.
+        assert(
+          !down.exists(_.data.exists(_.contains(Server.HaDownSignal))),
+          clue = down
+        )
+      }
+    }
   }
 
   test(
@@ -413,58 +226,23 @@ class SessionLifecycleSuite extends ServerHarness {
   ) {
     // The document minted `conn` and put it on the URL; only a bookmarked SSE
     // endpoint names no session.
-    (for {
-      store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "1")))
-      ref <- SignallingRef[IO].of(
-        Server.RendererState.Ready(Renderer.create(liveLeafDash))
-      )
-      sessions <- Sessions.create
-      fake <- FakeHomeAssistant.create(Nil)
-      out <- Server
-        .resource(
-          ServiceCalls.asInstance(HomeAssistantApi.fromWs(fake)),
-          store,
-          Map("dashboard" -> ref),
-          "dashboard",
-          sessions,
-          TestAuth.openGate
-        )
-        .use { server =>
-          val routes = server.routes.orNotFound
-          for {
-            page <- routes
-              .run(Request[IO](Method.GET, uri"/d/dashboard"))
-              .flatMap(_.bodyText.compile.string)
-            conn = Uri
-              .unsafeFromString(
-                "/" + page
-                  .split("""data-init="@get\('""")(1)
-                  .split("'")(0)
-                  .replace("&amp;", "&")
-              )
-              .query
-              .params(Server.ConnSignal)
-            bare <- routes
-              .run(
-                Request[IO](
-                  Method.GET,
-                  uri"/sse/dashboard/dashboard/patch"
-                )
-              )
-              .flatMap(sseFrom(_)(isCursor))
-          } yield (page, conn, bare)
-        }
-    } yield out)
-      .timeout(30.seconds)
-      .map { case (page, conn, bare) =>
+    live(liveLeafDash, warm) { ts =>
+      for {
+        doc <- ts.load()
+        bare <- ts.sse().flatMap(sseFrom(_)(isCursor))
+      } yield {
         // As a signal, so an action POST can echo it without waiting for the
         // stream.
-        assert(page.contains(s"${Server.ConnSignal}: '$conn'"), clue = conn)
+        assert(
+          doc.html.contains(s"${Server.ConnSignal}: '${doc.conn}'"),
+          clue = doc.conn
+        )
         assert(
           bare.exists(_.signals.exists(_.contains(Server.ConnSignal))),
           clue = bare
         )
       }
+    }
   }
 
   test("a reload's `prev` retires the session it superseded") {
@@ -472,172 +250,65 @@ class SessionLifecycleSuite extends ServerHarness {
     // old `position`, and the floor is the lowest, so a few reloads keep the
     // changelog un-prunable. The client names its predecessor from
     // sessionStorage.
-    (for {
-      store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "1")))
-      ref <- SignallingRef[IO].of(
-        Server.RendererState.Ready(Renderer.create(liveLeafDash))
-      )
-      sessions <- Sessions.create
-      fake <- FakeHomeAssistant.create(Nil)
-      out <- Server
-        .resource(
-          ServiceCalls.asInstance(HomeAssistantApi.fromWs(fake)),
-          store,
-          Map("dashboard" -> ref),
-          "dashboard",
-          sessions,
-          TestAuth.openGate
-        )
-        .use { server =>
-          val routes = server.routes.orNotFound
-          for {
-            // Tenure.Fresh, what an abandoned load leaves.
-            first <- connOfPage(routes)
-            before <- sessions.get(first)
-            resp <- routes.run(
-              Request[IO](
-                Method.GET,
-                Uri.unsafeFromString(
-                  s"/sse/dashboard/dashboard/patch?${Server.PrevConnParam}=$first"
-                )
-              )
-            )
-            live <- resp.body.compile.drain.start
-            // Read immediately: retirement runs while the handler builds
-            // `resp`. Polling would let `AdoptionWindow` reap it anyway,
-            // passing with retirement deleted.
-            after <- sessions.get(first)
-            _ <- live.cancel
-          } yield (before.isDefined, after.isDefined)
-        }
-    } yield out).timeout(30.seconds).assertEquals((true, false))
+    live(liveLeafDash, warm) { ts =>
+      for {
+        // Tenure.Fresh, what an abandoned load leaves.
+        first <- ts.load().map(_.conn)
+        before <- ts.sessions.get(first)
+        resp <- ts.get(patchWith(ts, s"${Server.PrevConnParam}=$first"))
+        current <- resp.body.compile.drain.start
+        // Read immediately: retirement runs while the handler builds `resp`.
+        // Polling would let `AdoptionWindow` reap it anyway, passing with
+        // retirement deleted.
+        after <- ts.sessions.get(first)
+        _ <- current.cancel
+      } yield assertEquals((before.isDefined, after.isDefined), (true, false))
+    }
   }
 
   test("`prev` never retires a session a stream is still HOLDING") {
     // sessionStorage is copied into a duplicated tab (and Chrome's
     // target=_blank), so the named predecessor can be alive. Only a non-Held
     // session is retired.
-    (for {
-      store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "1")))
-      ref <- SignallingRef[IO].of(
-        Server.RendererState.Ready(Renderer.create(liveLeafDash))
-      )
-      sessions <- Sessions.create
-      fake <- FakeHomeAssistant.create(Nil)
-      out <- Server
-        .resource(
-          ServiceCalls.asInstance(HomeAssistantApi.fromWs(fake)),
-          store,
-          Map("dashboard" -> ref),
-          "dashboard",
-          sessions,
-          TestAuth.openGate
+    live(liveLeafDash, warm) { ts =>
+      for {
+        held <- ts.load()
+        heldStream <- ts.get(held.stream)
+        alive <- heldStream.body.compile.drain.start
+        _ <- ts.sessions.liveStreams.filter(_ >= 1).head.compile.drain
+        other <- ts.load()
+        resp <- ts.get(
+          other.stream.withQueryParam(Server.PrevConnParam, held.conn)
         )
-        .use { server =>
-          val routes = server.routes.orNotFound
-          for {
-            held <- connOfPage(routes)
-            heldStream <- routes.run(
-              Request[IO](
-                Method.GET,
-                Uri.unsafeFromString(
-                  s"/sse/dashboard/dashboard/patch?${Server.ConnSignal}=$held"
-                )
-              )
-            )
-            alive <- heldStream.body.compile.drain.start
-            _ <- sessions.liveStreams.filter(_ >= 1).head.compile.drain
-            other <- connOfPage(routes)
-            resp <- routes.run(
-              Request[IO](
-                Method.GET,
-                Uri.unsafeFromString(
-                  s"/sse/dashboard/dashboard/patch?${Server.ConnSignal}=$other" +
-                    s"&${Server.PrevConnParam}=$held"
-                )
-              )
-            )
-            second <- resp.body.compile.drain.start
-            _ <- IO.sleep(100.millis)
-            survived <- sessions.get(held)
-            _ <- alive.cancel *> second.cancel
-          } yield survived.isDefined
-        }
-    } yield out).timeout(30.seconds).assert
+        second <- resp.body.compile.drain.start
+        _ <- IO.sleep(100.millis)
+        survived <- ts.sessions.get(held.conn)
+        _ <- alive.cancel *> second.cancel
+      } yield assert(survived.isDefined)
+    }
   }
 
   /** A dropped stream is normal: a sleeping phone, a wifi handover. The same
     * session must come back, since a new one under the same `conn` would have
     * an empty `holds`.
     */
-
   test(
     "a dropped stream leaves its session lingering, and a reconnect takes it back"
   ) {
-    (for {
-      store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "warm")))
-      ref <- SignallingRef[IO].of(
-        Server.RendererState.Ready(Renderer.create(liveLeafDash))
-      )
-      sessions <- Sessions.create
-      fake <- FakeHomeAssistant.create(Nil)
-      out <- Server
-        .resource(
-          ServiceCalls.asInstance(HomeAssistantApi.fromWs(fake)),
-          store,
-          Map("dashboard" -> ref),
-          "dashboard",
-          sessions,
-          TestAuth.openGate
-        )
-        .use { server =>
-          val routes = server.routes.orNotFound
-          // Sleeps: a bare retry loop starves the fibers it waits on when
-          // threads are few.
-          def awaitTenure(conn: String, t: Tenure): IO[Unit] =
-            (IO.sleep(5.millis) *> sessions
-              .get(conn)
-              .flatMap(_.traverse(_.tenure.get)))
-              .iterateUntil(_.contains(t))
-              .void
-          for {
-            page <- routes
-              .run(Request[IO](Method.GET, uri"/d/dashboard"))
-              .flatMap(_.bodyText.compile.string)
-            url = Uri.unsafeFromString(
-              "/" + page
-                .split("""data-init="@get\('""")(1)
-                .split("'")(0)
-                .replace("&amp;", "&")
-            )
-            conn = url.query.params(Server.ConnSignal)
-            first <- routes.run(Request[IO](Method.GET, url))
-            // The first byte, not the tenure: `adoptOrMint` sets `Held(1)` in
-            // the handler, so cancelling on the tenure skips the bracket that
-            // registers the stream, the release never hands the session to its
-            // linger, and the wait never ends.
-            opened <- Deferred[IO, Unit]
-            reading <- first.body
-              .evalTap(_ => opened.complete(()).void)
-              .compile
-              .drain
-              .start
-            _ <- opened.get
-            _ <- reading.cancel
-            _ <- awaitTenure(conn, Tenure.Lingering(1))
-            before <- sessions.get(conn)
-            heldBefore <- before.traverse(_.holds.get)
-            // The same URL, as Datastar's retry does.
-            second <- routes.run(Request[IO](Method.GET, url))
-            live <- second.body.compile.drain.start
-            _ <- awaitTenure(conn, Tenure.Held(2))
-            after <- sessions.get(conn)
-            _ <- live.cancel
-          } yield (before, after, heldBefore)
-        }
-    } yield out)
-      .timeout(30.seconds)
-      .map { case (before, after, heldBefore) =>
+    live(liveLeafDash, warm) { ts =>
+      for {
+        doc <- ts.load()
+        _ <- openThenDrop(ts, doc.stream)
+        _ <- awaitTenure(ts, doc.conn, Tenure.Lingering(1))
+        before <- ts.sessions.get(doc.conn)
+        heldBefore <- before.traverse(_.holds.get)
+        // The same URL, as Datastar's retry does.
+        second <- ts.get(doc.stream)
+        current <- second.body.compile.drain.start
+        _ <- awaitTenure(ts, doc.conn, Tenure.Held(2))
+        after <- ts.sessions.get(doc.conn)
+        _ <- current.cancel
+      } yield {
         assert(
           before.isDefined && after.exists(a => before.exists(_ eq a)),
           clue = "the reconnect adopted the very session the drop left behind"
@@ -646,102 +317,39 @@ class SessionLifecycleSuite extends ServerHarness {
         // have.
         assert(heldBefore.exists(_.nonEmpty), clue = heldBefore)
       }
+    }
   }
 
   /** A client that never comes back must not cost a map read on every batch for
     * the life of the process.
     */
-
   test("a session nobody comes back for is reaped") {
-    (for {
-      store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "warm")))
-      ref <- SignallingRef[IO].of(
-        Server.RendererState.Ready(Renderer.create(liveLeafDash))
-      )
-      sessions <- Sessions.create
-      fake <- FakeHomeAssistant.create(Nil)
-      out <- Server
-        .resource(
-          ServiceCalls.asInstance(HomeAssistantApi.fromWs(fake)),
-          store,
-          Map("dashboard" -> ref),
-          "dashboard",
-          sessions,
-          TestAuth.openGate,
-          lingerWindow = 50.millis
-        )
-        .use { server =>
-          val routes = server.routes.orNotFound
-          for {
-            page <- routes
-              .run(Request[IO](Method.GET, uri"/d/dashboard"))
-              .flatMap(_.bodyText.compile.string)
-            url = Uri.unsafeFromString(
-              "/" + page
-                .split("""data-init="@get\('""")(1)
-                .split("'")(0)
-                .replace("&amp;", "&")
-            )
-            conn = url.query.params(Server.ConnSignal)
-            first <- routes.run(Request[IO](Method.GET, url))
-            // The first byte, not the tenure; see the test above.
-            opened <- Deferred[IO, Unit]
-            reading <- first.body
-              .evalTap(_ => opened.complete(()).void)
-              .compile
-              .drain
-              .start
-            _ <- opened.get.timeout(5.seconds)
-            _ <- reading.cancel
-            _ <- (IO.sleep(10.millis) *> sessions.get(conn))
-              .iterateWhile(_.isDefined)
-          } yield ()
-        }
-    } yield out).timeout(30.seconds).void
+    live(
+      liveLeafDash,
+      warm,
+      Server.SessionWindows.default.copy(linger = 50.millis)
+    ) { ts =>
+      ts.load()
+        .flatMap(doc => openThenDrop(ts, doc.stream) *> awaitGone(ts, doc.conn))
+    }
   }
 
   test("a document nobody connects to does not leak a session") {
-    (for {
-      store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "warm")))
-      ref <- SignallingRef[IO].of(
-        Server.RendererState.Ready(Renderer.create(liveLeafDash))
-      )
-      sessions <- Sessions.create
-      fake <- FakeHomeAssistant.create(Nil)
-      out <- Server
-        .resource(
-          ServiceCalls.asInstance(HomeAssistantApi.fromWs(fake)),
-          store,
-          Map("dashboard" -> ref),
-          "dashboard",
-          sessions,
-          TestAuth.openGate,
-          adoptionWindow = 50.millis
-        )
-        .use { server =>
-          for {
-            page <- server.routes.orNotFound
-              .run(Request[IO](Method.GET, uri"/d/dashboard"))
-              .flatMap(_.bodyText.compile.string)
-            conn = Uri
-              .unsafeFromString(
-                "/" + page
-                  .split("""data-init="@get\('""")(1)
-                  .split("'")(0)
-                  .replace("&amp;", "&")
-              )
-              .query
-              .params(Server.ConnSignal)
-            // Present when the document is served, for a stream opening a beat
-            // later.
-            before <- sessions.get(conn)
-            // Gone once the window passes: every live session is read on every
-            // batch.
-            _ <- (IO.sleep(10.millis) *> sessions.get(conn))
-              .iterateWhile(_.isDefined)
-          } yield before.isDefined
-        }
-    } yield out).timeout(30.seconds).map(assert(_))
+    live(
+      liveLeafDash,
+      warm,
+      Server.SessionWindows.default.copy(adoption = 50.millis)
+    ) { ts =>
+      for {
+        doc <- ts.load()
+        // Present when the document is served, for a stream opening a beat
+        // later.
+        before <- ts.sessions.get(doc.conn)
+        // Gone once the window passes: every live session is read on every
+        // batch.
+        _ <- awaitGone(ts, doc.conn)
+      } yield assert(before.isDefined)
+    }
   }
 
   test("end to end: a leaf tick, then one that renders identically") {

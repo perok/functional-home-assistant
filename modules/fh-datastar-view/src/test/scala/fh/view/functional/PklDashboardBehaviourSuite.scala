@@ -268,14 +268,8 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
 
   test("a state change streams a fragment through the Pkl-built dashboard") {
     withServer { ts =>
-      ts.observePatch(
-        marker = "13.1",
-        trigger = ts.fake.emit(
-          HouseFixture.outsideTemp.entityId,
-          "13.1",
-          HouseFixture.outsideTemp.attributes
-        )
-      )
+      ts.sentAfter(ts.frame(HouseFixture.outsideTemp.copy(state = "13.1")))
+        .map(sent => assert(sent.contains("13.1"), clue = sent))
     }
   }
 
@@ -347,6 +341,9 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
     */
   private val tabsHost = "s_c_1_then__c_0_1"
 
+  private def flip(ts: TestServer): IO[Unit] =
+    ts.change(light.entityId, "off") *> ts.frame(light)
+
   test("first paint on the second tab: that panel's content, not the default") {
     withBranchServer(_.page(s"?ui.$tabsHost=1")).map { html =>
       assert(html.contains("Outside Temperature"), clue = html)
@@ -356,19 +353,14 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
 
   test("a flip re-reveals the client's OWN tab, not the group's default") {
     withBranchServer { ts =>
-      ts.observeLive(
-        // The branch is re-rendered for the slug with no client, so only the
-        // fill can produce this.
-        marker = "Outside Temperature",
-        query = s"?ui.$tabsHost=1",
-        trigger = ts.fake.emit(light.entityId, "off") *>
-          ts.fake.emit(light.entityId, "on", light.attributes)
-      ).map { live =>
+      // The branch is re-rendered for the slug with no client, so only the fill
+      // can put this viewer's panel in it.
+      ts.sentAfter(flip(ts), query = s"?ui.$tabsHost=1").map { live =>
         // The branch and this viewer's panel arrive in one patch, so no frame
         // shows an empty tabs card. Not counted: how many flips land after
         // opening is timing.
         val branchPatch = live.linesIterator
-          .filter(_.startsWith("data: elements "))
+          .filter(_.startsWith("elements "))
           .find(_.contains("Light is on"))
         assert(branchPatch.isDefined, clue = live)
         assert(
@@ -384,13 +376,9 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
 
   test("the OTHER client keeps the default tab across the same flip") {
     withBranchServer { ts =>
-      ts.observeLive(
-        marker = "Living Room",
-        trigger = ts.fake.emit(light.entityId, "off") *>
-          ts.fake.emit(light.entityId, "on", light.attributes)
-      ).map { live =>
+      ts.sentAfter(flip(ts)).map { live =>
         val branchPatch = live.linesIterator
-          .filter(_.startsWith("data: elements "))
+          .filter(_.startsWith("elements "))
           .find(_.contains("Light is on"))
         assert(
           branchPatch.exists(_.contains("Living Room")),
@@ -407,12 +395,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
     */
   test("a re-revealed panel carries THIS client's selection signal") {
     withBranchServer { ts =>
-      ts.observeLive(
-        marker = "Outside Temperature",
-        query = s"?ui.$tabsHost=1",
-        trigger = ts.fake.emit(light.entityId, "off") *>
-          ts.fake.emit(light.entityId, "on", light.attributes)
-      ).map { live =>
+      ts.sentAfter(flip(ts), query = s"?ui.$tabsHost=1").map { live =>
         // The pending signal follows the committed one in the seed, so the
         // comma pins that a value is present.
         assert(!live.contains(s"ui_$tabsHost: ,"), clue = live)

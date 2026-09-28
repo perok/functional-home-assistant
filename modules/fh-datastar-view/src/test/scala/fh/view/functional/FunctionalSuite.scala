@@ -24,4 +24,8 @@ abstract class FunctionalSuite extends munit.CatsEffectSuite {
       .resource(scene.dashboard, scene.entities, access = access)
       .use(f)
       .timeout(45.seconds)
+
+  /** For [[TestServer.sentAfter]]'s result. */
+  def carries(marker: String)(sent: String): Unit =
+    assert(sent.contains(marker), clue = sent)
 }

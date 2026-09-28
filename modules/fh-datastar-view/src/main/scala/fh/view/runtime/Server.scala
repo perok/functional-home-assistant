@@ -72,10 +72,7 @@ class Server(
     healthy: Signal[IO, Boolean] = Signal.constant(true),
     systemPkl: SystemPkl = SystemPkl.empty,
     dumpRefresh: Option[IO[DumpRefresh.Result]] = None,
-    // Parameters so a suite can watch a reap without waiting out the real
-    // windows.
-    adoptionWindow: FiniteDuration = Server.AdoptionWindow,
-    lingerWindow: FiniteDuration = Server.LingerWindow,
+    windows: Server.SessionWindows = Server.SessionWindows.default,
     tracer: Tracer[IO] = Tracer.noop,
     loggerFactory: LoggerFactory[IO] = Logging.console,
     meters: Meters = Meters.noop,
@@ -545,7 +542,7 @@ class Server(
       stream = Stream.bracket(sessions.register(conn, session))(_ =>
         session
           .release(epoch)
-          .flatMap(_.traverse_(reapAfter(conn, session, _, lingerWindow)))
+          .flatMap(_.traverse_(reapAfter(conn, session, _, windows.linger)))
         // Only when this stream minted it; a document already knows its own.
       ) >> (Stream.emits(
         Option
@@ -697,14 +694,6 @@ class Server(
           .map(_.getOrElse(Nil))
     }
 
-  /** A reconnect's cursor (signals) may hold only part of version V — one
-    * version can produce several batches — so it resumes from V. A document's
-    * (query params) was rendered from one snapshot and has all of V, so it
-    * resumes from V + 1.
-    */
-  private def resumeFrom(req: Request[IO], c: Server.Cursor): Long =
-    if (Server.hasSignals(req)) c.version else c.version + 1
-
   /** What a (re)connecting client is sent first (ADR 0011): '''reload''' when
     * the head's unpatchable part moved ([[Renderer.headHash]]), '''resume'''
     * when the cursor provably names what this DOM holds, else '''repaint''' —
@@ -764,7 +753,7 @@ class Server(
                     store.entities,
                     answer(renderer, _, env),
                     env,
-                    resumeFrom(req, c),
+                    Server.resumeFrom(req, c),
                     open,
                     uiState
                   )
@@ -1179,7 +1168,7 @@ class Server(
           .create(slug)
           .flatTap(_.open.set(renderer.surfaces.selectedSurfaces(uiState)))
           .flatTap(sessions.register(conn, _))
-          .flatTap(reapAfter(conn, _, Tenure.Fresh, adoptionWindow))
+          .flatTap(reapAfter(conn, _, Tenure.Fresh, windows.adoption))
           .map(Some(_))
     }
 
@@ -1447,7 +1436,7 @@ class Server(
         .flatTap(_.haDown.set(Some(!live)))
       // REGISTERED BEFORE THE SNAPSHOT IS READ — see [[recordFrame]].
       _ <- sessions.register(conn, session)
-      _ <- reapAfter(conn, session, Tenure.Fresh, adoptionWindow)
+      _ <- reapAfter(conn, session, Tenure.Fresh, windows.adoption)
       store <- tracer
         .span("dashboard.page.store", Attribute("fh.slug", slug))
         .surround(stateStore.current)
@@ -2053,8 +2042,7 @@ object Server {
       healthy: Signal[IO, Boolean] = Signal.constant(true),
       systemPkl: SystemPkl = SystemPkl.empty,
       dumpRefresh: Option[IO[DumpRefresh.Result]] = None,
-      adoptionWindow: FiniteDuration = AdoptionWindow,
-      lingerWindow: FiniteDuration = LingerWindow
+      windows: SessionWindows = SessionWindows.default
   ): Resource[IO, Server] =
     LiveSite
       .of(renderers, Map.empty, defaultSlug)
@@ -2070,8 +2058,7 @@ object Server {
           healthy,
           systemPkl,
           dumpRefresh,
-          adoptionWindow,
-          lingerWindow
+          windows
         )
       )
 
@@ -2087,8 +2074,7 @@ object Server {
       healthy: Signal[IO, Boolean],
       systemPkl: SystemPkl,
       dumpRefresh: Option[IO[DumpRefresh.Result]],
-      adoptionWindow: FiniteDuration = AdoptionWindow,
-      lingerWindow: FiniteDuration = LingerWindow,
+      windows: SessionWindows = SessionWindows.default,
       tracer: Tracer[IO] = Tracer.noop,
       loggerFactory: LoggerFactory[IO] = Logging.console,
       meters: Meters = Meters.noop,
@@ -2107,8 +2093,7 @@ object Server {
         healthy,
         systemPkl,
         dumpRefresh,
-        adoptionWindow,
-        lingerWindow,
+        windows,
         tracer,
         loggerFactory,
         meters,
@@ -2132,7 +2117,8 @@ object Server {
       actions: HomeAssistantApi[IO] => ServiceCalls = ServiceCalls.asInstance,
       tracer: Tracer[IO] = Tracer.noop,
       loggerFactory: LoggerFactory[IO] = Logging.console,
-      meters: Meters = Meters.noop
+      meters: Meters = Meters.noop,
+      windows: SessionWindows = SessionWindows.default
   ): Resource[IO, Server] =
     historyQueries(feed.api, loggerFactory).flatMap(queries =>
       withSite(
@@ -2145,6 +2131,7 @@ object Server {
         feed.healthy,
         systemPkl,
         dumpRefresh,
+        windows,
         tracer = tracer,
         loggerFactory = loggerFactory,
         meters = meters,
@@ -2579,6 +2566,14 @@ object Server {
   private[runtime] def hasSignals(req: Request[IO]): Boolean =
     signalsOf(req).exists(_.keys.exists(_.nonEmpty))
 
+  /** A reconnect's cursor (signals) may hold only part of version V — one
+    * version can produce several batches — so it resumes from V. A document's
+    * (query params) was rendered from one snapshot and has all of V, so it
+    * resumes from V + 1.
+    */
+  private[runtime] def resumeFrom(req: Request[IO], c: Cursor): Long =
+    if (hasSignals(req)) c.version else c.version + 1
+
   /** Signals first, as in [[cursorOf]]. */
   private[runtime] def connOf(req: Request[IO]): Option[String] =
     signalsOf(req)
@@ -2716,6 +2711,17 @@ object Server {
     * correctness — true only because a tap mints (ADR 0024).
     */
   val LingerWindow: FiniteDuration = 2.minutes
+
+  /** A parameter so a suite can watch a reap without waiting out the real
+    * windows.
+    */
+  final case class SessionWindows(
+      adoption: FiniteDuration,
+      linger: FiniteDuration
+  )
+  object SessionWindows {
+    val default: SessionWindows = SessionWindows(AdoptionWindow, LingerWindow)
+  }
 
   private[runtime] val keepAliveComment: SseFrame =
     SseFrame.comment("keepalive")

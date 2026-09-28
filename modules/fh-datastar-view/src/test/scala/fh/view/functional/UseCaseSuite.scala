@@ -21,7 +21,7 @@ import fh.view.testkit.{HouseFixture, PklFixture, PklWorkspace}
 
 import org.http4s.*
 import org.http4s.ember.server.EmberServerBuilder
-import org.http4s.headers.{`If-None-Match`, ETag}
+import org.http4s.headers.{`Cache-Control`, `If-None-Match`, ETag}
 import org.http4s.implicits.*
 
 import scala.concurrent.duration.*
@@ -132,6 +132,13 @@ class UseCaseSuite extends munit.CatsEffectSuite {
     val instance = stageWorkspace(withDump = true)
 
     val uri = uri"/system/pkl/dump.pkl"
+    // Live data under a fixed URL: `no-cache` on 200 and 304 alike, and a 304
+    // only when the tag matches the current bytes. A stale tag winning would
+    // give an author completions for devices they no longer own.
+    val noCache = `Cache-Control`(CacheDirective.`no-cache`())
+    def asking(tag: Option[EntityTag]) =
+      Request[IO](Method.GET, uri)
+        .putHeaders(`If-None-Match`(tag.map(NonEmptyList.one)))
     TestServer
       .resource(
         PklFixture.buildDashboard("home", entryNeedingDump),
@@ -144,10 +151,9 @@ class UseCaseSuite extends munit.CatsEffectSuite {
           pulled <- app.run(Request[IO](Method.GET, uri))
           body <- pulled.body.through(fs2.text.utf8.decode).compile.string
           tag = pulled.headers.get[ETag].map(_.tag)
-          second <- app.run(
-            Request[IO](Method.GET, uri)
-              .putHeaders(`If-None-Match`(tag.map(NonEmptyList.one)))
-          )
+          second <- app.run(asking(tag))
+          stale <- app.run(asking(Some(EntityTag("stale-etag"))))
+          unknown <- app.run(Request[IO](Method.GET, uri"/system/pkl/nope.pkl"))
         } yield {
           assertEquals(pulled.status, Status.Ok)
           assert(
@@ -155,7 +161,13 @@ class UseCaseSuite extends munit.CatsEffectSuite {
             clue = body.take(200)
           )
           assert(tag.isDefined, clue = pulled.headers)
+          assertEquals(pulled.headers.get[`Cache-Control`], Some(noCache))
           assertEquals(second.status, Status.NotModified)
+          // A bare 304 would let a cache fall back to its own heuristics.
+          assertEquals(second.headers.get[`Cache-Control`], Some(noCache))
+          assertEquals(second.headers.get[ETag].map(_.tag), tag)
+          assertEquals(stale.status, Status.Ok)
+          assertEquals(unknown.status, Status.NotFound)
         }
       }
   }

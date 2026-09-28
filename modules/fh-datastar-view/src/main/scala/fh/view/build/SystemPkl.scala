@@ -27,17 +27,8 @@ trait SystemPkl {
 
 object SystemPkl {
 
-  /** In-memory, for tests; by-name so a live `Ref` is re-read per call. */
-  def apply(hass: => Option[String], dump: => Option[String]): SystemPkl = {
-    case "hass.pkl" =>
-      hass.liftTo[IO](FHError.notFound("hass.pkl is not available"))
-    case "dump.pkl" =>
-      dump.liftTo[IO](FHError.notFound("dump.pkl is not available"))
-    case name =>
-      FHError.notFound(s"no module named '$name'").raiseError[IO, String]
-  }
-
-  val empty: SystemPkl = apply(None, None)
+  val empty: SystemPkl = name =>
+    FHError.notFound(s"no module named '$name'").raiseError[IO, String]
 
   /** `dump.pkl` is extracted from the currently pinned package, read per
     * lookup; `hass.pkl` only ships inside `@fh-dashboard`.
