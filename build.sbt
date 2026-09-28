@@ -6,6 +6,7 @@ val http4sVersion = "0.23.34"
 // so the version the app logs on is chosen rather than inherited.
 val log4catsVersion = "2.8.0"
 val otel4sVersion = "1.1.0"
+val hedgehodVersion = "0.15.0"
 // Pinned to what otel4s-oteljava resolves, so the exporter cannot drift from
 // the SDK it plugs into. otel4s' own SDK modules are NOT used: they moved to a
 // separate repo and are still marked experimental.
@@ -557,9 +558,9 @@ lazy val `fh-datastar-view` = project
       // Property-based testing for the digest biconditional (ADR 0029):
       // equal input digest ⟺ equal patch bytes must hold over GENERATED node
       // shapes, because a missed input fails silently and permanently.
-      "qa.hedgehog" %% "hedgehog-core" % "0.14.0" % Test,
-      "qa.hedgehog" %% "hedgehog-runner" % "0.14.0" % Test,
-      "qa.hedgehog" %% "hedgehog-munit" % "0.14.0" % Test,
+      "qa.hedgehog" %% "hedgehog-core" % hedgehodVersion % Test,
+      "qa.hedgehog" %% "hedgehog-runner" % hedgehodVersion % Test,
+      "qa.hedgehog" %% "hedgehog-munit" % hedgehodVersion % Test,
       // TestControl.executeEmbed: simulated time for ServerHarness suites
       // (issue #109 item 3) so IO.sleep-based polling in test bodies costs
       // nothing in wall clock instead of needing to be sped up.
