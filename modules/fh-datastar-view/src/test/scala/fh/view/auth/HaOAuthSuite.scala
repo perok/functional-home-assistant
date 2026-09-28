@@ -2,11 +2,8 @@ package fh.view.auth
 
 import org.http4s.implicits.*
 
-/** Where the browser is sent to log in (issue #89).
-  *
-  * Not the address this server dials Home Assistant at, which is the whole
-  * point: under the add-on they are different, and the dialled one is useless
-  * to a browser.
+/** Where the browser is sent to log in (issue #89): not the address this server
+  * dials HA at, which under the add-on is useless to a browser.
   */
 class HaOAuthSuite extends munit.FunSuite {
 
@@ -15,21 +12,19 @@ class HaOAuthSuite extends munit.FunSuite {
     val internal = uri"http://ha.lan:8123"
     val explicit = uri"https://ha.example"
 
-    // An explicit setting outranks everything, including HA's own opinion.
     assertEquals(
       HaOAuth.browserBase(Some(explicit), Some(internal), dialed),
       explicit
     )
     assertEquals(HaOAuth.browserBase(None, Some(internal), dialed), internal)
     // `internal_url` is optional in HA and was null on the instance this was
-    // built against, so the dialled address — which we hold a live socket to —
-    // has to be a real rung, not a formality.
+    // built against, so the dialled address, which holds a live socket, is a
+    // real rung.
     assertEquals(HaOAuth.browserBase(None, None, dialed), dialed)
   }
 
-  /** The case that is broken rather than merely suboptimal: `home-addon/run.sh`
-    * dials `http://supervisor/core`, so under the add-on an unguarded fallback
-    * points a browser at a container-internal host.
+  /** `home-addon/run.sh` dials `http://supervisor/core`, so an unguarded
+    * fallback points a browser at a container-internal host.
     */
   test("the supervisor address is never handed to a browser") {
     val supervisor = uri"http://supervisor/core"
@@ -37,18 +32,17 @@ class HaOAuthSuite extends munit.FunSuite {
       HaOAuth.browserBase(None, None, supervisor),
       HaOAuth.MdnsFallback
     )
-    // ...but it is only the LAST resort: anything that actually knows wins.
+    // Only the last resort.
     assertEquals(
       HaOAuth.browserBase(None, Some(uri"http://ha.lan:8123"), supervisor),
       uri"http://ha.lan:8123"
     )
   }
 
-  /** The mirror failure of the one above, and the reason `SERVER` is not simply
-    * the login address: the supervisor proxies `/core/api/…` and a websocket
-    * that authenticates ADD-ONS. HA's `/auth/…` is not under `/api/` (the
-    * exchange 401s there) and a user's access token is not an add-on token (the
-    * identity socket gets `auth_invalid`).
+  /** The mirror failure: the supervisor proxies `/core/api/…` and a websocket
+    * for add-ons. HA's `/auth/…` is not under `/api/` (the exchange 401s) and a
+    * user token is not an add-on token (the identity socket gets
+    * `auth_invalid`).
     */
   test("a per-user credential is never dialled at the supervisor proxy") {
     val supervisor = uri"http://supervisor/core"
@@ -56,12 +50,11 @@ class HaOAuthSuite extends munit.FunSuite {
       HaOAuth.coreBase(None, None, supervisor),
       HaOAuth.AddonCoreFallback
     )
-    // HA's own `internal_url` outranks the guess — it names the real port.
+    // HA's `internal_url` names the real port.
     assertEquals(
       HaOAuth.coreBase(None, Some(uri"http://192.168.1.174:8123"), supervisor),
       uri"http://192.168.1.174:8123"
     )
-    // And an explicit override outranks both.
     assertEquals(
       HaOAuth.coreBase(
         Some(uri"http://ha.lan:8123"),
@@ -74,8 +67,8 @@ class HaOAuthSuite extends munit.FunSuite {
 
   test("a dialled address that is not the proxy IS the login address") {
     val dialed = uri"http://192.168.1.174:8123"
-    // Outranking `internal_url`, unlike the browser chain: this one has to be
-    // reachable from THIS process, and the dialled address provably is.
+    // Unlike the browser chain this must be reachable from this process, and
+    // the dialled address provably is.
     assertEquals(
       HaOAuth.coreBase(None, Some(uri"http://ha.lan:8123"), dialed),
       dialed
@@ -83,11 +76,9 @@ class HaOAuthSuite extends munit.FunSuite {
     assertEquals(HaOAuth.coreBase(None, None, dialed), dialed)
   }
 
-  /** `SERVER_WS` exists BECAUSE of the supervisor (`/core/websocket`, not the
-    * `/api/websocket` path derived from `SERVER`), so it is exactly the setting
-    * that must not follow the identity socket once that socket has left the
-    * proxy — carrying it over would send a user token straight back to the
-    * address the whole chain just routed around.
+  /** `SERVER_WS` exists because of the supervisor (`/core/websocket`), so
+    * carrying it past the proxy would send a user token straight back to the
+    * address the chain routed around.
     */
   test("the SERVER_WS override is dropped when the login leaves the proxy") {
     val supervisor = uri"http://supervisor/core"
@@ -101,8 +92,8 @@ class HaOAuthSuite extends munit.FunSuite {
       ),
       None
     )
-    // ...and kept when it still describes the address being dialled, which is
-    // every non-add-on deployment that sets it at all.
+    // Kept when it describes the address dialled: every non-add-on deployment
+    // that sets it.
     val dialed = uri"http://192.168.1.174:8123"
     val explicitWs = Some(uri"ws://192.168.1.174:8123/api/websocket")
     assertEquals(
@@ -128,8 +119,8 @@ class HaOAuthSuite extends munit.FunSuite {
       ),
       Some(uri"http://ha.lan:8123")
     )
-    // All three mean the same thing — HA does not know — and none is an error.
-    // `null` is the one the live instance actually returned.
+    // All three mean HA does not know; `null` is what the live instance
+    // returned.
     assertEquals(internalUrlOf("""{"internal_url": null}"""), None)
     assertEquals(internalUrlOf("""{}"""), None)
     assertEquals(internalUrlOf("""{"internal_url": "not a url"}"""), None)

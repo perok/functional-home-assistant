@@ -28,9 +28,6 @@ class RendererSuite extends munit.FunSuite {
     private def affectedSetIds(change: StateChange): List[String] =
       r.members.affectedSets(List(change))
 
-  // Card templates are pure content; the backend wraps EVERY component in the
-  // id'd `.fh-cell` morph target (unless the card opts out via
-  // `wrapAsCell = false`).
   private val cards = Map(
     "card" -> CardDef(
       """<div><span>{{state}}</span> {{unit}}</div>""",
@@ -50,25 +47,17 @@ class RendererSuite extends munit.FunSuite {
       """<div class="fh-row">{{#children}}{{{html}}}{{/children}}</div>""",
       regions = Map("children" -> Region())
     ),
-    // Tabs container: tabbar row of buttons (children) + panel host (baked
-    // region `{{#panel}}`, filled by the walk from the selected surface).
-    // `data-signals` seeds the active-tab signal to the baked tab index ({{bakeIndex}}).
-    // Shaped like the shipped `Tabs`: the card is STRUCTURE — a bar region
-    // holding the buttons and a baked panel region — so it is never a patch
-    // target. Minimal markup, real SHAPE, because shape is what the engine
-    // dispatches on (`CardDef.isStructure` decides whether a node may be
-    // patched at all), so a fixture whose shape drifted from Tabs would be a
-    // different KIND of card. See `tabsLive` below for a live bar header.
+    // Shaped like the shipped `Tabs`, structure with a bar region and a baked
+    // panel region, because `CardDef.isStructure` is what the engine dispatches
+    // on: a fixture whose shape drifted would be a different kind of card.
     "tabs" -> CardDef(
       template = """<div class="fh-col"><div class="fh-row tabbar">""" +
         """{{#children}}{{{html}}}{{/children}}</div>""" +
         """<div id="{{hostId}}" class="tab-panel" data-signals="{ tab_{{id}}: {{bakeIndex}} }">{{#panel}}{{{html}}}{{/panel}}</div></div>""",
       regions = Map("children" -> Region(), "panel" -> Region(Region.Baked))
     ),
-    // "A tab bar with the current temperature in its header": the live header
-    // is a NODE in the bar region, beside the baked panel. A title tick patches
-    // that node and cannot reach the panel — true by structure, with nothing
-    // to aim.
+    // The live header is a node in the bar region, so a title tick patches that
+    // node and cannot reach the panel.
     "tabsLive" -> CardDef(
       template = """<div><div class="tabs">{{#bar}}{{{html}}}{{/bar}}</div>""" +
         """<div id="{{hostId}}" data-signals="{ tab_{{id}}: {{bakeIndex}} }">{{#panel}}{{{html}}}{{/panel}}</div></div>""",
@@ -77,12 +66,8 @@ class RendererSuite extends munit.FunSuite {
     "tabsBar" -> CardDef("""<span>{{title}}</span>""", slots = List("title"))
   )
 
-  // A tabs group as `c.tabs` + the hoist produce it: a `tabs` component whose
-  // children are the tab buttons, and whose panel host (`{{id}}_panel`) is
-  // filled via the `{{#panel}}` region, baked from the first default-open surface. The
-  // surfaces carry `bakeInto:"c"`, `bakeAs:"panel"` (so `hostId` derives to
-  // `c_panel` = idBase + '_panel', the hoist invariant) — every surface is
-  // chrome-less.
+  // As `c.tabs` plus the hoist produce it: the surfaces carry `bakeInto:"c"`,
+  // `bakeAs:"panel"`, so `hostId` derives to `c_panel`, the hoist invariant.
   private def tabsDashboard: Dashboard = {
     def panel(name: String): LayoutNode.Component =
       LayoutNode.Component(
@@ -91,8 +76,6 @@ class RendererSuite extends munit.FunSuite {
       )
     Dashboard(
       cards,
-      // The `tabs` card: children are the tab buttons; the panel host is in the
-      // template at `{{id}}_panel`; the default tab fills the `{{#panel}}` region.
       LayoutNode.Component(
         "tabs",
         regions = LayoutNode.kids(
@@ -101,8 +84,6 @@ class RendererSuite extends munit.FunSuite {
         )
       ),
       surfaces = Map(
-        // c_t0 is the default-open panel: baked into the tabs component (id="c",
-        // bakeInto="c", bakeAs="panel") + seeded open on connect.
         "c_t0" -> Surface(
           panel("a"),
           bakeInto = Some("c"),
@@ -125,10 +106,8 @@ class RendererSuite extends munit.FunSuite {
     Renderer.create(d)
   }
 
-  /** A candidate set whose members are all present while their entity is on —
-    * the shape these tests drove as a `state == on` query group. Each clause is
-    * `(extra guard, card, slots, cell)`; the node names its own entity, because
-    * the build knows the candidate.
+  /** Each clause is `(extra guard, card, slots, cell)`. The node names its own
+    * entity, because the build knows the candidate.
     */
   private def onSet(
       candidates: List[String],
@@ -159,7 +138,6 @@ class RendererSuite extends munit.FunSuite {
       }.toMap
     )
 
-  // A single component as the layout root gets the path id "c".
   private val card = LayoutNode.Component(
     card = "card",
     slots = Map(
@@ -181,7 +159,6 @@ class RendererSuite extends munit.FunSuite {
 
   test("reverse index maps entity to the generated component id") {
     val r = renderer(col(card))
-    // root column -> child at index 0 -> "c_0"
     assertEquals(r.componentsFor("sensor.t"), Set("c_0"))
     assertEquals(r.componentsFor("sensor.other"), Set.empty[String])
   }
@@ -192,7 +169,6 @@ class RendererSuite extends munit.FunSuite {
     val html = renderer(card)
       .renderNodeById("c", states, fragments = QuerySnapshot.empty)
       .get
-    // backend-owned morph target wraps the pure-content template
     assert(
       html.startsWith("""<div class="fh-cell" id="c"><div>"""),
       clue = html
@@ -204,7 +180,7 @@ class RendererSuite extends munit.FunSuite {
   }
 
   test("unavailable entity bypasses the transform and shows its raw state") {
-    // No explicit bypassUnavailable — bypassing is the DEFAULT (true).
+    // Bypassing is the default.
     val node = LayoutNode.Component(
       card = "card",
       slots = Map(
@@ -215,7 +191,6 @@ class RendererSuite extends munit.FunSuite {
       )
     )
     val r = renderer(node)
-    // A real value is transformed...
     assert(
       r.renderNodeById(
         "c",
@@ -224,7 +199,7 @@ class RendererSuite extends munit.FunSuite {
       ).get
         .contains("<span>21.5</span>")
     )
-    // ...but "unavailable" never enters CEL (which would error) — shown raw.
+    // "unavailable" never enters CEL, which would error.
     assert(
       r.renderNodeById(
         "c",
@@ -236,9 +211,8 @@ class RendererSuite extends munit.FunSuite {
   }
 
   test("bypassUnavailable=false runs the transform even when unavailable") {
-    // A label/action/slider-position opts out so its transform still runs (a
-    // label keeps the name, an action stays resolvable) instead of collapsing to
-    // the literal "unavailable".
+    // Opted out so its transform still runs: a label keeps the name, an action
+    // stays resolvable.
     val node = LayoutNode.Component(
       card = "card",
       slots = Map(
@@ -261,8 +235,8 @@ class RendererSuite extends munit.FunSuite {
     )
   }
 
-  // ADR 0016 bakes actions; this is the fallback path: a hand-written map
-  // action must still resolve from `domain` with no state in the renderer.
+  // ADR 0016 bakes actions; a hand-written map action is the fallback, and must
+  // resolve from `domain` with no state.
   test("a fallback map action resolves from the entity id with no state") {
     val expr =
       """cel.bind(m, {'scene': 'scene/turn_on'}, """ +
@@ -272,7 +246,6 @@ class RendererSuite extends munit.FunSuite {
         card = "act",
         slots = Map("action" -> SlotSource(Some(entity), transform = expr))
       )
-    // No state at all: the action still resolves from the entity's domain.
     assert(
       renderer(actionNode("scene.movie"))
         .renderNodeById("c", Map.empty, fragments = QuerySnapshot.empty)
@@ -289,23 +262,15 @@ class RendererSuite extends munit.FunSuite {
     )
   }
 
-  /** The three `reads` modes, told apart on the two things they decide.
-    *
-    * They used to be one Boolean, which could pair "track and re-read" with
-    * "ignore and read once" and nothing else. `onRender` is the pairing that
-    * had no spelling — re-read, but never a reason to render — and it is the
-    * one an author reaches for constantly: a friendly name, a unit.
+  /** `onRender` is re-read but never a reason to render: the mode an author
+    * wants for a friendly name or a unit.
     */
   test(
     "reads: live re-resolves and tracks, onRender re-resolves, once neither"
   ) {
-    // `reads = Reads.Once` promises the value is identity-only, so the renderer
-    // resolves it ONCE per (entity, transform) and reuses it — this is what
-    // keeps the set render path cheap (action/domain-config slots become a
-    // cache lookup, not a CEL eval, on every re-render). We expose the memo
-    // with a state-reading transform (a deliberate misuse): its value freezes
-    // at the first render and ignores a later state change. A `reads = Reads.Live`
-    // slot, by contrast, re-resolves every render.
+    // `Reads.Once` resolves once per (entity, transform), which keeps the set
+    // render path cheap. A state-reading transform, a deliberate misuse,
+    // exposes the memo: its value freezes at the first render.
     def node(reads: String): LayoutNode =
       LayoutNode.Component(
         card = "act",
@@ -358,7 +323,6 @@ class RendererSuite extends munit.FunSuite {
     assert(c1.contains("""href="one""""), clue = c1)
     assert(c2.contains("""href="two""""), clue = c2) // re-resolved
 
-    // `onRender` re-resolves like `live`...
     val onRender = renderer(node(Reads.OnRender))
     val d1 =
       onRender
@@ -379,9 +343,8 @@ class RendererSuite extends munit.FunSuite {
     assert(d1.contains("""href="one""""), clue = d1)
     assert(d2.contains("""href="two""""), clue = d2)
 
-    // ...and subscribes like `once`, which is to say not at all. THE
-    // distinction, and the only place the two halves come apart: a change to
-    // sensor.t wakes the live node and neither of the others.
+    // ...and subscribes like `once`, which is not at all: the one place the two
+    // halves come apart.
     assertEquals(live.componentsFor("sensor.t"), Set[NodeId]("c"))
     assertEquals(onRender.componentsFor("sensor.t"), Set.empty[NodeId])
     assertEquals(frozen.componentsFor("sensor.t"), Set.empty[NodeId])
@@ -404,17 +367,14 @@ class RendererSuite extends munit.FunSuite {
       col(row(LayoutNode.Component("btn", Map("label" -> lit("Go")))))
     val r = renderer(layout)
     val page = r.renderPage(Map.empty)
-    // every node — the root container, the nested container, and the static
-    // leaf — gets the backend-owned `.fh-cell` morph wrapper with its path id;
-    // with no theme.chrome, renderPage falls back to the minimal `#dashboard`
-    // frame (no popup host — a popup-less dashboard ships no theme).
+    // With no theme.chrome, renderPage falls back to the minimal `#dashboard`
+    // frame, with no popup host.
     assertEquals(
       page,
       """<style id="fh-theme"></style><main class="container" id="dashboard"><div class="fh-cell" id="c"><div class="fh-col"><div class="fh-cell" id="c_0"><div class="fh-row"><div class="fh-cell" id="c_0_0"><button>Go</button></div></div></div></div></div></main>"""
     )
-    // A container is STRUCTURE: it is wrapped and addressable as an element (a
-    // remove/insert names it), but it is not rendered BY ID — its bytes hold
-    // its children, so a patch would re-send them. The child is the target.
+    // A container is structure: addressable as an element for remove/insert,
+    // but not rendered by id, since its bytes hold its children.
     assertEquals(
       r.renderNodeById("c_0", Map.empty, fragments = QuerySnapshot.empty),
       None
@@ -428,11 +388,9 @@ class RendererSuite extends munit.FunSuite {
   test(
     "a wrapAsCell=false card renders bare: no fh-cell wrapper, no injected id wrapper"
   ) {
-    // The card opts out of the backend-owned wrapper (its root must stay a
-    // direct child of a framework-structural parent). It may still read
-    // `{{id}}` internally, but the renderer injects no wrapper element. Such
-    // a card may only carry literal / identity slots — a live-entity slot on
-    // an unwrapped node is a validate error (see the rejection test below).
+    // Opted out of the wrapper, so its root stays a direct child of a
+    // framework-structural parent. Such a card may only carry literal or
+    // identity slots (rejection test below).
     val bareCards = cards + ("naked" -> CardDef(
       """<a class="tab" data-tab="{{id}}"><span>{{state}}</span></a>""",
       slots = List("state"),
@@ -453,9 +411,8 @@ class RendererSuite extends munit.FunSuite {
   test(
     "validate rejects the wrapper-dependent shapes on a wrapAsCell=false card"
   ) {
-    // Everything that rides on the `.fh-cell` wrapper is unusable on a card
-    // that opts out of it — and silently so at render time, which is why each
-    // shape is a loud build error instead.
+    // All of these fail silently at render time without the wrapper, so each is
+    // a build error.
     val bareCards = cards + ("naked" -> CardDef(
       "<a>{{state}}</a>",
       slots = List("state"),
@@ -501,9 +458,6 @@ class RendererSuite extends munit.FunSuite {
   }
 
   test("authored cell classes ride on every wrapper kind") {
-    // Static component wrapper, candidate set root, and per-entity case
-    // members: the node-level `cell.classes` (the fh- layout contract) are
-    // appended to the backend-owned wrapper's class attribute.
     val sized = LayoutNode.Component(
       "btn",
       Map("label" -> lit("Go")),
@@ -522,15 +476,14 @@ class RendererSuite extends munit.FunSuite {
         (None, "btn", Map("label" -> lit("L")), Some(Cell(List("fh-cols-4"))))
       )
     ).copy(cell = Some(Cell(classes = List("fh-cols-full"))))
-    // Rendered through the document path: a member container composes its
-    // members, so it has no rendering of its OWN and is not addressable by id.
+    // A member container composes its members, so it has no rendering of its
+    // own.
     val html = renderer(dyn).renderBody(Map("light.a" -> st("light.a", "on")))
     assertEquals(
       html,
       """<div class="fh-cell fh-group fh-cols-full" id="c">""" +
         """<div class="fh-cell fh-cols-4" id="c_light_a"><button>L</button></div></div>"""
     )
-    // The per-member in-place path emits the identical wrapper classes.
     assertEquals(
       renderer(dyn)
         .renderMemberById(
@@ -573,8 +526,8 @@ class RendererSuite extends munit.FunSuite {
       )
     )
     val r = Renderer.create(d)
-    // Baked === what the connect would patch in, so the patch that follows is a
-    // no-op morph rather than a second, visible paint.
+    // Baked equals what the connect would patch in, so the patch that follows
+    // is a no-op morph rather than a second paint.
     val baked = r.renderPage(Map.empty, popup = Some("det"))
     assert(
       baked.contains(
@@ -589,7 +542,6 @@ class RendererSuite extends munit.FunSuite {
       ),
       clue = baked
     )
-    // No popup, or one this dashboard doesn't host: the hole renders empty.
     assert(r.renderPage(Map.empty).contains("""<div id="popups"></div>"""))
     assert(
       r.renderPage(Map.empty, popup = Some("nope"))
@@ -598,9 +550,8 @@ class RendererSuite extends munit.FunSuite {
   }
 
   test("a popup surface with nowhere to host is a warning, not an error") {
-    // Both failures are silent in the browser — a tap that does nothing, or a
-    // dialog that pops in late — so the only place they can be attributed is
-    // here, at build time.
+    // Both fail silently in the browser (a tap that does nothing, a dialog that
+    // pops in late), so build time is the only place to attribute them.
     val popup = Map(
       "det" -> Surface(LayoutNode.Component("btn", Map("label" -> lit("D"))))
     )
@@ -617,14 +568,13 @@ class RendererSuite extends munit.FunSuite {
         )
         .warnings
 
-    // No host at all: the popup can never be shown. The empty chrome counts —
-    // the fallback frame has no host either.
+    // The fallback frame has no host either.
     assert(clue(warningsOf("")).exists(_.contains("never be shown")))
     assert(
       clue(warningsOf("""<main id="dashboard">{{{body}}}</main>"""))
         .exists(_.contains("det"))
     )
-    // A host but no hole: works, flashes on a refresh.
+    // A host but no hole works, and flashes on a refresh.
     assert(
       clue(
         warningsOf(
@@ -632,15 +582,12 @@ class RendererSuite extends munit.FunSuite {
         )
       ).exists(_.contains("{{{popups}}}"))
     )
-    // Both present: nothing to say.
     assertEquals(
       warningsOf(
         """<main id="dashboard">{{{body}}}</main><div id="popups">{{{popups}}}</div>"""
       ),
       Nil
     )
-    // And a dashboard with no popup surfaces is never nagged about a host it
-    // has no use for.
     assertEquals(
       Renderer
         .create(Dashboard(cards, body, theme = Theme(chrome = "")))
@@ -681,8 +628,7 @@ class RendererSuite extends munit.FunSuite {
   }
 
   test("a set dispatches per clause and wraps each member on its own") {
-    // Presence is `battery < 20`; the FIRST clause whose guard holds decides
-    // the rendering, so light.a takes the btn clause and sensor.b the card one.
+    // The first clause whose guard holds decides the rendering.
     def low = Predicate.Cmp("attr:battery", Op.Lt, Json.fromInt(20))
     val set = LayoutNode.SetNode(
       candidates = List("light.a", "sensor.b", "sensor.c"),
@@ -745,10 +691,8 @@ class RendererSuite extends munit.FunSuite {
       "sensor.c" -> st("sensor.c", "cold", "battery" -> Json.fromInt(50))
     )
     val r = renderer(set)
-    // A set as layout root -> its own id'd container "c" is the outer morph
-    // target (itself a cell, plus `fh-group`); each present member is ALSO
-    // wrapped in its own id'd `fh-cell` — the per-candidate patch target
-    // `<groupId>_<sanitized entity>`.
+    // Each present member is also wrapped in its own `fh-cell`, the
+    // per-candidate patch target `<groupId>_<sanitized entity>`.
     val html = r.renderBody(states)
     assert(
       html.startsWith("""<div class="fh-cell fh-group" id="c">"""),
@@ -766,11 +710,9 @@ class RendererSuite extends munit.FunSuite {
       ),
       clue = html
     )
-    // sensor.c's only clause does not hold (battery 50), so it is ABSENT — not
-    // hidden, not rendered blank.
+    // Absent, not hidden or blank.
     assert(!html.contains("cold"), clue = html)
     assert(!html.contains("c_sensor_c"), clue = html)
-    // The set is indexed under its own id, and a candidate's change selects it.
     assertEquals(
       r.affectedSetIds(
         StateChange("light.a", None, states("light.a"))
@@ -787,14 +729,11 @@ class RendererSuite extends munit.FunSuite {
       )
     )
     def ch(id: String) = StateChange(id, None, st(id, "on"))
-    // A candidate selects it whichever way its presence moved — WHICH way is
-    // the frame's question (`syncMembers`), not one change's.
+    // Which way presence moved is the frame's question (`syncMembers`), not one
+    // change's.
     assertEquals(r.affectedSetIds(ch("light.a")), List("c"))
-    // An entity the set neither holds nor names cannot move it. This is the
-    // whole cost claim: a frame is O(changed), not O(candidates), and an
-    // unrelated house-wide change reaches nothing.
+    // The cost claim: a frame is O(changed), not O(candidates).
     assertEquals(r.affectedSetIds(ch("sensor.z")), Nil)
-    // One frame, several candidates: ONE entry.
     assertEquals(
       r.members.affectedSets(List(ch("light.a"), ch("light.b"))),
       List("c")
@@ -817,8 +756,8 @@ class RendererSuite extends munit.FunSuite {
   test("EntityState.javaAttributes is converted once and reused") {
     val es =
       EntityState("light.x", "on", Map("brightness" -> Json.fromInt(200)))
-    // Same instance on every access (cached per state version), and numbers stay
-    // numeric for `attr['brightness']` reads (a Long, which `double()` coerces).
+    // Numbers stay numeric for `attr['brightness']` reads: a Long, which
+    // `double()` coerces.
     assert(
       es.javaAttributes eq es.javaAttributes,
       clue = "identity-stable cache"
@@ -836,10 +775,8 @@ class RendererSuite extends munit.FunSuite {
       )
     )
     val page = Renderer.create(d).renderPage(Map.empty)
-    // sorted token vars, then the theme's inline styles; no dark overrides
     assert(
-      // The theme element leads the page, OUTSIDE #dashboard: a repaint of the
-      // body must not have to re-send it (docs/adr/0011-the-live-connection.md).
+      // Outside #dashboard, so a body repaint need not re-send it (ADR 0011).
       page.startsWith(
         """<style id="fh-theme">:root{color-scheme:light dark;--accent-color:#000;--primary-color:#bada55;}.card{color:red}</style><main class="container" id="dashboard">"""
       ),
@@ -849,10 +786,8 @@ class RendererSuite extends munit.FunSuite {
   }
 
   test("the style block layers base CSS, then cards, then the theme") {
-    // Cascade order IS the layering (ADR 0020): a theme overrides a card and a
-    // card overrides the base only because each arrives later in one <style>.
-    // Get this backwards and every override silently inverts, which is why the
-    // ORDER is asserted here rather than the content (that is `pkl test`'s).
+    // Cascade order is the layering (ADR 0020): each override wins only by
+    // arriving later in one <style>. The content is `pkl test`'s to assert.
     val d = Dashboard(
       Map(
         "b" -> CardDef("<b></b>", css = ".b{color:blue}"),
@@ -871,9 +806,9 @@ class RendererSuite extends munit.FunSuite {
   }
 
   test("a card's CSS is part of the patchable style hash") {
-    // The style tag is re-sent on a reconnect whose styleHash moved
-    // (`Server.headPatches`). A card's CSS rides in that tag, so a change to it
-    // that did not move the hash would leave a stale stylesheet in place.
+    // The style tag is re-sent only when the styleHash moved
+    // (`Server.headPatches`), so card CSS the hash missed would leave a stale
+    // stylesheet.
     val base = Dashboard(
       Map("a" -> CardDef("<i></i>")),
       LayoutNode.Component(card = "a")
@@ -911,8 +846,7 @@ class RendererSuite extends munit.FunSuite {
   test("no theme -> no :root style block") {
     val d = Dashboard(cards, col())
     val page = Renderer.create(d).renderPage(Map.empty)
-    // The element is always emitted (a navigate needs it as a morph target),
-    // but it is empty.
+    // Always emitted, as a navigate's morph target.
     assert(page.startsWith("""<style id="fh-theme"></style>"""), clue = page)
     assert(!page.contains(":root"), clue = page)
     assertEquals(Renderer.create(d).stylesheets, Nil)
@@ -921,10 +855,8 @@ class RendererSuite extends munit.FunSuite {
   test(
     "renderSurface returns bare content — no per-surface chrome (Surface's final 5 fields)"
   ) {
-    // Every surface is chrome-less: the frame/host a surface swaps into lives
-    // in theme.chrome (the inlined <dialog> for a popup, the tabs card's panel
-    // host for a tab), not a per-surface wrapper. renderSurface just renders content,
-    // namespaced under the surface-scoped id prefix.
+    // Surfaces are chrome-less: the frame a surface swaps into lives in
+    // theme.chrome or the tabs card's panel host.
     val d = Dashboard(
       cards,
       col(),
@@ -946,14 +878,12 @@ class RendererSuite extends munit.FunSuite {
     assert(!html.contains("<dialog"), clue = html)
     assert(!html.contains("surface/close"), clue = html)
     assert(html.contains("<span>42</span>"), clue = html)
-    // inner node ids are surface-namespaced and individually re-renderable
     assert(html.contains("""id="s_detail__c""""), clue = html)
     assert(
       r.renderNodeById("s_detail__c", states, fragments = QuerySnapshot.empty)
         .get
         .contains("<span>42</span>")
     )
-    // the surface's entity drives ONLY the surface index, not the main page
     assert(
       r.componentsFor("sensor.t").isEmpty,
       clue = r.componentsFor("sensor.t")
@@ -962,7 +892,6 @@ class RendererSuite extends munit.FunSuite {
       r.surfaceComponentsFor("detail", "sensor.t"),
       Set("s_detail__c")
     )
-    // unknown surface -> None
     assertEquals(
       r.renderSurfaceTraced("nope", states, fragments = QuerySnapshot.empty)
         .map(_.html),
@@ -978,13 +907,9 @@ class RendererSuite extends munit.FunSuite {
       "sensor.a" -> EntityState("sensor.a", "AA", Map.empty),
       "sensor.b" -> EntityState("sensor.b", "BB", Map.empty)
     )
-    // The first tab is registered as the only default-open surface.
     assertEquals(rr.surfaces.selectedSurfaces(), Set("c_t0"))
 
-    // renderBody renders the `tabs` component (id "c") whose template contains a
-    // panel host `<div id="c_panel" class="tab-panel" data-signals="{ tab_c: 0 }">`.
-    // The first tab's content fills the {{#panel}} region (surface-namespaced ids,
-    // matching a later switch-back — byte-identical HTML).
+    // Surface-namespaced ids, so a later switch-back is byte-identical.
     val body = rr.renderBody(states)
     assert(
       body.contains(
@@ -994,10 +919,8 @@ class RendererSuite extends munit.FunSuite {
     )
     assert(body.contains("""id="s_c_t0__c""""), clue = body)
     assert(body.contains("<span>AA</span>"), clue = body)
-    // the second tab is NOT baked in
     assert(!body.contains("<span>BB</span>"), clue = body)
 
-    // An inline-mounted surface renders bare — no chrome wrapper, no <dialog>, no ✕.
     val panelB = rr
       .renderSurfaceTraced("c_t1", states, fragments = QuerySnapshot.empty)
       .map(_.html)
@@ -1010,7 +933,6 @@ class RendererSuite extends munit.FunSuite {
     assert(!panelB.contains("surface/close"), clue = panelB)
     assert(panelB.contains("<span>BB</span>"), clue = panelB)
 
-    // each tab's entity drives only its own surface index
     assertEquals(rr.surfaceComponentsFor("c_t0", "sensor.a"), Set("s_c_t0__c"))
     assertEquals(rr.surfaceComponentsFor("c_t1", "sensor.b"), Set("s_c_t1__c"))
   }
@@ -1019,9 +941,8 @@ class RendererSuite extends munit.FunSuite {
     "selectedSurfaces picks the uiState-indexed member; empty map == the old default"
   ) {
     val rr = Renderer.create(tabsDashboard)
-    // A ui-state index selects that member of the bake group...
     assertEquals(rr.surfaces.selectedSurfaces(Map("c" -> "1")), Set("c_t1"))
-    // ...and no selection picks index 0 (parity with the old defaultOpenSurfaces).
+    // No selection picks index 0.
     assertEquals(rr.surfaces.selectedSurfaces(Map.empty), Set("c_t0"))
     assertEquals(rr.surfaces.selectedSurfaces(), Set("c_t0"))
   }
@@ -1034,16 +955,13 @@ class RendererSuite extends munit.FunSuite {
       "sensor.a" -> EntityState("sensor.a", "AA", Map.empty),
       "sensor.b" -> EntityState("sensor.b", "BB", Map.empty)
     )
-    // uiState maps the tabs component id ("c") to the active index "1".
     val body = rr.renderBody(states, Map("c" -> "1"))
-    // the panel host seeds `tab_c: 1` (from the injected bakeIndex)...
     assert(
       body.contains(
         """<div id="c_panel" class="tab-panel" data-signals="{ tab_c: 1 }">"""
       ),
       clue = body
     )
-    // ...and the SECOND tab's content is baked (surface c_t1), not the first.
     assert(body.contains("""id="s_c_t1__c""""), clue = body)
     assert(body.contains("<span>BB</span>"), clue = body)
     assert(!body.contains("<span>AA</span>"), clue = body)
@@ -1051,17 +969,14 @@ class RendererSuite extends munit.FunSuite {
 
   test("resolveActive parses, clamps, and warns on an off ui-state value") {
     val rr = Renderer.create(tabsDashboard)
-    // out of range and unparseable both fall back to index 0 AND yield a warning
     val outOfRange = rr.surfaces.resolveActive("c", Map("c" -> "99"))
     assertEquals(outOfRange._1, 0)
     assert(outOfRange._2.isDefined, clue = outOfRange)
     val unparseable = rr.surfaces.resolveActive("c", Map("c" -> "abc"))
     assertEquals(unparseable._1, 0)
     assert(unparseable._2.isDefined, clue = unparseable)
-    // a valid index and an absent key both select without a warning
     assertEquals(rr.surfaces.resolveActive("c", Map("c" -> "1")), (1, None))
     assertEquals(rr.surfaces.resolveActive("c", Map.empty), (0, None))
-    // uiStateAnomalies surfaces exactly the malformed entries
     assertEquals(rr.surfaces.uiStateAnomalies(Map("c" -> "1")), Nil)
     assertEquals(rr.surfaces.uiStateAnomalies(Map.empty), Nil)
     assertEquals(rr.surfaces.uiStateAnomalies(Map("c" -> "99")).size, 1)
@@ -1081,10 +996,9 @@ class RendererSuite extends munit.FunSuite {
     )
   }
 
-  /** A region and the hole it fills are one fact written twice, and a
-    * disagreement between them is silent both ways round: the declared region
-    * renders nowhere, or the hole renders empty forever. So `validate` asks
-    * that they agree, rather than the renderer discovering it at paint time.
+  /** A region and its hole are one fact written twice, and a disagreement is
+    * silent both ways: the region renders nowhere, or the hole renders empty
+    * forever.
     */
   test(
     "validate: a declared region whose template places no hole is rejected"
@@ -1092,11 +1006,8 @@ class RendererSuite extends munit.FunSuite {
     def dash(card: CardDef) =
       Dashboard(Map("box" -> card), LayoutNode.Component("box"))
 
-    // The hole is the same section spelling for both fills — what differs is
-    // WHO fills it (the node's children, or the surface the viewer's selection
-    // names) — so the check is presence. The likeliest real mistake is the raw
-    // var the baked region was spelled with before it became a region: it
-    // renders nothing now that the walk fills a section.
+    // The hole is the same section spelling for both fills, so the check is
+    // presence.
     val eagerMissing = dash(
       CardDef("<div>nothing</div>", regions = Map("kids" -> Region()))
     )
@@ -1109,8 +1020,8 @@ class RendererSuite extends munit.FunSuite {
 
     val bakedWrongHole = dash(
       CardDef(
-        // A raw var where the baked region needs a section: the likeliest
-        // real mistake, and it renders nothing.
+        // A raw var where the baked region needs a section: the likeliest real
+        // mistake, and it renders nothing.
         "<div>{{{panel}}}</div>",
         regions = Map("panel" -> Region(Region.Baked))
       )
@@ -1136,17 +1047,13 @@ class RendererSuite extends munit.FunSuite {
     )
   }
 
-  /** A node's children take ONE shape on the wire: an object keyed by region
-    * name. The bare `children { … }` an author writes is authoring sugar, and
-    * `core/node.pkl` names the default region before it emits — so nothing
-    * downstream ever has a nameless region to interpret.
+  /** Children take one wire shape, an object keyed by region name;
+    * `core/node.pkl` names the default region before it emits.
     *
-    * Asserted through `Dashboard`'s own decoder rather than the field's, so it
-    * is the path a real `dashboard.json` takes. The array case is asserted to
-    * FAIL, and that is the point of the test rather than pedantry: while both
-    * forms were legal here, the build's inline-surface hoist read only the
-    * array one, so it stopped dead at every region-keyed node and quietly
-    * hoisted nothing below one.
+    * Asserted through `Dashboard`'s own decoder, the path a real
+    * `dashboard.json` takes. The array form must fail: while both were legal,
+    * the inline-surface hoist read only the array one and silently hoisted
+    * nothing below a region-keyed node.
     */
   test("regions decode from a region object, and from nothing else") {
     def decode(regionsField: String) = io.circe.parser
@@ -1165,8 +1072,8 @@ class RendererSuite extends munit.FunSuite {
       Set(LayoutNode.DefaultRegion)
     )
 
-    // A leaf carries no field at all — Pkl drops an empty one — and reads as no
-    // regions rather than as a region holding nothing.
+    // A leaf carries no field (Pkl drops an empty one) and reads as no regions,
+    // not as a region holding nothing.
     assertEquals(
       decode("")
         .fold(e => fail(s"decode failed: $e"), identity)
@@ -1182,13 +1089,9 @@ class RendererSuite extends munit.FunSuite {
     )
   }
 
-  /** The capability the whole region grammar exists for, and the first thing
-    * that could not be expressed before: ONE card, TWO eager regions.
-    *
-    * Two claims, and they are separable — a renderer that spliced both regions
-    * into the first hole would still give every child a distinct id, and one
-    * that numbered them into a single sequence would still put them in the
-    * right holes. So both are asserted.
+  /** One card, two eager regions. The two claims are separable (a renderer
+    * splicing both into the first hole still gives distinct ids), so both are
+    * asserted.
     */
   test("two eager regions splice separately and address separately") {
     val two = CardDef(
@@ -1212,24 +1115,20 @@ class RendererSuite extends munit.FunSuite {
     assertEquals(d.validate(), Nil)
     val html = Renderer.create(d).renderBody(Map.empty)
 
-    // Each region's children land in ITS OWN hole.
     assert(html.contains("<b><div class=\"fh-cell\""), clue = html)
     assert(
       html.matches("""(?s).*<b>.*IN-B.*</b>.*<i>.*IN-I.*</i>.*"""),
       clue = html
     )
 
-    // The default region contributes only its index; a named one contributes
-    // its name as well.
+    // The default region contributes only its index; a named one adds its name.
     assert(html.contains("""id="c_0""""), clue = html)
     assert(html.contains("""id="c_extra_0""""), clue = html)
   }
 
-  /** An authored id replaces the derived one AND roots what is under it — that
-    * is the whole point. A node id reaches users (`ui.<id>` tab state) and
-    * names every signal a card owns, so an author can pin one instead of
-    * letting layout decide it: insert a card above a tab bar and every bookmark
-    * pointing at a tab stops resolving.
+  /** A node id reaches users (`ui.<id>` tab state) and names every signal a
+    * card owns, so an author can pin one: otherwise inserting a card above a
+    * tab bar breaks every bookmark to a tab.
     */
   test("an authored node id replaces the derived one, descendants included") {
     val d = Dashboard(
@@ -1248,16 +1147,14 @@ class RendererSuite extends munit.FunSuite {
     val html = Renderer.create(d).renderBody(Map.empty)
 
     assert(html.contains("""id="panel""""), clue = html)
-    // Rooted: the child is under the NAME, not under the position.
     assert(html.contains("""id="panel_0""""), clue = html)
     assert(!html.contains("""id="c_1""""), clue = "c_1 was replaced by 'panel'")
-    // Its unnamed sibling is untouched — naming is per node, not a mode.
+    // Naming is per node, not a mode.
     assert(html.contains("""id="c_0""""), clue = html)
   }
 
-  /** An authored id must be a token and used once. It need NOT avoid looking
-    * like another id's child: that rule existed only while the runtime read
-    * ancestry off the id string, and `NodeAncestry` retired it.
+  /** An authored id need not avoid looking like another id's child: ancestry
+    * comes from `NodeAncestry`, not the id string.
     */
   test("validate: an authored id must be a plain token, used once") {
     def two(a: String, b: String) = Dashboard(
@@ -1267,7 +1164,6 @@ class RendererSuite extends munit.FunSuite {
         LayoutNode.Component("col", id = Some(b))
       )
     )
-    // The pair that used to be rejected — now simply two siblings.
     assertEquals(two("detail", "detail_0").validate(), Nil)
     assertEquals(two("detail", "summary").validate(), Nil)
 
@@ -1278,12 +1174,9 @@ class RendererSuite extends munit.FunSuite {
     )
   }
 
-  /** ...and the reason dropping that rule is SAFE, which is the whole point of
-    * the change: a sibling named like a child is not treated as one.
-    *
-    * Asserted on the relation the runtime actually consults. The string test it
-    * replaced answers this wrongly, and nothing else in the suite would notice
-    * — the symptom is a fragment silently dropped from one client's record.
+  /** Asserted on the relation the runtime consults. A string-prefix test
+    * answers this wrongly, and the symptom is a fragment silently dropped from
+    * one client's record.
     */
   test("ancestry: a sibling whose id looks like a child is not one") {
     val d = Dashboard(
@@ -1296,36 +1189,27 @@ class RendererSuite extends munit.FunSuite {
           ),
           id = Some("detail")
         ),
-        // Reads as a child of `detail` and is its SIBLING. Not `detail_0`:
-        // that is what `detail`'s own child derives to, so it would be a
-        // genuine duplicate and the uniqueness rule catches it — the two rules
-        // cover different things.
+        // Not `detail_0`: that is what `detail`'s own child derives to, so it
+        // would be a genuine duplicate for the uniqueness rule.
         LayoutNode.Component("col", id = Some("detail_x"))
       )
     )
     assertEquals(d.validate(), Nil)
     val a = Renderer.create(d).ancestry
 
-    // The real child IS under it...
     assert(a.under("detail_0", Set[NodeId]("detail")), clue = "real child")
-    // ...and the sibling that merely reads like one is not, though
     // `startsWith("detail_")` would say otherwise.
     assert(
       !a.under("detail_x", Set[NodeId]("detail")),
       clue = "a sibling must not be swallowed by its neighbour's name"
     )
-    // What a refill would drop contains only the real one.
     assertEquals(a.descendantsOf("detail"), Set[NodeId]("detail_0"))
   }
 
-  /** A structural card may not bind a LIVE entity — its patch would carry
-    * everything it holds. It may still READ one, as long as the slot says it
-    * does not vary with state (`reads = Reads.Once`): a friendly name, a unit,
-    * a domain-derived action.
-    *
-    * The rule keys on [[LayoutNode.Component.liveEntities]], which is exactly
-    * "reactive, non-literal slots", so the two cases separate on the slot's own
-    * declaration rather than on a second rule.
+  /** A structural card may not bind a live entity, since its patch would carry
+    * everything it holds, but it may read one through a non-reactive slot. The
+    * rule keys on [[LayoutNode.Component.liveEntities]], so the cases separate
+    * on the slot's own declaration.
     */
   test("structure may READ an entity, as long as the slot is not reactive") {
     def dash(mode: String) = Dashboard(
@@ -1349,15 +1233,13 @@ class RendererSuite extends munit.FunSuite {
       )
     )
 
-    // `live`: rejected, because it could never reach the DOM.
     assert(
       dash(Reads.Live).validate().exists(_.contains("never a patch target")),
       clue = dash(Reads.Live).validate()
     )
 
-    // `onRender`: accepted, and the value is really read — resolved on the
-    // document path, where structure renders. `once` would be accepted too,
-    // and wrong for a NAME: it memoizes, so a rename would not show.
+    // `once` would be accepted too, and wrong for a name: it memoizes, so a
+    // rename would not show.
     val ok = dash(Reads.OnRender)
     assertEquals(ok.validate(), Nil)
     val html = Renderer
@@ -1383,13 +1265,12 @@ class RendererSuite extends munit.FunSuite {
       ),
       LayoutNode.Component("box")
     )
-    // `c_0_0` would be unreadable: region "0" index 0, or index 0 then index 0?
+    // `c_0_0` would be ambiguous: region "0" index 0, or index 0 then index 0?
     assert(
       card("0").validate().exists(_.contains("all digits")),
       clue = card("0").validate()
     )
-    // Non-vacuous: a name merely CONTAINING digits is fine, because it can
-    // never be a whole index.
+    // Non-vacuous: a name merely containing digits can never be a whole index.
     assertEquals(card("tab2").validate(), Nil)
   }
 
@@ -1406,7 +1287,6 @@ class RendererSuite extends munit.FunSuite {
       clue = bad.validate()
     )
 
-    // The contract-satisfying chrome (carries id="dashboard") produces no error.
     val ok = Dashboard(
       cards,
       col(),
@@ -1414,7 +1294,6 @@ class RendererSuite extends munit.FunSuite {
     )
     assertEquals(ok.validate(), Nil)
 
-    // Empty chrome (the fallback) is never checked.
     assertEquals(Dashboard(cards, col()).validate(), Nil)
   }
 
@@ -1435,9 +1314,8 @@ class RendererSuite extends munit.FunSuite {
   test(
     "a live bake owner patches its header alone; the bake is document-path only"
   ) {
-    // A `tabsLive` component (id "c") owns a bake group AND binds a live entity
-    // (`sensor.title`). On a live SSE patch the node is re-rendered by id — it
-    // must bake the SESSION's selected tab, not the default one.
+    // A live SSE patch re-renders the node by id; it must bake the session's
+    // selected tab, not the default.
     def panel(name: String): LayoutNode.Component =
       LayoutNode.Component(
         "card",
@@ -1478,17 +1356,15 @@ class RendererSuite extends munit.FunSuite {
       "sensor.a" -> st("sensor.a", "AA"),
       "sensor.b" -> st("sensor.b", "BB")
     )
-    // The live entity binds the HEADER node, not the host — the header is where
-    // it is read, and the host holds regions.
+    // The header is where the entity is read; the host holds regions.
     assertEquals(rr.componentsFor("sensor.title"), Set("c_bar_0"))
     assertEquals(
       rr.renderNodeById("c", states, fragments = QuerySnapshot.empty),
       None
     )
 
-    // THE contract, and the reason the whole design exists: a live tick patches
-    // the header and carries NOTHING of the panel. A change to the title cannot
-    // re-render what the tabs host holds.
+    // The contract: a live tick patches the header and carries nothing of the
+    // panel.
     val patch =
       rr.renderNodeById("c_bar_0", states, fragments = QuerySnapshot.empty).get
     assertEquals(
@@ -1496,9 +1372,8 @@ class RendererSuite extends munit.FunSuite {
       """<div class="fh-cell" id="c_bar_0"><span>Live</span></div>"""
     )
 
-    // Which member is baked was the ONLY thing that made this per-client, and it
-    // lives on the document path alone now. There the selection still decides:
-    // no uiState bakes tab 0, `c -> 1` bakes tab 1, signal seed included.
+    // Which member is baked lives on the document path alone, where the
+    // selection still decides.
     val dflt = rr.renderBody(states)
     assert(dflt.contains("tab_c: 0"), clue = dflt)
     assert(dflt.contains("<span>AA</span>"), clue = dflt)
@@ -1510,12 +1385,7 @@ class RendererSuite extends munit.FunSuite {
     assert(!sel.contains("<span>AA</span>"), clue = sel)
   }
 
-  // ---------------------------------------------------------------------------
-  // Per-entity candidate-set patches (Tier 1 + Tier 2)
-  // ---------------------------------------------------------------------------
-
-  // A set (as the layout root, so group id "c") shown while each candidate is
-  // on. `light.z` is a candidate no test turns on — the id-slugging case.
+  // `light.z` is a candidate no test turns on: the id-slugging case.
   private val onGroup = onSet(
     List("light.a", "light.b", "light.c", "light-b.x", "light.z"),
     List((None, "card", Map("state" -> SlotSource()), None))
@@ -1538,7 +1408,6 @@ class RendererSuite extends munit.FunSuite {
       r.members.memberEntities(setId("c"), states),
       List("light.a", "light.b")
     )
-    // unknown / non-set id -> no members
     assertEquals(r.members.memberEntities(setId("zzz"), states), Nil)
   }
 
@@ -1559,7 +1428,6 @@ class RendererSuite extends munit.FunSuite {
       ).get,
       """<div class="fh-cell" id="c_light_a"><div><span>on</span> </div></div>"""
     )
-    // fails the query -> not a member
     assertEquals(
       r.renderMemberById(
         setId("c"),
@@ -1569,7 +1437,6 @@ class RendererSuite extends munit.FunSuite {
       ),
       None
     )
-    // unknown entity / unknown group -> None
     assertEquals(
       r.renderMemberById(
         setId("c"),
@@ -1590,36 +1457,22 @@ class RendererSuite extends munit.FunSuite {
     )
   }
 
-  // ---------------------------------------------------------------------------
-  // State-activated surfaces (If/else as bake groups — Activation.State)
-  // ---------------------------------------------------------------------------
-
-  // The always-true predicate an authoring layer uses for an `else` member —
-  // an empty conjunction is vacuously true and reads no entity, so the else
-  // needs no special casing and no subject.
+  // An empty conjunction is vacuously true and reads no entity, so an `else`
+  // needs no special casing.
   private val always: Predicate = Predicate.And(Nil)
 
-  // "Entity X is in state Y" — the condition names its entity, so evaluating it
-  // is one lookup.
   private def entityIs(id: String, state: String): Predicate =
     Predicate.Cmp("state", Op.Eq, Json.fromString(state), entity = Some(id))
 
-  // The If host: a plain component card with one {{#branch}} bake region — no
-  // tab bar, no signal, no ui state; the backend never required them.
   private val ifCards =
     // Mirrors lib/components.pkl's `If`: one baked region and no markup of its
-    // own. The cell wrapper (which the backend owns) is the node's id'd
-    // element; the region's id is `Surface.hostId`.
+    // own. The region's id is `Surface.hostId`.
     cards + ("ifhost" -> CardDef(
       template =
         """<div id="{{hostId}}">{{#branch}}{{{html}}}{{/branch}}</div>""",
       regions = Map("branch" -> Region(Region.Baked))
     ))
 
-  /** An If/else dashboard: an `ifhost` root (id "c") whose `then` member (a
-    * sensor.a card) is active while alarm.h == armed, with an always-true
-    * `else` member (a sensor.b card) — or none, for the no-match case.
-    */
   private def ifDashboard(withElse: Boolean = true): Dashboard = {
     def branch(name: String) = LayoutNode.Component(
       "card",
@@ -1657,12 +1510,11 @@ class RendererSuite extends munit.FunSuite {
     "resolveActiveByState picks the FIRST holding member in bakeIndex order"
   ) {
     val r = Renderer.create(ifDashboard())
-    // then holds -> index 0 even though the always-true else would too.
+    // The first holding member wins, though the always-true else holds too.
     assertEquals(
       r.surfaces.resolveActiveByState("c", armedStates("armed")),
       Some(0)
     )
-    // then fails -> the condition-less-equivalent else (always predicate).
     assertEquals(
       r.surfaces.resolveActiveByState("c", armedStates("disarmed")),
       Some(1)
@@ -1673,11 +1525,9 @@ class RendererSuite extends munit.FunSuite {
     val r = Renderer.create(ifDashboard(withElse = false))
     val states = armedStates("disarmed")
     assertEquals(r.surfaces.resolveActiveByState("c", states), None)
-    // The host still renders its wrapper — with empty branch content, so a
-    // matching branch appearing later has its patch target in the DOM. Both
-    // boxes: the cell (the node's own element) and the host inside it. Through
-    // the document path: an If is pure structure, so it has no rendering of its
-    // own and `renderNodeById` refuses it.
+    // The host still renders, empty, so a branch matching later has its patch
+    // target in the DOM. Through the document path: an If is structure, so
+    // `renderNodeById` refuses it.
     assertEquals(
       r.renderBody(states),
       """<div class="fh-cell" id="c"><div id="c_branch"></div></div>"""
@@ -1688,10 +1538,8 @@ class RendererSuite extends munit.FunSuite {
     )
   }
 
-  // What the quantifiers became: a comparison on how many of a NAMED set are
-  // present. `any` is count > 0, `none` is count == 0, `all` is count == length
-  // — the same three answers, over the set the author meant rather than every
-  // entity in the house.
+  // `any`/`none`/`all` as counts over a named set, not every entity in the
+  // house.
   test("a state condition counts a named set: any/none/all as comparisons") {
     val on = Predicate.Cmp("state", Op.Eq, Json.fromString("on"))
     def dash(cond: Predicate) = Dashboard(
@@ -1729,8 +1577,8 @@ class RendererSuite extends munit.FunSuite {
     assertEquals(allR.surfaces.resolveActiveByState("c", allOn), Some(0))
     assertEquals(allR.surfaces.resolveActiveByState("c", mixed), None)
 
-    // A lone entity needs no set at all: the condition names it, so the answer
-    // is a lookup and an unrelated entity's state cannot decide it.
+    // A lone entity is a lookup, so an unrelated entity's state cannot decide
+    // it.
     val oneR = Renderer.create(dash(entityIs("l.a", "on")))
     assertEquals(oneR.surfaces.resolveActiveByState("c", mixed), Some(0))
     assertEquals(oneR.surfaces.resolveActiveByState("c", allOff), None)
@@ -1738,7 +1586,6 @@ class RendererSuite extends munit.FunSuite {
 
   test("state members bake by condition and never enter selectedSurfaces") {
     val r = Renderer.create(ifDashboard())
-    // The baked branch follows the condition, surface-namespaced like a tab.
     val bodyArmed = r.renderBody(armedStates("armed"))
     assert(bodyArmed.contains("""id="s_c_then__c""""), clue = bodyArmed)
     assert(bodyArmed.contains("<span>A</span>"), clue = bodyArmed)
@@ -1746,21 +1593,19 @@ class RendererSuite extends munit.FunSuite {
     val bodyElse = r.renderBody(armedStates("disarmed"))
     assert(bodyElse.contains("<span>B</span>"), clue = bodyElse)
     assert(!bodyElse.contains("<span>A</span>"), clue = bodyElse)
-    // State members never seed a session's open set (their liveness is the
-    // shared pass's job), and the owner splits to the state side.
+    // State members never seed a session's open set; their liveness is the
+    // shared pass's job.
     assertEquals(r.surfaces.selectedSurfaces(), Set.empty[String])
     assertEquals(r.surfaces.stateBakeOwnerIds, Set("c"))
     assertEquals(r.surfaces.userBakeOwnerIds, Set.empty[String])
-    // Tabs keep the exact opposite split (regression guard on the mode split).
     val tabs = Renderer.create(tabsDashboard)
     assertEquals(tabs.surfaces.userBakeOwnerIds, Set("c"))
     assertEquals(tabs.surfaces.stateBakeOwnerIds, Set.empty[String])
   }
 
-  /** A container that splices `{{#children}}` into its template while DECLARING
-    * no region. Without this check the leaf/structure split is not decidable
-    * from the card: such a template reads as a leaf, so it would be cached and
-    * patched, while its bytes carry its children.
+  /** Without declaring the region, a template splicing `{{#children}}` reads as
+    * a leaf, so it would be cached and patched while its bytes carry its
+    * children. A fact about the card, so a build error.
     */
   test(
     "a card that splices children without declaring the region is rejected"
@@ -1781,11 +1626,6 @@ class RendererSuite extends munit.FunSuite {
       )
     )
 
-    // This used to be caught at RENDER time, by walking the tree asking
-    // whether anything below the node declared a hole. It is a fact about the
-    // CARD, so it is a build error now: undeclared, this template reads as a
-    // leaf — no regions — while its bytes carry its children, and a patch aimed
-    // at it would re-send them.
     val undeclared =
       dash(CardDef("<div>{{#children}}{{{html}}}{{/children}}</div>"))
     assert(
@@ -1795,8 +1635,6 @@ class RendererSuite extends munit.FunSuite {
       clue = undeclared.validate()
     )
 
-    // Declared, it is STRUCTURE: accepted, and not rendered by id — its
-    // children are addressable in their own right.
     val declared = dash(
       CardDef(
         "<div>{{#children}}{{{html}}}{{/children}}</div>",
@@ -1811,7 +1649,6 @@ class RendererSuite extends munit.FunSuite {
         .renderNodeById("c", states, fragments = QuerySnapshot.empty),
       None
     )
-    // ...while the child is.
     assert(
       Renderer
         .create(declared)
@@ -1820,13 +1657,9 @@ class RendererSuite extends munit.FunSuite {
     )
   }
 
-  /** The other half of the rule above, and the one that cost a live update: a
-    * node in one region cannot carry what a SIBLING region holds, so what the
-    * sibling holds is none of its business.
-    *
-    * Real shape: a slider holding member sliders — the head in one region, the
-    * rows in another. Get it wrong and the head is unaddressable, so dragging a
-    * row stops updating the master until a reload.
+  /** A node in one region carries nothing of a sibling region. A slider holding
+    * member sliders is the real shape: get it wrong and the head is
+    * unaddressable, so dragging a row stops updating the master until a reload.
     */
   test("a live head beside its members carries none of them") {
     val cards = Map(
@@ -1836,8 +1669,8 @@ class RendererSuite extends munit.FunSuite {
         regions = Map("head" -> Region(), "children" -> Region())
       ),
       "head" -> CardDef("""<span>{{state}}</span>""", slots = List("state")),
-      // A member that is itself a container — the change that broke this when
-      // the answer was a walk over what the children carried.
+      // A member that is itself a container broke this when the answer was a
+      // walk over what the children carried.
       "member" -> CardDef(
         template = """<div>m{{#children}}{{{html}}}{{/children}}</div>""",
         regions = Map("children" -> Region())
@@ -1861,24 +1694,20 @@ class RendererSuite extends munit.FunSuite {
       )
     )
     val states = Map("sensor.a" -> st("sensor.a", "A0"))
-    // The head is the patch target and its bytes are its own...
     val head =
       r.renderNodeById("c_head_0", states, fragments = QuerySnapshot.empty)
     assert(head.exists(_.contains("A0")), clue = head)
     assert(!head.exists(_.contains("m")), clue = head)
-    // ...and the host, being structure, is not a patch target at all.
     assertEquals(
       r.renderNodeById("c", states, fragments = QuerySnapshot.empty),
       None
     )
   }
 
-  test("userSurfaceOf: state surfaces are transparent, user surfaces are not") {
-    // Two chains hanging off the main page, each two surfaces deep:
+  test("state surfaces are transparent to visibility, user surfaces are not") {
+    // Two chains off the main page, each two surfaces deep:
     //   main -> t0 (user)  -> if host -> b0 (state)
     //   main -> sx (state) -> tabs    -> u0 (user)
-    // The containing surface is where a surface's HOST node sits, so t0's If
-    // host is `s_t0__c` and sx's tabs host is `s_sx__c`.
     val d = Dashboard(
       ifCards,
       col(
@@ -1917,24 +1746,16 @@ class RendererSuite extends munit.FunSuite {
       )
     )
     val r = Renderer.create(d)
+    def shown(id: String, open: Set[String]) =
+      r.surfaces.visibleNode(NodeId.derived(id), open, Map.empty)
 
-    // A user surface is its own tag — it is exactly what hides content.
-    assertEquals(r.surfaces.userSurfaceOf("t0"), Some("t0"))
-    assertEquals(r.surfaces.userSurfaceOf("u0"), Some("u0"))
-    // A state surface hides nothing (every client sees the same branch), so the
-    // walk passes THROUGH it to whatever encloses it...
-    assertEquals(r.surfaces.userSurfaceOf("b0"), Some("t0"))
-    // ...and reaching the main page means "no user surface above me".
-    assertEquals(r.surfaces.userSurfaceOf("sx"), None)
-
-    // The same, entered by node: a node is tagged by the tree it was indexed
-    // from, which is NOT derivable from its id (`s_b0__c` names only b0).
-    assertEquals(r.surfaces.userSurfaceOfNode("s_b0__c"), Some("t0"))
-    assertEquals(r.surfaces.userSurfaceOfNode("s_u0__c"), Some("u0"))
-    assertEquals(r.surfaces.userSurfaceOfNode("s_sx__c"), None)
-    assertEquals(r.surfaces.userSurfaceOfNode("c"), None)
-    // An id no tree owns has no tag to give.
-    assertEquals(r.surfaces.userSurfaceOfNode("c_nope"), None)
+    // A state surface hides nothing, so b0 is shown exactly when the user tab
+    // above it is open, which `s_b0__c` cannot say.
+    assert(shown("s_b0__c", Set("t0")))
+    assert(!shown("s_b0__c", Set.empty))
+    assert(shown("s_u0__c", Set("u0")))
+    assert(!shown("s_u0__c", Set.empty))
+    assert(shown("c", Set.empty))
   }
 
   test("affectedSets surfaces the membership delta per group") {
@@ -1955,17 +1776,13 @@ class RendererSuite extends munit.FunSuite {
     def low(id: String) = st(id, "x", "battery" -> Json.fromInt(5)) // matches
     def high(id: String) =
       st(id, "x", "battery" -> Json.fromInt(50)) // no match
-    // Matching either side selects the group. WHICH way it moved is the
-    // frame's question (`syncMembers`), not one change's — and WHICH members
-    // ticked is no longer asked here at all: a member that merely ticked is
-    // found through the reverse index, like any other node.
+    // A member that merely ticked is found through the reverse index, not here.
     assertEquals(
       r.members.affectedSets(
         List(StateChange("s.b", Some(low("s.b")), low("s.b")))
       ),
       List("c")
     )
-    // ¬prev ∧ cur (both a high->low flip and a newly-seen match)
     assertEquals(
       r.members.affectedSets(
         List(StateChange("s.b", Some(high("s.b")), low("s.b")))
@@ -1976,21 +1793,18 @@ class RendererSuite extends munit.FunSuite {
       r.members.affectedSets(List(StateChange("s.b", None, low("s.b")))),
       List("c")
     )
-    // prev ∧ ¬cur
     assertEquals(
       r.members.affectedSets(
         List(StateChange("s.b", Some(low("s.b")), high("s.b")))
       ),
       List("c")
     )
-    // matches neither side -> untouched (no entry)
     assertEquals(
       r.members.affectedSets(
         List(StateChange("s.z", Some(high("s.z")), high("s.z")))
       ),
       Nil
     )
-    // One frame, several entities: ONE entry.
     assertEquals(
       r.members.affectedSets(
         List(
@@ -2002,16 +1816,12 @@ class RendererSuite extends munit.FunSuite {
     )
   }
 
-  // ---- the leaf/structure split (docs/adr/0012-each-session-renders-what-it-is-owed.md) ----
-
-  /** A container holding a LIVE node beside its children — the shape the split
-    * exists for ("a tab bar with the current temperature in its header"). Two
-    * regions: `bar` holds the live header, `children` holds the rest.
+  /** A live node beside the children (ADR 0012): `bar` holds the live header,
+    * `children` the rest.
     */
   private val splitCards = cards + ("split" -> CardDef(
-    // No `{{hostId}}`: a region needs an id only where something FILLS it,
-    // which is where `bakeAs` names it. This card has no bake group, like
-    // Grid/Row, so its eager regions are addressed by nothing.
+    // No `{{hostId}}`: a region needs an id only where `bakeAs` names it for
+    // filling.
     template = """<div class="fh-col">{{#bar}}{{{html}}}{{/bar}}""" +
       """<div class="panel">{{#children}}{{{html}}}{{/children}}</div></div>""",
     regions = Map("bar" -> Region(), "children" -> Region())
@@ -2043,42 +1853,27 @@ class RendererSuite extends munit.FunSuite {
 
   test("the document path renders every region, each child in its own") {
     val html = splitRenderer.renderBody(Map("sensor.t" -> st("sensor.t", "21")))
-    // One id per node, on its cell. There is no second id to own: the live bar
-    // is a NODE with a cell of its own rather than an element inside this card.
     assert(html.contains("""class="fh-cell" id="c""""), clue = html)
     assert(html.contains("""class="fh-cell" id="c_bar_0""""), clue = html)
     assert(html.contains("21"), clue = html)
     assert(html.contains("inside"), clue = html)
   }
 
-  /** Statement (1): a node's patch carries its own rendering and never the
-    * contents of a region.
-    *
-    * Bought by STRUCTURE: the live part is a node of its own, the regions are
-    * other nodes, and the container is not a patch target at all — so there is
-    * nothing to aim and nothing to get wrong.
-    */
   test("a node's patch carries its own rendering alone — statement (1)") {
     val r = splitRenderer
     val states = Map("sensor.t" -> st("sensor.t", "21"))
-    // The container holds regions, so it is not rendered by id...
     assertEquals(
       r.renderNodeById("c", states, fragments = QuerySnapshot.empty),
       None
     )
-    // ...and the live bar's patch is its own cell, with the live value.
     val patch =
       r.renderNodeById("c_bar_0", states, fragments = QuerySnapshot.empty).get
     assert(patch.contains("""id="c_bar_0""""), clue = patch)
     assert(patch.contains("21"), clue = patch)
-    // What it is NOT — the point of the whole design.
     assert(!patch.contains("panel"), clue = patch)
     assert(!patch.contains("inside"), clue = patch)
   }
 
-  /** "What I morph" and "what I am" are ONE element: a node holds its regions
-    * in other nodes, so a patch target has nothing to exclude.
-    */
   test("one element per node: what a patch targets is what the node IS") {
     val r = splitRenderer
     assertEquals(r.elementId("c"), "c")

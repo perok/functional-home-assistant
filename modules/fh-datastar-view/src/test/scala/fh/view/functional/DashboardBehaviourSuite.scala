@@ -9,16 +9,9 @@ import fh.view.testkit.{
 }
 import io.circe.Json
 
-/** End-to-end behaviour of the dashboard against a stubbed Home Assistant: the
-  * whole loop — seed snapshot -> `StateStore` -> `Server` -> HTTP/SSE, and
-  * control -> `callService` — with no live HA and a scripted timeline. Each
-  * test reads as an observable behaviour, asserted at the HTTP boundary.
-  *
-  * Each test builds only the world it exercises with the [[scene]] builder: the
-  * cards it asserts on (each auto-seeds the entity it binds) plus any extra
-  * entity it drives directly. A control-only test adds no card at all and just
-  * seeds the light it clicks with `.entity(...)` — the smallest world that
-  * still records the call.
+/** The whole loop against a stubbed HA (snapshot -> `StateStore` -> `Server` ->
+  * HTTP/SSE, and control -> `callService`), asserted at the HTTP boundary. Each
+  * test builds only its world with the [[scene]] builder.
   */
 class DashboardBehaviourSuite extends FunctionalSuite {
 
@@ -34,9 +27,7 @@ class DashboardBehaviourSuite extends FunctionalSuite {
   private def offLight(id: String, name: String): FixtureEntity =
     onLight(id, name).copy(state = "off")
 
-  // A set shown while each light is on, and one showing them unconditionally.
-  // The candidates are named up front — that is the point of a candidate set —
-  // so each helper takes the lights the test drives.
+  // The candidates are named up front, which is the point of a candidate set.
   private def onSet(lights: FixtureEntity*) =
     FixtureDashboard.set(
       lights.map(_.entityId).toList,
@@ -51,10 +42,8 @@ class DashboardBehaviourSuite extends FunctionalSuite {
         .card(FixtureDashboard.reading(outside))
         .card(FixtureDashboard.light("Kitchen", kitchen))
     )(_.page()).map { html =>
-      // The numeric reading and its unit (pulled from $attr) are present...
       assert(html.contains("12.4"), clue = html)
       assert(html.contains("°C"), clue = html)
-      // ...and the kitchen light's seeded state.
       assert(html.contains("Kitchen: "), clue = html)
       assert(html.contains(">on<"), clue = html)
     }
@@ -62,49 +51,31 @@ class DashboardBehaviourSuite extends FunctionalSuite {
 
   test("a state change pushes a fragment carrying the new value") {
     withServer(scene.card(FixtureDashboard.reading(outside))) { ts =>
-      ts.observePatch(
-        marker = "13.1",
-        trigger = ts.fake.emit(outside.entityId, "13.1", outside.attributes)
-      )
-    }
-  }
-
-  test("turning the kitchen light off pushes its new state over SSE") {
-    withServer(scene.card(FixtureDashboard.light("Kitchen", kitchen))) { ts =>
-      // A distinctive marker only the OFF light fragment can contain.
-      ts.observePatch(
-        marker = "Kitchen: <span>off</span>",
-        trigger = ts.fake.emit(kitchen.entityId, "off", Map.empty)
-      )
+      ts.sentAfter(ts.frame(outside.copy(state = "13.1"))).map(carries("13.1"))
     }
   }
 
   test("a no-op emit publishes nothing; the next real change is seen first") {
-    // Pins StateStore's "publish only on real change" contract end-to-end: an
-    // emit of the current value is dropped, so the FIRST observed change is the
-    // subsequent real one — driven through the fake's queue, not a private seam.
+    // StateStore's "publish only on real change", end to end through the fake's
+    // queue: the first observed change is the real one.
     withServer(scene.card(FixtureDashboard.reading(outside))) { ts =>
       for {
-        // TWO gates, and the order matters. The per-slug recorder subscribes to
-        // `changes` on its own, so waiting for ONE subscriber is answered by the
-        // recorder — and the emits below could then land before this test's
-        // fiber has subscribed, leaving `take(1)` waiting forever on changes it
-        // never saw. Wait for the recorder first, then for this fiber on top.
+        // The recorder subscribes on its own, so waiting for one subscriber is
+        // answered by it and the emits could land before this fiber subscribes.
+        // Wait for the recorder, then for this fiber.
         _ <- ts.awaitChangeSubscribers(1)
         firstChange <- ts.store.changes.take(1).compile.lastOrError.start
         _ <- ts.awaitChangeSubscribers(2)
-        // No-op: same value the fixture already seeded -> dropped by update.
+        // The seeded value, so dropped.
         _ <- ts.fake.emit(outside.entityId, outside.state, outside.attributes)
-        // A real change -> published.
         _ <- ts.fake.emit(outside.entityId, "13.1", Map.empty)
         change <- firstChange.joinWithNever
       } yield change.head.current.state
     }.assertEquals("13.1")
   }
 
-  // The card is not decoration here: an action may only reach an entity its
-  // dashboard NAMES (ADR 0023), so a seeded-but-unrendered entity is refused —
-  // correctly. The smallest world that records a call is one that shows it.
+  // An action may only reach an entity its dashboard names (ADR 0023), so the
+  // smallest world that records a call is one that shows it.
   test("a control click calls the service back into HA") {
     withServer(scene.card(FixtureDashboard.light("Kitchen", kitchen))) { ts =>
       ts.post(
@@ -137,50 +108,38 @@ class DashboardBehaviourSuite extends FunctionalSuite {
     withServer(scene.card(FixtureDashboard.light("Kitchen", kitchen))) { ts =>
       for {
         _ <- ts.post(s"sse/action/${ts.slug}/light/turn_off/light.kitchen")
-        _ <- ts.observePatch(
-          marker = "Kitchen: <span>off</span>",
-          // The fake records the call; HA's resulting state change is emitted
-          // explicitly (the fake does not simulate HA semantics).
-          trigger = ts.fake.emit(kitchen.entityId, "off", Map.empty)
-        )
+        // The fake does not simulate HA, so the resulting state change is
+        // emitted explicitly.
+        sent <- ts.sentAfter(ts.change(kitchen.entityId, "off"))
         calls <- ts.fake.recordedCalls
-      } yield assertEquals(
-        calls,
-        Vector(ServiceCall("light", "turn_off", "light.kitchen", Json.obj()))
-      )
+      } yield {
+        carries("Kitchen: <span>off</span>")(sent)
+        assertEquals(
+          calls,
+          Vector(ServiceCall("light", "turn_off", "light.kitchen", Json.obj()))
+        )
+      }
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // Candidate sets end-to-end. Members are decided by live guards, so they are
-  // named in no slot — they are seeded through the Scene's `.entities(..)`
-  // extras (exactly the case that builder exists for). These pin the membership
-  // machinery `RendererSuite` unit-tests (`affectedSets`, per-entity render)
-  // at the wire: the actual SSE patch a group emits as members enter/leave.
-  // ---------------------------------------------------------------------------
+  // Candidate sets end to end. The lights are not in the house registry, so
+  // they are seeded through the Scene's `.entities(..)` extras.
 
   test("an entity entering a candidate set streams its card in over SSE") {
-    // beta is off (outside the `state == on` group); when it turns on the group
-    // re-renders and the pushed fragment carries beta's now-visible member card.
-    // (The emit carries beta's attributes so its member card keeps its name —
     // HA sends full attributes on every state_changed, and the card reads
-    // friendly_name.)
+    // friendly_name, so the emit carries them.
     val alpha = onLight("alpha", "Alpha")
     val beta = offLight("beta", "Beta")
     withServer(scene.card(onSet(alpha, beta)).entities(alpha, beta)) { ts =>
-      ts.observePatch(
-        marker = "Beta: <span>on</span>",
-        trigger = ts.fake.emit(beta.entityId, "on", beta.attributes)
-      )
+      ts.sentAfter(ts.frame(beta.copy(state = "on")))
+        .map(carries("Beta: <span>on</span>"))
     }
   }
 
   test("an entity leaving a candidate set is removed per-entity over SSE") {
-    // Three members on (a minority-churn group, so a single departure takes the
-    // per-entity path, not a whole-group repaint). The first change establishes
-    // the group in the diff cache (its first membership change always repaints);
-    // the second — dropping one of the now-three members — is 1-of-3 churn, so
-    // it emits a `mode remove` patch for exactly that member's cell.
+    // Three members, so one departure is minority churn and takes the
+    // per-entity path. The first change establishes the group; the second is
+    // the one under test.
     val alpha = onLight("alpha", "Alpha")
     val beta = onLight("beta", "Beta")
     val gamma = offLight("gamma", "Gamma")
@@ -188,46 +147,32 @@ class DashboardBehaviourSuite extends FunctionalSuite {
       scene.card(onSet(alpha, beta, gamma)).entities(alpha, beta, gamma)
     ) { ts =>
       for {
-        // Establish: gamma joins (2 -> 3 members, a boundary repaint). Observing
-        // its card confirms the group is now cached before we drive the removal.
-        _ <- ts.observePatch(
-          marker = "Gamma: <span>on</span>",
-          trigger = ts.fake.emit(gamma.entityId, "on", gamma.attributes)
-        )
-        // Remove: beta leaves the on-group. 1-of-3 churn -> a per-entity remove
-        // targeting only beta's cell (id derived from its entity id).
-        _ <- ts.observePatch(
-          marker = "mode remove",
-          trigger = ts.fake.emit(beta.entityId, "off", beta.attributes)
-        )
-      } yield ()
+        entered <- ts.sentAfter(ts.frame(gamma.copy(state = "on")))
+        left <- ts.sentAfter(ts.frame(beta.copy(state = "off")))
+      } yield {
+        carries("Gamma: <span>on</span>")(entered)
+        // A per-entity remove targeting only beta's cell.
+        carries("mode remove")(left)
+      }
     }
   }
 
   test("an in-place state change re-renders a group member's card over SSE") {
-    // A `domain == light` group: the kitchen light stays a member across an
-    // on->off change (its domain is unchanged), so the change is an in-place
-    // member tick — the group morphs just that one member card with the new
-    // state, never a membership delta.
+    // The light stays a member across on->off, so this is an in-place member
+    // tick, never a membership delta.
     withServer(
       scene
         .card(lightSet(kitchen, HouseFixture.livingRoomLight))
         .entities(kitchen, HouseFixture.livingRoomLight)
     ) { ts =>
-      ts.observePatch(
-        marker = "Kitchen: <span>off</span>",
-        trigger = ts.fake.emit(kitchen.entityId, "off", kitchen.attributes)
-      )
+      ts.sentAfter(ts.frame(kitchen.copy(state = "off")))
+        .map(carries("Kitchen: <span>off</span>"))
     }
   }
 
   test("a state-activated surface flips its baked branch over SSE") {
-    // An If/else host: the `else` branch shows while the alarm is disarmed; when
-    // it arms, the deciding entity's change flips the host to bake the `then`
-    // branch, whose content streams over SSE. The alarm rides only the
-    // activation predicate (no slot), so it is seeded as a Scene extra; the two
-    // branch readings are referenced by the surfaces, so they must be supplied
-    // too (the extras double as the resolution source).
+    // The alarm rides only the activation predicate, so it is a Scene extra;
+    // the branch readings are referenced by surfaces, so they are supplied too.
     val alarm = FixtureEntity("alarm.home", "disarmed")
     val armed = FixtureEntity("sensor.armed", "ON")
     val disarmed = FixtureEntity("sensor.disarmed", "OFF")
@@ -238,10 +183,8 @@ class DashboardBehaviourSuite extends FunctionalSuite {
       elseBranch = FixtureDashboard.light("Disarmed", disarmed)
     )
     withServer(Scene.of(dash).entities(alarm, armed, disarmed)) { ts =>
-      ts.observePatch(
-        marker = "Armed: <span>ON</span>",
-        trigger = ts.fake.emit(alarm.entityId, "armed", Map.empty)
-      )
+      ts.sentAfter(ts.change(alarm.entityId, "armed"))
+        .map(carries("Armed: <span>ON</span>"))
     }
   }
 }

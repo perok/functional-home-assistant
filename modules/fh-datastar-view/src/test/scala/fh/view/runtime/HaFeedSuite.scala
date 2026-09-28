@@ -9,21 +9,16 @@ import io.circe.Json
 
 import scala.concurrent.duration.*
 
-/** The reconnect behaviour of the self-healing feed — the one thing the
-  * fixture-backed functional suites can't cover, because their `Connect` never
-  * closes. Here a controllable `Connect` lets us force a drop.
-  *
-  * Two properties, and the split between them IS the design: the STORE is
-  * refilled by the supervisor with no help from its reader, while an external
-  * subscriber's stream ends with its connection and it re-subscribes off
-  * `healthy` (the pattern `ServerApp.watchRegistryEvents` uses). Subscriptions
-  * are deliberately not durable — see `HaFeed.routingFacade`.
+/** The feed's reconnect, which the functional suites cannot reach since their
+  * `Connect` never closes. The split is the design: the supervisor refills the
+  * store with no help from its reader, while an external subscriber's stream
+  * ends with its connection and it re-subscribes off `healthy` (as
+  * `ServerApp.watchRegistryEvents` does). Subscriptions are not durable; see
+  * `HaFeed.routingFacade`.
   */
 class HaFeedSuite extends munit.CatsEffectSuite {
 
-  /** A `Connect` whose connection can be closed on demand, reporting how many
-    * times it has been established.
-    */
+  /** Closable on demand, counting how often it was established. */
   private def controllable(fake: FakeHomeAssistant) =
     for {
       closeRef <- Ref[IO].of(Option.empty[Deferred[IO, Unit]])
@@ -35,9 +30,8 @@ class HaFeedSuite extends munit.CatsEffectSuite {
           _ <- uses.update(_ + 1)
         } yield (fake, d.get) // awaitClosed completes cleanly when we fire `d`
       )
-      // Drop the live connection cleanly: the fake ends this generation's
-      // subscriptions (as the real transport does), and `awaitClosed` fires so
-      // the supervisor reconnects.
+      // The fake ends this generation's subscriptions, as the real transport
+      // does, and `awaitClosed` fires so the supervisor reconnects.
       drop = fake.dropConnection *> closeRef.get
         .flatMap(_.get.complete(()))
         .void
@@ -46,10 +40,8 @@ class HaFeedSuite extends munit.CatsEffectSuite {
   test(
     "a peer that accepts and closes at once cannot spin the reconnect loop"
   ) {
-    // The case that used to bypass the backoff entirely: a CLEAN close. The
-    // retry policy only ever saw raises, so an end that merely returned sent
-    // the loop straight back round with no delay — connect, auth, close,
-    // repeat, at wire speed.
+    // A clean close bypassed the backoff: the retry policy saw only raises, so
+    // the loop connected, authed and closed at wire speed.
     (for {
       fake <- FakeHomeAssistant.create(
         List(FixtureEntity("light.kitchen", "off"))
@@ -62,8 +54,8 @@ class HaFeedSuite extends munit.CatsEffectSuite {
           d <- Deferred[IO, Unit]
           _ <- closeRef.set(Some(d))
           _ <- uses.update(_ + 1)
-          // The first connection stays up (the feed's acquisition waits for its
-          // opening state); every one after it closes the moment it is up.
+          // The first connection stays up, since acquisition waits for its
+          // opening state.
           _ <- instant.get.flatMap(now => d.complete(()).whenA(now))
         } yield (fake, d.get)
       )
@@ -77,9 +69,8 @@ class HaFeedSuite extends munit.CatsEffectSuite {
           n <- uses.get
         } yield n
       }
-      // Two seconds of instant closes buys a couple of attempts at a 1s minimum
-      // backoff, doubling. Unthrottled it was thousands, so the bound is loose
-      // on purpose — it discriminates by orders of magnitude, not by timing.
+      // A few attempts at a doubling 1s backoff; unthrottled it was thousands,
+      // so the bound discriminates by orders of magnitude, not timing.
     } yield assert(attempts <= 6, clue = attempts)).timeout(30.seconds)
   }
 
@@ -93,8 +84,8 @@ class HaFeedSuite extends munit.CatsEffectSuite {
         for {
           _ <- drop
           _ <- uses.discrete.find(_ >= 2).head.compile.drain
-          // The new connection's opening full set is the catch-up, and the pump
-          // rides it: the store's reader does nothing to make that happen.
+          // The new connection's opening set is the catch-up; the store's
+          // reader does nothing to make it happen.
           _ <- feed.healthy.discrete.find(identity).head.compile.drain
           _ <- fake.emit("light.kitchen", "on")
           state <- Stream
@@ -118,8 +109,8 @@ class HaFeedSuite extends munit.CatsEffectSuite {
       (connect, uses, drop) <- controllable(fake)
       received <- Ref[IO].of(Vector.empty[Json])
       out <- HaFeed.resource(connect).use { feed =>
-        // Exactly what ServerApp.watchRegistryEvents does: one subscription per
-        // connection, restarted when the link comes back.
+        // As ServerApp.watchRegistryEvents does: one subscription per
+        // connection.
         val watch = feed.healthy.discrete
           .filter(identity)
           .switchMap(_ => Stream.resource(feed.api.rawEvents("test")).flatten)
@@ -138,18 +129,14 @@ class HaFeedSuite extends munit.CatsEffectSuite {
           for {
             _ <- fake.awaitEventSubscribes(1)
             _ <- fake.pushRawEvent("test", Json.fromString("one"))
-            // Observe delivery BEFORE dropping. Interrupting a queue-backed
-            // stream can swallow an element it has taken but not yet emitted —
-            // the same in-flight loss the real transport has at a dying
-            // connection, so the test must not depend on winning that race.
-            // In production that loss is harmless: it can only happen at a
-            // disconnect, and every reconnect re-derives (full state set /
-            // dump refresh). Here there is nothing to re-derive from, so the
-            // test observes instead.
+            // Observe delivery before dropping: interrupting a queue-backed
+            // stream can swallow an element taken but not emitted, as the real
+            // transport can at a dying connection. Harmless there, since every
+            // reconnect re-derives; here there is nothing to re-derive from.
             _ <- delivered(Json.fromString("one"))
             _ <- drop
             _ <- uses.discrete.find(_ >= 2).head.compile.drain
-            // The re-subscribe is what proves the stream ended and restarted.
+            // The re-subscribe proves the stream ended and restarted.
             _ <- fake.awaitEventSubscribes(2)
             _ <- fake.pushRawEvent("test", Json.fromString("two"))
             _ <- delivered(Json.fromString("two"))
@@ -172,15 +159,15 @@ class HaFeedSuite extends munit.CatsEffectSuite {
         )
       )
       (connect, _, _) <- controllable(fake)
-      // Boot value: nothing is built yet, so nothing knows what matters.
+      // Nothing is built yet, so nothing knows what matters.
       wanted <- SignallingRef[IO].of(Option.empty[Set[String]])
       asked <- HaFeed.resource(connect, wanted).use { feed =>
         for {
           _ <- fake.awaitEntitySubscribes(1)
           _ <- wanted.set(Some(Set("light.kitchen")))
           _ <- fake.awaitEntitySubscribes(2)
-          // The narrowed feed still fills the store — the re-subscribe's own
-          // opening frame is the catch-up, exactly as a reconnect's is.
+          // The re-subscribe's opening frame is the catch-up, as a reconnect's
+          // is.
           _ <- fake.emit("light.kitchen", "on")
           _ <- Stream
             .repeatEval(feed.store.snapshot.map(_.get("light.kitchen")))
@@ -199,9 +186,9 @@ class HaFeedSuite extends munit.CatsEffectSuite {
   }
 
   test("an empty wanted set opens no subscription at all") {
-    // The trap this exists for: HA reads an empty `entity_ids` as NO FILTER, so
-    // sending one would subscribe to the whole house at the exact moment we
-    // want none of it. Declining to subscribe is the only correct spelling.
+    // HA reads an empty `entity_ids` as no filter, so sending one would
+    // subscribe to the whole house; declining to subscribe is the only correct
+    // spelling.
     (for {
       fake <- FakeHomeAssistant.create(
         List(FixtureEntity("light.kitchen", "off"))
@@ -212,8 +199,8 @@ class HaFeedSuite extends munit.CatsEffectSuite {
         for {
           _ <- fake.awaitEntitySubscribes(1)
           _ <- wanted.set(Some(Set.empty))
-          // Nothing to await — the assertion is that nothing HAPPENS — so give
-          // a wrong implementation time to open the subscription it should not.
+          // The assertion is that nothing happens, so give a wrong
+          // implementation time to subscribe.
           _ <- IO.sleep(200.millis)
           got <- fake.entitySubscriptions
         } yield got.toList

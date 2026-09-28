@@ -15,18 +15,15 @@ import io.circe.Json
 
 import scala.concurrent.duration.*
 
-/** "Click -> HA -> back": the control->service->feed->browser loop, driven
-  * through an actual mouse click rather than a raw `POST` (the Scala functional
-  * suite's level) — proving the `data-on:click` wiring itself, not just the
-  * route it targets.
+/** "Click -> HA -> back" through a real mouse click, proving the
+  * `data-on:click` wiring and not just the route.
   */
 class ControlSmokeSuite extends SmokeSuite {
 
   private val scene = Scene.of(SmokeDashboard.dashboard)
 
-  /** The BUTTON, not the text inside it. `getByText` resolves to the element
-    * holding the text run, and the busy/error classes ride the button — so a
-    * state check aimed at the text node silently never sees them.
+  /** The button, not its text: `getByText` resolves to the text run, and the
+    * busy/error classes ride the button.
     */
   private def toggleControl(
       page: com.microsoft.playwright.Page
@@ -85,9 +82,6 @@ class ControlSmokeSuite extends SmokeSuite {
   test(
     "a guarded control shows busy while its call is in flight and ignores a second click"
   ) {
-    // The fake HOLDS the call_service response for 2s, so the fetch stays in
-    // flight long enough to click inside the guard window and read the busy
-    // state.
     withPage(scene, fakeConfig = FakeConfig(callDelay = 2.seconds)) {
       (page, ts) =>
         val toggle = page.locator(
@@ -102,10 +96,8 @@ class ControlSmokeSuite extends SmokeSuite {
               .asJsBoolean
           )
         for {
-          // Idle before anything was clicked...
           before <- busy
           _ <- IO(assert(!before))
-          // First click: the call is in flight (the response is held)...
           _ <- IO.blocking(toggle.click())
           _ <- eventually(busy)(identity)
           // ...so a second click is a no-op, not a second call.
@@ -125,7 +117,6 @@ class ControlSmokeSuite extends SmokeSuite {
               )
             )
           )
-          // The held response lands, and busy clears.
           _ <- eventually(busy)(b => !b)
           after <- ts.fake.recordedCalls
         } yield assertEquals(after.size, 1)
@@ -133,17 +124,11 @@ class ControlSmokeSuite extends SmokeSuite {
   }
 
   test("a refusal ENDS the wait, instead of burning the timeout") {
-    // What the error state buys a test, and the reason it is worth holding on
-    // the control rather than only in a toast. A test that clicks and then
-    // waits for a consequence cannot otherwise learn that the consequence is
-    // never coming — it waits out the full deadline and reports "never saw X",
-    // which is true and points nowhere near the cause.
-    //
-    // The elapsed-time assertion is the real one: without it this test passes
-    // on a helper that just waits and fails like any other, which is exactly
-    // the behaviour being replaced.
+    // Without the error state, a test waiting on a consequence that never comes
+    // waits out its deadline and reports "never saw X", pointing nowhere near
+    // the cause. The elapsed-time assertion is the real one.
     withPage(scene, fakeConfig = FakeConfig(failCalls = true)) { (page, ts) =>
-      // A consequence that CANNOT arrive, so the only way out is the refusal.
+      // Cannot arrive, so the only way out is the refusal.
       val neverHappens = eventually(IO.pure(false))(identity)
       for {
         _ <- ts.awaitLive()
@@ -155,7 +140,7 @@ class ControlSmokeSuite extends SmokeSuite {
         val why = outcome.left.map(_.getMessage).left.getOrElse("")
         assert(outcome.isLeft, "a refused action must not report success")
         assert(why.contains("REFUSED"), clue = why)
-        // …and it says what HA said, not just that something went wrong.
+        // HA's own words.
         assert(why.contains("call_service rejected by the fake"), clue = why)
         assert(
           t1 - t0 < BrowserSuite.AssertionTimeout,
@@ -166,20 +151,11 @@ class ControlSmokeSuite extends SmokeSuite {
   }
 
   test("a REFUSED call leaves the error state on the control that asked") {
-    // The gap this closes: `data-indicator` clears on either outcome, so a
-    // refused action ended looking exactly like a successful one — the dim went
-    // away and the control sat there as if nothing had been asked. The shell's
-    // toast is global and gone in 4s, so it cannot be what a later reader (or a
-    // test) asks about.
-    //
-    // It is also what makes an action's outcome a thing to WAIT on: "not busy
-    // and not error" is a state of the control that was pressed, rather than
-    // something unrelated on the page that happens to move afterwards.
-    //
-    // This exercises the SERVER's writer specifically, and cannot accidentally
-    // pass on the client's: a refused action answers 200, so Datastar dispatches
-    // no `error` event at all and `failedOn` never runs. What paints the outline
-    // is the signal patch, keyed on the node id the tap sent.
+    // `data-indicator` clears on either outcome, so a refusal looked like
+    // success, and the global toast is gone in 4s. The error state makes an
+    // outcome something to wait on. A refused action answers 200, so Datastar
+    // dispatches no `error` and `failedOn` never runs: this can only pass on
+    // the server's signal patch, keyed on the node id the tap sent.
     withPage(scene, fakeConfig = FakeConfig(failCalls = true)) { (page, ts) =>
       val toggle = page.locator(
         "button",
@@ -197,13 +173,10 @@ class ControlSmokeSuite extends SmokeSuite {
         clean <- hasClass("fh-error")
         _ <- IO(assert(!clean, "idle before anything was asked"))
         _ <- IO.blocking(toggle.click())
-        // The refusal lands ON the control…
         _ <- eventually(hasClass("fh-error"))(identity)
-        // …and it is not still claiming to be in flight: the two states are
-        // distinct, which is the whole point of holding the second one.
+        // Not still claiming to be in flight: the two states are distinct.
         _ <- eventually(hasClass("fh-disabled"))(b => !b)
-        // The global toast still fires — this is additional to it, not a
-        // replacement.
+        // In addition to the toast, not a replacement.
         _ <- IO.blocking(assertThat(page.locator(".fh-toast")).isVisible())
       } yield ()
     }
@@ -212,9 +185,8 @@ class ControlSmokeSuite extends SmokeSuite {
   test(
     "the guard look is immediate: fh-disabled and fh-loading land with the tap and clear with the response"
   ) {
-    // These two are the answer to the tap ("landed, and this is inert now"), so
-    // they are NOT gated — both bind straight to the busy signal and flip in
-    // the same Datastar frame. Only the spinner waits, on a derived signal.
+    // The answer to the tap, so not gated: both bind to the busy signal and
+    // flip in one frame. Only the spinner waits, on a derived signal.
     withPage(scene, fakeConfig = FakeConfig(callDelay = 2.seconds)) {
       (page, _) =>
         val toggle = page.locator(
@@ -236,10 +208,8 @@ class ControlSmokeSuite extends SmokeSuite {
           )
         for {
           _ <- IO.blocking(toggle.click())
-          // Both classes are there immediately (same signal).
           _ <- eventually(disabled)(identity)
           _ <- eventually(loading)(identity)
-          // The response lands (2s), busy clears, and both classes drop.
           _ <- eventually(loading)(l => !l)
           _ <- eventually(disabled)(d => !d)
         } yield ()
@@ -249,18 +219,15 @@ class ControlSmokeSuite extends SmokeSuite {
   test(
     "a slider's commit is guarded: re-releasing while the POST is in flight is a no-op"
   ) {
-    // A slider paints live on `input` but COMMITS on release (`change` → the
-    // value POST). The fake holds that POST for 2s; while it is in flight the
-    // input is disabled (`data-attr:disabled`) and a second `change` — here
-    // dispatched programmatically, because a disabled input cannot fire one
-    // natively — is swallowed by the guard, not turned into a second call.
+    // A slider commits on `change`. While the held POST is in flight the input
+    // is disabled, and a programmatic second `change` (a disabled input cannot
+    // fire one natively) is swallowed by the guard.
     withPage(scene, fakeConfig = FakeConfig(callDelay = 2.seconds)) {
       (page, ts) =>
         val slider = page.locator("input[type=range]")
         val wrapper = page.locator(".slider.max")
-        // The head badge is the slider's icon (`mdi-lightbulb`); the commit's
-        // busy pieces land BeerCSS's `.shape.loading-indicator` on it, so its
-        // glyph becomes a spinner for the whole in-flight window.
+        // The commit's busy pieces put BeerCSS's `.shape.loading-indicator` on
+        // the head badge, so its glyph spins while in flight.
         val badge = page.locator(".slider-icon")
         def busy: IO[Boolean] =
           IO.blocking(
@@ -277,16 +244,14 @@ class ControlSmokeSuite extends SmokeSuite {
           )
         for {
           _ <- IO.blocking(assert(!slider.isDisabled()))
-          // Commit once: End jumps the thumb to `max` (255) and releases.
+          // End jumps the thumb to `max` (255) and releases.
           _ <- IO.blocking(slider.focus())
           _ <- IO.blocking(slider.press("End"))
           _ <- eventually(ts.fake.recordedCalls)(_.nonEmpty)
-          // While the POST is held, the slider says busy and is frozen...
           _ <- eventually(busy)(identity)
           _ <- eventually(disabled)(identity)
-          // ...and the badge icon spins for the same window.
           _ <- eventually(badgeSpinning)(identity)
-          // ...and a second commit is a no-op, not a second call.
+          // ...and a second commit is a no-op.
           _ <- IO.blocking(
             slider.evaluate(
               "el => el.dispatchEvent(new Event('change', {bubbles: true}))"
@@ -295,7 +260,6 @@ class ControlSmokeSuite extends SmokeSuite {
           _ <- IO.sleep(300.millis)
           during <- ts.fake.recordedCalls
           _ <- IO(assertEquals(during.size, 1))
-          // The held response lands, and the slider wakes back up.
           _ <- eventually(busy)(b => !b)
           _ <- eventually(disabled)(d => !d)
           _ <- eventually(badgeSpinning)(s => !s)
@@ -306,12 +270,10 @@ class ControlSmokeSuite extends SmokeSuite {
   test(
     "a busy-guarded element's icon becomes a spinner while its call is in flight"
   ) {
-    // The slider's power button is `c.iconButton` — an `i.mdi` glyph AND the
-    // busy pieces — so while its POST is held it takes BeerCSS's
-    // `.shape.loading-indicator` and paints a morphing shape around the glyph.
-    // The GLYPH is what earns the shape: a labelled button dims instead. The class IS the assertion
-    // now: it is bound to the delayed signal `tap.pkl` derives, so its presence
-    // already means "we decided to show this".
+    // `c.iconButton` is an `i.mdi` glyph plus the busy pieces, so while held it
+    // takes `.shape.loading-indicator`; a labelled button dims instead. The
+    // class is bound to `tap.pkl`'s delayed signal, so its presence is the
+    // decision.
     withPage(
       Scene.of(SmokeDashboard.busyIcon),
       fakeConfig = FakeConfig(callDelay = 2.seconds)
@@ -326,32 +288,19 @@ class ControlSmokeSuite extends SmokeSuite {
       for {
         idle <- spinning
         _ <- IO(assert(!idle))
-        // Click the power button: the toggle POST is held, so the button
-        // shows busy — and the icon should be a spinner for the whole window.
         _ <- IO.blocking(icon.click())
         _ <- eventually(spinning)(identity)
-        // The held response lands and the glyph comes back.
         _ <- eventually(spinning)(s => !s)
       } yield ()
     }
   }
 
   test("an icon-only button is ROUND, not stretched to its cell") {
-    // The bug this exists for shipped: `.fh-cell>:is(.button,button)` sets
-    // `inline-size:100%` so a labelled button fills its cell, and at
-    // specificity (0,2,0) it beat BeerCSS's own `.circle` (0,1,0) — so the
-    // round button stretched to the cell's width and kept its content height.
-    // A wide, short pill where a circle belongs.
-    //
-    // GEOMETRY, not a screenshot. The defect is a computed size, so it is
-    // assertable directly — no PNG baseline, nothing that varies with this
-    // machine's font rasterization, and a failure names the number. The
-    // visual suite could not have caught it anyway: no baseline contains a
-    // round button (`SmokeDashboard.dashboard`'s slider has no actions).
-    //
-    // Same shape as "pressable anywhere on its row" below: our layout rule and
-    // a BeerCSS rule fighting over one element, decided by specificity, silent
-    // when it goes the wrong way.
+    // `.fh-cell>:is(.button,button)` sets `inline-size:100%` at (0,2,0), which
+    // beat BeerCSS's `.circle` (0,1,0) and stretched the round button into a
+    // wide, short pill. Geometry rather than a screenshot: a computed size is
+    // assertable directly, with no font-dependent baseline, and no visual
+    // baseline has a round button anyway.
     withPage(Scene.of(SmokeDashboard.busyIcon)) { (page, _) =>
       for {
         box <- IO.blocking(page.locator(".slider-actions button").boundingBox())
@@ -361,9 +310,8 @@ class ControlSmokeSuite extends SmokeSuite {
             s"the button did not render: ${box.width}x${box.height}"
           )
         )
-        // A circle, within sub-pixel rounding. `2` rather than `0` because a
-        // fractional layout size can round differently on each axis; an OVAL
-        // is off by tens of pixels, so this cannot pass through it.
+        // `2`, not `0`: a fractional size rounds per axis. An oval is off by
+        // tens of pixels.
         _ <- IO(
           assert(
             math.abs(box.width - box.height) <= 2,
@@ -377,12 +325,9 @@ class ControlSmokeSuite extends SmokeSuite {
   }
 
   test("a LABELLED button still fills its cell") {
-    // The other half of the rule above, and it is not decoration: `:not(.circle)`
-    // narrows an `inline-size:100%` that a labelled button depends on, so a
-    // future "fix" for an oval that simply deleted the rule would pass the
-    // roundness test and silently shrink every button on every dashboard to its
-    // text. Asserted as the RELATION to its cell rather than as a number, since
-    // the cell's width is the dashboard's business.
+    // `:not(.circle)` narrows a rule labelled buttons depend on, so a "fix"
+    // that deleted it would pass the roundness test and shrink every button to
+    // its text. Asserted relative to the cell, whose width is the dashboard's.
     withPage(scene) { (page, _) =>
       for {
         button <- IO.blocking(
@@ -409,13 +354,8 @@ class ControlSmokeSuite extends SmokeSuite {
   }
 
   test("a rejected action toasts WHAT went wrong, and clears busy") {
-    // The fake's call_service RAISES; the server answers 200 patching `_toast`
-    // with the message it got, and the shell's signal-patch handler shows it.
-    //
-    // The assertion is on HA's own words rather than "Command failed (400)",
-    // and that is the point of the shape: the bundle parses a response body
-    // only on 200, so a 4xx could never have carried this text — the old toast
-    // could only ever repeat a status code back at the user.
+    // The server answers 200 patching `_toast` with HA's message. The bundle
+    // parses a body only on 200, so a 4xx could only ever show a status code.
     withPage(scene, fakeConfig = FakeConfig(failCalls = true)) { (page, _) =>
       val toggle = page.locator(
         "button",
@@ -434,21 +374,18 @@ class ControlSmokeSuite extends SmokeSuite {
           assertThat(page.locator(".fh-toast"))
             .hasText("call_service rejected by the fake")
         )
-        // `finished` fires even on a rejected fetch, so busy clears here too —
-        // an error must not leave the button stuck in the guarded state.
+        // `finished` fires on a rejected fetch too, so an error cannot leave
+        // the button guarded.
         _ <- eventually(busy)(b => !b)
       } yield ()
     }
   }
 
   test("a light that only switches is pressable anywhere on its row") {
-    // The property is REACH: that card has nothing to drag, so the whole row IS
-    // the button and a press near its bottom edge must be a press. The click is
-    // aimed by PAGE coordinates rather than at the locator, whose own click
-    // aims at the centre — the centre stayed live throughout the bug this
-    // covers (BeerCSS gives every `button` a fixed height, which
-    // over-constrained the overlay's `inset:0` and left the target a strip
-    // across the top of a taller card), so a centre click proves nothing.
+    // The whole row is the button, so a press near its bottom edge must count.
+    // Aimed by page coordinates: BeerCSS's fixed `button` height left the
+    // overlay a strip across the top while the centre stayed live, so a centre
+    // click proves nothing.
     val switchScene =
       Scene.of(SmokeDashboard.switchSlider).entity(SmokeDashboard.switchLight)
     withPage(switchScene) { (page, ts) =>
@@ -475,14 +412,12 @@ class ControlSmokeSuite extends SmokeSuite {
   }
 
   test("touch: a tap on a slider sets the value where the finger landed") {
-    // A phone has no click to fall back on: the range input is
-    // `pointer-events:none` on a coarse pointer (the CSS half of the
-    // axis-intent gate), so the tap is the script's to interpret or nobody's.
+    // On a coarse pointer the range input is `pointer-events:none`, so the tap
+    // is the script's to interpret or nobody's.
     withPage(scene, touch = true) { (page, ts) =>
       for {
-        // Both halves or neither — the CSS half is behind `(pointer:coarse)`,
-        // and a touch event on a page still styled for a mouse would exercise a
-        // combination no device has.
+        // The CSS half is behind `(pointer:coarse)`; a touch on a page styled
+        // for a mouse is a combination no device has.
         coarse <- IO.blocking(
           page.evaluate("matchMedia('(pointer:coarse)').matches")
         )
@@ -500,9 +435,8 @@ class ControlSmokeSuite extends SmokeSuite {
         assertEquals(calls.head.service, "turn_on")
         val brightness =
           calls.head.serviceData.hcursor.get[Int]("brightness").toOption
-        // A quarter across a 1..255 axis is ~64. A WINDOW, not a number: the
-        // value is a function of real pixels, so pinning it would fail on a
-        // viewport change that broke nothing.
+        // A quarter across 1..255 is ~64. A window, since the value depends on
+        // real pixels.
         assert(brightness.exists(b => b > 50 && b < 80), clue = calls)
       }
     }

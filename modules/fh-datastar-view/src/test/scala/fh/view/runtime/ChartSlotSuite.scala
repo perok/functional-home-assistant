@@ -67,10 +67,9 @@ class ChartSlotSuite extends munit.FunSuite {
   }
 
   test("the chart hole must be the RAW one, and the escaped one shows it") {
-    // Not a style preference: `{{chart}}` escapes the markup, so the page
-    // shows the SVG source as text. The failure is visible rather than silent,
-    // which is the only reason this is a card-author rule and not a validate
-    // rule — but it is the first thing anyone writing a chart card gets wrong.
+    // `{{chart}}` escapes the markup, so the page shows SVG source as text:
+    // visible, hence a card-author rule, but the first thing a chart card gets
+    // wrong.
     val escaped =
       Renderer
         .create(dashboardWith("{{chart}}"))
@@ -110,11 +109,8 @@ class ChartSlotSuite extends munit.FunSuite {
   }
 
   test("the byte-slot pre-check sees the chart, so new bytes are not held") {
-    // The pre-check answers "equal values, equal bytes, so the cached entry
-    // stands". Resolving a series slot without its charts would make every
-    // chart compare equal to every other — the key would move, the pre-check
-    // would say nothing changed, and the first chart drawn would be served for
-    // the life of the dashboard.
+    // Without its charts every series slot would compare equal, so the
+    // pre-check would serve the first chart drawn for the dashboard's life.
     val d = dashboardWith("{{{chart}}}")
     val r = Renderer.create(d)
     val id = rootId(d)

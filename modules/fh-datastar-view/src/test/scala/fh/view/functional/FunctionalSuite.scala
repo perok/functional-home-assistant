@@ -7,29 +7,15 @@ import fh.view.testkit.Scene
 
 import scala.concurrent.duration.*
 
-/** Shared base for the end-to-end functional suites (ADR 0009): the whole loop
-  * — seed snapshot -> `StateStore` -> `Server` -> HTTP/SSE, and control ->
-  * `callService` — against a stubbed Home Assistant with a scripted timeline.
-  *
-  * [[withServer]] takes a [[Scene]] — the builder that assembles the dashboard
-  * under test and derives the entities the
-  * [[fh.view.testkit.FakeHomeAssistant]] is seeded from — so a test declares
-  * only the world it exercises: it adds the cards it asserts on (whose entities
-  * auto-seed) and any extra entities it drives directly, and the two can't fall
-  * out of sync by hand.
+/** Base for the end-to-end functional suites (ADR 0009) against a stubbed HA. A
+  * test declares only its world through a [[Scene]], which derives the seeded
+  * entities from the dashboard.
   */
 abstract class FunctionalSuite extends munit.CatsEffectSuite {
 
-  /** A fresh empty [[Scene]] — sugar so tests read `withServer(scene.card(..))`
-    * rather than naming the companion.
-    */
   protected def scene: Scene = Scene.empty
 
-  /** Run `f` against a freshly-wired [[TestServer]] for `scene`'s dashboard,
-    * seeded with `scene`'s entities, with a global timeout so a missed SSE
-    * fragment fails fast rather than hanging. Returns the `IO` for munit to run
-    * (via [[munit.CatsEffectSuite]]) — no `unsafeRunSync`.
-    */
+  /** The timeout makes a missed SSE fragment fail fast rather than hang. */
   def withServer[A](
       scene: Scene,
       access: Access = Access.default
@@ -38,4 +24,8 @@ abstract class FunctionalSuite extends munit.CatsEffectSuite {
       .resource(scene.dashboard, scene.entities, access = access)
       .use(f)
       .timeout(45.seconds)
+
+  /** For [[TestServer.sentAfter]]'s result. */
+  def carries(marker: String)(sent: String): Unit =
+    assert(sent.contains(marker), clue = sent)
 }

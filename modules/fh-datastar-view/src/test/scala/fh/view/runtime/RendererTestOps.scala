@@ -2,20 +2,10 @@ package fh.view.runtime
 
 import fh.view.query.QuerySnapshot
 
-/** The convenience forms of the render entry points, for tests that want the
-  * bytes back as a `String`.
-  *
-  * They live OUTSIDE [[Renderer]] because no production caller reaches them —
-  * the server streams the document through [[Renderer.renderPageInto]] and
-  * patches through [[Renderer.renderBodyTraced]] — and a method on the renderer
-  * would read as part of the shipped path.
-  *
-  * They wrap the production methods rather than re-implementing them, so a test
-  * written against one is still exercising the walk the server runs. What it is
-  * NOT exercising is the server's SINK: these buffer, and a page open streams
-  * ([[Sink.Streaming]] differs from [[Sink.Buffer]] at `digesting`).
-  * `SinkStreamingSuite` is what pins the two to the same bytes and the same
-  * trace, so a test written here is not silently asserting about one of them.
+/** The render entry points returning a `String`, outside [[Renderer]] since no
+  * production caller uses them. They wrap the production walk but buffer where
+  * a page open streams; `SinkStreamingSuite` pins the two sinks to the same
+  * bytes and trace.
   */
 private[runtime] object RendererTestOps {
 

@@ -6,13 +6,9 @@ import io.circe.Json
 
 import scala.concurrent.duration.*
 
-/** Covers the state-store dedup that backs reconnect recovery ([[HaFeed]]):
-  * when the supervisor re-seeds the store after a dropped connection, unchanged
-  * entities must NOT re-publish (no churn on every browser), while entities
-  * that changed or appeared during the outage MUST publish so connected clients
-  * catch up over their live SSE stream. Re-seeding is `snapshot |> update` per
-  * entity, so exercising [[StateStore.update]] directly validates that contract
-  * without standing up a fake REST endpoint.
+/** The dedup behind reconnect recovery ([[HaFeed]]): a re-seed is `snapshot |>
+  * update` per entity, so unchanged entities must not re-publish and changed or
+  * new ones must.
   */
 class StateStoreSuite extends munit.FunSuite {
 
@@ -27,14 +23,12 @@ class StateStoreSuite extends munit.FunSuite {
       store <- StateStore.inMemory(Map("a" -> st("a", "1")))
       collected <- store.changes.take(1).compile.toList.start
       _ <- store.changeSubscribers.filter(_ >= 1).head.compile.drain
-      // A re-seed that observed no change for `a`, plus a genuinely new entity
-      // `b` so the collector has exactly one real change to terminate on.
+      // `b` gives the collector exactly one real change to terminate on.
       _ <- store.update(st("a", "1"))
       _ <- store.update(st("b", "on"))
       out <- collected.joinWithNever
     } yield out.flatten).timeout(10.seconds).unsafeRunSync()
 
-    // Only `b` (new) came through; the identical re-apply of `a` was dropped.
     assertEquals(changes.map(_.entityId), List("b"))
     assertEquals(changes.head.previous, None)
   }
@@ -46,10 +40,8 @@ class StateStoreSuite extends munit.FunSuite {
       store <- StateStore.inMemory(
         Map("a" -> st("a", "1"), "b" -> attrs("b", "on", "brightness", "10"))
       )
-      // Expect two deltas: b's value change and the newly-seen c.
       collected <- store.changes.take(2).compile.toList.start
       _ <- store.changeSubscribers.filter(_ >= 1).head.compile.drain
-      // Simulate the post-reconnect snapshot fold:
       _ <- store.update(st("a", "1")) // unchanged -> deduped
       _ <- store.update(attrs("b", "off", "brightness", "0")) // changed
       _ <- store.update(st("c", "42")) // appeared during the outage
@@ -57,16 +49,14 @@ class StateStoreSuite extends munit.FunSuite {
     } yield out.flatten).timeout(10.seconds).unsafeRunSync()
 
     assertEquals(changes.map(_.entityId), List("b", "c"))
-    // The change carries the pre-outage value, so a candidate set can tell it
-    // crossed a boundary.
+    // The pre-outage value, so a candidate set can tell it crossed a boundary.
     assertEquals(changes.head.previous.map(_.state), Some("on"))
     assertEquals(changes.head.current.state, "off")
     assertEquals(changes(1).previous, None) // c was newly seen
   }
 
-  // `version` stamps rendered fragments (docs/adr/0011-the-live-connection.md), so what it
-  // must guarantee is: it moves iff something a client could see moved, and it
-  // moves ONCE per batch.
+  // `version` stamps rendered fragments (ADR 0011): it moves iff something a
+  // client could see moved, once per batch.
 
   test("an idle re-seed does not move the version") {
     val version = (for {
@@ -75,8 +65,8 @@ class StateStoreSuite extends munit.FunSuite {
       v <- s.version
     } yield v).timeout(10.seconds).unsafeRunSync()
 
-    // A reconnect's full set is all dedup, so every fragment stamped before it
-    // is still current and no client is told to catch up on nothing.
+    // A reconnect's full set is all dedup, so no client is told to catch up on
+    // nothing.
     assertEquals(version, 0L)
   }
 
@@ -89,8 +79,8 @@ class StateStoreSuite extends munit.FunSuite {
       v <- s.version
     } yield v).timeout(10.seconds).unsafeRunSync()
 
-    // One coalesced frame -> one version, so fragments rendered from the same
-    // HA tick share a stamp.
+    // One coalesced frame, one version, so one HA tick's fragments share a
+    // stamp.
     assertEquals(version, 1L)
   }
 
@@ -101,8 +91,8 @@ class StateStoreSuite extends munit.FunSuite {
       v <- s.version
     } yield v).timeout(10.seconds).unsafeRunSync()
 
-    // An `r` frame does not always have a registry event behind it, so the
-    // clock must record it even though no node is re-rendered for it.
+    // An `r` frame may have no registry event behind it, so the clock records
+    // it though nothing is re-rendered.
     assertEquals(version, 1L)
   }
 
@@ -115,8 +105,7 @@ class StateStoreSuite extends munit.FunSuite {
       snap <- s.snapshot
     } yield (snap("a"), snap("b"))).timeout(10.seconds).unsafeRunSync()
 
-    // `a` takes the batch's version; `b` was deduped and keeps its old stamp,
-    // which is the whole point — a render keyed on `b` must still hit.
+    // `b` keeps its old stamp, so a render keyed on it still hits.
     assertEquals(a.contentVersion, 1L)
     assertEquals(b.contentVersion, 0L)
   }
@@ -132,8 +121,8 @@ class StateStoreSuite extends munit.FunSuite {
       snap <- s.snapshot
     } yield snap("a").contentVersion).timeout(10.seconds).unsafeRunSync()
 
-    // The stored value advances (recency), the stamp does not: nothing a
-    // template could print has changed, so a cached render is still valid.
+    // The stored value advances (recency), the stamp does not, so a cached
+    // render stays valid.
     assertEquals(stamp, 7L)
   }
 
@@ -144,17 +133,14 @@ class StateStoreSuite extends munit.FunSuite {
     )
     val (before, after) = (for {
       s <- StateStore.inMemory(Map("a" -> held))
-      // Byte for byte what a reconnect's full set hands back on a steady HA:
-      // same content, same instant, and no stamp of its own yet.
+      // What a reconnect's full set hands back on a steady HA.
       _ <- s.update(held.copy(contentVersion = 0L))
       snap <- s.snapshot
     } yield (held, snap("a"))).timeout(10.seconds).unsafeRunSync()
 
-    // Identity, not equality: `stale` treats an equal instant as not newer, so
-    // the Replace is dropped a level ABOVE the dedup and the stored value is
-    // untouched. An equal copy would pass `==` while still having cost a map
-    // node, an EntityState and its recomputed attribute caches — which is what
-    // this asserts is not happening on the reconnect path.
+    // Identity, not equality: `stale` drops the equal-instant Replace above the
+    // dedup. An equal copy would still have cost a map node, an EntityState and
+    // its attribute caches.
     assert(before eq after)
   }
 
@@ -167,17 +153,14 @@ class StateStoreSuite extends munit.FunSuite {
       s <- StateStore.inMemory(
         Map("a" -> st("a", "1").copy(lastUpdated = Some(t10)))
       )
-      // Same content, later instant: publishes nothing, but the stored value
-      // MUST advance to t15 anyway.
+      // Publishes nothing, but the stored value must advance to t15.
       _ <- s.update(st("a", "1").copy(lastUpdated = Some(t15)))
-      // A reconnect's full set, from before t15 and disagreeing about content.
       _ <- s.update(st("a", "2").copy(lastUpdated = Some(t12)))
       snap <- s.snapshot
     } yield snap("a").state).timeout(10.seconds).unsafeRunSync()
 
-    // Had the bump been skipped as a no-op, `a` would still read t10, `stale`
-    // would wave t12 through, and the store would end up holding "2" — content
-    // HA superseded three seconds before that frame was sent.
+    // Had the bump been skipped, `stale` would wave t12 through, storing
+    // content HA superseded three seconds earlier.
     assertEquals(state, "1")
   }
 
@@ -193,8 +176,8 @@ class StateStoreSuite extends munit.FunSuite {
       .timeout(10.seconds)
       .unsafeRunSync()
 
-    // A StateChange whose `current` disagreed with the snapshot would key a
-    // render to a version that never existed in the store.
+    // A mismatched `current` would key a render to a version the store never
+    // had.
     assertEquals(published, stored)
     assertEquals(published, 1L)
   }

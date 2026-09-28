@@ -1,11 +1,9 @@
 package fh.view.runtime
 
-import api.homeassistant.HomeAssistantApi
 import cats.effect.{Deferred, IO}
 import cats.effect.kernel.Ref as CeRef
 import cats.syntax.all.*
-import api.homeassistant.ws.domain.{HistoryPoint, StatisticsPeriod}
-import fh.view.history.{History, SeriesSource}
+import api.homeassistant.ws.domain.HistoryPoint
 import fh.view.model.{
   CardDef,
   Dashboard,
@@ -17,36 +15,25 @@ import fh.view.model.{
   SlotSource,
   Transform
 }
-import fh.view.query.QueryResolver
-import fh.view.testkit.{FakeHomeAssistant, TestAuth}
+import fh.view.testkit.{FakeConfig, FixtureEntity}
 import fh.view.testkit.TestIds.given
-import fs2.concurrent.SignallingRef
 import org.http4s.*
-import org.http4s.implicits.*
 
 import java.time.Instant
 import scala.concurrent.duration.*
 
-/** WRITING a node variable (issue #209): the tap that moves a chart's window,
-  * and what happens to a value the chart could not draw.
-  *
-  * The vertical slice this feature exists for. Everything below it — the
-  * declaration, the scope chain, the ask/read split — is only worth having if
-  * this works, so this is the suite that says whether it does.
+/** Writing a node variable (issue #209): the tap that moves a chart's window,
+  * and what happens to a value the chart could not draw. The slice the feature
+  * exists for.
   */
 class VarTapSuite extends ServerHarness {
 
-  // Opens a DOCUMENT, whose body streams through a blocking pipe simulated
-  // time cannot host.
+  // Opens a document; see [[ServerHarness.simulateTime]].
   override protected def simulateTime: Boolean = false
 
-  /** A passthrough chart, so the test can read the WINDOW back out of the
-    * rendered value: the fake provider puts the window's span in the one point
-    * it answers with, and passthrough puts that JSON in the hole.
-    *
-    * A drawn chart could not do this — the chart stage is handed a `Series` and
-    * a style, never the window — which is itself the split working: the drawing
-    * does not know what was asked.
+  /** Passthrough, so the window can be read back out: the fake recorder puts
+    * its span in the one point it answers with. A drawn chart is handed a
+    * `Series`, never the window, which is the split working.
     */
   private val chartCard = CardDef(
     """<span>{{chart}}</span>""",
@@ -87,8 +74,8 @@ class VarTapSuite extends ServerHarness {
     )
   )
 
-  /** A chart whose ENTITY is the variable, beside a card naming `sensor.b` —
-    * the dashboard ADR 0023's bound is drawn around.
+  /** The chart's entity is the variable, beside a card naming `sensor.b`: the
+    * dashboard ADR 0023's bound is drawn around.
     */
   private val entityDash = Dashboard(
     cards = Map("chart" -> chartCard, "panel" -> panelCard),
@@ -122,334 +109,211 @@ class VarTapSuite extends ServerHarness {
     )
   )
 
-  /** The span of whatever window was asked for, as the series' one point — so
-    * `[[3600000,...]]` is an hour and `[[604800000,...]]` is a week.
-    */
-  private def resolver: IO[QueryResolver] =
-    for {
-      history <- History.create(new SeriesSource {
-        def raw(start: Instant, end: Instant, entityId: String) =
-          IO.pure(
-            List(
-              HistoryPoint(
-                "1.0",
-                Instant.ofEpochMilli(end.toEpochMilli - start.toEpochMilli)
-              )
-            )
-          )
-        def statistics(
-            start: Instant,
-            end: Instant,
-            entityId: String,
-            period: StatisticsPeriod
-        ) = IO.pure(Nil)
-      })
-      r <- QueryResolver.create(history, IO.pure((_, _) => IO.pure("<svg/>")))
-    } yield r
+  private type Recorder = (Instant, Instant, String) => IO[List[HistoryPoint]]
+
+  /** `[[3600000,...]]` is an hour, `[[604800000,...]]` a week. */
+  private val span: Recorder = (start, end, _) =>
+    IO.pure(
+      List(
+        HistoryPoint(
+          "1.0",
+          Instant.ofEpochMilli(end.toEpochMilli - start.toEpochMilli)
+        )
+      )
+    )
 
   private def served[A](
-      f: (HttpApp[IO], Sessions) => IO[A],
-      queries: IO[QueryResolver] = resolver,
+      f: TestServer => IO[A],
+      recorder: Recorder = span,
       dashboard: Dashboard = dash
   ): IO[A] =
-    (for {
-      store <- StateStore.inMemory(
-        Map(
-          "sensor.a" -> es("sensor.a", "1"),
-          "sensor.b" -> es("sensor.b", "2")
-        )
+    TestServer
+      .resource(
+        dashboard,
+        List(FixtureEntity("sensor.a", "1"), FixtureEntity("sensor.b", "2")),
+        config = FakeConfig(recorder = Some(recorder))
       )
-      ref <- SignallingRef[IO].of(
-        Server.RendererState.Ready(
-          Renderer.fromValidated(
-            dashboard
-              .validated()
-              .fold(e => sys.error(e.mkString("; ")), identity)
-          )
-        )
-      )
-      sessions <- Sessions.create
-      fake <- FakeHomeAssistant.create(Nil)
-      qr <- queries
-      out <- Server
-        .withSite(
-          ServiceCalls.asInstance(HomeAssistantApi.fromWs(fake)),
-          store,
-          Server.LiveSite
-            .of(Map("dashboard" -> ref), Map.empty, "dashboard")
-            .unsafeRunSync(),
-          sessions,
-          TestAuth.openGate,
-          AssetCache.empty,
-          fs2.concurrent.Signal.constant(true),
-          fh.view.build.SystemPkl.empty,
-          None,
-          adoptionWindow = 5.seconds,
-          queries = Some(qr)
-        )
-        .use(server => f(server.routes.orNotFound, sessions))
-    } yield out).timeout(30.seconds)
+      .use(f)
+      .timeout(30.seconds)
 
-  /** Open the page and pull the `conn` its `data-init` carries. */
-  private def connect(routes: HttpApp[IO]): IO[String] =
-    routes
-      .run(Request[IO](Method.GET, uri"/d/dashboard"))
-      .flatMap(_.bodyText.compile.string)
-      .map(page =>
-        Uri
-          .unsafeFromString(
-            "/" + page
-              .split("""data-init="@get\('""")(1)
-              .split("'")(0)
-              .replace("&amp;", "&")
-          )
-          .query
-          .params(Server.ConnSignal)
-      )
+  private def post(ts: TestServer, conn: String, path: String) =
+    ts.postResult(path, body = s"""{"${Server.ConnSignal}":"$conn"}""")
 
-  private def post(routes: HttpApp[IO], conn: String, path: String) =
-    routes.run(
-      Request[IO](Method.POST, Uri.unsafeFromString(path))
-        .withEntity(s"""{"${Server.ConnSignal}":"$conn"}""")
-    )
+  private def varPath(ts: TestServer, rest: String) =
+    s"sse/var/${ts.slug}/panel/$rest"
 
   private val Day = 24.hours.toMillis.toString
   private val Week = 7.days.toMillis.toString
 
-  /** Everything the write offered this client, in order. Drained rather than
-    * taken one at a time because the COUNT is half of what these assert: ADR
-    * 0025 says a refused write offers nothing and an accepted one always
-    * commits, so "and nothing else" is the claim.
+  /** Drained, since the count is half the claim: a refused write offers nothing
+    * and an accepted one always commits (ADR 0025).
     */
   private def drain(session: Option[Session]): IO[List[SseFrame]] =
     session.fold(IO.pure(List.empty[SseFrame]))(s => s.control.tryTakeN(None))
 
-  /** The committed frame ADR 0025 ends the ask with — what the control's
-    * highlight falls back to once its pending value clears.
+  /** What the control's highlight falls back to once its pending value clears
+    * (ADR 0025).
     */
   private def committed(value: String): String =
     s"""signals {"_var_panel__window":"$value"}"""
 
   test("a chart whose recorder fails costs that chart, not the page") {
-    val down = for {
-      history <- History.create(new SeriesSource {
-        def raw(start: Instant, end: Instant, entityId: String) =
-          IO.raiseError(RuntimeException("recorder is down"))
-        def statistics(
-            start: Instant,
-            end: Instant,
-            entityId: String,
-            period: StatisticsPeriod
-        ) = IO.pure(Nil)
-      })
-      r <- QueryResolver.create(history, IO.pure((_, _) => IO.pure("<svg/>")))
-    } yield r
     served(
-      (routes, _) =>
-        routes
-          .run(Request[IO](Method.GET, uri"/d/dashboard"))
-          .flatMap(r => r.bodyText.compile.string.map(r.status -> _))
-          .map { case (status, page) =>
-            assertEquals(status, Status.Ok)
-            assert(page.contains("<span></span>"), clue = page)
-          },
-      down
+      _.pageResponse()
+        .flatMap(r => r.bodyText.compile.string.map(r.status -> _))
+        .map { (status, page) =>
+          assertEquals(status, Status.Ok)
+          assert(page.contains("<span></span>"), clue = page)
+        },
+      recorder =
+        (_, _, _) => IO.raiseError(RuntimeException("recorder is down"))
     )
   }
 
   test("the head is sent before a slow chart is answered") {
-    // The head reads no query, so a cold fetch overlaps the browser fetching
-    // stylesheets rather than holding up the first byte.
+    // The head reads no query, so a cold fetch overlaps the stylesheet fetches
+    // rather than holding up the first byte.
     (Deferred[IO, Unit], CeRef[IO].of(false), CeRef[IO].of(false)).tupled
-      .flatMap { case (gate, fetched, headFirst) =>
-        val slow = for {
-          history <- History.create(new SeriesSource {
-            def raw(start: Instant, end: Instant, entityId: String) =
-              gate.get *> fetched.set(true).as(List(HistoryPoint("1.0", end)))
-            def statistics(
-                start: Instant,
-                end: Instant,
-                entityId: String,
-                period: StatisticsPeriod
-            ) = IO.pure(Nil)
-          })
-          r <- QueryResolver.create(
-            history,
-            IO.pure((_, _) => IO.pure("<svg/>"))
-          )
-        } yield r
+      .flatMap { (gate, fetched, headFirst) =>
         served(
-          (routes, _) =>
-            routes
-              .run(Request[IO](Method.GET, uri"/d/dashboard"))
-              .flatMap(
-                _.bodyText
-                  .evalScan("") { (acc, chunk) =>
-                    val page = acc + chunk
-                    IO.whenA(page.contains("</head>"))(
-                      fetched.get.flatMap(f => headFirst.set(!f).whenA(!f)) *>
-                        gate.complete(()).void
-                    ).as(page)
-                  }
-                  .compile
-                  .lastOrError
-              )
-              .flatMap(page =>
-                headFirst.get.map { first =>
-                  assert(first, clue = "the head waited for the fetch")
-                  assert(page.contains("</html>"), clue = page)
+          _.pageResponse()
+            .flatMap(
+              _.bodyText
+                .evalScan("") { (acc, chunk) =>
+                  val page = acc + chunk
+                  IO.whenA(page.contains("</head>"))(
+                    fetched.get.flatMap(f => headFirst.set(!f).whenA(!f)) *>
+                      gate.complete(()).void
+                  ).as(page)
                 }
-              ),
-          slow
+                .compile
+                .lastOrError
+            )
+            .flatMap(page =>
+              headFirst.get.map { first =>
+                assert(first, clue = "the head waited for the fetch")
+                assert(page.contains("</html>"), clue = page)
+              }
+            ),
+          recorder = (_, end, _) =>
+            gate.get *> fetched.set(true).as(List(HistoryPoint("1.0", end)))
         )
       }
   }
 
   test("writing the variable re-renders the chart at the new window") {
-    served { (routes, sessions) =>
+    served { ts =>
       for {
-        conn <- connect(routes)
-        // The page was rendered at the DECLARED window, which is what a viewer
-        // who has chosen nothing gets.
-        session <- sessions.get(conn)
-        status <- post(routes, conn, "/sse/var/dashboard/panel/window/7d")
-          .map(_.status)
+        conn <- ts.load().map(_.conn)
+        // A viewer who has chosen nothing gets the declared window.
+        session <- ts.sessions.get(conn)
+        result <- post(ts, conn, varPath(ts, "window/7d"))
         chose <- session.traverse(_.vars.get)
         queued <- drain(session)
       } yield {
-        assertEquals(status, Status.NoContent)
+        assertEquals(result._1, Status.NoContent)
         assertEquals(
           chose,
           Some(Map(("panel": fh.view.model.NodeId, "window") -> "7d"))
         )
-        // The patch carries the WEEK's series, which is the whole claim: the
-        // write moved the query, not just a signal.
+        // The week's series: the write moved the query, not just a signal.
         val painted = queued.flatMap(_.data).mkString
         assert(painted.contains(Week), clue = painted)
         assert(!painted.contains(Day), clue = painted)
-        // And the commit rides LAST, after the bytes it describes — so the
-        // highlight stops being a guess only once the chart beneath it agrees.
+        // The commit rides last, so the highlight stops being a guess only once
+        // the chart agrees.
         assertEquals(queued.lastOption.flatMap(_.data), Some(committed("7d")))
       }
     }
   }
 
   test("a value no reader can parse is refused, and nothing moves") {
-    // The narrowing, and the reason a declaration needs no list of allowed
-    // values: `HistoryQuery.parse` is the authority on what a window may be,
-    // and a list beside the declaration could only copy it.
-    served { (routes, sessions) =>
+    // `HistoryQuery.parse` is the authority on what a window may be, so a list
+    // beside the declaration could only copy it.
+    served { ts =>
       for {
-        conn <- connect(routes)
-        session <- sessions.get(conn)
-        res <- post(routes, conn, "/sse/var/dashboard/panel/window/4h")
-        body <- res.bodyText.compile.string
+        conn <- ts.load().map(_.conn)
+        session <- ts.sessions.get(conn)
+        result <- post(ts, conn, varPath(ts, "window/4h"))
         chose <- session.traverse(_.vars.get)
         queued <- drain(session)
       } yield {
+        val (status, body) = result
         // ADR 0024: refused is a 200 of signals, not a 4xx.
-        assertEquals(res.status, Status.Ok)
+        assertEquals(status, Status.Ok)
         assert(body.contains("4h"), clue = body)
-        // The session keeps what it had — a refused write is not a half-write.
+        // A refused write is not a half-write.
         assertEquals(chose, Some(Map.empty))
-        // Nothing committed either, which is what lets the control show the
-        // press optimistically: the pending value is ended by the REFUSAL's own
-        // signal frame (`Server.actionSignals`, the `group` query param), so it
-        // falls back to a committed value that never moved.
+        // Nothing committed: the refusal's own signal frame
+        // (`Server.actionSignals`, the `group` param) ends the pending value,
+        // which falls back to a committed value that never moved.
         assertEquals(queued, Nil)
       }
     }
   }
 
-  test("a variable nothing declares is a 404, not a silent no-op") {
-    served { (routes, sessions) =>
+  test("a variable nothing declares is refused, not a silent no-op") {
+    served { ts =>
       for {
-        conn <- connect(routes)
-        res <- post(routes, conn, "/sse/var/dashboard/panel/nosuch/7d")
-        chose <- sessions.get(conn).flatMap(_.traverse(_.vars.get))
+        conn <- ts.load().map(_.conn)
+        result <- post(ts, conn, varPath(ts, "nosuch/7d"))
+        chose <- ts.sessions.get(conn).flatMap(_.traverse(_.vars.get))
       } yield {
-        // ADR 0024: a refused ACTION is a 200 carrying signals, never a 4xx —
-        // the request was served and the operation failed, which is page state.
-        assertEquals(res.status, Status.Ok)
+        // ADR 0024: a refused action is a 200 carrying signals.
+        assertEquals(result._1, Status.Ok)
         assertEquals(chose, Some(Map.empty))
       }
     }
   }
 
   test("choosing the window already showing costs no element patch") {
-    // The suppression `Patches.resume` does per node, asked of one node: the
-    // bytes did not move, so nothing is re-sent. The COMMIT still is — a
-    // control that pressed `24h` while on `24h` has an outstanding pending
-    // value, and only a committed value agreeing with it ends that ask.
-    served { (routes, sessions) =>
+    // The bytes did not move, so nothing is re-sent, but the commit still is: a
+    // `24h` press while on `24h` has a pending value only a commit ends.
+    served { ts =>
       for {
-        conn <- connect(routes)
-        session <- sessions.get(conn)
-        _ <- post(routes, conn, "/sse/var/dashboard/panel/window/24h")
+        conn <- ts.load().map(_.conn)
+        session <- ts.sessions.get(conn)
+        _ <- post(ts, conn, varPath(ts, "window/24h"))
         queued <- drain(session)
       } yield assertEquals(queued.flatMap(_.data), List(committed("24h")))
     }
   }
 
   test("a refusal ends the control's pending ask by name") {
-    // The URL the chooser actually posts (`components/history.pkl`), whose
-    // `group` is what lets a refusal end THIS control's ask and no other —
-    // ADR 0024's half of ADR 0025.
-    served { (routes, _) =>
+    // The URL the chooser posts (`components/history.pkl`); its `group` lets a
+    // refusal end this control's ask and no other.
+    served { ts =>
       for {
-        conn <- connect(routes)
-        res <- post(
-          routes,
+        conn <- ts.load().map(_.conn)
+        result <- post(
+          ts,
           conn,
-          "/sse/var/dashboard/panel/window/4h?group=var_panel__window"
+          varPath(ts, "window/4h?group=var_panel__window")
         )
-        body <- res.bodyText.compile.string
       } yield {
-        assertEquals(res.status, Status.Ok)
+        val (status, body) = result
+        assertEquals(status, Status.Ok)
         assert(body.contains("\"_var_panel__window__pending\":\"\""), body)
       }
     }
   }
 
   test("a variable moves a chart only to an entity its dashboard shows") {
-    // ADR 0023's bound on the read side, at both places a value arrives: a
-    // write and a page URL. `sensor.b` is on the dashboard; the lock is not,
-    // and the recorder must never be asked for it.
+    // ADR 0023's bound on reads, at a write and at a page URL: the lock is not
+    // on the dashboard, so the recorder must never be asked for it.
     CeRef[IO].of(Set.empty[String]).flatMap { asked =>
-      val recording = for {
-        history <- History.create(new SeriesSource {
-          def raw(start: Instant, end: Instant, entityId: String) =
-            asked.update(_ + entityId).as(List(HistoryPoint("1.0", end)))
-          def statistics(
-              start: Instant,
-              end: Instant,
-              entityId: String,
-              period: StatisticsPeriod
-          ) = IO.pure(Nil)
-        })
-        r <- QueryResolver.create(history, IO.pure((_, _) => IO.pure("<svg/>")))
-      } yield r
       served(
-        (routes, sessions) =>
+        ts =>
           for {
-            conn <- connect(routes)
-            named <- post(routes, conn, "/sse/var/dashboard/panel/e/sensor.b")
-            refused <- post(
-              routes,
-              conn,
-              "/sse/var/dashboard/panel/e/lock.front_door"
-            )
-            chose <- sessions.get(conn).flatMap(_.traverse(_.vars.get))
-            linked <- routes.run(
-              Request[IO](
-                Method.GET,
-                uri"/d/dashboard?v.panel.e=lock.front_door"
-              )
-            )
+            conn <- ts.load().map(_.conn)
+            named <- post(ts, conn, varPath(ts, "e/sensor.b"))
+            refused <- post(ts, conn, varPath(ts, "e/lock.front_door"))
+            chose <- ts.sessions.get(conn).flatMap(_.traverse(_.vars.get))
+            linked <- ts.pageResponse("?v.panel.e=lock.front_door")
             entities <- asked.get
           } yield {
-            assertEquals(named.status, Status.NoContent)
-            assertEquals(refused.status, Status.Ok)
+            assertEquals(named._1, Status.NoContent)
+            assertEquals(refused._1, Status.Ok)
             assertEquals(
               chose,
               Some(Map(("panel": fh.view.model.NodeId, "e") -> "sensor.b"))
@@ -457,8 +321,9 @@ class VarTapSuite extends ServerHarness {
             assertEquals(linked.status, Status.BadRequest)
             assertEquals(entities, Set("sensor.a", "sensor.b"))
           },
-        recording,
-        entityDash
+        recorder = (_, end, entityId) =>
+          asked.update(_ + entityId).as(List(HistoryPoint("1.0", end))),
+        dashboard = entityDash
       )
     }
   }
@@ -466,46 +331,39 @@ class VarTapSuite extends ServerHarness {
   test(
     "a link carrying a value no reader can parse is a 400, not a torn page"
   ) {
-    // The URL is the second way a value arrives, and it once skipped the
-    // write's check: the page answered 200 and died mid-walk.
-    served { (routes, _) =>
-      routes
-        .run(Request[IO](Method.GET, uri"/d/dashboard?v.panel.window=bogus"))
+    // The URL once skipped the write's check: the page answered 200 and died
+    // mid-walk.
+    served(
+      _.pageResponse("?v.panel.window=bogus")
         .flatMap(r => r.bodyText.compile.string.map(r.status -> _))
-        .map { case (status, body) =>
+        .map { (status, body) =>
           assertEquals(status, Status.BadRequest)
           assert(body.contains("bogus"), clue = body)
         }
-    }
+    )
   }
 
   test("the document seeds a linked choice, not the declared value") {
-    // Seeded ahead of the body, so a control's URL mirror never writes the
-    // declared window over the linked one while the stream connects.
-    served { (routes, _) =>
-      routes
-        .run(Request[IO](Method.GET, uri"/d/dashboard?v.panel.window=7d"))
-        .flatMap(_.bodyText.compile.string)
-        .map { page =>
-          val seed = page.indexOf("_var_panel__window: '7d'")
-          assert(seed >= 0, clue = page)
-          assert(seed < page.indexOf("id=\"panel\""), clue = page)
-          assert(!page.contains("_var_panel__window: '24h'"), clue = page)
-        }
-    }
+    // Seeded ahead of the body, so the URL mirror never writes the declared
+    // window over the linked one while the stream connects.
+    served(_.page("?v.panel.window=7d").map { page =>
+      val seed = page.indexOf("_var_panel__window: '7d'")
+      assert(seed >= 0, clue = page)
+      assert(seed < page.indexOf("id=\"panel\""), clue = page)
+      assert(!page.contains("_var_panel__window: '24h'"), clue = page)
+    })
   }
 
   test("two choices landing together both stick") {
-    // Each write validates against, and commits onto, the other's result.
     served(
-      (routes, sessions) =>
+      ts =>
         for {
-          conn <- connect(routes)
+          conn <- ts.load().map(_.conn)
           _ <- (
-            post(routes, conn, "/sse/var/dashboard/panel/e/sensor.b"),
-            post(routes, conn, "/sse/var/dashboard/panel/window/7d")
+            post(ts, conn, varPath(ts, "e/sensor.b")),
+            post(ts, conn, varPath(ts, "window/7d"))
           ).parTupled
-          chose <- sessions.get(conn).flatMap(_.traverse(_.vars.get))
+          chose <- ts.sessions.get(conn).flatMap(_.traverse(_.vars.get))
         } yield assertEquals(
           chose.map(_.keySet.map(_._2)),
           Some(Set("e", "window"))
@@ -515,9 +373,8 @@ class VarTapSuite extends ServerHarness {
   }
 
   test("the opening frame states every declared variable, chosen or not") {
-    // TOTAL over the declarations, which is what makes a lost session safe: a
-    // control still highlighting last session's window is corrected on connect
-    // rather than disagreeing with the chart beside it.
+    // Total over the declarations, so a control still showing last session's
+    // window is corrected on connect.
     val renderer = Renderer.fromValidated(
       dash.validated().fold(e => sys.error(e.mkString("; ")), identity)
     )

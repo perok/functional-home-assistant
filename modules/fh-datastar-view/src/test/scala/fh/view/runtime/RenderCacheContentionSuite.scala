@@ -19,26 +19,16 @@ import fh.view.testkit.TestIds.given
 import java.util.concurrent.atomic.AtomicInteger
 import scala.jdk.CollectionConverters.*
 
-/** What N viewers of one dashboard COST, when they are not all looking at the
-  * same thing.
-  *
-  * `SharedPassSuite`'s "rendered once between them" holds the easy half: two
-  * viewers with identical state share a render. This holds the half that used
-  * to be an open question in the architecture doc — viewers whose SELECTIONS
-  * differ hold different [[RenderInputs]] for the same node id, and before the
-  * cache bucketed on the selection they evicted each other on every frame.
-  *
-  * The numbers here are a cost contract in the same sense: they are the FLOOR,
-  * and a rise means the sharing has been lost rather than that something got
-  * slower.
+/** What N viewers cost when their selections differ, so they hold different
+  * [[RenderInputs]] for one node id. Before the cache bucketed on selection
+  * they evicted each other every frame. The numbers are floors: a rise means
+  * the sharing was lost.
   */
 class RenderCacheContentionSuite extends ServerHarness {
 
-  /** A bake owner and, beside it, the live leaf that actually renders.
-    *
-    * `c_0` is the tabs host: structure, so it renders nothing per frame.
-    * [[Live]] is the leaf in its `bar` region, whose bytes are what a frame
-    * moves — and which mention no selection, so every viewer shares them.
+  /** `c_0` is the tabs host, structure that renders nothing per frame. [[Live]]
+    * is the leaf in its `bar` region, whose bytes mention no selection, so
+    * every viewer shares them.
     */
   private val Live: NodeId = "c_0_bar_0"
 
@@ -51,7 +41,7 @@ class RenderCacheContentionSuite extends ServerHarness {
       "card" -> CardDef("<span>{{state}}</span>", slots = List("state")),
       "tabs" -> CardDef(
         template =
-          """{{#bar}}{{{html}}}{{/bar}}<div id="{{hostId}}" class="tabs">{{{panel}}}</div>""",
+          """{{#bar}}{{{html}}}{{/bar}}<div id="{{hostId}}" class="tabs">{{#panel}}{{{html}}}{{/panel}}</div>""",
         regions = Map("bar" -> Region(), "panel" -> Region(Region.Baked))
       )
     ),
@@ -94,7 +84,6 @@ class RenderCacheContentionSuite extends ServerHarness {
     )
   )
 
-  /** The same node with no bake group: one key for everyone, at any count. */
   private def plainDash = Dashboard(
     cards = Map(
       "col" -> CardDef(
@@ -120,8 +109,8 @@ class RenderCacheContentionSuite extends ServerHarness {
     "sensor.b" -> st("sensor.b", "b")
   )
 
-  /** Counts renders PER NODE. A total cannot tell a second viewer's miss from
-    * the member render that would happen anyway.
+  /** Per node: a total cannot tell a second viewer's miss from a member render
+    * that happens anyway.
     */
   private class PerNode(dash: Dashboard)
       extends Renderer(dash, Templates.from(dash), Transforms.from(dash)) {
@@ -146,10 +135,16 @@ class RenderCacheContentionSuite extends ServerHarness {
       IO(counts.asScala.map((k, v) => k -> v.get()).toMap)
   }
 
-  /** Renders of the contended node per frame, with `queries` viewers connected.
+  /** Reset after everyone connects, so only steady-state live pulls are
+    * measured.
     *
-    * The connect renders the opening body for each viewer, so the counter is
-    * reset AFTER everyone is on: what is measured is steady-state live pulls.
+    * On [[LiveWorld]], not [[TestServer]]: the counting renderer has no way
+    * into [[ServerApp.assemble]], and a renderer factory on its `Prepared`
+    * would be a production seam for this suite alone. What that skips is the
+    * feed, narrowing and the auth routes, none of which renders. Not lower
+    * either: driving `Server.pull` per viewer passes too, but only because the
+    * recorder, the doorbell loop and the route's selection render nothing —
+    * which is part of what this measures.
     */
   private def rendersPerFrame(
       dash: Dashboard,
@@ -195,17 +190,10 @@ class RenderCacheContentionSuite extends ServerHarness {
       )
   }
 
-  /** Cost does not follow SELECTIONS: viewers on different tabs share a render.
-    *
-    * A bake owner holds its content in regions, which makes it structure —
-    * never a patch target, never cached, never rendered per frame. What renders
-    * is the LEAF beside it, and a leaf's bytes mention no selection, so every
-    * viewer is owed the same bytes whatever tab they are on.
-    *
-    * The floor is therefore 1.0 at any mix. A 2.0 here would mean the cost had
-    * started following the selection again, and a cache keyed on the entity
-    * half alone would then be evicting one tab's bytes for the other's on every
-    * frame.
+  /** A bake owner is structure, never cached or rendered per frame; the leaf
+    * beside it is owed the same bytes on any tab. So the floor is 1.0 at any
+    * mix; 2.0 would mean cost follows selection and a cache keyed on entities
+    * alone evicts one tab's bytes for the other's.
     */
   test("cost does not follow selections — one render serves both tabs") {
     assertCost(
@@ -230,7 +218,6 @@ class RenderCacheContentionSuite extends ServerHarness {
         frames = 5,
         node = Live
       ) *>
-      // ...and the owner is not rendered per frame at all, which is why.
       assertCost(
         "the structural owner",
         List("", "?ui.c_0=1"),
@@ -239,12 +226,8 @@ class RenderCacheContentionSuite extends ServerHarness {
       )
   }
 
-  /** The bound: it must not become a leak.
-    *
-    * A node keeps ONE generation, so churning the entity behind it over many
-    * frames leaves the count where it started — entity versions replace in
-    * place. If this ever grows with frames, the map is retaining dead HTML
-    * forever.
+  /** A node keeps one generation, so churn leaves the count where it started;
+    * growth would mean retained dead HTML.
     */
   test("generations are bounded, however many frames go by") {
     val renderer = Renderer.create(leafDash)
@@ -265,13 +248,9 @@ class RenderCacheContentionSuite extends ServerHarness {
 
   private def at(v: Long) = RenderInputs(Map("sensor.shared" -> v))
 
-  /** The parallelism case: sessions pull on their own fibers and read the store
-    * when they get there, so they do not all render from one snapshot.
-    *
-    * Newest, straggler, newest. The straggler's render is work it needed — it
-    * is serving a client that asked at that version — but installing it would
-    * evict the generation the third session is about to hit, and cost a render
-    * to cache bytes already superseded.
+  /** Sessions pull on their own fibers, so they do not render from one
+    * snapshot. The straggler's render serves its client, but installing it
+    * would evict the generation the third session is about to hit.
     */
   test("a straggler does not evict the generation that overtook it") {
     val runs = new AtomicInteger(0)
@@ -281,9 +260,7 @@ class RenderCacheContentionSuite extends ServerHarness {
       cache <- RenderCache.create
       renderer = Renderer.create(leafDash)
       newest <- cache(Live, renderer, at(2))(render("<b>v2</b>"))
-      // The laggard is SERVED, and served its own version's bytes...
       late <- cache(Live, renderer, at(1))(render("<b>v1</b>"))
-      // ...and the third session finds v2 still there.
       third <- cache(Live, renderer, at(2))(render("<b>v2 again</b>"))
       gens <- cache.generations
     } yield {
@@ -295,9 +272,7 @@ class RenderCacheContentionSuite extends ServerHarness {
     }
   }
 
-  /** The other direction still installs: moving FORWARD is what the cache is
-    * for, and a refusal there would freeze a node at its first render.
-    */
+  /** A refusal here would freeze a node at its first render. */
   test("a newer generation does replace an older one") {
     val runs = new AtomicInteger(0)
     def render(html: String) = IO(runs.incrementAndGet()).as(html)
@@ -316,7 +291,6 @@ class RenderCacheContentionSuite extends ServerHarness {
     }
   }
 
-  /** Freshness is per ENTITY, so a mixed key is not ordered either way. */
   test("a partly-newer generation is not treated as a straggler") {
     val two =
       (a: Long, b: Long) => RenderInputs(Map("sensor.a" -> a, "sensor.b" -> b))
@@ -327,7 +301,6 @@ class RenderCacheContentionSuite extends ServerHarness {
       cache <- RenderCache.create
       renderer = Renderer.create(leafDash)
       _ <- cache(Live, renderer, two(2, 1))(render("<b>a2 b1</b>"))
-      // Behind on a, ahead on b: neither dominates, so it installs.
       mixed <- cache(Live, renderer, two(1, 2))(render("<b>a1 b2</b>"))
       hit <- cache(Live, renderer, two(1, 2))(render("<b>never</b>"))
     } yield {
@@ -337,7 +310,6 @@ class RenderCacheContentionSuite extends ServerHarness {
     }
   }
 
-  /** An entity APPEARING changes what the node reads, not how fresh it is. */
   test("a different entity set is not ordered against the entry") {
     val runs = new AtomicInteger(0)
     def render(html: String) = IO(runs.incrementAndGet()).as(html)
@@ -359,9 +331,7 @@ class RenderCacheContentionSuite extends ServerHarness {
     }
   }
 
-  /** A renderer swap invalidates by IDENTITY: nothing the previous dashboard
-    * rendered is worth keeping, whatever inputs it was rendered from.
-    */
+  /** By identity: nothing the previous dashboard rendered is worth keeping. */
   test("a renderer swap replaces what a node holds") {
     val before = Renderer.create(leafDash)
     val after = Renderer.create(leafDash)
@@ -371,8 +341,6 @@ class RenderCacheContentionSuite extends ServerHarness {
       cache <- RenderCache.create
       old <- cache(Live, before, at(1L))(IO.pure("<b>old</b>"))
       first <- cache.generations
-      // Same node, same inputs, DIFFERENT renderer: a hit would serve the old
-      // dashboard's bytes, so it must render again.
       fresh <- cache(Live, after, at(1L))(IO.pure("<b>new</b>"))
       afterSwap <- cache.generations
     } yield {

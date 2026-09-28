@@ -1,14 +1,16 @@
-// In `fh.view.runtime` (not `testkit`) so it can reach the `private[runtime]`
-// readiness seams (`StateStore.changeSubscribers`, `Server.connectedSessions`)
-// the deterministic SSE gating needs — the same access `ServerSuite` relies on.
+// In `fh.view.runtime` so it can reach the `private[runtime]` readiness seams
+// (`StateStore.changeSubscribers`, `Server.connectedSessions`, `Sessions`).
 package fh.view.runtime
 
-import cats.effect.{Deferred, IO, Ref, Resource}
+import api.homeassistant.HomeAssistantApi
+import cats.effect.std.Supervisor
+import cats.effect.{IO, Ref, Resource}
 import cats.syntax.all.*
 import com.comcast.ip4s.{host, port}
-import fh.view.auth.AuthSessions
-import fh.view.build.{PklDump, Site, SystemPkl}
+import fh.view.auth.{AuthSessions, HaOAuth}
+import fh.view.build.{PklDump, Site}
 import fh.view.model.{Access, Dashboard}
+import fh.view.telemetry.{Logging, Meters, Telemetry}
 import fh.view.testkit.{
   FakeConfig,
   FakeHomeAssistant,
@@ -16,103 +18,84 @@ import fh.view.testkit.{
   PklWorkspace,
   TestAuth
 }
-import fs2.concurrent.SignallingRef
+import fs2.concurrent.{Signal, SignallingRef}
 import io.circe.Json
 import org.http4s.*
+import org.http4s.client.Client
+import org.http4s.dsl.io.*
 import org.http4s.ember.server.EmberServerBuilder
 import org.http4s.implicits.*
 import org.http4s.jdkhttpclient.JdkHttpClient
-
-import java.util.concurrent.TimeoutException
+import org.http4s.server.websocket.WebSocketBuilder2
 
 import scala.concurrent.duration.*
 
-/** A running dashboard wired exactly as `ServerApp` assembles it — the real
-  * [[HaFeed]] (supervisor + facade + health signal), [[StateStore]],
-  * [[Renderer]] and [[Server]], coupled through [[Server.fromFeed]] just like
-  * production — but against a [[FakeHomeAssistant]] seeded from a static
-  * fixture, handed to the feed as a never-closing [[HaFeed.Connect]]
-  * ([[TestServer.fakeConnect]]). So the reconnect/facade/`haDown` machinery
-  * runs for real; only the HA socket is stubbed. Tests drive it at the HTTP
-  * boundary and assert observable behaviour (rendered HTML, streamed SSE
-  * fragments, recorded service calls); the fake supplies the timeline via
-  * [[FakeHomeAssistant.emit]].
+/** [[ServerApp.assemble]] with only its edges stubbed: the HA socket is a
+  * [[FakeHomeAssistant]] handed over as a connection only [[haDown]] closes,
+  * and HA's token endpoint and the asset CDN are in-process stubs. Everything
+  * else — the feed's reconnect and narrowing, the auth routes, the error
+  * boundary — is the production wiring, and requests go through the app
+  * production binds.
   */
 final class TestServer(
     val fake: FakeHomeAssistant,
     val store: StateStore,
     val server: Server,
     val slug: String,
-    val auth: TestAuth
+    val auth: TestAuth,
+    val sessions: Sessions,
+    app: HttpApp[IO],
+    healthy: Signal[IO, Boolean],
+    haUp: SignallingRef[IO, Boolean],
+    supervisor: Supervisor[IO],
+    clients: Ref[IO, List[TestServer.LiveClient]]
 ) {
 
-  /** Await `n` subscribers on the store's change topic — a readiness gate for
-    * tests that consume `store.changes` directly (topics only reach current
-    * subscribers).
-    *
-    * '''`n` counts the recorder too.''' A `TestServer` has a per-slug recorder
-    * already subscribed, so a test adding a subscriber of its own must wait for
-    * TWO — waiting for one is answered by the recorder, and an emit can then
-    * land before the test's own stream is attached. It fails as a timeout on a
-    * `take(1)` that never completes, not as a wrong value.
+  /** HA's socket closes and every reconnect waits, so the feed's own health
+    * falls, the one the banner and the page read.
+    */
+  def haDown: IO[Unit] =
+    haUp.set(false) *> healthy.waitUntil(!_)
+
+  /** '''`n` counts the recorder too.''' A test adding its own subscriber must
+    * wait for two: waiting for one is answered by the recorder, and an emit can
+    * land before the test's stream attaches, failing as a `take(1)` timeout
+    * rather than a wrong value.
     */
   def awaitChangeSubscribers(n: Int): IO[Unit] =
     store.changeSubscribers.filter(_ >= n).head.compile.drain
 
-  /** Await `n` ADOPTED sessions — a stream has taken its document's session and
-    * is live (`Tenure.Held`). There is no shared patch topic to count
-    * subscribers on: nothing is pushed, so what a test has to wait for is a
-    * connection that will PULL. Paired with [[awaitChangeSubscribers]] as the
-    * readiness gate a browser test awaits before `fake.emit` (a browser
-    * establishes its own SSE connection asynchronously on page load, so there
-    * is no response body to read progress from the way [[observePatch]]'s
-    * callers can).
+  /** Await `n` adopted sessions (`Tenure.Held`). Nothing is pushed, so a test
+    * waits for a connection that will pull.
     *
-    * Counting sessions is necessary but NOT sufficient for a test that emits a
-    * change and expects it in a live patch: a session is adopted BEFORE its
-    * opening block runs, so a change emitted on this gate alone can still land
-    * in the opening repaint and never appear as a patch. A test that needs the
-    * distinction gates on the connection's own opening cursor instead — see
-    * `ServerSuite`'s "rendered once between them".
+    * Necessary but not sufficient for a test expecting a change as a live
+    * patch: a session is adopted before its opening block runs, so the change
+    * can land in the opening repaint. Such a test uses [[connect]], which
+    * returns after the opening block.
     */
   def awaitSharedSubscribers(n: Int = 1): IO[Unit] =
     server.connectedSessions.filter(_ >= n).head.compile.drain
 
-  /** The two readiness gates a live SSE connection needs before a change is
-    * guaranteed to reach it — `subscribers` mirrors [[observePatch]]'s default
-    * of 1: the per-slug recorder is the ONLY consumer of `changes`, however
-    * many connections are open. The smoke suites' one gate to await before
-    * `fake.emit`.
+  /** The smoke suites' one gate before `fake.emit`. `subscribers` defaults to
+    * 1: the per-slug recorder is the only consumer of `changes`, however many
+    * connections are open.
     */
   def awaitLive(subscribers: Int = 1): IO[Unit] =
     awaitChangeSubscribers(subscribers) *> awaitSharedSubscribers(1)
 
-  /** Make the server forget every open connection — the state an idle page is
-    * in once its stream has dropped and [[Server.LingerWindow]] has passed.
-    *
-    * The half of ADR 0009's "known gap" that hid this bug three times: no smoke
-    * test could reach a reconnect, so nothing that only goes wrong on one was
-    * visible. Reaping is what cuts the browser's stream (the stream watches its
-    * own tenure), so Datastar reconnects for real afterwards.
+  /** The state of an idle page once its stream has dropped and
+    * [[Server.LingerWindow]] has passed. Reaping cuts the browser's stream, so
+    * Datastar reconnects for real: the path ADR 0009's known gap hid three
+    * times.
     */
   def forgetConnections: IO[Int] = server.forgetSessions
 
-  /** Wait until no connection is adopted — after [[forgetConnections]], that
-    * the browser has actually noticed.
-    */
+  /** After [[forgetConnections]]: the browser has noticed. */
   def awaitNoConnections: IO[Unit] =
     server.connectedSessions.filter(_ == 0).head.compile.drain
 
-  /** The gate is ON here, behind the same backstop `ServerApp` uses — so a
-    * harness request goes through the route's own declared requirement, and a
-    * route that declared none fails the suite as a 500 rather than passing. See
-    * [[TestAuth]] for why there is no bypass.
-    */
-  private val app = server.routes.orNotFound
-
-  /** `as` is the session id to present, i.e. WHO is asking; `None` is an
-    * anonymous browser. Defaulted to the harness admin so a suite that is not
-    * about auth reads exactly as it did before the gate existed.
+  /** `as` is the session id presented; `None` is an anonymous browser.
+    * Defaulted to the harness admin.
     */
   private def run(
       req: Request[IO],
@@ -120,19 +103,16 @@ final class TestServer(
   ): IO[Response[IO]] =
     app.run(as.fold(req)(id => req.addCookie(AuthSessions.CookieName, id)))
 
-  /** The whole app — backstop included — with the harness admin's cookie added
-    * to every request, for the suites that drive routes directly instead of
-    * through [[page]] / [[post]]. Without the cookie every gated route answers
-    * 303/401, which is correct and unhelpful.
+  /** With the harness admin's cookie on every request, for suites driving
+    * routes directly; without it every gated route answers 303/401.
     */
   val gatedApp: HttpApp[IO] = HttpApp[IO](req => run(req))
 
   private def bodyOf(resp: Response[IO]): IO[String] =
     resp.body.through(fs2.text.utf8.decode).compile.string
 
-  /** The rendered page shell for this dashboard (`GET /d/<slug><query>`) — the
-    * bytes a browser gets BEFORE any script runs, which is where first-paint
-    * claims (a baked tab panel, a restored popup) have to be checked.
+  /** The bytes a browser gets before any script runs, where first-paint claims
+    * have to be checked.
     */
   def page(
       query: String = "",
@@ -140,9 +120,6 @@ final class TestServer(
   ): IO[String] =
     pageResponse(query, as).flatMap(bodyOf)
 
-  /** [[page]] without reading the body — for the auth suites, which assert on
-    * the status and the `Location` of a denial rather than on rendered HTML.
-    */
   def pageResponse(
       query: String = "",
       as: Option[String] = Some(auth.defaultSession)
@@ -152,236 +129,231 @@ final class TestServer(
       as
     )
 
-  /** POST an action route (e.g. `sse/action/<slug>/light/toggle/light.kitchen`)
-    * and return its status. An action that WORKS says so with 204 and nothing
-    * else; the observable effect is the recorded [[ServiceCall]].
+  /** An action that works answers 204 and nothing else; the effect is the
+    * recorded [[ServiceCall]].
     */
   def post(
       path: String,
-      as: Option[String] = Some(auth.defaultSession)
+      as: Option[String] = Some(auth.defaultSession),
+      body: String = ""
   ): IO[Status] =
-    postResult(path, as).map(_._1)
+    postResult(path, as, body).map(_._1)
 
-  /** [[post]] keeping the body too, which is where a REFUSAL now lives: a
-    * refused action answers 200 carrying the signals that report it (ADR 0024),
-    * so a suite asserting on a refusal has to read what was said, not only that
-    * something was.
+  /** A refused action answers 200 carrying the signals that report it (ADR
+    * 0024), so a refusal is read from the body. `body` is the signals a
+    * Datastar action sends.
     */
   def postResult(
       path: String,
-      as: Option[String] = Some(auth.defaultSession)
+      as: Option[String] = Some(auth.defaultSession),
+      body: String = ""
   ): IO[(Status, String)] =
     run(
       Request[IO](
         Method.POST,
         Uri.unsafeFromString("/" + path.stripPrefix("/"))
-      ),
+      ).withEntity(body),
       as
     ).flatMap(resp => bodyOf(resp).map(resp.status -> _))
+
+  /** A page load: the document and the stream URL its `data-init` would open,
+    * with the `conn` it minted.
+    */
+  def load(query: String = ""): IO[TestServer.Document] =
+    page(query).map { html =>
+      val stream = Uri.unsafeFromString(
+        "/" + html
+          .split(TestServer.StreamUrlMarker)(1)
+          .split("'")(0)
+          // As a browser parses the attribute.
+          .replace("&amp;", "&")
+      )
+      TestServer.Document(html, stream, stream.query.params(Server.ConnSignal))
+    }
+
+  def get(uri: Uri): IO[Response[IO]] = run(Request[IO](Method.GET, uri))
 
   private val patchUri: Uri =
     Uri.unsafeFromString(s"/sse/dashboard/$slug/patch")
 
-  /** The live patch stream, unread — for the auth suites, which assert on the
-    * status of a refusal and on WHEN an admitted body ends, not on what it
-    * carries.
-    */
   def sse(as: Option[String] = Some(auth.defaultSession)): IO[Response[IO]] =
     run(Request[IO](Method.GET, patchUri), as)
 
-  /** Open one live SSE connection, wait until the store's change publishers are
-    * attached, run `trigger` (typically a `fake.emit`), and succeed once a
-    * pushed fragment contains `marker`. If the marker never arrives the
-    * returned `IO` fails via `timeout` — so this is the positive "a change
-    * reaches the browser" assertion.
-    *
-    * `subscribers` is the number of `StateStore.changes` consumers to await
-    * before triggering (topics only reach already-subscribed consumers). That
-    * is the shared per-slug publisher, and only it — connections subscribe to
-    * the patch topic, not to `changes` — so one open connection is 1.
+  /** A live connection collecting its events for [[TestServer.LiveClient]],
+    * returned once its opening block is in. `query` carries what a document
+    * would hand back, such as `?ui.<id>=<n>` (see [[Server.Restore]]).
     */
-  /** Open one live SSE connection (optionally with a `query` — e.g. a
-    * `ui.<host>` tab selection), wait until its OPENING block has been
-    * delivered, then run `trigger` and return everything that arrives after it,
-    * up to and including the fragment containing `marker`.
-    *
-    * The opening/live split is the whole point. A first paint legitimately
-    * carries this client's selected tab, so an assertion about what a LIVE flip
-    * sends has to start after it — otherwise the opening satisfies the marker
-    * and the test passes without the flip happening at all. The opening ends
-    * with the cursor signal ([[Server.cursorSignals]]), which is what is
-    * watched for here.
-    */
-  private def LogIdSignalName = Server.LogIdSignal
-
-  def observeLive(
-      marker: String,
-      trigger: IO[Unit],
-      query: String = "",
-      // Below munit's per-test timeout on purpose: whichever fires first owns
-      // the error message, and this one can say what actually arrived.
-      timeout: FiniteDuration = 10.seconds
-  ): IO[String] =
-    run(
-      Request[IO](
-        Method.GET,
-        Uri.unsafeFromString(s"/sse/dashboard/$slug/patch$query")
+  def connect(query: String = ""): IO[TestServer.LiveClient] =
+    for {
+      seen <- Ref[IO].of(Vector.empty[ServerSentEvent])
+      resp <- run(
+        Request[IO](
+          Method.GET,
+          Uri.unsafeFromString(s"/sse/dashboard/$slug/patch$query")
+        )
       )
-    ).flatMap { resp =>
-      // Everything is accumulated and the split computed on the WHOLE text,
-      // rather than routing chunk-by-chunk: the opening cursor and the first
-      // patch can share a chunk, and a router that decides per chunk drops
-      // whatever followed the cursor inside it.
-      def liveOf(text: String): String = {
-        val at = text.indexOf(Server.LogIdSignal)
-        if (at < 0) "" else text.drop(at)
-      }
-      for {
-        opened <- Deferred[IO, Unit]
-        all <- Ref[IO].of("")
-        fiber <- resp.body
-          .through(fs2.text.utf8.decode)
-          .evalMap(chunk => all.updateAndGet(_ + chunk))
-          .evalTap(text =>
-            IO.whenA(text.contains(Server.LogIdSignal))(
-              opened.complete(()).void
-            )
-          )
-          .exists(text => liveOf(text).contains(marker))
+      // Supervised: the body carries the connection's `keepAlive` stream, and
+      // with no socket to close it a bare fiber outlives the test.
+      _ <- supervisor.supervise(
+        resp.body
+          .through(ServerSentEvent.decoder[IO])
+          .evalMap(e => seen.update(_ :+ e))
           .compile
           .drain
-          .start
-        _ <- opened.get.timeout(timeout).adaptError {
-          case _: TimeoutException =>
-            new AssertionError(
-              s"the opening block never completed (no $LogIdSignalName signal)"
-            )
-        }
-        // BOTH gates, and they are different questions. The connection being
-        // subscribed to the patch topic says it can receive; the per-slug
-        // publisher being subscribed to the store says the change will be
-        // rendered at all. A topic delivers only to CURRENT subscribers, so a
-        // change emitted before the publisher attaches is published to nobody
-        // and simply lost — intermittently, under load, which is exactly how
-        // this read as a flaky test rather than a missing gate.
-        _ <- server.connectedSessions.filter(_ >= 1).head.compile.drain
-        _ <- store.changeSubscribers.filter(_ >= 1).head.compile.drain
-        _ <- trigger
-        // Report what DID arrive. A bare timeout here says only "the marker
-        // never came", which is the least useful half of the story — whether
-        // nothing arrived, or the wrong thing did, is the whole diagnosis.
-        _ <- fiber.joinWithNever.timeout(timeout).recoverWith {
-          case _: TimeoutException =>
-            all.get
-              .map(liveOf)
-              .flatMap(seen =>
-                IO.raiseError(
-                  new AssertionError(
-                    s"never saw '$marker' after the opening block; received:\n$seen"
-                  )
-                )
-              )
-        }
-        text <- all.get.map(liveOf)
-      } yield text
-    }
+      )
+      client = new TestServer.LiveClient(seen)
+      // `_haDown` rides a branch merged into the connection stream, so it can
+      // land either side of the cursor; waiting for the cursor alone left it
+      // for the next drain.
+      _ <- fs2.Stream
+        .repeatEval(seen.get <* IO.sleep(10.millis))
+        .find(es =>
+          es.exists(carries(Server.StoreVersionSignal)) &&
+            es.exists(carries(Server.HaDownSignal))
+        )
+        .compile
+        .drain
+        .timeout(15.seconds)
+      _ <- clients.update(_ :+ client)
+    } yield client
 
-  def observePatch(
-      marker: String,
-      trigger: IO[Unit],
-      subscribers: Int = 1,
-      timeout: FiniteDuration = 30.seconds
-  ): IO[Unit] =
-    run(Request[IO](Method.GET, patchUri)).flatMap { resp =>
-      for {
-        // THIS connection's opening block is finished when its cursor arrives.
-        // Gating on a session COUNT instead is not enough: a previous
-        // `observePatch`'s connection can still be registered, so the count is
-        // already met while this one has not read the snapshot — and a change
-        // triggered in that window lands in the opening repaint, which never
-        // carries a `mode remove` or any other delta shape a test looks for.
-        opened <- Deferred[IO, Unit]
-        fiber <- resp.body
-          .through(fs2.text.utf8.decode)
-          .scan("")(_ + _)
-          .evalTap(text =>
-            IO.whenA(text.contains(Server.StoreVersionSignal))(
-              opened.complete(()).void
-            )
-          )
-          .exists(_.contains(marker))
-          .compile
-          .drain
-          .start
-        // The recorder must be on the store's changes before we emit.
-        _ <- store.changeSubscribers.filter(_ >= subscribers).head.compile.drain
-        _ <- opened.get.timeout(timeout)
-        _ <- trigger
-        _ <- fiber.joinWithNever.timeout(timeout)
-      } yield ()
-    }
+  private def carries(signal: String)(e: ServerSentEvent): Boolean =
+    e.eventType.contains("datastar-patch-signals") &&
+      e.data.exists(_.contains(signal))
+
+  /** One HA frame through the fake, returned once every [[connect]]ed client
+    * has what it is owed. Two gates: [[served]] proves every session pulled
+    * this version, then [[TestServer.LiveClient.arrived]] that the bytes
+    * landed. A client owed nothing receives nothing, so "the frame is done" has
+    * to be asked of the server.
+    */
+  def change(entityId: String, state: String): IO[Unit] =
+    frame(FixtureEntity(entityId, state))
+
+  def frame(entities: FixtureEntity*): IO[Unit] =
+    for {
+      // A topic delivers only to current subscribers, and the recorder starts
+      // asynchronously, so a frame that beats it is never recorded and every
+      // later gate times out. Connecting a client does not imply it.
+      _ <- awaitChangeSubscribers(1).timeout(15.seconds)
+      before <- store.version
+      _ <- fake.emitFrame(entities.toList)
+      _ <- fs2.Stream
+        .repeatEval(store.version <* IO.sleep(5.millis))
+        .find(_ > before)
+        .compile
+        .drain
+        .timeout(15.seconds)
+      _ <- served
+      _ <- clients.get.flatMap(_.traverse_(_.arrived))
+    } yield ()
+
+  /** Not `Sessions.floor`, which includes `Lingering` and `Fresh` sessions: one
+    * with no stream never pulls, so waiting on it times out, and the test that
+    * left it fails elsewhere, intermittently.
+    */
+  private def served: IO[Unit] =
+    fs2.Stream
+      .repeatEval(
+        (store.version, sessions.forSlug(slug)).flatMapN { (now, all) =>
+          all
+            .traverse(s => (s.tenure.get, s.position.get).tupled)
+            .map(_.collect { case (_: Tenure.Held, at) => at })
+            .map(live => live.nonEmpty && live.forall(_ >= now))
+        } <* IO.sleep(5.millis)
+      )
+      .find(identity)
+      .compile
+      .drain
+      .timeout(15.seconds)
+
+  /** What one client connected at `query` is sent for `frames`, as the data
+    * lines a browser parses. The opening block is left out: a first paint can
+    * already carry what the frames are meant to deliver.
+    */
+  def sentAfter(frames: IO[Unit], query: String = ""): IO[String] =
+    for {
+      client <- connect(query)
+      _ <- client.drain
+      _ <- frames
+      sent <- client.drain
+    } yield sent.flatMap(_.data).mkString("\n")
 }
 
 object TestServer {
 
-  /** Wire a [[TestServer]] for `dashboard`, seeded with `entities`. The
-    * returned resource owns the store's live feed and the server's shared-patch
-    * publishers for its lifetime (via [[Server.resource]]).
+  final case class Document(html: String, stream: Uri, conn: String)
+
+  private val StreamUrlMarker: String = """data-init="@get\('"""
+
+  final class LiveClient(seen: Ref[IO, Vector[ServerSentEvent]]) {
+
+    def drain: IO[List[ServerSentEvent]] =
+      seen.getAndSet(Vector.empty).map(_.toList)
+
+    /** Quiet alone cannot tell "nothing was produced" from "nothing has arrived
+      * yet", so it follows [[TestServer.change]]'s server-side proof that every
+      * session pulled the frame. A pull that owes a client nothing sends
+      * nothing, not even a cursor, so waiting for one would hang on exactly the
+      * clients this checks are left alone.
+      */
+    def arrived: IO[Unit] =
+      fs2.Stream
+        .repeatEval(seen.get.map(_.size) <* IO.sleep(25.millis))
+        .drop(6)
+        // Four equal readings, not two: a batch's events can arrive more than a
+        // sample apart under load, and two samples returned mid-batch in CI.
+        .sliding(4)
+        .find(w => w.toList.distinct.sizeIs == 1)
+        .compile
+        .drain
+  }
+
+  /** A model dashboard as the site's starting content, so no Pkl is evaluated.
     */
   def resource(
       dashboard: Dashboard,
       entities: List[FixtureEntity],
-      // The instance's Pkl artifacts, served over `/system/pkl/` — what a CLI
-      // pull fetches (ADR 0010). Empty (serving nothing) for every test that
-      // isn't about that endpoint.
-      systemPkl: SystemPkl = SystemPkl.empty,
-      // The dashboard's own access rule, which is what the gate reads
-      // (`Server.accessFor` asks the renderer). Defaulted, so every suite that
-      // is not about auth gets the production default.
-      access: Access = Access.default
+      // What a CLI pull fetches over `/system/pkl/` (ADR 0010); an empty one
+      // when not named.
+      workspace: Option[os.Path] = None,
+      // The site default the gate falls back to when the dashboard sets none.
+      access: Access = Access.default,
+      windows: Server.SessionWindows = Server.SessionWindows.default,
+      config: FakeConfig = FakeConfig()
   ): Resource[IO, TestServer] =
     for {
-      fake <- FakeHomeAssistant.create(entities).toResource
-      feed <- HaFeed.resource(fakeConnect(fake))
-      rendererRef <- SignallingRef[IO]
-        .of(Server.RendererState.Ready(Renderer.create(dashboard, access)))
-        .toResource
-      // Delegate the whole live-Server assembly (health gate, sessions,
-      // Server.fromFeed) to the SAME kernel production uses, so the harness
-      // can't drift from the app. Only the renderer source (a fixed dashboard)
-      // and the HA edge (a fake) are ours.
-      site <- Server.LiveSite
-        .of(
-          Map(dashboard.slug -> rendererRef),
-          Map(dashboard.slug -> Right(dashboard)),
-          dashboard.slug
+      validated <- IO
+        .fromEither(
+          dashboard
+            .validated()
+            .leftMap(errs =>
+              IllegalArgumentException(
+                s"'${dashboard.slug}' does not validate: ${errs.mkString("; ")}"
+              )
+            )
         )
         .toResource
-      auth <- TestAuth.create(site.permissionFor).toResource
-      server <- ServerApp.liveServer(
-        feed,
-        site,
-        auth.gate,
-        systemPkl = systemPkl
+      fake <- FakeHomeAssistant.create(entities, config).toResource
+      dir <- workspace.fold(tempDir("fh-workspace"))(Resource.pure)
+      booted <- assemble(
+        fake,
+        dir,
+        startingWith(validated.withAccess(access)),
+        windows = windows
       )
-    } yield new TestServer(fake, feed.store, server, dashboard.slug, auth)
+      ts <- inProcess(fake, dashboard.slug, booted)
+    } yield ts
 
-  /** Wire a [[TestServer]] the way [[resource]] does — real feed, store, and
-    * Server — but from a Pkl ENTRY SOURCE evaluated through the genuine build
-    * path (`ServerApp.prepareRenderers`: discover -> `prepareDumps` ->
-    * `buildEntry`), not a pre-built [[Dashboard]]. This is the Tier-A capstone
-    * seam (ADR 0009): the Pkl authoring track and the runtime track meet with
-    * NOTHING stubbed but the HA socket.
+  /** [[resource]], but from a Pkl entry source through the real build path
+    * (`ServerApp.prepareRenderers`): the Tier-A seam (ADR 0009) where authoring
+    * and runtime meet with only the HA socket stubbed.
     *
-    * A package-form workspace is staged ([[PklWorkspace.bootstrap]]) with the
-    * `@fh-home` dump seeded from `entities`; `entrySource` is written as its
-    * own module and the workspace's ONE entrypoint (ADR 0021) is generated to
-    * name it under `slug` — the imported-dashboard authoring form, exercised
-    * here on every call. The feed's own `prepareDumps` then RE-fetches that
-    * dump from the fake's `render_template` — the same fixtures `get_states`
-    * serves — so the dashboard is authored against, built from, and rendered
-    * with one source of state. `entities` must cover every entity the entry
-    * references (`dump.entities.<key>`); the whole set is also the fake's seed.
+    * The entry is its own module, named under `slug` by the one entrypoint (ADR
+    * 0021). `prepareDumps` re-fetches the dump from the fake's
+    * `render_template`, so the dashboard is authored against, built from and
+    * rendered with one source of state; `entities` must cover every
+    * `dump.entities.<key>` it references.
     */
   def fromWorkspace(
       slug: String,
@@ -391,23 +363,13 @@ object TestServer {
     for {
       tmp <- stageWorkspace(slug, entrySource, entities)
       fake <- FakeHomeAssistant.create(entities).toResource
-      feed <- HaFeed.resource(fakeConnect(fake))
-      // The REAL source-to-renderer path — the same one production's `run` uses.
-      prepared <- ServerApp.prepareRenderers(feed, tmp, None).toResource
-      site <- siteOf(prepared, slug)
-      auth <- TestAuth.create(site.permissionFor).toResource
-      server <- ServerApp.liveServer(
-        feed,
-        site,
-        auth.gate,
-        systemPkl = SystemPkl.fromDisk(tmp)
-      )
-    } yield new TestServer(fake, feed.store, server, slug, auth)
+      booted <- assemble(fake, tmp, ServerApp.prepareRenderers(_, tmp, None))
+      ts <- inProcess(fake, slug, booted)
+    } yield ts
 
-  /** [[fromWorkspace]] bound on a real port with the theme's assets, as
-    * [[served]] is: the browser suites' way to drive a component exactly as the
-    * Pkl library writes it. The entry must set `access = c.access.public`,
-    * since a Playwright page cannot be handed a cookie first.
+  /** [[fromWorkspace]] on a real port with the theme's assets. The entry must
+    * set `access = c.access.public`: a Playwright page cannot be handed a
+    * cookie first.
     */
   def servedWorkspace(
       slug: String,
@@ -417,20 +379,40 @@ object TestServer {
     for {
       tmp <- stageWorkspace(slug, entrySource, entities)
       fake <- FakeHomeAssistant.create(entities).toResource
-      feed <- HaFeed.resource(fakeConnect(fake))
-      prepared <- ServerApp.prepareRenderers(feed, tmp, None).toResource
-      renderer <- IO
+      client <- cdnClient
+      booted <- assemble(
+        fake,
+        tmp,
+        ServerApp.prepareRenderers(_, tmp, None),
+        client
+      )
+      prepared = booted.assembled.prepared
+      _ <- IO
         .fromOption(prepared.states.get(slug).flatMap(_.rendererOf))(
           RuntimeException(s"'$slug' did not build: ${prepared.states}")
         )
         .toResource
-      site <- siteOf(prepared, slug)
-      bound <- bind(fake, feed, site, slug, renderer)
+      bound <- bind(fake, slug, booted)
     } yield bound
 
-  /** A package-form workspace whose one entrypoint names `entrySource` under
-    * `slug`, with the `@fh-home` dump seeded from `entities`.
+  /** A workspace booted as it stands, whatever its `site.pkl` says, a broken
+    * one included; the server's slug is the site's default.
     */
+  def ofWorkspace(
+      workspace: os.Path,
+      entities: List[FixtureEntity] = Nil
+  ): Resource[IO, (TestServer, ServerApp.Prepared)] =
+    for {
+      fake <- FakeHomeAssistant.create(entities).toResource
+      booted <- assemble(
+        fake,
+        workspace,
+        ServerApp.prepareRenderers(_, workspace, None)
+      )
+      slug <- booted.assembled.site.defaultSlug.toResource
+      ts <- inProcess(fake, slug, booted)
+    } yield (ts, booted.assembled.prepared)
+
   private def stageWorkspace(
       slug: String,
       entrySource: String,
@@ -439,9 +421,7 @@ object TestServer {
     for {
       tmp <- IO.blocking(os.temp.dir(prefix = "fh-workspace")).toResource
       _ <- IO.blocking {
-        // Seed the workspace dump from the fixtures so `@fh-home` resolves;
-        // `prepareDumps` re-seeds an identical dump (the fake's raw dump
-        // transforms to exactly this), a clean no-op pin move.
+        // `prepareDumps` re-seeds an identical dump, a no-op pin move.
         val dumpJson = Json.obj(
           "areas" -> Json.obj(),
           "floors" -> Json.obj(),
@@ -450,8 +430,6 @@ object TestServer {
         val _ = PklWorkspace.bootstrap(tmp, PklDump.render(dumpJson))
         val module = s"$slug-entry.pkl"
         os.write.over(tmp / module, entrySource)
-        // Exactly one dashboard, named by the entrypoint the bootstrap seeded
-        // (overwritten: the starter site is not what this test is about).
         os.write.over(
           tmp / Site.EntryFile,
           s"""amends "@fh-dashboard/site.pkl"
@@ -464,26 +442,9 @@ object TestServer {
       }.toResource
     } yield tmp
 
-  private def siteOf(
-      prepared: ServerApp.Prepared,
-      slug: String
-  ): Resource[IO, Server.LiveSite] =
-    for {
-      rendererRefs <- prepared.states.toList
-        .traverse { case (s, state) => SignallingRef[IO].of(state).map(s -> _) }
-        .map(_.toMap)
-        .toResource
-      site <- Server.LiveSite
-        .of(rendererRefs, prepared.content, slug)
-        .toResource
-    } yield site
-
-  /** Same wiring as [[resource]], plus a real [[AssetCache]] built exactly as
-    * `ServerApp` builds it — a JDK http client fetching the theme's CDN assets
-    * into a temp dir — and a real ember bind on an OS-assigned loopback port,
-    * so a browser (the Playwright smoke suite) can navigate to it. State is
-    * still driven in-process through `TestServer.fake.emit`, exactly as
-    * [[resource]].
+  /** [[resource]] with the real CDN behind the asset cache and an ember bind on
+    * a loopback port, for the Playwright suites. State is still driven through
+    * `fake.emit`.
     */
   def served(
       dashboard: Dashboard,
@@ -491,70 +452,156 @@ object TestServer {
       config: FakeConfig = FakeConfig()
   ): Resource[IO, (TestServer, Uri)] =
     for {
-      fake <- FakeHomeAssistant.create(entities, config).toResource
-      feed <- HaFeed.resource(fakeConnect(fake))
-      // Public, so the browser needs no cookie: a real Playwright session
-      // cannot be handed one before its first navigation, and driving the OAuth
-      // flow against a fake HA would test the fake. The gate still runs on
-      // every one of these requests — it is a `Public` dashboard passing, which
-      // is the wall-tablet case and worth covering end to end.
-      renderer = Renderer.create(dashboard, Access.Public)
-      rendererRef <- SignallingRef[IO]
-        .of(Server.RendererState.Ready(renderer))
-        .toResource
-      site <- Server.LiveSite
-        .of(
-          Map(dashboard.slug -> rendererRef),
-          Map(dashboard.slug -> Right(dashboard)),
-          dashboard.slug
+      validated <- IO
+        .fromEither(
+          dashboard
+            .validated()
+            .leftMap(errs => IllegalArgumentException(errs.mkString("; ")))
         )
         .toResource
-      bound <- bind(fake, feed, site, dashboard.slug, renderer)
+      fake <- FakeHomeAssistant.create(entities, config).toResource
+      dir <- tempDir("fh-workspace")
+      client <- cdnClient
+      // Public: a Playwright session cannot be handed a cookie before its first
+      // navigation, and driving OAuth against a fake HA would test the fake.
+      // The gate still runs, the wall-tablet case.
+      booted <- assemble(
+        fake,
+        dir,
+        startingWith(validated.withAccess(Access.Public)),
+        client
+      )
+      bound <- bind(fake, dashboard.slug, booted)
     } yield bound
 
-  /** A real [[AssetCache]] built as `ServerApp` builds it, and an ember bind on
-    * an OS-assigned loopback port.
-    */
+  private final case class Booted(
+      assembled: ServerApp.Assembled,
+      haUp: SignallingRef[IO, Boolean]
+  )
+
+  private def assemble(
+      fake: FakeHomeAssistant,
+      workspace: os.Path,
+      prepare: HaFeed => IO[ServerApp.Prepared],
+      assetsClient: Client[IO] = NoCdn,
+      windows: Server.SessionWindows = Server.SessionWindows.default
+  ): Resource[IO, Booted] =
+    for {
+      assetsDir <- tempDir("fh-assets")
+      haUp <- SignallingRef[IO].of(true).toResource
+      assembled <- ServerApp.assemble(
+        ServerApp.Edges(
+          workspace = workspace,
+          haConnect = fakeConnect(fake, haUp),
+          login = _ => IO.pure(fakeLogin(fake)),
+          assetsClient = assetsClient,
+          assetsDir = assetsDir,
+          prepare = prepare,
+          trustedProxy = None,
+          pklLspJar = None,
+          watchRegistry = false,
+          otel = Telemetry.Otel.noop,
+          loggerFactory = Logging.console,
+          meters = Meters.noop,
+          sessionWindows = windows
+        )
+      )
+    } yield Booted(assembled, haUp)
+
+  private def inProcess(
+      fake: FakeHomeAssistant,
+      slug: String,
+      booted: Booted
+  ): Resource[IO, TestServer] = {
+    val assembled = booted.assembled
+    for {
+      wsb <- WebSocketBuilder2[IO].toResource
+      auth <- TestAuth.admitted(assembled.authSessions).toResource
+      // Acquired after `assemble`, so the connect fibers are gone before the
+      // server releases.
+      supervisor <- Supervisor[IO]
+      clients <- Ref[IO].of(List.empty[LiveClient]).toResource
+    } yield new TestServer(
+      fake,
+      assembled.feed.store,
+      assembled.server,
+      slug,
+      auth,
+      assembled.sessions,
+      assembled.app(wsb),
+      assembled.feed.healthy,
+      booted.haUp,
+      supervisor,
+      clients
+    )
+  }
+
   private def bind(
       fake: FakeHomeAssistant,
-      feed: HaFeed,
-      site: Server.LiveSite,
       slug: String,
-      renderer: Renderer
+      booted: Booted
   ): Resource[IO, (TestServer, Uri)] =
     for {
-      httpClient <- IO(java.net.http.HttpClient.newHttpClient()).toResource
-      assetsDir <- IO
-        .blocking(os.temp.dir(prefix = "fh-smoke-assets"))
-        .toResource
-      assets <- AssetCache
-        .build(
-          assetsDir,
-          Server.DatastarCdn :: renderer.stylesheets ++ renderer.scripts,
-          JdkHttpClient[IO](httpClient)
-        )
-        .toResource
-      auth <- TestAuth.create(site.permissionFor).toResource
-      server <- ServerApp.liveServer(feed, site, auth.gate, assets)
+      ts <- inProcess(fake, slug, booted)
       bound <- EmberServerBuilder
         .default[IO]
         .withHost(host"127.0.0.1")
         .withPort(port"0")
-        .withHttpApp(server.routes.orNotFound)
+        .withHttpWebSocketApp(booted.assembled.app)
         .withShutdownTimeout(0.seconds)
         .build
-    } yield (
-      new TestServer(fake, feed.store, server, slug, auth),
-      bound.baseUri
+    } yield (ts, bound.baseUri)
+
+  private def startingWith(
+      validated: Dashboard.Validated
+  ): HaFeed => IO[ServerApp.Prepared] =
+    _ =>
+      IO.pure(
+        ServerApp.Prepared(
+          Map(validated.dashboard.slug -> Right(validated)),
+          Some(validated.dashboard.slug),
+          Set.empty
+        )
+      )
+
+  private def tempDir(prefix: String): Resource[IO, os.Path] =
+    IO.blocking(os.temp.dir(prefix = prefix)).toResource
+
+  /** Up until [[TestServer.haDown]]; after it, a reconnect waits forever. */
+  private def fakeConnect(
+      fake: FakeHomeAssistant,
+      up: SignallingRef[IO, Boolean]
+  ): HaFeed.Connect =
+    Resource
+      .eval(up.waitUntil(identity))
+      .as((fake, up.waitUntil(!_)))
+
+  /** HA's token endpoint mints for any grant, and a user's connection is the
+    * same fake, so a tap made as a user lands where one made as the instance
+    * does.
+    */
+  private def fakeLogin(fake: FakeHomeAssistant): ServerApp.HaLogin =
+    ServerApp.HaLogin(
+      new HaOAuth(
+        uri"http://ha.test",
+        uri"http://ha.test",
+        Client.fromHttpApp(HttpApp[IO] { req =>
+          if req.uri.path.renderString.endsWith("/auth/token") then
+            Ok(
+              """{"access_token":"minted","refresh_token":"r2","expires_in":1800}"""
+            )
+          else NotFound()
+        })
+      ),
+      _ => Resource.pure(HomeAssistantApi.fromWs(fake))
     )
 
-  /** A [[HaFeed.Connect]] that hands the supervisor the in-memory fake as the
-    * low-level WS connection and never closes (`IO.never`) — so the real feed
-    * runs (durable facade, background seed, health signal) against a scripted
-    * HA and stays "connected" for the test's whole duration, no reconnect
-    * churn. A reconnect/`haDown` test that WANTS a drop supplies its own
-    * connect with a completable close instead.
-    */
-  private def fakeConnect(fake: FakeHomeAssistant): HaFeed.Connect =
-    Resource.pure((fake, IO.never[Unit]))
+  /** Every asset answers empty, so no in-process test reaches the network. */
+  private val NoCdn: Client[IO] =
+    Client.fromHttpApp(HttpApp.pure(Response[IO](Status.Ok)))
+
+  private def cdnClient: Resource[IO, Client[IO]] =
+    IO(java.net.http.HttpClient.newHttpClient())
+      .map(JdkHttpClient[IO](_))
+      .toResource
 }

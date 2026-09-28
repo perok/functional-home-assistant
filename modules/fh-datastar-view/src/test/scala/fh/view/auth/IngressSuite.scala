@@ -20,14 +20,10 @@ import org.http4s.{
 
 import scala.concurrent.duration.*
 
-/** Trusting Home Assistant's word about who is asking (ADR 0023).
-  *
-  * Behind the add-on's ingress HA has already logged the user in, so the
-  * Supervisor's `X-Remote-User-Id` is the answer and there is nobody left to
-  * log in. The header is worth NOTHING on its own, though — anyone can send it
-  * to the direct port, which shares the same 8080 — so what this suite is
-  * really about is the boundary: the header counts only from the Supervisor's
-  * own address.
+/** Trusting HA's word about who is asking (ADR 0023). Behind ingress the
+  * Supervisor's `X-Remote-User-Id` is the answer, but anyone can send it to the
+  * direct port on the same 8080, so this is about the boundary: the header
+  * counts only from the Supervisor's own address.
   */
 class IngressSuite extends munit.CatsEffectSuite {
 
@@ -74,16 +70,14 @@ class IngressSuite extends munit.CatsEffectSuite {
     gate(Some(Ingress.SupervisorIp)).flatMap { g =>
       g.of(req(Ingress.SupervisorIp, Some("u1"))).map { user =>
         assertEquals(user.map(_.name), Some("Peri"))
-        // The headers carry no role — it comes from HA's account list, which is
-        // the only reason an ingress admin can reach the editor at all.
+        // The headers carry no role; it comes from HA's account list.
         assertEquals(user.map(_.is_admin), Some(true))
       }
     }
   }
 
-  /** The whole point. Ingress and the optional direct port share 8080
-    * (`home-addon/config.yaml`), so the socket cannot tell them apart — only
-    * the source address can, and a source address cannot be forged on an
+  /** Ingress and the direct port share 8080 (`home-addon/config.yaml`), so only
+    * the source address tells them apart, and it cannot be forged on an
     * established TCP connection.
     */
   test("the same header from anywhere else is worth nothing") {
@@ -94,8 +88,8 @@ class IngressSuite extends munit.CatsEffectSuite {
   }
 
   test("a header naming somebody this instance does not know is not a user") {
-    // Must not become a logged-in nobody: `Access.Authenticated` admits any
-    // user, so an unresolvable id has to answer None rather than Some(_).
+    // `Access.Authenticated` admits any user, so an unresolvable id must be
+    // None.
     gate(Some(Ingress.SupervisorIp)).flatMap { g =>
       g.of(req(Ingress.SupervisorIp, Some("who?"))).map(assertEquals(_, None))
     }
@@ -154,9 +148,8 @@ class IngressSuite extends munit.CatsEffectSuite {
     }
   }
 
-  /** The revocation stream `AuthGate.handleStream` hands a live SSE route:
-    * "does the rule still hold". Held onto rather than consumed inside the
-    * handler, which returns a throwaway response.
+  /** Held rather than consumed in the handler, which returns a throwaway
+    * response.
     */
   private def revocationFor(
       g: AuthGate,
@@ -168,10 +161,8 @@ class IngressSuite extends munit.CatsEffectSuite {
       ) *> slot.get
     }
 
-  /** A stream that neither speaks nor ENDS. `Server.untilRevoked` halts on
-    * either side, so an empty stream cuts the connection exactly like a `false`
-    * does — hence the timeout is the pass condition and a returned `Nil` is a
-    * failure.
+  /** `Server.untilRevoked` halts on either side, so an ending stream cuts like
+    * a `false`: the timeout is the pass, a returned `Nil` a failure.
     */
   private def assertNeverRevoked(revocation: Stream[IO, Boolean]): IO[Unit] =
     revocation.take(1).compile.toList.timeout(200.millis).attempt.map {
@@ -182,15 +173,10 @@ class IngressSuite extends munit.CatsEffectSuite {
         )
     }
 
-  /** What a live stream's admission is re-asked of: whatever ADMITTED it.
-    *
-    * Only a cookie session can be withdrawn here, because the store being
-    * watched is the one logging out empties. An ingress request is in no
-    * session — HA re-authenticates it on every request — so watching the store
-    * for one asks a map that will never hold it: the watch answers false on its
-    * FIRST element, the stream says goodbye with `_reload`, and the page comes
-    * back to be told the same thing. Behind the add-on's ingress that was an
-    * endless reload loop on a dashboard the user could see perfectly well.
+  /** A stream's admission is re-asked of whatever admitted it. An ingress
+    * request is in no session, so watching the store answered false on its
+    * first element: `_reload`, and back to be told the same, an endless reload
+    * loop behind ingress.
     */
   test("an ingress stream is never revoked — it is in no session to lose") {
     gate(Some(Ingress.SupervisorIp)).flatMap { g =>
@@ -199,7 +185,6 @@ class IngressSuite extends munit.CatsEffectSuite {
     }
   }
 
-  /** The same hole, on the other carrier that carries its own credential. */
   test("a bearer stream is never revoked either") {
     gateWithSessions(
       Some(Ingress.SupervisorIp),
@@ -214,9 +199,7 @@ class IngressSuite extends munit.CatsEffectSuite {
     }
   }
 
-  /** And the half that must NOT be lost to the fix: a cookie session IS
-    * revocable, so ending it still cuts the stream that rode on it.
-    */
+  /** The half the fix must not lose: a cookie session is revocable. */
   test("a cookie stream still stops when its session ends") {
     gateWithSessions(Some(Ingress.SupervisorIp)).flatMap { case (g, sessions) =>
       for {

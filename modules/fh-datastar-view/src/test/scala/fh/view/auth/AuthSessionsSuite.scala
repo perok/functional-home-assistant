@@ -8,12 +8,9 @@ import fh.view.testkit.TestAuth
 import java.time.Instant
 import scala.concurrent.duration.*
 
-/** The session registry and the file behind it (issue #89).
-  *
-  * Two claims are load-bearing and neither is visible from a route: that the
-  * map is a LIVE signal an open SSE stream can watch, and that the
-  * write-through file is a convenience which never takes the server down or
-  * leaks its contents.
+/** The session registry and its file (issue #89). Neither load-bearing claim is
+  * visible from a route: the map is a live signal an SSE stream can watch, and
+  * the write-through file never takes the server down or leaks its contents.
   */
 class AuthSessionsSuite extends munit.CatsEffectSuite {
 
@@ -50,7 +47,6 @@ class AuthSessionsSuite extends munit.CatsEffectSuite {
     } yield {
       assertEquals(a, None)
       assertEquals(b, None)
-      // The guest is a different person and keeps their session.
       assertEquals(c.map(_.user), Some(guest))
     }
   }
@@ -65,9 +61,8 @@ class AuthSessionsSuite extends munit.CatsEffectSuite {
     } yield assertEquals(found, None)
   }
 
-  /** A renewal replaces user/refresh/clock and nothing else: HA accepts only
-    * the client_id the login was minted with, so a renewal that lost it would
-    * make the NEXT sweep sign the session out.
+  /** HA accepts only the client_id the login was minted with, so a renewal
+    * losing it would make the next sweep sign the session out.
     */
   test("renewing keeps the client the session was minted for") {
     for {
@@ -91,8 +86,8 @@ class AuthSessionsSuite extends munit.CatsEffectSuite {
     }
   }
 
-  /** What makes a logout reach a dashboard that is already open: the same
-    * predicate the door used, re-evaluated whenever the map moves.
+  /** How a logout reaches an open dashboard: the door's predicate, re-evaluated
+    * whenever the map moves.
     */
   test(
     "watch reports the session dying, under the rule the stream was admitted by"
@@ -159,10 +154,30 @@ class AuthSessionsSuite extends munit.CatsEffectSuite {
     }
   }
 
-  /** The round-trip tests pass even if BOTH sides change together, so the shape
-    * is pinned against a literal. The file is written by the previous run — and
-    * a restart happens on every dashboard edit — so a silent codec change logs
-    * the whole household out.
+  /** Several fibers write the file; interleaved writes could leave one that
+    * does not decode, which refuses the next boot.
+    */
+  test("concurrent writes leave a file holding every session") {
+    import cats.syntax.all.*
+    val dir = os.temp.dir(prefix = "fh-sessions")
+    val store = new SessionStore(dir / "sessions.json")
+    for {
+      before <- AuthSessions.create(store)
+      ids <- (1 to 50).toList.parTraverse(i =>
+        before.create(admin, s"r$i", clientId)
+      )
+      after <- AuthSessions.create(store)
+      found <- ids.traverse(after.get)
+      leftovers <- IO.blocking(os.list(dir).map(_.last))
+    } yield {
+      assertEquals(found.flatten.size, 50)
+      assertEquals(leftovers, IndexedSeq("sessions.json"))
+    }
+  }
+
+  /** Round trips pass even if both sides change together, so the shape is
+    * pinned to a literal. A restart follows every dashboard edit, so a silent
+    * codec change logs the household out.
     */
   test("the on-disk shape is fixed, not whatever the codecs currently derive") {
     val dir = os.temp.dir(prefix = "fh-sessions")
@@ -177,7 +192,6 @@ class AuthSessionsSuite extends munit.CatsEffectSuite {
     for {
       restored <- AuthSessions.create(new SessionStore(path))
       found <- restored.get("abc")
-      // ...and written back the same way.
       _ <- restored.renew("abc", found.get.user, "r1")
       onDisk <- IO.blocking(os.read(path))
     } yield {
@@ -200,10 +214,8 @@ class AuthSessionsSuite extends munit.CatsEffectSuite {
     }
   }
 
-  /** A file that EXISTS but cannot be decoded — corrupt JSON, or a session from
-    * before sessions carried their client_id — stops the boot rather than
-    * quietly starting empty: starting empty would sign the household out on
-    * every restart while reading as a warning about somebody else's problem.
+  /** Corrupt, or from before sessions carried their client_id. Starting empty
+    * would sign the household out on every restart behind a warning.
     */
   test("an undecodable sessions file refuses to boot") {
     val dir = os.temp.dir(prefix = "fh-sessions")

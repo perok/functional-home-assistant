@@ -12,11 +12,9 @@ import fs2.Stream
 import fs2.concurrent.SignallingRef
 import io.circe.Json
 
+import java.time.Instant
 import scala.concurrent.duration.*
 
-/** One recorded `call_service` invocation — what the dashboard sent back to HA
-  * when a control was actuated.
-  */
 case class ServiceCall(
     domain: String,
     service: String,
@@ -24,105 +22,71 @@ case class ServiceCall(
     serviceData: Json
 )
 
-/** The stubbed `call_service` response knobs a behaviour test turns on:
-  * `callDelay` HOLDS the response for that long (the in-flight window a busy
-  * guard test clicks inside), `failCalls` makes every `call_service` RAISE (the
-  * server then answers the action POST with 400 — the toast test's trigger).
-  * Both default off, so a test that does not ask gets today's instant-success
-  * fake and no existing caller changes.
+/** `callDelay` holds the response open, the window a busy-guard test clicks
+  * inside; `failCalls` makes every `call_service` raise, which the server
+  * answers as a refusal (the toast test's trigger). Both default off.
+  * `recorder` answers history per entity in place of the synthetic line, for a
+  * test about what was asked for or how a failure lands.
   */
 final case class FakeConfig(
     callDelay: FiniteDuration = Duration.Zero,
-    failCalls: Boolean = false
+    failCalls: Boolean = false,
+    recorder: Option[(Instant, Instant, String) => IO[List[HistoryPoint]]] =
+      None
 )
 
-/** A stubbed Home Assistant that stands in for a live instance in end-to-end
-  * tests.
+/** Stubs the low-level WS API, the one seam
+  * [[api.homeassistant.HomeAssistantApi.fromWs]] builds on, so consumers get a
+  * genuine `HomeAssistantApi[IO]`. It answers the commands the runtime issues:
   *
-  * It stubs the SMALL low-level WebSocket API ([[HAWSApiLowLevel]] — the ONE
-  * seam the whole `HomeAssistantApi` is built on via
-  * [[api.homeassistant.HomeAssistantApi.fromWs]]), not the 18-method high-level
-  * trait: the real `fromWs` wraps this, so consumers still get a genuine
-  * `HomeAssistantApi[IO]` and the fake only has to answer the few WS commands
-  * the runtime actually issues:
+  * `subscribe_entities` opens with the fixtures as one full frame, then the
+  * deltas [[emit]] pushes; `subscribe_events` hands back a per-type queue
+  * ([[pushRawEvent]]); the registry lists answer
+  * [[fh.view.build.RegistryDump.fetch]], which joins them against that same
+  * opening frame, so a Tier-A dashboard is built through the real
+  * `prepareDumps` against the fixtures the feed serves; `call_service` is
+  * recorded; the recorder's history is a synthetic line for numeric fixtures.
   *
-  *   - `subscribeStream(subscribe_entities)` opens with the fixtures as one
-  *     full state frame and then yields the deltas [[emit]] pushes — the feed
-  *     [[fh.view.runtime.StateStore]] lives on,
-  *   - `subscribeStream(subscribe_events …)` hands back a live per-type queue
-  *     ([[pushRawEvent]]) for the registry watch,
-  *   - the four `config/…_registry/list` commands answer the boot dump fetch
-  *     ([[fh.view.build.RegistryDump.fetch]]), which joins them against that
-  *     same opening state frame — so a Tier-A dashboard is built through the
-  *     REAL `prepareDumps` path against the very fixtures the feed serves, and
-  *   - `sendCommand(call_service)` records the call for later assertion, and
-  *   - the recorder's history answers a synthetic line for numeric fixtures.
-  *
-  * Anything else raises `NotImplementedError`: not on the runtime hot path, so
-  * an unexpected command is a loud test failure rather than a silent stub. This
-  * lets a test drive the WHOLE loop — `HaFeed` -> `StateStore` -> `Server` ->
-  * HTTP/SSE -> `call_service` — against static, in-repo state with a scripted
-  * timeline, and no live HA.
+  * Anything else raises `NotImplementedError`, so an unexpected command fails
+  * loudly.
   */
 final class FakeHomeAssistant private (
     stateRef: Ref[IO, Map[String, FixtureEntity]],
-    // One live queue per subscribed event type, created on first subscribe,
-    // carrying the raw event objects that type yields — exactly what the real
-    // low-level yields after extracting the `event` field. A per-type Queue (not
-    // a fresh one per subscribe) is what makes a subscription DURABLE across
-    // reconnects: a re-subscribe reads the SAME queue, so an event pushed during
-    // the gap is buffered, not lost.
+    // Created on first subscribe and shared by every re-subscribe, so an event
+    // pushed during a reconnect gap is buffered, not lost.
     queues: Ref[IO, Map[String, Queue[IO, Json]]],
     calls: Ref[IO, Vector[ServiceCall]],
-    // The live delta feed. ONE queue for the lifetime of the fake, which is what
-    // makes the entity subscription durable across a reconnect: a re-subscribe
-    // reads the SAME queue, so a delta pushed during the gap is buffered.
+    // One for the fake's lifetime, so a delta pushed during a reconnect gap is
+    // buffered.
     deltas: Queue[IO, EntitiesEvent],
-    // Monotonic tick, stamped as each emit's `last_updated` so a change always
-    // reads as newer than the opening full set and prior emits (StateStore's
-    // recency guard).
+    // Stamped as each emit's `last_updated`, so a change always passes
+    // StateStore's recency guard.
     clock: Ref[IO, Long],
-    // How many `subscribe_events` subscriptions have been opened, counting
-    // re-subscribes. See [[awaitEventSubscribes]].
     eventSubscribes: SignallingRef[IO, Int],
-    // Every `subscribe_entities` this fake has been asked for, in order, with
-    // the filter it carried. The feed re-subscribes when the set of entities
-    // the dashboards read changes, and this is what makes that visible — the
-    // narrowing is otherwise invisible to a test, since a filtered feed and an
-    // unfiltered one deliver the same fixtures.
+    // The feed re-subscribes when the entity set the dashboards read changes,
+    // and a filtered feed delivers the same fixtures as an unfiltered one, so
+    // this is the only way a test sees the narrowing.
     entitySubscribes: SignallingRef[IO, Vector[Option[List[String]]]],
-    // Which CONNECTION generation subscriptions belong to. See [[dropConnection]].
+    // See [[dropConnection]].
     generation: SignallingRef[IO, Int],
-    // The `call_service` response knobs ([[FakeConfig]]): a delay to hold the
-    // response, or failure — both for tests of the guarded-action feedback.
     config: FakeConfig
 ) extends HAWSApiLowLevel[IO] {
 
-  /** Model a dropped connection: every subscription opened on the current
-    * generation ENDS, as the real transport's `None` sentinel makes it.
-    *
-    * The fake stands in for the low level, so without this its streams outlive
-    * every connection and a consumer that must re-subscribe looks identical to
-    * one that need not — which is exactly the distinction worth testing now
-    * that subscriptions are not durable.
+  /** Every subscription opened on the current generation ends, as the real
+    * transport's `None` sentinel makes it. Otherwise a consumer that must
+    * re-subscribe looks identical to one that need not.
     */
   def dropConnection: IO[Unit] = generation.update(_ + 1)
 
-  /** Bind a stream to the generation that opened it. */
   private def forThisConnection[A](s: Stream[IO, A]): IO[Stream[IO, A]] =
     generation.get.map(mine => s.interruptWhen(generation.map(_ != mine)))
 
-  /** Block until `subscribe_events` has been subscribed `n` times.
-    *
-    * A reconnect test needs this because "the supervisor re-connected" happens
-    * strictly BEFORE "the durable subscription re-armed" — pushing an event in
-    * between races the seam, where an event taken from the dying connection but
-    * not yet handed to the durable queue is legitimately lost.
+  /** The supervisor reconnecting happens strictly before the subscription
+    * re-arms, and an event pushed between them can legitimately be lost.
     */
   def awaitEventSubscribes(n: Int): IO[Unit] =
     eventSubscribes.discrete.find(_ >= n).head.compile.drain
 
-  /** The persistent queue for one event type, created on first use. */
   private def queueFor(eventType: String): IO[Queue[IO, Json]] =
     queues.get.map(_.get(eventType)).flatMap {
       case Some(q) => IO.pure(q)
@@ -131,8 +95,6 @@ final class FakeHomeAssistant private (
           .unbounded[IO, Json]
           .flatMap(q => queues.update(_.updated(eventType, q)).as(q))
     }
-
-  // --- The WS commands the runtime uses, with real behaviour -----------------
 
   def sendCommand[Response](
       command: CommandPhase & CommandResponse.WithSingleResponse[Response]
@@ -151,12 +113,9 @@ final class FakeHomeAssistant private (
           .flatMap(_ => delayedOrFailedResponse)
           .as(Json.obj())
 
-      // The four registries [[fh.view.build.RegistryDump]] joins against. A
-      // fixture declares entities and their attributes, never registry rows, so
-      // these are EMPTY — which is a faithful answer, not a stub: the dump's
-      // join runs from the state snapshot, so every fixture entity still lands
-      // in the dump, just with no area/floor/device/category. A test that needs
-      // those fills the corresponding list in.
+      // Fixtures declare entities, never registry rows, so these are empty: a
+      // faithful answer, since the dump's join runs from the state snapshot. A
+      // test that needs areas or devices fills the list in.
       case _: `config/entity_registry/list` =>
         IO.pure(Nil)
       case _: `config/device_registry/list` =>
@@ -165,34 +124,42 @@ final class FakeHomeAssistant private (
         IO.pure(Nil)
       case _: `config/floor_registry/list` =>
         IO.pure(Nil)
-      // A house with no accounts. Suites that care about users seed them
-      // through the dump they build, not through the fake.
+      // Suites that care about users seed them through the dump they build.
       case _: `config/auth/list` =>
         IO.pure(Nil)
 
-      // A recorder that has kept every numeric fixture at its current state,
-      // with a ripple so a chart has a line to draw, sampled across whatever
-      // span was asked — so charts of two windows differ by their time axis.
-      // No statistics: `History` then charts the raw history.
       case h: `history/history_during_period` =>
-        stateRef.get.map { states =>
-          h.entity_ids.flatMap { id =>
-            states.get(id).flatMap(_.state.toDoubleOption).map { v =>
-              val step =
-                (h.end_time.toEpochMilli - h.start_time.toEpochMilli) / 30
-              id -> List.tabulate(31) { i =>
-                HistoryPoint(
-                  (v + math.sin(i / 3.0)).toString,
-                  h.start_time.plusMillis(step * i)
-                )
-              }
-            }
-          }.toMap
-        }
+        config.recorder.fold(syntheticHistory(h))(recorder =>
+          h.entity_ids
+            .traverse(id => recorder(h.start_time, h.end_time, id).map(id -> _))
+            .map(_.toMap)
+        )
       case _: `recorder/statistics_during_period` =>
         IO.pure(Map.empty[String, List[StatisticPoint]])
 
       case _ => na
+    }
+
+  /** Every numeric fixture at its current state, with a ripple so a chart has a
+    * line, sampled across the asked span. No statistics, so `History` charts
+    * the raw history.
+    */
+  private def syntheticHistory(
+      h: `history/history_during_period`
+  ): IO[Map[String, List[HistoryPoint]]] =
+    stateRef.get.map { states =>
+      h.entity_ids.flatMap { id =>
+        states.get(id).flatMap(_.state.toDoubleOption).map { v =>
+          val step =
+            (h.end_time.toEpochMilli - h.start_time.toEpochMilli) / 30
+          id -> List.tabulate(31) { i =>
+            HistoryPoint(
+              (v + math.sin(i / 3.0)).toString,
+              h.start_time.plusMillis(step * i)
+            )
+          }
+        }
+      }.toMap
     }
 
   def subscribeStream[Result](
@@ -200,24 +167,17 @@ final class FakeHomeAssistant private (
   ): Resource[IO, Stream[IO, Result]] =
     msg match {
       case s: `subscribe_entities` =>
-        // Real HA opens the feed with the subscribed set in full and then sends
-        // deltas, so the stream is "current fixtures as one `a` frame" followed
-        // by the live delta queue `emit` pushes to. Deriving the opening frame
-        // from the same fixtures the dump comes from is what keeps built-against
-        // and served state identical.
-        //
-        // The filter is APPLIED, not just recorded: a fake that accepted
-        // `entity_ids` and then delivered everything would let a wrong entity
-        // set pass every test here and fail only against a real instance.
+        // The opening frame comes from the same fixtures as the dump, which
+        // keeps built-against and served state identical. The filter is
+        // applied, not just recorded, or a wrong entity set would fail only
+        // against a real instance.
         val only = s.entity_ids.map(_.toSet)
         Resource.eval(
           entitySubscribes.update(_ :+ s.entity_ids) *>
             forThisConnection(
-              // The opening frame is sent even when it is empty — an instance
-              // with no fixtures, or a filter that matches none — because it is
-              // what tells the feed it is seeded. Only DELTAS are dropped when
-              // the filter empties them, which is what real HA does: it never
-              // sends an event for an entity you did not subscribe to.
+              // The opening frame is sent even when empty: it tells the feed it
+              // is seeded. Only deltas are dropped when filtered out, as HA
+              // does.
               Stream.eval(fullSet.map(narrow(_, only))) ++
                 Stream
                   .fromQueueUnterminated(deltas)
@@ -228,8 +188,6 @@ final class FakeHomeAssistant private (
             )
         )
       case subscribe_events(Some(eventType)) =>
-        // Both the store's state_changed feed and arbitrary rawEvents (the
-        // registry watch) resolve to their persistent per-type queue.
         Resource.eval(
           queueFor(eventType)
             .flatTap(_ => eventSubscribes.update(_ + 1))
@@ -238,14 +196,11 @@ final class FakeHomeAssistant private (
       case _ => naR
     }
 
-  // The fake never "closes" — the never-closing `Connect` in `TestServer`
-  // supplies the supervisor's `awaitClosed`; this is only here to satisfy the
-  // trait.
+  // The never-closing `Connect` in `TestServer` supplies `awaitClosed`.
   def awaitClosed: IO[Unit] = IO.never
 
-  /** One frame as a filtered subscription would see it. `None` is unfiltered —
-    * which is also what HA does with an EMPTY `entity_ids`, and the reason the
-    * production code refuses to send one.
+  /** `None` is unfiltered, which is also what HA does with an empty
+    * `entity_ids`, and why production refuses to send one.
     */
   private def narrow(
       e: EntitiesEvent,
@@ -259,20 +214,16 @@ final class FakeHomeAssistant private (
       )
     }
 
-  /** Every `subscribe_entities` asked of this fake, in order, with its filter.
-    */
   def entitySubscriptions: IO[Vector[Option[List[String]]]] =
     entitySubscribes.get
 
-  /** Wait until at least `n` entity subscriptions have been opened — the
-    * readiness seam for a re-subscribe, which is otherwise racy to observe.
+  /** The readiness seam for a re-subscribe, which is otherwise racy to observe.
     */
   def awaitEntitySubscribes(n: Int): IO[Unit] =
     entitySubscribes.discrete.filter(_.sizeIs >= n).head.compile.drain
 
-  /** The current fixtures as a `subscribe_entities` opening frame: every entity
-    * with its complete state, stamped with the current tick so a reconnect's
-    * frame is never older than what the store already holds.
+  /** Stamped with the current tick, so a reconnect's frame is never older than
+    * what the store holds.
     */
   private def fullSet: IO[EntitiesEvent] =
     (stateRef.get, clock.get).mapN { (current, tick) =>
@@ -281,56 +232,41 @@ final class FakeHomeAssistant private (
       )
     }
 
-  // --- Test-driving surface (not part of the trait) --------------------------
-
-  /** Apply one change over time: update the fixture and push the matching feed
-    * DELTA, exactly as a real `subscribe_entities` frame would. The store's
-    * background fiber picks it up and re-renders dependents.
+  /** Update the fixture and push the matching delta, as a real
+    * `subscribe_entities` frame would.
     */
   def emit(
       entityId: String,
       state: String,
       attributes: Map[String, Json] = Map.empty
   ): IO[Unit] =
+    emitFrame(List(FixtureEntity(entityId, state, attributes)))
+
+  /** Several entities in one frame, which the feed applies as one batch. */
+  def emitFrame(nexts: List[FixtureEntity]): IO[Unit] =
     clock.updateAndGet(_ + 1).flatMap { tick =>
       stateRef
         .modify { current =>
-          val prev = current.getOrElse(
-            entityId,
-            FixtureEntity(entityId, "unknown", Map.empty)
-          )
-          val next = FixtureEntity(entityId, state, attributes)
-          (current.updated(entityId, next), (prev, next))
-        }
-        .flatMap { (prev, next) =>
-          deltas.offer(
-            EntitiesEvent(
-              changed = Map(
-                entityId -> next.deltaFrom(prev, FixtureEntity.epochAt(tick))
-              )
+          val changed = nexts.map { next =>
+            val prev = current.getOrElse(
+              next.entityId,
+              FixtureEntity(next.entityId, "unknown", Map.empty)
             )
-          )
+            next.entityId -> next.deltaFrom(prev, FixtureEntity.epochAt(tick))
+          }
+          (current ++ nexts.map(n => n.entityId -> n), changed.toMap)
         }
+        .flatMap(changed => deltas.offer(EntitiesEvent(changed = changed)))
     }
 
-  /** Push a raw event of an arbitrary type onto its subscription queue — the
-    * registry-watch analogue of [[emit]], used to drive a durable `rawEvents`
-    * subscription (e.g. across a reconnect).
-    */
+  /** The registry-watch analogue of [[emit]]. */
   def pushRawEvent(eventType: String, payload: Json): IO[Unit] =
     queueFor(eventType).flatMap(_.offer(payload))
 
-  /** Every `call_service` recorded so far, in order. */
   def recordedCalls: IO[Vector[ServiceCall]] = calls.get
 
-  /** Forget every recorded call (per-test isolation). */
   def resetCalls: IO[Unit] = calls.set(Vector.empty)
 
-  /** The [[FakeConfig]] knob half of a `call_service` answer: fail (the server
-    * turns the raised error into a 400 action response — the toast test's
-    * trigger), else hold the configured delay (the in-flight window the busy
-    * guard test clicks inside), else return at once.
-    */
   private def delayedOrFailedResponse: IO[Unit] =
     if (config.failCalls)
       IO.raiseError(
@@ -348,10 +284,7 @@ final class FakeHomeAssistant private (
 
 object FakeHomeAssistant {
 
-  /** Build a fake seeded with the given entities. Unbounded event queue: tests
-    * emit a handful of changes, never enough to matter. `config` defaults to
-    * instant-success — the knobs are opt-in per test.
-    */
+  /** Unbounded event queue: tests emit a handful of changes. */
   def create(
       seed: List[FixtureEntity],
       config: FakeConfig = FakeConfig()

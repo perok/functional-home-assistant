@@ -13,18 +13,11 @@ import org.http4s.{HttpApp, Method, Request, Response, Status, Uri, UrlForm}
 
 import java.time.Instant
 
-/** '''Whose tap is it''' (issue #198).
-  *
-  * HA decides that from the CONNECTION, in its auth handshake — so the one
-  * shared socket this app reads through makes every button press the add-on's,
-  * and a house's logbook says Supervisor turned the lights off. These are about
-  * the credential a call goes out under, which is the only thing that changes
-  * the answer.
-  *
-  * Driven through the REAL [[HaOAuth]] over a stub HTTP backend, like
-  * [[RevalidateSessionsSuite]]: the `/auth/token` contract — a non-200 means
-  * the grant is gone — is what the sign-out below hangs on, so it is exercised
-  * rather than assumed.
+/** '''Whose tap is it''' (issue #198). HA decides from the connection's auth
+  * handshake, so the one shared socket made every press the add-on's, and the
+  * logbook said Supervisor turned the lights off. Through the real [[HaOAuth]]
+  * over a stub backend, since the sign-out below hangs on its contract that a
+  * non-200 means the grant is gone.
   */
 class ActingAsUserSuite extends munit.CatsEffectSuite {
 
@@ -48,9 +41,8 @@ class ActingAsUserSuite extends munit.CatsEffectSuite {
     Response[IO](Status.BadRequest).withEntity("""{"error":"invalid_grant"}""")
   )
 
-  /** The instance's own connection, and a per-token one that records which
-    * token opened it. Both are the same fake HA — what a test asserts on is
-    * WHICH of them ran the call, and under what.
+  /** Both are the same fake HA; tests assert which ran the call, and under
+    * what.
     */
   private case class Wiring(
       calls: ServiceCalls,
@@ -86,11 +78,8 @@ class ActingAsUserSuite extends munit.CatsEffectSuite {
   private def toggle(w: Wiring, session: Option[String]): IO[Json] =
     w.calls.call(req(session), "light", "toggle", "light.a", Json.obj())
 
-  /** A stored token that is good for another half hour. */
   private def freshAccess: IO[HaAccess] =
     IO.realTimeInstant.map(now => HaAccess("stored", now.plusSeconds(1800)))
-
-  // ---------------------------------------------------------------------------
 
   test("nobody to be: the call goes out on the instance's own connection") {
     for {
@@ -102,8 +91,8 @@ class ActingAsUserSuite extends munit.CatsEffectSuite {
     } yield {
       assertEquals(shared.map(_.entityId), Vector("light.a"), clue = shared)
       assertEquals(perUser, Vector.empty, clue = perUser)
-      // Not merely unused — never even opened. A socket per action is the cost
-      // this shape pays, and a request with no session must not pay it.
+      // Never opened: a socket per action is this shape's cost, and a request
+      // with no session must not pay it.
       assertEquals(opened, Nil, clue = opened)
     }
   }
@@ -125,8 +114,7 @@ class ActingAsUserSuite extends munit.CatsEffectSuite {
     } yield {
       assertEquals(opened, List("stored"), clue = opened)
       assertEquals(perUser.map(_.entityId), Vector("light.a"), clue = perUser)
-      // The whole point: the shared connection, which is the add-on's identity,
-      // did not run it.
+      // The shared connection, the add-on's identity, did not run it.
       assertEquals(shared, Vector.empty, clue = shared)
     }
   }
@@ -140,10 +128,9 @@ class ActingAsUserSuite extends munit.CatsEffectSuite {
       opened <- w.opened.get
       stored <- w.sessions.get(id)
     } yield {
-      // Minted once, used twice — the storing is what the second tap proves.
+      // The second tap proves the storing.
       assertEquals(opened, List("minted", "minted"), clue = opened)
       assertEquals(stored.flatMap(_.access).map(_.token), Some("minted"))
-      // ...and the refresh token HA rotated in came with it.
       assertEquals(stored.map(_.refresh), Some("r2"))
     }
   }
@@ -152,11 +139,10 @@ class ActingAsUserSuite extends munit.CatsEffectSuite {
     for {
       w <- wiring(haStub(renewed))
       now <- IO.realTimeInstant
-      // Inside the margin: still valid this instant, and not valid for long
-      // enough to survive a connect. A handshake that loses that race is
-      // answered `auth_invalid`, which the transport reports as an ordinary
-      // connect failure — there is no way to tell it from a dead network
-      // afterwards, so the margin is what keeps them apart.
+      // Valid now but not for long enough to survive a connect. A handshake
+      // losing that race gets `auth_invalid`, reported as an ordinary connect
+      // failure indistinguishable from a dead network, so the margin keeps them
+      // apart.
       id <- w.sessions.create(
         user,
         "r1",
@@ -181,10 +167,9 @@ class ActingAsUserSuite extends munit.CatsEffectSuite {
         outcome.left.exists(_.isInstanceOf[FHError]),
         clue = outcome
       )
-      // Both halves, and they belong together: a dead grant is not one refused
-      // button, it is this person being logged out. Dropping the session is
-      // what cuts their open streams (`AuthSessions.watch`), so the page stops
-      // with the tap rather than staying live around a dead control.
+      // A dead grant logs this person out: dropping the session cuts their
+      // streams (`AuthSessions.watch`), so the page stops rather than living
+      // around a dead control.
       assertEquals(still, None, clue = still)
       assertEquals(opened, Nil, clue = opened)
     }
@@ -198,19 +183,14 @@ class ActingAsUserSuite extends munit.CatsEffectSuite {
       _ <- toggle(w, Some(id))
       after <- w.sessions.get(id).map(_.map(_.verifiedAt))
     } yield
-      // `verifiedAt` means "when HA last confirmed this user's ROLE", and
-      // minting a token confirms nothing about it — the periodic sweep
-      // re-reads the user, and that is what may move this. Stamping it here
-      // would push the sweep further out on every button press, so the
-      // busiest dashboard would be the one whose demoted admin kept access
-      // longest.
+      // `verifiedAt` is when HA last confirmed the role, and minting a token
+      // confirms nothing about it. Stamping it here would let the busiest
+      // dashboard's demoted admin keep access longest.
       assertEquals(after, before, clue = (before, after))
   }
 
-  /** Not a behaviour of the code so much as a property of the shape it stores:
-    * the session file already holds the refresh token, which mints these on
-    * demand and does not expire. Keeping the short-lived one beside it widens
-    * nothing.
+  /** The session file already holds the refresh token, which mints these on
+    * demand and does not expire, so keeping the short-lived one widens nothing.
     */
   test(
     "the stored access token expires; the refresh token it came from does not"

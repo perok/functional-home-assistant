@@ -3,32 +3,19 @@ package fh.view.testkit
 import fh.view.model.Dashboard
 import io.circe.Json
 
-/** The Pkl-authored dashboard the browser suites (`fh.view.smoke`) drive: real
-  * `theme-beer.pkl` chrome/CSS (unlike [[PklFixture.dummyTheme]] fixtures
-  * elsewhere, these tests exist specifically to exercise real CSS/JS in a real
-  * browser), plus one of each interaction class a UI/visual smoke test needs
-  * something to click — a popup trigger, a tab bar, a brightness slider, and a
-  * domain composition (`c.lock.controls`) — over the [[HouseFixture]] entities,
-  * so the served state and the dashboard can never drift (same discipline as
-  * [[PklFixture]]).
-  *
-  * The theme amend pins the text font (see [[fontPinnedTheme]]) — TEST-ONLY, so
-  * [[fh.view.smoke.ComponentVisualSuite]]'s baselines are portable between a
-  * local machine and CI's `ubuntu-latest`.
+/** The dashboard the browser suites drive: the real `theme-beer.pkl`, since
+  * these exist to exercise real CSS and JS, plus one of each interaction class
+  * (a popup trigger, a tab bar, a brightness slider, `c.lock.controls`) over
+  * the [[HouseFixture]] entities. The text font is pinned
+  * ([[fontPinnedTheme]]), test-only, so the visual baselines are portable.
   */
 object SmokeDashboard {
 
-  /** Amend the inherited BeerTheme to bundle a text webfont, appending nothing
-    * else. BeerCSS's `--font` stack already LEADS with `Inter` but never loads
-    * it, so each machine falls back to a different system sans — a difference
-    * dramatic at heading size and enough to blow the [[VisualSnapshot]] budget
-    * on every component. `@fontsource/inter`'s relative `url(...)` woff2 refs
-    * are localized by `AssetCache` exactly like the Material Symbols icon font,
-    * so both environments render byte-identical glyphs and only sub-pixel
-    * FreeType antialiasing is left — which the perceptual diff already
-    * forgives. This makes [[VisualSnapshot]]'s "every asset (fonts included) is
-    * pinned" claim actually true. TEST-ONLY: the live `theme-beer.pkl` keeps
-    * its system stack (a real user's browser picks the first font it has).
+  /** BeerCSS's `--font` stack leads with `Inter` but never loads it, so each
+    * machine falls back to a different system sans, enough to blow the
+    * [[VisualSnapshot]] budget. `AssetCache` localizes `@fontsource/inter` like
+    * the MDI icon font, leaving only sub-pixel antialiasing. The live theme
+    * keeps its system stack.
     */
   private val fontPinnedTheme =
     """theme {
@@ -78,13 +65,8 @@ object SmokeDashboard {
   val dashboard: Dashboard =
     PklFixture.buildDashboard("smoke-house", entrySource)
 
-  /** An appliance mid-cycle — `c.progress` over the three washer sensors.
-    *
-    * Its own dashboard for the INVERSE of the reason [[percentSlider]] has one:
-    * this card is here to be photographed, and putting it on [[dashboard]]
-    * would move `full-dashboard.png` as well, making two baselines to mint from
-    * CI where the card itself needs one. Everything else on this page would
-    * then be re-photographed to add a card that is not about them.
+  /** Its own dashboard so photographing it does not move `full-dashboard.png`
+    * too.
     */
   val appliance: Dashboard =
     PklFixture.buildDashboard(
@@ -109,11 +91,9 @@ object SmokeDashboard {
          |""".stripMargin
     )
 
-  /** A slider whose line reads out its LEVEL — the readout a drag has to move
-    * itself, since it is a function of the position rather than of the state.
-    * Its own dashboard rather than a sixth card on [[dashboard]], because that
-    * one is what [[fh.view.smoke.ComponentVisualSuite]] photographs and a new
-    * card there is a new PNG baseline for a behavioural test.
+  /** The readout a drag must move itself, since it follows the position. Its
+    * own dashboard: a card on [[dashboard]] is a new PNG baseline for a
+    * behavioural test.
     */
   val percentSlider: Dashboard =
     PklFixture.buildDashboard(
@@ -135,12 +115,8 @@ object SmokeDashboard {
           |""".stripMargin
     )
 
-  /** A slider whose POWER BUTTON is a busy-guarded tap: the button carries both
-    * an `i.mdi` icon and the busy class binding, which is the "icon turns into
-    * a spinner while the call is in flight" case ([[fh.view.smoke.
-    * ControlSmokeSuite]] drives it). Its own dashboard rather than a card on
-    * [[dashboard]], for the same PNG-baseline reason [[percentSlider]] has its
-    * own.
+  /** The power button carries an `i.mdi` icon and the busy binding: the
+    * icon-turns-spinner case. Its own dashboard for the baseline reason.
     */
   val busyIcon: Dashboard =
     PklFixture.buildDashboard(
@@ -162,17 +138,12 @@ object SmokeDashboard {
          |""".stripMargin
     )
 
-  /** A name no phone can fit, for the layout tests that ask what a slider does
-    * when its label is longer than the room it has.
-    */
   val longName = "Kitchen Ceiling Spotlights Above The Sink"
 
-  /** Every shape a slider row takes, each in a fitting and an overflowing
-    * spelling: a plain row, a group's head, and a member row. Both bugs
-    * [[fh.view.smoke.UiSmokeSuite]]'s narrow-viewport tests cover (a squeezed
-    * badge, a readout pushed off the card) appear only when the text overflows
-    * and behave differently per shape — a member's head is a grid item, a plain
-    * row's is a block — so a single long label proves nothing about the others.
+  /** A plain row, a group's head and a member row, each fitting and
+    * overflowing. The squeezed badge and pushed-off readout appear only on
+    * overflow and differ per shape (a member's head is a grid item), so one
+    * long label proves nothing about the others.
     */
   val longLabelRows: Dashboard =
     PklFixture.buildDashboard(
@@ -215,10 +186,9 @@ object SmokeDashboard {
          |""".stripMargin
     )
 
-  /** The light [[switchSlider]] drives: its only colour mode is `onoff`, which
-    * is Home Assistant's own statement that it switches and nothing more. Not a
-    * member of the house — see [[HouseFixture.dumpWith]] — so a scene that
-    * wants it seeds it with `.entity(...)`.
+  /** Its only colour mode is `onoff`: HA's statement that it only switches. Not
+    * in the house (see [[HouseFixture.dumpWith]]), so a scene seeds it with
+    * `.entity(...)`.
     */
   val switchLight: FixtureEntity = FixtureEntity(
     "light.plug",
@@ -229,11 +199,8 @@ object SmokeDashboard {
     )
   )
 
-  /** The on/off variant of a slider: nothing to drag, so the whole track is one
-    * button ([[fh.view.smoke.ControlSmokeSuite]] presses it). A second line, so
-    * the card is taller than a button's own height — which is the difference
-    * that made the target miss. Its own dashboard for the PNG-baseline reason
-    * [[percentSlider]] has one.
+  /** Nothing to drag, so the whole track is one button. A second line makes the
+    * card taller than a button, the difference that made the target miss.
     */
   val switchSlider: Dashboard =
     PklFixture.buildDashboard(

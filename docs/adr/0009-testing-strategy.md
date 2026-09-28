@@ -49,11 +49,13 @@ test POSTs the action, asserts `recordedCalls`, then `emit`s the resulting state
 itself. Baking "turn_on ⇒ on" into the fake would encode HA semantics we don't
 own.
 
-`TestServer.resource(dashboard, entities)` assembles the real `Server` exactly as
-`ServerApp` does and drives it in-process via `app.run(req)`.
-`ts.observePatch(marker, trigger)` is the deterministic SSE primitive: it opens
-one connection, gates on subscriber readiness (never sleeps), runs the trigger,
-and succeeds when a pushed fragment contains `marker`.
+`TestServer.resource(dashboard, entities)` is `ServerApp.assemble` with only its edges
+stubbed (the HA socket, HA's token endpoint, the asset CDN), driven in-process through
+the same `HttpApp` production binds.
+`ts.connect(query)` opens a live client; `ts.change(id, state)` and `ts.frame(entities*)`
+send one HA frame and return once every held session has pulled it and every client's bytes
+have landed, a gate asked of the server, since a client owed nothing receives nothing.
+`ts.sentAfter(frames)` is the two together, minus the opening block.
 
 ### 2. The fixture and dashboard derive from one source
 
@@ -222,7 +224,7 @@ streaming hung 18 of 720 tests at their guards, a different subset per run.
 a document fetch through shared helpers (`AckedResumeSuite`, `SurfaceTapSuite`), so a per-test scan
 mis-classifies them — and a mis-classified test does not fail, it HANGS. What simulated time was
 buying here is only poll-loop acceleration: every sleep in the affected suites is 5–300 ms and the
-windows they exercise are `adoptionWindow`-sized.
+windows they exercise are adoption-window-sized.
 
 **The real clock then found two production bugs that simulated time had been hiding**, which is the
 reason to keep it rather than raise the guards:

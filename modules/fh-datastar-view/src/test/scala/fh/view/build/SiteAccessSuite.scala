@@ -4,17 +4,11 @@ import cats.effect.IO
 import fh.view.model.Access
 import fh.view.testkit.PklWorkspace
 
-/** Where a dashboard's access rule actually comes from (issue #89).
-  *
-  * Precedence is resolved in Scala, not Pkl (ADR 0021 rejected a Pkl hoisting
-  * mechanism for per-dashboard wire fields), which means the fold lives in
-  * `Site.decode` and nothing else re-derives it. That makes this the one place
-  * the rule "the dashboard's own wins, else the site's" is decided — and the
-  * direction it fails in matters: a fold that silently drops the site default
-  * serves an authored-admin site to anyone with a login.
-  *
-  * Driven through the real Pkl entrypoint rather than hand-built JSON, so it
-  * also pins that `site.pkl` and `entry.pkl` actually EMIT the field.
+/** Where a dashboard's access rule comes from (issue #89): the dashboard's own,
+  * else the site's, folded only in `Site.decode` (ADR 0021 kept precedence out
+  * of Pkl). A fold dropping the site default serves an admin-only site to
+  * anyone with a login. Through the real entrypoint, so `site.pkl` and
+  * `entry.pkl` are pinned to emit the field.
   */
 class SiteAccessSuite extends munit.CatsEffectSuite {
 

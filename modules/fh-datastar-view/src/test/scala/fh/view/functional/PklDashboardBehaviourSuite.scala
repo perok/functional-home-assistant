@@ -8,33 +8,18 @@ import fh.view.testkit.{FixtureEntity, HouseFixture}
 
 import scala.concurrent.duration.*
 
-/** The Tier-A capstone (ADR 0009): the SAME end-to-end behaviour as
-  * [[DashboardBehaviourSuite]], but the dashboard is a real Pkl entry evaluated
-  * through the GENUINE server build path — `TestServer.fromWorkspace` runs
-  * `ServerApp.prepareRenderers` (discover -> `prepareDumps` -> `buildEntry`)
-  * and `liveServer`, the exact sequence production's `run` uses. Nothing is
-  * stubbed but the HA socket: the dump is FETCHED from the fake's
-  * `render_template` (same fixtures `get_states` serves), so the Pkl track and
-  * the runtime track meet with no shortcut through a pre-built `Dashboard`.
-  *
-  * The entry is authored against `dump.entities.<key>` for the fixture
-  * entities; because the served dump and the seeded state both derive from the
-  * SAME [[FixtureEntity]] set, the two cannot drift.
+/** The Tier-A capstone (ADR 0009): [[DashboardBehaviourSuite]]'s behaviour, but
+  * from a real Pkl entry through `TestServer.fromWorkspace`, the sequence
+  * production's `run` uses. The dump is fetched from the fake's
+  * `render_template`, and it and the seeded state come from one
+  * [[FixtureEntity]] set, so they cannot drift.
   */
 class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
 
-  /** Every entity the entry references — also the fake's seed and the source of
-    * the dump it serves. One declaration feeds all three.
-    */
+  /** The entry's entities, the fake's seed and the source of its dump. */
   private val entities: List[FixtureEntity] =
     List(HouseFixture.outsideTemp, HouseFixture.kitchenLight)
 
-  /** A minimal real entry over two fixture entities: a numeric sensor (whose
-    * `entityCard` value auto-appends the unit) and the kitchen light. Authored
-    * exactly as a hand-written dashboard would be — `amends
-    * "@fh-dashboard/entry.pkl"`, referencing entities by their generated dump
-    * keys.
-    */
   private val entrySource =
     s"""amends "@fh-dashboard/entry.pkl"
        |
@@ -53,9 +38,8 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
        |}
        |""".stripMargin
 
-  /** A slider that ALSO carries a power button — the one node with two guarded
-    * elements — so the test can prove the button's `_<id>__busy` and the
-    * input's `_<id>__busy_change` are distinct names that never collide.
+  /** The one node with two guarded elements, so the button's `_<id>__busy` and
+    * the input's `_<id>__busy_change` must never collide.
     */
   private val sliderEntry =
     s"""amends "@fh-dashboard/entry.pkl"
@@ -80,11 +64,9 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
 
   test("a Pkl-built dashboard renders the seeded live state") {
     withServer(_.page()).map { html =>
-      // entityCard label = the live friendly_name; value = $state + unit.
       assert(html.contains("Outside Temperature"), clue = html)
       assert(html.contains("12.4"), clue = html)
       assert(html.contains("°C"), clue = html)
-      // The kitchen light card: its friendly_name label and its "on" state.
       assert(html.contains("Kitchen"), clue = html)
       assert(html.contains(">on<"), clue = html)
     }
@@ -92,10 +74,8 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
 
   test("a navigating button reaches the browser as a real link") {
     withServer(_.page()).map { html =>
-      // The whole point of ADR 0002's navigation decision, end to end: the
-      // author wrote c.navigate, and what ships is an anchor the browser can
-      // middle-click, with a relative href resolved against <base href> — no
-      // script, so it works before Datastar loads.
+      // ADR 0002 end to end: c.navigate ships as an anchor with a relative href
+      // against <base href>, which works before Datastar loads.
       assert(
         html.contains(
           """<a class="button card" href="d/other">""" +
@@ -110,13 +90,10 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
     "a guarded tap renders its busy guard, indicator and class; unguarded taps do not"
   ) {
     withServer(_.page()).map { html =>
-      // The light entity card's default service tap is guarded (ADR 0016), and
-      // every guarded element carries the pieces the frontend contract names
-      // (see `tap.pkl`'s `busyGuard`/`busyAttrs`/`busyClass` and the
-      // action-feedback plan): the guard makes the click expression a no-op
-      // while the call is in flight, the indicator drives the `_<id>__busy`
-      // signal, and the class binds both `fh-disabled` (instant dim) and
-      // `fh-loading` (CSS-delayed spinner) on the same signal.
+      // The default service tap is guarded (ADR 0016; `tap.pkl`'s `busyGuard`,
+      // `busyAttrs`, `busyClass`): a no-op click while in flight, an indicator
+      // on `_<id>__busy`, and `fh-disabled` plus `fh-loading` on the same
+      // signal.
       assert(html.contains("data-indicator=\"_c_2__busy\""), clue = html)
       assert(
         html.contains("data-class:fh-disabled=\"$_c_2__busy\""),
@@ -126,10 +103,8 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
         html.contains("data-class:fh-loading=\"$_c_2__busy\""),
         clue = html
       )
-      // Two guards, and neither subsumes the other: BUSY is "this tap's own
-      // POST is in flight" (the card's, via `guardClick`), INERT is "the entity
-      // is in a state that refuses the press" (the tap's, via `click`) — for a
-      // plain `light/toggle` that is availability alone.
+      // Neither guard subsumes the other: busy is this tap's POST in flight,
+      // inert is an entity state that refuses the press.
       assert(
         html.contains(
           "data-on:click=\"$_c_2__busy ? '' : $_e.light.kitchen."
@@ -142,15 +117,12 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
         ),
         clue = html
       )
-      // Every guarded POST is no-signals, so the `_<id>__busy` signal —
-      // created client-side by the indicator, and therefore invisible to this
-      // HTML — can never reach an action request body.
+      // The busy signal is created client-side by the indicator, so only
+      // no-signals POSTs keep it out of the request body.
       assert(html.contains("{filterSignals:{exclude:'.*'}}"), clue = html)
-      // The sensor card's more-info tap is not guarded (it opens a popup, no
-      // in-flight service POST worth a busy state)...
+      // A more-info tap opens a popup: no POST worth a busy state.
       assert(!html.contains("data-indicator=\"_c_1__busy\""), clue = html)
       assert(!html.contains("data-on:click=\"$_c_1__busy"), clue = html)
-      // ...and a navigating button is an anchor; anchors are never guarded.
       assert(!html.contains("data-indicator=\"_c_3__busy\""), clue = html)
     }
   }
@@ -160,12 +132,8 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
       .fromWorkspace("fixture-slider", sliderEntry, entities)
       .use { ts =>
         ts.page().map { html =>
-          // The slider's range input commits its value on `change`, so it is
-          // the node's SECOND guarded element — the power button owns
-          // `_<id>__busy`, this owns the element-suffixed `_<id>__busy_change`
-          // (see `tap.pkl`'s `busyGuardChange`/`busyAttrsChange`/`busyClassChange`).
-          // The three pieces: the indicator arms the signal, the attr freezes
-          // the control while it is set, and the guard swallows a second commit.
+          // The range input commits on `change`, so it owns
+          // `_<id>__busy_change` (`tap.pkl`'s `busyGuardChange` and friends).
           assert(
             html.contains("data-indicator=\"_c_0_head_0__busy_change\""),
             clue = html
@@ -180,11 +148,8 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
             ),
             clue = html
           )
-          // The busy LOOK (`fh-disabled` + `fh-loading`, both immediate, on the
-          // same signal) rides on the track wrapper AND the head badge (which
-          // also carries the delayed spinner splice, so its icon spins once the
-          // commit runs long); the input itself stays free of the class — it is
-          // frozen via `data-attr:disabled` instead.
+          // The busy look rides the track wrapper and the head badge; the input
+          // itself is frozen through `data-attr:disabled` instead.
           assert(
             html
               .contains("data-class:fh-disabled=\"$_c_0_head_0__busy_change\""),
@@ -201,12 +166,9 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
             ),
             clue = html
           )
-          // The power button is its OWN node now (#151), so the two guarded
-          // elements cannot share a signal even in principle — where before
-          // they were one node kept apart by a `_change` suffix, and a shared
-          // name would have let one element's `finished` clear the other's
-          // in-flight busy. The suffix survives for the commit; the button
-          // takes the plain name under the action's own id.
+          // The power button is its own node (#151), so it cannot share the
+          // commit's signal: a shared name would let one element's `finished`
+          // clear the other's busy.
           val button = "_c_0_head_0_actions_0__busy"
           assert(html.contains(s"""data-indicator="$button""""), clue = html)
           assert(
@@ -221,9 +183,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
             html.contains(s"""data-class:fh-loading="$$$button""""),
             clue = html
           )
-          // Stated as the separation it is: the commit's signal and the
-          // button's differ in the NODE, not merely in a suffix, so neither
-          // name is a prefix of the other.
+          // They differ in the node, so neither name is a prefix of the other.
           assert(
             !button.startsWith("_c_0_head_0__busy"),
             clue = button
@@ -236,12 +196,9 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
   test(
     "busyVisual = false drops the busy look but keeps the guard and the freeze"
   ) {
-    // The whole-look opt-out (`TapAction.busyVisual`, and the slider's own
-    // `busyVisual`) removes both `data-class:fh-disabled` and
-    // `data-class:fh-loading` bindings: the guard, the indicator and the input
-    // freeze are signal-driven and must stay byte-identical, or a
-    // fast-answering control would lose its anti-spam the moment it stopped
-    // dimming.
+    // The opt-out removes only the look. The guard, indicator and freeze must
+    // stay byte-identical, or a fast control would lose its anti-spam when it
+    // stopped dimming.
     val buttonEntry =
       s"""amends "@fh-dashboard/entry.pkl"
          |
@@ -287,9 +244,6 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
         .fromWorkspace("fixture-quiet-slider", quietSliderEntry, entities)
         .use { ts =>
           ts.page().map { html =>
-            // The commit's guard, indicator and input freeze survive; only the
-            // wrapper/badge `data-class:fh-disabled` and `data-class:fh-loading`
-            // bindings are gone.
             assert(
               html.contains("data-indicator=\"_c_0_head_0__busy_change\""),
               clue = html
@@ -314,27 +268,15 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
 
   test("a state change streams a fragment through the Pkl-built dashboard") {
     withServer { ts =>
-      ts.observePatch(
-        marker = "13.1",
-        trigger = ts.fake.emit(
-          HouseFixture.outsideTemp.entityId,
-          "13.1",
-          HouseFixture.outsideTemp.attributes
-        )
-      )
+      ts.sentAfter(ts.frame(HouseFixture.outsideTemp.copy(state = "13.1")))
+        .map(sent => assert(sent.contains("13.1"), clue = sent))
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // Tabs inside a conditional branch
-  //
-  // The one place two selection mechanisms meet: the branch is chosen by entity
-  // state (server truth, identical for every viewer) while the tab inside it is
-  // chosen by the client. The fixture suites build the equivalent by hand, which
-  // is what let a first-paint break through the real `Tabs`/`If` cards slip past
-  // them — so this shape earns its place at Tier A, where the CARDS are the ones
-  // a user actually gets.
-  // ---------------------------------------------------------------------------
+  // Tabs inside a conditional branch: state chooses the branch for every
+  // viewer, the client chooses the tab. The fixture suites build this by hand,
+  // which let a first-paint break through the real `Tabs`/`If` cards slip past
+  // them.
 
   private val light = HouseFixture.kitchenLight // on
   private val temp = HouseFixture.outsideTemp
@@ -342,9 +284,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
 
   private val branchEntities: List[FixtureEntity] = List(light, temp, other)
 
-  /** `pkl-if`'s shape, minimised: while the kitchen light is on, show a tabs
-    * card with two panels; otherwise show a single card.
-    */
+  /** `pkl-if`'s shape, minimised. */
   private val branchEntry =
     s"""amends "@fh-dashboard/entry.pkl"
        |
@@ -385,26 +325,24 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
 
   test("first paint: the branch's tab panel carries its content") {
     withBranchServer(_.page()).map { html =>
-      // The branch is active (the light is on), so its content is baked...
       assert(html.contains("Light is on"), clue = html)
-      // ...tab bar included...
       assert(html.contains("Lights"), clue = html)
       assert(html.contains("Sensors"), clue = html)
-      // ...and — the actual claim — the SELECTED panel is not empty. This is
-      // what a user sees before any script runs, so an empty host here is a
-      // blank dashboard, not a flicker.
+      // The selected panel is not empty: before any script runs, an empty host
+      // is a blank dashboard.
       assert(html.contains("Living Room"), clue = html)
-      // The unselected panel is not rendered at all (hidden-branch silence).
       assert(!html.contains("Outside Temperature"), clue = html)
     }
   }
 
-  /** The tabs host's generated id — inside the `then` branch's content tree,
-    * hence the surface prefix. Written out because it IS the contract: the
-    * hoist's `bakeInto`, the `ui.<host>` selection param and the renderer's
-    * node id are all this one string, and they silently drifted apart once.
+  /** Written out because it is the contract: the hoist's `bakeInto`, the
+    * `ui.<host>` param and the renderer's node id are this one string, and they
+    * have silently drifted apart.
     */
   private val tabsHost = "s_c_1_then__c_0_1"
+
+  private def flip(ts: TestServer): IO[Unit] =
+    ts.change(light.entityId, "off") *> ts.frame(light)
 
   test("first paint on the second tab: that panel's content, not the default") {
     withBranchServer(_.page(s"?ui.$tabsHost=1")).map { html =>
@@ -415,35 +353,22 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
 
   test("a flip re-reveals the client's OWN tab, not the group's default") {
     withBranchServer { ts =>
-      ts.observeLive(
-        // Only the fill can produce this: the branch is re-rendered for the
-        // slug with no client, so its tab host arrives EMPTY.
-        marker = "Outside Temperature",
-        query = s"?ui.$tabsHost=1",
-        // Off, then on: the branch leaves and comes back, which is what
-        // re-creates the tabs host this client has to have refilled.
-        trigger = ts.fake.emit(light.entityId, "off") *>
-          ts.fake.emit(light.entityId, "on", light.attributes)
-      ).map { live =>
-        // ONE patch, not a hollow host followed by a fill: the branch and the
-        // panel this viewer chose arrive TOGETHER, so there is no frame in which
-        // the tabs card exists with nothing in it.
-        //
-        // Asserted as "the patch carrying the branch also carries the panel"
-        // rather than by counting patches — how many flips land after the
-        // opening block depends on when the connection finished opening, which
-        // is timing, not behaviour.
+      // The branch is re-rendered for the slug with no client, so only the fill
+      // can put this viewer's panel in it.
+      ts.sentAfter(flip(ts), query = s"?ui.$tabsHost=1").map { live =>
+        // The branch and this viewer's panel arrive in one patch, so no frame
+        // shows an empty tabs card. Not counted: how many flips land after
+        // opening is timing.
         val branchPatch = live.linesIterator
-          .filter(_.startsWith("data: elements "))
+          .filter(_.startsWith("elements "))
           .find(_.contains("Light is on"))
         assert(branchPatch.isDefined, clue = live)
         assert(
           branchPatch.exists(_.contains("Outside Temperature")),
           clue = ("the branch must arrive with this viewer's panel", live)
         )
-        // The silent regression this guards: the default tab's content reaching
-        // a client that is not on the default tab. Not "not in the last patch"
-        // — nowhere in anything this connection was sent after opening.
+        // The default tab's content must reach nothing this client was sent
+        // after opening.
         assert(!live.contains("Living Room"), clue = live)
       }
     }
@@ -451,13 +376,9 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
 
   test("the OTHER client keeps the default tab across the same flip") {
     withBranchServer { ts =>
-      ts.observeLive(
-        marker = "Living Room",
-        trigger = ts.fake.emit(light.entityId, "off") *>
-          ts.fake.emit(light.entityId, "on", light.attributes)
-      ).map { live =>
+      ts.sentAfter(flip(ts)).map { live =>
         val branchPatch = live.linesIterator
-          .filter(_.startsWith("data: elements "))
+          .filter(_.startsWith("elements "))
           .find(_.contains("Light is on"))
         assert(
           branchPatch.exists(_.contains("Living Room")),
@@ -468,39 +389,25 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
     }
   }
 
-  /** A host carries client-dependent ATTRIBUTES, not only children. The tabs
-    * host seeds its selection signal from the baked index, so a re-revealed
-    * panel that arrives with the wrong index — or with none, which is not even
-    * valid — leaves the bar highlighting a different tab than the one on
-    * screen. Asserted on the wire because it is invisible to a content check.
-    *
-    * Since the branch is rendered for its viewer, the index is right by
-    * construction rather than corrected afterwards.
+  /** The tabs host seeds its selection signal from the baked index, so a panel
+    * re-revealed with the wrong index, or none, highlights a different tab than
+    * the one shown. Invisible to a content check, so asserted on the wire.
     */
   test("a re-revealed panel carries THIS client's selection signal") {
     withBranchServer { ts =>
-      ts.observeLive(
-        marker = "Outside Temperature",
-        query = s"?ui.$tabsHost=1",
-        trigger = ts.fake.emit(light.entityId, "off") *>
-          ts.fake.emit(light.entityId, "on", light.attributes)
-      ).map { live =>
-        // Never a signal expression with an absent value. The committed signal
-        // is no longer last in the seed object (the pending one follows it), so
-        // the delimiter that pins "a value is present" is the comma.
+      ts.sentAfter(flip(ts), query = s"?ui.$tabsHost=1").map { live =>
+        // The pending signal follows the committed one in the seed, so the
+        // comma pins that a value is present.
         assert(!live.contains(s"ui_$tabsHost: ,"), clue = live)
-        // The fill replaces the host ELEMENT, so the index that lands is this
-        // client's tab, not the group's default.
         assert(live.contains(s"ui_$tabsHost: 1,"), clue = live)
       }
     }
   }
 
   test("a slider on a light that only switches renders a button, not a range") {
-    // The card carries the variant (issue #128), so the ONE shared template has
-    // to render two shapes — which is the half a Pkl test cannot prove: the
-    // sections are jmustache's to evaluate, and an inverted section over an
-    // absent slot is exactly the mechanism in question.
+    // One shared template renders two shapes (issue #128), which a Pkl test
+    // cannot prove: the inverted section over an absent slot is mustache.java's
+    // to evaluate.
     val plug = FixtureEntity(
       "light.plug",
       "on",
@@ -527,11 +434,9 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
         ts.page().map { html =>
           assert(html.contains("class=\"slider-toggle\""), clue = html)
           assert(!html.contains("type=\"range\""), clue = html)
-          // The whole track posts the light's own toggle, under the same
-          // commit signal the drag would have used. The service is spliced as a
-          // quoted literal — the same spelling a state-dependent tap fills with
-          // a signal read, which is why one template serves both (ADR 0017) —
-          // and the node id is a build-time constant, not a `dataset` read.
+          // The service is spliced as a quoted literal, the spelling a
+          // state-dependent tap fills with a signal read, so one template
+          // serves both (ADR 0017).
           assert(
             html.contains(
               "data-on:click=\"$_c_0_head_0__busy_change ? '' : " +
@@ -541,14 +446,13 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
             ),
             clue = html
           )
-          // Filled, because it is on — and in the switch-fill token, since a
-          // light that only switches reports no colour of its own.
+          // The switch-fill token: a switch-only light reports no colour.
           assert(html.contains("--_end: 0%"), clue = html)
           assert(
             html.contains("background:var(--fh-default-color)"),
             clue = html
           )
-          // A percentage of an axis it does not have would read 0 % forever.
+          // A percentage of an axis it lacks would read 0 % forever.
           assert(html.contains(">on<"), clue = html)
           assert(!html.contains(">0 %<"), clue = html)
         }
@@ -556,15 +460,10 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
       .timeout(60.seconds)
   }
 
-  // ---------------------------------------------------------------------------
-  // `CallByState` — the four domains whose service the live state picks
-  //
-  // This path had NO Scala coverage: every fact about it lived in
-  // `components.test.pkl`, which evaluates Pkl and can see neither
-  // `Dashboard.validate` nor a rendered byte. The gap let a validate rule ship
-  // WRONG and green — it demanded a template var the card no longer places, and
-  // nothing on this side ever rendered a lock for it to reject.
-  // ---------------------------------------------------------------------------
+  // `CallByState`: the four domains whose service the live state picks.
+  // `components.test.pkl` sees neither `Dashboard.validate` nor rendered bytes,
+  // which let a validate rule demanding a var the card no longer places ship
+  // green.
 
   private def lockAt(state: String) = FixtureEntity(
     "lock.front_door",
@@ -585,13 +484,12 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
        |}
        |""".stripMargin
 
-  /** The rendered page, and the one attribute this is about. */
   private def lockPage(state: String): IO[(String, String)] =
     TestServer
       .fromWorkspace("fixture-lock", lockEntry, List(lockAt(state)))
       .use(_.page().map { html =>
-        // BY CONTENT, not by position: the offline banner's reload button
-        // carries the page's first `data-on:click`, long before any card.
+        // By content: the offline banner's reload button carries the page's
+        // first `data-on:click`.
         val click = html
           .split("data-on:click=\"")
           .toList
@@ -604,30 +502,25 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
     (lockPage("locked"), lockPage("unlocked"))
       .mapN {
         case ((lockedHtml, lockedClick), (unlockedHtml, unlockedClick)) => {
-          // THE property: the element is identical whichever way the lock is
-          // turned, so it stays in the renderer's identity cache and a
-          // lock/unlock costs a signals frame instead of a repaint.
+          // Identical either way, so it stays in the identity cache and a
+          // lock/unlock costs a signals frame, not a repaint.
           assertEquals(lockedClick, unlockedClick)
-          // It reads the service rather than naming one...
           assert(
             lockedClick.contains("+ $_e.lock.front_door."),
             clue = lockedClick
           )
-          // ...so neither service appears in the markup at all.
           assert(!lockedClick.contains("lock/unlock"), clue = lockedClick)
           assert(!lockedClick.contains("lock/lock"), clue = lockedClick)
-          // The node id is a build-time constant, not a click-time `dataset`
-          // read — which is what an UNGUARDED tap could not have done.
+          // A build-time node id, not a click-time `dataset` read.
           assert(!lockedClick.contains("dataset"), clue = lockedClick)
 
-          // The service itself is in the SEED, which is what makes a first
-          // paint correct with no frame behind it — and it is the right one for
-          // the state, which is the whole `CallByState` table doing its job.
+          // The service is in the seed, correct for the state, so a first paint
+          // needs no frame.
           assert(lockedHtml.contains("'lock/unlock'"), clue = lockedHtml)
           assert(unlockedHtml.contains("'lock/lock'"), clue = unlockedHtml)
 
-          // And the domain's transitional states are bound as the inert class
-          // (ADR 0016), so a tap mid-move cannot fight the command running.
+          // Transitional states bind the inert class (ADR 0016), so a tap
+          // mid-move cannot fight the running command.
           assert(
             lockedHtml.contains("data-class:fh-inert"),
             clue = lockedHtml
@@ -641,8 +534,6 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
     (lockPage("locked"), lockPage("unlocking"))
       .mapN {
         case ((restHtml, _), (movingHtml, _)) => {
-          // The class is the VALUE of a signal slot, so the document form paints
-          // it inline: present while the lock is moving, empty at rest.
           assert(movingHtml.contains("fh-inert"), clue = movingHtml)
           assert(
             !restHtml.contains("card entity tappable fh-inert"),
@@ -656,10 +547,8 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
   test(
     "passthrough JSON rides a signal attribute, and a new window re-queries it"
   ) {
-    // `c.historyReadings`, the passthrough example: the provider's JSON is in
-    // the node's BYTES (escaped, since it is data), inside the attribute that
-    // lifts it into a client-only signal. A linked window is a different read,
-    // so the same node carries a different answer.
+    // The provider's JSON is in the node's bytes, escaped, inside the attribute
+    // that lifts it into a client-only signal.
     val readingsEntry =
       s"""amends "@fh-dashboard/entry.pkl"
          |
@@ -693,7 +582,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
             (lifted.findFirstMatchIn(day), lifted.findFirstMatchIn(week))
           assert(dayAt.isDefined, clue = day)
           assert(weekAt.isDefined, clue = week)
-          // `_`-prefixed, so the series never rides an action or a reconnect.
+          // So the series never rides an action or a reconnect.
           assert(dayAt.get.group(1).startsWith("_"), clue = dayAt.get.group(1))
           assertNotEquals(weekAt.get.group(2), dayAt.get.group(2))
         }
@@ -702,11 +591,9 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
   }
 
   test("a window chooser reaches the browser addressing its own node") {
-    // The join this control is built on, and the only thing a real page can
-    // prove: the bar is composed in Pkl from `{{id}}` tokens, and `{{id}}` is
-    // minted by the RENDERER from the node's tree position — the same id
-    // `Server.setVar` resolves a declarer by. Nothing makes those agree except
-    // that they are one value, so an end-to-end page is where that is checked.
+    // The bar is composed in Pkl from `{{id}}` tokens, and `{{id}}` is minted
+    // by the renderer, the id `Server.setVar` resolves a declarer by. Only an
+    // end-to-end page checks that they agree.
     val windowEntry =
       s"""amends "@fh-dashboard/entry.pkl"
          |
@@ -727,18 +614,16 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
       .fromWorkspace("fixture-windows", windowEntry, entities)
       .use { ts =>
         ts.page().map { html =>
-          // An unfilled token is the failure this is really guarding: it ships
-          // as a literal, the page looks fine, and every press 404s.
+          // An unfilled token ships as a literal: the page looks fine and every
+          // press 404s.
           assert(!html.contains("{{id}}"), clue = html)
-          // Off the bar's own markup: the page's seed also names the chooser
-          // in the card's more-info popup, which is not on this page yet.
+          // Off the bar's markup: the seed also names the chooser in the
+          // more-info popup.
           val ids =
             """fhUrl\('v\.([A-Za-z0-9_]+)\.window', \$_var_\1__window\)""".r
               .findAllMatchIn(html)
               .map(_.group(1))
               .toSet
-          // ONE node declares it, and both signals plus the route name that
-          // same node.
           assertEquals(ids.size, 1, clue = ids)
           val id = ids.head
           assert(
@@ -748,10 +633,9 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
             ),
             clue = html
           )
-          // The page seeds the DECLARED window when the viewer chose none, so
-          // the first paint highlights what the charts beneath were drawn at.
+          // With no viewer choice the page seeds the declared window, which the
+          // charts were drawn at.
           assert(html.contains(s"_var_${id}__window: '7d'"), clue = html)
-          // All four windows are offered, once each.
           List("1h", "24h", "7d", "30d")
             .foreach(w => assert(html.contains(s">$w</a>"), clue = w))
         }
@@ -760,10 +644,9 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
   }
 
   test("a dashboard says what happens to a label that does not fit") {
-    // The knob is authored in two places at once — the entry's default and one
-    // card that differs — and only a real page proves they meet: the default is
-    // a `:root` block the entry composes into `css`, and the override is a cell
-    // class the RENDERER puts on the wrapper. Neither side sees the other.
+    // The default is a `:root` block in `css`, the override a cell class on the
+    // wrapper; neither side sees the other, so only a real page proves they
+    // meet.
     val textEntry =
       s"""amends "@fh-dashboard/entry.pkl"
          |
@@ -784,19 +667,14 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
       .fromWorkspace("fixture-text", textEntry, entities)
       .use { ts =>
         ts.page().map { html =>
-          // The dashboard's answer, at the root, so a card that says nothing
-          // inherits it instead of carrying a copy.
           assert(
             html.contains(":root{--fh-text-lines:nowrap") &&
               html.contains("--fh-text-motion:fh-text-scroll"),
             clue = html
           )
-          // The one card that differs, on its own wrapper. It beats the root by
-          // being NEARER, which is the property the custom-property carrier was
-          // chosen for — a selector would have tied and let file order decide.
+          // It beats the root by being nearer, which is why a custom property
+          // carries the mode: a selector would tie and let file order decide.
           assert(html.contains("fh-text-wrap"), clue = html)
-          // And the boxes the modes act on are really in the markup — the label
-          // and the live reading both.
           assert(
             html.contains(
               """<span class="fh-text"><span class="fh-text-run">Kitchen"""

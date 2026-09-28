@@ -4,55 +4,27 @@ import java.awt.image.BufferedImage
 import java.io.ByteArrayInputStream
 import javax.imageio.ImageIO
 
-/** Perceptual PNG snapshots for the component visual suite ([[fh.view.smoke]])
-  * — the screenshot analogue of `PklBuildSuite`'s checked-in wire-format
-  * snapshots. A component's rendered look is deterministic here BY
-  * CONSTRUCTION: fixed viewport, [[fh.view.smoke.SmokeSuite.settle]] kills
-  * animations and waits on webfonts, and every asset (fonts included) is
-  * fetched at a version pinned in its CDN URL (`theme-beer.pkl`'s
-  * `beerVersion`, `Server.DatastarCdn`'s tag) — so unlike a typical
-  * visual-regression setup there is no live CDN version drift to chase.
+/** Perceptual PNG snapshots for the component visual suite. Every asset is
+  * fetched at a version pinned in its CDN URL and
+  * [[fh.view.smoke.SmokeSuite.settle]] kills animations, so the only
+  * cross-environment variance left is font rasterization. Hence a
+  * [[Pixelmatch]] port (Playwright's `toHaveScreenshot` algorithm): a pixel
+  * differs only past [[Threshold]] and when not anti-aliased in either image,
+  * and the snapshot fails past [[MaxDiffRatio]]. Within ±[[MaxDimDelta]]px the
+  * shared rectangle is compared; beyond it is a real reflow.
   *
-  * The comparison is NOT byte-identity: the only cross-environment variance
-  * left after asset-pinning is the OS-level font rasterization stack (FreeType
-  * hinting / anti-aliasing), which shifts glyph-edge pixels by a sub-pixel
-  * between machines (a locally-regenerated baseline vs CI's `ubuntu-latest`).
-  * So we compare with a [[Pixelmatch]] port (the same algorithm Playwright's
-  * own `toHaveScreenshot` uses): a pixel counts as "different" only if its YIQ
-  * color distance exceeds [[Threshold]] AND it is not an anti-aliased edge in
-  * either image; the snapshot fails only if more than [[MaxDiffRatio]] of the
-  * image's pixels differ. A dimension change beyond a ±[[MaxDimDelta]]px
-  * rounding tolerance always fails (a real reflow); within that tolerance the
-  * shared rectangle is compared, since a component's screenshot is its own
-  * content-derived box and a different font-rasterization stack can round that
-  * box by a pixel on an axis. That makes the baseline portable across
-  * environments while still catching real visual regressions.
-  *
-  * To regenerate after an intentional visual change: `sbt
-  * dashboardVisualSnapshotsUpdate` — and normally, DON'T. A local rebaseline
-  * records this machine's font rasterization, which CI does not share; the
-  * portable move is to let CI fail, collect its before/after artifact, and
-  * decide from that. `dashboardSnapshotsUpdate` (the wire snapshots) cannot
-  * reach these — separate flags, on purpose.
+  * Regenerate with `sbt dashboardVisualSnapshotsUpdate`, and normally don't: a
+  * local baseline records this machine's rasterization. Let CI fail and decide
+  * from its before/after artifact.
   */
 object VisualSnapshot {
 
   private val snapshotDir =
     os.pwd / "modules" / "fh-datastar-view" / "src" / "test" / "resources" / "visual-snapshots"
 
-  /** Where a mismatch drops its `before`/`after` PNGs, side by side, so CI can
-    * collect them as an artifact — a local vs `ubuntu-latest` rasterization
-    * diff is only inspectable by eye, so the failing pair has to leave the
-    * machine.
-    *
-    * `FH_VISUAL_FAILURES_DIR` names it, and CI sets it to a runner temp path it
-    * then uploads — from a step that runs before any sbt one, because this
-    * suite runs in the sbt SERVER and inherits the environment of whichever
-    * client started it. The fallback is a gitignored dir under this module's
-    * `target`, which is right when `os.pwd` is the repo root — and that is an
-    * assumption, not a guarantee: sbt's working directory for a forked test is
-    * not something this file should be encoding. The env var is how a caller
-    * says where it wants them without this having to know.
+  /** CI sets `FH_VISUAL_FAILURES_DIR` and uploads it, from a step before any
+    * sbt one, since this runs in the sbt server and inherits whichever client
+    * started it. The fallback under `target` assumes `os.pwd` is the repo root.
     */
   private val failureDir =
     sys.env
@@ -62,30 +34,19 @@ object VisualSnapshot {
         os.pwd / "modules" / "fh-datastar-view" / "target" / "visual-failures"
       )
 
-  /** Per-pixel YIQ color-distance tolerance (0..1); pixelmatch's default. */
+  /** Pixelmatch's default. */
   private val Threshold = 0.1
 
-  /** Fraction of pixels allowed to differ before the snapshot fails. Kept small
-    * because anti-aliased edge pixels — the bulk of cross-environment noise —
-    * are already excluded by the AA detection, so a genuine change lights up
-    * far more than this.
+  /** Small, since anti-aliased edges, the bulk of the noise, are already
+    * excluded.
     */
   private val MaxDiffRatio = 0.003
 
-  /** Per-axis pixel tolerance on the screenshot's own dimensions. A component's
-    * bounding box is content-derived, so a different OS font-rasterization
-    * stack can round it by a pixel; a delta this small is the same sub-pixel
-    * noise the perceptual diff already forgives, so we compare over the shared
-    * rectangle instead of hard-failing. A larger delta is a genuine reflow and
-    * fails.
-    */
+  /** A content-derived box can round by a pixel under another rasterizer. */
   private val MaxDimDelta = 2
 
-  /** Its OWN gate, not the wire snapshots' `FH_UPDATE_SNAPSHOTS`. The wire
-    * snapshots are rebaselined routinely and reviewed as a JSON diff; these are
-    * PNGs from this machine's font rasterization, so regenerating them locally
-    * bakes in rendering CI does not share. Sharing one flag meant the routine
-    * operation silently rewrote the dangerous artifact.
+  /** Its own gate: sharing `FH_UPDATE_SNAPSHOTS` meant the routine wire
+    * rebaseline silently rewrote these.
     */
   private def updating: Boolean =
     sys.env.get("FH_UPDATE_VISUAL_SNAPSHOTS").contains("1") ||
@@ -94,12 +55,8 @@ object VisualSnapshot {
   private def decode(bytes: Array[Byte]): BufferedImage =
     ImageIO.read(new ByteArrayInputStream(bytes))
 
-  /** Compare `actual` PNG bytes against the checked-in `name.png`. With the
-    * update gate on, (re)writes the resource file; otherwise runs the
-    * perceptual diff, dropping the before/after pair into [[failureDir]] on
-    * mismatch for review. `maxDiffRatio` loosens the default budget for the
-    * rare snapshot with a known environment-dependent band (the slider's
-    * value-fill edge); everything else stays on [[MaxDiffRatio]].
+  /** `maxDiffRatio` loosens the budget for a snapshot with a known
+    * environment-dependent band, such as the slider's value-fill edge.
     */
   def check(
       name: String,
@@ -111,12 +68,8 @@ object VisualSnapshot {
       os.makeDir.all(snapshotDir)
       os.write.over(file, actual)
     } else if (!os.exists(file)) {
-      // The shot goes to the failure dir too, so a NEW baseline can be adopted
-      // from CI's artifact. Without this the advice above was unreachable for
-      // the one case that needs it most: the local regenerate bakes in this
-      // machine's rasterization, and a first baseline has no before/after pair
-      // to fall back on — so the only portable way to mint one is to let CI
-      // take the shot and commit what it uploaded.
+      // A new baseline has no before/after pair, so the only portable way to
+      // mint one is to let CI take the shot and commit what it uploaded.
       os.makeDir.all(failureDir)
       os.write.over(failureDir / s"$name.actual.png", actual)
       throw new AssertionError(
@@ -130,9 +83,7 @@ object VisualSnapshot {
       val actualImg = decode(actual)
 
       def fail(reason: String): Nothing = {
-        // Drop the baseline and the actual side by side under the stable
-        // failure dir, so CI can archive the pair and a human can flick
-        // between them (the diff is sub-pixel; only the eye can judge it).
+        // The diff is sub-pixel; only the eye can judge it.
         os.makeDir.all(failureDir)
         os.copy.over(file, failureDir / s"$name.expected.png")
         os.write.over(failureDir / s"$name.actual.png", actual)
@@ -152,8 +103,6 @@ object VisualSnapshot {
         )
       }
 
-      // Within tolerance: compare over the rectangle both images share, so a
-      // ±MaxDimDelta rounding rim doesn't fail an otherwise-identical component.
       val w = math.min(expectedImg.getWidth, actualImg.getWidth)
       val h = math.min(expectedImg.getHeight, actualImg.getHeight)
       val expectedCrop = expectedImg.getSubimage(0, 0, w, h)
@@ -171,10 +120,8 @@ object VisualSnapshot {
   }
 }
 
-/** A faithful port of mapbox/pixelmatch (ISC-licensed), the pixel comparison
-  * behind Playwright's screenshot assertions, restricted to what
-  * [[VisualSnapshot]] needs: a count of visually-different, non-anti-aliased
-  * pixels. Operates on packed-ARGB int rasters (one int per pixel).
+/** A port of mapbox/pixelmatch (ISC), restricted to counting visually
+  * different, non-anti-aliased pixels over packed-ARGB rasters.
   */
 private object Pixelmatch {
 
@@ -183,7 +130,7 @@ private object Pixelmatch {
     val h = b.getHeight
     val img1 = a.getRGB(0, 0, w, h, null, 0, w)
     val img2 = b.getRGB(0, 0, w, h, null, 0, w)
-    // 35215 is the maximum possible YIQ color distance (black vs white).
+    // The maximum YIQ distance (black vs white).
     val maxDelta = 35215.0 * threshold * threshold
     var diff = 0
     var y = 0
@@ -194,8 +141,6 @@ private object Pixelmatch {
         if (
           math.abs(colorDelta(img1, img2, pos, pos, yOnly = false)) > maxDelta
         ) {
-          // A pixel that differs but reads as anti-aliasing in EITHER image is
-          // rasterization noise, not a real change — skip it.
           val aa =
             antialiased(img1, img2, x, y, w, h) ||
               antialiased(img2, img1, x, y, w, h)
@@ -221,10 +166,7 @@ private object Pixelmatch {
   private def rgb2q(r: Double, g: Double, b: Double): Double =
     r * 0.21147017 - g * 0.52261711 + b * 0.31114694
 
-  /** Signed YIQ color distance between pixel `k` of `img1` and pixel `m` of
-    * `img2` (0 when identical). `yOnly` returns just the brightness delta, used
-    * by the AA detector.
-    */
+  /** `yOnly` returns just the brightness delta, for the AA detector. */
   private def colorDelta(
       img1: Array[Int],
       img2: Array[Int],
@@ -265,10 +207,8 @@ private object Pixelmatch {
     if (y1 > y2) -delta else delta
   }
 
-  /** True if pixel (x1,y1) of `img` looks anti-aliased: it has both a brighter
-    * and a darker neighbor, and one of those extremes has many identical
-    * siblings in both images (a solid edge on one side). Mirrors pixelmatch's
-    * `antialiased`.
+  /** Mirrors pixelmatch's `antialiased`: a brighter and a darker neighbour, one
+    * of them with many identical siblings in both images.
     */
   private def antialiased(
       img: Array[Int],
@@ -326,7 +266,6 @@ private object Pixelmatch {
     ))
   }
 
-  /** True if pixel (x1,y1) has 3+ identical neighbors (incl. edges). */
   private def hasManySiblings(
       img: Array[Int],
       x1: Int,

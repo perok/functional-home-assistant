@@ -46,7 +46,8 @@ import org.http4s.otel4s.middleware.trace.client.{
   ClientSpanDataProvider,
   UriRedactor
 }
-import org.http4s.{Query, Status}
+import org.http4s.{HttpApp, Query, Status}
+import org.http4s.server.websocket.WebSocketBuilder2
 import org.http4s.otel4s.middleware.trace.redact.{PathRedactor, QueryRedactor}
 import org.http4s.otel4s.middleware.trace.server.{
   ServerMiddleware,
@@ -54,62 +55,28 @@ import org.http4s.otel4s.middleware.trace.server.{
 }
 import org.http4s.server.middleware.Metrics as ServerMetrics
 import org.typelevel.log4cats.{LoggerFactory, SelfAwareStructuredLogger}
-import org.typelevel.otel4s.metrics.MeterProvider
-import org.typelevel.otel4s.trace.{Tracer, TracerProvider}
+import org.typelevel.otel4s.trace.Tracer
 import fs2.io.file.{Watcher, Path}
 
-/** Runtime phase entry point.
-  *
-  * Connects to Home Assistant, evaluates the workspace's ONE entrypoint
-  * (`site.pkl`) **in memory** into a slug -> dashboard map (ADR 0021), seeds
-  * live state, and serves them all with live Datastar updates. Run via
-  * `fh-datastar-view/runMain fh.view.runtime.ServerApp` with `SERVER`/`SECRET`
-  * set.
+/** The runtime phase: evaluates the workspace's `site.pkl` in memory into a
+  * slug -> dashboard map (ADR 0021) and serves them live.
   */
 object ServerApp extends IOApp {
 
   private val LoggerName = "fh.view.runtime.ServerApp"
 
-  /** The fallback for a helper nobody handed a logger — which after `run` was
-    * reordered means tests only. Boot builds the real one before it does
-    * anything worth logging, so every line this object writes in production
-    * reaches the collector with the span it was written inside.
-    */
+  // For helpers nobody handed a logger, which is tests only.
   private val consoleLog: SelfAwareStructuredLogger[IO] =
     Logging.console.getLoggerFromName(LoggerName)
 
-  // Relative paths are resolved against the forked `run` working dir, which is
-  // the REPO ROOT (`Compile / run / baseDirectory` is `/work`, not the module)
-  // — so a relative path typed at `sbt dashboardServe` resolves where the
-  // person typing it expects.
-
-  // Persistent pkl package cache for a dev run: pkl's own default
-  // (`~/.pkl/cache`), shared with `BuildApp`, the laptop `fh`, the `pkl` CLI
-  // and pkl-lsp. The add-on overrides it to its persistent `/data/pkl-cache`
-  // via `FH_PKL_CACHE_DIR`.
-  private def defaultCacheDir: String =
-    AddonBootstrap.defaultCacheDir
-
-  /** Everything the runtime reads from the environment, parsed once by
-    * [[Config.load]] at the boundary so the rest of `run` is a pure wiring
-    * table — no scattered `Env[IO].get`, no defaults re-stated per site.
-    */
   private case class Config(
-      // The workspace, named by CLI arg or `DASHBOARDS_DIR` and never
-      // defaulted — see [[workspaceDir]].
       dashboardsDir: os.Path,
-      // Persistent pkl package cache (`FH_PKL_CACHE_DIR`).
       cacheDir: os.Path,
-      // Local theme-asset cache (`FH_ASSETS_DIR`).
       assetsDir: os.Path,
-      // Bind address: loopback by default so LAN exposure is opt-in (`HOST`).
+      // Loopback by default, so LAN exposure is opt-in.
       bindHost: Host,
       bindPort: Port,
-      // `FH_WATCH_REGISTRY`: registry-driven dump refresh, on by default.
       watchRegistry: Boolean,
-      // `PKL_LSP_JAR`: the pkl-lsp CLI jar the LSP subprocess runs. Staged by
-      // the build (`stagePklLsp`) and pointed at by the add-on image / the
-      // `dashboardServe` alias; absent just means no LSP.
       pklLspJar: Option[String]
   )
 
@@ -121,18 +88,20 @@ object ServerApp extends IOApp {
           workspaceDir(args, dirEnv).leftMap(Exception(_))
         )
         dashboardsDir = os.Path(dir, os.pwd)
-        cacheDir <- pathFromEnv("FH_PKL_CACHE_DIR", defaultCacheDir)
+        // A dev run shares `~/.pkl/cache` with the `pkl` CLI and pkl-lsp.
+        cacheDir <- pathFromEnv(
+          "FH_PKL_CACHE_DIR",
+          AddonBootstrap.defaultCacheDir
+        )
         assetsDir <- pathFromEnv("FH_ASSETS_DIR", "assets-cache")
         bindHost <- Env[IO]
           .get("HOST")
-          .map(host =>
-            host
-              .map(
-                Host
-                  .fromString(_)
-                  .getOrElse(throw Exception(s"Could not parse $host"))
-              )
-              .getOrElse(host"127.0.0.1")
+          .flatMap(
+            _.fold(IO.pure(host"127.0.0.1"))(raw =>
+              Host
+                .fromString(raw)
+                .liftTo[IO](Exception(s"HOST='$raw' is not a host"))
+            )
           )
         portString <- envOr("PORT", "8080")
         bindPort = portString.toIntOption
@@ -155,35 +124,21 @@ object ServerApp extends IOApp {
 
   def run(args: List[String]): IO[ExitCode] =
     (for {
-      // BEFORE the workspace is touched, and before the environment is even
-      // parsed: the SDK depends on nothing this process has done yet (one
-      // `OTEL_*` read), so putting it first costs nothing and buys the boot
-      // path a logger. Seeding a workspace is where a first start goes wrong,
-      // and those lines are worth having in the collector too. No-op providers
-      // unless an OTLP endpoint is configured, in which case the SDK is never
-      // built at all ([[Telemetry]]).
+      // First, so the boot path — where a first start goes wrong — has a
+      // logger that reaches the collector.
       otel <- Telemetry.resource
-      // Everything logs through this, so a line carries the span it was
-      // written inside and reaches the collector alongside it ([[Logging]]).
       loggerFactory <- Logging.factory(otel).toResource
       log = loggerFactory.getLoggerFromName(LoggerName)
-      // All environment configuration, parsed ONCE at the boundary; nothing
-      // downstream reads `Env[IO]` again (ADR-style: parse, don't validate).
       config <- Config.load(args).toResource
-      // The bundled `@fh-dashboard` artifacts this boot seeded — passed to the
-      // first `prepareDumps` so it can pin the dump's lib dependency before any
-      // `pins.json` exists (fresh workspace, first-boot ordering).
+      // Pins the first dump's lib dependency before any `pins.json` exists.
       bundledLib <- bootstrap(config, log).toResource
       meters <- Meters.create(otel.meterProvider).toResource
-      // One instrumented wrapper for every client this process opens — HA
-      // core over REST, the OAuth exchanges, the theme-asset fetches. An
-      // outbound call is the other half of a slow page open, so a client
-      // that is not wrapped is a hole in exactly the trace being read.
+      // Every outbound client is wrapped: an unwrapped one is a hole in the
+      // trace of a slow page open.
       traceClient <- ClientMiddleware
         .builder[IO](
-          // Paths and queries kept: the outbound calls are to HA core and
-          // to theme CDNs, and which one was slow is the whole question.
-          // Credentials ride in headers, not in the URI.
+          // Paths and queries kept: which call was slow is the question, and
+          // credentials ride in headers.
           ClientSpanDataProvider.openTelemetry(
             new UriRedactor.OnlyRedactUserInfo {}
           )
@@ -195,80 +150,186 @@ object ServerApp extends IOApp {
         .toResource
       instrument = (client: Client[IO]) =>
         traceClient.wrapClient(ClientMetrics[IO](metricsClient)(client))
-      // Resolve SERVER/SECRET ONCE, eagerly, so a missing credential crashes
-      // boot immediately — rather than being swallowed by the feed's
-      // background reconnect loop and mistaken for an unreachable HA (which
-      // would only surface as the feed's seed timeout below).
+      // Eagerly, so a missing credential fails boot instead of looking like
+      // an unreachable HA inside the reconnect loop.
       haEnv <- FHApi.resolveEnv.toResource
-      // ONE Home Assistant connection for the whole runtime: the self-healing
-      // feed. Its stable facade (`feed.api`) backs BOTH the live dashboard
-      // (`call_service` + state) AND the startup/occasional REST work — dump
-      // prep, dump refresh, registry watching — so there is no second,
-      // unsupervised socket that silently dies on a drop. Acquiring it blocks
-      // until its store has been filled, so it is ready to read here.
-      // What the upstream subscription is narrowed to, created BEFORE the
-      // feed because the feed reads it and `None` is the only answer
-      // available this early: no dashboard has been built, so nothing yet
-      // knows which entities matter. That is also the answer that makes boot
-      // work — an unfiltered subscription is what fills the store, and
-      // acquiring the feed blocks until it has. `watchFeedScope` narrows it
-      // once the registry exists.
+      buildTracer <- otel.tracerProvider.get("fh.view.build").toResource
+      httpClient <- IO(java.net.http.HttpClient.newHttpClient()).toResource
+      outbound = instrument(
+        org.http4s.jdkhttpclient.JdkHttpClient[IO](httpClient)
+      )
+      // Ingress headers are trusted by source address ([[Ingress]]). An empty
+      // `FH_TRUSTED_PROXY` turns that trust off.
+      trustedProxy <- Env[IO]
+        .get("FH_TRUSTED_PROXY")
+        .map {
+          case None      => Some(Ingress.SupervisorIp)
+          case Some(raw) => Ipv4Address.fromString(raw.trim)
+        }
+        .toResource
+      pklLspJar <- resolvePklLspJar(config.pklLspJar, log).toResource
+      assembled <- assemble(
+        Edges(
+          workspace = config.dashboardsDir,
+          haConnect = FHApi.lowLevelConnectWithClose(haEnv),
+          login = haLogin(haEnv, outbound, log),
+          assetsClient = outbound,
+          assetsDir = config.assetsDir,
+          prepare = prepareRenderers(
+            _,
+            config.dashboardsDir,
+            Some(bundledLib),
+            buildTracer,
+            loggerFactory
+          ),
+          trustedProxy = trustedProxy,
+          pklLspJar = pklLspJar,
+          watchRegistry = config.watchRegistry,
+          otel = otel,
+          loggerFactory = loggerFactory,
+          meters = meters,
+          sessionWindows = Server.SessionWindows.default
+        )
+      )
+      _ <- EmberServerBuilder
+        .default[IO]
+        .withHost(config.bindHost)
+        .withPort(config.bindPort)
+        .withLogger(
+          loggerFactory.getLoggerFromName("org.http4s.ember.server")
+        )
+        .withHttpWebSocketApp(assembled.app)
+        .withShutdownTimeout(0.seconds)
+        .build
+      defaultSlug <- assembled.site.defaultSlug.toResource
+      _ <- log
+        .info(
+          s"Dashboards serving on http://${config.bindHost}:${config.bindPort} " +
+            s"(default '/$defaultSlug', all: ${assembled.prepared.states.keys.toList.sorted.mkString(", ")})"
+        )
+        .toResource
+    } yield ()).useForever.as(ExitCode.Success)
+
+  /** Everything [[assemble]] reaches outside the process through, so a test
+    * stubs these and runs the rest as production does.
+    */
+  private[runtime] final case class Edges(
+      workspace: os.Path,
+      haConnect: HaFeed.Connect,
+      // Asked once the feed is up: under the add-on only HA knows where it
+      // lives.
+      login: HomeAssistantApi[IO] => IO[HaLogin],
+      assetsClient: Client[IO],
+      assetsDir: os.Path,
+      // What the site starts with; production evaluates the workspace.
+      prepare: HaFeed => IO[Prepared],
+      trustedProxy: Option[Ipv4Address],
+      pklLspJar: Option[os.Path],
+      watchRegistry: Boolean,
+      otel: Telemetry.Otel,
+      loggerFactory: LoggerFactory[IO],
+      meters: Meters,
+      // Not an edge: time, which a test shortens to watch a reap.
+      sessionWindows: Server.SessionWindows
+  )
+
+  /** `connectAs` is a short-lived connection as a user, never the machine-token
+    * feed nor its address ([[HaOAuth.coreWs]]).
+    */
+  private[runtime] final case class HaLogin(
+      oauth: HaOAuth,
+      connectAs: String => Resource[IO, HomeAssistantApi[IO]]
+  )
+
+  private[runtime] final case class Assembled(
+      app: WebSocketBuilder2[IO] => HttpApp[IO],
+      feed: HaFeed,
+      site: Server.LiveSite,
+      server: Server,
+      sessions: Sessions,
+      authSessions: AuthSessions,
+      prepared: Prepared
+  )
+
+  /** Login (issue #89): HA is the OAuth identity provider. Under the add-on
+    * this server dials `http://supervisor/core`, which no browser can reach, so
+    * ask HA where it lives ([[HaOAuth.browserBase]] ranks the sources). A
+    * failed answer is just one absent source.
+    */
+  private def haLogin(
+      haEnv: FHApi.Env,
+      client: Client[IO],
+      log: SelfAwareStructuredLogger[IO]
+  )(api: HomeAssistantApi[IO]): IO[HaLogin] =
+    for {
+      haInternalUrl <- api.getConfigWS.attempt
+        .map(_.toOption.flatMap(HaOAuth.internalUrlOf))
+      haPublicUrl <- Env[IO]
+        .get("FH_HA_PUBLIC_URL")
+        .map(_.flatMap(org.http4s.Uri.fromString(_).toOption))
+        .map(HaOAuth.browserBase(_, haInternalUrl, haEnv.server))
+      // Not `SERVER` either: the supervisor proxy serves no `/auth/…` and
+      // authenticates add-ons, not people ([[HaOAuth.coreBase]]).
+      haCoreUrl <- Env[IO]
+        .get("FH_HA_TOKEN_URL")
+        .map(_.flatMap(org.http4s.Uri.fromString(_).toOption))
+        .map(HaOAuth.coreBase(_, haInternalUrl, haEnv.server))
+      _ <- log.info(
+        s"Home Assistant login redirects go to $haPublicUrl; " +
+          s"logins dial $haCoreUrl"
+      )
+    } yield HaLogin(
+      new HaOAuth(haPublicUrl, haCoreUrl, client),
+      token =>
+        FHApi.from(
+          haCoreUrl,
+          token,
+          HaOAuth.coreWs(haCoreUrl, haEnv.server, haEnv.serverWs)
+        )
+    )
+
+  /** The whole server short of binding a port. */
+  private[runtime] def assemble(edges: Edges): Resource[IO, Assembled] = {
+    import edges.{loggerFactory, meters, otel, workspace}
+    val log = loggerFactory.getLoggerFromName(LoggerName)
+    for {
+      // `None` (unfiltered) until dashboards exist; the unfiltered
+      // subscription is also what fills the store the feed waits on.
+      // `narrowFeed` narrows it.
       wanted <- SignallingRef[IO]
         .of(Option.empty[Set[String]])
         .toResource
       feedTracer <- otel.tracerProvider
         .get("fh.view.runtime.HaFeed")
         .toResource
+      // The one HA connection: everything uses `feed.api`, so no second,
+      // unsupervised socket dies silently on a drop. Blocks until seeded.
       feed <- HaFeed.resource(
-        FHApi.lowLevelConnectWithClose(haEnv),
+        edges.haConnect,
         wanted,
         feedTracer,
         loggerFactory,
         meters
       )
-      dashboardsDir = config.dashboardsDir
-      // Seed the dump and evaluate the entrypoint into every dashboard it
-      // names — the source-to-renderer path shared with the test harness so
-      // it can't diverge. `bundledLib` pins the FIRST dump on a fresh
-      // workspace.
-      buildTracer <- otel.tracerProvider.get("fh.view.build").toResource
-      prepared <- prepareRenderers(
-        feed,
-        dashboardsDir,
-        Some(bundledLib),
-        buildTracer,
-        loggerFactory
-      ).toResource
+      prepared <- edges.prepare(feed).toResource
       built = prepared.built
-      // Serves this home's `dump.pkl` and its resolved package artifacts over
-      // the public `/system/pkl/*` route for external tooling — the `fh`
-      // script, pkl-lsp, remote authors — that fetch for real (ADR 0010). The
-      // server's OWN eval never imports over http: entries resolve
-      // `@fh-dashboard`/`@fh-home` from the seeded cache packages, so this
-      // provider backs ONLY the route, not evaluation. Reads are by-name off
-      // the pinned package in the cache, reflecting the latest dump.
-      systemPkl = SystemPkl.fromDisk(dashboardsDir)
+      // Backs only the `/system/pkl/*` route; the server's own eval resolves
+      // from the seeded cache (ADR 0010).
+      systemPkl = SystemPkl.fromDisk(workspace)
 
-      // Cache the themes' external assets (CSS/JS/fonts) locally so the
-      // dashboard serves them itself — offline-friendly, CDN fallback on a
-      // cold-cache fetch failure. Reuses the JDK http client idiom from
-      // FHApi; URLs are collected from every built renderer's theme (a
-      // live-reload that introduces NEW urls passes through until restart).
-      httpClient <- IO(java.net.http.HttpClient.newHttpClient()).toResource
+      // Collected at boot: a reload that introduces new URLs passes them
+      // through until restart.
       assets <- AssetCache
         .build(
-          config.assetsDir,
+          edges.assetsDir,
           Server.DatastarCdn :: built.flatMap { case (_, renderer) =>
             renderer.stylesheets ++ renderer.deferredStylesheets ++
               renderer.scripts
           },
-          instrument(org.http4s.jdkhttpclient.JdkHttpClient[IO](httpClient))
+          edges.assetsClient
         )
         .toResource
 
-      // Every dashboard the entrypoint named is registered, built or not:
-      // `built` become `Ready` renderers, `failed` become `Failed` states
-      // serving their error page and rebuilding live on a fix.
       rendererRefs <- prepared.states.toList
         .traverse { case (slug, state) =>
           SignallingRef[IO].of(state).map(slug -> _)
@@ -276,12 +337,9 @@ object ServerApp extends IOApp {
         .map(_.toMap)
         .toResource
       importsRef <- SignallingRef[IO]
-        .of(watchedSet(dashboardsDir, prepared.imports))
+        .of(watchedSet(workspace, prepared.imports))
         .toResource
 
-      // The live site: what is served, what each slug was built from, and
-      // which slug answers `/`. Built BEFORE the Server because the reload
-      // path writes it and the routes read it.
       site <- Server.LiveSite
         .of(
           rendererRefs,
@@ -289,85 +347,24 @@ object ServerApp extends IOApp {
           defaultSlugFrom(prepared.default, prepared.states.keys.toList)
         )
         .toResource
-      // Narrow the upstream subscription to what the registered dashboards
-      // read, and keep it narrowed as they change (a reload, a `push`, a dump
-      // refresh). Started here rather than folded into the feed because the
-      // registry does not exist when the feed is acquired.
+      // Not part of the feed: the registry does not exist when it is
+      // acquired.
       _ <- narrowFeed(site, wanted).background
-      reload = reloadSite(dashboardsDir, site, importsRef, log)
+      reload = reloadSite(workspace, site, importsRef, log)
 
-      // Dump refresh (validate-then-swap, DumpRefresh): re-fetch the entity
-      // dump and swap it in only if every currently-building dashboard still
-      // builds; on success the renderers hot-swap like a source edit. The
-      // mutex serializes the endpoint against the registry watcher.
+      // Serialises the endpoint against the registry watcher.
       refreshMutex <- Mutex[IO].toResource
       refreshDump = refreshMutex.lock.surround(
-        refreshOnce(feed.api, dashboardsDir, reload, log)
+        refreshOnce(feed.api, workspace, reload, log)
       )
 
-      // Authentication (issue #89). Home Assistant is the identity provider:
-      // this server is an ordinary OAuth client, and the machine token above
-      // is untouched — every service call still runs as the machine, and
-      // nothing here opens a per-user feed.
-      //
-      // The URL the BROWSER must reach HA at is not always the one this
-      // server dials — under the add-on it is `http://supervisor/core`, which
-      // resolves for this process and for nothing a browser runs in. So ask
-      // HA where it thinks it lives; `HaOAuth.browserBase` ranks that against
-      // the override and the dialled address.
-      //
-      // An unreachable or malformed answer is not fatal: it is one more
-      // absent source, and the chain has three others.
-      haInternalUrl <- feed.api.getConfigWS.attempt
-        .map(_.toOption.flatMap(HaOAuth.internalUrlOf))
-        .toResource
-      haPublicUrl <- Env[IO]
-        .get("FH_HA_PUBLIC_URL")
-        .map(_.flatMap(org.http4s.Uri.fromString(_).toOption))
-        .map(HaOAuth.browserBase(_, haInternalUrl, haEnv.server))
-        .toResource
-      // ...and the address the LOGIN dials is a third answer, not `SERVER`:
-      // under the add-on that is the supervisor proxy, which serves the feed
-      // and nothing a per-USER credential can use — HA's `/auth/…` is not
-      // behind it at all, and its websocket authenticates add-ons, not
-      // people. `HaOAuth.coreBase` has the ranking.
-      haCoreUrl <- Env[IO]
-        .get("FH_HA_TOKEN_URL")
-        .map(_.flatMap(org.http4s.Uri.fromString(_).toOption))
-        .map(HaOAuth.coreBase(_, haInternalUrl, haEnv.server))
-        .toResource
-      _ <- log
-        .info(
-          s"Home Assistant login redirects go to $haPublicUrl; " +
-            s"logins dial $haCoreUrl"
-        )
-        .toResource
+      login <- edges.login(feed.api).toResource
       authSessions <- AuthSessions
-        .create(SessionStore.inWorkspace(dashboardsDir, loggerFactory))
+        .create(SessionStore.inWorkspace(workspace, loggerFactory))
         .toResource
-      oauth = new HaOAuth(
-        haPublicUrl,
-        haCoreUrl,
-        instrument(org.http4s.jdkhttpclient.JdkHttpClient[IO](httpClient))
-      )
-      // A connection that IS somebody else — short-lived, opened with their
-      // token, closed after one exchange. Deliberately NOT the shared feed,
-      // which stays on the machine token — and for the same reason not the
-      // feed's ADDRESS either: the supervisor proxy takes only the add-on's
-      // own token (see `HaOAuth.coreWs`).
-      //
-      // Two callers, one expression: asking who a login belongs to
-      // (`identify`), and acting as that person when they press a button
-      // (`ServiceCalls.asUser`). Writing the address ranking twice is how the
-      // two would drift.
-      connectAs = (token: String) =>
-        FHApi.from(
-          haCoreUrl,
-          token,
-          HaOAuth.coreWs(haCoreUrl, haEnv.server, haEnv.serverWs)
-        )
       identify = (token: String) =>
-        connectAs(token)
+        login
+          .connectAs(token)
           .use(_.currentUser)
           .handleErrorWith(e =>
             FHError
@@ -376,73 +373,58 @@ object ServerApp extends IOApp {
               )
               .raiseError[IO, HaUser]
           )
-      // Built from the SITE, not from the server: the server routes with it,
-      // so it has to exist first. `LiveSite` owns the registry the rule is
-      // read from, which is where `permissionFor` lives.
-      // Under the add-on's ingress, HA has already authenticated the user
-      // and the Supervisor forwards who they are — so nobody logs in twice.
-      // The headers carry no ROLE, so the id is resolved against HA's own
-      // account list; `Ingress` explains why the SOURCE ADDRESS is what makes
-      // the headers trustworthy, and why the port cannot be.
-      //
-      // `FH_TRUSTED_PROXY` overrides the Supervisor's fixed address for a
-      // deployment that proxies differently; unset is the add-on default, and
-      // an explicit empty value turns ingress trust off entirely.
-      trustedProxy <- Env[IO]
-        .get("FH_TRUSTED_PROXY")
-        .map {
-          case None      => Some(Ingress.SupervisorIp)
-          case Some(raw) => Ipv4Address.fromString(raw.trim)
-        }
-        .toResource
       ingressUsers <- IngressUsers.cached(feed.api.configAuthList).toResource
       gate = new AuthGate(
         authSessions,
         identify,
         site.permissionFor,
         ingressUsers,
-        trustedProxy
+        edges.trustedProxy
       )
       authRoutes <- AuthRoutes
-        .create(oauth, authSessions, identify, Server.baseUriOf)
+        .create(login.oauth, authSessions, identify, Server.baseUriOf)
         .toResource
-      // The live Server, assembled through the SHARED kernel `liveServer` (the
-      // same one the test harness funnels through, so the wiring can't drift).
-      // Also runs the per-slug shared patch publishers in the background — the
-      // render-once fan-out every SSE connection subscribes to.
-      server <- liveServer(
+      sessions <- Sessions.create.toResource
+      _ <- Meters.observeSessions(
+        otel.meterProvider,
+        sessions.all.map(_.size.toLong)
+      )
+      serverTracer <- otel.tracerProvider
+        .get("fh.view.runtime.Server")
+        .toResource
+      server <- Server.fromFeed(
         feed,
         site,
+        sessions,
         gate,
         assets,
         systemPkl,
         dumpRefresh = Some(refreshDump),
-        // A tap is the user's, not the add-on's (issue #198). A request with
-        // no login session still falls back to the feed's own identity, which
-        // is what an unauthenticated deployment and ingress both have.
-        actions = ServiceCalls.asUser(_, connectAs, authSessions, oauth),
-        tracerProvider = otel.tracerProvider,
+        // A tap is the user's (issue #198); with no login session it falls
+        // back to the feed's identity.
+        actions = ServiceCalls.asUser(
+          _,
+          login.connectAs,
+          authSessions,
+          login.oauth
+        ),
+        tracer = serverTracer,
         loggerFactory = loggerFactory,
-        meterProvider = otel.meterProvider,
-        meters = meters
+        meters = meters,
+        windows = edges.sessionWindows
       )
-      pklLspJar <- resolvePklLspJar(config.pklLspJar, log).toResource
       editor = new EditorRoutes(
-        dashboardsDir,
+        workspace,
         gate,
-        pklLspJar,
+        edges.pklLspJar,
         site.defaultSlug,
         site.names
       )
 
       _ <- watchSources(reload, importsRef).compile.drain.background
 
-      // Registry-driven dump refresh: HA's `*_registry_updated` events say
-      // the HOME changed (device/entity/area/floor added, renamed, removed)
-      // — exactly what the dump snapshots. Toggleable via the add-on's
-      // `watch_registry` option (FH_WATCH_REGISTRY); on by default.
       _ <-
-        if (config.watchRegistry)
+        if (edges.watchRegistry)
           watchRegistryEvents(
             feed.api,
             feed.healthy,
@@ -450,29 +432,16 @@ object ServerApp extends IOApp {
             log
           ).compile.drain.background.void
         else Resource.unit[IO]
-      // One fiber over the whole store rather than one per session: re-check
-      // what is stale, evict what HA says is gone. This is what makes a
-      // revocation in HA reach a dashboard nobody is touching.
+      // What makes a revocation in HA reach a dashboard nobody is touching.
       _ <- revalidateSessions(
         authSessions,
-        oauth,
+        login.oauth,
         identify,
         log = log
       ).compile.drain.background
-      // The conventional `http.server.*` span and metrics, off http4s' own
-      // request/response types (http4s-otel4s-middleware). Hand-rolled
-      // equivalents would carry names only this project understands, and
-      // would have to re-derive route, status and error semantics the
-      // middleware already gets right.
-      //
-      // The path is KEPT: it is the dashboard slug or an editor file name,
-      // which is what says which page was slow, and no secret rides there.
-      //
-      // The query is DROPPED, and that asymmetry is the point: the OAuth
-      // callback arrives as `/auth/callback?code=…`, and an authorization
-      // code in a span that leaves the machine is a credential leak. The
-      // query carries nothing else worth having — `?edit=1`, and the node
-      // and group ids on an action.
+      // The query is dropped: `/auth/callback?code=…` would put an
+      // authorization code in a span that leaves the machine. The path (a
+      // slug or file name) carries no secret.
       traceServer <- ServerMiddleware
         .builder[IO](
           ServerSpanDataProvider.openTelemetry(
@@ -486,64 +455,37 @@ object ServerApp extends IOApp {
       metricsServer <- OtelMetrics
         .serverMetricsOps[IO]()(using cats.Monad[IO], otel.meterProvider)
         .toResource
-      _ <- EmberServerBuilder
-        .default[IO]
-        .withHost(config.bindHost)
-        .withPort(config.bindPort)
-        // Ember's own lines join the same stream as everything else, which
-        // is the point of building a FACTORY: they carry the span they
-        // happened in and reach the collector with it. `logback.xml` still
-        // holds `org.http4s` at WARN — that ceiling is about volume on a
-        // long-lived SSE stream, not about where the lines go.
-        .withLogger(
-          loggerFactory.getLoggerFromName("org.http4s.ember.server")
-        )
-        .withHttpWebSocketApp(wsb =>
-          // Any FHError raised while serving becomes its status + message;
-          // anything else falls through to Ember's default 500.
-          //
-          // Each route (or route GROUP — see `AuthGate.require`) declares
-          // its own requirement. Inside the error boundary, so a raised
-          // FHError still becomes a status.
-          //
-          // Tracing wraps the error boundary and metrics sits inside it,
-          // because `Metrics` takes routes and `FHError.handle` takes an
-          // app. The `errorResponseHandler` is what keeps that ordering
-          // honest: without it a raised `FHError` would be counted as a
-          // 500 while the client was answered 404, and the metric would
-          // disagree with the log about the same request.
-          traceServer.wrapHttpApp(
-            FHError.handle(
-              ServerMetrics[IO](
-                metricsServer,
-                errorResponseHandler = {
-                  case e: FHError =>
-                    Status.fromInt(e.status).toOption
-                  case _ => Some(Status.InternalServerError)
-                }
-              )(
-                authRoutes.routes <+> server.routes <+> editor.routes(wsb)
-              ).orNotFound
-            )
+      app = (wsb: WebSocketBuilder2[IO]) =>
+        // Metrics sits inside the error boundary (it takes routes), so
+        // `errorResponseHandler` maps a raised `FHError` to the status the
+        // client actually got, not a 500.
+        traceServer.wrapHttpApp(
+          FHError.handle(
+            ServerMetrics[IO](
+              metricsServer,
+              errorResponseHandler = {
+                case e: FHError =>
+                  Status.fromInt(e.status).toOption
+                case _ => Some(Status.InternalServerError)
+              }
+            )(
+              authRoutes.routes <+> server.routes <+> editor.routes(wsb)
+            ).orNotFound
           )
         )
-        .withShutdownTimeout(0.seconds)
-        .build
-      defaultSlug <- site.defaultSlug.toResource
-      _ <- log
-        .info(
-          s"Dashboards serving on http://${config.bindHost}:${config.bindPort} " +
-            s"(default '/$defaultSlug', all: ${prepared.states.keys.toList.sorted.mkString(", ")})"
-        )
-        .toResource
-    } yield ()).useForever.as(ExitCode.Success)
+    } yield Assembled(
+      app,
+      feed,
+      site,
+      server,
+      sessions,
+      authSessions,
+      prepared
+    )
+  }
 
-  /** Everything [[prepareRenderers]] hands back: the state to register per slug
-    * (`Ready` or `Failed`), the slug the site wants at `/`, and the files the
-    * evaluation read (for watching). A dashboard that failed to build is
-    * REGISTERED as a failed one — serving its error page and rebuilding live on
-    * a fix — rather than skipped, so no slug the entrypoint names is ever
-    * silently absent from the server.
+  /** A dashboard that failed to build is registered as failed, not skipped, so
+    * no slug the entrypoint names is silently absent.
     */
   private[runtime] case class Prepared(
       dashboards: Map[String, Either[String, Dashboard.Validated]],
@@ -551,17 +493,11 @@ object ServerApp extends IOApp {
       imports: Set[os.Path]
   ) {
 
-    /** Lazy because building a renderer per slug is real work, and a caller
-      * that only wants the failures (or the membership) should not pay it.
-      */
     lazy val states: Map[String, Server.RendererState] =
-      dashboards.map { case (slug, result) => slug -> stateOf(result) }
+      dashboards.map { case (slug, result) => slug -> Server.stateOf(result) }
 
-    /** What each slug currently EVALUATES to — the proven dashboard, or the
-      * message it failed with. This is what a later reload compares against to
-      * decide whether anything actually changed ([[reloadSite]]), so it holds
-      * the model rather than the renderer built from it: two evaluations of an
-      * unedited file produce equal `Dashboard`s and different `Renderer`s.
+    /** The model, not the renderer, for [[reloadSite]] to compare
+      * ([[Server.Origin]]).
       */
     def content: Map[String, Either[String, Dashboard]] =
       dashboards.view.mapValues(_.map(_.dashboard)).toMap
@@ -574,22 +510,9 @@ object ServerApp extends IOApp {
     }
   }
 
-  private def stateOf(
-      result: Either[String, Dashboard.Validated]
-  ): Server.RendererState = Server.stateOf(result)
-
-  /** Dump and build every dashboard the entrypoint names — the source-to-
-    * renderer path that precedes serving, extracted so [[run]] (production) and
-    * the test harness (`TestServer.fromWorkspace`) share it and cannot diverge.
-    *
-    * Blocks on the feed's first connect + seed (so a live template call has a
-    * connection), seeds the `@fh-home` dump ONCE from the live API
-    * ([[DashboardBuild.prepareDumps]]), then evaluates `site.pkl` against it.
-    * Nothing here is fatal: a dashboard that fails to decode or validate
-    * becomes a registered `Failed` one, and an entrypoint that will not
-    * evaluate at all registers a single failed dashboard under
-    * [[Server.DefaultSlug]] — so `/` and the editor still serve the error and
-    * the fix path, exactly the shape the reload machinery uses after startup.
+  /** Seed the dump and evaluate `site.pkl`; shared with `TestServer`. Nothing
+    * is fatal: an entrypoint that will not evaluate registers one failed
+    * dashboard under [[Server.DefaultSlug]], so `/` still shows the error.
     */
   private[runtime] def prepareRenderers(
       feed: HaFeed,
@@ -599,13 +522,8 @@ object ServerApp extends IOApp {
       loggerFactory: LoggerFactory[IO] = Logging.console
   ): IO[Prepared] = {
     val log = loggerFactory.getLoggerFromName(LoggerName)
-    // Traced because this is the OTHER thing that can make the add-on feel
-    // slow, and it is not a request so no HTTP span covers it: on a Pi, the
-    // dump fetch and a pkl evaluation of every dashboard are seconds, and they
-    // run again on every registry-driven refresh — not just at boot.
+    // No HTTP span covers this, and on a Pi it is seconds.
     tracer.span("dashboard.prepare").surround {
-      // Write the live dump once (so `import "@fh-home/dump.pkl"` resolves) via
-      // the build phase, which owns fetching + packaging the dump.
       tracer
         .span("dashboard.prepare.dump")
         .surround(
@@ -626,8 +544,6 @@ object ServerApp extends IOApp {
                 Prepared(site.dashboards.toMap, site.default, imports)
               )
             case Left(err) =>
-              // Nothing evaluated, so nothing can be attributed to a slug: serve
-              // the error under the one name `/` will look for.
               IO.pure(
                 Prepared(
                   Map(Server.DefaultSlug -> Left(Site.messageOf(err))),
@@ -638,8 +554,6 @@ object ServerApp extends IOApp {
           }
           .flatTap { prepared =>
             prepared.built.traverse_ { case (slug, renderer) =>
-              // Built, but maybe not sound: report what still serves and only
-              // misbehaves (a popup with nowhere to go).
               renderer.warnings.traverse_(w => log.warn(s"'$slug': $w"))
             } *>
               prepared.failed.traverse_ { case (slug, message) =>
@@ -649,29 +563,16 @@ object ServerApp extends IOApp {
     }
   }
 
-  /** How long a session may go unchecked before HA is asked about it again.
-    * Matches HA's own access-token life, so a revocation is visible within one
-    * token generation rather than at some unrelated interval.
+  /** HA's own access-token life, so a revocation shows within one generation.
     */
   private val RevalidateAfter: FiniteDuration = 30.minutes
 
-  /** Ask HA, periodically, whether each logged-in user is still who and what we
-    * recorded — and drop the ones it no longer vouches for.
+  /** What makes HA authoritative, not merely the thing that once issued a
+    * login. `Dead` evicts; a raised error does not, or every network hiccup
+    * would log the household out.
     *
-    * The only thing that makes Home Assistant AUTHORITATIVE rather than merely
-    * the thing that once issued a login: without it, revoking this dashboard in
-    * HA would leave its sessions alive here until they aged out.
-    *
-    * A `Dead` answer evicts. A raised error does NOT: an unreachable HA is not
-    * a statement about anybody's account, and treating it as one would log the
-    * whole household out of a working dashboard every time the network hiccups.
-    *
-    * The FIRST pass runs immediately rather than one `every` later, which is
-    * what covers a restart: `verifiedAt` is persisted and absolute, so every
-    * session that survived downtime is already past `after` on boot and needs
-    * no special case — but `awakeEvery` sleeps before its first element, so
-    * without the leading pass a session revoked during a week of downtime would
-    * still be served for the first five minutes.
+    * The first pass runs immediately: `awakeEvery` sleeps first, and a session
+    * revoked during downtime would otherwise be served for five minutes.
     */
   private[runtime] def revalidateSessions(
       sessions: AuthSessions,
@@ -685,10 +586,6 @@ object ServerApp extends IOApp {
     Stream.eval(pass) ++ Stream.awakeEvery[IO](every).evalMap(_ => pass)
   }
 
-  /** One sweep: re-check everything currently past `after`, and evict what HA
-    * disowns. Separate from the schedule above so a test can run exactly one
-    * and assert on the result, with no clock in the assertion.
-    */
   private[runtime] def revalidateOnce(
       sessions: AuthSessions,
       oauth: HaOAuth,
@@ -700,8 +597,7 @@ object ServerApp extends IOApp {
       .map(_.minusSeconds(after.toSeconds))
       .flatMap(sessions.stale)
       .flatMap(_.traverse_ { case (id, session) =>
-        // The client_id HA stored at login is the only one it accepts back,
-        // so the session carries its own rather than the caller guessing one.
+        // HA accepts back only the client_id it stored at login.
         oauth
           .refresh(
             session.refresh,
@@ -713,16 +609,14 @@ object ServerApp extends IOApp {
                 s"[auth] session for ${session.user.name} is no longer valid at HA; signing out"
               ) *> sessions.remove(id)
             case RefreshOutcome.Renewed(tokens) =>
-              // Re-read the user too, not just the token: a role change is
-              // exactly the thing a periodic check is here to notice.
+              // Re-read the user too: a role change is what this is for.
               (identify(tokens.accessToken), IO.realTimeInstant).flatMapN {
                 (user, at) =>
                   sessions.renew(
                     id,
                     user,
                     tokens.refreshToken.getOrElse(session.refresh),
-                    // The re-check already minted one; keeping it means a tap
-                    // arriving soon after does not mint a second.
+                    // Kept, so a tap soon after does not mint a second.
                     Some(
                       HaAccess(
                         tokens.accessToken,
@@ -739,84 +633,14 @@ object ServerApp extends IOApp {
           )
       })
 
-  /** The runtime KERNEL both [[run]] (production) and the test harness
-    * (`TestServer`) funnel through, so the live-Server wiring cannot silently
-    * diverge: wait for the feed's first connect + seed (so the store is
-    * populated before anything serves), then build the Server from it via the
-    * single [[Server.fromFeed]] constructor.
-    *
-    * What stays with the caller is deliberate, not drift: the renderer SOURCE
-    * (production evaluates Pkl against the live dump; a test uses a fixed
-    * `Dashboard`) and the serving SHELL (asset cache, editor + Ember in
-    * production; in-memory routes or a bare Ember bind in tests). The feed
-    * itself is built by the caller because production needs `feed.api` to
-    * prepare the dump BEFORE any renderer exists — everything that makes a
-    * Server a Server lives here.
-    */
-  private[runtime] def liveServer(
-      feed: HaFeed,
-      site: Server.LiveSite,
-      gate: AuthGate,
-      assets: AssetCache = AssetCache.empty,
-      systemPkl: SystemPkl = SystemPkl.empty,
-      dumpRefresh: Option[IO[DumpRefresh.Result]] = None,
-      // Who a tap is attributed to at HA (issue #198). Defaulted to the
-      // instance's own identity so a caller with no login wiring — every test
-      // harness — keeps today's behaviour; production hands in the per-user
-      // form, which needs the OAuth client and the session registry that only
-      // `run` has built.
-      actions: HomeAssistantApi[IO] => ServiceCalls = ServiceCalls.asInstance,
-      // No-op by default, which is what every test harness gets and also what
-      // an install with no collector configured runs on.
-      tracerProvider: TracerProvider[IO] = TracerProvider.noop,
-      loggerFactory: LoggerFactory[IO] = Logging.console,
-      meterProvider: MeterProvider[IO] = MeterProvider.noop,
-      meters: Meters = Meters.noop
-  ): Resource[IO, Server] =
-    for {
-      sessions <- Sessions.create.toResource
-      // The registry is the only place that knows how many sessions there
-      // are, so the gauge is registered where it is built.
-      _ <- Meters.observeSessions(
-        meterProvider,
-        sessions.all.map(_.size.toLong)
-      )
-      tracer <- tracerProvider.get("fh.view.runtime.Server").toResource
-      server <- Server.fromFeed(
-        feed,
-        site,
-        sessions,
-        gate,
-        assets,
-        systemPkl,
-        dumpRefresh,
-        actions,
-        tracer,
-        loggerFactory,
-        meters
-      )
-    } yield server
-
-  /** The slug the site is seeded with at boot ([[Server.defaultSlugFor]], with
-    * the never-empty fallback a `LiveSite` needs). The site's own `default`
-    * wins whenever it names a dashboard the entrypoint declared, even one that
-    * failed to build — its error page is the point.
-    */
   private[runtime] def defaultSlugFrom(
       preferred: Option[String],
       all: List[String]
   ): String =
     Server.defaultSlugFor(preferred, all).getOrElse(Server.DefaultSlug)
 
-  /** The set of files to watch: the entrypoint's transitive imports plus the
-    * entrypoint itself (so a brand-new import or a top-level edit is caught).
-    *
-    * The `lib/` authoring library and the `@fh-home` dump are cache-backed
-    * PACKAGES (ADR 0010), so `PklBuild.importSet` filters their `package:`
-    * imports out of the `file:` watch set — they are immutable per version and
-    * not hot-reloaded (a lib edit needs a restart / re-seed; a dump change goes
-    * through `DumpRefresh`). So the watched files are entries + their loose
-    * `file:` imports only.
+  /** `file:` imports only: the lib and the dump are immutable packages (ADR
+    * 0010), and a dump change goes through `DumpRefresh`.
     */
   private def watchedSet(
       dashboardsDir: os.Path,
@@ -824,26 +648,16 @@ object ServerApp extends IOApp {
   ): Set[Path] =
     (imports +
       (dashboardsDir / Site.EntryFile) +
-      // The workspace manifest, so adding a package dependency takes effect
-      // like any other edit: the re-eval re-resolves the lockfile whenever this
-      // file's mtime has moved (`PklBuild.staleLockfile`). It is editable in the
-      // editor, so this is a real edit path, not a hypothetical one.
+      // So a new package dependency re-resolves the lockfile
+      // (`PklBuild.staleLockfile`).
       (dashboardsDir / EditorRoutes.Manifest) +
-      // The workspace DIRECTORY, so a file that APPEARS is noticed. Watching
-      // paths alone cannot see one: a new file is nobody's import yet, and a
-      // glob import (`import*("*.dashboard.pkl")`) exists precisely so that
-      // dropping a file in adds a dashboard. Events are filtered to `*.pkl`
-      // ([[watchSourcesWith]]) — the directory also holds the lockfile the
-      // evaluation itself rewrites, and reloading on that would feed itself.
+      // The directory, so a new file is noticed: a glob import exists so that
+      // dropping one in adds a dashboard.
       dashboardsDir)
       .map(fs2Path)
 
-  /** Which watcher events are an author edit. Since the workspace DIRECTORY is
-    * watched (so a new file is seen), the noise it carries has to be dropped
-    * here: `PklProject.deps.json` is rewritten by the evaluation this reload
-    * runs, so reloading on it would feed itself, and `.fh/` churns per boot.
-    * Overflow has no path and must pass — it means events were LOST, which is
-    * exactly when a reload is owed.
+  /** The directory watch also sees `PklProject.deps.json`, which the reload
+    * itself rewrites, and `.fh/`. Overflow passes: events were lost.
     */
   private[runtime] def isSourceEvent(event: Watcher.Event): Boolean =
     event match {
@@ -867,14 +681,6 @@ object ServerApp extends IOApp {
     Watcher.EventType.Deleted
   )
 
-  /** Watch the entrypoint's source graph and, on change, re-evaluate it and
-    * hot-swap every dashboard it names; the SSE streams repaint their body.
-    * MEMBERSHIP moves too — a key added to `dashboards` starts serving and a
-    * key removed stops, without a restart (ADR 0021) — and each surviving
-    * slug's state is set either way, so a dashboard broken since startup
-    * repairs when it is fixed. A concurrent reconcile tracks `importsRef` so
-    * newly-imported files start being watched and removed ones stop.
-    */
   private def watchSources(
       reload: IO[Unit],
       importsRef: SignallingRef[IO, Set[Path]]
@@ -888,11 +694,8 @@ object ServerApp extends IOApp {
       )
     }
 
-  /** The source watcher's pipeline, decoupled from the OS watcher: the caller
-    * supplies the event stream and the watch/unwatch side effect, so a test can
-    * drive the same `events -> reload` wiring with a controlled stream instead
-    * of a live `WatchService`. The `WatchService` itself is only exercised
-    * manually (`sbt dashboardServe`).
+  /** Decoupled from the OS watcher for tests; the `WatchService` itself is only
+    * exercised manually.
     */
   private[runtime] def watchSourcesWith(
       events: Stream[IO, Watcher.Event],
@@ -928,43 +731,9 @@ object ServerApp extends IOApp {
     reloadOnChange.concurrently(reconcile)
   }
 
-  /** Re-evaluate the entrypoint against the on-disk sources + dump and bring
-    * the live site up to what it now says: install the dashboards it names
-    * (`Ready`, or `Failed` with the message its own build failed with) and
-    * remove the ones it no longer names. The body behind both the source
-    * watcher and the post-dump-swap reload ([[refreshOnce]] — the dump is
-    * deliberately not watched).
-    *
-    * An entrypoint that will not EVALUATE is a different thing from a dashboard
-    * that will not build: nothing can be attributed to a slug, so every slug
-    * the site currently owns shows the error and MEMBERSHIP IS LEFT ALONE — the
-    * file no longer says what it is. Fixing the file restores all of them at
-    * once.
-    *
-    * What the site owned last time is not tracked here: the registry records it
-    * per slug ([[Server.Origin]]), so nothing this function does can drift from
-    * what is actually installed. That record does two jobs. It makes removal
-    * safe — a slug installed by `push` is not the entrypoint's, so nothing here
-    * can reclaim one (ADR 0010) — and it makes a reload that changes nothing
-    * cost nothing.
-    *
-    * '''An unchanged dashboard is not re-installed.''' The watcher fires on
-    * anything in the workspace, and a `Ready` state written to the registry is
-    * not free: it emits on the slug's `SignallingRef`, which rotates the
-    * fragment log and repaints EVERY open browser on that dashboard. So a save
-    * that did not change a dashboard — a touched file, a comment, an edit to a
-    * sibling — would still throw every viewer's DOM away.
-    */
-  /** Keep `wanted` tracking what the registered dashboards read, so the
-    * upstream `subscribe_entities` carries the entities that can actually
-    * change something and nothing else.
-    *
-    * `Some(set)` from the first emission onward, INCLUDING an empty one: an
-    * instance with no dashboard genuinely wants no state, and the feed declines
-    * to subscribe rather than sending an empty `entity_ids`, which HA reads as
-    * the whole house. The `None` this replaces is the boot value, and it never
-    * comes back — once the registry has spoken, "unknown" is not a state the
-    * runtime can re-enter.
+  /** `Some` from the first emission, even empty: the feed then declines to
+    * subscribe, since an empty `entity_ids` means the whole house to HA. `None`
+    * is only the boot value.
     */
   private[runtime] def narrowFeed(
       site: Server.LiveSite,
@@ -975,6 +744,10 @@ object ServerApp extends IOApp {
       .compile
       .drain
 
+  /** Re-evaluate the entrypoint and bring the live site in line; behind both
+    * the source watcher and a dump swap ([[refreshOnce]]). What changed is
+    * decided by [[Server.LiveSite.applySite]] against each slug's origin.
+    */
   private[runtime] def reloadSite(
       dashboardsDir: os.Path,
       site: Server.LiveSite,
@@ -983,7 +756,6 @@ object ServerApp extends IOApp {
   ): IO[Unit] =
     DashboardBuild.evalSite(dashboardsDir).attempt.flatMap {
       case Left(err) =>
-        // Membership is NOT touched: the file no longer says what it is.
         site.failSite(Site.messageOf(err)).flatMap(report(_, log))
       case Right((decoded, imports)) =>
         for {
@@ -1001,20 +773,13 @@ object ServerApp extends IOApp {
         } yield ()
     }
 
-  /** Announce the TRANSITIONS worth a log line: a dashboard that started
-    * serving, one that broke, one that recovered, one that is gone.
-    */
   private def report(
       changes: List[Server.Change],
       log: SelfAwareStructuredLogger[IO]
   ): IO[Unit] =
     changes.traverse_(_.describe._2.traverse_(log.info(_)))
 
-  /** One full dump refresh: fetch + render the live dump, validate-then-swap
-    * ([[DumpRefresh.refresh]]), and on a swap hot-reload every renderer (the
-    * source watcher does not watch the dump). A rejection only warns — HA
-    * changed, but the dashboards keep building against the current dump until
-    * they're fixed and a refresh is retried.
+  /** A rejection only warns: the dashboards keep the current dump until fixed.
     */
   private def refreshOnce(
       api: HomeAssistantApi[IO],
@@ -1031,8 +796,7 @@ object ServerApp extends IOApp {
       .flatMap(DumpRefresh.refresh(_, dashboardsDir))
       .flatTap {
         case DumpRefresh.Unchanged =>
-          // Debug, not info: this is the answer for most registry events, so
-          // at info it would be the only thing in the log.
+          // The answer to most registry events.
           log.debug("dump refresh: home unchanged")
         case DumpRefresh.Swapped(version, seedLog) =>
           seedLog.traverse_(log.info(_)) *>
@@ -1047,14 +811,9 @@ object ServerApp extends IOApp {
             }
       }
 
-  /** The HA event types that signal the dump's inputs changed: the registries
-    * behind `{entities, areas, floors}` (devices ride along because a device
-    * add/remove always touches the entity registry too, but a rename can fire
-    * only the device event), plus `component_loaded` — an integration set up at
-    * runtime, which also covers YAML-defined entities that never get a registry
-    * entry (no `unique_id`) and so fire no registry event. The startup burst of
-    * `component_loaded`s is absorbed by the debounce + the refresh being a
-    * no-op on a byte-identical dump.
+  /** Devices too, since a rename can fire only the device event; and
+    * `component_loaded`, the only event for YAML entities with no registry
+    * entry.
     */
   private val DumpEvents = List(
     "entity_registry_updated",
@@ -1064,34 +823,12 @@ object ServerApp extends IOApp {
     "component_loaded"
   )
 
-  /** `FH_WATCH_REGISTRY` values that turn the registry watcher off. */
   private val RegistryWatchOff = Set("false", "0", "off", "no")
 
-  /** Registry changes come in bursts (adding one integration fires dozens of
-    * `entity_registry_updated` events), so wait for quiet before refreshing. A
-    * failed refresh (an HA hiccup mid-fetch) logs and keeps listening.
-    *
-    * SPANS RECONNECTS by re-subscribing, rather than by holding a subscription
-    * that survives one: each connection gets a fresh subscription, whose stream
-    * ends with that connection, and `healthy` going true again starts the next.
-    *
-    * NOTHING IS LOST IN THE GAP, and not by luck. A subscription is only ever
-    * interrupted by a disconnect (that is the only thing that moves `healthy`),
-    * and every reconnect refreshes unconditionally — so a registry event
-    * dropped during the outage, or in flight when the socket died, is
-    * re-derived rather than replayed. Re-deriving after the gap is both simpler
-    * and stricter than buffering across it: it cannot miss a change we never
-    * saw an event for. The state feed closes its own gap the same way, with the
-    * new subscription's opening full set.
-    *
-    * The refresh costs one dump render per reconnect and is otherwise a no-op,
-    * since an unchanged home has an unchanged content-version.
-    *
-    * A registry change means an entity/area/floor appeared, vanished or was
-    * renamed, which changes what the dashboards are BUILT from — so the answer
-    * is a full re-evaluation of every entry, not an incremental patch. That is
-    * deliberate: it happens a few times a year, and making it cheaper would buy
-    * nothing for a cost in machinery.
+  /** Debounced: one integration fires dozens of events. Re-subscribes per
+    * connection and refreshes on every reconnect, so an event lost in the gap
+    * is re-derived rather than replayed. A full re-evaluation, not a patch: it
+    * happens a few times a year.
     */
   private def watchRegistryEvents(
       api: HomeAssistantApi[IO],
@@ -1114,7 +851,6 @@ object ServerApp extends IOApp {
           .parJoinUnbounded
           .debounce(RegistryQuiet)
           .evalMap(_ => runRefresh)
-        // Catch up on whatever the outage hid, then watch this connection.
         Stream.exec(runRefresh) ++ events
       }
   }
@@ -1123,27 +859,14 @@ object ServerApp extends IOApp {
 
   private def fs2Path(p: os.Path): Path = Path.fromNioPath(p.toNIO)
 
-  /** Bring the workspace to a package-form state the server can evaluate, on
-    * EVERY start — add-on or local dev — so the two never diverge (ADR 0010).
-    * [[AddonBootstrap]] packages the bundled library into the persistent cache
-    * and seeds/migrates the user's workspace (its `.fh/base.pkl` + `pins.json`,
-    * starter entries), so `@fh-dashboard` always resolves from the cache as
-    * `package://fh.invalid/fh-dashboard@<v>` and the live home always serves
-    * `/system/pkl/packages` (what `fh init`/`pull`/`push` read).
-    *
-    * The two path inputs come from `run.sh` on the add-on; a local `sbt
-    * dashboardServe` has neither set and falls back to a local scratch dir —
-    * the lib AND the starter entry are both read straight off the running jar's
-    * own resources ([[BundledLib]], [[AddonBootstrap.starterSite]]), so a dev
-    * run seeds exactly what the add-on does; iterating on library Pkl is
-    * `fh push` against the running instance, never a mutable workspace `lib/`.
+  /** On every start, add-on or dev, so the two never diverge (ADR 0010). The
+    * lib and starter come from the jar's own resources.
     */
   private def bootstrap(
       config: Config,
       log: SelfAwareStructuredLogger[IO]
   ): IO[LibPackage.Artifacts] =
     for {
-      // The lib is the running jar's own resources — nothing to locate on disk.
       bundled <- IO.blocking(BundledLib.artifacts())
       _ <- IO
         .blocking(
@@ -1157,33 +880,15 @@ object ServerApp extends IOApp {
         .flatMap(_.traverse_(log.info(_)))
     } yield bundled
 
-  /** Read `name` from the environment, falling back to `default` when unset.
-    * The single place the `Env[IO].get(...).getOrElse(...)` idiom lives.
-    */
   private def envOr(name: String, default: String): IO[String] =
     Env[IO].get(name).map(_.getOrElse(default))
 
+  // Relative to the forked run's cwd, the repo root.
   private def pathFromEnv(name: String, default: String): IO[os.Path] =
     envOr(name, default).map(s => os.Path(s, os.pwd))
 
-  /** Which workspace to serve: `sbt 'dashboardServe <dir>'`, else
-    * `DASHBOARDS_DIR` (the add-on's channel, `run.sh`). Absolute, or relative
-    * to the repo root.
-    *
-    * Pure, and separated from [[Config.load]] for the usual reason — this is
-    * the whole contract, and the part worth a test, where the rest of `load`
-    * needs an environment to say anything.
-    *
-    * There is deliberately NO default. A relative fallback bootstraps a fresh,
-    * empty package-form workspace wherever the process happened to start, and
-    * then boots green serving a starter dashboard — so a mistyped path, or a
-    * run from a directory nobody thought about, looked like it worked and left
-    * a second workspace on disk beside the real one.
-    *
-    * A SECOND argument is refused rather than ignored, for the same reason:
-    * `args.headOption` quietly served the first one, so a typo'd flag or an
-    * unquoted glob that matched two directories booted a server on a workspace
-    * the caller did not name and did not see named.
+  /** No default, and a second argument is refused: either way a mistyped path
+    * booted green on a fresh workspace nobody named, beside the real one.
     */
   private[runtime] def workspaceDir(
       args: List[String],
@@ -1205,15 +910,8 @@ object ServerApp extends IOApp {
         )
     }
 
-  /** Locate the pkl-lsp CLI jar the LSP subprocess runs — `stagePklLsp` writes
-    * it and both the add-on image and the `dashboardServe` alias point
-    * `PKL_LSP_JAR` at it.
-    *
-    * `None` is a degraded editor, not a failure: /edit and its local
-    * highlighting work, and only completion/hover/diagnostics go away. Hence
-    * the warning instead of a raise — an unset variable is a deployment that
-    * did not stage the jar, which is worth saying once and not worth refusing
-    * to boot over.
+  /** `None` degrades the editor (no completion or diagnostics) rather than
+    * failing boot.
     */
   private def resolvePklLspJar(
       jarOverride: Option[String],

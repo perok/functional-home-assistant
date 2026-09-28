@@ -14,37 +14,25 @@ import org.http4s.{HttpApp, Method, Request, Response, Status, Uri, UrlForm}
 
 import scala.concurrent.duration.*
 
-/** The thing that makes Home Assistant AUTHORITATIVE rather than merely the
-  * thing that once issued a login (issue #89, ADR 0023).
+/** What makes HA authoritative rather than the thing that once issued a login
+  * (issue #89, ADR 0023): revoking fh in HA ends its sessions here. Background
+  * work with no visible failure, where "stopped on the first tick" and "fine"
+  * look identical.
   *
-  * Without this, revoking fh in HA → Profile → Security leaves its sessions
-  * alive here until they age out on their own. It is also the worst shape to
-  * leave untested: background work with no visible failure mode, where "it
-  * silently stopped on the first tick" and "everything is fine" look identical
-  * from outside.
-  *
-  * Driven through the REAL `HaOAuth` over a stub HTTP backend rather than a
-  * hand-written double, so the `/auth/token` contract it depends on — a non-200
-  * meaning the grant is gone — is exercised rather than assumed. The stub also
-  * applies HA's own rule that a token request whose `client_id` differs from
-  * the grant's is `invalid_request`: that field is exactly what once broke
-  * production, and a stub that never read it could not notice.
-  *
-  * Almost everything here drives ONE sweep (`revalidateOnce`) rather than the
-  * schedule, so no assertion waits on a clock. The schedule gets exactly one
-  * test, for the only thing it decides: when the first sweep happens.
+  * Through the real `HaOAuth` over a stub backend, so the `/auth/token`
+  * contract (a 4xx means the grant is gone) is exercised. The stub applies HA's
+  * rule that a `client_id` differing from the grant's is `invalid_request`: the
+  * field that once broke production. Tests drive one sweep, not the schedule,
+  * so nothing waits on a clock.
   */
 class RevalidateSessionsSuite extends munit.CatsEffectSuite {
 
   private val user = TestAuth.admin
 
-  /** What every session in this suite was minted as, and what the stub accepts.
-    */
   private val MintedClient = "http://fh.test"
 
-  /** HA's token endpoint, as far as this suite is concerned. The authorize and
-    * token bases coincide here — production splits them ([[HaOAuth]]), and the
-    * split itself gets its own test below.
+  /** Authorize and token bases coincide here; production splits them
+    * ([[HaOAuth]]), tested below.
     */
   private def haStub(
       reply: IO[Response[IO]],
@@ -77,10 +65,8 @@ class RevalidateSessionsSuite extends munit.CatsEffectSuite {
       )
     )
 
-  /** One session, one sweep. `after = -1.second` puts the cutoff a second AHEAD
-    * of now, so a session minted this instant is already due — an `after = 0`
-    * cutoff races the session's own `verifiedAt` and skips the check whenever
-    * both land in the same tick.
+  /** `after = -1.second` makes a session minted this instant due; `0` races its
+    * `verifiedAt` in the same tick.
     */
   private def sweep(
       oauth: HaOAuth,
@@ -106,10 +92,8 @@ class RevalidateSessionsSuite extends munit.CatsEffectSuite {
     }
   }
 
-  /** A refresh naming a `client_id` HA never stored is HA ANSWERING
-    * `invalid_request` — and per the strict rule, an answer that is not a fresh
-    * token ends the session. Signing out on our own bug beats keeping a session
-    * nobody can vouch for.
+  /** HA answering `invalid_request` is not a fresh token, so the session ends:
+    * signing out on our own bug beats keeping one nobody vouches for.
     */
   test("a refresh under a client_id HA does not know signs the session out") {
     sweep(
@@ -119,9 +103,8 @@ class RevalidateSessionsSuite extends munit.CatsEffectSuite {
     }
   }
 
-  /** The failure that must NOT happen. An unreachable HA is not a statement
-    * about anybody's account, and treating it as one would sign the whole
-    * household out of a working dashboard on every network hiccup.
+  /** An unreachable HA says nothing about any account; otherwise every hiccup
+    * signs the household out.
     */
   test("an unreachable HA leaves the session alone") {
     val dead = new HaOAuth(
@@ -136,6 +119,17 @@ class RevalidateSessionsSuite extends munit.CatsEffectSuite {
     }
   }
 
+  /** A 5xx is HA failing to answer, not the grant gone; otherwise every HA
+    * update signs the household out.
+    */
+  test("HA answering 5xx leaves the session alone") {
+    val restarting =
+      IO.pure(Response[IO](Status.ServiceUnavailable).withEntity("starting"))
+    sweep(haStub(restarting)).flatMap { case (sessions, id) =>
+      sessions.get(id).map(s => assertEquals(s.map(_.user), Some(user)))
+    }
+  }
+
   test("a renewed session keeps its place and takes the fresh token") {
     sweep(haStub(renewed)).flatMap { case (sessions, id) =>
       sessions.get(id).map { s =>
@@ -145,10 +139,7 @@ class RevalidateSessionsSuite extends munit.CatsEffectSuite {
     }
   }
 
-  /** Re-reading the USER is the point of re-checking, not just the token: a
-    * role change is exactly what a periodic check is here to notice, and an
-    * admin demoted in HA has to stop being an admin here.
-    */
+  /** A role change is what a periodic check is for. */
   test("a demoted admin is demoted here too") {
     val demoted = user.copy(is_admin = false, is_owner = false)
     sweep(haStub(renewed), identify = _ => IO.pure(demoted)).flatMap {
@@ -159,24 +150,19 @@ class RevalidateSessionsSuite extends munit.CatsEffectSuite {
     }
   }
 
-  /** A session that has not gone stale yet is not re-checked — otherwise every
-    * sweep would be a round trip per logged-in person.
-    */
+  /** Otherwise every sweep is a round trip per person. */
   test("a fresh session is left untouched") {
     sweep(haStub(revoked), after = 1.hour).flatMap { case (sessions, id) =>
       sessions.get(id).map(s => assertEquals(s.map(_.refresh), Some("r1")))
     }
   }
 
-  /** THE property, end to end: whatever client_id a login exchanged its code
-    * under, the same string comes back on the periodic refresh. Asserting on
-    * recorded wire values rather than internals keeps it true if baseUriOf
-    * changes or an ingress base joins.
+  /** Asserted on recorded wire values, so it holds if `baseUriOf` changes or an
+    * ingress base joins.
     */
   test("a session refreshes under the same client_id its login used") {
     for {
       seen <- Ref.of[IO, List[(String, Option[String])]](Nil)
-      // One fake HA for login AND sweep; it records every (grant, client_id).
       ha = Client.fromHttpApp(HttpApp[IO] { req =>
         req.as[UrlForm].flatMap { form =>
           val entry = (
@@ -236,11 +222,9 @@ class RevalidateSessionsSuite extends munit.CatsEffectSuite {
     }
   }
 
-  /** The two addresses a login touches are NOT one address, and the failure
-    * this pins was every production login dying with a bare 500: the browser
-    * followed the authorize link to HA's mDNS name (which it resolves) and the
-    * server then dialled that same name for the exchange (which it cannot).
-    * Redirects are built for the BROWSER; token requests dial the SERVER base.
+  /** Every production login died with a bare 500: the browser followed the
+    * authorize link to HA's mDNS name, and the server dialled that name for the
+    * exchange, which it cannot resolve.
     */
   test("the authorize link is built for the browser; tokens are dialled") {
     for {
@@ -267,8 +251,8 @@ class RevalidateSessionsSuite extends munit.CatsEffectSuite {
     }
   }
 
-  /** The production 500. An unreachable token endpoint used to escape as a raw
-    * exception past `FHError.handle`; now it is a named, retryable condition.
+  /** The production 500: an unreachable token endpoint escaped past
+    * `FHError.handle` as a raw exception.
     */
   test("an unreachable token endpoint raises unavailable, not a bare error") {
     val dead = new HaOAuth(
@@ -284,12 +268,9 @@ class RevalidateSessionsSuite extends munit.CatsEffectSuite {
       .flatMap(e => IO(assertEquals(e.status, 503)))
   }
 
-  /** What covers a RESTART. `verifiedAt` is persisted and absolute, so a
-    * session that survived downtime is already stale on boot — but `awakeEvery`
-    * sleeps before its first element, so a schedule without a leading sweep
-    * would serve a revoked session for a whole interval.
-    *
-    * `every = 1.hour` is the assertion: nothing here can pass by waiting.
+  /** `verifiedAt` is persisted, so a session that survived downtime is stale on
+    * boot, and `awakeEvery` sleeps before its first element. `every = 1.hour`
+    * is the assertion: nothing can pass by waiting.
     */
   test("the first sweep does not wait for the interval") {
     for {

@@ -2,49 +2,27 @@ package fh.view.testkit
 
 import fh.view.model.{DomId, LayoutNode, NodeId, SetId}
 
-/** Node ids as literals, for suites that hand-build a
-  * [[fh.view.runtime.FragmentLog]] or assert on generated ids.
-  *
-  * A blanket conversion rather than a wrapper at ~130 call sites, and that is a
-  * deliberate trade. [[NodeId]] exists to stop a DOM id (a bake host's
-  * `c_2_panel`, the theme's `popups`) being stored as a log key in the SERVER —
-  * a silent, permanent hole, invisible at the time of the mistake. A test
-  * writing `log.set("a", …)` has no such confusion available to it: the literal
-  * IS the spec. What the type still buys inside a suite is the production
-  * signatures it appears in, which no import can loosen.
+/** Node ids as literals, a blanket conversion rather than a wrapper at ~130
+  * call sites. [[NodeId]] stops a DOM id being stored as a log key in the
+  * server; a test has no such confusion available, since the literal is the
+  * spec.
   */
 object TestIds {
   given Conversion[String, NodeId] = NodeId.derived(_)
 
-  /** `assertEquals(renderer.componentsFor(e), Set("c_0"))`: munit's default
-    * [[munit.Compare]] wants the expected type to be a subtype of the obtained
-    * one, and `Set` is invariant, so the element conversion above does not
-    * reach inside the literal. Narrow on purpose — one container, one element
-    * type — rather than a blanket `Compare[A, B]`, which would switch off
-    * munit's type-safe equality for every other assertion in the suite.
+  /** munit's [[munit.Compare]] wants the expected type a subtype of the
+    * obtained, and `Set` is invariant. Narrow on purpose: a blanket `Compare[A,
+    * B]` would switch off type-safe equality everywhere.
     */
   given munit.Compare[Set[NodeId], Set[String]] = (a, b) => a == b
 
-  /** Same reason, for a DOM id asserted against the literal it must equal
-    * (`hostId("c_2") == "c_2_panel"`).
-    */
+  /** Same reason, for a DOM id against its literal. */
   given munit.Compare[DomId, String] = (a, b) => a == b
 
-  /** [[fh.view.model.SetId]] and [[fh.view.model.MemberId]] get NAMED helpers
-    * rather than the blanket conversion above, and the difference is not
-    * stylistic.
-    *
-    * [[NodeId]]'s conversion is safe because the confusion it guards against —
-    * a DOM id used as a log key — is not available to a test at all: the
-    * literal IS the spec. These two guard something else. A `SetId` asserts
-    * that the graph knows this container, which is a RUNTIME fact about which
-    * of two indexes was asked, and a suite can be wrong about it. An implicit
-    * conversion would make every `String` in the file silently claim it, which
-    * is the property the type was introduced to remove.
-    *
-    * So the mint stays visible at the call site. The `SetNode()` below is a
-    * stand-in — the only evidence a suite naming an id out of thin air can
-    * offer — which is another reason to have to type it.
+  /** Named helpers, not a conversion: a `SetId` asserts the graph knows this
+    * container, a runtime fact a suite can be wrong about, and a conversion
+    * would make every `String` silently claim it. The `SetNode()` below is a
+    * stand-in.
     */
   def setId(s: String): SetId =
     SetId.of(NodeId.derived(s), LayoutNode.SetNode())

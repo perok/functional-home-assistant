@@ -11,35 +11,19 @@ import fh.view.model.{
 import fh.view.testkit.PklWorkspace
 import io.circe.Json
 
-/** The wire shape is declared TWICE — once as a Pkl class in `components.pkl`
-  * (what an author's dashboard evaluates to) and once as a Scala case class in
-  * `Dashboard.scala` (what the runtime decodes). Nothing makes them agree.
+/** The wire shape is declared twice, a Pkl class in the library and a Scala
+  * case class in `Dashboard.scala`, and a field on one side only decodes to its
+  * default, silently. The snapshots notice only when a fixture exercises the
+  * field, as a confusing JSON diff. This compares both by reflection
+  * (`pkl:reflect`, `productElementNames`), turning drift into a named failure.
   *
-  * They have been kept in step by the `PklBuildSuite` snapshots, which only
-  * notice when an evaluated fixture happens to exercise the field that drifted
-  * — and then report it as a confusing JSON diff rather than as "these two
-  * definitions disagree". A field added on one side and forgotten on the other
-  * decodes to its default and is silently ignored.
-  *
-  * This asserts the correspondence directly, by REFLECTION on both sides:
-  * `pkl:reflect` for the Pkl classes (the same mechanism `components.cardsOf`
-  * uses to derive the card registry) and `productElementNames` for the Scala
-  * ones. It is the cheap version of the real answer, which is to generate one
-  * side from the other — but it turns drift into an immediate, named failure,
-  * which is the part that was missing.
-  *
-  * Deliberately compares NAMES, not types. Pkl's `Listing<String>` and Scala's
-  * `List[String]` are the same wire array, and encoding a type correspondence
-  * here would be a second model to maintain — which is the problem, not the
-  * fix.
+  * Names, not types: `Listing<String>` and `List[String]` are the same wire
+  * array, and a type correspondence would be a second model to maintain.
   */
 class WireShapeSuite extends munit.FunSuite {
 
-  /** Every property `pkl:reflect` reports for a class in `components.pkl`,
-    * keyed by class name. `hidden` properties are included by reflection and
-    * excluded here: they are authoring inputs that never reach the wire (a
-    * card's `entity`, an `If`'s `then`/`else`), and the Scala side has no
-    * counterpart for them by design.
+  /** `hidden` properties are authoring inputs that never reach the wire (a
+    * card's `entity`, an `If`'s `then`/`else`), so they are excluded.
     */
   private lazy val pklProperties: Map[String, Set[String]] = {
     val tmp = os.temp.dir()
@@ -95,7 +79,6 @@ class WireShapeSuite extends munit.FunSuite {
       .fold(e => fail(s"decode: $e"), _.map { case (k, v) => k -> v.toSet })
   }
 
-  /** The Scala case class's field names. */
   private def scalaFields(p: Product): Set[String] =
     p.productElementNames.toSet
 
@@ -113,8 +96,8 @@ class WireShapeSuite extends munit.FunSuite {
       )
     )
     val scala = scalaFields(sample)
-    // `kind` is the circe discriminator: carried explicitly in Pkl, supplied by
-    // the decoder configuration in Scala, so it is never a Scala field.
+    // The circe discriminator: explicit in Pkl, supplied by decoder
+    // configuration in Scala.
     val pklWire = pkl - "kind" -- pklOnly
     val scalaWire = scala -- scalaOnly
     assertEquals(
@@ -132,15 +115,10 @@ class WireShapeSuite extends munit.FunSuite {
   }
 
   test("the component node agrees on both sides") {
-    // The biggest wire class, and the one where a rename is cheapest to get
-    // half-right: `regions` is emitted by Pkl and decoded here, while the
-    // `children` an author writes is `hidden` and stops at the authoring layer.
-    // If only one side moved, this says so by name instead of leaving every
-    // child of every container to decode to `Map.empty`.
-    //
-    // `inlineSurfaces` is Pkl-only on purpose: it is a BUILD-PHASE marker that
-    // `DashboardBuild.hoistInlineSurfaces` lifts and removes, so the runtime
-    // model never sees one.
+    // `regions` is emitted and decoded, while the authored `children` is
+    // `hidden`. If only one side moved, every container's children would decode
+    // to `Map.empty`. `inlineSurfaces` is Pkl-only: a build-phase marker
+    // `DashboardBuild.hoistInlineSurfaces` lifts and removes.
     check(
       "Node",
       LayoutNode.Component("card"),
@@ -165,19 +143,13 @@ class WireShapeSuite extends munit.FunSuite {
   }
 
   test("the slot shape agrees, minus what only one side names") {
-    // `Slot` in Pkl is `SlotSource` in Scala — the one place the two names
-    // differ, kept because "slot" is the authoring word and "source" is the
-    // model's.
-    //
-    // `literal` is Scala-only, and deliberately: Pkl has no such field, because
-    // a constant slot is authored as a BARE STRING (`Slot|String`) and the
-    // decoder maps that string into `literal`. So the asymmetry is an encoding,
-    // not drift — which is exactly the kind of thing this test should force
-    // somebody to write down rather than discover.
+    // `Slot` is `SlotSource` in Scala: "slot" is the authoring word, "source"
+    // the model's. `literal` is Scala-only because a constant slot is authored
+    // as a bare string (`Slot|String`) that the decoder maps into it: an
+    // encoding, not drift.
     check("Slot", SlotSource(), scalaOnly = Set("literal"))
-    // A query slot's second half. Pinned here for the same reason as `Slot`:
-    // `params` is untyped on the wire, so nothing else would notice if the two
-    // sides stopped agreeing on what a query IS.
+    // `params` is untyped on the wire, so nothing else would notice the sides
+    // disagreeing on what a query is.
     check("Query", SlotQuery("history", Map.empty))
   }
 
@@ -185,12 +157,10 @@ class WireShapeSuite extends munit.FunSuite {
     check("Users", Access.Users(Nil))
   }
 
-  /** Structure is not enough for this one. The field NAMES can agree while
-    * every `kind` literal disagrees — `check` compares names, and `kind` is the
-    * one property it subtracts. A renamed constructor on either side then makes
-    * `access` undecodable or absent, and an absent rule takes the site default,
-    * which is the direction that fails OPEN for an ACCESS rule. So the literals
-    * are pinned by decoding what Pkl actually emits.
+  /** `check` subtracts `kind`, so names can agree while every `kind` literal
+    * disagrees. A renamed constructor makes `access` undecodable or absent, and
+    * an absent rule takes the site default: failing open, for an access rule.
+    * So the literals are pinned by decoding what Pkl emits.
     */
   test("every access constructor decodes to the rule the author wrote") {
     val tmp = os.temp.dir()

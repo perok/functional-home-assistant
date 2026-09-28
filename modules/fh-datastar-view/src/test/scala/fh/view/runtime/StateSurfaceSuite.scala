@@ -16,31 +16,10 @@ import io.circe.Json
 import scala.concurrent.duration.*
 
 /** State-activated surfaces on the recording pass (ADR 0007): hidden-branch
-  * silence, flips with their cache prune, nested groups, popup containment.
-  *
-  * The property most of these are about is a NEGATIVE one — an inactive branch
-  * emits nothing — so they assert on what is absent as carefully as on what is
-  * sent.
+  * silence, flips and their prune, nested groups, popup containment. Mostly a
+  * negative property, so absence is asserted as carefully as what is sent.
   */
 class StateSurfaceSuite extends ServerHarness {
-
-  // ---------------------------------------------------------------------------
-  // State-activated surfaces on the SHARED pass: hidden-branch silence, flips
-  // with cache prune, nested groups, popup containment (the feature contract)
-  // ---------------------------------------------------------------------------
-
-  /** An If/else dashboard: `ifhost` at "c_0" (col -> ifhost); `then` shows
-    * sensor.a while alarm.h == armed, the always-true `else` shows sensor.b.
-    */
-
-  /** Drives one VIEWER over an EVOLVING store: each [[step]] applies one entity
-    * update (deriving the StateChange exactly like the WS ingest does), records
-    * the frame for the slug, and returns what this viewer's pull emits for it.
-    *
-    * `holds` and `position` accumulate across steps, which is what multi-step
-    * contracts (flip then re-reveal) need and what the shared log used to do on
-    * everyone's behalf.
-    */
 
   test("state surfaces: churn in the INACTIVE branch emits ZERO patches") {
     for {
@@ -53,14 +32,10 @@ class StateSurfaceSuite extends ServerHarness {
           "sensor.z" -> es("sensor.z", "Z0")
         )
       )
-      // then (sensor.a) is active; the ELSE branch's entity churns silently —
-      // its member surface is never in the active set, so its index is never
-      // consulted (structural silence, not a filtered render).
+      // Its member surface is never in the active set, so its index is never
+      // consulted: structural silence, not a filtered render.
       _ <- h.step(es("sensor.b", "B1")).assertEquals(Nil)
-      // An entity no branch binds and no condition reads: nothing at all (the
-      // O(1) shortcut path — no member condition match flipped for it).
       _ <- h.step(es("sensor.z", "Z1")).assertEquals(Nil)
-      // The ACTIVE branch's entity, by contrast, patches its surface-scoped node.
       live <- h.step(es("sensor.a", "A1"))
     } yield {
       assertEquals(live.size, 1, clue = live)
@@ -81,14 +56,10 @@ class StateSurfaceSuite extends ServerHarness {
           "sensor.b" -> es("sensor.b", "B0")
         )
       )
-      // Establish the active branch in the shared cache...
       _ <- h.step(es("sensor.a", "A1")).map(p => assertEquals(p.size, 1))
-      // ...and churn the hidden branch (never rendered, never patched).
       _ <- h.step(es("sensor.b", "B1")).assertEquals(Nil)
-      // The flip: ONE patch. The host takes at most one member, so overwriting
-      // it IS the delta — no siblings to preserve, no position to fix — and it
-      // lands the same whatever the client currently holds there. Not a morph of
-      // the host, whose HTML would have embedded the branch.
+      // The host takes at most one member, so overwriting it is the delta, and
+      // it lands the same whatever the client holds.
       flip <- h.step(es("alarm.h", "disarmed"))
       cache <- h.cacheNow
       moved <- h.mutationsNow
@@ -96,17 +67,16 @@ class StateSurfaceSuite extends ServerHarness {
       assertEquals(flip.size, 1, clue = flip)
       val p = flip.head
       assert(p.contains("mode inner"), clue = p)
-      // The HOST — `Surface.hostId`, the id the If's template puts on it.
+      // `Surface.hostId`, the id the If's template puts on it.
       assert(p.contains("selector #c_0_branch"), clue = p)
       assert(p.contains("""id="s_else__c""""), clue = p)
-      // Rendered against CURRENT state: B1, which no client ever saw.
+      // Current state: B1, which no client ever saw.
       assert(p.contains("B1"), clue = p)
       assert(!p.contains("A1"), clue = p)
       assert(!p.contains("mode remove"), clue = p)
-      // The prune keeps its original job (hidden-branch churn leaves entries
-      // stale), and the new branch's ROOT is recorded as the host's occupant —
-      // structure, not content, which is why it is a Mutation and not a
-      // fragment. No host-level entry of either kind.
+      // The prune still clears hidden-branch staleness, and the new branch's
+      // root is recorded as the host's occupant: a Mutation, since it is
+      // structure.
       assert(!cache.keys.exists(_.startsWith("s_then__")), clue = cache)
       assert(
         moved.get("s_else__c").exists {
@@ -120,15 +90,10 @@ class StateSurfaceSuite extends ServerHarness {
     }
   }
 
-  /** '''A fill claims what it put in each node.''' Re-supplying a host makes
-    * everything under it unknown, which is right — but a fill that then claimed
-    * NOTHING left the arriving branch unknown too, so the next tick that made
-    * one of its nodes a candidate re-sent bytes this client had just been
-    * handed.
-    *
-    * Asserted on the consequence rather than on the record: a wire with a
-    * pointless morph on it is what anyone would actually notice, and it stays
-    * true however the claim is represented.
+  /** '''A fill claims what it put in each node.''' A fill that claimed nothing
+    * left the arriving branch unknown, so the next tick re-sent bytes the
+    * client had just been handed. Asserted on the wire, however the claim is
+    * represented.
     */
   test("a flip's fill claims its nodes, so an unchanged one is not re-sent") {
     for {
@@ -142,8 +107,7 @@ class StateSurfaceSuite extends ServerHarness {
       )
       flip <- h.step(es("alarm.h", "disarmed"))
       _ = assert(flip.exists(_.contains("B0")), clue = flip)
-      // sensor.b's CONTENT moves — so the branch's node is a candidate on the
-      // next tick — while the bytes it renders do not, because the card reads
+      // The node becomes a candidate while its bytes stay: the card reads
       // `state` and this moved an attribute.
       quiet <- h.step(
         EntityState("sensor.b", "B0", Map("noise" -> Json.fromInt(1)))
@@ -151,16 +115,10 @@ class StateSurfaceSuite extends ServerHarness {
     } yield assertEquals(quiet, Nil, clue = quiet)
   }
 
-  /** '''A flip that happens while a client is away must survive the
-    * reconnect''' (docs/adr/0011-the-live-connection.md) — the exact hole
-    * recording the flip structurally was meant to close.
-    *
-    * Found in the running app before this test existed: `Patches.resume`
-    * grouped placements by container and looked each member up by POSITION in
-    * `memberEntities`, which is empty for a state group — so a `Placed`
-    * carrying a `Surface` member matched nothing and was dropped. The client
-    * got the `Gone`, its branch vanished, and nothing ever put one back.
-    * Silent, and permanent until an unrelated change moved something.
+  /** '''A flip while a client is away must survive the reconnect''' (ADR 0011).
+    * `Patches.resume` looked members up by position in `memberEntities`, empty
+    * for a state group, so a `Placed` carrying a `Surface` was dropped: the
+    * branch vanished and nothing put one back.
     */
 
   test("a flip across a disconnect replays as the same single overwrite") {
@@ -173,25 +131,20 @@ class StateSurfaceSuite extends ServerHarness {
           "sensor.b" -> es("sensor.b", "B0")
         )
       )
-      // Establish the then-branch, then note where a client's cursor sits.
       _ <- h.step(es("sensor.a", "A1"))
       logId <- h.logId
       cursor = Some(Server.Cursor(h.headHash, h.styleHash, logId, 2L))
-      // It flips while that client is away.
       _ <- h.step(es("alarm.h", "disarmed")).map(p => assertEquals(p.size, 1))
       opening <- h.opening(cursor)
     } yield {
-      // The new branch ARRIVES — without it the host is left empty, which is
-      // exactly what the running app showed before this was fixed.
+      // Without it the host is left empty.
       assert(opening.contains("mode inner"), clue = opening)
       assert(opening.contains("selector #c_0_branch"), clue = opening)
       assert(opening.contains("""id="s_else__c""""), clue = opening)
-      // Rendered from the CURRENT snapshot, and not via a body repaint.
       assert(opening.contains("B0"), clue = opening)
       assert(!opening.contains(BodyRepaint), clue = opening)
-      // The overwrite subsumes the removal: a client that already applied the
-      // flip and one that missed it both land on the same DOM, so there is no
-      // paired remove to reason about.
+      // A client that applied the flip and one that missed it land on the same
+      // DOM.
       assert(!opening.contains("mode remove"), clue = opening)
     }
   }
@@ -208,19 +161,16 @@ class StateSurfaceSuite extends ServerHarness {
           "sensor.b" -> es("sensor.b", "B0")
         )
       )
-      // 1. Cache the then-branch child at "on".
       _ <- h.step(es("sensor.a", "on")).map(p => assertEquals(p.size, 1))
-      // 2. Flip away (prunes s_then__*), 3. churn the hidden branch to "off"
-      // (silent — the stale-entry trap this test springs), 4. flip back (the
-      // arriving branch is rendered from current state, so it shows "off").
+      // 2. Flip away (prunes s_then__*), 3. churn the hidden branch to "off",
+      // the stale-entry trap, 4. flip back, rendered from current state.
       _ <- h.step(es("alarm.h", "disarmed")).map(p => assertEquals(p.size, 1))
       _ <- h.step(es("sensor.a", "off")).assertEquals(Nil)
       back <- h.step(es("alarm.h", "armed"))
       _ = assertEquals(back.size, 1, clue = back)
       _ = assert(back.head.contains("off"), clue = back)
-      // 5. The re-revealed child returns to "on" — HTML byte-identical to the
-      // step-1 cache entry. Without the flip prune this would be suppressed as
-      // "unchanged" while the DOM (showing "off") has moved on.
+      // 5. Byte-identical to the step-1 entry: without the prune this would be
+      // suppressed while the DOM shows "off".
       reveal <- h.step(es("sensor.a", "on"))
     } yield {
       assertEquals(reveal.size, 1, clue = reveal)
@@ -245,25 +195,20 @@ class StateSurfaceSuite extends ServerHarness {
           "sensor.b" -> es("sensor.b", "B0")
         )
       )
-      // Active branch: the group's members get the usual per-entity treatment,
-      // scoped under the member surface's id namespace.
       tick <- h.step(es("light.x", "on2"))
-      // "on2" fails the query -> a membership change (remove) for the group.
+      // "on2" fails the query: a membership change.
       _ = assert(tick.nonEmpty, clue = tick)
       _ = assert(tick.forall(_.contains("s_then__c")), clue = tick)
-      // Flip to else: one overwrite of the host...
       _ <- h.step(es("alarm.h", "disarmed")).map(p => assertEquals(p.size, 1))
-      // ...and now the group is in a hidden branch: query-affecting churn that
-      // would previously re-render it emits NOTHING.
+      // Now in a hidden branch, query-affecting churn emits nothing.
       _ <- h.step(es("light.y", "off")).assertEquals(Nil)
       _ <- h.step(es("light.y", "on")).assertEquals(Nil)
     } yield ()
   }
 
   test("nested state groups: inner flips patch only inside the ACTIVE branch") {
-    // Outer If ("c_0"): then-branch content is col(ifhost) — the INNER host
-    // lives at the member's content path s_then__c_0; its members nest one
-    // level deeper. Inner condition: mode.h == night.
+    // The inner host lives at the member's content path s_then__c_0; its
+    // members nest a level deeper.
     val innerHost =
       LayoutNode.Component(
         "col",
@@ -304,8 +249,7 @@ class StateSurfaceSuite extends ServerHarness {
           "sensor.b" -> es("sensor.b", "B0")
         )
       )
-      // Outer active: the inner flip patches ONLY the inner host
-      // (recursion into the active member's index found it), with its else branch.
+      // Outer active, the inner flip patches only the inner host.
       innerFlip <- h.step(es("mode.h", "day"))
       _ = assertEquals(innerFlip.size, 1, clue = innerFlip)
       _ = assert(
@@ -316,13 +260,9 @@ class StateSurfaceSuite extends ServerHarness {
         innerFlip.head.contains("""id="s_in_else__c""""),
         clue = innerFlip
       )
-      // Flip the OUTER group away...
       _ <- h.step(es("alarm.h", "disarmed")).map(p => assertEquals(p.size, 1))
-      // ...then the inner group's condition flips inside the hidden branch:
-      // unreachable DOM, zero patches (the active-set recursion never descends
-      // into an unselected member).
+      // The active-set recursion never descends into an unselected member.
       _ <- h.step(es("mode.h", "night")).assertEquals(Nil)
-      // Liveness inside the hidden branch's active member is silent too.
       _ <- h.step(es("sensor.y", "Y1")).assertEquals(Nil)
     } yield ()
   }
@@ -330,11 +270,9 @@ class StateSurfaceSuite extends ServerHarness {
   test(
     "a state group inside an open popup is rendered SHARED, tagged with it"
   ) {
-    // The If roots inside popup "det" (owner s_det__c_0). Its flip is a pure
-    // function of entity state — identical for every client that can see it —
-    // so it is rendered ONCE for the slug and addressed to "det", not
-    // re-rendered per connection. The popup being in SOMEONE's open set is what
-    // makes it worth rendering at all.
+    // A flip is a function of entity state, the same for every client that can
+    // see it, so it is rendered once for the slug and addressed to "det".
+    // Someone having the popup open is what makes it worth rendering.
     val d = Dashboard(
       cards = ifCards,
       card = LayoutNode.Component("col"),
@@ -372,8 +310,8 @@ class StateSurfaceSuite extends ServerHarness {
         Server.RendererState.Ready(Renderer.create(d))
       )
       sessions <- Sessions.create
-      // Stub HA: the SSE/patch path never calls it (an unexpected registry call
-      // still raises); the store is driven in-memory, so the empty seed is inert.
+      // The patch path never calls HA; an unexpected registry call still
+      // raises.
       fake <- FakeHomeAssistant.create(Nil)
       out <- Server
         .resource(
@@ -400,8 +338,7 @@ class StateSurfaceSuite extends ServerHarness {
               List(change),
               open = Set("det")
             )
-            // The same frame, pulled by a client that does NOT have the popup
-            // open — the other half of what the surface tag used to assert.
+            // Pulled by a client without the popup open.
             without <- (log.get, store.current, RenderCache.create).flatMapN(
               (l, now, rc) =>
                 Patches.resume(

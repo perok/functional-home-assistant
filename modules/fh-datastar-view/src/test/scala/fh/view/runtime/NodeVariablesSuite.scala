@@ -6,14 +6,11 @@ import fh.view.query.{Staged, QuerySnapshot}
 import io.circe.parser.decode
 import fh.view.testkit.TestIds.given
 
-/** NODE VARIABLES (issue #209): a node declares a named choice, a descendant
-  * reads it by name, and the chain decides which declaration wins.
-  *
-  * The property under all of these is that the reference is DECLARED. A render
-  * resolves every query before the walk starts, and it can only do that while
-  * the input set is enumerable from the tree — which a reference matched by
-  * string convention at evaluation time would end. So "an undeclared reference
-  * is a build error" is the load-bearing assertion here, not a nicety.
+/** Node variables (issue #209): a node declares a named choice, a descendant
+  * reads it by name, and the chain decides which declaration wins. A render
+  * resolves every query before the walk, which needs the input set enumerable
+  * from the tree, so "an undeclared reference is a build error" is the
+  * load-bearing assertion.
   */
 class NodeVariablesSuite extends munit.FunSuite {
 
@@ -27,7 +24,6 @@ class NodeVariablesSuite extends munit.FunSuite {
     regions = Map("children" -> Region())
   )
 
-  /** A chart slot whose window comes from wherever `window` is declared. */
   private def chartSlot(param: Ref = Ref.Var("window")) =
     SlotSource(
       query = Some(
@@ -53,9 +49,7 @@ class NodeVariablesSuite extends munit.FunSuite {
       vars = vars
     )
 
-  /** A declarer with a NAME, so a test about ADDRESSING a choice does not
-    * depend on where the node happens to sit.
-    */
+  /** Named, so a test about addressing a choice does not depend on position. */
   private def named(
       id: String,
       vars: Map[String, String],
@@ -76,8 +70,6 @@ class NodeVariablesSuite extends munit.FunSuite {
   private def windowOf(reads: List[SlotRead]): List[String] =
     reads.flatMap(_.query.params.get("window"))
 
-  // ---- resolution ----------------------------------------------------------
-
   test("a reference resolves to the nearest declaring ancestor's value") {
     val d = dash(box(Map("window" -> "7d"), chartNode()))
     assertEquals(d.validate(), Nil)
@@ -85,9 +77,8 @@ class NodeVariablesSuite extends munit.FunSuite {
   }
 
   test("a node that declares nothing is TRANSPARENT to the chain") {
-    // The `Row` case the issue describes: an intermediate container should not
-    // have to know a variable exists to let one through. Nothing arranges it —
-    // the scope is threaded, and a node with no declaration adds nothing.
+    // An intermediate container need not know a variable exists: the scope is
+    // threaded, and a node with no declaration adds nothing.
     val d = dash(
       box(
         Map("window" -> "30d"),
@@ -99,8 +90,8 @@ class NodeVariablesSuite extends munit.FunSuite {
   }
 
   test("a nested declaration SHADOWS for its own subtree, and only that") {
-    // One control over three charts, with one chart that differs — the case
-    // that makes ancestor-chain resolution load-bearing rather than tidier.
+    // One control over three charts, one differing: what makes ancestor-chain
+    // resolution load-bearing.
     val d = dash(
       box(
         Map("window" -> "24h"),
@@ -125,40 +116,35 @@ class NodeVariablesSuite extends munit.FunSuite {
   }
 
   test("a written-down parameter reads no variable at all") {
-    // The access property, as a fact about the types rather than a rule: a
-    // literal has nowhere for a write to land, so `entity` is not substitutable
-    // and nothing has to refuse the substitution.
+    // A literal has nowhere for a write to land, so `entity` is not
+    // substitutable and nothing has to refuse it.
     val t = chartSlot(Ref.Literal("24h")).query.get
     assertEquals(t.references, Nil)
     assertEquals(t.resolve(Map("window" -> "7d")).params("window"), "24h")
     assertEquals(t.resolve(Map.empty).params("entity"), "sensor.t")
   }
 
-  // ---- what the build refuses ---------------------------------------------
-
   test("a reference with no declarer is a build error naming both") {
     val errs = dash(box(Map.empty, chartNode())).validate()
     assertEquals(errs.size, 1, clue = errs)
     assert(errs.head.contains("'window'"), clue = errs.head)
     assert(errs.head.contains("no ancestor declares"), clue = errs.head)
-    // The node, so an author can find it — this is what replaces an
-    // unresolved `@@NODE_ID@@` rendering literally into the DOM.
+    // The node, so an author can find it.
     assert(errs.head.startsWith("c_0:"), clue = errs.head)
   }
 
   test("a declaration is a NAME and a value, and nothing else is checked") {
-    // What a variable may hold is its readers' question; the only thing a
-    // declaration can get wrong on its own is its name.
+    // What a variable may hold is its readers' question; a declaration alone
+    // can only get its name wrong.
     val d = dash(box(Map("window" -> "24h"), chartNode()))
     assertEquals(d.validate(), Nil)
     assertEquals(windowOf(d.queriesIn(d.card)), List("24h"))
   }
 
   test("a name that is not a plain token is refused where it is WRITTEN") {
-    // Checked at the declaration and not at a reader, so declaring one ahead
-    // of its reader is safe — a broken name would otherwise sit silent until
-    // somebody referenced it. It has to be a token because it is spelled into
-    // signal names and the URL mirror.
+    // Checked at the declaration, so a broken name cannot sit silent until
+    // referenced. A token, since it is spelled into signal names and the URL
+    // mirror.
     val errs =
       dash(box(Map("my window" -> "24h"), chartNode(Ref.Literal("1h"))))
         .validate()
@@ -168,17 +154,15 @@ class NodeVariablesSuite extends munit.FunSuite {
   }
 
   test("a declared value the provider cannot parse is a build error") {
-    // The build checks what the dashboard asks before anybody chooses — a real
-    // build-time fact about this dashboard, and the whole of what the build can
-    // honestly say. Every later value is untrusted input, refused at the write.
+    // The build checks what the dashboard asks before anybody chooses; every
+    // later value is untrusted input, refused at the write.
     val errs = dash(box(Map("window" -> "4h"), chartNode())).validate()
     assert(errs.exists(_.contains("unknown window '4h'")), clue = errs)
   }
 
   test("a variable read from inside a candidate set is refused, for now") {
-    // A member's id is minted at run time, so it has no scope entry. The bound
-    // is narrow: a query slot inside a set still works, it just cannot read a
-    // variable. Stated as a test so lifting it is a deliberate act.
+    // A member's id is minted at run time, so it has no scope entry. Stated as
+    // a test so lifting the bound is a deliberate act.
     val d = dash(
       box(
         Map("window" -> "24h"),
@@ -199,10 +183,8 @@ class NodeVariablesSuite extends munit.FunSuite {
   }
 
   test("a SURFACE is its own scope root") {
-    // A baked surface can be swapped into a host, so inheriting from wherever
-    // it is shown would let one content resolve differently per host. It
-    // declares what it needs, and the build says so rather than resolving
-    // against a page the surface may not be under.
+    // A baked surface can be swapped into different hosts, so inheriting would
+    // resolve one content differently per host; it declares what it needs.
     val errs = dash(
       box(Map("window" -> "24h"), LayoutNode.Component("plain")),
       surfaces = Map("popup" -> Surface(chartNode()))
@@ -215,10 +197,8 @@ class NodeVariablesSuite extends munit.FunSuite {
     )
   }
 
-  // ---- what the build ENUMERATES -------------------------------------------
-
   test("the build asks what the dashboard asks: one read, at the default") {
-    // Only the declared value: a viewer's later value is checked at the write.
+    // A viewer's later value is checked at the write.
     val d = dash(box(Map("window" -> "7d"), chartNode()))
     assertEquals(windowOf(d.queriesIn(d.card)), List("7d"))
     assertEquals(windowOf(d.allQueries), List("7d"))
@@ -226,8 +206,6 @@ class NodeVariablesSuite extends munit.FunSuite {
     val v = d.validated().fold(e => fail(e.mkString("; ")), identity)
     assertEquals(v.queries.size, 1)
   }
-
-  // ---- the render path -----------------------------------------------------
 
   private val states =
     Map("sensor.t" -> EntityState("sensor.t", "21.4", Map.empty))
@@ -237,9 +215,7 @@ class NodeVariablesSuite extends munit.FunSuite {
     Transform.Stage.Chart(ChartStyle(width = 600))
   )
 
-  /** One viewer's render: the answers they were given, and the values those
-    * answers were fetched FOR.
-    */
+  /** The answers a viewer was given, and the values they were fetched for. */
   private def paint(r: Renderer, env: VarEnv, drawn: (String, String)*) =
     r.renderBodyTraced(
       states,
@@ -257,8 +233,6 @@ class NodeVariablesSuite extends munit.FunSuite {
     assert(html.contains("<svg id='seven'/>"), clue = html)
   }
 
-  // ---- what a VIEWER chose -------------------------------------------------
-
   test("a viewer's choice overrides the declared value") {
     val d = dash(named("panel", Map("window" -> "24h"), chartNode()))
     val r = Renderer.create(d)
@@ -273,8 +247,6 @@ class NodeVariablesSuite extends munit.FunSuite {
   }
 
   test("two viewers on two windows are two reads, and neither sees the other") {
-    // Same node and dashboard, two viewers, two reads; only the renderer is
-    // shared.
     val d = dash(named("panel", Map("window" -> "24h"), chartNode()))
     val r = Renderer.create(d)
     val a = r.varEnv(Map(("panel": NodeId, "window") -> "1h"))
@@ -285,10 +257,9 @@ class NodeVariablesSuite extends munit.FunSuite {
     assert(paint(r, a, "1h" -> "<svg id='hour'/>").contains("hour"))
     assert(paint(r, b, "30d" -> "<svg id='month'/>").contains("month"))
 
-    // And the render KEY moves with them, which is what stops one viewer's
-    // bytes being served for the other's span. Asked of the CHART, not the
-    // panel: the panel holds regions, so it is structure and has no key at
-    // all.
+    // The render key moves with them, so one viewer's bytes are never served
+    // for another's span. Asked of the chart: the panel is structure and has no
+    // key.
     val chartId = LayoutNode.childId(
       "",
       LayoutNode.rootId("", d.card),
@@ -306,9 +277,7 @@ class NodeVariablesSuite extends munit.FunSuite {
   }
 
   test("a choice is addressed to the DECLARER, so a shadow is untouched") {
-    // Two `window`s in one tree from two declarations. Choosing on the outer
-    // one must not move the chart that shadows it — the same fact shadowing
-    // rests on, seen from the write side.
+    // Choosing on the outer `window` must not move the chart that shadows it.
     val inner = named("inner", Map("window" -> "1h"), chartNode())
     val d = dash(named("panel", Map("window" -> "24h"), chartNode(), inner))
     val r = Renderer.create(d)
@@ -320,9 +289,8 @@ class NodeVariablesSuite extends munit.FunSuite {
   }
 
   test("a choice naming a variable nothing declares is inert, not an error") {
-    // Untrusted input: a stale URL naming a node that was renamed or removed.
-    // It matches no scope, so it is simply never read — the same shape
-    // `SurfaceGraph.openPopup` uses for a surface id this dashboard lost.
+    // A stale URL naming a lost node matches no scope and is never read, as
+    // `SurfaceGraph.openPopup` treats a lost surface id.
     val d = dash(named("panel", Map("window" -> "24h"), chartNode()))
     val r = Renderer.create(d)
     val env = r.varEnv(
@@ -338,8 +306,6 @@ class NodeVariablesSuite extends munit.FunSuite {
   }
 
   test("two windows under two declarations are two reads, not one") {
-    // The render key follows the declaration, which is what stops one viewer's
-    // chart standing in for another span's.
     val d = dash(
       box(
         Map("window" -> "24h"),
@@ -350,12 +316,9 @@ class NodeVariablesSuite extends munit.FunSuite {
     assertEquals(d.queriesIn(d.card).size, 2)
   }
 
-  // ---- the wire ------------------------------------------------------------
-
   test("a bare string decodes as a literal, an object as a reference") {
-    // The same rule a slot's own decoder already uses, so nothing stamps a tag
-    // onto the params that make no reference — which is what keeps the
-    // byte-identity snapshots still.
+    // The slot decoder's own rule, so params making no reference carry no tag
+    // and the byte-identity snapshots stay still.
     assertEquals(decode[Ref](""""24h""""), Right(Ref.Literal("24h")))
     assertEquals(
       decode[Ref]("""{"var":"window"}"""),

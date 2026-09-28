@@ -4,34 +4,23 @@ import fh.view.build.{DashboardBuild, PklDump, Site, SourceEval}
 import fh.view.model.Dashboard
 import io.circe.Json
 
-/** Builds a real [[Dashboard]] from an inline Pkl entry through the genuine
-  * authoring pipeline — the Tier-A path (ADR 0009): `.pkl` -> `SourceEval.eval`
-  * -> `DashboardBuild.hoistInlineSurfaces` -> decode. It stages a temp dir
-  * exactly as `PklBuildSuite` does (the real `lib` modules copied in, a
-  * generated `home/dump.pkl` in the @fh-home package), so no live HA is
-  * touched; the dump is supplied by the caller (typically
-  * [[HouseFixture.transformedDump]], so the dashboard and the served state come
-  * from one source).
-  *
-  * This is the seam a functional test uses to serve a Pkl-authored dashboard,
-  * and the same builder `PklBuildSuite` uses to exercise the build pipeline
-  * against TEST-OWNED entries (rather than the shipped dashboards, which are
-  * free to evolve). Entries here typically set a dummy theme, so the theme's
-  * CSS is out of scope — visual/theme coverage is the browser smoke plan's job.
+/** A real [[Dashboard]] from an inline Pkl entry through the Tier-A path (ADR
+  * 0009): `.pkl` -> `SourceEval.eval` -> `DashboardBuild.hoistInlineSurfaces`
+  * -> decode, over a staged package-form workspace with the caller's dump
+  * (typically [[HouseFixture.transformedDump]]) seeded as `@fh-home`. Entries
+  * usually set [[dummyTheme]], leaving CSS to the browser suites.
   */
 object PklFixture {
 
-  /** The raw evaluated entry: the wire JSON (before hoist/decode) plus the
-    * precise transitive import set (what `Dashboard.validate` needs for its
-    * literal locator).
+  /** The wire JSON before hoist/decode, plus the transitive import set
+    * `Dashboard.validate`'s literal locator needs.
     */
   case class Built(value: Json, imports: Set[os.Path])
 
-  /** A trivial theme an entry can set to keep BeerCSS (and all CSS) out of the
-    * build: every [[fh.view.model.Theme]] field is empty. Paste into a fixture
-    * entry as `theme = <this>` after `import "@fh-dashboard/theme.pkl" as th`
-    * (the alias keeps `th.Theme` the SAME module identity the base module's
-    * `theme` property expects — a plain file import would be a distinct URI).
+  /** Every [[fh.view.model.Theme]] field empty. Use as `theme = <this>` after
+    * `import "@fh-dashboard/theme.pkl" as th`: the alias keeps `th.Theme` the
+    * module identity the base expects, where a file import would be a distinct
+    * URI.
     */
   val dummyTheme: String =
     """new th.Theme {
@@ -43,12 +32,9 @@ object PklFixture {
       |  chrome = ""
       |}""".stripMargin
 
-  /** Bootstrap a package-form workspace (the ONE resolution mode, ADR 0010)
-    * with the `dump` seeded as the `@fh-home` cache package, write
-    * `entrySource` as `<slug>.pkl`, and evaluate it. The entry resolves
-    * `@fh-dashboard`/`@fh-home` from the cache exactly as the live server does.
-    * Throws with the pipeline's error text if evaluation fails — so a broken
-    * fixture fails loudly at the call site.
+  /** Resolves `@fh-dashboard`/`@fh-home` from the cache as the live server
+    * does, and throws with the pipeline's error, so a broken fixture fails at
+    * the call site.
     */
   def eval(
       slug: String,
@@ -59,8 +45,8 @@ object PklFixture {
     val _ = PklWorkspace.bootstrap(tmp, PklDump.render(dump))
 
     val entryFile = s"$slug.pkl"
-    // .over: bootstrap may already have seeded a starter `site.pkl` into
-    // the fresh workspace, which this overwrites when slug == "dashboard".
+    // Bootstrap may have seeded a starter `site.pkl`, overwritten when slug is
+    // "dashboard".
     os.write.over(tmp / entryFile, entrySource)
 
     val result = SourceEval
@@ -69,10 +55,7 @@ object PklFixture {
     Built(result.value, result.imports)
   }
 
-  /** Evaluate `entrySource` and return the decoded [[Dashboard]] with its
-    * `slug` set (hoisting inline surfaces first, as the build phase does).
-    * Throws if hoisting or decoding fails.
-    */
+  /** Hoisting inline surfaces first, as the build phase does. */
   def buildDashboard(
       slug: String,
       entrySource: String,
@@ -82,10 +65,7 @@ object PklFixture {
     decodeDashboard(slug, built.value)
   }
 
-  /** Evaluate a whole ENTRYPOINT (a module amending `site.pkl`, ADR 0021) and
-    * return the dashboard it names under `slug` — for a fixture that is a site
-    * rather than a single dashboard, the shipped starter above all.
-    */
+  /** For a fixture that is a site (ADR 0021), the shipped starter above all. */
   def buildSiteDashboard(
       slug: String,
       entrySource: String,

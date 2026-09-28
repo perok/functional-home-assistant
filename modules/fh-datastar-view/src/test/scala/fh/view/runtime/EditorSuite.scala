@@ -9,45 +9,28 @@ import io.circe.parser.parse
 import org.http4s.*
 import org.http4s.implicits.*
 
-/** The editor surface: what `/edit` offers to edit, plus the bundle it boots
-  * from.
+/** What `/edit` offers to edit, plus the bundle it boots from. The bundle is a
+  * built, gitignored artifact, and when it is missing or not really bundled the
+  * failure is total and silent: the module import throws, so neither the file
+  * list nor the on-screen error handler ever exists, and the editor is blank. A
+  * text check off the classpath, so it runs in the normal suite.
   *
-  * That bundle is covered here because it is a BUILT artifact (vite, from
-  * `src/js/`) and is gitignored — CI builds it, a checkout may carry an old one
-  * or none. When it is missing or was not really bundled, the failure is TOTAL
-  * and SILENT: the ES module import throws, so `app.js` never runs, so the file
-  * list is never rendered AND the on-screen error handler (registered inside
-  * that module) is never installed. The editor is simply blank, with nothing
-  * but a browser console entry to say why. That happened when `app.js` and its
-  * vendor bundle could drift apart; they are one file now, and this is the
-  * guard that replaces that one.
-  *
-  * A text check on purpose — no node, no browser — so it runs in the normal
-  * suite. Everything is read off the CLASSPATH, which is what the server
-  * actually serves.
-  *
-  * The OTHER way a bundle breaks — a classic script (the shell, the overlay)
-  * picking up an `import` because rollup split a shared module out — is not
-  * checked here. `vite.config.ts`'s `fh-assert-self-contained` plugin fails the
-  * build on it, off rollup's own chunk metadata, so it cannot reach a test.
+  * A classic script picking up an `import` from a split chunk is not checked
+  * here: `vite.config.ts`'s `fh-assert-self-contained` fails the build on it.
   */
 class EditorSuite extends munit.FunSuite {
 
-  /** A bundle by ENTRY NAME, the way the app addresses it — the filenames carry
-    * a content hash, so nothing here can spell one out either.
-    */
+  /** Filenames carry a content hash, so nothing can spell one out. */
   private def bundle(entry: String): String = FrontendAssets.content(entry)
 
   test("the editor bundle is present and self-contained") {
     val app = bundle("app")
 
-    // Really a bundle, not the bare source: CodeMirror is inside it. The
-    // source is ~10KB and the bundle ~650KB, so the floor is far from either.
+    // CodeMirror is inside it: the source is ~10KB and the bundle ~650KB.
     assert(app.length > 100000, clue = app.length)
 
-    // ...and nothing was left EXTERNAL. A bundle that still names a bare
-    // package specifier would throw on import in the browser (no import map,
-    // no CDN) — the blank-editor failure this suite exists for.
+    // A bare package specifier would throw on import in the browser (no import
+    // map, no CDN): the blank-editor failure.
     val unbundled = "from\\s*[\"']([^./\"'][^\"']*)[\"']".r
       .findAllMatchIn(app)
       .map(_.group(1))
@@ -61,9 +44,8 @@ class EditorSuite extends munit.FunSuite {
 
   test("the page shell bundle defines the helpers the document calls") {
     val shell = bundle("shell")
-    // The document calls all four by name — fhConn from a script mid-body,
-    // fhScroll from the last line of it, fhUrl from Datastar's first effect,
-    // fhRegisterSw from a script in the head.
+    // The document calls all four: fhConn mid-body, fhScroll on its last line,
+    // fhUrl from Datastar's first effect, fhRegisterSw in the head.
     List("fhUrl", "fhConn", "fhScroll", "fhRegisterSw").foreach(fn =>
       assert(shell.contains(s"window.$fn="), clue = (fn, shell))
     )
@@ -73,26 +55,22 @@ class EditorSuite extends munit.FunSuite {
     workspace { ws =>
       val (status, html) = get(ws, "/edit")
       assertEquals(status, Status.Ok)
-      // The placeholder is gone and the real, hashed, RELATIVE url is in its
-      // place — relative so it resolves against <base href> behind ingress.
+      // Relative, so it resolves against <base href> behind ingress.
       val app = FrontendAssets.url("app")
       assert(html.contains(s"""src="$app""""), clue = html)
       assert(!html.contains("__APP_JS__"), clue = html)
       assert(app.startsWith("web/") && app.endsWith(".js"), clue = app)
-      // A hash, not a bare name: that is what makes the immutable caching on
-      // the serving route honest.
+      // A hash is what makes the route's immutable caching honest.
       assertNotEquals(app, "web/app.js", clue = app)
-      // ...and the editor route no longer serves JavaScript at all.
       assertEquals(get(ws, "/edit/app.js")._1, Status.NotFound)
     }
   }
 
   test("the editor states its own chrome colour") {
-    // Every page in the PWA's scope that carries no theme-color meta falls back
-    // to the MANIFEST's, which tracks the dashboard's theme and says nothing
-    // about this page. The editor's CSS is a fixed dark palette, so it names
-    // its own — unqualified, because both schemes want the one colour. In a
-    // TAB; installed, Chrome takes the manifest's regardless (see PwaAssets).
+    // A page in the PWA's scope with no theme-color falls back to the
+    // manifest's, which tracks the dashboard's theme. The editor's palette is
+    // fixed, so it names its own, unqualified. Installed, Chrome takes the
+    // manifest's anyway (see PwaAssets).
     workspace { ws =>
       val (_, html) = get(ws, "/edit")
       assert(
@@ -103,8 +81,8 @@ class EditorSuite extends munit.FunSuite {
   }
 
   test("no pkl-lsp jar disables the socket, not the editor") {
-    // `wsb` is null here, which is safe only because the None branch answers
-    // before anything touches it — so this also pins that ordering.
+    // `wsb` is null here, safe only because the None branch answers first: this
+    // pins that ordering.
     workspace { ws =>
       val r = routes(ws).orNotFound
       val (fileStatus, _) = get(ws, "/edit/files")
@@ -118,15 +96,14 @@ class EditorSuite extends munit.FunSuite {
 
   test("only files the manifest names are served") {
     assert(FrontendAssets.serves(FrontendAssets.url("app").stripPrefix("web/")))
-    // The guard is an allowlist of built filenames, so a made-up name — or a
-    // traversal attempt — is simply not a route that exists.
+    // An allowlist of built filenames, so a made-up name or traversal is no
+    // route.
     assert(!FrontendAssets.serves("app.js"))
     assert(!FrontendAssets.serves("../application.conf"))
   }
 
-  /** A workspace shaped like a real one: the entrypoint, a module beside it,
-    * the manifest, its generated lockfile, a machine-specific `.fh/`, and a
-    * `lib/` source.
+  /** The entrypoint, a module, the manifest, its lockfile, a machine-specific
+    * `.fh/` and a `lib/` source.
     */
   private def workspace(f: os.Path => Unit): Unit = {
     val ws = os.temp.dir() / "ws"
@@ -174,8 +151,8 @@ class EditorSuite extends munit.FunSuite {
             e.hcursor.get[String]("kind").toOption
           ).tupled
         )
-      // Exactly ONE file is the entrypoint; everything else is an ordinary
-      // source, which is what dims it in the list (ADR 0021).
+      // Exactly one entrypoint; everything else is an ordinary source, dimmed
+      // in the list (ADR 0021).
       assertEquals(
         entries,
         List(
@@ -185,7 +162,6 @@ class EditorSuite extends munit.FunSuite {
           "PklProject" -> "manifest"
         )
       )
-      // The generated lockfile and the machine-specific files stay hidden.
       val names = entries.map(_._1)
       assert(!names.contains("PklProject.deps.json"), clue = names)
       assert(!names.exists(_.startsWith(".fh")), clue = names)
@@ -204,15 +180,11 @@ class EditorSuite extends munit.FunSuite {
   }
 
   test("a write says whether the site actually reads the file") {
-    // Saving a file no dashboard reads is allowed — you may be writing the
-    // module before the key that names it — but silence would read as "it is
-    // live". The answer is static analysis of the entrypoint, so it is right
-    // as soon as the file is on disk, without waiting for a reload.
-    //
-    // The entrypoint here imports nothing, so the analysis answers precisely
-    // and the `false` below is the TRUE answer. It is never the confident
-    // wrong way round: an analysis that cannot run at all falls back to the
-    // conservative superset (`PklBuild.fileImports`), i.e. everything is read.
+    // Saving a file no dashboard reads is allowed, but silence would read as
+    // "it is live". The answer is static analysis of the entrypoint, right as
+    // soon as the file is on disk. An analysis that cannot run answers the
+    // conservative superset (`PklBuild.fileImports`), so it is never wrong the
+    // confident way.
     workspace { ws =>
       def put(name: String, body: String) = routes(ws).orNotFound
         .run(
@@ -243,7 +215,7 @@ class EditorSuite extends munit.FunSuite {
           .flatMap(_.hcursor.get[Boolean]("used").toOption),
         Some(false)
       )
-      // It is a note, not a gate: the bytes landed either way.
+      // A note, not a gate: the bytes landed either way.
       assertEquals(os.read(ws / "pkl-tabs.pkl"), "// nothing names me")
     }
   }
@@ -251,10 +223,8 @@ class EditorSuite extends munit.FunSuite {
   test(
     "an identical write is reported unchanged, and does not touch the file"
   ) {
-    // Not cosmetic. Touching the file fires the source watcher, which
-    // re-evaluates the whole site — seconds on a Pi — and swaps the renderer,
-    // which reloads every connected browser. So a `fh write` with nothing to
-    // say used to cost every viewer their page.
+    // Touching the file fires the watcher, which re-evaluates the site (seconds
+    // on a Pi) and reloads every connected browser.
     workspace { ws =>
       def put(name: String, body: String) = routes(ws).orNotFound
         .run(
@@ -271,13 +241,11 @@ class EditorSuite extends munit.FunSuite {
       assertEquals(changed(put("pkl-tabs.pkl", "// first")), Some(true))
       val afterFirst = os.mtime(target)
 
-      // The same bytes again: reported unchanged, and the mtime stands still —
-      // which is the half the watcher actually reads.
+      // The mtime standing still is the half the watcher reads.
       assertEquals(changed(put("pkl-tabs.pkl", "// first")), Some(false))
       assertEquals(os.mtime(target), afterFirst)
       assertEquals(os.read(target), "// first")
 
-      // Different bytes are still a write.
       assertEquals(changed(put("pkl-tabs.pkl", "// second")), Some(true))
       assertEquals(os.read(target), "// second")
     }
@@ -293,14 +261,11 @@ class EditorSuite extends munit.FunSuite {
             .withEntity("amends \"edited\"")
         )
         .unsafeRunSync()
-      // 200 + `{written, used}` — a write reports whether the site reads what
-      // it just saved (here: the manifest, which the entrypoint does not
-      // import, so `used` is false and the editor says so).
+      // `used` is false: the entrypoint does not import the manifest.
       assertEquals(written.status, Status.Ok)
       assertEquals(os.read(ws / "PklProject"), "amends \"edited\"")
 
-      // The lockfile is generated — a write would be silently undone by the next
-      // resolve, so it is not offered at all.
+      // Generated, so a write would be undone by the next resolve.
       val lockfile = routes(ws).orNotFound
         .run(
           Request[IO](Method.PUT, uri"/edit/file/PklProject.deps.json")

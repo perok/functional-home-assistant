@@ -3,55 +3,25 @@ package fh.view.build
 import cats.effect.IO
 import cats.syntax.all.*
 
-/** Re-seed the `@fh-home` dump package from a freshly-rendered dump — but only
-  * after proving the new dump doesn't break any dashboard (ADR 0010,
-  * "refreshing the dump while running").
-  *
-  * The dump is deliberately NOT watched by the live-reload watcher: it changes
-  * when the HOME changes (a device added or renamed in the HA registry), not
-  * when an author edits. This is the sanctioned path for picking such a change
-  * up without a restart, driven by two callers in `ServerApp`:
-  *
-  *   - the registry-event watcher (`*_registry_updated` over the WS, debounced,
-  *     toggleable via the add-on's `watch_registry` option), and
-  *   - the on-demand `POST /system/dump/refresh` endpoint (the /edit editor's
-  *     "refresh dump" button).
-  *
-  * Validate-then-swap, in package terms (there is no loose `home/dump.pkl`):
-  * the new dump's CONTENT-VERSION is compared to the pinned one — equal means
-  * an unchanged home, nothing to do. Otherwise the whole workspace is copied to
-  * a temp dir, the new dump seeded there as its package (into the shared cache,
-  * with the staged pin moved to it), and every entry re-evaluated against it.
-  * An entry that fails with the new dump blocks the swap only if it still
-  * builds with the CURRENT dump — an entry already broken (a user mid-edit, a
-  * startup skip) must not veto a registry change forever. On green the real pin
-  * moves (`.fh/pins.json`), the caller re-evaluates the live renderers, and the
-  * PREVIOUS package version stays in the cache — the immutable snapshot IS the
-  * trail (still resolvable for any laptop pinned to it), so there is no dated
-  * backup file. On rejection nothing moves and the server warns.
+/** Picks up a home change (the dump is deliberately not watched) without a
+  * restart: validate-then-swap (ADR 0010). An unchanged content-version is a
+  * no-op; otherwise every entry is re-evaluated against the new dump in a
+  * staged copy, and the pin moves only if nothing that builds today breaks. The
+  * previous version stays in the cache as the trail.
   */
 object DumpRefresh {
 
   sealed trait Result
 
-  /** The rendered dump's content-version equals the pinned one — nothing to do.
-    */
   case object Unchanged extends Result
 
-  /** Swapped in: `version` is the new `@fh-home` snapshot now pinned, `seedLog`
-    * is [[DumpPackage.seedFromText]]'s action log for it.
-    */
   case class Swapped(version: String, seedLog: List[String]) extends Result
 
-  /** The new dump breaks dashboards that build today; the workspace is
-    * untouched. `errors` is `slug -> eval error` for each newly-broken entry.
-    */
+  /** `slug -> eval error` for each newly broken entry. */
   case class Rejected(errors: List[(String, String)]) extends Result
 
-  /** Validate `newDump` (the rendered `dump.pkl` text) against every dashboard
-    * the entrypoint names and swap it in if green. Serialize calls (the caller
-    * holds a mutex): two concurrent refreshes would race on the staged
-    * validation and the pin move.
+  /** Callers must serialize: concurrent refreshes race on the staged copy and
+    * the pin.
     */
   def refresh(
       newDump: String,
@@ -71,15 +41,9 @@ object DumpRefresh {
         }
     }
 
-  /** The dashboards the new dump would break: evaluate the entrypoint in a temp
-    * copy of the workspace carrying the new dump package, then re-check each
-    * failure against the real workspace (current dump) — a failure in both is
-    * pre-existing and doesn't block.
-    *
-    * An entrypoint that will not evaluate against the new dump blocks the swap
-    * unless it will not evaluate against the current one either: same rule, one
-    * level up (there is nothing to serve either way, so an unbuildable site
-    * must not be made worse, but it must not veto forever either).
+  /** A failure against the current dump too is pre-existing and does not veto,
+    * or a user mid-edit would block every registry change. Same rule for the
+    * whole entrypoint.
     */
   private def newlyBroken(
       newDump: String,
@@ -107,14 +71,8 @@ object DumpRefresh {
         }
       }(staged => IO.blocking(os.remove.all(staged / os.up)))
 
-  /** A throwaway copy of the workspace resolving the NEW dump: everything is
-    * copied (entries, `.fh/`, manifests — an import can reach any of it), the
-    * lockfiles are dropped so dependencies re-resolve against the copy
-    * (`AddonBootstrap` does the same at boot), and the new dump is seeded as
-    * its `@fh-home` package with the staged pin moved to it. The package cache
-    * itself is not copied — `moduleCacheDir` is an absolute path shared with
-    * the real workspace, so seeding here makes the new (immutable, additive)
-    * version available to both.
+  /** Lockfiles are dropped so the copy re-resolves. The cache is shared, not
+    * copied; seeding into it is additive.
     */
   private def stageWorkspace(
       newDump: String,
@@ -129,11 +87,8 @@ object DumpRefresh {
     staged
   }
 
-  /** Green: seed the new dump package and move the real pin to it. No dump file
-    * is written and no dated backup is kept — the previous immutable package
-    * version stays in the cache (the trail). `version` is the content-version
-    * [[refresh]] already computed for `newDump` (`None` only when the workspace
-    * cannot package, in which case seeding is a no-op too).
+  /** `version` is `None` only when the workspace cannot package, and then
+    * seeding is a no-op too.
     */
   private def swap(
       newDump: String,

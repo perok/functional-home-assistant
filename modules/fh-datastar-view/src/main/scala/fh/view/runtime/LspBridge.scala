@@ -12,34 +12,15 @@ import org.typelevel.log4cats.LoggerFactory
 
 import java.nio.charset.StandardCharsets
 
-/** Bridges a browser LSP client (CodeMirror's `@codemirror/lsp-client`, one
-  * JSON-RPC message per WebSocket text frame, no headers) to the real Pkl
-  * language server.
-  *
-  * pkl-lsp ships as a shaded stdio CLI (`java -jar pkl-lsp.jar`, its manifest
-  * sets `Enable-Native-Access` for the tree-sitter grammar), so we run it as a
-  * **subprocess per connection** rather than embedding the 16 MB shaded jar on
-  * the app classpath (which would drag kotlin-stdlib/gson/lsp4j + the native
-  * grammar into the deployed assembly jar). Isolation is the whole point:
-  * classpath, native loading, and JVM flags all live in the child.
-  *
-  * The one translation the two protocols need is framing: lsp4j (the child's
-  * stdio) uses LSP `Content-Length` headers; the WebSocket carries bare JSON.
-  * [[toFrames]] parses the child's stdout into messages; [[encodeFrame]] wraps
-  * each client message with a header before it reaches stdin.
-  *
-  * Lifecycle: the child is a `Stream.resource` inside the `send` stream, so
-  * when the socket closes (http4s finalizes `send`) the process is destroyed.
-  * The client → server direction rides a [[Queue]] created before `build` so
-  * both halves can see it.
+/** Bridges the browser's LSP client (bare JSON per WebSocket frame) to pkl-lsp
+  * run as a subprocess per connection, not embedded: the 16 MB shaded jar would
+  * drag kotlin-stdlib, lsp4j and a native grammar into the assembly. The only
+  * translation is `Content-Length` framing on the child's stdio. The process
+  * dies with the socket, as a resource of `send`.
   */
 object LspBridge {
 
-  /** Build the `GET /lsp/pkl` WebSocket response: spawn pkl-lsp, pump the
-    * socket both ways. `workspaceRoot` is informational here — the client sends
-    * the real `workspaceFolders`/document URIs (absolute on-disk paths) in its
-    * `initialize`, which is how pkl-lsp resolves `lib/` imports and the dump.
-    */
+  /** The client's `initialize` carries the workspace and document URIs. */
   def wsResponse(
       wsb: WebSocketBuilder2[IO],
       pklLspJar: os.Path,
@@ -47,9 +28,6 @@ object LspBridge {
   ): IO[Response[IO]] =
     Queue.unbounded[IO, WebSocketFrame].flatMap { fromClient =>
       val log = loggerFactory.getLoggerFromName("fh.view.runtime.LspBridge")
-      // Client -> server: stash every inbound frame; the process stream drains
-      // it into stdin. Ignore close frames (the send stream's finalizer, driven
-      // by http4s on socket close, tears the process down).
       val receive: Pipe[IO, WebSocketFrame, Unit] =
         _.evalMap(fromClient.offer)
 
@@ -63,7 +41,6 @@ object LspBridge {
               .flatMap(Stream.chunk)
               .through(proc.stdin)
 
-          // Surface the child's diagnostics/log to our stdout; never fatal.
           val drainStderr: Stream[IO, Nothing] =
             proc.stderr
               .through(fs2.text.utf8.decode)
@@ -82,20 +59,13 @@ object LspBridge {
       wsb.build(send, receive)
     }
 
-  /** `java -jar pkl-lsp.jar` as an fs2 subprocess. The jar's manifest carries
-    * `Enable-Native-Access: ALL-UNNAMED`, so the tree-sitter grammar loads with
-    * no extra flags.
-    */
+  // The jar's manifest enables native access, so no extra flags.
   private def spawn(jar: os.Path) =
     ProcessBuilder(javaExecutable, "-jar", jar.toString).spawn[IO]
 
-  /** The `java` used to launch pkl-lsp — which requires **JDK 23+** and rejects
-    * older class files. We do NOT trust `PATH` (whatever `java` is first) nor
-    * blindly reuse this JVM: the app may itself be forked on an older JDK (e.g.
-    * a Nix-pinned sbt on 21), which would fail pkl-lsp's version check. Order:
-    * `PKL_LSP_JAVA` override, then this JVM if it's new enough, then the newest
-    * JDK 23+ discovered under the usual install roots, else this JVM's `java`
-    * (which then errors visibly rather than silently picking a wrong one).
+  /** pkl-lsp needs JDK 23+, and this app may run on an older one, so neither
+    * `PATH` nor this JVM is trusted blindly: `PKL_LSP_JAVA`, this JVM if new
+    * enough, the newest installed 23+, else this JVM (which fails visibly).
     */
   private def javaExecutable: String = {
     def bin(home: os.Path): String = (home / "bin" / "java").toString
@@ -108,9 +78,6 @@ object LspBridge {
       .getOrElse(bin(self))
   }
 
-  /** Newest `java` (>= 23) found under the standard JDK install roots, by
-    * reading each candidate's `release` file. Best-effort; `None` if none.
-    */
   private def discoverJdk23: Option[String] = {
     val roots = List(
       os.root / "usr" / "lib" / "jvm",
@@ -133,9 +100,7 @@ object LspBridge {
       .map(_._2.toString)
   }
 
-  /** The Java feature version from a JDK home's `release` file
-    * (`JAVA_VERSION`), e.g. `"25.0.3"` -> 25, `"1.8.0"` -> 8.
-    */
+  // `JAVA_VERSION` from `release`: `"25.0.3"` -> 25, `"1.8.0"` -> 8.
   private def featureVersion(home: os.Path): Option[Int] =
     scala.util
       .Try {
@@ -148,9 +113,6 @@ object LspBridge {
       .toOption
       .flatten
 
-  /** Wrap a JSON-RPC message in an LSP `Content-Length` frame (ASCII header +
-    * UTF-8 body) for the child's stdin.
-    */
   private def encodeFrame(json: String): Chunk[Byte] = {
     val body = json.getBytes(StandardCharsets.UTF_8)
     val header =
@@ -159,11 +121,7 @@ object LspBridge {
     Chunk.array(header) ++ Chunk.array(body)
   }
 
-  /** Parse a byte stream of LSP `Content-Length` frames into JSON message
-    * bodies. Buffers across chunk boundaries and emits every complete frame
-    * before pulling more input. Only `Content-Length` is honored (the sole
-    * required header; pkl-lsp sends no others).
-    */
+  // Only `Content-Length` is read; pkl-lsp sends no other header.
   private def toFrames: Pipe[IO, Byte, String] = in => {
     def go(buf: Chunk[Byte], s: Stream[IO, Byte]): Pull[IO, String, Unit] =
       extract(buf) match {
@@ -177,10 +135,6 @@ object LspBridge {
     go(Chunk.empty, in).stream
   }
 
-  /** Extract one frame from the front of `buf`, returning it plus the
-    * remainder, or `None` if a complete frame isn't buffered yet. The header
-    * block is ASCII; the `\r\n\r\n` separator ends it.
-    */
   private def extract(buf: Chunk[Byte]): Option[(String, Chunk[Byte])] = {
     val arr = buf.toArray
     val sep = indexOfSep(arr)
@@ -206,7 +160,6 @@ object LspBridge {
     }
   }
 
-  /** Index of the `\r\n\r\n` header/body separator, or -1. */
   private def indexOfSep(arr: Array[Byte]): Int = {
     var i = 0
     val end = arr.length - 3
@@ -220,9 +173,6 @@ object LspBridge {
     -1
   }
 
-  /** Read the `Content-Length` value from an LSP header block (case-insensitive
-    * header name, per the base protocol).
-    */
   private def contentLength(header: String): Option[Int] =
     header.linesIterator
       .map(_.trim)

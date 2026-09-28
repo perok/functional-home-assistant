@@ -33,15 +33,13 @@ import fh.view.FHError
 
 import java.time.Instant
 
-/** What a node that reads a query contributes to the pipeline: nothing to
-  * candidacy, everything to the render key.
+/** A node reading a query contributes nothing to candidacy and everything to
+  * the render key.
   */
 class QueryRenderInputsSuite extends munit.CatsEffectSuite {
 
-  /** As AUTHORED, with both parameters written down. A query whose parameters
-    * are all literal resolves to itself against any environment, which is what
-    * keeps every assertion below about the query slot rather than about
-    * variables.
+  /** All-literal parameters resolve to themselves in any environment, so the
+    * assertions stay about the query slot, not variables.
     */
   private def chart(window: String = "24h") =
     QueryTemplate(
@@ -52,15 +50,15 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
       )
     )
 
-  /** The same, RESOLVED — what the caches and the render key see. */
+  /** What the caches and the render key see. */
   private def resolved(window: String = "24h") =
     SlotQuery("history", Map("entity" -> "sensor.t", "window" -> window))
 
   private def ask(window: String = "24h", width: Int = 600) =
     SlotAsk(chart(window), drawn(width))
 
-  /** A chart STAGE. The size lives here now rather than in the query, which is
-    * what makes two sizes of one window one fetch and two drawings.
+  /** The size lives on the stage, so two sizes of one window are one fetch and
+    * two drawings.
     */
   private def drawn(width: Int = 600) =
     Transform.Stage.Chart(ChartStyle(width = width))
@@ -85,14 +83,11 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
       )
     )
 
-  // --- Candidacy ------------------------------------------------------------
-
   test("a query slot does not make its node a live candidate") {
-    // The claim the whole design rests on: a chart is not re-rendered by a
-    // state tick, so a sensor moving every second does not re-fetch its own
-    // history every second. Nothing arranges it — both entity lists are built
-    // from STATE slots, and a query slot is not one, so it has no entity to
-    // contribute even though it leaves `reads` at its `live` default.
+    // A state tick does not re-render a chart, so a sensor moving every second
+    // does not re-fetch its history every second. Both entity lists come from
+    // state slots, and a query slot is not one, even at `reads`'s `live`
+    // default.
     assertEquals(chartNode().liveEntities, List("sensor.t")) // from `name`
     assertEquals(
       LayoutNode
@@ -109,8 +104,8 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
   }
 
   test("a query slot is not a signal slot, whatever it says") {
-    // Not a rule that rejects the combination — a `SlotShape.Query` has no
-    // signal to read, so the signal path cannot reach it.
+    // A `SlotShape.Query` has no signal to read, so the signal path cannot
+    // reach it; no rule is needed.
     val src = chartSource().copy(
       signal = Some(SignalBind.Text),
       reads = Reads.Live
@@ -137,11 +132,9 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
     assertEquals(two.queries.toSet, Set(ask("1h"), ask("30d")))
   }
 
-  // --- The snapshot ---------------------------------------------------------
-
   test("the answers a render holds are total, and a miss is loud") {
-    // A render has every answer or never starts (architecture §0), so reading
-    // a query nobody resolved is loud rather than an empty hole.
+    // A render has every answer or never starts (architecture §0), so an
+    // unresolved query is loud, not an empty hole.
     val q = read()
     val f = QuerySnapshot.of(Map(q -> Staged(100L, "<svg/>")))
     assertEquals(f.versions("c_0", List(ask())), Map(q -> 100L))
@@ -152,7 +145,6 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
     assert(miss.getMessage.contains("not resolved for this render"))
   }
 
-  /** A recorder answering `rows(entity, end)`, and no statistics. */
   private def source(
       rows: (String, Instant) => IO[List[HistoryPoint]]
   ): SeriesSource = new SeriesSource {
@@ -166,9 +158,8 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
     ) = IO.pure(Nil)
   }
 
-  /** A resolver over a counting fetch and a counting draw. Neither needs a
-    * JavaScript engine or an HA connection, which is what makes the two-level
-    * dedupe testable at all.
+  /** Counting fetch and draw, with no JavaScript engine or HA, which is what
+    * makes the two-level dedupe testable.
     */
   private def resolver(
       fetches: Ref[IO, Int],
@@ -197,7 +188,6 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
       .toMap
 
   test("two sizes of one window are ONE fetch and TWO drawings") {
-    // The provider dedupes by QUERY, the stage by (query, stage).
     val wide = read(width = 600)
     val narrow = read(width = 320)
     for {
@@ -220,8 +210,8 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
   }
 
   test("two sensors over one window each get their own drawing") {
-    // Same window means same bucket, so same version and same style: only the
-    // question tells the two drawings apart.
+    // Same window, same bucket, version and style: only the question tells the
+    // drawings apart.
     def sensor(e: String) =
       SlotAsk(
         QueryTemplate(
@@ -262,9 +252,8 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
   }
 
   test("passthrough puts the provider's DATA in the hole, undrawn") {
-    // The third-party contract: no transform, no drawing, and the JSON a
-    // client library would read. Nothing is drawn at all, which is what makes
-    // this cheaper than a chart rather than a chart nobody looks at.
+    // The third-party contract: the JSON a client library reads, nothing drawn,
+    // so cheaper than a chart.
     val raw = SlotRead(resolved(), Transform.Stage.Passthrough)
     for {
       fetches <- Ref[IO].of(0)
@@ -289,8 +278,8 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
   }
 
   test("a failing stage is that chart's error, not the render's") {
-    // One sensor's recorder or drawing failing must not take the page, or the
-    // live stream that re-resolves on every pull, down with it.
+    // One failing recorder or drawing must not take the page, or the live
+    // stream, down with it.
     val ok = read(width = 600)
     val bad = read(width = 1)
     for {
@@ -315,8 +304,6 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
     }
   }
 
-  // --- The partial order ----------------------------------------------------
-
   private def key(queries: (SlotRead, Long)*) =
     RenderInputs(Map("sensor.t" -> 1L), queries.toMap)
 
@@ -327,10 +314,8 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
   }
 
   test("different queries are not ordered, so neither overwrites the other") {
-    // Two viewers on different windows read different queries. Unordered
-    // means separate generations — the alternative is one of them being served
-    // a chart of the wrong span, which is the silent failure `RenderInputs`
-    // warns about in its own doc.
+    // Unordered means separate generations; otherwise one viewer is served a
+    // chart of the wrong span, silently.
     assert(!key(read("24h") -> 100L).isAtLeast(key(read("1h") -> 100L)))
     assert(!key(read("1h") -> 100L).isAtLeast(key(read("24h") -> 100L)))
   }
@@ -344,12 +329,10 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
     assertNotEquals(key(read() -> 100L), key(read() -> 200L))
   }
 
-  // --- What a surface owes before it renders --------------------------------
-
   test("a surface's queries are found before it is rendered") {
-    // The popup path: more-info is a triggered surface, so what it reads has
-    // to be answerable from the STATIC tree — a render is a synchronous string
-    // build, and a provider is `IO`.
+    // More-info is a triggered surface, so what it reads must be answerable
+    // from the static tree: a render is a synchronous string build, a provider
+    // `IO`.
     val d = Dashboard(
       cards = Map(
         "chart" -> CardDef("""<div>{{{chart}}}</div>"""),
@@ -386,7 +369,6 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
       r.queriesForSurface("popup", Map.empty, Map.empty, Map.empty),
       List(read())
     )
-    // A surface nobody declared owes nothing, rather than raising.
     assertEquals(
       r.queriesForSurface("nope", Map.empty, Map.empty, Map.empty),
       Nil
@@ -394,8 +376,8 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
   }
 
   test("a page resolves the tab it shows and the branch state picks, only") {
-    // An unselected tab is fetched by its own switch, and an inactive branch
-    // is not on screen; resolving either would draw charts nobody sees.
+    // An unselected tab is fetched by its own switch and an inactive branch is
+    // off screen; resolving either draws charts nobody sees.
     def panel(w: String) =
       LayoutNode.Component(
         card = "chart",
@@ -451,8 +433,6 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
     assertEquals(windows("t1", light("off")), Set("7d", "30d"))
   }
 
-  // --- Validation -----------------------------------------------------------
-
   private def dashboard(src: SlotSource) =
     Dashboard(
       cards = Map("chart" -> CardDef("""<div id="{{id}}">{{{chart}}}</div>""")),
@@ -460,9 +440,8 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
     )
 
   test("an unknown provider is a build error naming the ones that exist") {
-    // Silent otherwise: no provider, no fragment, so the slot renders empty
-    // forever and never enters the render key — a blank chart with nothing
-    // anywhere saying why.
+    // Otherwise the slot renders empty forever and never enters the key: a
+    // blank chart with nothing saying why.
     val errs = dashboard(
       SlotSource(
         query = Some(QueryTemplate("forecast", Map.empty)),
@@ -474,8 +453,7 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
   }
 
   test("an ESCAPED hole for a query slot is a build error") {
-    // Silent otherwise, and visibly wrong only to whoever opens the page:
-    // `{{chart}}` renders `&lt;svg …` as text.
+    // Otherwise `{{chart}}` renders `&lt;svg …` as text.
     def errsFor(hole: String) =
       Dashboard(
         cards = Map("chart" -> CardDef(s"""<div id="{{id}}">$hole</div>""")),
@@ -492,15 +470,12 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
       clue = errsFor("{{chart}}")
     )
     assertEquals(errsFor("{{{chart}}}"), Nil)
-    // Mustache allows the whitespace, so the check must too.
     assertEquals(errsFor("{{{ chart }}}"), Nil)
   }
 
   test("a query slot whose wire says 'live' is rejected as untruthful") {
-    // The field is INERT — a `SlotShape.Query` never reads it — so this is not
-    // about behaviour. It is about the wire not lying to whoever reads it: the
-    // Pkl default derives `onRender` from the query, and a hand-written one
-    // that says otherwise is a build error rather than a misleading document.
+    // Inert, since a `SlotShape.Query` never reads it: this keeps the wire from
+    // lying. The Pkl default derives `onRender` from the query.
     val errs = dashboard(
       chartSource().copy(reads = Reads.Live)
     ).validate()
@@ -508,8 +483,7 @@ class QueryRenderInputsSuite extends munit.CatsEffectSuite {
   }
 
   test("the provider's own parse error is the build error") {
-    // No wiring: parsing is pure, so a dashboard is checked wherever it is
-    // built rather than only where a provider happened to be passed in.
+    // Parsing is pure, so a dashboard is checked wherever it is built.
     val errs = dashboard(
       SlotSource(
         query = Some(QueryTemplate("history", Map())),
