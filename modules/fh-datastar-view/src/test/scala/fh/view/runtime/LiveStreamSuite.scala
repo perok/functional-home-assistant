@@ -1,8 +1,6 @@
 package fh.view.runtime
 
 import fh.view.query.QuerySnapshot
-import api.homeassistant.HomeAssistantApi
-import cats.effect.IO
 import fh.view.model.{
   Activation,
   CardDef,
@@ -13,14 +11,9 @@ import fh.view.model.{
   SlotSource,
   Surface
 }
-import fh.view.testkit.{FakeHomeAssistant, FixtureEntity}
+import fh.view.testkit.FixtureEntity
 import fh.view.testkit.TestIds.given
-import fh.view.testkit.TestAuth
-import fs2.concurrent.SignallingRef
-import org.http4s.*
-import org.http4s.implicits.*
-
-import scala.concurrent.duration.*
+import io.circe.Json
 
 /** End to end over the real stream, with several clients: what one connection
   * is sent is half the contract, and what the others are not sent cannot be
@@ -191,10 +184,10 @@ class LiveStreamSuite extends ServerHarness {
     )
   )
 
-  test("a fill records what it put there, so the next tick suppresses") {
-    // Opening a surface teaches the log each node's bytes from the same render,
-    // so a tick to the same value is "unchanged", not "never told", and sends
-    // nothing.
+  testReal("a fill records what it put there, so the next tick suppresses") {
+    // Opening a surface teaches the session each node's bytes from the same
+    // render, so a tick to the same value is "unchanged", not "never told",
+    // and sends nothing.
     val dash = Dashboard(
       cards = Map(
         "col" -> CardDef(
@@ -213,124 +206,86 @@ class LiveStreamSuite extends ServerHarness {
         )
       )
     )
-    (for {
-      store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "cold")))
-      ref <- SignallingRef[IO].of(
-        Server.RendererState.Ready(Renderer.create(dash))
-      )
-      sessions <- Sessions.create
-      fake <- FakeHomeAssistant.create(Nil)
-      out <- Server
-        .resource(
-          ServiceCalls.asInstance(HomeAssistantApi.fromWs(fake)),
-          store,
-          Map("dashboard" -> ref),
-          "dashboard",
-          sessions,
-          TestAuth.openGate
+    val painted = Held.of(
+      Renderer
+        .create(dash)
+        .renderNodeById(
+          "s_det__c_0",
+          Map("sensor.a" -> es("sensor.a", "cold")),
+          fragments = QuerySnapshot.empty
         )
-        .use { server =>
-          val conn = "c1"
-          for {
-            session <- Session.create("dashboard")
-            _ <- sessions.register(conn, session)
-            renderer <- ref.get.map(_.rendererOf.get)
-            live <- server.liveSlug("dashboard")
-            painted = Held.of(
-              renderer
-                .renderNodeById(
-                  "s_det__c_0",
-                  Map("sensor.a" -> es("sensor.a", "cold")),
-                  fragments = QuerySnapshot.empty
-                )
-                .get
-            )
-            node = NodeId.derived("s_det__c_0")
-            beforeFill <- session.holds.get.map(_.get(node).contains(painted))
-            _ <- server.routes.orNotFound.run(
-              Request[IO](Method.POST, uri"/sse/surface/dashboard/open/det")
-                .withEntity(s"""{"${Server.ConnSignal}":"$conn"}""")
-            )
-            afterFill <- session.holds.get.map(_.get(node).contains(painted))
-            held <- session.holds.get
-            // A synthetic change against an unchanged store: a real
-            // `store.update` wakes the background recorder, and whichever
-            // reaches the log first leaves the other an empty frame.
-            same <- recordAndPull(
-              server,
-              sessions,
-              store,
-              renderer,
-              live.log,
-              List(
-                StateChange(
-                  "sensor.a",
-                  Some(es("sensor.a", "cold")),
-                  es("sensor.a", "cold")
-                )
-              ),
-              open = Set("det"),
-              holds = held
-            )
-          } yield (beforeFill, afterFill, same)
-        }
-    } yield out)
-      .timeout(30.seconds)
-      .map { case (beforeFill, afterFill, same) =>
+        .get
+    )
+    val node = NodeId.derived("s_det__c_0")
+    live(dash, Map("sensor.a" -> es("sensor.a", "cold"))) { ts =>
+      for {
+        v <- ts.viewer()
+        beforeFill <- v.session.holds.get.map(_.get(node).contains(painted))
+        _ <- ts.post(
+          s"sse/surface/${ts.slug}/open/det",
+          body = s"""{"${Server.ConnSignal}":"${v.document.conn}"}"""
+        )
+        afterFill <- v.session.holds.get.map(_.get(node).contains(painted))
+        // A frame the card renders identically: an attribute it does not read.
+        same <- v.step(
+          FixtureEntity("sensor.a", "cold", Map("noise" -> Json.fromInt(1)))
+        )
+      } yield {
         // Not vacuous: the claim did not exist until the fill made it.
         assert(!beforeFill, clue = "nothing claimed before the surface opened")
         assert(afterFill, clue = "the fill must claim the node it painted")
-        assertEquals(same, Nil, clue = events(same).map(_.render))
+        assertEquals(same, Nil, clue = same.map(_.render))
       }
-  }
-
-  test("a queued flip that a later one superseded is dropped, not sent") {
-    // The first flip was planned against a selection that has since moved, so
-    // its bytes would put the wrong branch on screen; the log recorded that
-    // member as Gone.
-    for {
-      h <- SharedHarness.create(
-        ifDash(),
-        Map(
-          "alarm.h" -> es("alarm.h", "armed"),
-          "sensor.a" -> es("sensor.a", "A0"),
-          "sensor.b" -> es("sensor.b", "B0")
-        )
-      )
-      out <- h.queued(
-        List(es("alarm.h", "disarmed"), es("alarm.h", "armed"))
-      )
-    } yield {
-      assertEquals(out.size, 1, clue = out)
-      assert(out.head.contains("""id="s_then__c""""), clue = out.head)
-      assert(!out.head.contains("""id="s_else__c""""), clue = out.head)
     }
   }
 
-  test("a branch that empties removes its content, never the host") {
+  private val armedAB = Map(
+    "alarm.h" -> es("alarm.h", "armed"),
+    "sensor.a" -> es("sensor.a", "A0"),
+    "sensor.b" -> es("sensor.b", "B0")
+  )
+
+  testReal("a queued flip that a later one superseded is dropped, not sent") {
+    // The first flip was planned against a selection that has since moved, so
+    // its bytes would put the wrong branch on screen; the log recorded that
+    // member as Gone. Both frames land before the one pull.
+    live(ifDash(), armedAB) { ts =>
+      for {
+        v <- ts.viewer()
+        _ <- ts.record(FixtureEntity("alarm.h", "disarmed"))
+        _ <- ts.record(FixtureEntity("alarm.h", "armed"))
+        out <- v.pull.map(elementPatches)
+      } yield {
+        assertEquals(out.size, 1, clue = out)
+        assert(out.head.contains("""id="s_then__c""""), clue = out.head)
+        assert(!out.head.contains("""id="s_else__c""""), clue = out.head)
+      }
+    }
+  }
+
+  testReal("a branch that empties removes its content, never the host") {
     // The host must survive: every later fill targets it by id, and a patch at
     // a missing id is a silent no-op, so the group would go dead for that
     // client.
     val d = ifDash().copy(surfaces =
       Map("then" -> stateMember(branchCard("sensor.a"), "c_0", 0, armedCond))
     )
-    for {
-      h <- SharedHarness.create(
-        d,
-        Map(
-          "alarm.h" -> es("alarm.h", "armed"),
-          "sensor.a" -> es("sensor.a", "A0")
+    live(d, armedAB - "sensor.b") { ts =>
+      for {
+        v <- ts.viewer()
+        emptied <- v.change(es("alarm.h", "disarmed")).map(_.map(_.render))
+        refilled <- v.change(es("alarm.h", "armed")).map(elementPatches)
+      } yield {
+        val removes = emptied.filter(_.contains("mode remove"))
+        assertEquals(removes.size, 1, clue = emptied)
+        assert(
+          removes.head.contains("selector #s_then__c"),
+          clue = removes.head
         )
-      )
-      emptied <- h.stepRaw(es("alarm.h", "disarmed"))
-      refilled <- h.step(es("alarm.h", "armed"))
-    } yield {
-      val removes = emptied.filter(_.contains("mode remove"))
-      assertEquals(removes.size, 1, clue = emptied)
-      assert(removes.head.contains("selector #s_then__c"), clue = removes.head)
-      assert(!removes.head.contains("#c_0_branch"), clue = removes.head)
-      assertEquals(refilled.size, 1, clue = refilled)
-      assert(refilled.head.contains("selector #c_0_branch"), clue = refilled)
+        assert(!removes.head.contains("#c_0_branch"), clue = removes.head)
+        assertEquals(refilled.size, 1, clue = refilled)
+        assert(refilled.head.contains("selector #c_0_branch"), clue = refilled)
+      }
     }
   }
 

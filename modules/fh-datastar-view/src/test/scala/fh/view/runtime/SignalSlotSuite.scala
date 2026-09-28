@@ -16,13 +16,9 @@ import fh.view.model.{
   Surface,
   Transform
 }
-import api.homeassistant.HomeAssistantApi
-import cats.effect.IO
 import fh.view.testkit.DashboardBuilders.{asComponent, st}
-import fh.view.testkit.FakeHomeAssistant
-import fs2.concurrent.SignallingRef
+import fh.view.testkit.FixtureEntity
 import fh.view.testkit.TestIds.given
-import fh.view.testkit.TestAuth
 
 /** Signal slots (ADR 0017). The contract is negative, so every test asserts
   * what is not on the wire as well as what is: a broken implementation still
@@ -751,62 +747,39 @@ class SignalSlotSuite extends ServerHarness {
     )
   }
 
-  test("three frames over two nodes, then ONE pull: one event, both nodes") {
+  private def fixture(states: Map[String, EntityState])(id: String) =
+    FixtureEntity(id, states(id).state, states(id).attributes)
+
+  testReal(
+    "three frames over two nodes, then ONE pull: one event, both nodes"
+  ) {
     // Three versions reach the log before this session pulls, two for the same
-    // node: one pull must merge across versions and across nodes. Driven
-    // through `Server.pull` directly, since an end-to-end version would be
-    // asserting on the scheduler.
-    (for {
-      store <- StateStore.inMemory(both("21.6", "48"))
-      ref <- SignallingRef[IO].of(
-        Server.RendererState.Ready(Renderer.create(twoNodes))
-      )
-      sessions <- Sessions.create
-      fake <- FakeHomeAssistant.create(Nil)
-      out <- Server
-        .resource(
-          ServiceCalls.asInstance(HomeAssistantApi.fromWs(fake)),
-          store,
-          Map("dashboard" -> ref),
-          "dashboard",
-          sessions,
-          TestAuth.openGate
+    // node: one pull must merge across versions and across nodes.
+    live(twoNodes, both("21.4", "44")) { ts =>
+      for {
+        v <- ts.viewer()
+        // HA sends every attribute on a change, the name the label reads
+        // included.
+        _ <- ts.record(fixture(both("21.5", "44"))("sensor.a"))
+        _ <- ts.record(fixture(both("21.6", "44"))("sensor.a"))
+        _ <- ts.record(fixture(both("21.6", "48"))("sensor.b"))
+        first <- v.pull
+        position <- v.session.position.get
+        again <- v.pull
+      } yield {
+        // `sensor.a` appears once despite moving twice.
+        assertEquals(
+          first.map(_.data),
+          List(
+            Some(
+              s"""signals {"_cursor":{"storeVersion":$position},"_e":{"sensor":""" +
+                """{"a":{"state":"21.6"},"b":{"state":"48"}}}}"""
+            )
+          ),
+          clue = first.map(_.render)
         )
-        .use { server =>
-          for {
-            renderer <- ref.get.map(_.rendererOf.get)
-            live <- server.liveSlug("dashboard")
-            session <- Session.create("dashboard")
-            _ <- session.holds.set(
-              documentHolds(renderer, both("21.4", "44"))
-            )
-            _ <- sessions.register("c1", session)
-            _ <- live.log.update(
-              _.touched(NodeId.derived("c_0"), 1L)
-                .touched(NodeId.derived("c_0"), 2L)
-                .touched(NodeId.derived("c_1"), 3L)
-            )
-            // Woken for the newest version: the doorbell coalesced 1 and 2 into
-            // 3.
-            first <- server.pull(live, session, 3L)
-            position <- session.position.get
-            again <- server.pull(live, session, 3L)
-          } yield (first, position, again)
-        }
-    } yield out).map { case (first, position, again) =>
-      // `c_0` appears once despite moving twice.
-      assertEquals(
-        first.map(_.data),
-        List(
-          Some(
-            """signals {"_cursor":{"storeVersion":3},"_e":{"sensor":""" +
-              """{"a":{"state":"21.6"},"b":{"state":"48"}}}}"""
-          )
-        ),
-        clue = first.map(_.render)
-      )
-      assertEquals(position, 3L)
-      assertEquals(again, Nil)
+        assertEquals(again, Nil)
+      }
     }
   }
 
