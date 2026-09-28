@@ -1,8 +1,9 @@
 // In `fh.view.runtime` so it can reach the `private[runtime]` readiness seams
-// (`StateStore.changeSubscribers`, `Server.connectedSessions`).
+// (`StateStore.changeSubscribers`, `Server.connectedSessions`, `Sessions`).
 package fh.view.runtime
 
 import api.homeassistant.HomeAssistantApi
+import cats.effect.std.Supervisor
 import cats.effect.{Deferred, IO, Ref, Resource}
 import cats.syntax.all.*
 import com.comcast.ip4s.{host, port}
@@ -42,7 +43,10 @@ final class TestServer(
     val server: Server,
     val slug: String,
     val auth: TestAuth,
-    app: HttpApp[IO]
+    app: HttpApp[IO],
+    sessions: Sessions,
+    supervisor: Supervisor[IO],
+    clients: Ref[IO, List[TestServer.LiveClient]]
 ) {
 
   /** '''`n` counts the recorder too.''' A test adding its own subscriber must
@@ -149,6 +153,94 @@ final class TestServer(
     run(Request[IO](Method.GET, patchUri), as)
 
   private def LogIdSignalName = Server.LogIdSignal
+
+  /** A live connection collecting its events for [[TestServer.LiveClient]],
+    * returned once its opening block is in. `query` carries what a document
+    * would hand back, such as `?ui.<id>=<n>` (see [[Server.Restore]]).
+    */
+  def connect(query: String = ""): IO[TestServer.LiveClient] =
+    for {
+      seen <- Ref[IO].of(Vector.empty[ServerSentEvent])
+      resp <- run(
+        Request[IO](
+          Method.GET,
+          Uri.unsafeFromString(s"/sse/dashboard/$slug/patch$query")
+        )
+      )
+      // Supervised: the body carries the connection's `keepAlive` stream, and
+      // with no socket to close it a bare fiber outlives the test.
+      _ <- supervisor.supervise(
+        resp.body
+          .through(ServerSentEvent.decoder[IO])
+          .evalMap(e => seen.update(_ :+ e))
+          .compile
+          .drain
+      )
+      client = new TestServer.LiveClient(seen)
+      // `_haDown` rides a branch merged into the connection stream, so it can
+      // land either side of the cursor; waiting for the cursor alone left it
+      // for the next drain.
+      _ <- fs2.Stream
+        .repeatEval(seen.get <* IO.sleep(10.millis))
+        .find(es =>
+          es.exists(carries(Server.StoreVersionSignal)) &&
+            es.exists(carries(Server.HaDownSignal))
+        )
+        .compile
+        .drain
+        .timeout(15.seconds)
+      _ <- clients.update(_ :+ client)
+    } yield client
+
+  private def carries(signal: String)(e: ServerSentEvent): Boolean =
+    e.eventType.contains("datastar-patch-signals") &&
+      e.data.exists(_.contains(signal))
+
+  /** One HA frame through the fake, returned once every [[connect]]ed client
+    * has what it is owed. Two gates: [[served]] proves every session pulled
+    * this version, then [[TestServer.LiveClient.arrived]] that the bytes
+    * landed. A client owed nothing receives nothing, so "the frame is done" has
+    * to be asked of the server.
+    */
+  def change(entityId: String, state: String): IO[Unit] =
+    frame(FixtureEntity(entityId, state))
+
+  def frame(entities: FixtureEntity*): IO[Unit] =
+    for {
+      // A topic delivers only to current subscribers, and the recorder starts
+      // asynchronously, so a frame that beats it is never recorded and every
+      // later gate times out. Connecting a client does not imply it.
+      _ <- awaitChangeSubscribers(1).timeout(15.seconds)
+      before <- store.version
+      _ <- fake.emitFrame(entities.toList)
+      _ <- fs2.Stream
+        .repeatEval(store.version <* IO.sleep(5.millis))
+        .find(_ > before)
+        .compile
+        .drain
+        .timeout(15.seconds)
+      _ <- served
+      _ <- clients.get.flatMap(_.traverse_(_.arrived))
+    } yield ()
+
+  /** Not `Sessions.floor`, which includes `Lingering` and `Fresh` sessions: one
+    * with no stream never pulls, so waiting on it times out, and the test that
+    * left it fails elsewhere, intermittently.
+    */
+  private def served: IO[Unit] =
+    fs2.Stream
+      .repeatEval(
+        (store.version, sessions.forSlug(slug)).flatMapN { (now, all) =>
+          all
+            .traverse(s => (s.tenure.get, s.position.get).tupled)
+            .map(_.collect { case (_: Tenure.Held, at) => at })
+            .map(live => live.nonEmpty && live.forall(_ >= now))
+        } <* IO.sleep(5.millis)
+      )
+      .find(identity)
+      .compile
+      .drain
+      .timeout(15.seconds)
 
   /** Open one live connection (`query` e.g. a `ui.<host>` tab selection), wait
     * until its opening block is delivered, then run `trigger` and return
@@ -262,6 +354,29 @@ final class TestServer(
 }
 
 object TestServer {
+
+  final class LiveClient(seen: Ref[IO, Vector[ServerSentEvent]]) {
+
+    def drain: IO[List[ServerSentEvent]] =
+      seen.getAndSet(Vector.empty).map(_.toList)
+
+    /** Quiet alone cannot tell "nothing was produced" from "nothing has arrived
+      * yet", so it follows [[TestServer.change]]'s server-side proof that every
+      * session pulled the frame. A pull that owes a client nothing sends
+      * nothing, not even a cursor, so waiting for one would hang on exactly the
+      * clients this checks are left alone.
+      */
+    def arrived: IO[Unit] =
+      fs2.Stream
+        .repeatEval(seen.get.map(_.size) <* IO.sleep(25.millis))
+        .drop(6)
+        // Four equal readings, not two: a batch's events can arrive more than a
+        // sample apart under load, and two samples returned mid-batch in CI.
+        .sliding(4)
+        .find(w => w.toList.distinct.sizeIs == 1)
+        .compile
+        .drain
+  }
 
   /** A model dashboard as the site's starting content, so no Pkl is evaluated.
     */
@@ -458,14 +573,21 @@ object TestServer {
   ): Resource[IO, TestServer] =
     for {
       wsb <- WebSocketBuilder2[IO].toResource
-      auth <- TestAuth.admitted(assembled.sessions).toResource
+      auth <- TestAuth.admitted(assembled.authSessions).toResource
+      // Acquired after `assemble`, so the connect fibers are gone before the
+      // server releases.
+      supervisor <- Supervisor[IO]
+      clients <- Ref[IO].of(List.empty[LiveClient]).toResource
     } yield new TestServer(
       fake,
       assembled.feed.store,
       assembled.server,
       slug,
       auth,
-      assembled.app(wsb)
+      assembled.app(wsb),
+      assembled.sessions,
+      supervisor,
+      clients
     )
 
   private def bind(

@@ -781,11 +781,11 @@ refill. What it removes is a signal per client per frame on a busy dashboard, wh
 is the cost the original note was weighing.
 
 It also cost a test seam, worth recording because the same trap is waiting for the
-next person: `ServerSuite`'s `LiveWorld` used the cursor as its "the batch reached
+next person: the live test harness used the cursor as its "the batch reached
 me" marker, precisely because every connection got one whether or not it got
 patches. With that gone, a client owed nothing waits forever. The replacement is
-strictly better — gate on the SERVER having served the frame (`Sessions.floor`
-reaching the store version, i.e. every session pulled it), then wait for arrival —
+strictly better — gate on the SERVER having served the frame (every held
+session's position reaching the store version, `TestServer.change`), then wait for arrival —
 because it no longer infers completion from a wire artefact.
 
 **`data-signals__ifmissing`** — **adopted**, after the spike that explained why it

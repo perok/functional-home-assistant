@@ -5,10 +5,11 @@ import api.homeassistant.HomeAssistantApi
 import cats.effect.IO
 import cats.effect.kernel.{Deferred, Ref}
 import cats.syntax.all.*
-import fh.view.testkit.FakeHomeAssistant
+import fh.view.testkit.{FakeHomeAssistant, FixtureEntity}
 import fh.view.testkit.TestIds.given
 import fh.view.testkit.TestAuth
 import fs2.concurrent.SignallingRef
+import io.circe.Json
 import org.http4s.*
 import org.http4s.implicits.*
 
@@ -565,32 +566,6 @@ class SessionLifecycleSuite extends ServerHarness {
     } yield out).timeout(30.seconds).assert
   }
 
-  test("a frame this client is owed nothing for puts NOTHING on its wire") {
-    // No events at all: the cursor rides the keepalive rather than every pull,
-    // which is why `LiveWorld.change` gates on the server.
-    liveWorld(
-      twoTabsDash,
-      Map(
-        "sensor.shared" -> es("sensor.shared", "s0"),
-        "sensor.a" -> es("sensor.a", "A0"),
-        "sensor.b" -> es("sensor.b", "B0")
-      )
-    ) { world =>
-      for {
-        onT0 <- world.connect()
-        onT1 <- world.connect("?ui.c_1=1")
-        _ <- onT0.drain
-        _ <- onT1.drain
-        _ <- world.change(es("sensor.a", "A1"))
-        a0 <- onT0.drain
-        a1 <- onT1.drain
-      } yield {
-        assert(a0.nonEmpty, clue = a0)
-        assertEquals(a1, Nil, clue = ("tab 1 gets no bytes at all", a1))
-      }
-    }
-  }
-
   /** A dropped stream is normal: a sleeping phone, a wifi handover. The same
     * session must come back, since a new one under the same `conn` would have
     * an empty `holds`.
@@ -769,8 +744,8 @@ class SessionLifecycleSuite extends ServerHarness {
     } yield out).timeout(30.seconds).map(assert(_))
   }
 
-  test("end to end: a leaf tick, then the same value again") {
-    liveClient(
+  test("end to end: a leaf tick, then one that renders identically") {
+    liveOne(
       liveLeafDash,
       Map("sensor.a" -> es("sensor.a", "cold"))
     ) { (world, client) =>
@@ -778,7 +753,7 @@ class SessionLifecycleSuite extends ServerHarness {
         _ <- client.drain
         // An outer morph targets the id inside its own HTML and names no
         // selector.
-        hot <- world.change(es("sensor.a", "hot")) *> client.drain
+        hot <- world.change("sensor.a", "hot") *> client.drain
         _ = assertEquals(
           domEvents(hot),
           List(
@@ -791,9 +766,10 @@ class SessionLifecycleSuite extends ServerHarness {
           clue = hot
         )
         _ = assert(hot.exists(isCursor), clue = hot)
-        // A change that renders identically sends nothing, not even a cursor.
-        again <-
-          world.change(es("sensor.a", "hot")) *> client.drain
+        // A frame that renders identically sends nothing, not even a cursor.
+        again <- world.frame(
+          FixtureEntity("sensor.a", "hot", Map("unrelated" -> Json.fromInt(7)))
+        ) *> client.drain
         _ = assertEquals(domEvents(again), Nil, clue = again)
       } yield ()
     }

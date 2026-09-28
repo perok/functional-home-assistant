@@ -243,7 +243,8 @@ object ServerApp extends IOApp {
       feed: HaFeed,
       site: Server.LiveSite,
       server: Server,
-      sessions: AuthSessions,
+      sessions: Sessions,
+      authSessions: AuthSessions,
       prepared: Prepared
   )
 
@@ -468,7 +469,15 @@ object ServerApp extends IOApp {
             ).orNotFound
           )
         )
-    } yield Assembled(app, feed, site, server, authSessions, prepared)
+    } yield Assembled(
+      app,
+      feed,
+      site,
+      server,
+      sessions,
+      authSessions,
+      prepared
+    )
   }
 
   /** A dashboard that failed to build is registered as failed, not skipped, so

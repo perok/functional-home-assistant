@@ -13,7 +13,7 @@ import fh.view.model.{
   SlotSource,
   Surface
 }
-import fh.view.testkit.FakeHomeAssistant
+import fh.view.testkit.{FakeHomeAssistant, FixtureEntity}
 import fh.view.testkit.TestIds.given
 import fh.view.testkit.TestAuth
 import fs2.concurrent.SignallingRef
@@ -33,8 +33,8 @@ class LiveStreamSuite extends ServerHarness {
   /** The property ADR 0002's collapse must preserve. Under-sending has no
     * symptom: a withheld patch is just a value that quietly stops updating.
     */
-  test("two clients on different tabs: each sees only its own") {
-    liveWorld(
+  testReal("two clients on different tabs: each sees only its own") {
+    live(
       twoTabsDash,
       Map(
         "sensor.shared" -> es("sensor.shared", "s0"),
@@ -48,20 +48,22 @@ class LiveStreamSuite extends ServerHarness {
         _ <- onT0.drain
         _ <- onT1.drain
 
-        _ <- world.change(es("sensor.a", "A1"))
+        _ <- world.change("sensor.a", "A1")
         a0 <- onT0.drain
         a1 <- onT1.drain
         _ = assert(
           domEvents(a0).exists(_._3.exists(_.contains("A1"))),
           clue = ("viewer of tab 0 must get it", a0)
         )
+        // No events at all, not even a cursor: that rides the keepalive, which
+        // is why `TestServer.change` gates on the server.
         _ = assertEquals(
-          domEvents(a1),
+          a1,
           Nil,
           clue = ("viewer of tab 1 must get nothing", a1)
         )
 
-        _ <- world.change(es("sensor.b", "B1"))
+        _ <- world.change("sensor.b", "B1")
         b0 <- onT0.drain
         b1 <- onT1.drain
         _ = assertEquals(
@@ -76,7 +78,7 @@ class LiveStreamSuite extends ServerHarness {
 
         // A main-page change reaches both: the filter must not swallow what is
         // not surface-scoped.
-        _ <- world.change(es("sensor.shared", "s1"))
+        _ <- world.change("sensor.shared", "s1")
         s0 <- onT0.drain
         s1 <- onT1.drain
         _ = assert(
@@ -105,11 +107,13 @@ class LiveStreamSuite extends ServerHarness {
       ),
       "card" -> CardDef("<span>{{state}}</span>", slots = List("state")),
       "ifhost" -> CardDef(
-        template = """<div id="{{hostId}}">{{{branch}}}</div>""",
+        template =
+          """<div id="{{hostId}}">{{#branch}}{{{html}}}{{/branch}}</div>""",
         regions = Map("branch" -> Region(Region.Baked))
       ),
       "tabs" -> CardDef(
-        template = """<div id="{{hostId}}" class="tabs">{{{panel}}}</div>""",
+        template =
+          """<div id="{{hostId}}" class="tabs">{{#panel}}{{{html}}}{{/panel}}</div>""",
         regions = Map("panel" -> Region(Region.Baked))
       )
     ),
@@ -158,7 +162,8 @@ class LiveStreamSuite extends ServerHarness {
       ),
       "card" -> CardDef("<span>{{state}}</span>", slots = List("state")),
       "tabs" -> CardDef(
-        template = """<div>bar</div><div id="{{hostId}}">{{{panel}}}</div>""",
+        template =
+          """<div>bar</div><div id="{{hostId}}">{{#panel}}{{{html}}}{{/panel}}</div>""",
         regions = Map("panel" -> Region(Region.Baked))
       )
     ),
@@ -497,8 +502,8 @@ class LiveStreamSuite extends ServerHarness {
     * set; pushing it is harmless and pure waste.
     */
 
-  test("a tab panel inside a HIDDEN branch costs nothing") {
-    liveWorld(
+  testReal("a tab panel inside a HIDDEN branch costs nothing") {
+    live(
       tabsInBranchDash,
       Map(
         "alarm.h" -> es("alarm.h", "disarmed"),
@@ -511,12 +516,12 @@ class LiveStreamSuite extends ServerHarness {
       for {
         c <- world.connect()
         _ <- c.drain
-        _ <- world.change(es("sensor.a", "A1"))
+        _ <- world.change("sensor.a", "A1")
         hidden <- c.drain
         _ = assertEquals(domEvents(hidden), Nil, clue = hidden)
 
         // Not vacuous: a change the client can see still arrives.
-        _ <- world.change(es("sensor.shared", "s1"))
+        _ <- world.change("sensor.shared", "s1")
         seen <- c.drain
         _ = assert(
           domEvents(seen).exists(_._3.exists(_.contains("s1"))),
@@ -569,7 +574,7 @@ class LiveStreamSuite extends ServerHarness {
       "card" -> CardDef("<span>{{state}}</span>", slots = List("state")),
       "tabs" -> CardDef(
         template =
-          """<div class="active-{{bakeIndex}}">{{#bar}}{{{html}}}{{/bar}}</div><div id="{{hostId}}">{{{panel}}}</div>""",
+          """<div class="active-{{bakeIndex}}">{{#bar}}{{{html}}}{{/bar}}</div><div id="{{hostId}}">{{#panel}}{{{html}}}{{/panel}}</div>""",
         regions = Map("bar" -> Region(), "panel" -> Region(Region.Baked))
       ),
       "bar" -> CardDef("""<div>{{title}}</div>""", slots = List("title"))
@@ -607,10 +612,12 @@ class LiveStreamSuite extends ServerHarness {
     )
   )
 
-  test("a variant keeps its own digest, so an unchanged tick is suppressed") {
+  testReal(
+    "a variant keeps its own digest, so an unchanged tick is suppressed"
+  ) {
     // Variants of a bake owner are static, one per member, so each has its own
     // digest: two viewers on different tabs get their own suppression.
-    liveWorld(
+    live(
       serverHighlightDash,
       Map(
         "sensor.title" -> es("sensor.title", "T0"),
@@ -623,7 +630,7 @@ class LiveStreamSuite extends ServerHarness {
         onT1 <- world.connect("?ui.c_0=1")
         _ <- onT0.drain
         _ <- onT1.drain
-        _ <- world.change(es("sensor.title", "T1"))
+        _ <- world.change("sensor.title", "T1")
         a1 <- onT0.drain
         b1 <- onT1.drain
         _ = assert(
@@ -636,8 +643,10 @@ class LiveStreamSuite extends ServerHarness {
         )
         // Only an attribute moved, so the title renders identically and nothing
         // goes out.
-        _ <- world.change(
-          es("sensor.title", "T1").copy(attributes =
+        _ <- world.frame(
+          FixtureEntity(
+            "sensor.title",
+            "T1",
             Map("unrelated" -> io.circe.Json.fromInt(7))
           )
         )
@@ -649,8 +658,8 @@ class LiveStreamSuite extends ServerHarness {
     }
   }
 
-  test("a tick sends both viewers the same bar, carrying no selection") {
-    liveWorld(
+  testReal("a tick sends both viewers the same bar, carrying no selection") {
+    live(
       serverHighlightDash,
       Map(
         "sensor.title" -> es("sensor.title", "T0"),
@@ -663,7 +672,7 @@ class LiveStreamSuite extends ServerHarness {
         onT1 <- world.connect("?ui.c_0=1")
         _ <- onT0.drain
         _ <- onT1.drain
-        _ <- world.change(es("sensor.title", "T1"))
+        _ <- world.change("sensor.title", "T1")
         a <- onT0.drain
         b <- onT1.drain
         _ = assert(
@@ -686,8 +695,8 @@ class LiveStreamSuite extends ServerHarness {
     }
   }
 
-  test("a flip re-reveals each client's OWN tab, not the default one") {
-    liveWorld(
+  testReal("a flip re-reveals each client's OWN tab, not the default one") {
+    live(
       tabsInBranchDash,
       Map(
         "alarm.h" -> es("alarm.h", "armed"),
@@ -719,7 +728,7 @@ class LiveStreamSuite extends ServerHarness {
           clue = open1
         )
 
-        _ <- world.change(es("alarm.h", "disarmed"))
+        _ <- world.change("alarm.h", "disarmed")
         off0 <- onT0.drain
         off1 <- onT1.drain
         _ = assert(
@@ -731,7 +740,7 @@ class LiveStreamSuite extends ServerHarness {
           clue = off1
         )
 
-        _ <- world.change(es("alarm.h", "armed"))
+        _ <- world.change("alarm.h", "armed")
         on0 <- onT0.drain
         on1 <- onT1.drain
         _ = assert(
@@ -751,7 +760,7 @@ class LiveStreamSuite extends ServerHarness {
           clue = ("...which is exactly the silent regression", on1)
         )
 
-        _ <- world.change(es("sensor.a", "A1"))
+        _ <- world.change("sensor.a", "A1")
         a0 <- onT0.drain
         a1 <- onT1.drain
         _ = assert(
@@ -759,7 +768,7 @@ class LiveStreamSuite extends ServerHarness {
           clue = a0
         )
         _ = assertEquals(domEvents(a1), Nil, clue = a1)
-        _ <- world.change(es("sensor.b", "B1"))
+        _ <- world.change("sensor.b", "B1")
         b0 <- onT0.drain
         b1 <- onT1.drain
         _ = assertEquals(domEvents(b0), Nil, clue = b0)
@@ -771,7 +780,7 @@ class LiveStreamSuite extends ServerHarness {
     }
   }
 
-  test("one frame is ONE batch: both elements, one cursor") {
+  testReal("one frame is ONE batch: both elements, one cursor") {
     // A frame's diffs bump the store version once. Publishing per entity split
     // that instant into N passes, seen on the wire as `storeVersion: 150`
     // twice.
@@ -797,7 +806,7 @@ class LiveStreamSuite extends ServerHarness {
         )
       )
     )
-    liveClient(
+    liveOne(
       twoCards,
       Map(
         "sensor.a" -> es("sensor.a", "A0"),
@@ -806,7 +815,10 @@ class LiveStreamSuite extends ServerHarness {
     ) { (world, client) =>
       for {
         _ <- client.drain
-        _ <- world.frame(List(es("sensor.a", "A1"), es("sensor.b", "B1")))
+        _ <- world.frame(
+          FixtureEntity("sensor.a", "A1"),
+          FixtureEntity("sensor.b", "B1")
+        )
         seen <- client.drain
       } yield {
         // A morph names its target by the id inside its own HTML, so a run
@@ -820,12 +832,14 @@ class LiveStreamSuite extends ServerHarness {
     }
   }
 
-  test("viewers SHARING a selection each get the fill, not just the first") {
+  testReal(
+    "viewers SHARING a selection each get the fill, not just the first"
+  ) {
     // The verdict is memoised, not the render. Sharing the render let the first
     // viewer write the digest, so the second was told its branch was unchanged
     // and sat on an empty host. The other multi-client tests use different
     // selections, so none pinned this.
-    liveWorld(
+    live(
       tabsInBranchDash,
       Map(
         "alarm.h" -> es("alarm.h", "armed"),
@@ -844,11 +858,11 @@ class LiveStreamSuite extends ServerHarness {
         _ <- secondOnT0.drain
         _ <- onT1.drain
 
-        _ <- world.change(es("alarm.h", "disarmed"))
+        _ <- world.change("alarm.h", "disarmed")
         _ <- firstOnT0.drain
         _ <- secondOnT0.drain
         _ <- onT1.drain
-        _ <- world.change(es("alarm.h", "armed"))
+        _ <- world.change("alarm.h", "armed")
         back1 <- firstOnT0.drain
         back2 <- secondOnT0.drain
         backT1 <- onT1.drain
@@ -876,45 +890,46 @@ class LiveStreamSuite extends ServerHarness {
     }
   }
 
-  test("a client joining late is caught up, and both stay live after") {
-    liveWorld(liveLeafDash, Map("sensor.a" -> es("sensor.a", "cold"))) {
-      world =>
-        for {
-          first <- world.connect()
-          _ <- first.drain
-          _ <- world.change(es("sensor.a", "warm"))
-          early <- first.drain
-          _ = assert(
-            domEvents(early).exists(_._3.exists(_.contains("warm"))),
-            clue = early
-          )
-          // It never saw the patch and connects with no cursor, so its opening
-          // block carries the current value from the document path.
-          late <- world.connect()
-          opening <- late.drain
-          _ = assert(
-            domEvents(opening).exists(_._3.exists(_.contains("warm"))),
-            clue = opening
-          )
-          _ <- world.change(es("sensor.a", "hot"))
-          e1 <- first.drain
-          e2 <- late.drain
-          _ = assert(
-            domEvents(e1).exists(_._3.exists(_.contains("hot"))),
-            clue = e1
-          )
-          _ = assert(
-            domEvents(e2).exists(_._3.exists(_.contains("hot"))),
-            clue = e2
-          )
-        } yield ()
+  testReal("a client joining late is caught up, and both stay live after") {
+    live(liveLeafDash, Map("sensor.a" -> es("sensor.a", "cold"))) { world =>
+      for {
+        first <- world.connect()
+        _ <- first.drain
+        _ <- world.change("sensor.a", "warm")
+        early <- first.drain
+        _ = assert(
+          domEvents(early).exists(_._3.exists(_.contains("warm"))),
+          clue = early
+        )
+        // It never saw the patch and connects with no cursor, so its opening
+        // block carries the current value from the document path.
+        late <- world.connect()
+        opening <- late.drain
+        _ = assert(
+          domEvents(opening).exists(_._3.exists(_.contains("warm"))),
+          clue = opening
+        )
+        _ <- world.change("sensor.a", "hot")
+        e1 <- first.drain
+        e2 <- late.drain
+        _ = assert(
+          domEvents(e1).exists(_._3.exists(_.contains("hot"))),
+          clue = e1
+        )
+        _ = assert(
+          domEvents(e2).exists(_._3.exists(_.contains("hot"))),
+          clue = e2
+        )
+      } yield ()
     }
   }
 
-  test("end to end: flipping there and back, one host overwrite each time") {
+  testReal(
+    "end to end: flipping there and back, one host overwrite each time"
+  ) {
     // The running app got this wrong twice, in the resume path and in replay
     // assembly; both only appear once events travel down a connection.
-    liveClient(
+    liveOne(
       ifDash(),
       Map(
         "alarm.h" -> es("alarm.h", "armed"),
@@ -939,7 +954,7 @@ class LiveStreamSuite extends ServerHarness {
         )
         _ = assert(opening.exists(isCursor), clue = opening)
 
-        tick <- world.change(es("sensor.a", "A1")) *> client.drain
+        tick <- world.change("sensor.a", "A1") *> client.drain
         _ = assertEquals(
           domEvents(tick),
           List(
@@ -957,14 +972,14 @@ class LiveStreamSuite extends ServerHarness {
         // 3. A tick inside the hidden branch: its ids never enter the
         // selection.
         hidden <-
-          world.change(es("sensor.b", "B1")) *> client.drain
+          world.change("sensor.b", "B1") *> client.drain
         // The cursor still moves: a pull reports where it got to even when it
         // owed this client nothing.
         _ = assertEquals(domEvents(hidden), Nil, clue = hidden)
 
         // 4. One overwrite of the host, at current state (B1, never seen here).
         // The browser reported three events here: two removals and an append.
-        flip <- world.change(es("alarm.h", "disarmed")) *> client.drain
+        flip <- world.change("alarm.h", "disarmed") *> client.drain
         _ = assertEquals(
           domEvents(flip),
           List(("inner", Some("#c_0_branch"), branch("else", "B1"))),
@@ -972,7 +987,7 @@ class LiveStreamSuite extends ServerHarness {
         )
 
         // 5. The then-branch returns at its current value.
-        back <- world.change(es("alarm.h", "armed")) *> client.drain
+        back <- world.change("alarm.h", "armed") *> client.drain
         _ = assertEquals(
           domEvents(back),
           List(("inner", Some("#c_0_branch"), branch("then", "A1"))),

@@ -225,25 +225,23 @@ final class FakeHomeAssistant private (
       state: String,
       attributes: Map[String, Json] = Map.empty
   ): IO[Unit] =
+    emitFrame(List(FixtureEntity(entityId, state, attributes)))
+
+  /** Several entities in one frame, which the feed applies as one batch. */
+  def emitFrame(nexts: List[FixtureEntity]): IO[Unit] =
     clock.updateAndGet(_ + 1).flatMap { tick =>
       stateRef
         .modify { current =>
-          val prev = current.getOrElse(
-            entityId,
-            FixtureEntity(entityId, "unknown", Map.empty)
-          )
-          val next = FixtureEntity(entityId, state, attributes)
-          (current.updated(entityId, next), (prev, next))
-        }
-        .flatMap { (prev, next) =>
-          deltas.offer(
-            EntitiesEvent(
-              changed = Map(
-                entityId -> next.deltaFrom(prev, FixtureEntity.epochAt(tick))
-              )
+          val changed = nexts.map { next =>
+            val prev = current.getOrElse(
+              next.entityId,
+              FixtureEntity(next.entityId, "unknown", Map.empty)
             )
-          )
+            next.entityId -> next.deltaFrom(prev, FixtureEntity.epochAt(tick))
+          }
+          (current ++ nexts.map(n => n.entityId -> n), changed.toMap)
         }
+        .flatMap(changed => deltas.offer(EntitiesEvent(changed = changed)))
     }
 
   /** The registry-watch analogue of [[emit]]. */

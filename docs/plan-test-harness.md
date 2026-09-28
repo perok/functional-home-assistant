@@ -24,7 +24,9 @@ stubbed, and a smaller set of tests that each earn their place.
    with a `FakeHomeAssistant`, stub HTTP clients and a temp workspace, and drives the same composed
    `HttpApp` production serves: auth routes, error boundary and narrowing included.
 2. **One client API.** `LiveWorld`'s multi-client connect, decoded events and server-side settle
-   gate move onto `TestServer`, with state driven through `fake.emit`.
+   gate move onto `TestServer` (`connect`, `change`, `frame`), with state driven through
+   `fake.emitFrame`, and its callers with them. `RenderCacheContentionSuite` is the one left: it
+   counts renders through a `Renderer` subclass, and `assemble` builds its renderers itself.
 3. **Migrate suite by suite**, the direct `Server.resource` callers first (SessionLifecycle,
    ServerRoutes, the Tap suites, SharedPass). Per test, before porting:
    - **What regression would it catch that nothing else does?** A test pinning an internal

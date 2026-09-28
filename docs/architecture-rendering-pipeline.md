@@ -1394,7 +1394,7 @@ Live list — delete an entry when it is answered, and say where the answer land
   rest would hit it. Deliberate — the newest snapshot is what more arrivals are coming for, so
   it is what the single slot should hold — and it costs renders, never wrong bytes. Bounded by
   how long sessions stay skewed, which is one frame's fan-out. Not currently measurable:
-  `LiveWorld.change` waits for every session before the next frame, so the live harness has no
+  `TestServer.change` waits for every session before the next frame, so the live harness has no
   version skew in it at all. Tackle it if a real deployment shows a persistent skew, and measure
   before widening the bound.
 

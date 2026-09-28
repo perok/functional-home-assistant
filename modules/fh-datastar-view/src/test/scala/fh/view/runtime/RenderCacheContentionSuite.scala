@@ -41,7 +41,7 @@ class RenderCacheContentionSuite extends ServerHarness {
       "card" -> CardDef("<span>{{state}}</span>", slots = List("state")),
       "tabs" -> CardDef(
         template =
-          """{{#bar}}{{{html}}}{{/bar}}<div id="{{hostId}}" class="tabs">{{{panel}}}</div>""",
+          """{{#bar}}{{{html}}}{{/bar}}<div id="{{hostId}}" class="tabs">{{#panel}}{{{html}}}{{/panel}}</div>""",
         regions = Map("bar" -> Region(), "panel" -> Region(Region.Baked))
       )
     ),
