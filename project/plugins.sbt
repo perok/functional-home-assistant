@@ -1,5 +1,5 @@
 addSbtPlugin(
-  "com.disneystreaming.smithy4s" % "smithy4s-sbt-codegen" % "0.19.7"
+  "com.disneystreaming.smithy4s" % "smithy4s-sbt-codegen" % "0.19.12"
 )
 
 addSbtPlugin("org.typelevel" % "sbt-tpolecat" % "0.5.6")

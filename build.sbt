@@ -1,7 +1,7 @@
 import FHCodegenPlugin.autoImport.*
 import smithy4s.codegen.Smithy4sCodegenPlugin
 
-val http4sVersion = "0.23.34"
+val http4sVersion = "0.23.37"
 // log4cats already arrives transitively (http4s logs through it); named here
 // so the version the app logs on is chosen rather than inherited.
 val log4catsVersion = "2.8.0"
@@ -9,13 +9,13 @@ val otel4sVersion = "1.1.0"
 // Pinned to what otel4s-oteljava resolves, so the exporter cannot drift from
 // the SDK it plugs into. otel4s' own SDK modules are NOT used: they moved to a
 // separate repo and are still marked experimental.
-val otelJavaVersion = "1.65.0"
-val otelMiddlewareVersion = "0.18.0"
+val otelJavaVersion = "1.66.0"
+val otelMiddlewareVersion = "0.19.0"
 // The ONLY place a GraalVM version is written, for the polyglot jars AND for
 // the isolate libraries the image stages — both resolved from this one string
 // below, so they cannot disagree. They must not: a mismatched library and jar
 // pair is not reported, it just runs as a different GraalJS than this names.
-val graalVmVersion = "25.3.4.1"
+val graalVmVersion = "25.4.4.1.1"
 
 // Two artifacts the image needs and no classpath may see. `hide` is what keeps
 // them off compile, test and assembly while coursier still fetches and
@@ -132,7 +132,7 @@ val commonSettings = Seq(
   scalaVersion := "3.9.0",
   libraryDependencies ++= Seq(
     "org.typelevel" %% "cats-effect" % "3.7.1",
-    "io.scalaland" %% "chimney" % "1.11.0",
+    "io.scalaland" %% "chimney" % "2.0.0",
     "com.lihaoyi" %% "pprint" % "0.9.6"
   )
 )
