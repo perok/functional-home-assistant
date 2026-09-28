@@ -17,99 +17,47 @@ import org.http4s.{
   Uri
 }
 
-/** What a request has to satisfy before it is served (issue #89).
-  *
-  * Two things vary independently and both matter, which is why this is a small
-  * ADT rather than a `Boolean`: WHAT is required, and — when it is not met —
-  * whether the caller is a browser that should be sent to the login page or a
-  * script that should be told no. A redirected SSE stream or action POST fails
-  * in a way nobody can read, so the distinction is declared at the route rather
-  * than guessed at the denial site.
-  *
-  * There is no `Open` case. A public route — the PWA shell, the bundled assets,
-  * the auth routes themselves — simply does not go through the gate: a case
-  * that returned the handler untouched was a comment with a lambda around it,
-  * indistinguishable to the compiler from not wrapping at all.
+/** What a request must satisfy (issue #89). No `Open` case: a public route
+  * simply does not go through the gate. How a refusal is shaped (login redirect
+  * or plain status) is the route's choice via `onInvalid`, since a redirected
+  * SSE stream or action POST fails unreadably.
   */
 enum Requirement derives CanEqual:
 
-  /** Whatever this dashboard's own rule says — its page, its stream, its action
-    * POSTs alike. `None` is `/`, which resolves through the site's default
-    * dashboard, so it is gated by whatever it actually serves.
-    *
-    * ONE case, not a page/data pair: the RULE is the same either way, and only
-    * the shape of a refusal differs. That is the caller's to choose, through
-    * `onInvalid` — see [[AuthGate.handleRequirement]].
-    */
+  /** `None` is `/`, gated by whatever the default dashboard is. */
   case FromDashboard(slug: Option[String])
 
-  /** A rule this route carries itself, for a surface no dashboard owns.
-    *
-    * The same [[Access]] a dashboard is authored with, so a route and a
-    * dashboard are admitted by ONE predicate (`Access.permits`) rather than by
-    * two that can drift. Both cases end there; they differ only in where the
-    * rule comes from — the live registry, or the route.
+  /** For a surface no dashboard owns; the same `Access.permits` decides both.
     */
   case FromAccess(access: Access)
 
 object Requirement:
 
-  /** An HA admin, by cookie or by bearer token. The authoring surface: it
-    * writes `.pkl` source to disk and drives the instance.
-    */
   val Admin: Requirement = Requirement.FromAccess(Access.Admin)
 
-/** The gate (issue #89).
+/** Each route declares its requirement where it is written (issue #89).
+  * `permissionFor` reads the live registry, so a reload that changes access
+  * applies on the next request; an unknown slug answers `Permission.none`, so
+  * probing for dashboards needs a login.
   *
-  * Each route declares its own requirement and wraps its handler in
-  * [[handleRequirement]], so the rule is written where the route is rather than
-  * in a table somewhere else that has to be kept in step with it. What that
-  * arrangement gets right, and which a central classifier could not: a route
-  * that knows its own slug says so, and the ones that did not were changed
-  * until they do — an action POST now carries its dashboard in the URL, and
-  * `Server.withSession` declares its requirement once the session names one.
-  * Neither has to re-parse a request body to guess.
-  *
-  * A whole route GROUP with one rule wraps once — [[AuthGate.require]] — so
-  * `EditorRoutes` is admin by construction rather than by every route
-  * remembering to say so.
-  *
-  * `permissionFor` asks the live registry what may be done on one slug, so a
-  * reload that changes a dashboard's access takes effect on the next request
-  * with nothing to invalidate. A slug that names nothing answers
-  * `Permission.none` rather than an absence, so a probe for dashboards that are
-  * not there cannot be done anonymously.
-  *
-  * Not `final` only so the test harness can override [[of]] and hand every
-  * request a fixed identity (`TestAuth.openGate`). Nothing in production
-  * subclasses it.
+  * Open only so `TestAuth.openGate` can override [[of]].
   */
 open class AuthGate(
     sessions: AuthSessions,
     identifyToken: String => IO[HaUser],
     permissionFor: Option[String] => IO[Permission],
-    // Who HA says is behind an ingress request, and from where a request has
-    // to arrive for that to be believed. See [[Ingress]] — the default trusts
-    // nobody, so a construction that says nothing about ingress gets none of
-    // it rather than a hole.
+    // The default trusts nobody, so saying nothing about ingress grants none.
     ingressUsers: IngressUsers = _ => IO.pure(None),
     trustedProxy: Option[Ipv4Address] = None
 ) {
 
-  /** The session id the request's cookie names, if it names a live one. The SSE
-    * stream needs this to know which session's death should cut it.
-    */
   def sessionOf(req: Request[IO]): IO[Option[String]] =
     AuthSessions
       .cookieOf(req)
       .flatTraverse(id => sessions.get(id).map(_.as(id)))
 
-  /** Who this request is, by whichever carrier it used.
-    *
-    * Ingress comes FIRST and needs no cookie: behind the add-on proxy HA has
-    * already logged the user in, so making them log in again here would be
-    * asking twice. The cookie is the direct port's answer, and the bearer is a
-    * machine's.
+  /** Ingress first: HA has already logged the user in. Then the cookie (the
+    * direct port), then a bearer token (a machine).
     */
   def of(req: Request[IO]): IO[Option[HaUser]] =
     ingressUser(req).flatMap {
@@ -126,12 +74,6 @@ open class AuthGate(
       .flatMap(Ingress.userIdOf(req, _))
       .fold(IO.pure(None))(ingressUsers)
 
-  /** Serve `handler` if `requirement` is met, and say no in the shape this
-    * caller can read if it is not.
-    *
-    * `handler` is an ordinary `IO` value, so naming it here does not run it —
-    * nothing is served before the check.
-    */
   def handleRequirement(
       req: Request[IO],
       requirement: Requirement,
@@ -144,19 +86,13 @@ open class AuthGate(
       else IO.pure(onInvalid.tupled(denial(access, user)))
     }
 
-  /** The rule this requirement resolves to: the route's own, or the live
-    * registry's answer for a slug.
-    */
   private def accessFor(requirement: Requirement): IO[Access] =
     requirement match {
       case Requirement.FromAccess(access)  => IO.pure(access)
       case Requirement.FromDashboard(slug) => permissionFor(slug).map(_.access)
     }
 
-  /** What is wrong, when a rule turns somebody away. Not logged in and logged
-    * in as the wrong person are different answers, and the caller needs to be
-    * able to tell them apart — only the first is worth a login page.
-    */
+  /** 401 and 403 apart: only the first is worth a login page. */
   private def denial(
       access: Access,
       user: Option[HaUser]
@@ -168,16 +104,8 @@ open class AuthGate(
       })
     }
 
-  /** [[handleRequirement]] for a route whose response is a LIVE STREAM.
-    *
-    * Admission is not a one-time event when the response lasts for hours, so
-    * the handler is given a `Stream[IO, Boolean]` — "does the rule still hold"
-    * — over the SAME `permits` the door used, so the two cannot drift.
-    *
-    * The gate hands that signal over rather than applying it. What to DO on
-    * revocation is a stream concern, and at this level a response body is only
-    * bytes; the route builds its stream out of `ServerSentEvent`s and can
-    * therefore say goodbye properly on the way out (`Server.untilRevoked`).
+  /** The handler gets "does the rule still hold" over the same `permits` the
+    * door used, and decides itself how to say goodbye (`Server.untilRevoked`).
     */
   def handleStream(req: Request[IO], slug: Option[String])(
       handler: Stream[IO, Boolean] => IO[Response[IO]]
@@ -188,29 +116,13 @@ open class AuthGate(
       else revocationOf(req, permission).flatMap(handler)
     }
 
-  /** "Does the rule still hold" — asked of whatever actually admitted this
-    * request.
+  /** Only a cookie session can be revoked. Watching the store for an ingress or
+    * bearer request answers false on the first element, and behind ingress that
+    * was an endless `_reload` loop. Ingress wins over a stale cookie, as in
+    * [[of]].
     *
-    * Only a COOKIE session can be revoked here, because the store this watches
-    * is the one logging out empties. Ingress and bearer requests are
-    * re-authenticated from scratch on every request and are in no session, so
-    * watching the store for them asks a map that will never hold them:
-    * `permits(None)` answers false on the FIRST element (`ref.discrete` emits
-    * the current value), the stream says goodbye with `_reload` and the page
-    * comes back to be told the same thing. Behind HA's ingress that is an
-    * endless reload loop on a dashboard the user can see perfectly well.
-    *
-    * Ingress is asked first for the same reason [[of]] prefers it: it is what
-    * admitted the request, so a stale cookie session lying around next to it
-    * has no say in whether the stream lives.
-    *
-    * `Stream.never` rather than `Stream.emit(true)`: `Server.untilRevoked`
-    * halts on either side, so what is wanted is a side that never speaks and
-    * never ENDS — an empty or finite stream would cut the connection instead.
-    *
-    * Because it never ends, it is also what a mistake on the other side hangs
-    * on: interrupting the events branch inside that merge leaves this one
-    * running alone. `Server.untilRevoked` carries the rule.
+    * `Stream.never`, not `emit(true)`: `untilRevoked` halts when either side
+    * ends.
     */
   private def revocationOf(
       req: Request[IO],
@@ -228,13 +140,8 @@ open class AuthGate(
   private def session(req: Request[IO]): IO[Option[AuthSession]] =
     AuthSessions.cookieOf(req).flatTraverse(sessions.get)
 
-  /** A machine's identity: an HA long-lived token in `Authorization: Bearer`,
-    * resolved against HA exactly the way a login is. One identity source, two
-    * carriers — `is_admin` comes from HA either way, so `fh` needs no shared
-    * secret of its own.
-    *
-    * A token HA rejects is simply not an identity; the request then fails the
-    * requirement like any anonymous one.
+  /** Resolved against HA like a login, so `fh` needs no secret of its own. A
+    * rejected token is just anonymous.
     */
   private def bearerUser(req: Request[IO]): IO[Option[HaUser]] =
     req.headers.get[Authorization] match {
@@ -248,17 +155,10 @@ open class AuthGate(
 
 object AuthGate {
 
-  /** The default refusal: the status, and the reason in the body. What a script
-    * gets, and what a human gets on anything except a page load.
-    */
   val saySo: (Status, String) => Response[IO] =
     (status, message) => Response[IO](status).withEntity(message)
 
-  /** The refusal a PAGE load gets: an anonymous visitor is sent to log in,
-    * because a page load is the one request with a human waiting on it.
-    *
-    * Only when nobody is logged in — a `403` means the wrong person, and
-    * bouncing them to a login they are already past would loop.
+  /** For page loads only; a 403 is not redirected, or a logged-in user loops.
     */
   def orLogIn(req: Request[IO]): (Status, String) => Response[IO] =
     (status, message) =>
@@ -267,37 +167,22 @@ object AuthGate {
           .putHeaders(Location(loginRedirect(req.uri)))
       else saySo(status, message)
 
-  /** Hold an entire route group to one requirement.
-    *
-    * For a surface where every route has the same rule — the editor is all
-    * admin — this is better than annotating each: a route added to the group
-    * later inherits it instead of needing to remember it.
-    */
+  /** A route added to the group later inherits the rule. */
   def require(gate: AuthGate, requirement: Requirement)(
       pf: PartialFunction[Request[IO], IO[Response[IO]]]
   ): HttpRoutes[IO] =
-    // Off the route table's own PartialFunction rather than a built
-    // `HttpRoutes`: whether a request MATCHES has to be answerable without
-    // running the handler, or an unauthorised `PUT /edit/file` would write the
-    // file and then be told no. `pf(req)` only BUILDS the `IO`.
+    // Off the PartialFunction, not built `HttpRoutes`: matching must not run
+    // the handler, or an unauthorised `PUT /edit/file` writes before the no.
     HttpRoutes.of[IO] {
       case req if pf.isDefinedAt(req) =>
         gate.handleRequirement(req, requirement)(pf(req))
     }
 
-  /** Where to send a browser that has to log in, preserving what it asked for
-    * so the callback can put it back.
-    */
   def loginRedirect(target: Uri): Uri =
     Uri(path = Uri.Path.Root / "auth" / "login")
       .withQueryParam("next", nextOf(target))
 
-  /** The path (never a full URI) a login should return to. Only a local,
-    * absolute path is echoed back: `next` reaches us from the query string, and
-    * a redirect that honoured an absolute URL there would forward anyone who
-    * clicks a crafted link straight off this site — with the login flow lending
-    * it credibility.
-    */
+  /** A path, never a full URI, so `next` cannot be an open redirect. */
   def nextOf(target: Uri): String = {
     val p = target.path.renderString
     val q = target.query.renderString
@@ -305,10 +190,8 @@ object AuthGate {
     if (q.isEmpty) path else s"$path?$q"
   }
 
-  /** [[nextOf]]'s counterpart on the way back: reject anything that is not a
-    * single-slash-rooted local path. A backslash and a control character are
-    * refused anywhere, because a browser turns `/\host` and `/<tab>/host` into
-    * `//host` before it resolves the redirect.
+  /** Backslashes and control characters are refused anywhere: a browser turns
+    * `/\host` and `/<tab>/host` into `//host`.
     */
   def safeNext(raw: Option[String]): String =
     raw

@@ -9,49 +9,31 @@ import fh.view.model.Dashboard
 
 import java.io.{Reader, StringReader, Writer}
 
-/** The shared template library, pre-compiled once at startup, never on the hot
-  * path. Templates escape their `{{slot}}` values because HA values contain
-  * `<`, `&` and quotes; raw author values (action URLs, ids) use `{{{...}}}`.
-  * Missing slots render as empty strings rather than throwing.
+/** Card templates, compiled once per renderer. A missing slot renders empty.
   *
   * @param components
-  *   the whole card, every region hole included. There is one template per card
-  *   now: a leaf's IS its patch fragment, and structure is never patched.
+  *   one template per card: a leaf's is its patch fragment.
   */
 class Templates private (
     val components: Map[String, JavaMustache],
-    // Per card: the region names whose loops the walk can render INLINE — the
-    // visitor wraps only `{{#name}}` sections whose body is exactly `{{{html}}}`.
-    // A card absent here has no inline regions and renders exactly as before.
+    // Regions whose `{{#name}}` body is exactly `{{{html}}}`, which the walk
+    // renders inline.
     val inlineRegions: Map[String, Set[String]]
 )
 
 object Templates {
 
-  // mustache.java (spullara), the engine the runtime executes. Its section
-  // truthiness skips a `{{#x}}…{{/x}}` section when `x` resolves to "" — the
-  // emptyStringIsFalse semantics the runtime was authored against — so optional
-  // pieces (secondary, tap) render only when present, and a missing key renders
-  // as empty; both are pinned in [[TemplatesBehaviourSuite]]. Two seams are
-  // ours, both deliberate:
-  //
-  // 1. The ObjectHandler: the renderer's context ([[Renderer.NodeContext]])
-  //    answers names READ IN PLACE — vars, region children, patch-form
-  //    blanking — and mustache.java resolves Map scopes through `entrySet`,
-  //    not `get` (a get-only AbstractMap resolves every name empty; that cost
-  //    a probe suite to find). [[FhObjectHandler]] resolves a [[FhScope]]
-  //    scope directly and delegates everything else to the reflective
-  //    default, so Map scopes (the region-loop items) keep engine behavior.
-  // 2. `encode` — see the comment below.
+  // mustache.java. A section whose value is "" is skipped, so optional pieces
+  // render only when present (`TemplatesBehaviourSuite`). Two seams are ours:
+  // [[FhObjectHandler]] reads an [[FhScope]] directly (Map scopes resolve via
+  // `entrySet`, so a get-only map answers everything empty), and `encode`.
   val factory: DefaultMustacheFactory = {
     val f = new DefaultMustacheFactory() {
       override def createMustacheVisitor(): MustacheVisitor = new FhVisitor(
         this
       )
-      // jmustache's exact escaping, written in RUNS: `Writer.write(int)`
-      // allocates a one-char array per character (java.io.Writer's default),
-      // which made every escaped value pay for its own length; a run between
-      // specials costs nothing.
+      // Written in runs: `Writer.write(int)` allocates a one-char array per
+      // character.
       override def encode(s: String, writer: Writer): Unit = {
         val n = s.length
         var start = 0
@@ -78,24 +60,16 @@ object Templates {
     f
   }
 
-  /** A scope the renderer resolves itself, bypassing reflection entirely. */
   trait FhScope:
     def fhGet(name: String): AnyRef
 
-    /** Region name -> render that region's children INTO the writer. Present
-      * only where the document walk can supply it ([[Renderer.tracedInto]]);
-      * absent for patch renders and the member walk, which keep the
-      * string-splice path. The walk's trace lands in the caller's shared
-      * accumulator, so nothing comes back.
+    /** Region name -> write its children into the writer; absent, the string
+      * splice runs.
       */
     def regionWalk: Map[String, Writer => Unit]
 
-    /** Raw VARIABLE name -> write that hole's bytes INTO the writer, the same
-      * trick [[regionWalk]] plays for a section. `{{{body}}}` in a theme's
-      * chrome is the customer: handing mustache the body as a String to splice
-      * is a full copy of the document for a hole that is written once. Empty
-      * everywhere else, and an absent name falls back to the ordinary value
-      * lookup, so a theme is unaffected.
+    /** The same for a raw `{{{name}}}` (the chrome's body), which would
+      * otherwise be a full copy of the document.
       */
     def writerHoles: Map[String, Writer => Unit] = Map.empty
 
@@ -106,22 +80,13 @@ object Templates {
       case _           => super.get(name, scope)
   }
 
-  // The visitor wraps every `{{#…}}` section whose body is EXACTLY `{{{html}}}`
-  // — one raw hole, nothing else — in a region code: at execute time, when the
-  // walk has handed the context a renderer for that region, the children are
-  // traced INTO the writer and no child String is ever built. Any other body
-  // keeps the standard iterable, so a template written slightly differently
-  // loses speed, never bytes. The check is engine-typed (a single ValueCode
-  // for `html`, unencoded), not text matching.
+  // Wraps a section whose body is exactly `{{{html}}}` in [[FhRegionCode]];
+  // any other body keeps the standard iterable — slower, same bytes.
   private class FhVisitor(df: DefaultMustacheFactory)
       extends DefaultMustacheVisitor(df) {
     val inlined = scala.collection.mutable.Set.empty[String]
 
-    /** The variable counterpart of [[FhRegionCode]]: an UNENCODED `{{{name}}}`
-      * whose bytes the caller would rather write than hand over as a String.
-      * Encoded holes are left alone — escaping is the whole point of them, and
-      * nothing that needs escaping is large enough for this to matter.
-      */
+    // Encoded holes are left alone: nothing escaped is large enough to matter.
     override def value(
         tc: TemplateContext,
         variable: String,
@@ -137,9 +102,7 @@ object Templates {
         variable: String,
         mustache: JavaMustache
     ): Unit = {
-      // The exact-body check, via the engine's own record of the original
-      // text (`Code.identity` writes the tag as authored): exactly one hole,
-      // `{{{html}}}`, nothing else — no literals, no trim slop.
+      // `Code.identity` writes the tag as authored.
       val sw = new java.io.StringWriter()
       val codes = mustache.getCodes()
       if codes.length == 1 then codes(0).identity(sw)
@@ -160,11 +123,6 @@ object Templates {
     }
   }
 
-  /** A raw `{{{name}}}` whose scope offers a writer for it: the bytes go
-    * straight into the writer instead of being built as a String and spliced.
-    * Falls back to the standard `ValueCode` when no scope offers one, which is
-    * every hole but the chrome's body today.
-    */
   private class FhValueCode(
       tc: TemplateContext,
       df: DefaultMustacheFactory,
@@ -182,20 +140,12 @@ object Templates {
             val _ = s.writerHoles(name)(writer)
             wrote = writer
           case _ => i -= 1
-      // Same trailing-literal rule as [[FhRegionCode]]: the parser folds the
-      // text after the tag into this code's `appended`, so skipping
-      // appendText drops it.
+      // As in [[FhRegionCode]].
       if wrote != null then appendText(wrote)
       else super.execute(writer, scopes)
     }
   }
 
-  /** `{{#region}}` with the exact `{{{html}}}` body. When the innermost scope
-    * carries a renderer for this region (the document walk), the children are
-    * traced into the writer — the child bytes are written where they land, in
-    * place of the String splicing `IterableCode` would do. Otherwise the
-    * standard iterable runs, byte-identical to before.
-    */
   private class FhRegionCode(
       tc: TemplateContext,
       df: DefaultMustacheFactory,
@@ -211,25 +161,18 @@ object Templates {
       while walked == null && i >= 0 do
         scopes.get(i) match
           case s: FhScope if s.regionWalk.contains(name) =>
-            // The walk's own-bytes flow back through its closure, not the
-            // writer; the callback returns them and they are already taken.
             val _ = s.regionWalk(name)(writer)
             walked = writer
           case _ => i -= 1
-      // The parser folds the literal AFTER the section into this code's
-      // `appended` text (`DefaultCode.append`) — skipping appendText dropped
-      // every template's trailing bytes, which the suites caught immediately.
+      // The literal after the section lives in this code's `appended` text;
+      // skipping `appendText` dropped every template's trailing bytes.
       if walked != null then appendText(walked)
       else super.execute(writer, scopes)
     }
   }
 
-  /** Compile one template by name. Returns the template plus the region names
-    * the visitor made inline for it — read off the compiled CODE TREE, because
-    * the factory caches by name and only the first compile would ever run the
-    * visitor; the name is also uniquified so that cache can never hand a later
-    * compile a previous dashboard's template (a live reload renames nothing and
-    * changes templates).
+  /** Inline regions are read off the code tree, and the name is uniquified: the
+    * factory caches by name, so a reload would get the old template.
     */
   def compile(name: String, template: String): (JavaMustache, Set[String]) = {
     val tpl = factory.compile(
@@ -241,7 +184,6 @@ object Templates {
 
   private val compileCounter = new java.util.concurrent.atomic.AtomicLong
 
-  /** The region names wrapped in [[FhRegionCode]]s, walking the code tree. */
   private def collectInline(
       codes: Array[com.github.mustachejava.Code],
       acc: Set[String]
@@ -255,13 +197,9 @@ object Templates {
         collectInline(code.getCodes(), acc2)
       }
 
-  // The walk is RECURSIVE THROUGH THE ENGINE now — a container's execute runs
-  // region codes that execute the CHILDREN's templates — so a single reused
-  // scopes list per thread would be cleared under the outer execute's feet
-  // (that truncated every nested rendering; the suites caught it immediately).
-  // A per-thread pool instead: each run takes a recycled list, the engine's
-  // push/pop of scope descent is balanced, and the list returns to the pool —
-  // allocation-free steady state, correct at any depth.
+  // A pool, not one list per thread: execution recurses through the engine,
+  // and a shared list was cleared under the outer execute, truncating nested
+  // renders. Safe per thread because an execute never suspends.
   private val scopePool =
     new ThreadLocal[scala.collection.mutable.Stack[
       com.github.mustachejava.util.InternalArrayList[AnyRef]
@@ -270,9 +208,6 @@ object Templates {
         com.github.mustachejava.util.InternalArrayList[AnyRef]
       ] = scala.collection.mutable.Stack.empty
 
-  /** Execute `tpl` with the single scope against `writer` — the call the whole
-    * runtime uses (Renderer.executeInto, the chrome, the bench's engine cell).
-    */
   def run(
       tpl: com.github.mustachejava.Mustache,
       writer: Writer,

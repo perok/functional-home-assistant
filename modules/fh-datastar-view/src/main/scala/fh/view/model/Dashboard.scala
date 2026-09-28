@@ -8,55 +8,27 @@ given Configuration =
   Configuration.default.withDefaults
     .withDiscriminator("kind")
     .withTransformConstructorNames {
-      // `set` on the wire. The Scala name carries the `Node` suffix only
-      // because `LayoutNode.Set` would shadow `scala.Set` inside this file.
+      // `SetNode`, because `LayoutNode.Set` would shadow `scala.Set` here.
       case "SetNode" => "set"
       case other     => other.toLowerCase
     }
 
-/** Where a single mustache slot gets its value at runtime.
+/** Where one mustache slot gets its value.
   *
-  * `transform` is ONE wire fact with two tiers (ADR 0028): a CEL string over
-  * `state`, `attr`, `domain`, `entity_id` and `dashboard_slug`, compiled at
-  * build time; or an opted-in [[Transform.Simple]] as a JSON object, where the
-  * object form IS the tier selection. On a QUERY slot it is a
-  * [[Transform.Stage]] over the provider's data instead. No other entity is
-  * reachable from a transform.
-  *
-  * `default` applies when the transform yields `""`, which keeps a numeric
-  * signal initialiser like `{bri: {{x}}}` valid while a light is off.
-  * `bypassUnavailable` (ON by default) shows an `"unavailable"`/`"unknown"`
-  * entity's raw state instead of running the transform, so `num(state)` never
-  * errors on one. Turn it off where the transform must run regardless: an
-  * action (resolves from `domain`), a label (keep the friendly name), a
-  * slider's position (fall back to `default`).
-  *
-  * `entityId` is the slot's OWN entity; `None` inherits the component's
-  * `entity_id` param. With neither, the transform runs against an empty state.
-  *
-  * `literal` is a value used verbatim — no entity, no compilation — authored as
-  * a bare JSON string rather than an object; when set, every other field is
-  * unused.
-  *
-  * `reads` says when the value is read and whether that is a reason to
-  * re-render ([[Reads]]).
-  *
-  * `signal` carries the value to the browser as a Datastar SIGNAL instead of as
-  * bytes in the node's element, so a change costs one `datastar-patch-signals`
-  * frame rather than a re-rendered card (ADR 0017). Its value says WHERE the
-  * value lands ([[SignalBind]]), the one thing the renderer cannot infer. The
-  * card places the renderer-supplied `{{{<slot>__bind}}}` on the element whose
-  * text it is, beside the ordinary `{{<slot>}}` hole — a `data-text` patch
-  * replaces that element's whole content:
-  *
-  * {{{<span class="fh-text-run" {{{value__bind}}}>{{value}}</span> }}}
-  *
-  * The value still renders inline in the document form, which is all a JS-less
-  * browser gets. [[Dashboard.validate]] rejects a signal on a [[literal]] (a
-  * constant never moves).
-  *
-  * `query` is set on a QUERY slot only, which then ignores `reads` and
-  * `signal`; [[SlotShape]] makes those combinations unrepresentable downstream.
+  *   - `transform`: a CEL string or a [[Transform.Simple]] object — the form is
+  *     the tier (ADR 0028) — or, on a query slot, a [[Transform.Stage]]. Only
+  *     the slot's own entity is reachable.
+  *   - `default`: used when the transform yields `""`, which keeps a numeric
+  *     initialiser like `{bri: {{x}}}` valid while a light is off.
+  *   - `bypassUnavailable`: show an unavailable entity's raw state instead of
+  *     running the transform. Off for an action, a label or a slider position.
+  *   - `entityId`: `None` inherits the card's `entity_id`.
+  *   - `literal`: a verbatim value, authored as a bare string; all else unused.
+  *   - `signal`: carry the value as a Datastar signal, so a change is one
+  *     signal frame rather than a re-rendered card (ADR 0017). The card puts
+  *     `{{{<slot>__bind}}}` on the element beside its `{{<slot>}}` hole.
+  *   - `query`: a query slot, which ignores `reads` and `signal`
+  *     ([[SlotShape]]).
   */
 case class SlotSource(
     entityId: Option[String] = None,
@@ -80,35 +52,24 @@ case class SlotSource(
     case _                   => Transform.Stage.Passthrough
   }
 
-  /** The transform's IDENTITY, for every place the renderer keys a value by its
-    * transform (signal names, the once-cache): the CEL string for an
-    * engine-tier slot, the simple structure's key for an opted-in one.
-    *
-    * A `lazy val`, because the `Simple` arm BUILDS a string
-    * ([[Transform.Simple.key]]) and this is read once per signal slot per node
-    * on every live tick — 4.3% of a signals tick's allocation as a `def`
-    * (`RenderBench.resumeSignals`, async-profiler). A `SlotSource` is
-    * immutable, so the first answer is the only answer.
+  /** What the renderer keys a value by (signal names, the once-cache). Lazy:
+    * the `Simple` arm builds a string, 4.3% of a signals tick's allocation as a
+    * `def` (`RenderBench.resumeSignals`).
     */
   lazy val valueKey: String = transform match {
     case s: String            => s
     case sm: Transform.Simple => Transform.Simple.key(sm)
-    // Never reached by the signal/once machinery, but the union is total.
-    case st: Transform.Stage => Transform.Stage.key(st)
+    case st: Transform.Stage  => Transform.Stage.key(st)
   }
 }
 
-/** A resolved query: a provider by name and untyped params, so the model knows
-  * nothing about any provider (`Queries.parse` types them at validation). Also
-  * a render-key component. No identity: that belongs to the request.
+/** Untyped params, so the model knows no provider (`Queries.parse` types them).
   */
 case class SlotQuery(provider: String, params: Map[String, String])
     derives CanEqual
 
-/** A query parameter: written down, or read from a NODE VARIABLE declared by
-  * this node or an ancestor (issue #209). Only a variable can be written, and
-  * what it may make a query read is bounded at the write
-  * ([[fh.view.runtime.Renderer.refusals]]).
+/** A literal, or a node variable from this node or an ancestor (issue #209),
+  * bounded at the write ([[fh.view.runtime.Renderer.refusals]]).
   */
 enum Ref derives CanEqual:
   case Literal(value: String)
@@ -116,22 +77,17 @@ enum Ref derives CanEqual:
 
 object Ref:
 
-  /** A bare JSON string is a literal, `{"var": …}` a reference — so existing
-    * params and snapshots do not change.
-    */
+  /** A bare string is a literal, `{"var": …}` a reference. */
   given Decoder[Ref] =
     Decoder[String]
       .map[Ref](Ref.Literal.apply)
       .or(Decoder.instance(_.get[String]("var").map(Ref.Var.apply)))
 
-/** A query as AUTHORED, references unresolved. [[SlotQuery]] is the resolved
-  * form the caches key on; this is what a node declares statically.
-  */
+/** A query as authored; [[SlotQuery]] is the resolved form. */
 case class QueryTemplate(provider: String, params: Map[String, Ref])
     derives CanEqual,
       ConfiguredDecoder:
 
-  /** Every variable this template reads, for the resolution walk. */
   def references: List[String] = params.values.toList.collect {
     case Ref.Var(n) => n
   }
@@ -141,53 +97,40 @@ case class QueryTemplate(provider: String, params: Map[String, Ref])
       provider,
       params.view.mapValues {
         case Ref.Literal(v) => v
-        // Unresolved only if validation was bypassed; the name then fails
-        // the provider's parse instead of passing as an empty parameter.
+        // Unresolved only if validation was bypassed; the name then fails the
+        // provider's parse rather than passing as empty.
         case Ref.Var(n) => env.getOrElse(n, n)
       }.toMap
     )
 
-/** What a slot IS, decided once from its wire form. The wire keeps one
-  * `SlotSource` (a tagged sum would churn every snapshot); the exhaustive
-  * `match` here is what makes a `live`, `once` or signal query unreachable.
+/** Decided once from the wire form, which keeps one `SlotSource` so snapshots
+  * do not churn. The match makes a `live`, `once` or signal query unreachable.
   */
 enum SlotShape derives CanEqual:
   case State(source: SlotSource)
   case Query(ask: SlotAsk)
 
-/** What one slot ASKS for — a property of the TREE, references unresolved.
-  * [[SlotRead]] is the same pair resolved for one render, and is what keys.
-  */
+/** What a slot asks, unresolved; [[SlotRead]] is it resolved for one render. */
 case class SlotAsk(query: QueryTemplate, stage: Transform.Stage)
     derives CanEqual:
 
   def resolve(env: Map[String, String]): SlotRead =
     SlotRead(query.resolve(env), stage)
 
-/** What one slot reads this render: query AND stage, because two sizes of one
-  * chart share a fetch but must not share bytes. What `RenderInputs` keys on.
-  */
+/** Query and stage: two sizes of one chart share a fetch, not bytes. */
 case class SlotRead(query: SlotQuery, stage: Transform.Stage) derives CanEqual
 
-/** When a slot's value is read, and whether reading it is a reason to
-  * re-render.
+/** When a slot is read, and whether that is a reason to re-render:
   *
-  *   - `live` — read on every render, and a change to the entity IS a render. A
-  *     brightness, a state readout. The node joins the reverse index
-  *     ([[LayoutNode.Component.liveEntities]]) and the entity's version enters
-  *     the render key.
-  *   - `onRender` — read on every render, and never a reason to have one. A
-  *     friendly name, a unit: correct whenever the node is drawn, and it costs
-  *     no subscription. The ONLY mode a structural card may use on an entity,
-  *     since structure is never a patch target.
-  *   - `once` — read once per (entity, transform) and memoized for the
-  *     renderer's life. For a value that is a pure function of WHICH entity
-  *     this is: a service action from `domain`, the entity id in a URL. It is
-  *     what keeps a candidate set's re-render cheap. Wrong for anything that
-  *     can move: a rename would not show until the dashboard rebuilds.
+  *   - `live`: every render, and a change is a render (joins the reverse index
+  *     and the render key).
+  *   - `onRender`: every render, never a reason for one — a name, a unit. The
+  *     only mode structure may use on an entity.
+  *   - `once`: memoized per (entity, transform) for the renderer's life, for a
+  *     pure function of which entity it is. A rename would not show until
+  *     rebuild.
   *
-  * Three values rather than two flags because `(wake me, never re-read)` is
-  * incoherent, and a pair of booleans would let it be written.
+  * Three values, not two flags: `(wake me, never re-read)` is incoherent.
   */
 object Reads:
   val Live: String = "live"
@@ -197,20 +140,13 @@ object Reads:
   val All: Set[String] = Set(Live, OnRender, Once)
 
 object SlotSource:
-  // The object form (a live-expression slot) — the standard configured decoder.
   private val objDecoder: Decoder[SlotSource] = ConfiguredDecoder.derived
 
-  /** A slot is either a bare JSON string (a constant [[literal]]) or an object
-    * (a live-expression slot). Decoding accepts both forms.
-    */
   given Decoder[SlotSource] =
     Decoder[String].map(s => SlotSource(literal = Some(s))).or(objDecoder)
 
-  /** A slot's transform: a bare JSON string (a CEL expression — the engine
-    * tier), a `stage`-discriminated [[Transform.Stage]], or a
-    * `kind`-discriminated [[Transform.Simple]]. Chosen by key rather than by
-    * trying each in turn, so a bad chart param reports the stage's error and
-    * not the last arm's.
+  /** Chosen by key, not by trying each arm, so a bad chart param reports the
+    * stage's error rather than the last arm's.
     */
   given Decoder[String | Transform.Simple | Transform.Stage] =
     Decoder.instance { c =>
@@ -219,52 +155,22 @@ object SlotSource:
       else c.as[Transform.Simple]
     }
 
-/** WHERE a signal slot's value lands in the DOM — the Datastar attribute the
-  * renderer emits for it (ADR 0017).
-  *
-  * A renderer-side enumeration rather than an attribute the card writes, and
-  * that is the load-bearing choice: the renderer decides whether a binding
-  * exists at all, which is what keeps the PLAIN form (no binding, no seed — the
-  * bytes this renderer emitted before signal slots) reachable behind one
-  * predicate for a future morph-only client. A card that wrote `data-text`
-  * itself could not be un-written.
-  *
-  * Encoded on the wire as one string, so the authoring layer names a binding
-  * rather than building a class: `"text"`, `"bind"`, `"style:--_end"`,
+/** Where a signal slot's value lands (ADR 0017). The renderer emits the
+  * attribute, not the card, so the plain form (no binding, no seed) stays one
+  * predicate away. One wire string: `"text"`, `"bind"`, `"style:--_end"`,
   * `"attr:title"`.
   *
-  *   - [[Text]] — `data-text`, the element's whole text content. The common
-  *     case: a reading, a label, a state.
-  *   - [[Style]] — `data-style:<property>`, one CSS property (custom properties
-  *     included). The VALUE carries its own unit, so the expression is a bare
-  *     signal read and the authoring layer decides whether a fill is a
-  *     percentage or a colour.
-  *   - [[Attr]] — `data-attr:<name>`, one attribute. A String value IS the
-  *     attribute's value (`value`, `href`, `aria-label`); a BOOLEAN value sets
-  *     or removes it, which is what a boolean attribute (`disabled`, `hidden`,
-  *     `inert`) needs — see [[SlotValue]] for why only a real boolean can turn
-  *     one off. Note this sets the ATTRIBUTE, which for a form control is not
-  *     the property the browser reads after load (`checked` is the classic
-  *     trap) — reach for [[Bind]] there instead.
-  *   - [[Class]] — `data-class:<name>`, one class present while the value is
-  *     truthy. A boolean state, where the value is `""` for off and anything
-  *     for on: an empty string is the only falsy thing a slot can produce, so
-  *     `"false"` would read as ON.
-  *   - [[Bind]] — `data-bind`, TWO-WAY on a form control: the server writes the
-  *     signal and the user's input writes it back. What a range input's
-  *     position and a checkbox's `checked` PROPERTY want, and the one kind
-  *     whose card is therefore not plain-form-capable — an interactive control
-  *     needs a client signal whatever this setting says.
-  *   - [[Handler]] — NO binding at all. The value is carried as a signal and
-  *     read by an event handler rather than painted, so there is no attribute
-  *     to emit; the card composes `{{<slot>__signal}}` into an expression of
-  *     its own. It is a signal kind and not a separate concept because
-  *     everything else about it is identical — one name per
-  *     `(entity, transform)`, the value withheld from the patch form, seeded on
-  *     the wrapper, carried in the frame. What differs is only who reads it.
-  *     See ADR 0017, "Which runtime evaluates a state-dependent value": a value
-  *     the DOM consumes has to be in the bytes, and a value only an EVENT
-  *     consumes does not.
+  *   - `Text`: `data-text`, the element's whole text content.
+  *   - `Style`: `data-style:<property>`; the value carries its own unit.
+  *   - `Attr`: `data-attr:<name>`; a boolean value sets or removes it
+  *     ([[SlotValue]]). The attribute, not the property: for `checked` use
+  *     `Bind`.
+  *   - `Class`: `data-class:<name>`, present while truthy. `""` is the only
+  *     falsy slot value, so `"false"` reads as on.
+  *   - `Bind`: two-way `data-bind` on a form control; such a card needs a
+  *     client signal in any form.
+  *   - `Handler`: no attribute; the value is read by an event handler via
+  *     `{{<slot>__signal}}`.
   */
 enum SignalBind derives CanEqual:
   case Text
@@ -276,9 +182,8 @@ enum SignalBind derives CanEqual:
 
 object SignalBind:
 
-  /** `"style:--_end"` -> `Style("--_end")`. Unknown spellings decode to `None`
-    * rather than a default: a typo that silently became `data-text` would put a
-    * colour in an element's text content and look like a rendering bug.
+  /** No default for an unknown spelling: a typo turned into `data-text` would
+    * put a colour in an element's text and look like a rendering bug.
     */
   def parse(s: String): Option[SignalBind] = s.split(":", 2).toList match
     case "text" :: Nil          => Some(Text)
@@ -292,62 +197,22 @@ object SignalBind:
   given Decoder[SignalBind] =
     Decoder[String].emap(s => parse(s).toRight(s"unknown signal binding: $s"))
 
-/** A reusable card in the shared library (a node references one by name).
+/** A card in the shared library.
   *
-  *   - `template`: a Mustache string. Escaped `{{slot}}` values are HTML-safe;
-  *     raw author values (action URLs, ids) use `{{{...}}}`.
-  *   - `slots`: every required template var, each filled from a [[SlotSource]]
-  *     — a live entity transform OR a constant literal. This is the *one*
-  *     vocabulary: a card's subject is the magical `entity_id` slot, a constant
-  *     like a `label`/`min` is a literal slot, a live value is a transform
-  *     slot. The only non-slot template var is the backend-*injected* `id`
-  *     ([[Dashboard.injectedStatic]]), which the author never supplies and so
-  *     needs no entry. Optional pieces (a tap `action`, a `secondary` line)
-  *     need no entry either — [[Dashboard.validate]] only flags missing
-  *     *required* slots and ignores extra ones.
-  *   - `wrapAsCell`: whether the renderer wraps this card's HTML in the id'd
-  *     `.fh-cell` layout/morph wrapper (see `Renderer.render`). ON by default —
-  *     every node is a cell, so containers lay their children out uniformly and
-  *     every node is an addressable Datastar morph target. Turn it OFF only for
-  *     a card whose root element must remain a *direct* child of a
-  *     framework-structural parent (e.g. the tab anchors under BeerCSS's
-  *     `.tabs > a`); such a card is never wrapped, never a morph target of its
-  *     own, and must not be used as a set clause (whose per-entity children are
-  *     always wrapped — they ARE the patch targets). [[Dashboard.validate]]
-  *     rejects the wrapper-dependent shapes on such a card: live-entity slots,
-  *     `cell` params, and set-clause use.
-  *   - `regions`: what a card that HOLDS other nodes declares — see below.
-  *
-  * '''Regions.''' A card is a LEAF (no regions — its whole `template` is what a
-  * patch renders) or STRUCTURE (regions — it holds content it does not own).
-  * That is the entire split, and it is decidable from the card
-  * ([[CardDef.isStructure]]). A [[Region]] is one named hole in `template`:
-  *
-  *   - `eager` — the node's own children, composed with the card in one render.
-  *     A `Row`'s children, a slider's member rows.
-  *   - `baked` — a hole a SURFACE fills per viewer, lazily and as its own
-  *     operation: a tab panel, an `If` branch, a popup. Its element carries the
-  *     `{{hostId}}` something addresses to fill it.
-  *
-  * '''Every hole is filled by a NODE''', which is the whole mechanism: a patch
-  * matches only the element carrying its target's own id, and what a region
-  * holds has an id of its own. Hence the design's first rule — '''a node's
-  * patch carries its own rendering and never the contents of a region''' — so a
-  * host changing cannot re-render what it hosts
-  * (docs/adr/0012-each-session-renders-what-it-is-owed.md).
-  *
-  * It is unrepresentable rather than policed. A card wanting its OWN markup to
-  * move puts that markup in a region, as a node — a slider's head is a card of
-  * its own for exactly this reason. Structure therefore has only what it holds
-  * to show, so a live BYTES slot on it is a build error
-  * ([[Dashboard.validate]], and a constraint in the authoring layer); a SIGNAL
-  * slot is fine, because its value never becomes bytes in this element.
-  *
-  * '''`css`''' is the structure the card's own markup needs — its class names,
-  * their box, flow and spacing — authored beside the template it belongs to
-  * (ADR 0020). Every registered card's `css` is concatenated into the page's
-  * `<style>` after [[Dashboard.css]] and before `theme.styles`, so a theme
-  * overrides any of it by ordinary cascade order.
+  *   - `slots`: the required template vars; [[Dashboard.validate]] flags only
+  *     missing required ones. The injected `id`, `hostId` and `dashboardSlug`
+  *     need no entry.
+  *   - `wrapAsCell`: off only for a card whose root must stay a direct child of
+  *     a structural parent (the tab anchors under `.tabs`). Such a card is
+  *     never its own morph target, so `validate` rejects live slots, `cell` and
+  *     set-clause use on it.
+  *   - `regions`: a card is a leaf (none) or structure (some). Every region is
+  *     filled by nodes with ids of their own, so a node's patch never carries a
+  *     region's contents and a host changing cannot re-render what it hosts
+  *     (ADR 0012). Markup that should move goes in a region as a node; a live
+  *     bytes slot on structure is a build error, a signal slot is fine.
+  *   - `css`: the card's own structure, after [[Dashboard.css]] and before
+  *     `theme.styles` in the cascade (ADR 0020).
   */
 case class CardDef(
     template: String,
@@ -357,30 +222,20 @@ case class CardDef(
     css: String = ""
 ) derives ConfiguredDecoder {
 
-  /** The hole this card's template places for `name` — a section whose body
-    * pastes each child's bytes. The two fills differ in WHO fills it, not in
-    * how it is spelled: an eager region takes the node's own children, a baked
-    * one the bytes of the surface the viewer's selection names — but both are
-    * region loops over `{{{html}}}`, which is what lets the document walk
+  /** Eager and baked regions are spelled alike, which lets the document walk
     * thread both into one buffer (issue #237).
     */
   def holeOf(name: String): String =
     "{{#" + name + "}}{{{html}}}{{/" + name + "}}"
 
-  /** Whether this card holds content it does not own — the LEAF/STRUCTURE
-    * split. Structure is never a patch target.
-    */
   def isStructure: Boolean = regions.nonEmpty
 
-  /** The regions a SURFACE can fill — what a `bakeAs` may name. */
   def bakedRegions: Map[String, Region] =
     regions.filter(_._2.fill == Region.Baked)
 }
 
-/** One named hole in a card's [[CardDef.template]]. `fill` says who puts
-  * content there and when: the node's own children, composed in the same render
-  * (`eager`), or a surface selected per viewer and rendered only while shown
-  * (`baked`).
+/** `eager`: the node's own children, in the same render. `baked`: a surface
+  * selected per viewer, rendered only while shown.
   */
 case class Region(fill: String = Region.Eager) derives ConfiguredDecoder
 
@@ -389,21 +244,11 @@ object Region {
   val Baked: String = "baked"
 }
 
-/** Per-node layout-cell parameters, rendered by the Renderer as extra CSS
-  * classes on the node's `.fh-cell` wrapper (`<div class="fh-cell fh-cols-3"
-  * id=…>`). Theme-agnostic: the class names are the `fh-` layout contract
-  * (`fh-cols-<1..12>`, `fh-cols-full`, …) every theme's CSS implements — see
-  * `lib/theme.pkl`. The authoring layer emits them from the
-  * HA-`grid_options`-flavored builders (`columns(n)`, `fullWidth()`, …).
-  *
-  * An object rather than a bare list so it can grow further
-  * HA-`grid_options`-style fields (rows, dense packing) without a wire break.
-  * [[Dashboard.validate]] rejects a class that is not a plain CSS class token
-  * (the renderer string-interpolates them into a `class` attribute).
+/** `fh-` layout classes on the node's `.fh-cell` wrapper. An object so it can
+  * grow `grid_options`-style fields without a wire break.
   */
 case class Cell(classes: List[String] = Nil) derives ConfiguredDecoder
 
-/** Comparison operators for the query AST. Encoded as lowercase strings. */
 enum Op:
   case Eq, Ne, Lt, Lte, Gt, Gte
 
@@ -414,25 +259,15 @@ object Op:
       .toRight(s"unknown op: $s")
   )
 
-/** A simple property-query AST evaluated at runtime against live entity state.
-  *
-  * `property` is one of `"domain"`, `"state"`, or `"attr:<name>"` (so
-  * `device_class` is `"attr:device_class"`). Example "sensor batteries under
-  * 20%":
-  * `And([Cmp("domain", Eq, "sensor"), Cmp("attr:battery_level", Lt, 20)])`.
-  */
+/** `property` is `"domain"`, `"state"` or `"attr:<name>"`. */
 sealed trait Predicate derives ConfiguredDecoder
 object Predicate:
   case class And(items: List[Predicate]) extends Predicate
   case class Or(items: List[Predicate]) extends Predicate
   case class Not(item: Predicate) extends Predicate
 
-  /** `entity` absent means "the subject" — the set member this guard is
-    * attached to, which is the common case and leaves every existing predicate
-    * unchanged. Present names a DIFFERENT entity, resolved at BUILD time ("show
-    * each light while its own room's motion sensor is on"), and those ids must
-    * reach the reverse index or the node is never woken by them — see
-    * [[referencedEntities]].
+  /** `entity` absent means the subject. A named one must reach the reverse
+    * index ([[referencedEntities]]) or the node is never woken by it.
     */
   case class Cmp(
       property: String,
@@ -441,23 +276,10 @@ object Predicate:
       entity: Option[String] = None
   ) extends Predicate
 
-  /** How many of a STATIC candidate list are present, compared against a
-    * number: "more than two lights in here are on".
-    *
-    * There is no quantifier and no query. Presence is per-candidate — `when`
-    * holds the guard for the candidates that have one, and a candidate absent
-    * from it is unconditionally present — which is the same shape a
-    * [[LayoutNode.SetMember]]'s clauses carry, and for the same reason: a
-    * statically-true term short-circuits a disjunction, so residuals diverge
-    * across the candidates of one set.
-    *
-    * That is also what retires the quantifiers: over a known list, `any` is
-    * `count > 0`, `none` is `count == 0`, and `all` is `count == length`. A
-    * comparison on a count is an ORDINARY predicate, so it composes with
-    * everything — a member's guard, a surface condition, an `and`/`or`.
-    *
-    * Subject-independent by construction: it reads the named candidates, never
-    * the entity it is attached to.
+  /** How many of a static candidate list are present, against a number — which
+    * retires the quantifiers (`any` is `> 0`, `all` is `== length`). `when`
+    * guards per candidate, as a [[LayoutNode.SetMember]] does, because
+    * residuals diverge across one set's candidates. Subject-independent.
     */
   case class Count(
       candidates: List[String] = Nil,
@@ -466,25 +288,16 @@ object Predicate:
       value: Json
   ) extends Predicate
 
-  /** Every entity a predicate names besides its subject. */
   def referencedEntities(p: Predicate): List[String] = p match
-    case Cmp(_, _, _, e) => e.toList
-    case And(items)      => items.flatMap(referencedEntities)
-    case Or(items)       => items.flatMap(referencedEntities)
-    case Not(item)       => referencedEntities(item)
-    // A count reads entities the node it guards may not render at all, so all
-    // of them are references — without this the node is never woken by the
-    // thing it counts.
+    case Cmp(_, _, _, e)               => e.toList
+    case And(items)                    => items.flatMap(referencedEntities)
+    case Or(items)                     => items.flatMap(referencedEntities)
+    case Not(item)                     => referencedEntities(item)
     case Count(candidates, when, _, _) =>
       candidates ++ when.values.flatMap(referencedEntities)
 
-  /** Does this read an entity it does not name? True for a `Cmp` with no
-    * `entity`, which only means something where a SUBJECT is supplied — a set
-    * member's guard, a set clause. A [[Activation.State]] supplies none, so one
-    * there is rejected.
-    *
-    * A count's guards are excluded deliberately: each is evaluated against its
-    * own candidate, so an unnamed subject inside one is bound.
+  /** Rejected under an [[Activation.State]], which supplies no subject. A
+    * count's guards are bound to their own candidates, so they do not count.
     */
   def hasFreeSubject(p: Predicate): Boolean = p match
     case Cmp(_, _, _, entity) => entity.isEmpty
@@ -493,45 +306,24 @@ object Predicate:
     case Not(item)            => hasFreeSubject(item)
     case _: Count             => false
 
-/** How a [[Surface]] becomes visible — its activation MODE, a sum so the
-  * invalid combination (a default-open flag AND a state condition on one
-  * member) is unrepresentable:
+/** How a [[Surface]] becomes visible.
   *
-  *   - [[User]] (`{kind:"user", defaultOpen}`): shown by a user action (a popup
-  *     open, a tab click), optionally from the first paint (`defaultOpen`).
-  *     Which member the client sees is per-connection state (uiState — ADR
-  *     0005), so these surfaces render per session.
-  *   - [[State]] (`{kind:"state", condition}`): shown while its `condition`
-  *     holds over live entity state (an If/else branch). The condition is
-  *     SUBJECT-FREE — every comparison in it names its own entity and a
-  *     [[Predicate.Count]] carries its own candidates — so evaluating it is a
-  *     handful of lookups, not a scan. [[Dashboard.validate]] rejects one that
-  *     reads an unnamed subject. The choice is server truth — a pure function
-  *     of entity state, identical for every viewer — so these surfaces ride the
-  *     SHARED per-slug render pass and never enter a session's open set. An
-  *     "else" member is simply `State(condition = Predicate.And(Nil))` — an
-  *     empty conjunction is vacuously true and reads nothing — at a later
-  *     `bakeIndex` (selection is first-match in `bakeIndex` order — see
-  *     `SurfaceGraph.resolveActiveByState`); no member matching bakes empty
-  *     content.
+  *   - `User`: a tap or tab click, optionally open from first paint. The
+  *     selection is per connection (ADR 0005).
+  *   - `State`: while a subject-free `condition` holds — server truth, the same
+  *     for every viewer, so never in a session's open set. First match in
+  *     `bakeIndex` order wins; an "else" is `And(Nil)`.
   *
-  * Kind-discriminated on the wire like [[Predicate]]/[[LayoutNode]]. A bake
-  * group must be mode-homogeneous — mixing kinds among one `bakeInto`'s members
-  * is a [[Dashboard.validate]] error — so any one member decides its group's
-  * mode.
+  * A bake group must be one mode (`validate`), so any member decides it.
   */
 enum Activation derives ConfiguredDecoder:
   case User(defaultOpen: Boolean = false)
   case State(condition: Predicate)
 
-/** A node in the recursive dashboard layout tree. */
 sealed trait LayoutNode derives ConfiguredDecoder {
 
-  /** The id this node was GIVEN, as opposed to the one its position would
-    * derive. Only a [[LayoutNode.Component]] can carry one today: the case that
-    * wants it is a tab bar, whose id reaches users through `ui.<id>`, and a
-    * candidate set's own id is not user-visible the same way — its MEMBERS are
-    * addressed by entity, which is already position-independent.
+  /** Only a component: a tab bar's id reaches users through `ui.<id>`, while
+    * set members are addressed by entity.
     */
   def authoredId: Option[String] = this match {
     case c: LayoutNode.Component => c.id
@@ -541,109 +333,51 @@ sealed trait LayoutNode derives ConfiguredDecoder {
 
 object LayoutNode:
 
-  /** The region a card's children go to when nobody names one — the hole every
-    * container template has spelled `{{#children}}` since before regions
-    * existed.
-    *
-    * A NAME the authoring layer resolves, not a wire form: Pkl's bare
-    * `children { … }` sugar normalises to this key before it emits
-    * ([[Component.regions]]), so nothing downstream has a nameless region to
-    * interpret. `core/node.pkl`'s `defaultRegion` is the same string.
+  /** Pkl's bare `children { … }` normalises to this before emitting, so no
+    * region is nameless downstream. Same string as `core/node.pkl`'s
+    * `defaultRegion`.
     */
   val DefaultRegion: String = "children"
 
-  /** Children in the default region — the one-hole case, spelled for the many
-    * construction sites that predate regions.
-    */
   def kids(cs: LayoutNode*): Map[String, List[LayoutNode]] =
     if cs.isEmpty then Map.empty else Map(DefaultRegion -> cs.toList)
 
-  /** A node referencing a shared template by name. Both leaves and containers
-    * are Components — a container is simply a Component whose template splices
-    * its rendered `children` via `{{#children}}{{{html}}}{{/children}}` (e.g.
-    * the `fhrow`/`fhcol` templates), so new container kinds are added as
-    * templates with no Scala change.
-    *
-    *   - `slots`: every template var, each a [[SlotSource]] (a live transform
-    *     or a constant literal). There is no `params` map — the card's subject
-    *     is the magical [[subjectEntity]] slot named `entity_id`, constants are
-    *     literal slots, and the only non-slot vars are backend-*injected*
-    *     (`id`, `hostId`, `dashboardSlug` — see `Renderer`).
-    *   - `regions`: nested nodes by region, rendered first and exposed to the
-    *     template as a list of `{html}` per region name.
-    *
-    * The live-dependency entities are DERIVED from the slots
-    * ([[liveEntities]]), not authored — so adding a live slot is all it takes
-    * to make a component track an entity.
+  /** Leaves and containers alike: a container is a template splicing its
+    * regions, so a new kind needs no Scala. The injected vars are `id`,
+    * `hostId` and `dashboardSlug`.
     */
   case class Component(
       card: String,
       slots: Map[String, SlotSource] = Map.empty,
-      // Child nodes BY REGION — the holes the card declares (`CardDef.regions`)
-      // and what fills each. One wire shape: the authoring layer names the
-      // default region itself, so there is no nameless form to decode.
       regions: Map[String, List[LayoutNode]] = Map.empty,
-      // Layout-cell classes for this node's `.fh-cell` wrapper (see [[Cell]]).
       cell: Option[Cell] = None,
-      // An AUTHORED id, replacing the position-derived one for this node and
-      // rooting its descendants. Node ids reach users (a tab bar mirrors its own
-      // into `ui.<id>`) and name every signal a card owns, so an author can pin
-      // one rather than have layout decide it. `Dashboard.validate` checks it —
-      // see `authoredIdErrors`, which owns the reason it needs checking at all.
+      // Replaces the position-derived id and roots its descendants' — see
+      // `authoredIdErrors` for why it is checked.
       id: Option[String] = None,
-      // NODE VARIABLES this node declares (issue #209): name -> initial value.
-      // A descendant's `Ref.Var` resolves by name up the ancestor chain; the
-      // nearest declarer wins. No list of allowed values: the write boundary
-      // refuses anything a declared reader cannot parse.
+      // Node variables (issue #209), resolved by name up the ancestors,
+      // nearest wins. No allowed-values list: the write refuses what a reader
+      // cannot parse.
       vars: Map[String, String] = Map.empty
   ) extends LayoutNode:
 
-    /** Every child, in one list — what a traversal that only needs to REACH
-      * every node wants, which is most of them.
-      *
-      * Regions in name order so a walk is reproducible. Ids do not come from
-      * here — each step names its own region ([[LayoutNode.steps]]) — so this
-      * order is nobody's contract.
-      */
+    /** Name order, for a reproducible walk; ids do not come from this. */
     def allChildren: List[LayoutNode] =
       regions.toList.sortBy(_._1).flatMap(_._2)
 
-    /** The card's subject entity — the `entity_id` slot's value when it is a
-      * constant `literal` (the common case). A *transform* `entity_id`
-      * (indirection) resolves only at render time, so it contributes no static
-      * subject here; its inheriting slots then track the `entity_id` slot's own
-      * source instead. `None` ⇒ no subject (a container, a button with no
-      * entity).
-      */
+    /** Only a literal `entity_id`: a transform one resolves at render time. */
     lazy val subjectEntity: Option[String] =
       slots.get(Dashboard.SubjectSlot).flatMap(_.literal)
 
-    /** The entities whose live state this component depends on. A slot
-      * contributes when it reads `live` and is not a constant literal; its
-      * source is its own `entityId`, or the [[subjectEntity]] when the slot
-      * leaves it unset (slot-level inheritance). Drives the reverse index and
-      * the morph-wrapper decision (see `Renderer`). Empty ⇒ static HTML, never
-      * patched.
-      */
+    /** The reverse index. Empty means static HTML, never patched. */
     lazy val liveEntities: List[String] =
       stateSlots
         .filter(s => s.reads == Reads.Live && s.literal.isEmpty)
         .flatMap(s => s.entityId.orElse(subjectEntity))
         .distinct
 
-    /** [[liveEntities]] minus the ones reached ONLY through signal slots — the
-      * entities whose movement can reach this node's DOM only by re-rendering
-      * it. A signal's does not: it travels as its own frame, addressed by name.
-      *
-      * Both lists are needed and neither derives the other. The reverse index
-      * wants [[liveEntities]] (a signal still has to make its node a candidate,
-      * or no frame is ever computed for it); the structure rule and the render
-      * key ([[fh.view.runtime.Renderer.renderInputs]]) want this one.
-      *
-      * Getting the two the wrong way round fails in opposite directions, and
-      * only one of them is loud: the wide list in the key costs a wasted
-      * render, while the narrow list in the reverse index silently stops signal
-      * frames.
+    /** Minus entities reached only through signal slots: what the render key
+      * and the structure rule use. The two fail in opposite directions if
+      * swapped — this list in the reverse index silently stops signal frames.
       */
     lazy val liveEntitiesAsBytes: List[String] =
       stateSlots
@@ -653,14 +387,11 @@ object LayoutNode:
         .flatMap(s => s.entityId.orElse(subjectEntity))
         .distinct
 
-    /** Not part of [[liveEntities]] — a chart is never a state-tick candidate,
-      * or a sensor moving every second would refetch its history every second —
-      * but part of the render key. A query names its own entity in its params;
-      * nothing is inherited from the card's `entity_id`.
+    /** In the render key but not [[liveEntities]]: otherwise a sensor ticking
+      * every second would refetch its history every second.
       */
     lazy val queries: List[SlotAsk] = shapes._2
 
-    // What the entity lists are built from; a query slot is simply not in it.
     private def stateSlots: List[SlotSource] = shapes._1
 
     private lazy val shapes: (List[SlotSource], List[SlotAsk]) =
@@ -673,17 +404,9 @@ object LayoutNode:
       } match
         case (states, queries) => (states, queries.distinct)
 
-  /** A set over a STATICALLY KNOWN candidate list.
-    *
-    * The candidates are decided at build time from the typed dump, so the
-    * runtime never invents a member: it decides only PRESENCE (which candidates
-    * render) and ORDER. See `docs/adr/0003-candidate-sets.md`.
-    *
-    *   - `candidates`: entity ids, in render order. When the ordering folded to
-    *     registry facts this list is already sorted and [[orderBy]] is empty —
-    *     the runtime filters and preserves it, with no comparisons.
-    *   - `members`: per candidate, its guarded renderings.
-    *   - `limit`: at most this many PRESENT members, applied after ordering.
+  /** A set over a static candidate list: the runtime decides only presence and
+    * order (ADR 0003). An empty `orderBy` means `candidates` is already in
+    * order. `limit` applies after ordering.
     */
   case class SetNode(
       candidates: List[String] = Nil,
@@ -692,9 +415,7 @@ object LayoutNode:
       limit: Option[Int] = None,
       cell: Option[Cell] = None
   ) extends LayoutNode:
-    /** Every entity that can wake this set: its candidates, plus any entity a
-      * guard NAMES besides the member ("show while the hall sensor is on").
-      */
+    /** Candidates plus any entity a guard names. */
     def liveEntities: List[String] =
       (candidates ++ members.values
         .flatMap(_.clauses)
@@ -702,26 +423,19 @@ object LayoutNode:
           c.when.toList.flatMap(Predicate.referencedEntities)
         )).distinct
 
-  /** One candidate's renderings, tried in order. The first whose `when` holds
-    * decides; falling off the end means the member is NOT RENDERED — which is
-    * why there is no separate presence field.
-    */
+  /** The first clause whose `when` holds decides; none means not rendered. */
   case class SetMember(clauses: List[SetClause] = Nil) derives ConfiguredDecoder
 
-  /** A guard plus the COMPLETE node it renders. Nothing is shared between
-    * clauses or members, so a clause cannot be wrong about which member it
-    * belongs to — see the "Rejected: the compressed format" note in the plan.
+  /** A guard and the complete node it renders; nothing is shared between
+    * clauses.
     */
   case class SetClause(
       when: Option[Predicate] = None,
       node: LayoutNode
   ) derives ConfiguredDecoder
 
-  /** One lexicographic ordering position, most significant first.
-    *
-    * Present ONLY when some position needs live state. An ordering that folded
-    * entirely to registry facts left [[SetNode.candidates]] pre-sorted and this
-    * list empty, so the runtime filters without comparing anything.
+  /** Present only when ordering needs live state; otherwise
+    * [[SetNode.candidates]] is pre-sorted.
     */
   case class SortTerm(
       by: SortKey,
@@ -729,73 +443,43 @@ object LayoutNode:
   ) derives ConfiguredDecoder:
     def descending: Boolean = dir == "desc"
 
-  /** What an ordering position reads. Two kinds because "brightest first" and
-    * "the ones that are on first" are both orderings and neither expresses the
-    * other: a value has an order, a predicate has only true/false.
+  /** A value has an order, a predicate only true/false; neither expresses the
+    * other.
     */
   sealed trait SortKey derives ConfiguredDecoder
   object SortKey:
-    /** Sort by a property's VALUE — `state`, `attr:<name>`, `reg:<name>`, the
-      * same vocabulary a [[Predicate.Cmp]] names.
-      */
+    /** `state`, `attr:<name>`, `reg:<name>`, as in [[Predicate.Cmp]]. */
     case class Prop(property: String) extends SortKey
 
-    /** Sort by whether a predicate HOLDS, true first under `asc`. Lets one
-      * vocabulary serve filtering and ordering, instead of a second notion of
-      * "key" that only ordering understands.
-      */
+    /** True first under `asc`. */
     case class Holds(predicate: Predicate) extends SortKey
 
-  /** One step down the tree: which region the child sits in, and where in it.
-    */
   case class Step(region: String, index: Int)
 
-  /** A step's id segment. The DEFAULT region contributes only its index, so a
-    * one-region card's ids carry no region name and a bookmarked `ui.<id>` tab
-    * URL stays short; only a card with a second, NAMED region pays for one.
-    *
-    * The grammar therefore has two shapes, and the thing that keeps them apart
-    * is that a region name can never look like an index: [[Dashboard.validate]]
-    * rejects an all-digit one, so `headActions_0` cannot be read as the pair
-    * `headActions`, `0` — nor `0_0` as region `0`, index `0`.
-    *
-    * PUBLIC because the build's inline-surface hoist walks the same tree and
-    * has to arrive at the same ids. A second spelling of this is not a second
-    * opinion but a second IMPLEMENTATION, and the way it fails is silent: a
-    * surface registered under an id no node asks for, its `@@NODE_ID@@`
-    * reaching the DOM verbatim.
+  /** The default region contributes only its index, keeping a tab URL's
+    * `ui.<id>` short. `validate` rejects an all-digit region name, so the two
+    * shapes cannot be confused. Public because the build's inline-surface hoist
+    * must reach the same ids; a second spelling fails silently, with
+    * `@@NODE_ID@@` reaching the DOM.
     */
   def segment(s: Step): String =
     if s.region == DefaultRegion then s.index.toString
     else s"${sanitize(s.region)}_${s.index}"
 
-  /** A path as id segments, without the `c` root — for the id schemes that nest
-    * under something else ([[MemberGraph.innerSetId]]). ONE encoding, so a
-    * child of a member and a child of the static tree cannot disagree about
-    * what a region contributes.
+  /** Without the `c` root, for ids nested under something else
+    * ([[MemberGraph.innerSetId]]).
     */
   def segments(path: List[Step]): String = path.map(segment).mkString("_")
 
-  /** Stable, location-based id for a node, from its step path (two default
-    * region steps `1`, `0` ⇒ `c_1_0`). Underscore-joined so it is also a valid
-    * signal-name fragment.
-    */
+  /** `c_1_0`; underscore-joined, so also a signal-name fragment. */
   def pathId(path: List[Step]): NodeId =
     NodeId.derived(if path.isEmpty then "c" else s"c_${segments(path)}")
 
-  /** A tree root's id: the author's, or the derived `c`, inside `prefix` (empty
-    * for the main page, `s_<id>__` for a surface).
-    */
   def rootId(prefix: String, node: LayoutNode): NodeId =
     NodeId.derived(prefix + node.authoredId.getOrElse("c"))
 
-  /** The id one step down: the child's OWN authored id when it has one,
-    * otherwise its parent's plus this step's segment.
-    *
-    * An authored id still carries `prefix`. It has to: the runtime works out
-    * which surface a node belongs to from its id prefix
-    * (`Renderer.prefixToRoot`), so an id that dropped it would be
-    * unattributable — and two surfaces would be free to use the same name.
+  /** An authored id still carries `prefix`: the runtime attributes a node to
+    * its surface by prefix, and two surfaces could otherwise share a name.
     */
   def childId(
       prefix: String,
@@ -807,39 +491,18 @@ object LayoutNode:
       NodeId.derived(prefix + a)
     )
 
-  /** [[pathId]] inside an id namespace — the main page's is empty, a surface's
-    * is [[surfacePrefix]]. Named rather than left as `prefix + pathId(path)` at
-    * four call sites, because the concatenation is what actually produces a
-    * [[NodeId]] and the prefix alone is not one.
-    */
   def nodeId(prefix: String, path: List[Step]): NodeId =
     NodeId.derived(prefix + pathId(path))
 
-  /** Every child paired with the step that reaches it — what a walk that
-    * assigns ids needs, as opposed to [[Component.allChildren]], which is for
-    * walks that only need to reach every node.
-    *
-    * Regions in name order so the traversal is a function of the value rather
-    * than of `Map` iteration. Order does not decide ids — each step names its
-    * own region — so this is only about a walk being reproducible.
-    */
+  /** Name order, for a reproducible walk; each step names its own region. */
   def steps(children: Map[String, List[LayoutNode]]): List[(Step, LayoutNode)] =
     children.toList.sortBy(_._1).flatMap { case (region, nodes) =>
       nodes.zipWithIndex.map { case (n, i) => Step(region, i) -> n }
     }
 
-  /** Slug an arbitrary string (an entity id, a surface id) into a valid HTML id
-    * fragment — also a valid Datastar signal-name fragment.
-    *
-    * Hand-rolled rather than `s.replaceAll("[^A-Za-z0-9_]", "_")`, which is the
-    * same rule and reads better. `String.replaceAll` COMPILES ITS PATTERN on
-    * every call, and `MemberGraph.memberId` runs this once per set member per
-    * paint: 13.4% of a candidate-set page open, nearly all of it
-    * `Pattern.compile` (`RenderBench.pageSet`, async-profiler).
-    *
-    * The scan-first shape also returns `s` itself when nothing needs replacing
-    * — which is every region name — so the common call allocates nothing at
-    * all.
+  /** An HTML id and signal-name fragment. Hand-rolled, not `replaceAll`, which
+    * compiles its pattern per call: 13.4% of a candidate-set page open
+    * (`RenderBench.pageSet`). Returns `s` itself when nothing changes.
     */
   def sanitize(s: String): String = {
     var i = 0
@@ -855,10 +518,7 @@ object LayoutNode:
           i += 1
         } else {
           val _ = out.append('_')
-          // A supplementary code point is ONE character to the regex this
-          // replaces, so its surrogate PAIR collapses to one `_`. Stepping by
-          // `char` instead gave an emoji two, which no test would have caught
-          // — every id here happens to be ASCII today.
+          // A surrogate pair is one `_`, as it was under the regex.
           i +=
             (if (
                Character.isHighSurrogate(c) && i + 1 < s.length &&
@@ -875,74 +535,31 @@ object LayoutNode:
     (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
       (c >= '0' && c <= '9') || c == '_'
 
-  /** One set member's id: its set's id plus the member's key, slugged.
-    *
-    * Here rather than only in [[fh.view.runtime.MemberGraph]] because the
-    * build's inline-surface hoist has to arrive at the SAME ids for a
-    * candidate's clause nodes, and it sees JSON, not a `MemberGraph`. Spelled
-    * once, because the two spellings disagreeing is silent: the surface is
-    * registered under a key no node ever asks for.
-    *
-    * Carries no clause index. Exactly one clause of a member is ever rendered,
-    * so its renderings share the member's id — the build rejects two of them
-    * owning an inline surface rather than letting one win.
+  /** Also spelled by the build's inline-surface hoist, which sees JSON; no
+    * clause index, since one clause of a member renders.
     */
   def memberSegment(setId: String, key: String): String =
     s"${setId}_${sanitize(key)}"
 
-  /** A surface's ROOT element id (`s_<id>`) — the live-patch target and the
-    * `remove` selector on close.
-    */
   def surfaceRootId(surfaceId: String): String = s"s_${sanitize(surfaceId)}"
 
-  /** Id prefix for a surface's inner nodes, so they never collide with the main
-    * page (`s_<id>__` + [[pathId]] ⇒ `s_<id>__c_0`). This is the SAME scheme
-    * the build-phase hoist uses to name a surface's content, so a node's
-    * build-time id namespace and its render-time `{{id}}` are one story.
-    */
+  /** `s_<id>__c_0`; the same scheme as the build-phase hoist. */
   def surfacePrefix(surfaceId: String): String =
     s"${surfaceRootId(surfaceId)}__"
 
-/** The dashboard's presentation, owned entirely by the theme (so the app isn't
-  * tied to any particular CSS framework — e.g. BeerCSS is just a `stylesheets`
-  * entry here, not baked into the server).
+/** All presentation, so the server is tied to no CSS framework.
   *
-  *   - `tokens`: design tokens — Home Assistant frontend theme variable name ->
-  *     value (e.g. `"primary-color" -> "#03a9f4"`). Injected as CSS custom
-  *     properties `--<name>` so the component CSS can `var(--…)`.
-  *   - `tokensDark`: token overrides applied under
-  *     `prefers-color-scheme: dark`, so the dashboard follows the browser's
-  *     light/dark setting.
-  *   - `stylesheets`: external CSS URLs to `<link>` (e.g. the BeerCSS CDN).
-  *     RENDER-BLOCKING — the page waits for every one of them.
-  *   - `deferredStylesheets`: the same thing for a sheet the first paint does
-  *     not need, loaded without blocking it (`rel=preload` swapped to
-  *     `stylesheet` on load, with a `<noscript>` fallback —
-  *     https://web.dev/articles/defer-non-critical-css). The trade is that what
-  *     it styles arrives a beat late, so this is for a sheet whose absence
-  *     leaves the layout intact: an icon font, not a grid system.
-  *   - `scripts`: external JS URLs, `<script type="module" src>`-injected in
-  *     the document head after the stylesheets (ES modules — deferred, run
-  *     after first paint). For framework helpers the theme's CSS needs (e.g.
-  *     BeerCSS's slider fill); dashboard *behavior* stays with Datastar.
-  *   - `inlineScripts`: classic `<script>` bodies, inlined in the head and run
-  *     BEFORE first paint (so they can register document-level listeners that
-  *     the first rendered element already needs). The gesture half of a CSS
-  *     interaction — the counterpart of `styles`, for what CSS alone cannot
-  *     express (see `theme.sliderHoldScript`). Trusted authored text, emitted
-  *     verbatim like `styles` and `chrome`.
-  *   - `styles`: inline CSS — framework→token mapping plus the rules that style
-  *     the component classes (`.card`, `.fh-row`, …) from the tokens.
-  *   - `chrome`: the dashboard-frame Mustache template — a single `{{{body}}}`
-  *     hole. Owns the `#dashboard` swap target (the container that
-  *     navigate/reload inner-patch into) and, for a dashboard that uses popups,
-  *     the popup overlay host (the `<dialog>` + ✕ + close-`@post`), inlined in
-  *     the theme (which imports no component library). EMPTY (`""`) falls back
-  *     to the minimal
-  *     `<main class="container" id="dashboard">{{{body}}}</main>` (no popup
-  *     host) — see `Renderer.renderPageInto`. A non-empty `chrome` MUST contain
-  *     an element `id="dashboard"` wrapping `{{{body}}}` — checked by
-  *     [[Dashboard.validate]].
+  *   - `tokens`/`tokensDark`: HA theme variables as `--<name>`; the dark set
+  *     applies under `prefers-color-scheme: dark`.
+  *   - `stylesheets`: render-blocking.
+  *   - `deferredStylesheets`: loaded without blocking first paint, so only for
+  *     what the layout survives without (an icon font).
+  *   - `scripts`: module scripts, run after first paint.
+  *   - `inlineScripts`: classic, run before first paint (document listeners the
+  *     first element needs). Emitted verbatim, like `styles` and `chrome`.
+  *   - `chrome`: the frame, with the `#dashboard` swap target around
+  *     `{{{body}}}` (checked by `validate`) and any popup host. Empty falls
+  *     back to a bare `<main id="dashboard">`.
   */
 case class Theme(
     tokens: Map[String, String] = Map.empty,
@@ -955,74 +572,38 @@ case class Theme(
     chrome: String = ""
 ) derives ConfiguredDecoder
 
-/** A lazily-activated render subtree baked on demand — a popup or a tab panel.
-  * Registered in [[Dashboard.surfaces]] keyed by id; a component's click action
-  * (`surface/open/<id>`) opens it. The backend renders + streams it only while
-  * a connection has it open (see `Renderer.renderSurfaceTraced` and the
-  * per-connection session in `Server`). Every surface is chrome-less — its
-  * content renders straight into whatever host it swaps into; the frame around
-  * that host (the popup overlay's `<dialog>`, inlined in `theme.chrome`, or a
-  * `tabs` card's panel) lives in the theme/card, not per-surface.
+/** A popup, tab panel or `If` branch, rendered only while shown. Chrome-less:
+  * the frame around its host lives in the theme or card.
   *
-  *   - `content`: the surface's own layout tree (same node vocabulary as
-  *     [[Dashboard.card]]).
-  *   - The host — the live-patch target and eviction group — is DERIVED, not
-  *     authored; see [[hostId]].
-  *   - `bakeInto`/`bakeAs`: first-paint baking — the Component whose id equals
-  *     `bakeInto` receives the SELECTED member's rendered content under the
-  *     template var named `bakeAs` (e.g. a `tabs` card's `{{{panel}}}`),
-  *     keeping the shown panel/branch in the initial HTML (no round-trip). The
-  *     `_panel` suffix + `panel` name live only in the authoring layer.
-  *   - `activation`: HOW this surface becomes visible — see [[Activation]].
-  *     User-activated surfaces are opened by clicks / ui-state selection (per
-  *     session); state-activated ones are selected by a condition over live
-  *     entity state (shared, server truth). Absent on the wire ⇒
-  *     `User(defaultOpen = false)`, so a plain popup declares nothing.
+  *   - `bakeInto`/`bakeAs`: the node whose `bakeAs` region receives the
+  *     selected member at first paint, so the shown panel needs no round trip.
+  *   - `bakeIndex`: the order a user selection indexes and a state selection
+  *     walks first-match.
+  *   - `activation`: absent means a plain popup.
   */
 case class Surface(
     content: LayoutNode,
     bakeInto: Option[NodeId] = None,
     bakeAs: Option[String] = None,
-    // A surface's position within its `bakeInto` group: the ordered member
-    // list a ui-state index (user mode) selects among, and the first-match
-    // order (then, elseif…, else) state selection walks.
     bakeIndex: Option[Int] = None,
     activation: Activation = Activation.User(false)
 ) derives ConfiguredDecoder:
 
-  /** The surface's host element id: the live-patch target AND the eviction
-    * group. Derived — a baked surface (tab panel) hosts at
-    * `<bakeInto>_<bakeAs>` (enforcing the `id="{{bakeInto}}_{{bakeAs}}"` host
-    * convention); an unbaked surface (a popup) hosts at the overlay
-    * [[Dashboard.PopupHostId]].
+  /** The live-patch target and eviction group: `<bakeInto>_<bakeAs>`, or the
+    * popup host.
     */
   def hostId: DomId = (bakeInto, bakeAs) match
     case (Some(into), Some(as)) => DomId.derived(s"${into}_${as}")
     case _                      => Dashboard.PopupHostId
 
-/** The `dashboard.json` build artifact produced by the build phase.
+/** The build phase's artifact.
   *
-  *   - `slug`: the dashboard's stable id (its route is `/d/<slug>`; navigation
-  *     targets it). The site's `dashboards` key, applied by
-  *     `DashboardBuild.decode` before validation.
-  *   - `cards`: `cardName -> CardDef` (shared, reused library of templates).
-  *   - `css`: the base stylesheet every dashboard gets whatever its theme — the
-  *     `fh-` layout contract, the `--fh-*` variables the cards read, and the
-  *     classes the runtime itself emits (banners, toast, the busy states). It
-  *     sits here rather than on the [[Theme]] precisely so a theme cannot drop
-  *     it: it is emitted FIRST, and a theme may only override it (ADR 0020).
-  *     Authored in `lib/core/css.pkl`, assigned by `lib/entry.pkl`.
-  *   - `theme`: all presentation (tokens + stylesheets + CSS); see [[Theme]].
-  *   - `card`: the root of the recursive layout tree (itself a card, usually a
-  *     container). Component HTML is composed in Scala (see `Renderer`), not
-  *     via mustache layout placeholders.
-  *   - `surfaces`: the popup/tab subtrees, keyed by id (see [[Surface]]).
-  *   - `title`: the page `<title>` — an optional top-level authoring field
-  *     (`None` when the key is absent); the Server falls back to the [[slug]]
-  *     when it is `None`.
-  *   - `access`: who may see it (issue #89) — the same optional-field shape as
-  *     `title`. `None` means "whatever the site says"; `Site.decode` folds the
-  *     site default in, so nothing downstream sees the `None`.
+  *   - `slug`: the site's `dashboards` key, applied by `DashboardBuild.decode`
+  *     before validation.
+  *   - `css`: the base every dashboard gets, here rather than on [[Theme]] so a
+  *     theme cannot drop it, only override it (ADR 0020).
+  *   - `title`: `None` falls back to the slug.
+  *   - `access`: `None` until `Site.decode` folds in the site default.
   */
 case class Dashboard(
     cards: Map[String, CardDef],
@@ -1035,28 +616,15 @@ case class Dashboard(
     access: Option[Access] = None
 ) derives ConfiguredDecoder:
 
-  /** Every registered card's own CSS, in card-name order so the emitted
-    * stylesheet is a pure function of the model.
-    *
-    * All registered cards, not only the ones this tree uses: the registry is
-    * one library's worth (a handful of KB), and pruning it to the cards
-    * actually rendered would have to account for surfaces and set clauses too.
-    * The renderer has what it would need — see ADR 0020's open work, alongside
-    * minifying the whole block at runtime instead of by hand in Pkl.
+  /** Every registered card, not only those used: pruning would have to account
+    * for surfaces and set clauses (ADR 0020's open work).
     */
   lazy val cardCss: String =
     cards.toList.sortBy(_._1).map(_._2.css).filter(_.nonEmpty).mkString("\n")
 
-  /** Every entity this dashboard can EVER address — the main layout and every
-    * surface, candidate sets included.
-    *
-    * Static, and soundly so: a candidate set's membership is decided live but
-    * its candidate LIST is fixed at build time (ADR 0003), so this does not
-    * depend on the current state and cannot grow while the dashboard runs.
-    *
-    * That is what makes it usable as an authorisation bound (issue #89, ADR
-    * 0023): an action POST may only touch an entity its own dashboard names, so
-    * admission to a dashboard is not admission to the whole house.
+  /** Every entity this dashboard can ever address — the action bound (issue
+    * #89, ADR 0023). Static and sound: a set's candidate list is fixed at build
+    * time (ADR 0003).
     */
   lazy val referencedEntities: Set[String] = {
     def fromSlots(
@@ -1069,9 +637,6 @@ case class Dashboard(
       case c: LayoutNode.Component =>
         fromSlots(c.slots, c.subjectEntity) ++ c.allChildren.flatMap(walk)
       case set: LayoutNode.SetNode =>
-        // A clause node is an ordinary component, so its own slots and children
-        // are reached by the same walk — and its candidate is named in a
-        // literal `entity_id` slot rather than injected per match.
         set.candidates ++ set.members.values.toList
           .flatMap(_.clauses)
           .flatMap(cl => walk(cl.node))
@@ -1080,23 +645,10 @@ case class Dashboard(
     (walk(card) ++ surfaces.values.toList.flatMap(s => walk(s.content))).toSet
   }
 
-  /** Every entity a change to which could make this dashboard render
-    * differently — what the live subscription has to ask HA for.
-    *
-    * A SUPERSET of [[referencedEntities]], and the difference is the whole
-    * reason it is a separate value rather than a reuse. That one answers "does
-    * this dashboard NAME this entity", the bound an action POST is held to (ADR
-    * 0023), so it walks what is rendered. This one answers "could this entity
-    * wake us", so it also walks what merely DECIDES:
-    *
-    *   - a set clause's `when` guard, which may name an entity the member does
-    *     not render ("show the hall light while the hall sensor is on")
-    *   - a surface's [[Activation.State]] condition — the entity a flip hangs
-    *     on, rendered nowhere
-    *
-    * Subscribing to the narrower set would leave a dashboard that paints
-    * correctly and then never reacts: the flip and the membership change are
-    * exactly the two things whose deciding entity can be off-screen.
+  /** What the live subscription asks HA for: [[referencedEntities]] plus what
+    * only decides — clause guards and state conditions, whose entity may be
+    * rendered nowhere. With the narrower set a dashboard paints right and then
+    * never reacts.
     */
   lazy val watchedEntities: Set[String] = {
     def deciders(n: LayoutNode): List[String] = n match {
@@ -1118,22 +670,13 @@ case class Dashboard(
     )
   }
 
-  /** Validate that every card reference resolves, supplies the params/slots the
-    * card's template declares, and that each slot's `transform` compiles.
-    * Returns human-readable errors (empty = valid).
-    *
-    * A transform that fails to compile is a **hard** error: the dashboard does
-    * not load (the build/reload fails with the message, and live-reload keeps
-    * the previous working renderer) — better than swapping in a dashboard whose
-    * values silently blank out. `locateTransform` maps a transform back to a
-    * source location (e.g. `site.pkl:42`) for a friendlier error; the default
-    * ignores it (the model stays source-agnostic).
+  /** Human-readable errors, empty when valid. `locateTransform` maps a
+    * transform to a source location for the message.
     */
   def validate(
       locateTransform: String => Option[String] = _ => None
   ): List[String] =
-    // Every required template var is a slot, satisfied by an authored slot OR a
-    // backend-`injected` name ([[Dashboard.injectedStatic]]).
+    // A required var is satisfied by a slot or [[Dashboard.injectedStatic]].
     def checkRef(
         nodeId: String,
         cardName: String,
@@ -1161,14 +704,10 @@ case class Dashboard(
     ): List[String] =
       slots.toList.sortBy(_._1).flatMap { case (name, src) =>
         val transformError =
-          // A QUERY slot's transform is checked by `queryErrors` instead: the
-          // two shapes take different ARMS of this one field, so asking the
-          // state-tier questions of a stage would report nonsense about a slot
-          // that is correct.
+          // A query slot's transform is `queryErrors`' to check.
           if (src.literal.isDefined || src.query.isDefined) None
           else
             src.transform match {
-              // The fast tier: structure checks only.
               case p: Transform.Simple.Percent if p.max == p.min =>
                 Some(
                   s"$nodeId: slot '$name' has a degenerate percent range " +
@@ -1179,23 +718,15 @@ case class Dashboard(
                   s"$nodeId: slot '$name' has a degenerate fill range " +
                     s"(${f.min}..${f.max}) — it would divide by zero"
                 )
-              // Same rule one shape over: a duration's scale is SECONDS PER
-              // UNIT, so a non-positive one renders every reading as `0s` —
-              // a card that looks finished forever rather than one that
-              // errors. `hass.SensorEntity.durationSeconds` answers null
-              // rather than 0 for a unit it cannot scale, so this catches a
-              // hand-written scale, which is the only way to get one.
+              // Only a hand-written scale gets here (the Pkl helper answers
+              // null for a unit it cannot scale).
               case d: Transform.Simple.Duration if d.scale <= 0 =>
                 Some(
                   s"$nodeId: slot '$name' has a non-positive duration scale " +
                     s"(${d.scale}) — every reading would render '0s'"
                 )
-              // A Match's arms must be all Strings or all booleans. Not a
-              // taste rule: ADR 0028 defines the shape by an idiomatic CEL
-              // spelling, and CEL requires one type across a map's values and
-              // both arms of a ternary — a mixed lookup has nothing to be
-              // equivalent TO. It is also incoherent at the binding, where one
-              // state would set an attribute by value and another by presence.
+              // CEL needs one type across the arms, so a mixed Match has no
+              // CEL equivalent (ADR 0028).
               case m: Transform.Simple.Match
                   if (m.cases.values.toList :+ m.otherwise)
                     .map(_.isInstanceOf[Boolean])
@@ -1206,7 +737,6 @@ case class Dashboard(
                     "boolean arms — pick one; a boolean arm is for a boolean " +
                     "attribute (disabled, hidden), a string for everything else"
                 )
-              // The engine tier: the expression must compile.
               case t: String =>
                 Transform.parse(t).left.toOption.map { err =>
                   val at =
@@ -1214,10 +744,7 @@ case class Dashboard(
                   s"$nodeId: slot '$name' has an invalid transform$at: $err"
                 }
               case _: Transform.Simple => None
-              // A STAGE on a state slot. Unreachable from Pkl, whose default
-              // derives the arm from the shape, so this is a hand-written wire
-              // — and worth naming rather than ignoring, because a stage reads
-              // a provider's DATA and there is none here to read.
+              // Only a hand-written wire gets here.
               case st: Transform.Stage =>
                 Some(
                   s"$nodeId: slot '$name' has a '${Transform.Stage.key(st)}' " +
@@ -1231,10 +758,7 @@ case class Dashboard(
           queryErrors(nodeId, cardName, name, src, scope, inSet)
       }
 
-    /** An unknown provider or bad parameter is a build error; otherwise the
-      * slot renders blank forever with nothing saying why. `transform` is the
-      * one field both shapes share, so its wrong arm is checked here.
-      */
+    /** Otherwise a bad query renders blank forever with nothing saying why. */
     def queryErrors(
         nodeId: String,
         cardName: String,
@@ -1244,16 +768,12 @@ case class Dashboard(
         inSet: Boolean
     ): List[String] =
       src.query.toList.flatMap { template =>
-        // The field is inert on a query, but `live` beside one would be a lie
-        // on the wire. Only a hand-written wire gets here.
         val untruthfulReads = Option.when(src.reads != Reads.OnRender)(
           s"$nodeId: slot '$name' reads a query, so its 'reads' must be " +
             s"'${Reads.OnRender}' (it says '${src.reads}') — a provider's " +
             "answer is never pushed, so nothing about it is a reason to render"
         )
-        // A set member's id is minted at run time, so it has no scope to
-        // resolve against yet. A query in a set works; it just cannot read a
-        // variable until members get their set's scope.
+        // A member's id is minted at run time, so it has no scope yet.
         val inSetErrors =
           Option.when(inSet && template.references.nonEmpty)(
             s"$nodeId: slot '$name' reads a variable from inside a candidate " +
@@ -1267,8 +787,7 @@ case class Dashboard(
               "ancestor declares — declare it on the node that owns the " +
               "choice, or write the value down"
           )
-        // At the DECLARED values. A viewer's later value is checked at the
-        // write, against every declared reader's parse.
+        // At declared values; a viewer's value is checked at the write.
         val parseError =
           if (refErrors.nonEmpty) Nil
           else
@@ -1278,7 +797,6 @@ case class Dashboard(
               .toOption
               .map(e => s"$nodeId: slot '$name' $e")
               .toList
-        // A stage's own params were parsed when the wire was decoded.
         val stageError = src.transform match {
           case _: Transform.Stage => None
           case _                  =>
@@ -1289,8 +807,6 @@ case class Dashboard(
                 "slot has none"
             )
         }
-        // The stage decides the hole: markup needs `{{{x}}}` (escaped, the
-        // page shows `&lt;svg` as text), data needs `{{x}}`.
         val rawHole =
           cards.get(cardName).flatMap { cd =>
             val hasRaw =
@@ -1315,8 +831,7 @@ case class Dashboard(
           parseError ++ stageError.toList ++ rawHole.toList
       }
 
-    /** Checked at the declaration, so an unreferenced variable is still wrong
-      * loudly. Its VALUE is its readers' question.
+    /** At the declaration, so an unreferenced variable is still wrong loudly.
       */
     def varErrors(nodeId: String, vars: Map[String, String]): List[String] =
       vars.keys.toList.sorted.flatMap { name =>
@@ -1329,15 +844,9 @@ case class Dashboard(
           .toList
       }
 
-    /** `<slot>__read` is a card composing a slot's value into a handler
-      * expression (ADR 0017). It is answered for a literal, an identity-`once`
-      * value and a signal — the three whose value is settled before the paint.
-      *
-      * A LIVE slot that is not a signal is the one shape with no answer, and
-      * refusing it is the rule rather than a limitation: such a value moves in
-      * the element's bytes on every tick, which is exactly what carrying it as
-      * a signal exists to stop. Without this the var renders empty and the
-      * handler is silently malformed.
+    /** `<slot>__read` has no answer for a live non-signal slot (ADR 0017);
+      * without this the var renders empty and the handler is silently
+      * malformed.
       */
     def readErrors(
         nodeId: String,
@@ -1360,10 +869,7 @@ case class Dashboard(
               "element's bytes, so make it a signal slot or a literal"
           )
 
-    // A signal slot's value leaves the element's HTML on the patch path — a
-    // `datastar-patch-signals` frame carries it instead (ADR 0017). Both checks
-    // are for failures that are otherwise SILENT: the card renders, the patches
-    // get smaller, and the value simply stops updating.
+    // Each of these otherwise fails silently: the value stops updating.
     def signalErrors(
         nodeId: String,
         cardName: String,
@@ -1377,16 +883,8 @@ case class Dashboard(
             "signal slot — a value that never moves has nothing to patch"
         )
       else if (name == Dashboard.SubjectSlot)
-        // The subject is not a value the card DISPLAYS, it is what every other
-        // slot resolves against. A signal moves in the browser only, so the
-        // server would go on resolving the card against the old entity while
-        // the DOM claimed a new one — and there is no coherent reading of a
-        // card whose subject differs between the two.
-        //
-        // The renderer's two halves already disagreed about it, which is the
-        // tell that it was never a defined case rather than a supported one:
-        // the value was resolved against the slot's own entity, and the seed
-        // against the subject the same slot defines.
+        // A signal moves only in the browser, so the server would resolve the
+        // card against one subject while the DOM claimed another.
         List(
           s"$nodeId: slot '${Dashboard.SubjectSlot}' cannot be a signal " +
             "slot — it names " +
@@ -1394,15 +892,9 @@ case class Dashboard(
             "fact, not a value that moves"
         )
       else
-        // The card must PLACE the value's one consumer, or the patch form
-        // withholds the value and nothing puts it back. Which var that is
-        // depends on the kind: every painted kind has a binding, and a
-        // `Handler` slot has none at all — nothing reads it but an expression
-        // the card composes, so its name is what must appear.
-        // A `Handler` slot has no binding — nothing paints it — so what must
-        // appear is one of the two ways a card can READ it: `__read` (the
-        // value as a JS expression, which spells a literal and a signal alike)
-        // or the bare `__signal` name.
+        // The card must place the value's consumer, or the patch form
+        // withholds it and nothing puts it back. A `Handler` has no binding, so
+        // one of its two read forms must appear instead.
         val placed =
           if (src.signal.contains(SignalBind.Handler))
             List(s"{{{${name}__read}}}", s"{{${name}__signal}}")
@@ -1427,9 +919,7 @@ case class Dashboard(
         walk(n, LayoutNode.childId("", id, step, n), scope, inSet)
       }
 
-    // Cell classes are string-interpolated into the wrapper's `class`
-    // attribute, so each must be a plain CSS class token — reject anything
-    // else loudly at build time rather than emitting broken/injectable markup.
+    // Interpolated into a `class` attribute unescaped.
     def cellErrors(nodeId: String, cell: Option[Cell]): List[String] =
       cell.toList.flatMap(_.classes).collect {
         case cls if !cls.matches("[A-Za-z0-9_-]+") =>
@@ -1437,13 +927,6 @@ case class Dashboard(
             "([A-Za-z0-9_-]+)"
       }
 
-    // A `wrapAsCell = false` card renders bare — no id'd `.fh-cell` wrapper —
-    // so everything that rides on the wrapper is unusable with it, and
-    // silently so at render time. Reject the combinations loudly instead:
-    // live-entity slots (the pushed morphs would never match an element in the
-    // DOM), cell params (there is no wrapper to carry the classes), and
-    // set clauses (every member IS its wrapped per-entity patch target, and the
-    // renderer wraps members unconditionally).
     def noWrap(cardName: String): Boolean =
       cards.get(cardName).exists(!_.wrapAsCell)
 
@@ -1483,10 +966,7 @@ case class Dashboard(
           ) ++ slotErrors(nodeId, card, slots, here, inSet) ++
             varErrors(nodeId, vars) ++ cellErrors(nodeId, cell) ++
             wrapErrors ++ childErrors(c.regions, nodeId, here, inSet)
-        // A set's clauses carry COMPLETE nodes — their own card, slots (the
-        // candidate's `entity_id` among them) and cell — so each one validates
-        // as the ordinary node it is. `noWrap` is rejected because every member
-        // is its own per-candidate patch target.
+        // Clauses carry complete nodes, validated as ordinary ones.
         case s: LayoutNode.SetNode =>
           val setId = nodeId
           cellErrors(setId, s.cell) ++
@@ -1518,22 +998,9 @@ case class Dashboard(
               }
             }
 
-    // A STRUCTURAL card may bind no live entity slot AS BYTES. Its element
-    // contains the regions, so a patch aimed at it would carry back everything
-    // it holds — which is the whole reason structure is never a patch target. A
-    // card that wants its OWN markup to move puts that markup in a region as a
-    // node.
-    //
-    // A SIGNAL slot (ADR 0017) is exempt, and the exemption is what makes the
-    // advice this error gives true. A signal never travels as bytes: the seed
-    // rides the `.fh-cell` wrapper, which structure has like any node, and the
-    // live value arrives as a `datastar-patch-signals` frame addressed by the
-    // signal's name. Neither step needs the node to be a patch target, so
-    // there is nothing here for the rule to protect.
-    //
-    // The authoring layer says the same on `Node.slots`, but `cards` is decoded
-    // from JSON, so the model has to say it too or the guarantee stops at the
-    // Pkl boundary.
+    // Structure is never a patch target, so a live bytes slot on it never
+    // reaches the DOM; a signal slot needs no patch target (ADR 0017). The Pkl
+    // layer checks this too, but a pushed wire bypasses it.
     val structureLiveSlotErrors: List[String] = {
       def walk(node: LayoutNode): List[String] = node match {
         case c: LayoutNode.Component =>
@@ -1562,15 +1029,9 @@ case class Dashboard(
         .flatMap(s => walk(s._2.content))).distinct
     }
 
-    // A template that SPLICES CHILDREN into a section must declare that section
-    // as a region. Without this the leaf/structure split is not decidable from
-    // the card: such a template reads as a leaf — no regions — while its bytes
-    // carry its children, so it would be cached and patched, and a patch would
-    // re-send everything under it. It is checked on the CARD, not the tree,
-    // because it is a fact about the card.
-    //
-    // The signature is `{{{html}}}` inside a section: that is what splicing a
-    // child's rendering looks like and the only thing it looks like.
+    // A section splicing `{{{html}}}` must be a declared region, or the card
+    // reads as a leaf while its bytes carry its children, and a patch re-sends
+    // them.
     val undeclaredHoleErrors: List[String] = {
       val section =
         """\{\{#([A-Za-z0-9_]+)\}\}(?:(?!\{\{/\1\}\}).)*\{\{\{html\}\}\}""".r
@@ -1590,10 +1051,7 @@ case class Dashboard(
       }
     }
 
-    // A region nobody can fill and a hole nobody declared are the same defect
-    // seen from two sides, and both are silent: the region renders nothing, or
-    // the hole renders empty. Disjointness only means something if the holes
-    // are the ones the card said it had.
+    // The other side of the same defect; both are silent.
     val regionHoleErrors: List[String] =
       cards.toList.sortBy(_._1).flatMap { case (name, cd) =>
         cd.regions.toList.sortBy(_._1).collect {
@@ -1604,16 +1062,8 @@ case class Dashboard(
         }
       }
 
-    // What keeps the id grammar's two shapes apart. A step in the DEFAULT
-    // region contributes only its index (`c_0_1`), so every id that existed
-    // before regions is unchanged; a NAMED region contributes `<name>_<index>`.
-    // The two can never be confused as long as a name cannot look like an
-    // index — so an all-digit name is rejected, and with it the only way
-    // `0_0` could mean either "region 0, index 0" or "index 0, index 0".
-    //
-    // Empty is rejected for the same reason (it would contribute a bare `_`),
-    // and a non-token name because ids are interpolated into `id` attributes
-    // and signal names — the rule cell classes already get.
+    // Keeps the id grammar's two shapes apart ([[LayoutNode.segment]]): an
+    // all-digit name would read as an index.
     val regionNameErrors: List[String] =
       cards.toList.sortBy(_._1).flatMap { case (name, cd) =>
         cd.regions.keys.toList.sorted.collect {
@@ -1651,9 +1101,8 @@ case class Dashboard(
                 inSet
               )
             }
-          // A clause node is instantiated once PER MEMBER, so anything it names
-          // would be claimed by every member at once. Flagged rather than
-          // walked for ids.
+          // A clause node renders once per member, so every member would
+          // claim its id.
           case s: LayoutNode.SetNode =>
             s.members.toList.sortBy(_._1).flatMap { case (_, m) =>
               m.clauses.flatMap(cl => walkIds(cl.node, prefix, id, true))
@@ -1666,10 +1115,6 @@ case class Dashboard(
             val p = LayoutNode.surfacePrefix(sid)
             walkIds(s.content, p, LayoutNode.rootId(p, s.content), false)
           }
-      // `collect`, not `filter`: the filtered list still had an `Option` in it,
-      // so every reader below had to re-establish what the filter already knew
-      // — and the compiler said so, since the `Some(name)` pattern it forced is
-      // not exhaustive.
       val authored = all.collect { case (id, inSet, Some(name)) =>
         (id, inSet, name)
       }
@@ -1694,10 +1139,6 @@ case class Dashboard(
       shape.distinct
     }
 
-    // A non-empty theme.chrome MUST wrap {{{body}}} in an element carrying
-    // id="dashboard" — that's the navigate/reload swap target. An empty chrome
-    // is fine (Renderer falls back to the minimal default). Fail loudly here
-    // rather than silently breaking navigation at render time.
     val chromeErrors: List[String] =
       Option
         .when(
@@ -1707,15 +1148,10 @@ case class Dashboard(
         )
         .toList
 
-    // A `bakeInto` must name a node that EXISTS. It is the one relation an
-    // author never writes — the hoist mints it — so a mismatch means the
-    // build's id derivation and the renderer's have drifted, and the symptom is
-    // silent: the host renders its wrapper with an empty hole, the way a
-    // state group with no matching branch legitimately does. Checking it here
-    // is what turns "the panel is blank" into a build error naming the surface.
+    // The hoist mints `bakeInto`, so a dangling one means the build's and the
+    // renderer's id derivations drifted; otherwise the symptom is a blank
+    // panel, indistinguishable from an unmatched state group.
     val danglingBakes: List[String] = {
-      // The card name at `target`, if the walk reaches it. Same traversal as
-      // [[idsOf]], stopping at the node asked about.
       def cardAt(
           node: LayoutNode,
           prefix: String,
@@ -1749,8 +1185,7 @@ case class Dashboard(
             LayoutNode.steps(c.regions).flatMap { case (step, ch) =>
               idsOf(ch, prefix, LayoutNode.childId(prefix, id, step, ch))
             }
-          // Neither member container hosts a bake: a member renders with no
-          // children and no bake group.
+          // A member owns no bake group.
           case _: LayoutNode.SetNode => Nil
         })
       val known: Set[NodeId] =
@@ -1759,8 +1194,6 @@ case class Dashboard(
             val p = LayoutNode.surfacePrefix(sid)
             idsOf(s.content, p, LayoutNode.rootId(p, s.content))
           }).toSet
-      // The node a surface bakes into, when it names one that exists — needed
-      // twice below, and `known` alone cannot supply the card.
       def hostCard(gid: NodeId): Option[CardDef] =
         cardAt(card, "", LayoutNode.rootId("", card), gid)
           .orElse(
@@ -1779,13 +1212,7 @@ case class Dashboard(
                 "dashboard (main tree or any surface's content)"
             )
           else
-            // ...and that node's card must actually have a BAKED region by
-            // this name. `bakeAs` names the template var the content is
-            // substituted into, which since regions IS a region name — so the
-            // two can be checked against each other instead of agreeing by
-            // convention. Getting it wrong is the silent failure this section
-            // already describes: the host renders its wrapper with an empty
-            // hole, exactly as a legitimately unmatched state group does.
+            // `bakeAs` must be a baked region of that node's card.
             (s.bakeAs, hostCard(gid)) match {
               case (Some(region), Some(cd))
                   if !cd.regions.get(region).exists(_.fill == Region.Baked) =>
@@ -1796,15 +1223,9 @@ case class Dashboard(
                     (if (baked.isEmpty) " (it declares none)"
                      else s" — it has ${baked.mkString(", ")}")
                 )
-              // `bakeInto` without `bakeAs` is not a smaller statement, it is an
-              // incoherent one: it puts the node in a bake group (so the
-              // renderer treats it as an owner and resolves a selection for it)
-              // while `Surface.hostId` falls through to the page-level popup
-              // host, so the content lands nowhere near it and the selection
-              // never resolves. Rejected rather than half-served — and it is
-              // what keeps "a bake owner is STRUCTURE" true, which the render
-              // cache now leans on: a cacheable node must own no group, or two
-              // viewers on two tabs would share bytes that differ.
+              // Incoherent: the node owns a bake group while `hostId` falls to
+              // the popup host. Also what keeps "a bake owner is structure"
+              // true, which the render cache relies on.
               case (None, _) =>
                 List(
                   s"surface '$sid' bakes into '$gid' but names no 'bakeAs' — " +
@@ -1816,10 +1237,7 @@ case class Dashboard(
       }
     }
 
-    // A bake group's activation mode must be homogeneous: the runtime decides
-    // per GROUP whether selection is user truth (per session) or server
-    // truth (state condition, shared) — a group mixing both has no coherent
-    // owner for that choice, so it is rejected here rather than half-working.
+    // Selection is per session or server truth per group, never both.
     val activationErrors: List[String] =
       surfaces.toList
         .flatMap { case (sid, s) => s.bakeInto.map((_, sid, s.activation)) }
@@ -1839,8 +1257,6 @@ case class Dashboard(
             .toList
         }
 
-    // A state activation has no subject to supply, so every comparison in its
-    // condition must name its own entity.
     val unboundConditions: List[String] =
       surfaces.toList.sortBy(_._1).flatMap { case (sid, s) =>
         s.activation match
@@ -1853,9 +1269,6 @@ case class Dashboard(
           case _ => Nil
       }
 
-    // The main layout, then every surface's content tree (so card refs / params
-    // / slots / transforms inside popups are checked too). Surface errors are
-    // prefixed with the surface id for locatability.
     authoredIdErrors ++
       structureLiveSlotErrors ++
       undeclaredHoleErrors ++
@@ -1876,20 +1289,8 @@ case class Dashboard(
         ).map(err => s"surface '$sid': $err")
       }
 
-  /** Non-fatal problems worth telling the author about: unlike [[validate]]'s
-    * errors the dashboard still builds and serves, it just misbehaves in a way
-    * that is hard to attribute from the browser.
-    *
-    * Both are about the popup host, which only the THEME can place (ADR 0002),
-    * and both are silent at render time — which is why they are reported at
-    * all:
-    *
-    *   - no `id="popups"` host in the chrome and there is nowhere to patch a
-    *     popup into, so every popup tap appears to do nothing. An empty chrome
-    *     counts: the fallback frame has no host either.
-    *   - a host but no `{{{popups}}}` hole and popups work, but one being
-    *     RESTORED on a refresh cannot be baked into the first paint, so it pops
-    *     in once the stream connects.
+  /** Problems that still build but are silent in the browser, both about the
+    * popup host only the theme can place (ADR 0002).
     */
   def warnings: List[String] = {
     val popupSurfaces = surfaces.toList.collect {
@@ -1910,18 +1311,13 @@ case class Dashboard(
     else Nil
   }
 
-  /** Every distinct query in the layout and its surfaces — the single source
-    * for both [[validated]]'s parse and the renderer's prepared map, the same
-    * role [[transformStrings]] plays for CEL.
-    */
   def allQueries: List[SlotRead] =
     (queriesIn(card) ++ surfaces.values.toList.flatMap(s =>
       queriesIn(s.content)
     )).distinct
 
-  /** What the queries read at their declared values. Not in
-    * [[referencedEntities]]: showing a sensor's history is not leave to act on
-    * it.
+  /** Not in [[referencedEntities]]: showing a sensor's history is not leave to
+    * act on it.
     */
   lazy val queriedEntities: Set[String] =
     allQueries
@@ -1929,9 +1325,8 @@ case class Dashboard(
       .flatMap(_.entities)
       .toSet
 
-  /** Every query under one node, at declared defaults (a viewer's choice is
-    * overlaid by the renderer). Static, so a set clause that will not match
-    * still contributes — the snapshot is resolved before the walk decides.
+  /** At declared values. A clause that will not match still contributes: the
+    * snapshot is resolved before the walk decides.
     */
   def queriesIn(n: LayoutNode): List[SlotRead] =
     scopedSlots(n, Map.empty).flatMap { case (s, scope) =>
@@ -1941,17 +1336,10 @@ case class Dashboard(
         case SlotShape.State(_) => Nil
     }.distinct
 
-  /** Every slot on every node, the layout's own and its set members' alike. */
   private def slotSources(n: LayoutNode): List[SlotSource] =
     scopedSlots(n, Map.empty).map(_._1)
 
-  /** The slot walk, carrying node variables in scope — one traversal, so a
-    * reference cannot resolve against a scope its slot is not in.
-    *
-    * A SURFACE is its own scope root: a baked one can be swapped into any host,
-    * and inheriting from the host would resolve one content differently per
-    * host.
-    */
+  /** A surface is its own scope root: a baked one can go into any host. */
   private def scopedSlots(
       n: LayoutNode,
       scope: Map[String, String]
@@ -1965,14 +1353,10 @@ case class Dashboard(
         .flatMap(_.clauses)
         .flatMap(c => scopedSlots(c.node, scope))
 
-  /** Every distinct live-slot transform string in the layout and its surfaces
-    * (constant `literal` slots carry no transform and are excluded). These are
-    * exactly the expressions the renderer compiles — the single source for both
-    * [[validated]]'s compile and `Transforms.from`.
+  /** The CEL expressions to compile, for both [[validated]] and
+    * `Transforms.from`.
     */
   def transformStrings: List[String] =
-    // The CEL half of the two-tier union — the Simple objects have no string
-    // to compile (plan Phase 3 / ADR 0028).
     (slotSources(card) ++ surfaces.values.flatMap(s =>
       slotSources(s.content)
     )).toList
@@ -1981,12 +1365,8 @@ case class Dashboard(
       .collect { case t: String => t }
       .distinct
 
-  /** Parse this dashboard into a [[Dashboard.Validated]] proof: the same checks
-    * as [[validate]], and — on success — the COMPILED transforms carried along,
-    * so validation is the one gate and the renderer never recompiles or defends
-    * against an uncompilable expression. `Left` carries the human-readable
-    * errors (always non-empty; it is exactly `validate`'s output). The default
-    * `locateTransform` keeps the model source-agnostic (see [[validate]]).
+  /** [[validate]] plus the compiled transforms and parsed queries, so the
+    * renderer never recompiles or defends against a bad expression.
     */
   def validated(
       locateTransform: String => Option[String] = _ => None
@@ -1996,78 +1376,41 @@ case class Dashboard(
         Right(Dashboard.Validated(this, compileTransforms, parseQueries))
       case errs => Left(errs)
 
-  /** Every query at its declared values, parsed. Only [[validated]] calls it,
-    * after [[validate]] proved each parses, so a `Left` is dropped (as
-    * [[compileTransforms]] does). A viewer's later value is kept parseable by
-    * the write boundary, which resolves every declared reader with it.
-    */
+  // Only after `validate` proved each parses, so a `Left` cannot occur.
   private def parseQueries: Map[SlotRead, QueryRequest] =
     allQueries.flatMap(r => Queries.parse(r.query).toOption.map(r -> _)).toMap
 
-  /** Compile every [[transformStrings]] expression. Total by contract: only
-    * [[validated]] calls it, and only after [[validate]] proved each
-    * compilable, so a `Left` from the parser cannot occur here (a bad one would
-    * have failed validation) and is silently dropped rather than defended
-    * against.
-    */
+  // Only after `validate` proved each compiles, so a `Left` cannot occur.
   private def compileTransforms: Map[String, Transform.Compiled] =
     transformStrings.flatMap(t => Transform.parse(t).toOption.map(t -> _)).toMap
 
 object Dashboard:
 
-  /** The magic slot naming the entity a card is ABOUT — its subject. Every
-    * other slot on the node resolves against it unless it names one of its own,
-    * and it never inherits, because it is what there is to inherit.
-    *
-    * Named because four places in the renderer and the model turn on this exact
-    * string and each was spelling it out. NOT every `"entity_id"` in the tree:
-    * HA's own field name in a service payload, in the dump, and the CEL
-    * `entity_id` binding are different facts that happen to share a spelling,
-    * and folding them together would be one concept faking three.
+  /** The slot naming a card's subject, which every other slot inherits. Not
+    * HA's `entity_id` field or the CEL `entity_id` binding, which share only
+    * the spelling.
     */
   val SubjectSlot: String = "entity_id"
 
-  /** `{{{name}}}`, with the whitespace mustache allows inside. */
   private[model] def rawHole(name: String): scala.util.matching.Regex =
     ("\\{\\{\\{\\s*" + scala.util.matching.Regex.quote(
       name
     ) + "\\s*\\}\\}\\}").r
 
-  /** A dashboard PROVEN valid: every card reference resolves, every slot is
-    * satisfied, and every slot transform compiled (kept in `transforms`, so the
-    * renderer looks them up instead of recompiling or defending against a bad
-    * one). Constructed only by [[Dashboard.validated]] — the type is the proof.
-    */
+  /** Constructed only by [[Dashboard.validated]]: the type is the proof. */
   case class Validated(
       dashboard: Dashboard,
       transforms: Map[String, Transform.Compiled],
-      // Parsed once here, like `transforms`, so nothing downstream re-parses.
       queries: Map[SlotRead, QueryRequest] = Map.empty,
-      // The RESOLVED access rule (issue #89) — the dashboard's own if it named
-      // one, else its site's. Resolved once by `Site.decode` via [[withAccess]]
-      // rather than left as the model's `Option`, so no gate has to re-derive
-      // "and what does the site say" on every request.
-      //
-      // The default is deliberately the restrictive one: a construction path
-      // that forgets to resolve demands a login rather than serving the
-      // dashboard to the world.
+      // Resolved once by `Site.decode` ([[withAccess]]). The default is the
+      // restrictive one, so forgetting to resolve demands a login.
       access: Access = Access.default
   ):
-    /** Fold the site-wide default in: the dashboard's own rule wins, the site's
-      * applies otherwise.
-      */
     def withAccess(siteDefault: Access): Validated =
       copy(access = dashboard.access.getOrElse(siteDefault))
 
-  /** The theme's popup overlay host — the `<div id="popups">` a popup's
-    * (dialog-wrapped) content is patched into (and cleared from on close). The
-    * dialog itself is NOT here and NOT backend chrome: it is a plain `popup`
-    * container card composed into the surface's content by
-    * `openPopup`/`c.popup` (see lib/components.pkl), so the backend renders
-    * every surface bare. `Surface.hostId` derives to this for an unbaked
-    * surface (a popup); `Server.swapHost` uses it as both the eviction group
-    * and the patch target for `POST /sse/surface/:slug/open/:id` and
-    * `POST /sse/popup/:slug/close`.
+  /** The theme's popup host. The dialog is a `popup` card composed into the
+    * surface's content, so the backend renders every surface bare.
     */
   val PopupHostId: DomId = DomId.derived("popups")
 

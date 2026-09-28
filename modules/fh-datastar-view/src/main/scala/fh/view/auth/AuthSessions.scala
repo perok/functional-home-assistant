@@ -14,39 +14,19 @@ import org.typelevel.log4cats.LoggerFactory
 
 import java.time.Instant
 
-/** An access token and when it stops working. HA sends `expires_in` seconds; a
-  * stored instant is what a later request can actually compare against.
-  */
 final case class HaAccess(token: String, expiresAt: Instant)
     derives Encoder.AsObject,
       Decoder
 
-/** One logged-in person, as the server knows them.
+/** `refresh` is a full-HA-access credential and never reaches the browser: the
+  * cookie is an opaque handle. `verifiedAt` is when HA last confirmed the role,
+  * not the login time.
   *
-  * `refresh` is a Home Assistant refresh token, i.e. a full-HA-access
-  * credential. It is kept for two purposes: the periodic re-check that this
-  * user still exists and still holds this role, and minting the access token
-  * below. It is never sent to the browser — the cookie is an opaque handle, so
-  * a stolen cookie is a session rather than an HA credential.
+  * `clientId` is stored, not re-derived: HA compares it raw against what the
+  * refresh token was minted with, and the browser-facing base is per request.
   *
-  * `verifiedAt` is when HA last confirmed the above, not when the user logged
-  * in.
-  *
-  * `clientId` is the exact `client_id` string the login that minted this
-  * session sent to HA. HA compares it RAW against what it stored on the refresh
-  * token (`_async_handle_refresh_token`), so only the value login actually sent
-  * can renew — and since the browser-facing base is derived per request, it
-  * cannot be re-derived at refresh time. Stored, not guessed.
-  *
-  * `access` is a short-lived token that IS this user, kept so an action can act
-  * as them rather than as the add-on (issue #198). It adds nothing to what a
-  * stolen [[SessionStore]] file gives an attacker: `refresh` is already there
-  * and is strictly more powerful, since it mints these on demand and does not
-  * expire.
-  *
-  * `Option` because both "never had one" (a session persisted by an older
-  * build) and "the one we had is spent" end at the same place — mint another —
-  * so they are one absence rather than two states.
+  * `access` lets an action act as this user (issue #198); it adds nothing to a
+  * stolen [[SessionStore]] file, which already holds `refresh`.
   */
 final case class AuthSession(
     user: HaUser,
@@ -57,20 +37,10 @@ final case class AuthSession(
 ) derives Encoder.AsObject,
       Decoder
 
-/** Live auth sessions, keyed by the opaque id their cookie carries.
-  *
-  * Deliberately a SEPARATE registry from [[fh.view.runtime.Sessions]], which is
-  * keyed by `conn`: that one is a per-tab connection handle and this one is a
-  * person. One browser holds one auth session across many tabs, and each tab
-  * has its own `conn` — merging them would fake one fact with the other.
-  *
-  * A `SignallingRef` rather than a `Ref` because the map IS the liveness
-  * signal: an SSE stream watches it and stops when its id leaves ([[watch]]).
-  * That is what makes a logout or an HA-side revocation cut an open dashboard
-  * without the browser having to poll anything.
-  *
-  * The map in memory is the truth; [[store]] is a write-through copy so a
-  * restart — which happens on every dashboard edit — does not log everyone out.
+/** Keyed by cookie id: a person, not a tab, so separate from
+  * [[fh.view.runtime.Sessions]]. A `SignallingRef` because the map is the
+  * liveness signal a stream stops on ([[watch]]). Written through to [[store]]
+  * so a restart (every dashboard edit) keeps everyone logged in.
   */
 final class AuthSessions private (
     ref: SignallingRef[IO, Map[String, AuthSession]],
@@ -80,10 +50,6 @@ final class AuthSessions private (
 
   def get(id: String): IO[Option[AuthSession]] = ref.get.map(_.get(id))
 
-  /** Mint a session for a freshly-authenticated user; returns its cookie id.
-    * `clientId` is the base the login itself went out under — see
-    * [[AuthSession.clientId]] for why it is stored rather than re-derived.
-    */
   def create(
       user: HaUser,
       refresh: String,
@@ -102,9 +68,6 @@ final class AuthSessions private (
       _ <- persist
     } yield id
 
-  /** Record a completed re-check: same session, fresh role, fresh clock — and
-    * the client it was minted for, unchanged.
-    */
   def renew(
       id: String,
       user: HaUser,
@@ -113,8 +76,7 @@ final class AuthSessions private (
   ): IO[Unit] =
     IO.realTimeInstant.flatMap { now =>
       ref.update { m =>
-        // Only if it is still there — a session evicted while its renewal was
-        // in flight must not be resurrected by the reply arriving late.
+        // A session evicted mid-renewal must not be resurrected by a late reply.
         m.get(id)
           .fold(m)(s =>
             m.updated(
@@ -130,15 +92,9 @@ final class AuthSessions private (
       }
     } *> persist
 
-  /** Store a freshly minted access token (and whatever refresh token came back
-    * with it) WITHOUT touching `verifiedAt`.
-    *
-    * That omission is the whole reason this is not [[renew]]. `verifiedAt` is
-    * "when HA last confirmed this user's ROLE", and the periodic re-check is
-    * what confirms it — by re-reading the user, which minting a token does not
-    * do. Stamping the clock here would push that check further out every time
-    * somebody pressed a button, so a busy dashboard would be the one whose
-    * demoted admin kept their access longest.
+  /** Not [[renew]]: minting does not re-read the role, and stamping
+    * `verifiedAt` here would let a busy dashboard's demoted admin keep access
+    * longest.
     */
   def tokenMinted(id: String, refresh: String, access: HaAccess): IO[Unit] =
     ref.update { m =>
@@ -150,72 +106,40 @@ final class AuthSessions private (
 
   def remove(id: String): IO[Unit] = ref.update(_ - id) *> persist
 
-  /** Drop every session belonging to one HA user — what a logout does, so
-    * signing out on the phone also ends the tablet's session.
-    */
+  /** A logout: signing out on the phone ends the tablet's session too. */
   def removeUser(userId: String): IO[Unit] =
     ref.update(_.filterNot { case (_, s) => s.user.id == userId }) *> persist
 
-  /** Sessions due a re-check, oldest first. */
   def stale(olderThan: Instant): IO[List[(String, AuthSession)]] =
     ref.get.map(_.toList.filter(_._2.verifiedAt.isBefore(olderThan)))
 
-  /** Whether this session id still names a session `permits` accepts.
-    *
-    * The predicate an SSE stream interrupts on. One signal covers all three
-    * ways a live dashboard should stop: the session was evicted (logout, or HA
-    * said the grant is dead), or the user is still logged in but their role no
-    * longer satisfies this dashboard's rule — a demoted admin watching an
-    * admin-only page.
-    */
+  /** Covers eviction and a role that no longer satisfies the rule alike. */
   def watch(
       id: Option[String],
       permits: Option[HaUser] => Boolean
   ): Stream[IO, Boolean] =
     ref.discrete.map(m => permits(id.flatMap(m.get).map(_.user))).changes
 
-  /** One write at a time, and the map read INSIDE the lock, so the last write
-    * to land is always of the newest map — two unserialised writes could finish
-    * in the wrong order and leave an older map on disk.
-    */
+  // The map is read inside the lock, so the last write is of the newest map.
   private def persist: IO[Unit] =
     writing.lock.surround(ref.get.flatMap(store.write))
 }
 
 object AuthSessions {
 
-  /** The cookie's whole content, so it has to be unguessable; it carries no
-    * meaning, so it needs nothing else.
-    *
-    * A v4 UUID: 122 random bits from `UUID.randomUUID`, which the JDK documents
-    * as using a cryptographically strong PRNG. Plenty for a session id, and it
-    * keeps the hand-rolled `SecureRandom` plumbing out of here — this already
-    * ran inside `IO`.
-    */
   private def randomId: IO[String] = IO.randomUUID.map(_.toString)
 
   val CookieName: String = "fh_session"
 
-  /** The cookie carrying [[CookieName]], if the request has one. */
   def cookieOf(req: Request[IO]): Option[String] =
     req.cookies.collectFirst {
       case RequestCookie(name, content) if name == CookieName => content
     }
 
-  /** The `Set-Cookie` for a session id.
-    *
-    * `httpOnly` keeps it out of reach of any script on the page. `SameSite.Lax`
-    * is the CSRF control for the action POSTs — it is the only thing standing
-    * between a cookie-authenticated `POST /sse/action/...` and any other site,
-    * and `Lax` (not `Strict`) because the OAuth callback is a cross-site
-    * top-level GET that must arrive with the cookie.
-    *
-    * `secure` is set only when the request actually arrived over https: a
-    * `Secure` cookie on a plain-http LAN instance is simply dropped by the
-    * browser, which would make login silently fail.
-    *
-    * The 90-day `maxAge` mirrors HA's own refresh-token inactivity window;
-    * there is no point outliving the credential the session is built on.
+  /** `Lax` is the only CSRF control for the action POSTs; not `Strict`, because
+    * the OAuth callback is a cross-site GET that needs the cookie. `secure`
+    * only over https, or a plain-http LAN browser drops it and login silently
+    * fails. 90 days is HA's refresh-token inactivity window.
     */
   def cookie(id: String, secure: Boolean): ResponseCookie =
     ResponseCookie(
@@ -228,13 +152,10 @@ object AuthSessions {
       maxAge = Some(90L * 24 * 60 * 60)
     )
 
-  /** The cookie that clears it. Must match `name`/`path` or the browser keeps
-    * the original.
-    */
+  // Must match name and path, or the browser keeps the original.
   def clearCookie(secure: Boolean): ResponseCookie =
     cookie("", secure).copy(maxAge = Some(0L))
 
-  /** Load whatever the last run persisted, then keep writing through to it. */
   def create(store: SessionStore): IO[AuthSessions] =
     for {
       restored <- store.read
@@ -243,15 +164,9 @@ object AuthSessions {
     } yield new AuthSessions(ref, store, writing)
 }
 
-/** The write-through file behind [[AuthSessions]] (`.fh/sessions.json`).
-  *
-  * Not a database and not the source of truth — purely a way to survive a
-  * restart. Every mutation rewrites the whole map, which is fine at the scale
-  * of "people in one household" and keeps the file a plain snapshot rather than
-  * a log that could disagree with memory.
-  *
-  * It holds HA refresh tokens, so it is written `0600`. That it lives inside a
-  * workspace users keep in git is a known problem, tracked in issue #165.
+/** `.fh/sessions.json`, a snapshot to survive restarts, not the truth. Holds
+  * refresh tokens, so `0600`; that it sits in a workspace users keep in git is
+  * issue #165.
   */
 final class SessionStore(
     path: os.Path,
@@ -262,17 +177,14 @@ final class SessionStore(
 
   private val file = Path.fromNioPath(path.toNIO)
 
-  /** Written to a sibling temp file and MOVED over the old one, so a crash or a
-    * full disk mid-write leaves the previous file whole. A truncated file is
-    * not a small loss here: [[read]] refuses to boot on one.
+  /** Temp file then atomic move: [[read]] refuses to boot on a truncated one.
     */
   def write(sessions: Map[String, AuthSession]): IO[Unit] = {
     val dir = file.parent.getOrElse(Path("."))
     (
       Files[IO].createDirectories(dir) *>
-        // Created with the permissions already on it rather than fixed up
-        // afterwards: a chmod after the write leaves a window where the
-        // refresh tokens are world-readable.
+        // Created with the permissions: a later chmod leaves a world-readable
+        // window.
         Files[IO]
           .createTempFile(
             Some(dir),
@@ -293,20 +205,13 @@ final class SessionStore(
               )).onError(_ => Files[IO].deleteIfExists(tmp).attempt.void)
           }
     ).handleErrorWith { e =>
-      // A workspace we cannot write to must not take the server down: the
-      // sessions still work, they just will not survive a restart.
+      // Sessions still work; they just will not survive a restart.
       log.warn(s"could not persist sessions to $path: ${e.getMessage}")
     }
   }
 
-  /** What the last run left.
-    *
-    * A missing file starts empty — there is nothing to be wrong. A file that IS
-    * there and does not decode stops the boot: quietly starting empty instead
-    * would sign the whole household out on every restart while reading as a
-    * mere warning, and a session from an unreadable file is one we cannot vouch
-    * for. The message names the recovery, which is real: delete the file, log
-    * in again once.
+  /** A present but undecodable file stops the boot: starting empty would sign
+    * the household out on every restart behind a mere warning.
     */
   def read: IO[Map[String, AuthSession]] =
     Files[IO]
@@ -331,25 +236,19 @@ final class SessionStore(
 
 object SessionStore {
 
-  /** `rw-------`. This file holds Home Assistant refresh tokens. */
   val OwnerOnly: PosixPermissions = PosixPermissions
     .fromString("rw-------")
     .getOrElse(
       throw new IllegalStateException("rw------- is not a permission string")
     )
 
-  /** `.fh/sessions.json` under the workspace — beside `base.pkl` and
-    * `pins.json`, in the directory this instance already owns.
-    */
   def inWorkspace(
       dashboardsDir: os.Path,
       loggerFactory: LoggerFactory[IO] = Logging.console
   ): SessionStore =
     new SessionStore(dashboardsDir / ".fh" / "sessions.json", loggerFactory)
 
-  /** For tests and for a workspace that has no business persisting (a throwaway
-    * boot): keeps everything in memory.
-    */
+  /** A throwaway temp file, for tests and boots that should not persist. */
   def ephemeral: SessionStore = new SessionStore(
     os.temp.dir() / "sessions.json"
   )

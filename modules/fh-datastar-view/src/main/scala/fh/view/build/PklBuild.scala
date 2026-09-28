@@ -21,44 +21,22 @@ import scala.jdk.CollectionConverters.*
 import scala.util.Try
 import scala.util.control.NonFatal
 
-/** In-process Pkl evaluation for the build phase.
-  *
-  * The evaluated module is rendered to JSON here (Java-side
-  * `ValueRenderers.json` with `omitNullProperties = true`, so absent optional
-  * fields decode as `None` rather than JSON nulls) — entry modules need no
-  * `output { renderer = ... }` block; an entry just IS its data. This runs once
-  * at build/startup/reload — never on the live hot path.
+/** In-process Pkl evaluation, rendered to JSON with nulls omitted so absent
+  * optionals decode as `None`; an entry needs no `output` block.
   */
 object PklBuild {
 
   private object Truffle
 
-  /** Run `thunk` with the process's ONE claim on pkl-core.
-    *
-    * pkl's stdlib modules are Truffle ASTs that specialize as they warm, and
-    * they are shared process-wide — a fresh `Evaluator` per call does not give
-    * them out fresh. Two threads evaluating at once can catch a node
-    * mid-rewrite, which surfaces as an NPE from `pkl.semver`/`pkl.Project` deep
-    * inside a `let`, naming a stdlib line rather than anything the caller wrote
-    * (#226, pkl-core 0.32.1).
-    *
-    * Every production path is already serial, so this costs nothing there; it
-    * is a guarantee, not a change. Coverage is by call site, not by type:
-    * anything that builds an evaluator OR loads a `PklProject` has to come
-    * through here — today `LibPackage.effectivePin` and the two test-side
-    * evaluators, none of which route through this object otherwise.
+  /** The process's one claim on pkl-core. Its stdlib Truffle ASTs are shared
+    * and specialize as they warm, so two concurrent evaluations can catch a
+    * node mid-rewrite: an NPE deep in `pkl.semver` (#226, pkl-core 0.32.1).
+    * Coverage is by call site: anything building an evaluator or loading a
+    * `PklProject` must come through here.
     */
   def serialized[A](thunk: => A): A = Truffle.synchronized(thunk)
 
-  /** Evaluate `entryFile` (relative to `dashboardsDir`). Returns the evaluated
-    * JSON + import set, or an error string (Pkl errors carry their own
-    * file:line carets, so the message is passed through verbatim).
-    *
-    * The import set is the entry's precise transitive imports, computed by
-    * pkl-core's static import-analysis ([[importSet]]). If that analysis fails
-    * for any reason it falls back to the conservative all-`*.pkl`-under-dir
-    * superset; the entry itself is always included.
-    */
+  /** Pkl errors carry their own carets and pass through verbatim. */
   def eval(
       dashboardsDir: os.Path,
       entryFile: String
@@ -66,18 +44,13 @@ object PklBuild {
     val entry = dashboardsDir / os.SubPath(entryFile)
     try {
       val project = loadProject(dashboardsDir)
-      // ONE builder, and pkl derives the settings from the manifest exactly
-      // once: `applyFromProject` needs no lockfile (only `evaluate` does), so
-      // the resolve below can be handed what it produced instead of a second,
-      // hand-rolled derivation of the same three values.
+      // One builder, so pkl derives the manifest's settings once and the
+      // resolve reuses them.
       val builder = EvaluatorBuilder.preconfigured()
       project.foreach(builder.applyFromProject)
       project.foreach(ensureLockfile(dashboardsDir, _, builder))
-      // Same cache the resolver used — a REMOTE dep (the add-on's package-form
-      // `@fh-dashboard`) must find its pre-seeded zip here. Set after
-      // `applyFromProject`, which leaves the builder's own default standing
-      // when the project declares no `moduleCacheDir`; this makes the ONE
-      // resolved value explicit for all three consumers.
+      // After `applyFromProject`, which leaves its own default when the
+      // project declares none; the seeded packages live here.
       builder.setModuleCacheDir(cacheDir(dashboardsDir, project).toNIO)
       val evaluator = builder.build()
       val module =
@@ -96,25 +69,10 @@ object PklBuild {
     }
   }
 
-  /** The security manager for dependency RESOLUTION, taken from the workspace's
-    * own `evaluatorSettings.allowedResources`.
-    *
-    * pkl's default allowlist admits `https:` but never plain `http:`. Through
-    * 0.31 that was invisible to us, because the allowlist was checked against
-    * the `package://fh.invalid/…` URI the author wrote — which matches
-    * `package:`. Since 0.32 the check runs on the POST-rewrite URL, and ADR
-    * 0010 rewrites that authority to the instance's LAN address, which is plain
-    * http. So `defaultManager` now refuses every package fetch.
-    *
-    * `.fh/base.pkl` is where the widening is declared — one source of truth,
-    * scoped to that one instance, and the same field the `pkl` CLI and pkl-lsp
-    * read. The evaluator gets it for free via `applyFromProject`; only
-    * `PackageResolver` takes its manager as an argument, so this lifts the
-    * project's own lists into one for it.
-    *
-    * Nothing else needs it. [[importSet]]'s `Analyzer` fetches nothing (it is
-    * built with `HttpClient.dummyClient`) and reads the cache through
-    * `package:`/`projectpackage:`, both of which pkl already allows by default.
+  /** For `PackageResolver`, the one consumer that takes its manager as an
+    * argument. Needed since pkl 0.32 checks the allowlist against the
+    * post-rewrite URL, which is the instance's plain-http LAN address;
+    * `.fh/base.pkl` declares the widening.
     */
   def securityManagerFor(project: Project): org.pkl.core.SecurityManager =
     serialized {
@@ -123,66 +81,32 @@ object PklBuild {
       securityManagerFrom(builder)
     }
 
-  /** The same manager, from a builder that has already had `applyFromProject`
-    * run on it — so pkl decides the two lists exactly once.
-    *
-    * `getSecurityManager` is null here: the builder holds the pattern LISTS and
-    * only materializes a manager inside `build()`. Those lists already carry
-    * pkl's defaults when the manifest declares none (verified both ways), which
-    * is why nothing falls back by hand.
+  /** The builder holds lists, not a manager (`getSecurityManager` is null until
+    * `build()`); they already include pkl's defaults.
     */
   private def securityManagerFrom(
       builder: EvaluatorBuilder
   ): org.pkl.core.SecurityManager =
     SecurityManagers
       .standardBuilder()
-      // standardBuilder() starts EMPTY — the defaults are not implied.
+      // Starts empty: defaults are not implied.
       .addAllowedModules(builder.getAllowedModules)
       .addAllowedResources(builder.getAllowedResources)
       .build()
 
-  /** The workspace's `PklProject`, loaded — or `None` for the plain-eval path
-    * (a bare `.pkl` with relative imports and no manifest).
-    */
   private def loadProject(dashboardsDir: os.Path): Option[Project] = {
     val projectFile = dashboardsDir / "PklProject"
     Option.when(os.exists(projectFile))(Project.loadFromPath(projectFile.toNIO))
   }
 
-  /** Write `PklProject.deps.json` if it is stale, so `applyFromProject` can
-    * resolve the `@fh-dashboard` alias.
+  /** Before `evaluate`, and as a file: the evaluator cannot be handed resolved
+    * deps in memory, and pkl-lsp, the CLI and `fh` read it anyway. Selection,
+    * not network isolation: a locked but uncached dep is fetched during eval.
     *
-    * **This must happen BEFORE `evaluate`, and the lockfile has to be a FILE.**
-    * The evaluator will not produce one: it errors with "attempting to load
-    * `PklProject.deps.json`" when it is missing, and there is no way to hand it
-    * the resolved set in memory — `EvaluatorBuilder` accepts only
-    * `DeclaredDependencies`, and `ProjectDeps` (what `resolve()` returns)
-    * exposes nothing but `parse(Path)` and `writeTo(OutputStream)`. We want it
-    * on disk regardless: pkl-lsp, the `pkl` CLI and `fh` all read it.
-    *
-    * The split is version SELECTION, not network access — evaluation is not
-    * offline-by-construction. A dependency that is locked but missing from the
-    * cache IS fetched during eval (verified), which is why the manifest's
-    * settings have to reach the evaluator too.
-    *
-    * `builder` must already have had `applyFromProject` run on it, and supplies
-    * the manager and http client. That indirection exists because there is no
-    * `applyFromProject` on the resolver side: `ProjectDependenciesResolver`
-    * takes the `Project` but does not use it to configure the `PackageResolver`
-    * it is handed, whose one factory never sees a project. Harvesting the
-    * builder makes pkl derive those settings ONCE, instead of us re-deriving
-    * from the manifest — the same wiring the CLI does by hand, and the same it
-    * OMITS in `project resolve <dir>` mode
-    * (docs/issue-report-1-pkl-cli-http-rewrites-project-resolve.md).
-    *
-    * Resolution touches the network only for a REMOTE dependency not already in
-    * the cache: local deps read files, and a cached remote version satisfies
-    * the resolver without a request, so add-on boots stay offline-safe. An
-    * uncached remote dep is fetched for real, honoring the manifest\'s own
-    * `http.rewrites`. If that fails (offline, dead registry) the error
-    * propagates into the entry\'s build error verbatim — pkl names the package
-    * URI — and the resolve-before-write order keeps the previous lockfile
-    * intact.
+    * The resolver's `PackageResolver` never sees the project, so its manager
+    * and client come from `builder` — the wiring the CLI omits in
+    * `project resolve <dir>` (docs/issue-report-1-…). A failed fetch keeps the
+    * previous lockfile (resolved before writing).
     */
   private def ensureLockfile(
       dashboardsDir: os.Path,
@@ -200,9 +124,7 @@ object PklBuild {
         ),
         new PrintWriter(new StringWriter)
       )
-      // Resolve fully BEFORE opening the lockfile: `FileOutputStream`
-      // truncates on open, so the old order destroyed the previous lockfile
-      // whenever resolution threw.
+      // Before opening: `FileOutputStream` truncates.
       val resolved = resolver.resolve()
       val out = new FileOutputStream(depsJson.toNIO.toFile)
       try resolved.writeTo(out)
@@ -210,22 +132,14 @@ object PklBuild {
     }
   }
 
-  /** Re-resolve when the lockfile is absent OR any `PklProject` under the dir
-    * outdates it — so editing a manifest (adding a dependency, bumping the
-    * `@fh-dashboard` pin) takes effect on the next eval instead of silently
-    * serving the stale pin forever (the frozen-lockfile bug, ADR 0010).
-    */
+  /** Otherwise a pin bump silently serves the old pin forever (ADR 0010). */
   private def staleLockfile(
       dashboardsDir: os.Path,
       depsJson: os.Path
   ): Boolean =
     !os.exists(depsJson) || {
       val lockTime = os.mtime(depsJson)
-      // `.fh/base.pkl` is the machine-owned half of the manifest amends chain,
-      // and `.fh/pins.json` holds the `@fh-dashboard`/`@fh-home` pins the static
-      // base.pkl reads — a tool rewriting either (`DumpPackage.seedFromText`
-      // moves the home pin on every dump change) must take effect exactly like a
-      // manifest edit.
+      // Including `.fh/base.pkl` and `.fh/pins.json`, which a dump rewrites.
       os.walk(dashboardsDir, maxDepth = 2)
         .exists(p =>
           (p.last == "PklProject" ||
@@ -235,20 +149,8 @@ object PklBuild {
         )
     }
 
-  /** The package cache for this workspace, taken from the loaded project's
-    * `evaluatorSettings.moduleCacheDir`. Used identically by the resolver, the
-    * evaluator and the analyzer — a remote dep resolves offline as long as its
-    * version is already IN this cache (pre-seeded by `LibPackage`).
-    *
-    * A project that declares NONE is the NORMAL case, not a broken workspace:
-    * `.fh/base.pkl` sets it from `FH_PKL_CACHE_DIR` and nothing else, so it is
-    * null for every reader that isn't the add-on. The fallback is pkl's own
-    * default, which is what those readers' pkl-lsp and `pkl` CLI already use —
-    * the same rule [[AddonBootstrap.defaultCacheDir]] seeds through, so the dir
-    * we resolve here and the dir the seed wrote to cannot disagree.
-    *
-    * Only the projectless plain-eval path (no `PklProject` at all, hence no
-    * package deps) uses a workspace-local `.pkl-cache`.
+  /** Shared by resolver, evaluator and analyzer. None declared is the normal
+    * case off the add-on; the fallback is pkl's default, as the seed uses.
     */
   private[build] def workspaceCacheDir(dashboardsDir: os.Path): os.Path = {
     val projectFile = dashboardsDir / "PklProject"
@@ -273,25 +175,13 @@ object PklBuild {
             else dashboardsDir / os.RelPath(path.toString)
           }
           .getOrElse(os.Path(AddonBootstrap.defaultCacheDir))
-      // No PklProject at all: the plain-eval path has no package deps, so a
-      // workspace-local cache location is enough.
+      // No project, no package deps.
       case None => dashboardsDir / ".pkl-cache"
     }
 
-  /** [[importSet]] WITHOUT evaluating: the local `*.pkl` files `entryFile`
-    * reads, from static analysis alone. Cheap (no evaluation, no HA), so it can
-    * answer a request — the editor asks it after a write to say whether the
-    * file it just saved is one the site actually reads.
-    *
-    * Glob imports are resolved here too (`import*("*.dashboard.pkl")` returns
-    * each matched file), so a dashboard named by convention counts as read.
-    *
-    * **Never throws, and errs toward "read".** Loading the project can fail on
-    * a workspace mid-edit, and [[importSet]] already answers a failed analysis
-    * with the conservative all-`*.pkl` superset. Both directions matter for the
-    * caller: a false "nothing reads this file" is a confident wrong answer that
-    * would send an author looking for a bug in their own file, whereas a false
-    * "read" only withholds a hint.
+  /** Static analysis only, cheap enough per request; glob imports included.
+    * Never throws and errs toward "read": a false "unread" would send an author
+    * hunting a bug in their own file.
     */
   def fileImports(dashboardsDir: os.Path, entryFile: String): Set[os.Path] =
     serialized {
@@ -302,33 +192,11 @@ object PklBuild {
       )
     }
 
-  /** The entry's transitive imports as `file:` paths under `dashboardsDir`.
-    *
-    * Uses pkl-core's static analyzer (`Analyzer.importGraph`): the graph's
-    * module set (the `imports` map keys, plus resolved targets) is every module
-    * the entry pulls in. We keep only `file:` modules under the dashboards dir
-    * (dropping `pkl:`/`package:`/`http(s):` stdlib and remote imports, which
-    * are not local files to watch). On any failure — or an empty result — we
-    * fall back to the conservative superset (every `*.pkl` under the dir); the
-    * entry is always included regardless.
-    *
-    * **The `@fh-dashboard` alias resolves here too**, which is why this is
-    * precise rather than a superset for the real dashboards. Two of the
-    * `Analyzer` constructor's slots do the work: the `moduleCacheDir` and the
-    * `DeclaredDependencies` (`project.getDependencies`, the same dependencies
-    * the evaluator gets). With those supplied and the `projectpackage`/`pkg`
-    * factories registered, an `import "@fh-dashboard/components.pkl"` analyzes
-    * as `projectpackage://fh.invalid/fh-dashboard@1.0.0#/components.pkl`, and —
-    * because `@fh-dashboard` is a LOCAL dependency — `graph.resolvedImports`
-    * maps it straight back to the real `file:…/lib/components.pkl`. So the
-    * `file:` filter below picks up exactly the library modules the entry
-    * actually imports, and nothing else (verified on pkl-core 0.31.1).
-    *
-    * That precision is why `ServerApp.watchedSet` does NOT need to bulk-add
-    * `lib/`: an entry that imports a card class watches that card class, and a
-    * library module nobody imports is correctly not watched. Lib/dump arrive as
-    * cache-backed `package:` imports and are filtered out of the `file:` set —
-    * they are immutable per version, not hot-reloaded.
+  /** The entry's transitive `file:` imports under the workspace, by static
+    * analysis; package imports (the lib, the dump) are immutable and dropped.
+    * The cache dir and declared dependencies must reach the `Analyzer`, or the
+    * `@` aliases do not resolve. A failed or empty analysis falls back to every
+    * `*.pkl` under the dir.
     */
   private def importSet(
       dashboardsDir: os.Path,
@@ -346,10 +214,8 @@ object PklBuild {
       val analyzer = new Analyzer(
         StackFrameTransformers.defaultTransformer,
         false,
-        // Defaults suffice: this analyzer fetches nothing (dummyClient below)
-        // and reads the cache through package:/projectpackage:, both allowed by
-        // default. Verified by making the fallback below fatal — the precise
-        // path still succeeded for every workspace in the suite.
+        // Defaults suffice: it fetches nothing and reads the cache through
+        // allowed schemes (verified by making the fallback fatal).
         SecurityManagers.defaultManager,
         factories.asJava,
         cacheDir(dashboardsDir, project).toNIO,
@@ -370,10 +236,7 @@ object PklBuild {
     precise.getOrElse(superset(dashboardsDir)) + entry
   }
 
-  /** Conservative fallback: every `*.pkl` under `dashboardsDir` (recursively —
-    * library modules live in `lib/`). Over-watching is behaviorally identical,
-    * since the watcher re-evaluates all entries on any change.
-    */
+  // Over-watching is harmless: any change re-evaluates everything.
   private def superset(dashboardsDir: os.Path): Set[os.Path] =
     os.walk(dashboardsDir)
       .filter(p => os.isFile(p) && p.ext == "pkl")

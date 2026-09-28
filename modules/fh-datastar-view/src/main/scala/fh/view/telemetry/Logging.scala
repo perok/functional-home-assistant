@@ -9,46 +9,19 @@ import org.typelevel.otel4s.oteljava.context.Context
 import org.typelevel.otel4s.trace.Tracer
 import org.typelevel.otel4s.{AnyValue, Attribute}
 
-/** The log half of #75: one `LoggerFactory` whose lines go to the console AND
-  * to the collector, both carrying the span they were written inside.
+/** The log half of #75: console and collector, both carrying the current span.
+  * A factory, so http4s' own lines join and each class name is its own
+  * instrumentation scope.
   *
-  * Without the span, traces and logs are two accounts of the same page open
-  * with nothing joining them — you can see that a walk took 900 ms, and
-  * separately that something warned, and no way to tell whether they were the
-  * same request.
-  *
-  * A FACTORY rather than a logger, for two reasons. It is what http4s takes, so
-  * ember's own lines join the same stream; and a logger built per class name is
-  * what an OpenTelemetry instrumentation scope is, so the collector can tell
-  * `fh.view.runtime.Server` from `org.http4s.ember.server` without being told
-  * the mapping.
-  *
-  * ==Why not the logback appender==
-  *
-  * `opentelemetry-logback-appender` is the obvious way to ship these records
-  * and it does not work here: it reads OpenTelemetry Java's
-  * `Context.current()`, which is thread-local, and otel4s keeps the current
-  * span in an `IOLocal` that never populates it. Records would arrive with an
-  * EMPTY trace context — correlation by regex over a copied attribute rather
-  * than by the field a backend already knows. Bridging means a
-  * `makeCurrent()`/`close()` pair around every call, which is the same
-  * thread-local hazard that rules out SLF4J's MDC: a cats-effect fiber moves
-  * between threads freely, and a value put there before an async boundary is on
-  * the wrong thread after it — failing silently, and usually with SOMEBODY's
-  * trace id rather than none.
-  *
-  * otel4s' own `LoggerProvider` has no such problem: `currentContext` is read
-  * per call, in `IO`, from the same `IOLocal` the tracer writes.
+  * Not `opentelemetry-logback-appender`: it reads the thread-local
+  * `Context.current()`, which otel4s' `IOLocal` never populates, so records
+  * arrive with an empty trace context. Bridging it, like SLF4J's MDC, breaks
+  * when a fiber changes threads, usually with somebody else's trace id.
   */
 object Logging {
 
-  /** Levels this project logs at, paired with the OpenTelemetry severity and
-    * the text a backend shows.
-    *
-    * An enum rather than passing `Severity` around because `Severity`'s
-    * companion offers four gradations per level (`info`, `info2`, …) that
-    * nothing here distinguishes, and because matching on it to pick the console
-    * method would need an equality this profile does not grant.
+  /** Not `Severity` itself: nothing here uses its `info2`-style gradations, and
+    * matching on it needs an equality this profile does not grant.
     */
   private enum Level(val severity: Severity, val text: String) {
     case Trace extends Level(Severity.trace, "TRACE")
@@ -58,11 +31,8 @@ object Logging {
     case Error extends Level(Severity.error, "ERROR")
   }
 
-  /** The factory the whole runtime logs through.
-    *
-    * ONE tracer for every logger it hands out, which is sound because the
-    * tracer is only ever asked which span is current — a property of the fiber,
-    * not of the instrumentation scope asking.
+  /** One tracer for every logger: it is only asked which span is current, which
+    * belongs to the fiber, not the scope.
     */
   def factory(otel: Telemetry.Otel): IO[LoggerFactory[IO]] =
     otel.tracerProvider.get("fh.view.telemetry.Logging").map { tracer =>
@@ -82,14 +52,10 @@ object Logging {
       }
     }
 
-  /** The console-only factory: what a test and a standalone construction get,
-    * and what the add-on itself runs on unless an OTLP endpoint is configured.
-    */
   val console: LoggerFactory[IO] = Slf4jFactory.create[IO]
 
-  /** One logger, with its console leg supplied — the seam a test writes
-    * against, since the 25 delegating methods below are exactly where a
-    * copy-paste slip lands and nothing else would catch it.
+  /** For the suite: the 25 delegating methods are where a copy-paste slip
+    * lands.
     */
   private[telemetry] def logger(
       name: String,
@@ -105,13 +71,8 @@ object Logging {
       otel: Telemetry.Otel
   ) extends SelfAwareStructuredLogger[IO] {
 
-    /** The span's ids, merged UNDER the caller's own context — an explicit key
-      * wins, so this can never quietly overwrite something a call site meant.
-      *
-      * On the console leg these are the whole correlation story: the add-on's
-      * Log tab is plain text, and a trace id in it is what lets a reader take a
-      * line to the trace it belongs to. The collector leg does not need them —
-      * it gets the context itself — but they cost nothing there.
+    /** Under the caller's context, so an explicit key wins. The add-on's Log
+      * tab is plain text, so these ids are the console's only correlation.
       */
     private def traced(ctx: Map[String, String]): IO[Map[String, String]] =
       tracer.currentSpanContext.map {
@@ -120,11 +81,8 @@ object Logging {
         case _ => ctx
       }
 
-    /** Both legs of one line.
-      *
-      * The message is forced ONCE, behind the enabled check, and handed on as a
-      * strict `String`: a by-name passed to two writers is evaluated twice, and
-      * interpolations in log statements are exactly where that is expensive.
+    /** The message is forced once, behind the enabled check: a by-name handed
+      * to two writers would be evaluated twice.
       */
     private def emit(
         level: Level,
@@ -144,10 +102,7 @@ object Logging {
           }
       }
 
-    /** Resolved per line rather than held: the provider's own lookup is a map
-      * read, and holding one would mean resolving it in `IO` at a point where
-      * `getLoggerFromName` has none to offer.
-      */
+    // Per line: `getLoggerFromName` is not in `IO`, and the lookup is a map read.
     private def otelLogger: IO[OtelLogger[IO, Context]] =
       otel.loggerProvider.logger(name).get
 
@@ -198,8 +153,6 @@ object Logging {
         case Level.Error => out.isErrorEnabled
       }
 
-    // Every arity funnels through `emit`, so there is one place where the span
-    // is read, one definition of precedence, and one enabled check.
     def trace(message: => String): IO[Unit] =
       emit(Level.Trace, Map.empty, None)(message)
     def debug(message: => String): IO[Unit] =
@@ -249,11 +202,8 @@ object Logging {
         message: => String
     ): IO[Unit] = emit(Level.Error, ctx, Some(t))(message)
 
-    // Delegated unchanged: whether a level is on is the backend's answer, and
-    // has nothing to do with which span is current. Note this reports the
-    // CONSOLE's answer only — a collector configured for DEBUG still gets a
-    // debug line that a caller guarded on this would have skipped, which is
-    // the right way round.
+    // The console's answer only: a caller guarding on it skips a line a DEBUG
+    // collector would have taken.
     def isTraceEnabled: IO[Boolean] = out.isTraceEnabled
     def isDebugEnabled: IO[Boolean] = out.isDebugEnabled
     def isInfoEnabled: IO[Boolean] = out.isInfoEnabled

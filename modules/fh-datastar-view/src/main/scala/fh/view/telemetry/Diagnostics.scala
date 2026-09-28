@@ -8,31 +8,17 @@ import java.lang.management.ManagementFactory
 import javax.management.ObjectName
 import scala.util.control.NonFatal
 
-/** What the add-on is spending on the machine, answerable over HTTP.
+/** What the add-on costs the machine, in process: the container figure (which
+  * includes page cache) beside the JVM's, since either alone misleads. In
+  * process because `docker exec … jcmd` needs the SSH add-on with protection
+  * mode off.
   *
-  * The question this exists for is "the add-on is using 10% of the Pi's RAM —
-  * is that expected?", and the honest answer needs two numbers side by side:
-  * what the SUPERVISOR sees (a container figure that includes page cache) and
-  * what the JVM sees (a heap that grew to fit its workload, plus metaspace,
-  * code cache and GC structures). Reported apart, each one invites the wrong
-  * conclusion.
-  *
-  * Everything here is read IN PROCESS. The alternative — `docker exec … jcmd` —
-  * needs the SSH add-on with protection mode off, so on a stock HAOS install
-  * the answer is gated behind a thing most people do not have, for a question
-  * they are asking from the UI.
-  *
-  * The container half is read from the cgroup rather than from the Supervisor's
-  * `/addons/self/stats`: it is the same number by construction (that is where
-  * the Supervisor gets it), it needs no `hassio_api` permission and no network
-  * call, and it carries the anon/file split — which matters, because page cache
-  * counts toward the figure the UI shows and is not the JVM's doing.
+  * The container half is read from the cgroup, the same number the Supervisor's
+  * stats report, but with no `hassio_api` permission and with the anon/file
+  * split.
   */
 object Diagnostics {
 
-  /** cgroup v2's mount point inside the container. A parameter only so
-    * [[DiagnosticsSuite]] can point at a fixture directory.
-    */
   val CgroupRoot: os.Path = os.root / "sys" / "fs" / "cgroup"
 
   def report(cgroupRoot: os.Path = CgroupRoot): IO[Json] =
@@ -44,13 +30,8 @@ object Diagnostics {
       )
     }
 
-  /** The JVM's own accounting, via the platform MXBeans — no flags, no agent,
-    * and `java.management` has always been in the add-on's jlink set.
-    *
-    * The pools ARE the breakdown people reach for NMT to get: Metaspace,
-    * Compressed Class Space and the three CodeHeaps are memory pools like the
-    * heap generations, so everything but GC-native and thread stacks is here
-    * for free.
+  /** The pools already break out metaspace and the code heaps, so all but
+    * GC-native and thread stacks is here without NMT.
     */
   private def jvm: IO[Json] = IO {
     val memory = ManagementFactory.getMemoryMXBean
@@ -90,44 +71,26 @@ object Diagnostics {
     Json.obj(
       "used" -> Json.fromLong(usage.getUsed),
       "committed" -> Json.fromLong(usage.getCommitted),
-      // -1 for a pool with no ceiling; reported as null rather than as a
-      // number that would read as a real limit.
+      // -1 means no ceiling, which a number would misstate as a limit.
       "max" -> (if (usage.getMax < 0) Json.Null
                 else Json.fromLong(usage.getMax))
     )
 
-  /** The Native Memory Tracking summary, through the platform's own
-    * `DiagnosticCommand` MBean — the same text `jcmd VM.native_memory summary`
-    * prints, without a jcmd or an attach.
-    *
-    * `None` unless the add-on was started with `-XX:NativeMemoryTracking` (the
-    * `memory_tracking` option), because NMT cannot be switched on in a running
-    * JVM. The MBean answers with a sentence saying so rather than failing, so
-    * the "is it on" test is on the TEXT.
+  /** `None` unless started with `-XX:NativeMemoryTracking` (the
+    * `memory_tracking` option). Tested on the text: with NMT off the MBean
+    * answers a sentence rather than failing.
     */
   private def nmt: IO[Option[String]] =
     nmtText.map(_.filter(_.contains("Native Memory Tracking:")))
 
-  /** The MBean's answer VERBATIM, whether or not NMT is enabled — `None` only
-    * when the call itself failed.
-    *
-    * Split out from [[nmt]] for the suite's benefit, and it is not a gratuitous
-    * seam: [[nmt]] answers `None` both when tracking is off and when the
-    * invocation is wrong, so a test written against it alone passes just as
-    * happily with a broken operation name or signature. Asserting this one is
-    * defined is what actually pins the mechanism.
+  /** `None` only when the call failed. [[nmt]] is `None` for a broken
+    * invocation too, so the suite asserts on this to pin the mechanism.
     */
   private[telemetry] def nmtText: IO[Option[String]] =
     diagnosticCommand("vmNativeMemory", Array("summary"))
 
-  /** One `jcmd` command, run in process.
-    *
-    * The platform registers a DIAGNOSTIC COMMAND MBean whose operations are the
-    * jcmd commands, named in camel case — `VM.native_memory` is
-    * `vmNativeMemory`, `Thread.print` is `threadPrint`. Every one of them takes
-    * a single `String[]` of arguments, which is why the signature below is
-    * spelled out rather than inferred: the MBean is dynamic, so a wrong
-    * operation name or argument type is found at RUN time, not compile time.
+  /** A jcmd command by its camel-case operation name. The MBean is dynamic, so
+    * a wrong name or signature only fails at run time.
     */
   private def diagnosticCommand(
       operation: String,
@@ -135,8 +98,6 @@ object Diagnostics {
   ): IO[Option[String]] = IO {
     val server = ManagementFactory.getPlatformMBeanServer
     val name = new ObjectName("com.sun.management:type=DiagnosticCommand")
-    // Matched rather than cast: the operation's declared return type is
-    // `Object` and nothing but this pattern says we expect text back.
     server.invoke(
       name,
       operation,
@@ -148,37 +109,17 @@ object Diagnostics {
     }
   }.handleError(_ => None)
 
-  /** A JVM thread dump — the same text `jcmd <pid> Thread.print` prints, via
-    * the same `DiagnosticCommand` MBean [[nmtText]] uses.
-    *
-    * Not folded into [[report]]: it is large, it is meant to be read rather
-    * than parsed, and producing it pauses every thread — which is not a price
-    * to pay for asking how much memory is in use.
-    */
+  /** Not part of [[report]]: it is large and pauses every thread. */
   def threadDump: IO[String] =
     diagnosticCommand("threadPrint", Array("-l")).map(
       _.getOrElse("thread dump unavailable")
     )
 
-  /** A cats-effect fiber dump — the same snapshot the runtime prints on
-    * SIGUSR1.
+  /** What a thread dump cannot show: which fiber is parked where.
     *
-    * The JVM's thread dump cannot answer this. Almost all of this server's work
-    * runs as FIBERS multiplexed over a handful of carrier threads, so a thread
-    * dump taken while a dashboard is stuck shows a work-stealing pool sitting
-    * idle and says nothing about which fiber is parked or where. This is the
-    * one that names it.
-    *
-    * Read through cats-effect's own MBean rather than off the `IORuntime`, for
-    * the plain reason that `IO.runtime` is `private[effect]` — and the
-    * alternative, `IORuntime.global`, is worse than inaccessible: when no
-    * global has been installed it CREATES one, so a diagnostic endpoint would
-    * spin up a second thread pool as a side effect of being asked a question.
-    *
-    * The object name carries an incrementing id
-    * (`…:type=LiveFiberSnapshotTrigger-3`), so it is matched by pattern; a
-    * runtime that registered no trigger simply has no match, which is reported
-    * rather than raised.
+    * Through cats-effect's MBean because `IO.runtime` is `private[effect]`, and
+    * `IORuntime.global` would create a second runtime when none is installed.
+    * The name carries an incrementing id, hence the pattern.
     */
   def fiberDump: IO[String] = IO {
     val server = ManagementFactory.getPlatformMBeanServer
@@ -188,12 +129,9 @@ object Diagnostics {
       )
     val triggers =
       server.queryNames(pattern, null).asScalaSet.toList.sortBy(_.toString)
-    // Guarded PER TRIGGER, because a process can hold several runtimes and one
-    // of them failing must not take the answer down with it. Two ways one
-    // does, both hit for real: a runtime shutting down unregisters its trigger
-    // between the query and the call, and a monitor not backed by a
-    // work-stealing pool has a null `fiberBag` and throws NPE from inside
-    // cats-effect.
+    // Per trigger, both failures seen for real: a runtime shutting down
+    // unregisters between query and call, and a monitor without a
+    // work-stealing pool throws NPE on its null `fiberBag`.
     val sections = triggers.flatMap(name =>
       try
         server.invoke(name, "liveFiberSnapshot", null, null) match {
@@ -207,10 +145,7 @@ object Diagnostics {
     else sections.mkString("\n")
   }.handleError(e => s"fiber dump unavailable: ${e.getMessage}")
 
-  /** The container figure, from cgroup v2. `None` off Linux, or wherever the
-    * files are not readable — a local `dashboardServe` on a laptop reports the
-    * JVM half only rather than failing.
-    */
+  /** `None` off Linux, so a laptop reports the JVM half only. */
   private def cgroup(root: os.Path): IO[Option[Json]] =
     IO.blocking {
       def read(name: String): Option[String] =
@@ -221,13 +156,9 @@ object Diagnostics {
       }
     }.handleError(_ => None)
 
-  /** Pure, so the parsing is testable without a cgroup.
-    *
-    * `memory.max` is reported VERBATIM, including the literal `"max"` that
-    * means no limit — which is the single most useful field here. An add-on
-    * gets no memory limit from the supervisor, and an unlimited cgroup is
-    * exactly why a JVM sizing itself as a percentage of "available" memory
-    * sizes itself against the whole machine (see `home-addon/run.sh`).
+  /** `memory.max` verbatim, including `"max"`: an add-on gets no limit, which
+    * is why a percentage-sized heap sizes against the whole machine (see
+    * `home-addon/run.sh`).
     */
   private[telemetry] def parseCgroup(
       current: String,
@@ -246,10 +177,8 @@ object Diagnostics {
       // What the supervisor's UI percentage is computed from.
       "current" -> current.toLongOption.fold(Json.Null)(Json.fromLong),
       "max" -> max.fold(Json.Null)(Json.fromString),
-      // The half of `current` that is the JVM's own memory...
       "anon" -> bytes("anon"),
-      // ...and the half that is page cache, which the add-on is charged for
-      // but did not allocate.
+      // Page cache: charged to the add-on, not allocated by it.
       "file" -> bytes("file")
     )
   }

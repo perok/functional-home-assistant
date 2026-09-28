@@ -13,36 +13,24 @@ import java.net.http.HttpClient
 
 object FHApi {
 
-  /** Connect with `SERVER`/`SECRET`/`SERVER_WS` from the process environment
-    * ([[resolveEnv]]). Under sbt the repo-root `.env` reaches it through
+  /** Under sbt the repo-root `.env` reaches the process environment through
     * sbt-dotenv; nothing here reads the file.
     */
   def fromEnv: Resource[IO, HomeAssistantApi[IO]] =
     fromEnvWithClose.map(_._1)
 
-  /** Like [[fromEnv]], but also exposes the connection's `awaitClosed` (an
-    * `IO[Unit]` that completes when the underlying WebSocket has died). A
-    * caller that wants to reconnect races its work against it; callers that
-    * just need the API (codegen, one-shot builds) use [[fromEnv]] and ignore
-    * it.
-    */
+  /** Also yields `awaitClosed`, for a caller that reconnects. */
   def fromEnvWithClose: Resource[IO, (HomeAssistantApi[IO], IO[Unit])] =
     resolveEnv.toResource.flatMap(connectWithClose)
 
-  /** The connection config resolved from `SERVER`/`SECRET`/`SERVER_WS`.
-    * `serverWs` is the optional WS endpoint override — the HA supervisor proxy
-    * exposes the websocket at `ws://supervisor/core/websocket`, not the
-    * `/api/websocket` path derived from `SERVER`.
+  /** `serverWs` overrides the WS endpoint: the supervisor proxy serves it at
+    * `ws://supervisor/core/websocket`, not the `/api/websocket` derived from
+    * `SERVER`.
     */
   final case class Env(server: Uri, secretToken: String, serverWs: Option[Uri])
 
-  /** Resolve + REQUIRE the connection config, failing FAST if `SERVER` or
-    * `SECRET` is missing. This is the misconfiguration boundary: a caller that
-    * hands the connection to a reconnecting supervisor ([[connectWithClose]] →
-    * [[fh.view.runtime.HaFeed]]) resolves ONCE here at boot, so a missing
-    * credential crashes immediately instead of being swallowed by the retry
-    * loop and mistaken for an unreachable-HA outage. (The socket connect that
-    * [[connectWithClose]] performs on each attempt IS the retryable part.)
+  /** Resolved once at boot, apart from [[connectWithClose]], so a missing
+    * credential crashes instead of being retried as an unreachable HA.
     */
   def resolveEnv: IO[Env] =
     for {
@@ -58,21 +46,13 @@ object FHApi {
         .flatMap(_.traverse(s => IO(Uri.unsafeFromString(s))))
     } yield Env(server, secretToken, serverWs)
 
-  /** The reconnectable connection for an already-resolved [[Env]] — the socket
-    * + auth only, which is what a supervisor re-`.use`s on each reconnect. Kept
-    * separate from [[resolveEnv]] so credential errors surface at boot, not on
-    * a background reconnect attempt.
-    */
   def connectWithClose(
       env: Env
   ): Resource[IO, (HomeAssistantApi[IO], IO[Unit])] =
     fromWithClose(env.server, env.secretToken, env.serverWs)
 
-  /** Like [[connectWithClose]] but yields the raw low-level WS connection
-    * (`HAWSApiLowLevel`) rather than the high-level [[HomeAssistantApi]]. The
-    * reconnecting supervisor ([[fh.view.runtime.HaFeed]]) fronts THIS with a
-    * durable facade and rebuilds the high-level API over it, so the whole API
-    * survives reconnects behind one seam.
+  /** `fh.view.runtime.HaFeed` fronts this with a durable facade, so the
+    * high-level API survives reconnects.
     */
   def lowLevelConnectWithClose(
       env: Env
@@ -86,9 +66,6 @@ object FHApi {
   ): Resource[IO, HomeAssistantApi[IO]] =
     fromWithClose(api, secretToken, wsUriOverride).map(_._1)
 
-  /** Like [[from]], but also returns the connection's `awaitClosed` signal (see
-    * [[fromEnvWithClose]]).
-    */
   def fromWithClose(
       api: Uri,
       secretToken: String,
@@ -98,12 +75,6 @@ object FHApi {
       (HomeAssistantApi.fromWs(ws), close)
     }
 
-  /** The single WebSocket connection + its `awaitClosed`. WS-only: one
-    * connection backs the whole API (states, services, templates,
-    * subscriptions, `call_service`) — no REST client. [[fromWithClose]] wraps
-    * this in the high-level API; [[lowLevelConnectWithClose]] hands it raw to
-    * the reconnecting supervisor.
-    */
   def lowLevelWithClose(
       api: Uri,
       secretToken: String,

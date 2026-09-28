@@ -15,72 +15,38 @@ import dev.cel.runtime.{
 
 import java.util.Optional
 
-/** The per-slot value-transform engine: CEL, compiled once at build/validate
-  * time and evaluated per live value on the planner runtime (the engine the
-  * plan's Phase-0 sweep validated against — a swap inside this object is a
-  * measured, golden-gated decision).
+/** CEL on the planner runtime, compiled once at validation. Bindings are
+  * `state`, `attr`, `entity_id`, `domain` and `dashboard_slug` (ADR 0023).
   *
-  * The entity rides in as five activations: `state` (its raw state String),
-  * `attr` (its full attribute map), `entity_id`, `domain` (from the id) and
-  * `dashboard_slug` (the dashboard being rendered — the one binding that is not
-  * about the entity, see ADR 0023). Only this entity is reachable — lookups are
-  * same-entity only — and there is no bare `$`: the slot value is whatever the
-  * expression returns.
+  * Two helpers: `str(x)` renders numbers through [[numToString]], so the engine
+  * and the `Simple` tier cannot drift, and lists as `[a,b]`; `num(x)` parses a
+  * numeric string and errors on anything else, so the card shows the failure
+  * rather than a blank.
   *
-  * Two helpers bridge the places CEL has no native equivalent:
-  *
-  *   - `str(x)` — JSONata's `$string` over heterogeneous attribute values, with
-  *     numbers rendered by [[numToString]] so the engine and the direct fast
-  *     path cannot drift (a Long/Integer as its decimal, a Double via the
-  *     catalog's 10-digit rounding). Lists render as `[a,b]` (the more-info
-  *     block's `rgb_color`), null/empty as `""`.
-  *   - `num(x)` — `$number`'s replacement: a numeric String → Double (a Number
-  *     passes through). A String that is not a number errors like `$number`
-  *     did, so the card shows the failure rather than a blank.
-  *
-  * The compiler and planner runtime are process singletons: compilation is
-  * idempotent over a source string and evaluation takes its own activation map
-  * per call, so one engine is safely shared across every fiber rendering.
+  * Compiler and runtime are shared process-wide: compilation is idempotent and
+  * each evaluation takes its own resolver.
   */
 object Cel {
 
-  /** The sentinel a CEL `null` result arrives as when the planner path adapts
-    * it (`dev.cel.common.values.NullValue` — named by class, not imported, so
-    * the engine does not couple to a values-class for one sentinel).
-    */
+  // By class name, to avoid coupling to a values class for one sentinel.
   private def isNullValue(v: Any): Boolean =
     v == null || v.getClass.getName == "dev.cel.common.values.NullValue"
 
-  /** A compiled CEL program over the entity context. */
   type Program = dev.cel.runtime.CelRuntime.Program
 
-  // ---- the two registered helpers ----
-
-  /** How a number becomes bytes, for BOTH tiers. ADR 0028 defines each
-    * `Transform.Simple` case by an idiomatic CEL spelling and has
-    * `TransformSuite` assert byte-equality against it; this is the function on
-    * both sides of that equality, so it has exactly one definition.
-    */
+  /** Both sides of `TransformSuite`'s byte-equality, so one definition. */
   private[view] def numToString(d: Double): String =
     if (d.isNaN || d.isInfinite) d.toString
     else if (d == Math.rint(d) && Math.abs(d) < 1e15) d.toLong.toString
     else
-      // `java.math.BigDecimal.valueOf`, not `scala.math.BigDecimal(d)`: the
-      // Scala one wraps the same `Double.toString` parse in a `BigDecimal`
-      // object carrying a `MathContext`, and every fractional slot value on the
-      // page pays for both. Byte-identical — `DECIMAL128` keeps 34 significant
-      // digits and a `Double` has at most 17, so the context never rounds
-      // anything a `setScale(10)` would not; checked over 500k doubles and
-      // pinned by the cases in `TransformSuite`.
+      // The Java `valueOf`, not Scala's `BigDecimal`, which allocates a
+      // `MathContext` per value; byte-identical (checked over 500k doubles).
       java.math.BigDecimal
         .valueOf(d)
         .setScale(10, java.math.RoundingMode.HALF_UP)
         .stripTrailingZeros
         .toPlainString
 
-  /** `str(x)` over heterogeneous attribute values — the same rendering the
-    * engine applies to a bare result, so `str(v)` and a bare `v` never part.
-    */
   private def stringLike(v: Any): String = v match
     case xs: java.util.List[?] =>
       val it = xs.iterator()
@@ -94,14 +60,9 @@ object Cel {
         ()
       }
       sb.append("]").toString
-    // The list case is the ONLY thing `str(x)` adds: a bare list result renders
-    // as Java's `[a, b]`, `str` as `[a,b]`, and that difference is deliberate.
+    // Deliberately differs from a bare list result, which renders `[a, b]`.
     case scalar => stringify(scalar)
 
-  /** `num(x)` — `$number`'s replacement. A numeric String parses to Double and
-    * a Number passes through; anything else is an evaluation error (a card
-    * shows "cel error: …", contained, exactly as `$number` used to).
-    */
   private def parseNum(v: Any): java.lang.Double = v match
     case n: java.lang.Number =>
       n.doubleValue
@@ -151,19 +112,11 @@ object Cel {
       CelExtensions.lists(),
       CelExtensions.math(),
       CelExtensions.comprehensions(),
-      // Optionals, on BOTH builders: `CelOptionalLibrary` is a compiler library
-      // AND a runtime one, and adding it to only the compiler yields programs
-      // the runtime cannot evaluate. It is what makes `attr[?'x']` parse at all
-      // — without it the parser rejects `[?` as unsupported syntax.
+      // On both builders, or the runtime cannot evaluate what compiles.
       CelOptionalLibrary.INSTANCE
     )
-    // NO MACROS, and `has()` is the one people expect: `standardCelCompilerBuilder`
-    // registers standard DECLARATIONS but no standard macros, so `has(attr.x)` is
-    // an "undeclared reference to 'has'" here, not a working guard. Measured
-    // against the pinned `dev.cel:cel:0.14.0`; nothing in the tree uses it, and
-    // the optional spelling (`attr[?'x']`) removed most of the reason to want it.
-    // Turning it on is `setStandardMacros(CelStandardMacro.HAS)` — per-macro, so
-    // it need not drag in ALL/EXISTS/MAP/FILTER.
+    // No macros: `has(attr.x)` is an undeclared reference here (cel 0.14.0).
+    // `setStandardMacros(CelStandardMacro.HAS)` would enable just that one.
     .addVar("state", SimpleType.STRING)
     .addVar("attr", MapType.create(SimpleType.STRING, SimpleType.DYN))
     .addVar("entity_id", SimpleType.STRING)
@@ -202,18 +155,9 @@ object Cel {
     )
     .build()
 
-  // The cel-java compile-time optimizers (ConstantFoldingOptimizer +
-  // SubexpressionOptimizer, the codelab's Exercise 8) were MEASURED and
-  // declined: on the shipped shapes they bought no CPU (all differences inside
-  // the bench's error bars) and cost a consistent ~1-2% MORE allocation per
-  // eval — the planner materializes a folded constant node where inline
-  // arithmetic was free, and our expressions carry no repeated subtree for CSE
-  // to extract (each attribute read appears once). Revisit only if a shape
-  // with genuinely repeated subtrees ships; the gate + suites pin the values
-  // either way.
+  // The compile-time optimizers were measured and declined: no CPU gain and
+  // ~1-2% more allocation per eval, since no shipped shape repeats a subtree.
 
-  /** Compile a CEL expression (build/validate time and the gate's CEL side).
-    */
   def parse(src: String): Either[String, Program] = {
     val trimmed = src.trim
     if (trimmed.isEmpty) Left("empty transform expression")
@@ -224,11 +168,8 @@ object Cel {
     }
   }
 
-  /** The five bindings, resolved ON DEMAND: the planner asks only for what the
-    * expression reads, so nothing is materialized per evaluation — no HashMap
-    * to build, and an expression that reads no attribute (a bare `state`
-    * concat) never forces [[EntityState.javaAttributes]] either. The whole
-    * per-eval cost is this one small resolver object.
+  /** On demand, so an expression reading no attribute never forces
+    * [[EntityState.javaAttributes]].
     */
   private final class EntityResolver(entity: EntityState, slug: String)
       extends CelVariableResolver {
@@ -242,12 +183,7 @@ object Cel {
     }
   }
 
-  /** Evaluate a compiled program against one entity, stringified for the
-    * template. The dashboard's slug binds `dashboard_slug` (ADR 0023); on
-    * evaluation failure the CEL error message is returned so the card shows it
-    * — contained, never thrown into the render. A result with no value becomes
-    * `""` so the slot's `default` can take over.
-    */
+  /** A failure returns its message, contained to the card. */
   def run(
       program: Program,
       entity: EntityState,
@@ -255,16 +191,7 @@ object Cel {
   ): String =
     SlotValue.text(runValue(program, entity, dashboardSlug))
 
-  /** [[run]] keeping a BOOLEAN result boolean.
-    *
-    * CEL's `bool` is a real type — `state in ['locked','locking']` returns one
-    * — and it is the only value that can turn a boolean attribute off. Every
-    * other result stringifies exactly as [[run]] renders it, so this is a
-    * widening at one type and an identity everywhere else.
-    *
-    * An evaluation FAILURE stays a String: the card shows the CEL message, and
-    * a message is bytes whatever the expression's declared type was.
-    */
+  /** Keeps a `bool` result boolean; a failure's message stays a String. */
   def runValue(
       program: Program,
       entity: EntityState,
@@ -276,19 +203,9 @@ object Cel {
         case other                => stringify(other)
     catch case e: Exception => s"cel error: ${errorText(e)}"
 
-  /** Stringify a CEL result the way a string-coercing operator would, so a bare
-    * number and a `str(...)` number land identically on the slot.
-    *
-    * The two ways CEL says "no value" both render `""`, so the slot's `default`
-    * can take over: a `null` arrives as `NullValue` (or a bare Java null), an
-    * `optional.none()` / missing `attr[?'x']` as an empty `java.util.Optional`.
-    * The optional case is not cosmetic — without it an optional falls through
-    * to `String.valueOf` and puts the literal text `Optional.empty` in the DOM.
-    *
-    * Also what the `Transform.Simple` fast tier renders its direct reads with
-    * ([[Transform.runSimple]]): the tier is only sound while it produces
-    * exactly the engine's bytes, and the cheapest way to keep that true is for
-    * there to be one function rather than two that agree today.
+  /** Also the `Simple` tier's renderer, so the two cannot drift. Null and an
+    * empty `Optional` both render `""`; without the latter case the DOM shows
+    * `Optional.empty`.
     */
   private[view] def stringify(result: Any): String = result match
     case n if isNullValue(n)  => ""
