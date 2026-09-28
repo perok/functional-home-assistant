@@ -174,7 +174,7 @@ class VarTapSuite extends ServerHarness {
           fs2.concurrent.Signal.constant(true),
           fh.view.build.SystemPkl.empty,
           None,
-          adoptionWindow = 5.seconds,
+          windows = Server.SessionWindows.default.copy(adoption = 5.seconds),
           queries = Some(qr)
         )
         .use(server => f(server.routes.orNotFound, sessions))

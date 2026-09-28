@@ -187,7 +187,8 @@ object ServerApp extends IOApp {
           watchRegistry = config.watchRegistry,
           otel = otel,
           loggerFactory = loggerFactory,
-          meters = meters
+          meters = meters,
+          sessionWindows = Server.SessionWindows.default
         )
       )
       _ <- EmberServerBuilder
@@ -227,7 +228,9 @@ object ServerApp extends IOApp {
       watchRegistry: Boolean,
       otel: Telemetry.Otel,
       loggerFactory: LoggerFactory[IO],
-      meters: Meters
+      meters: Meters,
+      // Not an edge: time, which a test shortens to watch a reap.
+      sessionWindows: Server.SessionWindows
   )
 
   /** `connectAs` is a short-lived connection as a user, never the machine-token
@@ -407,7 +410,8 @@ object ServerApp extends IOApp {
         ),
         tracer = serverTracer,
         loggerFactory = loggerFactory,
-        meters = meters
+        meters = meters,
+        windows = edges.sessionWindows
       )
       editor = new EditorRoutes(
         workspace,

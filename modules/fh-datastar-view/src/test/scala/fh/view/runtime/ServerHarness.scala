@@ -806,14 +806,17 @@ trait ServerHarness extends munit.CatsEffectSuite {
     * the real runtime, so a caller runs under `testReal` or opts its suite out
     * of [[simulateTime]].
     */
-  def live(dash: Dashboard, initial: Map[String, EntityState])(
-      use: TestServer => IO[Unit]
-  ): IO[Unit] =
+  def live[A](
+      dash: Dashboard,
+      initial: Map[String, EntityState],
+      windows: Server.SessionWindows = Server.SessionWindows.default
+  )(use: TestServer => IO[A]): IO[A] =
     TestServer
       .resource(
         dash,
         initial.values.toList
-          .map(e => FixtureEntity(e.entityId, e.state, e.attributes))
+          .map(e => FixtureEntity(e.entityId, e.state, e.attributes)),
+        windows = windows
       )
       .use(use)
       .timeout(30.seconds)

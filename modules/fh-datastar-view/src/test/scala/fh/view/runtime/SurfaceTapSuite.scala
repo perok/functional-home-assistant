@@ -47,7 +47,7 @@ class SurfaceTapSuite extends ServerHarness {
           // The tap mints a `Fresh` session with its reap this far out, inside
           // the window the test lets the first session be reaped in; 50 ms was
           // not enough on a loaded machine.
-          adoptionWindow = 2.seconds
+          windows = Server.SessionWindows.default.copy(adoption = 2.seconds)
         )
         .use { server =>
           val routes = server.routes.orNotFound

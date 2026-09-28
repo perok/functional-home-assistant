@@ -51,20 +51,7 @@ class DashboardBehaviourSuite extends FunctionalSuite {
 
   test("a state change pushes a fragment carrying the new value") {
     withServer(scene.card(FixtureDashboard.reading(outside))) { ts =>
-      ts.observePatch(
-        marker = "13.1",
-        trigger = ts.fake.emit(outside.entityId, "13.1", outside.attributes)
-      )
-    }
-  }
-
-  test("turning the kitchen light off pushes its new state over SSE") {
-    withServer(scene.card(FixtureDashboard.light("Kitchen", kitchen))) { ts =>
-      // Only the off light's fragment can contain this.
-      ts.observePatch(
-        marker = "Kitchen: <span>off</span>",
-        trigger = ts.fake.emit(kitchen.entityId, "off", Map.empty)
-      )
+      ts.sentAfter(ts.frame(outside.copy(state = "13.1"))).map(carries("13.1"))
     }
   }
 
@@ -121,17 +108,17 @@ class DashboardBehaviourSuite extends FunctionalSuite {
     withServer(scene.card(FixtureDashboard.light("Kitchen", kitchen))) { ts =>
       for {
         _ <- ts.post(s"sse/action/${ts.slug}/light/turn_off/light.kitchen")
-        _ <- ts.observePatch(
-          marker = "Kitchen: <span>off</span>",
-          // The fake does not simulate HA, so the resulting state change is
-          // emitted explicitly.
-          trigger = ts.fake.emit(kitchen.entityId, "off", Map.empty)
-        )
+        // The fake does not simulate HA, so the resulting state change is
+        // emitted explicitly.
+        sent <- ts.sentAfter(ts.change(kitchen.entityId, "off"))
         calls <- ts.fake.recordedCalls
-      } yield assertEquals(
-        calls,
-        Vector(ServiceCall("light", "turn_off", "light.kitchen", Json.obj()))
-      )
+      } yield {
+        carries("Kitchen: <span>off</span>")(sent)
+        assertEquals(
+          calls,
+          Vector(ServiceCall("light", "turn_off", "light.kitchen", Json.obj()))
+        )
+      }
     }
   }
 
@@ -144,10 +131,8 @@ class DashboardBehaviourSuite extends FunctionalSuite {
     val alpha = onLight("alpha", "Alpha")
     val beta = offLight("beta", "Beta")
     withServer(scene.card(onSet(alpha, beta)).entities(alpha, beta)) { ts =>
-      ts.observePatch(
-        marker = "Beta: <span>on</span>",
-        trigger = ts.fake.emit(beta.entityId, "on", beta.attributes)
-      )
+      ts.sentAfter(ts.frame(beta.copy(state = "on")))
+        .map(carries("Beta: <span>on</span>"))
     }
   }
 
@@ -162,16 +147,13 @@ class DashboardBehaviourSuite extends FunctionalSuite {
       scene.card(onSet(alpha, beta, gamma)).entities(alpha, beta, gamma)
     ) { ts =>
       for {
-        _ <- ts.observePatch(
-          marker = "Gamma: <span>on</span>",
-          trigger = ts.fake.emit(gamma.entityId, "on", gamma.attributes)
-        )
+        entered <- ts.sentAfter(ts.frame(gamma.copy(state = "on")))
+        left <- ts.sentAfter(ts.frame(beta.copy(state = "off")))
+      } yield {
+        carries("Gamma: <span>on</span>")(entered)
         // A per-entity remove targeting only beta's cell.
-        _ <- ts.observePatch(
-          marker = "mode remove",
-          trigger = ts.fake.emit(beta.entityId, "off", beta.attributes)
-        )
-      } yield ()
+        carries("mode remove")(left)
+      }
     }
   }
 
@@ -183,10 +165,8 @@ class DashboardBehaviourSuite extends FunctionalSuite {
         .card(lightSet(kitchen, HouseFixture.livingRoomLight))
         .entities(kitchen, HouseFixture.livingRoomLight)
     ) { ts =>
-      ts.observePatch(
-        marker = "Kitchen: <span>off</span>",
-        trigger = ts.fake.emit(kitchen.entityId, "off", kitchen.attributes)
-      )
+      ts.sentAfter(ts.frame(kitchen.copy(state = "off")))
+        .map(carries("Kitchen: <span>off</span>"))
     }
   }
 
@@ -203,10 +183,8 @@ class DashboardBehaviourSuite extends FunctionalSuite {
       elseBranch = FixtureDashboard.light("Disarmed", disarmed)
     )
     withServer(Scene.of(dash).entities(alarm, armed, disarmed)) { ts =>
-      ts.observePatch(
-        marker = "Armed: <span>ON</span>",
-        trigger = ts.fake.emit(alarm.entityId, "armed", Map.empty)
-      )
+      ts.sentAfter(ts.change(alarm.entityId, "armed"))
+        .map(carries("Armed: <span>ON</span>"))
     }
   }
 }

@@ -90,6 +90,18 @@ class CursorSuite extends munit.FunSuite {
     )
   }
 
+  /** Wrong here shows on no wire: a document resumed at its own version
+    * re-renders nodes its `holds` then suppress.
+    */
+  test("a document resumes after its version, a reconnect at it") {
+    val c = Server.Cursor("h", "s", "L", 7L)
+    val firstConnect =
+      get(params + "&datastar=" + java.net.URLEncoder.encode("{}", "UTF-8"))
+    assertEquals(Server.resumeFrom(get(params), c), 8L)
+    assertEquals(Server.resumeFrom(firstConnect, c), 8L)
+    assertEquals(Server.resumeFrom(signals(whole), c), 7L)
+  }
+
   test("a store carrying other signals but no cursor is the same case") {
     // A mis-specified client `filterSignals`: `conn` and ui state arrive, the
     // cursor does not.
