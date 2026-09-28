@@ -8,9 +8,8 @@ stubbed, and a smaller set of tests that each earn their place.
 
 | Path | Suites | What it skips |
 |---|---|---|
-| `SharedHarness`: `new Server`, drives `recordFrame` + `Patches.resume` itself | 4 | publishers, routes, feed |
-| direct `Server.resource` (incl. `LiveWorld`) | 8, ~15 call sites | `HaFeed`, queries, auth routes, `FHError.handle`, narrowing |
-| `TestServer` → `ServerApp.assemble` (step 1) | functional, smoke, Pkl behaviour, `ServerAppSuite` | only the edges |
+| direct `Server` (`LiveWorld`, one `ResumeSuite` and one `FailedDashboardSuite` test) | 3 | `HaFeed`, queries, auth routes, `FHError.handle`, narrowing |
+| `TestServer` → `ServerApp.assemble` | every other server suite, functional, smoke | only the edges |
 | pure `Renderer` / `Patches` | 29 files | nothing: the functional core |
 
 `Server.resource` has no production caller.
@@ -27,17 +26,13 @@ stubbed, and a smaller set of tests that each earn their place.
    gate move onto `TestServer` (`connect`, `change`, `frame`), with state driven through
    `fake.emitFrame`, and its callers with them. `RenderCacheContentionSuite` stays on `LiveWorld`
    (see Decisions).
-3. **Migrate suite by suite**, the direct `Server.resource` callers first (SessionLifecycle,
-   ServerRoutes, the Tap suites, SharedPass, ActionConcurrency, PageStreamRoute: done). What is
-   left drives `recordFrame` and `Patches.resume` with hand-built sessions and queued frames
-   (Resume, SetNode, StateSurface, SetMembership, SignalSlot, AckedResume, LiveStream,
-   FailedDashboard). Per test, before porting:
+3. **Migrate suite by suite** (done). Per test, before porting:
    - **What regression would it catch that nothing else does?** A test pinning an internal
      (a log's shape, a cache's key) that a boundary test already covers is deleted, not ported.
    - **Overlap:** the same property asserted at two layers keeps the lowest layer that can observe
      it — pure logic in a core suite, wiring and timing at the HTTP/SSE boundary.
-4. **Delete** `SharedHarness`, and `Server.resource` beyond what `LiveWorld` needs, with the seams
-   only they used.
+4. **Delete** `Server.resource` beyond what `LiveWorld` needs, with the seams only it used.
+   `SharedHarness`, `recordAndPull` and `CountingRenderer` went with step 3.
 
 ## Decisions
 
@@ -58,3 +53,13 @@ stubbed, and a smaller set of tests that each earn their place.
   minutes.
 - **HA down is the fake's socket closing** (`TestServer.haDown`), so the page and the stream read
   the feed's own health rather than an injected constant.
+- **What one pull owes is asked of a viewer** (`TestServer.viewer`): a real page load whose stream
+  never opens, pulled by hand through `Server.pull`, with frames through the fake and the real
+  recorder. Several frames before one pull is the slow client, deterministically. Rejected: a pure
+  path over `Patches`, which still needs a copy of `pull`'s bookkeeping in the tests, the copy
+  `SharedHarness` was and that had drifted (no morph merging, a cursor on an empty pull, a fresh
+  render cache).
+- **Two tests keep a direct `Server`, each for a reason `TestServer` cannot meet.** `ResumeSuite`'s
+  "claims the changelog's version" needs a recorder that has not caught up, a window the assembled
+  server closes too fast to observe. `FailedDashboardSuite`'s membership test drives
+  `ServerApp.reloadSite` by hand, which the assembled server's own watcher would race.

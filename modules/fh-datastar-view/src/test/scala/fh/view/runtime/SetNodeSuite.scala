@@ -2,6 +2,7 @@ package fh.view.runtime
 
 import fh.view.runtime.RendererTestOps.*
 
+import cats.effect.IO
 import fh.view.model.{
   CardDef,
   Dashboard,
@@ -24,6 +25,18 @@ import io.circe.Json
   * wholesale and the frame after it is under test.
   */
 class SetNodeSuite extends ServerHarness {
+
+  // Opens documents; see [[ServerHarness.simulateTime]].
+  override protected def simulateTime: Boolean = false
+
+  /** The document's first paint, and a viewer holding it. */
+  private def viewing(dash: Dashboard, states: Map[String, EntityState])(
+      f: (String, TestServer.Viewer) => IO[Unit]
+  ): IO[Unit] =
+    live(dash, states)(_.viewer().flatMap(v => f(v.document.html, v)))
+
+  private def step(v: TestServer.Viewer, next: EntityState) =
+    v.change(next).map(elementPatches)
 
   private val tile = Map(
     "tile" -> CardDef("<b>{{state}}</b>", slots = List("state"))
@@ -80,8 +93,8 @@ class SetNodeSuite extends ServerHarness {
       .toList
 
   test("a set renders its candidates in AUTHORED order, not entity-id order") {
-    SharedHarness.create(setDash, allOn).flatMap { h =>
-      h.opening(None).map { html =>
+    viewing(setDash, allOn) { (html, _) =>
+      IO {
         assertEquals(
           order(html),
           List("c_light_c", "c_light_a", "c_light_b", "c_light_d", "c_light_e")
@@ -91,11 +104,10 @@ class SetNodeSuite extends ServerHarness {
   }
 
   test("a candidate whose clause stops holding is REMOVED, not hidden") {
-    SharedHarness.create(setDash, allOn).flatMap { h =>
+    viewing(setDash, allOn) { (_, v) =>
       for {
-        _ <- h.opening(None)
-        _ <- h.step(off("light.e"))
-        patches <- h.step(off("light.a"))
+        _ <- step(v, off("light.e"))
+        patches <- step(v, off("light.a"))
       } yield {
         assertEquals(patches.size, 1, clue = patches)
         val p = patches.head
@@ -108,11 +120,10 @@ class SetNodeSuite extends ServerHarness {
   }
 
   test("a candidate coming back is PLACED at its authored position") {
-    SharedHarness.create(setDash, allOn).flatMap { h =>
+    viewing(setDash, allOn) { (_, v) =>
       for {
-        _ <- h.opening(None)
-        _ <- h.step(off("light.a"))
-        patches <- h.step(on("light.a"))
+        _ <- step(v, off("light.a"))
+        patches <- step(v, on("light.a"))
       } yield {
         // Remove-then-insert, the idempotent pair an arrival always is.
         assertEquals(patches.size, 2, clue = patches)
@@ -127,29 +138,6 @@ class SetNodeSuite extends ServerHarness {
         )
       }
     }
-  }
-
-  test("an entity outside the candidate set moves nothing") {
-    SharedHarness
-      .create(setDash, allOn + ("light.z" -> on("light.z")))
-      .flatMap { h =>
-        for {
-          _ <- h.opening(None)
-          patches <- h.step(off("light.z"))
-        } yield assertEquals(patches, Nil, clue = patches)
-      }
-  }
-
-  test("an UNGUARDED clause is present even for an entity HA never reported") {
-    // Presence decided at build time is not the runtime's to revisit, and a
-    // candidate with no state is where a query would have dropped it.
-    SharedHarness
-      .create(setOf(List("light.ghost"), _ => None), Map.empty)
-      .flatMap { h =>
-        h.opening(None).map { html =>
-          assert(html.contains("""id="c_light_ghost""""), clue = html)
-        }
-      }
   }
 
   test("a reorder moves the FEWEST members that can produce it") {
@@ -183,53 +171,9 @@ class SetNodeSuite extends ServerHarness {
     val states =
       Map("light.a" -> bri("light.a", 2), "light.b" -> bri("light.b", 10))
         + ("light.c" -> bri("light.c", 200))
-    SharedHarness.create(dash, states).flatMap { h =>
-      h.opening(None).map { html =>
+    viewing(dash, states) { (html, _) =>
+      IO {
         assertEquals(order(html), List("c_light_c", "c_light_b", "c_light_a"))
-      }
-    }
-  }
-
-  test("ordering by whether a predicate HOLDS puts the true ones first") {
-    val dash = sorted(
-      List("light.a", "light.b", "light.c"),
-      LayoutNode.SortTerm(
-        LayoutNode.SortKey.Holds(
-          Predicate.Cmp("attr:mode", Op.Eq, Json.fromString("night"))
-        ),
-        "asc"
-      )
-    )
-    def mode(id: String, m: String) =
-      st(id, "on", "mode" -> Json.fromString(m))
-    val states = Map(
-      "light.a" -> mode("light.a", "day"),
-      "light.b" -> mode("light.b", "night"),
-      "light.c" -> mode("light.c", "day")
-    )
-    SharedHarness.create(dash, states).flatMap { h =>
-      h.opening(None).map { html =>
-        assertEquals(order(html), List("c_light_b", "c_light_a", "c_light_c"))
-      }
-    }
-  }
-
-  test("ties keep the AUTHORED order, so a tick does not reshuffle them") {
-    // Without the stable tiebreak a live-ordered set churns Gone/Placed pairs
-    // on every change.
-    val dash = sorted(
-      List("light.c", "light.a", "light.b"),
-      LayoutNode.SortTerm(LayoutNode.SortKey.Prop("attr:brightness"), "desc")
-    )
-    val states =
-      List("light.a", "light.b", "light.c").map(id => id -> bri(id, 50)).toMap
-    SharedHarness.create(dash, states).flatMap { h =>
-      for {
-        html <- h.opening(None)
-        patches <- h.step(bri("light.a", 50))
-      } yield {
-        assertEquals(order(html), List("c_light_c", "c_light_a", "c_light_b"))
-        assertEquals(patches, Nil, clue = patches)
       }
     }
   }
@@ -246,11 +190,10 @@ class SetNodeSuite extends ServerHarness {
       "light.b" -> bri("light.b", 50),
       "light.c" -> bri("light.c", 10)
     )
-    SharedHarness.create(dash, states).flatMap { h =>
+    viewing(dash, states) { (_, v) =>
       for {
-        _ <- h.opening(None)
-        _ <- h.step(off("light.c"))
-        patches <- h.step(bri("light.b", 80))
+        _ <- step(v, off("light.c"))
+        patches <- step(v, bri("light.b", 80))
       } yield assertEquals(patches, Nil, clue = patches)
     }
   }
@@ -266,11 +209,10 @@ class SetNodeSuite extends ServerHarness {
       "light.c" -> bri("light.c", 20),
       "light.d" -> bri("light.d", 10)
     )
-    SharedHarness.create(dash, states).flatMap { h =>
+    viewing(dash, states) { (_, v) =>
       for {
-        _ <- h.opening(None)
-        _ <- h.step(bri("light.d", 5))
-        patches <- h.step(bri("light.d", 35))
+        _ <- step(v, bri("light.d", 5))
+        patches <- step(v, bri("light.d", 35))
       } yield {
         assertEquals(patches.size, 2, clue = patches)
         assert(patches.head.contains("mode remove"), clue = patches.head)
@@ -292,11 +234,10 @@ class SetNodeSuite extends ServerHarness {
       "light.b" -> bri("light.b", 20),
       "light.c" -> bri("light.c", 10)
     )
-    SharedHarness.create(dash, states).flatMap { h =>
+    viewing(dash, states) { (html, v) =>
       for {
-        html <- h.opening(None)
         // The cut moves to a member that did not change.
-        patches <- h.step(bri("light.c", 25))
+        patches <- step(v, bri("light.c", 25))
       } yield {
         assertEquals(order(html), List("c_light_a", "c_light_b"))
         assert(!html.contains("c_light_c"), clue = html)
@@ -316,8 +257,8 @@ class SetNodeSuite extends ServerHarness {
     val dash = setOf(List("light.a_b", "light.a"), _ => Some(whileOn))
     val states =
       Map("light.a_b" -> on("light.a_b"), "light.a" -> on("light.a"))
-    SharedHarness.create(dash, states).flatMap { h =>
-      h.opening(None).map { html =>
+    viewing(dash, states) { (html, _) =>
+      IO {
         assert(html.contains("""id="c_light_a_b""""), clue = html)
         assert(html.contains("""id="c_light_a""""), clue = html)
       }
@@ -359,10 +300,9 @@ class SetNodeSuite extends ServerHarness {
     )
     val states =
       Map("light.a" -> on("light.a"), "sensor.temp" -> st("sensor.temp", "21"))
-    SharedHarness.create(dash, states).flatMap { h =>
+    viewing(dash, states) { (html, v) =>
       for {
-        html <- h.opening(None)
-        patches <- h.step(st("sensor.temp", "22"))
+        patches <- step(v, st("sensor.temp", "22"))
       } yield {
         assert(html.contains("<b>on</b>"), clue = html)
         assert(html.contains("<b>21</b>"), clue = html)
@@ -416,11 +356,10 @@ class SetNodeSuite extends ServerHarness {
     )
     val states =
       List("light.a", "light.b", "light.c", "light.d").map(id => id -> on(id))
-    SharedHarness.create(dash, states.toMap).flatMap { h =>
+    viewing(dash, states.toMap) { (html, v) =>
       for {
-        html <- h.opening(None)
-        _ <- h.step(off("light.d"))
-        patches <- h.step(off("light.b"))
+        _ <- step(v, off("light.d"))
+        patches <- step(v, off("light.b"))
       } yield {
         assert(html.contains("""id="c_area_stue_0_0_light_a""""), clue = html)
         assert(html.contains("""id="c_area_stue_0_0_light_b""""), clue = html)
@@ -517,12 +456,11 @@ class SetNodeSuite extends ServerHarness {
     val states = Map("light.banner" -> off("light.banner")) ++
       Map("light.x" -> on("light.x")) ++
       counted.tail.map(id => id -> off(id)).toMap
-    SharedHarness.create(dash, states).flatMap { h =>
+    // A count reads only what it names, so the banner's own state is
+    // irrelevant.
+    viewing(dash, states) { (html, v) =>
       for {
-        // A count reads only what it names, so the banner's own state is
-        // irrelevant.
-        html <- h.opening(None)
-        patches <- h.step(on("light.y"))
+        patches <- step(v, on("light.y"))
       } yield {
         assert(!html.contains("c_light_banner"), clue = html)
         assert(patches.nonEmpty, clue = patches)
@@ -549,11 +487,10 @@ class SetNodeSuite extends ServerHarness {
       }
     )
     val states = gated.map(id => id -> on(id)).toMap + (hall -> off(hall))
-    SharedHarness.create(dash, states).flatMap { h =>
+    viewing(dash, states) { (html, v) =>
       for {
-        html <- h.opening(None)
-        _ <- h.step(off("light.e"))
-        patches <- h.step(on(hall))
+        _ <- step(v, off("light.e"))
+        patches <- step(v, on(hall))
       } yield {
         assert(!html.contains("""id="c_light_a""""), clue = html)
         assertEquals(patches.size, 2, clue = patches)

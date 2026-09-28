@@ -159,45 +159,6 @@ trait ServerHarness extends munit.CatsEffectSuite {
       )
       .unsafeRunSync()
 
-  /** One frame recorded for the slug, then pulled by one viewer: the path a
-    * live change takes. `holds` is what that viewer's DOM already has, and
-    * suppresses redundant patches; `from = 0` asks for everything the log
-    * knows.
-    */
-  def recordAndPull(
-      server: Server,
-      sessions: Sessions,
-      store: StateStore,
-      renderer: Renderer,
-      log: Ref[IO, FragmentLog],
-      changes: List[StateChange],
-      open: Set[String] = Set.empty,
-      ui: Map[String, String] = Map.empty,
-      holds: Map[NodeId, Held] = Map.empty,
-      from: Long = 0L
-  ): IO[List[Addressed]] =
-    // A slug nobody is watching records nothing, so the viewer must exist
-    // before the frame does.
-    Session
-      .create("dashboard")
-      .flatTap(_.open.set(open))
-      .flatMap(sessions.register("recordAndPull", _)) *>
-      server.recordFrame("dashboard", renderer, log, changes) *>
-      (log.get, store.current, RenderCache.create).flatMapN((l, now, rc) =>
-        Patches.resume(
-          renderer,
-          rc,
-          l,
-          holds,
-          now.entities,
-          _ => IO.pure(QuerySnapshot.empty),
-          Map.empty,
-          from,
-          open,
-          ui
-        )
-      )
-
   def tabsRenderer: Renderer = Renderer.create(tabsDash)
 
   def tabsDash: Dashboard = {
@@ -316,29 +277,6 @@ trait ServerHarness extends munit.CatsEffectSuite {
     )
   )
 
-  /** A viewer already current on these nodes, and a log that has recorded them.
-    * The value is each id's live rendering, since suppression compares a digest
-    * of what the client holds; seeded through `set`, so the digest derivation
-    * is not duplicated here.
-    */
-  def seeded(
-      renderer: Renderer,
-      states: Map[String, EntityState],
-      ids: Iterable[String]
-  ): (FragmentLog, Map[NodeId, Held]) =
-    ids.foldLeft((FragmentLog("test"), Map.empty[NodeId, Held])) {
-      case ((log, holds), raw) =>
-        val id = NodeId.derived(raw)
-        (
-          log.touched(id, 0L),
-          renderer
-            .renderNodeById(id, states, fragments = QuerySnapshot.empty)
-            .fold(holds)(html => holds + (id -> Held.of(html)))
-        )
-    }
-
-  // The log holds a version, not HTML (ADR 0012); what patches carry is
-  // asserted on the patches.
   def logged(log: FragmentLog): Map[NodeId, Long] = log.fragments
 
   def elementPatches(batch: List[SseFrame]): List[String] =
@@ -415,171 +353,6 @@ trait ServerHarness extends munit.CatsEffectSuite {
     * returns what this viewer's pull emits. `holds` and `position` accumulate
     * across steps.
     */
-  class SharedHarness(
-      store: StateStore,
-      val server: Server,
-      renderer: Renderer,
-      cache: Ref[IO, FragmentLog],
-      sessions: Sessions
-  ) {
-
-    /** What this slug records next is recorded with nobody watching: a gap. */
-    def closeViewer: IO[Unit] =
-      sessions
-        .get("harness")
-        .flatMap(_.traverse_(sessions.deregisterIf("harness", _)))
-    private val holds = Ref.unsafe[IO, Map[NodeId, Held]](Map.empty)
-    private val position = Ref.unsafe[IO, Long](0L)
-
-    private def record(next: EntityState): IO[Unit] =
-      for {
-        prev <- store.snapshot.map(_.get(next.entityId))
-        _ <- store.update(next)
-        _ <- server.recordFrame(
-          "dashboard",
-          renderer,
-          cache,
-          List(StateChange(next.entityId, prev, next))
-        )
-      } yield ()
-
-    private def drain: IO[List[SseFrame]] =
-      (cache.get, store.current, holds.get, position.get, RenderCache.create)
-        .flatMapN { (log, now, held, from, rc) =>
-          Patches
-            .resume(
-              renderer,
-              rc,
-              log,
-              held,
-              now.entities,
-              _ => IO.pure(QuerySnapshot.empty),
-              Map.empty,
-              from + 1
-            )
-            .flatMap { patches =>
-              holds.set(
-                patches.foldLeft(held)(
-                  Patches.applied(renderer.ancestry, _, _)
-                )
-              ) *>
-                position
-                  .set(now.version)
-                  .as(events(patches) :+ Server.versionSignal(now.version))
-            }
-        }
-
-    private def sharedBatch(next: EntityState): IO[List[SseFrame]] =
-      (record(next) *> drain).timeout(30.seconds)
-
-    def step(next: EntityState): IO[List[String]] =
-      sharedBatch(next).map(elementPatches)
-
-    /** One slow client catching up in a single pass. */
-    def queued(nexts: List[EntityState]): IO[List[String]] =
-      (nexts.traverse_(record) *> drain)
-        .map(elementPatches)
-        .timeout(30.seconds)
-
-    /** Cursor signal included. */
-    def stepRaw(next: EntityState): IO[List[String]] =
-      sharedBatch(next).map(_.map(_.render))
-
-    def cacheNow: IO[Map[NodeId, Long]] =
-      cache.get.map(logged).timeout(30.seconds)
-
-    def mutationsNow: IO[Map[NodeId, Mutation]] =
-      cache.get.map(_.mutations).timeout(30.seconds)
-
-    def logId: IO[String] = cache.get.map(_.id)
-
-    def headHash: String = renderer.headHash
-
-    def styleHash: String = renderer.styleHash
-
-    /** Connect with `cursor` in the `datastar` param, as a reconnecting browser
-      * does, and read the opening block: up to the cursor signal, or the reload
-      * signal that replaces it.
-      */
-    def opening(
-        cursor: Option[Server.Cursor],
-        popup: Option[String] = None
-    ): IO[String] =
-      val signals = cursor.toList.map(c =>
-        s""""${Server.CursorSignal}":{""" +
-          s""""${Server.HeadHashSignal}":"${c.headHash}",""" +
-          s""""${Server.StyleHashSignal}":"${c.styleHash}",""" +
-          s""""${Server.LogIdSignal}":"${c.logId}",""" +
-          s""""${Server.StoreVersionSignal}":${c.version}}"""
-      ) ++ popup.map(p => s""""$PopupSig":"$p"""")
-      val uri =
-        if (signals.isEmpty) uri"/sse/dashboard/dashboard/patch"
-        else
-          uri"/sse/dashboard/dashboard/patch"
-            .withQueryParam("datastar", signals.mkString("{", ",", "}"))
-      server.routes.orNotFound
-        .run(Request[IO](Method.GET, uri))
-        .flatMap(
-          _.body
-            .through(fs2.text.utf8.decode)
-            .scan("")(_ + _)
-            .takeThrough(seen =>
-              !seen.contains(Server.StoreVersionSignal) &&
-                !seen.contains(Server.ReloadSignal)
-            )
-            .compile
-            .lastOrError
-        )
-        .timeout(30.seconds)
-  }
-
-  object SharedHarness {
-
-    /** These tests hold their `Server` in `IO` and never start a publisher, so
-      * nothing is supervised through it; hence no release.
-      */
-    private lazy val suiteSupervisor: Supervisor[IO] =
-      Supervisor[IO].allocated.unsafeRunSync()._1
-
-    def create(
-        dash: Dashboard,
-        initial: Map[String, EntityState]
-    ): IO[SharedHarness] =
-      (for {
-        store <- StateStore.inMemory(initial)
-        ref <- SignallingRef[IO].of(
-          Server.RendererState.Ready(Renderer.create(dash))
-        )
-        sessions <- Sessions.create
-        // Registered because a slug nobody watches records nothing; its empty
-        // open set matches what `drain` resumes with.
-        _ <- Session
-          .create("dashboard")
-          .flatMap(sessions.register("harness", _))
-        // The patch path never calls HA; an unexpected registry call still
-        // raises.
-        fake <- FakeHomeAssistant.create(Nil)
-        site <- Server.LiveSite.of(
-          Map("dashboard" -> ref),
-          Map.empty,
-          "dashboard"
-        )
-        live <- site.liveFor("dashboard").map(_.get)
-        server = new Server(
-          ServiceCalls.asInstance(HomeAssistantApi.fromWs(fake)),
-          store,
-          site,
-          sessions,
-          TestAuth.openGate,
-          suiteSupervisor
-        )
-        renderer <- ref.get.map(_.rendererOf.get)
-        // The recorder writes the slug's log, the one a reconnect resumes from,
-        // so a cursor from `step` is valid at `opening`.
-      } yield new SharedHarness(store, server, renderer, live.log, sessions))
-        .timeout(30.seconds)
-  }
-
   val BodyRepaint = "selector #dashboard"
 
   def mixedTabsDash = Dashboard(
@@ -803,6 +576,11 @@ trait ServerHarness extends munit.CatsEffectSuite {
       .use(use)
       .timeout(30.seconds)
 
+  extension (v: TestServer.Viewer)
+    /** [[TestServer.Viewer.step]] from the states these suites build. */
+    def change(states: EntityState*): IO[List[SseFrame]] =
+      v.step(states.map(s => FixtureEntity(s.entityId, s.state, s.attributes))*)
+
   def liveOne(dash: Dashboard, initial: Map[String, EntityState])(
       use: (TestServer, TestServer.LiveClient) => IO[Unit]
   ): IO[Unit] =
@@ -843,24 +621,6 @@ trait ServerHarness extends munit.CatsEffectSuite {
           )
         )
     } yield ()).timeout(30.seconds)
-
-  val SseUrlMarker: String = """data-init="@get\('"""
-
-  def connOfPage(routes: org.http4s.HttpApp[IO]): IO[String] =
-    routes
-      .run(Request[IO](Method.GET, uri"/d/dashboard"))
-      .flatMap(_.bodyText.compile.string)
-      .map { page =>
-        Uri
-          .unsafeFromString(
-            "/" + page
-              .split("""data-init="@get\('""")(1)
-              .split("'")(0)
-              .replace("&amp;", "&")
-          )
-          .query
-          .params(Server.ConnSignal)
-      }
 
   def twoTabsDash = Dashboard(
     cards = Map(

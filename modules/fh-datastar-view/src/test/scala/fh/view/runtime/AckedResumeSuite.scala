@@ -1,12 +1,9 @@
 package fh.view.runtime
 
-import api.homeassistant.HomeAssistantApi
 import cats.effect.IO
-import fh.view.testkit.FakeHomeAssistant
-import fh.view.testkit.TestAuth
-import fs2.concurrent.SignallingRef
+import fh.view.testkit.FixtureEntity
+import io.circe.Json
 import org.http4s.*
-import org.http4s.implicits.*
 
 import scala.concurrent.duration.*
 
@@ -27,26 +24,21 @@ class AckedResumeSuite extends ServerHarness {
   // Opens documents; see [[ServerHarness.simulateTime]].
   override protected def simulateTime: Boolean = false
 
-  private def dash = liveLeafDash
+  private class Tab(ts: TestServer, val document: TestServer.Document) {
 
-  private class Tab(
-      routes: HttpApp[IO],
-      val sseUrl: String,
-      val documentCursor: Long
-  ) {
+    /** The version the page rendered into itself. */
+    val documentCursor: Long =
+      Server
+        .cursorOf(Request[IO](Method.GET, document.stream))
+        .getOrElse(fail(s"no cursor on ${document.stream}"))
+        .version
 
     /** Optionally quoting a different cursor than the client holds, the subject
       * here. Reading the opening block closes the stream: the tab has gone away
       * again.
       */
     def connect(cursor: Long): IO[List[ServerSentEvent]] =
-      routes
-        .run(
-          Request[IO](
-            Method.GET,
-            Uri.unsafeFromString("/" + withCursor(sseUrl, cursor))
-          )
-        )
+      ts.get(withCursor(cursor))
         .flatMap(sseFrom(_)(isCursor))
         .timeout(30.seconds)
 
@@ -56,12 +48,7 @@ class AckedResumeSuite extends ServerHarness {
     def held(cursor: Long): IO[IO[Unit]] =
       for {
         seen <- IO.ref(Vector.empty[ServerSentEvent])
-        resp <- routes.run(
-          Request[IO](
-            Method.GET,
-            Uri.unsafeFromString("/" + withCursor(sseUrl, cursor))
-          )
-        )
+        resp <- ts.get(withCursor(cursor))
         fiber <- resp.body
           .through(ServerSentEvent.decoder[IO])
           .evalMap(e => seen.update(_ :+ e))
@@ -76,59 +63,20 @@ class AckedResumeSuite extends ServerHarness {
           .timeout(30.seconds)
       } yield fiber.cancel
 
-    def conn: String =
-      sseUrl
-        .split("&")
-        .collectFirst {
-          case p if p.startsWith(s"${Server.ConnSignal}=") =>
-            p.drop(Server.ConnSignal.length + 1)
-        }
-        .getOrElse(fail(s"no conn on $sseUrl"))
-
-    private def withCursor(url: String, version: Long): String =
-      url.replaceAll(
-        s"${Server.cursorParam(Server.StoreVersionSignal)}=\\d+",
-        s"${Server.cursorParam(Server.StoreVersionSignal)}=$version"
+    private def withCursor(version: Long): Uri =
+      document.stream.withQueryParam(
+        Server.cursorParam(Server.StoreVersionSignal),
+        version
       )
   }
 
   /** The document establishes the session, including its `told`: the page
     * renders a cursor into itself.
     */
-  private def withTab[A](
-      f: (Tab, StateStore, Server, Sessions) => IO[A]
-  ): IO[A] =
-    (for {
-      store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "cold")))
-      ref <- SignallingRef[IO].of(
-        Server.RendererState.Ready(Renderer.create(dash))
-      )
-      sessions <- Sessions.create
-      fake <- FakeHomeAssistant.create(Nil)
-      out <- Server
-        .resource(
-          ServiceCalls.asInstance(HomeAssistantApi.fromWs(fake)),
-          store,
-          Map("dashboard" -> ref),
-          "dashboard",
-          sessions,
-          TestAuth.openGate
-        )
-        .use { server =>
-          val routes = server.routes.orNotFound
-          for {
-            page <- routes
-              .run(Request[IO](Method.GET, uri"/d/dashboard"))
-              .flatMap(_.bodyText.compile.string)
-            sseUrl = page
-              .split("""data-init="@get\('""")(1)
-              .split("'")(0)
-              .replace("&amp;", "&")
-            version <- store.current.map(_.version)
-            a <- f(new Tab(routes, sseUrl, version), store, server, sessions)
-          } yield a
-        }
-    } yield out).timeout(60.seconds)
+  private def withTab(f: (Tab, TestServer) => IO[Unit]): IO[Unit] =
+    live(liveLeafDash, Map("sensor.a" -> es("sensor.a", "cold"))) { ts =>
+      ts.load().flatMap(doc => f(new Tab(ts, doc), ts))
+    }
 
   private def cursorOf(events: List[ServerSentEvent]): Long =
     events
@@ -152,13 +100,13 @@ class AckedResumeSuite extends ServerHarness {
     * as patches.
     */
   test("away, then back: the missed change resumes, no repaint") {
-    withTab { (tab, store, server, _) =>
+    withTab { (tab, ts) =>
       for {
         opening <- tab.connect(tab.documentCursor)
         held = cursorOf(opening)
         // The session lingers, so the slug is still watched and the frame
         // described.
-        _ <- change(server, store, es("sensor.a", "hot"))
+        _ <- ts.record(FixtureEntity("sensor.a", "hot"))
         back <- tab.connect(held)
       } yield {
         assert(
@@ -175,10 +123,10 @@ class AckedResumeSuite extends ServerHarness {
     * answer.
     */
   test("a cursor behind what we announced repaints, holds notwithstanding") {
-    withTab { (tab, store, server, _) =>
+    withTab { (tab, ts) =>
       for {
         opening <- tab.connect(tab.documentCursor)
-        _ <- change(server, store, es("sensor.a", "hot"))
+        _ <- ts.record(FixtureEntity("sensor.a", "hot"))
         // Answered: from here the server believes this DOM holds "hot".
         served <- tab.connect(cursorOf(opening))
         announced = cursorOf(served)
@@ -199,13 +147,17 @@ class AckedResumeSuite extends ServerHarness {
     * switch of every real dashboard.
     */
   test("a silent frame moves the position, not the yardstick: still resumes") {
-    withTab { (tab, store, server, sessions) =>
+    withTab { (tab, ts) =>
       for {
         release <- tab.held(tab.documentCursor)
-        _ <- change(server, store, es("sensor.unwatched", "x"))
-        session <- sessions
-          .get(tab.conn)
-          .map(_.getOrElse(fail(s"no session for ${tab.conn}")))
+        session <- ts.sessions
+          .get(tab.document.conn)
+          .map(_.getOrElse(fail(s"no session for ${tab.document.conn}")))
+        toldBefore <- session.told.get
+        // An attribute the card does not read: pulled, and owed nothing.
+        _ <- ts.record(
+          FixtureEntity("sensor.a", "cold", Map("noise" -> Json.fromInt(1)))
+        )
         // Its pull still ran and claimed the version.
         _ <- fs2.Stream
           .repeatEval(session.position.get <* IO.sleep(10.millis))
@@ -219,27 +171,10 @@ class AckedResumeSuite extends ServerHarness {
         back <- tab.connect(tab.documentCursor)
       } yield {
         // Without this the assertion below passes for the wrong reason.
-        assertEquals(told, tab.documentCursor, clue = (told, position))
+        assertEquals(told, toldBefore, clue = (told, position))
         assert(position > told, clue = (position, told))
         assert(!repainted(back), clue = back)
       }
     }
   }
-
-  /** Through the real store, recorder fiber and doorbell: a test writing the
-    * log itself would assert against its own bookkeeping.
-    */
-  private def change(
-      server: Server,
-      store: StateStore,
-      next: EntityState
-  ): IO[Unit] =
-    for {
-      // A frame published before the recorder attached reaches nobody.
-      _ <- store.changeSubscribers.find(_ >= 1).compile.drain
-      before <- store.current.map(_.version)
-      _ <- store.update(next)
-      live <- server.liveSlug("dashboard")
-      _ <- live.doorbell.discrete.find(_ > before).compile.drain
-    } yield ()
 }
