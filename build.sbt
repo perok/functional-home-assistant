@@ -511,7 +511,7 @@ lazy val `fh-datastar-view` = project
       "dev.cel" % "cel" % "0.14.0",
       // LTTB for chart series. The major version is the class-file baseline:
       // 21, because CI tests on JDK 21 (25.x fails there to load).
-      "com.ggalmazor" % "downsampling" % "21.2.0",
+      "com.ggalmazor" % "downsampling" % "25.2.0",
       // The polyglot API for the GraalJS isolate. pkl-core already brings
       // polyglot and truffle-api (at 25.0.1, which these evict). The last two
       // are what the isolate artifact would bring transitively; depending on
