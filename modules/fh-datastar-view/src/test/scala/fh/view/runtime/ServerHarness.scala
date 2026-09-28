@@ -687,12 +687,6 @@ trait ServerHarness extends munit.CatsEffectSuite {
   def isCursor(e: ServerSentEvent): Boolean =
     e.signals.exists(_.contains(Server.StoreVersionSignal))
 
-  /** Not part of the opening block; see [[LiveWorld.connect]] for why it is
-    * still waited for.
-    */
-  def isLiveness(e: ServerSentEvent): Boolean =
-    e.signals.exists(_.contains(Server.HaDownSignal))
-
   def isCursor(e: SseFrame): Boolean =
     e.signals.exists(_.contains(Server.StoreVersionSignal))
 
@@ -705,102 +699,6 @@ trait ServerHarness extends munit.CatsEffectSuite {
     events
       .filter(_.name == Elements)
       .map(e => (e.mode, e.selector, e.elements))
-
-  /** A booted server and several clients, in-process through `routes.run`, so
-    * deterministic. Over [[SharedHarness]] it adds the publisher fibers, the
-    * topic and the per-connection merge, where the running app's bugs had been
-    * hiding.
-    */
-  class LiveWorld(
-      routes: org.http4s.HttpApp[IO],
-      store: StateStore,
-      sessions: Sessions,
-      clients: Ref[IO, List[TestServer.LiveClient]],
-      supervisor: Supervisor[IO]
-  ) {
-
-    /** `query` carries what a document would hand back, such as `?ui.<id>=<n>`
-      * (see [[Server.Restore]]).
-      */
-    def connect(query: String = ""): IO[TestServer.LiveClient] =
-      for {
-        seen <- Ref[IO].of(Vector.empty[ServerSentEvent])
-        resp <- routes.run(
-          Request[IO](
-            Method.GET,
-            Uri.unsafeFromString(s"/sse/dashboard/dashboard/patch$query")
-          )
-        )
-        // Supervised: the body carries the connection's `keepAlive` stream, and
-        // with no socket to close it a bare fiber outlives the test.
-        _ <- supervisor.supervise(
-          resp.body
-            .through(ServerSentEvent.decoder[IO])
-            .evalMap(e => seen.update(_ :+ e))
-            .compile
-            .drain
-        )
-        client = new TestServer.LiveClient(seen)
-        // `_haDown` rides a branch merged into the connection stream, so it can
-        // land either side of the cursor; waiting for the cursor alone left it
-        // for the next drain. It always comes here: with no document, the
-        // session starts at `None` and the first health value always patches.
-        _ <- fs2.Stream
-          .repeatEval(seen.get <* IO.sleep(10.millis))
-          .find(es => es.exists(isCursor) && es.exists(isLiveness))
-          .compile
-          .drain
-          .timeout(15.seconds)
-        _ <- clients.update(_ :+ client)
-      } yield client
-
-    /** Two gates: [[served]] proves every session pulled this version, then
-      * [[TestServer.LiveClient.arrived]] that the bytes landed. A client owed
-      * nothing receives nothing, so "the frame is done" has to be asked of the
-      * server.
-      */
-    def change(next: EntityState): IO[Unit] =
-      recording *> store.update(next) *> settle
-
-    /** One HA frame carrying several entities, as one store update. */
-    def frame(nexts: List[EntityState]): IO[Unit] =
-      recording *> store.update(nexts.map(Ingest.Replace(_))) *> settle
-
-    /** A topic delivers only to current subscribers, and the recorder starts
-      * asynchronously, so a `store.update` that beats it is never recorded and
-      * every later gate times out. Connecting a client does not imply it.
-      */
-    private def recording: IO[Unit] =
-      store.changeSubscribers
-        .filter(_ >= 1)
-        .head
-        .compile
-        .drain
-        .timeout(15.seconds)
-
-    private def settle: IO[Unit] =
-      served *> clients.get.flatMap(_.traverse_(_.arrived))
-
-    /** Not `Sessions.floor`, which includes `Lingering` and `Fresh` sessions:
-      * one with no stream never pulls, so waiting on it times out, and the test
-      * that left it fails elsewhere, intermittently.
-      */
-    private def served: IO[Unit] =
-      fs2.Stream
-        .repeatEval(
-          (store.current, sessions.forSlug("dashboard")).flatMapN {
-            (now, all) =>
-              all
-                .traverse(s => (s.tenure.get, s.position.get).tupled)
-                .map(_.collect { case (_: Tenure.Held, at) => at })
-                .map(live => live.nonEmpty && live.forall(_ >= now.version))
-          } <* IO.sleep(5.millis)
-        )
-        .find(identity)
-        .compile
-        .drain
-        .timeout(15.seconds)
-  }
 
   /** [[TestServer]] over `dash`, seeded with `initial`. The assembly boots on
     * the real runtime, so a caller runs under `testReal` or opts its suite out
@@ -822,42 +720,6 @@ trait ServerHarness extends munit.CatsEffectSuite {
       use: (TestServer, TestServer.LiveClient) => IO[Unit]
   ): IO[Unit] =
     live(dash, initial)(w => w.connect().flatMap(use(w, _)))
-
-  def liveWorldOf(
-      renderer: Renderer,
-      initial: Map[String, EntityState]
-  )(use: LiveWorld => IO[Unit]): IO[Unit] =
-    (for {
-      store <- StateStore.inMemory(initial)
-      ref <- SignallingRef[IO].of(Server.RendererState.Ready(renderer))
-      sessions <- Sessions.create
-      fake <- FakeHomeAssistant.create(Nil)
-      clients <- Ref[IO].of(List.empty[TestServer.LiveClient])
-      _ <- Server
-        .resource(
-          ServiceCalls.asInstance(HomeAssistantApi.fromWs(fake)),
-          store,
-          Map("dashboard" -> ref),
-          "dashboard",
-          sessions,
-          TestAuth.openGate
-        )
-        .use(server =>
-          // Scoped to `use`: its connect fibers must be gone before
-          // `Server.resource` releases.
-          Supervisor[IO].use(supervisor =>
-            use(
-              new LiveWorld(
-                server.routes.orNotFound,
-                store,
-                sessions,
-                clients,
-                supervisor
-              )
-            )
-          )
-        )
-    } yield ()).timeout(30.seconds)
 
   val SseUrlMarker: String = """data-init="@get\('"""
 
