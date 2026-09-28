@@ -1,9 +1,7 @@
 package fh.view.runtime
 
 import fh.view.query.QuerySnapshot
-import api.homeassistant.HomeAssistantApi
 import cats.effect.IO
-import cats.effect.std.Supervisor
 import cats.syntax.all.*
 import fh.view.model.{
   Activation,
@@ -17,8 +15,6 @@ import fh.view.model.{
 }
 import fh.view.testkit.DashboardBuilders.st
 import fh.view.testkit.TestIds.given
-import fh.view.testkit.{FakeHomeAssistant, TestAuth}
-import fs2.concurrent.SignallingRef
 
 import java.util.concurrent.atomic.AtomicInteger
 import scala.jdk.CollectionConverters.*
@@ -139,96 +135,54 @@ class RenderCacheContentionSuite extends ServerHarness {
       IO(counts.asScala.map((k, v) => k -> v.get()).toMap)
   }
 
-  private val OnTab0 = Map.empty[String, String]
-  private val OnTab1 = Map("c_0" -> "1")
-
-  /** Each frame is recorded, then every viewer runs [[Server.pull]]
-    * concurrently, as the doorbell wakes them.
+  /** Reset after everyone connects, so only steady-state live pulls are
+    * measured.
     *
-    * Below the live connection on purpose: the counting renderer has no way
-    * into [[ServerApp.assemble]]. What that gives up is the connection wiring
-    * around `pull`, which does not choose the cache: it is `LiveSlug.cache`,
-    * one per slug.
+    * On [[LiveWorld]], not [[TestServer]]: the counting renderer has no way
+    * into [[ServerApp.assemble]], and a renderer factory on its `Prepared`
+    * would be a production seam for this suite alone. What that skips is the
+    * feed, narrowing and the auth routes, none of which renders. Not lower
+    * either: driving `Server.pull` per viewer passes too, but only because the
+    * recorder, the doorbell loop and the route's selection render nothing —
+    * which is part of what this measures.
     */
   private def rendersPerFrame(
       dash: Dashboard,
-      selections: List[Map[String, String]],
+      queries: List[String],
       frames: Int,
       node: NodeId
   ): IO[Double] = {
     val renderer = new PerNode(dash)
-    Supervisor[IO].use { supervisor =>
+    liveWorldOf(renderer, initial) { world =>
       for {
-        store <- StateStore.inMemory(initial)
-        ref <- SignallingRef[IO].of(Server.RendererState.Ready(renderer))
-        site <- Server.LiveSite.of(
-          Map("dashboard" -> ref),
-          Map.empty,
-          "dashboard"
+        _ <- queries.traverse_(world.connect(_))
+        _ <- renderer.reset
+        _ <- (1 to frames).toList.traverse_(i =>
+          world.change(st("sensor.shared", i.toString))
         )
-        live <- site.liveFor("dashboard").map(_.get)
-        sessions <- Sessions.create
-        fake <- FakeHomeAssistant.create(Nil)
-        server = new Server(
-          ServiceCalls.asInstance(HomeAssistantApi.fromWs(fake)),
-          store,
-          site,
-          sessions,
-          TestAuth.openGate,
-          supervisor
-        )
-        viewers <- selections.zipWithIndex.traverse { (ui, i) =>
-          Session
-            .create("dashboard")
-            .flatTap(_.open.set(renderer.surfaces.selectedSurfaces(ui)))
-            .flatTap(sessions.register(s"v$i", _))
-        }
-        _ <- (1 to frames).toList.traverse_ { i =>
-          val next = st("sensor.shared", i.toString)
-          for {
-            prev <- store.snapshot.map(_.get(next.entityId))
-            _ <- store.update(next)
-            version <- server.recordFrame(
-              "dashboard",
-              renderer,
-              live.log,
-              List(StateChange(next.entityId, prev, next))
-            )
-            // The first pull is each viewer's catch-up, so counting starts at
-            // the second frame.
-            _ <- IO.whenA(i == 2)(renderer.reset)
-            _ <- viewers.parTraverse_(server.pull(live, _, version))
-          } yield ()
-        }
-        tally <- renderer.tally
-      } yield tally.getOrElse(node, 0).toDouble / (frames - 1)
-    }
+      } yield ()
+    } *> renderer.tally.map(_.getOrElse(node, 0).toDouble / frames)
   }
 
   private val Frames = 8
 
   private def assertCost(
       label: String,
-      selections: List[Map[String, String]],
+      qs: List[String],
       dash: Dashboard,
       expected: Double,
       frames: Int = Frames,
       node: NodeId = "c_0"
   ): IO[Unit] =
-    rendersPerFrame(dash, selections, frames, node).flatMap(got =>
-      IO(assertEquals(got, expected, s"$label (${selections.size} viewers)"))
+    rendersPerFrame(dash, qs, frames, node).flatMap(got =>
+      IO(assertEquals(got, expected, s"$label (${qs.size} viewers)"))
     )
 
   test("one selection is one render a frame, however many viewers hold it") {
-    assertCost(
-      "no bake group, 3 viewers",
-      List.fill(3)(OnTab0),
-      plainDash,
-      1.0
-    ) *>
+    assertCost("no bake group, 3 viewers", List.fill(3)(""), plainDash, 1.0) *>
       assertCost(
         "beside a bake owner, 4 viewers on one tab",
-        List.fill(4)(OnTab0),
+        List.fill(4)(""),
         leafDash,
         1.0,
         frames = 5,
@@ -244,21 +198,21 @@ class RenderCacheContentionSuite extends ServerHarness {
   test("cost does not follow selections — one render serves both tabs") {
     assertCost(
       "1+1 on two tabs",
-      List(OnTab0, OnTab1),
+      List("", "?ui.c_0=1"),
       leafDash,
       1.0,
       node = Live
     ) *>
       assertCost(
         "2+2 on two tabs",
-        List(OnTab0, OnTab0, OnTab1, OnTab1),
+        List("", "", "?ui.c_0=1", "?ui.c_0=1"),
         leafDash,
         1.0,
         node = Live
       ) *>
       assertCost(
         "3+3 on two tabs",
-        List.fill(3)(OnTab0) ++ List.fill(3)(OnTab1),
+        List.fill(3)("") ++ List.fill(3)("?ui.c_0=1"),
         leafDash,
         1.0,
         frames = 5,
@@ -266,7 +220,7 @@ class RenderCacheContentionSuite extends ServerHarness {
       ) *>
       assertCost(
         "the structural owner",
-        List(OnTab0, OnTab1),
+        List("", "?ui.c_0=1"),
         leafDash,
         0.0
       )
