@@ -50,8 +50,8 @@ class ProgressCard extends nodes.Node {
         data-on:click="\(tapMod.guardClick)\(tapMod.click)"{{/tappable}}\(slotMod.ifSlot("inert")) \(slotMod.signalBind("inert"))\(slotMod.endIfSlot("inert"))\(tapMod.guard)>
         <header>{{#icon}}<i class="mdi {{icon}}"></i>{{/icon}}\(textMod.hole("label"))</header>{{#hasBar}}
         <div class="fh-progress-track" role="progressbar"
-          data-attr:data-remaining="$\(slotMod.signalRef("remaining"))"
-          data-attr:data-total="$\(slotMod.signalRef("total"))"
+          \(slotMod.signalBind("remaining"))
+          \(slotMod.signalBind("total"))
           data-attr:aria-valuetext="$\(slotMod.signalRef("left"))">
           <div class="fh-progress-fill" data-style:width="\(fillWidth)"></div>
         </div>{{/hasBar}}
