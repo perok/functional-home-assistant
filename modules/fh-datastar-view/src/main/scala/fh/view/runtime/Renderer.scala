@@ -679,7 +679,6 @@ class Renderer(
       fragments: QuerySnapshot
   ): Map[NodeId, Painted] = {
     val own = new java.util.HashMap[NodeId, Painted]()
-    val pageOut = out
     // The body and the restored dialog are WRITER HOLES, not values: each is
     // walked straight into the page buffer when the chrome reaches its hole.
     // Building them as Strings first cost a full copy of the document each,
@@ -688,7 +687,7 @@ class Renderer(
     val root = dashboard.card
     val bodyInto: java.io.Writer => Unit = _ =>
       tracedInto(
-        pageOut,
+        out,
         root,
         LayoutNode.rootId("", root),
         "",
@@ -699,7 +698,7 @@ class Renderer(
       )
     val dialogInto: Option[java.io.Writer => Unit] =
       popup.flatMap(sid =>
-        surfaceWalk(pageOut, sid, states, uiState, fragments, own)
+        surfaceWalk(out, sid, states, uiState, fragments, own)
       )
     // The style, the chrome, the body and the dialog go into ONE buffer, and
     // the two big holes write themselves into it. Not mustache's own
@@ -707,7 +706,7 @@ class Renderer(
     // `StringBuffer`, which grew five times writing a body this size under a
     // lock nothing shared, copied the buffer once on `toString`, and then `+`
     // copied the whole page AGAIN to prepend the style tag.
-    val _ = pageOut.append(themeStyleTag)
+    val _ = out.append(themeStyleTag)
     // The dialog a refresh is restoring, baked into the host exactly as the
     // connect would patch it — same render, so the two are byte-identical and
     // the later patch is a no-op morph. A theme whose chrome has no `popups`
@@ -715,7 +714,7 @@ class Renderer(
     val scope = new Renderer.PageScope(
       Map("body" -> bodyInto) ++ dialogInto.map("popups" -> _)
     )
-    Templates.run(chromeTemplate, pageOut, scope)
+    Templates.run(chromeTemplate, out, scope)
     own.asScala.toMap
   }
 
@@ -771,9 +770,16 @@ class Renderer(
       )
     }
 
-  /** `uiState` is threaded through so a node that owns a bake group — a `tabs`
-    * host that also binds a live entity — re-bakes the viewer's selected member
-    * on a live patch rather than the default one.
+  /** Every LOG KEY must be resolvable here, because the log holds a digest
+    * rather than HTML and a resume renders its candidates instead of reading
+    * them back — a set member included, being a node in the graph like any
+    * other. `None` means the key names nothing that exists now (its group is
+    * gone, the entity is no longer a member), and is exactly when there is
+    * nothing to send: an unresolvable key is dropped rather than taking the
+    * resume with it.
+    *
+    * `uiState` is the viewer this render is FOR, so a node that owns a bake
+    * group re-bakes that viewer's selected member rather than the default one.
     */
   def renderNodeById(
       id: NodeId,
@@ -912,30 +918,6 @@ class Renderer(
           )
           .getOrElse(HostContent(Nil, Map.empty))
     }
-
-  /** Every LOG KEY must be resolvable here, because the log holds a digest
-    * rather than HTML and a resume renders its candidates instead of reading
-    * them back. It is [[renderNodeById]] and nothing else: a candidate set's
-    * member is a node in the graph like any other, which is what this method's
-    * second case used to exist for.
-    *
-    * `uiState` is the viewer this render is FOR. A node whose own markup reads
-    * its own selection has one rendering per member, so rendering it without a
-    * viewer hands everybody the default member's — on a resume, that is a
-    * client's own tab flipped out from under it.
-    *
-    * `None` means the key names nothing that exists now (its group is gone, the
-    * entity is no longer a member), which is exactly when there is nothing to
-    * send. That it cannot crash is the point: an unresolvable key must be
-    * dropped rather than take the resume with it.
-    */
-  def renderLogged(
-      id: NodeId,
-      states: Map[String, EntityState],
-      uiState: Map[String, String],
-      fragments: QuerySnapshot
-  ): Option[String] =
-    renderNodeById(id, states, uiState, fragments = fragments)
 
   /** The backend-injected structural template vars for one node — the ids an
     * author never composes.
@@ -1912,63 +1894,41 @@ class Renderer(
       inline.view.collect {
         case region if rm.regions.contains(region) =>
           region -> { (_: java.io.Writer) =>
-            rm.regions(region).foreach {
-              case ResolvedChild.NestedSet(html) => out.append(html)
-              case ResolvedChild.Node(cell, n)   =>
-                out
-                  .append("""<div class="fh-cell""")
-                  .append(Renderer.cellClasses(cell))
-                  .append("""">""")
-                memberBodyInto(out, n, form)
-                out.append("</div>")
-            }
+            rm.regions(region).foreach(memberChildInto(out, _, form))
           }
       }.toMap
     // Only the NON-inline regions need child strings: an inline region's
-    // section never reads them (the walk answers first), and a region that is
-    // not in the compiled set keeps its splice.
+    // section never reads them (the walk answers first).
     val childrenHtml: Map[String, List[String]] =
-      if (walk.isEmpty) memberChildrenHtml(rm, form)
-      else
-        rm.regions.view.collect {
-          case (region, kids) if !walk.contains(region) =>
-            region -> kids.map {
-              case ResolvedChild.NestedSet(html) => html
-              case ResolvedChild.Node(cell, n)   =>
-                Sink.scratched { child =>
-                  val _ = child
-                    .append("""<div class="fh-cell""")
-                    .append(Renderer.cellClasses(cell))
-                    .append("""">""")
-                  memberBodyInto(child, n, form)
-                  child.append("</div>").result
-                }
-            }
-        }.toMap
+      rm.regions.view
+        .filterKeys(!walk.contains(_))
+        .mapValues(_.map { child =>
+          Sink.scratched { buf =>
+            memberChildInto(buf, child, form)
+            buf.result
+          }
+        })
+        .toMap
     executeInto(out, rm.tpl, rm.resolved, childrenHtml, form, walk)
   }
 
-  /** Every region's children as splice strings — the pre-walk shape, kept for
-    * templates whose loops are not inline-eligible.
+  /** One child of a member: a nested set's bytes as they are, or a node in its
+    * own unaddressed `.fh-cell` — the member is its patch target.
     */
-  private def memberChildrenHtml(
-      rm: ResolvedMember,
+  private def memberChildInto(
+      out: Sink,
+      child: ResolvedChild,
       form: SlotForm
-  ): Map[String, List[String]] =
-    rm.regions.view
-      .mapValues(_.map {
-        case ResolvedChild.NestedSet(html) => html
-        case ResolvedChild.Node(cell, n)   =>
-          Sink.scratched { child =>
-            val _ = child
-              .append("""<div class="fh-cell""")
-              .append(Renderer.cellClasses(cell))
-              .append("""">""")
-            memberBodyInto(child, n, form)
-            child.append("</div>").result
-          }
-      })
-      .toMap
+  ): Unit = child match {
+    case ResolvedChild.NestedSet(html) => val _ = out.append(html)
+    case ResolvedChild.Node(cell, n)   =>
+      out
+        .append("""<div class="fh-cell""")
+        .append(Renderer.cellClasses(cell))
+        .append("""">""")
+      memberBodyInto(out, n, form)
+      val _ = out.append("</div>")
+  }
 
   /** A resolved member's signals, children INCLUDED — they share its id and its
     * patch. Stops at a nested set for the reason [[Member.entitiesOf]] does:
@@ -2978,7 +2938,6 @@ object Renderer {
   // and the renderer share one story; these delegate.
   def surfacePrefix(surfaceId: String): String =
     LayoutNode.surfacePrefix(surfaceId)
-  def sanitize(s: String): String = LayoutNode.sanitize(s)
 
   /** A node's authored layout-cell classes as the wrapper `class` suffix
     * (leading space included), `""` when absent/empty. Validated by

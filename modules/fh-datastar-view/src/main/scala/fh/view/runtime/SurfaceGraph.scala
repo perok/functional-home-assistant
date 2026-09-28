@@ -122,11 +122,8 @@ private[runtime] final class SurfaceGraph(
     * and a nesting is three independent prefixes with no link between them.
     *
     * A materialised member answers through its GROUP, which is the tree it is
-    * in. Without that a member id reads as "unknown", which
-    * [[userSurfaceOfNode]] tags as the main page and [[visibleNode]] treats as
-    * visible to everyone — harmless while members were only ever selected by
-    * their group's query, wrong once they are selected by the reverse index
-    * like any other node, because a member inside a surface would then reach
+    * in. Without that a member id reads as "unknown", which [[visibleNode]]
+    * treats as visible to everyone, so a member inside a surface would reach
     * clients who do not have it open.
     *
     * A NESTED SET CONTAINER needs the same treatment and for the same reason:
@@ -165,22 +162,6 @@ private[runtime] final class SurfaceGraph(
     }
     close(Set(sid))
   }
-
-  /** The tag deciding which clients a patch from `sid`'s tree may reach (`sid`
-    * itself included).
-    *
-    * State surfaces are TRANSPARENT: a branch of an `If` is selected by entity
-    * state, identically for every client, so it hides nothing and the walk
-    * passes through to whatever encloses it. `None` means no user surface
-    * above: visible to everyone.
-    */
-  def userSurfaceOf(sid: String): Option[String] =
-    if (!isStateSurface(sid)) Some(sid)
-    else surfaceParent.get(sid).flatMap(userSurfaceOf)
-
-  /** [[userSurfaceOf]] for a node, via the tree it was indexed from. */
-  def userSurfaceOfNode(id: NodeId): Option[String] =
-    rootOf(id).filter(_.nonEmpty).flatMap(userSurfaceOf)
 
   private def isStateSurface(sid: String): Boolean =
     surfaces
@@ -441,9 +422,7 @@ private[runtime] final class SurfaceGraph(
     * updates from the first paint.
     *
     * STATE-selected members are excluded entirely: they never enter a session's
-    * open set, because their liveness belongs to the shared per-slug pass. That
-    * exclusion is what `Patches.Addressed` relies on — tagging a patch with a
-    * state surface would hide it from everybody.
+    * open set, because their liveness belongs to the shared per-slug pass.
     */
   def selectedSurfaces(
       uiState: Map[String, String] = Map.empty

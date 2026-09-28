@@ -276,7 +276,7 @@ class SurfaceGraphSuite extends munit.FunSuite {
   }
 
   test("a state surface is TRANSPARENT: the user tab above it decides") {
-    // `userSurfaceOf` walks through the state branch to whatever encloses it,
+    // Visibility walks through the state branch to whatever encloses it,
     // because a branch of an If hides nothing — every client selects it alike.
     val g = graphOf(
       Map(
@@ -286,8 +286,9 @@ class SurfaceGraphSuite extends munit.FunSuite {
       ),
       roots = Map("c" -> "", "inner" -> "tab")
     )
-    assertEquals(g.userSurfaceOf("tab"), Some("tab"))
-    assertEquals(g.userSurfaceOf("branch"), Some("tab"))
+    val on = snapshot(st("light.a", "on"))
+    assert(g.visibleSurface("branch", Set("tab"), on))
+    assert(!g.visibleSurface("branch", Set.empty, on))
   }
 
   test("a node inside a closed tab is not visible; on the main page it is") {

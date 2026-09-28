@@ -268,6 +268,7 @@ class RenderBench {
   private var flat: Renderer = null
   private var set: Renderer = null
   private var setPlain: Renderer = null
+  private var setTiles: Renderer = null
   private var shared: Renderer = null
   private var st: Map[String, EntityState] = null
   private var transforms: Transforms = null
@@ -328,6 +329,7 @@ class RenderBench {
     set = Renderer.create(Dashboard(cards, setTree(Leaves)))
     setPlain =
       Renderer.create(Dashboard(cards, setTree(Leaves, signals = false)))
+    setTiles = Renderer.create(Dashboard(cards, tileSetTree(Leaves)))
     shared = Renderer.create(
       Dashboard(cards, tree(Leaves, 4, signals = true, distinct = Distinct))
     )
@@ -535,6 +537,14 @@ class RenderBench {
   @Benchmark
   def pageSetPlain(bh: Blackhole): Unit =
     bh.consume(setPlain.renderPageTraced(st))
+
+  /** [[pageSetPlain]] with each member a TILE — a column holding two leaves —
+    * which is the shape a member's children take the child-plan path in
+    * (`Renderer.resolveChild`), where a leaf member never goes.
+    */
+  @Benchmark
+  def pageSetTiles(bh: Blackhole): Unit =
+    bh.consume(setTiles.renderPageTraced(st))
 
   /** The same 200 leaves over only 40 DISTINCT entities — each shown five
     * times, which is what a real dashboard looks like once a light appears in
@@ -1764,6 +1774,31 @@ object RenderBench {
             .tabulate(leaves)(i =>
               entityId(i) -> LayoutNode.SetMember(
                 List(LayoutNode.SetClause(node = leaf(signals)(i)))
+              )
+            )
+            .toMap
+        )
+      )
+    )
+
+  /** [[setTree]] with every clause a column of two signal-less leaves. */
+  def tileSetTree(leaves: Int): LayoutNode =
+    LayoutNode.Component(
+      "col",
+      regions = LayoutNode.kids(
+        LayoutNode.SetNode(
+          candidates = List.tabulate(leaves)(entityId),
+          members = List
+            .tabulate(leaves)(i =>
+              entityId(i) -> LayoutNode.SetMember(
+                List(
+                  LayoutNode.SetClause(node =
+                    LayoutNode.Component(
+                      "col",
+                      regions = LayoutNode.kids(leaf(false)(i), leaf(false)(i))
+                    )
+                  )
+                )
               )
             )
             .toMap

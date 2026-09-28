@@ -59,25 +59,6 @@ object Requirement:
     */
   val Admin: Requirement = Requirement.FromAccess(Access.Admin)
 
-/** What the rest of the server needs from the gate: who this request is.
-  *
-  * A trait so `Server` depends on the question rather than on the OAuth
-  * machinery that answers it — and so a test can hand over a fixed identity
-  * with no HA to log in against.
-  */
-trait Identity {
-
-  /** The authenticated user behind this request, if any. Resolves a session
-    * cookie, or a bearer token belonging to a machine (`fh`).
-    */
-  def of(req: Request[IO]): IO[Option[HaUser]]
-
-  /** The session id the request's cookie names, if it names a live one. The SSE
-    * stream needs this to know which session's death should cut it.
-    */
-  def sessionOf(req: Request[IO]): IO[Option[String]]
-}
-
 /** The gate (issue #89).
   *
   * Each route declares its own requirement and wraps its handler in
@@ -99,8 +80,8 @@ trait Identity {
   * `Permission.none` rather than an absence, so a probe for dashboards that are
   * not there cannot be done anonymously.
   *
-  * Not `final` only so a test fixture can override [[of]] and hand over a fixed
-  * identity — the seam [[Identity]] exists for. Nothing in production
+  * Not `final` only so the test harness can override [[of]] and hand every
+  * request a fixed identity (`TestAuth.openGate`). Nothing in production
   * subclasses it.
   */
 open class AuthGate(
@@ -113,9 +94,12 @@ open class AuthGate(
     // it rather than a hole.
     ingressUsers: IngressUsers = _ => IO.pure(None),
     trustedProxy: Option[Ipv4Address] = None
-) extends Identity {
+) {
 
-  override def sessionOf(req: Request[IO]): IO[Option[String]] =
+  /** The session id the request's cookie names, if it names a live one. The SSE
+    * stream needs this to know which session's death should cut it.
+    */
+  def sessionOf(req: Request[IO]): IO[Option[String]] =
     AuthSessions
       .cookieOf(req)
       .flatTraverse(id => sessions.get(id).map(_.as(id)))
@@ -127,7 +111,7 @@ open class AuthGate(
     * asking twice. The cookie is the direct port's answer, and the bearer is a
     * machine's.
     */
-  override def of(req: Request[IO]): IO[Option[HaUser]] =
+  def of(req: Request[IO]): IO[Option[HaUser]] =
     ingressUser(req).flatMap {
       case some @ Some(_) => IO.pure(some)
       case None           =>
@@ -333,12 +317,4 @@ object AuthGate {
           !s.exists(c => c == '\\' || c.isControl)
       )
       .getOrElse("/")
-
-  /** An `Identity` that says everyone is the same user — for a boot that has no
-    * HA to authenticate against, and for tests that are not about auth.
-    */
-  def fixedIdentity(user: Option[HaUser]): Identity = new Identity {
-    def of(req: Request[IO]): IO[Option[HaUser]] = IO.pure(user)
-    def sessionOf(req: Request[IO]): IO[Option[String]] = IO.pure(None)
-  }
 }

@@ -26,8 +26,8 @@ object DashboardBuild {
     * package, pinned via `.fh/pins.json`. This is the build phase's job — it
     * owns fetching + packaging the dump — and the runtime
     * ([[fh.view.runtime.ServerApp]]) calls through here rather than reaching
-    * into [[RegistryDump]]/[[PklDump]] directly: it seeds the dump once for all
-    * entries, then [[reevaluate]]s each against the cached package.
+    * into [[RegistryDump]]/[[PklDump]] directly: it seeds the dump once, then
+    * [[evalSite]] evaluates against the cached package.
     */
   def prepareDumps(
       api: HomeAssistantApi[IO],
@@ -486,46 +486,9 @@ object DashboardBuild {
       }
     } yield validated
 
-  /** Evaluate the on-disk sources and decode + validate into the runtime model,
-    * returning the dashboard and the files it was built from (for watching).
-    * Assumes the dump is already written ([[prepareDumps]]).
-    */
-  private def evalAndDecode(
-      dashboardsDir: os.Path,
-      entry: String
-  ): IO[(Dashboard.Validated, Set[os.Path])] =
-    evalSource(dashboardsDir, entry).flatMap { r =>
-      decode(r.value, r.imports).map(_ -> r.imports)
-    }
-
-  /** Fetch + write the dump, then evaluate + decode + validate in one step
-    * (in-memory; no artifact file). Returns the proven dashboard and the files
-    * it was built from (for watching).
-    */
-  def build(
-      api: HomeAssistantApi[IO],
-      dashboardsDir: os.Path,
-      entry: String,
-      bundledLib: Option[LibPackage.Artifacts] = None
-  ): IO[(Dashboard.Validated, Set[os.Path])] =
-    prepareDumps(api, dashboardsDir, bundledLib) *> evalAndDecode(
-      dashboardsDir,
-      entry
-    )
-
-  /** Re-evaluate the entry against the dump ALREADY on disk (no HA fetch, no
-    * dump rewrite) — used by live reload when only the dashboard sources
-    * changed. Returns the proven dashboard + its current import set.
-    */
-  def reevaluate(
-      dashboardsDir: os.Path,
-      entry: String
-  ): IO[(Dashboard.Validated, Set[os.Path])] =
-    evalAndDecode(dashboardsDir, entry)
-
   /** Evaluate the workspace's ONE entrypoint against the dump already on disk
-    * and decode every dashboard it names ([[Site.decode]]) — the whole-site
-    * counterpart of [[reevaluate]], and what both boot and live reload run.
+    * and decode every dashboard it names ([[Site.decode]]) — what both boot and
+    * live reload run.
     *
     * Failure splits in two, and the split is the point: an evaluation error is
     * raised (nothing can be attributed to a slug — the site did not evaluate),
@@ -536,12 +499,4 @@ object DashboardBuild {
     evalSource(dashboardsDir, Site.EntryFile).flatMap { r =>
       Site.decode(r.value, r.imports).map(_ -> r.imports)
     }
-
-  /** Fetch + write the dump, then [[evalSite]] — the boot path. */
-  def buildSite(
-      api: HomeAssistantApi[IO],
-      dashboardsDir: os.Path,
-      bundledLib: Option[LibPackage.Artifacts] = None
-  ): IO[(Site.Decoded, Set[os.Path])] =
-    prepareDumps(api, dashboardsDir, bundledLib) *> evalSite(dashboardsDir)
 }

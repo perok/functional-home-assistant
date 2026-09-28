@@ -602,7 +602,7 @@ class LiveStreamSuite extends ServerHarness {
       (r.surfaceNodeIds("det") ++ r.surfaceNodeIds("t1")).toList.sorted
     val seeded = FragmentLog("w18")
     val held = ids.flatMap { id =>
-      r.renderLogged(id, before, mine, fragments = QuerySnapshot.empty)
+      r.renderNodeById(id, before, mine, fragments = QuerySnapshot.empty)
         .map(h => id -> Held.of(h))
     }.toMap
 
