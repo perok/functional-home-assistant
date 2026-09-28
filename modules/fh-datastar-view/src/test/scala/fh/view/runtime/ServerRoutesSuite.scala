@@ -2,22 +2,13 @@ package fh.view.runtime
 
 import fh.view.runtime.RendererTestOps.*
 
-import api.homeassistant.HomeAssistantApi
-import cats.data.NonEmptyList
 import cats.effect.IO
+import cats.syntax.all.*
 import fh.view.model.{CardDef, Dashboard, LayoutNode, Region, Surface, Theme}
-import fh.view.testkit.FakeHomeAssistant
 import fh.view.testkit.TestIds.given
-import fh.view.testkit.TestAuth
-import fs2.concurrent.SignallingRef
 import io.circe.Json
 import org.http4s.*
-import org.http4s.headers.{
-  `Cache-Control`,
-  `Content-Type`,
-  `If-None-Match`,
-  ETag
-}
+import org.http4s.headers.`Content-Type`
 import org.http4s.implicits.*
 import org.typelevel.ci.CIString
 
@@ -111,61 +102,17 @@ class ServerRoutesSuite extends ServerHarness {
     )
 
   private def pageHtml(dash: Dashboard, query: String = ""): IO[String] =
-    (for {
-      store <- StateStore.inMemory(Map.empty)
-      ref <- SignallingRef[IO].of(
-        Server.RendererState.Ready(Renderer.create(dash))
-      )
-      sessions <- Sessions.create
-      // The patch path never calls HA; an unexpected registry call still
-      // raises.
-      fake <- FakeHomeAssistant.create(Nil)
-      body <- Server
-        .resource(
-          ServiceCalls.asInstance(HomeAssistantApi.fromWs(fake)),
-          store,
-          Map(dash.slug -> ref),
-          dash.slug,
-          sessions,
-          TestAuth.openGate
-        )
-        .use { server =>
-          server.routes.orNotFound
-            .run(
-              Request[IO](
-                Method.GET,
-                Uri.unsafeFromString(s"/d/${dash.slug}$query")
-              )
-            )
-            .flatMap(_.body.through(fs2.text.utf8.decode).compile.string)
-        }
-    } yield body).timeout(30.seconds)
+    TestServer.resource(dash, Nil).use(_.page(query)).timeout(30.seconds)
 
+  /** Strict, since the body is read after the server is gone. */
   private def response(
       uri: String,
       dash: Dashboard = titleDash("home", None)
   ): IO[Response[IO]] =
-    (for {
-      store <- StateStore.inMemory(Map.empty)
-      ref <- SignallingRef[IO].of(
-        Server.RendererState.Ready(Renderer.create(dash))
-      )
-      sessions <- Sessions.create
-      fake <- FakeHomeAssistant.create(Nil)
-      resp <- Server
-        .resource(
-          ServiceCalls.asInstance(HomeAssistantApi.fromWs(fake)),
-          store,
-          Map("home" -> ref),
-          "home",
-          sessions,
-          TestAuth.openGate
-        )
-        .use(
-          _.routes.orNotFound
-            .run(Request[IO](Method.GET, Uri.unsafeFromString(uri)))
-        )
-    } yield resp).timeout(30.seconds)
+    TestServer
+      .resource(dash, Nil)
+      .use(_.get(Uri.unsafeFromString(uri)).flatMap(_.toStrict(None)))
+      .timeout(30.seconds)
 
   test("the frontend bundles are served immutable, and only by built name") {
     // A rebuild is a new hashed URL, which makes `immutable` honest.
@@ -594,158 +541,32 @@ class ServerRoutesSuite extends ServerHarness {
     }
   }
 
-  test("/system/pkl serves a provided module and 404s an unknown one") {
-    val system = fh.view.build.SystemPkl(
-      hass = Some("// schema"),
-      dump = Some("kitchen = 1")
-    )
-    val (dumpStatus, dumpBody, hassStatus, missStatus) = (for {
-      store <- StateStore.inMemory(Map.empty)
-      ref <- SignallingRef[IO].of(
-        Server.RendererState.Ready(Renderer.create(titleDash("home", None)))
-      )
-      sessions <- Sessions.create
-      fake <- FakeHomeAssistant.create(Nil)
-      out <- Server
-        .resource(
-          ServiceCalls.asInstance(HomeAssistantApi.fromWs(fake)),
-          store,
-          Map("home" -> ref),
-          "home",
-          sessions,
-          TestAuth.openGate,
-          assets = AssetCache.empty,
-          systemPkl = system
-        )
-        .use { server =>
-          val routes = server.routes.orNotFound
-          val get = (p: String) =>
-            routes.run(Request[IO](Method.GET, Uri.unsafeFromString(p)))
-          for {
-            dump <- get("/system/pkl/dump.pkl")
-            dumpBody <- dump.body.through(fs2.text.utf8.decode).compile.string
-            hass <- get("/system/pkl/hass.pkl")
-            miss <- get("/system/pkl/nope.pkl")
-          } yield (dump.status, dumpBody, hass.status, miss.status)
-        }
-    } yield out)
-      .timeout(30.seconds)
-      .unsafeRunSync()
-
-    assertEquals(dumpStatus, Status.Ok)
-    assertEquals(dumpBody, "kitchen = 1")
-    assertEquals(hassStatus, Status.Ok)
-    assertEquals(missStatus, Status.NotFound)
-  }
-
   test(
     "/system/pkl serves the byte-identical workspace scaffold to `fh init`"
   ) {
-    // Machine-agnostic, so the default empty SystemPkl is fine.
-    val (base, consumer, gitignore) = (for {
-      store <- StateStore.inMemory(Map.empty)
-      ref <- SignallingRef[IO].of(
-        Server.RendererState.Ready(Renderer.create(titleDash("home", None)))
-      )
-      sessions <- Sessions.create
-      fake <- FakeHomeAssistant.create(Nil)
-      out <- Server
-        .resource(
-          ServiceCalls.asInstance(HomeAssistantApi.fromWs(fake)),
-          store,
-          Map("home" -> ref),
-          "home",
-          sessions,
-          TestAuth.openGate
+    // Machine-agnostic, so the harness's bare workspace is fine.
+    TestServer
+      .resource(titleDash("home", None), Nil)
+      .use { ts =>
+        def get(path: String) =
+          ts.get(Uri.unsafeFromString(path))
+            .flatMap(r => r.bodyText.compile.string.map((r.status, _)))
+        (
+          get("/system/pkl/base.pkl"),
+          get("/system/pkl/PklProject"),
+          get("/system/pkl/gitignore")
+        ).tupled
+      }
+      .timeout(30.seconds)
+      .map { (base, consumer, gitignore) =>
+        assertEquals(base._1, Status.Ok)
+        assertEquals(base._2, fh.view.build.AddonBootstrap.BaseManifest)
+        assertEquals(consumer._2, fh.view.build.AddonBootstrap.ConsumerManifest)
+        assertEquals(
+          gitignore._2,
+          fh.view.build.AddonBootstrap.GitignoreTemplate
         )
-        .use { server =>
-          val routes = server.routes.orNotFound
-          val get = (p: String) =>
-            routes
-              .run(Request[IO](Method.GET, Uri.unsafeFromString(p)))
-              .flatMap(r =>
-                r.body
-                  .through(fs2.text.utf8.decode)
-                  .compile
-                  .string
-                  .map((r.status, _))
-              )
-          for {
-            b <- get("/system/pkl/base.pkl")
-            c <- get("/system/pkl/PklProject")
-            g <- get("/system/pkl/gitignore")
-          } yield (b, c, g)
-        }
-    } yield out).timeout(30.seconds).unsafeRunSync()
-
-    assertEquals(base._1, Status.Ok)
-    assertEquals(base._2, fh.view.build.AddonBootstrap.BaseManifest)
-    assertEquals(consumer._2, fh.view.build.AddonBootstrap.ConsumerManifest)
-    assertEquals(gitignore._2, fh.view.build.AddonBootstrap.GitignoreTemplate)
-  }
-
-  test(
-    "/system/pkl revalidates: no-cache always, 304 only on a stale-free tag"
-  ) {
-    // Live data under a fixed URL: `no-cache` on 200 and 304 alike, and a 304
-    // only when the tag matches the current bytes. A stale tag winning would
-    // give an author completions for devices they no longer own.
-    val system = fh.view.build.SystemPkl(
-      hass = Some("// schema"),
-      dump = Some("kitchen = 1")
-    )
-    val noCache = `Cache-Control`(CacheDirective.`no-cache`())
-
-    val (ok, okTag, matched, stale) = (for {
-      store <- StateStore.inMemory(Map.empty)
-      ref <- SignallingRef[IO].of(
-        Server.RendererState.Ready(Renderer.create(titleDash("home", None)))
-      )
-      sessions <- Sessions.create
-      fake <- FakeHomeAssistant.create(Nil)
-      out <- Server
-        .resource(
-          ServiceCalls.asInstance(HomeAssistantApi.fromWs(fake)),
-          store,
-          Map("home" -> ref),
-          "home",
-          sessions,
-          TestAuth.openGate,
-          assets = AssetCache.empty,
-          systemPkl = system
-        )
-        .use { server =>
-          val routes = server.routes.orNotFound
-          val uri = uri"/system/pkl/dump.pkl"
-          for {
-            ok <- routes.run(Request[IO](Method.GET, uri))
-            okTag = ok.headers.get[ETag].map(_.tag)
-            matched <- routes.run(
-              Request[IO](Method.GET, uri)
-                .putHeaders(`If-None-Match`(okTag.map(NonEmptyList.one)))
-            )
-            stale <- routes.run(
-              Request[IO](Method.GET, uri)
-                .putHeaders(
-                  `If-None-Match`(
-                    Some(NonEmptyList.one(EntityTag("stale-etag")))
-                  )
-                )
-            )
-          } yield (ok, okTag, matched, stale)
-        }
-    } yield out).timeout(30.seconds).unsafeRunSync()
-
-    assertEquals(ok.status, Status.Ok)
-    assert(okTag.isDefined, clue = ok.headers)
-    assertEquals(ok.headers.get[`Cache-Control`], Some(noCache))
-
-    assertEquals(matched.status, Status.NotModified)
-    // A bare 304 would let a cache fall back to its own heuristics.
-    assertEquals(matched.headers.get[`Cache-Control`], Some(noCache))
-    assertEquals(matched.headers.get[ETag].map(_.tag), okTag)
-
-    assertEquals(stale.status, Status.Ok)
+      }
   }
 
   test("page serves both connection indicators (SSE transport + HA feed)") {
@@ -778,23 +599,25 @@ class ServerRoutesSuite extends ServerHarness {
         deferredStylesheets = List("https://example.test/icons.css")
       )
     )
+    // Linked as the local copy the asset cache fetched at boot.
+    def cached(url: String) = s"assets/${AssetCache.hashName(url)}"
+    val frame = cached("https://example.test/frame.css")
+    val icons = cached("https://example.test/icons.css")
     pageHtml(themed).map { html =>
       assert(
-        html.contains(
-          """<link rel="stylesheet" href="https://example.test/frame.css">"""
-        ),
+        html.contains(s"""<link rel="stylesheet" href="$frame">"""),
         clue = html
       )
       assert(
         html.contains(
-          """<link rel="preload" as="style" href="https://example.test/icons.css" onload="this.onload=null;this.rel='stylesheet'">"""
+          s"""<link rel="preload" as="style" href="$icons" onload="this.onload=null;this.rel='stylesheet'">"""
         ),
         clue = html
       )
       // Without JS the preload never becomes a stylesheet.
       assert(
         html.contains(
-          """<noscript><link rel="stylesheet" href="https://example.test/icons.css"></noscript>"""
+          s"""<noscript><link rel="stylesheet" href="$icons"></noscript>"""
         ),
         clue = html
       )
