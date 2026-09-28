@@ -15,10 +15,6 @@ import scala.concurrent.duration.*
   */
 class PageStreamRouteSuite extends ServerHarness {
 
-  // A document fetch cannot run under `TestControl` — see
-  // [[ServerHarness.simulateTime]].
-  override protected def simulateTime: Boolean = false
-
   // Several chunks wide, or "it came in one piece" and "it is smaller than one
   // chunk" are the same observation.
   private val Leaves = 400

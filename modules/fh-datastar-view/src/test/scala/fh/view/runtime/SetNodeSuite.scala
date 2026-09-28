@@ -26,9 +26,6 @@ import io.circe.Json
   */
 class SetNodeSuite extends ServerHarness {
 
-  // Opens documents; see [[ServerHarness.simulateTime]].
-  override protected def simulateTime: Boolean = false
-
   /** The document's first paint, and a viewer holding it. */
   private def viewing(dash: Dashboard, states: Map[String, EntityState])(
       f: (String, TestServer.Viewer) => IO[Unit]

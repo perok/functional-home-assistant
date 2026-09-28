@@ -49,7 +49,7 @@ class SharedPassSuite extends ServerHarness {
     "sensor.b" -> es("sensor.b", "b0")
   )
 
-  testReal("a session records what its own connection was actually sent") {
+  test("a session records what its own connection was actually sent") {
     // The digest kept must be of the bytes that went out, and the position the
     // version they were rendered at.
     live(twoLeafDash, ab0) { ts =>
@@ -77,7 +77,7 @@ class SharedPassSuite extends ServerHarness {
     }
   }
 
-  testReal(
+  test(
     "a change published during the connect handshake still reaches the connection"
   ) {
     // The route computes the opening and returns before the body is pulled. A
@@ -112,7 +112,7 @@ class SharedPassSuite extends ServerHarness {
     }
   }
 
-  testReal("a connection that stops reading cannot stall the store") {
+  test("a connection that stops reading cannot stall the store") {
     // `Topic.publish1` blocks on a full subscriber, so a bounded per-connection
     // subscription would let one stalled browser freeze the HA feed for
     // everyone.

@@ -212,19 +212,20 @@ A diff in one of those suites is a design question — say what moved and why it
 test to update. `PklBuildSuite`'s wire-format snapshots are the same rule one layer down, for the
 AUTHORING wire.
 
-### 7. Time is simulated per SUITE, and the real clock is a bug detector
+### 7. Real time by default, simulated per SUITE, and the real clock is a bug detector
 
-`ServerHarness.simulateTime` decides whether a suite runs under `TestControl`. A suite that
-FETCHES A DOCUMENT must set it false: the page route streams its body through
+`ServerHarness.simulateTime` is off: a suite runs on the real runtime unless it is ABOUT concurrent
+interleavings (`RenderCacheContentionSuite`), where a seeded `TestControl` is what makes one
+reproducible. Such a suite cannot FETCH A DOCUMENT: the page route streams its body through
 `fs2.io.readOutputStream`, a pipe with two mutually-blocking sides, and `TestControl` ticks one
 fiber on one thread — so whichever side is ticked first parks the only thread. The first attempt at
 streaming hung 18 of 720 tests at their guards, a different subset per run.
 
-**Per suite, not per test, and that is forced.** A per-test opt-out looks tighter, but suites reach
+**Per suite, not per test, and that is forced.** A per-test switch looks tighter, but suites reach
 a document fetch through shared helpers (`AckedResumeSuite`, `SurfaceTapSuite`), so a per-test scan
-mis-classifies them — and a mis-classified test does not fail, it HANGS. What simulated time was
-buying here is only poll-loop acceleration: every sleep in the affected suites is 5–300 ms and the
-windows they exercise are adoption-window-sized.
+mis-classifies them — and a mis-classified test does not fail, it HANGS. What simulated time bought
+the suites that fetch documents was only poll-loop acceleration: every sleep in them is 5–300 ms and
+the windows they exercise are adoption-window-sized.
 
 **The real clock then found two production bugs that simulated time had been hiding**, which is the
 reason to keep it rather than raise the guards:

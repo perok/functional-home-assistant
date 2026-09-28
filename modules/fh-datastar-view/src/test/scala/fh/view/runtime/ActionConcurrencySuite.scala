@@ -20,8 +20,6 @@ import scala.concurrent.duration.*
   */
 class ActionConcurrencySuite extends ServerHarness {
 
-  override protected def simulateTime: Boolean = false
-
   test(
     "overlapping asks for one entity ALL reach HA, and each answers itself"
   ) {

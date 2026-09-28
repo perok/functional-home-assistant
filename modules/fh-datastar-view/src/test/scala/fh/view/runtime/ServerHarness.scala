@@ -23,10 +23,13 @@ import fh.view.testkit.{FakeHomeAssistant, FixtureEntity}
 import fh.view.testkit.DashboardBuilders.st
 import fh.view.testkit.TestIds.given
 import fh.view.testkit.TestAuth
-import fs2.concurrent.SignallingRef
+import fh.view.build.SystemPkl
+import fh.view.telemetry.{Logging, Meters}
+import fs2.concurrent.{Signal, SignallingRef}
 import io.circe.Json
 import org.http4s.*
 import org.http4s.implicits.*
+import org.typelevel.otel4s.trace.Tracer
 
 import scala.annotation.targetName
 import scala.concurrent.duration.*
@@ -36,45 +39,26 @@ import scala.concurrent.duration.*
   */
 trait ServerHarness extends munit.CatsEffectSuite {
 
-  // Shadows `test` for `IO[Unit]` bodies so they run under TestControl, where
-  // the harness's IO.sleep poll loops (`quiet`, `served`) resolve the moment
-  // every fiber is blocked. Every background fiber the harness starts must be
-  // supervised: a bare `.start` outlives the test under simulated time, and the
-  // driver never reaches quiescence, which OOMs rather than hangs. The live
-  // path has no IO.blocking, realTime/monotonic, Dispatcher or evalOn, so
-  // nothing can misreport a real wait as TestControl's NonTerminationException
-  // (issue #109).
-  //
-  // Server topology, several live fibers coordinating through refs and streams,
-  // is out of TestControl's scope (typelevel/cats-effect#4104): its
-  // single-threaded scheduler can park on a completion production delivers in
-  // microseconds. [[testReal]] runs those on the real runtime, so keep them
-  // sub-second.
-  @targetName("testRealIO")
-  protected def testReal(
-      name: String
-  )(body: => IO[Unit])(using loc: munit.Location): Unit =
-    super.test(name)(body)
-
-  /** A suite that fetches a document must set this `false`. The page route
-    * streams through `fs2.io.readOutputStream`, whose writer and reader block
-    * each other, and TestControl runs `IO.blocking` inline on its one thread,
-    * so one side parks it and the test hangs, readers parked in
-    * `PipedStreamBuffer.read`. Which tests hang depends on tick order, hence
-    * per suite.
+  /** Real time unless a suite about concurrent interleavings opts in: there a
+    * seeded TestControl is what makes the interleaving reproducible, and the
+    * harness's IO.sleep poll loops resolve the moment every fiber is blocked.
     *
-    * Measured before choosing this: the sleeps are 5-300 ms against a 50 ms
-    * adoption window, so simulated time only accelerated poll loops. It does
-    * give up determinism, so re-run an opted-out suite a few times before
-    * trusting it.
+    * Under it, every background fiber a test starts must be supervised: a bare
+    * `.start` outlives the test, and the driver never reaches quiescence, which
+    * OOMs rather than hangs. Nor can it fetch a document or boot [[live]]: the
+    * page route streams through `fs2.io.readOutputStream`, whose writer and
+    * reader block each other, and TestControl runs `IO.blocking` inline on its
+    * one thread, so the test hangs in `PipedStreamBuffer.read`. Server
+    * topology, several live fibers coordinating through refs and streams, is
+    * out of its scope anyway (typelevel/cats-effect#4104).
     */
-  protected def simulateTime: Boolean = true
+  protected def simulateTime: Boolean = false
 
   @targetName("testIO")
   protected def test(
       name: String
   )(body: => IO[Unit])(using loc: munit.Location): Unit = if (!simulateTime)
-    testReal(name)(body)
+    super.test(name)(body)
   else {
     import cats.effect.kernel.Outcome
 
@@ -557,9 +541,8 @@ trait ServerHarness extends munit.CatsEffectSuite {
         .timeout(15.seconds)
   }
 
-  /** [[TestServer]] over `dash`, seeded with `initial`. The assembly boots on
-    * the real runtime, so a caller runs under `testReal` or opts its suite out
-    * of [[simulateTime]].
+  /** [[TestServer]] over `dash`, seeded with `initial`; real time only, see
+    * [[simulateTime]].
     */
   def live[A](
       dash: Dashboard,
@@ -596,18 +579,31 @@ trait ServerHarness extends munit.CatsEffectSuite {
       sessions <- Sessions.create
       fake <- FakeHomeAssistant.create(Nil)
       clients <- Ref[IO].of(List.empty[TestServer.LiveClient])
+      site <- Server.LiveSite.of(
+        Map("dashboard" -> ref),
+        Map.empty,
+        "dashboard"
+      )
       _ <- Server
-        .resource(
+        .withSite(
           ServiceCalls.asInstance(HomeAssistantApi.fromWs(fake)),
           store,
-          Map("dashboard" -> ref),
-          "dashboard",
+          site,
           sessions,
-          TestAuth.openGate
+          TestAuth.openGate,
+          AssetCache.empty,
+          Signal.constant(true),
+          SystemPkl.empty,
+          dumpRefresh = None,
+          Server.SessionWindows.default,
+          Tracer.noop,
+          Logging.console,
+          Meters.noop,
+          queries = None
         )
         .use(server =>
-          // Scoped to `use`: its connect fibers must be gone before
-          // `Server.resource` releases.
+          // Scoped to `use`: its connect fibers must be gone before the
+          // server releases.
           Supervisor[IO].use(supervisor =>
             use(
               new LiveWorld(

@@ -12,9 +12,6 @@ import scala.concurrent.duration.*
   */
 class SurfaceTapSuite extends ServerHarness {
 
-  // Opens documents; see [[ServerHarness.simulateTime]].
-  override protected def simulateTime: Boolean = false
-
   private def popupDash: Dashboard =
     liveLeafDash.copy(surfaces =
       Map("det" -> Surface(LayoutNode.Component("col")))

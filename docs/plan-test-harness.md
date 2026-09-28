@@ -12,7 +12,8 @@ stubbed, and a smaller set of tests that each earn their place.
 | `TestServer` → `ServerApp.assemble` | every other server suite, functional, smoke | only the edges |
 | pure `Renderer` / `Patches` | 29 files | nothing: the functional core |
 
-`Server.resource` has no production caller.
+`LiveWorld` builds its server through `Server.withSite`, the constructor `assemble` itself reaches
+through `fromFeed`; nothing else constructs one outside `ResumeSuite`'s exception.
 
 ## Steps
 
@@ -31,8 +32,10 @@ stubbed, and a smaller set of tests that each earn their place.
      (a log's shape, a cache's key) that a boundary test already covers is deleted, not ported.
    - **Overlap:** the same property asserted at two layers keeps the lowest layer that can observe
      it — pure logic in a core suite, wiring and timing at the HTTP/SSE boundary.
-4. **Delete** `Server.resource` beyond what `LiveWorld` needs, with the seams only it used.
-   `SharedHarness`, `recordAndPull` and `CountingRenderer` went with step 3.
+4. **Delete** (done). `Server.resource` is gone and `withSite` is `private[runtime]` with no
+   defaults, as are `fromFeed`'s; `SharedHarness`, `recordAndPull` and `CountingRenderer` went
+   with step 3. `ServerHarness` runs on the real clock unless a suite opts in, which only
+   `RenderCacheContentionSuite` does, and `testReal` went with the opt-outs.
 
 ## Decisions
 
@@ -42,7 +45,7 @@ stubbed, and a smaller set of tests that each earn their place.
   after boot, so a `Scene` test pays no Pkl evaluation and starts from a narrowed feed.
 - **Render cost is measured on the connection loop, outside `assemble`.** `RenderCacheContentionSuite`
   counts renders through a `Renderer` subclass, which `assemble` cannot take, so it keeps
-  `LiveWorld` over `Server.resource`: real connections, doorbell and pulls, without the feed,
+  `LiveWorld` over `Server.withSite`: real connections, doorbell and pulls, without the feed,
   narrowing and auth routes, none of which renders. Rejected: a renderer factory on `Prepared`
   (a production seam for one suite), and calling `Server.pull` directly, which would assume that
   the recorder, the doorbell loop and the route's selection render nothing instead of measuring it.

@@ -1479,8 +1479,8 @@ class Server(
         .start
       // The walk writes straight into the response body, so a render holds
       // one node rather than the page and the head arrives first. This
-      // `IO.blocking` is why `ServerHarness` fetches documents with `testReal`:
-      // `TestControl` cannot run `readOutputStream`'s two blocking sides.
+      // `IO.blocking` is why a suite that fetches documents runs on the real
+      // clock: `TestControl` cannot run `readOutputStream`'s two blocking sides.
       body = fs2.io
         .readOutputStream[IO](Server.PageChunkBytes) { os =>
           IO.blocking {
@@ -2029,42 +2029,10 @@ object Server {
   val DefaultSlug: String = "dashboard"
 
   /** The server with its recorders running: with none, every pull finds an
-    * empty log and the dashboard silently stops moving.
+    * empty log and the dashboard silently stops moving. `site` is the caller's,
+    * since the reload path writes it.
     */
-  def resource(
-      actions: ServiceCalls,
-      stateStore: StateStore,
-      renderers: Map[String, SignallingRef[IO, RendererState]],
-      defaultSlug: String,
-      sessions: Sessions,
-      gate: AuthGate,
-      assets: AssetCache = AssetCache.empty,
-      healthy: Signal[IO, Boolean] = Signal.constant(true),
-      systemPkl: SystemPkl = SystemPkl.empty,
-      dumpRefresh: Option[IO[DumpRefresh.Result]] = None,
-      windows: SessionWindows = SessionWindows.default
-  ): Resource[IO, Server] =
-    LiveSite
-      .of(renderers, Map.empty, defaultSlug)
-      .toResource
-      .flatMap(
-        withSite(
-          actions,
-          stateStore,
-          _,
-          sessions,
-          gate,
-          assets,
-          healthy,
-          systemPkl,
-          dumpRefresh,
-          windows
-        )
-      )
-
-  /** [[resource]] against a site the caller owns, which the reload path writes.
-    */
-  def withSite(
+  private[runtime] def withSite(
       actions: ServiceCalls,
       stateStore: StateStore,
       site: LiveSite,
@@ -2074,11 +2042,11 @@ object Server {
       healthy: Signal[IO, Boolean],
       systemPkl: SystemPkl,
       dumpRefresh: Option[IO[DumpRefresh.Result]],
-      windows: SessionWindows = SessionWindows.default,
-      tracer: Tracer[IO] = Tracer.noop,
-      loggerFactory: LoggerFactory[IO] = Logging.console,
-      meters: Meters = Meters.noop,
-      queries: Option[QueryResolver] = None
+      windows: SessionWindows,
+      tracer: Tracer[IO],
+      loggerFactory: LoggerFactory[IO],
+      meters: Meters,
+      queries: Option[QueryResolver]
   ): Resource[IO, Server] =
     for {
       supervisor <- Supervisor[IO]
@@ -2111,14 +2079,14 @@ object Server {
       site: LiveSite,
       sessions: Sessions,
       gate: AuthGate,
-      assets: AssetCache = AssetCache.empty,
-      systemPkl: SystemPkl = SystemPkl.empty,
-      dumpRefresh: Option[IO[DumpRefresh.Result]] = None,
-      actions: HomeAssistantApi[IO] => ServiceCalls = ServiceCalls.asInstance,
-      tracer: Tracer[IO] = Tracer.noop,
-      loggerFactory: LoggerFactory[IO] = Logging.console,
-      meters: Meters = Meters.noop,
-      windows: SessionWindows = SessionWindows.default
+      assets: AssetCache,
+      systemPkl: SystemPkl,
+      dumpRefresh: Option[IO[DumpRefresh.Result]],
+      actions: HomeAssistantApi[IO] => ServiceCalls,
+      tracer: Tracer[IO],
+      loggerFactory: LoggerFactory[IO],
+      meters: Meters,
+      windows: SessionWindows
   ): Resource[IO, Server] =
     historyQueries(feed.api, loggerFactory).flatMap(queries =>
       withSite(
