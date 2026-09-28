@@ -50,7 +50,7 @@ class RenderInputsSuite extends munit.FunSuite {
     // key is entity versions.
     "banner" -> CardDef(
       template =
-        """<div><i>{{bakeIndex}}</i>{{#bar}}{{{html}}}{{/bar}}<div id="{{hostId}}">{{{branch}}}</div></div>""",
+        """<div><i>{{bakeIndex}}</i>{{#bar}}{{{html}}}{{/bar}}<div id="{{hostId}}">{{#branch}}{{{html}}}{{/branch}}</div></div>""",
       regions = Map("bar" -> Region(), "branch" -> Region(Region.Baked))
     ),
     "bannerBar" -> CardDef("""<b>{{title}}</b>""", slots = List("title")),

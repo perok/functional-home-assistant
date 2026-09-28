@@ -19,7 +19,7 @@ import fh.view.model.{
   SlotSource,
   Surface
 }
-import fh.view.testkit.FakeHomeAssistant
+import fh.view.testkit.{FakeHomeAssistant, FixtureEntity}
 import fh.view.testkit.DashboardBuilders.st
 import fh.view.testkit.TestIds.given
 import fh.view.testkit.TestAuth
@@ -376,11 +376,10 @@ trait ServerHarness extends munit.CatsEffectSuite {
       "<div>{{#children}}{{{html}}}{{/children}}</div>",
       regions = Map("children" -> Region())
     ),
-    // Pure structure, like lib/components.pkl's `If`, at the pre-region
-    // spelling on purpose: these suites pin that the string-splice fallback
-    // renders the same bytes.
+    // Pure structure, like `lib/components/surface.pkl`'s `If`.
     "ifhost" -> CardDef(
-      template = """<div id="{{hostId}}">{{{branch}}}</div>""",
+      template =
+        """<div id="{{hostId}}">{{#branch}}{{{html}}}{{/branch}}</div>""",
       regions = Map("branch" -> Region(Region.Baked))
     ),
     "card" -> CardDef("<span>{{state}}</span>", slots = List("state")),
@@ -707,48 +706,23 @@ trait ServerHarness extends munit.CatsEffectSuite {
       .filter(_.name == Elements)
       .map(e => (e.mode, e.selector, e.elements))
 
-  class LiveClient(seen: Ref[IO, Vector[ServerSentEvent]]) {
-
-    def drain: IO[List[ServerSentEvent]] =
-      seen.getAndSet(Vector.empty).map(_.toList)
-
-    /** Quiet alone cannot tell "nothing was produced" from "nothing has arrived
-      * yet", so it follows [[LiveWorld.change]]'s server-side proof that every
-      * session pulled the frame. A pull that owes a client nothing sends
-      * nothing, not even a cursor, so waiting for one would hang on exactly the
-      * clients this checks are left alone.
-      */
-    def arrived: IO[Unit] = quiet
-
-    private def quiet: IO[Unit] =
-      fs2.Stream
-        .repeatEval(seen.get.map(_.size) <* IO.sleep(25.millis))
-        .drop(6)
-        // Four equal readings, not two: a batch's events can arrive more than a
-        // sample apart under load, and two samples returned mid-batch in CI.
-        .sliding(4)
-        .find(w => w.toList.distinct.sizeIs == 1)
-        .compile
-        .drain
-  }
-
-  /** A booted server and several clients, in-process through `routes.run`, so
-    * deterministic. Over [[SharedHarness]] it adds the publisher fibers, the
-    * topic and the per-connection merge, where the running app's bugs had been
-    * hiding.
+  /** A booted server and several clients, in-process through `routes.run`, over
+    * a caller's [[Renderer]]. Kept for `RenderCacheContentionSuite` alone,
+    * which counts renders through a subclass that [[TestServer]] cannot take;
+    * everything else goes through [[TestServer]].
     */
   class LiveWorld(
       routes: org.http4s.HttpApp[IO],
       store: StateStore,
       sessions: Sessions,
-      clients: Ref[IO, List[LiveClient]],
+      clients: Ref[IO, List[TestServer.LiveClient]],
       supervisor: Supervisor[IO]
   ) {
 
     /** `query` carries what a document would hand back, such as `?ui.<id>=<n>`
       * (see [[Server.Restore]]).
       */
-    def connect(query: String = ""): IO[LiveClient] =
+    def connect(query: String = ""): IO[TestServer.LiveClient] =
       for {
         seen <- Ref[IO].of(Vector.empty[ServerSentEvent])
         resp <- routes.run(
@@ -766,7 +740,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
             .compile
             .drain
         )
-        client = new LiveClient(seen)
+        client = new TestServer.LiveClient(seen)
         // `_haDown` rides a branch merged into the connection stream, so it can
         // land either side of the cursor; waiting for the cursor alone left it
         // for the next drain. It always comes here: with no document, the
@@ -781,8 +755,9 @@ trait ServerHarness extends munit.CatsEffectSuite {
       } yield client
 
     /** Two gates: [[served]] proves every session pulled this version, then
-      * [[LiveClient.arrived]] that the bytes landed. A client owed nothing
-      * receives nothing, so "the frame is done" has to be asked of the server.
+      * [[TestServer.LiveClient.arrived]] that the bytes landed. A client owed
+      * nothing receives nothing, so "the frame is done" has to be asked of the
+      * server.
       */
     def change(next: EntityState): IO[Unit] =
       recording *> store.update(next) *> settle
@@ -827,11 +802,26 @@ trait ServerHarness extends munit.CatsEffectSuite {
         .timeout(15.seconds)
   }
 
-  def liveWorld(
-      dash: Dashboard,
-      initial: Map[String, EntityState]
-  )(use: LiveWorld => IO[Unit]): IO[Unit] =
-    liveWorldOf(Renderer.create(dash), initial)(use)
+  /** [[TestServer]] over `dash`, seeded with `initial`. The assembly boots on
+    * the real runtime, so a caller runs under `testReal` or opts its suite out
+    * of [[simulateTime]].
+    */
+  def live(dash: Dashboard, initial: Map[String, EntityState])(
+      use: TestServer => IO[Unit]
+  ): IO[Unit] =
+    TestServer
+      .resource(
+        dash,
+        initial.values.toList
+          .map(e => FixtureEntity(e.entityId, e.state, e.attributes))
+      )
+      .use(use)
+      .timeout(30.seconds)
+
+  def liveOne(dash: Dashboard, initial: Map[String, EntityState])(
+      use: (TestServer, TestServer.LiveClient) => IO[Unit]
+  ): IO[Unit] =
+    live(dash, initial)(w => w.connect().flatMap(use(w, _)))
 
   def liveWorldOf(
       renderer: Renderer,
@@ -842,7 +832,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
       ref <- SignallingRef[IO].of(Server.RendererState.Ready(renderer))
       sessions <- Sessions.create
       fake <- FakeHomeAssistant.create(Nil)
-      clients <- Ref[IO].of(List.empty[LiveClient])
+      clients <- Ref[IO].of(List.empty[TestServer.LiveClient])
       _ <- Server
         .resource(
           ServiceCalls.asInstance(HomeAssistantApi.fromWs(fake)),
@@ -886,12 +876,6 @@ trait ServerHarness extends munit.CatsEffectSuite {
           .query
           .params(Server.ConnSignal)
       }
-
-  def liveClient(
-      dash: Dashboard,
-      initial: Map[String, EntityState]
-  )(use: (LiveWorld, LiveClient) => IO[Unit]): IO[Unit] =
-    liveWorld(dash, initial)(w => w.connect().flatMap(use(w, _)))
 
   def twoTabsDash = Dashboard(
     cards = Map(

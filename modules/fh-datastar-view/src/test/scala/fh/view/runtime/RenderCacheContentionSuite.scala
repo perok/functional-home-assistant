@@ -41,7 +41,7 @@ class RenderCacheContentionSuite extends ServerHarness {
       "card" -> CardDef("<span>{{state}}</span>", slots = List("state")),
       "tabs" -> CardDef(
         template =
-          """{{#bar}}{{{html}}}{{/bar}}<div id="{{hostId}}" class="tabs">{{{panel}}}</div>""",
+          """{{#bar}}{{{html}}}{{/bar}}<div id="{{hostId}}" class="tabs">{{#panel}}{{{html}}}{{/panel}}</div>""",
         regions = Map("bar" -> Region(), "panel" -> Region(Region.Baked))
       )
     ),
@@ -137,6 +137,14 @@ class RenderCacheContentionSuite extends ServerHarness {
 
   /** Reset after everyone connects, so only steady-state live pulls are
     * measured.
+    *
+    * On [[LiveWorld]], not [[TestServer]]: the counting renderer has no way
+    * into [[ServerApp.assemble]], and a renderer factory on its `Prepared`
+    * would be a production seam for this suite alone. What that skips is the
+    * feed, narrowing and the auth routes, none of which renders. Not lower
+    * either: driving `Server.pull` per viewer passes too, but only because the
+    * recorder, the doorbell loop and the route's selection render nothing —
+    * which is part of what this measures.
     */
   private def rendersPerFrame(
       dash: Dashboard,
