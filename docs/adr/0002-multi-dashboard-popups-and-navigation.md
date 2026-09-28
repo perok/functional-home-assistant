@@ -94,7 +94,7 @@ ids, and a **control** queue the action handlers push patches into.
 
 **Live entity patches are rendered once per slug, for everyone.** One background
 subscription to the state stream per dashboard (`Server.sharedPatchPublishers`,
-run by `Server.resource`) selects what a change touches, renders it, diffs
+run by `Server.withSite`) selects what a change touches, renders it, diffs
 against a per-slug `FragmentLog`, and publishes the changed fragments on a
 per-slug topic. The topic is **one multiplexed** stream of slug-tagged events, so
 a connection subscribes once and drops every tag but its own; that (rather than a

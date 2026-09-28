@@ -136,7 +136,7 @@ class UseCaseSuite extends munit.CatsEffectSuite {
       .resource(
         PklFixture.buildDashboard("home", entryNeedingDump),
         List(HouseFixture.kitchenLight),
-        SystemPkl.fromDisk(instance)
+        workspace = Some(instance)
       )
       .use { ts =>
         val app = ts.gatedApp
@@ -209,7 +209,7 @@ class UseCaseSuite extends munit.CatsEffectSuite {
       .resource(
         PklFixture.buildDashboard("home", entryNeedingDump),
         Nil,
-        SystemPkl.fromDisk(instance)
+        workspace = Some(instance)
       )
       .flatMap { ts =>
         EmberServerBuilder
@@ -288,7 +288,7 @@ class UseCaseSuite extends munit.CatsEffectSuite {
       .resource(
         PklFixture.buildDashboard("home", entryNeedingDump),
         Nil,
-        SystemPkl.fromDisk(instance)
+        workspace = Some(instance)
       )
       .use { ts =>
         val app = ts.gatedApp
@@ -333,7 +333,7 @@ class UseCaseSuite extends munit.CatsEffectSuite {
       .resource(
         PklFixture.buildDashboard("home", entryNeedingDump),
         Nil,
-        SystemPkl.fromDisk(instance)
+        workspace = Some(instance)
       )
       .use { ts =>
         val app = ts.gatedApp

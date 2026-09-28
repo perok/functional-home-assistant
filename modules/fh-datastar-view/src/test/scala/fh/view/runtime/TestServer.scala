@@ -2,12 +2,14 @@
 // (`StateStore.changeSubscribers`, `Server.connectedSessions`).
 package fh.view.runtime
 
+import api.homeassistant.HomeAssistantApi
 import cats.effect.{Deferred, IO, Ref, Resource}
 import cats.syntax.all.*
 import com.comcast.ip4s.{host, port}
-import fh.view.auth.AuthSessions
-import fh.view.build.{PklDump, Site, SystemPkl}
+import fh.view.auth.{AuthSessions, HaOAuth}
+import fh.view.build.{PklDump, Site}
 import fh.view.model.{Access, Dashboard}
+import fh.view.telemetry.{Logging, Meters, Telemetry}
 import fh.view.testkit.{
   FakeConfig,
   FakeHomeAssistant,
@@ -15,28 +17,32 @@ import fh.view.testkit.{
   PklWorkspace,
   TestAuth
 }
-import fs2.concurrent.SignallingRef
 import io.circe.Json
 import org.http4s.*
+import org.http4s.client.Client
+import org.http4s.dsl.io.*
 import org.http4s.ember.server.EmberServerBuilder
 import org.http4s.implicits.*
 import org.http4s.jdkhttpclient.JdkHttpClient
+import org.http4s.server.websocket.WebSocketBuilder2
 
 import java.util.concurrent.TimeoutException
 
 import scala.concurrent.duration.*
 
-/** A dashboard wired as `ServerApp` assembles it, through [[Server.fromFeed]],
-  * with the real [[HaFeed]] against a [[FakeHomeAssistant]] handed over as a
-  * never-closing connection ([[TestServer.fakeConnect]]). So the reconnect,
-  * facade and `haDown` machinery runs for real; only the HA socket is stubbed.
+/** [[ServerApp.assemble]] with only its edges stubbed: the HA socket is a
+  * [[FakeHomeAssistant]] handed over as a never-closing connection, and HA's
+  * token endpoint and the asset CDN are in-process stubs. Everything else — the
+  * feed's reconnect and narrowing, the auth routes, the error boundary — is the
+  * production wiring, and requests go through the app production binds.
   */
 final class TestServer(
     val fake: FakeHomeAssistant,
     val store: StateStore,
     val server: Server,
     val slug: String,
-    val auth: TestAuth
+    val auth: TestAuth,
+    app: HttpApp[IO]
 ) {
 
   /** '''`n` counts the recorder too.''' A test adding its own subscriber must
@@ -76,11 +82,6 @@ final class TestServer(
   /** After [[forgetConnections]]: the browser has noticed. */
   def awaitNoConnections: IO[Unit] =
     server.connectedSessions.filter(_ == 0).head.compile.drain
-
-  /** Behind the same backstop `ServerApp` uses, so a route that declared no
-    * requirement fails as a 500. See [[TestAuth]] for why there is no bypass.
-    */
-  private val app = server.routes.orNotFound
 
   /** `as` is the session id presented; `None` is an anonymous browser.
     * Defaulted to the harness admin.
@@ -262,40 +263,38 @@ final class TestServer(
 
 object TestServer {
 
-  /** Owns the store's live feed and the server's publishers
-    * ([[Server.resource]]).
+  /** A model dashboard as the site's starting content, so no Pkl is evaluated.
     */
   def resource(
       dashboard: Dashboard,
       entities: List[FixtureEntity],
-      // What a CLI pull fetches over `/system/pkl/` (ADR 0010).
-      systemPkl: SystemPkl = SystemPkl.empty,
-      // What the gate reads (`Server.accessFor` asks the renderer).
+      // What a CLI pull fetches over `/system/pkl/` (ADR 0010); an empty one
+      // when not named.
+      workspace: Option[os.Path] = None,
+      // The site default the gate falls back to when the dashboard sets none.
       access: Access = Access.default
   ): Resource[IO, TestServer] =
     for {
-      fake <- FakeHomeAssistant.create(entities).toResource
-      feed <- HaFeed.resource(fakeConnect(fake))
-      rendererRef <- SignallingRef[IO]
-        .of(Server.RendererState.Ready(Renderer.create(dashboard, access)))
-        .toResource
-      // The same kernel production uses, so the harness cannot drift; only the
-      // renderer source and the HA edge are ours.
-      site <- Server.LiveSite
-        .of(
-          Map(dashboard.slug -> rendererRef),
-          Map(dashboard.slug -> Right(dashboard)),
-          dashboard.slug
+      validated <- IO
+        .fromEither(
+          dashboard
+            .validated()
+            .leftMap(errs =>
+              IllegalArgumentException(
+                s"'${dashboard.slug}' does not validate: ${errs.mkString("; ")}"
+              )
+            )
         )
         .toResource
-      auth <- TestAuth.create(site.permissionFor).toResource
-      server <- ServerApp.liveServer(
-        feed,
-        site,
-        auth.gate,
-        systemPkl = systemPkl
+      fake <- FakeHomeAssistant.create(entities).toResource
+      dir <- workspace.fold(tempDir("fh-workspace"))(Resource.pure)
+      assembled <- assemble(
+        fake,
+        dir,
+        startingWith(validated.withAccess(access))
       )
-    } yield new TestServer(fake, feed.store, server, dashboard.slug, auth)
+      ts <- inProcess(fake, dashboard.slug, assembled)
+    } yield ts
 
   /** [[resource]], but from a Pkl entry source through the real build path
     * (`ServerApp.prepareRenderers`): the Tier-A seam (ADR 0009) where authoring
@@ -315,17 +314,9 @@ object TestServer {
     for {
       tmp <- stageWorkspace(slug, entrySource, entities)
       fake <- FakeHomeAssistant.create(entities).toResource
-      feed <- HaFeed.resource(fakeConnect(fake))
-      prepared <- ServerApp.prepareRenderers(feed, tmp, None).toResource
-      site <- siteOf(prepared, slug)
-      auth <- TestAuth.create(site.permissionFor).toResource
-      server <- ServerApp.liveServer(
-        feed,
-        site,
-        auth.gate,
-        systemPkl = SystemPkl.fromDisk(tmp)
-      )
-    } yield new TestServer(fake, feed.store, server, slug, auth)
+      assembled <- assemble(fake, tmp, ServerApp.prepareRenderers(_, tmp, None))
+      ts <- inProcess(fake, slug, assembled)
+    } yield ts
 
   /** [[fromWorkspace]] on a real port with the theme's assets. The entry must
     * set `access = c.access.public`: a Playwright page cannot be handed a
@@ -339,16 +330,40 @@ object TestServer {
     for {
       tmp <- stageWorkspace(slug, entrySource, entities)
       fake <- FakeHomeAssistant.create(entities).toResource
-      feed <- HaFeed.resource(fakeConnect(fake))
-      prepared <- ServerApp.prepareRenderers(feed, tmp, None).toResource
-      renderer <- IO
-        .fromOption(prepared.states.get(slug).flatMap(_.rendererOf))(
-          RuntimeException(s"'$slug' did not build: ${prepared.states}")
+      client <- cdnClient
+      assembled <- assemble(
+        fake,
+        tmp,
+        ServerApp.prepareRenderers(_, tmp, None),
+        client
+      )
+      _ <- IO
+        .fromOption(assembled.prepared.states.get(slug).flatMap(_.rendererOf))(
+          RuntimeException(
+            s"'$slug' did not build: ${assembled.prepared.states}"
+          )
         )
         .toResource
-      site <- siteOf(prepared, slug)
-      bound <- bind(fake, feed, site, slug, renderer)
+      bound <- bind(fake, slug, assembled)
     } yield bound
+
+  /** A workspace booted as it stands, whatever its `site.pkl` says, a broken
+    * one included; the server's slug is the site's default.
+    */
+  def ofWorkspace(
+      workspace: os.Path,
+      entities: List[FixtureEntity] = Nil
+  ): Resource[IO, (TestServer, ServerApp.Prepared)] =
+    for {
+      fake <- FakeHomeAssistant.create(entities).toResource
+      assembled <- assemble(
+        fake,
+        workspace,
+        ServerApp.prepareRenderers(_, workspace, None)
+      )
+      slug <- assembled.site.defaultSlug.toResource
+      ts <- inProcess(fake, slug, assembled)
+    } yield (ts, assembled.prepared)
 
   private def stageWorkspace(
       slug: String,
@@ -379,22 +394,8 @@ object TestServer {
       }.toResource
     } yield tmp
 
-  private def siteOf(
-      prepared: ServerApp.Prepared,
-      slug: String
-  ): Resource[IO, Server.LiveSite] =
-    for {
-      rendererRefs <- prepared.states.toList
-        .traverse { case (s, state) => SignallingRef[IO].of(state).map(s -> _) }
-        .map(_.toMap)
-        .toResource
-      site <- Server.LiveSite
-        .of(rendererRefs, prepared.content, slug)
-        .toResource
-    } yield site
-
-  /** [[resource]] plus a real [[AssetCache]] and an ember bind on a loopback
-    * port, for the Playwright suites. State is still driven through
+  /** [[resource]] with the real CDN behind the asset cache and an ember bind on
+    * a loopback port, for the Playwright suites. State is still driven through
     * `fake.emit`.
     */
   def served(
@@ -403,61 +404,133 @@ object TestServer {
       config: FakeConfig = FakeConfig()
   ): Resource[IO, (TestServer, Uri)] =
     for {
+      validated <- IO
+        .fromEither(
+          dashboard
+            .validated()
+            .leftMap(errs => IllegalArgumentException(errs.mkString("; ")))
+        )
+        .toResource
       fake <- FakeHomeAssistant.create(entities, config).toResource
-      feed <- HaFeed.resource(fakeConnect(fake))
+      dir <- tempDir("fh-workspace")
+      client <- cdnClient
       // Public: a Playwright session cannot be handed a cookie before its first
       // navigation, and driving OAuth against a fake HA would test the fake.
       // The gate still runs, the wall-tablet case.
-      renderer = Renderer.create(dashboard, Access.Public)
-      rendererRef <- SignallingRef[IO]
-        .of(Server.RendererState.Ready(renderer))
-        .toResource
-      site <- Server.LiveSite
-        .of(
-          Map(dashboard.slug -> rendererRef),
-          Map(dashboard.slug -> Right(dashboard)),
-          dashboard.slug
-        )
-        .toResource
-      bound <- bind(fake, feed, site, dashboard.slug, renderer)
+      assembled <- assemble(
+        fake,
+        dir,
+        startingWith(validated.withAccess(Access.Public)),
+        client
+      )
+      bound <- bind(fake, dashboard.slug, assembled)
     } yield bound
+
+  private def assemble(
+      fake: FakeHomeAssistant,
+      workspace: os.Path,
+      prepare: HaFeed => IO[ServerApp.Prepared],
+      assetsClient: Client[IO] = NoCdn
+  ): Resource[IO, ServerApp.Assembled] =
+    tempDir("fh-assets").flatMap(assetsDir =>
+      ServerApp.assemble(
+        ServerApp.Edges(
+          workspace = workspace,
+          haConnect = fakeConnect(fake),
+          login = _ => IO.pure(fakeLogin(fake)),
+          assetsClient = assetsClient,
+          assetsDir = assetsDir,
+          prepare = prepare,
+          trustedProxy = None,
+          pklLspJar = None,
+          watchRegistry = false,
+          otel = Telemetry.Otel.noop,
+          loggerFactory = Logging.console,
+          meters = Meters.noop
+        )
+      )
+    )
+
+  private def inProcess(
+      fake: FakeHomeAssistant,
+      slug: String,
+      assembled: ServerApp.Assembled
+  ): Resource[IO, TestServer] =
+    for {
+      wsb <- WebSocketBuilder2[IO].toResource
+      auth <- TestAuth.admitted(assembled.sessions).toResource
+    } yield new TestServer(
+      fake,
+      assembled.feed.store,
+      assembled.server,
+      slug,
+      auth,
+      assembled.app(wsb)
+    )
 
   private def bind(
       fake: FakeHomeAssistant,
-      feed: HaFeed,
-      site: Server.LiveSite,
       slug: String,
-      renderer: Renderer
+      assembled: ServerApp.Assembled
   ): Resource[IO, (TestServer, Uri)] =
     for {
-      httpClient <- IO(java.net.http.HttpClient.newHttpClient()).toResource
-      assetsDir <- IO
-        .blocking(os.temp.dir(prefix = "fh-smoke-assets"))
-        .toResource
-      assets <- AssetCache
-        .build(
-          assetsDir,
-          Server.DatastarCdn :: renderer.stylesheets ++ renderer.scripts,
-          JdkHttpClient[IO](httpClient)
-        )
-        .toResource
-      auth <- TestAuth.create(site.permissionFor).toResource
-      server <- ServerApp.liveServer(feed, site, auth.gate, assets)
+      ts <- inProcess(fake, slug, assembled)
       bound <- EmberServerBuilder
         .default[IO]
         .withHost(host"127.0.0.1")
         .withPort(port"0")
-        .withHttpApp(server.routes.orNotFound)
+        .withHttpWebSocketApp(assembled.app)
         .withShutdownTimeout(0.seconds)
         .build
-    } yield (
-      new TestServer(fake, feed.store, server, slug, auth),
-      bound.baseUri
-    )
+    } yield (ts, bound.baseUri)
+
+  private def startingWith(
+      validated: Dashboard.Validated
+  ): HaFeed => IO[ServerApp.Prepared] =
+    _ =>
+      IO.pure(
+        ServerApp.Prepared(
+          Map(validated.dashboard.slug -> Right(validated)),
+          Some(validated.dashboard.slug),
+          Set.empty
+        )
+      )
+
+  private def tempDir(prefix: String): Resource[IO, os.Path] =
+    IO.blocking(os.temp.dir(prefix = prefix)).toResource
 
   /** Never closes, so the feed stays connected for the whole test. A reconnect
     * test supplies its own connect with a completable close.
     */
   private def fakeConnect(fake: FakeHomeAssistant): HaFeed.Connect =
     Resource.pure((fake, IO.never[Unit]))
+
+  /** HA's token endpoint mints for any grant, and a user's connection is the
+    * same fake, so a tap made as a user lands where one made as the instance
+    * does.
+    */
+  private def fakeLogin(fake: FakeHomeAssistant): ServerApp.HaLogin =
+    ServerApp.HaLogin(
+      new HaOAuth(
+        uri"http://ha.test",
+        uri"http://ha.test",
+        Client.fromHttpApp(HttpApp[IO] { req =>
+          if req.uri.path.renderString.endsWith("/auth/token") then
+            Ok(
+              """{"access_token":"minted","refresh_token":"r2","expires_in":1800}"""
+            )
+          else NotFound()
+        })
+      ),
+      _ => Resource.pure(HomeAssistantApi.fromWs(fake))
+    )
+
+  /** Every asset answers empty, so no in-process test reaches the network. */
+  private val NoCdn: Client[IO] =
+    Client.fromHttpApp(HttpApp.pure(Response[IO](Status.Ok)))
+
+  private def cdnClient: Resource[IO, Client[IO]] =
+    IO(java.net.http.HttpClient.newHttpClient())
+      .map(JdkHttpClient[IO](_))
+      .toResource
 }

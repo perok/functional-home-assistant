@@ -438,7 +438,7 @@ gotchas"):
 #### Design docs and plans
 
 The repo-wide rule (plans are deferred, ADRs are rewritten in place, discuss before rewriting)
-is in the root `CLAUDE.md`. This module currently has no plan documents: every decision that
-was in one lives in `docs/adr/`, and `docs/architecture-rendering-pipeline.md` is the shape of
-the running system.
+is in the root `CLAUDE.md`. The one plan in flight is `docs/plan-test-harness.md` (the test
+harness); every settled decision lives in `docs/adr/`, and
+`docs/architecture-rendering-pipeline.md` is the shape of the running system.
 

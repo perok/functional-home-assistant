@@ -112,7 +112,8 @@ object FixtureDashboard {
   ): Dashboard =
     Dashboard(
       cards = cards + ("ifhost" -> CardDef(
-        template = """<div class="ifhost" id="{{hostId}}">{{{branch}}}</div>""",
+        template =
+          """<div class="ifhost" id="{{hostId}}">{{#branch}}{{{html}}}{{/branch}}</div>""",
         regions = Map("branch" -> Region(Region.Baked))
       )),
       card = LayoutNode.Component("ifhost"),

@@ -1,18 +1,13 @@
 package fh.view.runtime
 
-import fh.view.testkit.TestAuth
-
 import cats.effect.{IO, Resource}
-import cats.syntax.all.*
-import fh.view.build.{Site, SystemPkl}
-import fh.view.testkit.{FakeHomeAssistant, PklWorkspace}
-import fs2.concurrent.SignallingRef
+import fh.view.build.Site
+import fh.view.testkit.PklWorkspace
 import org.http4s.*
-import org.http4s.implicits.*
 
 /** The startup path: a workspace whose entrypoint cannot evaluate still boots,
   * registers the failure (its error page at `/`), and the site's `default`
-  * picks the slug. Through production's `prepareRenderers` -> `liveServer`.
+  * picks the slug. Through [[ServerApp.assemble]].
   */
 class ServerAppSuite extends munit.CatsEffectSuite {
 
@@ -130,9 +125,6 @@ class ServerAppSuite extends munit.CatsEffectSuite {
   private def allFailed: Resource[IO, (ServerApp.Prepared, HttpApp[IO])] =
     staged("this is not valid pkl")
 
-  /** The real eval path, composed with the production routes (server and
-    * editor).
-    */
   private def staged(
       entrypoint: String
   ): Resource[IO, (ServerApp.Prepared, HttpApp[IO])] =
@@ -142,40 +134,8 @@ class ServerAppSuite extends munit.CatsEffectSuite {
         val _ = PklWorkspace.bootstrap(tmp)
         os.write.over(tmp / Site.EntryFile, entrypoint)
       }.toResource
-      fake <- FakeHomeAssistant.create(Nil).toResource
-      feed <- HaFeed.resource(connect(fake))
-      prepared <- ServerApp.prepareRenderers(feed, tmp, None).toResource
-      refs <- prepared.states.toList
-        .traverse { case (slug, state) =>
-          SignallingRef[IO].of(state).map(slug -> _)
-        }
-        .map(_.toMap)
-        .toResource
-      site <- Server.LiveSite
-        .of(
-          refs,
-          prepared.content,
-          ServerApp.defaultSlugFrom(prepared.default, refs.keys.toList)
-        )
-        .toResource
-      server <- ServerApp.liveServer(
-        feed,
-        site,
-        TestAuth.openGate,
-        systemPkl = SystemPkl.fromDisk(tmp)
-      )
-      editor = new EditorRoutes(
-        tmp,
-        TestAuth.openGate,
-        None,
-        site.defaultSlug,
-        site.names
-      )
-        .routes(null)
-    } yield (prepared, (server.routes <+> editor).orNotFound)
-
-  private def connect(fake: FakeHomeAssistant): HaFeed.Connect =
-    Resource.pure((fake, IO.never[Unit]))
+      booted <- TestServer.ofWorkspace(tmp)
+    } yield (booted._2, booted._1.gatedApp)
 
   private def get(app: HttpApp[IO], path: String): IO[(Status, String)] =
     app

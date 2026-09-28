@@ -10,8 +10,7 @@ stubbed, and a smaller set of tests that each earn their place.
 |---|---|---|
 | `SharedHarness`: `new Server`, drives `recordFrame` + `Patches.resume` itself | 4 | publishers, routes, feed |
 | direct `Server.resource` (incl. `LiveWorld`) | ~15, ~45 call sites | `HaFeed`, queries, auth routes, `FHError.handle`, narrowing |
-| `TestServer` → `ServerApp.liveServer` | functional + smoke | route composition, `FHError.handle`, narrowing, reload, OAuth |
-| `TestServer.fromWorkspace` | Pkl behaviour | as above |
+| `TestServer` → `ServerApp.assemble` (step 1) | functional, smoke, Pkl behaviour, `ServerAppSuite` | only the edges |
 | pure `Renderer` / `Patches` | 29 files | nothing: the functional core |
 
 `Server.resource` has no production caller.

@@ -15,7 +15,6 @@ import org.http4s.implicits.*
   */
 final class TestAuth(
     val sessions: AuthSessions,
-    val gate: AuthGate,
     val defaultSession: String
 ) {
 
@@ -71,19 +70,9 @@ object TestAuth {
         IO.pure(Some(admin))
     }
 
-  /** From the site's own rule lookup, like production. Takes `permissionFor`
-    * because `Server.LiveSite` is `private[runtime]`.
-    */
-  def create(permissionFor: Option[String] => IO[Permission]): IO[TestAuth] =
-    for {
-      sessions <- AuthSessions.create(SessionStore.ephemeral)
-      id <- sessions.create(admin, "test-refresh-token", TestClientId)
-      gate = new AuthGate(
-        sessions,
-        // No HA to resolve a bearer token. Raising proves `bearerUser` treats
-        // an unresolvable token as "not an identity".
-        _ => IO.raiseError(new Exception("no HA in the harness")),
-        permissionFor
-      )
-    } yield new TestAuth(sessions, gate, id)
+  /** The admin signed in on the server's own sessions, which its gate reads. */
+  def admitted(sessions: AuthSessions): IO[TestAuth] =
+    sessions
+      .create(admin, "test-refresh-token", TestClientId)
+      .map(new TestAuth(sessions, _))
 }
