@@ -230,7 +230,7 @@ lazy val `ha-api` = project // todo add api layer here as well
       // "Failed to load class ... StaticLoggerBinder" lines at the top of
       // every run of this module's suites. The app's binding is not visible
       // here, because a library must not impose one.
-      "ch.qos.logback" % "logback-classic" % "1.6.3" % Test
+      "ch.qos.logback" % "logback-classic" % "1.6.4" % Test
     )
   )
 
@@ -534,7 +534,7 @@ lazy val `fh-datastar-view` = project
       // Kept in this module because it assembles the add-on jar — a binding
       // belongs to the application, not to a library.
       "org.typelevel" %% "log4cats-slf4j" % log4catsVersion,
-      "ch.qos.logback" % "logback-classic" % "1.6.3",
+      "ch.qos.logback" % "logback-classic" % "1.6.4",
       "org.typelevel" %% "otel4s-oteljava" % otel4sVersion,
       "org.http4s" %% "http4s-otel4s-middleware-trace-server" % otelMiddlewareVersion,
       "org.http4s" %% "http4s-otel4s-middleware-trace-client" % otelMiddlewareVersion,
