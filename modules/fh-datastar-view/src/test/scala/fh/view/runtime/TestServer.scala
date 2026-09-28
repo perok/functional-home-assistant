@@ -231,22 +231,7 @@ final class TestServer(
     frame(FixtureEntity(entityId, state))
 
   def frame(entities: FixtureEntity*): IO[Unit] =
-    for {
-      // A topic delivers only to current subscribers, and the recorder starts
-      // asynchronously, so a frame that beats it is never recorded and every
-      // later gate times out. Connecting a client does not imply it.
-      _ <- awaitChangeSubscribers(1).timeout(15.seconds)
-      before <- store.version
-      _ <- fake.emitFrame(entities.toList)
-      _ <- fs2.Stream
-        .repeatEval(store.version <* IO.sleep(5.millis))
-        .find(_ > before)
-        .compile
-        .drain
-        .timeout(15.seconds)
-      _ <- served
-      _ <- clients.get.flatMap(_.traverse_(_.arrived))
-    } yield ()
+    record(entities*) *> served *> clients.get.flatMap(_.traverse_(_.arrived))
 
   /** Not `Sessions.floor`, which includes `Lingering` and `Fresh` sessions: one
     * with no stream never pulls, so waiting on it times out, and the test that
@@ -278,11 +263,125 @@ final class TestServer(
       _ <- frames
       sent <- client.drain
     } yield sent.flatMap(_.data).mkString("\n")
+
+  /** One HA frame through the fake, returned once the recorder has logged it
+    * and rung the doorbell. Nothing is pulled: that is [[TestServer.Viewer]]'s
+    * or a connection's.
+    */
+  def record(entities: FixtureEntity*): IO[Unit] =
+    for {
+      // A topic delivers only to current subscribers, and the recorder starts
+      // asynchronously, so a frame that beats it is never recorded and every
+      // later gate times out. Connecting a client does not imply it.
+      _ <- awaitChangeSubscribers(1).timeout(15.seconds)
+      before <- store.version
+      _ <- fake.emitFrame(entities.toList)
+      now <- TestServer.poll(store.version)(_ > before)
+      live <- server.liveSlug(slug)
+      _ <- TestServer.poll(live.doorbell.get)(_ >= now)
+    } yield ()
+
+  def log: IO[FragmentLog] = server.liveSlug(slug).flatMap(_.log.get)
+
+  /** A page load whose stream never opens, pulled by hand: what the connection
+    * loop sends one client, with the test choosing when it pulls. Several
+    * [[record]]s before one [[TestServer.Viewer.pull]] are a slow client
+    * catching up.
+    */
+  def viewer(query: String = ""): IO[TestServer.Viewer] =
+    for {
+      doc <- load(query)
+      session <- sessions
+        .get(doc.conn)
+        .flatMap(IO.fromOption(_)(IllegalStateException("no document session")))
+      live <- server.liveSlug(slug)
+      cursor <- IO.fromOption(
+        Server.cursorOf(Request[IO](Method.GET, doc.stream))
+      )(IllegalStateException(s"no cursor on ${doc.stream}"))
+    } yield new TestServer.Viewer(this, doc, session, live, cursor)
+
+  /** A stream from a browser this server holds no session for, so only `cursor`
+    * can decide what it is owed; see [[TestServer.reconnect]].
+    */
+  def reconnect(
+      cursor: Option[Server.Cursor],
+      popup: Option[String] = None
+  ): IO[String] = TestServer.reconnect(gatedApp, slug, cursor, popup)
 }
 
 object TestServer {
 
   final case class Document(html: String, stream: Uri, conn: String)
+
+  /** See [[TestServer.viewer]]. */
+  final class Viewer(
+      ts: TestServer,
+      val document: Document,
+      val session: Session,
+      live: Server.LiveSlug,
+      documentCursor: Server.Cursor
+  ) {
+
+    /** Encoded as the stream sends it; `Nil` when owed nothing. */
+    def pull: IO[List[SseFrame]] =
+      live.doorbell.get.flatMap(ts.server.pull(live, session, _))
+
+    def step(entities: FixtureEntity*): IO[List[SseFrame]] =
+      ts.record(entities*) *> pull
+
+    /** What this client would echo on a reconnect. */
+    def cursor: IO[Server.Cursor] =
+      session.position.get.map(v => documentCursor.copy(version = v))
+
+    /** The page is gone: what the slug records next, nobody is watching. */
+    def leave: IO[Unit] = ts.sessions.deregisterIf(document.conn, session)
+  }
+
+  /** Carrying `cursor` and `popup` as a reconnect's signals do, read up to its
+    * cursor or its reload.
+    */
+  def reconnect(
+      app: HttpApp[IO],
+      slug: String,
+      cursor: Option[Server.Cursor],
+      popup: Option[String]
+  ): IO[String] = {
+    val signals = cursor.toList.map(c =>
+      s""""${Server.CursorSignal}":{""" +
+        s""""${Server.HeadHashSignal}":"${c.headHash}",""" +
+        s""""${Server.StyleHashSignal}":"${c.styleHash}",""" +
+        s""""${Server.LogIdSignal}":"${c.logId}",""" +
+        s""""${Server.StoreVersionSignal}":${c.version}}"""
+    ) ++ popup.map(p =>
+      s""""${Server.UiSignalPrefix}${Dashboard.PopupHostId}":"$p""""
+    )
+    val stream = Uri.unsafeFromString(s"/sse/dashboard/$slug/patch")
+    val uri =
+      if (signals.isEmpty) stream
+      else stream.withQueryParam("datastar", signals.mkString("{", ",", "}"))
+    app
+      .run(Request[IO](Method.GET, uri))
+      .flatMap(
+        _.body
+          .through(fs2.text.utf8.decode)
+          .scan("")(_ + _)
+          .takeThrough(seen =>
+            !seen.contains(Server.StoreVersionSignal) &&
+              !seen.contains(Server.ReloadSignal)
+          )
+          .compile
+          .lastOrError
+      )
+      .timeout(15.seconds)
+  }
+
+  private def poll[A](read: IO[A])(done: A => Boolean): IO[A] =
+    fs2.Stream
+      .repeatEval(read <* IO.sleep(5.millis))
+      .find(done)
+      .compile
+      .lastOrError
+      .timeout(15.seconds)
 
   private val StreamUrlMarker: String = """data-init="@get\('"""
 

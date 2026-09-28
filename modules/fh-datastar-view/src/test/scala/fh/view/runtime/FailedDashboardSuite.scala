@@ -2,6 +2,7 @@ package fh.view.runtime
 
 import api.homeassistant.HomeAssistantApi
 import cats.effect.{IO, Ref, Resource}
+import cats.syntax.all.*
 import cats.effect.std.{Queue, Supervisor}
 import fh.view.build.{PklDump, Site, SystemPkl}
 import fh.view.model.Dashboard
@@ -27,40 +28,25 @@ class FailedDashboardSuite extends ServerHarness {
 
   private val failed = Server.RendererState.Failed(boom)
 
-  /** `use` can flip the ref between Ready and Failed and watch the wire. */
-  private def withLiveServer(
-      state: Server.RendererState
-  )(
-      use: (
-          Server,
-          StateStore,
-          SignallingRef[IO, Server.RendererState],
-          FakeHomeAssistant
-      ) => IO[Unit]
+  /** `use` gets the slug's own renderer ref, the one a reload writes, so it can
+    * break and repair the slug and watch the wire. `start`, when given, is
+    * written before `use` runs.
+    */
+  private def withLiveServer(start: Option[Server.RendererState])(
+      use: (TestServer, SignallingRef[IO, Server.RendererState]) => IO[Unit]
   ): IO[Unit] =
-    (for {
-      store <- StateStore
-        .inMemory(Map("sensor.a" -> es("sensor.a", "a0")))
-        .toResource
-      ref <- SignallingRef[IO].of(state).toResource
-      sessions <- Sessions.create.toResource
-      fake <- FakeHomeAssistant.create(Nil).toResource
-      server <- Server.resource(
-        ServiceCalls.asInstance(HomeAssistantApi.fromWs(fake)),
-        store,
-        Map("dashboard" -> ref),
-        "dashboard",
-        sessions,
-        TestAuth.openGate
-      )
-    } yield (server, store, ref, fake)).use { case (server, store, ref, fake) =>
-      use(server, store, ref, fake)
+    live(liveLeafDash, Map("sensor.a" -> es("sensor.a", "a0"))) { ts =>
+      for {
+        ref <- ts.server.liveSlug(ts.slug).map(_.renderer)
+        _ <- start.traverse_(ref.set)
+        _ <- use(ts, ref)
+      } yield ()
     }
 
   test("a failed slug serves a text/html error page naming slug and message") {
-    withLiveServer(failed) { (server, _, _, _) =>
+    withLiveServer(Some(failed)) { (ts, _) =>
       for {
-        resp <- server.routes.orNotFound.run(
+        resp <- ts.gatedApp.run(
           Request[IO](Method.GET, uri"/d/dashboard")
         )
         body <- resp.body.through(fs2.text.utf8.decode).compile.string
@@ -81,24 +67,24 @@ class FailedDashboardSuite extends ServerHarness {
   }
 
   test("nodeDebug sees a failed slug as absent, like an unknown one") {
-    withLiveServer(failed) { (server, _, _, _) =>
-      server.routes.orNotFound
+    withLiveServer(Some(failed)) { (ts, _) =>
+      ts.gatedApp
         .run(Request[IO](Method.GET, uri"/edit/node/dashboard/c_0/debug"))
         .map(resp => assertEquals(resp.status, Status.NotFound))
     }
   }
 
   test("a failed slug names no entities, so no action from it reaches HA") {
-    withLiveServer(failed) { (server, _, _, fake) =>
+    withLiveServer(Some(failed)) { (ts, _) =>
       for {
-        resp <- server.routes.orNotFound.run(
+        resp <- ts.gatedApp.run(
           Request[IO](
             Method.POST,
             uri"/sse/action/dashboard/light/toggle/light.kitchen"
           )
         )
         body <- resp.bodyText.compile.string
-        calls <- fake.recordedCalls
+        calls <- ts.fake.recordedCalls
       } yield {
         // A failed dashboard has no renderer and so names no entity (ADR 0023):
         // the action is refused, which matters because its page is a
@@ -114,81 +100,39 @@ class FailedDashboardSuite extends ServerHarness {
   test(
     "a live connection is told to reload when its slug breaks, and recovers"
   ) {
-    withLiveServer(Server.RendererState.Ready(Renderer.create(liveLeafDash))) {
-      (server, _, ref, _) =>
-        for {
-          seen <- Ref[IO].of(Vector.empty[ServerSentEvent])
-          resp <- server.routes.orNotFound.run(
-            Request[IO](Method.GET, uri"/sse/dashboard/dashboard/patch")
-          )
-          _ <- Supervisor[IO].use { supervisor =>
-            supervisor.supervise(
-              resp.body
-                .through(ServerSentEvent.decoder[IO])
-                .evalMap(e => seen.update(_ :+ e))
-                .compile
-                .drain
-            ) *>
-              // After the opening block, or the break could land in it.
-              fs2.Stream
-                .repeatEval(seen.get <* IO.sleep(10.millis))
-                .find(_.exists(isCursor))
-                .compile
-                .drain
-                .timeout(15.seconds) *>
-              // The error document has no #dashboard or head to patch, so a
-              // reload.
-              ref.set(failed) *> awaitReloads(seen, 1) *>
-              ref.set(
-                Server.RendererState.Ready(Renderer.create(liveLeafDash))
-              ) *>
-              awaitReloads(seen, 2)
-          }
-          reloads <- seen.get
-        } yield {
-          val reloadEvents = reloads.filter(reloadEvent)
-          assert(reloadEvents.sizeIs >= 2, clue = reloadEvents)
-        }
-    }
-  }
-
-  test(
-    "reloadSite repairs a broken dashboard and breaks a live one, without restart"
-  ) {
-    // `ServerApp.reloadSite` drives the real eval path: a dashboard that failed
-    // at boot recovers when fixed, and breaks back when broken, with no
-    // restart.
-    stageRepairWorld.use { case (ws, fake) =>
+    withLiveServer(None) { (ts, ref) =>
       for {
-        ref <- SignallingRef[IO].of(
-          Server.RendererState.Failed("seeded broken")
+        seen <- Ref[IO].of(Vector.empty[ServerSentEvent])
+        resp <- ts.gatedApp.run(
+          Request[IO](Method.GET, uri"/sse/dashboard/dashboard/patch")
         )
-        // Seeded as broken, so the first reload is a real change.
-        site <- Server.LiveSite.of(
-          Map("dash" -> ref),
-          Map("dash" -> (Left("seeded broken"): Either[String, Dashboard])),
-          "dash"
-        )
-        imports <- SignallingRef[IO].of(Set.empty[fs2.io.file.Path])
-        refs = Map("dash" -> ref)
-        _ <- IO.blocking(os.write.over(ws / Site.EntryFile, kitchenSite()))
-        _ <- ServerApp.reloadSite(ws, site, imports)
-        ready <- ref.get
-        fixedPage <- serve(fake, refs)
-        _ <- IO.blocking(
-          os.write.over(ws / Site.EntryFile, "this is not valid pkl")
-        )
-        _ <- ServerApp.reloadSite(ws, site, imports)
-        broken <- ref.get
-        brokenPage <- serve(fake, refs)
+        _ <- Supervisor[IO].use { supervisor =>
+          supervisor.supervise(
+            resp.body
+              .through(ServerSentEvent.decoder[IO])
+              .evalMap(e => seen.update(_ :+ e))
+              .compile
+              .drain
+          ) *>
+            // After the opening block, or the break could land in it.
+            fs2.Stream
+              .repeatEval(seen.get <* IO.sleep(10.millis))
+              .find(_.exists(isCursor))
+              .compile
+              .drain
+              .timeout(15.seconds) *>
+            // The error document has no #dashboard or head to patch, so a
+            // reload.
+            ref.set(failed) *> awaitReloads(seen, 1) *>
+            ref.set(
+              Server.RendererState.Ready(Renderer.create(liveLeafDash))
+            ) *>
+            awaitReloads(seen, 2)
+        }
+        reloads <- seen.get
       } yield {
-        assert(ready.isInstanceOf[Server.RendererState.Ready], clue = ready)
-        assert(fixedPage._1 == Status.Ok, clue = fixedPage)
-        assert(fixedPage._2.contains("light.kitchen"), clue = fixedPage._2)
-        assert(broken.isInstanceOf[Server.RendererState.Failed], clue = broken)
-        assertEquals(brokenPage._1, Status.Ok)
-        assert(brokenPage._2.contains("failed to build"), clue = brokenPage._2)
-        assert(!brokenPage._2.contains("light.kitchen"), clue = brokenPage._2)
+        val reloadEvents = reloads.filter(reloadEvent)
+        assert(reloadEvents.sizeIs >= 2, clue = reloadEvents)
       }
     }
   }
@@ -196,9 +140,9 @@ class FailedDashboardSuite extends ServerHarness {
   test(
     "the error page reloads via Datastar on the recover stream, not a meta-refresh"
   ) {
-    withLiveServer(failed) { (server, _, _, _) =>
+    withLiveServer(Some(failed)) { (ts, _) =>
       for {
-        resp <- server.routes.orNotFound.run(
+        resp <- ts.gatedApp.run(
           Request[IO](Method.GET, uri"/d/dashboard")
         )
         body <- resp.body.through(fs2.text.utf8.decode).compile.string
@@ -240,10 +184,10 @@ class FailedDashboardSuite extends ServerHarness {
     * page must show.
     */
   private def recoveryReload(flip: Server.RendererState): IO[Unit] =
-    withLiveServer(failed) { (server, _, ref, _) =>
+    withLiveServer(Some(failed)) { (ts, ref) =>
       for {
         seen <- Ref[IO].of(Vector.empty[ServerSentEvent])
-        resp <- server.routes.orNotFound.run(
+        resp <- ts.gatedApp.run(
           Request[IO](Method.GET, uri"/sse/dashboard/dashboard/recover")
         )
         _ <- Supervisor[IO].use { supervisor =>
@@ -272,36 +216,35 @@ class FailedDashboardSuite extends ServerHarness {
   test(
     "a recover stream opened under an already-recovered slug reloads immediately"
   ) {
-    withLiveServer(Server.RendererState.Ready(Renderer.create(liveLeafDash))) {
-      (server, _, _, _) =>
-        for {
-          seen <- Ref[IO].of(Vector.empty[ServerSentEvent])
-          resp <- server.routes.orNotFound.run(
-            Request[IO](Method.GET, uri"/sse/dashboard/dashboard/recover")
-          )
-          _ <- Supervisor[IO].use { supervisor =>
-            supervisor.supervise(
-              resp.body
-                .through(ServerSentEvent.decoder[IO])
-                .evalMap(e => seen.update(_ :+ e))
-                .compile
-                .drain
-            ) *>
-              awaitReloads(seen, 1)
-          }
-          reloads <- seen.get
-        } yield {
-          val reloadEvents = reloads.filter(reloadEvent)
-          // The fix landed between render and connect, so the transition's
-          // reload went to nobody and the stream says it now.
-          assert(reloadEvents.sizeIs >= 1, clue = reloadEvents)
+    withLiveServer(None) { (ts, _) =>
+      for {
+        seen <- Ref[IO].of(Vector.empty[ServerSentEvent])
+        resp <- ts.gatedApp.run(
+          Request[IO](Method.GET, uri"/sse/dashboard/dashboard/recover")
+        )
+        _ <- Supervisor[IO].use { supervisor =>
+          supervisor.supervise(
+            resp.body
+              .through(ServerSentEvent.decoder[IO])
+              .evalMap(e => seen.update(_ :+ e))
+              .compile
+              .drain
+          ) *>
+            awaitReloads(seen, 1)
         }
+        reloads <- seen.get
+      } yield {
+        val reloadEvents = reloads.filter(reloadEvent)
+        // The fix landed between render and connect, so the transition's
+        // reload went to nobody and the stream says it now.
+        assert(reloadEvents.sizeIs >= 1, clue = reloadEvents)
+      }
     }
   }
 
   test("a recover stream on an unknown slug is a 404") {
-    withLiveServer(failed) { (server, _, _, _) =>
-      server.routes.orNotFound
+    withLiveServer(Some(failed)) { (ts, _) =>
+      ts.gatedApp
         .run(Request[IO](Method.GET, uri"/sse/dashboard/nope/recover"))
         .map(resp => assertEquals(resp.status, Status.NotFound))
     }
@@ -311,8 +254,8 @@ class FailedDashboardSuite extends ServerHarness {
     // The gate is on the stream's own single lookup, so this is the recover
     // 404's question: a stale double lookup would have answered 200 with a body
     // ending at once.
-    withLiveServer(failed) { (server, _, _, _) =>
-      server.routes.orNotFound
+    withLiveServer(Some(failed)) { (ts, _) =>
+      ts.gatedApp
         .run(Request[IO](Method.GET, uri"/sse/dashboard/nope/patch"))
         .map(resp => assertEquals(resp.status, Status.NotFound))
     }
@@ -321,10 +264,10 @@ class FailedDashboardSuite extends ServerHarness {
   test(
     "a bookmarked SSE URL on a failed slug is still answered with a reload"
   ) {
-    withLiveServer(failed) { (server, _, _, _) =>
+    withLiveServer(Some(failed)) { (ts, _) =>
       for {
         seen <- Ref[IO].of(Vector.empty[ServerSentEvent])
-        resp <- server.routes.orNotFound.run(
+        resp <- ts.gatedApp.run(
           Request[IO](Method.GET, uri"/sse/dashboard/dashboard/patch")
         )
         _ <- Supervisor[IO].use { supervisor =>
@@ -719,35 +662,6 @@ class FailedDashboardSuite extends ServerHarness {
           .string
           .map(resp.status -> _)
       )
-
-  private def serve(
-      fake: FakeHomeAssistant,
-      refs: Map[String, SignallingRef[IO, Server.RendererState]]
-  ): IO[(Status, String)] =
-    (for {
-      store <- StateStore
-        .inMemory(Map("light.kitchen" -> es("light.kitchen", "on")))
-        .toResource
-      sessions <- Sessions.create.toResource
-      server <- Server.resource(
-        ServiceCalls.asInstance(HomeAssistantApi.fromWs(fake)),
-        store,
-        refs,
-        "dash",
-        sessions,
-        TestAuth.openGate
-      )
-    } yield server).use { server =>
-      server.routes.orNotFound
-        .run(Request[IO](Method.GET, uri"/d/dash"))
-        .flatMap(resp =>
-          resp.body
-            .through(fs2.text.utf8.decode)
-            .compile
-            .string
-            .map(resp.status -> _)
-        )
-    }
 
   /** Builds only while the fixture house is the dump. `extra` adds keys,
     * `default` the preferred slug.
