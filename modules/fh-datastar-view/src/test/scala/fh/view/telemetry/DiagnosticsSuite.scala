@@ -5,13 +5,10 @@ import io.circe.Json
 
 import scala.concurrent.duration.*
 
-/** The memory report `GET /system/diagnostics` answers with.
-  *
-  * The cgroup half is asserted through a FIXTURE directory rather than the real
-  * `/sys/fs/cgroup`, because the numbers there are the machine's and a test
-  * that reads them can only assert that parsing did not throw. The JVM half is
-  * asserted on the running JVM, since the whole claim being made is that the
-  * platform MXBeans answer with no flag and no agent.
+/** The report `GET /system/diagnostics` answers with. The cgroup half reads a
+  * fixture directory, since the real `/sys/fs/cgroup` numbers are the
+  * machine's; the JVM half reads the running JVM, since the claim is that the
+  * platform MXBeans answer with no flag or agent.
   */
 class DiagnosticsSuite extends munit.CatsEffectSuite {
 
@@ -33,10 +30,8 @@ class DiagnosticsSuite extends munit.CatsEffectSuite {
     )
 
   test("an unlimited cgroup reports its limit verbatim, not as a number") {
-    // The case that matters: the supervisor gives an add-on no memory limit, so
-    // `memory.max` is the literal "max". Reporting that IS the explanation for
-    // why a JVM sizing itself as a percentage of available memory sized itself
-    // against the whole Pi.
+    // The supervisor gives an add-on no memory limit, so `memory.max` is "max":
+    // the explanation for a JVM sizing itself against the whole Pi.
     val dir = cgroupDir(
       "12660985856",
       Some("max"),
@@ -54,9 +49,8 @@ class DiagnosticsSuite extends munit.CatsEffectSuite {
   test(
     "the container figure separates what the JVM allocated from page cache"
   ) {
-    // `current` is what the supervisor's percentage is computed from, and it
-    // charges the add-on for page cache it did not allocate — so a report that
-    // gave only the total would invite blaming the JVM for the file half.
+    // `current`, which the supervisor's percentage uses, charges page cache the
+    // add-on did not allocate; a total alone would invite blaming the JVM.
     val dir = cgroupDir("500", Some("max"), "anon 300\nfile 200\nslab 12\n")
     Diagnostics.report(dir).map { json =>
       assertEquals(field(json, "container", "anon"), Json.fromLong(300L))
@@ -72,9 +66,8 @@ class DiagnosticsSuite extends munit.CatsEffectSuite {
   }
 
   test("no cgroup at all still reports the JVM half") {
-    // A local `dashboardServe` on a laptop, or any non-Linux host: the
-    // container half is genuinely unknown, and that must not cost the half
-    // that is knowable.
+    // A laptop or non-Linux host: the unknown container half must not cost the
+    // knowable one.
     Diagnostics.report(os.temp.dir() / "absent").map { json =>
       assertEquals(field(json, "container"), Json.Null)
       assert(field(json, "jvm", "heap", "committed").asNumber.isDefined)
@@ -87,9 +80,8 @@ class DiagnosticsSuite extends munit.CatsEffectSuite {
       assert(heap.hcursor.get[Long]("used").isRight, "heap.used")
       assert(heap.hcursor.get[Long]("committed").isRight, "heap.committed")
 
-      // The claim the endpoint rests on: metaspace and the code cache are
-      // ordinary memory pools, so the breakdown people reach for NMT to get is
-      // already here without it.
+      // Metaspace and the code cache are ordinary pools, so the breakdown
+      // people reach for NMT to get is here without it.
       val pools =
         field(json, "jvm", "pools").asObject.map(_.keys.toList).getOrElse(Nil)
       assert(
@@ -112,21 +104,17 @@ class DiagnosticsSuite extends munit.CatsEffectSuite {
   test(
     "the DiagnosticCommand MBean answers — which is the whole endpoint's premise"
   ) {
-    // This is the claim that replaces `docker exec … jcmd`: the platform
-    // registers a DiagnosticCommand MBean, and `vmNativeMemory` is invokable
-    // in process. Asserted on the RAW answer, because the reported field is
-    // `None` when tracking is merely off and a broken operation name or
-    // argument signature would look exactly the same there.
+    // What replaces `docker exec … jcmd`: `vmNativeMemory` invoked in process.
+    // Asserted on the raw answer, since the reported field is `None` both when
+    // tracking is off and when the operation name is wrong.
     Diagnostics.nmtText.map(text =>
       assert(text.isDefined, "the DiagnosticCommand MBean did not answer")
     )
   }
 
   test("NMT is the summary or absent, never the 'not enabled' sentence") {
-    // The MBean answers with prose rather than failing when tracking is off,
-    // so passing its text straight through would put a sentence in a field
-    // callers read as the summary. Which arm runs depends on how this JVM was
-    // started, so both are accepted — but only these two.
+    // With tracking off the MBean answers with prose, which must not land in a
+    // field read as the summary. Which arm runs depends on the JVM's flags.
     Diagnostics.report(os.temp.dir() / "absent").map { json =>
       field(json, "nmt") match {
         case Json.Null => ()
@@ -140,9 +128,8 @@ class DiagnosticsSuite extends munit.CatsEffectSuite {
   }
 
   test("the thread dump is a real one, not the unavailable placeholder") {
-    // Same MBean as NMT, so the same trap applies: a wrong operation name
-    // would fall into `handleError` and return a plausible-looking string.
-    // Asserted on content the JVM's own dump always has.
+    // A wrong operation name would fall into `handleError` and return a
+    // plausible string, so this asserts content every dump has.
     Diagnostics.threadDump.map { dump =>
       assert(dump.contains("\"main\""), s"no main thread in dump: $dump")
       assert(dump.contains("java.lang.Thread.State"), "no thread states")
@@ -150,8 +137,8 @@ class DiagnosticsSuite extends munit.CatsEffectSuite {
   }
 
   test("the thread dump includes lock info, which is what finds a deadlock") {
-    // `-l` is the whole reason a thread dump beats a stack trace: without it
-    // there is no ownable-synchronizer section and a deadlock is invisible.
+    // Without `-l` there is no ownable-synchronizer section and a deadlock is
+    // invisible.
     Diagnostics.threadDump.map(dump =>
       assert(
         dump.contains("Locked ownable synchronizers") ||
@@ -162,11 +149,8 @@ class DiagnosticsSuite extends munit.CatsEffectSuite {
   }
 
   test("the fiber dump names fibers, not threads") {
-    // The suite runs on a cats-effect runtime, so the monitor's MBean is
-    // registered and this exercises the real path. A SUSPENDED fiber is parked
-    // first, because that is what the monitor tracks and what makes the dump
-    // non-trivial — an idle runtime can legitimately report almost nothing, so
-    // dumping one would pass no matter what this returned.
+    // A suspended fiber is parked first: that is what the monitor tracks, and
+    // an idle runtime can report almost nothing, so dumping one proves nothing.
     IO.sleep(1.hour)
       .start
       .flatMap(parked => Diagnostics.fiberDump.guarantee(parked.cancel))
@@ -194,8 +178,8 @@ class DiagnosticsSuite extends munit.CatsEffectSuite {
   }
 
   test("the report never raises, whatever the cgroup root is") {
-    // It is a diagnostic: failing to describe the machine must not become a
-    // 500 on the one route someone opens when the add-on is misbehaving.
+    // A diagnostic must not become a 500 on the route opened when the add-on
+    // misbehaves.
     val file = os.temp.dir() / "not-a-dir"
     os.write(file, "")
     Diagnostics.report(file).attempt.map(r => assert(r.isRight, s"raised: $r"))

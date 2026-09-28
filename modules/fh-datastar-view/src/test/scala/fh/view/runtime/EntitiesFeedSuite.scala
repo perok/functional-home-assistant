@@ -8,15 +8,10 @@ import fs2.Chunk
 import io.circe.Json
 import io.circe.parser.parse
 
-/** Pins HA's `subscribe_entities` wire format, its coalesced framing, and how
-  * the store folds both in.
-  *
-  * The frames below are VERBATIM captures from a live instance (HA 2026.7.2).
-  * The format itself is defined in readable source on both ends (see
-  * [[EntitiesEvent]] for the pointers), but neither end promises stability and
-  * neither is what we actually receive — so the captures are what this suite
-  * asserts against. Everything else in the test suite drives the fake, which by
-  * construction cannot catch a decoder that disagrees with real HA.
+/** HA's `subscribe_entities` wire format, its coalesced framing, and the
+  * store's fold, against verbatim captures from HA 2026.7.2. Neither end
+  * promises stability (see [[EntitiesEvent]]), and every other suite drives the
+  * fake, which cannot catch a decoder disagreeing with real HA.
   */
 class EntitiesFeedSuite extends munit.CatsEffectSuite {
 
@@ -25,20 +20,18 @@ class EntitiesFeedSuite extends munit.CatsEffectSuite {
       .flatMap(_.hcursor.downField("event").as[EntitiesEvent])
       .fold(throw _, identity)
 
-  // The opening frame: complete states. `lu` is ABSENT here (HA omits it when it
-  // equals `lc`), which must not read as "no timestamp".
+  // `lu` is absent when it equals `lc`, which must not read as no timestamp.
   private val fullFrame = """
     {"id":1,"type":"event","event":{"a":{
       "update.supervisor":{"s":"off","a":{"title":"Supervisor","friendly_name":"Supervisor Update","supported_features":5},"c":"01KXWRZ0G8PNZW3HDVNNBHDTR1","lc":1784450875.9129083},
       "sensor.ams":{"s":"61","a":{"unit_of_measurement":"W"},"c":"01KXWRZ0GC0TVZQY7WBWYEWQJF","lc":1784450875.9167974,"lu":1784884842.228848}
     }}}"""
 
-  // A state-only change: no `a`, so stored attributes must survive it.
+  // No `a`, so stored attributes must survive it.
   private val stateOnlyFrame = """
     {"type":"event","event":{"c":{"sensor.ams":{"+":{"s":"62","lc":1785013461.3749237,"c":"01KYDHFRBYWEE0GD32G3XKR3Y0"}}}},"id":1}"""
 
-  // An attribute-only change carrying ONLY the attributes that moved — the case
-  // that makes this a MERGE and not a replace.
+  // Only the attributes that moved: a merge, not a replace.
   private val attrDeltaFrame = """
     {"type":"event","event":{"c":{"update.supervisor":{"+":{"lu":1785013569.422556,"c":"01KYDHK1WEQZTZA6NVRAMDCAN7","a":{"supported_features":7}}}}},"id":1}"""
 
@@ -52,8 +45,6 @@ class EntitiesFeedSuite extends munit.CatsEffectSuite {
     assertEquals(supervisor.attributes("title"), Json.fromString("Supervisor"))
     assertEquals(supervisor.lastChanged, Some(1784450875.9129083))
     assertEquals(supervisor.lastUpdated, None)
-    // What `StateStore.ingests` reads: absent `lu` falls back to `lc` rather
-    // than leaving the state timestamp-less.
     assertEquals(
       StateStore
         .ingests(event)
@@ -89,12 +80,11 @@ class EntitiesFeedSuite extends munit.CatsEffectSuite {
       snapshot <- store.snapshot
     } yield {
       val supervisor = snapshot("update.supervisor")
-      // The moved attribute is new...
       assertEquals(
         supervisor.attributes("supported_features"),
         Json.fromInt(7)
       )
-      // ...and the ones the delta never mentioned are untouched.
+      // The ones the delta never mentioned are untouched.
       assertEquals(
         supervisor.attributes("title"),
         Json.fromString("Supervisor")
@@ -142,11 +132,9 @@ class EntitiesFeedSuite extends munit.CatsEffectSuite {
   }
 
   test("a coalesced frame carries several payloads in one array") {
-    // With `coalesce_messages` on, HA packs a tick's worth of messages into one
-    // ARRAY frame — and wraps even a lone message. This is the exact shape
-    // captured from 2026.7.2: a subscribe ack sharing a frame with its first
-    // event, which is also why the ack-consuming acquire and the event stream
-    // must read the same queue in order.
+    // HA wraps even a lone message in an array under `coalesce_messages`. Here
+    // an ack shares a frame with its first event, which is why acquire and the
+    // event stream read one queue in order.
     val coalesced =
       """[{"id":2,"type":"result","success":true,"result":null},
           {"id":2,"type":"event","event":{"c":{"sensor.ams":{"+":{"s":"7","lu":1785013461.4}}}}}]"""
@@ -155,8 +143,7 @@ class EntitiesFeedSuite extends munit.CatsEffectSuite {
       .fold(throw _, identity)
     assertEquals(payloads.map(_.id), List(2, 2))
 
-    // A bare object still decodes as a one-payload batch, so the same receive
-    // path works before the feature is enabled.
+    // A bare object decodes as a one-payload batch, before the feature is on.
     val single =
       """{"id":3,"type":"event","event":{"r":["sensor.ams"]}}"""
     val one = parse(single)
@@ -169,11 +156,10 @@ class EntitiesFeedSuite extends munit.CatsEffectSuite {
   }
 
   test("the subscribe ack carries no state; the full set is the NEXT payload") {
-    // `subscribeStream` consumes the leading `result` frame in its ACQUIRE, so
-    // if HA ever put the opening state in that frame the whole store would be
-    // silently empty. It does not: the ack is `result: null` and the full set is
-    // a separate `event` payload (53 chars vs 383 KB on the wire). The fake
-    // bypasses the frame layer, so this is the only test that pins it.
+    // Acquire consumes the leading `result` frame, so an opening state there
+    // would leave the store silently empty. The ack is `result: null` and the
+    // set a separate `event` (53 chars vs 383 KB); the fake bypasses frames, so
+    // only this pins it.
     val frames =
       """[{"id":2,"type":"result","success":true,"result":null},
           {"id":2,"type":"event","event":{"a":{"sensor.ams":{"s":"61","a":{},"lc":1784450875.9}}}}]"""
@@ -182,9 +168,7 @@ class EntitiesFeedSuite extends munit.CatsEffectSuite {
       .fold(throw _, identity)
     val command = CommandPhase.subscribe_entities()
     for {
-      // What acquire does with the first payload: an empty ack, no state.
       ack <- command.decodeMessage(payloads.head)
-      // ...and what the stream then yields from the second.
       opening <- command.decodeStreamMessage(payloads(1))
     } yield {
       assertEquals(ack, ())
@@ -202,8 +186,7 @@ class EntitiesFeedSuite extends munit.CatsEffectSuite {
   }
 
   test("a reconnect's full set republishes only what actually changed") {
-    // The same opening frame twice is what a reconnect looks like when nothing
-    // moved: no change may reach the SSE stream. Then one that DID move must.
+    // A reconnect with nothing moved sends no change to the SSE stream.
     val moved = decode(
       """{"id":1,"type":"event","event":{"a":{
            "sensor.ams":{"s":"99","a":{"unit_of_measurement":"W"},"c":"01KY","lc":1785099999.0}

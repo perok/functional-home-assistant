@@ -40,7 +40,7 @@ class BuildPhaseSuite extends munit.FunSuite {
     val transformed = RegistryDump.transform(raw).hcursor
     val entities = transformed.downField("entities")
 
-    // entities: dotless, sanitized keys (no '*' member)
+    // Dotless, sanitized keys.
     assert(entities.downField("sensor_temp").succeeded)
     assert(entities.downField("light_kitchen").succeeded)
     assertEquals(
@@ -52,7 +52,7 @@ class BuildPhaseSuite extends munit.FunSuite {
       Some(Set("sensor_temp", "light_kitchen"))
     )
 
-    // areas/floors: keyed by their NAME, slugified (lower-cased, ASCII-folded)
+    // Keyed by name, slugified.
     val areas = transformed.downField("areas")
     assertEquals(areas.keys.map(_.toSet), Some(Set("kjokken", "living_room")))
     assertEquals(
@@ -73,7 +73,6 @@ class BuildPhaseSuite extends munit.FunSuite {
           slots = List("id", "label")
         )
       ),
-      // `id` is backend-injected; only "label" is missing here.
       card = LayoutNode.Component(card = "card")
     )
     val errs = d.validate()
@@ -82,8 +81,8 @@ class BuildPhaseSuite extends munit.FunSuite {
   }
 
   test("validate rejects a cell class that is not a plain CSS class token") {
-    // Cell classes are string-interpolated into the wrapper's class attribute,
-    // so anything beyond [A-Za-z0-9_-]+ must fail the build loudly.
+    // Interpolated into the wrapper's class attribute, so anything beyond
+    // [A-Za-z0-9_-]+ fails the build.
     val d = Dashboard(
       cards = Map("card" -> CardDef("""<div>x</div>""")),
       card = LayoutNode.Component(
@@ -93,18 +92,12 @@ class BuildPhaseSuite extends munit.FunSuite {
     )
     val errs = d.validate()
     assert(errs.exists(_.contains("cell class")), clue = errs)
-    // The valid token passes; only the bad one is reported.
     assert(!errs.exists(_.contains("'fh-cols-3'")), clue = errs)
   }
 
-  /** The payoff for authoring an id, in the place it is most useful: an inline
-    * popup's surface id stops being positional.
-    *
-    * `openPopupInline` mints `surfaces["<nodeId>_self"]`, so with a derived id
-    * the popup is `c_0_self` and moving the button that defines it renames it.
-    * Naming the button pins it — which is also what makes it referenceable from
-    * elsewhere at all, since `@@NODE_ID@@` only ever resolves to a node's OWN
-    * id and so cannot be used to point at someone else's popup.
+  /** `openPopupInline` mints `surfaces["<nodeId>_self"]`, so with a derived id
+    * moving the button renames the popup. Naming the button pins it, and makes
+    * it referenceable at all: `@@NODE_ID@@` resolves only to a node's own id.
     */
   test("hoistInlineSurfaces keys an inline surface off an AUTHORED node id") {
     def hoist(idField: String) = DashboardBuild
@@ -125,12 +118,10 @@ class BuildPhaseSuite extends munit.FunSuite {
           .get
       )
 
-    // Derived: positional, and the second child's index is in the name.
     assertEquals(
       hoist("").hcursor.downField("surfaces").keys.map(_.toList),
       Some(List("c_1_self"))
     )
-    // Authored: the name is the author's, and the onclick was spliced with it.
     val named = hoist(""", "id": "quickInfo"""")
     assertEquals(
       named.hcursor.downField("surfaces").keys.map(_.toList),
@@ -140,24 +131,17 @@ class BuildPhaseSuite extends munit.FunSuite {
       named.noSpaces.contains("open quickInfo_self"),
       clue = named.noSpaces
     )
-    // Nothing unresolved is left behind either way.
     assertEquals(DashboardBuild.unresolvedTokens(named), Nil)
   }
 
-  /** A candidate set's clause nodes were invisible to this pass — it knew only
-    * `children`, and a set holds its nodes under `members[…].clauses[…].node`.
-    * So an inline surface inside a set was never hoisted and its `@@NODE_ID@@`
-    * reached the browser.
+  /** A set holds its nodes under `members[…].clauses[…].node`, which this pass
+    * did not walk, so an inline surface in a set kept its `@@NODE_ID@@`. The
+    * shipped starter's "Low battery" section does exactly that (a sensor's
+    * default tap is an inline popup, ADR 0016), so any house with a battery
+    * under 20 % got a refused dashboard.
     *
-    * That is not an exotic shape: it is what the SHIPPED starter does. Its "Low
-    * battery" section renders `c.entityCard` over sensors, a sensor has no
-    * domain service, so its default tap is more-info — an INLINE popup (ADR
-    * 0016). Any house with a battery sensor under 20 % built a dashboard the
-    * server then refused.
-    *
-    * The member's id carries no clause index, deliberately (`MemberGraph`: only
-    * a set NESTED in a clause needs one), so both clauses of a candidate hoist
-    * under the same id — see the duplicate-key test below.
+    * A member id has no clause index (only a set nested in a clause needs one),
+    * so both clauses hoist under one id; see the duplicate-key test.
     */
   test("hoistInlineSurfaces descends a candidate set's clauses") {
     val json = parser
@@ -183,9 +167,8 @@ class BuildPhaseSuite extends munit.FunSuite {
       Nil,
       clue = hoisted.noSpaces
     )
-    // Under the id the RENDERER gives that member — `<setId>_<entity>`, with
-    // the entity sanitised (`MemberGraph.memberId`). An id this pass invented
-    // instead would leave the popup registered where no node looks for it.
+    // Under the id the renderer gives the member (`MemberGraph.memberId`), or
+    // the popup is registered where no node looks.
     assertEquals(
       hoisted.hcursor.downField("surfaces").keys.map(_.toList),
       Some(List("c_0_sensor_batt_self"))
@@ -193,9 +176,8 @@ class BuildPhaseSuite extends munit.FunSuite {
   }
 
   test("two clauses of one candidate cannot both own a popup") {
-    // The consequence of a member id with no clause index, made LOUD. Merging
-    // keeps the last of a repeated key, so the quiet version of this is a popup
-    // that opens and shows another clause's content.
+    // Merging keeps the last repeated key, so quietly this is a popup showing
+    // another clause's content.
     val json = parser
       .parse("""
         { "cards": {}, "card": {
@@ -222,15 +204,9 @@ class BuildPhaseSuite extends munit.FunSuite {
     )
   }
 
-  /** This pass once read only a BARE ARRAY of children, which the wire also
-    * allowed. It did not merely skip the region-keyed form: it STOPPED at such
-    * a node, so nothing below a grouped slider's head or members was hoisted
-    * and the `@@NODE_ID@@` down there reached the browser verbatim. One wire
-    * shape is what removed that class of bug; this holds the depth it costs.
-    *
-    * Asserted as the PROPERTY — no token survives, wherever the surface sits —
-    * rather than on the one id that was wrong, because the same gap swallows
-    * every region a card ever grows.
+  /** This pass once stopped at a region-keyed node, so nothing below a grouped
+    * slider's head or members was hoisted. Asserted as the property, no token
+    * survives anywhere, since the same gap swallows every region a card grows.
     */
   test("hoistInlineSurfaces descends every region, at every depth") {
     val json = parser
@@ -266,11 +242,9 @@ class BuildPhaseSuite extends munit.FunSuite {
       Nil,
       clue = hoisted.noSpaces
     )
-    // ...and under the ids the RENDERER derives, which is the other half: a
-    // surface registered under an id no node has is as broken as an unspliced
-    // token, and just as quiet. The default region contributes only its index
-    // (`children` -> `_0`), a named one contributes both (`head` -> `_head_0`)
-    // — `LayoutNode.segment`, the one encoding.
+    // Registered under an id no node has is as broken, and as quiet, as an
+    // unspliced token. The default region contributes its index (`_0`), a named
+    // one both (`_head_0`): `LayoutNode.segment`.
     assertEquals(
       hoisted.hcursor.downField("surfaces").keys.map(_.toList.sorted),
       Some(List("c_0_0_self", "c_0_head_0_actions_0_self"))
@@ -278,8 +252,8 @@ class BuildPhaseSuite extends munit.FunSuite {
   }
 
   test("hoistInlineSurfaces lifts an inline surface and splices the node id") {
-    // The node already carries the authored onclick referencing the future id
-    // via the NODE token; the hoist only lifts the content + splices the id.
+    // The onclick already references the future id via the node token; the
+    // hoist lifts the content and splices the id.
     val json = parser
       .parse("""
         {
@@ -302,12 +276,11 @@ class BuildPhaseSuite extends munit.FunSuite {
       .get
     val hoisted = DashboardBuild.hoistInlineSurfaces(json).hcursor
 
-    // surface lifted under "<idBase>_self" (idBase = c_0, the render-time `{{id}}`
-    // of card child 0 — the build/hoist id scheme equals LayoutNode.pathId)
+    // idBase = c_0, the render-time `{{id}}` of child 0: the hoist id scheme
+    // equals `LayoutNode.pathId`.
     val keys = hoisted.downField("surfaces").keys.map(_.toList).getOrElse(Nil)
     assertEquals(keys, List("c_0_self"), clue = keys)
 
-    // the trigger lost its marker; the NODE token was spliced with the real id
     val trigger = hoisted
       .downField("card")
       .downField("regions")
@@ -325,7 +298,6 @@ class BuildPhaseSuite extends munit.FunSuite {
         .toOption,
       Some("\"@post('sse/surface/open/c_0_self')\"")
     )
-    // the moved content lives under the new surface id
     assertEquals(
       hoisted
         .downField("surfaces")
@@ -340,13 +312,10 @@ class BuildPhaseSuite extends munit.FunSuite {
   test(
     "hoistInlineSurfaces lifts a multi-entry marker and splices ids across the subtree"
   ) {
-    // Shaped like what c.tabs emits: a container with N inline surfaces + child
-    // triggers referencing the future ids via the NODE token (here the top-level
-    // card is the marker-bearing node, so idBase = "c" = pathId(Nil)). The
-    // "panelHost" node param is an arbitrary string value (unrelated to the
-    // Surface model) used to demonstrate splicing reaches every string leaf in
-    // the subtree, not just Surface fields; `bakeInto`/`bakeAs` are the real
-    // Surface fields that share a host (`Surface.hostId` derives from them).
+    // As c.tabs emits: a container with inline surfaces and triggers
+    // referencing the future ids. `panelHost` is an arbitrary string param
+    // showing the splice reaches every string leaf; `bakeInto`/`bakeAs` are the
+    // real shared-host fields.
     val json = parser
       .parse("""
         {
@@ -371,8 +340,7 @@ class BuildPhaseSuite extends munit.FunSuite {
       .get
     val h = DashboardBuild.hoistInlineSurfaces(json).hcursor
 
-    // both surfaces lifted under "<idBase>_<localKey>", sharing one bakeInto
-    // (so they derive the SAME hostId — the panel host, one per tabs group)
+    // One shared bakeInto, so the same hostId.
     val surfaces = h.downField("surfaces")
     assertEquals(
       surfaces.keys.map(_.toSet).getOrElse(Set.empty),
@@ -389,7 +357,6 @@ class BuildPhaseSuite extends munit.FunSuite {
       )
     }
 
-    // the container lost its marker; the NODE token was spliced everywhere
     val node = h.downField("card")
     assert(node.downField("inlineSurfaces").failed, clue = "marker not removed")
     assertEquals(
@@ -423,9 +390,8 @@ class BuildPhaseSuite extends munit.FunSuite {
       .get
       .as[Surface]
     assertEquals(decoded.toOption.get.activation, Activation.User(false))
-    // The RETIRED flat `defaultOpen` is an unknown key the decoder ignores —
-    // the interim contract while the Pkl authoring layer still emits it (its
-    // effect survives via resolveActive's index-0 fallback).
+    // The retired flat `defaultOpen` is ignored while Pkl still emits it; its
+    // effect survives through resolveActive's index-0 fallback.
     val flat = parser
       .parse(
         """{ "content": { "kind": "component", "card": "x" }, "defaultOpen": true }"""
@@ -453,8 +419,7 @@ class BuildPhaseSuite extends munit.FunSuite {
       ).toOption.get.activation,
       Activation.User(defaultOpen = true)
     )
-    // A state condition is the condition alone — no quantifier beside it, since
-    // it names the entities it reads.
+    // No quantifier: the condition names the entities it reads.
     val cond =
       """{ "kind": "cmp", "property": "state", "op": "eq", "value": "on",
          |  "entity": "light.a" }""".stripMargin
@@ -485,8 +450,7 @@ class BuildPhaseSuite extends munit.FunSuite {
         .Cmp("state", Op.Eq, Json.fromString("on"), entity = Some("light.a"))
     )
     val mixed = Dashboard(
-      // The bake target must declare the region its surfaces name; these
-      // dashboards were only ever valid because nothing checked.
+      // The bake target must declare the region its surfaces name.
       cards = Map(
         "ok" -> CardDef(
           "<i>{{#branch}}{{{html}}}{{/branch}}</i>",
@@ -503,7 +467,6 @@ class BuildPhaseSuite extends munit.FunSuite {
       mixed.validate().exists(_.contains("mixes user- and state-activated")),
       clue = mixed.validate()
     )
-    // Homogeneous groups of either mode pass.
     val allState = mixed.copy(surfaces =
       Map("a" -> member(0, state), "b" -> member(1, state))
     )
@@ -519,8 +482,7 @@ class BuildPhaseSuite extends munit.FunSuite {
 
   test("validate rejects a state condition that names no entity") {
     def dash(condition: Predicate) = Dashboard(
-      // The bake target must declare the region its surfaces name; these
-      // dashboards were only ever valid because nothing checked.
+      // The bake target must declare the region its surfaces name.
       cards = Map(
         "ok" -> CardDef(
           "<i>{{#branch}}{{{html}}}{{/branch}}</i>",
@@ -539,18 +501,16 @@ class BuildPhaseSuite extends munit.FunSuite {
       )
     )
     val on = Predicate.Cmp("state", Op.Eq, Json.fromString("on"))
-    // A surface supplies no subject, so this used to mean "some entity in the
-    // house is on" — never what an author meant. Rejected wherever it sits in
-    // the tree, not only at the top.
+    // A surface supplies no subject, so this would mean "some entity in the
+    // house is on". Rejected anywhere in the tree.
     for (c <- List(on, Predicate.Not(on), Predicate.And(List(on))))
       assert(
         dash(c).validate().exists(_.contains("unnamed entity")),
         clue = dash(c).validate()
       )
 
-    // What passes: a comparison that names its entity, a count over named
-    // candidates (whose per-candidate guards are bound by their candidate), and
-    // the vacuously-true empty conjunction an `else` member carries.
+    // A candidate's guards are bound by their candidate; the empty conjunction
+    // is an `else`.
     val named = on.copy(entity = Some("light.a"))
     val count = Predicate.Count(
       candidates = List("light.a"),
@@ -562,14 +522,8 @@ class BuildPhaseSuite extends munit.FunSuite {
       assertEquals(dash(c).validate(), Nil, clue = c)
   }
 
-  /** `bakeAs` names the template region a surface's content fills, which since
-    * regions IS a region name — so the two can be checked against each other
-    * rather than agreeing by convention.
-    *
-    * Naming a region the host does not declare fails exactly the way
-    * `danglingBakes` describes for a missing NODE: the host renders its wrapper
-    * with an empty hole, indistinguishable from a state group that legitimately
-    * matched nothing. That is why it is worth a build error.
+  /** A missing region fails as `danglingBakes` describes for a missing node: an
+    * empty hole, indistinguishable from a state group that matched nothing.
     */
   test("validate rejects a surface baking into a region its card lacks") {
     def dash(hostCard: CardDef, as: String) = Dashboard(
@@ -590,23 +544,18 @@ class BuildPhaseSuite extends munit.FunSuite {
       regions = Map("branch" -> Region(Region.Baked))
     )
 
-    // Named region, wrong name.
     assert(
       dash(hasBranch, "panel").validate().exists(_.contains("no baked region")),
       clue = dash(hasBranch, "panel").validate()
     )
-    // A card with no regions at all — the shape the fixtures in this file
-    // silently had before this rule existed.
     assert(
       dash(CardDef("<i></i>"), "branch")
         .validate()
         .exists(_.contains("it declares none")),
       clue = dash(CardDef("<i></i>"), "branch").validate()
     )
-    // An EAGER region of the right name is still wrong: a surface fills a
-    // hole lazily, and an eager region is filled by the node's own children —
-    // the fills are told apart by the region's declared kind, not by the
-    // spelling, which is the same section for both.
+    // A surface fills its hole lazily and an eager region is filled by the
+    // node's children; the fills differ by declared kind, not spelling.
     assert(
       dash(
         CardDef(
@@ -621,14 +570,12 @@ class BuildPhaseSuite extends munit.FunSuite {
     assertEquals(dash(hasBranch, "branch").validate(), Nil)
   }
 
-  /** An unresolved placeholder is a plain String: it decodes, it validates, and
-    * it renders into the DOM verbatim. Nothing used to notice, and the first
-    * symptom is a binding that quietly never matches — so the build says so.
+  /** A placeholder decodes, validates and renders verbatim; the first symptom
+    * is a binding that never matches, so the build says so.
     */
   test("unresolvedTokens finds a placeholder the build failed to fill in") {
     def json(s: String) = parser.parse(s).fold(throw _, identity)
 
-    // Nested anywhere, in a value the author composed around it.
     assertEquals(
       DashboardBuild.unresolvedTokens(
         json(
@@ -639,9 +586,8 @@ class BuildPhaseSuite extends munit.FunSuite {
       List("@@CLASSBIND:busySpin:$b@@", "@@NODE_ID@@").sorted
     )
 
-    // Non-vacuous, and the reason the pattern is anchored on both sides: an
-    // ordinary `@` in an onclick is not a token, and neither is a lone `@@`
-    // inside prose.
+    // Anchored on both sides: an ordinary `@` in an onclick is not a token, nor
+    // a lone `@@` in prose.
     assertEquals(
       DashboardBuild.unresolvedTokens(
         json("""{"a":"@post('sse/x')","b":"see @@ below","c":42,"d":null}""")
@@ -651,8 +597,7 @@ class BuildPhaseSuite extends munit.FunSuite {
   }
 
   test("hoistInlineSurfaces lifts the activation object onto the surface") {
-    // The lifted-field list carries `activation` (the flat `defaultOpen` is
-    // retired — DashboardBuild.surfaceOf drops it).
+    // `DashboardBuild.surfaceOf` drops the retired flat `defaultOpen`.
     val json = parser
       .parse("""
         {
@@ -707,7 +652,6 @@ class BuildPhaseSuite extends munit.FunSuite {
         Map("card" -> CardDef("<span>{{state}}</span>", slots = List("state"))),
       card = LayoutNode.Component(
         "card",
-        // unterminated string literal -> CEL compile failure
         slots = Map("state" -> SlotSource(Some("e.x"), transform = "'unclosed"))
       )
     )
@@ -732,7 +676,6 @@ class BuildPhaseSuite extends munit.FunSuite {
       "import \"lib/components.pkl\" as c\n" +
         "card = (c.entityCard(p)) { transform = \"str(math.round(num(state)))\" }\n"
     )
-    // The generated dump is skipped even if it contains the literal.
     os.write(
       dir / "lib" / "dump.pkl",
       "x = \"str(math.round(num(state)))\"\n",

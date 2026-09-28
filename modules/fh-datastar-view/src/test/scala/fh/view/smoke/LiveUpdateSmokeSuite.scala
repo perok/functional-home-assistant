@@ -4,16 +4,10 @@ import cats.effect.IO
 import com.microsoft.playwright.assertions.PlaywrightAssertions.assertThat
 import fh.view.testkit.{FixtureDashboard, HouseFixture, Scene}
 
-/** "SSE morphs the DOM": the check only a real browser can make — that a pushed
-  * `datastar-patch-elements` frame is not just sent on the wire (the Scala
-  * functional suite already proves that end-to-end), but actually APPLIED by
-  * Datastar to the live page.
-  *
-  * It is also the only test that catches a change landing in the window between
-  * a browser connecting and the recorder writing that frame — see
-  * `Server.openingPatches` on why the opening block claims the changelog's
-  * version and not the store's. This suite failed for exactly that, every time,
-  * and was twice mistaken for flakiness.
+/** That a pushed patch is applied by Datastar to the live page, not just sent.
+  * Also the only test catching a change between a browser connecting and the
+  * recorder writing it (see `Server.openingPatches`); it failed on that every
+  * time and was twice mistaken for flakiness.
   */
 class LiveUpdateSmokeSuite extends SmokeSuite {
 

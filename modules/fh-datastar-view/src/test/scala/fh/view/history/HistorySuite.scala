@@ -12,16 +12,12 @@ import fh.view.query.{QueryIdentity, QueryRequest}
 import java.time.Instant
 import scala.concurrent.duration.*
 
-/** The `history` provider: which source it asks, what it learns, what it
-  * shares, and what it refuses before anyone asks.
-  */
 class HistorySuite extends munit.CatsEffectSuite {
 
   private val now = Instant.parse("2026-09-19T12:00:00Z")
   private val entity = "sensor.t"
 
-  /** Records every call; `raw` is one per fetch, since a fetch always asks it.
-    */
+  /** `raw` is one per fetch, since a fetch always asks it. */
   private final class StubSource(
       rawRows: (String, Instant) => IO[List[HistoryPoint]],
       statRows: List[StatisticPoint],
@@ -47,7 +43,6 @@ class HistorySuite extends munit.CatsEffectSuite {
   ): IO[StubSource] =
     Ref[IO].of(Vector.empty[String]).map(StubSource(rawRows, statRows, _))
 
-  /** Raw rows every minute, starting no earlier than `oldest`. */
   private def rowsFrom(oldest: Instant)(start: Instant): List[HistoryPoint] = {
     val from = if (start.isBefore(oldest)) oldest else start
     val minutes = java.time.Duration.between(from, now).toMinutes
@@ -79,11 +74,9 @@ class HistorySuite extends munit.CatsEffectSuite {
         identity: QueryIdentity = QueryIdentity.Instance
     ) = h.series(identity, e, w, asOf)
 
-  // --- Source selection and retention -------------------------------------
-
   test("an unproven window asks both; a window retention covers asks raw") {
     // Ten days of rows for a thirty-day question is what the recorder holds,
-    // and it is known from then on without anyone configuring it.
+    // known from then on with no configuration.
     for {
       src <- source((_, s) => IO.pure(rowsFrom(ago(10.days))(s)))
       h <- History.create(src)
@@ -103,8 +96,8 @@ class HistorySuite extends munit.CatsEffectSuite {
   }
 
   test("retention is the greatest age seen, not the latest one") {
-    // A new sensor's short answer must not retract what an old row proved —
-    // the two are indistinguishable per entity.
+    // A new sensor's short answer must not retract what an old row proved: they
+    // are indistinguishable per entity.
     for {
       src <- source {
         case ("sensor.new", s) => IO.pure(rowsFrom(ago(1.hour))(s))
@@ -142,7 +135,7 @@ class HistorySuite extends munit.CatsEffectSuite {
   }
 
   test("history wins a tie, because its resolution is finer") {
-    // Statistics are plotted at bucket ENDS, so they start an hour later.
+    // Statistics are plotted at bucket ends, so they start an hour later.
     val from = ago(7.days)
     for {
       src <- source((_, s) => IO.pure(rowsFrom(from)(s)), hourlyStats(from))
@@ -158,8 +151,6 @@ class HistorySuite extends munit.CatsEffectSuite {
       s <- h.ask(Window.LastMonth)
     } yield assertEquals(s.points.length, 100)
   }
-
-  // --- Sharing -------------------------------------------------------------
 
   test("ten viewers in one bucket cost one fetch and share a version") {
     for {
@@ -202,9 +193,9 @@ class HistorySuite extends munit.CatsEffectSuite {
   }
 
   test("every window's current entry survives the others being asked for") {
-    // Windows bucket at different sizes, so mid-hour the 7d floor is older
-    // than the 1h floor while both are current. Longest first, so each
-    // shorter window's miss runs the sweep over a longer one's live entry.
+    // Windows bucket at different sizes, so mid-hour the 7d floor is older than
+    // the 1h while both are current. Longest first, so each shorter miss sweeps
+    // over a longer window's live entry.
     val midHour = now.plusSeconds(25 * 60)
     val windows = Window.values.toList.sortBy(-_.span.toSeconds)
     for {
@@ -222,8 +213,8 @@ class HistorySuite extends munit.CatsEffectSuite {
   }
 
   test("two identities never share a fetch") {
-    // A key that omitted identity would be a permission leak rather than a
-    // performance bug.
+    // A key omitting identity would be a permission leak, not a performance
+    // bug.
     for {
       src <- source()
       h <- History.create(src)
@@ -234,8 +225,7 @@ class HistorySuite extends munit.CatsEffectSuite {
   }
 
   test("a failure is retried once its window passes") {
-    // A series that failed because HA blinked comes back when it stops, not at
-    // the next bucket.
+    // A series failed by an HA blink comes back when it stops, not next bucket.
     for {
       attempts <- Ref[IO].of(0)
       src <- source((_, _) =>
@@ -256,8 +246,8 @@ class HistorySuite extends munit.CatsEffectSuite {
   }
 
   test("inside its window a failure is answered without asking HA again") {
-    // Every live pull that shows the chart asks; with a recorder down, each
-    // of them would otherwise wait out a fresh fetch.
+    // Every live pull showing the chart asks; with the recorder down each would
+    // wait out a fresh fetch.
     for {
       src <- source((_, _) => IO.raiseError(new RuntimeException("HA is down")))
       h <- History.create(src)
@@ -271,8 +261,8 @@ class HistorySuite extends munit.CatsEffectSuite {
   }
 
   test("the answer is the series as DATA, which is the whole contract") {
-    // What passthrough puts in the hole and what the chart stage reads back,
-    // so a round trip rather than the bytes.
+    // A round trip rather than bytes: what passthrough writes, the chart stage
+    // reads.
     val s = Series(
       Vector(
         Series.Point(Instant.ofEpochMilli(1000L), 1.5),
@@ -284,8 +274,6 @@ class HistorySuite extends munit.CatsEffectSuite {
     assert(json.noSpaces.contains("[[1000,1.5],[2000,2.5]]"), clue = json)
     assertEquals(json.as[Series], Right(s))
   }
-
-  // --- Parsing -------------------------------------------------------------
 
   test("an unknown window is a build error naming the ones that exist") {
     val e = HistoryQuery
@@ -302,8 +290,8 @@ class HistorySuite extends munit.CatsEffectSuite {
   }
 
   test("a size is not a query parameter, and is ignored here") {
-    // The question is the entity and the window; the size is how the answer is
-    // drawn (`ChartStyleSuite`).
+    // The question is entity and window; size is how the answer is drawn
+    // (`ChartStyleSuite`).
     assertEquals(
       HistoryQuery.parse(
         Map("entity" -> "sensor.t", "window" -> "24h", "width" -> "wide")

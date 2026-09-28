@@ -15,19 +15,13 @@ import fh.view.testkit.DashboardBuilders.st
 import fh.view.testkit.TestIds.given
 import io.circe.Json
 
-/** The candidate-set node (`docs/adr/0003-candidate-sets.md`), one slice
-  * through the real runtime: presence decided by a member's clauses,
-  * `Placed`/`Gone` as the patch pair, and the AUTHORED candidate order rather
-  * than an entity-id sort.
+/** The candidate-set node (ADR 0003): presence decided by a member's clauses,
+  * `Placed`/`Gone` as the patch pair, and the authored order. Membership is a
+  * static list the runtime only filters.
   *
-  * The contrast with `SetMembershipSuite` is the point — the same patch
-  * machinery, but membership is a static list the runtime only filters, so
-  * nothing here scans the state map to find out who the members are.
-  *
-  * Every delta test spends its first frame ESTABLISHING the host. A viewer that
-  * has only just connected holds no membership history, so the first change
-  * refills the container wholesale (`Patches.resume`'s `refill`) and says
-  * nothing about deltas; the frame after it is the one under test.
+  * Every delta test spends its first frame establishing the host: a
+  * just-connected viewer has no membership history, so the first change refills
+  * wholesale and the frame after it is under test.
   */
 class SetNodeSuite extends ServerHarness {
 
@@ -39,9 +33,8 @@ class SetNodeSuite extends ServerHarness {
     Predicate.Cmp("state", Op.Eq, Json.fromString("on"))
 
   private def tileNode(id: String): LayoutNode.Component =
-    // A clause carries the COMPLETE node — its candidate's `entity_id`
-    // included, because the build knew the candidate. Nothing is injected at
-    // render time, which is the whole difference from a set clause.
+    // A clause carries the complete node, `entity_id` included; nothing is
+    // injected at render time.
     LayoutNode.Component(
       "tile",
       Map(
@@ -70,10 +63,8 @@ class SetNodeSuite extends ServerHarness {
       )
     )
 
-  /** Five lights, shown while on, in an order that is NOT their entity-id order
-    * — so a test that would pass under the old entity-id sort fails here. Five
-    * so one member moving stays a minority of the group and takes the
-    * per-member path rather than a churn repaint.
+  /** Shown while on, in an order that is not entity-id order. Five, so one
+    * member moving is a minority and takes the per-member path.
     */
   private val lights =
     List("light.c", "light.a", "light.b", "light.d", "light.e")
@@ -110,7 +101,7 @@ class SetNodeSuite extends ServerHarness {
         val p = patches.head
         assert(p.contains("mode remove"), clue = p)
         assert(p.contains("selector #c_light_a"), clue = p)
-        // P7: absent from the DOM, not present-and-hidden.
+        // Absent from the DOM, not present-and-hidden.
         assert(!p.contains("data: elements"), clue = p)
       }
     }
@@ -123,13 +114,12 @@ class SetNodeSuite extends ServerHarness {
         _ <- h.step(off("light.a"))
         patches <- h.step(on("light.a"))
       } yield {
-        // remove-then-insert, the idempotent pair an arrival always is.
+        // Remove-then-insert, the idempotent pair an arrival always is.
         assertEquals(patches.size, 2, clue = patches)
         assert(patches.head.contains("mode remove"), clue = patches.head)
         val p = patches.last
         assert(p.contains("mode before"), clue = p)
-        // Authored order is c,a,b,d,e — so `a` anchors before `b`, which is
-        // where the AUTHOR put it, not where the alphabet would.
+        // Authored order is c,a,b,d,e, so `a` anchors before `b`.
         assert(p.contains("selector #c_light_b"), clue = p)
         assert(
           p.contains("""elements <div class="fh-cell" id="c_light_a">"""),
@@ -151,9 +141,8 @@ class SetNodeSuite extends ServerHarness {
   }
 
   test("an UNGUARDED clause is present even for an entity HA never reported") {
-    // Presence decided at build time is not the runtime's to revisit (P3) — and
-    // a candidate with no state is exactly where a presence-by-query group
-    // would have silently dropped it.
+    // Presence decided at build time is not the runtime's to revisit, and a
+    // candidate with no state is where a query would have dropped it.
     SharedHarness
       .create(setOf(List("light.ghost"), _ => None), Map.empty)
       .flatMap { h =>
@@ -164,19 +153,15 @@ class SetNodeSuite extends ServerHarness {
   }
 
   test("a reorder moves the FEWEST members that can produce it") {
-    // Sets are the only thing that can reorder, so the minimisation lives here.
-    // It matters because a set ordered on a live value reorders whenever two
-    // members cross: moving everything on each crossing is the patch storm P7
-    // exists to prevent.
+    // A set ordered on a live value reorders whenever two members cross, so
+    // moving everything on each crossing would be a patch storm.
     def moves(before: String, after: String) =
       Patches.reordered(before.split(" ").toList, after.split(" ").toList)
 
     assertEquals(moves("a b c", "a b c"), Nil)
-    // One element to the front costs one move, not three.
     assertEquals(moves("a b c", "c a b"), List("c"))
     assertEquals(moves("a b c d", "a d b c"), List("d"))
-    // A full reversal genuinely costs n-1 — only one element can stay put, and
-    // WHICH one is arbitrary among equally minimal answers.
+    // A full reversal costs n-1; which element stays is arbitrary.
     assertEquals(moves("a b c", "c b a").size, 2)
   }
 
@@ -190,8 +175,7 @@ class SetNodeSuite extends ServerHarness {
   ) = setOf(candidates, _ => Some(whileOn), List(by), limit)
 
   test("a live ordering key sorts the PRESENT members, numerically") {
-    // 2 must sort below 10 — the trap a string compare falls into, and the one
-    // an author ordering by brightness hits immediately.
+    // 2 must sort below 10, the trap a string compare falls into.
     val dash = sorted(
       List("light.a", "light.b", "light.c"),
       LayoutNode.SortTerm(LayoutNode.SortKey.Prop("attr:brightness"), "desc")
@@ -225,15 +209,14 @@ class SetNodeSuite extends ServerHarness {
     )
     SharedHarness.create(dash, states).flatMap { h =>
       h.opening(None).map { html =>
-        // b first; a and c keep their authored order behind it.
         assertEquals(order(html), List("c_light_b", "c_light_a", "c_light_c"))
       }
     }
   }
 
   test("ties keep the AUTHORED order, so a tick does not reshuffle them") {
-    // The mandatory stable tiebreak: without it a set ordered on a live value
-    // churns Gone/Placed pairs every time anything changes.
+    // Without the stable tiebreak a live-ordered set churns Gone/Placed pairs
+    // on every change.
     val dash = sorted(
       List("light.c", "light.a", "light.b"),
       LayoutNode.SortTerm(LayoutNode.SortKey.Prop("attr:brightness"), "desc")
@@ -252,11 +235,8 @@ class SetNodeSuite extends ServerHarness {
   }
 
   test("an ordering key moving WITHOUT crossing anyone emits nothing") {
-    // A live-ordered set rebuilds its member list rather than patching one
-    // place in it — but rebuilding is not repainting. What reaches the client
-    // is still a diff of the member lists, so a brightness that moves without
-    // overtaking a neighbour costs zero patches, exactly as it does for a set
-    // with no ordering at all.
+    // Rebuilding the member list is not repainting: the client gets a diff, so
+    // a value moving without overtaking a neighbour costs zero patches.
     val dash = sorted(
       List("light.a", "light.b", "light.c"),
       LayoutNode.SortTerm(LayoutNode.SortKey.Prop("attr:brightness"), "desc")
@@ -270,7 +250,6 @@ class SetNodeSuite extends ServerHarness {
       for {
         _ <- h.opening(None)
         _ <- h.step(off("light.c"))
-        // b climbs, but stays under a and over c: same order, no patches.
         patches <- h.step(bri("light.b", 80))
       } yield assertEquals(patches, Nil, clue = patches)
     }
@@ -291,7 +270,6 @@ class SetNodeSuite extends ServerHarness {
       for {
         _ <- h.opening(None)
         _ <- h.step(bri("light.d", 5))
-        // d overtakes c and b, landing behind a.
         patches <- h.step(bri("light.d", 35))
       } yield {
         assertEquals(patches.size, 2, clue = patches)
@@ -317,7 +295,7 @@ class SetNodeSuite extends ServerHarness {
     SharedHarness.create(dash, states).flatMap { h =>
       for {
         html <- h.opening(None)
-        // c overtakes b, so the CUT moves to a member that did not change.
+        // The cut moves to a member that did not change.
         patches <- h.step(bri("light.c", 25))
       } yield {
         assertEquals(order(html), List("c_light_a", "c_light_b"))
@@ -332,11 +310,9 @@ class SetNodeSuite extends ServerHarness {
   }
 
   test("a member is found by OWNERSHIP, not by parsing its id") {
-    // `light.a_b` sanitises to `c_light_a_b`, which reads as a member of a
-    // container called `c_light_a` just as well as it reads as `light.a_b` in
-    // `c`. A candidate set's members are all knowable at construction, so the
-    // container is a lookup and the ambiguity cannot arise; the id-prefix
-    // search is kept only for query groups, whose members cannot be enumerated.
+    // `c_light_a_b` reads as a member of `c_light_a` as well as `light.a_b` in
+    // `c`. A set's members are all known at construction, so the container is a
+    // lookup and the ambiguity cannot arise.
     val dash = setOf(List("light.a_b", "light.a"), _ => Some(whileOn))
     val states =
       Map("light.a_b" -> on("light.a_b"), "light.a" -> on("light.a"))
@@ -349,10 +325,8 @@ class SetNodeSuite extends ServerHarness {
   }
 
   test("a member renders a SUBTREE, woken by the entities its children bind") {
-    // Composite (a): the candidate is still an entity, the rendering is not a
-    // leaf. The children have no ids — the member is the one patch target for
-    // everything it holds — so a child's entity has to reach the reverse index
-    // through the MEMBER, or the tile silently stops updating.
+    // The children have no ids, so a child's entity has to reach the reverse
+    // index through the member, or the tile silently stops updating.
     val cards = tile ++ Map(
       "col" -> CardDef(
         """<div>{{#children}}{{{html}}}{{/children}}</div>""",
@@ -363,7 +337,6 @@ class SetNodeSuite extends ServerHarness {
       "col",
       regions = LayoutNode.kids(
         tileNode("light.a"),
-        // A child binding a DIFFERENT entity than the candidate.
         LayoutNode.Component(
           "tile",
           Map(
@@ -391,7 +364,6 @@ class SetNodeSuite extends ServerHarness {
         html <- h.opening(None)
         patches <- h.step(st("sensor.temp", "22"))
       } yield {
-        // Both children are inside the member's bytes.
         assert(html.contains("<b>on</b>"), clue = html)
         assert(html.contains("<b>21</b>"), clue = html)
         assertEquals(patches.size, 1, clue = patches)
@@ -403,10 +375,8 @@ class SetNodeSuite extends ServerHarness {
   }
 
   test("a tile per room: the inner set is addressable, the tile is not") {
-    // Composite (b). The outer candidates are the rooms; each tile holds a set
-    // over that room's own lights. What makes it worth nesting rather than
-    // composing bytes: a bulb patches ITS OWN element, and the tile — whose
-    // content is a registry fact and so a literal — is never re-rendered.
+    // Nested rather than composed so a bulb patches its own element, and the
+    // tile, a registry fact and so a literal, is never re-rendered.
     val cards = tile ++ Map(
       "col" -> CardDef(
         """<div>{{#children}}{{{html}}}{{/children}}</div>""",
@@ -449,16 +419,13 @@ class SetNodeSuite extends ServerHarness {
     SharedHarness.create(dash, states.toMap).flatMap { h =>
       for {
         html <- h.opening(None)
-        // Establish the inner host, as every delta test here must.
         _ <- h.step(off("light.d"))
         patches <- h.step(off("light.b"))
       } yield {
-        // Each inner member has its own element, under its own room's set.
         assert(html.contains("""id="c_area_stue_0_0_light_a""""), clue = html)
         assert(html.contains("""id="c_area_stue_0_0_light_b""""), clue = html)
         assert(html.contains("""id="c_area_bad_0_0_light_c""""), clue = html)
-        // A bulb going out removes ITS element. The tile is untouched — no
-        // patch names the room, and nothing re-sends the other room at all.
+        // The tile is untouched: no patch names the room.
         assertEquals(patches.size, 1, clue = patches)
         val p = patches.head
         assert(p.contains("mode remove"), clue = p)
@@ -469,18 +436,12 @@ class SetNodeSuite extends ServerHarness {
   }
 
   test("every nested group the markup shows is one the graph registered") {
-    // The failure this catches is the worst-behaved one in the whole set path:
-    // the ids are right, the HTML is right, the graph syncs — and NO PATCH is
-    // ever emitted, because the container the recorder maintains is not the
-    // element the browser has. It happened once already (`affectedSets`
-    // reading the static index, which cannot hold a nested set).
-    //
-    // The id scheme is one function now (`Renderer.innerSetId`, read by both
-    // `memberSources` and `resolveChild`), so the two ends cannot drift by
-    // spelling. This pins the property that survives that refactor: whatever
-    // the renderer PAINTS as a group is something the renderer KNOWS as a
-    // container. Two levels deep, so a scheme that happens to work at one level
-    // does not pass.
+    // The worst-behaved failure in the set path: ids, HTML and graph are right,
+    // and no patch is ever emitted, because the recorder's container is not the
+    // browser's element (it happened: `affectedSets` read the static index,
+    // which cannot hold a nested set). Whatever the renderer paints as a group
+    // must be a container it knows, two levels deep so one level cannot pass by
+    // luck.
     val cards = tile ++ Map(
       "col" -> CardDef(
         """<div>{{#children}}{{{html}}}{{/children}}</div>""",
@@ -495,7 +456,6 @@ class SetNodeSuite extends ServerHarness {
         l -> LayoutNode.SetMember(List(LayoutNode.SetClause(None, tileNode(l))))
       }.toMap
     )
-    // outer set -> member -> col -> middle set -> member -> col -> leaf set
     val middle = LayoutNode.SetNode(
       candidates = List("area.stue"),
       members = Map(
@@ -524,7 +484,6 @@ class SetNodeSuite extends ServerHarness {
     val states = List("light.a", "light.b").map(id => id -> on(id)).toMap
     val html = r.renderBody(states)
 
-    // Every `fh-group` element in the markup is a container the graph knows.
     val painted = """id="([^"]+)"""".r
       .findAllMatchIn(html)
       .map(_.group(1))
@@ -540,17 +499,13 @@ class SetNodeSuite extends ServerHarness {
         clue = s"painted group '$id' is not a registered container; html: $html"
       )
     )
-    // ...and the deepest one really is two levels down, so this is not passing
-    // on the root alone.
+    // The deepest is really two levels down, so the root alone cannot pass.
     assert(painted.exists(_.count(_ == '_') >= 6), clue = painted)
   }
 
   test("a COUNT over other entities decides presence, and wakes the member") {
-    // "Show this while more than one light in the room is on." The counted
-    // lights are not candidates of this set — only the count names them — so
-    // the reverse index has to learn about them through
-    // `Predicate.referencedEntities`, exactly as it does for a cross-entity
-    // guard.
+    // The counted lights are not candidates, so the reverse index learns them
+    // through `Predicate.referencedEntities`, as for a cross-entity guard.
     val counted = List("light.x", "light.y", "light.z")
     val moreThanOneOn = Predicate.Count(
       candidates = counted,
@@ -564,8 +519,8 @@ class SetNodeSuite extends ServerHarness {
       counted.tail.map(id => id -> off(id)).toMap
     SharedHarness.create(dash, states).flatMap { h =>
       for {
-        // One on: the banner is absent even though it is a candidate, and its
-        // OWN state ("off") is irrelevant — a count reads only what it names.
+        // A count reads only what it names, so the banner's own state is
+        // irrelevant.
         html <- h.opening(None)
         patches <- h.step(on("light.y"))
       } yield {
@@ -580,9 +535,7 @@ class SetNodeSuite extends ServerHarness {
   }
 
   test("a guard naming ANOTHER entity is woken by that entity") {
-    // The per-member cross-entity case: a light shows while its own room's
-    // sensor is on. The sensor is not a candidate, so nothing about the set's
-    // membership names it — only the guard does, through
+    // The sensor is not a candidate; only the guard names it, through
     // `Predicate.referencedEntities`.
     val hall = "binary_sensor.hall"
     val gated =
@@ -602,7 +555,6 @@ class SetNodeSuite extends ServerHarness {
         _ <- h.step(off("light.e"))
         patches <- h.step(on(hall))
       } yield {
-        // Gated off at first paint, on the sensor's state rather than its own.
         assert(!html.contains("""id="c_light_a""""), clue = html)
         assertEquals(patches.size, 2, clue = patches)
         val p = patches.last

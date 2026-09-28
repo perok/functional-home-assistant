@@ -105,11 +105,9 @@ class PklDumpCapabilitySuite extends munit.FunSuite {
   }
 
   test("an UNMODELLED domain's attributes fall through untyped") {
-    // The fallback that lets a domain nobody has modelled keep working: its
-    // attributes become plain per-entity properties, typed by what they look
-    // like. `media_player` stands in for "not modelled" — this used to be
-    // spelled with a `sensor`, which now has a schema of its own that claims
-    // `device_class`, so a sensor no longer demonstrates the fallback at all.
+    // An unmodelled domain's attributes become plain per-entity properties,
+    // typed by what they look like. `media_player` is unmodelled; `sensor` has
+    // a schema claiming `device_class`, so it would not show the fallback.
     val player = Json.obj(
       "entity_id" -> Json.fromString("media_player.a"),
       "domain" -> Json.fromString("media_player"),

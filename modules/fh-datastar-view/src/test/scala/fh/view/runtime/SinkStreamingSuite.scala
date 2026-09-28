@@ -6,19 +6,13 @@ import fh.view.testkit.DashboardBuilders.{col, component, lit}
 
 import java.nio.charset.StandardCharsets.UTF_8
 
-/** That a page open actually STREAMS, and that streaming it changes nothing.
-  *
-  * Both halves were assumed rather than checked. The benchmarks price the
-  * streamed walk but cannot say the bytes left incrementally — a sink that
-  * quietly buffered the document and wrote it once at the end would score the
-  * same and lose the entire point, which is PEAK. And `Sink.Buffer` and
-  * `Sink.Streaming` are two implementations of one contract with only
-  * `digesting` differing, so "same bytes, same trace" is the invariant the
-  * design rests on; nothing compared them at page scale.
+/** That a page open really streams, and that streaming changes nothing. The
+  * benchmarks cannot tell a sink that buffered the document and wrote it once,
+  * which loses the point, peak memory. `Sink.Buffer` and `Sink.Streaming`
+  * differ only in `digesting`, so "same bytes, same trace" is the invariant.
   */
 class SinkStreamingSuite extends munit.FunSuite {
 
-  /** Every downstream write, in order — what the response body would see. */
   private final class Recorder extends java.io.OutputStream {
     private val bytes = new java.io.ByteArrayOutputStream()
     val writes = scala.collection.mutable.ArrayBuffer.empty[Int]
@@ -42,13 +36,11 @@ class SinkStreamingSuite extends munit.FunSuite {
     )
   )
 
-  // Enough leaves to be several chunks wide, or "it arrived in one write" and
-  // "it is smaller than one chunk" would be indistinguishable.
+  // Several chunks wide, or "one write" and "smaller than a chunk" look alike.
   private val Leaves = 400
 
-  // A theme with a REAL stylesheet, because the shell writes it in a single
-  // `append` and a fixture without one cannot catch the peak measurement
-  // counting that write as if it were a per-connection cost.
+  // A real stylesheet: the shell writes it in one `append`, and the peak
+  // measurement must not count that as a per-connection cost.
   private val theme = Theme(styles = ".x{color:red}\n" * 200)
 
   private val renderer = Renderer.create(
@@ -67,8 +59,7 @@ class SinkStreamingSuite extends munit.FunSuite {
 
   private def streamed(): (Recorder, Map[NodeId, Painted]) = {
     val rec = new Recorder
-    // The shipped chain: `Server.renderPage` puts exactly these two writers in
-    // front of the response's OutputStream.
+    // The two writers `Server.renderPage` puts in front of the response.
     val w = new java.io.BufferedWriter(
       new java.io.OutputStreamWriter(rec, UTF_8),
       Server.PageChunkBytes
@@ -95,38 +86,24 @@ class SinkStreamingSuite extends munit.FunSuite {
       s"the whole document arrived in ${rec.writes.length} write(s) — " +
         "something is buffering the page instead of streaming it"
     )
-    // The peak claim in one assertion: no single hand-off carries more than a
-    // chunk, so what the writer chain holds live is bounded by the chunk size
-    // rather than by the document.
+    // No hand-off exceeds a chunk, so the live writer chain is bounded by the
+    // chunk size, not the document.
     assert(
       rec.writes.forall(_ <= Server.PageChunkBytes),
       s"largest write ${rec.writes.max} exceeds ${Server.PageChunkBytes}"
     )
   }
 
-  /** PEAK, which is the reason the streaming path exists and which no benchmark
-    * reports — `-prof gc` measures churn, and the two are different targets.
+  /** Peak, which no benchmark reports (`-prof gc` measures churn).
+    * `Sink.Streaming.digesting` hands each finished node run down as one
+    * `write`, so an unbuffered destination sees each transient at full size.
     *
-    * Measured with no production change, because the sink already tells us:
-    * `Sink.Streaming.digesting` renders a node into a scratch buffer and hands
-    * the finished run down as ONE `write`, so an unbuffered destination sees
-    * each transient at its full size. Against `Sink.Buffer`, whose peak is the
-    * finished document by construction.
-    *
-    * '''A classification, not a ratio.''' document/node is just the leaf count,
-    * so a ratio improves as the fixture grows and asserts nothing. The claim is
-    * that every write is one of two things, and neither grows with the
-    * document:
-    *
-    *   - a node run, bounded by the largest single node's rendering, asked of
-    *     the renderer rather than assumed; or
-    *   - the shell's one-shot `themeStyleTag` — a big WRITE and not a peak: one
-    *     shared `val` per renderer, reused by every connection, so it never
-    *     multiplies by open tabs. The fixture carries a real stylesheet so this
-    *     case is exercised rather than assumed away.
-    *
-    * This is the sink's high-water mark, not the JVM's. The buffered path also
-    * holds the result `String` and its encoded copy, so the gap is a floor.
+    * A classification, not a ratio (document/node is just the leaf count):
+    * every write is either a node run, bounded by the largest node's rendering
+    * as the renderer reports it, or the shell's one-shot `themeStyleTag`, a
+    * shared `val` that never multiplies by open tabs. This is the sink's
+    * high-water mark; the buffered path also holds the result `String` and its
+    * encoded copy, so the gap is a floor.
     */
   test("every streamed write is one node or the shared shell, never the page") {
     val runs = scala.collection.mutable.ArrayBuffer.empty[Int]
@@ -138,8 +115,7 @@ class SinkStreamingSuite extends munit.FunSuite {
       override def flush(): Unit = ()
       override def close(): Unit = ()
     }
-    // No BufferedWriter here on purpose: it would coalesce the runs and hide
-    // the very quantity being measured.
+    // A BufferedWriter would coalesce the runs being measured.
     val own = renderer.renderPageInto(
       Sink.streaming(direct),
       noStates,
@@ -154,8 +130,7 @@ class SinkStreamingSuite extends munit.FunSuite {
       )
 
     assert(own.nonEmpty, "the walk painted nothing")
-    // What a node's rendering costs, from the renderer — so the bound moves
-    // with the fixture instead of being a number copied out of a past run.
+    // From the renderer, so the bound moves with the fixture.
     val largestNode =
       own.keys.toList
         .flatMap(

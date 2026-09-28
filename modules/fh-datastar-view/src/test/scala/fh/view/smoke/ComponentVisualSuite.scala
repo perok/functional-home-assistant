@@ -6,13 +6,10 @@ import com.microsoft.playwright.assertions.PlaywrightAssertions.assertThat
 import com.microsoft.playwright.options.AriaRole
 import fh.view.testkit.{Scene, SmokeDashboard, VisualSnapshot}
 
-/** "Verify looks": component-level screenshots of [[SmokeDashboard]] against
-  * checked-in [[VisualSnapshot]] baselines — the piece a wire-format test
-  * fundamentally can't cover (correct HTML + correct CSS selectors says nothing
-  * about whether the CSS actually paints right). Deliberately at COMPONENT
-  * granularity, not one full-page screenshot per test: a failure names the
-  * exact card that regressed, and one card's incidental reflow doesn't fail
-  * every other card's snapshot.
+/** Component screenshots of [[SmokeDashboard]] against [[VisualSnapshot]]
+  * baselines: correct HTML and selectors say nothing about whether the CSS
+  * paints right. Per component, so a failure names the card and one card's
+  * reflow does not fail the others.
   */
 class ComponentVisualSuite extends SmokeSuite {
 
@@ -46,9 +43,8 @@ class ComponentVisualSuite extends SmokeSuite {
     withPage(scene, viewport) { (page, _) =>
       IO.blocking {
         settle(page)
-        // By ROLE, not by text: a label is two nested spans now (the text
-        // contract in `core/text.pkl`), so the text locator resolves to the
-        // innermost one and would shoot the words instead of the button.
+        // By role: a label is two nested spans (`core/text.pkl`), so a text
+        // locator would shoot the words instead of the button.
         VisualSnapshot.check(
           "button",
           page
@@ -70,11 +66,9 @@ class ComponentVisualSuite extends SmokeSuite {
           "article.card",
           new Page.LocatorOptions().setHas(page.locator("input[type=range]"))
         )
-        // Looser budget: the native range-input's value-fill edge lands a few
-        // pixels left or right depending on the Chromium build (a full-height
-        // column costs ~0.11% each; CI drifts up to ~4px from the baseline).
-        // 0.7% tolerates ~6px of edge drift while still failing on any real
-        // color/layout change.
+        // The native range input's fill edge moves a few pixels by Chromium
+        // build (a full-height column is ~0.11%; CI drifts up to ~4px). 0.7%
+        // tolerates ~6px and still fails a real colour or layout change.
         VisualSnapshot.check(
           "slider",
           sliderCard.screenshot(),
@@ -88,18 +82,9 @@ class ComponentVisualSuite extends SmokeSuite {
     withPage(scene, viewport) { (page, _) =>
       IO.blocking {
         settle(page)
-        // `.tab-panel` is `display:contents` (theme-beer.pkl) — a boxless
-        // wrapper, so it (and any ancestor sharing its box) can't be
-        // screenshotted directly. The Tabs card's OWN `.fh-cell` is the
-        // innermost real box containing both the bar and the baked default
-        // panel — `.last()` picks it over the page-root `.fh-cell`, which also
-        // (transitively) "has" `.tabs`.
-        //
-        // This only became TRUE with the leaf/structure split: a bake owner used to
-        // be denied its cell (its patch would have carried the whole panel), so
-        // `.last()` fell through to the page root and the baseline was silently
-        // a full-page shot. Hence the one-time rebaseline — the tabs look did
-        // not change, the locator finally resolves to what it always named.
+        // `.tab-panel` is `display:contents`, a boxless wrapper, so the Tabs
+        // card's own `.fh-cell` is the innermost real box holding bar and
+        // panel; `.last()` picks it over the page root's.
         val tabsCell = page
           .locator(
             ".fh-cell",
@@ -129,15 +114,10 @@ class ComponentVisualSuite extends SmokeSuite {
     withPage(scene, viewport) { (page, _) =>
       IO.blocking {
         settle(page)
-        // The whole composition, not just the latch. Every node is a cell (ADR
-        // 0008), so a cell holding the button alone matches too — and `.last()`
-        // takes the INNERMOST match, which is exactly that. Requiring the tile
-        // as well is what pins the cell to `c.lock.controls`'s own card, so
-        // this fails if either half goes missing.
-        // TWO `filter` calls, not two `setHas` on one options object: `has` is
-        // a single locator field, so the second `setHas` REPLACES the first and
-        // the conjunction silently becomes "whichever was written last". That
-        // is a passing test asserting half of what it says.
+        // Every node is a cell (ADR 0008), so a cell holding the button alone
+        // matches too and `.last()` would take it; requiring the tile pins the
+        // cell to `c.lock.controls`'s card. Two `filter` calls: `has` is one
+        // field, so a second `setHas` replaces the first.
         val lockCard = page
           .locator(".fh-cell")
           .filter(
@@ -161,11 +141,9 @@ class ComponentVisualSuite extends SmokeSuite {
     withPage(applianceScene, viewport) { (page, _) =>
       IO.blocking {
         settle(page)
-        // The BAR is what this photographs — the fill is the one thing on the
-        // card that no wire-format test can check, since its width comes from a
-        // client-side expression over two signals rather than from any byte the
-        // server sends. 47 of 120 minutes left is ~61% filled, which is far
-        // enough from both ends that an off-by-one in the arithmetic shows.
+        // The fill's width comes from a client-side expression over two
+        // signals, so no wire test can check it. 47 of 120 minutes is ~61%, far
+        // enough from both ends that an off-by-one shows.
         VisualSnapshot.check(
           "progress-card",
           page.locator("article.fh-progress").screenshot()

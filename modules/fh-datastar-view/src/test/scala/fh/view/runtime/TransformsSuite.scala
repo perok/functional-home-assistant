@@ -11,26 +11,17 @@ import fh.view.model.{
 }
 import io.circe.Json
 
-/** How a dashboard's slug reaches the action URL a tap builds (ADR 0023).
-  *
-  * A tap's URL is a CEL expression, and it carries the slug so the server can
-  * bound what the tap may touch. The slug is not authorable — a module does not
-  * know its own — so the renderer binds it as `dashboard_slug`, the one binding
-  * that is not about the entity.
-  *
-  * The property worth pinning is not the binding itself but WHEN the slug is
-  * settled: before validation, so a `Validated` is final. It used to be applied
-  * afterwards (`withSlug`), which was harmless only while nothing derived from
-  * the slug — and a compiled tap URL derives from it.
+/** How a dashboard's slug reaches the action URL a tap builds (ADR 0023). A
+  * module does not know its own slug, so the renderer binds `dashboard_slug`.
+  * What matters is when it is settled: before validation, so a `Validated` is
+  * final, since a compiled tap URL derives from it.
   */
 class TransformsSuite extends munit.CatsEffectSuite {
 
   test("the opted-in state tier renders exactly what CEL would") {
-    // The simple tier is entered by the slot's transform being a STRUCTURE
-    // rather than a string, never by recognising spelling (ADR 0028). It is
-    // only safe while it renders
-    // EVERY state shape identically to the engine, so this compares them
-    // rather than asserting expected output: the oracle is CEL itself.
+    // The simple tier is entered by a structured transform, never by
+    // recognising spelling (ADR 0028), and is safe only while it renders every
+    // state shape like the engine, so CEL itself is the oracle.
     val states = List(
       "on",
       "off",
@@ -59,10 +50,8 @@ class TransformsSuite extends munit.CatsEffectSuite {
   }
 
   test("the simple tier decodes from the wire's explicit opt-in") {
-    // The structure rides AS the slot's `transform`; `kind` picks the wire
-    // shape, `op` the operator within it, and `SimpleWire.toSimple` parses the
-    // pair into the runtime case. A decoded simple slot dispatches without the
-    // engine.
+    // `kind` picks the wire shape and `op` the operator; `SimpleWire.toSimple`
+    // parses the pair, and the decoded slot dispatches without the engine.
     val simpleWire = Json.obj(
       "slug" -> Json.fromString("k"),
       "cards" -> Json.obj(
@@ -88,8 +77,7 @@ class TransformsSuite extends munit.CatsEffectSuite {
     DashboardBuild.decode(simpleWire).map { validated =>
       validated.dashboard.card match {
         case c: LayoutNode.Component =>
-          // The transform IS the union: an object decodes straight into the
-          // Simple case — no parallel field.
+          // The transform is the union: no parallel field.
           c.slots("v").transform match {
             case Transform.Simple.Suffix(" W") => ()
             case other => fail(s"expected the opted-in suffix, got $other")
@@ -124,9 +112,8 @@ class TransformsSuite extends munit.CatsEffectSuite {
   }
 
   test("a non-positive duration scale is rejected at validate") {
-    // The same failure mode as a degenerate range, one shape over: it does not
-    // error, it renders `0s` for every reading — a card that looks finished
-    // forever. Silent-and-plausible is what makes it worth a build error.
+    // It does not error, it renders `0s` for every reading: a card that looks
+    // finished forever.
     def scaled(s: Double) =
       dashboard("kitchen")
         .copy(card =
@@ -146,10 +133,9 @@ class TransformsSuite extends munit.CatsEffectSuite {
   }
 
   test("a match with both string and boolean arms is rejected at validate") {
-    // ADR 0028 defines the shape by an idiomatic CEL spelling, and CEL requires
-    // one type across a map's values and both ternary arms — so a mixed lookup
-    // has nothing to be equivalent TO. It is also incoherent at the binding:
-    // one state would set an attribute by value, another by presence.
+    // CEL needs one type across a map's values and both ternary arms, so a
+    // mixed lookup has no CEL equivalent (ADR 0028), and it would set an
+    // attribute by value in one state and by presence in another.
     def withMatch(m: Transform.Simple) =
       dashboard("kitchen")
         .copy(card =
@@ -167,8 +153,7 @@ class TransformsSuite extends munit.CatsEffectSuite {
     )
     assert(mixed.exists(_.contains("string and boolean arms")), clue = mixed)
 
-    // The `otherwise` counts as an arm — it is the value an unmatched state
-    // gets, so a String there against boolean cases is the same mismatch.
+    // `otherwise` is the value an unmatched state gets, so it counts as an arm.
     val mixedElse = withMatch(
       Transform.Simple.Match(Map("on" -> true), otherwise = "")
     )
@@ -177,7 +162,6 @@ class TransformsSuite extends munit.CatsEffectSuite {
       clue = mixedElse
     )
 
-    // Both homogeneous forms pass.
     assertEquals(
       withMatch(Transform.Simple.Match(Map("on" -> true), otherwise = false)),
       Nil
@@ -188,9 +172,8 @@ class TransformsSuite extends munit.CatsEffectSuite {
     )
   }
 
-  // The expression the shipped `c.tap.service("light/toggle")` emits: the action
-  // as a single-quoted CEL literal, the slug and entity spliced from bindings,
-  // and `noSignals` riding inside the built string.
+  // What `c.tap.service("light/toggle")` emits: the action as a CEL literal,
+  // slug and entity from bindings, `noSignals` inside the string.
   private val tapUrl =
     "\"@post('sse/action/\" + dashboard_slug + \"/\" + 'light/toggle' " +
       "+ \"/\" + entity_id + \"', {filterSignals:{exclude:'.*'}})\""
@@ -212,8 +195,8 @@ class TransformsSuite extends munit.CatsEffectSuite {
   private def state =
     EntityState("light.kitchen", "on", Map.empty[String, Json])
 
-  /** The same dashboard as wire JSON — `Dashboard` decodes but does not encode,
-    * and `DashboardBuild.decode` is the path under test.
+  /** `Dashboard` decodes but does not encode, and `DashboardBuild.decode` is
+    * under test.
     */
   private def wire(slug: String): Json =
     Json.obj(
@@ -244,10 +227,8 @@ class TransformsSuite extends munit.CatsEffectSuite {
     )
   }
 
-  /** `fh push --slug` renames a dashboard on the way in. The rename has to land
-    * BEFORE validation, or the compiled tap URL is proven against a name the
-    * dashboard no longer has and every tap posts to a dashboard it is not on —
-    * refused, with nothing in the URL to say why.
+  /** Otherwise the compiled tap URL is proven against a name the dashboard no
+    * longer has, and every tap is refused with nothing in the URL to say why.
     */
   test("a pushed dashboard is validated under the slug it will be served as") {
     DashboardBuild

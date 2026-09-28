@@ -9,19 +9,14 @@ import cats.effect.IO
 import cats.effect.unsafe.implicits.global
 import io.circe.Json
 
-/** [[Patches.resume]] — where a resuming client's group members get their
-  * POSITION back. The ordering argument (docs/adr/0011-the-live-connection.md)
-  * is the whole of the correctness here, so these tests are about which anchor
-  * each insert names.
-  *
-  * A [[Mutation.Placed]] emits remove+insert for itself, so every placement is
-  * two patches: that self-containment is what makes an arrival and a re-order
-  * the same operation.
+/** [[Patches.resume]]: where a resuming client's members get their position
+  * back. The ordering argument (ADR 0011) is the whole of the correctness, so
+  * these test which anchor each insert names. A [[Mutation.Placed]] emits
+  * remove+insert, which makes an arrival and a re-order one operation.
   */
 class ResumePatchesSuite extends munit.FunSuite {
 
-  // The whole dashboard is one candidate set at the root, so its id is "c" and a
-  // member's id is `c_<sanitized entity>` — matching Renderer.memberIdOf.
+  // One set at the root, so members are `c_<sanitized entity>`.
   private val renderer = Renderer.create(
     Dashboard(
       cards =
@@ -50,7 +45,6 @@ class ResumePatchesSuite extends munit.FunSuite {
 
   private def on(id: String) = EntityState(id, "on", Map.empty)
 
-  /** Candidates are authored in entity-id order, so these are a, b, c, d. */
   private val states =
     List("light.a", "light.b", "light.c", "light.d")
       .map(id => id -> on(id))
@@ -59,10 +53,7 @@ class ResumePatchesSuite extends munit.FunSuite {
   private def cid(entity: String) =
     renderer.members.memberIdOf(setId("c"), entity)
 
-  /** A FRESH cache per call: these tests are about which patches come out, not
-    * about reuse, and sharing one would make a test's expectations depend on
-    * what an earlier test happened to render.
-    */
+  /** A fresh cache per call, so no test depends on what another rendered. */
   private def resume(log: FragmentLog, v: Long): List[String] =
     RenderCache.create
       .flatMap(
@@ -84,8 +75,7 @@ class ResumePatchesSuite extends munit.FunSuite {
   private val empty = FragmentLog("test")
 
   test("a placement removes then inserts, anchored on the next member") {
-    // light.b is placed; a is before it and c is after, so it goes before c. The
-    // paired remove is what makes this idempotent in any client DOM.
+    // The paired remove makes this idempotent in any client DOM.
     val log = empty.placed(
       "c",
       MemberKey.Entity("light.b"),
@@ -101,7 +91,7 @@ class ResumePatchesSuite extends munit.FunSuite {
   }
 
   test("the last member appends into the group root instead") {
-    // No current member sorts after light.d, so there is no anchor to name.
+    // Nothing sorts after light.d, so no anchor.
     val log = empty.placed(
       "c",
       MemberKey.Entity("light.d"),
@@ -114,9 +104,8 @@ class ResumePatchesSuite extends munit.FunSuite {
   }
 
   test("placements go high-to-low so every anchor exists") {
-    // b and c are both placed. Ascending would anchor b on c before c exists;
-    // descending places c (anchored on the present d) and then b (anchored on
-    // the just-placed c).
+    // Ascending would anchor b on c before c exists; descending places c on d,
+    // then b on the just-placed c.
     val log = empty
       .placed("c", MemberKey.Entity("light.b"), cid("light.b"), 5L)
       .placed("c", MemberKey.Entity("light.c"), cid("light.c"), 6L)
@@ -129,7 +118,7 @@ class ResumePatchesSuite extends munit.FunSuite {
   }
 
   test("placement order depends on position, not on version") {
-    // Same as above with the versions swapped: position, not recency, decides.
+    // Position, not recency, decides.
     val log = empty
       .placed("c", MemberKey.Entity("light.b"), cid("light.b"), 9L)
       .placed("c", MemberKey.Entity("light.c"), cid("light.c"), 2L)
@@ -139,14 +128,13 @@ class ResumePatchesSuite extends munit.FunSuite {
   }
 
   test("morphs precede mutations") {
-    // Content goes first and the structural fixups land on top of it.
     val log = empty
       .placed("c", MemberKey.Entity("light.b"), cid("light.b"), 5L)
       .touched(cid("light.a"), 6L)
     val out = resume(log, 1L)
     assertEquals(out.size, 3, clue = out)
-    // Rendered NOW, not read back from the log — `<stale/>` was what the log was
-    // seeded with, and it never appears on the wire (statement (3)).
+    // Rendered now: the seeded `<stale/>` never reaches the wire (statement
+    // (3)).
     assert(out(0).contains(s"""id="${cid("light.a")}""""), clue = out)
     assert(!out(0).contains("stale"), clue = out)
     assert(out(1).contains("mode remove"), clue = out)
@@ -154,17 +142,15 @@ class ResumePatchesSuite extends munit.FunSuite {
   }
 
   test("a log key the renderer cannot resolve emits nothing") {
-    // The ledger renders content FROM its keys, so a key naming no node is a
-    // fragment that can never be sent. It must be dropped, not crash the resume
-    // — and `NodeId`/`DomId` are what keep a host id from getting in
-    // here in the first place.
+    // A key naming no node can never be sent, so it is dropped, not a crash;
+    // `NodeId`/`DomId` keep a host id from getting here.
     val out = resume(empty.touched("no_such_node", 5L), 1L)
     assertEquals(out, Nil)
   }
 
   test("a placed node that is no longer a member is not inserted") {
-    // It arrived and left again while the client was away. Unreachable in
-    // practice (the latest mutation would be Gone), so this pins the defence.
+    // Unreachable in practice, since the latest mutation would be Gone: this
+    // pins the defence.
     val log = empty.placed(
       "c",
       MemberKey.Entity("light.zz"),
@@ -175,11 +161,9 @@ class ResumePatchesSuite extends munit.FunSuite {
   }
 
   test("no container-level fragment can hide a placement any more") {
-    // A group used to log its whole HTML under `gid`, and that ancestor entry
-    // suppressed a member's insert. Nothing writes such an entry now — a group
-    // root composes its members and so has no rendering of its OWN — and a
-    // stale one planted by hand is not merely harmless but unresolvable: it
-    // renders to nothing and drops out, while the placement still goes.
+    // A group root has no rendering of its own, so nothing writes this entry;
+    // one planted by hand renders to nothing and drops out, and the placement
+    // still goes.
     val log = empty
       .placed("c", MemberKey.Entity("light.b"), cid("light.b"), 5L)
       .touched("c", 6L)
@@ -189,11 +173,9 @@ class ResumePatchesSuite extends munit.FunSuite {
     assert(out(1).contains("mode before"), clue = out)
   }
 
-  /** What a patch does to the SESSION's record of this client's DOM. The
-    * dangerous direction is claiming a digest the client does not have, and a
-    * fill is where that happens without help: it overwrites a host's whole
-    * subtree with no per-node trace, so a member's old claim would outlive the
-    * bytes it described and suppress that value coming round again.
+  /** The dangerous direction is claiming a digest the client lacks. A fill
+    * overwrites a host's subtree with no per-node trace, so an old member claim
+    * would outlive its bytes and suppress that value coming round again.
     */
   test("a fill forgets its host, then claims what it placed") {
     val holds: Map[NodeId, Held] = List(
@@ -212,11 +194,10 @@ class ResumePatchesSuite extends munit.FunSuite {
         invalidates = Set[NodeId]("c_1")
       )
     )
-    // The root of the fill and everything under it are unknown again...
     assertEquals(after.get("c_1_0"), None, clue = after)
-    // ...but the same patch's own placement survives the prune it triggered.
+    // The same patch's placement survives the prune it triggered.
     assertEquals(after.get("c_1"), Some(Held.of("<fresh/>")), clue = after)
-    // A prefix is not a sibling: `c_1` must not swallow `c_10`.
+    // `c_1` must not swallow `c_10`.
     assertEquals(after.get("c_10"), holds.get("c_10"), clue = after)
     assertEquals(after.get("c"), holds.get("c"), clue = after)
     assertEquals(after.get("d_1"), holds.get("d_1"), clue = after)

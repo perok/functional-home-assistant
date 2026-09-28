@@ -3,14 +3,10 @@ package fh.view.runtime
 import fh.view.model.{CardDef, Dashboard, Region, SlotSource}
 import fh.view.testkit.DashboardBuilders.{col, component, st}
 
-/** A card whose SUBJECT is itself resolved per paint — `entity_id` given as a
-  * transform rather than a literal, so which entity the card is about can
-  * change while the page is open.
-  *
-  * It is the one shape `Renderer`'s per-node plan cannot precompute: every
-  * slot's inherited entity, every signal name and every binding hangs off the
-  * subject. `resolveDirect` exists for it. Nothing exercised it end to end,
-  * which is how it came to be reachable but unreached.
+/** A card whose subject is a transform, resolved per paint: the one shape
+  * `Renderer`'s per-node plan cannot precompute, since every inherited entity,
+  * signal name and binding hangs off the subject. `resolveDirect` exists for
+  * it, and nothing else exercises it end to end.
   */
 class DynamicSubjectSuite extends munit.FunSuite {
 
@@ -19,9 +15,7 @@ class DynamicSubjectSuite extends munit.FunSuite {
       "<div>{{#children}}{{{html}}}{{/children}}</div>",
       regions = Map("children" -> Region())
     ),
-    // Reads the subject's state through the ordinary inherited-entity path:
-    // the slot names no entity of its own, so it must ground on whatever
-    // `entity_id` resolved to THIS paint.
+    // Names no entity of its own, so it grounds on this paint's `entity_id`.
     "card" -> CardDef(
       """<span>{{state}}</span>""",
       slots = List(Dashboard.SubjectSlot, "state")

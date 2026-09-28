@@ -11,20 +11,11 @@ import fh.view.model.{
 import fh.view.testkit.DashboardBuilders.{col, component, lit, st}
 import io.circe.Json
 
-/** The invariant the precomputed seed rests on: for a node whose SUBJECT is
-  * constant, the set of signal NAMES it carries is fixed — only the values
-  * move.
-  *
-  * `Renderer.buildPlan` derives each name from the node id, the slot, the
-  * subject and the binding kind, none of which reads entity state, so this
-  * should hold by construction. It is asserted anyway because
-  * `Datastar.SignalSeed` bakes the names into a literal skeleton: if they ever
-  * did drift, the seed would emit a well-formed attribute nesting the WRONG
-  * paths, and every binding on the card would silently go dead.
-  *
-  * The dynamic-subject case is deliberately excluded — there the names
-  * genuinely do move per paint, which is why `Renderer.resolveDirect` owns that
-  * node and no seed is precomputed for it. [[DynamicSubjectSuite]] covers it.
+/** For a node with a constant subject, its signal names are fixed; only values
+  * move. True by construction in `Renderer.buildPlan`, asserted anyway because
+  * `Datastar.SignalSeed` bakes the names into a skeleton, and drift would nest
+  * the wrong paths in a well-formed attribute, silently killing every binding.
+  * Dynamic subjects are excluded: [[DynamicSubjectSuite]].
   */
 class SignalNamesFixedSuite extends munit.FunSuite {
 
@@ -101,10 +92,8 @@ class SignalNamesFixedSuite extends munit.FunSuite {
 
   test("the rendered seed is what signalsAttr would have produced") {
     import RendererTestOps.*
-    // End to end: the document takes the PRECOMPUTED path, so for every world
-    // its bytes must equal building the attribute from the node's signals the
-    // general way. A skeleton filled with the wrong names would still be
-    // well-formed HTML, so nothing else would notice.
+    // The document takes the precomputed path, so its bytes must equal the
+    // general build in every world; wrong names would still be well-formed.
     val ids = List("c", "c_0", "c_1", "c_2").map(NodeId.derived)
     worlds.foreach { states =>
       val html = renderer.renderBody(states)

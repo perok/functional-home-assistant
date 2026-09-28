@@ -18,19 +18,14 @@ import fh.view.testkit.TestIds.given
 import java.util.concurrent.atomic.AtomicInteger
 import scala.concurrent.duration.*
 
-/** The per-slug render cache (ADR 0012).
-  *
-  * The cache's job is easy; the two ways this pattern breaks are not, and they
-  * are what most of this suite is about. A producer that fails or is cancelled
-  * must not leave waiters blocked on a `Deferred` nobody will ever complete,
-  * and a failure must not stay in the map poisoning that node for the life of
-  * the renderer.
+/** The per-slug render cache (ADR 0012). Most of this is the two ways the
+  * pattern breaks: a failed or cancelled producer must not strand waiters on a
+  * `Deferred` nobody completes, and a failure must not stay in the map
+  * poisoning the node.
   */
 class RenderCacheSuite extends munit.FunSuite {
 
-  /** The cache compares generations by IDENTITY, so what a renderer contains is
-    * irrelevant here — only that these are two different instances.
-    */
+  /** Generations compare by identity, so only distinct instances matter. */
   private def aRenderer: Renderer =
     Renderer.create(Dashboard(Map.empty, LayoutNode.Component("card")))
 
@@ -40,20 +35,10 @@ class RenderCacheSuite extends munit.FunSuite {
   private val v1 = RenderInputs(Map("sensor.t" -> 1L))
   private val v2 = RenderInputs(Map("sensor.t" -> 2L))
 
-  /** A render that counts its runs and suspends until the test releases it — so
-    * waiters genuinely pile up behind a producer rather than arriving after it
-    * finished, which would make single-flight untestable.
-    *
-    * '''It holds no thread.''' The latch is the cats-effect one, so a producer
-    * parked here is a suspended fiber. It used to be a
-    * `java.util.concurrent.CountDownLatch` awaited inside a by-name `String`,
-    * which parked a compute worker for the length of the test — and with sbt
-    * running suites in parallel that starved the fibers the test was waiting
-    * for, timing out about one run in ten.
-    *
-    * That fixture was also the standing disproof of what `RenderCache`'s doc
-    * used to claim for its by-name thunk: it blocked, from inside a
-    * `=> String`, and neither the type nor the runtime could tell.
+  /** Counts its runs and suspends until released, so waiters pile up behind a
+    * producer. It holds no thread: a `java.util.concurrent.CountDownLatch` here
+    * parked a compute worker, which with parallel suites starved the fibers
+    * under test about one run in ten.
     */
   private class Gated(html: String, latch: CountDownLatch[IO]) {
     val runs = new AtomicInteger(0)
@@ -61,13 +46,10 @@ class RenderCacheSuite extends munit.FunSuite {
     def render: IO[String] = IO(runs.incrementAndGet()) *> latch.await.as(html)
     def release: IO[Unit] = latch.release
 
-    /** Both fibers race for the same key, and the one a test calls "the waiter"
-      * can perfectly well win the CAS and render ITS string. Waiting for the
-      * producer to be inside `render` is what makes which-is-which a fact
-      * rather than a hope.
-      *
-      * It SLEEPS rather than spinning: `iterateUntil` on a pure `IO` never
-      * yields, so on a small pool it can starve the very fiber it waits for.
+    /** Either fiber can win the CAS, so waiting for the producer to be inside
+      * `render` is what makes which-is-which a fact. Sleeps rather than spins:
+      * `iterateUntil` on a pure `IO` never yields, and can starve the fiber it
+      * waits for.
       */
     def started: IO[Unit] =
       (IO.sleep(1.millis) *> IO(runs.get())).iterateUntil(_ > 0).void
@@ -101,17 +83,15 @@ class RenderCacheSuite extends munit.FunSuite {
     } yield (a, b, n)).timeout(10.seconds).unsafeRunSync()
 
     assertEquals(runs.get(), 1)
-    // The SECOND call's bytes never ran, so a hit returns the first's.
+    // The second call's bytes never ran.
     assertEquals(a.html, "<i>1</i>")
     assertEquals(b.html, "<i>1</i>")
     assertEquals(n, 1)
   }
 
   test("new inputs REPLACE a node's entry rather than adding one") {
-    // The bound that makes this safe to leave running for days: the shared pass
-    // selects exactly the nodes whose entity just moved, so every batch brings
-    // new inputs. Keyed by (node, inputs) this map would grow forever, for hits
-    // that never come.
+    // Every batch brings new inputs, so keyed by (node, inputs) the map would
+    // grow forever for hits that never come.
     val (a, b, sizes) = (for {
       cache <- RenderCache.create
       a <- cache(id, r, v1)(IO.pure("<i>1</i>"))
@@ -126,10 +106,9 @@ class RenderCacheSuite extends munit.FunSuite {
   }
 
   test("moved inputs with UNCHANGED byte values do not render again") {
-    // The thread-C case, and the common tick: a signal-only change moves the
-    // entity's contentVersion — so `inputs` move — while the slots that travel
-    // as BYTES do not. Re-rendering to discover the bytes are identical is
-    // exactly what the pre-check exists to skip.
+    // The common tick: a signal-only change moves `inputs` while the
+    // bytes-slots do not. Re-rendering to find identical bytes is what the
+    // pre-check skips.
     val name = Some(Map("name" -> "Lamp"))
     val (a, b, renders, size) = (for {
       runs <- IO(new AtomicInteger(0))
@@ -141,16 +120,14 @@ class RenderCacheSuite extends munit.FunSuite {
     } yield (a.html, b.html, runs.get(), n)).timeout(10.seconds).unsafeRunSync()
 
     assertEquals(renders, 1)
-    // The FIRST generation's bytes, not a re-render: equal byte values mean
-    // equal bytes, so the second call is served what the first produced.
+    // Equal byte values mean equal bytes, so the first generation's are served.
     assertEquals(a, "<i>1</i>")
     assertEquals(b, "<i>1</i>")
     assertEquals(size, 1)
   }
 
   test("moved inputs with MOVED byte values render, as before") {
-    // The guard on the test above: the pre-check must not swallow a real
-    // change. Same moved inputs, different byte values.
+    // The pre-check must not swallow a real change.
     val (a, b, renders) = (for {
       runs <- IO(new AtomicInteger(0))
       cache <- RenderCache.create
@@ -165,9 +142,8 @@ class RenderCacheSuite extends munit.FunSuite {
   }
 
   test("byte values are compared only when BOTH sides have them") {
-    // `None` means "could not answer cheaply", never "unchanged" — a node with
-    // a dynamic subject, or one under a bake selection. Either side absent must
-    // fall back to the old behaviour rather than treat two unknowns as equal.
+    // `None` means "could not answer cheaply", never "unchanged", so either
+    // side absent falls back to rendering.
     val (renders, htmls) = (for {
       runs <- IO(new AtomicInteger(0))
       cache <- RenderCache.create
@@ -184,20 +160,17 @@ class RenderCacheSuite extends munit.FunSuite {
   }
 
   test("a STRAGGLER with matching byte values is served without installing") {
-    // Branch 2a. The straggler is owed the same bytes — equal values, equal
-    // bytes — so it renders nothing. But it must not INSTALL: re-stamping the
-    // entry under its older inputs would downgrade the generation and hand the
-    // next caller a key that looks stale, which is the eviction the straggler
-    // rule exists to prevent. Proven by the newer inputs still hitting after.
+    // Branch 2a: the straggler renders nothing, and must not install:
+    // re-stamping under older inputs would hand the next caller a key that
+    // looks stale.
     val vals = Some(Map("name" -> "Lamp"))
     val (renders, straggler, afterwards) = (for {
       runs <- IO(new AtomicInteger(0))
       cache <- RenderCache.create
       count = (html: String) => IO(runs.incrementAndGet()).as(html)
       _ <- cache(id, r, v2, vals)(count("<i>current</i>"))
-      // Arrives late, from an older snapshot.
       old <- cache(id, r, v1, vals)(count("<i>stale</i>"))
-      // If the straggler had installed, this would be a miss and render.
+      // Had the straggler installed, this would miss and render.
       now <- cache(id, r, v2, vals)(count("<i>never runs</i>"))
     } yield (runs.get(), old.html, now.html))
       .timeout(10.seconds)
@@ -209,11 +182,9 @@ class RenderCacheSuite extends munit.FunSuite {
   }
 
   test("a renderer swap invalidates every key, unchanged inputs included") {
-    // The reason the generation is the RENDERER and not the inputs alone: a
-    // dashboard edit changes the markup while the entity versions it reads stay
-    // exactly where they were. Keyed on inputs only, the first viewer after a
-    // push would be served the OLD dashboard's bytes, and would keep them until
-    // some entity happened to move.
+    // Keyed on the renderer: a dashboard edit changes markup while entity
+    // versions stay put, so inputs alone would serve the old dashboard's bytes
+    // after a push.
     val (before, after, size) = (for {
       cache <- RenderCache.create
       before <- cache(id, r, v1)(IO.pure("<i>old</i>"))
@@ -223,22 +194,19 @@ class RenderCacheSuite extends munit.FunSuite {
 
     assertEquals(before, "<i>old</i>")
     assertEquals(after, "<i>new</i>")
-    // ...and the replaced generation is gone, not held alongside.
     assertEquals(size, 1)
   }
 
   test("a superseded generation does not evict the one that replaced it") {
-    // A slow render that FAILS while a newer generation has already taken the
-    // node. Evicting on the strength of that stale failure would drop a live
-    // entry — hence the identity check before removing.
+    // Evicting on a stale failure would drop a newer generation's live entry,
+    // hence the identity check.
     val (n, html) = (for {
       g <- gated("unused")
       cache <- RenderCache.create
       doomed <- cache(id, r, v1)(
         g.render *> IO.raiseError[String](new RuntimeException("late"))
       ).attempt.start
-      // The doomed generation must OWN the key before the newer one takes it,
-      // or this tests nothing.
+      // The doomed generation must own the key first, or this tests nothing.
       _ <- g.started
       _ <- cache(id, r, v2)(IO.pure("<i>current</i>"))
       _ <- g.release
@@ -257,15 +225,11 @@ class RenderCacheSuite extends munit.FunSuite {
     val (results, n, renders) = (for {
       g <- gated("unused")
       cache <- RenderCache.create
-      // One producer that fails, four waiters queued behind it.
       producer <- cache(id, r, v1)(
         g.render *> IO.raiseError[String](boom)
       ).attempt.start
-      // BEFORE the waiters exist. Without it they race the producer for the
-      // key, and a "waiter" that wins the CAS renders its own string — which
-      // completes at once, where the producer's is gated — so all five succeed
-      // and the failure under test never happens. That was a real intermittent
-      // failure, not a hypothetical.
+      // Before the waiters exist, or one wins the CAS, renders its own ungated
+      // string, and all five succeed: a real intermittent failure.
       _ <- g.started
       waiters <- List
         .fill(4)(
@@ -281,15 +245,13 @@ class RenderCacheSuite extends munit.FunSuite {
       n <- cache.size
     } yield (p :: w, n, g.runs.get())).timeout(10.seconds).unsafeRunSync()
 
-    // Every one of them completes — with the error, not by hanging.
+    // All complete with the error, none hang.
     assertEquals(results.length, 5)
     assert(results.forall(_.left.exists(_.getMessage == "render blew up")))
-    // And the key is gone, so the failure is not permanent.
+    // The key is gone, so the failure is not permanent.
     assertEquals(n, 0)
-    // The waiters WAITED: only the producer's render ran. `late` is what makes
-    // that a fact — a caller arriving after the eviction would render for
-    // itself and still fail, which is correct and would otherwise be
-    // indistinguishable from waiting.
+    // Only the producer's render ran. A caller arriving after eviction would
+    // render and fail too, indistinguishable from waiting without `late`.
     assertEquals(late.get(), 0)
     assertEquals(renders, 1)
   }
@@ -317,26 +279,20 @@ class RenderCacheSuite extends munit.FunSuite {
       _ <- waiter.cancel
       _ <- g.release
       p <- producer.joinWithNever
-      // The cancelled waiter must not have taken the entry with it.
       again <- cache(id, r, v1)(IO.pure("never runs either"))
       n <- cache.size
     } yield (p.html, again.html, n)).timeout(10.seconds).unsafeRunSync()
 
     assertEquals(out, "<b>survived</b>")
-    // The later caller HIT the entry the cancelled waiter was waiting on.
     assertEquals(again, "<b>survived</b>")
     assertEquals(n, 1)
   }
 
   test("cancelling the PRODUCER still completes its waiters") {
-    // The invariant the whole design rests on. Production is uncancelable, so a
-    // cancelled producer finishes its render and completes the slot before it
-    // observes the cancellation — waiters cannot be stranded, and no onCancel
-    // has to remember to unblock them.
-    //
-    // Sharper now that the render is an `IO`: the producer is parked on a latch
-    // INSIDE the masked region, which is the state the mask exists to survive,
-    // and one a by-name thunk could only reach by blocking a thread.
+    // The production path is uncancelable, so a cancelled producer finishes and
+    // completes the slot before observing cancellation: no waiter is stranded
+    // and no onCancel has to unblock them. Here it is parked on a latch inside
+    // the masked region, the state the mask exists to survive.
     val (waited, n, renders) = (for {
       g <- gated("<b>finished anyway</b>")
       cache <- RenderCache.create
@@ -355,10 +311,8 @@ class RenderCacheSuite extends munit.FunSuite {
     assertEquals(n, 1)
   }
 
-  // ---- what two viewers reading DIFFERENT queries cost ---------------------
-
-  /** Two windows over one sensor: the same node, keyed on reads that are not
-    * comparable — what two viewers on different node-variable values produce.
+  /** Two windows over one sensor: reads that are not comparable, as two viewers
+    * on different node-variable values produce.
     */
   private def readOf(window: String): SlotRead =
     SlotRead(
@@ -372,20 +326,16 @@ class RenderCacheSuite extends munit.FunSuite {
     RenderInputs(Map("sensor.t" -> 1L), Map(readOf("7d") -> 9L))
 
   test("two windows are UNORDERED, which is what stops the wrong span") {
-    // The premise the cost below rests on, and the property that matters more
-    // than the cost: if either direction answered true, the straggler rule
-    // would serve one viewer a chart of the other's span rather than merely
-    // costing a render.
+    // If either direction were true, the straggler rule would serve one viewer
+    // the other's span, a defect rather than a cost.
     assert(!day.isAtLeast(week))
     assert(!week.isAtLeast(day))
     assert(day.isAtLeast(day))
   }
 
   test("viewers on two windows evict each other — a render each, every pull") {
-    // ADR 0031 predicted this from reading the install rule; here it is
-    // measured. One generation per node means the two never coexist, so
-    // alternating asks never hit. The bound holds: the cost is renders, not
-    // retained HTML.
+    // ADR 0031's prediction, measured: one generation per node means
+    // alternating asks never hit. The cost is renders, not retained HTML.
     val renders = new AtomicInteger(0)
     val (served, n, count) = (for {
       cache <- RenderCache.create
@@ -398,8 +348,6 @@ class RenderCacheSuite extends munit.FunSuite {
       .timeout(10.seconds)
       .unsafeRunSync()
 
-    // Never wrong bytes — each caller is served ITS window, which is the half
-    // that would be a defect rather than a cost.
     assertEquals(
       served,
       List("<i>24h</i>", "<i>7d</i>", "<i>24h</i>", "<i>7d</i>")
@@ -409,8 +357,8 @@ class RenderCacheSuite extends munit.FunSuite {
   }
 
   test("viewers on the SAME window still share one render") {
-    // The control. Without it "4 renders" is unreadable: it could equally mean
-    // the query half of the key had broken sharing outright.
+    // The control: otherwise "4 renders" could mean the query half of the key
+    // broke sharing outright.
     val renders = new AtomicInteger(0)
     val (served, count) = (for {
       cache <- RenderCache.create

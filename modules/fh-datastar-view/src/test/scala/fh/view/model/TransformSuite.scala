@@ -79,8 +79,8 @@ class TransformSuite extends munit.FunSuite {
       ),
       "21.5 °C"
     )
-    // A raw read on an ABSENT key is an eval error in CEL — the shipped strings
-    // guard with `'x' in attr` so this never happens; the card shows the error.
+    // The shipped strings guard with `'x' in attr`; unguarded, the card shows
+    // the error.
     assert(
       run(
         "state + ' ' + attr['unit_of_measurement']",
@@ -112,20 +112,18 @@ class TransformSuite extends munit.FunSuite {
   }
 
   test("evaluation error renders the CEL message on the card (no crash)") {
-    // num("unavailable") fails; the card shows the error rather than the raw
-    // value or crashing the render.
+    // The card shows the error rather than the raw value or a crashed render.
     val out = run("str(math.round(num(state) * 10.0) / 10.0)", "unavailable")
     assert(out.nonEmpty, clue = out)
     assertNotEquals(out, "unavailable")
   }
 
-  // Note: unavailable/unknown entities never reach a transform — the renderer
-  // bypasses it and shows the raw state (see RendererSuite).
+  // Unavailable/unknown entities never reach a transform; the renderer shows
+  // the raw state (see RendererSuite).
 
   test("null result becomes empty (so the slot default can take over)") {
-    // CEL has no `? x : null` ternary (both arms must share a type); a null
-    // reaches the result the same way it does in the shipped slider strings —
-    // a guarded read whose fallback is the binding's null.
+    // CEL has no `? x : null` (both arms share a type); null arrives as the
+    // shipped slider strings produce it, a guarded read falling back to null.
     assertEquals(run("cel.bind(v, null, v)", "z"), "")
     assertEquals(
       run(
@@ -138,20 +136,17 @@ class TransformSuite extends munit.FunSuite {
 
   test("an optional renders like the null it means, never as its wrapper") {
     val attrs = Map("brightness" -> Json.fromInt(120))
-    // An EMPTY optional is the trap this pins. It arrives as a plain
-    // `java.util.Optional`, so without the unwrap it falls through to
-    // `String.valueOf` and the literal text `Optional.empty` reaches the DOM —
-    // green tests, wrong bytes on the page.
+    // An empty optional arrives as a plain `java.util.Optional`; without the
+    // unwrap `String.valueOf` puts the literal `Optional.empty` in the DOM.
     assertEquals(run("attr[?'brightness']", "on", attrs), "120")
     assertEquals(run("attr[?'nope']", "on", attrs), "")
     assertEquals(run("optional.none()", "on"), "")
     assertEquals(run("optional.of('x')", "on"), "x")
-    // `''` means absent here, which is what `optional.ofNonZeroValue` is for —
-    // the same rule `SlotSource.default` applies one layer up.
+    // `''` means absent, the rule `SlotSource.default` applies one layer up.
     assertEquals(run("optional.ofNonZeroValue('')", "on"), "")
 
-    // The point of turning the library on: the guarded read without a ternary,
-    // agreeing byte for byte with the spelling every shipped transform uses.
+    // The guarded read without a ternary, byte for byte the spelling every
+    // shipped transform uses.
     assertEquals(
       run("attr[?'brightness'].orValue('none')", "on", attrs),
       run("'brightness' in attr ? attr['brightness'] : 'none'", "on", attrs)
@@ -181,9 +176,8 @@ class TransformSuite extends munit.FunSuite {
     )
   }
 
-  // ADR 0016 bakes a tap's action at build time; this pins that a hand-written
-  // CEL map-index over `domain` can still derive one — the `$lookup` tier's
-  // replacement.
+  // ADR 0016 bakes a tap's action at build time; a hand-written CEL map-index
+  // over `domain` must still derive one.
   test("a map-indexed action over domain still resolves (fallback)") {
     val expr =
       """cel.bind(m, {'scene': 'scene/turn_on'}, """ +
@@ -193,7 +187,7 @@ class TransformSuite extends munit.FunSuite {
       run(expr, "on", entity = "light.kitchen"),
       "homeassistant/toggle"
     )
-    // identity-only: resolves even with no usable state (never reads state)
+    // Identity-only: resolves with no usable state.
     assertEquals(
       run(expr, "unavailable", entity = "scene.movie"),
       "scene/turn_on"
@@ -206,11 +200,9 @@ class TransformSuite extends munit.FunSuite {
   }
 
   test("slider fill: --_end percent from the position attr, null-guarded") {
-    // The STATIC tier the slider card bakes for a light (min 1, max 255):
-    // fill = 100 - value% of the range, from the RIGHT (BeerCSS convention).
-    // `double(v)` is load-bearing: an attr value arrives as a Long and CEL's
-    // double overloads have no (Long, double) operand, so bare `v - 1.0`
-    // compiles but throws at evaluation.
+    // The static tier the slider bakes for a light: fill = 100 - value% of the
+    // range, from the right (BeerCSS). `double(v)` is load-bearing: an attr
+    // arrives as a Long, and bare `v - 1.0` compiles but throws at evaluation.
     val expr =
       "str(cel.bind(v, 'brightness' in attr ? attr['brightness'] : null, " +
         "v != null ? 100.0 - ((double(v) - 1.0) * 100.0 / (255.0 - 1.0)) : 100.0)) + '%'"
@@ -232,9 +224,8 @@ class TransformSuite extends munit.FunSuite {
       ),
       "50%"
     )
-    // The value that showed the blip: what beer.min.js writes is
-    // 39.37007874015748%, not 39% — and the 10-digit stringifier's margin,
-    // which is why this is "…02" and not "…15".
+    // What beer.min.js writes is 39.37007874015748%, not 39%; the 10-digit
+    // stringifier's margin makes this "…02", not "…15".
     assertEquals(
       run(
         expr,
@@ -244,18 +235,16 @@ class TransformSuite extends munit.FunSuite {
       ),
       "39.3700787402%"
     )
-    // A light that is OFF has no brightness attribute: empty fill, NOT an eval
-    // error leaking into the style attribute.
+    // An off light has no brightness: empty fill, not an eval error in the
+    // style attribute.
     assertEquals(run(expr, "off", entity = "light.kitchen"), "100%")
   }
 
   test("slider fill colour: rgb_color wins, else the kelvin ramp, else blank") {
-    // The shipped expression, in the Phase-0-validated structure: `double(k)`
-    // (a kelvin value arrives as Long), `''` for the kelvin-absent arm (CEL
-    // needs both ternary arms typed — a deliberate, pinned divergence from
-    // JSONata's null), `size(rgb)` gated behind presence so `rgb` is never read
-    // when absent, and `str(...)` (which strips a whole double's `.0` — CEL's
-    // native `string(math.round(x))` leaves it).
+    // `double(k)`, since kelvin arrives as Long; `''` for the kelvin-absent
+    // arm, since CEL types both ternary arms; `size(rgb)` gated behind
+    // presence; and `str(...)`, which strips a whole double's `.0` where CEL's
+    // `string(math.round(x))` keeps it.
     val expr =
       """cel.bind(rgb, 'rgb_color' in attr ? attr['rgb_color'] : null,
         |  cel.bind(k, 'color_temp_kelvin' in attr ? attr['color_temp_kelvin'] : null,
@@ -280,20 +269,17 @@ class TransformSuite extends munit.FunSuite {
       light("color_temp_kelvin" -> Json.fromInt(6500)),
       "rgb(201,226,255)"
     )
-    // Clamped below the warm end rather than extrapolated past it.
     assertEquals(
       light("color_temp_kelvin" -> Json.fromInt(1800)),
       "rgb(255,166,87)"
     )
-    // Neither attribute (a cover, a fan, a light that is off): the kelvin arm's
-    // `''` fallback, so the slot's `currentcolor` default takes over.
+    // A cover, a fan or an off light: `''`, so the slot's `currentcolor`
+    // default takes over.
     assertEquals(light("brightness" -> Json.fromInt(155)), "")
   }
 
-  // The shipped slider bakes its config (test above); this covers the OTHER
-  // thing the engine must keep doing: a hand-written expression as hostile as
-  // the retired `$lookup($domain)` tier, because nothing stops an author from
-  // writing one. The fallback evaluates it and must resolve it correctly.
+  // Nothing stops an author writing a domain-keyed expression by hand, so the
+  // fallback must still evaluate one correctly.
   test("slider fill: a hand-written domain-keyed expr still evaluates") {
     val expr =
       """cel.bind(v, {'light':'brightness','cover':'current_position'}[domain] in attr """ +
@@ -313,17 +299,12 @@ class TransformSuite extends munit.FunSuite {
     assertEquals(run(expr, "off", entity = "light.kitchen"), "100")
   }
 
-  // ---- the simple tier's definition suite (ADR 0028) ----
-  //
-  // Each [[Transform.Simple]] case is DEFINED by its idiomatic CEL spelling —
-  // the constants below, mirrored in the case's scaladoc. The engine's output
-  // on that spelling over the hostile sweep is the truth runSimple must render
-  // byte-for-byte. Where the two diverge — the engine ERRORS on a mistyped
-  // value where the simple tier renders its absent-value form — the divergence
-  // is itself pinned here and documented on the case: the opted-in tier owns
-  // its values, there is no fallback.
+  // The simple tier (ADR 0028): each [[Transform.Simple]] case is defined by
+  // its idiomatic CEL spelling, and the engine's output on that spelling over
+  // the hostile sweep is what `runSimple` must render byte for byte. Where the
+  // engine errors on a mistyped value and the tier renders its absent form, the
+  // divergence is pinned here and documented on the case.
 
-  /** The agreement harness: both evaluations over the sweep, byte-equality. */
   private def agree(
       shape: Transform.Simple,
       cel: String,
@@ -347,8 +328,6 @@ class TransformSuite extends munit.FunSuite {
 
   private def d(v: Double): Json = Json.fromDouble(v).get
 
-  // The slider's light-axis config (min 1, max 255), as every battery below
-  // bakes it.
   private val percentExpr =
     "attr[?'brightness'].optMap(v, " +
       "str(math.round((double(v) - 1.0) * 100.0 / (255.0 - 1.0))) + ' %')" +
@@ -402,8 +381,8 @@ class TransformSuite extends munit.FunSuite {
       "cel.bind(m, {'locked': 'lock/unlock'}, state in m ? m[state] : 'lock/lock')",
       probes
     )
-    // Many arms to one value — HA's `isWaiting`, and the shape a two-armed
-    // enum could not express without three transforms and three signals.
+    // HA's `isWaiting`: a two-armed enum would need three transforms and three
+    // signals.
     agree(
       Simple.Match(
         Map("locking" -> "true", "unlocking" -> "true", "opening" -> "true"),
@@ -413,7 +392,6 @@ class TransformSuite extends munit.FunSuite {
         "state in m ? m[state] : '')",
       probes
     )
-    // Arms to DIFFERENT values — a state-derived icon class.
     agree(
       Simple.Match(
         Map("locked" -> "mdi-lock", "unlocked" -> "mdi-lock-open"),
@@ -423,7 +401,6 @@ class TransformSuite extends munit.FunSuite {
         "state in m ? m[state] : 'mdi-lock-alert')",
       probes
     )
-    // No arms at all: every state takes `otherwise`.
     agree(
       Simple.Match(Map.empty, "n/a"),
       "cel.bind(m, {}, state in m ? m[state] : 'n/a')",
@@ -432,13 +409,11 @@ class TransformSuite extends munit.FunSuite {
   }
 
   test("key: a Match key cannot be forged by a separator inside a value") {
-    // The siblings join on ':' safely because their arity is fixed. A Match's
-    // is not, so the key is length-prefixed — a collision here would put two
-    // different transforms on ONE signal.
+    // A Match's arity is not fixed, so its key is length-prefixed: a collision
+    // would put two transforms on one signal.
     val a = Simple.Match(Map("a" -> "b:c"), "z")
     val b = Simple.Match(Map("a:b" -> "c"), "z")
     assertNotEquals(Simple.key(a), Simple.key(b))
-    // …and it does not depend on Map iteration order.
     assertEquals(
       Simple.key(Simple.Match(Map("x" -> "1", "y" -> "2"), "z")),
       Simple.key(Simple.Match(Map("y" -> "2", "x" -> "1"), "z"))
@@ -446,8 +421,8 @@ class TransformSuite extends munit.FunSuite {
   }
 
   test("divergence: the unit tier treats a non-string unit as absent") {
-    // The engine errors on `' ' + 5` (its error text is NOT part of the
-    // simple contract); the opted-in tier renders the state alone.
+    // The engine errors on `' ' + 5`, and its error text is not the contract;
+    // the tier renders the state alone.
     val e = es("on", "unit_of_measurement" -> Json.fromInt(5))
     assertEquals(
       Transform.runSimple(Simple.UnitSuffix("unit_of_measurement"), e),
@@ -470,9 +445,8 @@ class TransformSuite extends munit.FunSuite {
   test(
     "definition: the slider's range percent and fill over the hostile sweep"
   ) {
-    // min edge, off-a-hair below it, exact .5-adjacent fractions, the full
-    // range, beyond it, absent, and the string-number form `double()`
-    // accepts — the values the bench's Fill/Percent batteries swept.
+    // Edges, knife edges, the full range and beyond, absent, and the string
+    // form `double()` accepts: what the bench's Fill/Percent batteries swept.
     val brightnesses: List[Json] = List(
       d(-0.27), // raw = -0.5±ulp: the rounding mode's knife edge
       Json.fromInt(0), // below min: the negative arm
@@ -498,7 +472,6 @@ class TransformSuite extends munit.FunSuite {
     agree(Simple.Fill("brightness", 1.0, 255.0), fillExpr, probes)
   }
 
-  /** The spelling [[Simple.Duration]] IS, at minutes-per-unit. */
   private val durationExpr =
     "cel.bind(t, int(math.round(double(state) * 60.0)), " +
       "t <= 0 ? '0s' " +
@@ -507,9 +480,9 @@ class TransformSuite extends munit.FunSuite {
       ": str(t) + 's')"
 
   test("definition: a duration reading over the hostile sweep") {
-    // The boundaries are where a hand-rolled formatter and the engine part
-    // company: each tier's first and last value, the rounding knife edge, and
-    // the negative arm a countdown reaches when the appliance stops updating.
+    // Where a hand-rolled formatter and the engine part: each tier's first and
+    // last value, the rounding knife edge, and the negative arm a stopped
+    // countdown reaches.
     val readings = List(
       "-5", // overshot: clamps rather than showing a negative
       "0",
@@ -531,15 +504,14 @@ class TransformSuite extends munit.FunSuite {
 
   test("definition: a duration in SECONDS is the same shape, unscaled") {
     // The scale is the whole difference between two integrations reporting the
-    // same wash, so the spelling has to agree at another one too.
+    // same wash.
     val secondsExpr = durationExpr.replace("* 60.0", "* 1.0")
     val readings = List("0", "1", "59", "60", "3599", "3600", "15180")
     agree(Simple.Duration(1.0), secondsExpr, readings.map(es(_)))
   }
 
   test("a duration reads as a person would say it") {
-    // Byte-equality with CEL says the two agree; it does not say either is
-    // right. These are the readings themselves.
+    // Agreeing with CEL does not make either right; these are the readings.
     def fmt(v: String) = Transform.runSimple(Simple.Duration(60.0), es(v))
     assertEquals(fmt("253"), "4h 13m")
     assertEquals(fmt("60"), "1h 0m")
@@ -551,17 +523,15 @@ class TransformSuite extends munit.FunSuite {
   }
 
   test("divergence: a duration renders EMPTY on an unreadable state") {
-    // Not a rare case: a dishwasher between programmes reports `unknown` for
-    // its remaining time. `0s` would claim it just finished, and the raw word
-    // puts `unknown` where a time goes — so the absent form is empty, and the
-    // slot's default gets to take over.
+    // A dishwasher between programmes reports `unknown`. `0s` would claim it
+    // just finished, so the absent form is empty and the slot default takes
+    // over.
     assertEquals(Transform.runSimple(Simple.Duration(60.0), es("unknown")), "")
     assertEquals(
       Transform.runSimple(Simple.Duration(60.0), es("unavailable")),
       ""
     )
     assertEquals(Transform.runSimple(Simple.Duration(60.0), es("")), "")
-    // The engine's half of the divergence: it errors rather than rendering.
     assert(
       Transform
         .run(compile(durationExpr), es("unknown"), "dashboard")
@@ -572,9 +542,8 @@ class TransformSuite extends munit.FunSuite {
   test(
     "divergence: percent/fill render the absent form on unparseable values"
   ) {
-    // The engine errors on `double("")` / `double("on")`; the opted-in tier
-    // renders the absent-value form — the same behaviour an absent attribute
-    // gets, documented on the cases.
+    // The engine errors on `double("")` / `double("on")`; the tier renders the
+    // absent form, as for an absent attribute.
     val empty = es("on", "brightness" -> Json.fromString(""))
     val text = es("on", "brightness" -> Json.fromString("on"))
     assertEquals(
@@ -593,13 +562,10 @@ class TransformSuite extends munit.FunSuite {
   }
 
   test("a duration decodes off the wire under the name Pkl writes") {
-    // The two halves of the name are written in different languages — the
-    // `Op` typealias in `core/simple.pkl` and `toSimple`'s arm here — so
-    // nothing but this checks they are the same word. A mismatch is a decode
-    // failure at boot, not a compile error.
-    //
-    // `duration` is also the one operator carrying its argument ONLY in
-    // `params`: its read is the state, so there is no `value`.
+    // Written in two languages, the `Op` typealias in `core/simple.pkl` and
+    // `toSimple` here, so only this checks they agree; a mismatch is a decode
+    // failure at boot. `duration` carries its argument only in `params`: its
+    // read is the state.
     assertEquals(
       io.circe.parser
         .decode[Transform.Simple](
@@ -627,24 +593,19 @@ class TransformSuite extends munit.FunSuite {
       Transform.Simple.key(Simple.Percent("x", 1.0, 255.0)),
       Transform.Simple.key(Simple.Percent("x", 1.0, 255.0))
     )
-    // The scale is the whole content of a Duration, so two sensors reporting
-    // the same number in different units must not share a signal — that would
-    // paint one appliance's minutes into the other's seconds.
+    // Otherwise one appliance's minutes would paint into the other's seconds.
     assertNotEquals(
       Transform.Simple.key(Simple.Duration(60.0)),
       Transform.Simple.key(Simple.Duration(1.0))
     )
   }
 
-  // ---- the wire form -------------------------------------------------------
-  // The flat `{op, value, params}` the Pkl module emits is parsed into the enum
-  // ONCE, here. These assert the SEAM rather than any one operator: that the
-  // op names Pkl can spell are exactly the ones that parse, and that a
-  // structure missing an argument fails loudly instead of rendering blank.
+  // The wire form: the flat `{op, value, params}` Pkl emits is parsed into the
+  // enum once, here. A structure missing an argument must fail loudly, not
+  // render blank.
 
-  /** Every `op` the Pkl `core.simple.Op` typealias names. Kept as a literal
-    * list rather than derived: the whole point is to fail when the two sides
-    * drift, and a derivation from the Scala enum would agree with itself.
+  /** A literal, not derived: a derivation from the Scala enum would agree with
+    * itself.
     */
   private val PklOps =
     List(
@@ -665,8 +626,7 @@ class TransformSuite extends munit.FunSuite {
   ) = Transform.SimpleWire.Value(op, value, params).toSimple
 
   test("every op the Pkl module can spell parses into a runtime shape") {
-    // Every param any operator takes, so one call covers the whole set: an
-    // operator ignores what it does not need.
+    // Every param any operator takes; each ignores what it does not need.
     val args = Map(
       "min" -> (1.0: String | Double),
       "max" -> (255.0: String | Double),
@@ -686,9 +646,9 @@ class TransformSuite extends munit.FunSuite {
   }
 
   test("a missing argument fails the parse rather than defaulting") {
-    // Each of these is what a hand-written `SimpleValue` forgetting a field
-    // looks like. The typed Pkl constructors cannot produce them, which is
-    // exactly why nothing downstream would catch them.
+    // A hand-written `SimpleValue` forgetting a field. The typed Pkl
+    // constructors cannot produce these, which is why nothing downstream would
+    // catch them.
     assert(wire("attr").isLeft, "attr with no value")
     assert(wire("prefix").isLeft, "prefix with no literal")
     assert(wire("percent", Some("brightness")).isLeft, "percent with no range")
@@ -744,8 +704,7 @@ class TransformSuite extends munit.FunSuite {
       decode("""{"kind":"match","cases":{"on":"Open"},"otherwise":false}"""),
       Right(Simple.Match(Map("on" -> "Open"), false))
     )
-    // A boolean arm stays a BOOLEAN — `"false"` would be truthy as a Mustache
-    // section, which is what makes `attr:disabled` work at all.
+    // `"false"` would be truthy as a Mustache section.
     assert(
       decode("""{"kind":"match","cases":{"on":true},"otherwise":false}""")
         .exists {
@@ -754,12 +713,10 @@ class TransformSuite extends munit.FunSuite {
         }
     )
     assert(decode("""{"kind":"value","op":"nope"}""").isLeft)
-    // The shape discriminator is separate from the operator, so a `kind` the
-    // sum does not name fails on the DISCRIMINATOR rather than falling into
-    // `Value` and reporting a confusing unknown-op.
+    // An unknown `kind` fails on the discriminator, not as a confusing unknown
+    // op in `Value`.
     assert(decode("""{"kind":"nope","op":"state"}""").isLeft)
-    // `params` and `value` are optional on the wire — the constructor defaults
-    // fill them, which is what lets Pkl omit both.
+    // Optional on the wire, so Pkl can omit both.
     assertEquals(
       decode("""{"kind":"value","op":"suffixUnit","value":"u"}"""),
       Right(Simple.UnitSuffix("u"))

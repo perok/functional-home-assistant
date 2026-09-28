@@ -2,14 +2,10 @@ package fh.view.model
 
 import io.circe.Json
 
-/** [[Dashboard.watchedEntities]] — what the live subscription asks HA for.
-  *
-  * Every test here is about the gap between it and
-  * [[Dashboard.referencedEntities]], because that gap is the only reason the
-  * two are separate values. The entities in question DECIDE something and are
-  * rendered nowhere, so a subscription built from the narrower set would
-  * produce a dashboard that paints correctly and then silently stops reacting —
-  * the failure mode no rendering test can see, since the first paint is right.
+/** [[Dashboard.watchedEntities]], what the live subscription asks HA for, and
+  * its gap to [[Dashboard.referencedEntities]]: entities that decide something
+  * but render nowhere. Subscribing to the narrower set paints right and then
+  * silently stops reacting, invisible to any rendering test.
   */
 class WatchedEntitiesSuite extends munit.FunSuite {
 

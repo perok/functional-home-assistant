@@ -4,13 +4,9 @@ import fh.view.model.{Op, Predicate}
 import fh.view.testkit.DashboardBuilders.st
 import io.circe.Json
 
-/** Evaluating the query wire AST against live state.
-  *
-  * Three unrelated callers ask this the same question — a set clause's guard, a
-  * state surface's activation condition, and a `Count` nested inside either —
-  * and none of them needs a renderer, which is why it is its own object. Its
-  * tests followed it here: they lived in `RendererSuite` because `matches` used
-  * to be on `Renderer`'s companion.
+/** Evaluating the query wire AST against live state, for a set clause's guard,
+  * a state surface's condition and a `Count` inside either; none needs a
+  * renderer.
   */
 class ConditionsSuite extends munit.FunSuite {
 
@@ -26,8 +22,6 @@ class ConditionsSuite extends munit.FunSuite {
 
   private def snapshot(states: EntityState*): Map[String, EntityState] =
     states.map(s => s.entityId -> s).toMap
-
-  // ---- comparisons --------------------------------------------------------
 
   test("comparisons read domain, state and attributes off the subject") {
     val s = st("sensor.x", "18", "battery" -> Json.fromInt(15))
@@ -66,7 +60,6 @@ class ConditionsSuite extends munit.FunSuite {
       )
     )
     assert(Conditions.matches(both, s))
-    // A light-domain entity fails the `domain == sensor` arm, so `Not(both)`.
     assert(Conditions.matches(Predicate.Not(both), st("light.x", "18")))
     assert(
       Conditions.matches(
@@ -79,12 +72,12 @@ class ConditionsSuite extends munit.FunSuite {
   }
 
   test("ORDERING ops are false unless BOTH sides parse as numbers") {
-    // Not a total order, deliberately: `Lt` and `Gt` are BOTH false here, which
-    // is the property a caller relying on trichotomy would get wrong.
+    // Not a total order: `Lt` and `Gt` are both false here, which a caller
+    // assuming trichotomy would get wrong.
     val s = st("sensor.x", "warm")
     assert(!Conditions.matches(cmp("state", Op.Lt, Json.fromInt(20)), s))
     assert(!Conditions.matches(cmp("state", Op.Gt, Json.fromInt(20)), s))
-    // Equality ops compare the RAW strings, so they still answer.
+    // Equality compares the raw strings.
     assert(Conditions.matches(cmp("state", Op.Eq, Json.fromString("warm")), s))
     assert(Conditions.matches(cmp("state", Op.Ne, Json.fromInt(20)), s))
   }
@@ -93,8 +86,6 @@ class ConditionsSuite extends munit.FunSuite {
     val s = st("sensor.x", "9")
     assert(Conditions.matches(cmp("state", Op.Lt, Json.fromInt(10)), s))
   }
-
-  // ---- naming another entity ----------------------------------------------
 
   test("a guard may name a DIFFERENT entity than its subject") {
     val states = snapshot(st("light.a", "off"), st("binary_sensor.hall", "on"))
@@ -110,8 +101,8 @@ class ConditionsSuite extends munit.FunSuite {
   test(
     "naming an entity the snapshot lacks is FALSE, not a read of the subject"
   ) {
-    // Saying so beats silently answering about the subject, which is what an
-    // absent `entity` means.
+    // Absent `entity` means the subject, so saying so beats silently answering
+    // about it.
     val subject = st("light.a", "on")
     assertEquals(
       Conditions.matchesIn(isOn("light.ghost"), subject, snapshot(subject)),
@@ -120,18 +111,16 @@ class ConditionsSuite extends munit.FunSuite {
   }
 
   test("matches without a snapshot treats a cross-entity guard as false") {
-    // The single-state form cannot resolve one, so it declines rather than
-    // falling through to the subject.
+    // The single-state form cannot resolve one, so it declines rather than fall
+    // through to the subject.
     assert(!Conditions.matches(isOn("binary_sensor.hall"), st("light.a", "on")))
   }
-
-  // ---- Count --------------------------------------------------------------
 
   test(
     "an UNGUARDED candidate counts unconditionally; a guarded one must hold"
   ) {
-    // Same rule a set member with an unguarded clause follows — and note the
-    // unguarded candidate counts even though the snapshot has never seen it.
+    // The unguarded candidate counts though the snapshot has never seen it, as
+    // an unguarded set clause does.
     val states = snapshot(st("light.a", "on"), st("light.b", "off"))
     val count = Predicate.Count(
       candidates = List("light.a", "light.b", "light.unknown"),
@@ -156,8 +145,6 @@ class ConditionsSuite extends munit.FunSuite {
     assert(Conditions.matchesIn(count, EntityState.none, states))
   }
 
-  // ---- propertyOf ---------------------------------------------------------
-
   test(
     "propertyOf reads the four kinds it knows, and empty for anything else"
   ) {
@@ -166,14 +153,12 @@ class ConditionsSuite extends munit.FunSuite {
     assertEquals(Conditions.propertyOf("state", s), "18")
     assertEquals(Conditions.propertyOf("entity_id", s), "sensor.x")
     assertEquals(Conditions.propertyOf("attr:battery", s), "15")
-    // An attribute the entity does not carry reads empty rather than failing.
     assertEquals(Conditions.propertyOf("attr:nope", s), "")
   }
 
   test("a reg: property reads empty — seeing one here means the build leaked") {
-    // Registry facts are BUILD-time data: a comparison on one folds away before
-    // it reaches the runtime, and an ordering on one leaves the candidates
-    // pre-sorted. This is the assertion that says so out loud.
+    // Registry facts are build-time data: a comparison on one folds away before
+    // the runtime, and an ordering leaves the candidates pre-sorted.
     assertEquals(Conditions.propertyOf("reg:area_id", st("light.a", "on")), "")
   }
 }

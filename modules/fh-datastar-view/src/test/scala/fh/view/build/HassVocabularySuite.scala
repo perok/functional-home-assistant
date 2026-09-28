@@ -1,19 +1,14 @@
 package fh.view.build
 
 /** [[HassVocabulary]] mirrors a `typealias` union in each vendored `hass/`
-  * module, and nothing but this suite makes the two agree. Re-syncing one
-  * against a newer HA release without the other is the failure it exists for: a
-  * class present only in the Pkl union types fine and never gets assigned, and
-  * one present only in Scala gets assigned and then fails the dashboard's eval
-  * — which is exactly the first-boot breakage the drop-to-comment behaviour is
-  * meant to prevent.
+  * module, and only this suite makes them agree. A class only in Pkl is never
+  * assigned; one only in Scala is assigned and fails the dashboard's eval, the
+  * first-boot breakage the drop-to-comment behaviour exists to prevent.
   */
 class HassVocabularySuite extends munit.FunSuite {
 
-  /** The members of `typealias <name> = "a"|"b"|…`, read out of the vendored
-    * module. Deliberately a dumb string scan and not a Pkl evaluation: the
-    * point is to read what the SOURCE says, so a test that passes proves the
-    * checked-in bytes agree rather than that two evaluators agree.
+  /** A string scan, not a Pkl evaluation, so a pass proves the checked-in bytes
+    * agree.
     */
   private def unionMembers(module: String, name: String): Set[String] = {
     val src = BundledLib

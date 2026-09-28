@@ -8,15 +8,11 @@ import org.http4s.headers.Location
 
 import scala.concurrent.duration.*
 
-/** The gate against a real running dashboard (issue #89).
-  *
-  * [[fh.view.auth.AuthGateSuite]] checks what each route REQUIRES; this checks
-  * what the server then does about it — which is a different claim, and the one
-  * a browser experiences. Three things it pins that a pure classifier cannot:
-  * that the denial SHAPE differs by caller (a page is redirected, a stream is
-  * not), that the rule is read from the live dashboard rather than a copy, and
-  * that admission is not a one-time event — an SSE stream already running stops
-  * when the session behind it does.
+/** The gate against a running dashboard (issue #89).
+  * [[fh.view.auth.AuthGateSuite]] checks what each route requires; this checks
+  * what the server does: the denial shape differs by caller, the rule is read
+  * from the live dashboard, and a running SSE stream stops when its session
+  * does.
   */
 class AuthGateBehaviourSuite extends FunctionalSuite {
 
@@ -39,9 +35,8 @@ class AuthGateBehaviourSuite extends FunctionalSuite {
     }
   }
 
-  /** A stream is opened by a page that was already admitted, so a refusal here
-    * is a genuine error — the session died — not a "you should log in". The
-    * redirect belongs on the page load, where a human is waiting.
+  /** A stream's page was already admitted, so a refusal means the session died;
+    * the redirect belongs on the page load, where a human is waiting.
     */
   test("an anonymous SSE request is refused, never redirected") {
     withServer(house) { ts =>
@@ -74,7 +69,7 @@ class AuthGateBehaviourSuite extends FunctionalSuite {
       for {
         guest <- ts.auth.sessionFor(TestAuth.guest)
         allowed <- ts.pageResponse(as = Some(guest))
-        // The harness default is an admin, and `Users` is deliberately literal.
+        // The harness default is an admin, and `Users` is literal.
         refused <- ts.pageResponse()
       } yield {
         assertEquals(allowed.status, Status.Ok)
@@ -95,9 +90,8 @@ class AuthGateBehaviourSuite extends FunctionalSuite {
     }
   }
 
-  /** The escalation `Public` would otherwise open: no login, and an action
-    * route that forwards any `entity_id` straight to `call_service`. A wall
-    * tablet would put the front door one URL edit away from the street.
+  /** Otherwise `Public` plus an action route forwarding any `entity_id` would
+    * put a wall tablet's front door one URL edit from the street.
     */
   test("an action may not touch an entity its dashboard does not name") {
     withServer(house, Access.Public) { ts =>
@@ -113,16 +107,14 @@ class AuthGateBehaviourSuite extends FunctionalSuite {
         calls <- ts.fake.recordedCalls
       } yield {
         assertEquals(onDashboard, Status.NoContent)
-        // A refusal is 200 carrying signals, not a status (ADR 0024) — so the
-        // assertion is on what it SAID, which is also what the page shows.
+        // 200 carrying signals (ADR 0024), so the message is asserted.
         assertEquals(elsewhere._1, Status.Ok)
         assert(
           elsewhere._2.contains("_c_0__error") &&
             elsewhere._2.contains("lock.front_door is not on this dashboard"),
           s"the refusal said nothing the page can show: ${elsewhere._2}"
         )
-        // Refused BEFORE Home Assistant hears about it, not merely reported as
-        // an error afterwards.
+        // Refused before HA hears about it.
         assert(
           !calls.exists(_.toString.contains("front_door")),
           s"the refused action still reached HA: $calls"
@@ -131,9 +123,8 @@ class AuthGateBehaviourSuite extends FunctionalSuite {
     }
   }
 
-  /** A slug that names nothing gets the RESTRICTIVE default rather than the
-    * rule of whatever dashboard happens to be public — so inventing a slug is
-    * not a way around the check.
+  /** The restrictive default, not whichever dashboard is public, so inventing a
+    * slug is no way around the check.
     */
   test("an action naming a dashboard that does not exist is refused") {
     withServer(house, Access.Public) { ts =>
@@ -142,21 +133,17 @@ class AuthGateBehaviourSuite extends FunctionalSuite {
     }
   }
 
-  /** The claim the whole `SignallingRef` design exists for. A stream is
-    * admitted once and then runs for hours, so a check only at the door would
-    * leave a revoked user watching a live dashboard until they reloaded.
-    */
-  /** Cutting the stream stops the dashboard UPDATING; the tab still SHOWS what
-    * it last received. So the last thing the stream sends is the `_reload`
-    * signal every page already declares an effect for — that is what actually
-    * takes the house off a signed-out screen.
+  /** A stream runs for hours, so a check only at the door would leave a revoked
+    * user watching. A cut stream stops updating but the tab still shows what it
+    * had, so the last thing sent is `_reload`, which every page declares an
+    * effect for.
     */
   test("logging out ends the stream, and says so on the way out") {
     withServer(house) { ts =>
       ts.sse().flatMap { resp =>
         for {
-          // Wait until the stream is genuinely live before revoking, so the
-          // test cannot pass on a connection that never started.
+          // Genuinely live first, so it cannot pass on a stream that never
+          // started.
           seen <- resp.body
             .through(fs2.text.utf8.decode)
             .compile

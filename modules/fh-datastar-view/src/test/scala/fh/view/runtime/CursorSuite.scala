@@ -3,11 +3,8 @@ package fh.view.runtime
 import cats.effect.IO
 import org.http4s.{Method, Request, Uri}
 
-/** What a request says about where its client is — the read that decides resume
-  * vs repaint on every reconnect.
-  *
-  * Its own suite rather than another few hundred lines in `ServerSuite`, which
-  * is 4 600 lines and has started needing more than 4 GB to compile.
+/** Where a request says its client is: the read that decides resume vs repaint
+  * on every reconnect.
   */
 class CursorSuite extends munit.FunSuite {
 
@@ -52,19 +49,16 @@ class CursorSuite extends munit.FunSuite {
       Server.cursorOf(req),
       Some(Server.Cursor("hq", "sq", "Lq", 3L))
     )
-    // Not an anomaly. A freshly-loaded document has no store yet — that is what
-    // the params exist for.
+    // A fresh document has no store yet; that is what the params are for.
     assertEquals(Server.cursorAnomaly(req), None)
   }
 
   test(
     "a signal store with a PARTIAL cursor is reported, not silently ignored"
   ) {
-    // The failure the four-independent-`toOption` reads could not distinguish:
-    // a store that is present and missing one field reads exactly like a first
-    // connect, so the resume falls back to params frozen at page render and
-    // re-derives the whole page on every reconnect — correct output, forever,
-    // at a cost nothing reveals.
+    // A present store missing one field read like a first connect, so the
+    // resume fell back to params frozen at render and re-derived the page on
+    // every reconnect: correct output, at a cost nothing revealed.
     val partial = store(
       s""""${Server.HeadHashSignal}":"h","${Server.StyleHashSignal}":"s",""" +
         s""""${Server.LogIdSignal}":"L""""
@@ -75,8 +69,7 @@ class CursorSuite extends munit.FunSuite {
       Server.cursorAnomaly(req).isDefined,
       clue = Server.cursorAnomaly(req)
     )
-    // It still SERVES: falling back is the safe direction, and the warning is
-    // what makes it visible rather than the only symptom being a slow instance.
+    // Falling back is the safe direction; the warning is what makes it visible.
     assertEquals(
       Server.cursorOf(req),
       Some(Server.Cursor("hq", "sq", "Lq", 3L))
@@ -84,11 +77,9 @@ class CursorSuite extends munit.FunSuite {
   }
 
   test("an EMPTY store is a first connect, not a missing cursor") {
-    // Datastar sets the `datastar` param on every GET whatever the store holds,
-    // so a first connect arrives as `{}` — it fires `data-init` from <body>
-    // before the descendants' `data-signals` are merged. Reading "the param is
-    // here" as "this is a reconnect" makes every page load an anomaly, which is
-    // what shipped and what running it locally immediately showed.
+    // Datastar sets `datastar` on every GET, so a first connect arrives as
+    // `{}`: `data-init` fires before descendants' `data-signals` merge. Reading
+    // "the param is here" as a reconnect made every page load an anomaly.
     val req =
       get(params + "&datastar=" + java.net.URLEncoder.encode("{}", "UTF-8"))
     assertEquals(Server.cursorAnomaly(req), None)
@@ -100,17 +91,16 @@ class CursorSuite extends munit.FunSuite {
   }
 
   test("a store carrying other signals but no cursor is the same case") {
-    // What a mis-specified client-side `filterSignals` looks like from here:
-    // the store arrives, `conn` and the ui state are in it, the cursor is not.
+    // A mis-specified client `filterSignals`: `conn` and ui state arrive, the
+    // cursor does not.
     val req = signals(s"""{"${Server.ConnSignal}":"c1","ui_c_0":"1"}""")
     assert(Server.cursorAnomaly(req).isDefined)
     assertEquals(Server.connOf(req), Some("c1"))
   }
 
   test("the SSE include actually names everything a reconnect must carry") {
-    // The include and the default exclude are ANDed, so this regex is the WHOLE
-    // of what a reconnect tells the server — and getting it wrong degrades the
-    // resume without failing anything. Pinned here rather than trusted.
+    // The include and the default exclude are ANDed, so this regex is all a
+    // reconnect tells the server, and a wrong one degrades resume silently.
     val include = Server.SseInclude.r
     List(
       Server.cursorParam(Server.HeadHashSignal),
@@ -122,7 +112,7 @@ class CursorSuite extends munit.FunSuite {
     ).foreach(n =>
       assert(include.findFirstIn(n).isDefined, clue = (n, Server.SseInclude))
     )
-    // ...and nothing else rides along: per-connection client state stays local.
+    // Per-connection client state stays local.
     List("_val_c_3", Server.ReloadSignal, "_sse").foreach(n =>
       assert(include.findFirstIn(n).isEmpty, clue = (n, Server.SseInclude))
     )

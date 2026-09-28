@@ -9,56 +9,33 @@ import org.http4s.Uri
 
 import scala.concurrent.duration.*
 
-/** Base for the browser smoke suites (ADR 0009): a dashboard served by a
-  * freshly bound [[TestServer]] and driven through a fresh
-  * `BrowserContext`/[[Page]] per test — so recorded calls, seeded state, and ui
-  * state (the tabs selection) never bleeds between tests.
-  *
-  * The browser itself belongs to [[BrowserSuite]]; what this adds is the served
-  * dashboard. Every [[withPage]] call fails the test on any browser console
-  * `error`: a silent JS exception (a wrong `data-on:click` selector, a dropped
-  * SSE continuation line) is exactly the class of bug a wire-level test can't
-  * see — that's the whole reason this suite exists.
+/** Base for the browser smoke suites (ADR 0009): a freshly bound [[TestServer]]
+  * and a fresh page per test, so nothing bleeds between tests. A silent JS
+  * exception (a wrong `data-on:click` selector, a dropped SSE continuation
+  * line) is the bug class a wire-level test cannot see, so any uncaught one
+  * fails the test.
   */
 abstract class SmokeSuite extends BrowserSuite {
 
-  /** ONE page, held open for the test — see ADR 0009 §4 "Known gap": no smoke
-    * suite has two browsers on a dashboard at once, and none drops and reopens
-    * an SSE stream, so anything that only goes wrong on a reconnect or between
-    * two clients is invisible here (it has already hidden two real bugs).
+  /** Serve `scene` (seeded with the entities it references, so the world cannot
+    * drift from the dashboard), open a page on it and run `f`. The browser
+    * opens its own SSE connection, so a test that emits must still await it.
+    * The timeout is several [[BrowserSuite.AssertionTimeout]]s: it catches a
+    * hang, it does not decide a failure.
     *
-    * Serve `scene`'s dashboard — seeded with the entities it references (plus
-    * any `.entity(...)` extras), auto-derived by the [[Scene]] builder so the
-    * served world can't drift from the dashboard — on a freshly bound
-    * [[TestServer]], open a fresh `BrowserContext`/[[Page]] against it,
-    * navigate to the dashboard, and run `f` with the [[Page]] and the
-    * [[TestServer]] (for `fake.emit` / the SSE-subscriber readiness gates — the
-    * browser opens its OWN SSE connection, so a test that emits a change still
-    * must await it, exactly as [[TestServer.observePatch]] does for the
-    * HTTP-body-stream suites). Everything is released after; a global timeout
-    * so a test that hangs outright still ends the suite. It is deliberately
-    * several times [[BrowserSuite.AssertionTimeout]]: a test makes a handful of
-    * retrying assertions in sequence, and this bound exists to catch a hang,
-    * not to be the thing that decides a failure.
+    * Fails on [[Page.onPageError]], not on console errors, which include benign
+    * resource 404s such as a CDN sub-resource or the favicon probe.
     *
-    * Fails on any uncaught JS exception ([[Page.onPageError]]) — a wrong
-    * `data-on:click` selector or a dropped SSE continuation line surfaces
-    * exactly there. NOT gated on console "error"-level messages: those also
-    * cover benign failed-resource-load logs (e.g. a decorative BeerCSS
-    * sub-resource the CDN 404s, or the browser's own favicon probe), which
-    * would make this suite noisy rather than meaningful.
+    * ADR 0009's known gap: no smoke suite has two browsers on a dashboard, so
+    * anything that only goes wrong between two clients is invisible here.
     */
   def withPage[A](
       scene: Scene,
       viewport: Option[(Int, Int)] = None,
-      // The [[FakeConfig]] knobs for THIS test's fake — a delayed or failing
-      // `call_service`, for the guarded-action feedback tests.
       fakeConfig: FakeConfig = FakeConfig(),
-      // A phone rather than a desktop: enables `page.touchscreen()` AND flips
-      // the `(pointer:coarse)` media query, which is the half of the slider's
-      // touch gate that lives in CSS. Both or neither — a touch event on a
-      // page still styled for a mouse would exercise a combination no device
-      // has.
+      // A phone: `page.touchscreen()` and the `(pointer:coarse)` query
+      // together, since a touch on a page styled for a mouse is a combination
+      // no device has.
       touch: Boolean = false
   )(
       f: (Page, TestServer) => IO[A]
@@ -69,9 +46,6 @@ abstract class SmokeSuite extends BrowserSuite {
       touch
     )(f)
 
-  /** [[withPage]] on a server the test wires itself — a Pkl workspace
-    * ([[TestServer.servedWorkspace]]) rather than a [[Scene]].
-    */
   def withPageOn[A](
       served: Resource[IO, (TestServer, Uri)],
       viewport: Option[(Int, Int)] = None,
@@ -81,12 +55,9 @@ abstract class SmokeSuite extends BrowserSuite {
   ): IO[A] = {
     val pageErrors = collection.mutable.Buffer.empty[String]
     val contextOptions = new Browser.NewContextOptions()
-    // No service worker, because none of these suites is about the PWA and a
-    // live worker is a second actor in every one of them: `fhRegisterSw` runs
-    // on localhost (a secure context), the worker claims the page mid-test, and
-    // from then on the page has a fetch path the test never set up. Playwright
-    // offers this knob for exactly that reason. `ServerRoutesSuite` still
-    // covers `/sw.js` at the wire level, so nothing is left untested.
+    // `fhRegisterSw` runs on localhost, a secure context, so a live worker
+    // would claim the page mid-test with a fetch path nobody set up.
+    // `ServerRoutesSuite` covers `/sw.js` on the wire.
     contextOptions.setServiceWorkers(ServiceWorkerPolicy.BLOCK)
     viewport.foreach { case (w, h) =>
       contextOptions.setViewportSize(new ViewportSize(w, h))
@@ -132,12 +103,7 @@ abstract class SmokeSuite extends BrowserSuite {
       .flatTap(_ => IO(assert(pageErrors.isEmpty, clue = pageErrors.toList)))
   }
 
-  /** Poll `io` until `cond` holds, or fail after `timeout`. The
-    * [[fh.view.testkit.FakeHomeAssistant.recordedCalls]] equivalent of a
-    * retrying Playwright locator assertion — for asserting on something that
-    * isn't itself a DOM state (a control click's resulting service call), so
-    * there's no `assertThat(locator)` to lean on.
-    */
+  /** For what is not a DOM state, such as a recorded service call. */
   def eventually[A](
       io: IO[A],
       timeout: FiniteDuration = BrowserSuite.AssertionTimeout,
@@ -151,33 +117,20 @@ abstract class SmokeSuite extends BrowserSuite {
       .lastOrError
       .timeout(timeout)
 
-  /** Wait for what a click was supposed to CAUSE, and give up the moment the
-    * control says it was refused instead.
+  /** Wait for what a click should cause, and fail the moment the control says
+    * it was refused. Otherwise a test burns its timeout and reports "never saw
+    * X", with the cause layers away.
     *
-    * The failure it removes is a timeout that blames the wrong thing. A test
-    * that clicks and then waits for a consequence has no way to learn that the
-    * consequence is never coming: it burns its full timeout and reports "never
-    * saw X", which is true and says nothing about why. The cause is usually
-    * three layers away, and finding it has cost whole debugging sessions here.
-    *
-    * `_<id>__error` is what makes the shortcut possible (ADR 0019/0024): a
-    * refusal now LANDS on the control that was pressed, carrying HA's own
-    * message, so "this will never happen" is an observable state rather than an
-    * inference from silence. The refusal watcher has no timeout of its own on
-    * purpose — it must resolve only when a refusal actually appears, so the
-    * race is decided by whichever really occurs, not by whichever deadline
-    * lands first.
-    *
-    * Use it wherever a click is followed by "and then the page does X". A test
-    * ABOUT refusal wants the plain `fh-error` assertion instead — this one
-    * treats a refusal as the thing that went wrong.
+    * A refusal lands on the pressed control with HA's message (ADR 0019/0024).
+    * The refusal watcher has no timeout of its own, so the race is decided by
+    * what actually happens. A test about refusal wants the plain `fh-error`
+    * assertion instead.
     */
   def awaitAction[A](control: com.microsoft.playwright.Locator)(
       outcome: IO[A]
   ): IO[A] = {
-    // The control holds the STATE; the toast holds the words. Both come from
-    // the same refusal frame, so reading them together turns "never saw X"
-    // into the message HA actually gave.
+    // The control holds the state and the toast the words, from one refusal
+    // frame.
     val refused: IO[String] =
       fs2.Stream
         .repeatEval(
@@ -207,29 +160,20 @@ abstract class SmokeSuite extends BrowserSuite {
     }
   }
 
-  /** Quiesce a page before a screenshot ([[ComponentVisualSuite]]): wait for
-    * every stylesheet and the web fonts it pulls to finish loading, and kill
-    * CSS transitions/animations so a screenshot can never land mid-transition —
-    * the two sources of screenshot-to-screenshot noise a byte-identity snapshot
-    * can't tolerate.
+  /** Wait for every stylesheet and its fonts, and kill transitions, before a
+    * screenshot ([[ComponentVisualSuite]]).
     *
-    * `document.fonts.ready` ALONE is not that wait, and the gap is not
-    * theoretical: a theme's deferred sheet (`theme-beer`'s MDI, via
-    * `Theme.deferredStylesheets`) reaches the page as a `<link rel=preload>`
-    * that an `onload` handler swaps to `rel=stylesheet`, so until that swap its
-    * `@font-face` is not in the document's font set at all and `fonts.ready`
-    * resolves without ever having heard of it. The screenshot then catches the
-    * page mid-load, and which side of the race it lands on is a coin flip:
-    * `full-dashboard.png` has failed CI once with the icons missing on CI's
-    * side, from a baseline that was not touched and has passed on either side
-    * of it.
+    * `document.fonts.ready` alone is not enough: a deferred sheet
+    * (`Theme.deferredStylesheets`) arrives as a preload swapped to a stylesheet
+    * `onload`, and until then its `@font-face` is not in the font set.
+    * `full-dashboard.png` failed CI once with the icons missing.
     */
   def settle(page: Page): Unit = {
     page.waitForFunction(
       """() => !document.querySelector('link[rel="preload"][as="style"]')"""
     )
-    // The layout read forces the style recalc the swap queued, so the font
-    // load it triggers is already pending when `ready` is asked for.
+    // Forces the recalc the swap queued, so its font load is pending when
+    // `ready` is asked.
     page.evaluate(
       "() => { document.body.offsetHeight; return document.fonts.ready }"
     )

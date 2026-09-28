@@ -14,25 +14,20 @@ import org.http4s.implicits.*
 
 import scala.concurrent.duration.*
 
-/** Objective 4 of the failed-dashboard plan — the `Failed` semantics on the hot
-  * paths: the error page (HTML, self-contained), the non-HTML consumers seeing
-  * a failed slug as absent (`nodeDebug` 404s, actions are unchanged), and a
-  * live connection being told to RELOAD when its slug breaks — and when it
-  * recovers.
+/** `Failed` on the hot paths: a self-contained error page, non-HTML consumers
+  * seeing the slug as absent, and a live connection told to reload when its
+  * slug breaks and when it recovers.
   */
 class FailedDashboardSuite extends ServerHarness {
 
-  // This suite opens DOCUMENTS, and the page route streams its body through a
-  // blocking pipe that simulated time cannot host — see [[ServerHarness.simulateTime]].
+  // Opens documents; see [[ServerHarness.simulateTime]].
   override protected def simulateTime: Boolean = false
 
   private val boom = "boom: sensor.a exploded"
 
   private val failed = Server.RendererState.Failed(boom)
 
-  /** A live [[Server]] holding ONE slug whose state the test controls — `use`
-    * can flip the ref between Ready and Failed and watch the wire.
-    */
+  /** `use` can flip the ref between Ready and Failed and watch the wire. */
   private def withLiveServer(
       state: Server.RendererState
   )(
@@ -80,7 +75,6 @@ class FailedDashboardSuite extends ServerHarness {
           clue = body
         )
         assert(body.contains(htmlEscape(boom)), clue = body)
-        // The fix path: the editor link to this slug's source.
         assert(body.contains("edit/file/site.pkl"), clue = body)
       }
     }
@@ -106,12 +100,10 @@ class FailedDashboardSuite extends ServerHarness {
         body <- resp.bodyText.compile.string
         calls <- fake.recordedCalls
       } yield {
-        // An action is bounded by the entities its dashboard names (ADR 0023),
-        // and a failed dashboard has no renderer and therefore names none. It
-        // is refused rather than forwarded — which matters because a failed
-        // dashboard is exactly the one whose page is a diagnostics dump.
-        // The refusal is 200 carrying signals (ADR 0024), so what proves it is
-        // the message, not the status.
+        // A failed dashboard has no renderer and so names no entity (ADR 0023):
+        // the action is refused, which matters because its page is a
+        // diagnostics dump. The refusal is 200 with signals (ADR 0024), so the
+        // message proves it.
         assertEquals(resp.status, Status.Ok)
         assert(body.contains("is not on this dashboard"), clue = body)
         assertEquals(calls.map(_.service), Vector.empty, clue = calls)
@@ -137,19 +129,16 @@ class FailedDashboardSuite extends ServerHarness {
                 .compile
                 .drain
             ) *>
-              // The opening block has ended (cursor handshake delivered) before
-              // anything is flipped — otherwise the break could land in it.
+              // After the opening block, or the break could land in it.
               fs2.Stream
                 .repeatEval(seen.get <* IO.sleep(10.millis))
                 .find(_.exists(isCursor))
                 .compile
                 .drain
                 .timeout(15.seconds) *>
-              // Break it: the connected session must be sent a reload, since the
-              // error document has no #dashboard to patch and no head to patch.
+              // The error document has no #dashboard or head to patch, so a
+              // reload.
               ref.set(failed) *> awaitReloads(seen, 1) *>
-              // Recover it: the same reload, from the error page back to the
-              // dashboard.
               ref.set(
                 Server.RendererState.Ready(Renderer.create(liveLeafDash))
               ) *>
@@ -166,17 +155,15 @@ class FailedDashboardSuite extends ServerHarness {
   test(
     "reloadSite repairs a broken dashboard and breaks a live one, without restart"
   ) {
-    // Objective 1 — the ServerApp.reloadSite seam drives the REAL eval path: a
-    // dashboard that failed at boot recovers when its source is fixed, and a
-    // live one breaks back to its error page when the source breaks. No
-    // restart, no re-boot.
+    // `ServerApp.reloadSite` drives the real eval path: a dashboard that failed
+    // at boot recovers when fixed, and breaks back when broken, with no
+    // restart.
     stageRepairWorld.use { case (ws, fake) =>
       for {
         ref <- SignallingRef[IO].of(
           Server.RendererState.Failed("seeded broken")
         )
-        // The registry records what each slug last evaluated to: "dash" is
-        // seeded as broken, so the first reload is a real change.
+        // Seeded as broken, so the first reload is a real change.
         site <- Server.LiveSite.of(
           Map("dash" -> ref),
           Map("dash" -> (Left("seeded broken"): Either[String, Dashboard])),
@@ -184,13 +171,10 @@ class FailedDashboardSuite extends ServerHarness {
         )
         imports <- SignallingRef[IO].of(Set.empty[fs2.io.file.Path])
         refs = Map("dash" -> ref)
-        // Fix the source on disk — the ref must become Ready and serve the
-        // dashboard.
         _ <- IO.blocking(os.write.over(ws / Site.EntryFile, kitchenSite()))
         _ <- ServerApp.reloadSite(ws, site, imports)
         ready <- ref.get
         fixedPage <- serve(fake, refs)
-        // Break it again — the ref must become Failed and serve the error page.
         _ <- IO.blocking(
           os.write.over(ws / Site.EntryFile, "this is not valid pkl")
         )
@@ -204,7 +188,6 @@ class FailedDashboardSuite extends ServerHarness {
         assert(broken.isInstanceOf[Server.RendererState.Failed], clue = broken)
         assertEquals(brokenPage._1, Status.Ok)
         assert(brokenPage._2.contains("failed to build"), clue = brokenPage._2)
-        // The old dashboard is gone from the wire: no stale title.
         assert(!brokenPage._2.contains("light.kitchen"), clue = brokenPage._2)
       }
     }
@@ -220,9 +203,8 @@ class FailedDashboardSuite extends ServerHarness {
         )
         body <- resp.body.through(fs2.text.utf8.decode).compile.string
       } yield {
-        // Recovery is Datastar's `@get` on the dedicated recover stream: the
-        // module is the page's only script, and the reload is declared as a
-        // `data-effect` on the `_reload` signal — no hand-rolled EventSource.
+        // Recovery is Datastar's `@get` on the recover stream, with the reload
+        // a `data-effect` on `_reload`: no hand-rolled EventSource.
         assert(body.contains("datastar.js"), clue = body)
         assert(body.contains("sse/dashboard/dashboard/recover"), clue = body)
         assert(body.contains("data-effect"), clue = body)
@@ -231,7 +213,6 @@ class FailedDashboardSuite extends ServerHarness {
           clue = body
         )
         assert(body.contains("window.location.reload()"), clue = body)
-        // A real reload mechanism, not a polling meta-refresh, and no inline JS.
         assert(!body.contains("EventSource"), clue = body)
         assert(!body.contains("http-equiv"), clue = body)
       }
@@ -253,12 +234,10 @@ class FailedDashboardSuite extends ServerHarness {
     )
   }
 
-  /** Both anti-loop tests share one shape: open the recover stream under a
-    * `Failed` slug, prove the open completed via the connection marker, prove
-    * nothing reload-triggering follows it, then flip the state and require
-    * exactly ONE reload. The flips differ in what they mean — recovery (`Failed
-    * -> Ready`) and a re-broken edit (`Failed -> Failed` with a new message the
-    * page must show) — but the assertion is the same.
+  /** Open the recover stream under `Failed`, prove the open completed and
+    * nothing reload-triggering follows, then flip and require exactly one
+    * reload. The flips are recovery, and a re-broken edit whose new message the
+    * page must show.
     */
   private def recoveryReload(flip: Server.RendererState): IO[Unit] =
     withLiveServer(failed) { (server, _, ref, _) =>
@@ -275,12 +254,9 @@ class FailedDashboardSuite extends ServerHarness {
               .compile
               .drain
           ) *>
-            // The connection marker is the stream's first element and only
-            // exists once it subscribed under the CURRENT state — awaiting it
-            // proves the open ran under Failed (a fixed sleep could pass
-            // vacuously before the open did). What follows must be nothing
-            // reload-triggering: a reload here would loop, since the page just
-            // loaded. The single reload comes from the flip.
+            // The marker exists only once the stream subscribed under the
+            // current state, so it proves the open ran under Failed. A reload
+            // here would loop, since the page just loaded.
             awaitMarker(seen) *>
             assertNothing(seen) *>
             ref.set(flip) *>
@@ -289,9 +265,6 @@ class FailedDashboardSuite extends ServerHarness {
         reloads <- seen.get
       } yield {
         val reloadEvents = reloads.filter(reloadEvent)
-        // Exactly one reload, and it is the flip's — nothing preceded the flip
-        // (the anti-loop half). For the still-`Failed` flip, the page SHOWS the
-        // message, so a changed one must repaint it.
         assertEquals(reloadEvents.size, 1, clue = reloadEvents)
       }
     }
@@ -319,8 +292,8 @@ class FailedDashboardSuite extends ServerHarness {
           reloads <- seen.get
         } yield {
           val reloadEvents = reloads.filter(reloadEvent)
-          // The fix landed between the page's render and this connect: the
-          // transition's reload was sent to nobody, so the stream says it now.
+          // The fix landed between render and connect, so the transition's
+          // reload went to nobody and the stream says it now.
           assert(reloadEvents.sizeIs >= 1, clue = reloadEvents)
         }
     }
@@ -335,11 +308,9 @@ class FailedDashboardSuite extends ServerHarness {
   }
 
   test("a live stream on an unknown slug is a 404, not an empty SSE") {
-    // The gate lives on the stream's own single lookup, so this is the same
-    // question the recover 404 asks — and the answer must be a 404, never a
-    // 200 whose body ends as soon as nothing is registered (which an empty
-    // `renderers` map read by the ROUTE would have produced under a stale
-    // double lookup).
+    // The gate is on the stream's own single lookup, so this is the recover
+    // 404's question: a stale double lookup would have answered 200 with a body
+    // ending at once.
     withLiveServer(failed) { (server, _, _, _) =>
       server.routes.orNotFound
         .run(Request[IO](Method.GET, uri"/sse/dashboard/nope/patch"))
@@ -378,16 +349,14 @@ class FailedDashboardSuite extends ServerHarness {
     "the source watcher pipeline repairs a broken dashboard and breaks it again, " +
       "driven without a live OS watcher"
   ) {
-    // The [[ServerApp.watchSourcesWith]] seam: the same `events -> reloadSite`
-    // wiring the OS watcher drives, here fed a controlled event stream — a real
-    // file edit and the WatchService event it would raise.
+    // The `events -> reloadSite` wiring the OS watcher drives, fed a controlled
+    // event stream.
     stageRepairWorld.use { case (ws, _) =>
       for {
         ref <- SignallingRef[IO].of(
           Server.RendererState.Failed("seeded broken")
         )
-        // The registry records what each slug last evaluated to: "dash" is
-        // seeded as broken, so the first reload is a real change.
+        // Seeded as broken, so the first reload is a real change.
         site <- Server.LiveSite.of(
           Map("dash" -> ref),
           Map("dash" -> (Left("seeded broken"): Either[String, Dashboard])),
@@ -408,15 +377,12 @@ class FailedDashboardSuite extends ServerHarness {
               .compile
               .drain
           ) *>
-            // Fix the source, deliver the edit event: the ref must become Ready.
             IO.blocking(
               os.write.over(ws / Site.EntryFile, kitchenSite())
             ) *>
             events.offer(modified(ws / Site.EntryFile)) *>
             awaitState(ref)(_.isInstanceOf[Server.RendererState.Ready]) *>
-            // The entrypoint's files joined the watch graph.
             awaitWatched(watched) *>
-            // Break it again: the same pipeline flips the ref back to Failed.
             IO.blocking(
               os.write.over(ws / Site.EntryFile, "this is not valid pkl")
             ) *>
@@ -437,18 +403,16 @@ class FailedDashboardSuite extends ServerHarness {
     "membership follows the entrypoint: a key added serves, a key removed 404s " +
       "and stops recording"
   ) {
-    // The #141 half of ADR 0021: adding or removing a dashboard is an ordinary
-    // edit. The publisher assertion is the part that would silently rot — a
-    // removed slug that keeps its recorder still diffs every state batch
-    // forever — so it is checked through the store's subscriber count.
+    // #141 (ADR 0021). The recorder is the part that would silently rot: a
+    // removed slug keeping its recorder diffs every batch forever, so it is
+    // checked through the store's subscriber count.
     stageRepairWorld.use { case (ws, fake) =>
       for {
         _ <- IO.blocking(os.write.over(ws / Site.EntryFile, kitchenSite()))
         ref <- SignallingRef[IO].of(
           Server.RendererState.Failed("seeded broken")
         )
-        // The registry records what each slug last evaluated to: "dash" is
-        // seeded as broken, so the first reload is a real change.
+        // Seeded as broken, so the first reload is a real change.
         site <- Server.LiveSite.of(
           Map("dash" -> ref),
           Map("dash" -> (Left("seeded broken"): Either[String, Dashboard])),
@@ -474,10 +438,8 @@ class FailedDashboardSuite extends ServerHarness {
           .use { server =>
             val reload = ServerApp.reloadSite(ws, site, imports)
             for {
-              // One dashboard, one recorder.
               _ <- reload
               _ <- awaitSubscribers(store, 1)
-              // Add a key: it serves, and it records.
               _ <- IO.blocking(
                 os.write.over(ws / Site.EntryFile, kitchenSite(secondKey))
               )
@@ -485,7 +447,6 @@ class FailedDashboardSuite extends ServerHarness {
               added <- site.names
               addedPage <- page(server, "/d/second")
               _ <- awaitSubscribers(store, 2)
-              // Remove it again: 404, and its recorder is gone.
               _ <- IO.blocking(
                 os.write.over(ws / Site.EntryFile, kitchenSite())
               )
@@ -505,11 +466,9 @@ class FailedDashboardSuite extends ServerHarness {
   }
 
   test("a file dropped in becomes a dashboard, through the watcher") {
-    // The glob convention's whole point — and the case watching PATHS cannot
-    // see, since a new file is nobody's import yet. Two things are pinned:
-    // the workspace DIRECTORY is in the watch set (so the OS watcher would
-    // deliver this event at all), and a `Created` event for a `*.pkl` survives
-    // the filter that keeps the regenerated lockfile from feeding the reload.
+    // A new file is nobody's import yet, so watching paths cannot see it.
+    // Pinned: the workspace directory is watched, and a `Created` `*.pkl` event
+    // survives the lockfile filter.
     stageRepairWorld.use { case (ws, _) =>
       for {
         _ <- IO.blocking(os.write.over(ws / Site.EntryFile, globSite))
@@ -536,8 +495,8 @@ class FailedDashboardSuite extends ServerHarness {
               .compile
               .drain
           ) *>
-            // The entrypoint globs, so this file IS a dashboard the moment it
-            // exists — nothing else is edited.
+            // The entrypoint globs, so the file is a dashboard the moment it
+            // exists.
             IO.blocking(
               os.write.over(ws / "attic.dashboard.pkl", atticDashboard)
             ) *>
@@ -557,27 +516,24 @@ class FailedDashboardSuite extends ServerHarness {
   }
 
   test("the lockfile the reload itself rewrites does not trigger a reload") {
-    // Watching the directory means the reload's OWN output is in scope:
-    // `PklProject.deps.json` is rewritten by the evaluation a reload runs, so
-    // reacting to it would feed itself. Asserted on the filter rather than by
-    // waiting for a loop that would hang the suite.
+    // `PklProject.deps.json` is rewritten by the reload's own evaluation, so
+    // reacting to it would feed itself. Asserted on the filter, not by a loop
+    // that would hang the suite.
     val lockfile = fs2.io.file.Path("/ws/PklProject.deps.json")
     val source = fs2.io.file.Path("/ws/kitchen.dashboard.pkl")
     val manifest = fs2.io.file.Path("/ws/PklProject")
     assert(!ServerApp.isSourceEvent(modified(os.Path(lockfile.toString))))
     assert(ServerApp.isSourceEvent(created(os.Path(source.toString))))
     assert(ServerApp.isSourceEvent(modified(os.Path(manifest.toString))))
-    // Overflow names no path and MUST pass: it means events were lost, which
-    // is exactly when a reload is owed.
+    // Overflow names no path and must pass: events were lost, so a reload is
+    // owed.
     assert(ServerApp.isSourceEvent(fs2.io.file.Watcher.Event.Overflow(1)))
   }
 
   test("a reload that changes nothing does not touch the registry") {
-    // The watcher fires on anything in the workspace — a touched file, an edit
-    // to a sibling, a created one. Writing a `Ready` state anyway would rotate
-    // the slug's fragment log and repaint every open browser, so an unchanged
-    // dashboard must not be re-installed. Observed through the state's own
-    // identity: same value, same object, nothing emitted.
+    // The watcher fires on anything in the workspace, and installing `Ready`
+    // rotates the fragment log and repaints every browser, so an unchanged
+    // dashboard is not re-installed. Observed through the state's identity.
     stageRepairWorld.use { case (ws, _) =>
       for {
         _ <- IO.blocking(os.write.over(ws / Site.EntryFile, kitchenSite()))
@@ -593,19 +549,15 @@ class FailedDashboardSuite extends ServerHarness {
         reload = ServerApp.reloadSite(ws, site, imports)
         _ <- reload
         built <- ref.get
-        // Same sources, no edit: the second reload evaluates to the same
-        // dashboard and must leave the state object alone.
         _ <- reload
         again <- ref.get
-        // Adding ANOTHER dashboard does not touch this one either: the
-        // comparison is per slug, so one author's edit repaints one dashboard.
+        // Per slug, so one author's edit repaints one dashboard.
         _ <- IO.blocking(
           os.write.over(ws / Site.EntryFile, kitchenSite(secondKey))
         )
         _ <- reload
         afterAdd <- ref.get
         names <- site.names
-        // An edit to THIS dashboard does land.
         _ <- IO.blocking(
           os.write.over(ws / Site.EntryFile, kitchenSite(title = "Renamed"))
         )
@@ -630,8 +582,7 @@ class FailedDashboardSuite extends ServerHarness {
         ref <- SignallingRef[IO].of(
           Server.RendererState.Failed("seeded broken")
         )
-        // The registry records what each slug last evaluated to: "dash" is
-        // seeded as broken, so the first reload is a real change.
+        // Seeded as broken, so the first reload is a real change.
         site <- Server.LiveSite.of(
           Map("dash" -> ref),
           Map("dash" -> (Left("seeded broken"): Either[String, Dashboard])),
@@ -640,7 +591,6 @@ class FailedDashboardSuite extends ServerHarness {
         imports <- SignallingRef[IO].of(Set.empty[fs2.io.file.Path])
         _ <- ServerApp.reloadSite(ws, site, imports)
         chosen <- site.defaultSlug
-        // Drop the dashboard the site asked for: `/` must still answer.
         _ <- IO.blocking(os.write.over(ws / Site.EntryFile, kitchenSite()))
         _ <- ServerApp.reloadSite(ws, site, imports)
         fallback <- site.defaultSlug
@@ -652,10 +602,8 @@ class FailedDashboardSuite extends ServerHarness {
   }
 
   test("a reload never reclaims a PUSHED slug, and never drops one it kept") {
-    // ADR 0010's rule, checked against the registry rather than against a
-    // caller's memory of what the site used to own: a slug the developer pushed
-    // is not in any entrypoint, so every reload sees it as unnamed — and must
-    // still leave it serving.
+    // ADR 0010, checked against the registry: a pushed slug is in no
+    // entrypoint, so every reload sees it as unnamed and must leave it serving.
     stageRepairWorld.use { case (ws, _) =>
       for {
         ref <- SignallingRef[IO].of(
@@ -671,8 +619,7 @@ class FailedDashboardSuite extends ServerHarness {
           "preview",
           Server.RendererState.Ready(Renderer.create(liveLeafDash))
         )
-        // Two reloads of a site that names only "dash": the first also drops
-        // "second", so the removal path definitely ran.
+        // The first also drops "second", so the removal path ran.
         _ <- IO.blocking(
           os.write.over(ws / Site.EntryFile, kitchenSite(secondKey, "second"))
         )
@@ -694,8 +641,8 @@ class FailedDashboardSuite extends ServerHarness {
   }
 
   test("planSite: what changes, what is left alone, what is reclaimed") {
-    // The reload's whole decision, without a server: the registry's record of
-    // where each slug came from is the only input besides the new site.
+    // The registry's record of each slug's origin is the only input besides the
+    // new site.
     val dash = liveLeafDash
     def validated(d: Dashboard) = Right(Dashboard.Validated(d, Map.empty))
     val renamed = dash.copy(title = Some("Renamed"))
@@ -720,8 +667,6 @@ class FailedDashboardSuite extends ServerHarness {
         )
       )
     } yield {
-      // An unchanged dashboard is not re-installed: installing rotates the
-      // fragment log and repaints every open browser.
       assertEquals(
         plan.installs.map(_._1),
         List("added", "broken", "edited", "fixed")
@@ -735,14 +680,12 @@ class FailedDashboardSuite extends ServerHarness {
           Server.Change.Recovered("fixed")
         )
       )
-      // Only a slug the ENTRYPOINT owned is reclaimed.
       assertEquals(plan.removals, Set("dropped"))
     }
   }
 
-  /** A real package-form workspace (lib + the fixture house seeded as the
-    * `@fh-home` dump) whose entrypoint starts BROKEN — the same staging the
-    * production boot produces for a bad user edit, minus the boot itself.
+  /** A package-form workspace whose entrypoint starts broken: production's
+    * staging for a bad edit, minus the boot.
     */
   private def stageRepairWorld: Resource[IO, (os.Path, FakeHomeAssistant)] =
     for {
@@ -777,9 +720,6 @@ class FailedDashboardSuite extends ServerHarness {
           .map(resp.status -> _)
       )
 
-  /** Serve `GET /d/dash` through a real Server holding `refs` — what a client
-    * sees after the ref moved.
-    */
   private def serve(
       fake: FakeHomeAssistant,
       refs: Map[String, SignallingRef[IO, Server.RendererState]]
@@ -809,10 +749,8 @@ class FailedDashboardSuite extends ServerHarness {
         )
     }
 
-  /** A valid entrypoint whose `dash` dashboard is pinned to the fixture
-    * `light_kitchen` — it builds only while the fixture house is the seeded
-    * dump, exactly like DumpRefreshSuite's. `extra` adds further keys and
-    * `default` the site's preferred slug.
+  /** Builds only while the fixture house is the dump. `extra` adds keys,
+    * `default` the preferred slug.
     */
   private def kitchenSite(
       extra: String = "",
@@ -836,9 +774,8 @@ class FailedDashboardSuite extends ServerHarness {
        |}
        |""".stripMargin
 
-  /** The same site, naming its dashboards by the `*.dashboard.pkl` convention
-    * instead of one key each — pkl's glob import, resolved on every evaluation,
-    * which is what makes a file appearing a dashboard appearing.
+  /** By the `*.dashboard.pkl` glob, resolved on every evaluation, so a file
+    * appearing is a dashboard appearing.
     */
   private def globSite =
     s"""amends "@fh-dashboard/site.pkl"
@@ -881,12 +818,8 @@ class FailedDashboardSuite extends ServerHarness {
       |    card = c.title("second")
       |  }""".stripMargin
 
-  /** Blocks until `seen` holds at least `atLeast` reload events.
-    *
-    * COUNTS rather than asking whether one exists, because `seen` accumulates:
-    * a second call after a reload has already landed is answered by that first
-    * one on its first poll, and waits for nothing. The test then races the
-    * event it meant to wait for — green alone, red under load.
+  /** Counts, since `seen` accumulates: asking whether one exists is answered by
+    * an earlier reload, green alone and red under load.
     */
   private def awaitReloads(
       seen: Ref[IO, Vector[ServerSentEvent]],
@@ -899,10 +832,9 @@ class FailedDashboardSuite extends ServerHarness {
       .drain
       .timeout(15.seconds)
 
-  /** The recover stream's first element, sent once it has subscribed under the
-    * connection's own state. It is [[Server.recoverOpenMarker]] — a marker
-    * COMMENT the browser's EventSource drops before Datastar — so awaiting it
-    * proves the open completed without asserting anything reload-triggering.
+  /** [[Server.recoverOpenMarker]], a comment the browser's EventSource drops
+    * before Datastar, so awaiting it proves the open without anything
+    * reload-triggering.
     */
   private def awaitMarker(
       seen: Ref[IO, Vector[ServerSentEvent]]
@@ -917,9 +849,6 @@ class FailedDashboardSuite extends ServerHarness {
   private def isMarker(e: ServerSentEvent): Boolean =
     e.comment.contains("recover-open")
 
-  /** The negative half of an SSE-opening test: nothing reload-triggering may
-    * arrive in a window that would cover any immediate-reload bug.
-    */
   private def assertNothing(
       seen: Ref[IO, Vector[ServerSentEvent]]
   ): IO[Unit] =

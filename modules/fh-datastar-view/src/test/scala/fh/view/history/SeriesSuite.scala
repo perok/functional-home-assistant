@@ -16,8 +16,6 @@ class SeriesSuite extends munit.FunSuite {
   private val t0 = Instant.parse("2026-09-19T12:00:00Z")
   private def at(secs: Long) = t0.plusSeconds(secs)
 
-  // --- Window --------------------------------------------------------------
-
   test("a bucket is floored, so the key does not move under a request") {
     val w = Window.LastDay // 5-minute bucket
     assertEquals(
@@ -49,8 +47,6 @@ class SeriesSuite extends munit.FunSuite {
       )
     }
   }
-
-  // --- Series from HA's two answers ---------------------------------------
 
   test("a non-numeric row is dropped and counted, not charted as zero") {
     val s = Series.fromHistory(
@@ -129,8 +125,6 @@ class SeriesSuite extends munit.FunSuite {
     assertEquals(Series.empty.span, None)
     assertEquals(s.oldest, Some(at(0)))
   }
-
-  // --- Downsampling --------------------------------------------------------
 
   private def ramp(n: Int): Vector[Series.Point] =
     (0 until n).map(i => Series.Point(at(i.toLong), i.toDouble)).toVector

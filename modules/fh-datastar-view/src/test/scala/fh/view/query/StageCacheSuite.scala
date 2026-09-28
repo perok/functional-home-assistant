@@ -72,9 +72,8 @@ class StageCacheSuite extends munit.CatsEffectSuite {
       .map(_.value)
 
   test("ten viewers of one version cost one drawing") {
-    // The reason the JavaScript context is not on the hot path, and the reason
-    // stages are cached at all: `QuerySnapshot.resolve` runs BEFORE the render
-    // cache, so without this every page open would redraw.
+    // `QuerySnapshot.resolve` runs before the render cache, so without this
+    // every page open would redraw.
     fixture().flatMap { case (r, draws) =>
       List
         .fill(10)(stage(r, q, chart(), 100L))
@@ -89,9 +88,8 @@ class StageCacheSuite extends munit.CatsEffectSuite {
   }
 
   test("two styles of one answer are two drawings") {
-    // A tile and a popup showing the same sensor at different sizes. The FETCH
-    // they share is not visible from here, which is the point of the split —
-    // see `QueryRenderInputsSuite` for the property that spans both.
+    // A tile and a popup at different sizes; their shared fetch is
+    // `QueryRenderInputsSuite`'s.
     fixture().flatMap { case (r, draws) =>
       stage(r, q, chart(ChartStyle(width = 600)), 100L) *>
         stage(r, q, chart(ChartStyle(width = 320)), 100L) *>
@@ -100,9 +98,8 @@ class StageCacheSuite extends munit.CatsEffectSuite {
   }
 
   test("a moved version restages, and needs no expiry rule to do it") {
-    // A series has a shelf life; a staged value is a function of an answer, so
-    // an entry for a superseded version is dead the moment the version moves
-    // and replacing in place is the whole of eviction.
+    // A staged value is a function of an answer, so replacing in place is the
+    // whole of eviction.
     fixture().flatMap { case (r, draws) =>
       stage(r, q, chart(), 100L) *>
         stage(r, q, chart(), 100L) *>
@@ -114,8 +111,7 @@ class StageCacheSuite extends munit.CatsEffectSuite {
   }
 
   test("every stage is cached, not only a drawing") {
-    // The cache is the resolver's, so a stage with nothing expensive in it is
-    // held the same way, one entry per (question, stage) beside the chart's.
+    // One entry per (question, stage), even for a cheap stage.
     fixture().flatMap { case (r, _) =>
       for {
         raw <- stage(r, q, Transform.Stage.Passthrough, 100L)
@@ -154,9 +150,8 @@ class StageCacheSuite extends munit.CatsEffectSuite {
   }
 
   test("a failed drawing is retried once its window passes") {
-    // Same rule the series cache keeps, and for the same reason: otherwise one
-    // bad draw blanks a chart until its version moves, which for a 30 d window
-    // is an hour.
+    // Otherwise one bad draw blanks a chart until its version moves: an hour
+    // for a 30 d window.
     Ref[IO].of(0).flatMap { attempts =>
       resolver(
         (_, _) =>
@@ -173,9 +168,8 @@ class StageCacheSuite extends munit.CatsEffectSuite {
   }
 
   test("an answer the stage cannot read is an error naming why") {
-    // The provider's contract is JSON, so a stage reads it back rather than
-    // being handed a typed value. That round trip is a real failure mode, and
-    // a blank chart would be the worst way to report it.
+    // A stage reads the provider's JSON back; that round trip can fail, and a
+    // blank chart would be the worst report.
     fixture().flatMap { case (r, _) =>
       stage(r, q, chart(), 100L, Json.obj("nope" -> Json.True)).attempt
         .map { res =>

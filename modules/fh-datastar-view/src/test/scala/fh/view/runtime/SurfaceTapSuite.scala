@@ -12,32 +12,23 @@ import org.http4s.implicits.*
 
 import scala.concurrent.duration.*
 
-/** The tap that opens or closes a SURFACE — the one action route whose target
-  * is this client's own DOM rather than an entity, so what it needs from a
-  * request is a live connection to patch.
-  *
-  * Its neighbour [[SessionLifecycleSuite]] owns how a session is born and
-  * reaped; this owns what a tap does when it finds one, or does not.
+/** The tap that opens or closes a surface: its target is this client's own DOM,
+  * so what it needs is a live connection to patch.
   */
 class SurfaceTapSuite extends ServerHarness {
 
-  // This suite opens DOCUMENTS, and the page route streams its body through a
-  // blocking pipe that simulated time cannot host — see [[ServerHarness.simulateTime]].
+  // Opens documents; see [[ServerHarness.simulateTime]].
   override protected def simulateTime: Boolean = false
 
-  /** [[liveLeafDash]] with a popup surface to open. */
   private def popupDash: Dashboard =
     liveLeafDash.copy(surfaces =
       Map("det" -> Surface(LayoutNode.Component("col")))
     )
 
   test("a tap on a connection the server has forgotten still opens the popup") {
-    // The bug this is here for: a page left idle outlives its session (its
-    // stream drops, the linger expires, the reaper takes it) while looking
-    // perfectly alive. Every tap on it used to answer 204 — no patch, no
-    // error — and the client, which sets its own `ui_*` signal, then showed a
-    // URL claiming a popup the DOM did not have. It took a SECOND tap, after
-    // Datastar had quietly reconnected, or a reload.
+    // An idle page outlives its session while looking alive. Every tap on it
+    // answered 204, and the client showed a URL claiming a popup the DOM did
+    // not have, until a second tap or a reload.
     (for {
       store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "warm")))
       ref <- SignallingRef[IO].of(
@@ -53,12 +44,9 @@ class SurfaceTapSuite extends ServerHarness {
           "dashboard",
           sessions,
           TestAuth.openGate,
-          // Long enough that the assertions are not racing it. The tap MINTS a
-          // `Fresh` session and schedules its reap this far out, so every read
-          // below happens inside the same window the test uses to let the
-          // FIRST session be reaped — and on a loaded machine 50 ms was not
-          // enough, leaving `sessions.get(conn)` empty and the test blaming the
-          // tap for a session the reaper had taken.
+          // The tap mints a `Fresh` session with its reap this far out, inside
+          // the window the test lets the first session be reaped in; 50 ms was
+          // not enough on a loaded machine.
           adoptionWindow = 2.seconds
         )
         .use { server =>
@@ -76,8 +64,8 @@ class SurfaceTapSuite extends ServerHarness {
               )
               .query
               .params(Server.ConnSignal)
-            // Let the reaper have it — this is the idle page, with nothing
-            // registered under the `conn` its DOM still carries.
+            // The idle page: nothing registered under the `conn` its DOM
+            // carries.
             _ <- (IO.sleep(10.millis) *> sessions.get(conn))
               .iterateWhile(_.isDefined)
             status <- routes
@@ -88,9 +76,8 @@ class SurfaceTapSuite extends ServerHarness {
                 ).withEntity(s"""{"${Server.ConnSignal}":"$conn"}""")
               )
               .map(_.status)
-            // The tap is what re-establishes the connection, so the patch has
-            // somewhere to wait: the reconnecting stream adopts this session
-            // and drains it.
+            // The tap re-establishes the session, so the patch waits for the
+            // reconnecting stream to adopt and drain it.
             revived <- sessions.get(conn)
             open <- revived.traverse(_.open.get)
             queued <- revived.flatTraverse(_.control.tryTake)
@@ -108,11 +95,9 @@ class SurfaceTapSuite extends ServerHarness {
   }
 
   test("a swap COMMITS the selection, and only a swap does") {
-    // The client no longer sets `ui_popups` itself
-    // (`docs/adr/0025-a-value-in-flight.md`), so if this frame is missing the URL
-    // mirror and every reconnect restore go blind — a dialog on screen that a
-    // refresh does not bring back. The request body deliberately carries no
-    // ui-state at all: the selection here can only have come from the swap.
+    // The client does not set `ui_popups` itself (ADR 0025), so without this
+    // frame the URL mirror and reconnect restore go blind. The body carries no
+    // ui-state: the selection can only come from the swap.
     (for {
       store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "warm")))
       ref <- SignallingRef[IO].of(
@@ -155,8 +140,7 @@ class SurfaceTapSuite extends ServerHarness {
           afterOpen.exists(_.contains(s""""$sig":"det"""")),
           clue = afterOpen
         )
-        // A close is a commit too — the emptied value is what stops the URL
-        // claiming a dialog this DOM no longer holds.
+        // A close is a commit too, or the URL keeps claiming a dialog.
         assert(
           afterClose.exists(_.contains(s""""$sig":""""")),
           clue = afterClose
@@ -164,7 +148,6 @@ class SurfaceTapSuite extends ServerHarness {
     }
   }
 
-  /** Everything queued for a session's own stream, as one string. */
   private def drain(session: Session): IO[String] =
     fs2.Stream
       .repeatEval(session.control.tryTake)
@@ -174,10 +157,8 @@ class SurfaceTapSuite extends ServerHarness {
       .map(_.flatMap(_.data).mkString("\n"))
 
   test("a tap on a surface this build no longer has says so") {
-    // Ids are location-derived, so editing a dashboard renames the surfaces
-    // below the edit. A page open across that rebuild taps a name the server
-    // has never heard of — the one remaining way a tap could do nothing and
-    // say nothing, which is what a status (and the shell's toast) is for.
+    // Ids are location-derived, so an edit renames surfaces below it and a page
+    // open across the rebuild taps an unknown name; it must say so.
     (for {
       store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "warm")))
       ref <- SignallingRef[IO].of(
@@ -205,8 +186,7 @@ class SurfaceTapSuite extends ServerHarness {
             .flatMap(r => r.bodyText.compile.string.map(r.status -> _))
         }
     } yield out).timeout(30.seconds).map { case (status, body) =>
-      // 200 carrying signals: a refused action reports itself as page state,
-      // not as a status the body of which nothing would ever read (ADR 0024).
+      // 200 carrying signals (ADR 0024).
       assertEquals(status, Status.Ok)
       assert(body.contains("gone"), clue = body)
       assert(body.contains(Server.ToastSignal), clue = body)
@@ -214,12 +194,10 @@ class SurfaceTapSuite extends ServerHarness {
   }
 
   test("a tap naming another dashboard's connection is refused, not dropped") {
-    // A `conn` is minted per document and a document is one dashboard, so no
-    // honest client produces this. Re-registering would unroute whatever live
-    // page owns it, and answering 204 would be the silence this whole route
-    // was fixed for — hence a refusal the page can show. It rides in the BODY
-    // (`_toast`, and the group/node the tap named), because the bundle parses a
-    // response body only on 200.
+    // A `conn` is per document and a document is one dashboard, so no honest
+    // client does this. Re-registering would unroute the live owner, and 204
+    // would be silence; the refusal rides the body (`_toast`, the tap's group
+    // and node) since the bundle parses a body only on 200.
     (for {
       store <- StateStore.inMemory(Map("sensor.a" -> es("sensor.a", "warm")))
       ref <- SignallingRef[IO].of(
@@ -248,16 +226,14 @@ class SurfaceTapSuite extends ServerHarness {
                 ).withEntity(s"""{"${Server.ConnSignal}":"shared"}""")
               )
               .flatMap(r => r.bodyText.compile.string.map(r.status -> _))
-            // ...and the page that does own it is left alone.
             untouched <- sessions.get("shared").map(_.exists(_.slug == "other"))
           } yield (status, untouched)
         }
     } yield out).timeout(30.seconds).map { case ((status, body), untouched) =>
       assertEquals(status, Status.Ok)
       assert(body.contains(Server.WrongSlugMessage), clue = body)
-      // The ask ENDS here, and the server is what says so: the tab's pending
-      // selection is cleared in the same frame, since there is no status left
-      // for the client to infer it from.
+      // With no status to infer it from, the server clears the tab's pending
+      // selection in the same frame.
       assert(body.contains("_tabs__pending"), clue = body)
       assert(untouched)
     }
