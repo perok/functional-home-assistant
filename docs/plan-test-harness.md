@@ -9,7 +9,7 @@ stubbed, and a smaller set of tests that each earn their place.
 | Path | Suites | What it skips |
 |---|---|---|
 | `SharedHarness`: `new Server`, drives `recordFrame` + `Patches.resume` itself | 4 | publishers, routes, feed |
-| direct `Server.resource` (incl. `LiveWorld`) | ~15, ~45 call sites | `HaFeed`, queries, auth routes, `FHError.handle`, narrowing |
+| direct `Server.resource` (incl. `LiveWorld`) | 8, ~15 call sites | `HaFeed`, queries, auth routes, `FHError.handle`, narrowing |
 | `TestServer` → `ServerApp.assemble` (step 1) | functional, smoke, Pkl behaviour, `ServerAppSuite` | only the edges |
 | pure `Renderer` / `Patches` | 29 files | nothing: the functional core |
 
@@ -28,7 +28,10 @@ stubbed, and a smaller set of tests that each earn their place.
    `fake.emitFrame`, and its callers with them. `RenderCacheContentionSuite` stays on `LiveWorld`
    (see Decisions).
 3. **Migrate suite by suite**, the direct `Server.resource` callers first (SessionLifecycle,
-   ServerRoutes, the Tap suites, SharedPass). Per test, before porting:
+   ServerRoutes, the Tap suites, SharedPass, ActionConcurrency, PageStreamRoute: done). What is
+   left drives `recordFrame` and `Patches.resume` with hand-built sessions and queued frames
+   (Resume, SetNode, StateSurface, SetMembership, SignalSlot, AckedResume, LiveStream,
+   FailedDashboard). Per test, before porting:
    - **What regression would it catch that nothing else does?** A test pinning an internal
      (a log's shape, a cache's key) that a boundary test already covers is deleted, not ported.
    - **Overlap:** the same property asserted at two layers keeps the lowest layer that can observe
@@ -48,3 +51,10 @@ stubbed, and a smaller set of tests that each earn their place.
   narrowing and auth routes, none of which renders. Rejected: a renderer factory on `Prepared`
   (a production seam for one suite), and calling `Server.pull` directly, which would assume that
   the recorder, the doorbell loop and the route's selection render nothing instead of measuring it.
+  A render count that proved something else moves to what it proved: the first-connect resume is
+  `Server.resumeFrom`, pinned in `CursorSuite`.
+- **The session windows are a field of `ServerApp.Edges`** (`Server.SessionWindows`), which
+  production fills with the defaults. Not an edge but time, and a reap test cannot wait out two
+  minutes.
+- **HA down is the fake's socket closing** (`TestServer.haDown`), so the page and the stream read
+  the feed's own health rather than an injected constant.
