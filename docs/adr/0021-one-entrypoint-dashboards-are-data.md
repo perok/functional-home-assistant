@@ -66,7 +66,7 @@ restart is not a feature bolted on here, it is what the change forces.
 
 The registry (`Server.LiveSite`) is a `SignallingRef` of slug → live state, and
 its `.discrete` drives the per-slug recorders: `sharedPatchPublishers` reconciles
-`toAdd` / `toCancel` against it, exactly as `ServerApp.watchSourcesWith` does for
+`toAdd` / `toCancel` against it, exactly as `ServerApp.watchSources` does for
 the watched import set. Installing a slug IS starting its publisher; removing one
 IS stopping it. That collapsed the two start paths that existed before (a startup
 snapshot, plus a supervisor branch inside `push`) into one, which is why `push`

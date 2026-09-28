@@ -3,7 +3,7 @@
 package fh.view.runtime
 
 import api.homeassistant.HomeAssistantApi
-import cats.effect.std.Supervisor
+import cats.effect.std.{Queue, Supervisor}
 import cats.effect.{IO, Ref, Resource}
 import cats.syntax.all.*
 import com.comcast.ip4s.{host, port}
@@ -19,6 +19,7 @@ import fh.view.testkit.{
   TestAuth
 }
 import fs2.concurrent.{Signal, SignallingRef}
+import fs2.io.file.{Path, Watcher}
 import io.circe.Json
 import org.http4s.*
 import org.http4s.client.Client
@@ -32,10 +33,10 @@ import scala.concurrent.duration.*
 
 /** [[ServerApp.assemble]] with only its edges stubbed: the HA socket is a
   * [[FakeHomeAssistant]] handed over as a connection only [[haDown]] closes,
-  * and HA's token endpoint and the asset CDN are in-process stubs. Everything
-  * else — the feed's reconnect and narrowing, the auth routes, the error
-  * boundary — is the production wiring, and requests go through the app
-  * production binds.
+  * HA's token endpoint and the asset CDN are in-process stubs, and the source
+  * watcher is a [[TestServer.FakeWatcher]] fed by [[edit]]. Everything else —
+  * the feed's reconnect and narrowing, the auth routes, the error boundary — is
+  * the production wiring, and requests go through the app production binds.
   */
 final class TestServer(
     val fake: FakeHomeAssistant,
@@ -44,9 +45,11 @@ final class TestServer(
     val slug: String,
     val auth: TestAuth,
     val sessions: Sessions,
+    val site: Server.LiveSite,
     app: HttpApp[IO],
     healthy: Signal[IO, Boolean],
     haUp: SignallingRef[IO, Boolean],
+    watcher: TestServer.FakeWatcher,
     supervisor: Supervisor[IO],
     clients: Ref[IO, List[TestServer.LiveClient]]
 ) {
@@ -56,6 +59,13 @@ final class TestServer(
     */
   def haDown: IO[Unit] =
     haUp.set(false) *> healthy.waitUntil(!_)
+
+  /** An author saving `file`: written, then announced as the OS watcher would,
+    * once the server watches it or its directory. Returns before the debounced
+    * reload runs.
+    */
+  def edit(file: os.Path, content: String): IO[Unit] =
+    watcher.edit(file, content)
 
   /** '''`n` counts the recorder too.''' A test adding its own subscriber must
     * wait for two: waiting for one is answered by the recorder, and an emit can
@@ -312,6 +322,47 @@ final class TestServer(
 object TestServer {
 
   final case class Document(html: String, stream: Uri, conn: String)
+
+  /** Delivers an event only for what the server watches, as the OS does, so
+    * [[TestServer.edit]] also proves the watch set covers the file.
+    */
+  final class FakeWatcher(
+      queue: Queue[IO, Watcher.Event],
+      watched: SignallingRef[IO, Set[Path]]
+  ) extends ServerApp.SourceWatcher {
+
+    def watch(path: Path): IO[IO[Unit]] =
+      watched.update(_ + path).as(watched.update(_ - path))
+
+    def events: fs2.Stream[IO, Watcher.Event] =
+      fs2.Stream.fromQueueUnterminated(queue)
+
+    def edit(file: os.Path, content: String): IO[Unit] = {
+      val path = Path.fromNioPath(file.toNIO)
+      val covered = (w: Set[Path]) =>
+        w.contains(path) || path.parent.exists(w.contains)
+      for {
+        _ <- watched
+          .waitUntil(covered)
+          .timeout(15.seconds)
+          .adaptError(_ => IllegalStateException(s"$file is not watched"))
+        existed <- IO.blocking(os.exists(file))
+        _ <- IO.blocking(os.write.over(file, content))
+        _ <- queue.offer(
+          if existed then Watcher.Event.Modified(path, 1)
+          else Watcher.Event.Created(path, 1)
+        )
+      } yield ()
+    }
+  }
+
+  private object FakeWatcher {
+    def create: IO[FakeWatcher] =
+      (
+        Queue.unbounded[IO, Watcher.Event],
+        SignallingRef[IO].of(Set.empty[Path])
+      ).mapN(new FakeWatcher(_, _))
+  }
 
   /** See [[TestServer.viewer]]. */
   final class Viewer(
@@ -575,7 +626,8 @@ object TestServer {
 
   private final case class Booted(
       assembled: ServerApp.Assembled,
-      haUp: SignallingRef[IO, Boolean]
+      haUp: SignallingRef[IO, Boolean],
+      watcher: FakeWatcher
   )
 
   private def assemble(
@@ -588,6 +640,7 @@ object TestServer {
     for {
       assetsDir <- tempDir("fh-assets")
       haUp <- SignallingRef[IO].of(true).toResource
+      watcher <- FakeWatcher.create.toResource
       assembled <- ServerApp.assemble(
         ServerApp.Edges(
           workspace = workspace,
@@ -602,10 +655,11 @@ object TestServer {
           otel = Telemetry.Otel.noop,
           loggerFactory = Logging.console,
           meters = Meters.noop,
+          sourceWatcher = Resource.pure(watcher),
           sessionWindows = windows
         )
       )
-    } yield Booted(assembled, haUp)
+    } yield Booted(assembled, haUp, watcher)
 
   private def inProcess(
       fake: FakeHomeAssistant,
@@ -627,9 +681,11 @@ object TestServer {
       slug,
       auth,
       assembled.sessions,
+      assembled.site,
       assembled.app(wsb),
       assembled.feed.healthy,
       booted.haUp,
+      booted.watcher,
       supervisor,
       clients
     )

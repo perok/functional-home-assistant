@@ -8,7 +8,7 @@ stubbed, and a smaller set of tests that each earn their place.
 
 | Path | Suites | What it skips |
 |---|---|---|
-| direct `Server` (`LiveWorld`, one `ResumeSuite` and one `FailedDashboardSuite` test) | 3 | `HaFeed`, queries, auth routes, `FHError.handle`, narrowing |
+| direct `Server` (`LiveWorld`, one `ResumeSuite` test) | 2 | `HaFeed`, queries, auth routes, `FHError.handle`, narrowing |
 | `TestServer` → `ServerApp.assemble` | every other server suite, functional, smoke | only the edges |
 | pure `Renderer` / `Patches` | 29 files | nothing: the functional core |
 
@@ -59,7 +59,12 @@ stubbed, and a smaller set of tests that each earn their place.
   path over `Patches`, which still needs a copy of `pull`'s bookkeeping in the tests, the copy
   `SharedHarness` was and that had drifted (no morph merging, a cursor on an empty pull, a fresh
   render cache).
-- **Two tests keep a direct `Server`, each for a reason `TestServer` cannot meet.** `ResumeSuite`'s
-  "claims the changelog's version" needs a recorder that has not caught up, a window the assembled
-  server closes too fast to observe. `FailedDashboardSuite`'s membership test drives
-  `ServerApp.reloadSite` by hand, which the assembled server's own watcher would race.
+- **The source watcher is an edge** (`Edges.sourceWatcher`, a `ServerApp.SourceWatcher`): production
+  wraps fs2's OS watcher, `TestServer` a fake that delivers an event only for a watched path, so
+  `ts.edit` drives the reload production runs and proves the watch set covers the file. Ours and not
+  fs2's `Watcher`, which is sealed. The `reloadSite` tests that assert what one reload did not do
+  stay on `reloadSite` and a bare `LiveSite`: through the debounce, "nothing changed" has no
+  completion to wait for.
+- **One test keeps a direct `Server`.** `ResumeSuite`'s "claims the changelog's version" needs a
+  recorder that has not caught up, a window the assembled server closes too fast to observe, and
+  that is fiber ordering rather than time, so `TestControl` does not open it either.
