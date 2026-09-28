@@ -49,8 +49,9 @@ test POSTs the action, asserts `recordedCalls`, then `emit`s the resulting state
 itself. Baking "turn_on ⇒ on" into the fake would encode HA semantics we don't
 own.
 
-`TestServer.resource(dashboard, entities)` assembles the real `Server` exactly as
-`ServerApp` does and drives it in-process via `app.run(req)`.
+`TestServer.resource(dashboard, entities)` is `ServerApp.assemble` with only its edges
+stubbed (the HA socket, HA's token endpoint, the asset CDN), driven in-process through
+the same `HttpApp` production binds.
 `ts.observePatch(marker, trigger)` is the deterministic SSE primitive: it opens
 one connection, gates on subscriber readiness (never sleeps), runs the trigger,
 and succeeds when a pushed fragment contains `marker`.

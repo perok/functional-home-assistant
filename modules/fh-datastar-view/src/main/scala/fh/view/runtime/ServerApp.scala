@@ -46,7 +46,8 @@ import org.http4s.otel4s.middleware.trace.client.{
   ClientSpanDataProvider,
   UriRedactor
 }
-import org.http4s.{Query, Status}
+import org.http4s.{HttpApp, Query, Status}
+import org.http4s.server.websocket.WebSocketBuilder2
 import org.http4s.otel4s.middleware.trace.redact.{PathRedactor, QueryRedactor}
 import org.http4s.otel4s.middleware.trace.server.{
   ServerMiddleware,
@@ -54,8 +55,7 @@ import org.http4s.otel4s.middleware.trace.server.{
 }
 import org.http4s.server.middleware.Metrics as ServerMetrics
 import org.typelevel.log4cats.{LoggerFactory, SelfAwareStructuredLogger}
-import org.typelevel.otel4s.metrics.MeterProvider
-import org.typelevel.otel4s.trace.{Tracer, TracerProvider}
+import org.typelevel.otel4s.trace.Tracer
 import fs2.io.file.{Watcher, Path}
 
 /** The runtime phase: evaluates the workspace's `site.pkl` in memory into a
@@ -153,6 +153,142 @@ object ServerApp extends IOApp {
       // Eagerly, so a missing credential fails boot instead of looking like
       // an unreachable HA inside the reconnect loop.
       haEnv <- FHApi.resolveEnv.toResource
+      buildTracer <- otel.tracerProvider.get("fh.view.build").toResource
+      httpClient <- IO(java.net.http.HttpClient.newHttpClient()).toResource
+      outbound = instrument(
+        org.http4s.jdkhttpclient.JdkHttpClient[IO](httpClient)
+      )
+      // Ingress headers are trusted by source address ([[Ingress]]). An empty
+      // `FH_TRUSTED_PROXY` turns that trust off.
+      trustedProxy <- Env[IO]
+        .get("FH_TRUSTED_PROXY")
+        .map {
+          case None      => Some(Ingress.SupervisorIp)
+          case Some(raw) => Ipv4Address.fromString(raw.trim)
+        }
+        .toResource
+      pklLspJar <- resolvePklLspJar(config.pklLspJar, log).toResource
+      assembled <- assemble(
+        Edges(
+          workspace = config.dashboardsDir,
+          haConnect = FHApi.lowLevelConnectWithClose(haEnv),
+          login = haLogin(haEnv, outbound, log),
+          assetsClient = outbound,
+          assetsDir = config.assetsDir,
+          prepare = prepareRenderers(
+            _,
+            config.dashboardsDir,
+            Some(bundledLib),
+            buildTracer,
+            loggerFactory
+          ),
+          trustedProxy = trustedProxy,
+          pklLspJar = pklLspJar,
+          watchRegistry = config.watchRegistry,
+          otel = otel,
+          loggerFactory = loggerFactory,
+          meters = meters
+        )
+      )
+      _ <- EmberServerBuilder
+        .default[IO]
+        .withHost(config.bindHost)
+        .withPort(config.bindPort)
+        .withLogger(
+          loggerFactory.getLoggerFromName("org.http4s.ember.server")
+        )
+        .withHttpWebSocketApp(assembled.app)
+        .withShutdownTimeout(0.seconds)
+        .build
+      defaultSlug <- assembled.site.defaultSlug.toResource
+      _ <- log
+        .info(
+          s"Dashboards serving on http://${config.bindHost}:${config.bindPort} " +
+            s"(default '/$defaultSlug', all: ${assembled.prepared.states.keys.toList.sorted.mkString(", ")})"
+        )
+        .toResource
+    } yield ()).useForever.as(ExitCode.Success)
+
+  /** Everything [[assemble]] reaches outside the process through, so a test
+    * stubs these and runs the rest as production does.
+    */
+  private[runtime] final case class Edges(
+      workspace: os.Path,
+      haConnect: HaFeed.Connect,
+      // Asked once the feed is up: under the add-on only HA knows where it
+      // lives.
+      login: HomeAssistantApi[IO] => IO[HaLogin],
+      assetsClient: Client[IO],
+      assetsDir: os.Path,
+      // What the site starts with; production evaluates the workspace.
+      prepare: HaFeed => IO[Prepared],
+      trustedProxy: Option[Ipv4Address],
+      pklLspJar: Option[os.Path],
+      watchRegistry: Boolean,
+      otel: Telemetry.Otel,
+      loggerFactory: LoggerFactory[IO],
+      meters: Meters
+  )
+
+  /** `connectAs` is a short-lived connection as a user, never the machine-token
+    * feed nor its address ([[HaOAuth.coreWs]]).
+    */
+  private[runtime] final case class HaLogin(
+      oauth: HaOAuth,
+      connectAs: String => Resource[IO, HomeAssistantApi[IO]]
+  )
+
+  private[runtime] final case class Assembled(
+      app: WebSocketBuilder2[IO] => HttpApp[IO],
+      feed: HaFeed,
+      site: Server.LiveSite,
+      server: Server,
+      sessions: AuthSessions,
+      prepared: Prepared
+  )
+
+  /** Login (issue #89): HA is the OAuth identity provider. Under the add-on
+    * this server dials `http://supervisor/core`, which no browser can reach, so
+    * ask HA where it lives ([[HaOAuth.browserBase]] ranks the sources). A
+    * failed answer is just one absent source.
+    */
+  private def haLogin(
+      haEnv: FHApi.Env,
+      client: Client[IO],
+      log: SelfAwareStructuredLogger[IO]
+  )(api: HomeAssistantApi[IO]): IO[HaLogin] =
+    for {
+      haInternalUrl <- api.getConfigWS.attempt
+        .map(_.toOption.flatMap(HaOAuth.internalUrlOf))
+      haPublicUrl <- Env[IO]
+        .get("FH_HA_PUBLIC_URL")
+        .map(_.flatMap(org.http4s.Uri.fromString(_).toOption))
+        .map(HaOAuth.browserBase(_, haInternalUrl, haEnv.server))
+      // Not `SERVER` either: the supervisor proxy serves no `/auth/…` and
+      // authenticates add-ons, not people ([[HaOAuth.coreBase]]).
+      haCoreUrl <- Env[IO]
+        .get("FH_HA_TOKEN_URL")
+        .map(_.flatMap(org.http4s.Uri.fromString(_).toOption))
+        .map(HaOAuth.coreBase(_, haInternalUrl, haEnv.server))
+      _ <- log.info(
+        s"Home Assistant login redirects go to $haPublicUrl; " +
+          s"logins dial $haCoreUrl"
+      )
+    } yield HaLogin(
+      new HaOAuth(haPublicUrl, haCoreUrl, client),
+      token =>
+        FHApi.from(
+          haCoreUrl,
+          token,
+          HaOAuth.coreWs(haCoreUrl, haEnv.server, haEnv.serverWs)
+        )
+    )
+
+  /** The whole server short of binding a port. */
+  private[runtime] def assemble(edges: Edges): Resource[IO, Assembled] = {
+    import edges.{loggerFactory, meters, otel, workspace}
+    val log = loggerFactory.getLoggerFromName(LoggerName)
+    for {
       // `None` (unfiltered) until dashboards exist; the unfiltered
       // subscription is also what fills the store the feed waits on.
       // `narrowFeed` narrows it.
@@ -165,37 +301,28 @@ object ServerApp extends IOApp {
       // The one HA connection: everything uses `feed.api`, so no second,
       // unsupervised socket dies silently on a drop. Blocks until seeded.
       feed <- HaFeed.resource(
-        FHApi.lowLevelConnectWithClose(haEnv),
+        edges.haConnect,
         wanted,
         feedTracer,
         loggerFactory,
         meters
       )
-      dashboardsDir = config.dashboardsDir
-      buildTracer <- otel.tracerProvider.get("fh.view.build").toResource
-      prepared <- prepareRenderers(
-        feed,
-        dashboardsDir,
-        Some(bundledLib),
-        buildTracer,
-        loggerFactory
-      ).toResource
+      prepared <- edges.prepare(feed).toResource
       built = prepared.built
       // Backs only the `/system/pkl/*` route; the server's own eval resolves
       // from the seeded cache (ADR 0010).
-      systemPkl = SystemPkl.fromDisk(dashboardsDir)
+      systemPkl = SystemPkl.fromDisk(workspace)
 
       // Collected at boot: a reload that introduces new URLs passes them
       // through until restart.
-      httpClient <- IO(java.net.http.HttpClient.newHttpClient()).toResource
       assets <- AssetCache
         .build(
-          config.assetsDir,
+          edges.assetsDir,
           Server.DatastarCdn :: built.flatMap { case (_, renderer) =>
             renderer.stylesheets ++ renderer.deferredStylesheets ++
               renderer.scripts
           },
-          instrument(org.http4s.jdkhttpclient.JdkHttpClient[IO](httpClient))
+          edges.assetsClient
         )
         .toResource
 
@@ -206,7 +333,7 @@ object ServerApp extends IOApp {
         .map(_.toMap)
         .toResource
       importsRef <- SignallingRef[IO]
-        .of(watchedSet(dashboardsDir, prepared.imports))
+        .of(watchedSet(workspace, prepared.imports))
         .toResource
 
       site <- Server.LiveSite
@@ -219,58 +346,21 @@ object ServerApp extends IOApp {
       // Not part of the feed: the registry does not exist when it is
       // acquired.
       _ <- narrowFeed(site, wanted).background
-      reload = reloadSite(dashboardsDir, site, importsRef, log)
+      reload = reloadSite(workspace, site, importsRef, log)
 
       // Serialises the endpoint against the registry watcher.
       refreshMutex <- Mutex[IO].toResource
       refreshDump = refreshMutex.lock.surround(
-        refreshOnce(feed.api, dashboardsDir, reload, log)
+        refreshOnce(feed.api, workspace, reload, log)
       )
 
-      // Login (issue #89): HA is the OAuth identity provider. Under the
-      // add-on this server dials `http://supervisor/core`, which no browser
-      // can reach, so ask HA where it lives ([[HaOAuth.browserBase]] ranks
-      // the sources). A failed answer is just one absent source.
-      haInternalUrl <- feed.api.getConfigWS.attempt
-        .map(_.toOption.flatMap(HaOAuth.internalUrlOf))
-        .toResource
-      haPublicUrl <- Env[IO]
-        .get("FH_HA_PUBLIC_URL")
-        .map(_.flatMap(org.http4s.Uri.fromString(_).toOption))
-        .map(HaOAuth.browserBase(_, haInternalUrl, haEnv.server))
-        .toResource
-      // Not `SERVER` either: the supervisor proxy serves no `/auth/…` and
-      // authenticates add-ons, not people ([[HaOAuth.coreBase]]).
-      haCoreUrl <- Env[IO]
-        .get("FH_HA_TOKEN_URL")
-        .map(_.flatMap(org.http4s.Uri.fromString(_).toOption))
-        .map(HaOAuth.coreBase(_, haInternalUrl, haEnv.server))
-        .toResource
-      _ <- log
-        .info(
-          s"Home Assistant login redirects go to $haPublicUrl; " +
-            s"logins dial $haCoreUrl"
-        )
-        .toResource
+      login <- edges.login(feed.api).toResource
       authSessions <- AuthSessions
-        .create(SessionStore.inWorkspace(dashboardsDir, loggerFactory))
+        .create(SessionStore.inWorkspace(workspace, loggerFactory))
         .toResource
-      oauth = new HaOAuth(
-        haPublicUrl,
-        haCoreUrl,
-        instrument(org.http4s.jdkhttpclient.JdkHttpClient[IO](httpClient))
-      )
-      // A short-lived connection as a user, never the machine-token feed nor
-      // its address ([[HaOAuth.coreWs]]). Shared by `identify` and
-      // `ServiceCalls.asUser` so the address ranking is written once.
-      connectAs = (token: String) =>
-        FHApi.from(
-          haCoreUrl,
-          token,
-          HaOAuth.coreWs(haCoreUrl, haEnv.server, haEnv.serverWs)
-        )
       identify = (token: String) =>
-        connectAs(token)
+        login
+          .connectAs(token)
           .use(_.currentUser)
           .handleErrorWith(e =>
             FHError
@@ -279,46 +369,49 @@ object ServerApp extends IOApp {
               )
               .raiseError[IO, HaUser]
           )
-      // Ingress headers are trusted by source address ([[Ingress]]). An empty
-      // `FH_TRUSTED_PROXY` turns that trust off.
-      trustedProxy <- Env[IO]
-        .get("FH_TRUSTED_PROXY")
-        .map {
-          case None      => Some(Ingress.SupervisorIp)
-          case Some(raw) => Ipv4Address.fromString(raw.trim)
-        }
-        .toResource
       ingressUsers <- IngressUsers.cached(feed.api.configAuthList).toResource
       gate = new AuthGate(
         authSessions,
         identify,
         site.permissionFor,
         ingressUsers,
-        trustedProxy
+        edges.trustedProxy
       )
       authRoutes <- AuthRoutes
-        .create(oauth, authSessions, identify, Server.baseUriOf)
+        .create(login.oauth, authSessions, identify, Server.baseUriOf)
         .toResource
-      server <- liveServer(
+      sessions <- Sessions.create.toResource
+      _ <- Meters.observeSessions(
+        otel.meterProvider,
+        sessions.all.map(_.size.toLong)
+      )
+      serverTracer <- otel.tracerProvider
+        .get("fh.view.runtime.Server")
+        .toResource
+      server <- Server.fromFeed(
         feed,
         site,
+        sessions,
         gate,
         assets,
         systemPkl,
         dumpRefresh = Some(refreshDump),
         // A tap is the user's (issue #198); with no login session it falls
         // back to the feed's identity.
-        actions = ServiceCalls.asUser(_, connectAs, authSessions, oauth),
-        tracerProvider = otel.tracerProvider,
+        actions = ServiceCalls.asUser(
+          _,
+          login.connectAs,
+          authSessions,
+          login.oauth
+        ),
+        tracer = serverTracer,
         loggerFactory = loggerFactory,
-        meterProvider = otel.meterProvider,
         meters = meters
       )
-      pklLspJar <- resolvePklLspJar(config.pklLspJar, log).toResource
       editor = new EditorRoutes(
-        dashboardsDir,
+        workspace,
         gate,
-        pklLspJar,
+        edges.pklLspJar,
         site.defaultSlug,
         site.names
       )
@@ -326,7 +419,7 @@ object ServerApp extends IOApp {
       _ <- watchSources(reload, importsRef).compile.drain.background
 
       _ <-
-        if (config.watchRegistry)
+        if (edges.watchRegistry)
           watchRegistryEvents(
             feed.api,
             feed.healthy,
@@ -337,7 +430,7 @@ object ServerApp extends IOApp {
       // What makes a revocation in HA reach a dashboard nobody is touching.
       _ <- revalidateSessions(
         authSessions,
-        oauth,
+        login.oauth,
         identify,
         log = log
       ).compile.drain.background
@@ -357,42 +450,26 @@ object ServerApp extends IOApp {
       metricsServer <- OtelMetrics
         .serverMetricsOps[IO]()(using cats.Monad[IO], otel.meterProvider)
         .toResource
-      _ <- EmberServerBuilder
-        .default[IO]
-        .withHost(config.bindHost)
-        .withPort(config.bindPort)
-        .withLogger(
-          loggerFactory.getLoggerFromName("org.http4s.ember.server")
-        )
-        .withHttpWebSocketApp(wsb =>
-          // Metrics sits inside the error boundary (it takes routes), so
-          // `errorResponseHandler` maps a raised `FHError` to the status the
-          // client actually got, not a 500.
-          traceServer.wrapHttpApp(
-            FHError.handle(
-              ServerMetrics[IO](
-                metricsServer,
-                errorResponseHandler = {
-                  case e: FHError =>
-                    Status.fromInt(e.status).toOption
-                  case _ => Some(Status.InternalServerError)
-                }
-              )(
-                authRoutes.routes <+> server.routes <+> editor.routes(wsb)
-              ).orNotFound
-            )
+      app = (wsb: WebSocketBuilder2[IO]) =>
+        // Metrics sits inside the error boundary (it takes routes), so
+        // `errorResponseHandler` maps a raised `FHError` to the status the
+        // client actually got, not a 500.
+        traceServer.wrapHttpApp(
+          FHError.handle(
+            ServerMetrics[IO](
+              metricsServer,
+              errorResponseHandler = {
+                case e: FHError =>
+                  Status.fromInt(e.status).toOption
+                case _ => Some(Status.InternalServerError)
+              }
+            )(
+              authRoutes.routes <+> server.routes <+> editor.routes(wsb)
+            ).orNotFound
           )
         )
-        .withShutdownTimeout(0.seconds)
-        .build
-      defaultSlug <- site.defaultSlug.toResource
-      _ <- log
-        .info(
-          s"Dashboards serving on http://${config.bindHost}:${config.bindPort} " +
-            s"(default '/$defaultSlug', all: ${prepared.states.keys.toList.sorted.mkString(", ")})"
-        )
-        .toResource
-    } yield ()).useForever.as(ExitCode.Success)
+    } yield Assembled(app, feed, site, server, authSessions, prepared)
+  }
 
   /** A dashboard that failed to build is registered as failed, not skipped, so
     * no slug the entrypoint names is silently absent.
@@ -542,45 +619,6 @@ object ServerApp extends IOApp {
             )
           )
       })
-
-  /** The wiring [[run]] and `TestServer` share. The renderer source and the
-    * serving shell stay with the caller, as does the feed: production needs
-    * `feed.api` to prepare the dump before any renderer exists.
-    */
-  private[runtime] def liveServer(
-      feed: HaFeed,
-      site: Server.LiveSite,
-      gate: AuthGate,
-      assets: AssetCache = AssetCache.empty,
-      systemPkl: SystemPkl = SystemPkl.empty,
-      dumpRefresh: Option[IO[DumpRefresh.Result]] = None,
-      actions: HomeAssistantApi[IO] => ServiceCalls = ServiceCalls.asInstance,
-      tracerProvider: TracerProvider[IO] = TracerProvider.noop,
-      loggerFactory: LoggerFactory[IO] = Logging.console,
-      meterProvider: MeterProvider[IO] = MeterProvider.noop,
-      meters: Meters = Meters.noop
-  ): Resource[IO, Server] =
-    for {
-      sessions <- Sessions.create.toResource
-      _ <- Meters.observeSessions(
-        meterProvider,
-        sessions.all.map(_.size.toLong)
-      )
-      tracer <- tracerProvider.get("fh.view.runtime.Server").toResource
-      server <- Server.fromFeed(
-        feed,
-        site,
-        sessions,
-        gate,
-        assets,
-        systemPkl,
-        dumpRefresh,
-        actions,
-        tracer,
-        loggerFactory,
-        meters
-      )
-    } yield server
 
   private[runtime] def defaultSlugFrom(
       preferred: Option[String],

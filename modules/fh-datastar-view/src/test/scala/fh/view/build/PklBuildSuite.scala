@@ -2,7 +2,13 @@ package fh.view.build
 
 import fh.view.model.{CardDef, Dashboard, LayoutNode, Op, Predicate, Transform}
 import fh.view.testkit.DashboardBuilders.{asComponent, asSetNode}
-import fh.view.testkit.{FixtureEntity, HouseFixture, PklFixture, PklWorkspace}
+import fh.view.testkit.{
+  FixtureEntity,
+  HouseFixture,
+  PklFixture,
+  PklWorkspace,
+  SmokeDashboard
+}
 import io.circe.Json
 
 class PklBuildSuite extends munit.FunSuite {
@@ -2070,5 +2076,21 @@ class PklBuildSuite extends munit.FunSuite {
       "fixture-surfaces",
       fixtureWire("fixture-surfaces", fixtureSurfaces)
     )
+  }
+
+  // The smoke suites need a browser, and they were the only thing validating a
+  // progress card with a bar: the shipped card placed its signals by hand and
+  // every dashboard using `.total` was rejected at load.
+  test("every smoke dashboard validates") {
+    List(
+      SmokeDashboard.dashboard,
+      SmokeDashboard.appliance,
+      SmokeDashboard.percentSlider,
+      SmokeDashboard.busyIcon,
+      SmokeDashboard.longLabelRows,
+      SmokeDashboard.switchSlider
+    ).foreach { d =>
+      d.validated().left.foreach(e => fail(s"${d.slug}: ${e.mkString("; ")}"))
+    }
   }
 }
