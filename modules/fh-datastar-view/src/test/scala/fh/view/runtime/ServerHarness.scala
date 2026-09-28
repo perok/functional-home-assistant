@@ -28,7 +28,6 @@ import io.circe.Json
 import org.http4s.*
 import org.http4s.implicits.*
 
-import java.util.concurrent.atomic.AtomicInteger
 import scala.annotation.targetName
 import scala.concurrent.duration.*
 
@@ -65,7 +64,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
     * per suite.
     *
     * Measured before choosing this: the sleeps are 5-300 ms against a 50 ms
-    * `adoptionWindow`, so simulated time only accelerated poll loops. It does
+    * adoption window, so simulated time only accelerated poll loops. It does
     * give up determinism, so re-run an opted-out suite a few times before
     * trusting it.
     */
@@ -199,7 +198,9 @@ trait ServerHarness extends munit.CatsEffectSuite {
         )
       )
 
-  def tabsRenderer: Renderer = {
+  def tabsRenderer: Renderer = Renderer.create(tabsDash)
+
+  def tabsDash: Dashboard = {
     val cards = Map(
       "btn" ->
         CardDef("<button>{{label}}</button>", slots = List("label")),
@@ -219,34 +220,32 @@ trait ServerHarness extends munit.CatsEffectSuite {
         "card",
         slots = Map("state" -> SlotSource(Some(s"sensor.$name")))
       )
-    Renderer.create(
-      Dashboard(
-        cards,
-        LayoutNode.Component(
-          "tabs",
-          regions = LayoutNode.kids(
-            LayoutNode.Component(
-              "btn",
-              Map("label" -> SlotSource(literal = Some("A")))
-            ),
-            LayoutNode
-              .Component("btn", Map("label" -> SlotSource(literal = Some("B"))))
-          )
-        ),
-        surfaces = Map(
-          "c_t0" -> Surface(
-            panel("a"),
-            bakeInto = Some("c"),
-            bakeAs = Some("panel"),
-            bakeIndex = Some(0),
-            activation = Activation.User(defaultOpen = true)
+    Dashboard(
+      cards,
+      LayoutNode.Component(
+        "tabs",
+        regions = LayoutNode.kids(
+          LayoutNode.Component(
+            "btn",
+            Map("label" -> SlotSource(literal = Some("A")))
           ),
-          "c_t1" -> Surface(
-            panel("b"),
-            bakeInto = Some("c"),
-            bakeAs = Some("panel"),
-            bakeIndex = Some(1)
-          )
+          LayoutNode
+            .Component("btn", Map("label" -> SlotSource(literal = Some("B"))))
+        )
+      ),
+      surfaces = Map(
+        "c_t0" -> Surface(
+          panel("a"),
+          bakeInto = Some("c"),
+          bakeAs = Some("panel"),
+          bakeIndex = Some(0),
+          activation = Activation.User(defaultOpen = true)
+        ),
+        "c_t1" -> Surface(
+          panel("b"),
+          bakeInto = Some("c"),
+          bakeAs = Some("panel"),
+          bakeIndex = Some(1)
         )
       )
     )
@@ -255,23 +254,6 @@ trait ServerHarness extends munit.CatsEffectSuite {
   /** A page GET carrying ui state in the URL, as a refresh does. */
   def get(params: (String, String)*): Request[IO] =
     Request[IO](Method.GET, uri"/".withQueryParams(params.toMap))
-
-  /** Counts every live-patch render, so a test can assert a fragment was
-    * produced once for N viewers.
-    */
-  class CountingRenderer(dash: Dashboard, count: AtomicInteger)
-      extends Renderer(dash, Templates.from(dash), Transforms.from(dash)) {
-    override def renderNodeById(
-        id: NodeId,
-        states: Map[String, EntityState],
-        uiState: Map[String, String],
-        form: SlotForm,
-        fragments: QuerySnapshot
-    ): Option[String] = {
-      count.incrementAndGet()
-      super.renderNodeById(id, states, uiState, form, fragments)
-    }
-  }
 
   // No bake groups, so its live patches belong entirely to the shared pass.
   def liveLeafDash = Dashboard(

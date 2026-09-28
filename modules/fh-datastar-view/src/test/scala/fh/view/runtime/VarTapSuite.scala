@@ -1,11 +1,9 @@
 package fh.view.runtime
 
-import api.homeassistant.HomeAssistantApi
 import cats.effect.{Deferred, IO}
 import cats.effect.kernel.Ref as CeRef
 import cats.syntax.all.*
-import api.homeassistant.ws.domain.{HistoryPoint, StatisticsPeriod}
-import fh.view.history.{History, SeriesSource}
+import api.homeassistant.ws.domain.HistoryPoint
 import fh.view.model.{
   CardDef,
   Dashboard,
@@ -17,12 +15,9 @@ import fh.view.model.{
   SlotSource,
   Transform
 }
-import fh.view.query.QueryResolver
-import fh.view.testkit.{FakeHomeAssistant, TestAuth}
+import fh.view.testkit.{FakeConfig, FixtureEntity}
 import fh.view.testkit.TestIds.given
-import fs2.concurrent.SignallingRef
 import org.http4s.*
-import org.http4s.implicits.*
 
 import java.time.Instant
 import scala.concurrent.duration.*
@@ -36,7 +31,7 @@ class VarTapSuite extends ServerHarness {
   // Opens a document; see [[ServerHarness.simulateTime]].
   override protected def simulateTime: Boolean = false
 
-  /** Passthrough, so the window can be read back out: the fake provider puts
+  /** Passthrough, so the window can be read back out: the fake recorder puts
     * its span in the one point it answers with. A drawn chart is handed a
     * `Series`, never the window, which is the split working.
     */
@@ -114,93 +109,38 @@ class VarTapSuite extends ServerHarness {
     )
   )
 
+  private type Recorder = (Instant, Instant, String) => IO[List[HistoryPoint]]
+
   /** `[[3600000,...]]` is an hour, `[[604800000,...]]` a week. */
-  private def resolver: IO[QueryResolver] =
-    for {
-      history <- History.create(new SeriesSource {
-        def raw(start: Instant, end: Instant, entityId: String) =
-          IO.pure(
-            List(
-              HistoryPoint(
-                "1.0",
-                Instant.ofEpochMilli(end.toEpochMilli - start.toEpochMilli)
-              )
-            )
-          )
-        def statistics(
-            start: Instant,
-            end: Instant,
-            entityId: String,
-            period: StatisticsPeriod
-        ) = IO.pure(Nil)
-      })
-      r <- QueryResolver.create(history, IO.pure((_, _) => IO.pure("<svg/>")))
-    } yield r
+  private val span: Recorder = (start, end, _) =>
+    IO.pure(
+      List(
+        HistoryPoint(
+          "1.0",
+          Instant.ofEpochMilli(end.toEpochMilli - start.toEpochMilli)
+        )
+      )
+    )
 
   private def served[A](
-      f: (HttpApp[IO], Sessions) => IO[A],
-      queries: IO[QueryResolver] = resolver,
+      f: TestServer => IO[A],
+      recorder: Recorder = span,
       dashboard: Dashboard = dash
   ): IO[A] =
-    (for {
-      store <- StateStore.inMemory(
-        Map(
-          "sensor.a" -> es("sensor.a", "1"),
-          "sensor.b" -> es("sensor.b", "2")
-        )
+    TestServer
+      .resource(
+        dashboard,
+        List(FixtureEntity("sensor.a", "1"), FixtureEntity("sensor.b", "2")),
+        config = FakeConfig(recorder = Some(recorder))
       )
-      ref <- SignallingRef[IO].of(
-        Server.RendererState.Ready(
-          Renderer.fromValidated(
-            dashboard
-              .validated()
-              .fold(e => sys.error(e.mkString("; ")), identity)
-          )
-        )
-      )
-      sessions <- Sessions.create
-      fake <- FakeHomeAssistant.create(Nil)
-      qr <- queries
-      out <- Server
-        .withSite(
-          ServiceCalls.asInstance(HomeAssistantApi.fromWs(fake)),
-          store,
-          Server.LiveSite
-            .of(Map("dashboard" -> ref), Map.empty, "dashboard")
-            .unsafeRunSync(),
-          sessions,
-          TestAuth.openGate,
-          AssetCache.empty,
-          fs2.concurrent.Signal.constant(true),
-          fh.view.build.SystemPkl.empty,
-          None,
-          windows = Server.SessionWindows.default.copy(adoption = 5.seconds),
-          queries = Some(qr)
-        )
-        .use(server => f(server.routes.orNotFound, sessions))
-    } yield out).timeout(30.seconds)
+      .use(f)
+      .timeout(30.seconds)
 
-  private def connect(routes: HttpApp[IO]): IO[String] =
-    routes
-      .run(Request[IO](Method.GET, uri"/d/dashboard"))
-      .flatMap(_.bodyText.compile.string)
-      .map(page =>
-        Uri
-          .unsafeFromString(
-            "/" + page
-              .split("""data-init="@get\('""")(1)
-              .split("'")(0)
-              .replace("&amp;", "&")
-          )
-          .query
-          .params(Server.ConnSignal)
-      )
+  private def post(ts: TestServer, conn: String, path: String) =
+    ts.postResult(path, body = s"""{"${Server.ConnSignal}":"$conn"}""")
 
-  private def post(routes: HttpApp[IO], conn: String, path: String) =
-    routes.run(
-      Request[IO](Method.POST, Uri.unsafeFromString(path))
-        .withEntity(s"""{"${Server.ConnSignal}":"$conn"}""")
-    )
+  private def varPath(ts: TestServer, rest: String) =
+    s"sse/var/${ts.slug}/panel/$rest"
 
   private val Day = 24.hours.toMillis.toString
   private val Week = 7.days.toMillis.toString
@@ -218,29 +158,15 @@ class VarTapSuite extends ServerHarness {
     s"""signals {"_var_panel__window":"$value"}"""
 
   test("a chart whose recorder fails costs that chart, not the page") {
-    val down = for {
-      history <- History.create(new SeriesSource {
-        def raw(start: Instant, end: Instant, entityId: String) =
-          IO.raiseError(RuntimeException("recorder is down"))
-        def statistics(
-            start: Instant,
-            end: Instant,
-            entityId: String,
-            period: StatisticsPeriod
-        ) = IO.pure(Nil)
-      })
-      r <- QueryResolver.create(history, IO.pure((_, _) => IO.pure("<svg/>")))
-    } yield r
     served(
-      (routes, _) =>
-        routes
-          .run(Request[IO](Method.GET, uri"/d/dashboard"))
-          .flatMap(r => r.bodyText.compile.string.map(r.status -> _))
-          .map { case (status, page) =>
-            assertEquals(status, Status.Ok)
-            assert(page.contains("<span></span>"), clue = page)
-          },
-      down
+      _.pageResponse()
+        .flatMap(r => r.bodyText.compile.string.map(r.status -> _))
+        .map { (status, page) =>
+          assertEquals(status, Status.Ok)
+          assert(page.contains("<span></span>"), clue = page)
+        },
+      recorder =
+        (_, _, _) => IO.raiseError(RuntimeException("recorder is down"))
     )
   }
 
@@ -248,62 +174,44 @@ class VarTapSuite extends ServerHarness {
     // The head reads no query, so a cold fetch overlaps the stylesheet fetches
     // rather than holding up the first byte.
     (Deferred[IO, Unit], CeRef[IO].of(false), CeRef[IO].of(false)).tupled
-      .flatMap { case (gate, fetched, headFirst) =>
-        val slow = for {
-          history <- History.create(new SeriesSource {
-            def raw(start: Instant, end: Instant, entityId: String) =
-              gate.get *> fetched.set(true).as(List(HistoryPoint("1.0", end)))
-            def statistics(
-                start: Instant,
-                end: Instant,
-                entityId: String,
-                period: StatisticsPeriod
-            ) = IO.pure(Nil)
-          })
-          r <- QueryResolver.create(
-            history,
-            IO.pure((_, _) => IO.pure("<svg/>"))
-          )
-        } yield r
+      .flatMap { (gate, fetched, headFirst) =>
         served(
-          (routes, _) =>
-            routes
-              .run(Request[IO](Method.GET, uri"/d/dashboard"))
-              .flatMap(
-                _.bodyText
-                  .evalScan("") { (acc, chunk) =>
-                    val page = acc + chunk
-                    IO.whenA(page.contains("</head>"))(
-                      fetched.get.flatMap(f => headFirst.set(!f).whenA(!f)) *>
-                        gate.complete(()).void
-                    ).as(page)
-                  }
-                  .compile
-                  .lastOrError
-              )
-              .flatMap(page =>
-                headFirst.get.map { first =>
-                  assert(first, clue = "the head waited for the fetch")
-                  assert(page.contains("</html>"), clue = page)
+          _.pageResponse()
+            .flatMap(
+              _.bodyText
+                .evalScan("") { (acc, chunk) =>
+                  val page = acc + chunk
+                  IO.whenA(page.contains("</head>"))(
+                    fetched.get.flatMap(f => headFirst.set(!f).whenA(!f)) *>
+                      gate.complete(()).void
+                  ).as(page)
                 }
-              ),
-          slow
+                .compile
+                .lastOrError
+            )
+            .flatMap(page =>
+              headFirst.get.map { first =>
+                assert(first, clue = "the head waited for the fetch")
+                assert(page.contains("</html>"), clue = page)
+              }
+            ),
+          recorder = (_, end, _) =>
+            gate.get *> fetched.set(true).as(List(HistoryPoint("1.0", end)))
         )
       }
   }
 
   test("writing the variable re-renders the chart at the new window") {
-    served { (routes, sessions) =>
+    served { ts =>
       for {
-        conn <- connect(routes)
+        conn <- ts.load().map(_.conn)
         // A viewer who has chosen nothing gets the declared window.
-        session <- sessions.get(conn)
-        status <- post(routes, conn, "/sse/var/dashboard/panel/window/7d")
-          .map(_.status)
+        session <- ts.sessions.get(conn)
+        result <- post(ts, conn, varPath(ts, "window/7d"))
         chose <- session.traverse(_.vars.get)
         queued <- drain(session)
       } yield {
-        assertEquals(status, Status.NoContent)
+        assertEquals(result._1, Status.NoContent)
         assertEquals(
           chose,
           Some(Map(("panel": fh.view.model.NodeId, "window") -> "7d"))
@@ -322,17 +230,17 @@ class VarTapSuite extends ServerHarness {
   test("a value no reader can parse is refused, and nothing moves") {
     // `HistoryQuery.parse` is the authority on what a window may be, so a list
     // beside the declaration could only copy it.
-    served { (routes, sessions) =>
+    served { ts =>
       for {
-        conn <- connect(routes)
-        session <- sessions.get(conn)
-        res <- post(routes, conn, "/sse/var/dashboard/panel/window/4h")
-        body <- res.bodyText.compile.string
+        conn <- ts.load().map(_.conn)
+        session <- ts.sessions.get(conn)
+        result <- post(ts, conn, varPath(ts, "window/4h"))
         chose <- session.traverse(_.vars.get)
         queued <- drain(session)
       } yield {
+        val (status, body) = result
         // ADR 0024: refused is a 200 of signals, not a 4xx.
-        assertEquals(res.status, Status.Ok)
+        assertEquals(status, Status.Ok)
         assert(body.contains("4h"), clue = body)
         // A refused write is not a half-write.
         assertEquals(chose, Some(Map.empty))
@@ -344,15 +252,15 @@ class VarTapSuite extends ServerHarness {
     }
   }
 
-  test("a variable nothing declares is a 404, not a silent no-op") {
-    served { (routes, sessions) =>
+  test("a variable nothing declares is refused, not a silent no-op") {
+    served { ts =>
       for {
-        conn <- connect(routes)
-        res <- post(routes, conn, "/sse/var/dashboard/panel/nosuch/7d")
-        chose <- sessions.get(conn).flatMap(_.traverse(_.vars.get))
+        conn <- ts.load().map(_.conn)
+        result <- post(ts, conn, varPath(ts, "nosuch/7d"))
+        chose <- ts.sessions.get(conn).flatMap(_.traverse(_.vars.get))
       } yield {
         // ADR 0024: a refused action is a 200 carrying signals.
-        assertEquals(res.status, Status.Ok)
+        assertEquals(result._1, Status.Ok)
         assertEquals(chose, Some(Map.empty))
       }
     }
@@ -361,11 +269,11 @@ class VarTapSuite extends ServerHarness {
   test("choosing the window already showing costs no element patch") {
     // The bytes did not move, so nothing is re-sent, but the commit still is: a
     // `24h` press while on `24h` has a pending value only a commit ends.
-    served { (routes, sessions) =>
+    served { ts =>
       for {
-        conn <- connect(routes)
-        session <- sessions.get(conn)
-        _ <- post(routes, conn, "/sse/var/dashboard/panel/window/24h")
+        conn <- ts.load().map(_.conn)
+        session <- ts.sessions.get(conn)
+        _ <- post(ts, conn, varPath(ts, "window/24h"))
         queued <- drain(session)
       } yield assertEquals(queued.flatMap(_.data), List(committed("24h")))
     }
@@ -374,17 +282,17 @@ class VarTapSuite extends ServerHarness {
   test("a refusal ends the control's pending ask by name") {
     // The URL the chooser posts (`components/history.pkl`); its `group` lets a
     // refusal end this control's ask and no other.
-    served { (routes, _) =>
+    served { ts =>
       for {
-        conn <- connect(routes)
-        res <- post(
-          routes,
+        conn <- ts.load().map(_.conn)
+        result <- post(
+          ts,
           conn,
-          "/sse/var/dashboard/panel/window/4h?group=var_panel__window"
+          varPath(ts, "window/4h?group=var_panel__window")
         )
-        body <- res.bodyText.compile.string
       } yield {
-        assertEquals(res.status, Status.Ok)
+        val (status, body) = result
+        assertEquals(status, Status.Ok)
         assert(body.contains("\"_var_panel__window__pending\":\"\""), body)
       }
     }
@@ -394,40 +302,18 @@ class VarTapSuite extends ServerHarness {
     // ADR 0023's bound on reads, at a write and at a page URL: the lock is not
     // on the dashboard, so the recorder must never be asked for it.
     CeRef[IO].of(Set.empty[String]).flatMap { asked =>
-      val recording = for {
-        history <- History.create(new SeriesSource {
-          def raw(start: Instant, end: Instant, entityId: String) =
-            asked.update(_ + entityId).as(List(HistoryPoint("1.0", end)))
-          def statistics(
-              start: Instant,
-              end: Instant,
-              entityId: String,
-              period: StatisticsPeriod
-          ) = IO.pure(Nil)
-        })
-        r <- QueryResolver.create(history, IO.pure((_, _) => IO.pure("<svg/>")))
-      } yield r
       served(
-        (routes, sessions) =>
+        ts =>
           for {
-            conn <- connect(routes)
-            named <- post(routes, conn, "/sse/var/dashboard/panel/e/sensor.b")
-            refused <- post(
-              routes,
-              conn,
-              "/sse/var/dashboard/panel/e/lock.front_door"
-            )
-            chose <- sessions.get(conn).flatMap(_.traverse(_.vars.get))
-            linked <- routes.run(
-              Request[IO](
-                Method.GET,
-                uri"/d/dashboard?v.panel.e=lock.front_door"
-              )
-            )
+            conn <- ts.load().map(_.conn)
+            named <- post(ts, conn, varPath(ts, "e/sensor.b"))
+            refused <- post(ts, conn, varPath(ts, "e/lock.front_door"))
+            chose <- ts.sessions.get(conn).flatMap(_.traverse(_.vars.get))
+            linked <- ts.pageResponse("?v.panel.e=lock.front_door")
             entities <- asked.get
           } yield {
-            assertEquals(named.status, Status.NoContent)
-            assertEquals(refused.status, Status.Ok)
+            assertEquals(named._1, Status.NoContent)
+            assertEquals(refused._1, Status.Ok)
             assertEquals(
               chose,
               Some(Map(("panel": fh.view.model.NodeId, "e") -> "sensor.b"))
@@ -435,8 +321,9 @@ class VarTapSuite extends ServerHarness {
             assertEquals(linked.status, Status.BadRequest)
             assertEquals(entities, Set("sensor.a", "sensor.b"))
           },
-        recording,
-        entityDash
+        recorder = (_, end, entityId) =>
+          asked.update(_ + entityId).as(List(HistoryPoint("1.0", end))),
+        dashboard = entityDash
       )
     }
   }
@@ -446,43 +333,37 @@ class VarTapSuite extends ServerHarness {
   ) {
     // The URL once skipped the write's check: the page answered 200 and died
     // mid-walk.
-    served { (routes, _) =>
-      routes
-        .run(Request[IO](Method.GET, uri"/d/dashboard?v.panel.window=bogus"))
+    served(
+      _.pageResponse("?v.panel.window=bogus")
         .flatMap(r => r.bodyText.compile.string.map(r.status -> _))
-        .map { case (status, body) =>
+        .map { (status, body) =>
           assertEquals(status, Status.BadRequest)
           assert(body.contains("bogus"), clue = body)
         }
-    }
+    )
   }
 
   test("the document seeds a linked choice, not the declared value") {
     // Seeded ahead of the body, so the URL mirror never writes the declared
     // window over the linked one while the stream connects.
-    served { (routes, _) =>
-      routes
-        .run(Request[IO](Method.GET, uri"/d/dashboard?v.panel.window=7d"))
-        .flatMap(_.bodyText.compile.string)
-        .map { page =>
-          val seed = page.indexOf("_var_panel__window: '7d'")
-          assert(seed >= 0, clue = page)
-          assert(seed < page.indexOf("id=\"panel\""), clue = page)
-          assert(!page.contains("_var_panel__window: '24h'"), clue = page)
-        }
-    }
+    served(_.page("?v.panel.window=7d").map { page =>
+      val seed = page.indexOf("_var_panel__window: '7d'")
+      assert(seed >= 0, clue = page)
+      assert(seed < page.indexOf("id=\"panel\""), clue = page)
+      assert(!page.contains("_var_panel__window: '24h'"), clue = page)
+    })
   }
 
   test("two choices landing together both stick") {
     served(
-      (routes, sessions) =>
+      ts =>
         for {
-          conn <- connect(routes)
+          conn <- ts.load().map(_.conn)
           _ <- (
-            post(routes, conn, "/sse/var/dashboard/panel/e/sensor.b"),
-            post(routes, conn, "/sse/var/dashboard/panel/window/7d")
+            post(ts, conn, varPath(ts, "e/sensor.b")),
+            post(ts, conn, varPath(ts, "window/7d"))
           ).parTupled
-          chose <- sessions.get(conn).flatMap(_.traverse(_.vars.get))
+          chose <- ts.sessions.get(conn).flatMap(_.traverse(_.vars.get))
         } yield assertEquals(
           chose.map(_.keySet.map(_._2)),
           Some(Set("e", "window"))

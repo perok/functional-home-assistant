@@ -70,9 +70,8 @@ final class TestServer(
     *
     * Necessary but not sufficient for a test expecting a change as a live
     * patch: a session is adopted before its opening block runs, so the change
-    * can land in the opening repaint. Such a test gates on the connection's own
-    * opening cursor instead (see `SharedPassSuite`'s "rendered once between
-    * them").
+    * can land in the opening repaint. Such a test uses [[connect]], which
+    * returns after the opening block.
     */
   def awaitSharedSubscribers(n: Int = 1): IO[Unit] =
     server.connectedSessions.filter(_ >= n).head.compile.drain
@@ -135,22 +134,25 @@ final class TestServer(
     */
   def post(
       path: String,
-      as: Option[String] = Some(auth.defaultSession)
+      as: Option[String] = Some(auth.defaultSession),
+      body: String = ""
   ): IO[Status] =
-    postResult(path, as).map(_._1)
+    postResult(path, as, body).map(_._1)
 
   /** A refused action answers 200 carrying the signals that report it (ADR
-    * 0024), so a refusal is read from the body.
+    * 0024), so a refusal is read from the body. `body` is the signals a
+    * Datastar action sends.
     */
   def postResult(
       path: String,
-      as: Option[String] = Some(auth.defaultSession)
+      as: Option[String] = Some(auth.defaultSession),
+      body: String = ""
   ): IO[(Status, String)] =
     run(
       Request[IO](
         Method.POST,
         Uri.unsafeFromString("/" + path.stripPrefix("/"))
-      ),
+      ).withEntity(body),
       as
     ).flatMap(resp => bodyOf(resp).map(resp.status -> _))
 
@@ -317,7 +319,8 @@ object TestServer {
       workspace: Option[os.Path] = None,
       // The site default the gate falls back to when the dashboard sets none.
       access: Access = Access.default,
-      windows: Server.SessionWindows = Server.SessionWindows.default
+      windows: Server.SessionWindows = Server.SessionWindows.default,
+      config: FakeConfig = FakeConfig()
   ): Resource[IO, TestServer] =
     for {
       validated <- IO
@@ -331,7 +334,7 @@ object TestServer {
             )
         )
         .toResource
-      fake <- FakeHomeAssistant.create(entities).toResource
+      fake <- FakeHomeAssistant.create(entities, config).toResource
       dir <- workspace.fold(tempDir("fh-workspace"))(Resource.pure)
       booted <- assemble(
         fake,

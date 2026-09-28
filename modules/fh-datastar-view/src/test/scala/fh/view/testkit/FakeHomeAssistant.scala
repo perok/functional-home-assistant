@@ -12,6 +12,7 @@ import fs2.Stream
 import fs2.concurrent.SignallingRef
 import io.circe.Json
 
+import java.time.Instant
 import scala.concurrent.duration.*
 
 case class ServiceCall(
@@ -24,10 +25,14 @@ case class ServiceCall(
 /** `callDelay` holds the response open, the window a busy-guard test clicks
   * inside; `failCalls` makes every `call_service` raise, which the server
   * answers as a refusal (the toast test's trigger). Both default off.
+  * `recorder` answers history per entity in place of the synthetic line, for a
+  * test about what was asked for or how a failure lands.
   */
 final case class FakeConfig(
     callDelay: FiniteDuration = Duration.Zero,
-    failCalls: Boolean = false
+    failCalls: Boolean = false,
+    recorder: Option[(Instant, Instant, String) => IO[List[HistoryPoint]]] =
+      None
 )
 
 /** Stubs the low-level WS API, the one seam
@@ -123,28 +128,38 @@ final class FakeHomeAssistant private (
       case _: `config/auth/list` =>
         IO.pure(Nil)
 
-      // Every numeric fixture at its current state, with a ripple so a chart
-      // has a line, sampled across the asked span. No statistics, so `History`
-      // charts the raw history.
       case h: `history/history_during_period` =>
-        stateRef.get.map { states =>
-          h.entity_ids.flatMap { id =>
-            states.get(id).flatMap(_.state.toDoubleOption).map { v =>
-              val step =
-                (h.end_time.toEpochMilli - h.start_time.toEpochMilli) / 30
-              id -> List.tabulate(31) { i =>
-                HistoryPoint(
-                  (v + math.sin(i / 3.0)).toString,
-                  h.start_time.plusMillis(step * i)
-                )
-              }
-            }
-          }.toMap
-        }
+        config.recorder.fold(syntheticHistory(h))(recorder =>
+          h.entity_ids
+            .traverse(id => recorder(h.start_time, h.end_time, id).map(id -> _))
+            .map(_.toMap)
+        )
       case _: `recorder/statistics_during_period` =>
         IO.pure(Map.empty[String, List[StatisticPoint]])
 
       case _ => na
+    }
+
+  /** Every numeric fixture at its current state, with a ripple so a chart has a
+    * line, sampled across the asked span. No statistics, so `History` charts
+    * the raw history.
+    */
+  private def syntheticHistory(
+      h: `history/history_during_period`
+  ): IO[Map[String, List[HistoryPoint]]] =
+    stateRef.get.map { states =>
+      h.entity_ids.flatMap { id =>
+        states.get(id).flatMap(_.state.toDoubleOption).map { v =>
+          val step =
+            (h.end_time.toEpochMilli - h.start_time.toEpochMilli) / 30
+          id -> List.tabulate(31) { i =>
+            HistoryPoint(
+              (v + math.sin(i / 3.0)).toString,
+              h.start_time.plusMillis(step * i)
+            )
+          }
+        }
+      }.toMap
     }
 
   def subscribeStream[Result](
