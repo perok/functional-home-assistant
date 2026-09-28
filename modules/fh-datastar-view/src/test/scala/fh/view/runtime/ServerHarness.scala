@@ -803,6 +803,11 @@ trait ServerHarness extends munit.CatsEffectSuite {
       .use(use)
       .timeout(30.seconds)
 
+  extension (v: TestServer.Viewer)
+    /** [[TestServer.Viewer.step]] from the states these suites build. */
+    def change(states: EntityState*): IO[List[SseFrame]] =
+      v.step(states.map(s => FixtureEntity(s.entityId, s.state, s.attributes))*)
+
   def liveOne(dash: Dashboard, initial: Map[String, EntityState])(
       use: (TestServer, TestServer.LiveClient) => IO[Unit]
   ): IO[Unit] =
