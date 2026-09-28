@@ -24,9 +24,9 @@ final case class Tokens(
   * `Dead` and a raised error are deliberately different things: `Dead` is HA
   * ANSWERING that the grant is gone (the user revoked us in Profile → Security,
   * or was deleted), and the only correct response is to evict the session. A
-  * timeout or a refused connection is not an answer, so it stays in `IO`'s
-  * error channel where a caller can retry without logging anyone out — an
-  * unreachable HA must not empty the session store.
+  * timeout, a refused connection or a 5xx is not an answer, so it stays in
+  * `IO`'s error channel where a caller can retry without logging anyone out —
+  * an unreachable HA must not empty the session store.
   */
 enum RefreshOutcome derives CanEqual:
   case Renewed(tokens: Tokens)
@@ -208,8 +208,8 @@ final class HaOAuth(authorizeBase: Uri, tokenBase: Uri, client: Client[IO]) {
         "client_id" -> clientId.renderString
       )
     ).flatMap {
-      case Right(tokens) => IO.pure(tokens)
-      case Left(body)    =>
+      case Right(tokens)   => IO.pure(tokens)
+      case Left((_, body)) =>
         FHError
           .badCondition(s"Home Assistant rejected the login code: $body")
           .raiseError[IO, Tokens]
@@ -226,9 +226,19 @@ final class HaOAuth(authorizeBase: Uri, tokenBase: Uri, client: Client[IO]) {
         "refresh_token" -> refreshToken,
         "client_id" -> clientId.renderString
       )
-    ).map {
-      case Right(tokens) => RefreshOutcome.Renewed(tokens)
-      case Left(_)       => RefreshOutcome.Dead
+    ).flatMap {
+      case Right(tokens) => IO.pure(RefreshOutcome.Renewed(tokens))
+      // A 4xx is HA answering about the grant (`invalid_grant`, a client_id it
+      // never stored). Anything else — a 5xx while HA restarts, a 200 we cannot
+      // read — is HA failing to answer, and says nothing about the account.
+      case Left((status, _)) if status.responseClass == Status.ClientError =>
+        IO.pure(RefreshOutcome.Dead)
+      case Left((status, body)) =>
+        FHError
+          .unavailable(
+            s"Home Assistant could not renew a login (${status.code}): $body"
+          )
+          .raiseError[IO, RefreshOutcome]
     }
 
   /** Tell HA to forget a refresh token, so logging out here also drops the
@@ -248,15 +258,16 @@ final class HaOAuth(authorizeBase: Uri, tokenBase: Uri, client: Client[IO]) {
       .attempt
       .void
 
-  private def post(form: UrlForm): IO[Either[String, Tokens]] =
+  private def post(form: UrlForm): IO[Either[(Status, String), Tokens]] =
     client
       .run(
         Request[IO](Method.POST, tokenBase / "auth" / "token").withEntity(form)
       )
       .use { resp =>
         resp.bodyText.compile.string.map { body =>
-          if (resp.status === Status.Ok) parseTokens(body)
-          else Left(body.take(200))
+          if (resp.status === Status.Ok)
+            parseTokens(body).leftMap(resp.status -> _)
+          else Left(resp.status -> body.take(200))
         }
       }
       // A refused connection is not HA ANSWERING — it never got there — so it

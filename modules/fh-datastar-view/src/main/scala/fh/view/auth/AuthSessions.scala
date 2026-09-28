@@ -2,16 +2,16 @@ package fh.view.auth
 
 import api.homeassistant.ws.domain.HaUser
 import cats.effect.IO
+import cats.effect.std.Mutex
 import fs2.Stream
 import fs2.concurrent.SignallingRef
-import fs2.io.file.{Files, Path, PosixPermissions}
+import fs2.io.file.{CopyFlag, CopyFlags, Files, Path, PosixPermissions}
 import io.circe.syntax.*
 import io.circe.{Decoder, Encoder, parser}
 import org.http4s.{Request, RequestCookie, ResponseCookie, SameSite, Uri}
 import fh.view.telemetry.Logging
 import org.typelevel.log4cats.LoggerFactory
 
-import java.nio.file.FileAlreadyExistsException
 import java.time.Instant
 
 /** An access token and when it stops working. HA sends `expires_in` seconds; a
@@ -72,9 +72,10 @@ final case class AuthSession(
   * The map in memory is the truth; [[store]] is a write-through copy so a
   * restart — which happens on every dashboard edit — does not log everyone out.
   */
-final class AuthSessions(
+final class AuthSessions private (
     ref: SignallingRef[IO, Map[String, AuthSession]],
-    store: SessionStore
+    store: SessionStore,
+    writing: Mutex[IO]
 ) {
 
   def get(id: String): IO[Option[AuthSession]] = ref.get.map(_.get(id))
@@ -173,7 +174,12 @@ final class AuthSessions(
   ): Stream[IO, Boolean] =
     ref.discrete.map(m => permits(id.flatMap(m.get).map(_.user))).changes
 
-  private def persist: IO[Unit] = ref.get.flatMap(store.write)
+  /** One write at a time, and the map read INSIDE the lock, so the last write
+    * to land is always of the newest map — two unserialised writes could finish
+    * in the wrong order and leave an older map on disk.
+    */
+  private def persist: IO[Unit] =
+    writing.lock.surround(ref.get.flatMap(store.write))
 }
 
 object AuthSessions {
@@ -233,7 +239,8 @@ object AuthSessions {
     for {
       restored <- store.read
       ref <- SignallingRef[IO].of(restored)
-    } yield new AuthSessions(ref, store)
+      writing <- Mutex[IO]
+    } yield new AuthSessions(ref, store, writing)
 }
 
 /** The write-through file behind [[AuthSessions]] (`.fh/sessions.json`).
@@ -255,26 +262,42 @@ final class SessionStore(
 
   private val file = Path.fromNioPath(path.toNIO)
 
-  def write(sessions: Map[String, AuthSession]): IO[Unit] =
+  /** Written to a sibling temp file and MOVED over the old one, so a crash or a
+    * full disk mid-write leaves the previous file whole. A truncated file is
+    * not a small loss here: [[read]] refuses to boot on one.
+    */
+  def write(sessions: Map[String, AuthSession]): IO[Unit] = {
+    val dir = file.parent.getOrElse(Path("."))
     (
-      Files[IO].createDirectories(file.parent.getOrElse(file)) *>
+      Files[IO].createDirectories(dir) *>
         // Created with the permissions already on it rather than fixed up
         // afterwards: a chmod after the write leaves a window where the
-        // refresh tokens are world-readable. Existing is the ordinary case —
-        // this rewrites the whole map on every change.
+        // refresh tokens are world-readable.
         Files[IO]
-          .createFile(file, Some(SessionStore.OwnerOnly))
-          .recover { case _: FileAlreadyExistsException => () } *>
-        Stream
-          .emit(sessions.asJson.noSpaces)
-          .through(Files[IO].writeUtf8(file))
-          .compile
-          .drain
+          .createTempFile(
+            Some(dir),
+            ".sessions",
+            ".tmp",
+            Some(SessionStore.OwnerOnly)
+          )
+          .flatMap { tmp =>
+            (Stream
+              .emit(sessions.asJson.noSpaces)
+              .through(Files[IO].writeUtf8(tmp))
+              .compile
+              .drain *>
+              Files[IO].move(
+                tmp,
+                file,
+                CopyFlags(CopyFlag.AtomicMove, CopyFlag.ReplaceExisting)
+              )).onError(_ => Files[IO].deleteIfExists(tmp).attempt.void)
+          }
     ).handleErrorWith { e =>
       // A workspace we cannot write to must not take the server down: the
       // sessions still work, they just will not survive a restart.
       log.warn(s"could not persist sessions to $path: ${e.getMessage}")
     }
+  }
 
   /** What the last run left.
     *

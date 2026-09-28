@@ -1812,7 +1812,7 @@ class Renderer(
       // A member's children have no ids of their own, so their plan key is the
       // member's id plus the position under it — the same map a member's
       // structural vars are built from, one plan per authored position.
-      val plan = planOf(s"$m.id\u0000${path.mkString("/")}", m.id, c, states)
+      val plan = planOf(s"${m.id}\u0000${path.mkString("/")}", m.id, c, states)
       ResolvedChild.Node(
         c.cell,
         ResolvedMember(

@@ -24,7 +24,7 @@ import scala.concurrent.duration.*
   * from outside.
   *
   * Driven through the REAL `HaOAuth` over a stub HTTP backend rather than a
-  * hand-written double, so the `/auth/token` contract it depends on — a non-200
+  * hand-written double, so the `/auth/token` contract it depends on — a 4xx
   * meaning the grant is gone — is exercised rather than assumed. The stub also
   * applies HA's own rule that a token request whose `client_id` differs from
   * the grant's is `invalid_request`: that field is exactly what once broke
@@ -132,6 +132,18 @@ class RevalidateSessionsSuite extends munit.CatsEffectSuite {
       )
     )
     sweep(dead).flatMap { case (sessions, id) =>
+      sessions.get(id).map(s => assertEquals(s.map(_.user), Some(user)))
+    }
+  }
+
+  /** A 5xx is HA failing to answer — a restart, a proxy in front of it — not HA
+    * saying the grant is gone. Reading it as a dead grant would sign the
+    * household out on every HA update.
+    */
+  test("HA answering 5xx leaves the session alone") {
+    val restarting =
+      IO.pure(Response[IO](Status.ServiceUnavailable).withEntity("starting"))
+    sweep(haStub(restarting)).flatMap { case (sessions, id) =>
       sessions.get(id).map(s => assertEquals(s.map(_.user), Some(user)))
     }
   }

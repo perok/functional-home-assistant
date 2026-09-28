@@ -88,6 +88,11 @@ class AuthGateSuite extends munit.CatsEffectSuite {
     assertEquals(AuthGate.safeNext(Some("https://evil.example")), "/")
     assertEquals(AuthGate.safeNext(Some("javascript:alert(1)")), "/")
     assertEquals(AuthGate.safeNext(Some("d/kitchen")), "/")
+    // Browsers read a backslash as a slash and drop tabs and newlines before
+    // resolving, so each of these is `//evil.example` by the time it lands.
+    assertEquals(AuthGate.safeNext(Some("/\\evil.example")), "/")
+    assertEquals(AuthGate.safeNext(Some("/\t/evil.example")), "/")
+    assertEquals(AuthGate.safeNext(Some("/\n/evil.example")), "/")
     assertEquals(AuthGate.safeNext(None), "/")
   }
 
