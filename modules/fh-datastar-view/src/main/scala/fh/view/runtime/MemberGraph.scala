@@ -4,8 +4,7 @@ import fh.view.model.{LayoutNode, MemberId, NodeId, Predicate, SetId}
 
 /** One member of a candidate set, MATERIALISED into the node graph: a real
   * [[LayoutNode.Component]] under the id its [[MemberKey]] derives, carrying
-  * the matched entity as a literal `entity_id` slot exactly as the clause
-  * dispatch used to set it per render.
+  * the matched entity as a literal `entity_id` slot.
   *
   * The node is STATE-DERIVED — which clause matched, and so which card and
   * slots — so it is frozen at the moment membership was applied and must be
@@ -160,13 +159,6 @@ private[runtime] final class MemberGraph(
     * [[LayoutNode.SetNode]]'s candidates are decided at BUILD time, so the
     * runtime decides only presence and order
     * (`docs/adr/0003-candidate-sets.md`).
-    *
-    * One shape, deliberately. This was a trait over two implementations while
-    * query-driven groups existed, and every difference between them was a
-    * consequence of one thing: a query group's members were invented at
-    * runtime, so it could not say who its candidates were, could not place them
-    * by anything but entity id, and had to rescan to find them. None of that
-    * survives a static candidate list.
     */
   private case class MemberSource(s: LayoutNode.SetNode) {
 
@@ -311,13 +303,10 @@ private[runtime] final class MemberGraph(
 
   /** Where a set nested inside a member hangs, as an id — THE definition of the
     * scheme, read from both ends: [[sources]] registers a container under it,
-    * and `Renderer.memberChild` renders the element under it.
-    *
-    * It was written out twice, once per end, with a comment asking them to
-    * agree. They did, but the failure mode if they ever stopped is silent in
-    * the worst way: the markup and the ids are both correct, the graph syncs,
-    * and no patch is ever emitted because the container the recorder knows
-    * about is not the element the browser has.
+    * and `Renderer.resolveChild` renders the element under it. Two spellings
+    * disagreeing would be silent in the worst way: the graph syncs, and no
+    * patch is ever emitted because the container the recorder knows about is
+    * not the element the browser has.
     *
     * The id says where the set hangs: `<member>_<clause>_<child path>`. Every
     * segment is static — a candidate cannot move, and neither can a clause
@@ -337,18 +326,15 @@ private[runtime] final class MemberGraph(
     )
 
   /** Every member container, INCLUDING the ones nested inside a member — "a
-    * tile per room", where each tile holds a set over that room's lights.
+    * tile per room", where each tile holds a set over that room's lights — each
+    * with the MEMBER it hangs off when it is a nested one.
     *
     * They can all be enumerated here because a set's candidates are static, so
     * the whole tree of sets is knowable before any state arrives. That is what
-    * makes an inner set an ordinary container with an ordinary id rather than
-    * something materialised per frame, and it is why the inner members patch
-    * themselves instead of the tile re-rendering.
-    */
-  /** Every set container, each with the MEMBER it hangs off when it is a nested
-    * one. The owner is carried out rather than recovered later: `setsIn` knows
-    * it while walking, and the alternative — reading it back off the id's
-    * prefix — is exactly the inference [[NodeAncestry]] exists to stop.
+    * makes an inner set an ordinary container with an ordinary id, and why the
+    * inner members patch themselves instead of the tile re-rendering. The owner
+    * is carried out rather than read back off the id's prefix — the inference
+    * [[NodeAncestry]] exists to stop.
     */
   private val sourcesWithOwner: List[(NodeId, MemberSource, Option[NodeId])] = {
     def nested(
@@ -431,13 +417,9 @@ private[runtime] final class MemberGraph(
 
   /** member id -> the container that owns it, for every member that can be
     * named ahead of time. A candidate set's members are static, so this is an
-    * exact answer and the id never has to be PARSED to find its parent.
-    *
-    * There used to be an id-prefix search beside it, for the query group whose
-    * member could be any entity in the house. It went with them, and good
-    * riddance: a prefix test cannot tell `c_1_light_a_b` (set `c_1`, entity
-    * `light.a_b`) from a member of a set called `c_1_light_a`, and once sets
-    * nest inside members it cannot tell an inner member from an outer one.
+    * exact answer and the id never has to be PARSED to find its parent — which
+    * a prefix test could not do: it cannot tell `c_1_light_a_b` (set `c_1`,
+    * entity `light.a_b`) from a member of a set called `c_1_light_a`.
     */
   private val memberOwner: Map[NodeId, SetId] =
     sources.toList.flatMap { case (at, src) =>
@@ -541,9 +523,7 @@ private[runtime] final class MemberGraph(
     *
     * Only a CHANGED entity can have crossed a guard or clause boundary, so a
     * frame costs the number of CHANGES per set rather than a rescan of the
-    * house — which is the whole point: the query group this replaced filtered
-    * every entity in the house twice per frame per group, and once more per
-    * pulling session.
+    * house.
     *
     * Nothing walks the member list unless a member actually moved. A frame that
     * only TICKS members — the common case — produces the same nodes, so
@@ -572,8 +552,7 @@ private[runtime] final class MemberGraph(
         // live ordering one entity moving reorders its neighbours, and with a
         // limit it can push a different member out entirely. So rebuild the
         // list — O(candidates) for a container this frame actually touched,
-        // which is bounded and static, where the query group it replaced
-        // rescanned the whole house.
+        // which is bounded and static.
         if (touched.isEmpty) (was, Set.empty[MemberId])
         else if (!src.stable) {
           val rebuilt = materialise(gid, src, states)
@@ -719,9 +698,8 @@ private[runtime] final class MemberGraph(
     index.get.byId.get(id).toList.flatMap(m => read(m.node))
 
   /** Main-page member containers whose MEMBERSHIP this frame could have moved.
-    * No entity list: a member that merely ticked is found through the reverse
-    * index now, so the only question left here is which sets to ask about
-    * membership.
+    * A member that merely ticked is found through the reverse index, so the
+    * only question here is which sets to ask about membership.
     */
   def affectedSets(changes: List[StateChange]): List[SetId] =
     containersIn("", changes)

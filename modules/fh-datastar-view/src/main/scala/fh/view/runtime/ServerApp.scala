@@ -70,10 +70,10 @@ object ServerApp extends IOApp {
 
   private val LoggerName = "fh.view.runtime.ServerApp"
 
-  /** The fallback for a helper nobody handed a logger — which after `run` was
-    * reordered means tests only. Boot builds the real one before it does
-    * anything worth logging, so every line this object writes in production
-    * reaches the collector with the span it was written inside.
+  /** The fallback for a helper nobody handed a logger — tests only. Boot builds
+    * the real one before it does anything worth logging, so every line this
+    * object writes in production reaches the collector with the span it was
+    * written inside.
     */
   private val consoleLog: SelfAwareStructuredLogger[IO] =
     Logging.console.getLoggerFromName(LoggerName)
@@ -191,25 +191,25 @@ object ServerApp extends IOApp {
       // background reconnect loop and mistaken for an unreachable HA (which
       // would only surface as the feed's seed timeout below).
       haEnv <- FHApi.resolveEnv.toResource
-      // ONE Home Assistant connection for the whole runtime: the self-healing
-      // feed. Its stable facade (`feed.api`) backs BOTH the live dashboard
-      // (`call_service` + state) AND the startup/occasional REST work — dump
-      // prep, dump refresh, registry watching — so there is no second,
-      // unsupervised socket that silently dies on a drop. Acquiring it blocks
-      // until its store has been filled, so it is ready to read here.
       // What the upstream subscription is narrowed to, created BEFORE the
       // feed because the feed reads it and `None` is the only answer
       // available this early: no dashboard has been built, so nothing yet
       // knows which entities matter. That is also the answer that makes boot
       // work — an unfiltered subscription is what fills the store, and
-      // acquiring the feed blocks until it has. `watchFeedScope` narrows it
-      // once the registry exists.
+      // acquiring the feed blocks until it has. `narrowFeed` narrows it once
+      // the registry exists.
       wanted <- SignallingRef[IO]
         .of(Option.empty[Set[String]])
         .toResource
       feedTracer <- otel.tracerProvider
         .get("fh.view.runtime.HaFeed")
         .toResource
+      // ONE Home Assistant connection for the whole runtime: the self-healing
+      // feed. Its stable facade (`feed.api`) backs BOTH the live dashboard
+      // (`call_service` + state) AND the occasional work — dump prep, dump
+      // refresh, registry watching — so there is no second, unsupervised
+      // socket that silently dies on a drop. Acquiring it blocks until its
+      // store has been filled, so it is ready to read here.
       feed <- HaFeed.resource(
         FHApi.lowLevelConnectWithClose(haEnv),
         wanted,
@@ -367,9 +367,6 @@ object ServerApp extends IOApp {
               )
               .raiseError[IO, HaUser]
           )
-      // Built from the SITE, not from the server: the server routes with it,
-      // so it has to exist first. `LiveSite` owns the registry the rule is
-      // read from, which is where `permissionFor` lives.
       // Under the add-on's ingress, HA has already authenticated the user
       // and the Supervisor forwards who they are — so nobody logs in twice.
       // The headers carry no ROLE, so the id is resolved against HA's own
@@ -387,6 +384,8 @@ object ServerApp extends IOApp {
         }
         .toResource
       ingressUsers <- IngressUsers.cached(feed.api.configAuthList).toResource
+      // Built from the SITE, not from the server: the server routes with it,
+      // so it has to exist first.
       gate = new AuthGate(
         authSessions,
         identify,
@@ -915,6 +914,26 @@ object ServerApp extends IOApp {
     reloadOnChange.concurrently(reconcile)
   }
 
+  /** Keep `wanted` tracking what the registered dashboards read, so the
+    * upstream `subscribe_entities` carries the entities that can actually
+    * change something and nothing else.
+    *
+    * `Some(set)` from the first emission onward, INCLUDING an empty one: an
+    * instance with no dashboard genuinely wants no state, and the feed declines
+    * to subscribe rather than sending an empty `entity_ids`, which HA reads as
+    * the whole house. `None` is only the boot value, and it never comes back —
+    * once the registry has spoken, "unknown" is not a state the runtime can
+    * re-enter.
+    */
+  private[runtime] def narrowFeed(
+      site: Server.LiveSite,
+      wanted: SignallingRef[IO, Option[Set[String]]]
+  ): IO[Unit] =
+    site.watchedEntities
+      .evalMap(ids => wanted.set(Some(ids)))
+      .compile
+      .drain
+
   /** Re-evaluate the entrypoint against the on-disk sources + dump and bring
     * the live site up to what it now says: install the dashboards it names
     * (`Ready`, or `Failed` with the message its own build failed with) and
@@ -942,26 +961,6 @@ object ServerApp extends IOApp {
     * that did not change a dashboard — a touched file, a comment, an edit to a
     * sibling — would still throw every viewer's DOM away.
     */
-  /** Keep `wanted` tracking what the registered dashboards read, so the
-    * upstream `subscribe_entities` carries the entities that can actually
-    * change something and nothing else.
-    *
-    * `Some(set)` from the first emission onward, INCLUDING an empty one: an
-    * instance with no dashboard genuinely wants no state, and the feed declines
-    * to subscribe rather than sending an empty `entity_ids`, which HA reads as
-    * the whole house. The `None` this replaces is the boot value, and it never
-    * comes back — once the registry has spoken, "unknown" is not a state the
-    * runtime can re-enter.
-    */
-  private[runtime] def narrowFeed(
-      site: Server.LiveSite,
-      wanted: SignallingRef[IO, Option[Set[String]]]
-  ): IO[Unit] =
-    site.watchedEntities
-      .evalMap(ids => wanted.set(Some(ids)))
-      .compile
-      .drain
-
   private[runtime] def reloadSite(
       dashboardsDir: os.Path,
       site: Server.LiveSite,

@@ -96,7 +96,6 @@ object HAWSApiLowLevel {
       * `HaFeed.pump` fold it into a single store update.
       */
     def receiveStreamDecode[Body: Decoder](): Stream[IO, Body] = {
-      // TODO ping pong on WSFrame?
       // Branch on the SHAPE, and name `decodeList` explicitly rather than
       // summoning `Decoder[List[Body]]` — that would resolve back to this very
       // decoder. Not a `given` either, for the same reason: it is passed to

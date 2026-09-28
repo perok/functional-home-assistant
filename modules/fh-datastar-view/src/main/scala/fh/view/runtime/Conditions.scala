@@ -6,8 +6,8 @@ import fh.view.model.{Op, Predicate}
   * query wire AST is interpreted.
   *
   * Its own object rather than a corner of the renderer: three unrelated callers
-  * ask the same question. A set member's clause guard ([[MemberSource]]), a
-  * state surface's activation condition (`Renderer.holds`), and a `Count`
+  * ask the same question. A set member's clause guard (`MemberGraph`), a state
+  * surface's activation condition (`SurfaceGraph.holds`), and a `Count`
   * aggregate nested inside either. None of them is about membership, and none
   * needs a renderer to answer.
   */

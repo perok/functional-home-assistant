@@ -104,7 +104,7 @@ private[runtime] final class SurfaceGraph(
 
   /** Tabs. Their own rendering is shared like any other node — the
     * client-selected member lives in the HOST, which a patch never carries.
-    * What is per-client is FILLING that host ([[surfaceVariesByViewer]]).
+    * What is per-client is FILLING that host (`Patches.hostFill`).
     */
   val userBakeOwnerIds: Set[NodeId] =
     bakeOwnerIds.filterNot(isStateGroup)
@@ -189,9 +189,8 @@ private[runtime] final class SurfaceGraph(
     * tick of an entity it binds. Harmless, since the morph targets an id the
     * DOM lacks, and pure waste.
     *
-    * Hence the walk UP the whole chain. The visited set is for the same reason
-    * as [[userGroupsUnder]]'s: `bakeInto` is authored, so the chain is not
-    * guaranteed acyclic.
+    * Hence the walk UP the whole chain. The visited set is because `bakeInto`
+    * is authored, so the chain is not guaranteed acyclic.
     */
   def visibleSurface(
       sid: String,

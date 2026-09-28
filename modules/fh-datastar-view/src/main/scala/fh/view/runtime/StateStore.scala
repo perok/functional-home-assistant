@@ -41,8 +41,7 @@ case class EntityState(
 
   /** HA's non-value states: the entity has no real reading. A value-display
     * slot marked `bypassUnavailable` shows this verbatim instead of running its
-    * transform — which would otherwise error (`$number("unavailable")`) or be
-    * meaningless.
+    * transform — which would otherwise error (`num(state)`) or be meaningless.
     */
   def unavailable: Boolean = EntityState.unavailableStates(state)
 
@@ -133,11 +132,9 @@ object EntityState {
 }
 
 /** One applied state change: the entity, its `previous` value (None if newly
-  * seen), and its `current` value. Carrying both lets a consumer decide whether
-  * a change affects a data-dependent view (a candidate set) by testing the
-  * group's query against the before AND after state — so an add, a remove, or
-  * an in-place update all register, while an unrelated entity is skipped,
-  * without any per-consumer membership tracking.
+  * seen), and its `current` value. `previous` is what lets a frame rebuild the
+  * snapshot before it ([[Patches.beforeSnapshot]]), so membership is compared
+  * before vs. after without the store keeping old snapshots.
   */
 case class StateChange(
     entityId: String,
@@ -183,8 +180,8 @@ private[runtime] case class StoreState(
   *
   * Filled and kept current by a background fiber consuming HA's compressed
   * `subscribe_entities` feed ([[applyEntities]]) — full states first, deltas
-  * after. Every applied change is published to `changes` so SSE connections can
-  * re-render dependent components.
+  * after. Every applied frame is published to `changes`, which each slug's
+  * recorder (`Server.publisherFor`) turns into its changelog.
   */
 class StateStore private (
     ref: Ref[IO, StoreState],
@@ -215,15 +212,11 @@ class StateStore private (
     * UNBOUNDED, and that is a correctness requirement rather than a capacity
     * choice: `Topic.publish1` sends to every subscriber's channel in turn and
     * blocks on a full one, so a bounded subscription here would let a single
-    * slow consumer — an SSE connection whose browser stopped reading — block
-    * [[update]], and with it the feed that drives the store for EVERY dashboard
-    * and every viewer.
-    *
-    * Nothing may backpressure the feed, so a consumer that cannot keep up must
-    * be dropped instead of slowing everyone down. What bounds the memory this
-    * gives up is the connection: ember gives every socket write an idle timeout
-    * (60s by default), so a peer that stops reading is torn down and this
-    * subscription released with it.
+    * slow consumer block [[update]], and with it the feed that drives the store
+    * for EVERY dashboard and every viewer. The subscribers are the per-slug
+    * recorders, which only write a log and ring a doorbell — sessions pull from
+    * those and never subscribe here, so a browser that stops reading cannot
+    * hold this up.
     */
   def changes: Stream[IO, List[StateChange]] = topic.subscribeUnbounded
 

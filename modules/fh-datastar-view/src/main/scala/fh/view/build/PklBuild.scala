@@ -278,35 +278,6 @@ object PklBuild {
       case None => dashboardsDir / ".pkl-cache"
     }
 
-  /** The entry's transitive imports as `file:` paths under `dashboardsDir`.
-    *
-    * Uses pkl-core's static analyzer (`Analyzer.importGraph`): the graph's
-    * module set (the `imports` map keys, plus resolved targets) is every module
-    * the entry pulls in. We keep only `file:` modules under the dashboards dir
-    * (dropping `pkl:`/`package:`/`http(s):` stdlib and remote imports, which
-    * are not local files to watch). On any failure — or an empty result — we
-    * fall back to the conservative superset (every `*.pkl` under the dir); the
-    * entry is always included regardless.
-    *
-    * **The `@fh-dashboard` alias resolves here too**, which is why this is
-    * precise rather than a superset for the real dashboards. Two of the
-    * `Analyzer` constructor's slots do the work: the `moduleCacheDir` and the
-    * `DeclaredDependencies` (`project.getDependencies`, the same
-    * [[resolveProjectDeps]] output the evaluator gets). With those supplied and
-    * the `projectpackage`/`pkg` factories registered, an
-    * `import "@fh-dashboard/components.pkl"` analyzes as
-    * `projectpackage://fh.invalid/fh-dashboard@1.0.0#/components.pkl`, and —
-    * because `@fh-dashboard` is a LOCAL dependency — `graph.resolvedImports`
-    * maps it straight back to the real `file:…/lib/components.pkl`. So the
-    * `file:` filter below picks up exactly the library modules the entry
-    * actually imports, and nothing else (verified on pkl-core 0.31.1).
-    *
-    * That precision is why `ServerApp.watchedSet` does NOT need to bulk-add
-    * `lib/`: an entry that imports a card class watches that card class, and a
-    * library module nobody imports is correctly not watched. Lib/dump arrive as
-    * cache-backed `package:` imports and are filtered out of the `file:` set —
-    * they are immutable per version, not hot-reloaded.
-    */
   /** [[importSet]] WITHOUT evaluating: the local `*.pkl` files `entryFile`
     * reads, from static analysis alone. Cheap (no evaluation, no HA), so it can
     * answer a request — the editor asks it after a write to say whether the
@@ -331,6 +302,34 @@ object PklBuild {
       )
     }
 
+  /** The entry's transitive imports as `file:` paths under `dashboardsDir`.
+    *
+    * Uses pkl-core's static analyzer (`Analyzer.importGraph`): the graph's
+    * module set (the `imports` map keys, plus resolved targets) is every module
+    * the entry pulls in. We keep only `file:` modules under the dashboards dir
+    * (dropping `pkl:`/`package:`/`http(s):` stdlib and remote imports, which
+    * are not local files to watch). On any failure — or an empty result — we
+    * fall back to the conservative superset (every `*.pkl` under the dir); the
+    * entry is always included regardless.
+    *
+    * **The `@fh-dashboard` alias resolves here too**, which is why this is
+    * precise rather than a superset for the real dashboards. Two of the
+    * `Analyzer` constructor's slots do the work: the `moduleCacheDir` and the
+    * `DeclaredDependencies` (`project.getDependencies`, the same dependencies
+    * the evaluator gets). With those supplied and the `projectpackage`/`pkg`
+    * factories registered, an `import "@fh-dashboard/components.pkl"` analyzes
+    * as `projectpackage://fh.invalid/fh-dashboard@1.0.0#/components.pkl`, and —
+    * because `@fh-dashboard` is a LOCAL dependency — `graph.resolvedImports`
+    * maps it straight back to the real `file:…/lib/components.pkl`. So the
+    * `file:` filter below picks up exactly the library modules the entry
+    * actually imports, and nothing else (verified on pkl-core 0.31.1).
+    *
+    * That precision is why `ServerApp.watchedSet` does NOT need to bulk-add
+    * `lib/`: an entry that imports a card class watches that card class, and a
+    * library module nobody imports is correctly not watched. Lib/dump arrive as
+    * cache-backed `package:` imports and are filtered out of the `file:` set —
+    * they are immutable per version, not hot-reloaded.
+    */
   private def importSet(
       dashboardsDir: os.Path,
       entry: os.Path,

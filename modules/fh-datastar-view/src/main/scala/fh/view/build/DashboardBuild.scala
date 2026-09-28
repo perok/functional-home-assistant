@@ -245,13 +245,8 @@ object DashboardBuild {
   private def authoredIdOf(node: Json): Option[String] =
     node.asObject.flatMap(_("id")).flatMap(_.asString)
 
-  // Keep only the surface's own fields (content + optional bakeInto/bakeAs/bakeIndex/activation).
-  // The host is derived (Surface.hostId), not authored, so it is not lifted;
-  // chrome/stack are gone too — every surface is chrome-less (Surface's final 5 fields).
-  // The retired flat `defaultOpen` is deliberately NOT lifted: its meaning moved
-  // into the `activation` object ({kind:"user", defaultOpen}), and an authoring
-  // layer still emitting the flat key is silently ignored (decoder default =
-  // user activation, whose no-selection fallback is index 0 — the old semantics).
+  // Keep only [[Surface]]'s own fields. The host is derived (`Surface.hostId`),
+  // not authored, so it is not lifted.
   private def surfaceOf(defObj: JsonObject): Json =
     Json.fromJsonObject(
       JsonObject.fromIterable(
@@ -273,9 +268,8 @@ object DashboardBuild {
   private def surfaceId(idBase: String, localKey: String): String =
     s"${idBase}_$localKey"
 
-  // Returns the rewritten node and the surfaces collected from it (and its
-  // subtree). `idBase` is the node's position-derived id namespace.
-  /** One region's children, walked under the ids the RENDERER will give them.
+  /** One region's children, walked under the ids the RENDERER will give them;
+    * returns the rewritten children and the surfaces collected from them.
     *
     * The segment comes from `LayoutNode.segment`, not from a local
     * `s"${idBase}_$i"`: that spelling is right for the default region and wrong

@@ -213,7 +213,8 @@ object Datastar {
     * `Map[SignalId, Json]` is wider than that on purpose (the cursor is a
     * nested object — see `Server.versionPatch`), so this is a rule rather than
     * a type. Measured from both directions in `DatastarMorphContractSuite`;
-    * every producer today builds values with `Json.fromString`.
+    * every producer builds values with `Json.fromString`/`fromBoolean`/
+    * `fromLong`, none of which can be null.
     */
   def signalsJson(values: Map[SignalId, Json]): String =
     if (values.isEmpty) "{}"

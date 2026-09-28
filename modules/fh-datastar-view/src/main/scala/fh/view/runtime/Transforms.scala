@@ -13,8 +13,8 @@ import fh.view.model.{Dashboard, SlotValue, Transform}
   * uncompilable one means validation was bypassed — it fails loudly here, at
   * setup, rather than mid render or by silently blanking a value.
   *
-  * Two tiers, selected EXPLICITLY by the slot ([[SlotSource.simple]] — there is
-  * no recognition of expression spelling, ADR 0028): a slot carrying a
+  * Two tiers, selected EXPLICITLY by the slot ([[SlotSource.transform]] — there
+  * is no recognition of expression spelling, ADR 0028): a slot carrying a
   * [[Transform.Simple]] value is evaluated by hand-rolled reads
   * ([[Transform.runSimple]] — total, its documented divergences included); a
   * slot carrying a CEL string goes to the engine. Neither path falls back to

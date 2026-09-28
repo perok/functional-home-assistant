@@ -58,12 +58,12 @@ enum Tenure derives CanEqual {
   *   - `slug`: which dashboard this connection views — fixed for its lifetime,
   *     because going to another dashboard is an ordinary document load (ADR
   *     0002) and therefore a new connection.
-  *   - `open`: the surface ids (popups) this client currently has open. A
-  *     surface's nodes are recorded and rendered only while it is in here, so a
-  *     closed popup costs nothing.
-  *   - `control`: server-pushed patches destined for *this* connection's stream
-  *     — popup insert/remove (the entity-change loop can't carry them, as
-  *     they're triggered by action POSTs on other fibers).
+  *   - `open`: the surfaces this client currently has open — its selected tab
+  *     panels and its popup. A surface's nodes are recorded and rendered only
+  *     while it is in here, so a closed popup costs nothing.
+  *   - `control`: frames destined for *this* connection's stream that an action
+  *     POST produces on its own fiber — a host swap, a variable's re-render,
+  *     the commits that end a pending ask.
   *   - `holds`: what THIS client's DOM has, per node — the digest of the bytes
   *     it was last sent, seeded by the document's own render. The answer to "is
   *     this worth sending?", asked per client rather than on everyone's behalf.
@@ -161,10 +161,6 @@ case class Session(
       case t => (t, None)
     }
 
-  /** Drop it for good, but only from exactly `expected`. `false` means someone
-    * reconnected (or a later stream took it) while the reaper slept, and the
-    * caller must leave the registry alone.
-    */
   /** Retire this session because a LATER document in the same tab has
     * superseded it — unless a stream is still holding it.
     *
@@ -182,6 +178,10 @@ case class Session(
       case _                 => (Tenure.Reaped, true)
     }
 
+  /** Drop it for good, but only from exactly `expected`. `false` means someone
+    * reconnected (or a later stream took it) while the reaper slept, and the
+    * caller must leave the registry alone.
+    */
   def relinquish(expected: Tenure): IO[Boolean] =
     tenure.modify {
       case t if t == expected => (Tenure.Reaped, true)

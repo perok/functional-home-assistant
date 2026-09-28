@@ -4,72 +4,6 @@ import fh.view.query.{Queries, QueryRequest}
 import io.circe.{Decoder, Json}
 import io.circe.derivation.{Configuration, ConfiguredDecoder}
 
-/** Where a single mustache slot gets its value at runtime.
-  *
-  * A slot's value is the [[Transform]] CEL expression `transform`, evaluated by
-  * the renderer against the producing entity. The entity's full context is
-  * bound: `state` (raw state String), `attr` (its attribute map, indexed as
-  * `attr['brightness']`), `domain` (the entity-id prefix) and `entity_id` (the
-  * id), plus `dashboard_slug`. So selecting a value *is* the transform —
-  * `"state"` (the default) shows the state, `"state + ' kWh'"` the state with a
-  * unit, `"str(double(attr['brightness']))"` an attribute, and a CEL string
-  * building an action URL an identity-derived value like a service action. No
-  * other entity is reachable.
-  *
-  * `default` applies when the transform yields an empty string (e.g. a guarded
-  * attribute read when it falls back to `""` while a light is off).
-  * `bypassUnavailable` (ON by default) makes an `"unavailable"`/`"unknown"`
-  * entity show its raw state *instead of* running the transform — what keeps a
-  * value-display readable when its transform would otherwise error on a
-  * non-numeric state (`num(state)`). Set it to `false` on the slots that must
-  * run their transform regardless of availability: identity-derived slots (an
-  * action resolves from `domain`, not state), labels (keep the friendly_name
-  * rather than showing `"unavailable"`), and a slider's numeric position (fall
-  * back to its `default`, not the literal `"unavailable"` string).
-  *
-  * `entityId` is the slot's OWN entity. When `None`, the slot INHERITS the
-  * component's `entity_id` param (the card's one entity) — so a card binds its
-  * entity once and every slot reads it, while a slot that names a different
-  * `entityId` overrides the inheritance (the multi-entity card). With neither
-  * (no slot `entityId`, no `entity_id` param) the transform runs against an
-  * empty state — the constant case (e.g. a `"Hi"` JSONata literal).
-  *
-  * `reactive` (ON by default) is whether a state change of this slot's entity
-  * should re-render the component: a reactive slot's entity joins
-  * [[LayoutNode.Component.liveEntities]] (the reverse index + morph-wrapper
-  * decision). Turn it OFF for a slot that reads its entity for IDENTITY only —
-  * an onclick/action resolving `$entity_id`/`$domain`, whose value never
-  * changes with state — so it does not register a needless live dependency. A
-  * literal slot carries no entity and is excluded regardless.
-  *
-  * `literal` is the cheapest slot: a hardcoded value used verbatim — no entity,
-  * no JSONata, no compilation. A label like `"Kitchen"` or a constant action
-  * URL is this, not a `"Kitchen"` JSONata string-literal `transform`. It is
-  * authored as a bare JSON string rather than an object; when set, every other
-  * field is unused. Only a value that varies with live state needs the
-  * object/`transform` form.
-  *
-  * `signal` (absent by default) carries this slot's value to the browser as a
-  * Datastar SIGNAL — `_<nodeId>__<slotName>` — instead of as bytes inside the
-  * node's element, so a change to it costs a `datastar-patch-signals` frame
-  * rather than the whole re-rendered card (ADR 0017). Its value says WHERE the
-  * value lands in the DOM ([[SignalBind]]) — the one thing the renderer cannot
-  * infer, since a reading is text, a track fill is a style property and a range
-  * input's position is a two-way binding.
-  *
-  * The renderer hands the card one extra template var, `<slot>__bind`, the
-  * whole binding attribute; the card places it beside the ordinary `{{<slot>}}`
-  * hole, on the element whose text it is (a `data-text` patch replaces that
-  * element's whole content, so a wrapper would lose whatever else it holds):
-  *
-  * {{{<span class="fh-text-run" {{{value__bind}}}>{{value}}</span> }}}
-  *
-  * The value still renders inline on a wholesale render, which is what a
-  * JS-less browser gets and all it ever gets. Incompatible with [[literal]] (a
-  * constant never moves) and pointless on a non-reactive slot (an
-  * identity-derived value never moves either) — [[Dashboard.validate]] rejects
-  * the first, and the renderer simply ignores the second.
-  */
 given Configuration =
   Configuration.default.withDefaults
     .withDiscriminator("kind")
@@ -80,42 +14,58 @@ given Configuration =
       case other     => other.toLowerCase
     }
 
+/** Where a single mustache slot gets its value at runtime.
+  *
+  * `transform` is ONE wire fact with two tiers (ADR 0028): a CEL string over
+  * `state`, `attr`, `domain`, `entity_id` and `dashboard_slug`, compiled at
+  * build time; or an opted-in [[Transform.Simple]] as a JSON object, where the
+  * object form IS the tier selection. On a QUERY slot it is a
+  * [[Transform.Stage]] over the provider's data instead. No other entity is
+  * reachable from a transform.
+  *
+  * `default` applies when the transform yields `""`, which keeps a numeric
+  * signal initialiser like `{bri: {{x}}}` valid while a light is off.
+  * `bypassUnavailable` (ON by default) shows an `"unavailable"`/`"unknown"`
+  * entity's raw state instead of running the transform, so `num(state)` never
+  * errors on one. Turn it off where the transform must run regardless: an
+  * action (resolves from `domain`), a label (keep the friendly name), a
+  * slider's position (fall back to `default`).
+  *
+  * `entityId` is the slot's OWN entity; `None` inherits the component's
+  * `entity_id` param. With neither, the transform runs against an empty state.
+  *
+  * `literal` is a value used verbatim — no entity, no compilation — authored as
+  * a bare JSON string rather than an object; when set, every other field is
+  * unused.
+  *
+  * `reads` says when the value is read and whether that is a reason to
+  * re-render ([[Reads]]).
+  *
+  * `signal` carries the value to the browser as a Datastar SIGNAL instead of as
+  * bytes in the node's element, so a change costs one `datastar-patch-signals`
+  * frame rather than a re-rendered card (ADR 0017). Its value says WHERE the
+  * value lands ([[SignalBind]]), the one thing the renderer cannot infer. The
+  * card places the renderer-supplied `{{{<slot>__bind}}}` on the element whose
+  * text it is, beside the ordinary `{{<slot>}}` hole — a `data-text` patch
+  * replaces that element's whole content:
+  *
+  * {{{<span class="fh-text-run" {{{value__bind}}}>{{value}}</span> }}}
+  *
+  * The value still renders inline in the document form, which is all a JS-less
+  * browser gets. [[Dashboard.validate]] rejects a signal on a [[literal]] (a
+  * constant never moves).
+  *
+  * `query` is set on a QUERY slot only, which then ignores `reads` and
+  * `signal`; [[SlotShape]] makes those combinations unrepresentable downstream.
+  */
 case class SlotSource(
-    // This slot's OWN entity, or `None` to inherit the component's `entity_id`
-    // param (the card's one entity). An explicit value overrides the inheritance
-    // — the multi-entity card. With neither, the transform runs against an empty
-    // state (the constant case).
     entityId: Option[String] = None,
-    // The value — ONE wire fact with two forms: a CEL string over
-    // state/attr/domain/entity_id/dashboard_slug (the engine tier; compiled at
-    // build time and reused by the renderer), or an opted-in
-    // [[Transform.Simple]] structure as a JSON object (the fast tier — the
-    // object form IS the tier selection, plan Phase 3 / ADR 0028). Defaults to
-    // the entity's raw state.
-    // On a QUERY slot, a [[Transform.Stage]] over the provider's data;
-    // `SlotShape` keeps each arm on its shape.
     transform: String | Transform.Simple | Transform.Stage = "state",
-    // Used when the transform yields "" (e.g. brightness when a light is off).
-    // Keeps numeric signal initialisers like `{bri: {{x}}}` valid.
     default: Option[String] = None,
-    // When the entity is unavailable/unknown, show its raw state (the literal
-    // "unavailable"/"unknown") and skip the transform — keeps a value-display
-    // readable. ON by default; opt OUT (false) on slots that must still run
-    // their transform: identity slots (actions), labels, a slider's position.
     bypassUnavailable: Boolean = true,
-    // A hardcoded value used verbatim: no entity, no JSONata. When set, the
-    // fields above are unused. Authored (and decoded) as a bare JSON string
-    // rather than an object — see the decoder below.
     literal: Option[String] = None,
-    // WHEN this slot's value is read — see [[Reads]]. `live` by default.
     reads: String = Reads.Live,
-    // Carry this slot's value as a Datastar SIGNAL rather than as bytes in the
-    // element, so a change to it costs a signals frame instead of a card
-    // re-render (ADR 0017). The value says WHERE it lands — see [[SignalBind]]
-    // — and the card's template must place `{{{<slot>__bind}}}`.
     signal: Option[SignalBind] = None,
-    // Set on a QUERY slot only, which then ignores `reads` and `signal`:
-    // [[SlotShape]] makes those combinations unrepresentable downstream.
     query: Option[QueryTemplate] = None
 ) {
 
@@ -148,33 +98,6 @@ case class SlotSource(
   }
 }
 
-/** When a slot's value is read, and whether reading it is a reason to
-  * re-render.
-  *
-  * Two questions, and they used to be one `reactive: Boolean` — which could
-  * only say `(track, re-read)` or `(ignore, read once)`. The pairing nobody
-  * could ask for is the one an author keeps wanting: a value that CAN move but
-  * is not worth waking the card for.
-  *
-  *   - `live` — read on every render, and a change to the entity IS a render. A
-  *     brightness, a state readout. The node joins the reverse index
-  *     ([[LayoutNode.Component.liveEntities]]) and the entity's version enters
-  *     the render key.
-  *   - `onRender` — read on every render, and never a reason to have one. A
-  *     friendly name, a unit: correct whenever the node is drawn, and it costs
-  *     no subscription. The ONLY mode a structural card may use on an entity,
-  *     since structure is never a patch target.
-  *   - `once` — read once per (entity, transform) and memoized for the
-  *     renderer's life. For a value that is a pure function of WHICH entity
-  *     this is rather than of its state: a service action from `$domain`, the
-  *     entity id in a URL. It is what keeps a candidate set's re-render cheap —
-  *     those cards' action and config slots become a lookup, not a JSONata
-  *     eval. Wrong for anything that can move: a rename would not show until
-  *     the dashboard rebuilds.
-  *
-  * Three values rather than two flags because `(wake me, never re-read)` is
-  * incoherent, and a pair of booleans would let it be written.
-  */
 /** A resolved query: a provider by name and untyped params, so the model knows
   * nothing about any provider (`Queries.parse` types them at validation). Also
   * a render-key component. No identity: that belongs to the request.
@@ -246,6 +169,26 @@ case class SlotAsk(query: QueryTemplate, stage: Transform.Stage)
   */
 case class SlotRead(query: SlotQuery, stage: Transform.Stage) derives CanEqual
 
+/** When a slot's value is read, and whether reading it is a reason to
+  * re-render.
+  *
+  *   - `live` — read on every render, and a change to the entity IS a render. A
+  *     brightness, a state readout. The node joins the reverse index
+  *     ([[LayoutNode.Component.liveEntities]]) and the entity's version enters
+  *     the render key.
+  *   - `onRender` — read on every render, and never a reason to have one. A
+  *     friendly name, a unit: correct whenever the node is drawn, and it costs
+  *     no subscription. The ONLY mode a structural card may use on an entity,
+  *     since structure is never a patch target.
+  *   - `once` — read once per (entity, transform) and memoized for the
+  *     renderer's life. For a value that is a pure function of WHICH entity
+  *     this is: a service action from `domain`, the entity id in a URL. It is
+  *     what keeps a candidate set's re-render cheap. Wrong for anything that
+  *     can move: a rename would not show until the dashboard rebuilds.
+  *
+  * Three values rather than two flags because `(wake me, never re-read)` is
+  * incoherent, and a pair of booleans would let it be written.
+  */
 object Reads:
   val Live: String = "live"
   val OnRender: String = "onRender"
@@ -538,7 +481,7 @@ object Predicate:
   /** Does this read an entity it does not name? True for a `Cmp` with no
     * `entity`, which only means something where a SUBJECT is supplied — a set
     * member's guard, a set clause. A [[Activation.State]] supplies none, so one
-    * there used to mean "some entity in the house" and is now rejected.
+    * there is rejected.
     *
     * A count's guards are excluded deliberately: each is evaluated against its
     * own candidate, so an unnamed subject inside one is bound.
@@ -624,10 +567,10 @@ object LayoutNode:
     *   - `slots`: every template var, each a [[SlotSource]] (a live transform
     *     or a constant literal). There is no `params` map — the card's subject
     *     is the magical [[subjectEntity]] slot named `entity_id`, constants are
-    *     literal slots, and the only non-slot vars are backend-*injected* (`id`
-    *     and, for tabs, `panel` — see `Renderer`); the `id` is NOT authored.
-    *   - `children`: nested nodes, rendered first and exposed to the template
-    *     as a `children` list of `{html}` (empty for leaves).
+    *     literal slots, and the only non-slot vars are backend-*injected*
+    *     (`id`, `hostId`, `dashboardSlug` — see `Renderer`).
+    *   - `regions`: nested nodes by region, rendered first and exposed to the
+    *     template as a list of `{html}` per region name.
     *
     * The live-dependency entities are DERIVED from the slots
     * ([[liveEntities]]), not authored — so adding a live slot is all it takes
@@ -658,10 +601,9 @@ object LayoutNode:
     /** Every child, in one list — what a traversal that only needs to REACH
       * every node wants, which is most of them.
       *
-      * Regions in name order so a walk is reproducible. Ids no longer come from
+      * Regions in name order so a walk is reproducible. Ids do not come from
       * here — each step names its own region ([[LayoutNode.steps]]) — so this
-      * order is nobody's contract, which is what lets a card have a second
-      * region at all.
+      * order is nobody's contract.
       */
     def allChildren: List[LayoutNode] =
       regions.toList.sortBy(_._1).flatMap(_._2)
@@ -677,10 +619,10 @@ object LayoutNode:
       slots.get(Dashboard.SubjectSlot).flatMap(_.literal)
 
     /** The entities whose live state this component depends on. A slot
-      * contributes when it is reactive and not a constant literal; its source
-      * is its own `entityId`, or the [[subjectEntity]] when the slot leaves it
-      * unset (slot-level inheritance). Drives the reverse index and the
-      * morph-wrapper decision (see `Renderer`). Empty ⇒ static HTML, never
+      * contributes when it reads `live` and is not a constant literal; its
+      * source is its own `entityId`, or the [[subjectEntity]] when the slot
+      * leaves it unset (slot-level inheritance). Drives the reverse index and
+      * the morph-wrapper decision (see `Renderer`). Empty ⇒ static HTML, never
       * patched.
       */
     lazy val liveEntities: List[String] =
@@ -804,11 +746,6 @@ object LayoutNode:
       */
     case class Holds(predicate: Predicate) extends SortKey
 
-  /** Stable, location-based id for an addressable node, derived from its index
-    * path in the layout tree (e.g. `[1, 0]` -> `c_1_0`). Backend-generated, so
-    * authors never invent ids; underscore-joined so it is also a valid signal
-    * name (`_val_{{id}}`).
-    */
   /** One step down the tree: which region the child sits in, and where in it.
     */
   case class Step(region: String, index: Int)
@@ -839,6 +776,10 @@ object LayoutNode:
     */
   def segments(path: List[Step]): String = path.map(segment).mkString("_")
 
+  /** Stable, location-based id for a node, from its step path (two default
+    * region steps `1`, `0` ⇒ `c_1_0`). Underscore-joined so it is also a valid
+    * signal-name fragment.
+    */
   def pathId(path: List[Step]): NodeId =
     NodeId.derived(if path.isEmpty then "c" else s"c_${segments(path)}")
 
@@ -879,8 +820,8 @@ object LayoutNode:
     * walks that only need to reach every node.
     *
     * Regions in name order so the traversal is a function of the value rather
-    * than of `Map` iteration. Order no longer decides ids — each step names its
-    * own region — so this is now only about a walk being reproducible.
+    * than of `Map` iteration. Order does not decide ids — each step names its
+    * own region — so this is only about a walk being reproducible.
     */
   def steps(children: Map[String, List[LayoutNode]]): List[(Step, LayoutNode)] =
     children.toList.sortBy(_._1).flatMap { case (region, nodes) =>
@@ -993,13 +934,13 @@ object LayoutNode:
   *   - `styles`: inline CSS — framework→token mapping plus the rules that style
   *     the component classes (`.card`, `.fh-row`, …) from the tokens.
   *   - `chrome`: the dashboard-frame Mustache template — a single `{{{body}}}`
-  *     hole. Owns the `#dashboard` swap target (the `renderBody` container that
+  *     hole. Owns the `#dashboard` swap target (the container that
   *     navigate/reload inner-patch into) and, for a dashboard that uses popups,
   *     the popup overlay host (the `<dialog>` + ✕ + close-`@post`), inlined in
   *     the theme (which imports no component library). EMPTY (`""`) falls back
   *     to the minimal
   *     `<main class="container" id="dashboard">{{{body}}}</main>` (no popup
-  *     host) — see [[Renderer.renderPage]]. A non-empty `chrome` MUST contain
+  *     host) — see `Renderer.renderPageInto`. A non-empty `chrome` MUST contain
   *     an element `id="dashboard"` wrapping `{{{body}}}` — checked by
   *     [[Dashboard.validate]].
   */
@@ -1017,7 +958,7 @@ case class Theme(
 /** A lazily-activated render subtree baked on demand — a popup or a tab panel.
   * Registered in [[Dashboard.surfaces]] keyed by id; a component's click action
   * (`surface/open/<id>`) opens it. The backend renders + streams it only while
-  * a connection has it open (see `Renderer.renderSurface` and the
+  * a connection has it open (see `Renderer.renderSurfaceTraced` and the
   * per-connection session in `Server`). Every surface is chrome-less — its
   * content renders straight into whatever host it swaps into; the frame around
   * that host (the popup overlay's `<dialog>`, inlined in `theme.chrome`, or a
@@ -1062,7 +1003,8 @@ case class Surface(
 /** The `dashboard.json` build artifact produced by the build phase.
   *
   *   - `slug`: the dashboard's stable id (its route is `/d/<slug>`; navigation
-  *     targets it). ServerApp defaults it from the entry filename.
+  *     targets it). The site's `dashboards` key, applied by
+  *     `DashboardBuild.decode` before validation.
   *   - `cards`: `cardName -> CardDef` (shared, reused library of templates).
   *   - `css`: the base stylesheet every dashboard gets whatever its theme — the
   *     `fh-` layout contract, the `--fh-*` variables the cards read, and the
@@ -1177,8 +1119,8 @@ case class Dashboard(
   }
 
   /** Validate that every card reference resolves, supplies the params/slots the
-    * card's template declares, and that each slot's `transform` is compilable
-    * JSONata. Returns human-readable errors (empty = valid).
+    * card's template declares, and that each slot's `transform` compiles.
+    * Returns human-readable errors (empty = valid).
     *
     * A transform that fails to compile is a **hard** error: the dashboard does
     * not load (the build/reload fails with the message, and live-reload keeps
@@ -1191,8 +1133,7 @@ case class Dashboard(
       locateTransform: String => Option[String] = _ => None
   ): List[String] =
     // Every required template var is a slot, satisfied by an authored slot OR a
-    // backend-`injected` name: `id`/`panel` always, plus the matched `entity_id`
-    // inside a set clause (where the case strips the build-time one).
+    // backend-`injected` name ([[Dashboard.injectedStatic]]).
     def checkRef(
         nodeId: String,
         cardName: String,
@@ -1211,8 +1152,6 @@ case class Dashboard(
             )
             .toList
 
-    // A live-expression slot's value is a `transform`, which must be parseable
-    // JSONata. A constant `literal` slot has no transform, so nothing to check.
     def slotErrors(
         nodeId: String,
         cardName: String,
@@ -1229,8 +1168,7 @@ case class Dashboard(
           if (src.literal.isDefined || src.query.isDefined) None
           else
             src.transform match {
-              // The fast tier: structure checks only — the degenerate-range
-              // rule the recognizer's `range()` used to own.
+              // The fast tier: structure checks only.
               case p: Transform.Simple.Percent if p.max == p.min =>
                 Some(
                   s"$nodeId: slot '$name' has a degenerate percent range " +
@@ -1504,8 +1442,8 @@ case class Dashboard(
     // silently so at render time. Reject the combinations loudly instead:
     // live-entity slots (the pushed morphs would never match an element in the
     // DOM), cell params (there is no wrapper to carry the classes), and
-    // set clauses (every member IS its wrapped per-entity patch target —
-    // Renderer.renderCase wraps unconditionally).
+    // set clauses (every member IS its wrapped per-entity patch target, and the
+    // renderer wraps members unconditionally).
     def noWrap(cardName: String): Boolean =
       cards.get(cardName).exists(!_.wrapAsCell)
 
@@ -1589,8 +1527,8 @@ case class Dashboard(
     // A SIGNAL slot (ADR 0017) is exempt, and the exemption is what makes the
     // advice this error gives true. A signal never travels as bytes: the seed
     // rides the `.fh-cell` wrapper, which structure has like any node, and the
-    // live value arrives as a `datastar-patch-signals` frame addressed by
-    // `_<nodeId>__<slot>`. Neither step needs the node to be a patch target, so
+    // live value arrives as a `datastar-patch-signals` frame addressed by the
+    // signal's name. Neither step needs the node to be a patch target, so
     // there is nothing here for the rule to protect.
     //
     // The authoring layer says the same on `Node.slots`, but `cards` is decoded
@@ -1628,11 +1566,8 @@ case class Dashboard(
     // as a region. Without this the leaf/structure split is not decidable from
     // the card: such a template reads as a leaf — no regions — while its bytes
     // carry its children, so it would be cached and patched, and a patch would
-    // re-send everything under it.
-    //
-    // A runtime walk used to catch it, asking whether anything BELOW a node
-    // held a hole of its own. That was a check on the TREE standing in for a
-    // fact about the CARD; this is the fact.
+    // re-send everything under it. It is checked on the CARD, not the tree,
+    // because it is a fact about the card.
     //
     // The signature is `{{{html}}}` inside a section: that is what splicing a
     // child's rendering looks like and the only thing it looks like.
@@ -1695,13 +1630,9 @@ case class Dashboard(
     /** What an authored `id` has to satisfy: a plain token, used once, and not
       * inside a candidate set's clause.
       *
-      * There used to be a fourth rule — that an id must not READ as another
-      * node's descendant, because the runtime decided ancestry by string prefix
-      * and `detail_0` looks like a child of `detail`. That rule was a prop
-      * under an encoding, not a constraint authors could learn anything from,
-      * and it is gone: ancestry comes from [[fh.view.runtime.NodeAncestry]],
-      * which asks the tree. Two nodes may now be called `detail` and `detail_0`
-      * and simply be unrelated, which is what they are.
+      * Deliberately NOT a rule: that an id must not read as another node's
+      * descendant. Ancestry comes from [[fh.view.runtime.NodeAncestry]], which
+      * asks the tree, so `detail` and `detail_0` may be unrelated.
       */
     val authoredIdErrors: List[String] = {
       def walkIds(
@@ -1909,9 +1840,7 @@ case class Dashboard(
         }
 
     // A state activation has no subject to supply, so every comparison in its
-    // condition must name its own entity. Before candidate sets an unnamed one
-    // was quantified over the whole state map, which cost a scan and never said
-    // what the author meant ("some entity is both light.x and on").
+    // condition must name its own entity.
     val unboundConditions: List[String] =
       surfaces.toList.sortBy(_._1).flatMap { case (sid, s) =>
         s.activation match
@@ -2092,9 +2021,9 @@ object Dashboard:
     *
     * Named because four places in the renderer and the model turn on this exact
     * string and each was spelling it out. NOT every `"entity_id"` in the tree:
-    * HA's own field name in a service payload, in the dump, and the
-    * `$entity_id` JSONata binding are different facts that happen to share a
-    * spelling, and folding them together would be one concept faking three.
+    * HA's own field name in a service payload, in the dump, and the CEL
+    * `entity_id` binding are different facts that happen to share a spelling,
+    * and folding them together would be one concept faking three.
     */
   val SubjectSlot: String = "entity_id"
 
@@ -2142,9 +2071,7 @@ object Dashboard:
     */
   val PopupHostId: DomId = DomId.derived("popups")
 
-  /** Backend-injected template vars available to a *static* component (the
-    * author never supplies them): the stable location-based `id`.
-    * (Default-panel baking is the HOST's, so there is no longer an injected
-    * `panel`.)
+  /** The backend-injected vars a card may list in its `slots` without the node
+    * authoring them.
     */
   val injectedStatic: Set[String] = Set("id")

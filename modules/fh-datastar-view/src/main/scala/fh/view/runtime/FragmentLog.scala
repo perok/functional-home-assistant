@@ -21,24 +21,21 @@ private[runtime] object Digest {
 
   /** `MessageDigest` is not thread-safe, and sessions render concurrently — but
     * `getInstance` is a provider lookup, and this runs once per painted node on
-    * every page load, fill and repaint. One instance per thread, reset per use.
+    * every page load, fill and repaint. One instance per thread, reset per use
+    * — sound under fibers only because each use is one synchronous call that
+    * never suspends, so no other fiber can reach this thread's instance
+    * mid-hash.
     */
   private val digester: ThreadLocal[MessageDigest] =
     ThreadLocal.withInitial(() => MessageDigest.getInstance("SHA-256"))
 
   private val Hex: Array[Char] = "0123456789abcdef".toCharArray
 
-  /** Byte-identical to the `LibPackage.sha256(...).take(32)` this replaces —
-    * same algorithm, same prefix. What changed is the encoding: that helper
-    * formats each byte with `"%02x".format(_)`, so a digest cost 32
-    * `String.format` calls (each parsing a format string) plus two String
-    * allocations, to keep half of what it built. The hashing was never the
-    * expensive part.
-    *
-    * Only the 16 bytes that survive the truncation are encoded, which is where
-    * the other half went. `LibPackage.sha256` keeps the slow encoding and
-    * should: it runs a handful of times at startup over package zips, and its
-    * output is a manifest checksum rather than a change detector.
+  /** Byte-identical to `LibPackage.sha256(...).take(32)` — same algorithm, same
+    * prefix — but hex-encodes only the 16 bytes that survive the truncation, by
+    * table rather than `"%02x".format`, which on this path cost more than the
+    * hashing. `LibPackage.sha256` keeps the slow encoding and should: it runs a
+    * handful of times at startup over package zips.
     */
   def of(html: String): Digest = hex(digestOf(html))
 
@@ -162,9 +159,9 @@ private[runtime] case class Resume(
   *
   * '''Nothing here reads a clock.''' A version orders everything, and it is the
   * only clock any correctness argument rests on — which is what ruled out HA's
-  * `last_updated` as the cursor (docs/adr/0011-the-live-connection.md). What a
-  * wall clock used to decide (when a mutation is too old to keep) is now
-  * decided by what live sessions can still ask for.
+  * `last_updated` as the cursor (docs/adr/0011-the-live-connection.md). When a
+  * mutation is too old to keep is decided by what live sessions can still ask
+  * for ([[pruned]]), not by a clock.
   */
 private[runtime] case class FragmentLog(
     id: String,
@@ -196,10 +193,10 @@ private[runtime] case class FragmentLog(
     * its whole record: it logs no fragment of its own, because that fragment
     * would contain other nodes.
     *
-    * Named ids rather than an id PREFIX, which is what this used to be. A
-    * prefix cannot tell a member of `c` from a member of a set nested inside
-    * one of `c`'s members — the inner ids start with the outer gid too — so a
-    * container would look established on the strength of its grandchildren.
+    * Named ids rather than an id PREFIX: a prefix cannot tell a member of `c`
+    * from a member of a set nested inside one of `c`'s members — the inner ids
+    * start with the outer gid too — so a container would look established on
+    * the strength of its grandchildren.
     */
   def holdsAnyOf(ids: Iterable[NodeId]): Boolean =
     ids.exists(fragments.contains)
@@ -226,9 +223,9 @@ private[runtime] case class FragmentLog(
   /** Forget every mutation no live session can still ask for.
     *
     * `floor` is the lowest `position` among this slug's sessions — how far
-    * behind the slowest one is. Where the old rule was a wall clock ("keep an
-    * hour"), this is exact: a mutation below the floor cannot appear in any
-    * resume any session will ever run.
+    * behind the slowest one is. Exact where a wall clock ("keep an hour") would
+    * guess: a mutation below the floor cannot appear in any resume any session
+    * will ever run.
     *
     * Dropping one still raises its container's [[horizon]], because a CLIENT
     * cursor is not bounded by the floor — a client returning after its session
@@ -288,9 +285,7 @@ private[runtime] case class FragmentLog(
       at: Long,
       ancestry: NodeAncestry
   ): FragmentLog =
-    // Exactly the subtree, rather than a scan of every entry testing a string:
-    // ancestry is a relation now ([[NodeAncestry]]), so this both stops
-    // inferring structure from an id's spelling and stops being O(log size).
+    // Exactly the subtree ([[NodeAncestry]]), not a scan testing id spellings.
     invalidateOf(ancestry.descendantsOf(container) + container)
       .copy(horizon =
         horizon.updatedWith(container)(prev =>
@@ -298,15 +293,10 @@ private[runtime] case class FragmentLog(
         )
       )
 
-  /** Forgets a whole subtree whose ROOT is being re-stamped in the same
-    * operation — stale, not gone, which is why it drops [[Mutation]]s too: a
-    * stale `Gone` would delete a member that root's HTML restored, a stale
-    * `Placed` insert one it already contains. Callers must actually re-record
-    * the root ([[touched]]) — this is not a bare `filterNot`. Use [[removed]]
-    * when the DOM really is being deleted.
-    */
-  /** Drop exactly these ids — what a wholesale re-supply of a subtree owes,
-    * once the subtree is known rather than guessed at from key spellings.
+  /** Drop exactly these ids — what a wholesale re-supply of a subtree owes.
+    * Stale, not gone, which is why [[Mutation]]s go too: a stale `Gone` would
+    * delete a member the re-supplied HTML restored, a stale `Placed` insert one
+    * it already contains. Use [[removed]] when the DOM really is being deleted.
     */
   def invalidateOf(ids: Set[NodeId]): FragmentLog =
     copy(fragments = fragments -- ids, mutations = mutations -- ids)
@@ -346,10 +336,8 @@ private[runtime] case class FragmentLog(
     * STRICT ancestors: a node never covers itself, or every mutation would
     * suppress its own emission.
     *
-    * This used to read ancestry off the id STRING, justified by ids being
-    * location-derived. They are not always — an author may name a node — so it
-    * asks the structure instead ([[NodeAncestry]]), which is knowable because
-    * the whole id space is static.
+    * Asked of the structure ([[NodeAncestry]]) rather than the id STRING: ids
+    * are not always location-derived — an author may name a node.
     */
   def coveredByMutation(
       nodeId: NodeId,
