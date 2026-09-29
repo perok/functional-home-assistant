@@ -6,10 +6,10 @@ package fh.view.build
   * Two copies of one list is the thing this codebase normally refuses, so the
   * reason for it: the Pkl union is what gives an author a typo error and editor
   * completion, and it has to live in the lib because that is what a dashboard
-  * imports. The generator needs the same set BEFORE any Pkl runs, to decide
-  * whether assigning a device class would produce a dump that cannot evaluate
-  * (see `PklDump.deviceClassField`). Neither side can read the other at the
-  * moment it needs the answer.
+  * imports. The generator needs the same set BEFORE any Pkl runs, to drop a
+  * value a newer HA added, which the union would refuse at eval (see
+  * `PklDump.vocabField`). Neither side can read the other at the moment it
+  * needs the answer.
   *
   * So they are kept honest by test instead of by construction:
   * `HassVocabularySuite` parses the unions straight out of the vendored `.pkl`
@@ -17,6 +17,24 @@ package fh.view.build
   * newer HA release means editing both, and the suite is what says so.
   */
 private[build] object HassVocabulary {
+
+  /** `ColorMode` — `hass/light.pkl`. */
+  val ColorModes: Set[String] = Set(
+    "unknown",
+    "onoff",
+    "brightness",
+    "color_temp",
+    "hs",
+    "xy",
+    "rgb",
+    "rgbw",
+    "rgbww",
+    "white"
+  )
+
+  /** `SensorStateClass` — `hass/sensor.pkl`. */
+  val SensorStateClasses: Set[String] =
+    Set("measurement", "measurement_angle", "total", "total_increasing")
 
   /** `SensorDeviceClass` — `hass/sensor.pkl`. */
   val SensorDeviceClasses: Set[String] = Set(
