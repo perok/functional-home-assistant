@@ -161,12 +161,14 @@ class PklDumpMembersSuite extends munit.FunSuite {
     )
     assert(
       src.contains(
-        "all = List(e_light_a, e_light_b, e_media_player_tv, e_sensor_s, e_switch_z)"
+        "allWithHidden = List(e_light_a, e_light_b, e_media_player_tv, e_sensor_s, e_switch_z)"
       ),
       clue = src
     )
-    // The per-domain lists are derived in the base by the author's selectors;
-    // a second source from the generator is how they came to disagree.
+    // `all` and the per-domain lists are derived in the base by the author's
+    // functions; a second source from the generator is how they came to
+    // disagree.
+    assert(!src.linesIterator.exists(_.trim.startsWith("all =")), clue = src)
     assert(!src.contains("lights ="), clue = src)
     assert(!src.contains("generic ="), clue = src)
   }
@@ -176,7 +178,7 @@ class PklDumpMembersSuite extends munit.FunSuite {
     // answer `List()`, not `Cannot find property`, on first boot. The base
     // declares them, so the generator may say nothing.
     val src = PklDump.render(dump())
-    assert(!src.contains("all ="), clue = src)
+    assert(!src.contains("allWithHidden ="), clue = src)
     assert(
       src.contains("""extends "@fh-dashboard/internal/dump-base.pkl""""),
       clue = src
