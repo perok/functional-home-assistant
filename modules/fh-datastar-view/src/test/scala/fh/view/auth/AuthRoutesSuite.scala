@@ -93,7 +93,9 @@ class AuthRoutesSuite extends munit.CatsEffectSuite {
       assertEquals(exchanged, 0, clue = "refused only after spending the code")
     }
 
-  test("a login completes in the browser that started it, and clears its ticket") {
+  test(
+    "a login completes in the browser that started it, and clears its ticket"
+  ) {
     for {
       f <- fixture()
       (state, ticket) <- login(f)
@@ -110,8 +112,8 @@ class AuthRoutesSuite extends munit.CatsEffectSuite {
     }
   }
 
-  /** The login CSRF: someone who completed a login as themselves hands over
-    * the callback link.
+  /** The login CSRF: someone who completed a login as themselves hands over the
+    * callback link.
     */
   test("a callback without its login's cookie is refused") {
     for {
@@ -157,8 +159,14 @@ class AuthRoutesSuite extends munit.CatsEffectSuite {
       ra <- callback(f, a, both*)
       rb <- callback(f, b, both*)
     } yield {
-      assertEquals(ra.headers.get[Location].map(_.uri.renderString), Some("/d/a"))
-      assertEquals(rb.headers.get[Location].map(_.uri.renderString), Some("/d/b"))
+      assertEquals(
+        ra.headers.get[Location].map(_.uri.renderString),
+        Some("/d/a")
+      )
+      assertEquals(
+        rb.headers.get[Location].map(_.uri.renderString),
+        Some("/d/b")
+      )
     }
   }
 
@@ -182,7 +190,10 @@ class AuthRoutesSuite extends munit.CatsEffectSuite {
       (state, ticket) <- login(f, "/d/" + "a" * 2045)
       resp <- callback(f, state, ticket.name -> ticket.content)
     } yield {
-      assert(ticket.renderString.length < 4096, clue = ticket.renderString.length)
+      assert(
+        ticket.renderString.length < 4096,
+        clue = ticket.renderString.length
+      )
       assert(
         resp.headers.get[Location].exists(_.uri.renderString.length == 2048)
       )

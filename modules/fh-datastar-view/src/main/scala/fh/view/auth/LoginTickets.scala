@@ -76,8 +76,9 @@ object LoginTickets {
   private def encode(bytes: Array[Byte]): String =
     Base64.getUrlEncoder.withoutPadding.encodeToString(bytes)
 
-  /** The session cookie's attributes, for its reasons ([[AuthSessions.cookie]]):
-    * `Lax` because the callback is a cross-site GET, `secure` only over https.
+  /** The session cookie's attributes, for its reasons
+    * ([[AuthSessions.cookie]]): `Lax` because the callback is a cross-site GET,
+    * `secure` only over https.
     */
   private def cookie(
       state: String,
