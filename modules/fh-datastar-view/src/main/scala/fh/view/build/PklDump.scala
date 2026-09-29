@@ -57,11 +57,11 @@ object PklDump {
          |entities: Entities = new {}""".stripMargin
 
     // Declared (with a `List()` default) in `internal/dump-base.pkl`, which also
-    // derives the per-domain lists; only filled here.
+    // derives `all` and the per-domain lists; only filled here.
     val domainLists =
       Option
         .when(entities.nonEmpty)(
-          s"all = List(${entities.map { case (key, _) => tick(s"e_$key") }.mkString(", ")})"
+          s"allWithHidden = List(${entities.map { case (key, _) => tick(s"e_$key") }.mkString(", ")})"
         )
         .getOrElse("")
 
@@ -73,10 +73,10 @@ object PklDump {
       val memberProps = members.map { case (key, _) =>
         s"  ${tick(key)}: ${entityClass(key)} = ${tick(s"e_$key")}"
       }
-      // Domains are selected out of `all` (`hass.lights(area.all)`).
+      // `hass.Area` derives `all` from it, and domains come out of that.
       val lists = Option
         .when(members.nonEmpty)(
-          s"  all = List(${members.map { case (key, _) => tick(key) }.mkString(", ")})"
+          s"  allWithHidden = List(${members.map { case (key, _) => tick(key) }.mkString(", ")})"
         )
         .toList
       s"""class ${tick(s"Area_$slug")} extends hass.Area {

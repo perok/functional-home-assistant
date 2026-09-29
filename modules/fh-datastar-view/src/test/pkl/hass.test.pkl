@@ -46,7 +46,7 @@ const local remaining: hass.SensorEntity = new {
 local class Stue extends hass.Area {
   area_id = "stue"
   area_name = "Stue"
-  all = everything
+  allWithHidden = everything
 }
 
 local class Loft extends hass.Floor {
@@ -64,7 +64,15 @@ local class Appliance extends hass.Device {
 local stue: Stue = new {}
 local loft: Loft = new {}
 local dev: Appliance = new {}
-local house: dumpBase = new { all = everything }
+local house: dumpBase = new { allWithHidden = everything }
+
+/// Hidden in HA, so no default list may show it.
+const local stashed: hass.LightEntity = new {
+  entity_id = "light.stashed"
+  area_id = "stue"
+  id_hidden = true
+}
+local withStashed = everything + List(stashed)
 
 local ids = (xs: List<hass.Entity>) -> xs.map((e) -> e.entity_id)
 
@@ -129,6 +137,21 @@ facts {
     bare.generic.isEmpty
     (new Loft { areas = List() }).all.isEmpty
     (new Appliance { entities = List() }).all.isEmpty
+  }
+
+  ["an entity hidden in HA is in no scope's `all`, and still in `allWithHidden`"] {
+    // Asserted per scope, since each derives its own `all` and one that forgot
+    // the filter would show the entity only there.
+    local room = new Stue { allWithHidden = withStashed }
+    local floor = new Loft { areas = List(room) }
+    local appliance = new Appliance { entities = withStashed }
+    local home: dumpBase = new { allWithHidden = withStashed }
+    !room.all.contains(stashed) && room.allWithHidden.contains(stashed)
+    !floor.all.contains(stashed) && floor.allWithHidden.contains(stashed)
+    !appliance.all.contains(stashed) && appliance.allWithHidden.contains(stashed)
+    !home.all.contains(stashed) && home.allWithHidden.contains(stashed)
+    !home.lights.contains(stashed)
+    ids.apply(home.all) == ids.apply(everything)
   }
 
   ["a duration sensor carries the seconds its unit is worth"] {

@@ -134,13 +134,24 @@ generated file.
 ("Class needs a `local` modifier"), and a dump is mostly classes. Pkl's own
 error names `extends` as the way out.
 
-**Only `all` is generated, per scope.** The per-domain lists are derived from
-it, in the base, by the SELECTORS in `hass.pkl` (`hass.lights(scope)`,
-`hass.locks(scope)`, …) — the same functions an author calls, so a generated
-list and a hand-written filter cannot answer differently. Every smaller scope
-answers `all` alone: `hass.Area` has it filled by the generator, `hass.Floor`
-derives it from its areas, `hass.Device` from its entities, and a domain comes
-out of any of them the one way — `hass.lights(dump.floors.loft.all)`.
+**Only `allWithHidden` is generated, per scope.** `all` and the per-domain
+lists are derived from it, in the base, by functions in `hass.pkl` —
+`hass.shown`, then the SELECTORS (`hass.lights(scope)`, `hass.locks(scope)`, …)
+— the same functions an author calls, so a generated list and a hand-written
+filter cannot answer differently. Every smaller scope answers the same two
+names: `hass.Area` has `allWithHidden` filled by the generator, `hass.Floor`
+derives both from its areas, `hass.Device` from its entities, and a domain
+comes out of any of them the one way — `hass.lights(dump.floors.loft.all)`.
+
+**`all` leaves out the entities hidden in HA** (`id_hidden`, from the registry's
+`hidden_by`). Hidden means "keep this off the dashboards HA builds for me", and
+every default list here is exactly that kind of dashboard: the starter's
+sections are queries over them. Filtering in `all` rather than in each selector
+keeps the selectors a partition of `all`, and one rule covers every scope. A
+hidden entity is still in the dump: reachable by name (`dump.entities.x`) and
+through `allWithHidden`. `entity_category` (`config`/`diagnostic`) is not
+filtered by default, although HA's own generated dashboard drops those too;
+that is a separate decision.
 
 The alternative, a `lights`/`locks`/… on every scope, is one list per
 (domain × scope): the same filter written four times over, and a five-place edit

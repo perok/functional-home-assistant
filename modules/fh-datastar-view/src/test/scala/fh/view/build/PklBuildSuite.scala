@@ -438,7 +438,10 @@ class PklBuildSuite extends munit.FunSuite {
       ),
       clue = src
     )
-    assert(src.contains("all = List(light_kitchen, sensor_temp)"), clue = src)
+    assert(
+      src.contains("allWithHidden = List(light_kitchen, sensor_temp)"),
+      clue = src
+    )
     // `///` doc lines are skipped: their markdown backticks are not quoting.
     val code = src.linesIterator.filterNot(_.trim.startsWith("///"))
     assert(!code.exists(_.contains("`")), clue = src)
@@ -536,6 +539,46 @@ class PklBuildSuite extends munit.FunSuite {
     assertEquals(c.get[String]("viaFloor").toOption, Some("light.kitchen"))
     assertEquals(c.get[Int]("areaLightCount").toOption, Some(1))
     assertEquals(c.get[String]("noArea").toOption, Some("switch.garage"))
+  }
+
+  test("an entity hidden in HA is off every default list, and still named") {
+    val stashed = io.circe.parser
+      .parse("""
+        { "entities": { "light_stashed": {
+            "entity_id": "light.stashed", "domain": "light",
+            "area_id": "kitchen_1", "floor_id": "g", "id_hidden": true,
+            "attributes": {} } } }
+      """)
+      .toOption
+      .get
+    val tmp = os.temp.dir()
+    copyLib(tmp)
+    writeDump(tmp, PklDump.render(fakeTransformedDump.deepMerge(stashed)))
+    os.write(
+      tmp / "probe.pkl",
+      """module probe
+        |
+        |import "@fh-dashboard/hass.pkl"
+        |import "@fh-home/dump.pkl" as dump
+        |
+        |house = dump.lights.map((e) -> e.entity_id)
+        |room = hass.lights(dump.areas.kjokken.all).length
+        |floor = hass.lights(dump.ground_floor.all).length
+        |withHidden = hass.lights(dump.allWithHidden).length
+        |byName = dump.entities.light_stashed.entity_id
+        |""".stripMargin
+    )
+    val result = SourceEval.eval(tmp, "probe.pkl")
+    assert(result.isRight, clue = result)
+    val c = result.toOption.get.value.hcursor
+    assertEquals(
+      c.get[List[String]]("house").toOption,
+      Some(List("light.kitchen"))
+    )
+    assertEquals(c.get[Int]("room").toOption, Some(1))
+    assertEquals(c.get[Int]("floor").toOption, Some(1))
+    assertEquals(c.get[Int]("withHidden").toOption, Some(2))
+    assertEquals(c.get[String]("byName").toOption, Some("light.stashed"))
   }
 
   test("a modelled domain's house-wide list is derived, and partitions `all`") {
