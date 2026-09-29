@@ -207,7 +207,8 @@ have had to guess from the path, and did.
 **What is watched follows the carrier that admitted the request.** The session
 store is what a logout empties, so a COOKIE session is the only admission this
 server can withdraw. Ingress and bearer requests hold their own credential and
-are re-authenticated from scratch on every request; they are in no session, and
+are re-authenticated on every request (against a cache of at most five
+minutes, below); they are in no session, and
 watching the store for one asks a map that will never hold them. That is not a
 harmless extra check — `permits(None)` is false on the very FIRST element
 (`SignallingRef.discrete` emits the current value), so the stream said goodbye
@@ -351,7 +352,11 @@ unreachable HA makes ingress users anonymous rather than making them admins.
 sends an HA long-lived access token as `Authorization: Bearer`; the server
 resolves it exactly as it resolves a login. One identity source, two carriers —
 so `fh` needs no shared secret of its own and its `is_admin` genuinely comes
-from HA. `fh login` writes it to `.fh/user_secret.json` at `0600`, reading it
+from HA. Resolving a token is a WebSocket handshake (`auth/current_user` has
+no REST equivalent), so `BearerUsers.cached` keeps a resolved token's user for
+the same five minutes as ingress, never caches a rejection, and allows at most
+four lookups in flight — junk tokens never repeat, so only that bound stops them
+turning requests into sockets against HA. `fh login` writes it to `.fh/user_secret.json` at `0600`, reading it
 from stdin so a token does not land in shell history; gitignored —
 deliberately separate from `machine.json`, because that file is per-machine
 CONFIGURATION and this is a CREDENTIAL, and keeping them apart is what lets the
