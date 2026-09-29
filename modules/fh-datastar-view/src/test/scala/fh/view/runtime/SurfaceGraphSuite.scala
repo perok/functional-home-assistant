@@ -399,6 +399,35 @@ class SurfaceGraphSuite extends munit.FunSuite {
     assertEquals(g.rootOf("nothing_here"), None)
   }
 
+  test("rootOf places a member that is not present") {
+    // A departing member's patch names it after the frame that removed it.
+    val setNode = LayoutNode.SetNode(
+      candidates = List("light.a"),
+      members = Map(
+        "light.a" -> LayoutNode.SetMember(
+          List(
+            LayoutNode.SetClause(
+              Some(Predicate.Cmp("state", Op.Eq, Json.fromString("on"))),
+              LayoutNode.Component("tile")
+            )
+          )
+        )
+      )
+    )
+    val outer: NodeId = "s_det__c"
+    val members = new MemberGraph(Map(outer -> setNode), Map(outer -> "det"))
+    val g = graphOf(Map("det" -> user("c", "t0", 0)), members = members)
+    val setId = members.setContainer(outer).get
+    val off = snapshot(st("light.a", "off"))
+    val _ = members.syncMembers(Nil, off, off)
+
+    assertEquals(members.membersOf(setId, off), Vector.empty)
+    assertEquals(
+      g.rootOf(members.memberIdOf(setId, "light.a")),
+      Some("det")
+    )
+  }
+
   private def nestedSet = LayoutNode.SetNode(candidates = List("light.b"))
 
   test("a committed selection round-trips through the state that reads it") {

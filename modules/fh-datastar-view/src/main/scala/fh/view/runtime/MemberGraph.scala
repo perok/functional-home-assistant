@@ -121,7 +121,7 @@ private[runtime] final class MemberGraph(
     /** entity -> the candidates it can decide, so a frame costs its changes,
       * not the candidate list.
       */
-    private val movedBy: Map[String, List[String]] =
+    val movedBy: Map[String, List[String]] =
       s.candidates
         .flatMap { cid =>
           val named = s.members
@@ -161,9 +161,6 @@ private[runtime] final class MemberGraph(
         }
     }
 
-    def affected(change: StateChange): Iterable[String] =
-      movedBy.getOrElse(change.entityId, Nil)
-
     def ordinal(entityId: String): (Int, String) =
       (position.getOrElse(entityId, Int.MaxValue), entityId)
 
@@ -188,6 +185,21 @@ private[runtime] final class MemberGraph(
     }
 
     private def entityOf(m: Member): String = sortKey(m.key)
+  }
+
+  /** `owner`: the member a nested set hangs off. `root`: `""` for the main
+    * page, else the surface its patches may reach.
+    *
+    * Not a case class: a frame dedups these, and structural hashing walks the
+    * whole `SetNode` (`publishSet` 11 µs -> 1.4 ms).
+    */
+  private final class Source(
+      val at: NodeId,
+      val src: MemberSource,
+      val owner: Option[NodeId],
+      val root: String
+  ) {
+    val gid: SetId = src.setId(at)
   }
 
   /** From the key, never the position: a positional id would rename every node
@@ -239,23 +251,21 @@ private[runtime] final class MemberGraph(
     * hang off. Enumerable up front because candidates are static, which makes
     * an inner set an ordinary container whose members patch themselves.
     */
-  private val sourcesWithOwner: List[(NodeId, MemberSource, Option[NodeId])] = {
-    def nested(
-        gid: SetId,
-        s: LayoutNode.SetNode
-    ): List[(NodeId, MemberSource, Option[NodeId])] =
+  private val sourcesWithOwner: List[Source] = {
+    def nested(outer: Source): List[Source] =
       for {
-        candidate <- s.candidates
-        (clause, ci) <- s.members
+        candidate <- outer.src.s.candidates
+        (clause, ci) <- outer.src.s.members
           .get(candidate)
           .toList
           .flatMap(_.clauses)
           .zipWithIndex
         found <- setsIn(
-          memberId(gid, MemberKey.Entity(candidate)),
+          memberId(outer.gid, MemberKey.Entity(candidate)),
           ci,
           clause.node,
-          Nil
+          Nil,
+          outer.root
         )
       } yield found
 
@@ -263,50 +273,49 @@ private[runtime] final class MemberGraph(
         member: MemberId,
         clauseIdx: Int,
         node: LayoutNode,
-        path: List[LayoutNode.Step]
-    ): List[(NodeId, MemberSource, Option[NodeId])] = node match {
+        path: List[LayoutNode.Step],
+        root: String
+    ): List[Source] = node match {
       case c: LayoutNode.Component =>
         LayoutNode.steps(c.regions).flatMap { case (step, child) =>
-          setsIn(member, clauseIdx, child, path :+ step)
+          setsIn(member, clauseIdx, child, path :+ step, root)
         }
       case inner: LayoutNode.SetNode =>
         val id = innerSetId(member, clauseIdx, path, inner)
-        (id, MemberSource(inner), Some(NodeId.derived(member))) ::
-          nested(id, inner)
+        val found =
+          Source(id, MemberSource(inner), Some(NodeId.derived(member)), root)
+        found :: nested(found)
     }
 
     val roots = setNodes.toList.map { case (id, s) =>
-      (id, MemberSource(s), None)
+      Source(id, MemberSource(s), None, rootOfIndexed.getOrElse(id, ""))
     }
-    roots ++ roots.flatMap { case (gid, src, _) =>
-      nested(src.setId(gid), src.s)
-    }
+    roots ++ roots.flatMap(nested)
   }
 
   private val sources: Map[NodeId, MemberSource] =
-    sourcesWithOwner.map { case (id, src, _) => id -> src }.toMap
+    sourcesWithOwner.map(s => s.at -> s.src).toMap
 
   /** The parent edges the static index cannot see, for [[NodeAncestry]].
     * Static: presence varies, the id space does not (ADR 0003).
     */
   def parentEdges: Map[NodeId, NodeId] =
     memberOwner.view.mapValues(g => NodeId.derived(g)).toMap ++
-      sourcesWithOwner.collect { case (id, _, Some(owner)) => id -> owner }
+      sourcesWithOwner.flatMap(s => s.owner.map(s.at -> _))
 
+  // A nested set inherits its owner's, which the walk carries down.
   private val sourceRoot: Map[NodeId, String] =
-    sources.keys.map { gid =>
-      gid -> rootOfIndexed.getOrElse(
-        gid,
-        // A nested set: the longest indexed id prefix is its owner.
-        rootOfIndexed.keys
-          .filter(id => gid.startsWith(id + "_"))
-          .toList
-          .sortBy(-_.length)
-          .headOption
-          .flatMap(rootOfIndexed.get)
-          .getOrElse("")
+    sourcesWithOwner.map(s => s.at -> s.root).toMap
+
+  /** entity -> every set's candidates it can decide, so a frame visits only the
+    * sets it touched.
+    */
+  private val movedBy: Map[String, List[(Source, String)]] =
+    sourcesWithOwner
+      .flatMap(s =>
+        s.src.movedBy.toList.flatMap { case (e, cids) => cids.map(e -> (s, _)) }
       )
-    }.toMap
+      .groupMap(_._1)(_._2)
 
   /** Exact, so an id is never parsed for its parent: a prefix test cannot tell
     * `c_1_light_a_b` (set `c_1`, `light.a_b`) from a member of set
@@ -380,11 +389,15 @@ private[runtime] final class MemberGraph(
       changes: List[StateChange],
       before: Map[String, EntityState],
       states: Map[String, EntityState]
-  ): Map[SetId, MemberDelta] =
+  ): Map[SetId, MemberDelta] = {
+    val touchedIn = changes
+      .flatMap(c => movedBy.getOrElse(c.entityId, Nil))
+      .distinct
+      .groupMap(_._1.at)(_._2)
     sources.map { case (at, src) =>
       val gid = src.setId(at)
       val was = groupOf(gid, before)
-      val touched = changes.iterator.flatMap(src.affected).distinct.toList
+      val touched = touchedIn.getOrElse(at, Nil)
       val (now, replaced) =
         // With a live ordering or a limit, one entity moves its neighbours, so
         // rebuild — O(candidates), only for a touched set.
@@ -410,6 +423,7 @@ private[runtime] final class MemberGraph(
       val _ = index.updateAndGet(_.install(gid, was, now))
       gid -> MemberDelta(was.entities, now.entities, replaced)
     }
+  }
 
   /** A clause switch is reported by id, not left to the reverse index: a new
     * clause binding no live entity has no edges, and its bytes would move
@@ -469,8 +483,10 @@ private[runtime] final class MemberGraph(
           .flatMap(gid => membersOf(gid, states).find(_.id == id))
       )
 
+  /** Present or not: a departed member's patch is scoped like a present one's.
+    */
   def rootOfMember(id: NodeId): Option[String] =
-    index.get.byId.get(id).map(_.root)
+    memberOwner.get(id).flatMap(sourceRoot.get)
 
   /** Without this a nested set's fill or removal reads as main-page and reaches
     * clients without the surface open.
@@ -509,14 +525,10 @@ private[runtime] final class MemberGraph(
       root: String,
       changes: List[StateChange]
   ): List[SetId] =
-    sources.iterator
-      .collect {
-        case (at, src)
-            if sourceRoot.getOrElse(at, "") == root &&
-              changes.exists(src.affected(_).nonEmpty) =>
-          src.setId(at)
-      }
-      .toList
+    changes
+      .flatMap(c => movedBy.getOrElse(c.entityId, Nil))
+      .collect { case (s, _) if s.root == root => s.gid }
+      .distinct
       .sortBy(id => id: String)
 }
 

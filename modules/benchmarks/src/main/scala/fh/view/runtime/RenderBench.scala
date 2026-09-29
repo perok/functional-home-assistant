@@ -269,6 +269,7 @@ class RenderBench {
   private var set: Renderer = null
   private var setPlain: Renderer = null
   private var setTiles: Renderer = null
+  private var manySets: Renderer = null
   private var shared: Renderer = null
   private var st: Map[String, EntityState] = null
   private var transforms: Transforms = null
@@ -289,6 +290,9 @@ class RenderBench {
   // The pull benches' fixture: what one client holds after a page open, and
   // the node each of the tick's entities is shown on.
   private var heldAfterPaint: Map[NodeId, Held] = null
+  // The same for [[set]]: the members the tick's entities are.
+  private var heldAfterSetPaint: Map[NodeId, Held] = null
+  private var tickMemberIds: Vector[NodeId] = null
   private var tickNodeIds: Vector[NodeId] = null
   private var tickEntities: Vector[String] = null
   // The signal-only variant: same dashboard, name held as a literal, so no
@@ -330,6 +334,7 @@ class RenderBench {
     setPlain =
       Renderer.create(Dashboard(cards, setTree(Leaves, signals = false)))
     setTiles = Renderer.create(Dashboard(cards, tileSetTree(Leaves)))
+    manySets = Renderer.create(Dashboard(cards, manySetsTree(Leaves)))
     shared = Renderer.create(
       Dashboard(cards, tree(Leaves, 4, signals = true, distinct = Distinct))
     )
@@ -433,6 +438,12 @@ class RenderBench {
     dedupBatch = dedupIngests
     checkFillShape()
     checkPublishShape()
+    // After `checkPublishShape`, whose frame synced `set`'s graph as the
+    // recorder would.
+    heldAfterSetPaint = set.renderPageTraced(st).own.map { case (id, p) =>
+      id -> Held(Some(p.digest), p.signals)
+    }
+    tickMemberIds = tickEntities.flatMap(set.componentsFor(_).toList)
     checkTickShapes()
   }
 
@@ -477,6 +488,11 @@ class RenderBench {
       sys.error("resumeSignalsPure must suppress every morph too")
     if (!purest.exists(_.isInstanceOf[Patch.Signals]))
       sys.error("resumeSignalsPure produced no signals frame")
+    if (tickMemberIds.sizeIs != TickEntities)
+      sys.error(s"resumeMembers ticks ${tickMemberIds.size} members")
+    val members = kinds(set, heldAfterSetPaint, tickMemberIds, signalTick)
+    if (!members.exists(_.isInstanceOf[Patch.Signals]))
+      sys.error("resumeMembers produced no signals frame")
   }
 
   /** [[resumeFlip]] is only a fill bench if the pull actually fills. A branch
@@ -886,6 +902,18 @@ class RenderBench {
     )
   }
 
+  /** [[resumeSignals]] where the ticked nodes are candidate-set MEMBERS, so
+    * every render and cache key first finds the member (`MemberGraph.memberAt`)
+    * — the one reader path a static node never takes.
+    */
+  @Benchmark
+  def resumeMembers(bh: Blackhole): Unit = {
+    wireRot += 1
+    bh.consume(
+      pull(set, heldAfterSetPaint, tickMemberIds, signalTick(wireRot), 1)
+    )
+  }
+
   /** '''The same tick on a card the cache key can actually protect''' — every
     * slot that reads the entity is a signal slot, so the entity is not in
     * `renderInputs` at all (ADR 0012) and a signal-only change cannot move the
@@ -1040,6 +1068,16 @@ class RenderBench {
   def publishIdleSet(bh: Blackhole): Unit = {
     pubRot += 1
     bh.consume(publishPass(set, idleFrames(pubRot % 2)))
+  }
+
+  /** [[publishSet]]'s frame against the same leaves split into [[ManySets]]
+    * sets, of which the frame touches two: what a frame costs in the sets it
+    * did NOT touch.
+    */
+  @Benchmark
+  def publishManySets(bh: Blackhole): Unit = {
+    pubRot += 1
+    bh.consume(publishPass(manySets, pubFrames(pubRot % 2)))
   }
 
   /** The same frame plus the entity that CHOOSES a branch, so the pass also
@@ -1527,6 +1565,9 @@ object RenderBench {
     */
   final val TickEntities = 20
 
+  /** [[publishManySets]]'s sets: ten candidates each, so a tick spans two. */
+  final val ManySets = 20
+
   /** The shipped `entityCard`'s one BYTE slot. Every other slot on it is either
     * a literal or travels as a signal, which is precisely why one slot is what
     * re-admits the entity to the cache key (ADR 0012).
@@ -1803,6 +1844,30 @@ object RenderBench {
             )
             .toMap
         )
+      )
+    )
+
+  /** [[setTree]]'s leaves as [[ManySets]] sibling sets, in candidate order. */
+  def manySetsTree(leaves: Int): LayoutNode =
+    LayoutNode.Component(
+      "col",
+      regions = LayoutNode.kids(
+        List
+          .tabulate(leaves)(identity)
+          .grouped(leaves / ManySets)
+          .toList
+          .map(is =>
+            LayoutNode.SetNode(
+              candidates = is.map(entityId),
+              members = is
+                .map(i =>
+                  entityId(i) -> LayoutNode.SetMember(
+                    List(LayoutNode.SetClause(node = leaf(true)(i)))
+                  )
+                )
+                .toMap
+            )
+          )*
       )
     )
 

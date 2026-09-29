@@ -21,8 +21,8 @@ The relevance check itself was never the problem. Measured (`RenderBench`, JDK 2
 | `publishIdleSet` | 1.686 | 12,360 | entities they do not |
 
 An irrelevant frame costs 1.3 µs, and scanning every candidate set to discover none was
-touched adds 0.4 µs — `MemberSource.affected` is a map lookup and `groupOf` hits the
-cached index. What is not free is the **12.2 kB floor underneath it**:
+touched adds 0.4 µs — the graph's entity index is one map lookup per change, and each
+untouched set's members come back unchanged. What is not free is the **12.2 kB floor underneath it**:
 `Patches.beforeSnapshot` rebuilds the state map and `MemberGraph.syncMembers` builds a
 delta entry per set *before* anything asks whether the frame matters, deliberately, so
 that membership tracks the state stream rather than who is watching.
