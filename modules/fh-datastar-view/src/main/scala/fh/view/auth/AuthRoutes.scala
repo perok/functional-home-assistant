@@ -61,15 +61,17 @@ final class AuthRoutes(
             .raiseError[IO, Response[IO]]
       }
 
-    // Revoked at HA too, so it leaves the user's Profile -> Security list.
+    // This browser only: another device or a private window is its own login.
     case req @ POST -> Root / "auth" / "logout" =>
-      AuthSessions.cookieOf(req).flatTraverse(sessions.get).flatMap { current =>
-        val revoked = current.traverse_(s => oauth.revoke(s.refresh))
-        val dropped = current.traverse_(s => sessions.removeUser(s.user.id))
-        revoked *> dropped *> SeeOther(Location(Uri(path = Uri.Path.Root)))
+      AuthSessions.cookieOf(req).traverse_(end) *>
+        SeeOther(Location(Uri(path = Uri.Path.Root)))
           .map(_.addCookie(AuthSessions.clearCookie(isSecure(req))))
-      }
   }
+
+  /** Revoked at HA too, so it leaves the user's Profile -> Security list. */
+  private def end(id: String): IO[Unit] =
+    sessions.get(id).flatMap(_.traverse_(s => oauth.revoke(s.refresh))) *>
+      sessions.remove(id)
 
   private def complete(
       req: Request[IO],
@@ -103,6 +105,8 @@ final class AuthRoutes(
           HaAccess(tokens.accessToken, mintedAt.plusSeconds(tokens.expiresIn))
         )
       )
+      // The new cookie replaces it, and nothing else could ever reach it.
+      _ <- AuthSessions.cookieOf(req).traverse_(end)
       resp <- SeeOther(Location(Uri.unsafeFromString(next)))
     } yield resp
       .addCookie(AuthSessions.cookie(id, isSecure(req)))
