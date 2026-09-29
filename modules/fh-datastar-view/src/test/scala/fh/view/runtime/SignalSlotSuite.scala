@@ -750,7 +750,7 @@ class SignalSlotSuite extends ServerHarness {
   private def fixture(states: Map[String, EntityState])(id: String) =
     FixtureEntity(id, states(id).state, states(id).attributes)
 
-  testReal(
+  test(
     "three frames over two nodes, then ONE pull: one event, both nodes"
   ) {
     // Three versions reach the log before this session pulls, two for the same

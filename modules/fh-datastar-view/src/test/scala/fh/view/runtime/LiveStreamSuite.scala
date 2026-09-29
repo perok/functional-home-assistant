@@ -26,7 +26,7 @@ class LiveStreamSuite extends ServerHarness {
   /** The property ADR 0002's collapse must preserve. Under-sending has no
     * symptom: a withheld patch is just a value that quietly stops updating.
     */
-  testReal("two clients on different tabs: each sees only its own") {
+  test("two clients on different tabs: each sees only its own") {
     live(
       twoTabsDash,
       Map(
@@ -184,7 +184,7 @@ class LiveStreamSuite extends ServerHarness {
     )
   )
 
-  testReal("a fill records what it put there, so the next tick suppresses") {
+  test("a fill records what it put there, so the next tick suppresses") {
     // Opening a surface teaches the session each node's bytes from the same
     // render, so a tick to the same value is "unchanged", not "never told",
     // and sends nothing.
@@ -245,7 +245,7 @@ class LiveStreamSuite extends ServerHarness {
     "sensor.b" -> es("sensor.b", "B0")
   )
 
-  testReal("a queued flip that a later one superseded is dropped, not sent") {
+  test("a queued flip that a later one superseded is dropped, not sent") {
     // The first flip was planned against a selection that has since moved, so
     // its bytes would put the wrong branch on screen; the log recorded that
     // member as Gone. Both frames land before the one pull.
@@ -263,7 +263,7 @@ class LiveStreamSuite extends ServerHarness {
     }
   }
 
-  testReal("a branch that empties removes its content, never the host") {
+  test("a branch that empties removes its content, never the host") {
     // The host must survive: every later fill targets it by id, and a patch at
     // a missing id is a silent no-op, so the group would go dead for that
     // client.
@@ -457,7 +457,7 @@ class LiveStreamSuite extends ServerHarness {
     * set; pushing it is harmless and pure waste.
     */
 
-  testReal("a tab panel inside a HIDDEN branch costs nothing") {
+  test("a tab panel inside a HIDDEN branch costs nothing") {
     live(
       tabsInBranchDash,
       Map(
@@ -567,7 +567,7 @@ class LiveStreamSuite extends ServerHarness {
     )
   )
 
-  testReal(
+  test(
     "a variant keeps its own digest, so an unchanged tick is suppressed"
   ) {
     // Variants of a bake owner are static, one per member, so each has its own
@@ -613,7 +613,7 @@ class LiveStreamSuite extends ServerHarness {
     }
   }
 
-  testReal("a tick sends both viewers the same bar, carrying no selection") {
+  test("a tick sends both viewers the same bar, carrying no selection") {
     live(
       serverHighlightDash,
       Map(
@@ -650,7 +650,7 @@ class LiveStreamSuite extends ServerHarness {
     }
   }
 
-  testReal("a flip re-reveals each client's OWN tab, not the default one") {
+  test("a flip re-reveals each client's OWN tab, not the default one") {
     live(
       tabsInBranchDash,
       Map(
@@ -735,7 +735,7 @@ class LiveStreamSuite extends ServerHarness {
     }
   }
 
-  testReal("one frame is ONE batch: both elements, one cursor") {
+  test("one frame is ONE batch: both elements, one cursor") {
     // A frame's diffs bump the store version once. Publishing per entity split
     // that instant into N passes, seen on the wire as `storeVersion: 150`
     // twice.
@@ -787,7 +787,7 @@ class LiveStreamSuite extends ServerHarness {
     }
   }
 
-  testReal(
+  test(
     "viewers SHARING a selection each get the fill, not just the first"
   ) {
     // The verdict is memoised, not the render. Sharing the render let the first
@@ -845,7 +845,7 @@ class LiveStreamSuite extends ServerHarness {
     }
   }
 
-  testReal("a client joining late is caught up, and both stay live after") {
+  test("a client joining late is caught up, and both stay live after") {
     live(liveLeafDash, Map("sensor.a" -> es("sensor.a", "cold"))) { world =>
       for {
         first <- world.connect()
@@ -879,7 +879,7 @@ class LiveStreamSuite extends ServerHarness {
     }
   }
 
-  testReal(
+  test(
     "end to end: flipping there and back, one host overwrite each time"
   ) {
     // The running app got this wrong twice, in the resume path and in replay

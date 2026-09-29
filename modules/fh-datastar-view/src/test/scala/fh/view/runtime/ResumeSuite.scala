@@ -27,9 +27,6 @@ import scala.concurrent.duration.*
   */
 class ResumeSuite extends ServerHarness {
 
-  // Opens documents; see [[ServerHarness.simulateTime]].
-  override protected def simulateTime: Boolean = false
-
   private val cold = Map("sensor.a" -> es("sensor.a", "cold"))
 
   test("cursorOf reads the resume cursor off the datastar signal param") {

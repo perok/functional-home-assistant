@@ -23,9 +23,6 @@ import io.circe.Json
   */
 class SetMembershipSuite extends ServerHarness {
 
-  // Opens documents; see [[ServerHarness.simulateTime]].
-  override protected def simulateTime: Boolean = false
-
   private def viewing(dash: Dashboard, states: Map[String, EntityState])(
       f: TestServer.Viewer => IO[Unit]
   ): IO[Unit] =

@@ -21,9 +21,6 @@ import scala.concurrent.duration.*
   */
 class AckedResumeSuite extends ServerHarness {
 
-  // Opens documents; see [[ServerHarness.simulateTime]].
-  override protected def simulateTime: Boolean = false
-
   private class Tab(ts: TestServer, val document: TestServer.Document) {
 
     /** The version the page rendered into itself. */

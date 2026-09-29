@@ -17,9 +17,6 @@ import scala.concurrent.duration.*
   */
 class SessionLifecycleSuite extends ServerHarness {
 
-  // Opens documents; see [[ServerHarness.simulateTime]].
-  override protected def simulateTime: Boolean = false
-
   private val warm = Map("sensor.a" -> es("sensor.a", "warm"))
 
   private def patchWith(ts: TestServer, query: String): Uri =

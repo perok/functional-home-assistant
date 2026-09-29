@@ -19,9 +19,6 @@ import scala.concurrent.duration.*
   */
 class ServerRoutesSuite extends ServerHarness {
 
-  // Opens documents; see [[ServerHarness.simulateTime]].
-  override protected def simulateTime: Boolean = false
-
   /** As an SSE reconnect does, and every action POST in its body. */
   private def signalled(signals: String): Request[IO] =
     Request[IO](

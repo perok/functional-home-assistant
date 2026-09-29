@@ -19,9 +19,6 @@ import scala.concurrent.duration.*
   */
 class FailedDashboardSuite extends ServerHarness {
 
-  // Opens documents; see [[ServerHarness.simulateTime]].
-  override protected def simulateTime: Boolean = false
-
   private val boom = "boom: sensor.a exploded"
 
   private val failed = Server.RendererState.Failed(boom)

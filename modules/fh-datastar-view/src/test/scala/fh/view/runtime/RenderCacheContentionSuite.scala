@@ -26,6 +26,8 @@ import scala.jdk.CollectionConverters.*
   */
 class RenderCacheContentionSuite extends ServerHarness {
 
+  override protected def simulateTime: Boolean = true
+
   /** `c_0` is the tabs host, structure that renders nothing per frame. [[Live]]
     * is the leaf in its `bar` region, whose bytes mention no selection, so
     * every viewer shares them.

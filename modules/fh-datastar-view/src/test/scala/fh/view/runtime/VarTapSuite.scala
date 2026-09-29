@@ -28,9 +28,6 @@ import scala.concurrent.duration.*
   */
 class VarTapSuite extends ServerHarness {
 
-  // Opens a document; see [[ServerHarness.simulateTime]].
-  override protected def simulateTime: Boolean = false
-
   /** Passthrough, so the window can be read back out: the fake recorder puts
     * its span in the one point it answers with. A drawn chart is handed a
     * `Series`, never the window, which is the split working.

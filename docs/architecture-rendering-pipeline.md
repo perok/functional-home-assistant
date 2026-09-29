@@ -1226,9 +1226,9 @@ follow, and all are load-bearing:
 **`IO.blocking` on this route is deliberate, and it constrains the tests, not the server.**
 `readOutputStream` is a pipe with two mutually-blocking sides — this writer, and fs2's reader —
 and `TestControl` ticks one fiber on one thread, running `IO.blocking` inline on it. So under
-simulated time whichever side is ticked first parks the only thread. Suites that fetch a document
-therefore set `ServerHarness.simulateTime = false`; the note there records what that costs (little:
-the windows they exercise are 50 ms) and what it gives up (determinism).
+simulated time whichever side is ticked first parks the only thread. So a suite that fetches a
+document runs on the real clock, `ServerHarness`'s default; ADR 0009 §7 records what that costs
+(little: the windows it exercises are 50 ms).
 
 **Measured** (`RenderBench`, 200 leaves, the shipped card shape, `-f 1 -wi 5 -i 5 -prof gc`, one
 run — read the ratios, not the absolutes):

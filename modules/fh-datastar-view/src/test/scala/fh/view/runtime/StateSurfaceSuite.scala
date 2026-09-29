@@ -11,9 +11,6 @@ import io.circe.Json
   */
 class StateSurfaceSuite extends ServerHarness {
 
-  // Opens documents; see [[ServerHarness.simulateTime]].
-  override protected def simulateTime: Boolean = false
-
   private def step(v: TestServer.Viewer, next: EntityState) =
     v.change(next).map(elementPatches)
 
