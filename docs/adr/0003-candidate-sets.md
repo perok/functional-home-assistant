@@ -155,8 +155,11 @@ Three silent failure modes are worth naming, because all three were real bugs:
   connected client whether or not they had the surface open. Two distinct
   leaks, found one after the other: the member's, which the reverse index
   selects, and the container's, which a host fill and a departing member's
-  `remove` both name directly. `Renderer.rootOf` now falls through to the graph
-  for each. Worth noting how they were found, because it generalises: a unit
+  `remove` both name directly. `SurfaceGraph.rootOf` falls through to the graph
+  for each, and the graph places a member from its set whether or not it is
+  present — a departed member's `remove` is scoped like a present one's. Both
+  roots are fixed when the graph is built: a nested set inherits its owner's.
+  Worth noting how they were found, because it generalises: a unit
   assertion on `Member.root` pinned the first and was blind to the second; the
   two-viewer test in `SetMembershipSuite` — one tab open, one not, one frame —
   is what states the actual property and caught the rest.
