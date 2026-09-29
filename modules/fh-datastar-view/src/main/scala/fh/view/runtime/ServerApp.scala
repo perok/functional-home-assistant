@@ -236,12 +236,14 @@ object ServerApp extends IOApp {
       sessionWindows: Server.SessionWindows
   )
 
-  /** `connectAs` is a short-lived connection as a user, never the machine-token
-    * feed nor its address ([[HaOAuth.coreWs]]).
+  /** Both act as a user, never as the machine-token feed nor at its address
+    * ([[HaOAuth.coreWs]]). `connectAs` is a short-lived connection, left only
+    * to ask who a token is: `auth/current_user` has no REST equivalent.
     */
   private[runtime] final case class HaLogin(
       oauth: HaOAuth,
-      connectAs: String => Resource[IO, HomeAssistantApi[IO]]
+      connectAs: String => Resource[IO, HomeAssistantApi[IO]],
+      callAs: ServiceCalls.CallAs
   )
 
   private[runtime] final case class Assembled(
@@ -288,7 +290,8 @@ object ServerApp extends IOApp {
           haCoreUrl,
           token,
           HaOAuth.coreWs(haCoreUrl, haEnv.server, haEnv.serverWs)
-        )
+        ),
+      ServiceCalls.overRest(client, haCoreUrl)
     )
 
   /** The whole server short of binding a port. */
@@ -409,7 +412,7 @@ object ServerApp extends IOApp {
         // back to the feed's identity.
         actions = ServiceCalls.asUser(
           _,
-          login.connectAs,
+          login.callAs,
           authSessions,
           login.oauth
         ),
