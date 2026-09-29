@@ -539,7 +539,7 @@ object ServerApp extends IOApp {
         ) *>
         tracer
           .span("dashboard.prepare.eval")
-          .surround(DashboardBuild.evalSite(dashboardsDir))
+          .surround(DashboardBuild.evalSite(dashboardsDir, log))
           .attempt
           .flatMap {
             case Right((site, imports)) =>
@@ -759,7 +759,7 @@ object ServerApp extends IOApp {
       importsRef: SignallingRef[IO, Set[Path]],
       log: SelfAwareStructuredLogger[IO] = consoleLog
   ): IO[Unit] =
-    DashboardBuild.evalSite(dashboardsDir).attempt.flatMap {
+    DashboardBuild.evalSite(dashboardsDir, log).attempt.flatMap {
       case Left(err) =>
         site.failSite(Site.messageOf(err)).flatMap(report(_, log))
       case Right((decoded, imports)) =>
