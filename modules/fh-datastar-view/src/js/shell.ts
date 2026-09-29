@@ -17,7 +17,7 @@
 declare global {
   interface Window {
     fhToast: (text: string) => void
-    fhUrl: (key: string, value: string | null) => void
+    fhUrl: (key: string, value: string | null, owner?: Element) => void
     fhConn: (id: string) => void
     fhScroll: (slug: string) => void
     fhRegisterSw: (url: string) => void
@@ -43,12 +43,49 @@ declare global {
  * from "never initialised" — Datastar creates a signal as `""` the moment an
  * expression reads one — so an effect that runs before its seed drops the param
  * until the seed lands and the effect runs again.
+ *
+ * `owner` (the effect's `el`) binds the param to the element that mirrors it:
+ * once no owner of `key` is in the document, the param goes too (issue #411).
+ * A closed popup's chooser, or a tab bar inside it, takes its effect with it,
+ * so nothing else would ever drop what it mirrored. An element that re-renders
+ * in place re-registers from its new effect, so its param survives the swap.
+ * Without `owner` a param lives until its value empties, which is right for
+ * the page's own `ui_popups` mirror on `<body>`.
  */
-window.fhUrl = (key, value) => {
+window.fhUrl = (key, value, owner) => {
+  if (owner) own(key, owner)
+  setParam(key, value)
+}
+
+function setParam(key: string, value: string | null) {
   const url = new URL(location.href)
   if (value === "" || value == null) url.searchParams.delete(key)
   else url.searchParams.set(key, value)
   history.replaceState(null, "", url)
+}
+
+const owners = new Map<string, Set<Element>>()
+let watching = false
+
+function own(key: string, el: Element) {
+  const set = owners.get(key) ?? new Set<Element>()
+  set.add(el)
+  owners.set(key, set)
+  if (watching) return
+  watching = true
+  new MutationObserver(dropOrphans).observe(document.documentElement, {
+    childList: true,
+    subtree: true,
+  })
+}
+
+function dropOrphans() {
+  for (const [key, set] of owners) {
+    for (const el of set) if (!el.isConnected) set.delete(el)
+    if (set.size > 0) continue
+    owners.delete(key)
+    setParam(key, null)
+  }
 }
 
 /**

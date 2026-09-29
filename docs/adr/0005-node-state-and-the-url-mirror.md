@@ -80,6 +80,13 @@ name, like `conn`.
   for us and which we don't have. The reverse direction needs no script: the
   page is server-rendered, so the server reads its own GET's query and bakes
   the value into the `data-signals` seed it already emits.
+- **A param lives as long as the element that mirrors it** (issue #411). A tab
+  bar or a history window chooser passes its effect's `el` as `fhUrl`'s third
+  argument, and once no such element is in the document the shell drops the
+  param. Closing a popup takes its inner mirrors with it, and nothing else
+  would ever have cleared what they wrote. Only the URL forgets: the session
+  still holds a window chosen in the popup, so reopening it shows that window
+  again.
 
 The URL earns the job the cookie used to hold because it is the only carrier
 that is **per document**. A cookie is per-origin: two browser tabs on the same
