@@ -49,11 +49,12 @@ class TapAction {
   href: String? = null
   inlineSurfaces: Mapping<String, surfaceMod.SurfaceDef>? = null
   /// Whether this tap is worth GUARDING: while its POST is in flight, a second
-  /// click is a no-op. TRUE on the service taps (the only ones with a server
-  /// round-trip worth guarding); FALSE on `navigate` (a full document load — no
-  /// in-flight UI wanted) and the surface opens/closes (instant local POSTs,
-  /// where a busy state would fight the popup itself). The slider's continuous
-  /// value drag is NOT guarded even though it posts: it is not a discrete tap.
+  /// click is a no-op. TRUE on the service taps and the popup opens — an open
+  /// answers only once the popup's queries have resolved, and a chart's history
+  /// fetch is a wait worth showing (issue #412); FALSE on `navigate` (a full
+  /// document load — no in-flight UI wanted) and the popup close, which renders
+  /// nothing. The slider's continuous value drag is NOT guarded even though it
+  /// posts: it is not a discrete tap.
   ///
   /// The opt-out is the flag itself: a tap with `busy = false` renders
   /// byte-identical to before this field existed.
@@ -669,6 +670,27 @@ const function pendingOrCommitted(groupId: String): String =
 const function pendingOrCommittedOf(groupId: String, committed: String): String =
   "($" + pendingSignal(groupId) + " || $" + committed + ")"
 
+/// **A switch that is taking a while** (issue #412), for a group whose press
+/// writes a pending value: a tab bar, the history window bar. Pending spans the
+/// whole wait, the POST and the patch behind it, where a `data-indicator` would
+/// end at the POST's answer; a tab has no glyph for [[busyShapeClass]] anyway.
+///
+/// The bar carries [[pendingSlowOn]] and seeds [[pendingSlowSeedEntry]]; each
+/// button holds a [[pendingSpinner]]. Gated at [[busyDelayMs]] by copying the
+/// pending value late, as [[busySpinner]] does, but hidden the moment pending
+/// empties rather than a delay later: the answer has arrived by then.
+const function pendingSlowSeedEntry(groupId: String): String =
+  "\(pendingSignal(groupId))_slow: ''"
+
+const function pendingSlowOn(groupId: String): String =
+  let (sig = pendingSignal(groupId))
+    #"data-on-signal-patch-filter="{include:/^\#(sig)$/}" data-on-signal-patch__delay.\#(busyDelayMs)ms="$\#(sig)_slow = $\#(sig)""#
+
+/// Starts hidden: the page is painted before Datastar runs.
+const function pendingSpinner(groupId: String, value: String): String =
+  let (sig = pendingSignal(groupId))
+    #"<span class="fh-pending-spin" style="display:none" data-show="$\#(sig) !== '' && String($\#(sig)_slow) === '\#(value)'"></span>"#
+
 /// The tab bar's own open-a-member click: [[openSurfaceOnclick]] preceded by
 /// the group's PENDING assignment. The committed `ui_<groupId>` is the SERVER's
 /// to write, on the swap this POST asks for — before, the click set it here and
@@ -813,6 +835,7 @@ function closePopup(): TapAction =
 function openPopup(surfaceId: String): TapAction =
   new {
     onclick = openSurfaceOnclick(surfaceId, "", null)
+    busy = true
   }
 
 /// Open an INLINE popup: `content` is wrapped in a [[Popup]] dialog and stashed
@@ -832,6 +855,7 @@ function openPopup(surfaceId: String): TapAction =
 // for.
 function openPopupInline(body: nodes.LayoutNode): TapAction = new {
   onclick = openSurfaceOnclick("\(nodes.NODE_ID)_self", "", null)
+  busy = true
   inlineSurfaces = new Mapping {
     ["self"] = new surfaceMod.SurfaceDef { content = new surfaceMod.Popup { children { body } } }
   }

@@ -1,13 +1,15 @@
 package fh.view.smoke
 
-import cats.effect.IO
+import api.homeassistant.ws.domain.HistoryPoint
+import cats.effect.{IO, Ref}
 import cats.syntax.all.*
 import com.microsoft.playwright.Page
 import com.microsoft.playwright.assertions.PlaywrightAssertions.assertThat
 import fh.view.runtime.TestServer
-import fh.view.testkit.HouseFixture
+import fh.view.testkit.{FakeConfig, HouseFixture}
 
 import java.util.regex.Pattern
+import scala.concurrent.duration.*
 
 /** `c.windowChooser` over a chart, as the Pkl library writes it, against the
   * real history provider and chart isolate. Only the recorder is the fake's.
@@ -103,6 +105,79 @@ class WindowChooserSmokeSuite extends SmokeSuite {
       } yield {
         assert(low.nonEmpty && low != "–", clue = low)
         assertEquals(after, "1 h")
+      }
+    }
+  }
+
+  /** A recorder that answers at once until `slow` is set: the page's own paint
+    * resolves the chart, so only the waits a test provokes are long.
+    */
+  private def slowServed(slug: String, source: String, slow: Ref[IO, Boolean]) =
+    TestServer.servedWorkspace(
+      slug,
+      source,
+      List(sensor),
+      FakeConfig(recorder =
+        Some((from, _, _) =>
+          slow.get.flatMap(IO.sleep(1500.millis).whenA(_)) *>
+            IO.pure(
+              List(
+                HistoryPoint("12.0", from),
+                HistoryPoint("13.0", from.plusSeconds(60))
+              )
+            )
+        )
+      )
+    )
+
+  private def spinner(page: Page, w: String) =
+    button(page, w).locator(".fh-pending-spin")
+
+  test("a slow redraw spins on the pressed window until the chart lands") {
+    Ref[IO].of(false).flatMap { slow =>
+      withPageOn(slowServed("windows-slow", entry, slow)) { (page, _) =>
+        for {
+          _ <- IO.blocking(assertThat(button(page, "24h")).hasClass(active))
+          // At rest nothing spins, whatever the seed order.
+          _ <- IO.blocking(
+            assertThat(page.locator(".fh-pending-spin:visible")).hasCount(0)
+          )
+          _ <- slow.set(true)
+          _ <- IO.blocking(button(page, "7d").click())
+          _ <- IO.blocking(assertThat(spinner(page, "7d")).isVisible())
+          _ <- IO.blocking(assertThat(spinner(page, "24h")).isHidden())
+          _ <- IO.blocking(assertThat(button(page, "7d")).hasClass(active))
+          _ <- IO.blocking(assertThat(spinner(page, "7d")).isHidden())
+        } yield ()
+      }
+    }
+  }
+
+  test("a more-info whose chart is slow spins on the card that opened it") {
+    val moreInfo = entry.replace(
+      s"""(c.windowChooser) {
+         |      children { c.historyChart(dump.entities.${sensor.dumpKey}).chosen() }
+         |    }""".stripMargin,
+      s"c.entityCard(dump.entities.${sensor.dumpKey})"
+    )
+    Ref[IO].of(false).flatMap { slow =>
+      withPageOn(slowServed("moreinfo-slow", moreInfo, slow)) { (page, _) =>
+        val card = page.locator("article.entity").first()
+        for {
+          _ <- slow.set(true)
+          _ <- IO.blocking(card.click())
+          _ <- IO.blocking(
+            assertThat(card).hasClass(Pattern.compile("\\bfh-loading\\b"))
+          )
+          _ <- IO.blocking(
+            assertThat(card.locator(".fh-icon-shape"))
+              .hasClass(Pattern.compile("\\bloading-indicator\\b"))
+          )
+          _ <- IO.blocking(assertThat(page.locator("dialog[open]")).isVisible())
+          _ <- IO.blocking(
+            assertThat(card).not().hasClass(Pattern.compile("\\bfh-loading\\b"))
+          )
+        } yield ()
       }
     }
   }

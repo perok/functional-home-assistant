@@ -120,9 +120,11 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
       // The busy signal is created client-side by the indicator, so only
       // no-signals POSTs keep it out of the request body.
       assert(html.contains("{filterSignals:{exclude:'.*'}}"), clue = html)
-      // A more-info tap opens a popup: no POST worth a busy state.
-      assert(!html.contains("data-indicator=\"_c_1__busy\""), clue = html)
-      assert(!html.contains("data-on:click=\"$_c_1__busy"), clue = html)
+      // A more-info tap is guarded too: the open answers once the popup's
+      // queries have resolved, and a chart's fetch is a wait (issue #412).
+      assert(html.contains("data-indicator=\"_c_1__busy\""), clue = html)
+      assert(html.contains("data-on:click=\"$_c_1__busy"), clue = html)
+      // Navigating is a document load: nothing to guard.
       assert(!html.contains("data-indicator=\"_c_3__busy\""), clue = html)
     }
   }
@@ -343,6 +345,29 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
 
   private def flip(ts: TestServer): IO[Unit] =
     ts.change(light.entityId, "off") *> ts.frame(light)
+
+  test("each tab's spinner watches the bar's own pending switch (issue #412)") {
+    withBranchServer(_.page()).map { html =>
+      // A placeholder left in a slot literal ships as text, and the spinner
+      // would watch a signal nothing writes.
+      assert(!html.contains("@@"), clue = html)
+      List("0", "1").foreach { i =>
+        assert(
+          html.contains(
+            s"data-show=\"$$_${tabsHost}__pending !== '' && " +
+              s"String($$_${tabsHost}__pending_slow) === '$i'\""
+          ),
+          clue = i
+        )
+      }
+      assert(
+        html.contains(
+          s"data-on-signal-patch-filter=\"{include:/^_${tabsHost}__pending$$/}\""
+        ),
+        clue = html
+      )
+    }
+  }
 
   test("first paint on the second tab: that panel's content, not the default") {
     withBranchServer(_.page(s"?ui.$tabsHost=1")).map { html =>
@@ -637,7 +662,12 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
           // charts were drawn at.
           assert(html.contains(s"_var_${id}__window: '7d'"), clue = html)
           List("1h", "24h", "7d", "30d")
-            .foreach(w => assert(html.contains(s">$w</a>"), clue = w))
+            .foreach(w =>
+              assert(
+                html.contains(s">$w<span class=\"fh-pending-spin\""),
+                clue = w
+              )
+            )
         }
       }
       .timeout(60.seconds)

@@ -23,8 +23,8 @@ import "../layout.pkl" as layout
 class TabButton extends nodes.Node {
   card = "tab"
   cardDef = new nodes.CardDef {
-    template = #"<a data-on:click="{{{onclick}}}" data-class="{active: {{{active}}}}">{{label}}</a>"#
-    slots { "label"; "onclick"; "active" }
+    template = #"<a data-on:click="{{{onclick}}}" data-class="{active: {{{active}}}}">{{label}}{{{spinner}}}</a>"#
+    slots { "label"; "onclick"; "active"; "spinner" }
     // Deliberately NOT a `core/text.pkl` box: the bar scrolls sideways, so a tab
     // that does not fit is reached rather than shortened — and a tab clipped to
     // "Kitc…" is a control nobody can read, not a label that spilled.
@@ -37,10 +37,12 @@ class TabButton extends nodes.Node {
   hidden label: String
   hidden onclick: slotMod.Slot|String
   hidden active: String
+  hidden spinner: String = ""
   slots {
     ["label"] = label
     ["onclick"] = onclick
     ["active"] = active
+    ["spinner"] = spinner
   }
 }
 
@@ -105,7 +107,7 @@ class Tabs extends nodes.Node {
       ["panel"] = new nodes.Region { fill = "baked" }
     }
     template = """
-      <div class="fh-col"><div class="tabs" data-signals__ifmissing="{ ui_{{id}}: {{bakeIndex}}, \(tapMod.pendingSeedEntry("{{id}}")) }" \(tapMod.pendingClear("{{id}}"))>{{#children}}{{{html}}}{{/children}}</div><div id="{{hostId}}" class="tab-panel" data-effect="fhUrl('ui.{{id}}', $ui_{{id}})">{{#panel}}{{{html}}}{{/panel}}</div></div>
+      <div class="fh-col"><div class="tabs" data-signals__ifmissing="{ ui_{{id}}: {{bakeIndex}}, \(tapMod.pendingSeedEntry("{{id}}")), \(tapMod.pendingSlowSeedEntry("{{id}}")) }" \(tapMod.pendingClear("{{id}}")) \(tapMod.pendingSlowOn("{{id}}"))>{{#children}}{{{html}}}{{/children}}</div><div id="{{hostId}}" class="tab-panel" data-effect="fhUrl('ui.{{id}}', $ui_{{id}})">{{#panel}}{{{html}}}{{/panel}}</div></div>
       """
     // The panel host is a patch target that must not be a box: the selected
     // tab's own layout is what should reach the surrounding column.
@@ -170,6 +172,7 @@ class Tabs extends nodes.Node {
           nodes.NODE_ID,
           i.toString()
         )
+        spinner = tapMod.pendingSpinner(nodes.NODE_ID, i.toString())
       }
     }
   }

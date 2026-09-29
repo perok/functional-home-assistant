@@ -213,7 +213,7 @@ const local urlParam: String = "v.{{id}}.\(windowVar)"
 // A press writes PENDING only; the server commits after re-rendering the
 // charts, so a refused window leaves the highlight where it was.
 const local function windowButton(w: Window): String = """
-  <a data-class="{active: \(tapMod.pendingOrCommittedOf(varGroup, varCommitted)) === '\(w)'}" data-on:click="$\(tapMod.pendingSignal(varGroup)) = '\(w)'; @post('sse/var/{{dashboardSlug}}/{{id}}/\(windowVar)/\(w)?group=\(varGroup)')">\(w)</a>
+  <a data-class="{active: \(tapMod.pendingOrCommittedOf(varGroup, varCommitted)) === '\(w)'}" data-on:click="$\(tapMod.pendingSignal(varGroup)) = '\(w)'; @post('sse/var/{{dashboardSlug}}/{{id}}/\(windowVar)/\(w)?group=\(varGroup)')">\(w)\(tapMod.pendingSpinner(varGroup, w))</a>
   """
 
 /// A window bar over the charts beneath it: press `7d` and every
@@ -239,7 +239,7 @@ class WindowChooser extends nodes.Node {
   cardDef = new nodes.CardDef {
     regions = new Mapping { [nodes.defaultRegion] = new nodes.Region {} }
     template = """
-      <div class="fh-col" data-effect="fhUrl('\(urlParam)', $\(varCommitted))"><div class="tabs" data-signals__ifmissing="{ \(tapMod.pendingSeedEntry(varGroup)) }" \(tapMod.pendingClearAgainst(varGroup, varCommitted))>\(windows.toList().map((w) -> windowButton(w)).join(""))</div>{{#children}}{{{html}}}{{/children}}</div>
+      <div class="fh-col" data-effect="fhUrl('\(urlParam)', $\(varCommitted))"><div class="tabs" data-signals__ifmissing="{ \(tapMod.pendingSeedEntry(varGroup)), \(tapMod.pendingSlowSeedEntry(varGroup)) }" \(tapMod.pendingClearAgainst(varGroup, varCommitted)) \(tapMod.pendingSlowOn(varGroup))>\(windows.toList().map((w) -> windowButton(w)).join(""))</div>{{#children}}{{{html}}}{{/children}}</div>
       """
   }
   /// The declared window: shown first, and again if the session is forgotten.

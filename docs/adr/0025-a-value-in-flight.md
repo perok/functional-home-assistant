@@ -182,6 +182,14 @@ They wear the same classes — `fh-disabled`, `fh-loading`, and the theme's
 parameterised on the signal for exactly that, which also collapsed the six
 hardcoded `busy*` / `busy*Change` constants into three functions.
 
+A bar's anchors are text, with no glyph for `busySpin` to wrap, so a switch
+that takes a while shows `tap.pkl`'s `pendingSpinner` after the label instead
+(issue #412). It reads the pending value, copied into `_<group>__pending_slow`
+after ADR 0019's 300ms by the same delayed handler as `busySpinner`, and hides
+the moment pending empties. Pending is the right signal here and a
+`data-indicator` would not be: it spans the patch behind the POST as well as
+the POST.
+
 The SIGNALS stay separate, for three reasons and any one would do:
 
 - **They are keyed differently.** A group's pending is shared by every anchor in

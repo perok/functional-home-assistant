@@ -753,7 +753,7 @@ class PklBuildSuite extends munit.FunSuite {
       "button" -> List("label"),
       "pill" -> List("label"),
       "toggle" -> List("label"),
-      "tab" -> List("label", "onclick", "active"),
+      "tab" -> List("label", "onclick", "active", "spinner"),
       "slider" -> Nil,
       // `label` is only the toggle variant's `aria-label`; the visible one is
       // `sliderText`'s (#151).
