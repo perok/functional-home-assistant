@@ -191,13 +191,18 @@ object AuthGate {
   }
 
   /** Backslashes and control characters are refused anywhere: a browser turns
-    * `/\host` and `/<tab>/host` into `//host`.
+    * `/\host` and `/<tab>/host` into `//host`. Capped because it rides in the
+    * login cookie ([[LoginTickets]]), which a browser drops past 4 KiB.
     */
   def safeNext(raw: Option[String]): String =
     raw
       .filter(s =>
         s.startsWith("/") && !s.startsWith("//") && !s.contains(":") &&
-          !s.exists(c => c == '\\' || c.isControl)
+          !s.exists(c => c == '\\' || c.isControl) &&
+          s.getBytes(java.nio.charset.StandardCharsets.UTF_8).length <= MaxNext
       )
       .getOrElse("/")
+
+  // Base64 grows it by a third, which leaves the cookie room for the rest.
+  private val MaxNext = 2048
 }
