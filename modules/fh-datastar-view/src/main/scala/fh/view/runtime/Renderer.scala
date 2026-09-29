@@ -672,18 +672,11 @@ class Renderer(
     }
 
   /** One derivation for both id sources (the static tree and set members), so a
-    * var added here reaches both: structural vars are a pure function of the
-    * node id. `bakeIndex` depends on a selection, so it is not here
-    * ([[resolveBakeTraced]]).
+    * var added to [[Dashboard.structuralVars]] reaches both. `bakeIndex`
+    * depends on a selection, so it is not here ([[resolveBakeTraced]]).
     */
   private def structuralVars(id: NodeId): Map[String, String] =
-    Map(
-      "id" -> id,
-      "hostId" -> hostId(id),
-      // For a URL built in a template (the slider's commit); a transform
-      // reads the same fact as `dashboard_slug`.
-      "dashboardSlug" -> dashboard.slug
-    )
+    Dashboard.structuralVars(id, hostId(id), dashboard.slug)
 
   /** Whether a node may be a log key or a patch target: decided by its card
     * alone. Structure's element contains its regions, so patching it would
