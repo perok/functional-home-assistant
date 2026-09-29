@@ -346,27 +346,29 @@ class Renderer(
   private[runtime] val surfaces: SurfaceGraph =
     new SurfaceGraph(dashboard.surfaces, rootOfIndexed, members)
 
-  /** Members included, so a case slot naming a second entity ticks: that entity
-    * need not match the set's query.
+  /** Static nodes only: which members bind an entity depends on the membership
+    * the recorder holds ([[Membership.binding]]).
     */
   def componentsFor(entityId: String): Set[NodeId] =
-    mainIndex.byEntity.getOrElse(entityId, Set.empty) ++
-      members.membersBinding(entityId, "")
+    mainIndex.byEntity.getOrElse(entityId, Set.empty)
 
   /** Empty for a candidate set (its members have ids of their own). */
-  def entitiesForNode(id: NodeId): List[String] =
+  def entitiesForNode(
+      id: NodeId,
+      states: Map[String, EntityState]
+  ): List[String] =
     allIndexed.get(id) match {
       case Some((c: LayoutNode.Component, _)) => c.liveEntities
-      case _                                  => members.liveEntitiesOf(id)
+      case _ => members.memberAt(id, states).toList.flatMap(_.node.liveEntities)
     }
 
   /** Minus entities reached only through signal slots: those cannot change the
-    * bytes ([[renderInputs]]).
+    * bytes ([[renderInputs]]). Static nodes only; a member's key is its own.
     */
   private def entitiesAsBytesForNode(id: NodeId): List[String] =
     allIndexed.get(id) match {
       case Some((c: LayoutNode.Component, _)) => c.liveEntitiesAsBytes
-      case _ => members.liveEntitiesAsBytesOf(id)
+      case _                                  => Nil
     }
 
   // Members are not indexed; what they read is their set's ([[setReadsAbove]]).
@@ -390,8 +392,7 @@ class Renderer(
   def surfaceComponentsFor(surfaceId: String, entityId: String): Set[NodeId] =
     surfaceIndexes
       .get(surfaceId)
-      .fold(Set.empty)(_.byEntity.getOrElse(entityId, Set.empty)) ++
-      members.membersBinding(entityId, surfaceId)
+      .fold(Set.empty)(_.byEntity.getOrElse(entityId, Set.empty))
 
   def surface(surfaceId: String): Option[Surface] =
     dashboard.surfaces.get(surfaceId)

@@ -320,6 +320,8 @@ class RenderBench {
   private var idleFrames: Vector[Frame] = null
   private var pubIngests: Vector[List[Ingest]] = null
   private var dedupBatch: List[Ingest] = null
+  // What the recorder holds between frames, per fixture ([[publishPass]]).
+  private val heldBy = scala.collection.mutable.Map.empty[Renderer, Membership]
 
   @Setup(Level.Trial)
   def setup(): Unit = {
@@ -438,12 +440,12 @@ class RenderBench {
     dedupBatch = dedupIngests
     checkFillShape()
     checkPublishShape()
-    // After `checkPublishShape`, whose frame synced `set`'s graph as the
-    // recorder would.
     heldAfterSetPaint = set.renderPageTraced(st).own.map { case (id, p) =>
       id -> Held(Some(p.digest), p.signals)
     }
-    tickMemberIds = tickEntities.flatMap(set.componentsFor(_).toList)
+    // After `checkPublishShape`, whose frame left `set`'s membership held.
+    tickMemberIds =
+      tickEntities.flatMap(heldBy(set).binding(_, "").toList.sorted)
     checkTickShapes()
   }
 
@@ -1191,16 +1193,24 @@ class RenderBench {
     *
     * A fresh log per call, because `record` is a fold over one and a log that
     * grew across iterations would price its own history rather than the frame.
+    * The membership is carried over, as the recorder carries it: a fresh one
+    * would price every set's first materialisation.
     */
   private def publishPass(renderer: Renderer, frame: Frame): FragmentLog = {
     val Frame(changes, states) = frame
     val before = Patches.beforeSnapshot(states, changes)
-    val membership = renderer.members.syncMembers(changes, before, states)
+    val synced = renderer.members.syncMembers(
+      heldBy.getOrElse(renderer, Membership.empty),
+      changes,
+      before,
+      states
+    )
+    heldBy(renderer) = synced.membership
     val req = Patches.plan(
       renderer,
       states,
       before,
-      membership,
+      synced,
       pubRot.toLong,
       changes,
       Set.empty

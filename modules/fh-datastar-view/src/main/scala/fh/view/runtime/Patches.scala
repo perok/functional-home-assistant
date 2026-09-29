@@ -54,7 +54,7 @@ private[runtime] object Patches {
       flips: List[NodeId],
       states: Map[String, EntityState],
       before: Map[String, EntityState],
-      // Carried, not re-derived: the graph has already moved.
+      // Carried, not re-derived: the recorder's membership has already moved.
       membership: Map[SetId, MemberDelta],
       // Read with the snapshot, so nothing claims a version its HTML lacks.
       at: Long
@@ -86,11 +86,12 @@ private[runtime] object Patches {
       renderer: Renderer,
       states: Map[String, EntityState],
       before: Map[String, EntityState],
-      membership: Map[SetId, MemberDelta],
+      synced: Synced,
       at: Long,
       changes: List[StateChange],
       visible: Set[String]
   ): DiffRequest = {
+    val binding = synced.membership.binding
     val flips =
       (renderer.surfaces.affectedStateGroups(changes, before, states) ++
         visible.toList.flatMap(sid =>
@@ -102,11 +103,15 @@ private[runtime] object Patches {
         renderer.surfaces.activeStateSurfacesIn(_, states, flipped)
       )
     val sids = (visible ++ activeSids).toList
+    // Members included, so a case slot naming a second entity ticks: that
+    // entity need not be a candidate.
     val staticIds = changes
       .flatMap(c =>
         renderer.componentsFor(c.entityId).toList ++
+          binding(c.entityId, "") ++
           sids.flatMap(sid =>
-            renderer.surfaceComponentsFor(sid, c.entityId).toList
+            renderer.surfaceComponentsFor(sid, c.entityId).toList ++
+              binding(c.entityId, sid)
           )
       )
       .distinct
@@ -114,7 +119,7 @@ private[runtime] object Patches {
     val sets =
       (renderer.members.affectedSets(changes) ++
         sids.flatMap(renderer.members.affectedSurfaceSets(_, changes))).distinct
-    DiffRequest(staticIds, sets, flips, states, before, membership, at)
+    DiffRequest(staticIds, sets, flips, states, before, synced.deltas, at)
   }
 
   /** Loud, rather than caching `""` forever if `renderInputs` and

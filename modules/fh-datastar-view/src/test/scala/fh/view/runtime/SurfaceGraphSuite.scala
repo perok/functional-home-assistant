@@ -378,13 +378,6 @@ class SurfaceGraphSuite extends munit.FunSuite {
     )
     val setId = members.setContainer(outer).get
     val states = snapshot(st("light.a", "on"))
-    // Only `syncMembers` fills the id index; a `membersOf` read materialises
-    // without installing, keeping the graph a function of the state stream.
-    val _ = members.syncMembers(
-      List(StateChange("light.a", None, states("light.a"))),
-      Map.empty,
-      states
-    )
     val member = members.membersOf(setId, states).head
     val innerId = members.innerSetId(
       member.id,
@@ -419,7 +412,6 @@ class SurfaceGraphSuite extends munit.FunSuite {
     val g = graphOf(Map("det" -> user("c", "t0", 0)), members = members)
     val setId = members.setContainer(outer).get
     val off = snapshot(st("light.a", "off"))
-    val _ = members.syncMembers(Nil, off, off)
 
     assertEquals(members.membersOf(setId, off), Vector.empty)
     assertEquals(
