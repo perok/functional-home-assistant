@@ -14,7 +14,8 @@ import org.http4s.{
   Response,
   ResponseCookie,
   SameSite,
-  Uri
+  Uri,
+  UrlForm
 }
 
 import java.time.Instant
@@ -27,16 +28,29 @@ class AuthRoutesSuite extends munit.CatsEffectSuite {
 
   private final case class Fixture(
       routes: HttpApp[IO],
-      exchanges: Ref[IO, Int]
+      exchanges: Ref[IO, Int],
+      revoked: Ref[IO, List[String]],
+      sessions: AuthSessions
   )
 
+  /** Each exchange mints refresh token `r<n>`, so a revocation names its
+    * session.
+    */
   private def fixture(base: String = "http://fh.test"): IO[Fixture] =
     for {
       exchanges <- Ref.of[IO, Int](0)
-      ha = Client.fromHttpApp(HttpApp[IO] { _ =>
-        exchanges.update(_ + 1) *> Ok(
-          """{"access_token":"at","refresh_token":"r","expires_in":1800}"""
-        )
+      revoked <- Ref.of[IO, List[String]](Nil)
+      ha = Client.fromHttpApp(HttpApp[IO] { req =>
+        req.as[UrlForm].flatMap { form =>
+          if req.uri.path.renderString.endsWith("/auth/revoke") then
+            revoked.update(_ :+ form.getFirst("token").getOrElse("")) *> Ok()
+          else
+            exchanges.updateAndGet(_ + 1).flatMap { n =>
+              Ok(
+                s"""{"access_token":"at","refresh_token":"r$n","expires_in":1800}"""
+              )
+            }
+        }
       })
       sessions <- AuthSessions.create(SessionStore.ephemeral)
       routes <- AuthRoutes.create(
@@ -45,7 +59,26 @@ class AuthRoutesSuite extends munit.CatsEffectSuite {
         _ => IO.pure(TestAuth.admin),
         _ => Uri.unsafeFromString(base)
       )
-    } yield Fixture(routes.routes.orNotFound, exchanges)
+    } yield Fixture(routes.routes.orNotFound, exchanges, revoked, sessions)
+
+  /** A whole login from one browser, carrying the session it already holds. */
+  private def signIn(f: Fixture, holding: Option[String] = None): IO[String] =
+    for {
+      (state, ticket) <- login(f)
+      resp <- callback(
+        f,
+        state,
+        (ticket.name -> ticket.content) +:
+          holding.map(AuthSessions.CookieName -> _).toSeq*
+      )
+    } yield resp.cookies
+      .collectFirst {
+        case c if c.name == AuthSessions.CookieName => c.content
+      }
+      .getOrElse(fail("login set no session cookie"))
+
+  private def refreshOf(f: Fixture, id: String): IO[Option[String]] =
+    f.sessions.get(id).map(_.map(_.refresh))
 
   /** The `state` HA would round-trip, and the ticket the browser now holds. */
   private def login(
@@ -197,6 +230,47 @@ class AuthRoutesSuite extends munit.CatsEffectSuite {
       assert(
         resp.headers.get[Location].exists(_.uri.renderString.length == 2048)
       )
+    }
+  }
+
+  /** A private window or another device is its own login. */
+  test("logging out ends only this browser's session") {
+    for {
+      f <- fixture()
+      phone <- signIn(f)
+      tablet <- signIn(f)
+      phoneToken <- refreshOf(f, phone)
+      _ <- f.routes.run(
+        Request[IO](Method.POST, uri"/auth/logout")
+          .addCookie(AuthSessions.CookieName, phone)
+      )
+      phoneAfter <- refreshOf(f, phone)
+      tabletAfter <- refreshOf(f, tablet)
+      revoked <- f.revoked.get
+    } yield {
+      assertEquals(phoneAfter, None)
+      assert(tabletAfter.isDefined, clue = "another device was logged out")
+      assertEquals(revoked, phoneToken.toList)
+    }
+  }
+
+  /** Otherwise the old one lives on unreachable, refreshed by every sweep. */
+  test("logging in again from the same browser replaces its session") {
+    for {
+      f <- fixture()
+      first <- signIn(f)
+      other <- signIn(f)
+      firstToken <- refreshOf(f, first)
+      second <- signIn(f, holding = Some(first))
+      firstAfter <- refreshOf(f, first)
+      secondAfter <- refreshOf(f, second)
+      otherAfter <- refreshOf(f, other)
+      revoked <- f.revoked.get
+    } yield {
+      assertEquals(firstAfter, None)
+      assert(secondAfter.isDefined)
+      assert(otherAfter.isDefined, clue = "another browser's session went")
+      assertEquals(revoked, firstToken.toList)
     }
   }
 

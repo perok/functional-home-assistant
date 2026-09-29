@@ -106,10 +106,6 @@ final class AuthSessions private (
 
   def remove(id: String): IO[Unit] = ref.update(_ - id) *> persist
 
-  /** A logout: signing out on the phone ends the tablet's session too. */
-  def removeUser(userId: String): IO[Unit] =
-    ref.update(_.filterNot { case (_, s) => s.user.id == userId }) *> persist
-
   def stale(olderThan: Instant): IO[List[(String, AuthSession)]] =
     ref.get.map(_.toList.filter(_._2.verifiedAt.isBefore(olderThan)))
 

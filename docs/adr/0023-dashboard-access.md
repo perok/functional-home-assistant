@@ -187,6 +187,12 @@ unreachable HA answers 503, naming the address it could not reach) rather than
 escaping as a raw exception — a failure a user can read is one they can recover
 from by starting a fresh login.
 
+**A session is one browser's.** Another device or a private window is its own
+login, so a logout ends and revokes only the session its cookie names. A login
+from a browser that already holds a session ends and revokes that one as well:
+its cookie is replaced, so nothing could reach it again, while the sweep would
+keep refreshing it — and its token listed in HA — indefinitely.
+
 **Admission is not a one-time event.** An SSE stream is admitted once and then
 runs for hours. `AuthSessions` is a `SignallingRef`, so the stream is wrapped in
 one `interruptWhen` over *the same* `Access.permits` the door used — logging

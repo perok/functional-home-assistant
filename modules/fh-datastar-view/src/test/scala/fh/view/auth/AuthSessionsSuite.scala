@@ -15,7 +15,6 @@ import scala.concurrent.duration.*
 class AuthSessionsSuite extends munit.CatsEffectSuite {
 
   private val admin = TestAuth.admin
-  private val guest = TestAuth.guest
   private val clientId = TestAuth.TestClientId
 
   private def sessions = AuthSessions.create(SessionStore.ephemeral)
@@ -31,23 +30,6 @@ class AuthSessionsSuite extends munit.CatsEffectSuite {
       assertEquals(found.map(_.refresh), Some("refresh-1"))
       assertEquals(found.map(_.clientId), Some(clientId.renderString))
       assertEquals(missing, None)
-    }
-  }
-
-  test("logging out ends every session of that user, not just this device") {
-    for {
-      s <- sessions
-      phone <- s.create(admin, "r1", clientId)
-      tablet <- s.create(admin, "r2", clientId)
-      other <- s.create(guest, "r3", clientId)
-      _ <- s.removeUser(admin.id)
-      a <- s.get(phone)
-      b <- s.get(tablet)
-      c <- s.get(other)
-    } yield {
-      assertEquals(a, None)
-      assertEquals(b, None)
-      assertEquals(c.map(_.user), Some(guest))
     }
   }
 
