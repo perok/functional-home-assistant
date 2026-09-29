@@ -840,7 +840,7 @@ class SignalSlotSuite extends ServerHarness {
     val gone = on.updated("light.a", st("light.a", "off"))
     // The log must know the members, or the group is not established and a
     // departure refills the host wholesale.
-    val _ = r.members.syncMembers(Nil, on, on)
+    val known = r.members.syncMembers(Membership.empty, Nil, on, on).membership
     val held = r.renderPageTraced(on).own.map { case (id, p) =>
       id -> Held(Some(p.digest), p.signals)
     }
@@ -848,13 +848,20 @@ class SignalSlotSuite extends ServerHarness {
       .foldLeft(FragmentLog("test"))((l, id) =>
         l.touched(NodeId.derived(id), 0L)
       )
-    val delta = r.members.syncMembers(
-      List(
-        StateChange("light.a", Some(st("light.a", "on")), st("light.a", "off"))
-      ),
-      on,
-      gone
-    )
+    val delta = r.members
+      .syncMembers(
+        known,
+        List(
+          StateChange(
+            "light.a",
+            Some(st("light.a", "on")),
+            st("light.a", "off")
+          )
+        ),
+        on,
+        gone
+      )
+      .deltas
     val log = Patches.record(
       r,
       seededLog,

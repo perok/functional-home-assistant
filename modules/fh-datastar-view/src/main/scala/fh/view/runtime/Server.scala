@@ -327,14 +327,18 @@ class Server(
         // never had (ADR 0011). Not on the first arm: `discrete` emits the
         // current renderer at once, and rotating there refuses the cursor of a
         // page served in that window.
+        // The membership starts empty per arm, as the log does: it belongs to
+        // this renderer's graph.
         Stream.exec(
           IO.whenA(arm > 0)(Server.freshLog.flatMap(live.log.set))
         ) ++
-          stateStore.changes.evalMap(
+          stateStore.changes
+            .evalMapAccumulate(Membership.empty)(
+              recordFrame(slug, renderer, live.log, _, _)
+            )
             // Ring AFTER the write, or a woken session reads a log that does
             // not yet hold the version it was told about, and skips past it.
-            recordFrame(slug, renderer, live.log, _).flatMap(live.doorbell.set)
-          )
+            .evalMap { case (_, version) => live.doorbell.set(version) }
     }.drain
 
   /** The one place a recorder starts or stops: one per registered slug,
@@ -397,45 +401,49 @@ class Server(
       slug: String,
       renderer: Renderer,
       log: Ref[IO, FragmentLog],
+      held: Membership,
       changes: List[StateChange]
-  ): IO[Long] =
+  ): IO[(Membership, Long)] =
     (stateStore.current, sessions.openSets(slug), sessions.floor(slug))
       .flatMapN { (store, opens, floor) =>
         val before = Patches.beforeSnapshot(store.entities, changes)
-        // Before the gate and for every group: the graph tracks the state
-        // stream, not who is watching, and the next page renders from it.
-        IO(renderer.members.syncMembers(changes, before, store.entities))
-          .flatMap { membership =>
-            if (opens.isEmpty)
-              log.update(_.skipped(store.version)).as(store.version)
-            else {
-              // Only surfaces some client can see: a tab inside a hidden `If`
-              // is selected but on no screen. Filtered per session before the
-              // union, because a chain is one client's.
-              val visible = opens
-                .flatMap(o =>
-                  o.filter(
-                    renderer.surfaces.visibleSurface(_, o, store.entities)
+        // Before the gate and for every group: the membership tracks the
+        // state stream, not who is watching, and is the next frame's "before".
+        IO(renderer.members.syncMembers(held, changes, before, store.entities))
+          .flatMap { synced =>
+            val recorded =
+              if (opens.isEmpty)
+                log.update(_.skipped(store.version)).as(store.version)
+              else {
+                // Only surfaces some client can see: a tab inside a hidden `If`
+                // is selected but on no screen. Filtered per session before the
+                // union, because a chain is one client's.
+                val visible = opens
+                  .flatMap(o =>
+                    o.filter(
+                      renderer.surfaces.visibleSurface(_, o, store.entities)
+                    )
                   )
+                  .toSet
+                val req = Patches.plan(
+                  renderer,
+                  store.entities,
+                  before,
+                  synced,
+                  store.version,
+                  changes,
+                  visible
                 )
-                .toSet
-              val req = Patches.plan(
-                renderer,
-                store.entities,
-                before,
-                membership,
-                store.version,
-                changes,
-                visible
-              )
-              // Written and pruned in one update, so a concurrent write cannot
-              // be lost between them.
-              log
-                .update(l =>
-                  floor.foldLeft(Patches.record(renderer, l, req))(_.pruned(_))
-                )
-                .as(store.version)
-            }
+                // Written and pruned in one update, so a concurrent write cannot
+                // be lost between them.
+                log
+                  .update(l =>
+                    floor
+                      .foldLeft(Patches.record(renderer, l, req))(_.pruned(_))
+                  )
+                  .as(store.version)
+              }
+            recorded.map(synced.membership -> _)
           }
       }
 
@@ -1263,7 +1271,7 @@ class Server(
       id: String
   ): IO[Response[IO]] =
     stateStore.snapshot.flatMap { states =>
-      val entities = renderer.entitiesForNode(NodeId.derived(id))
+      val entities = renderer.entitiesForNode(NodeId.derived(id), states)
       val arr = Json.arr(entities.map { e =>
         states.get(e) match {
           case Some(st) =>

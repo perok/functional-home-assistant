@@ -244,9 +244,7 @@ class RenderInputsSuite extends munit.FunSuite {
   }
 
   test("a set member's key covers everything its clause dispatch reads") {
-    // One renderer per step: a member's node is state-derived and dispatched
-    // when the graph materialises the group, so a renderer must not be asked
-    // about a snapshot it has not been moved to.
+    // A renderer per side, so neither can reuse what the other rendered.
     for {
       entity <- List("light.a", "light.b")
       (a, i) <- line.zipWithIndex

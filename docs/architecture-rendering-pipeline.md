@@ -80,7 +80,7 @@ flowchart TB
 
   subgraph SHARED["PER SLUG — one recorder fiber each, however many viewers"]
     direction TB
-    SYNC["MemberGraph.syncMembers<br/>apply the frame to every set's MEMBER GRAPH<br/>before the gate, and for every set:<br/>the graph tracks the stream, not who is watching"]
+    SYNC["MemberGraph.syncMembers<br/>apply the frame to the recorder's MEMBERSHIP<br/>a value folded over the stream<br/>before the gate, and for every set:<br/>it tracks the stream, not who is watching"]
     PLAN["Patches.plan<br/>WHAT this frame touches:<br/>staticIds (members included) · sets · flips"]
     REC["Patches.record<br/>writes the CHANGELOG and nothing else<br/>NO RENDERING, no digests, no patches<br/>membership from the graph, flips from state"]
     BELL["doorbell · SignallingRef of the version<br/>discrete coalesces: versions landing while a<br/>session renders collapse into one pull"]
@@ -176,7 +176,7 @@ old renderer cannot be resumed.
 | Scope | One per | What lives there |
 |---|---|---|
 | Global | process | the HA WebSocket, `HaFeed`, **the `StateStore`**, the `changes` topic, the `Sessions` registry, the `AuthSessions` registry (a different fact — `Sessions` is keyed by `conn` and is a TAB, `AuthSessions` is keyed by a cookie and is a PERSON), and the query side: `QueryResolver` with its stage cache, `History` with its series cache, the one `ChartRenderer` |
-| Per slug | dashboard | the recorder fiber, the `RendererState` (in a `SignallingRef`: `Ready(renderer)` or `Failed(message)`, hot-swapped on edit) **and, when ready, the renderer and the member graph inside it**, the `FragmentLog`, the doorbell, the `RenderCache` |
+| Per slug | dashboard | the recorder fiber, the `RendererState` (in a `SignallingRef`: `Ready(renderer)` or `Failed(message)`, hot-swapped on edit) **and, when ready, the renderer and the member graph inside it**, the recorder's `Membership` (held in its fold, reset per renderer), the `FragmentLog`, the doorbell, the `RenderCache` |
 | Per connection | browser tab | the `Session` — normally created by the DOCUMENT and adopted by the stream, but MINTED by a stream or a surface tap that names a `conn` this process does not have, empty (slug, open surfaces, control queue, plus `holds`/`position`/`told` — what THIS client's DOM has, how far it has been served, and the newest version it was ANNOUNCED, which is the most it can echo back), the SSE stream, that viewer's selections and node-variable choices (`vars`) |
 
 There is exactly ONE store and ONE upstream subscription for every dashboard — `HaFeed.resource`
@@ -454,12 +454,12 @@ StateStore.update(frame)                    // one Ref.modify for the whole fram
 
 every slug's recorder wakes
   read snapshot+version together, and sessions.openSets(slug) + floor(slug)
-  syncMembers -> apply the frame to EVERY set's member graph, and
+  syncMembers -> apply the frame to EVERY set in the recorder's membership, and
       report what it did to each: the member lists before and after, plus the
       members whose CASE was replaced in place. BEFORE the gate and for
-      every group, not the visible ones: the graph tracks the state stream, so
-      a frame nobody records still moves members and the next page render must
-      see them. Only a CHANGED entity can have crossed a query or case
+      every group, not the visible ones: the membership tracks the state
+      stream, so a frame nobody records still moves members and the next
+      recorded frame diffs from where the stream really is. Only a CHANGED entity can have crossed a query or case
       boundary, so a frame costs the number of CHANGES, not the size of the
       house — and a frame that only ticks members walks no member list at all
       (10 µs on a 2 000-entity house, flat in group size)
@@ -551,7 +551,7 @@ server itself last sent.
 ## 3. Inside `Patches.record` — the three kinds, and what each writes
 
 Nothing here renders. Everything it needs is state: a flip's selection is `resolveActiveByState`,
-and membership arrives already applied — `MemberGraph.syncMembers` moves the member graph for every
+and membership arrives already applied — `MemberGraph.syncMembers` moves the recorder's membership for every
 member container before the gate, and hands `record` each container's list before and after plus
 the members whose case it replaced.
 
@@ -715,9 +715,9 @@ one — so the two shapes cannot be confused.
 ## 4b. The member graph — a member container's members ARE nodes
 
 The dashboard's graph has two halves. The **static** half (`Renderer.allIndexed`) is computed once
-from the `Dashboard`: every authored node, keyed by its location-derived id. The **live** half
-(`MemberGraph`) is a container's members, and it is maintained by the state stream rather than
-computed.
+from the `Dashboard`: every authored node, keyed by its location-derived id. The **live** half is a
+container's members. `MemberGraph` holds no state: it computes members from a snapshot, and the
+recorder carries them across the state stream as a `Membership` value it folds frame by frame.
 
 **One kind of container feeds it**: `LayoutNode.SetNode`, via `MemberGraph.MemberSource`.
 
@@ -788,8 +788,8 @@ other node does.
 
 Three properties hold it up, and each fails silently if broken:
 
-- **A member is selected like any other node.** `componentsFor` includes members binding the
-  entity, so a member re-renders because something it binds moved — the group's query is asked
+- **A member is selected like any other node.** `Patches.plan` adds the members binding the
+  entity (`Membership.binding`) to `componentsFor`'s static nodes, so a member re-renders because something it binds moved — the group's query is asked
   about MEMBERSHIP alone. Two consequences: a case slot naming a second entity ticks (it never
   did, silently), and `rootOf` must resolve a member through its group or a member inside a
   surface reaches clients who do not have it open. The one case the index cannot cover is a
@@ -802,21 +802,31 @@ Three properties hold it up, and each fails silently if broken:
   entity" stays a property of the predicate engine rather than of the id scheme. A CANDIDATE SET
   has no arrivals — its candidates are static — so the invariant is not load-bearing there; keyed
   ids stay anyway, because `c_light_taklys` is readable in a patch log and `c_3_7` is not.
-- **The recorder is the only writer.** A reader derives a group the stream has not reached yet but
-  never installs what it derived. Installing would let a page rendering at version 5 — while the
-  recorder is still applying the frame that produced 5 — become that frame's "before"; the frame
-  would see no membership move, and a client still at 4 would never hear about the arrival.
+- **Readers derive, the recorder folds.** A page, pull or resume computes membership from the
+  snapshot it renders (`membersOf`, `memberAt`); only the recorder holds a `Membership`, as the
+  "before" of its next frame. A reader that read the recorder's instead would pair a store ahead
+  of the recorder with members behind it: a page rendered between a store bump and that frame
+  shows the old members while claiming the new version, and the recorder then logs the arrival at
+  that same version, which the client skips (`ResumeSuite`). The reverse — a reader writing what
+  it derived — would make a page mid-frame that frame's "before", and the move would never be
+  recorded.
 - **A case switch re-materialises.** The node is state-derived, so a frame moving the matched entity
   across a case boundary REPLACES it. Marking it changed is not enough: the card would render
   happily, from the wrong branch, for as long as the entity stayed a member.
 
-Mutation is in place, in an `AtomicReference` on the renderer, and that is not incidental. Three
-things key on renderer IDENTITY — `publisherFor` rotates the changelog on a renderer emission,
-`reloadRepaints` repaints every connection on one (and decides what counts as "one" with `eq`,
-`Server.sameRenderer`), and `RenderCache` compares renderers with `eq`.
-A membership change that produced a NEW renderer would rotate the log, repaint every browser and
-flush the cache on exactly the case the graph exists to make cheap. Mutating in place keeps all
-three keyed on the dashboard, for free.
+The membership is kept off the renderer on purpose. Three things key on renderer IDENTITY —
+`publisherFor` rotates the changelog on a renderer emission, `reloadRepaints` repaints every
+connection on one (and decides what counts as "one" with `eq`, `Server.sameRenderer`), and
+`RenderCache` compares renderers with `eq` — so a membership change that produced a new renderer
+would rotate the log, repaint every browser and flush the cache on exactly the case the graph
+exists to make cheap. It lives in the recorder's `evalMapAccumulate` for one renderer arm instead,
+so a swap starts it empty along with the fresh log, and nothing needs invalidating.
+
+What a reader pays for deriving: a member lookup evaluates that one candidate's clauses (the whole
+set only under a `limit`, where presence depends on neighbours), and a set render evaluates its
+candidates once. Every `Member` a candidate can be — one per clause — is built with the graph, so a
+lookup allocates nothing and picks an instance; without that, `resumeMembers` cost 15% more
+allocation than reading a shared index did.
 
 ---
 
@@ -1333,7 +1343,7 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 | the document render | `runtime/Renderer.scala` · `renderPageInto`, `renderBodyTraced`, `tracedInto`, `executeInto`; `runtime/Sink.scala` · the `Writer` the whole document goes through — `Streaming` for a page, `Buffer` for a patch — and `digesting`, which fingerprints a node from the run it just wrote; `runtime/Server.scala` · `renderPage`, `pageInto` (the shell, around a writer hole). Streamed to the client as it is walked — §6a |
 | what a page open COST | `telemetry/Telemetry.scala` · the three providers, no-op together unless an OTLP endpoint is configured; `telemetry/Logging.scala` · the loggers every file takes, each line carrying the span it was written inside; `telemetry/Meters.scala` · the `fh.*` instruments; `runtime/Server.scala` · the `dashboard.page` / `.store` / `.walk` spans. Because the document is walked as the body is pulled, the walk outlives the handler — so its span is started inside the body and re-parented with `childOrContinue`, and a span that merely wrapped `renderPage` would time the setup and miss the render (issue #75) |
 | what keys a render | `runtime/Renderer.scala` · `renderInputs`, `activeBakeIndex` |
-| the member graph | `runtime/MemberGraph.scala` · `Member`, `MemberIndex`, `syncMembers`, `membersOf`, `innerSetId` |
+| the member graph | `runtime/MemberGraph.scala` · `Member`, `Membership`, `syncMembers`, `membersOf`, `innerSetId` |
 | which branch is showing, and to whom | `runtime/SurfaceGraph.scala` · `bakeGroup`, `resolveActive` (per viewer) / `resolveActiveByState` (per slug), `selectedSurfaces`, `visibleNode`, `visibleSurface`, `userSurfaceOf`, `rootOf` |
 | evaluating a guard / activation condition | `runtime/Conditions.scala` · `matches`, `matchesIn`, `propertyOf`; ordering in `runtime/MemberGraph.scala` · `precedes`, `compareOn` |
 | the render cache | `runtime/RenderCache.scala`; entered from `Patches.bytes` (morphs, placements). STRUCTURE is never cached — a card holding regions has its children in its own bytes, so it has no sound key — and that is decidable from the CARD (`CardDef.isStructure`) |

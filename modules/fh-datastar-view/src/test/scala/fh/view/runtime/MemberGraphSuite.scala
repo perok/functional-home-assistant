@@ -215,7 +215,12 @@ class MemberGraphSuite extends munit.FunSuite {
     val after =
       snapshot(st("light.a", "on"), st("light.b", "on"), st("light.c", "on"))
     val delta =
-      g.syncMembers(List(change(before, after, "light.b")), before, after)(gid)
+      g.syncMembers(
+        Membership.empty,
+        List(change(before, after, "light.b")),
+        before,
+        after
+      ).deltas(gid)
     assertEquals(delta.was, List("light.a", "light.c"))
     assertEquals(delta.now, List("light.a", "light.b", "light.c"))
     assertEquals(delta.replaced, Set.empty[MemberId])
@@ -233,7 +238,12 @@ class MemberGraphSuite extends munit.FunSuite {
     val before = snapshot(st("light.a", "on"))
     val after = snapshot(st("light.a", "off"))
     val delta =
-      g.syncMembers(List(change(before, after, "light.a")), before, after)(gid)
+      g.syncMembers(
+        Membership.empty,
+        List(change(before, after, "light.a")),
+        before,
+        after
+      ).deltas(gid)
     assertEquals(delta.was, List("light.a"))
     assertEquals(delta.now, List("light.a"))
     assertEquals(delta.replaced, Set(g.memberIdOf(gid, "light.a")))
@@ -244,7 +254,12 @@ class MemberGraphSuite extends munit.FunSuite {
     val before = snapshot(st("light.a", "on", "brightness" -> Json.fromInt(1)))
     val after = snapshot(st("light.a", "on", "brightness" -> Json.fromInt(2)))
     val delta =
-      g.syncMembers(List(change(before, after, "light.a")), before, after)(gid)
+      g.syncMembers(
+        Membership.empty,
+        List(change(before, after, "light.a")),
+        before,
+        after
+      ).deltas(gid)
     assertEquals(delta.was, delta.now)
     assertEquals(delta.replaced, Set.empty[MemberId])
   }

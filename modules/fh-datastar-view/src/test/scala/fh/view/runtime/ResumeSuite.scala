@@ -8,6 +8,8 @@ import fh.view.model.{
   Dashboard,
   LayoutNode,
   NodeId,
+  Op,
+  Predicate,
   SlotSource,
   Surface,
   Theme
@@ -15,6 +17,7 @@ import fh.view.model.{
 import fh.view.testkit.{FakeHomeAssistant, FixtureEntity, TestAuth}
 import fh.view.testkit.TestIds.given
 import fs2.concurrent.SignallingRef
+import io.circe.Json
 import org.http4s.*
 import org.http4s.implicits.*
 
@@ -197,6 +200,7 @@ class ResumeSuite extends ServerHarness {
             "dashboard",
             renderer,
             live.log,
+            Membership.empty,
             List(StateChange("sensor.a", cold.get("sensor.a"), hot))
           )
           logId <- live.log.get.map(_.id)
@@ -219,6 +223,72 @@ class ResumeSuite extends ServerHarness {
         opening.contains("\"" + Server.StoreVersionSignal + "\":0"),
         clue = opening
       )
+    }
+  }
+
+  /** '''A page's members are those of the snapshot it renders''', not those the
+    * recorder last held. The page claims `store.version`, so a membership
+    * behind the store would be claimed and never sent: the recorder logs the
+    * arrival at that same version, which the client skips. Same window as the
+    * test above, so again no recorder: one frame is recorded by hand, the
+    * arrival is not.
+    */
+  test("a page read ahead of the recorder shows the store's members") {
+    val off = Map("light.a" -> es("light.a", "off"))
+    val dash = Dashboard(
+      cards = Map("pill" -> CardDef("<b>{{state}}</b>", slots = List("state"))),
+      card = LayoutNode.SetNode(
+        candidates = List("light.a"),
+        members = Map(
+          "light.a" -> LayoutNode.SetMember(
+            List(
+              LayoutNode.SetClause(
+                Some(Predicate.Cmp("state", Op.Eq, Json.fromString("on"))),
+                LayoutNode.Component("pill", Map("state" -> SlotSource()))
+              )
+            )
+          )
+        )
+      )
+    )
+    val renderer = Renderer.create(dash)
+    (for {
+      store <- StateStore.inMemory(off)
+      ref <- SignallingRef[IO].of(Server.RendererState.Ready(renderer))
+      site <- Server.LiveSite.of(
+        Map("dashboard" -> ref),
+        Map.empty,
+        "dashboard"
+      )
+      live <- site.liveFor("dashboard").map(_.get)
+      sessions <- Sessions.create
+      fake <- FakeHomeAssistant.create(Nil)
+      page <- Supervisor[IO].use { supervisor =>
+        val server = new Server(
+          ServiceCalls.asInstance(HomeAssistantApi.fromWs(fake)),
+          store,
+          site,
+          sessions,
+          TestAuth.openGate,
+          supervisor
+        )
+        for {
+          _ <- server.recordFrame(
+            "dashboard",
+            renderer,
+            live.log,
+            Membership.empty,
+            List(StateChange("light.a", None, off("light.a")))
+          )
+          _ <- store.update(es("light.a", "on"))
+          resp <- server.routes.orNotFound.run(
+            Request[IO](Method.GET, uri"/d/dashboard")
+          )
+          body <- resp.bodyText.compile.string
+        } yield body
+      }
+    } yield page).timeout(30.seconds).map { page =>
+      assert(page.contains("id=\"c_light_a\""), clue = page)
     }
   }
 
