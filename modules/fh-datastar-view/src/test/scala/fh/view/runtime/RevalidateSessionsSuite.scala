@@ -188,12 +188,14 @@ class RevalidateSessionsSuite extends munit.CatsEffectSuite {
         login.headers.get[Location].map(_.uri.query.params("state"))
       )(new IllegalStateException("login carried no state"))
       callback <- routes.routes.orNotFound.run(
-        Request(
-          Method.GET,
-          uri"/auth/callback"
-            .withQueryParam("code", "one-time")
-            .withQueryParam("state", st)
-        )
+        login.cookies.foldLeft(
+          Request[IO](
+            Method.GET,
+            uri"/auth/callback"
+              .withQueryParam("code", "one-time")
+              .withQueryParam("state", st)
+          )
+        )((r, c) => r.addCookie(c.name, c.content))
       )
       id = callback.cookies.collectFirst {
         case c if c.name == AuthSessions.CookieName => c.content

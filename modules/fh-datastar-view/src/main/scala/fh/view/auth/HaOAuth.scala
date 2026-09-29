@@ -104,7 +104,9 @@ object HaOAuth {
   */
 final class HaOAuth(authorizeBase: Uri, tokenBase: Uri, client: Client[IO]) {
 
-  /** HA round-trips `state` untouched; it names the pending authorization. */
+  /** HA round-trips `state` untouched; it names the login's cookie
+    * ([[LoginTickets]]).
+    */
   def authorizeUri(clientId: Uri, redirect: Uri, state: String): Uri =
     (authorizeBase / "auth" / "authorize").withQueryParams(
       Map(

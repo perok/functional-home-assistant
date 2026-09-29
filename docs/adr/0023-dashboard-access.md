@@ -172,16 +172,20 @@ load races several requests against the same session, and turns an unreachable
 HA into a stall on every request rather than a background error. It would buy
 only the difference between "the next request" and "within one tick".
 
-Pending authorizations live in the same style and nowhere else: the OAuth
-`state` is a random nonce keyed to `{next, deadline}` in memory with a
-10-minute TTL, swept on the next login rather than by a fiber, since a login is
-the only moment the map can have grown. Not persisted — a login interrupted by
-a restart simply starts again. The state is consumed before the exchange so a
-captured callback cannot be replayed; the cost is that any failure after the
-claim burns the login, which is why everything after it maps onto a named
-`FHError` (an unreachable HA answers 503, naming the address it could not
-reach) rather than escaping as a raw exception — a failure a user can read is
-one they can recover from by starting a fresh login.
+A login in flight is held by the BROWSER, not the server (`LoginTickets`): the
+OAuth `state` is a random nonce, and `/auth/login` sets a cookie named after it
+that carries `{next, issued}` under an HMAC, which the callback requires and
+clears. That is what binds a callback to the browser that started the login —
+a `state` checked only against server memory lets anyone who completed a login
+as themselves hand the callback link to someone else, who is then signed in as
+them — and it leaves `/auth/login`, which is ungated, nothing to grow. The key
+is made at startup and never persisted, so a login interrupted by a restart
+simply starts again. A captured callback link is useless without the cookie,
+and HA's code is single-use, so a replay from the same browser fails at the
+exchange. Everything after the ticket check maps onto a named `FHError` (an
+unreachable HA answers 503, naming the address it could not reach) rather than
+escaping as a raw exception — a failure a user can read is one they can recover
+from by starting a fresh login.
 
 **Admission is not a one-time event.** An SSE stream is admitted once and then
 runs for hours. `AuthSessions` is a `SignallingRef`, so the stream is wrapped in

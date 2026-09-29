@@ -2,16 +2,11 @@ package fh.view.auth
 
 import api.homeassistant.ws.domain.HaUser
 import cats.effect.IO
-import cats.effect.kernel.Ref
 import cats.syntax.all.*
 import fh.view.FHError
 import org.http4s.dsl.io.*
 import org.http4s.headers.Location
 import org.http4s.{HttpRoutes, Query, Request, Response, Uri}
-
-import java.time.Instant
-
-private final case class Pending(next: String, deadline: Instant)
 
 /** The OAuth endpoints (issue #89); ungated, since a login page cannot need a
   * login.
@@ -20,7 +15,7 @@ final class AuthRoutes(
     oauth: HaOAuth,
     sessions: AuthSessions,
     identify: String => IO[HaUser],
-    pending: Ref[IO, Map[String, Pending]],
+    tickets: LoginTickets,
     baseUriOf: Request[IO] => Uri
 ) {
 
@@ -28,15 +23,16 @@ final class AuthRoutes(
 
     case req @ GET -> Root / "auth" / "login" =>
       val next = AuthGate.safeNext(req.uri.query.params.get("next"))
+      val base = baseUriOf(req)
       for {
-        state <- IO(java.util.UUID.randomUUID().toString)
         now <- IO.realTimeInstant
-        _ <- pending.update(
-          // Pruned here: only a login can have grown the map.
-          _.filter(_._2.deadline.isAfter(now)) +
-            (state -> Pending(next, now.plusSeconds(PendingTtlSeconds)))
+        issued <- tickets.issue(
+          next,
+          now,
+          redirectUri(base).path,
+          isSecure(req)
         )
-        base = baseUriOf(req)
+        (state, ticket) = issued
         resp <- SeeOther(
           Location(
             oauth.authorizeUri(
@@ -46,7 +42,7 @@ final class AuthRoutes(
             )
           )
         )
-      } yield resp
+      } yield resp.addCookie(ticket)
 
     case req @ GET -> Root / "auth" / "callback" =>
       val params = req.uri.query.params
@@ -79,21 +75,17 @@ final class AuthRoutes(
       req: Request[IO],
       code: String,
       state: String
-  ): IO[Response[IO]] =
+  ): IO[Response[IO]] = {
+    val base = baseUriOf(req)
     for {
       now <- IO.realTimeInstant
-      // Removed as it is read, so a code cannot be replayed against it.
-      claimed <- pending.modify { m =>
-        (m - state, m.get(state).filter(_.deadline.isAfter(now)))
-      }
-      next <- claimed
-        .map(_.next)
+      next <- tickets
+        .redeem(req, state, now)
         .liftTo[IO](
           FHError.badCondition(
-            "This login has expired or was already used. Open the site root (/) to start a new login."
+            "This login has expired, was already used, or was started in another browser. Open the site root (/) to start a new login."
           )
         )
-      base = baseUriOf(req)
       tokens <- oauth.exchange(code, base)
       refresh <- tokens.refreshToken.liftTo[IO](
         FHError.internal(
@@ -112,15 +104,16 @@ final class AuthRoutes(
         )
       )
       resp <- SeeOther(Location(Uri.unsafeFromString(next)))
-    } yield resp.addCookie(AuthSessions.cookie(id, isSecure(req)))
+    } yield resp
+      .addCookie(AuthSessions.cookie(id, isSecure(req)))
+      .addCookie(tickets.clear(state, redirectUri(base).path, isSecure(req)))
+  }
 
   private def redirectUri(base: Uri): Uri =
     base.withPath(base.path / "auth" / "callback").copy(query = Query.empty)
 
   private def isSecure(req: Request[IO]): Boolean =
     baseUriOf(req).scheme.exists(_.value == "https")
-
-  private val PendingTtlSeconds = 600L
 }
 
 object AuthRoutes {
@@ -130,7 +123,7 @@ object AuthRoutes {
       identify: String => IO[HaUser],
       baseUriOf: Request[IO] => Uri
   ): IO[AuthRoutes] =
-    Ref[IO]
-      .of(Map.empty[String, Pending])
-      .map(new AuthRoutes(oauth, sessions, identify, _, baseUriOf))
+    LoginTickets.create.map(
+      new AuthRoutes(oauth, sessions, identify, _, baseUriOf)
+    )
 }

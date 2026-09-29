@@ -96,6 +96,15 @@ class AuthGateSuite extends munit.CatsEffectSuite {
     assertEquals(AuthGate.safeNext(None), "/")
   }
 
+  /** It rides in the login cookie, which a browser drops past 4 KiB. */
+  test("a next too long for the login cookie comes back as the root") {
+    val fits = "/d/" + "a" * 2045
+    assertEquals(AuthGate.safeNext(Some(fits)), fits)
+    assertEquals(AuthGate.safeNext(Some(fits + "a")), "/")
+    // By bytes: three per character here.
+    assertEquals(AuthGate.safeNext(Some("/" + "€" * 700)), "/")
+  }
+
   test("the harness gate admits everyone, which is what makes it a fixture") {
     TestAuth.openGate
       .of(get("/"))
