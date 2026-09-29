@@ -280,13 +280,19 @@ object PklDump {
     str(eo, "domain") match {
       case Some("light") =>
         val modes = attrs("supported_color_modes")
-          .flatMap(pklTyped)
-          .map { case (_, rendered) => s"  colourModes = $rendered" }
+          .flatMap(_.asArray)
+          .fold(Vector.empty[String])(_.flatMap(_.asString))
+        val (known, unknown) = modes.partition(HassVocabulary.ColorModes)
         val features = attrs("supported_features")
           .flatMap(_.asNumber)
           .flatMap(_.toInt)
           .map(v => s"  supported_features = $v")
-        List(modes, features).flatten
+        Option
+          .when(known.nonEmpty)(
+            s"  colourModes = new Listing { ${known.map(pklString).mkString("; ")} }"
+          )
+          .toList ++ unknown.map(unvendored("supported_color_modes", _)) ++
+          features
       case Some("lock") =>
         attrs("supported_features")
           .flatMap(_.asNumber)
@@ -294,32 +300,41 @@ object PklDump {
           .map(v => s"  supported_features = $v")
           .toList
       case Some("sensor") =>
-        deviceClassField(attrs, HassVocabulary.SensorDeviceClasses) ++
-          List("state_class", "unit_of_measurement")
-            .flatMap(n => str(attrs, n).map(v => s"  $n = ${pklString(v)}")) ++
+        vocabField(attrs, "device_class", HassVocabulary.SensorDeviceClasses) ++
+          vocabField(attrs, "state_class", HassVocabulary.SensorStateClasses) ++
+          str(attrs, "unit_of_measurement")
+            .map(v => s"  unit_of_measurement = ${pklString(v)}")
+            .toList ++
           attrs("options")
             .flatMap(pklTyped)
             .map { case (_, rendered) => s"  options = $rendered" }
             .toList
       case Some("binary_sensor") =>
-        deviceClassField(attrs, HassVocabulary.BinarySensorDeviceClasses)
+        vocabField(
+          attrs,
+          "device_class",
+          HassVocabulary.BinarySensorDeviceClasses
+        )
       case _ => Nil
     }
   }
 
-  /** A value outside the vendored union is dropped to a comment: HA grows
-    * `SensorDeviceClass` most releases, so assigning it would fail a newer HA's
-    * whole dashboard, and no card has a branch for it anyway.
-    * `supported_color_modes` is assigned verbatim because that set is closed.
+  /** A field typed by a vendored union takes only the values that union names
+    * (ADR 0013): HA adding one is not a breaking change, but assigning it here
+    * would fail every dashboard that reads the field.
     */
-  private def deviceClassField(
+  private def vocabField(
       attrs: JsonObject,
+      name: String,
       known: Set[String]
   ): List[String] =
-    str(attrs, "device_class").toList.map { v =>
-      if (known.contains(v)) s"  device_class = ${pklString(v)}"
-      else s"  // device_class $v is not in the vendored union; re-sync hass/"
+    str(attrs, name).toList.map { v =>
+      if (known.contains(v)) s"  $name = ${pklString(v)}"
+      else unvendored(name, v)
     }
+
+  private def unvendored(name: String, value: String): String =
+    s"  // $name $value is not in the vendored union; re-sync hass/"
 
   /** Each complete capability group, narrowed on the entity's own class
     * (`ColourTemp?` on the domain, `ColourTemp` here), so a named entity needs
@@ -405,11 +420,7 @@ object PklDump {
       .sortBy(_._1)
       .flatMap { case (name, value) =>
         pklTyped(value).map { case (tpe, rendered) =>
-          // Typed as the union, so a typo in a comparison fails the eval.
-          val declared =
-            if (name == "supported_color_modes") "Listing<hass.ColorMode>"
-            else tpe
-          s"  ${tick(name)}: $declared = $rendered"
+          s"  ${tick(name)}: $tpe = $rendered"
         }
       }
   }

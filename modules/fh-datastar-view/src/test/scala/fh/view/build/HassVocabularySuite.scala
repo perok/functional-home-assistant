@@ -53,6 +53,52 @@ class HassVocabularySuite extends munit.FunSuite {
     )
   }
 
+  test("ColorMode agrees with the vendored union") {
+    assertEquals(
+      HassVocabulary.ColorModes,
+      unionMembers("hass/light.pkl", "ColorMode")
+    )
+  }
+
+  test("SensorStateClass agrees with the vendored union") {
+    assertEquals(
+      HassVocabulary.SensorStateClasses,
+      unionMembers("hass/sensor.pkl", "SensorStateClass")
+    )
+  }
+
+  /** The tripwire for the next such field: typing one by a vendored union
+    * without filtering it in `PklDump` is the breakage ADR 0013 describes, and
+    * nothing fails until a newer HA reports a value the union lacks.
+    */
+  test("every schema field typed by a vendored union has a vocabulary") {
+    val hass = BundledLib
+      .entries()
+      .collectFirst { case (n, b) if n == "hass.pkl" => new String(b, "UTF-8") }
+      .getOrElse(fail("hass.pkl is not in the bundled lib"))
+    val vendored = """(?m)^typealias (\w+) = hass\w+\.\w+""".r
+      .findAllMatchIn(hass)
+      .map(_.group(1))
+      .toSet
+    val typedBy =
+      """(?m)^\s*(?:hidden\s+)?\w+:\s*(?:Listing<)?(\w+)>?\??\s*=""".r
+        .findAllMatchIn(hass)
+        .map(_.group(1))
+        .filter(vendored)
+        .toSet
+    assert(vendored.nonEmpty && typedBy.nonEmpty, clue = (vendored, typedBy))
+    assertEquals(
+      typedBy,
+      Set(
+        "ColorMode",
+        "SensorDeviceClass",
+        "SensorStateClass",
+        "BinarySensorDeviceClass"
+      ),
+      clue = "filter the new field through HassVocabulary in PklDump"
+    )
+  }
+
   test("ON_MEANS covers every binary sensor device class") {
     // Pkl types the Mapping's KEYS, so it already rejects a made-up one. What
     // it cannot see is a MISSING one — that reads back as null, and a card then

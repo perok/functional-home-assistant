@@ -368,10 +368,9 @@ capabilities to cross API boundaries as arguments rather than be dotted into.)
 
 #### The HA domain model is vendored, not guessed
 
-Predicates are derived from HA's own light model, copied into
-`lib/hass/light.pkl` (author-facing) and `HaLight.scala` (generator-facing): the
-`ColorMode` string enum and the `LightEntityFeature` bits (`EFFECT=4`,
-`FLASH=8`, `TRANSITION=32`).
+Predicates are derived, in Pkl, from HA's own light model copied into
+`lib/hass/light.pkl`: the `ColorMode` string enum and the `LightEntityFeature`
+bits (`EFFECT=4`, `FLASH=8`, `TRANSITION=32`).
 
 **Vendoring these is safe.** An earlier draft of this ADR claimed the numeric
 feature flags "drift between HA releases" — that was wrong. HA's
@@ -387,37 +386,41 @@ bit agreed with `effect_list` presence **48/48**, and every observed
 `supported_features` value (0, 4, 40, 44) decoded with **no unaccounted bits**.
 Re-run that check when syncing to a newer HA.
 
-Two copies exist because the two sides need the constants at different times —
-codegen derives predicates, an author names a mode or tests a bit in their own
-expressions. `HaLightSuite` reads the values back out of the Pkl source and
-asserts they match the Scala ones, so the pair cannot drift silently.
+The generator never reads the bits; `HaLightSuite` pins the Pkl values to HA's
+from a test-only copy.
 
 Vendoring also lets the dump type its colour modes as `Listing<hass.ColorMode>`
 rather than `Listing<String>`, so an author's `"colour_temp"` is an eval error
 instead of a comparison that silently never matches.
 
-#### A vendored STRING enum is a weaker bet, and `device_class` is dropped when unknown
+#### A value HA adds is not a breaking change, so the generator drops what a union lacks
 
-`SensorDeviceClass` gets the same treatment — vendored to `lib/hass/sensor.pkl`
-and mirrored in `HassVocabulary.scala`, kept honest by `HassVocabularySuite` the
-way `HaLightSuite` keeps the light pair honest — but it does **not** get the
-same guarantee, and the difference decides what the generator does with an
-unrecognised value.
+Every schema field typed by a vendored string union — `LightEntity.colourModes`
+(`ColorMode`), `SensorEntity.device_class` and `state_class`,
+`BinarySensorEntity.device_class` — takes only the values that union names.
+`PklDump.vocabField` (and the colour-mode filter beside it) checks each against
+`HassVocabulary.scala`, the generator's copy of the unions, and leaves a comment
+in the generated source for anything else.
 
 A feature bitmask is append-only because it is persisted and read by HA's own
-frontend. A device-class string enum is persisted nowhere and has both grown
-(`area`, `energy_distance`, `temperature_delta` are recent) and, historically,
-deprecated members. It is sixty-odd values and moving, against `ColorMode`'s ten
-and stable.
+frontend. A string enum is not: device classes have both grown (`area`,
+`energy_distance`, `temperature_delta` are recent) and, historically, lost
+members, and `ColorMode` and `SensorStateClass` can gain one the same way
+(`measurement_angle` is recent). Assigning a value the union lacks is not caught
+when the dump is built but when something reads the field — measured:
+`supportsBrightness`, `volatileAttrs` (which `query.attr` reads) and `isEnum`
+all fail with `Expected value of type …`. So a home on a newer HA than this lib
+was synced against would fail every dashboard that touches such an entity.
+Dropping it is also the behaviourally right answer: cards BRANCH on these
+values, and a value with no branch is indistinguishable from none.
 
-So `PklDump.deviceClassField` **emits the assignment only for a class the
-vendored union names**, and leaves a comment in the generated source otherwise.
-Assigning it verbatim — the obvious thing, and what `supported_color_modes`
-does — would mean a home running a newer HA than this lib was synced against
-fails to evaluate *every* dashboard, `Cannot assign` on a first boot, over a
-reading no shipped card knows how to render. Dropping to null is also the
-behaviourally right answer: cards BRANCH on the class, and a class with no
-branch is indistinguishable from none.
+Two copies of one list are what this codebase normally refuses. Here the Pkl
+union gives an author a typo error and completion, and the generator needs the
+set before any Pkl runs; neither can read the other at that moment. So
+`HassVocabularySuite` parses each union out of the vendored source and asserts
+set equality, and fails when `hass.pkl` types a new field by a vendored union
+the list does not cover. `UnvendoredValueSuite` evaluates a dump carrying an
+unknown value in every such field, with the readers forced.
 
 This is the same "keep the house booting" reasoning as the declared-not-emitted
 house lists above, applied to a value rather than a property.
@@ -524,10 +527,11 @@ The recipe, in the order the pieces depend on each other:
 2. **Carry the attributes**: add them to `RegistryDump.CapabilityAttributes` —
    *after* checking them against live `subscribe_entities` deltas, per the rule
    above. Skip any that are live values.
-3. **Vendor the constants** in `lib/hass/<domain>.pkl` + `Ha<Domain>.scala`, and
-   extend `HaLightSuite`'s comparison to the new pair so they cannot drift.
-   (Import with an `as` alias — Pkl binds an import to its FILE name, and
-   `hass-media-player` is not an identifier.)
+3. **Vendor the constants** in `lib/hass/<domain>.pkl`. (Import with an `as`
+   alias — Pkl binds an import to its FILE name, and `hass-media-player` is not
+   an identifier.) A string union that types a field the dump assigns also goes
+   in `HassVocabulary.scala`, filtered in `PklDump` and checked by
+   `HassVocabularySuite` — see "A value HA adds is not a breaking change".
 4. **Model the schema** in `hass.pkl`: an `open class <Domain>Entity extends
    Entity` with the co-occurring values as nullable GROUP classes and the
    yes/no capabilities as predicates DERIVED from the raw emitted data. Do not
