@@ -1887,4 +1887,24 @@ class RendererSuite extends munit.FunSuite {
     assertEquals(r.hostId("c"), "c_panel")
     assertEquals(r.hostId("c"), r.surface("c_t0").get.hostId)
   }
+
+  /** A card may name any injected var in `slots`, and each must arrive filled.
+    */
+  test("every var validate treats as injected is one the renderer fills") {
+    val names = Dashboard.injectedStatic.toList.sorted
+    val d = Dashboard(
+      Map(
+        "probe" -> CardDef(
+          names.map(v => s"$v=[{{$v}}]").mkString("<p>", " ", "</p>"),
+          slots = names
+        )
+      ),
+      LayoutNode.Component("probe"),
+      slug = "kitchen"
+    )
+    assertEquals(d.validate(), Nil)
+    val page = Renderer.create(d).renderPage(Map.empty)
+    names.foreach(v => assert(!page.contains(s"$v=[]"), clue = page))
+    assert(page.contains("dashboardSlug=[kitchen]"), clue = page)
+  }
 }

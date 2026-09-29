@@ -911,12 +911,13 @@ case class Dashboard(
 
     def childErrors(
         kids: Map[String, List[LayoutNode]],
+        prefix: String,
         id: NodeId,
         scope: Map[String, String],
         inSet: Boolean
     ): List[String] =
       LayoutNode.steps(kids).flatMap { case (step, n) =>
-        walk(n, LayoutNode.childId("", id, step, n), scope, inSet)
+        walk(n, prefix, LayoutNode.childId(prefix, id, step, n), scope, inSet)
       }
 
     // Interpolated into a `class` attribute unescaped.
@@ -932,6 +933,7 @@ case class Dashboard(
 
     def walk(
         node: LayoutNode,
+        prefix: String,
         nodeId: NodeId,
         scope: Map[String, String],
         inSet: Boolean
@@ -965,7 +967,7 @@ case class Dashboard(
             slots.keySet
           ) ++ slotErrors(nodeId, card, slots, here, inSet) ++
             varErrors(nodeId, vars) ++ cellErrors(nodeId, cell) ++
-            wrapErrors ++ childErrors(c.regions, nodeId, here, inSet)
+            wrapErrors ++ childErrors(c.regions, prefix, nodeId, here, inSet)
         // Clauses carry complete nodes, validated as ordinary ones.
         case s: LayoutNode.SetNode =>
           val setId = nodeId
@@ -978,8 +980,9 @@ case class Dashboard(
               m.clauses.zipWithIndex.flatMap { case (clause, i) =>
                 walk(
                   clause.node,
+                  prefix,
                   LayoutNode.childId(
-                    "",
+                    prefix,
                     nodeId,
                     LayoutNode.Step(LayoutNode.DefaultRegion, i),
                     clause.node
@@ -1278,12 +1281,14 @@ case class Dashboard(
       danglingBakes ++
       activationErrors ++
       unboundConditions ++
-      walk(card, LayoutNode.rootId("", card), Map.empty, inSet = false) ++
+      walk(card, "", LayoutNode.rootId("", card), Map.empty, inSet = false) ++
       // Each surface starts its own scope — see `scopedSlots`.
       surfaces.toList.sortBy(_._1).flatMap { case (sid, surface) =>
+        val p = LayoutNode.surfacePrefix(sid)
         walk(
           surface.content,
-          LayoutNode.rootId("", surface.content),
+          p,
+          LayoutNode.rootId(p, surface.content),
           Map.empty,
           inSet = false
         ).map(err => s"surface '$sid': $err")
@@ -1414,7 +1419,24 @@ object Dashboard:
     */
   val PopupHostId: DomId = DomId.derived("popups")
 
+  /** The vars the renderer gives every node, a pure function of its id. Here
+    * rather than in `Renderer` so [[injectedStatic]] is derived from it.
+    */
+  def structuralVars(
+      id: NodeId,
+      hostId: DomId,
+      slug: String
+  ): Map[String, String] =
+    Map(
+      "id" -> id,
+      "hostId" -> hostId,
+      // For a URL built in a template (the slider's commit); a transform
+      // reads the same fact as `dashboard_slug`.
+      "dashboardSlug" -> slug
+    )
+
   /** The backend-injected vars a card may list in its `slots` without the node
     * authoring them.
     */
-  val injectedStatic: Set[String] = Set("id")
+  val injectedStatic: Set[String] =
+    structuralVars(NodeId.derived(""), DomId.derived(""), "").keySet

@@ -80,6 +80,28 @@ class BuildPhaseSuite extends munit.FunSuite {
     assert(!errs.exists(_.contains("missing slots: id")), clue = errs)
   }
 
+  test("validate names a surface's node by the id it renders with") {
+    val d = Dashboard(
+      cards = Map("card" -> CardDef("<div>x</div>")),
+      card = LayoutNode.Component(card = "card"),
+      surfaces = Map(
+        "detail" -> Surface(
+          LayoutNode.Component(
+            card = "card",
+            regions = Map(
+              LayoutNode.DefaultRegion -> List(LayoutNode.Component("missing"))
+            )
+          )
+        )
+      )
+    )
+    val id = LayoutNode.surfacePrefix("detail") + "c_0"
+    assertEquals(
+      d.validate().filter(_.contains("missing")),
+      List(s"surface 'detail': $id: references unknown card 'missing'")
+    )
+  }
+
   test("validate rejects a cell class that is not a plain CSS class token") {
     // Interpolated into the wrapper's class attribute, so anything beyond
     // [A-Za-z0-9_-]+ fails the build.
