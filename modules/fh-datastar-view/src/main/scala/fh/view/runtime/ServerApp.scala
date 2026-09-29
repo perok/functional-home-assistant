@@ -188,6 +188,7 @@ object ServerApp extends IOApp {
           otel = otel,
           loggerFactory = loggerFactory,
           meters = meters,
+          sourceWatcher = SourceWatcher.default,
           sessionWindows = Server.SessionWindows.default
         )
       )
@@ -229,6 +230,7 @@ object ServerApp extends IOApp {
       otel: Telemetry.Otel,
       loggerFactory: LoggerFactory[IO],
       meters: Meters,
+      sourceWatcher: Resource[IO, SourceWatcher],
       // Not an edge: time, which a test shortens to watch a reap.
       sessionWindows: Server.SessionWindows
   )
@@ -421,7 +423,8 @@ object ServerApp extends IOApp {
         site.names
       )
 
-      _ <- watchSources(reload, importsRef).compile.drain.background
+      watcher <- edges.sourceWatcher
+      _ <- watchSources(watcher, reload, importsRef).compile.drain.background
 
       _ <-
         if (edges.watchRegistry)
@@ -681,25 +684,27 @@ object ServerApp extends IOApp {
     Watcher.EventType.Deleted
   )
 
-  private def watchSources(
-      reload: IO[Unit],
-      importsRef: SignallingRef[IO, Set[Path]]
-  ): Stream[IO, Unit] =
-    Stream.resource(Watcher.default[IO]).flatMap { watcher =>
-      watchSourcesWith(
-        watcher.events(),
-        path => watcher.watch(path, watchedEvents),
-        reload,
-        importsRef
-      )
-    }
-
-  /** Decoupled from the OS watcher for tests; the `WatchService` itself is only
-    * exercised manually.
+  /** What the source reload asks of a file watcher. Ours and not fs2's
+    * `Watcher`, which is sealed, so a test could not stand in for it.
     */
-  private[runtime] def watchSourcesWith(
-      events: Stream[IO, Watcher.Event],
-      watch: Path => IO[IO[Unit]],
+  private[runtime] trait SourceWatcher {
+    def watch(path: Path): IO[IO[Unit]]
+    def events: Stream[IO, Watcher.Event]
+  }
+
+  private[runtime] object SourceWatcher {
+    val default: Resource[IO, SourceWatcher] =
+      Watcher.default[IO].map { watcher =>
+        new SourceWatcher {
+          def watch(path: Path): IO[IO[Unit]] =
+            watcher.watch(path, watchedEvents)
+          def events: Stream[IO, Watcher.Event] = watcher.events()
+        }
+      }
+  }
+
+  private def watchSources(
+      watcher: SourceWatcher,
       reload: IO[Unit],
       importsRef: SignallingRef[IO, Set[Path]]
   ): Stream[IO, Unit] = {
@@ -713,7 +718,7 @@ object ServerApp extends IOApp {
               val toCancel = current.keySet -- imports
               for {
                 added <- toAdd.toList
-                  .traverse(p => watch(p).tupleLeft(p))
+                  .traverse(p => watcher.watch(p).tupleLeft(p))
                 _ <- toCancel.toList
                   .traverse_(p => current.getOrElse(p, IO.unit))
                 _ <- active.set((current ++ added) -- toCancel)
@@ -723,7 +728,7 @@ object ServerApp extends IOApp {
         }
 
     val reloadOnChange =
-      events
+      watcher.events
         .filter(isSourceEvent)
         .debounce(200.millis)
         .evalMap(_ => reload)
