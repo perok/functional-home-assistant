@@ -108,7 +108,8 @@ object Datastar {
     )
 
   /** Collapses whitespace runs containing a newline, so the fragment fits one
-    * `elements` line. This also flattens the line breaks inside a `<pre>`.
+    * `elements` line. A value's newlines survive as `&#10;` (`Templates`); a
+    * line break written into a template's own `<pre>` does not.
     */
   private val LineRun = java.util.regex.Pattern.compile("\\s*\\r?\\n\\s*")
 

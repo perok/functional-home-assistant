@@ -1,9 +1,7 @@
 package fh.view.runtime
 
-import com.github.mustachejava.DefaultMustacheFactory
-
 /** The engine behaviours the runtime depends on, against expected bytes: the
-  * escape set (with the newline pin), missing keys rendering empty,
+  * escape set (newlines included), missing keys rendering empty,
   * `emptyStringIsFalse` truthiness, and the region-loop shapes every container
   * uses.
   */
@@ -34,28 +32,21 @@ class TemplatesBehaviourSuite extends munit.FunSuite:
     )
   }
 
-  test("newlines pass through — the override pins it") {
-    // mustache.java's `encode` escapes a newline, and HA values carry newlines,
-    // so [[Templates.factory]] overrides it to jmustache's set, which the
-    // templates were written against. The raw-engine half says what dropping it
-    // would do.
-    val raw = new DefaultMustacheFactory()
-      .compile(new java.io.StringReader("{{v}}"), "t")
-    val w = new java.io.StringWriter
-    raw.execute(
-      w,
-      java.util.Collections.singletonMap[String, AnyRef]("v", "a\nb")
-    )
-    assertEquals(
-      w.toString,
-      "a&#10;b",
-      clue = "raw engine behavior moved — reread the override"
-    )
-    assertEquals(
-      render("{{v}}", "v" -> "a\nb"),
-      "a\nb",
-      clue = "our encode override regressed"
-    )
+  test("a value's line breaks survive a patch") {
+    // The more-info `<pre>` shape: its attribute lines are one value, and a
+    // patch collapses the literal newlines of its fragment.
+    val value = "a: 1\nb: 2\r\nc: 3"
+    val sent = Datastar
+      .patchElements(render("<pre>{{v}}</pre>", "v" -> value))
+      .data
+      .get
+    assertEquals(sent, "elements <pre>a: 1&#10;b: 2&#13;&#10;c: 3</pre>")
+    val shown = sent
+      .stripPrefix("elements <pre>")
+      .stripSuffix("</pre>")
+      .replace("&#10;", "\n")
+      .replace("&#13;", "\r")
+    assertEquals(shown, value)
   }
 
   test("raw holes: {{{x}}} never escapes") {

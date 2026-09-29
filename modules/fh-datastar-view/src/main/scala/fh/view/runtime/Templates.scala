@@ -33,7 +33,9 @@ object Templates {
         this
       )
       // Written in runs: `Writer.write(int)` allocates a one-char array per
-      // character.
+      // character. A newline is escaped because a patch collapses literal ones
+      // (`Datastar.collapse`), which flattened the more-info `<pre>` after its
+      // first update.
       override def encode(s: String, writer: Writer): Unit = {
         val n = s.length
         var start = 0
@@ -52,6 +54,10 @@ object Templates {
               flush(i); writer.write("&quot;"); i += 1; start = i
             case '\'' =>
               flush(i); writer.write("&#39;"); i += 1; start = i
+            case '\n' =>
+              flush(i); writer.write("&#10;"); i += 1; start = i
+            case '\r' =>
+              flush(i); writer.write("&#13;"); i += 1; start = i
             case _ => i += 1
         flush(n)
       }
