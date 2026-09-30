@@ -1,7 +1,6 @@
 package fh.view.build
 
 import cats.effect.IO
-import cats.syntax.all.*
 
 /** Picks up a home change (the dump is deliberately not watched) without a
   * restart: validate-then-swap (ADR 0010). An unchanged content-version is a
@@ -43,33 +42,40 @@ object DumpRefresh {
 
   /** A failure against the current dump too is pre-existing and does not veto,
     * or a user mid-edit would block every registry change. Same rule for the
-    * whole entrypoint.
+    * whole entrypoint. The current workspace is evaluated only when the staged
+    * one has a failure to excuse: on a Pi each evaluation is seconds (#406).
     */
   private def newlyBroken(
       newDump: String,
       dashboardsDir: os.Path
-  ): IO[List[(String, String)]] =
+  ): IO[List[(String, String)]] = {
+    val current = DashboardBuild.evalSite(dashboardsDir).attempt
     IO.blocking(stageWorkspace(newDump, dashboardsDir))
       .bracket { staged =>
-        (
-          DashboardBuild.evalSite(staged).attempt,
-          DashboardBuild.evalSite(dashboardsDir).attempt
-        ).flatMapN {
-          case (Left(err), Right(_)) =>
-            IO.pure(List(Site.EntryFile -> Site.messageOf(err)))
-          case (Left(_), Left(_))            => IO.pure(Nil)
-          case (Right((staged, _)), current) =>
-            val building = current.toOption
-              .map(_._1.dashboards.collect { case (slug, Right(_)) => slug })
-              .getOrElse(Nil)
-              .toSet
-            IO.pure(
-              staged.dashboards.collect {
-                case (slug, Left(err)) if building(slug) => slug -> err
+        DashboardBuild.evalSite(staged).attempt.flatMap {
+          case Left(err) =>
+            current.map {
+              case Right(_) => List(Site.EntryFile -> Site.messageOf(err))
+              case Left(_)  => Nil
+            }
+          case Right((staged, _)) =>
+            val broken = staged.dashboards.collect { case (slug, Left(err)) =>
+              slug -> err
+            }
+            if (broken.isEmpty) IO.pure(Nil)
+            else
+              current.map { now =>
+                val building = now.toOption
+                  .map(_._1.dashboards.collect { case (slug, Right(_)) =>
+                    slug
+                  })
+                  .getOrElse(Nil)
+                  .toSet
+                broken.filter((slug, _) => building(slug))
               }
-            )
         }
       }(staged => IO.blocking(os.remove.all(staged / os.up)))
+  }
 
   /** Lockfiles are dropped so the copy re-resolves. The cache is shared, not
     * copied; seeding into it is additive.

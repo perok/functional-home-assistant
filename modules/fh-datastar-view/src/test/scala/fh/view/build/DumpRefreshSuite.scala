@@ -118,6 +118,27 @@ class DumpRefreshSuite extends munit.CatsEffectSuite {
     }
   }
 
+  test("the reload after a green change reads the staged evaluation") {
+    val ws = stage(
+      siteWith(
+        """  ["count"] {
+          |    card = (c.grid) { children { c.title("n=\(dump.all.length)") } }
+          |  }""".stripMargin
+      )
+    )
+    def eval() =
+      SourceEval.eval(ws, Site.EntryFile).fold(e => fail(e), identity)
+    val before = eval()
+    val next = dumpText(HouseFixture.all.filterNot(_ == HouseFixture.tv))
+    DumpRefresh.refresh(next, ws).map {
+      case DumpRefresh.Swapped(_, _) =>
+        val reload = eval()
+        assert(reload.fromCache)
+        assertNotEquals(reload.value, before.value)
+      case other => fail(s"expected Swapped, got $other")
+    }
+  }
+
   test("a dashboard that is already broken does not veto a green change") {
     // Broken under any dump: a user mid-edit must not block registry changes
     // forever.
