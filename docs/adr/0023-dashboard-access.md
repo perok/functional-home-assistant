@@ -50,12 +50,15 @@ whichever access token authenticated *that* connection, so the login flow opens
 a one-shot WS with the user's freshly-exchanged token and closes it
 (`ServerApp`'s `identify`).
 
-That per-connection identity is also why an ACTION opens its own socket (issue
-#198): HA attributes a `call_service` to whoever owns the connection, so the
-shared feed — which stays on the machine token and never sees a user's — makes
-every tap the add-on's. `ServerApp`'s `connectAs` is the one expression both
-uses share, because WHERE a per-user credential is accepted is a third address
-and writing that ranking twice is how the two would drift.
+That per-connection identity is also why an ACTION does not ride the feed
+(issue #198): HA attributes a `call_service` to whoever owns the connection, so
+the shared feed — which stays on the machine token and never sees a user's —
+makes every tap the add-on's. A tap is instead a REST
+`POST /api/services/<domain>/<service>` with the user's token on the request,
+which HA attributes to that token's user (seen in the logbook's
+`context_user_id`). Both go to `HaOAuth.coreBase`, because WHERE a per-user
+credential is accepted is a third address and writing that ranking twice is how
+the two would drift.
 
 **The cookie is an opaque handle; the state lives server-side.** A v4 UUID —
 no identity, no token, no claims — `HttpOnly`, `SameSite=Lax`, `Path=/`,
@@ -416,11 +419,12 @@ probing later as an optimisation, not assumed.
   now the short-lived access tokens minted from them — inside a workspace users
   keep in git. Both are gitignored and `0600`, and that they live there at all
   is tracked as issue #165.
-- **An action costs a connect and an auth handshake.** One socket per button
-  press is the shape that needs no lifecycle at all, which is why it is first;
-  the two cheaper answers (a pooled socket per logged-in person, or the REST API
-  with the token on the request) are the same decision made once this one is
-  known to work. Issue #198 has the comparison.
+- **A refused action says less over REST.** An unknown service or data that
+  fails validation answers a bare `400: Bad Request`, so the toast reads "Home
+  Assistant refused the action (HTTP 400)" where the WS reply named the field.
+  A `ServiceValidationError` or `HomeAssistantError` keeps its message. Chosen
+  over a pooled socket per person, which would be a cache of connections for an
+  identity that REST carries on each request.
 - **Ingress taps are still the add-on's.** Behind the Supervisor proxy HA has
   authenticated the user and forwards who they are, but never gives this server
   a token for them — so there is nothing to act as, and `ServiceCalls` falls

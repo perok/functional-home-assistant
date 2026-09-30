@@ -1,5 +1,4 @@
 import cats.effect.IO
-import cats.syntax.all.*
 import perok.ha.{HomeAssistantApiService, PostServiceApiOutput}
 import ha.generated.*
 import api.homeassistant.HomeAssistantApi
@@ -32,11 +31,14 @@ object hello {
   ): IO[PostServiceApiOutput] = {
     val service = services.light.toggle()
 
-    // api.postServiceApi(service.domain, service.serviceId, entity_id = lys2.id.some)
     api.postServiceApi(
       service.domain,
       service.serviceId,
-      area_id = "a2a7fc17306e45e7a3fda077203b0598".some
+      smithy4s.Document.obj(
+        "area_id" -> smithy4s.Document.fromString(
+          "a2a7fc17306e45e7a3fda077203b0598"
+        )
+      )
     ) // living room
 
   }

@@ -748,7 +748,13 @@ object TestServer {
           else NotFound()
         })
       ),
-      _ => Resource.pure(HomeAssistantApi.fromWs(fake))
+      _ => Resource.pure(HomeAssistantApi.fromWs(fake)),
+      _ =>
+        (domain, service, entityId, data) =>
+          HomeAssistantApi
+            .fromWs(fake)
+            .callService(domain, service, entityId, data)
+            .void
     )
 
   /** Every asset answers empty, so no in-process test reaches the network. */

@@ -34,6 +34,18 @@ object DocumentJson {
       )
   }
 
+  def toDocument(json: Json): smithy4s.Document = {
+    import smithy4s.Document.*
+    json.fold(
+      DNull,
+      DBoolean(_),
+      n => DNumber(n.toBigDecimal.getOrElse(BigDecimal(n.toDouble))),
+      DString(_),
+      values => DArray(values.map(toDocument)),
+      obj => DObject(obj.toMap.view.mapValues(toDocument).toMap)
+    )
+  }
+
   /** How a command's `AsResult[A]` takes a smithy type into the circe-typed WS
     * protocol.
     */
