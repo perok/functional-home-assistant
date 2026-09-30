@@ -23,6 +23,7 @@ import fh.view.build.{
 import com.comcast.ip4s.Ipv4Address
 import fh.view.auth.{
   AuthGate,
+  BearerUsers,
   Ingress,
   IngressUsers,
   AuthRoutes,
@@ -376,9 +377,11 @@ object ServerApp extends IOApp {
               .raiseError[IO, HaUser]
           )
       ingressUsers <- IngressUsers.cached(feed.api.configAuthList).toResource
+      // Only the gate's: a login callback resolves its fresh token once.
+      bearerUsers <- BearerUsers.cached(identify).toResource
       gate = new AuthGate(
         authSessions,
-        identify,
+        bearerUsers,
         site.permissionFor,
         ingressUsers,
         edges.trustedProxy
