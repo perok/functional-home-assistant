@@ -456,7 +456,7 @@ const click: String =
 /// unavailable entity is exactly what you want to open (it is where the reason
 /// is), and a navigate does not care.
 ///
-/// `extra` is a card's own additions — [[components.control.Button]]'s
+/// `extra` is a card's own additions — [[components.control.EntityButton]]'s
 /// `inertWhile`, HA's `canOpen`-style "this press is meaningless here". Empty
 /// for a card that has none.
 const function inertStates(t: TapAction, target: Target?, extra: Listing<String>): List<String> =
