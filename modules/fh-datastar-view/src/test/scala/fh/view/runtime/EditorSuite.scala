@@ -45,8 +45,8 @@ class EditorSuite extends munit.FunSuite {
   test("the page shell bundle defines the helpers the document calls") {
     val shell = bundle("shell")
     // The document calls all four: fhConn mid-body, fhScroll on its last line,
-    // fhUrl from Datastar's first effect, fhRegisterSw in the head.
-    List("fhUrl", "fhConn", "fhScroll", "fhRegisterSw").foreach(fn =>
+    // fhUrlSync and fhRegisterSw in the head.
+    List("fhUrlSync", "fhConn", "fhScroll", "fhRegisterSw").foreach(fn =>
       assert(shell.contains(s"window.$fn="), clue = (fn, shell))
     )
   }

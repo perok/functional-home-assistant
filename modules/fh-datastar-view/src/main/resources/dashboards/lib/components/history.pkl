@@ -239,7 +239,7 @@ class WindowChooser extends nodes.Node {
   cardDef = new nodes.CardDef {
     regions = new Mapping { [nodes.defaultRegion] = new nodes.Region {} }
     template = """
-      <div class="fh-col" data-effect="fhUrl('\(urlParam)', $\(varCommitted), el)"><div class="tabs" data-signals__ifmissing="{ \(tapMod.pendingSeedEntry(varGroup)) }" \(tapMod.pendingClearAgainst(varGroup, varCommitted))>\(windows.toList().map((w) -> windowButton(w)).join(""))</div>{{#children}}{{{html}}}{{/children}}</div>
+      <div class="fh-col" data-fh-url="['\(urlParam)', $\(varCommitted)]"><div class="tabs" data-signals__ifmissing="{ \(tapMod.pendingSeedEntry(varGroup)) }" \(tapMod.pendingClearAgainst(varGroup, varCommitted))>\(windows.toList().map((w) -> windowButton(w)).join(""))</div>{{#children}}{{{html}}}{{/children}}</div>
       """
   }
   /// The declared window: shown first, and again if the session is forgotten.

@@ -1,9 +1,7 @@
 // The page shell's own JavaScript: four helpers the server-rendered document
 // needs before Datastar (a deferred module) has run. INLINED into the page head
-// by `Server.page` — not linked — because
-// `fhConn` is called from the middle of the body and `fhUrl` from the first
-// Datastar effect, so neither can afford a deferred module or a second round
-// trip.
+// by `Server.page` — not linked — because `fhConn` is called from the middle of
+// the body, so it cannot afford a deferred module or a second round trip.
 //
 // These four names, the `prev` query parameter, and the two sessionStorage
 // keys are protocol shared with the backend; `Server.PrevConnParam` and
@@ -17,7 +15,7 @@
 declare global {
   interface Window {
     fhToast: (text: string) => void
-    fhUrl: (key: string, value: string | null, owner?: Element) => void
+    fhUrlSync: (datastar: string) => void
     fhConn: (id: string) => void
     fhScroll: (slug: string) => void
     fhRegisterSw: (url: string) => void
@@ -25,67 +23,86 @@ declare global {
 }
 
 /**
- * Mirror one piece of view state into the page URL without navigating: set the
- * param, or drop it when the value is empty.
+ * `data-fh-url="['<param>', $signal]"`: mirror one piece of view state into
+ * the page URL without navigating, for as long as the element is in the
+ * document (ADR 0005). An empty value drops the param, and so does the last
+ * element for that param leaving (issue #411): a closed popup takes its tab
+ * bars and window choosers with it, and nothing else would ever clear what they
+ * wrote.
  *
  * A hand-rolled `data-query-string`, which is a Datastar Pro plugin we do not
- * have (ADR 0005). Signals stay the LIVE carrier — they are what reaches the
- * server on a reconnect and on every action — and the URL is their mirror, for
- * the two things a signal cannot do: survive a refresh, and stay unique per
- * document (a cookie is per-origin, so a second tab on the same dashboard would
- * overwrite the first one's selection).
+ * have. Signals stay the LIVE carrier (what reaches the server on a reconnect
+ * and on every action); the URL is their mirror, for the two things a signal
+ * cannot do: survive a refresh, and stay unique per document.
  *
  * `replaceState`, never `pushState`: this is view state, not navigation. Back
  * should leave the dashboard, not step back through tab clicks.
  *
- * An empty value DROPS the param, and that is not defensive: it is how a client
- * says "closed" (a dismissed popup). It does mean this cannot tell "cleared"
- * from "never initialised" — Datastar creates a signal as `""` the moment an
- * expression reads one — so an effect that runs before its seed drops the param
- * until the seed lands and the effect runs again.
+ * An empty value cannot tell "cleared" from "never initialised" — Datastar
+ * creates a signal as `""` the moment an expression reads one — so a mirror
+ * that runs before its seed drops the param until the seed lands.
  *
- * `owner` (the effect's `el`) binds the param to the element that mirrors it:
- * once no owner of `key` is in the document, the param goes too (issue #411).
- * A closed popup's chooser, or a tab bar inside it, takes its effect with it,
- * so nothing else would ever drop what it mirrored. An element that re-renders
- * in place re-registers from its new effect, so its param survives the swap.
- * Without `owner` a param lives until its value empties, which is right for
- * the page's own `ui_popups` mirror on `<body>`.
+ * Counted per param, not per element: a morph that replaces a host can add the
+ * new element before it removes the old one.
+ *
+ * Registered from here, where nothing may be imported, by loading the page's
+ * own Datastar module at run time: the same URL is the same module instance.
  */
-window.fhUrl = (key, value, owner) => {
-  if (owner) own(key, owner)
-  setParam(key, value)
+window.fhUrlSync = (datastar) => {
+  import(/* @vite-ignore */ new URL(datastar, document.baseURI).href).then(
+    ({ attribute, effect }: Datastar) =>
+      attribute({
+        name: "fh-url",
+        requirement: { key: "denied", value: "must" },
+        returnsValue: true,
+        apply({ rx }) {
+          let held: string | null = null
+          const stop = effect(() => {
+            const [key, value] = rx() as [string, unknown]
+            if (held !== key) {
+              if (held !== null) release(held)
+              held = key
+              mirrors.set(key, (mirrors.get(key) ?? 0) + 1)
+            }
+            setParam(key, value == null ? "" : String(value))
+          })
+          return () => {
+            stop()
+            if (held !== null) release(held)
+          }
+        },
+      }),
+  )
 }
 
-function setParam(key: string, value: string | null) {
+/** The slice of the Datastar module this file uses. */
+type Datastar = {
+  attribute: (plugin: {
+    name: string
+    requirement: { key: "denied"; value: "must" }
+    returnsValue: boolean
+    apply: (ctx: { rx: () => unknown }) => () => void
+  }) => void
+  effect: (fn: () => void) => () => void
+}
+
+const mirrors = new Map<string, number>()
+
+function release(key: string) {
+  const left = (mirrors.get(key) ?? 1) - 1
+  if (left > 0) {
+    mirrors.set(key, left)
+    return
+  }
+  mirrors.delete(key)
+  setParam(key, "")
+}
+
+function setParam(key: string, value: string) {
   const url = new URL(location.href)
-  if (value === "" || value == null) url.searchParams.delete(key)
+  if (value === "") url.searchParams.delete(key)
   else url.searchParams.set(key, value)
   history.replaceState(null, "", url)
-}
-
-const owners = new Map<string, Set<Element>>()
-let watching = false
-
-function own(key: string, el: Element) {
-  const set = owners.get(key) ?? new Set<Element>()
-  set.add(el)
-  owners.set(key, set)
-  if (watching) return
-  watching = true
-  new MutationObserver(dropOrphans).observe(document.documentElement, {
-    childList: true,
-    subtree: true,
-  })
-}
-
-function dropOrphans() {
-  for (const [key, set] of owners) {
-    for (const el of set) if (!el.isConnected) set.delete(el)
-    if (set.size > 0) continue
-    owners.delete(key)
-    setParam(key, null)
-  }
 }
 
 /**

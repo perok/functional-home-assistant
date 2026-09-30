@@ -385,8 +385,13 @@ class ServerRoutesSuite extends ServerHarness {
       assert(seeded.contains(s"""$PopupSig: \'det\'"""), seeded)
       assert(unknown.contains(s"""$PopupSig: \'\'"""), unknown)
       assert(none.contains(s"""$PopupSig: \'\'"""), none)
-      // Defined before Datastar can call it.
-      assert(none.contains("window.fhUrl="), none)
+      // The mirror registers against the page's own Datastar: another URL
+      // would load a second instance that never sees this document.
+      val imported = """fhUrlSync\('([^']+)'\)""".r.findFirstMatchIn(none)
+      val loaded = """<script type="module" src="([^"]+)">""".r
+        .findFirstMatchIn(none)
+      assertEquals(imported.map(_.group(1)), loaded.map(_.group(1)), none)
+      assert(imported.isDefined, none)
     }
   }
 

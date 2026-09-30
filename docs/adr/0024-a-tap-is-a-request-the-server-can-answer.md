@@ -13,7 +13,7 @@
 
 Opening a popup or switching a tab is two independent things: a POST that asks
 the server for the fragment, and a client-side signal assignment that records
-the choice (`$ui_popups = '…'`, mirrored into the URL by `fhUrl`; that half is
+the choice (`$ui_popups = '…'`, mirrored into the URL by `data-fh-url`; that half is
 now the server's, see ADR 0025).
 
 Only the first can fail, and it did so silently. The surface routes named no

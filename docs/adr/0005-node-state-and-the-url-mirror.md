@@ -74,17 +74,19 @@ name, like `conn`.
   moves it. That is what makes "the signal is the truth" a fact rather than a
   hope: the URL below mirrors a value no client ever asserted on its own.
 - **The URL mirrors it**, via `history.replaceState` from the page shell's
-  `fhUrl(key, value)` helper (`src/js/shell.ts`, inlined by
+  `data-fh-url="['<param>', $signal]"` attribute (`src/js/shell.ts`, inlined by
   `Server.UrlSyncScript`), as `?ui.<id>=<value>`.
   That is a hand-rolled `data-query-string` — the Pro plugin that would do this
   for us and which we don't have. The reverse direction needs no script: the
   page is server-rendered, so the server reads its own GET's query and bakes
   the value into the `data-signals` seed it already emits.
-- **A param lives as long as the element that mirrors it** (issue #411). A tab
-  bar or a history window chooser passes its effect's `el` as `fhUrl`'s third
-  argument, and once no such element is in the document the shell drops the
-  param. Closing a popup takes its inner mirrors with it, and nothing else
-  would ever have cleared what they wrote. Only the URL forgets: the session
+- **A param lives as long as the element that mirrors it** (issue #411).
+  `data-fh-url` is a Datastar attribute the shell registers against the page's
+  own Datastar module, so its cleanup is Datastar's: when the last element
+  mirroring a param leaves the document, the param goes. Closing a popup takes
+  its inner mirrors with it, and nothing else would ever have cleared what they
+  wrote. Counting per param rather than per element is what lets a morph
+  replace a host in either order. Only the URL forgets: the session
   still holds a window chosen in the popup, so reopening it shows that window
   again.
 
