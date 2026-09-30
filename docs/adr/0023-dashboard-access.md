@@ -244,6 +244,24 @@ layout and every surface once and cannot grow at runtime. A failed dashboard has
 no renderer, names nothing, and therefore permits no action; that matters
 because a failed dashboard's page is a diagnostics dump.
 
+**The one exception: an area or floor call** (issue #389). `c.tap.lightsOff(area)`
+and its generic form `c.tap.areaCall(area, service)` post
+`POST /sse/target/:slug/<domain>/<service>/<area|floor>/<id>`, and HA expands
+the target when the call runs. That reaches entities the dashboard never names,
+including one added to the room after the build, which is the point of the
+feature and the hole in the bound above. It is narrowed the only way the build
+can: the allowlist is `Dashboard.groupCalls`, the exact (service, target, value
+key) combinations the built dashboard's taps declare. A URL naming any other
+service, area or floor, or adding a value key the tap does not carry, is
+refused. So a "lights off in the living room" button cannot be edited into
+`lock/unlock` on the same room, but it does turn off every light HA puts there.
+The value itself stays free, as on the entity route.
+
+Not built yet: an allow or deny list per user or dashboard, set in the same
+place a future per-user or per-dashboard list of allowed entities would live, so
+an owner can keep a group call from reaching an entity. Until then, what a
+group call reaches is what HA says is in the area.
+
 **`referencedEntities` is the bound, and it is not the same set as
 `watchedEntities`** (ADR 0030), which is what the upstream subscription asks HA
 for. That one is WIDER: it also walks what merely decides — a clause's `when`

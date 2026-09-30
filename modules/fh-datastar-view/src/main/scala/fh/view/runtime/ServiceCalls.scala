@@ -1,7 +1,7 @@
 package fh.view.runtime
 
 import api.DocumentJson
-import api.homeassistant.HomeAssistantApi
+import api.homeassistant.{HomeAssistantApi, ServiceTarget}
 import api.homeassistant.rest.restApi
 import cats.effect.IO
 import cats.syntax.all.*
@@ -14,7 +14,6 @@ import fh.view.auth.{
   RefreshOutcome
 }
 import io.circe.Json
-import io.circe.syntax.*
 import org.http4s.client.Client
 import org.http4s.{Request, Uri}
 import smithy4s.http.RawErrorResponse
@@ -30,7 +29,7 @@ trait ServiceCalls {
       req: Request[IO],
       domain: String,
       service: String,
-      entityId: String,
+      target: ServiceTarget,
       serviceData: Json
   ): IO[Unit]
 }
@@ -42,7 +41,7 @@ object ServiceCalls {
     String => (
         domain: String,
         service: String,
-        entityId: String,
+        target: ServiceTarget,
         serviceData: Json
     ) => IO[Unit]
 
@@ -50,8 +49,8 @@ object ServiceCalls {
     * authenticates a user without giving us their token.
     */
   def asInstance(api: HomeAssistantApi[IO]): ServiceCalls =
-    (_, domain, service, entityId, serviceData) =>
-      api.callService(domain, service, entityId, serviceData).void
+    (_, domain, service, target, serviceData) =>
+      api.callService(domain, service, target, serviceData).void
 
   /** Over REST, not a socket per tap: HA attributes the call to the token's
     * user either way, and HTTP needs no handshake and no lifecycle. `core` is
@@ -59,14 +58,14 @@ object ServiceCalls {
     */
   def overRest(client: Client[IO], core: Uri): CallAs =
     token =>
-      (domain, service, entityId, serviceData) =>
+      (domain, service, target, serviceData) =>
         restApi(client, core, token)
           .use(
             _.postServiceApi(
               domain,
               service,
               DocumentJson.toDocument(
-                serviceData.deepMerge(Json.obj("entity_id" -> entityId.asJson))
+                serviceData.deepMerge(target.json)
               )
             )
           )
@@ -102,7 +101,7 @@ object ServiceCalls {
         req: Request[IO],
         domain: String,
         service: String,
-        entityId: String,
+        target: ServiceTarget,
         serviceData: Json
     ): IO[Unit] =
       AuthSessions
@@ -110,10 +109,10 @@ object ServiceCalls {
         .flatTraverse(id => sessions.get(id).map(_.tupleLeft(id)))
         .flatMap {
           case None =>
-            fallback.callService(domain, service, entityId, serviceData).void
+            fallback.callService(domain, service, target, serviceData).void
           case Some((id, session)) =>
             tokenFor(id, session).flatMap(
-              callAs(_)(domain, service, entityId, serviceData)
+              callAs(_)(domain, service, target, serviceData)
             )
         }
 

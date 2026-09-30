@@ -403,7 +403,7 @@ open class GenericEntity extends Entity {}
 /// picked out of it by a selector below rather than by a list the scope carries
 /// of its own:
 ///
-///     lights(dump.floors.loft.all)   // every light upstairs
+///     lights(dump.loft.all)          // every light upstairs
 ///     locks(dump.areas.stue.all)     // this room's locks
 ///
 /// Why not a `lights` on each scope: that is one list per (domain × scope), and

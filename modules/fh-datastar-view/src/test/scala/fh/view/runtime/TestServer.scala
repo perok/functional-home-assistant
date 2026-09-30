@@ -750,10 +750,10 @@ object TestServer {
       ),
       _ => Resource.pure(HomeAssistantApi.fromWs(fake)),
       _ =>
-        (domain, service, entityId, data) =>
+        (domain, service, target, data) =>
           HomeAssistantApi
             .fromWs(fake)
-            .callService(domain, service, entityId, data)
+            .callService(domain, service, target, data)
             .void
     )
 
