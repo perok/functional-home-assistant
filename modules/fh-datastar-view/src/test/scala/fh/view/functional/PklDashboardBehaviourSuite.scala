@@ -346,26 +346,23 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
   private def flip(ts: TestServer): IO[Unit] =
     ts.change(light.entityId, "off") *> ts.frame(light)
 
-  test("each tab's spinner watches the bar's own pending switch (issue #412)") {
+  test("each tab is guarded on its own busy signal (issue #412)") {
     withBranchServer(_.page()).map { html =>
-      // A placeholder left in a slot literal ships as text, and the spinner
-      // would watch a signal nothing writes.
-      assert(!html.contains("@@"), clue = html)
-      List("0", "1").foreach { i =>
-        assert(
-          html.contains(
-            s"data-show=\"$$_${tabsHost}__pending !== '' && " +
-              s"String($$_${tabsHost}__pending_slow) === '$i'\""
-          ),
-          clue = i
-        )
+      val tabs = s"""<a [^>]*open/${tabsHost}_t\\d[^>]*>""".r
+        .findAllIn(html)
+        .toList
+      assertEquals(tabs.size, 2, clue = html)
+      // One signal per tab (ADR 0019): a shared one would let one tab's
+      // answer clear another's guard.
+      val signals = tabs.map { a =>
+        val sig = """data-indicator="(_[A-Za-z0-9_]+__busy)"""".r
+          .findFirstMatchIn(a)
+          .fold(fail("an unguarded tab", clues(a)))(_.group(1))
+        assert(a.contains(s"data-on:click=\"$$$sig ? '' : "), clue = a)
+        assert(a.contains(s"data-class:fh-busy-after=\"$$${sig}_slow\""), a)
+        sig
       }
-      assert(
-        html.contains(
-          s"data-on-signal-patch-filter=\"{include:/^_${tabsHost}__pending$$/}\""
-        ),
-        clue = html
-      )
+      assertEquals(signals.distinct.size, 2, clue = signals)
     }
   }
 
@@ -662,12 +659,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
           // charts were drawn at.
           assert(html.contains(s"_var_${id}__window: '7d'"), clue = html)
           List("1h", "24h", "7d", "30d")
-            .foreach(w =>
-              assert(
-                html.contains(s">$w<span class=\"fh-pending-spin\""),
-                clue = w
-              )
-            )
+            .foreach(w => assert(html.contains(s">$w</a>"), clue = w))
         }
       }
       .timeout(60.seconds)

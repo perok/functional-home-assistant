@@ -720,7 +720,7 @@
       },
       "slots" : [
       ],
-      "template" : "<div class=\"fh-col\" data-effect=\"fhUrl('v.{{id}}.window', $_var_{{id}}__window)\"><div class=\"tabs\" data-signals__ifmissing=\"{ _var_{{id}}__window__pending: '', _var_{{id}}__window__pending_slow: '' }\" data-effect=\"$_var_{{id}}__window__pending !== '' && $_var_{{id}}__window == $_var_{{id}}__window__pending && ($_var_{{id}}__window__pending = '')\" data-on-signal-patch-filter=\"{include:/^_var_{{id}}__window__pending$/}\" data-on-signal-patch__delay.300ms=\"$_var_{{id}}__window__pending_slow = $_var_{{id}}__window__pending\"><a data-class=\"{active: ($_var_{{id}}__window__pending || $_var_{{id}}__window) === '1h'}\" data-on:click=\"$_var_{{id}}__window__pending = '1h'; @post('sse/var/{{dashboardSlug}}/{{id}}/window/1h?group=var_{{id}}__window')\">1h<span class=\"fh-pending-spin\" style=\"display:none\" data-show=\"$_var_{{id}}__window__pending !== '' && String($_var_{{id}}__window__pending_slow) === '1h'\"></span></a><a data-class=\"{active: ($_var_{{id}}__window__pending || $_var_{{id}}__window) === '24h'}\" data-on:click=\"$_var_{{id}}__window__pending = '24h'; @post('sse/var/{{dashboardSlug}}/{{id}}/window/24h?group=var_{{id}}__window')\">24h<span class=\"fh-pending-spin\" style=\"display:none\" data-show=\"$_var_{{id}}__window__pending !== '' && String($_var_{{id}}__window__pending_slow) === '24h'\"></span></a><a data-class=\"{active: ($_var_{{id}}__window__pending || $_var_{{id}}__window) === '7d'}\" data-on:click=\"$_var_{{id}}__window__pending = '7d'; @post('sse/var/{{dashboardSlug}}/{{id}}/window/7d?group=var_{{id}}__window')\">7d<span class=\"fh-pending-spin\" style=\"display:none\" data-show=\"$_var_{{id}}__window__pending !== '' && String($_var_{{id}}__window__pending_slow) === '7d'\"></span></a><a data-class=\"{active: ($_var_{{id}}__window__pending || $_var_{{id}}__window) === '30d'}\" data-on:click=\"$_var_{{id}}__window__pending = '30d'; @post('sse/var/{{dashboardSlug}}/{{id}}/window/30d?group=var_{{id}}__window')\">30d<span class=\"fh-pending-spin\" style=\"display:none\" data-show=\"$_var_{{id}}__window__pending !== '' && String($_var_{{id}}__window__pending_slow) === '30d'\"></span></a></div>{{#children}}{{{html}}}{{/children}}</div>"
+      "template" : "<div class=\"fh-col\" data-effect=\"fhUrl('v.{{id}}.window', $_var_{{id}}__window)\"><div class=\"tabs\" data-signals__ifmissing=\"{ _var_{{id}}__window__pending: '' }\" data-effect=\"$_var_{{id}}__window__pending !== '' && $_var_{{id}}__window == $_var_{{id}}__window__pending && ($_var_{{id}}__window__pending = '')\"><a data-class=\"{active: ($_var_{{id}}__window__pending || $_var_{{id}}__window) === '1h'}\" data-on:click=\"$_var_{{id}}__window__pending = '1h'; @post('sse/var/{{dashboardSlug}}/{{id}}/window/1h?group=var_{{id}}__window')\">1h</a><a data-class=\"{active: ($_var_{{id}}__window__pending || $_var_{{id}}__window) === '24h'}\" data-on:click=\"$_var_{{id}}__window__pending = '24h'; @post('sse/var/{{dashboardSlug}}/{{id}}/window/24h?group=var_{{id}}__window')\">24h</a><a data-class=\"{active: ($_var_{{id}}__window__pending || $_var_{{id}}__window) === '7d'}\" data-on:click=\"$_var_{{id}}__window__pending = '7d'; @post('sse/var/{{dashboardSlug}}/{{id}}/window/7d?group=var_{{id}}__window')\">7d</a><a data-class=\"{active: ($_var_{{id}}__window__pending || $_var_{{id}}__window) === '30d'}\" data-on:click=\"$_var_{{id}}__window__pending = '30d'; @post('sse/var/{{dashboardSlug}}/{{id}}/window/30d?group=var_{{id}}__window')\">30d</a></div>{{#children}}{{{html}}}{{/children}}</div>"
     },
     "ifhost" : {
       "regions" : {
@@ -812,10 +812,9 @@
       "slots" : [
         "label",
         "onclick",
-        "active",
-        "spinner"
+        "active"
       ],
-      "template" : "<a data-on:click=\"{{{onclick}}}\" data-class=\"{active: {{{active}}}}\">{{label}}{{{spinner}}}</a>",
+      "template" : "<a data-on:click=\"{{#busy}}$_{{id}}__busy ? '' : {{/busy}}{{{onclick}}}\"{{#busy}} data-indicator=\"_{{id}}__busy\" data-on:datastar-fetch__document=\"evt.detail.el === el && (evt.detail.type === 'error' ? ($_{{id}}__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_{{id}}__error = ''))\" data-fh-node=\"{{id}}\"{{/busy}}{{#busyVisual}} data-class:fh-disabled=\"$_{{id}}__busy\" data-class:fh-loading=\"$_{{id}}__busy\" data-class:fh-error=\"$_{{id}}__error\"{{/busyVisual}}{{#busyVisual}} data-signals__ifmissing=\"{_{{id}}__busy_slow:false}\" data-on-signal-patch-filter=\"{include:/^_{{id}}__busy$/}\" data-on-signal-patch__delay.300ms=\"$_{{id}}__busy_slow = $_{{id}}__busy\" data-class:fh-busy-after=\"$_{{id}}__busy_slow\"{{/busyVisual}} data-class=\"{active: {{{active}}}}\">{{label}}</a>",
       "wrapAsCell" : false
     },
     "tabs" : {
@@ -829,7 +828,7 @@
       },
       "slots" : [
       ],
-      "template" : "<div class=\"fh-col\"><div class=\"tabs\" data-signals__ifmissing=\"{ ui_{{id}}: {{bakeIndex}}, _{{id}}__pending: '', _{{id}}__pending_slow: '' }\" data-effect=\"$_{{id}}__pending !== '' && $ui_{{id}} == $_{{id}}__pending && ($_{{id}}__pending = '')\" data-on-signal-patch-filter=\"{include:/^_{{id}}__pending$/}\" data-on-signal-patch__delay.300ms=\"$_{{id}}__pending_slow = $_{{id}}__pending\">{{#children}}{{{html}}}{{/children}}</div><div id=\"{{hostId}}\" class=\"tab-panel\" data-effect=\"fhUrl('ui.{{id}}', $ui_{{id}})\">{{#panel}}{{{html}}}{{/panel}}</div></div>"
+      "template" : "<div class=\"fh-col\"><div class=\"tabs\" data-signals__ifmissing=\"{ ui_{{id}}: {{bakeIndex}}, _{{id}}__pending: '' }\" data-effect=\"$_{{id}}__pending !== '' && $ui_{{id}} == $_{{id}}__pending && ($_{{id}}__pending = '')\">{{#children}}{{{html}}}{{/children}}</div><div id=\"{{hostId}}\" class=\"tab-panel\" data-effect=\"fhUrl('ui.{{id}}', $ui_{{id}})\">{{#panel}}{{{html}}}{{/panel}}</div></div>"
     },
     "toggle" : {
       "slots" : [

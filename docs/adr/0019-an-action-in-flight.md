@@ -98,8 +98,10 @@ only the template knows.
 **A popup open is guarded like a service call** (issue #412). The open POST
 answers only once the popup's queries have resolved, and a chart's history
 fetch is a wait, so `openPopup` and `openPopupInline` set `busy` and the card
-that was tapped dims and then spins. The close renders nothing and stays
-unguarded, as does `navigate`, which is a document load.
+that was tapped dims and then spins. A tab switch is guarded for the same
+reason; a tab has no glyph, so its spinner is `busyTextClass`, a ring after the
+label. The close renders nothing and stays unguarded, as does `navigate`, which
+is a document load.
 
 **A rejection clears the guard and says so on the control.** `finished` fires on
 a failed fetch too, so a refusal can never leave a control stuck — but that also

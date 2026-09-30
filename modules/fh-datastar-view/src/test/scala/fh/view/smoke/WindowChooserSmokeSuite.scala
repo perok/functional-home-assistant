@@ -130,24 +130,35 @@ class WindowChooserSmokeSuite extends SmokeSuite {
       )
     )
 
-  private def spinner(page: Page, w: String) =
-    button(page, w).locator(".fh-pending-spin")
-
-  test("a slow redraw spins on the pressed window until the chart lands") {
+  test("a tab whose panel charts slowly spins until the panel lands") {
+    val tabbed = entry.replace(
+      s"""(c.windowChooser) {
+         |      children { c.historyChart(dump.entities.${sensor.dumpKey}).chosen() }
+         |    }""".stripMargin,
+      s"""(c.tabs) {
+         |      tabs {
+         |        ["Now"] { c.title("now") }
+         |        ["History"] { c.historyChart(dump.entities.${sensor.dumpKey}) }
+         |      }
+         |    }""".stripMargin
+    )
+    val spinning = Pattern.compile("\\bfh-busy-after\\b")
     Ref[IO].of(false).flatMap { slow =>
-      withPageOn(slowServed("windows-slow", entry, slow)) { (page, _) =>
+      withPageOn(slowServed("tabs-slow", tabbed, slow)) { (page, _) =>
+        val history = button(page, "History")
         for {
-          _ <- IO.blocking(assertThat(button(page, "24h")).hasClass(active))
-          // At rest nothing spins, whatever the seed order.
-          _ <- IO.blocking(
-            assertThat(page.locator(".fh-pending-spin:visible")).hasCount(0)
-          )
+          _ <- IO.blocking(assertThat(history).not().hasClass(spinning))
           _ <- slow.set(true)
-          _ <- IO.blocking(button(page, "7d").click())
-          _ <- IO.blocking(assertThat(spinner(page, "7d")).isVisible())
-          _ <- IO.blocking(assertThat(spinner(page, "24h")).isHidden())
-          _ <- IO.blocking(assertThat(button(page, "7d")).hasClass(active))
-          _ <- IO.blocking(assertThat(spinner(page, "7d")).isHidden())
+          _ <- IO.blocking(history.click())
+          _ <- IO.blocking(assertThat(history).hasClass(spinning))
+          _ <- IO.blocking(
+            assertThat(button(page, "Now")).not().hasClass(spinning)
+          )
+          _ <- IO.blocking(
+            assertThat(page.locator(".fh-chart svg")).isVisible()
+          )
+          _ <- IO.blocking(assertThat(history).not().hasClass(spinning))
+          _ <- IO.blocking(assertThat(history).hasClass(active))
         } yield ()
       }
     }

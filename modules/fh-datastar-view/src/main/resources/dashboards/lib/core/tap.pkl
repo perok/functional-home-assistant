@@ -330,11 +330,21 @@ const busyDelayMs: Int = 300
 /// `__ifmissing` is load-bearing: this element is a morph target, and a plain
 /// `data-signals` would re-seed the signal to false on every patch that
 /// touches it — including the ones the in-flight action itself provokes.
-const local function busySpinner(sig: String): String = #"""
-  data-signals__ifmissing="{\#(sig)_slow:false}" data-on-signal-patch-filter="{include:/^\#(sig)$/}" data-on-signal-patch__delay.\#(busyDelayMs)ms="$\#(sig)_slow = $\#(sig)" @@CLASSBIND:busySpin:$\#(sig)_slow@@
+const local function slowCopy(sig: String): String = #"""
+  data-signals__ifmissing="{\#(sig)_slow:false}" data-on-signal-patch-filter="{include:/^\#(sig)$/}" data-on-signal-patch__delay.\#(busyDelayMs)ms="$\#(sig)_slow = $\#(sig)"
   """#
 
+const local function busySpinner(sig: String): String =
+  slowCopy(sig) + " @@CLASSBIND:busySpin:$\(sig)_slow@@"
+
 const busyShapeClass: String = busySpinner("_{{id}}__busy")
+
+/// [[busyShapeClass]] for a host that holds TEXT, not a glyph — a tab. The
+/// same delayed derivation, binding the base stylesheet's `fh-busy-after`,
+/// which draws a ring after the label (`core/css.pkl`): the theme's
+/// `busySpin` is a mask around an icon, and a label has none to wrap.
+const busyTextClass: String =
+  slowCopy("_{{id}}__busy") + #" data-class:fh-busy-after="$_{{id}}__busy_slow""#
 
 /// The slider's VALUE-COMMIT variant of the busy pieces. A slider commits its
 /// position on RELEASE (its `data-on:change` → the value POST), and dragging
@@ -669,27 +679,6 @@ const function pendingOrCommitted(groupId: String): String =
 /// [[pendingOrCommitted]] against a named committed signal.
 const function pendingOrCommittedOf(groupId: String, committed: String): String =
   "($" + pendingSignal(groupId) + " || $" + committed + ")"
-
-/// **A switch that is taking a while** (issue #412), for a group whose press
-/// writes a pending value: a tab bar, the history window bar. Pending spans the
-/// whole wait, the POST and the patch behind it, where a `data-indicator` would
-/// end at the POST's answer; a tab has no glyph for [[busyShapeClass]] anyway.
-///
-/// The bar carries [[pendingSlowOn]] and seeds [[pendingSlowSeedEntry]]; each
-/// button holds a [[pendingSpinner]]. Gated at [[busyDelayMs]] by copying the
-/// pending value late, as [[busySpinner]] does, but hidden the moment pending
-/// empties rather than a delay later: the answer has arrived by then.
-const function pendingSlowSeedEntry(groupId: String): String =
-  "\(pendingSignal(groupId))_slow: ''"
-
-const function pendingSlowOn(groupId: String): String =
-  let (sig = pendingSignal(groupId))
-    #"data-on-signal-patch-filter="{include:/^\#(sig)$/}" data-on-signal-patch__delay.\#(busyDelayMs)ms="$\#(sig)_slow = $\#(sig)""#
-
-/// Starts hidden: the page is painted before Datastar runs.
-const function pendingSpinner(groupId: String, value: String): String =
-  let (sig = pendingSignal(groupId))
-    #"<span class="fh-pending-spin" style="display:none" data-show="$\#(sig) !== '' && String($\#(sig)_slow) === '\#(value)'"></span>"#
 
 /// The tab bar's own open-a-member click: [[openSurfaceOnclick]] preceded by
 /// the group's PENDING assignment. The committed `ui_<groupId>` is the SERVER's
