@@ -179,7 +179,7 @@ const function signalRef(name: String): String = "{{" + name + "__signal}}"
 /// of its own — an action URL above all:
 ///
 /// ```
-/// @post('sse/action/{{dashboardSlug}}/' + \(slotRead("service")) + '/{{entity_id}}')
+/// @post('sse/call/{{dashboardSlug}}/' + \(slotRead("service")) + '/entity/{{entity_id}}')
 /// ```
 ///
 /// **The card never learns which tier filled the slot.** A literal reads back

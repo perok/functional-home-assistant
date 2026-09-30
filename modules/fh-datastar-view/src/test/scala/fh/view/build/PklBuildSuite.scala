@@ -4,10 +4,10 @@ import api.homeassistant.ServiceTarget
 import fh.view.model.{
   CardDef,
   Dashboard,
-  GroupCall,
   LayoutNode,
   Op,
   Predicate,
+  TapCall,
   Transform
 }
 import fh.view.testkit.DashboardBuilders.{asComponent, asSetNode}
@@ -523,7 +523,7 @@ class PklBuildSuite extends munit.FunSuite {
     assertEquals(c.get[String]("viaFloor").toOption, Some("light.lamp"))
   }
 
-  test("an area or floor tap declares exactly the call it makes (#389)") {
+  test("a tap declares exactly the call it makes, on any target (#389)") {
     val tmp = os.temp.dir()
     copyLib(tmp)
     writeDump(tmp, PklDump.render(fakeTransformedDump))
@@ -538,7 +538,9 @@ class PklBuildSuite extends munit.FunSuite {
         |  children {
         |    c.button("Off", c.tap.lightsOff(dump.areas.kjokken))
         |    c.button("Floor", c.tap.floorCall(dump.ground_floor, "switch/turn_off"))
-        |    c.button("Toggle", c.tap.toggle)
+        |    c.button("Toggle", c.tap.toggle(dump.entities.light_kitchen))
+        |    c.entityCard(dump.entities.light_kitchen)
+        |      .tapAction(c.tap.serviceValue("light/turn_on", "effect", "colorloop"))
         |  }
         |}
         |""".stripMargin
@@ -550,10 +552,16 @@ class PklBuildSuite extends munit.FunSuite {
       c.downField("node").as[LayoutNode].fold(e => fail(e.toString), identity)
     val dashboard = Dashboard(cards = Map.empty, card = node)
     assertEquals(
-      dashboard.groupCalls,
+      dashboard.calls,
       Set(
-        GroupCall("light/turn_off", ServiceTarget.Area("kitchen_1"), None),
-        GroupCall("switch/turn_off", ServiceTarget.Floor("g"), None)
+        TapCall("light/turn_off", ServiceTarget.Area("kitchen_1"), None),
+        TapCall("switch/turn_off", ServiceTarget.Floor("g"), None),
+        TapCall("light/toggle", ServiceTarget.Entity("light.kitchen"), None),
+        TapCall(
+          "light/turn_on",
+          ServiceTarget.Entity("light.kitchen"),
+          Some("effect")
+        )
       )
     )
   }
@@ -804,10 +812,11 @@ class PklBuildSuite extends munit.FunSuite {
       "sliderHead" -> List(
         "label",
         "value",
-        "action",
+        "service",
+        "targetKind",
+        "targetId",
         "min",
         "max",
-        "key",
         "entity_id"
       ),
       "sliderText" -> List("label", "entity_id"),
@@ -1584,10 +1593,10 @@ class PklBuildSuite extends munit.FunSuite {
     )
     assertEquals(slider.card, "slider")
     assertEquals(
-      rowOf(slider).slots("action").literal,
+      rowOf(slider).slots("service").literal,
       Some("cover/set_cover_position")
     )
-    assertEquals(rowOf(slider).slots("key").literal, Some("position"))
+    assertEquals(rowOf(slider).slots("dataKey").literal, Some("position"))
     assertEquals(rowOf(slider).slots("min").literal, Some("0"))
     assertEquals(rowOf(slider).slots("max").literal, Some("100"))
     // Opted in: the guarded read as structure, presence implicit (ADR 0028).
@@ -1612,8 +1621,8 @@ class PklBuildSuite extends munit.FunSuite {
         .asComponent
     ).slots
     assertEquals(slots("entity_id").literal, Some("light.taklys"))
-    assertEquals(slots("action").literal, Some("light/turn_on"))
-    assertEquals(slots("key").literal, Some("brightness"))
+    assertEquals(slots("service").literal, Some("light/turn_on"))
+    assertEquals(slots("dataKey").literal, Some("brightness"))
     assertEquals(slots("min").literal, Some("1"))
     assertEquals(slots("max").literal, Some("255"))
     // The position stays live, since it reads state, but names the attribute
@@ -1643,7 +1652,7 @@ class PklBuildSuite extends munit.FunSuite {
     // A head does not repeat a readout its rows carry.
     assert(!rowOf(group).slots.contains("state"), clue = group.slots.keySet)
     assertEquals(rowOf(group).slots("entity_id").literal, Some("light.lys"))
-    assertEquals(rowOf(group).slots("action").literal, Some("light/turn_on"))
+    assertEquals(rowOf(group).slots("service").literal, Some("light/turn_on"))
     assertEquals(
       rowOf(group).slots("icon").literal,
       Some("mdi-lightbulb-group")
@@ -1671,7 +1680,7 @@ class PklBuildSuite extends munit.FunSuite {
       List(Some("light.a"), Some("cover.blind"))
     )
     assertEquals(
-      members.map(rowOf(_).slots("key").literal),
+      members.map(rowOf(_).slots("dataKey").literal),
       List(Some("brightness"), Some("position"))
     )
     // It reads out its level, off its own range, not its state.
@@ -1702,8 +1711,10 @@ class PklBuildSuite extends munit.FunSuite {
         "value",
         "fill",
         "fillColor",
-        "action",
-        "key",
+        "service",
+        "targetKind",
+        "targetId",
+        "dataKey",
         "min",
         "max",
         "icon",
@@ -1932,7 +1943,10 @@ class PklBuildSuite extends munit.FunSuite {
       rowOf(inner(2)).slots("entity_id").literal,
       Some("light.stue_2")
     )
-    assertEquals(rowOf(inner(1)).slots("action").literal, Some("light/turn_on"))
+    assertEquals(
+      rowOf(inner(1)).slots("service").literal,
+      Some("light/turn_on")
+    )
     assertEquals(rowOf(inner(1)).slots("min").literal, Some("1"))
     assertEquals(rowOf(inner(1)).slots("max").literal, Some("255"))
   }
@@ -2022,8 +2036,8 @@ class PklBuildSuite extends munit.FunSuite {
       )
     )
     assertEquals(s.card, "slider")
-    assertEquals(rowOf(s).slots("action").literal, Some("light/turn_on"))
-    assertEquals(rowOf(s).slots("key").literal, Some("color_temp_kelvin"))
+    assertEquals(rowOf(s).slots("service").literal, Some("light/turn_on"))
+    assertEquals(rowOf(s).slots("dataKey").literal, Some("color_temp_kelvin"))
     // The light's bounds, not the domain's brightness 1..255.
     assertEquals(rowOf(s).slots("min").literal, Some("2000"))
     assertEquals(rowOf(s).slots("max").literal, Some("6535"))
@@ -2046,8 +2060,11 @@ class PklBuildSuite extends munit.FunSuite {
     assertEquals(col.card, "fhcol")
     val kids = col.allChildren.collect { case c: LayoutNode.Component => c }
     assertEquals(kids.map(_.card), List("slider", "slider", "fhrow"))
-    assertEquals(rowOf(kids(0)).slots("key").literal, Some("brightness"))
-    assertEquals(rowOf(kids(1)).slots("key").literal, Some("color_temp_kelvin"))
+    assertEquals(rowOf(kids(0)).slots("dataKey").literal, Some("brightness"))
+    assertEquals(
+      rowOf(kids(1)).slots("dataKey").literal,
+      Some("color_temp_kelvin")
+    )
     val pills = kids(2).allChildren.collect { case c: LayoutNode.Component =>
       c
     }

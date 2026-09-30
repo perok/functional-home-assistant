@@ -75,7 +75,7 @@ class ActingAsUserSuite extends munit.CatsEffectSuite {
 
   private def req(session: Option[String]): Request[IO] =
     session.foldLeft(
-      Request[IO](Method.POST, uri"/sse/action/home/light/toggle/light.a")
+      Request[IO](Method.POST, uri"/sse/call/home/light/toggle/entity/light.a")
     )((r, id) => r.addCookie(AuthSessions.CookieName, id))
 
   private def toggle(w: Wiring, session: Option[String]): IO[Unit] =

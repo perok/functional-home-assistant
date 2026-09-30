@@ -24,11 +24,11 @@ import fh.view.model.{
   ChromeColors,
   Dashboard,
   DomId,
-  GroupCall,
   NodeId,
   Permission,
   SignalId,
   SlotRead,
+  TapCall,
   Transform
 }
 import fs2.Stream
@@ -211,40 +211,14 @@ class Server(
     case req @ GET -> Root / "sse" / "dashboard" / slug / "recover" =>
       gate.handleStream(req, Some(slug))(recoverStream(slug, _))
 
-    // `domain` is the service's, not always the entity's
-    // (`homeassistant.toggle` on a `light`).
-    case req @ POST -> Root / "sse" / "action" / slug / domain / service / entityId =>
-      gate.handleRequirement(req, Requirement.FromDashboard(Some(slug)))(
-        actionResponse(req, slug, entityId)(
-          callService(
-            domain,
-            service,
-            ServiceTarget.Entity(entityId),
-            Json.obj(),
-            req
-          )
-        )
-      )
+    // `domain` is the service's, not always the target's
+    // (`homeassistant.toggle` on a `light`). `kind` is `entity`, `area` or
+    // `floor`; HA expands the last two (issue #389).
+    case req @ POST -> Root / "sse" / "call" / slug / domain / service / kind / id =>
+      tapCall(req, slug, domain, service, kind, id, None)
 
-    case req @ POST -> Root / "sse" / "action" / slug / domain / service / entityId / dataKey / dataValue =>
-      gate.handleRequirement(req, Requirement.FromDashboard(Some(slug)))(
-        actionResponse(req, slug, entityId)(
-          callService(
-            domain,
-            service,
-            ServiceTarget.Entity(entityId),
-            Json.obj(dataKey -> Server.parseValue(dataValue)),
-            req
-          )
-        )
-      )
-
-    // An area or floor, expanded by HA (issue #389).
-    case req @ POST -> Root / "sse" / "target" / slug / domain / service / kind / id =>
-      groupCall(req, slug, domain, service, kind, id, None)
-
-    case req @ POST -> Root / "sse" / "target" / slug / domain / service / kind / id / dataKey / dataValue =>
-      groupCall(
+    case req @ POST -> Root / "sse" / "call" / slug / domain / service / kind / id / dataKey / dataValue =>
+      tapCall(
         req,
         slug,
         domain,
@@ -273,26 +247,11 @@ class Server(
       )
   }
 
-  /** An action may only touch an entity its own dashboard names (issue #89);
-    * otherwise anyone admitted to a `Public` dashboard could drive the front
-    * door lock by editing the URL. Decided from the static index, which is
-    * sound because a candidate list is static even though membership is live
-    * (ADR 0003). A missing or failed dashboard permits nothing.
-    */
-  private def actionResponse(req: Request[IO], slug: String, entityId: String)(
-      handler: IO[Response[IO]]
-  ): IO[Response[IO]] =
-    (site.permissionFor(Some(slug)), gate.of(req)).flatMapN {
-      (permission, user) =>
-        if (permission.mayAct(user, entityId)) handler
-        else
-          actionRefused(req, s"$entityId is not on this dashboard")
-    }
-
   /** Refused unless a tap on this dashboard declares exactly this call; the
-    * value itself is free, as on the entity route.
+    * value itself is free (ADR 0023). A missing or failed dashboard permits
+    * nothing.
     */
-  private def groupCall(
+  private def tapCall(
       req: Request[IO],
       slug: String,
       domain: String,
@@ -304,9 +263,9 @@ class Server(
     gate.handleRequirement(req, Requirement.FromDashboard(Some(slug)))(
       (site.permissionFor(Some(slug)), gate.of(req)).flatMapN {
         (permission, user) =>
-          GroupCall
+          TapCall
             .targetOf(kind, id)
-            .map(GroupCall(s"$domain/$service", _, data.map(_._1)))
+            .map(TapCall(s"$domain/$service", _, data.map(_._1)))
             .filter(permission.mayCall(user, _)) match {
             case Some(call) =>
               callService(
@@ -1890,7 +1849,7 @@ object Server {
           case Some(live) =>
             live.renderer.get.map {
               case RendererState.Ready(r) =>
-                Permission(r.access, r.references, r.declares)
+                Permission(r.access, r.declares)
               // Its page carries build diagnostics.
               case RendererState.Failed(_) => Permission.none
             }

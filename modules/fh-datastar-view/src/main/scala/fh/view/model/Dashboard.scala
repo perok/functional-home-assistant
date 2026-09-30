@@ -645,25 +645,32 @@ case class Dashboard(
     (walk(card) ++ surfaces.values.toList.flatMap(s => walk(s.content))).toSet
   }
 
-  /** Every area or floor call a tap of this dashboard declares, as the build
-    * spelled it: the allowlist for those routes (issue #389, ADR 0023). Read
-    * off `tap.pkl`'s literal route slots, so a service picked by live state
-    * never declares one.
+  /** Every call a tap of this dashboard declares, as the build spelled it: the
+    * allowlist for the call route (ADR 0023). Read off `tap.pkl`'s route slots.
+    * A service the target's state picks declares every arm of its match, since
+    * which one is posted is the click's to decide.
     */
-  lazy val groupCalls: Set[GroupCall] = {
-    def of(slots: Map[String, SlotSource]): Option[GroupCall] = {
+  lazy val calls: Set[TapCall] = {
+    def services(s: SlotSource): List[String] =
+      s.literal.toList ++ (s.transform match {
+        case Transform.Simple.Match(cases, otherwise) =>
+          (cases.values.toList :+ otherwise).collect { case v: String => v }
+        case _ => Nil
+      })
+
+    def of(slots: Map[String, SlotSource]): List[TapCall] = {
       def lit(name: String) = slots.get(name).flatMap(_.literal)
       for {
-        service <- lit(Dashboard.ServiceSlot)
-        kind <- lit(Dashboard.TargetKindSlot)
-        id <- lit(Dashboard.TargetIdSlot)
-        target <- GroupCall.targetOf(kind, id)
-      } yield GroupCall(service, target, lit(Dashboard.DataKeySlot))
+        kind <- lit(Dashboard.TargetKindSlot).toList
+        id <- lit(Dashboard.TargetIdSlot).toList
+        target <- TapCall.targetOf(kind, id).toList
+        service <- slots.get(Dashboard.ServiceSlot).toList.flatMap(services)
+      } yield TapCall(service, target, lit(Dashboard.DataKeySlot))
     }
 
-    def walk(n: LayoutNode): List[GroupCall] = n match {
+    def walk(n: LayoutNode): List[TapCall] = n match {
       case c: LayoutNode.Component =>
-        of(c.slots).toList ++ c.allChildren.flatMap(walk)
+        of(c.slots) ++ c.allChildren.flatMap(walk)
       case set: LayoutNode.SetNode =>
         set.members.values.toList
           .flatMap(_.clauses)
@@ -1425,7 +1432,7 @@ object Dashboard:
     */
   val SubjectSlot: String = "entity_id"
 
-  /** `tap.pkl`'s route slots that [[Dashboard.groupCalls]] reads. */
+  /** `tap.pkl`'s route slots that [[Dashboard.calls]] reads. */
   val ServiceSlot: String = "service"
   val TargetKindSlot: String = "targetKind"
   val TargetIdSlot: String = "targetId"

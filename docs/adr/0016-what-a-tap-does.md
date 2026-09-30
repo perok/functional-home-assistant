@@ -88,8 +88,8 @@ signal** (ADR 0017), and the card reads both through `service__read` — so the
 four rows here cost no card a branch, and the markup is constant either way:
 
 ```
-data-on:click="@post('sse/action/' + 'light/toggle'          + '/light.k?node=c_3')"
-data-on:click="@post('sse/action/' + $_e.lock.front.t4d7a74a1 + '/lock.front?node=c_4')"
+data-on:click="@post('sse/call/home/' + 'light/toggle'          + '/entity/light.k?node=c_3')"
+data-on:click="@post('sse/call/home/' + $_e.lock.front.t4d7a74a1 + '/entity/lock.front?node=c_4')"
 ```
 
 The lock tile therefore stays in `Renderer`'s identity cache across a

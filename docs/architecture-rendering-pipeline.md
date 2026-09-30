@@ -409,7 +409,7 @@ client-only feedback around the `@post` — see `docs/adr/0019-an-action-in-flig
   rides the `.slider.max` track wrapper (and the head badge, whose icon spins
   during the commit).
 - **A refusal is signals on a 200, not a status** (ADR 0024). Every refused
-  action — HA rejecting the call, an entity this dashboard does not name, an
+  action — HA rejecting the call, a call this dashboard does not declare, an
   unknown surface, a `conn` on another slug — goes through `Server.actionRefused`
   and answers 200 with a `datastar-patch-signals` body: `_<node>__error` on the
   control that was pressed, `_<group>__pending` cleared, `_toast` carrying HA's

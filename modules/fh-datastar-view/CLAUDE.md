@@ -182,17 +182,17 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   starter + demo modules, plus `lib/*.pkl`); the dump is a cache package (never on disk in the repo) and
   `dashboard.json` is generated + gitignored.
 - Interactivity uses the WS `call_service` command (added to `ha-api`'s `CommandPhase` +
-  `HomeAssistantApi.callService`). `POST /sse/action/:slug/:domain/:service/:entityId` triggers a no-data
-  service; the value-carrying variant `.../:entityId/:key/:value` builds `service_data` (the value
-  rides in the URL path, since Datastar template-literal URL interpolation isn't confirmed in v1 —
-  use `'.../key/' + $signal` concatenation client-side). The resulting state change flows back over
+  `HomeAssistantApi.callService`). `POST /sse/call/:slug/:domain/:service/:kind/:id` triggers a
+  no-data service on a target — `kind` is `entity`, `area` or `floor`, and HA expands the last two;
+  the value-carrying variant `.../:id/:key/:value` builds `service_data` (the value rides in the URL
+  path, since Datastar template-literal URL interpolation isn't confirmed in v1 — use
+  `'.../key/' + $signal` concatenation client-side). The resulting state change flows back over
   the persistent SSE stream.
-  The `:slug` is what BOUNDS the call (ADR 0023): the action is refused unless that dashboard
-  NAMES the entity, so admission to one dashboard is not admission to the whole house. The one
-  exception is an area or floor tap (`c.tap.areaCall`/`floorCall`, typed `lightsOff`/`lightsOn`/
-  `lightsToggle`), which posts `/sse/target/:slug/:domain/:service/:area|floor/:id` for HA to
-  expand; it is allowed only for the exact combinations the built dashboard's taps declare
-  (`Dashboard.groupCalls`, ADR 0023). A module
+  The `:slug` is what BOUNDS the call (ADR 0023): it is refused unless one of that dashboard's taps
+  declares exactly that (service, target, value key) — `Dashboard.calls`, read off `tap.pkl`'s
+  route slots — so admission to one dashboard is not admission to the whole house. A tap names its
+  own target (`tap.Call.target`); the target-less verbs fall back to the card's entity until
+  `docs/plan-explicit-tap-targets.md` deletes them. A module
   does not know its own slug, so the renderer supplies it: `dashboard_slug` (a CEL binding) in a
   tap's transform, `{{dashboardSlug}}` (a Mustache var) in a card's own template — two
   spellings because there are genuinely two phases, each named after the one that fills it. Every
@@ -218,7 +218,7 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   service call has no committed selection to catch up to; the two mechanisms coexist deliberately.
   **A refused action answers 200 carrying `datastar-patch-signals`, never 4xx** (ADR 0024): the
   request was served and the OPERATION failed, which is page state. One helper (`actionRefused`)
-  answers every refusal — HA rejecting a call, an entity this dashboard does not name, an unknown
+  answers every refusal — HA rejecting a call, a call this dashboard does not declare, an unknown
   surface, a `conn` on another slug — patching `_<node>__error` on the control that was pressed,
   clearing `_<group>__pending`, and setting `_toast` to HA's own message. Both ids ride in the
   action's query string (`?node=&group=`), read off `data-fh-node` at click time. The bundle parses

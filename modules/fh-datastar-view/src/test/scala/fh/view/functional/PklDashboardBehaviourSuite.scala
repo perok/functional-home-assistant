@@ -113,7 +113,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
       )
       assert(
         html.contains(
-          "? '' : @post('sse/action/fixture-home/' + 'light/toggle'"
+          "? '' : @post('sse/call/fixture-home/' + 'light/toggle'"
         ),
         clue = html
       )
@@ -144,7 +144,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
           )
           assert(
             html.contains(
-              "data-on:change=\"$_c_0_head_0__busy_change ? '' : @post('sse/action/fixture-slider/light/turn_on/"
+              "data-on:change=\"$_c_0_head_0__busy_change ? '' : @post('sse/call/fixture-slider/light/turn_on/entity/"
             ),
             clue = html
           )
@@ -207,7 +207,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
          |
          |card = (c.column) {
          |  children {
-         |    c.button("Toggle", (c.tap.service("light/toggle")) { busyVisual = false })
+         |    c.button("Toggle", (c.tap.call("light/toggle", dump.entities.${HouseFixture.kitchenLight.dumpKey})) { busyVisual = false })
          |  }
          |}
          |""".stripMargin
@@ -254,7 +254,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
             )
             assert(
               html.contains(
-                "data-on:change=\"$_c_0_head_0__busy_change ? '' : @post('sse/action/fixture-quiet-slider/light/turn_on/"
+                "data-on:change=\"$_c_0_head_0__busy_change ? '' : @post('sse/call/fixture-quiet-slider/light/turn_on/entity/"
               ),
               clue = html
             )
@@ -441,8 +441,8 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
             html.contains(
               "data-on:click=\"$_c_0_head_0__busy_change ? '' : " +
                 "$_e.light.plug.t722a9eca ? '' : " +
-                "@post('sse/action/fixture-plug/' + 'light/toggle' + " +
-                "'/light.plug?node=c_0_head_0'"
+                "@post('sse/call/fixture-plug/' + 'light/toggle' + " +
+                "'/entity/light.plug?node=c_0_head_0'"
             ),
             clue = html
           )
@@ -494,7 +494,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
           .split("data-on:click=\"")
           .toList
           .map(_.takeWhile(_ != '"'))
-          .find(_.contains("sse/action"))
+          .find(_.contains("sse/call"))
         (html, click.getOrElse(fail(s"no action click in: $html")))
       })
 
