@@ -35,10 +35,11 @@ import "entity.pkl" as entityMod
 /// an inline popup (ADR 0024), where the second press is in a DIFFERENT place
 /// rather than the same one. On a wall tablet that is the safer of the two —
 /// HA's two-step can be satisfied by one sleeve brushing the same spot twice.
-function openLatch(l: hass.LockEntity): control.Button =
+function openLatch(l: hass.LockEntity): control.EntityButton =
   control
-    .button("Open", tapMod.openPopupInline(confirmOpen(l)))
-    .entity(l)
+    .entityButton(l)
+    .label("Open")
+    .tapAction(tapMod.openPopupInline(confirmOpen(l)))
     .icon("mdi:door-open")
     // The DOMAIN's list, from the domain's own module — HA's `canOpen`. It adds
     // to what the tap already refuses rather than replacing it
