@@ -189,7 +189,7 @@ class Button extends nodes.Node {
     when (authoredInert.isEmpty && tapAction.href != null) {
       ["href"] = tapAction.href!!
     } else {
-      for (k, v in tapMod.tapRoute(tapAction, entity, authoredInert, "disabled")) {
+      for (k, v in tapMod.tapRoute(tapAction, authoredInert, "disabled")) {
         [k] = v
       }
     }
@@ -320,7 +320,7 @@ class Toggle extends nodes.Node {
       bypassUnavailable = false
       signal = slotMod.asAttr("data-switched")
     }
-    for (k, v in tapMod.tapRoute(tapAction, entity, new Listing {}, "disabled")) {
+    for (k, v in tapMod.tapRoute(tapAction, new Listing {}, "disabled")) {
       [k] = v
     }
     when (tapAction.busy) {
@@ -388,7 +388,7 @@ class Pill extends nodes.Node {
     } else {
       // A chip's root IS a `<button>`, so it takes the same real `disabled` a
       // [[Button]] does — it just has no authored list of its own to add.
-      for (k, v in tapMod.tapRoute(tapAction, entity, new Listing {}, "disabled")) {
+      for (k, v in tapMod.tapRoute(tapAction, new Listing {}, "disabled")) {
         [k] = v
       }
     }
@@ -412,8 +412,8 @@ function pill(l: String, a: tapMod.TapAction): Pill = new Pill { label = l; tapA
 
 /// A round icon button — [[Button]] with a glyph and no label:
 ///
-///     c.iconButton("mdi:power", c.tap.toggle)
-///     c.iconButton("mdi:power", c.tap.toggle).entity(l).lit(true)
+///     c.iconButton("mdi:power", c.tap.toggle(l))
+///     c.iconButton("mdi:power", c.tap.toggle(l)).entity(l).lit(true)
 ///
 /// `const` so a class body can call it (the slider's head actions do).
 const function iconButton(i: String, a: tapMod.TapAction): Button =

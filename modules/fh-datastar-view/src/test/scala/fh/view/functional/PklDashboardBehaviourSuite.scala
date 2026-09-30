@@ -50,7 +50,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
        |card = (c.column) {
        |  children {
        |    (c.slider(dump.entities.${HouseFixture.kitchenLight.dumpKey})) {
-       |      tapAction = c.tap.service("light/toggle")
+       |      tapAction = c.tap.call("light/toggle", entity)
        |    }
        |  }
        |}

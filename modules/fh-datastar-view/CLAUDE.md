@@ -191,8 +191,7 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   The `:slug` is what BOUNDS the call (ADR 0023): it is refused unless one of that dashboard's taps
   declares exactly that (service, target, value key) — `Dashboard.calls`, read off `tap.pkl`'s
   route slots — so admission to one dashboard is not admission to the whole house. A tap names its
-  own target (`tap.Call.target`); the target-less verbs fall back to the card's entity until
-  `docs/plan-explicit-tap-targets.md` deletes them. A module
+  own target (`tap.Call.target`), never the card's. A module
   does not know its own slug, so the renderer supplies it: `dashboard_slug` (a CEL binding) in a
   tap's transform, `{{dashboardSlug}}` (a Mustache var) in a card's own template — two
   spellings because there are genuinely two phases, each named after the one that fills it. Every
@@ -323,10 +322,10 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   label that fits sits still and nothing measures anything. A tab bar is deliberately outside it — it
   scrolls sideways, so a tab is reached rather than shortened,
   expr/exprOf,
-  the `c.tap` namespace (`service`/`serviceValue`/`stateService`/`byDomain`/`toggle`/`navigate`/`areaCall`/`floorCall`/`lightsOff`/the popup ones — no `Tap` suffix, the namespace carries it), **the default tap** (ADR 0016 — an entity card is clickable
+  the `c.tap` namespace (`components/tap.pkl`: verbs that each NAME their target — `toggle(e)`/`default(e)`/`moreInfo(e)`/`call(service, target)` with `.with(key, value)`/`navigate`/the popup ones, plus typed domain namespaces `c.tap.lights.on|off|toggle(light|area|floor)` and `c.tap.locks.lock|unlock|unlatch(l)`; no `Tap` suffix, the namespace carries it), **the default tap** (ADR 0016 — an entity card is clickable
   by a default derived from its OWN entity: its domain's service where it has one, more-info where
   it does not, and `tapAction = null` to opt out entirely. Every route is a build-time literal except the
-  four `CallByState` domains. `c.tap.toggle` is now the explicit escape hatch, not the default,
+  four `CallByState` domains. `c.tap.call("homeassistant/toggle", e)` is the explicit escape hatch,
   and a `c.button`/`c.pill`/`c.toggle` with no action and no entity is a BUILD error rather than a
   post HA rejects), capability-conditional composition off the dump's groups
   (`c.slider(l.colourTemp)` / `c.effectPills(l.effects)` — a card takes the capability GROUP, which
@@ -342,7 +341,7 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   of allowed values. `c.windowChooser` is the one shipped control: it declares `window` AND renders
   the bar, because only a node's own template can spell its id, and `c.historyChart(s).chosen()`
   reads it),
-  tabs, popups/surfaces, more-info (`c.entityCard(e) |> c.informative`, or the `c.moreInfo(e)` tap:
+  tabs, popups/surfaces, more-info (`c.entityCard(e) |> c.informative`, or the `c.tap.moreInfo(e)` tap:
   an INLINE popup holding the entity's card, its domain controls, and `c.entityInfo(e)` — the id plus
   every attribute it reports, as one live text block, since a template cannot loop over attributes.
   It is what a tap on a non-actionable entity does instead of nothing — `c.informative` is now

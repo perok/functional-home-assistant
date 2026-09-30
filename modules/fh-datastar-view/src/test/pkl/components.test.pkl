@@ -223,7 +223,7 @@ facts {
   // about it, live. Its body is per-entity, hence inline rather than registered.
 
   ["more-info is an inline popup, so every entity's body is its own surface"] {
-    local t = c.moreInfo(kitchen)
+    local t = c.tap.moreInfo(kitchen)
     t.inlineSurfaces.containsKey("self")
     // A transform, not a constant: the route carries `dashboard_slug`, which
     // only a transform can read.
@@ -233,13 +233,13 @@ facts {
   }
 
   ["the body is the entity, then the controls its domain has, then its facts"] {
-    local body = c.moreInfo(dimmer).inlineSurfaces["self"].content.children[0]
+    local body = c.tap.moreInfo(dimmer).inlineSurfaces["self"].content.children[0]
     body.children.toList().map((n) -> n.card)
       == List("entityCard", "fhcol", "entityInfo", "button")
   }
 
   ["a numeric sensor's popup carries a chart of where the reading has been"] {
-    local body = c.moreInfo(power).inlineSurfaces["self"].content.children[0]
+    local body = c.tap.moreInfo(power).inlineSurfaces["self"].content.children[0]
     // The chart arrives under a window chooser, not beside the card: the
     // chooser is what DECLARES the window, so the nesting is what puts the
     // chart in scope of it. Composed here so no dashboard ever writes it.
@@ -303,7 +303,7 @@ facts {
     //
     // The property the default flip will rest on: there is no entity for which
     // this popup is empty.
-    local body = c.moreInfo(outside).inlineSurfaces["self"].content.children[0]
+    local body = c.tap.moreInfo(outside).inlineSurfaces["self"].content.children[0]
     body.children.toList().map((n) -> n.card)
       == List("entityCard", "entityInfo", "button")
   }
@@ -365,7 +365,7 @@ facts {
     // Silent when broken, and fatal: `defaultTap` on a non-actionable entity
     // is `moreInfo(e)`, whose body builds this very card — an infinite regress
     // that laziness does not stop, because `slots` forces the tap.
-    local body = c.moreInfo(outside).inlineSurfaces["self"].content.children[0]
+    local body = c.tap.moreInfo(outside).inlineSurfaces["self"].content.children[0]
     body.children.toList().first.inlineSurfaces == null
   }
 
@@ -402,7 +402,7 @@ facts {
       .contains("renders as a link")
     // The same button with a SERVICE tap is fine, which is what makes the
     // check about the link rather than about `inertWhile`.
-    c.button("Open", c.tap.service("lock/open"))
+    c.button("Open", c.tap.locks.unlatch(latchLock))
       .entity(latchLock)
       .inertWhile(List("opening"))
       .slots["inert"].signal == "attr:disabled"
@@ -649,7 +649,7 @@ facts {
     // `lit` is OFF by default — most buttons do something rather than reflect a
     // state — and needs an entity to read.
     !glyphOnly.slots.containsKey("lit")
-    ((c.iconButton("mdi:power", c.tap.toggle)) { entity = kitchen; lit = true })
+    ((c.iconButton("mdi:power", c.tap.toggle(kitchen))) { entity = kitchen; lit = true })
       .slots["lit"].signal == "class:lit"
   }
 
@@ -659,9 +659,9 @@ facts {
     // node — so two buttons sharing the head's id could only ever arm one of
     // them, and pressing either would disable both.
     local row = (c.slider(kitchen))
-      .tapAction(c.tap.toggle)
+      .tapAction(c.tap.toggle(kitchen))
       .actions(List(
-        c.sliderAction(kitchen, c.moreInfo(kitchen))
+        c.sliderAction(kitchen, c.tap.moreInfo(kitchen))
           .icon("mdi:information").lit(false)
       ))
     local acts = row.children["head"][0].children["actions"]
@@ -859,14 +859,25 @@ facts {
     !b.slots.containsKey("inert")
   }
 
+  ["a typed verb is `call` with the service filled in"] {
+    c.tap.lights.off(stue) == c.tap.call("light/turn_off", stue)
+    c.tap.lights.toggle(kitchen) == c.tap.call("light/toggle", kitchen)
+    c.tap.locks.unlatch(latchLock) == c.tap.call("lock/open", latchLock)
+    // The entity card's default, spelled for any card: the domain's service, or
+    // more-info where there is none.
+    c.tap.default(kitchen) == c.tap.toggle(kitchen)
+    c.tap.default(outside).inlineSurfaces != null
+  }
+
   ["a value-carrying tap is the same call with one more segment"] {
     // Not a second route builder: `serviceClick` covers both, and a tap with no
     // value declares no `dataKey`, so the section closes over nothing.
-    local plain = c.tap.service("light/turn_on")
+    local plain = c.tap.call("light/turn_on", kitchen)
     plain.service == "light/turn_on"
     plain.dataKey == null
-    local valued = c.tap.serviceValue("light/turn_on", "effect", "Color loop")
+    local valued = c.tap.call("light/turn_on", kitchen).with("effect", "Color loop")
     valued.service == "light/turn_on"
+    valued.target == kitchen
     valued.dataKey == "effect"
     // PERCENT-ENCODED for the two characters that break the two contexts the
     // value passes through: a space is invalid in a path segment, and a `'`
@@ -874,7 +885,7 @@ facts {
     // `&#39;`, which the browser decodes back to `'` BEFORE the expression is
     // parsed, so the attribute escape cannot save it.
     valued.dataValue == "Color%20loop"
-    c.tap.serviceValue("a/b", "k", "it's").dataValue == "it%27s"
+    c.tap.call("a/b", kitchen).with("k", "it's").dataValue == "it%27s"
   }
 
   ["a SERVICE tap is inert on a dead entity, whatever its domain"] {
@@ -925,14 +936,13 @@ facts {
     // is the whole point: releasing a latch opens a door.
     latch.inlineSurfaces != null
     !latch.slots.containsKey("service")
-    // …and `lock/open` lives inside it, aimed at the lock (a button carries no
-    // subject of its own).
+    // …and `lock/open` lives inside it, aimed at the lock by its own target.
     local body = latch.inlineSurfaces!!["self"].content.children.toList().first
     local press = body.children.toList()
-      .filter((n) -> n.card == "button" && n.slots.containsKey("entity_id"))
+      .filter((n) -> n.card == "button" && n.slots.containsKey("service"))
       .first
     press.slots["service"] == "lock/open"
-    press.slots["entity_id"] == "lock.latch"
+    press.slots["targetId"] == "lock.latch"
     // …and it is THAT press availability guards, not the latch that opens the
     // dialog: a service tap is inert on a dead entity in every domain, so
     // `CANNOT_OPEN` never had to carry `unavailable` and now cannot.

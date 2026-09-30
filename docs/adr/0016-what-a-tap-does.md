@@ -39,11 +39,27 @@ in ADR 0001 — a `"<domain>/<service>"` string (`SliderSpec.action`, `Call.acti
 the `{{{action}}}` slot). Before this, `Button.action` held a `TapAction` while
 `Slider.action` held a service string: one name, two types, on sibling cards.
 
-The constructors carry no `Tap` suffix, because the namespace already says it:
-`c.tap.service("lock/lock")`, `c.tap.toggle`, `c.tap.stateService(…)`,
-`c.tap.byDomain(e)`, `c.tap.navigate("under")`. `c.defaultTap(e)` stays on the
-facade rather than joining them — the *policy* of falling back to more-info
-belongs to the component tier, not to the core tap kit (ADR 0015).
+**A tap names what it acts on.** A `TapAction` is a `Call` — a service on a
+`Target` (an entity, an area or a floor) — or a `Click` (navigate, open or
+close a surface), and a `Call`'s route, its inert check and a state-picked
+service all read the TARGET, never the card it sits on. So a card may show one
+entity and act on another, or act while showing none:
+`c.button("Kjøkken", c.tap.toggle(kitchen))`. The alternative this replaced let
+the card lend its entity to a target-less tap (`c.tap.service("lock/lock")`),
+which made a tap mean different things on different cards and made a basic
+button carry an entity so a tap could borrow it. It is also what lets the server
+allow only the exact calls a dashboard declares (ADR 0023).
+
+The verbs are HA's `tap_action` variants, each taking its target, with no
+`Tap` suffix because the namespace already says it: `c.tap.toggle(e)`,
+`c.tap.default(e)`, `c.tap.moreInfo(e)`, `c.tap.call(service, target)` (with
+`.with(key, value)` for one value), `c.tap.navigate(slug)` and the popup verbs.
+A domain gets a typed namespace where a typed verb is wanted —
+`c.tap.lights.off(scope)` over a light, an area or a floor;
+`c.tap.locks.unlatch(l)` — and `call` covers the rest. `c.tap` is a
+dashboard-tier module (`components/tap.pkl`) because `moreInfo` and the
+more-info fallback are components; the core kit (`core/tap.pkl`) keeps the
+classes, `byDomain` and the rendering (ADR 0015).
 
 ### 1. The table says whether, not just which
 
@@ -161,9 +177,9 @@ defined by what pressing it does; not knowing that is not a state it should be
 able to reach. This is the same "make the illegal state unrepresentable" move as
 `Dashboard.Validated`, at the authoring layer.
 
-`c.tap.toggle` survives as an explicit escape hatch, now a plain literal
-(`homeassistant/toggle`) rather than a lookup — the right answer for a domain
-this library does not know but the author does.
+`c.tap.call("homeassistant/toggle", e)` is the explicit escape hatch, a plain
+literal rather than a lookup — the right answer for a domain this library does
+not know but the author does. `c.tap.toggle(e)` falls back to it by itself.
 
 ## Consequences
 
@@ -189,7 +205,7 @@ this library does not know but the author does.
 - **This is a breaking behaviour change** (alpha, deliberate): a card that
   previously posted `homeassistant/toggle` for an unrecognised domain now opens
   more-info instead. Any dashboard relying on the old blanket toggle names
-  `c.tappable` or `c.tap.toggle` to get it back.
+  `c.tappable` or `c.tap.toggle(e)` to get it back.
 - **Deriving the table from the instance is the obvious follow-up** and stays out
   of scope: `/api/services` is per-instance ground truth, so custom integrations
   would work. It needs the same churn analysis `CapabilityAttributes` got before

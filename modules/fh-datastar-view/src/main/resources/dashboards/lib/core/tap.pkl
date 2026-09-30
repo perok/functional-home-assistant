@@ -1,9 +1,10 @@
 /// Taps — what a click DOES, as the whole Datastar expression a card splices
 /// into `data-on:click`.
 ///
-/// A tap is either a service call, a navigation (which also carries an `href`,
-/// so a card whose root can be an `<a>` gets real link behaviour), or a surface
-/// open/close. Re-exported as the `c.tap` namespace for authors.
+/// A tap is either a service call on a target, a navigation (which also carries
+/// an `href`, so a card whose root can be an `<a>` gets real link behaviour), or
+/// a surface open/close. The author's verbs over these are `c.tap`
+/// (`components/tap.pkl`); this is the kit a component builds on.
 module core.tap
 
 import "node.pkl" as nodes
@@ -58,14 +59,27 @@ class Call extends TapAction {
   /// TEMPLATE can name the slug and the node id, because Mustache runs once and
   /// a slot's VALUE is spliced raw ([[serviceClick]]).
   service: slotMod.Slot|String
-  /// Null only on the verbs that name no target (`service`, `serviceValue`,
-  /// the `toggle` constant), where the card's own entity fills it — see
-  /// `docs/plan-explicit-tap-targets.md`.
-  target: Target? = null
+  /// What the call acts on — named by the tap, never borrowed from the card it
+  /// sits on, so a card may show one entity and act on another, or on a room.
+  target: Target
   /// The ONE value a service call carries, as the route's trailing
-  /// `/<key>/<value>` ([[serviceValue]]). Both null or both set.
+  /// `/<key>/<value>` ([[with]]). Both null or both set.
   dataKey: String? = null
   dataValue: String? = null
+  /// This call carrying one value: `call("light/turn_on", l).with("effect",
+  /// "colorloop")`.
+  ///
+  /// The value is PERCENT-ENCODED for the two characters that break the two
+  /// contexts it passes through: a space is not valid in a path segment, and a
+  /// `'` would close the JS string literal the URL sits in — Mustache escapes it
+  /// to `&#39;`, which the browser decodes back to `'` before the expression is
+  /// ever parsed, so the attribute escape does not save it.
+  function with(key: String, value: String): Call =
+    let (self = this)
+      (self) {
+        dataKey = key
+        dataValue = value.replaceAll(" ", "%20").replaceAll("'", "%27")
+      }
   /// States of the target in which this call is MEANINGLESS, so a card refuses
   /// the press rather than send a competing command. Filled from the domain
   /// table for a [[stateService]] tap ([[byDomain]]).
@@ -526,9 +540,9 @@ const function routeSlots(
 /// [[tapSlots]] for the card that decides `tappable`/`busy` for itself — a
 /// [[Button]] hangs those on whether the tap offered an `href` instead.
 ///
-/// `subject` is the card's own entity, the target of a [[Call]] that names
-/// none. The inert slot and a state-picked service read the TARGET, so a card
-/// may act on an entity other than the one it shows.
+/// The inert slot and a state-picked service read a call's TARGET, so a card
+/// may act on an entity other than the one it shows. A [[Click]]'s inert reads
+/// the card's own entity: it is the card's `extra`, about what the card shows.
 ///
 /// One node holds ONE tap's route, which has been enough for every card: the
 /// slider's toggle track and its commit look like two, but the two arms are
@@ -536,21 +550,15 @@ const function routeSlots(
 /// them rather than to parameterise this.
 const function tapRoute(
   t: TapAction,
-  subject: hass.Entity?,
   extra: Listing<String>,
   inertAs: InertAs
 ): Mapping<String, slotMod.Slot|String> =
-  let (target =
-    if (t is Call) t.target ?? subject ?? throw(
-      "a service tap names no target: give it one (`c.tap.toggle(e)`, "
-        + "`c.tap.call(service, target)`) or put it on a card with an entity"
-    )
-    else null)
+  let (target = if (t is Call) t.target else null)
   let (reads = if (target is hass.Entity) target.entity_id else null)
   let (states = inertStates(t, target, extra))
     new {
       when (t is Call) {
-        for (k, v in routeSlots(t.service, target!!, t.dataKey)) {
+        for (k, v in routeSlots(t.service, t.target, t.dataKey)) {
           [k] = v
         }
         when (t.dataKey != null) {
@@ -576,7 +584,7 @@ const function tapRoute(
 ///
 /// ```
 /// slots {
-///   for (k, v in tapMod.tapSlots(tapAction, entity, "class")) { [k] = v }
+///   for (k, v in tapMod.tapSlots(tapAction, "class")) { [k] = v }
 /// }
 /// ```
 ///
@@ -585,13 +593,12 @@ const function tapRoute(
 /// `busy`/`busyVisual` are ADR 0019's guard and its look.
 const function tapSlots(
   t: TapAction?,
-  subject: hass.Entity?,
   inertAs: InertAs
 ): Mapping<String, slotMod.Slot|String> =
   new {
     when (t != null) {
       ["tappable"] = "1"
-      for (k, v in tapRoute(t!!, subject, new Listing {}, inertAs)) {
+      for (k, v in tapRoute(t!!, new Listing {}, inertAs)) {
         [k] = v
       }
       when (t!!.busy) {
@@ -718,10 +725,14 @@ const function pendingOrCommittedOf(groupId: String, committed: String): String 
 const function selectSurface(surfaceId: String, groupId: String, value: String): slotMod.Slot =
   openSurfaceOnclick(surfaceId, "$" + pendingSignal(groupId) + " = '" + value + "'; ", groupId)
 
-/// `service` on `target`: `c.tap.call("scene/turn_on", dump.entities.kveld)`.
-/// An area or floor target reaches entities the dashboard never names, so the
-/// server allows only the exact (service, target) pairs the built dashboard's
-/// taps declare (ADR 0023).
+/// `service` on `target`: `call("scene/turn_on", dump.entities.kveld)`. An area
+/// or floor target reaches entities the dashboard never names, so the server
+/// allows only the exact (service, target) pairs the built dashboard's taps
+/// declare (ADR 0023).
+///
+/// A LITERAL service, not a click expression: the card assembles the URL from
+/// [[serviceClick]], and a build-time service reads back as a quoted literal
+/// there.
 const function call(action: String, on: Target): Call = new { service = action; target = on }
 
 /// Toggle `e`: its domain's own service where the table names one
@@ -730,22 +741,9 @@ const function call(action: String, on: Target): Call = new { service = action; 
 const function toggle(e: hass.Entity): Call =
   byDomain(e) ?? call("homeassistant/toggle", e)
 
-/// Explicit "<domain>/<service>" on the card's own entity, e.g.
-/// service("lock/lock"). Prefer [[call]], which names its target.
-///
-/// A LITERAL slot, not a click expression: the card assembles the URL from
-/// [[serviceClick]], and a build-time service reads back as a quoted literal
-/// there.
-const function service(action: String): Call = new { service = action }
-
-/// Toggle whatever the card's entity is, via HA's own domain-dispatching
-/// `homeassistant.toggle`. Prefer [[toggle]] with an entity, which also picks
-/// the domain's own service.
-const toggle: Call = service("homeassistant/toggle")
-
-/// A service call whose service depends on the target's CURRENT state: `then`
+/// A service call on `e` whose service depends on its CURRENT state: `then`
 /// while the state equals `whenState`, `otherwise` in every other state. The
-/// lock case — `stateService("locked", "lock/unlock", "lock/lock")`.
+/// lock case — `lock/unlock` while `locked`, `lock/lock` otherwise.
 ///
 /// The service rides a HANDLER SIGNAL rather than the click expression
 /// ([[slotMod.asHandler]]). Baked into the expression it was in the element's
@@ -760,19 +758,15 @@ const toggle: Call = service("homeassistant/toggle")
 /// user is looking at. Resolving on the server instead would leave the pixels
 /// stale and make the command fresh — a tap on a lock someone else has since
 /// unlocked would re-lock it.
-const function stateService(
-  whenState: String,
-  then: String,
-  otherwise: String,
-  inertStates: Listing<String>
-): Call =
+const local function stateService(e: hass.Entity, byState: hassActions.CallByState): Call =
   new {
     service = new slotMod.Slot {
-      transform = simpleMod.enumOf(whenState, then, otherwise)
+      transform = simpleMod.enumOf(byState.whenState, byState.then, byState.otherwise)
       bypassUnavailable = false
       signal = slotMod.asHandler
     }
-    inertWhile = inertStates
+    target = e
+    inertWhile = byState.inertWhile
   }
 
 /// What a tap on `e` should call, decided from its domain at BUILD time — or
@@ -787,46 +781,7 @@ const function byDomain(e: hass.Entity): Call? =
   let (action = hassActions.forDomain(e.domain))
     if (action == null) null
     else if (action is hassActions.Call) call(action.action, e)
-    else
-      let (byState = action as hassActions.CallByState)
-        (stateService(
-          byState.whenState,
-          byState.then,
-          byState.otherwise,
-          byState.inertWhile
-        )) { target = e }
-
-/// A service call carrying ONE static value: `serviceValue("light/turn_on",
-/// "effect", "colorloop")`, on the card's own entity. The value rides in the
-/// URL PATH, the same route the slider's commit posts to.
-///
-/// The value is PERCENT-ENCODED for the two characters that break the two
-/// contexts it passes through: a space is not valid in a path segment, and a
-/// `'` would close the JS string literal the URL sits in — Mustache escapes it
-/// to `&#39;`, which the browser decodes back to `'` before the expression is
-/// ever parsed, so the attribute escape does not save it.
-function serviceValue(action: String, key: String, value: String): Call =
-  new {
-    service = action
-    dataKey = key
-    dataValue = value.replaceAll(" ", "%20").replaceAll("'", "%27")
-  }
-
-/// [[call]] on every entity HA puts in an area (issue #389), leaving out
-/// entities hidden in HA or carrying an `entity_category`.
-function areaCall(area: hass.Area, action: String): Call = call(action, area)
-
-/// [[areaCall]] for every area on a floor.
-function floorCall(floor: hass.Floor, action: String): Call = call(action, floor)
-
-/// Every light in a room or on a floor: `c.tap.lightsOff(dump.areas.stue)`.
-function lightsOff(scope: hass.Area|hass.Floor): Call = call("light/turn_off", scope)
-
-function lightsOn(scope: hass.Area|hass.Floor): Call = call("light/turn_on", scope)
-
-/// HA toggles each light on its own: in a half-lit room the lit ones go off
-/// and the others come on.
-function lightsToggle(scope: hass.Area|hass.Floor): Call = call("light/toggle", scope)
+    else stateService(e, action as hassActions.CallByState)
 
 /// Go to dashboard `slug` — an ordinary document load, so the browser owns the
 /// history entry (ADR 0002). The `href` is RELATIVE and resolves against

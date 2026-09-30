@@ -68,7 +68,7 @@ class Click extends TapAction {     // navigate, open/close a surface
   c.tap.call("light/turn_on", l).with("effect", "colorloop")
   c.tap.navigate("under"); c.tap.openPopup("detail"); c.tap.closePopup()
   c.tap.lights.off(dump.areas.stue)     // typed: LightEntity|Area|Floor
-  c.tap.locks.open(l)                   // typed: LockEntity
+  c.tap.locks.unlatch(l)                // typed: LockEntity (`open` is a keyword)
   ```
 
   Deleted: `service`, `serviceValue`, the `toggle` constant, `stateService` as an
