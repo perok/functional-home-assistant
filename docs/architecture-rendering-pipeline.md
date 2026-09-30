@@ -1049,7 +1049,7 @@ the display on a value that never moved. The committed signals are seeded by the
 ahead of the body, and ride the opening frame again — both TOTAL over the build's declarations at
 this viewer's values (`Server.committedVars`), so a forgotten session corrects a stale control and
 a control never seeds the declared value over a linked choice. The control
-mirrors the committed value into the `v.` param with `fhUrl`, as a tab bar mirrors `ui.`, so the
+mirrors the committed value into the `v.` param with `data-fh-url`, as a tab bar mirrors `ui.`, so the
 URL follows what the server did rather than what was pressed.
 
 The authoring side is one component (`c.windowChooser`): it declares the variable AND renders the

@@ -1683,7 +1683,8 @@ class Server(
     val connBanner =
       s"""<div data-signals="{${Server.HaDownSignal}: $haDown, _sse: 0, ${Server.ToastSignal}: '', ${Server.ReloadSignal}: false, $popupSignalName: '$popupSeed', ${Server.ConnSignal}: '${Server
           .escapeJsString(restore.conn)}'$varSeed}"
-         |     data-effect="$$${Server.ReloadSignal} && window.location.reload(); fhUrl('$popupParamName', $$$popupSignalName)"
+         |     data-effect="$$${Server.ReloadSignal} && window.location.reload()"
+         |     data-fh-url="['$popupParamName', $$$popupSignalName]"
          |     data-on-signal-patch-filter="{include:/^${Server.ToastSignal}$$/}"
          |     data-on-signal-patch="$$${Server.ToastSignal} && (fhToast($$${Server.ToastSignal}), $$${Server.ToastSignal} = '')"
          |     data-on:$sseEvent="$$_sse = $sseLatched">
@@ -1694,6 +1695,7 @@ class Server(
          |  </div>
          |  <div class="fh-offline fh-offline-ha" $hidden role="status" aria-live="polite" data-show="$ha && $$_sse == 0">Home Assistant unavailable — reconnecting…</div>
          |</div>""".stripMargin
+    val datastar = assets.rewrite(Server.DatastarCdn)
     val _ = out.append(s"""<!doctype html>
        |<html lang="en">
        |<head>
@@ -1706,9 +1708,8 @@ class Server(
        |  <script>${Server.UrlSyncScript}</script>
        |  <script>${Server.swRegisterCall}</script>
        |$links
-       |  <script type="module" src="${assets.rewrite(
-                           Server.DatastarCdn
-                         )}"></script>
+       |  <script type="module" src="$datastar"></script>
+       |  ${Server.urlMirrorScript(datastar)}
        |</head>
        |<body data-init="@get('sse/dashboard/$slug/patch${restore.query}', ${Server.SseRetry})">
        |<script>fhConn('${Server.escapeJsString(restore.conn)}')</script>
@@ -2409,12 +2410,26 @@ object Server {
   private[runtime] val recoverOpenMarker: SseFrame =
     SseFrame.comment("recover-open")
 
-  /** `shell.ts`, inlined as a classic script: `fhConn` runs mid-body and
-    * `fhUrl` in the first `data-effect`, so a deferred module defines them too
-    * late. A missing resource fails hard — without it a page looks fine and
-    * silently loses tab selection, session handoff and scroll.
+  /** `shell.ts`, inlined as a classic script: `fhConn` runs mid-body, so a
+    * deferred module defines it too late. A missing resource fails hard —
+    * without it a page looks fine and silently loses tab selection, session
+    * handoff and scroll.
     */
   val UrlSyncScript: String = FrontendAssets.content("shell")
+
+  /** Hands the shell's `fhUrlMirror` the page's own Datastar module. The same
+    * URL as the page's module script, or it is a second Datastar instance that
+    * never sees this document; `./` because a bare `assets/…` is not a module
+    * specifier, while both forms resolve against `<base href>`.
+    */
+  def urlMirrorScript(datastar: String): String = {
+    val specifier =
+      if (datastar.contains("://") || datastar.startsWith("/")) datastar
+      else s"./$datastar"
+    s"""<script type="module">import * as datastar from '${escapeJsString(
+        specifier
+      )}'; fhUrlMirror(datastar)</script>"""
+  }
 
   /** Classic and inline for the same reason as [[UrlSyncScript]]: it must run
     * before Datastar's deferred module.
