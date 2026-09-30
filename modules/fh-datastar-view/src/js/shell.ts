@@ -15,7 +15,7 @@
 declare global {
   interface Window {
     fhToast: (text: string) => void
-    fhUrlSync: (datastar: string) => void
+    fhUrlMirror: (datastar: Datastar) => void
     fhConn: (id: string) => void
     fhScroll: (slug: string) => void
     fhRegisterSw: (url: string) => void
@@ -45,35 +45,33 @@ declare global {
  * Counted per param, not per element: a morph that replaces a host can add the
  * new element before it removes the old one.
  *
- * Registered from here, where nothing may be imported, by loading the page's
- * own Datastar module at run time: the same URL is the same module instance.
+ * Handed the page's own Datastar module by an inline module script
+ * (`Server.urlMirrorScript`), because nothing here may import anything: even
+ * a run-time `import()` gets Vite's preload helper, whose `import.meta` is a
+ * syntax error in a classic script and took every helper in this file with it.
  */
-window.fhUrlSync = (datastar) => {
-  import(/* @vite-ignore */ new URL(datastar, document.baseURI).href).then(
-    ({ attribute, effect }: Datastar) =>
-      attribute({
-        name: "fh-url",
-        requirement: { key: "denied", value: "must" },
-        returnsValue: true,
-        apply({ rx }) {
-          let held: string | null = null
-          const stop = effect(() => {
-            const [key, value] = rx() as [string, unknown]
-            if (held !== key) {
-              if (held !== null) release(held)
-              held = key
-              mirrors.set(key, (mirrors.get(key) ?? 0) + 1)
-            }
-            setParam(key, value == null ? "" : String(value))
-          })
-          return () => {
-            stop()
-            if (held !== null) release(held)
-          }
-        },
-      }),
-  )
-}
+window.fhUrlMirror = ({ attribute, effect }) =>
+  attribute({
+    name: "fh-url",
+    requirement: { key: "denied", value: "must" },
+    returnsValue: true,
+    apply({ rx }) {
+      let held: string | null = null
+      const stop = effect(() => {
+        const [key, value] = rx() as [string, unknown]
+        if (held !== key) {
+          if (held !== null) release(held)
+          held = key
+          mirrors.set(key, (mirrors.get(key) ?? 0) + 1)
+        }
+        setParam(key, value == null ? "" : String(value))
+      })
+      return () => {
+        stop()
+        if (held !== null) release(held)
+      }
+    },
+  })
 
 /** The slice of the Datastar module this file uses. */
 type Datastar = {

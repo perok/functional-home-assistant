@@ -32,6 +32,10 @@ function assertSelfContained(): Plugin {
           ...chunk.imports.map((i) => `imports "${i}"`),
           ...chunk.dynamicImports.map((i) => `dynamically imports "${i}"`),
           ...chunk.exports.map((e) => `exports "${e}"`),
+          // Not in the metadata: a run-time `import()` gets Vite's preload
+          // helper, which reads `import.meta` — a syntax error in a classic
+          // script, so the whole file fails to run.
+          ...(chunk.code.includes("import.meta") ? ["uses import.meta"] : []),
         ]
         if (bad.length > 0) {
           this.error(

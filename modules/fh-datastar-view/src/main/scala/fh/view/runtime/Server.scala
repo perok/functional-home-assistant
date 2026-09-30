@@ -1695,8 +1695,6 @@ class Server(
          |  </div>
          |  <div class="fh-offline fh-offline-ha" $hidden role="status" aria-live="polite" data-show="$ha && $$_sse == 0">Home Assistant unavailable — reconnecting…</div>
          |</div>""".stripMargin
-    // The shell imports this same URL at run time; a second spelling would be a
-    // second Datastar instance.
     val datastar = assets.rewrite(Server.DatastarCdn)
     val _ = out.append(s"""<!doctype html>
        |<html lang="en">
@@ -1708,10 +1706,10 @@ class Server(
        |  <link rel="manifest" href="${PwaAssets.manifestUrl}">
        |  $pageTitle
        |  <script>${Server.UrlSyncScript}</script>
-       |  <script>fhUrlSync('${Server.escapeJsString(datastar)}')</script>
        |  <script>${Server.swRegisterCall}</script>
        |$links
        |  <script type="module" src="$datastar"></script>
+       |  ${Server.urlMirrorScript(datastar)}
        |</head>
        |<body data-init="@get('sse/dashboard/$slug/patch${restore.query}', ${Server.SseRetry})">
        |<script>fhConn('${Server.escapeJsString(restore.conn)}')</script>
@@ -2418,6 +2416,20 @@ object Server {
     * handoff and scroll.
     */
   val UrlSyncScript: String = FrontendAssets.content("shell")
+
+  /** Hands the shell's `fhUrlMirror` the page's own Datastar module. The same
+    * URL as the page's module script, or it is a second Datastar instance that
+    * never sees this document; `./` because a bare `assets/…` is not a module
+    * specifier, while both forms resolve against `<base href>`.
+    */
+  def urlMirrorScript(datastar: String): String = {
+    val specifier =
+      if (datastar.contains("://") || datastar.startsWith("/")) datastar
+      else s"./$datastar"
+    s"""<script type="module">import * as datastar from '${escapeJsString(
+        specifier
+      )}'; fhUrlMirror(datastar)</script>"""
+  }
 
   /** Classic and inline for the same reason as [[UrlSyncScript]]: it must run
     * before Datastar's deferred module.
