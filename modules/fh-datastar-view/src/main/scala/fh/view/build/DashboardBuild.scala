@@ -355,8 +355,9 @@ object DashboardBuild {
       log: Logger[IO] = Logging.console.getLoggerFromName(LoggerName)
   ): IO[(Site.Decoded, Set[os.Path])] =
     evalSource(dashboardsDir, Site.EntryFile).timed.flatMap { (took, r) =>
+      val how = if (r.fromCache) "read from the eval cache" else "evaluated"
       log.info(
-        s"${Site.EntryFile} evaluated in ${took.toMillis} ms " +
+        s"${Site.EntryFile} $how in ${took.toMillis} ms " +
           s"(${r.imports.size} workspace files)"
       ) *> Site.decode(r.value, r.imports, log).map(_ -> r.imports)
     }
