@@ -63,6 +63,7 @@ class Click extends TapAction {     // navigate, open/close a surface
 
   ```pkl
   c.tap.toggle(e)                       // the domain's own, or homeassistant/toggle
+  c.tap.default(e)                      // an entity card's: domain service or more-info
   c.tap.moreInfo(e)
   c.tap.call("scene/turn_on", dump.scene.kveld)
   c.tap.call("light/turn_on", l).with("effect", "colorloop")
@@ -73,18 +74,20 @@ class Click extends TapAction {     // navigate, open/close a surface
 
   Deleted: `service`, `serviceValue`, the `toggle` constant, `stateService` as an
   author verb (it stays in the core for `byDomain`), `areaCall`, `floorCall` and
-  the flat `lightsOff`/`lightsOn`/`lightsToggle`. `c.moreInfo` moves under
-  `c.tap`. A domain namespace exists where a typed verb is wanted (lights and
+  the flat `lightsOff`/`lightsOn`/`lightsToggle`. `c.moreInfo` and
+  `c.defaultTap` move under `c.tap`. A domain namespace exists where a typed verb is wanted (lights and
   locks today); `call` covers the rest.
 
   `c.tap` becomes a dashboard-tier facade (`components/tap.pkl`), since
   `moreInfo` is a component and the core cannot import one (ADR 0015).
 - **The base button knows nothing.** `c.button(label, action)` and `c.pill` lose
-  `entity` and `lit`. An ENTITY button is one layer up — `c.entityButton(e)`:
-  friendly-name label, the entity's icon, `lit` while on, `defaultTap(e)` — and
-  the slider's head actions are built on it. `c.toggle(e)` and the entity card
-  stay entity components, and their default tap is `defaultTap(e)`, a value
-  that names `e`.
+  `entity`, `lit` and `inertWhile`, and require their tap. An ENTITY button is
+  one layer up — `c.entityButton(e)`: friendly-name label, its domain's tap
+  (a build error where the domain has none), `lit` while on, `inertWhile` its
+  states — on the same `button` card, since the registry skips a class that
+  inherits `card`. The slider's head actions and the lock's latch are built on
+  it. `c.toggle(e)` and the entity card stay entity components, and their
+  default taps name `e`.
 - **Room left for HA's other axes.** `hold_action`/`double_tap_action` are more
   `TapAction` properties on a card, and `confirmation` a field on `TapAction`;
   neither is in scope. Devices (#329) follow the entity-button pattern: a
