@@ -645,6 +645,34 @@ case class Dashboard(
     (walk(card) ++ surfaces.values.toList.flatMap(s => walk(s.content))).toSet
   }
 
+  /** Every area or floor call a tap of this dashboard declares, as the build
+    * spelled it: the allowlist for those routes (issue #389, ADR 0023). Read
+    * off `tap.pkl`'s literal route slots, so a service picked by live state
+    * never declares one.
+    */
+  lazy val groupCalls: Set[GroupCall] = {
+    def of(slots: Map[String, SlotSource]): Option[GroupCall] = {
+      def lit(name: String) = slots.get(name).flatMap(_.literal)
+      for {
+        service <- lit(Dashboard.ServiceSlot)
+        kind <- lit(Dashboard.TargetKindSlot)
+        id <- lit(Dashboard.TargetIdSlot)
+        target <- GroupCall.targetOf(kind, id)
+      } yield GroupCall(service, target, lit(Dashboard.DataKeySlot))
+    }
+
+    def walk(n: LayoutNode): List[GroupCall] = n match {
+      case c: LayoutNode.Component =>
+        of(c.slots).toList ++ c.allChildren.flatMap(walk)
+      case set: LayoutNode.SetNode =>
+        set.members.values.toList
+          .flatMap(_.clauses)
+          .flatMap(cl => walk(cl.node))
+    }
+
+    (walk(card) ++ surfaces.values.toList.flatMap(s => walk(s.content))).toSet
+  }
+
   /** What the live subscription asks HA for: [[referencedEntities]] plus what
     * only decides — clause guards and state conditions, whose entity may be
     * rendered nowhere. With the narrower set a dashboard paints right and then
@@ -1396,6 +1424,12 @@ object Dashboard:
     * the spelling.
     */
   val SubjectSlot: String = "entity_id"
+
+  /** `tap.pkl`'s route slots that [[Dashboard.groupCalls]] reads. */
+  val ServiceSlot: String = "service"
+  val TargetKindSlot: String = "targetKind"
+  val TargetIdSlot: String = "targetId"
+  val DataKeySlot: String = "dataKey"
 
   private[model] def rawHole(name: String): scala.util.matching.Regex =
     ("\\{\\{\\{\\s*" + scala.util.matching.Regex.quote(

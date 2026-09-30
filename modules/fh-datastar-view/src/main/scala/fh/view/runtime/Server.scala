@@ -1,6 +1,6 @@
 package fh.view.runtime
 
-import api.homeassistant.HomeAssistantApi
+import api.homeassistant.{HomeAssistantApi, ServiceTarget}
 import scala.util.chaining.*
 import cats.data.{NonEmptyList, OptionT}
 import cats.effect.{IO, Resource}
@@ -24,6 +24,7 @@ import fh.view.model.{
   ChromeColors,
   Dashboard,
   DomId,
+  GroupCall,
   NodeId,
   Permission,
   SignalId,
@@ -215,7 +216,13 @@ class Server(
     case req @ POST -> Root / "sse" / "action" / slug / domain / service / entityId =>
       gate.handleRequirement(req, Requirement.FromDashboard(Some(slug)))(
         actionResponse(req, slug, entityId)(
-          callService(domain, service, entityId, Json.obj(), req)
+          callService(
+            domain,
+            service,
+            ServiceTarget.Entity(entityId),
+            Json.obj(),
+            req
+          )
         )
       )
 
@@ -225,11 +232,26 @@ class Server(
           callService(
             domain,
             service,
-            entityId,
+            ServiceTarget.Entity(entityId),
             Json.obj(dataKey -> Server.parseValue(dataValue)),
             req
           )
         )
+      )
+
+    // An area or floor, expanded by HA (issue #389).
+    case req @ POST -> Root / "sse" / "target" / slug / domain / service / kind / id =>
+      groupCall(req, slug, domain, service, kind, id, None)
+
+    case req @ POST -> Root / "sse" / "target" / slug / domain / service / kind / id / dataKey / dataValue =>
+      groupCall(
+        req,
+        slug,
+        domain,
+        service,
+        kind,
+        id,
+        Some(dataKey -> dataValue)
       )
 
     // The slug is what the rule checks (ADR 0023), and the only way to
@@ -266,6 +288,44 @@ class Server(
         else
           actionRefused(req, s"$entityId is not on this dashboard")
     }
+
+  /** Refused unless a tap on this dashboard declares exactly this call; the
+    * value itself is free, as on the entity route.
+    */
+  private def groupCall(
+      req: Request[IO],
+      slug: String,
+      domain: String,
+      service: String,
+      kind: String,
+      id: String,
+      data: Option[(String, String)]
+  ): IO[Response[IO]] =
+    gate.handleRequirement(req, Requirement.FromDashboard(Some(slug)))(
+      (site.permissionFor(Some(slug)), gate.of(req)).flatMapN {
+        (permission, user) =>
+          GroupCall
+            .targetOf(kind, id)
+            .map(GroupCall(s"$domain/$service", _, data.map(_._1)))
+            .filter(permission.mayCall(user, _)) match {
+            case Some(call) =>
+              callService(
+                domain,
+                service,
+                call.target,
+                data.fold(Json.obj())((k, v) =>
+                  Json.obj(k -> Server.parseValue(v))
+                ),
+                req
+              )
+            case None =>
+              actionRefused(
+                req,
+                s"no tap on this dashboard calls $domain/$service on $kind $id"
+              )
+          }
+      }
+    )
 
   /** Handled here rather than by [[FHError.handle]], so a test driving the
     * routes without it sees the same response.
@@ -1230,12 +1290,12 @@ class Server(
   private def callService(
       domain: String,
       service: String,
-      entityId: String,
+      target: ServiceTarget,
       serviceData: Json,
       req: Request[IO]
   ): IO[Response[IO]] =
     actions
-      .call(req, domain, service, entityId, serviceData)
+      .call(req, domain, service, target, serviceData)
       .attempt
       .flatMap {
         case Right(_)  => NoContent()
@@ -1830,7 +1890,7 @@ object Server {
           case Some(live) =>
             live.renderer.get.map {
               case RendererState.Ready(r) =>
-                Permission(r.access, r.references)
+                Permission(r.access, r.references, r.declares)
               // Its page carries build diagnostics.
               case RendererState.Failed(_) => Permission.none
             }

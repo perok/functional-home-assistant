@@ -141,7 +141,7 @@ lists are derived from it, in the base, by functions in `hass.pkl` —
 filter cannot answer differently. Every smaller scope answers the same two
 names: `hass.Area` has `allWithHidden` filled by the generator, `hass.Floor`
 derives both from its areas, `hass.Device` from its entities, and a domain
-comes out of any of them the one way — `hass.lights(dump.floors.loft.all)`.
+comes out of any of them the one way — `hass.lights(dump.loft.all)`.
 
 **`all` leaves out the entities hidden in HA** (`id_hidden`, from the registry's
 `hidden_by`). Hidden means "keep this off the dashboards HA builds for me", and

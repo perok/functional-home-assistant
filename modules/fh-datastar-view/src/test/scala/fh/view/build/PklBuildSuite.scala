@@ -1,6 +1,15 @@
 package fh.view.build
 
-import fh.view.model.{CardDef, Dashboard, LayoutNode, Op, Predicate, Transform}
+import api.homeassistant.ServiceTarget
+import fh.view.model.{
+  CardDef,
+  Dashboard,
+  GroupCall,
+  LayoutNode,
+  Op,
+  Predicate,
+  Transform
+}
 import fh.view.testkit.DashboardBuilders.{asComponent, asSetNode}
 import fh.view.testkit.{
   FixtureEntity,
@@ -512,6 +521,41 @@ class PklBuildSuite extends munit.FunSuite {
     assertEquals(c.get[String]("areaId").toOption, Some("new_1"))
     assertEquals(c.get[String]("floorName").toOption, Some("3rd floor"))
     assertEquals(c.get[String]("viaFloor").toOption, Some("light.lamp"))
+  }
+
+  test("an area or floor tap declares exactly the call it makes (#389)") {
+    val tmp = os.temp.dir()
+    copyLib(tmp)
+    writeDump(tmp, PklDump.render(fakeTransformedDump))
+    os.write(
+      tmp / "probe.pkl",
+      """module probe
+        |
+        |import "@fh-dashboard/components.pkl" as c
+        |import "@fh-home/dump.pkl" as dump
+        |
+        |node = (c.column) {
+        |  children {
+        |    c.button("Off", c.tap.lightsOff(dump.areas.kjokken))
+        |    c.button("Floor", c.tap.floorCall(dump.ground_floor, "switch/turn_off"))
+        |    c.button("Toggle", c.tap.toggle)
+        |  }
+        |}
+        |""".stripMargin
+    )
+    val result = evalProj(tmp, "probe.pkl")
+    assert(result.isRight, clue = result)
+    val c = result.toOption.get.value.hcursor
+    val node =
+      c.downField("node").as[LayoutNode].fold(e => fail(e.toString), identity)
+    val dashboard = Dashboard(cards = Map.empty, card = node)
+    assertEquals(
+      dashboard.groupCalls,
+      Set(
+        GroupCall("light/turn_off", ServiceTarget.Area("kitchen_1"), None),
+        GroupCall("switch/turn_off", ServiceTarget.Floor("g"), None)
+      )
+    )
   }
 
   test("generated dump.pkl evaluates against hass.pkl with dot-path access") {

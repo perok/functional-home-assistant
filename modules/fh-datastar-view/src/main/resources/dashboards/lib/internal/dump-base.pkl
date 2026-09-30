@@ -16,7 +16,7 @@
 ///
 ///     q.from(dump.lights)                          // the house
 ///     q.from(hass.lights(dump.areas.stue.all))     // one room
-///     q.from(hass.lights(dump.floors.loft.all))    // one floor
+///     q.from(hass.lights(dump.loft.all))           // one floor
 ///
 /// Which is why only `allWithHidden` is generated, per scope: `all` and the
 /// domain lists here are derived from it by the same functions an author calls,
