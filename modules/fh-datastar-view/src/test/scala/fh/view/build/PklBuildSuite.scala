@@ -1654,7 +1654,11 @@ class PklBuildSuite extends munit.FunSuite {
     // The shared icon button: a glyph, no label and the `lit` tint are not
     // about sliders.
     assertEquals(actions.map(_.card), List("button"))
-    assert(actions.head.slots.contains("onclick"), clue = actions.head.slots)
+    assertEquals(
+      actions.head.slots("service").literal,
+      Some("homeassistant/toggle")
+    )
+    assertEquals(actions.head.slots("targetId").literal, Some("light.lys"))
     assertEquals(actions.head.slots("glyph").literal, Some("mdi-power"))
     assertEquals(actions.head.slots("round").literal, Some("1"))
 
