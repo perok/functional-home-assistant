@@ -182,6 +182,17 @@ They wear the same classes — `fh-disabled`, `fh-loading`, and the theme's
 parameterised on the signal for exactly that, which also collapsed the six
 hardcoded `busy*` / `busy*Change` constants into three functions.
 
+A tab is ALSO guarded, with ADR 0019's own `busy` (issue #412): pending says
+which tab is asked for, `busy` says the ask is still out. Pending adds nothing
+to the wait. The open POST answers only after the new panel's queries have
+resolved and its patch is queued, so the indicator covers the same span. A tab
+holds text rather than a glyph, so it takes `tap.pkl`'s `busyTextClass` (a ring
+after the label) where a card takes `busyShapeClass`; the delay is the same.
+
+The window chooser is not guarded yet. Its buttons are markup in its own
+template, and ADR 0019 forbids them sharing one busy signal; as child nodes
+they would each have one, but a child cannot yet name its declarer (#209).
+
 The SIGNALS stay separate, for three reasons and any one would do:
 
 - **They are keyed differently.** A group's pending is shared by every anchor in

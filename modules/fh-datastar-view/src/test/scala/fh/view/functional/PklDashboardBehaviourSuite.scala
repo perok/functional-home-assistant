@@ -120,9 +120,11 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
       // The busy signal is created client-side by the indicator, so only
       // no-signals POSTs keep it out of the request body.
       assert(html.contains("{filterSignals:{exclude:'.*'}}"), clue = html)
-      // A more-info tap opens a popup: no POST worth a busy state.
-      assert(!html.contains("data-indicator=\"_c_1__busy\""), clue = html)
-      assert(!html.contains("data-on:click=\"$_c_1__busy"), clue = html)
+      // A more-info tap is guarded too: the open answers once the popup's
+      // queries have resolved, and a chart's fetch is a wait (issue #412).
+      assert(html.contains("data-indicator=\"_c_1__busy\""), clue = html)
+      assert(html.contains("data-on:click=\"$_c_1__busy"), clue = html)
+      // Navigating is a document load: nothing to guard.
       assert(!html.contains("data-indicator=\"_c_3__busy\""), clue = html)
     }
   }
@@ -343,6 +345,26 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
 
   private def flip(ts: TestServer): IO[Unit] =
     ts.change(light.entityId, "off") *> ts.frame(light)
+
+  test("each tab is guarded on its own busy signal (issue #412)") {
+    withBranchServer(_.page()).map { html =>
+      val tabs = s"""<a [^>]*open/${tabsHost}_t\\d[^>]*>""".r
+        .findAllIn(html)
+        .toList
+      assertEquals(tabs.size, 2, clue = html)
+      // One signal per tab (ADR 0019): a shared one would let one tab's
+      // answer clear another's guard.
+      val signals = tabs.map { a =>
+        val sig = """data-indicator="(_[A-Za-z0-9_]+__busy)"""".r
+          .findFirstMatchIn(a)
+          .fold(fail("an unguarded tab", clues(a)))(_.group(1))
+        assert(a.contains(s"data-on:click=\"$$$sig ? '' : "), clue = a)
+        assert(a.contains(s"data-class:fh-busy-after=\"$$${sig}_slow\""), a)
+        sig
+      }
+      assertEquals(signals.distinct.size, 2, clue = signals)
+    }
+  }
 
   test("first paint on the second tab: that panel's content, not the default") {
     withBranchServer(_.page(s"?ui.$tabsHost=1")).map { html =>

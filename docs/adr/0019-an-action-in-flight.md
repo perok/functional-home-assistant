@@ -95,6 +95,14 @@ The spinner is the one piece a card places separately, because its class is the
 theme's (`busySpin`) and it must sit on the element hosting the glyph, which
 only the template knows.
 
+**A popup open is guarded like a service call** (issue #412). The open POST
+answers only once the popup's queries have resolved, and a chart's history
+fetch is a wait, so `openPopup` and `openPopupInline` set `busy` and the card
+that was tapped dims and then spins. A tab switch is guarded for the same
+reason; a tab has no glyph, so its spinner is `busyTextClass`, a ring after the
+label. The close renders nothing and stays unguarded, as does `navigate`, which
+is a document load.
+
 **A rejection clears the guard and says so on the control.** `finished` fires on
 a failed fetch too, so a refusal can never leave a control stuck — but that also
 made a refused action look exactly like a successful one, the dim gone and the

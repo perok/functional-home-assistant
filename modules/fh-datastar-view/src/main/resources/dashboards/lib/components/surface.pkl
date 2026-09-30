@@ -23,7 +23,9 @@ import "../layout.pkl" as layout
 class TabButton extends nodes.Node {
   card = "tab"
   cardDef = new nodes.CardDef {
-    template = #"<a data-on:click="{{{onclick}}}" data-class="{active: {{{active}}}}">{{label}}</a>"#
+    // Guarded like any tap (ADR 0019): the open answers once the new panel's
+    // queries have resolved, so a slow panel dims the tab and then spins.
+    template = #"<a data-on:click="\#(tapMod.guardClick){{{onclick}}}"\#(tapMod.guard){{#busyVisual}} \#(tapMod.busyTextClass){{/busyVisual}} data-class="{active: {{{active}}}}">{{label}}</a>"#
     slots { "label"; "onclick"; "active" }
     // Deliberately NOT a `core/text.pkl` box: the bar scrolls sideways, so a tab
     // that does not fit is reached rather than shortened — and a tab clipped to
@@ -41,6 +43,8 @@ class TabButton extends nodes.Node {
     ["label"] = label
     ["onclick"] = onclick
     ["active"] = active
+    ["busy"] = "1"
+    ["busyVisual"] = "1"
   }
 }
 

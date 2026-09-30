@@ -49,11 +49,12 @@ class TapAction {
   href: String? = null
   inlineSurfaces: Mapping<String, surfaceMod.SurfaceDef>? = null
   /// Whether this tap is worth GUARDING: while its POST is in flight, a second
-  /// click is a no-op. TRUE on the service taps (the only ones with a server
-  /// round-trip worth guarding); FALSE on `navigate` (a full document load — no
-  /// in-flight UI wanted) and the surface opens/closes (instant local POSTs,
-  /// where a busy state would fight the popup itself). The slider's continuous
-  /// value drag is NOT guarded even though it posts: it is not a discrete tap.
+  /// click is a no-op. TRUE on the service taps and the popup opens — an open
+  /// answers only once the popup's queries have resolved, and a chart's history
+  /// fetch is a wait worth showing (issue #412); FALSE on `navigate` (a full
+  /// document load — no in-flight UI wanted) and the popup close, which renders
+  /// nothing. The slider's continuous value drag is NOT guarded even though it
+  /// posts: it is not a discrete tap.
   ///
   /// The opt-out is the flag itself: a tap with `busy = false` renders
   /// byte-identical to before this field existed.
@@ -329,11 +330,21 @@ const busyDelayMs: Int = 300
 /// `__ifmissing` is load-bearing: this element is a morph target, and a plain
 /// `data-signals` would re-seed the signal to false on every patch that
 /// touches it — including the ones the in-flight action itself provokes.
-const local function busySpinner(sig: String): String = #"""
-  data-signals__ifmissing="{\#(sig)_slow:false}" data-on-signal-patch-filter="{include:/^\#(sig)$/}" data-on-signal-patch__delay.\#(busyDelayMs)ms="$\#(sig)_slow = $\#(sig)" @@CLASSBIND:busySpin:$\#(sig)_slow@@
+const local function slowCopy(sig: String): String = #"""
+  data-signals__ifmissing="{\#(sig)_slow:false}" data-on-signal-patch-filter="{include:/^\#(sig)$/}" data-on-signal-patch__delay.\#(busyDelayMs)ms="$\#(sig)_slow = $\#(sig)"
   """#
 
+const local function busySpinner(sig: String): String =
+  slowCopy(sig) + " @@CLASSBIND:busySpin:$\(sig)_slow@@"
+
 const busyShapeClass: String = busySpinner("_{{id}}__busy")
+
+/// [[busyShapeClass]] for a host that holds TEXT, not a glyph — a tab. The
+/// same delayed derivation, binding the base stylesheet's `fh-busy-after`,
+/// which draws a ring after the label (`core/css.pkl`): the theme's
+/// `busySpin` is a mask around an icon, and a label has none to wrap.
+const busyTextClass: String =
+  slowCopy("_{{id}}__busy") + #" data-class:fh-busy-after="$_{{id}}__busy_slow""#
 
 /// The slider's VALUE-COMMIT variant of the busy pieces. A slider commits its
 /// position on RELEASE (its `data-on:change` → the value POST), and dragging
@@ -813,6 +824,7 @@ function closePopup(): TapAction =
 function openPopup(surfaceId: String): TapAction =
   new {
     onclick = openSurfaceOnclick(surfaceId, "", null)
+    busy = true
   }
 
 /// Open an INLINE popup: `content` is wrapped in a [[Popup]] dialog and stashed
@@ -832,6 +844,7 @@ function openPopup(surfaceId: String): TapAction =
 // for.
 function openPopupInline(body: nodes.LayoutNode): TapAction = new {
   onclick = openSurfaceOnclick("\(nodes.NODE_ID)_self", "", null)
+  busy = true
   inlineSurfaces = new Mapping {
     ["self"] = new surfaceMod.SurfaceDef { content = new surfaceMod.Popup { children { body } } }
   }
