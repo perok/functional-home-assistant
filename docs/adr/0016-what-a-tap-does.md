@@ -56,7 +56,7 @@ The verbs are HA's `tap_action` variants, each taking its target, with no
 `.with(key, value)` for one value), `c.tap.navigate(slug)` and the popup verbs.
 A domain gets a typed namespace where a typed verb is wanted —
 `c.tap.lights.off(scope)` over a light, an area or a floor;
-`c.tap.locks.unlatch(l)` — and `call` covers the rest. `c.tap` is a
+`c.tap.locks.openLatch(l)` — and `call` covers the rest. `c.tap` is a
 dashboard-tier module (`components/tap.pkl`) because `moreInfo` and the
 more-info fallback are components; the core kit (`core/tap.pkl`) keeps the
 classes, `byDomain` and the rendering (ADR 0015).

@@ -62,15 +62,15 @@ class Lights {
 
 hidden lights: Lights = new {}
 
-/// `c.tap.locks.unlatch(l)`. A lock tile's own tap is [[toggle]], which picks
+/// `c.tap.locks.openLatch(l)`. A lock tile's own tap is [[toggle]], which picks
 /// `lock` or `unlock` from the state.
 class Locks {
   function lock(l: hass.LockEntity): core.Call = core.call("lock/lock", l)
   function unlock(l: hass.LockEntity): core.Call = core.call("lock/unlock", l)
-  /// HA's `lock/open`: the door opens, not just unlocks. Not `open`, which is a
-  /// Pkl keyword. `hass/lock.pkl`'s `CANNOT_OPEN` is when a card should refuse
+  /// HA's `lock/open`: the door opens, not just unlocks. `open` itself is a Pkl
+  /// keyword. `hass/lock.pkl`'s `CANNOT_OPEN` is when a card should refuse
   /// it.
-  function unlatch(l: hass.LockEntity): core.Call = core.call("lock/open", l)
+  function openLatch(l: hass.LockEntity): core.Call = core.call("lock/open", l)
 }
 
 hidden locks: Locks = new {}
