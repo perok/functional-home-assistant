@@ -621,7 +621,7 @@ facts {
 
   ["a button or a pill can be a glyph, a label, or both"] {
     // What the slider's head action needed over `c.pill` was a glyph, no label
-    // and the `lit` tint. None of the three is about sliders, so all three are
+    // and the `active` tint. None of the three is about sliders, so all three are
     // the shared cards' — one icon button in the library, not a private copy.
     local labelled = c.button("Close", c.tap.closePopup())
     !labelled.slots.containsKey("glyph")
@@ -646,11 +646,38 @@ facts {
     chip.slots["glyph"] == "mdi-arrow-up"
     !chip.slots.containsKey("round")
 
-    // `lit` is an entity button's, OFF by default — most buttons do something
-    // rather than reflect a state.
-    !glyphOnly.slots.containsKey("lit")
-    !c.entityButton(kitchen).slots.containsKey("lit")
-    c.entityButton(kitchen).lit(true).slots["lit"].signal == "class:lit"
+    // `active` is OFF by default — most buttons do something rather than
+    // reflect a state — and rides the CELL, which the button card paints.
+    glyphOnly.cell == null
+    c.entityButton(kitchen).cell == null
+    c.entityButton(kitchen).active(c.isOn(kitchen)).cell.classWhen["fh-active"].signal
+      == "class:fh-active"
+    c.cards["button"].css.contains(".fh-cell.fh-active>")
+  }
+
+  ["a button's cell is the same whichever order its builders run in"] {
+    // `active` and `.columns(n)` both write the wrapper's classes, and a cell
+    // amended as one value would keep whichever came last.
+    local tap = c.tap.toggle(kitchen)
+    local after = c.button("x", tap).columns(3).active(c.isOn(kitchen))
+    local before = c.button("x", tap).active(c.isOn(kitchen)).columns(3)
+    after.cell == before.cell
+    after.cell.classes.toList() == List("fh-cols-3")
+    after.cell.classWhen.containsKey("fh-active")
+    c.button("x", tap).active(true).columns(3).cell.classes.toList().sort()
+      == List("fh-active", "fh-cols-3")
+  }
+
+  ["an entity button is a base button with its inputs filled, and nothing more"] {
+    // The HA layer is THIN: no card, template or slot of its own. So it must be
+    // exactly what an author could build by hand from the base.
+    local byHand = (c.button(kitchen.entity_id, c.tap.toggle(kitchen))) {
+      subject = kitchen.entity_id
+    }
+    c.entityButton(kitchen).slots == byHand.slots
+    c.entityButton(kitchen).cardDef == byHand.cardDef
+    c.entityButton(kitchen).active(c.isOn(kitchen)).cell
+      == byHand.active(c.isOn(kitchen)).cell
   }
 
   ["a button knows only its label and its tap; an entity button knows its entity"] {
@@ -676,7 +703,7 @@ facts {
       .tapAction(c.tap.toggle(kitchen))
       .actions(List(
         c.sliderAction(kitchen, c.tap.moreInfo(kitchen))
-          .icon("mdi:information").lit(false)
+          .icon("mdi:information").active(false)
       ))
     local acts = row.children["head"][0].children["actions"]
     acts.length == 2
@@ -691,10 +718,10 @@ facts {
     // Each declares the guard, and the template names the node's own id — the
     // renderer fills `{{id}}` per node, which is what makes the two distinct.
     c.cards["button"].template.contains(#"data-indicator="_{{id}}__busy""#)
-    // `lit(false)` drops the class signal rather than binding a constant: a
+    // `active(false)` drops the class signal rather than binding a constant: a
     // button that does not mean "this entity is on" should not light up.
-    acts[0].slots.containsKey("lit")
-    !acts[1].slots.containsKey("lit")
+    acts[0].cell.classWhen.containsKey("fh-active")
+    acts[1].cell == null
     // A popup action carries its OWN surfaces, so the popup hangs off the
     // button that opens it rather than off the slider.
     acts[1].inlineSurfaces != null

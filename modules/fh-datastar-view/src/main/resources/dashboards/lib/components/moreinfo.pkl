@@ -11,7 +11,7 @@ import "../core/slot.pkl" as slotMod
 import "../core/tap.pkl" as tapMod
 import "../hass.pkl"
 import "../layout.pkl" as layout
-import "control.pkl" as control
+import "base/button.pkl" as buttonMod
 import "history.pkl" as historyMod
 import "entity.pkl" as entityMod
 import "light.pkl" as light
@@ -107,7 +107,7 @@ function moreInfoBody(e: hass.Entity): layout.Column = new layout.Column {
       }
     }
     entityInfo(e)
-    control.button("Close", tapMod.closePopup())
+    buttonMod.button("Close", tapMod.closePopup())
   }
 }
 

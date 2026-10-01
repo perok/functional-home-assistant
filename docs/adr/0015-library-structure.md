@@ -33,6 +33,7 @@ core/       node · slot · icon · tap · surface · predicate   — writing a 
 layout.pkl  Row/Column/Grid                                  — the boxes you compose into
 components.pkl + components/   text · entity · control ·     — writing a DASHBOARD
             slider · surface · light · moreinfo
+  components/base/  button                                   — the same, knowing no HA
 recipes.pkl floorView …                                      — whole sections, opinionated
 internal/   dump-base.pkl                                    — generator ↔ generated dump
 hass.pkl + hass/  light.pkl                                  — the domain schema
@@ -43,6 +44,28 @@ names from the family modules. `entry.pkl` seeds `componentModules` from
 `components.modules`, because reflection sees only classes a module DECLARES —
 never inherited or re-exported ones — so a facade cannot stand in for the
 families in the card registry.
+
+### Base components, and the HA layer on top
+
+Inside the dashboard tier, `components/base/` holds the cards that know nothing
+about Home Assistant. They take strings, taps and READINGS (a slot naming the
+entity it reads), and never import a `hass` module; `BaseComponentsSuite`
+enforces that. `components/` itself is the HA layer.
+
+An HA component is a THIN subclass of a base one: it holds `entity`, and assigns
+the base's inputs from it (`label`, `tapAction`, `subject`). It declares no card,
+template or slot of its own, so it is exactly the base card an author could have
+built by hand, and `components.test.pkl` checks that equality. A subclass rather
+than a function, because a Pkl function has no default arguments and its result
+forgets the entity. Every builder after it (`c.entityCard(l).value("brightness")`)
+would then have to name the entity again.
+
+`subject` is the base's one concession: an optional entity id, placed as the
+subject slot, which an entity-less reading (`c.expr(…)`) falls back to. Only the
+HA layer sets it.
+
+The facade's names do not move: `c.button` and `c.entityButton` are found where
+they always were.
 
 `entry.pkl` stays at the package root: every dashboard's first line is
 `amends "@fh-dashboard/entry.pkl"`, and `internal/entry.pkl` would say the
