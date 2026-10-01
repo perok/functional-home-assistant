@@ -34,7 +34,23 @@ scoped to the node that owns the control (`_<nodeId>__<slotName>`). Sharing an i
 would let one card's gesture drive another card's readout. ADR 0017, ADR 0025.
 
 **Subject entity** — the entity a card is "about", carried as the magic `entity_id` slot. Other
-slots on the same node read it unless they name an entity of their own.
+slots on the same node read it unless they name an entity of their own. A base component has none
+unless the HA layer gives it one (`subject`).
+
+**Reading** — a slot used as an INPUT: a live read of one entity's state (`entityId` + transform)
+with no binding yet, which the card it is handed to binds where it belongs. `c.isOn(l)` and
+`c.stateIn(l, states)` are readings. The card says WHERE a value lands, and the reading says WHAT
+it reads. Hand a base component a reading that names its entity, since a base card has no subject
+to fall back on.
+
+**Base component** vs **HA component** — `components/base/` cards know nothing of Home Assistant:
+they take strings, taps and readings, and import no `hass` module. An HA component is **thin**: a
+subclass that holds an `entity` and assigns the base's inputs from it, declaring no card, template
+or slot of its own, so it equals the base card built by hand with the same inputs. ADR 0015.
+
+**Live cell class** — a class on a node's `.fh-cell` wrapper while a reading holds
+(`LayoutNode.classWhen`). The renderer binds it on the wrapper itself, so it works on any card and
+no template places it. A button's `active` is one (`fh-active`).
 
 **Node variable** — a named choice a node DECLARES (`Component.vars`) and its descendants READ. The
 word is always two words: `Renderer` already calls a card's mustache context "vars", and a theme
@@ -91,6 +107,12 @@ in flight. The point of the busy machinery; the spinner is decoration. ADR 0019.
 
 **Busy** — per CONTROL: a request is in flight *from this element*. What the guard, the spinner and
 the disabled state read. About whether you may click, not about what is shown.
+
+**Disabled while** — the states of a call's TARGET in which a press is meaningless
+(`Call.disabledWhile`, plus `unavailable` for every service call), so every card that sends the call
+refuses it alike. A card's OWN reason, such as a popup opener that carries no call, is its
+`disabled` reading, ORed with the call's. About the entity's state, not about a request: that is
+busy. Internally the refusal is still the `inert` slot and the `fh-inert` class.
 
 **Pending / committed** — per SELECTION GROUP, and a different fact from busy: **pending** is the
 value this client has ASKED for, **committed** is the value the server says is in effect. A control
