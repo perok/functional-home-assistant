@@ -43,21 +43,49 @@ open class Button extends nodes.Node {
   hidden label: String|slotMod.Reading
   hidden icon: String?
   hidden tapAction: tapMod.TapAction
-  hidden active: Boolean|slotMod.Reading = false     // painted by THIS card's css
+  hidden active: Boolean|slotMod.Reading = false     // classWhen("fh-active", …), below
   hidden disabled: Boolean|slotMod.Reading = false   // OR the tap's own refusal
-  slots {
-    when (active is slotMod.Reading) {
-      ["active"] = (active) { signal = slotMod.asClass("fh-active") }
-    }
-    …
-  }
+  …
 }
 ```
 
-The base names its inputs by meaning (`active`, `disabled`), not by mechanism. A generic
-`classWhen: Mapping<String, Reading>` was considered and rejected. The class name would be
-the author's, so no card's CSS could style it (`lit` is the evidence). And a template
-cannot place a variable number of holes.
+The base names its inputs by meaning (`active`, `disabled`), not by mechanism.
+
+**A live class goes on the cell, not in the template.** Every node already has a
+renderer-owned `.fh-cell` wrapper, which carries its static classes (`.cellClass(…)`) and
+its signal seed. `classWhen(name, reading)` becomes a builder on every `LayoutNode`, next to
+`cellClass`. The renderer emits one `data-class:<name>` per entry on the wrapper, and puts
+the class inline in the document form so it shows without JS:
+
+```pkl
+c.entityButton(l).classWhen("warm", c.isOn(l))   // any node, any card
+```
+
+```css
+.fh-cell.warm>button{…}                          /* the author's css or a theme */
+```
+
+Two alternatives were rejected:
+
+- **A `classWhen` hole in each card's template.** The template is per CARD and has fixed hole
+  names, so a per-node list does not fit. Every card would also have to place the hole, and
+  a card that forgot it would drop the classes silently. That is how `Toggle` once had no
+  inert check.
+- **Named inputs only.** That leaves an author no way to style a node by its state.
+
+`active` is the shipped use of `classWhen`, not a second mechanism. The button card sets
+`classWhen("fh-active", active)`, and its own CSS owns the look:
+`.fh-cell.fh-active>button{background:var(--fh-accent);color:var(--fh-on-accent)}`.
+
+That is the rule the slider has today, written for every button rather than for the
+slider's head only. Today it is `.slider-actions>.fh-cell>button.lit` (`slider.pkl`),
+which is why `.lit(true)` anywhere else paints nothing. The slider still paints its head's
+buttons by position, but on the cell class:
+`.slider-actions>.fh-cell:not(.fh-active)>button` for the resting look. Both rules weigh
+(0,2,1) and card CSS is emitted sorted by card name, so an unguarded resting rule from
+`slider` would land after `button` and hide `active`. `sliderAction(e, t)`
+becomes `c.entityButton(e)` with `active = c.isOn(e)`, and the info action in its doc says
+`.active(false)`.
 
 **A tap carries its own refusal.** `Call.inertWhile: Listing<String>` becomes
 `Call.disabledWhen: Reading?`. `byDomain` fills it from `hass/actions.pkl`'s transitional
@@ -126,6 +154,11 @@ decision; this plan ships `c.isOn(e)`.
 - **Wire format:** slot names change (`lit`, `inert`, `entity_id` on base cards). Wire
   snapshots are regenerated deliberately, and visual baselines may move where `active`
   gains a style outside the slider.
+- **A backend change for `classWhen`.** `Cell` gains live classes on the wire
+  (`Dashboard.scala`, `WireShapeSuite`). The renderer emits their bindings on the wrapper in
+  both forms and seeds their signals with the node's, and `validate` checks them. A reading
+  is a display signal, named by what it reads (ADR 0017), so a `classWhen` and a card slot
+  on the same reading share one signal.
 - **Authors:** `.lit(true)` → `.active(c.isOn(l))`, `.inertWhile(xs)` →
   `.disabled(c.stateIn(l, xs))`. Taps are untouched.
 - **A reading must name its entity.** On a base card there is no subject entity to fall
@@ -134,16 +167,19 @@ decision; this plan ships `c.isOn(e)`.
 
 ## Steps (one stacked PR each)
 
-1. **This plan, plus the spike.** One base `Button` with `active` and `disabled` readings,
-   and a tap whose refusal is ORed with `disabled` through `slotRead`. Prove three things:
-   validate accepts the template; the document and patch forms both disable; a Boolean
-   reading drives a class binding (`asClass`'s doc says only `""` is falsy, which predates
-   `SlotValue` being `String|Boolean`).
+1. **This plan, plus the spike.** Two things carry the risk:
+   - **`classWhen` on the cell.** The wire field, the renderer's bindings and inline class,
+     and the seed. Prove that a Boolean reading drives the class in both forms. `asClass`'s
+     doc says only `""` is falsy, which predates `SlotValue` being `String|Boolean`.
+   - **The disabled OR.** A tap's refusal ORed with the card's `disabled` through
+     `slotRead`. Prove that validate accepts the template and that the document and patch
+     forms both disable.
 2. **`Call.disabledWhen`** replaces both `inertWhile`s. `byDomain` and `openLatch` fill it.
    Test the property, not the line: every node whose tap posts `lock/open` is disabled
    while the lock is `open`, whatever card it is on.
 3. **`components/base/` with `Button`/`Pill`.** `EntityButton` follows the thin-subclass
-   rule, `active` gets a style on the button card itself, and the base stops placing an
+   rule. `active` is `classWhen("fh-active", …)`, styled by the button card. The slider's
+   `lit` rule goes, and `sliderAction` uses `active`. The base stops placing an
    `entity_id`. Two tests: no `components/base/` module imports `hass.pkl`, and no HA-layer
    class sets `cardDef` or `slots`.
 4. **`Switch` and `Tile`**, with `Toggle` and `EntityCard` thin on top. Text, tabs and `If`
