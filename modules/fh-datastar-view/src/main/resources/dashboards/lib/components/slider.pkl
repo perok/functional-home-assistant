@@ -278,7 +278,7 @@ class SliderHead extends nodes.Node {
             \(restoreOnDeadStream)
             \(tapMod.busyAttrsChange)
             data-on:input="$\(slotMod.signalRef("fill")) = (100 - \(dragPos)) + '%'{{#dragPercent}}; $\(slotMod.signalRef("state")) = Math.round(\(dragPos)) + ' %'{{/dragPercent}}"
-            data-on:change="\(tapMod.busyGuardChange)@post('sse/call/{{dashboardSlug}}/{{{service}}}/{{targetKind}}/{{targetId}}/{{dataKey}}/' + $\(slideSig) + '?node={{id}}', \(tapMod.noSignals))" />{{/toggle}}
+            data-on:change="\(tapMod.refusalGuard)\(tapMod.busyGuardChange)@post('sse/call/{{dashboardSlug}}/{{{service}}}/{{targetKind}}/{{targetId}}/{{dataKey}}/' + $\(slideSig) + '?node={{id}}', \(tapMod.noSignals))" />{{/toggle}}
           <span style="background:{{fillColor}}" \(slotMod.signalBind("fillColor"))></span>
           {{#toggle}}<button type="button" class="slider-toggle" aria-label="{{label}}"
             \(slotMod.signalBind("value"))
@@ -452,6 +452,13 @@ class Slider extends nodes.Node {
   /// a property so an author can point the row at something else without
   /// reaching for a different card.
   hidden toggleTap: tapMod.TapAction = tapMod.toggle(entity)
+  // The drag's commit: a key and no value, because the drag supplies it. A
+  // plain call refuses only while unavailable — a cover that is `opening`
+  // takes a new position.
+  hidden commitTap: tapMod.Call =
+    (tapMod.call(sliderConfig(action, spec, (s) -> s.action), entity)) {
+      dataKey = sliderConfig(key, spec, (s) -> s.key)
+    }
   /// The badge left of the label, defaulting to the entity's OWN icon in Home
   /// Assistant's resolution order (see [[iconFor]]) — so a slider looks like
   /// what it drives without being told. An MDI name (`mdi:lightbulb-group`)
@@ -647,24 +654,13 @@ class Slider extends nodes.Node {
     // section flag plus the click expression, because `cardDef` is one template
     // shared by every slider on the page — the shape has to travel as a slot.
     // ONE route per row: the toggle's where the track is a button, the
-    // commit's where it is a range. The commit's value rides after the route.
+    // commit's where it is a range. Both carry the tap's refusal, which
+    // disables the control (`busyAttrsChange`) and dims the track.
     when (toggleOnly) {
       ["toggle"] = "1"
-      // Refused by look and by guard, not by `disabled`: this track already binds
-      // `disabled` to the commit's in-flight signal (`busyAttrsChange`), and one
-      // element cannot carry two bindings for one attribute. The track wears
-      // `fh-disabled` (`busyClassChange`), and `tapMod.click`'s guard stops the press.
-      for (k, v in tapMod.tapRoute(toggleTap)) {
-        [k] = v
-      }
-    } else {
-      for (k, v in tapMod.routeSlots(
-        sliderConfig(action, spec, (s) -> s.action),
-        entity,
-        sliderConfig(key, spec, (s) -> s.key)
-      )) {
-        [k] = v
-      }
+    }
+    for (k, v in tapMod.tapRoute(if (toggleOnly) toggleTap else commitTap)) {
+      [k] = v
     }
     ["min"] = sliderConfig(if (min != null) "\(min)" else null, spec, (s) -> s.min)
     ["max"] = sliderConfig(if (max != null) "\(max)" else null, spec, (s) -> s.max)

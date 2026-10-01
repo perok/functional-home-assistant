@@ -172,7 +172,9 @@ that every card reads the same way. How it shows is the host's, in two parts.
 A form control also takes the real `disabled` attribute. Every guarded element
 wears `fh-disabled`, the same "you cannot use this" look a tap in flight gets
 (the busy guard binds one `data-class:fh-disabled` ORing both). So a tile dims
-while refused just as it does while busy.
+while refused just as it does while busy. A slider's drag commit is a call like
+any other, with a key and no value because the drag supplies it, so its input is
+disabled and its track dims the same way.
 
 Unavailability is deliberately NOT a row in the table or a verb's list. It is
 one rule, and it would otherwise be repeated everywhere. It applies to service
