@@ -104,7 +104,7 @@ typealias Pill = buttonMod.Pill
 typealias Toggle = control.Toggle
 typealias Tabs = surfaces.Tabs
 typealias If = surfaces.If
-typealias Slider = sliderMod.Slider
+typealias EntitySlider = sliderMod.EntitySlider
 typealias SlideAxis = sliderMod.SlideAxis
 /// What a card does with a label too long for its box — `"wrap"`, `"clip"` or
 /// `"scroll"`. An entry's `textOverflow` sets it for a whole dashboard;
@@ -161,14 +161,14 @@ function pill(l: String, a: tapMod.TapAction): buttonMod.Pill = buttonMod.pill(l
 /// A round icon button — a glyph, no label: `c.iconButton("mdi:power", c.tap.toggle(l))`.
 function iconButton(i: String, a: tapMod.TapAction): buttonMod.Button = buttonMod.iconButton(i, a)
 /// Value slider — an entity for its domain's default axis, or a capability
-/// group for that axis (`c.slider(l.colourTemp)`).
-function slider(a: sliderMod.SlideAxis): sliderMod.Slider = sliderMod.slider(a)
+/// group for that axis (`c.entitySlider(l.colourTemp)`).
+function entitySlider(a: sliderMod.SlideAxis): sliderMod.EntitySlider = sliderMod.entitySlider(a)
 /// An appliance mid-cycle, from its remaining-time sensor: a countdown, and a
 /// bar where the appliance also reports a programme length.
 function progress(remaining: hass.SensorEntity): progressMod.ProgressCard =
   progressMod.progress(remaining)
 /// One button for a slider's head — a round [[entityButton]] tinted while its
-/// entity is on. See [[Slider.actions]].
+/// entity is on. See [[EntitySlider.actions]].
 function sliderAction(e: hass.Entity, t: tapMod.TapAction): control.EntityButton =
   sliderMod.sliderAction(e, t)
 /// A chart of a sensor's last 24 hours, drawn on the server — `.over("7d")`
@@ -208,7 +208,7 @@ hidden entityCard: (hass.Entity) -> entityMod.EntityCard = entityMod.entityCard
 /// See [[toggle]].
 hidden toggle: (hass.Entity) -> control.Toggle = control.toggle
 /// See [[slider]].
-hidden slider: (hass.Entity) -> sliderMod.Slider = sliderMod.slider
+hidden entitySlider: (hass.Entity) -> sliderMod.EntitySlider = sliderMod.entitySlider
 
 // ---- the card registry ----
 

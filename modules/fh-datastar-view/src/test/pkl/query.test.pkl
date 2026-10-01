@@ -517,14 +517,14 @@ facts {
   }
 
   ["a TYPED render lambda never meets a candidate its branch cannot match"] {
-    // What makes per-domain dispatch over a mixed set work at all. `c.slider`
+    // What makes per-domain dispatch over a mixed set work at all. `c.entitySlider`
     // takes a light, and the fold applies each render lambda PER CANDIDATE — so
     // if a branch whose guard folded to false were still applied, dispatching
     // on domain over `dump.all` would be a type error rather than a dashboard.
     // Silent when broken: the error surfaces inside the card factory, nowhere
     // near the `caseOf` that caused it.
     local s = q.from(List(taklys, motion))
-      .caseOf(q.eq(q.prop("domain"), "light"), c.slider)
+      .caseOf(q.eq(q.prop("domain"), "light"), c.entitySlider)
       .`else`((e) -> c.entityCard(e))
       .build()
     s.members["light.taklys"].clauses.toList()[0].node.card == "slider"

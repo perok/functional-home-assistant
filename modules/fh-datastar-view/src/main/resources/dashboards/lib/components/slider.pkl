@@ -35,9 +35,9 @@ const sliderSpec: Mapping<String, SliderSpec> = new {
 }
 
 // The slider fill colour paints WHAT THE SLIDER DRIVES — the axis decides, as
-// a build-time specialization of [[Slider.fillColorExpr]]:
+// a build-time specialization of [[EntitySlider.fillColorExpr]]:
 //
-//   - a temperature axis (`c.slider(l.colourTemp)`) gets the warm→cool ramp
+//   - a temperature axis (`c.entitySlider(l.colourTemp)`) gets the warm→cool ramp
 //     interpolated over the axis's OWN kelvin range — the same `min`/`max`
 //     the range input is baked from, so the fill shows where in the slider's
 //     span the current temperature sits;
@@ -186,13 +186,13 @@ const local restoreOnRefusal: String =
 const local function sliderConfig(ovr: String?, spec: SliderSpec, get: (SliderSpec) -> Any): String =
   if (ovr != null) ovr else "\(get.apply(spec))"
 
-/// What a [[Slider]] drives: an ENTITY (its domain's default axis — a light's
+/// What a [[EntitySlider]] drives: an ENTITY (its domain's default axis — a light's
 /// brightness, a cover's position) or one of that entity's capability GROUPS
 /// (`l.colourTemp`). The group carries its `owner`, so passing one names the
 /// entity exactly once and the slider derives everything else from it.
 ///
 /// This union is the "which axis" decision as a VALUE rather than a name, which
-/// is what keeps a wrong choice visible in the editor: `c.slider(l.colourTemp)`
+/// is what keeps a wrong choice visible in the editor: `c.entitySlider(l.colourTemp)`
 /// on a light with no kelvin range is a nullability mismatch pkl-lsp reports
 /// without evaluating. A selector enum or a `.colourTemp()` builder method
 /// would both hide the choice from it — see ADR 0013, "Shapes considered".
@@ -200,7 +200,7 @@ typealias SlideAxis = hass.Entity|hass.ColourTemp
 
 /// The named readings a slider's line offers beside its label — the two that
 /// need the card's own axis config, plus "nothing". Anything else is an
-/// [[Expr]]; see [[Slider.readout]].
+/// [[Expr]]; see [[EntitySlider.readout]].
 typealias Readout = "state"|"percent"|"none"
 
 /// Value slider. Takes an entity whose domain has a sliderSpec row, and bakes
@@ -214,18 +214,18 @@ typealias Readout = "state"|"percent"|"none"
 /// whole card behind them — one control with its parts shown, not a titled
 /// list.
 ///
-///   (c.slider(dump.entities.light_lys)) {
+///   (c.entitySlider(dump.entities.light_lys)) {
 ///     icon = "mdi:lightbulb-group"
 ///     secondary = c.exprOf(dump.entities.sensor_kitchen_temp, #"state + ' °C'"#)
 ///     tap = c.toggle
-///     members { c.slider(a).readout("percent") c.slider(b).readout("percent") }
+///     members { c.entitySlider(a).readout("percent") c.entitySlider(b).readout("percent") }
 ///   }
 ///
 /// One card rather than a separate group card, because the members are
 /// ORDINARY nodes: a member can be another grouped slider (nesting works by
 /// construction), an [[EntityCard]], or a [[DynamicGroup]] of everything in an
 /// area, and each keeps its own entity, its own domain config and its own live
-/// patch. [[Slider.withSubSliders]] is the chain form of the common "a master
+/// patch. [[EntitySlider.withSubSliders]] is the chain form of the common "a master
 /// and its member entities" case.
 ///
 /// The head and the members are two REGIONS of the card, so a state change on
@@ -233,11 +233,11 @@ typealias Readout = "state"|"percent"|"none"
 /// reason this is a structural card even when it holds nothing.
 /// The slider's own row — label, readout, track, action — as a NODE.
 ///
-/// It is a node rather than a part of [[Slider]] because only a LEAF can be
+/// It is a node rather than a part of [[EntitySlider]] because only a LEAF can be
 /// patched, and the head sits beside the members: they are two regions of one
 /// card. So a brightness change re-renders this and never the rows under it.
 ///
-/// Built by [[Slider]], never by an author: it takes the slots the slider
+/// Built by [[EntitySlider]], never by an author: it takes the slots the slider
 /// already computed, so its fifteen values are derived in exactly one place.
 class SliderHead extends nodes.Node {
   card = "sliderHead"
@@ -288,7 +288,7 @@ class SliderHead extends nodes.Node {
       </div>
       """
     // `state` is NOT declared: a grouped head omits the slot entirely (see
-    // [[Slider.readout]]), and a declared slot is one every node of the card
+    // [[EntitySlider.readout]]), and a declared slot is one every node of the card
     // must have.
     //
     // `label` stays declared even though the visible label moved into `text`:
@@ -337,17 +337,17 @@ class SliderText extends nodes.Node {
 /// ever arm ONE button; each action owning its id means two can be in flight
 /// independently, and neither disables the other.
 ///
-///     c.slider(l).actions(List(
+///     c.entitySlider(l).actions(List(
 ///       c.sliderAction(l, c.tap.toggle(l)),
 ///       c.sliderAction(l, c.tap.moreInfo(l)).icon("mdi:information").active(false)
 ///     ))
 ///
-/// `const` because [[Slider.allActions]] calls it from a class body, which Pkl
+/// `const` because [[EntitySlider.allActions]] calls it from a class body, which Pkl
 /// allows only for a const method.
 const function sliderAction(e: hass.Entity, t: tapMod.TapAction): control.EntityButton =
   (control.entityButton(e)) { icon = "mdi:power"; label = ""; tapAction = t; active = slotMod.stateIn(e, List("on")) }
 
-class Slider extends nodes.Node {
+class EntitySlider extends nodes.Node {
   card = "slider"
   /// WHAT this slider drives — see [[SlideAxis]]. Setting `entity` directly
   /// still works and means the domain's default axis; the two default to each
@@ -486,8 +486,8 @@ class Slider extends nodes.Node {
   /// config is `hidden` properties, so an expression can splice the pieces
   /// instead of re-deriving the range:
   ///
-  ///   (c.slider(l)) { readout = c.expr("\(percentExpr) + ' · ' + state") }
-  ///   (c.slider(l)) { readout = c.exprOf(power, #"state + ' W'"#) }
+  ///   (c.entitySlider(l)) { readout = c.expr("\(percentExpr) + ' · ' + state") }
+  ///   (c.entitySlider(l)) { readout = c.exprOf(power, #"state + ' W'"#) }
   ///
   /// Defaults by SHAPE: a head that has member rows under it does not repeat a
   /// readout (the rows carry their own), a plain row shows its state.
@@ -720,42 +720,42 @@ class Slider extends nodes.Node {
   // Fluent config (see [[EntityCard]]'s builder methods). The per-instance
   // overrides mirror the `hidden` props above; amending re-runs the two-tier
   // `sliderConfig` resolution with the new value.
-  function label(l: String|slotMod.Expr): Slider = let (self = this) (self) { label = l }
-  function action(a: String): Slider = let (self = this) (self) { action = a }
-  function key(k: String): Slider = let (self = this) (self) { key = k }
-  function min(m: Int): Slider = let (self = this) (self) { min = m }
-  function max(m: Int): Slider = let (self = this) (self) { max = m }
-  function valueAttr(a: String): Slider = let (self = this) (self) { valueAttr = a }
-  function readout(r: Readout|slotMod.Expr): Slider = let (self = this) (self) { readout = r }
-  /// The member rows this slider heads, as ready-made [[Slider]]s — so the
+  function label(l: String|slotMod.Expr): EntitySlider = let (self = this) (self) { label = l }
+  function action(a: String): EntitySlider = let (self = this) (self) { action = a }
+  function key(k: String): EntitySlider = let (self = this) (self) { key = k }
+  function min(m: Int): EntitySlider = let (self = this) (self) { min = m }
+  function max(m: Int): EntitySlider = let (self = this) (self) { max = m }
+  function valueAttr(a: String): EntitySlider = let (self = this) (self) { valueAttr = a }
+  function readout(r: Readout|slotMod.Expr): EntitySlider = let (self = this) (self) { readout = r }
+  /// The member rows this slider heads, as ready-made [[EntitySlider]]s — so the
   /// group is one chain over the master's own members:
   ///
-  ///   c.slider(l).withSubSliders(
-  ///     l.members.map((m) -> c.slider(m).readout("percent").icon(null))
+  ///   c.entitySlider(l).withSubSliders(
+  ///     l.members.map((m) -> c.entitySlider(m).readout("percent").icon(null))
   ///   )
   ///
   /// Each row is composed by the CALLER, which is the point: what a row reads
   /// out, whether it carries a badge and what it is bound to are the author's,
   /// one row at a time. A member that is not a slider (an [[EntityCard]], a
   /// [[DynamicGroup]] of an area) goes through `children` directly.
-  function withSubSliders(sliders: List<Slider>): Slider =
+  function withSubSliders(sliders: List<EntitySlider>): EntitySlider =
     let (self = this) (self) { members = sliders.toListing() }
   // Nullable so `.icon(null)` is how a chain says "no badge" — the property
   // already means that, and a second `noIcon()` builder would be a parallel way
   // to say the same thing.
-  function icon(i: String?): Slider = let (self = this) (self) { icon = i }
-  function tapAction(t: tapMod.TapAction): Slider = let (self = this) (self) { tapAction = t }
+  function icon(i: String?): EntitySlider = let (self = this) (self) { icon = i }
+  function tapAction(t: tapMod.TapAction): EntitySlider = let (self = this) (self) { tapAction = t }
   /// The head's buttons, left to right (#151) — see [[actions]]. Composes with
   /// [[tapAction]], which stays first.
   ///
-  ///     c.slider(l)
+  ///     c.entitySlider(l)
   ///       .tapAction(c.tap.toggle(l))
   ///       .actions(List(c.sliderAction(l, c.tap.moreInfo(l))
   ///         .icon("mdi:information").active(false)))
-  function actions(xs: List<buttonMod.Button>): Slider =
+  function actions(xs: List<buttonMod.Button>): EntitySlider =
     let (self = this) (self) { actions = xs.toListing() }
-  function busyVisual(b: Boolean): Slider = let (self = this) (self) { busyVisual = b }
-  function secondary(s: String|slotMod.Expr): Slider = let (self = this) (self) { secondary = s }
+  function busyVisual(b: Boolean): EntitySlider = let (self = this) (self) { busyVisual = b }
+  function secondary(s: String|slotMod.Expr): EntitySlider = let (self = this) (self) { secondary = s }
   // The range input rides inside BeerCSS's slider markup (`.slider` wrapper +
   // trailing `<span>` = the painted MD3 track, `max` = full card width; NO
   // `.tooltip` — its value text bled through behind the track, and the live
@@ -1020,9 +1020,9 @@ const local sliderCss: String = """
   .slider-members .slider.max>span:not([class]){inset:0 var(--_end) 0 0;block-size:auto;border-radius:0}
   """
 
-/// Value slider as a call (see [[Slider]] for the domain contract). Takes an
+/// Value slider as a call (see [[EntitySlider]] for the domain contract). Takes an
 /// entity for its domain's default axis, or a capability group for that axis:
-/// `c.slider(l)` is brightness, `c.slider(l.colourTemp)` is colour temperature.
-function slider(a: SlideAxis): Slider = new Slider { on = a }
+/// `c.entitySlider(l)` is brightness, `c.entitySlider(l.colourTemp)` is colour temperature.
+function entitySlider(a: SlideAxis): EntitySlider = new EntitySlider { on = a }
 /// The slider constructor as a VALUE, for a query's render positions.
-hidden slider: (hass.Entity) -> Slider = (e) -> slider(e)
+hidden entitySlider: (hass.Entity) -> EntitySlider = (e) -> entitySlider(e)

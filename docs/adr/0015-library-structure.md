@@ -83,7 +83,7 @@ having gone looking for the library.
 ### Grouped where grouping reads better
 
 `c.tap.*` (what a click does), `c.light.*` (a domain's controls), `c.recipes.*`.
-The everyday cards stay flat — `c.entityCard`, `c.slider`, `c.button` — because
+The everyday cards stay flat — `c.entityCard`, `c.entitySlider`, `c.button` — because
 those are the names an author wants first, and a namespace in front of them buys
 nothing. `c.light` is the shape the next modelled domain follows (`c.cover.*`),
 which is what makes the grouping worth having rather than decorative.
