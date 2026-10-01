@@ -1560,7 +1560,7 @@ class PklBuildSuite extends munit.FunSuite {
     assert(!nav.slots.contains("onclick"), clue = nav.slots)
     val toggle = probeComponent(
       """light: hass.LightEntity = new { entity_id = "light.kitchen" }
-        |node = c.button("Toggle", c.tap.call("homeassistant/toggle", light)).entity(light)""".stripMargin
+        |node = c.button("Toggle", c.tap.call("homeassistant/toggle", light))""".stripMargin
     )
     assert(!toggle.slots.contains("href"), clue = toggle.slots)
     // The template assembles the URL around the service (ADR 0017), so no slot

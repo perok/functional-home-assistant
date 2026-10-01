@@ -1033,7 +1033,7 @@ A choice matching no declaration is inert rather than an error — the same trea
 `SurfaceGraph.openPopup` gives a surface id this dashboard no longer has. A choice that does match
 one passes the same check either way (`Renderer.refusals`): every declared reader must still parse
 what it would then ask, and read only an entity the dashboard names or a query of it names at its
-declared values — ADR 0023's action bound, on the read side, so a variable fed to `entity` cannot
+declared values — ADR 0023's read bound, so a variable fed to `entity` cannot
 chart a lock the dashboard never showed. A refused write is ADR 0024's 200 of signals; a refused
 URL is a 400, before any session exists, rather than a page that dies mid-walk.
 

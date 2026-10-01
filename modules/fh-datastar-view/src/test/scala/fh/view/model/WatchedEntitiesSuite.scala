@@ -51,8 +51,9 @@ class WatchedEntitiesSuite extends munit.FunSuite {
 
     assert(dash.watchedEntities.contains(hall), clue = dash.watchedEntities)
     assert(dash.watchedEntities.contains("light.banner"))
-    // The contrast IS the test: the action bound must not grow, or a dashboard
-    // that merely reads an entity could act on it (ADR 0023).
+    // The contrast IS the test: the variable-write bound must not grow, or a
+    // viewer's value could chart an entity the dashboard only decides on
+    // (ADR 0023).
     assert(
       !dash.referencedEntities.contains(hall),
       clue = dash.referencedEntities

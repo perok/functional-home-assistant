@@ -395,15 +395,15 @@ facts {
     // option is how a control ends up looking guarded and not being it.
     module
       .catch(() ->
-        c.button("Go", c.tap.navigate("/other"))
-          .entity(latchLock)
+        c.entityButton(latchLock)
+          .tapAction(c.tap.navigate("/other"))
           .inertWhile(List("opening"))
           .slots["label"])
       .contains("renders as a link")
     // The same button with a SERVICE tap is fine, which is what makes the
     // check about the link rather than about `inertWhile`.
-    c.button("Open", c.tap.locks.openLatch(latchLock))
-      .entity(latchLock)
+    c.entityButton(latchLock)
+      .tapAction(c.tap.locks.openLatch(latchLock))
       .inertWhile(List("opening"))
       .slots["inert"].signal == "attr:disabled"
   }
@@ -646,11 +646,25 @@ facts {
     chip.slots["glyph"] == "mdi-arrow-up"
     !chip.slots.containsKey("round")
 
-    // `lit` is OFF by default — most buttons do something rather than reflect a
-    // state — and needs an entity to read.
+    // `lit` is an entity button's, OFF by default — most buttons do something
+    // rather than reflect a state.
     !glyphOnly.slots.containsKey("lit")
-    ((c.iconButton("mdi:power", c.tap.toggle(kitchen))) { entity = kitchen; lit = true })
-      .slots["lit"].signal == "class:lit"
+    !c.entityButton(kitchen).slots.containsKey("lit")
+    c.entityButton(kitchen).lit(true).slots["lit"].signal == "class:lit"
+  }
+
+  ["a button knows only its label and its tap; an entity button knows its entity"] {
+    local plain = c.button("Kjøkken", c.tap.toggle(kitchen))
+    !plain.slots.containsKey("entity_id")
+    local about = c.entityButton(kitchen)
+    about.slots["entity_id"] == kitchen.entity_id
+    // Named after it, and doing what its domain does.
+    about.slots["label"] == kitchen.entity_id
+    about.slots["service"] == "light/toggle"
+    about.slots["targetId"] == kitchen.entity_id
+    // The same card: one registry entry, one template.
+    about.card == "button"
+    c.cards.keys.filter((k) -> k == "button").length == 1
   }
 
   ["a slider's head actions are NODES, so each owns its own busy signal"] {
@@ -844,7 +858,7 @@ facts {
   ["a state-picked service reads the target, not the card's entity"] {
     // A card showing the kitchen light whose tap works the front lock: both the
     // service the lock's state picks and its mid-move inert read the LOCK.
-    local b = c.button("Lås", c.tap.toggle(frontLock)).entity(kitchen)
+    local b = c.entityButton(kitchen).label("Lås").tapAction(c.tap.toggle(frontLock))
     local svc: slotMod.Slot = b.slots["service"]
     svc.entityId == frontLock.entity_id
     b.slots["targetId"] == frontLock.entity_id

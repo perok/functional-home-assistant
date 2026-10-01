@@ -328,10 +328,9 @@ class SliderText extends nodes.Node {
 /// One button at the right of a slider's head — the group's on/off, and now
 /// anything else an author wants there (#151).
 ///
-/// It is an ordinary [[control.Button]] in its round icon form, not a card of
-/// its own: what it needed over `c.pill` was a glyph, no label, and the `lit`
-/// tint, and none of those three is about sliders. They are now [[Button]]'s,
-/// so the library has ONE icon button and the slider just uses it.
+/// It is an ordinary [[control.EntityButton]] in its round icon form, not a
+/// card of its own: what it needed over `c.pill` was a glyph, no label, and the
+/// `lit` tint, and none of those three is about sliders.
 ///
 /// What matters here is that each action is a NODE. ADR 0019 allows one
 /// busy-guarded element per node, so a single shared `_<id>__busy` could only
@@ -345,8 +344,8 @@ class SliderText extends nodes.Node {
 ///
 /// `const` because [[Slider.allActions]] calls it from a class body, which Pkl
 /// allows only for a const method.
-const function sliderAction(e: hass.Entity, t: tapMod.TapAction): control.Button =
-  (control.iconButton("mdi:power", t)) { entity = e; lit = true }
+const function sliderAction(e: hass.Entity, t: tapMod.TapAction): control.EntityButton =
+  (control.entityButton(e)) { icon = "mdi:power"; label = ""; tapAction = t; lit = true }
 
 class Slider extends nodes.Node {
   card = "slider"

@@ -326,7 +326,7 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   by a default derived from its OWN entity: its domain's service where it has one, more-info where
   it does not, and `tapAction = null` to opt out entirely. Every route is a build-time literal except the
   four `CallByState` domains. `c.tap.call("homeassistant/toggle", e)` is the explicit escape hatch,
-  and a `c.button`/`c.pill`/`c.toggle` with no action and no entity is a BUILD error rather than a
+  and a `c.button`/`c.pill` with no action, or a `c.entityButton`/`c.toggle` whose domain implies none, is a BUILD error rather than a
   post HA rejects), capability-conditional composition off the dump's groups
   (`c.slider(l.colourTemp)` / `c.effectPills(l.effects)` — a card takes the capability GROUP, which
   carries its `owner`, so ONE argument is both the values and the subject: the entity is named once,
