@@ -23,6 +23,8 @@ import "pkl:reflect"
 /// `fullWidth`, `cellClass`) rather than writing one directly.
 class Cell {
   classes: Listing<String> = new {}
+  /// Classes present while a reading holds — see [[LayoutNode.classWhen]].
+  classWhen: Mapping<String, slotMod.Slot>? = null
 }
 
 /// The common supertype of every layout-tree node. `kind` is the circe
@@ -63,8 +65,28 @@ abstract class LayoutNode {
   /// Escape hatch: put an arbitrary class on the wrapper (a theme helper, a
   /// custom rule). Must be a plain class token — validated at build time.
   function cellClass(cls: String): LayoutNode = addCellClass(cls)
-  // Shared appender: replace `cell` with a copy carrying one more class (the
-  // null default is never amended — amending a null Listing is an error).
+  /// [[cellClass]], present only while `reading` is truthy — a Boolean, or a
+  /// non-empty string. The renderer binds it on the wrapper, so it works on any
+  /// card and no template places it:
+  ///
+  ///     c.entityButton(l).classWhen("warm", on)   // css: .fh-cell.warm>button
+  ///
+  /// A reading is a display signal named by what it reads (ADR 0017), so it
+  /// shares one signal with every other slot reading the same thing.
+  function classWhen(cls: String, reading: slotMod.Slot): LayoutNode =
+    let (self = this)
+    let (base = self.cell ?? new Cell {})
+      (self) {
+        cell = (base) {
+          classWhen = new Mapping<String, slotMod.Slot> {
+            for (k, v in base.classWhen ?? new Mapping<String, slotMod.Slot> {}) {
+              when (k != cls) { [k] = v }
+            }
+            [cls] = (reading) { signal = slotMod.asClass(cls) }
+          }
+        }
+      }
+  // Shared appender: replace `cell` with a copy carrying one more class.
   //
   // ONE PER NODE, per FAMILY: adding an `fh-cols-*` class DROPS any it already
   // had, and the same for `fh-text-*`. Both `columns(n)` and `fullWidth()` emit
@@ -78,7 +100,7 @@ abstract class LayoutNode {
     let (had = if (self.cell != null) self.cell!!.classes.toList() else List())
     let (kept = if (family != null) had.filter((c) -> !c.startsWith(family)) else had)
       (self) {
-        cell = new Cell {
+        cell = (self.cell ?? new Cell {}) {
           classes = new Listing<String> {
             for (c in kept) { c }
             cls

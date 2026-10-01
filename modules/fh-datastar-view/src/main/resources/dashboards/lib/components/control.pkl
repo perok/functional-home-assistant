@@ -46,7 +46,7 @@ open class Button extends nodes.Node {
     // in-flight affordance an icon has instead of a label going dim. A labelled
     // button gets only what `tapMod.guard` brings.
     template = """
-      {{#href}}<a class="button {{#round}}circle small{{/round}}{{^round}}card{{/round}}\(slotMod.ifSlot("lit")) {{lit}}\(slotMod.endIfSlot("lit"))"\(slotMod.ifSlot("lit")) \(slotMod.signalBind("lit"))\(slotMod.endIfSlot("lit")) href="{{{href}}}">{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</a>{{/href}}{{^href}}<button class="{{#round}}circle small{{/round}}{{^round}}card{{/round}}\(slotMod.ifSlot("lit")) {{lit}}\(slotMod.endIfSlot("lit"))"\(slotMod.ifSlot("lit")) \(slotMod.signalBind("lit"))\(slotMod.endIfSlot("lit")) data-on:click="\(tapMod.guardClick)\(tapMod.click)"\(slotMod.ifSlot("inert")){{#inert}} disabled{{/inert}} \(slotMod.signalBind("inert"))\(slotMod.endIfSlot("inert"))\(tapMod.guard){{#busyVisual}}{{#glyph}} \(tapMod.busyShapeClass){{/glyph}}{{/busyVisual}}>{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</button>{{/href}}
+      {{#href}}<a class="button {{#round}}circle small{{/round}}{{^round}}card{{/round}}\(slotMod.ifSlot("lit")) {{lit}}\(slotMod.endIfSlot("lit"))"\(slotMod.ifSlot("lit")) \(slotMod.signalBind("lit"))\(slotMod.endIfSlot("lit")) href="{{{href}}}">{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</a>{{/href}}{{^href}}<button class="{{#round}}circle small{{/round}}{{^round}}card{{/round}}\(slotMod.ifSlot("lit")) {{lit}}\(slotMod.endIfSlot("lit"))"\(slotMod.ifSlot("lit")) \(slotMod.signalBind("lit"))\(slotMod.endIfSlot("lit")) data-on:click="\(tapMod.guardClick)\(tapMod.click)"\(slotMod.attrWhenEither("disabled", "inert", "disabled"))\(tapMod.guard){{#busyVisual}}{{#glyph}} \(tapMod.busyShapeClass){{/glyph}}{{/busyVisual}}>{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</button>{{/href}}
       """
     // `label` stays declared — every button has one, even when it is the empty
     // string an icon-only button carries. `glyph`/`round`/`lit` do not: they are
@@ -94,6 +94,11 @@ open class Button extends nodes.Node {
   /// refuses — [[EntityButton.inertWhile]] sets it; a button that knows no
   /// entity has none of its own.
   hidden extraInert: Listing<String> = new {}
+  /// A Boolean reading that disables the button while it holds, ORed with
+  /// whatever its tap refuses — for a press meaningless in some state of an
+  /// entity the tap does not target. Name the reading's entity: a button has
+  /// no subject to fall back on.
+  hidden disabled: slotMod.Slot? = null
   /// [[extraInert]], once the one shape it cannot take has been refused.
   ///
   /// A button that GOES somewhere renders as `<a href>`, and `disabled` is a
@@ -106,10 +111,10 @@ open class Button extends nodes.Node {
   /// It is the VALUE `tapRoute` reads and not a boolean beside it, because a
   /// Pkl local is lazy: a check nothing forces is a check that never runs.
   local authoredInert: Listing<String> =
-    if (!extraInert.isEmpty && tapAction.href != null)
-      throw("c.button: `inertWhile` needs a button, but this one navigates and "
-        + "renders as a link — `disabled` is a form-control attribute. Drop "
-        + "`inertWhile`, or give it a service tap.")
+    if ((!extraInert.isEmpty || disabled != null) && tapAction.href != null)
+      throw("c.button: `inertWhile`/`disabled` needs a button, but this one "
+        + "navigates and renders as a link — `disabled` is a form-control "
+        + "attribute. Drop it, or give it a service tap.")
     else extraInert
   slots {
     ["label"] = slotMod.labelSlot(null, label)
@@ -144,8 +149,13 @@ open class Button extends nodes.Node {
     when (authoredInert.isEmpty && tapAction.href != null) {
       ["href"] = tapAction.href!!
     } else {
+      // A handler, because `attrWhenEither` ORs it with [[disabled]] in one
+      // `data-attr` and the read is all it needs.
       for (k, v in tapMod.tapRoute(tapAction, authoredInert, "disabled")) {
-        [k] = v
+        [k] = if (k == "inert") (v as slotMod.Slot) { signal = slotMod.asHandler } else v
+      }
+      when (disabled != null) {
+        ["disabled"] = (disabled!!) { signal = slotMod.asHandler }
       }
     }
     // Only the non-anchor arm carries the busy splice — an anchor is a

@@ -1134,7 +1134,11 @@ suppressed, and one `datastar-patch-signals` frame carries the values for the wh
 wholesale renders (page, repaint, fill, the document a JS-less browser gets) use the DOCUMENT form
 instead: value inline, plus a `data-signals` seed on the node's `.fh-cell` wrapper, so an element
 arriving that way is correct before any frame reaches it. That seed is why a fill can introduce an
-entity nothing on the page was reading and still be right — there is no frame coming for it.
+entity nothing on the page was reading and still be right — there is no frame coming for it. The
+wrapper also carries the node's live cell classes (`LayoutNode.classWhen`): ordinary class signal
+slots under `Dashboard.cellClassSlot` names, folded in at decode, so the renderer places their
+binding on the wrapper in both forms and the class itself only in the document form, like any
+signal value.
 
 **A display signal is named by what it READS**, `_e.<domain>.<object_id>.<transform>`, so one entity
 on three cards is one signal and one frame entry rather than three copies equal by construction

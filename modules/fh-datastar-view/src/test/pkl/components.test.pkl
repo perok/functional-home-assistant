@@ -405,7 +405,7 @@ facts {
     c.entityButton(latchLock)
       .tapAction(c.tap.locks.openLatch(latchLock))
       .inertWhile(List("opening"))
-      .slots["inert"].signal == "attr:disabled"
+      .slots["inert"].signal == "handler"
   }
 
   // ---- CSS ownership (ADR 0020) ----
@@ -986,9 +986,9 @@ facts {
     inert.cases.toMap().values.toSet() == Set(true)
     // A real `false`, which is the ONLY value that turns a boolean attribute
     // off: `""` would SET `disabled`, because `disabled=""` is how HTML spells
-    // ON. That is why this can be `attr:disabled` at all (ADR 0017).
+    // ON. That is why the button's one `data-attr:disabled` can read it (ADR 0017).
     inert.otherwise == false
-    latch.slots["inert"].signal == "attr:disabled"
+    latch.slots["inert"].signal == "handler"
   }
 
   ["a chart stage's params are typed on the wire, and an unset one is absent"] {
