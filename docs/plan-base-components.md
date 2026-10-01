@@ -1,6 +1,6 @@
 # Plan — base components, and the HA layer on top
 
-Follows `docs/plan-explicit-tap-targets.md` (#435–#438), which made a tap name its target
+Follows the explicit-tap-targets work (#435–#438), which made a tap name its target
 and took the entity out of `Button`. Builds on ADR 0015 (library tiers), ADR 0016 (what a
 tap does), ADR 0017 (signal slots) and ADR 0019 (busy).
 
