@@ -80,19 +80,23 @@ class Call extends TapAction {
         dataKey = key
         dataValue = value.replaceAll(" ", "%20").replaceAll("'", "%27")
       }
-  /// States of the target in which this call is MEANINGLESS, so a card refuses
-  /// the press rather than send a competing command. Filled from the domain
-  /// table for a [[stateService]] tap ([[byDomain]]).
+  /// States of the target in which this call is MEANINGLESS, so every card that
+  /// sends it refuses the press. ON THE CALL rather than on a card, because a
+  /// card-side list guards only the card it was written on — the latch's list
+  /// sat on the button that opens its confirmation, and the button that posts
+  /// `lock/open` went unguarded. Filled from the domain table for a
+  /// [[stateService]] tap ([[byDomain]]) and by a verb that knows its own
+  /// (`c.tap.locks.openLatch`).
   ///
-  /// NOT the whole inert list a card renders — [[inertStates]] is, and it adds
+  /// NOT the whole list a card renders — [[inertStates]] is, and it adds
   /// availability, which is a fact about every service call rather than about
-  /// this domain. Keeping that out of here is what lets this stay transitional.
+  /// this one.
   ///
   /// NOT the busy guard. Busy runs from click until the POST resolves; this
-  /// runs while the ENTITY is mid-move, which begins when HA accepts a command
-  /// and ends when the hardware finishes — and covers a lock someone else moved
-  /// from a keypad, which no request-scoped flag can see.
-  inertWhile: Listing<String> = new {}
+  /// runs while the ENTITY is in such a state, which begins when HA accepts a
+  /// command and ends when the hardware finishes — and covers a lock someone
+  /// else moved from a keypad, which no request-scoped flag can see.
+  disabledWhile: Listing<String> = new {}
   busy = true
 }
 
@@ -443,26 +447,22 @@ const click: String =
 /// that decide it — unioned HERE rather than in the domain table, because they
 /// are not the same kind of fact:
 ///
-///  - TRANSITIONAL states ride the action ([[Call.inertWhile]],
-///    `hass/actions.pkl`): a lock read as `unlocking` is not `locked`, so a
-///    two-way test would post the command competing with the one running.
+///  - the CALL's own ([[Call.disabledWhile]]): a lock read as `unlocking` is
+///    not `locked`, so a two-way test would post the command competing with
+///    the one running; a lock already `open` has no latch to release.
 ///  - UNAVAILABLE is an AVAILABILITY fact, true of every service call in every
 ///    domain — HA rejects one on a dead entity whatever the domain is. One rule
-///    beats a row per domain, and keeping it out of the table is what lets
-///    `inertWhile` mean "transitional ONLY", as its own doc says.
+///    beats a row per domain or per verb.
 ///
 /// Both are states of the call's TARGET, so they apply only where the target is
 /// an entity: an area or a floor has no state to read. More-info on an
 /// unavailable entity is exactly what you want to open (it is where the reason
-/// is), and a navigate does not care.
-///
-/// `extra` is a card's own additions — [[components.control.EntityButton]]'s
-/// `inertWhile`, HA's `canOpen`-style "this press is meaningless here". Empty
-/// for a card that has none.
-const function inertStates(t: TapAction, target: Target?, extra: Listing<String>): List<String> =
+/// is), and a navigate does not care. A card refusing for a reason of its own
+/// says so with its own reading (`Button.disabled`).
+const function inertStates(t: TapAction, target: Target?): List<String> =
   if (target is hass.Entity)
-    ((t as Call).inertWhile.toList() + extra.toList() + List("unavailable")).distinct
-  else extra.toList().distinct
+    ((t as Call).disabledWhile.toList() + List("unavailable")).distinct
+  else List()
 
 /// WHICH inert a card wants, which is decided by its host and by nothing else:
 /// a form control takes the real `disabled`, and anything else can only wear a
@@ -541,8 +541,7 @@ const function routeSlots(
 /// [[Button]] hangs those on whether the tap offered an `href` instead.
 ///
 /// The inert slot and a state-picked service read a call's TARGET, so a card
-/// may act on an entity other than the one it shows. A [[Click]]'s inert reads
-/// the card's own entity: it is the card's `extra`, about what the card shows.
+/// may act on an entity other than the one it shows. A [[Click]] has neither.
 ///
 /// One node holds ONE tap's route, which has been enough for every card: the
 /// slider's toggle track and its commit look like two, but the two arms are
@@ -550,12 +549,11 @@ const function routeSlots(
 /// them rather than to parameterise this.
 const function tapRoute(
   t: TapAction,
-  extra: Listing<String>,
   inertAs: InertAs
 ): Mapping<String, slotMod.Slot|String> =
   let (target = if (t is Call) t.target else null)
   let (reads = if (target is hass.Entity) target.entity_id else null)
-  let (states = inertStates(t, target, extra))
+  let (states = inertStates(t, target))
     new {
       when (t is Call) {
         for (k, v in routeSlots(t.service, t.target, t.dataKey)) {
@@ -598,7 +596,7 @@ const function tapSlots(
   new {
     when (t != null) {
       ["tappable"] = "1"
-      for (k, v in tapRoute(t!!, new Listing {}, inertAs)) {
+      for (k, v in tapRoute(t!!, inertAs)) {
         [k] = v
       }
       when (t!!.busy) {
@@ -766,7 +764,7 @@ const local function stateService(e: hass.Entity, byState: hassActions.CallBySta
       signal = slotMod.asHandler
     }
     target = e
-    inertWhile = byState.inertWhile
+    disabledWhile = byState.disabledWhile
   }
 
 /// What a tap on `e` should call, decided from its domain at BUILD time — or

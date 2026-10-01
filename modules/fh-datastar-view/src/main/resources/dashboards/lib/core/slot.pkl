@@ -196,6 +196,15 @@ const function signalRef(name: String): String = "{{" + name + "__signal}}"
 /// Raw (`{{{…}}}`) because it IS code.
 const function slotRead(name: String): String = "{{{" + name + "__read}}}"
 
+/// A Boolean READING: whether `e`'s state is one of `states`. What a card's
+/// `disabled` or a node's `classWhen` takes; it names its entity, so it reads
+/// the same on any card. `unavailable` is a state like any other here.
+const function stateIn(e: hass.Entity, states: List<String>): Slot = new {
+  entityId = e.entity_id
+  transform = simpleMod.stateIn(states.toListing())
+  bypassUnavailable = false
+}
+
 /// The boolean attribute `attr`, set while slot `a` OR slot `b` holds — for a
 /// control with two independent reasons to refuse, such as its tap's and its
 /// own. Either slot may be absent. Both must be literals or [[asHandler]]

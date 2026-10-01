@@ -387,7 +387,7 @@ facts {
     module.catch(() -> c.toggle(outside).slots["onclick"]).contains("nothing happens on click")
   }
 
-  ["inertWhile on a button that NAVIGATES is a build error, not a no-op"] {
+  ["disabled on a button that NAVIGATES is a build error, not a no-op"] {
     // A navigating button renders as `<a href>`, and `disabled` is a
     // form-control attribute — there is no inert form of a link short of
     // dropping its href, which would take middle-click and open-in-new-tab with
@@ -397,14 +397,14 @@ facts {
       .catch(() ->
         c.entityButton(latchLock)
           .tapAction(c.tap.navigate("/other"))
-          .inertWhile(List("opening"))
+          .disabled(c.stateIn(latchLock, List("opening")))
           .slots["label"])
       .contains("renders as a link")
     // The same button with a SERVICE tap is fine, which is what makes the
-    // check about the link rather than about `inertWhile`.
+    // check about the link rather than about `disabled`.
     c.entityButton(latchLock)
       .tapAction(c.tap.locks.openLatch(latchLock))
-      .inertWhile(List("opening"))
+      .disabled(c.stateIn(latchLock, List("opening")))
       .slots["inert"].signal == "handler"
   }
 
@@ -905,8 +905,7 @@ facts {
   ["a SERVICE tap is inert on a dead entity, whatever its domain"] {
     // Availability is a different axis from transitional state: HA rejects a
     // service call on an unavailable entity in EVERY domain, so it is one rule
-    // rather than a row per domain — which is also what lets `inertWhile` keep
-    // meaning "transitional only" (`hass/actions.pkl`).
+    // rather than a row per domain or per verb (`Call.disabledWhile`).
     local lit: simpleMod.SimpleMatch =
       c.entityCard(kitchen).slots["inert"].transform!!
     // `light/toggle` means the same thing in every state, so nothing
@@ -970,7 +969,9 @@ facts {
 
   ["the latch is inert while the lock is mid-move — which the busy guard cannot see"] {
     local latch = c.lock.openLatch(latchLock)
-    local inert: simpleMod.SimpleMatch = latch.slots["inert"].transform!!
+    // The OPENER's own reason: it opens a popup, so it has no call to carry one.
+    local inert: simpleMod.SimpleMatch = latch.slots["disabled"].transform!!
+    latch.slots["disabled"].entityId == "lock.latch"
     // HA's `canOpen`, and ONLY that: already open, or mid-move. Every arm
     // answers the same `true` — a set membership test, which is what one
     // `match` buys over the two-armed enum it replaced, and what `stateIn`
@@ -988,7 +989,33 @@ facts {
     // off: `""` would SET `disabled`, because `disabled=""` is how HTML spells
     // ON. That is why the button's one `data-attr:disabled` can read it (ADR 0017).
     inert.otherwise == false
-    latch.slots["inert"].signal == "handler"
+    latch.slots["disabled"].signal == "handler"
+  }
+
+  ["every card that sends openLatch refuses HA's canOpen states, not only the one it was written for"] {
+    // The refusal rides the CALL, so the property is about the call, whatever
+    // carries it. On one card it guards only that card: on the opener alone,
+    // the press inside — the one that posts `lock/open` — refused only a dead
+    // lock.
+    local press = c.tap.locks.openLatch(latchLock)
+    local confirm = c.lock.openLatch(latchLock).inlineSurfaces!!["self"].content
+      .children.toList().first.children.toList()
+      .filter((n) -> n.card == "button" && n.slots.containsKey("service"))
+      .first
+    local senders = List(
+      confirm,
+      c.button("Open", press),
+      c.pill("Open", press),
+      c.iconButton("mdi:door-open", press),
+      c.entityButton(latchLock).tapAction(press),
+      c.entityCard(latchLock).tapAction(press),
+      c.toggle(latchLock).tapAction(press)
+    )
+    senders.every((n) -> n.slots["service"] == "lock/open")
+    senders.every((n) ->
+      let (refused = (n.slots["inert"].transform as simpleMod.SimpleMatch).cases.toMap().keys)
+        Set("open", "opening", "unlocking", "locking", "unavailable").every((s) -> refused.contains(s)))
+    senders.every((n) -> n.slots["inert"].entityId == "lock.latch")
   }
 
   ["a chart stage's params are typed on the wire, and an unset one is absent"] {
