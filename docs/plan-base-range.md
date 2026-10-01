@@ -24,32 +24,39 @@ guarded.
 **`components/base/slider.pkl`: `Slider`, plus the head and text nodes it builds.** It
 knows no entity. The HA class becomes `EntitySlider`, as `Button`/`EntityButton` are: it
 extends the base, holds the axis (`on`/`entity`) and the per-domain table, and assigns the
-base's inputs. The facade follows: `c.entitySlider(axis)` is today's `c.slider(axis)`, and
-`c.slider` is the base.
+base's inputs. The facade follows: `c.entitySlider(axis)` is what `c.slider(axis)` was,
+and `c.Slider` is the base.
 
 ```pkl
 open class Slider extends nodes.Node {
-  hidden label: String|slotMod.Reading
-  hidden secondary: (String|slotMod.Reading)? = null
-  hidden icon: String? = null
-  hidden min: Number
-  hidden max: Number
-  hidden position: slotMod.Reading           // the device's value, as the input's number
-  hidden fill: slotMod.Reading               // `--_end`, e.g. "61.2%"
-  hidden fillColor: slotMod.Reading? = null  // null = the theme paints it
+  hidden title: String|slotMod.Slot
+  hidden detail: (String|slotMod.Slot)? = null
+  hidden glyph: String? = null                     // the badge's MDI class
+  hidden rangeMin: Number
+  hidden rangeMax: Number
+  hidden position: slotMod.Slot                    // the device's value, as the input's number
+  hidden fill: slotMod.Slot                        // `--_end`, e.g. "61.2%"
+  hidden fillColor: slotMod.Slot? = null           // null = `fillDefault`, read once
   hidden fillDefault: String = "currentcolor"
-  hidden readout: slotMod.Reading? = null    // null = no readout span
-  hidden readoutFollowsDrag: Boolean = false // today's `dragPercent`
-  hidden commit: tapMod.Call                 // dataKey set, value from the drag
-  hidden press: tapMod.TapAction? = null     // set = the track is a button, no input
+  hidden reading: slotMod.Slot? = null             // null = no readout span
+  hidden readingFollowsDrag: Boolean = false       // `dragPercent`
+  hidden commit: tapMod.Call? = null               // dataKey set, value from the drag
+  hidden press: tapMod.TapAction? = null           // set = the track is a button, no input
   hidden actions: Listing<buttonMod.Button> = new {}
+  hidden leadingActions: Listing<buttonMod.Button> = new {}  // a subclass's, first
   hidden members: Listing<nodes.LayoutNode> = new {}
   hidden busyVisual: Boolean = true
   hidden subject: String? = null
 }
 ```
 
-**`position`, `fill` and `readout` are three readings, not one.** The obvious design is a
+The inputs are named as `Tile`'s are, for what they are on the card (`title`, `detail`,
+`glyph`, `reading`), so `EntitySlider` keeps its entity-relative `label`, `secondary`,
+`icon` and `readout`, and `min`/`max` stay its author overrides of the domain's range.
+`leadingActions` is how the HA `tapAction` shorthand stays first without an author's
+`actions` replacing it.
+
+**`position`, `fill` and `reading` are three readings, not one.** The obvious design is a
 single `position` the base derives the rest from. It cannot: a transform is a CEL string
 or a Simple shape, and neither composes. Deriving `fill` from an arbitrary reading would
 mean splicing its CEL into another expression, or reaching into a `SimpleValue` for its
@@ -62,9 +69,9 @@ one documented exception. `tapRoute` keys `dataValue` on `dataKey` today (`dataV
 so step 2 keys it on `dataValue` instead. It goes through `tapRoute`, so it gets
 `tapDisabled` like every other tap: the input is disabled and the track wears `fh-disabled`
 while the target is unavailable. Only unavailable: the commit is a plain `call`, so its
-`disabledWhile` is empty, and a cover that is `opening` takes a new position as it should. That fixes the bug above as a consequence of the
-split, not a patch beside it. The input already binds `disabled` to the commit's busy
-signal, so the OR is the same `attrWhenEither` shape `Button` uses.
+`disabledWhile` is empty, and a cover that is `opening` takes a new position as it should.
+That fixes the bug above as a consequence of the split, not a patch beside it. The input already binds `disabled` to the commit's busy
+signal, so `busyAttrsChange` ORs the two in its one `data-attr:disabled`.
 
 **`press` is the toggle-only variant**, one card. Today `toggleOnly` swaps the range
 input for a full-width button inside the same pill. A separate base card would make a
@@ -77,18 +84,19 @@ surface for authors' own readouts) and `sliderAction`. These are what make a sli
 this entity", which is the HA layer's job by definition.
 
 **The wire does not move.** The registry names stay `slider`, `sliderHead` and
-`sliderText`, and the slot names stay what they are. A slider built today and the same
-slider built after the split must serialise to the same bytes, apart from the new
-`tapDisabled` slot on the commit. That is the test for the rename and the move (steps 3
-and 4).
+`sliderText`, and the slot names stay what they are. A slider built before the split and
+the same slider built after it serialise to the same node bytes, apart from the new
+`tapDisabled` slot on the commit (step 2). One deliberate exception in step 4:
+`sliderHead` and `sliderText` stop DECLARING `entity_id`, because a declared slot must be
+on every node and a base slider may have no subject. Every HA slider still carries it.
 
 ```pkl
 // author view: a slider over something that is not an HA attribute
-(c.slider) {
-  label = "Volume"
-  min = 0; max = 100
-  position = c.exprOf(amp, "attr[?'volume'].orValue(0)")
-  fill = c.exprOf(amp, "…")
+new c.Slider {
+  title = "Volume"
+  rangeMin = 0; rangeMax = 100
+  position = new slotMod.Slot { entityId = amp.entity_id; transform = "…" }
+  fill = new slotMod.Slot { entityId = amp.entity_id; transform = "…" }
   commit = (c.tap.call("media_player/volume_set", amp)) { dataKey = "volume_level" }
 }
 ```
@@ -104,11 +112,11 @@ and 4).
    `render = c.slider` lambda form too), across the lib, the demo dashboards, the tests
    and the ADRs. Nothing else, so the diff reads as a rename and the wire does not move.
 4. **`base/slider.pkl`.** The base `Slider`, with `SliderHead`/`SliderText` moved under
-   it, and `c.slider` pointing at it. `EntitySlider extends Slider` under the thin rule.
-   Tests: the wire snapshots and visual baselines do not change; an `EntitySlider` equals
+   it, and `c.Slider` naming it. `EntitySlider extends Slider` under the thin rule. ADR
+   0015's map and the module `CLAUDE.md` move with it. Tests: the node bytes and visual
+   baselines do not change (the declared-slot exception above); an `EntitySlider` equals
    the base built by hand with its inputs; `BaseComponentsSuite` covers the new module.
-5. **Close.** ADR 0015's table, the module `CLAUDE.md`, and this plan deleted once the
-   maintainer agrees.
+5. **Close.** This plan deleted once the maintainer agrees.
 
 ## Not in scope
 

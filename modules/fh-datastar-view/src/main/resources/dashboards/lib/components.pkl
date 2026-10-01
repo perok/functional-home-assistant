@@ -38,6 +38,7 @@ import "components/base/button.pkl" as buttonMod
 import "components/base/onoff.pkl" as switchMod
 import "components/base/tile.pkl" as tileMod
 import "components/base/features.pkl" as featuresMod
+import "components/base/slider.pkl" as sliderBaseMod
 import "components/slider.pkl" as sliderMod
 import "components/base/surface.pkl" as surfaces
 import "components/history.pkl" as historyMod
@@ -104,6 +105,7 @@ typealias Pill = buttonMod.Pill
 typealias Toggle = control.Toggle
 typealias Tabs = surfaces.Tabs
 typealias If = surfaces.If
+typealias Slider = sliderBaseMod.Slider
 typealias EntitySlider = sliderMod.EntitySlider
 typealias SlideAxis = sliderMod.SlideAxis
 /// What a card does with a label too long for its box — `"wrap"`, `"clip"` or
@@ -225,6 +227,7 @@ const modules: List<Module> = List(
   tileMod,
   featuresMod,
   control,
+  sliderBaseMod,
   sliderMod,
   surfaces,
   surfaceMod,

@@ -809,7 +809,8 @@ class PklBuildSuite extends munit.FunSuite {
       "tab" -> List("label", "onclick", "active"),
       "slider" -> Nil,
       // `label` is only the toggle variant's `aria-label`; the visible one is
-      // `sliderText`'s (#151).
+      // `sliderText`'s (#151). No `entity_id`: a base slider may have no
+      // subject, so only the HA one carries it.
       "sliderHead" -> List(
         "label",
         "value",
@@ -817,10 +818,9 @@ class PklBuildSuite extends munit.FunSuite {
         "targetKind",
         "targetId",
         "min",
-        "max",
-        "entity_id"
+        "max"
       ),
-      "sliderText" -> List("label", "entity_id"),
+      "sliderText" -> List("label"),
       "popup" -> Nil,
       "tabs" -> Nil,
       "ifhost" -> Nil,
