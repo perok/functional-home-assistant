@@ -95,9 +95,8 @@ its own `disabled` onto it, so the latch's confirm button is guarded wherever it
 placed. A `Click` has no target, so a popup opener's guard is the card's `disabled`.
 
 A list of states and not a `Reading`. The refusal is always about the call's own target,
-and `unavailable` has to join it. A list joins by union, inside one slot. Two readings
-would need a second OR, and the class host (the entity card, `inertClass`) has no
-expression to put one in.
+and `unavailable` has to join it. A list joins by union, inside one slot; two readings
+would need a second OR in every host's binding.
 
 The OR is a template expression over two holes,
 `data-attr:disabled="{{{refused__read}}} || {{{disabled__read}}}"`, with a mustache OR
@@ -158,10 +157,12 @@ facade's names do not change: `c.button`, `c.entityButton`, `c.toggle` and
 picks both bindings itself.
 
 **Names.** What an author writes says `disabled` (`Call.disabledWhile`, `Button.disabled`)
-and `active`. `lit` is gone. The tap's refusal is still called `inert` internally: the slot,
-the theme's `fh-inert` class, and `InertAs`. That is about 120 uses across templates, wire,
-themes and tests, and a plain rename to `disabled` would collide with the button's own
-`disabled` slot. It is left for the maintainer to decide (open question below). HA's
+and `active`. `lit` is gone. The tap's refusal is the `tapDisabled` slot: ONE Boolean
+reading, read by expression on every host, so `InertAs` is gone too. Its look is
+`fh-disabled`, the same "you cannot use this" class a tap in flight wears, with one
+`data-class:fh-disabled` ORing both. `fh-inert` is gone, and a tile dims while refused as
+it does while busy. Classes name the LOOK, never the reason. "Refused" is kept for the
+server's after-the-fact answer (`actionRefused`, `fh-error`). HA's
 frontend has a per-domain notion of "active". Whether to vendor it into `hass/` is a later
 decision; this plan ships `c.isOn(e)`.
 
@@ -213,8 +214,6 @@ decision; this plan ships `c.isOn(e)`.
 
 ## Open questions
 
-- Rename the internal `inert` (slot, `fh-inert`, `InertAs`) to something like `refused`, or
-  keep it?
 - A separate plan for the base range control under the slider.
 
 ## Not in scope

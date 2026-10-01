@@ -88,7 +88,7 @@ class Call extends TapAction {
   /// [[stateService]] tap ([[byDomain]]) and by a verb that knows its own
   /// (`c.tap.locks.openLatch`).
   ///
-  /// NOT the whole list a card renders — [[inertStates]] is, and it adds
+  /// NOT the whole list a card renders — [[refusedStates]] is, and it adds
   /// availability, which is a fact about every service call rather than about
   /// this one.
   ///
@@ -157,6 +157,33 @@ const noSignals = #"{filterSignals:{exclude:'.*'}}"#
 /// [[pendingSignal]]); only the classes are shared.
 const function inFlightClass(sig: String): String =
   #"data-class:fh-disabled="$\#(sig)" data-class:fh-loading="$\#(sig)""#
+
+/// [[inFlightClass]] for a guarded TAP: the same look, and `fh-disabled` also
+/// while the tap refuses ([[tapDisabledSlot]]). ONE `data-class:fh-disabled`
+/// with both reasons ORed, because a second binding of the same class on the
+/// element would be dropped. `fh-disabled` is the "you cannot use this" look
+/// whatever the reason; `fh-loading` and the spinner are only in-flight.
+const function inFlightOrRefused(sig: String): String =
+  #"data-class:fh-disabled="$\#(sig)"#
+    + slotMod.ifSlot("tapDisabled") + " || " + slotMod.slotRead("tapDisabled")
+    + slotMod.endIfSlot("tapDisabled")
+    + #"" data-class:fh-loading="$\#(sig)""#
+
+/// The disabled look alone, for a guarded element that wears no in-flight
+/// look (`busyVisual = false`).
+const tapDisabledClass: String =
+  slotMod.ifSlot("tapDisabled") + #" data-class:fh-disabled=""#
+    + slotMod.slotRead("tapDisabled") + "\"" + slotMod.endIfSlot("tapDisabled")
+
+/// The tap's refusal as a REAL `disabled`, for a form control: the browser
+/// takes it out of the tab order and refuses the click itself, which a class
+/// alone cannot. The document form carries the attribute; the binding keeps
+/// it live. A [[components.base.button.Button]] places `slotMod.attrWhenEither`
+/// instead, to OR in a reason of its own.
+const tapDisabledAttr: String =
+  "{{#tapDisabled}} disabled{{/tapDisabled}}" + slotMod.ifSlot("tapDisabled")
+    + #" data-attr:disabled=""# + slotMod.slotRead("tapDisabled") + "\""
+    + slotMod.endIfSlot("tapDisabled")
 
 /// The re-click guard, as the prefix that makes a click expression a no-op
 /// while `sig` is truthy.
@@ -276,8 +303,8 @@ const guardMechanism: String =
 /// refused toggle reported its failure onto a control nobody can see. A card
 /// whose acting element is not its visible one places this on the visible one.
 const guardLook: String =
-  "{{#busyVisual}} " + inFlightClass(busySig) + " " + failedClass(errorSig)
-    + "{{/busyVisual}}"
+  "{{#busyVisual}} " + inFlightOrRefused(busySig) + " " + failedClass(errorSig)
+    + "{{/busyVisual}}{{^busyVisual}}" + tapDisabledClass + "{{/busyVisual}}"
 
 /// Put a control back the way the SERVER last said it was, when an action on
 /// this node is refused.
@@ -379,7 +406,7 @@ const busyAttrsChange: String =
   indicatorOn(busyChangeSig) + #" data-attr:disabled="$\#(busyChangeSig)""# + " " +
     failedOn(errorSig) + #" data-fh-node="{{id}}""#
 const busyClassChange: String =
-  inFlightClass(busyChangeSig) + " " + failedClass(errorSig)
+  inFlightOrRefused(busyChangeSig) + " " + failedClass(errorSig)
 /// [[busyShapeClass]]'s commit-signal twin, for the slider's head badge —
 /// the track carries no icon of its own, so the badge is what spins for the
 /// whole commit window.
@@ -429,17 +456,17 @@ const serviceClick: String =
 /// A card that splices this needs no `when` of its own — [[tapSlots]] decides
 /// which arm exists by whether it emitted a `service` slot.
 const click: String =
-  // The INERT guard leads, and rides here rather than in each card for the same
-  // reason the slot does. It is what actually stops the post: `disabled` alone
-  // cannot, on a host that already spends that attribute on something else —
-  // the slider's toggle track binds it to the commit's in-flight signal, so its
-  // inert has to be a class, and a class only LOOKS refused.
+  // The REFUSAL guard leads, and rides here rather than in each card for the
+  // same reason the slot does. It is what actually stops the post on a host
+  // that cannot be `disabled` — a tile is an `<article>`, and the slider's
+  // toggle track already spends `disabled` on the commit's in-flight signal —
+  // where a class only LOOKS refused.
   //
-  // Redundant where the shape IS `disabled` (a disabled control fires no click
-  // at all), and kept anyway: a guard that is present on every card cannot be
-  // the one a card forgot.
-  slotMod.ifSlot("inert") + "$" + slotMod.signalRef("inert") + " ? '' : " +
-    slotMod.endIfSlot("inert") +
+  // Redundant where the host IS disabled (a disabled control fires no click at
+  // all), and kept anyway: a guard that is present on every card cannot be the
+  // one a card forgot.
+  slotMod.ifSlot("tapDisabled") + "$" + slotMod.signalRef("tapDisabled") + " ? '' : " +
+    slotMod.endIfSlot("tapDisabled") +
     slotMod.ifSlot("service") + serviceClick + slotMod.endIfSlot("service") +
     slotMod.ifNoSlot("service") + "{{{onclick}}}" + slotMod.endIfNoSlot("service")
 
@@ -459,53 +486,25 @@ const click: String =
 /// unavailable entity is exactly what you want to open (it is where the reason
 /// is), and a navigate does not care. A card refusing for a reason of its own
 /// says so with its own reading (`Button.disabled`).
-const function inertStates(t: TapAction, target: Target?): List<String> =
+const function refusedStates(t: TapAction, target: Target?): List<String> =
   if (target is hass.Entity)
     ((t as Call).disabledWhile.toList() + List("unavailable")).distinct
   else List()
 
-/// WHICH inert a card wants, which is decided by its host and by nothing else:
-/// a form control takes the real `disabled`, and anything else can only wear a
-/// class and guard its own click. Required at every [[tapRoute]] call rather
-/// than defaulted, so a new card cannot acquire "no inert" by saying nothing —
-/// which is how [[components.control.Toggle]] went without one.
-typealias InertAs = "disabled"|"class"
-
-/// [[inertStates]] as a REAL `disabled`, for a card whose root is a form
-/// control: the browser takes it out of the tab order and refuses the click
-/// itself, and `button:disabled` dims it. A dimming class would need JS to mean
-/// anything — the difference between telling a keyboard user the control is
-/// unavailable and handing them one that silently does nothing.
+/// [[refusedStates]] as the `tapDisabled` slot: a Boolean reading of the
+/// target, true while a press would be meaningless.
 ///
-/// A boolean, because only a real `false` REMOVES a boolean attribute — `""`
-/// sets one, `disabled=""` being how HTML spells on (ADR 0017).
-///
-/// Needs no click guard: a disabled button fires no click event at all, so a
-/// `$inert ? '' :` prefix would be unreachable. [[inertClass]]'s host does.
-const function inertDisabled(states: List<String>): slotMod.Slot = new {
+/// ONE shape whatever the host, read by expression rather than bound
+/// (`asHandler`), because how it shows is the host's: a form control places
+/// [[tapDisabledAttr]] (or ORs it with its own `disabled`), and every guarded
+/// element wears `fh-disabled` through [[guardLook]]. A boolean, because only a
+/// real `false` REMOVES a boolean attribute — `""` sets one (ADR 0017).
+const function tapDisabledSlot(states: List<String>): slotMod.Slot = new {
   transform = simpleMod.stateIn(states.toListing())
   // The raw state string has to reach the match, or `unavailable` could never
   // be one of the arms — the bypass is what this slot is deciding ABOUT.
   bypassUnavailable = false
-  signal = slotMod.asAttr("disabled")
-}
-
-/// [[inertStates]] as a CLASS, for a host that cannot be disabled — an entity
-/// card's tap is on an `<article>`, and `disabled` is a form-control attribute.
-/// The card must place the click guard itself; the class alone only looks inert.
-///
-/// A String and not a boolean: this value is painted INLINE in the document
-/// form (`class="card entity {{inert}}"`), where a boolean would render the
-/// word `true` into the class list.
-const function inertClass(states: List<String>): slotMod.Slot = new {
-  transform = simpleMod.matchOf(new Mapping {
-    for (st in states) {
-      [st] = "fh-inert"
-    }
-  }, "")
-  default = ""
-  bypassUnavailable = false
-  signal = slotMod.asClass("fh-inert")
+  signal = slotMod.asHandler
 }
 
 /// A call's ROUTE: what [[serviceClick]] builds the URL from, and what the
@@ -540,20 +539,17 @@ const function routeSlots(
 /// [[tapSlots]] for the card that decides `tappable`/`busy` for itself — a
 /// [[Button]] hangs those on whether the tap offered an `href` instead.
 ///
-/// The inert slot and a state-picked service read a call's TARGET, so a card
+/// The refusal slot and a state-picked service read a call's TARGET, so a card
 /// may act on an entity other than the one it shows. A [[Click]] has neither.
 ///
 /// One node holds ONE tap's route, which has been enough for every card: the
 /// slider's toggle track and its commit look like two, but the two arms are
 /// mutually exclusive. If a card ever does need two, that is the point to name
 /// them rather than to parameterise this.
-const function tapRoute(
-  t: TapAction,
-  inertAs: InertAs
-): Mapping<String, slotMod.Slot|String> =
+const function tapRoute(t: TapAction): Mapping<String, slotMod.Slot|String> =
   let (target = if (t is Call) t.target else null)
   let (reads = if (target is hass.Entity) target.entity_id else null)
-  let (states = inertStates(t, target))
+  let (states = refusedStates(t, target))
     new {
       when (t is Call) {
         for (k, v in routeSlots(t.service, t.target, t.dataKey)) {
@@ -565,15 +561,12 @@ const function tapRoute(
       } else {
         ["onclick"] = (t as Click).onclick
       }
-      // INERT rides here and not in each card, because doing it per card is how
-      // a card ends up without it: three had it three different ways and the
-      // fourth ([[components.control.Toggle]]) had none, so a toggle on a dead
-      // entity still posted. The SHAPE is the card's to say and nothing else is.
+      // The REFUSAL rides here and not in each card, because doing it per card
+      // is how a card ends up without it: three had it three different ways and
+      // the fourth (the toggle) had none, so a toggle on a dead entity still
+      // posted. How it SHOWS is the card's to say and nothing else is.
       when (!states.isEmpty) {
-        ["inert"] =
-          (if (inertAs == "disabled") inertDisabled(states) else inertClass(states)) {
-            entityId = reads
-          }
+        ["tapDisabled"] = (tapDisabledSlot(states)) { entityId = reads }
       }
     }
 
@@ -582,21 +575,18 @@ const function tapRoute(
 ///
 /// ```
 /// slots {
-///   for (k, v in tapMod.tapSlots(tapAction, "class")) { [k] = v }
+///   for (k, v in tapMod.tapSlots(tapAction)) { [k] = v }
 /// }
 /// ```
 ///
 /// `tappable` opens the card's pointer/handler markup; `service` picks
 /// [[click]]'s arm and carries the value it reads; `onclick` is the other arm;
 /// `busy`/`busyVisual` are ADR 0019's guard and its look.
-const function tapSlots(
-  t: TapAction?,
-  inertAs: InertAs
-): Mapping<String, slotMod.Slot|String> =
+const function tapSlots(t: TapAction?): Mapping<String, slotMod.Slot|String> =
   new {
     when (t != null) {
       ["tappable"] = "1"
-      for (k, v in tapRoute(t!!, inertAs)) {
+      for (k, v in tapRoute(t!!)) {
         [k] = v
       }
       when (t!!.busy) {

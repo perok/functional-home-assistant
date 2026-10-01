@@ -1264,11 +1264,11 @@ class PklBuildSuite extends munit.FunSuite {
     )
     val cards = Map(
       "entityCard" -> CardDef(
-        // `entityCard` marks `value` and `inert` as signal slots, and
+        // `entityCard` marks `value` and `tapDisabled` as signal slots, and
         // `validate` rejects a card that declares one without placing its
-        // binding (ADR 0017).
+        // binding — or, for a handler, its read (ADR 0017).
         "<b>{{label}}</b><i {{{value__bind}}}>{{value}}</i>" +
-          "<u {{{inert__bind}}}></u>",
+          "<u data-on:click=\"{{tapDisabled__signal}}\"></u>",
         slots = List("label", "value")
       )
     )

@@ -45,7 +45,7 @@ open class Switch extends nodes.Node {
       <article class="card row toggle" \(slotMod.signalBind("switched"))\(tapMod.guardLook)>
         <span class="max \(textMod.BOX)">\(textMod.run("label"))</span>
         <label class="switch">
-          <input type="checkbox" value="on" {{#checked}}checked{{/checked}} \(slotMod.signalBind("checked")) data-on:click="\(tapMod.guardClick)\(tapMod.click)"\(slotMod.ifSlot("inert")){{#inert}} disabled{{/inert}} \(slotMod.signalBind("inert"))\(slotMod.endIfSlot("inert")) \(restoreSwitch)\(tapMod.guardMechanism) />
+          <input type="checkbox" value="on" {{#checked}}checked{{/checked}} \(slotMod.signalBind("checked")) data-on:click="\(tapMod.guardClick)\(tapMod.click)"\(tapMod.tapDisabledAttr) \(restoreSwitch)\(tapMod.guardMechanism) />
           <span></span>
         </label>
       </article>
@@ -95,7 +95,7 @@ open class Switch extends nodes.Node {
     ["label"] = slotMod.labelSlot(null, label)
     ["checked"] = (on) { signal = slotMod.asBind }
     ["switched"] = (on) { signal = slotMod.asAttr("data-switched") }
-    for (k, v in tapMod.tapRoute(tapAction, "disabled")) {
+    for (k, v in tapMod.tapRoute(tapAction)) {
       [k] = v
     }
     when (tapAction.busy) {

@@ -18,8 +18,8 @@ open class Tile extends nodes.Node {
   card = "entityCard"
   cardDef = new nodes.CardDef {
     template = """
-      <article class="card entity{{#tappable}} tappable{{/tappable}}\(slotMod.ifSlot("inert")) {{inert}}\(slotMod.endIfSlot("inert"))"{{#tappable}}
-        data-on:click="\(tapMod.guardClick)\(tapMod.click)"{{/tappable}}\(slotMod.ifSlot("inert")) \(slotMod.signalBind("inert"))\(slotMod.endIfSlot("inert"))\(tapMod.guard)>
+      <article class="card entity{{#tappable}} tappable{{/tappable}}{{#tapDisabled}} fh-disabled{{/tapDisabled}}"{{#tappable}}
+        data-on:click="\(tapMod.guardClick)\(tapMod.click)"{{/tappable}}\(tapMod.guard)>
         <header>\(slotMod.ifSlot("icon")){{#busy}}<span class="fh-icon-shape"{{#busyVisual}} \(tapMod.busyShapeClass){{/busyVisual}}>{{/busy}}<i class="{{icon}}" \(slotMod.signalBind("icon"))></i>{{#busy}}</span>{{/busy}}\(slotMod.endIfSlot("icon"))\(textMod.hole("label"))</header>
         <span class="fh-reading \(textMod.BOX)">\(textMod.liveRun("value"))</span>\(slotMod.ifSlot("secondary"))
         <span class="fh-sub \(textMod.BOX)">\(textMod.run("secondary"))</span>\(slotMod.endIfSlot("secondary"))
@@ -79,7 +79,7 @@ open class Tile extends nodes.Node {
     }
     // A CLASS and a click guard, not `disabled`: this host is an `<article>`,
     // and only a form control can be disabled.
-    for (k, v in tapMod.tapSlots(tapAction, "class")) {
+    for (k, v in tapMod.tapSlots(tapAction)) {
       [k] = v
     }
   }
