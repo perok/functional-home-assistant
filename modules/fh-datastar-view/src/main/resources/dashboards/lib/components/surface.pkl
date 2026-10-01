@@ -115,7 +115,7 @@ class Tabs extends nodes.Node {
   // cell is what makes `.columns(n)` on a `Tabs` node WORK — before the split it
   // was accepted and then silently dropped, because a bake owner was denied the
   // wrapper those classes ride on.
-  cell = new nodes.Cell { classes { "fh-cols-full" } }
+  cellClasses { "fh-cols-full" }
   /// label -> that tab's cards. Bar order = insertion order (Mapping preserves
   /// it). The Listing DEFAULT lets a tab amend into existence and add cards
   /// directly — no `new`, no `children`:
@@ -222,7 +222,7 @@ class If extends nodes.Node {
   // branch `Row`'s business. (Layout transparency was considered and dropped:
   // the branch is always Row-wrapped, so it is a box regardless and could never
   // flow into a grandparent grid.)
-  cell = new nodes.Cell { classes { "fh-cols-full" } }
+  cellClasses { "fh-cols-full" }
   hidden condition: pred.Predicate
   // `else` is a Pkl reserved word, hence the backticks; `then` is not, but is
   // backticked for visual pairing (backticks are pure quoting, not identity).

@@ -120,17 +120,25 @@ So an HA component stays a class that extends its base, under one rule:
 
 ```pkl
 // components/control.pkl — the HA layer
-class EntityButton extends base.Button {
+class EntityButton extends buttonMod.Button {
   hidden entity: hass.Entity
-  label = c.name(entity)                         // a Reading: friendly_name
+  label = entity.friendly_name ?? entity.entity_id
   tapAction = tapMod.byDomain(entity) ?? throw(…)
+  subject = entity.entity_id
 }
 c.entityButton(l).active(c.isOn(l))              // base builder, HA reading
 ```
 
-The rule is checkable (step 3). Under it, an HA class is exactly the "function over a
-flexible component" the split asks for, but one that keeps its entity for the builders
-after it.
+The rule is checkable, as a property: an HA component's slots, card and cell equal those
+of the base built by hand with the same inputs (`components.test.pkl`). Under it, an HA
+class is exactly the "function over a flexible component" the split asks for, but one
+that keeps its entity for the builders after it.
+
+**`subject` is how a reading without an entity finds one.** A base card takes an
+optional `subject: String?` and places it as `entity_id` only when set. That is the
+existing subject-slot mechanism, so an entity-less `c.expr(…)` on an HA card keeps
+reading that card's entity. The demo dashboards' entity-card labels depend on it. The
+base never sets it.
 
 **The tree.** `components/base/` holds the components that know nothing about HA. It must
 not import `hass.pkl`, and a test enforces that. `components/` itself is the HA layer. The
@@ -166,9 +174,8 @@ decision; this plan ships `c.isOn(e)`.
   on the same reading share one signal.
 - **Authors:** `.lit(true)` → `.active(c.isOn(l))`, `.inertWhile(xs)` →
   `.disabled(c.stateIn(l, xs))`. Taps are untouched.
-- **A reading must name its entity.** On a base card there is no subject entity to fall
-  back on, so `c.expr(…)` without an entity is accepted only by HA-layer classes, which
-  bind it to theirs.
+- **A reading on a base card must name its entity** (`c.exprOf`, `c.isOn`). Only an HA
+  card sets `subject`, which an entity-less `c.expr(…)` reads.
 
 ## Steps (one stacked PR each)
 
@@ -184,9 +191,10 @@ decision; this plan ships `c.isOn(e)`.
    while the lock is `open`, whatever card it is on.
 3. **`components/base/` with `Button`/`Pill`.** `EntityButton` follows the thin-subclass
    rule. `active` is `classWhen("fh-active", …)`, styled by the button card. The slider's
-   `lit` rule goes, and `sliderAction` uses `active`. The base stops placing an
-   `entity_id`. Two tests: no `components/base/` module imports `hass.pkl`, and no HA-layer
-   class sets `cardDef` or `slots`.
+   `lit` rule goes, and `sliderAction` uses `active`. A node's cell is derived from
+   `cellClasses`/`liveClasses` inputs, so builder order cannot drop `active`. Tests: no
+   `components/base/` module imports a `hass` module (`BaseComponentsSuite`), an
+   entity button equals the base built by hand, and builder order leaves the cell equal.
 4. **`Switch` and `Tile`**, with `Toggle` and `EntityCard` thin on top. Text, tabs and `If`
    move to `base/`.
 5. **The slider**: a base range control and `Slider` thin on top. It is the largest card

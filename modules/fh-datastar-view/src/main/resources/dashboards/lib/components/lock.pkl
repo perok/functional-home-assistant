@@ -19,6 +19,7 @@ import "../core/slot.pkl" as slotMod
 import "../hass.pkl"
 import "../hass/lock.pkl" as hassLock
 import "control.pkl" as control
+import "base/button.pkl" as buttonMod
 import "text.pkl" as textMod
 import "entity.pkl" as entityMod
 import "tap.pkl" as verbs
@@ -58,8 +59,8 @@ local function confirmOpen(l: hass.LockEntity): layout.Column = new layout.Colum
     // and pinned to its domain action rather than the default, which would be
     // more-info opening on top of this popup.
     (entityMod.entityCard(l)) { tapAction = tapMod.byDomain(l) }
-    control.button("Open the door", verbs.locks.openLatch(l))
-    control.button("Cancel", tapMod.closePopup())
+    buttonMod.button("Open the door", verbs.locks.openLatch(l))
+    buttonMod.button("Cancel", tapMod.closePopup())
   }
 }
 
