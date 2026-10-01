@@ -2,16 +2,17 @@ package fh.view.functional
 
 import api.homeassistant.ServiceTarget
 import cats.syntax.all.*
-import fh.view.model.{Access, LayoutNode, SlotSource}
+import fh.view.model.{Access, LayoutNode, SlotSource, Transform}
 import fh.view.testkit.DashboardBuilders.{component, lit}
 import fh.view.runtime.TestServer
 import fh.view.testkit.{FixtureDashboard, HouseFixture, PklFixture, ServiceCall}
 import io.circe.Json
 import org.http4s.Status
 
-/** An area or floor call reaches entities its dashboard never names, so the
-  * built dashboard's own taps are the allowlist: anything else is one URL edit
-  * from unlocking the front door (issue #389, ADR 0023).
+/** The built dashboard's own taps are the allowlist, for every target kind:
+  * anything else is one URL edit from unlocking the front door, and an area or
+  * floor call reaches entities the dashboard never names (issue #389, ADR
+  * 0023).
   */
 class GroupCallSuite extends FunctionalSuite {
 
@@ -34,7 +35,7 @@ class GroupCallSuite extends FunctionalSuite {
     withServer(house, Access.Public) { ts =>
       for {
         status <- ts.post(
-          s"sse/target/${ts.slug}/light/turn_off/area/stue",
+          s"sse/call/${ts.slug}/light/turn_off/area/stue",
           as = None
         )
         calls <- ts.fake.recordedCalls
@@ -99,8 +100,43 @@ class GroupCallSuite extends FunctionalSuite {
       }
   }
 
+  /** What a lock's default tap leaves on its node: the service its state picks.
+    */
+  private val lockTap: LayoutNode.Component =
+    component(
+      "light",
+      "name" -> lit("Door"),
+      "state" -> SlotSource(Some(HouseFixture.frontLock.entityId)),
+      "service" -> SlotSource(transform =
+        Transform.Simple.Match(Map("locked" -> "lock/unlock"), "lock/lock")
+      ),
+      "targetKind" -> lit("entity"),
+      "targetId" -> lit(HouseFixture.frontLock.entityId)
+    )
+
+  test("a service the state picks declares every arm it can post") {
+    withServer(scene.card(lockTap), Access.Public) { ts =>
+      val door = HouseFixture.frontLock.entityId
+      for {
+        unlock <- ts.post(s"sse/call/${ts.slug}/lock/unlock/entity/$door", None)
+        lock <- ts.post(s"sse/call/${ts.slug}/lock/lock/entity/$door", None)
+        open <- ts.postResult(
+          s"sse/call/${ts.slug}/lock/open/entity/$door",
+          None
+        )
+        calls <- ts.fake.recordedCalls
+      } yield {
+        assertEquals((unlock, lock), (Status.NoContent, Status.NoContent))
+        assert(open._2.contains("no tap on this dashboard calls"), clue = open)
+        assertEquals(calls.map(_.service), Vector("unlock", "lock"))
+      }
+    }
+  }
+
   test("every part of the call is checked, not only the area") {
     val undeclared = List(
+      // Named by the dashboard, but no tap calls this on it.
+      s"light/turn_off/entity/${HouseFixture.kitchenLight.entityId}",
       "lock/unlock/area/stue",
       "light/turn_off/area/kjokken",
       "light/turn_off/floor/stue",
@@ -110,7 +146,7 @@ class GroupCallSuite extends FunctionalSuite {
     withServer(house, Access.Public) { ts =>
       for {
         answers <- undeclared.traverse(p =>
-          ts.postResult(s"sse/target/${ts.slug}/$p?node=c_1", as = None)
+          ts.postResult(s"sse/call/${ts.slug}/$p?node=c_1", as = None)
         )
         calls <- ts.fake.recordedCalls
       } yield {

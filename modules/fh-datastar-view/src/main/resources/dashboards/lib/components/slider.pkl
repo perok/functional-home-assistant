@@ -277,7 +277,7 @@ class SliderHead extends nodes.Node {
             \(restoreOnDeadStream)
             \(tapMod.busyAttrsChange)
             data-on:input="$\(slotMod.signalRef("fill")) = (100 - \(dragPos)) + '%'{{#dragPercent}}; $\(slotMod.signalRef("state")) = Math.round(\(dragPos)) + ' %'{{/dragPercent}}"
-            data-on:change="\(tapMod.busyGuardChange)@post('sse/action/{{dashboardSlug}}/{{{action}}}/{{{entity_id}}}/{{key}}/' + $\(slideSig) + '?node={{id}}', \(tapMod.noSignals))" />{{/toggle}}
+            data-on:change="\(tapMod.busyGuardChange)@post('sse/call/{{dashboardSlug}}/{{{service}}}/{{targetKind}}/{{targetId}}/{{dataKey}}/' + $\(slideSig) + '?node={{id}}', \(tapMod.noSignals))" />{{/toggle}}
           <span style="background:{{fillColor}}" \(slotMod.signalBind("fillColor"))></span>
           {{#toggle}}<button type="button" class="slider-toggle" aria-label="{{label}}"
             \(slotMod.signalBind("value"))
@@ -298,7 +298,7 @@ class SliderHead extends nodes.Node {
     // which is what an accessible name on static markup wants. (`once` would
     // also be legal on structure and is wrong here: a rename would never
     // reach the label at all.)
-    slots { "label"; "value"; "action"; "min"; "max"; "key"; "entity_id" }
+    slots { "label"; "value"; "service"; "targetKind"; "targetId"; "min"; "max"; "entity_id" }
   }
 }
 
@@ -647,11 +647,10 @@ class Slider extends nodes.Node {
     // The toggle variant: no range input, the track itself is the button. A
     // section flag plus the click expression, because `cardDef` is one template
     // shared by every slider on the page — the shape has to travel as a slot.
+    // ONE route per row: the toggle's where the track is a button, the
+    // commit's where it is a range. The commit's value rides after the route.
     when (toggleOnly) {
       ["toggle"] = "1"
-      // The head's ONE tap route. The commit beside it looks like a second, but
-      // it assembles its own URL from `action`/`key` and never touches these —
-      // and the two arms are mutually exclusive anyway.
       // A CLASS, not `disabled`: this track already binds `disabled` to the
       // commit's in-flight signal (`busyAttrsChange`), and one element cannot
       // carry two bindings for one attribute. `tapMod.click`'s guard is what
@@ -659,9 +658,15 @@ class Slider extends nodes.Node {
       for (k, v in tapMod.tapRoute(toggleTap, entity, new Listing {}, "class")) {
         [k] = v
       }
+    } else {
+      for (k, v in tapMod.routeSlots(
+        sliderConfig(action, spec, (s) -> s.action),
+        entity,
+        sliderConfig(key, spec, (s) -> s.key)
+      )) {
+        [k] = v
+      }
     }
-    ["action"] = sliderConfig(action, spec, (s) -> s.action)
-    ["key"] = sliderConfig(key, spec, (s) -> s.key)
     ["min"] = sliderConfig(if (min != null) "\(min)" else null, spec, (s) -> s.min)
     ["max"] = sliderConfig(if (max != null) "\(max)" else null, spec, (s) -> s.max)
   }

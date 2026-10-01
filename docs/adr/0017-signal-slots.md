@@ -196,8 +196,8 @@ the identity cache to repaint a URL nobody ever looks at. Read at click time ins
 two-way test costs no bytes:
 
 ```
-data-on:click="@post('sse/action/home/' + $_e.lock.front.t4d7a74a1
-  + '/lock.front?node=c_4', {filterSignals:{exclude:'.*'}})"
+data-on:click="@post('sse/call/home/' + $_e.lock.front.t4d7a74a1
+  + '/entity/lock.front?node=c_4', {filterSignals:{exclude:'.*'}})"
 ```
 
 Every byte constant; only the signal moves. The request body also stays empty — the handler reads

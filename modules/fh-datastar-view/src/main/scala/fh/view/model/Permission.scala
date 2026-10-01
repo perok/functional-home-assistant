@@ -3,53 +3,48 @@ package fh.view.model
 import api.homeassistant.ServiceTarget
 import api.homeassistant.ws.domain.HaUser
 
-/** May you see this dashboard, and may an action from it touch this entity
-  * (issue #89, ADR 0023), as one value so [[mayAct]] cannot skip [[mayView]].
-  * `names` is a predicate so `Dashboard.referencedEntities` is not copied per
-  * request; `groupCalls` likewise for `Dashboard.groupCalls`.
+/** May you see this dashboard, and may a tap from it make this call (issue #89,
+  * ADR 0023), as one value so [[mayCall]] cannot skip [[mayView]]. `calls` is a
+  * predicate so `Dashboard.calls` is not copied per request.
   */
 final case class Permission(
     access: Access,
-    names: String => Boolean,
-    groupCalls: GroupCall => Boolean = _ => false
+    calls: TapCall => Boolean
 ) {
 
   def mayView(user: Option[HaUser]): Boolean = access.permits(user)
 
-  /** Without the entity half, `Access.Public` would put every entity in the
-    * house one URL edit away. Static is sound: a candidate list does not grow
-    * while it runs (ADR 0003).
+  /** Only the exact combination a tap declares: without it, `Access.Public`
+    * would put every service on every entity in the house one URL edit away,
+    * and an area call reaches entities the dashboard never names. Static is
+    * sound: a candidate list does not grow while it runs (ADR 0003).
     */
-  def mayAct(user: Option[HaUser], entityId: String): Boolean =
-    mayView(user) && names(entityId)
-
-  /** Only the exact combination a tap declares: an area call reaches entities
-    * the dashboard never names, so the service, the target and the value's key
-    * are all part of what was allowed (ADR 0023).
-    */
-  def mayCall(user: Option[HaUser], call: GroupCall): Boolean =
-    mayView(user) && groupCalls(call)
+  def mayCall(user: Option[HaUser], call: TapCall): Boolean =
+    mayView(user) && calls(call)
 }
 
 object Permission {
 
-  /** A missing or failed dashboard: restrictive, and reaching no entity. */
+  /** A missing or failed dashboard: restrictive, and allowing no call. */
   val none: Permission = Permission(Access.default, _ => false)
 }
 
-/** `service` is `"<domain>/<service>"`, as a tap spells it. */
-final case class GroupCall(
+/** A service call a tap declares. `service` is `"<domain>/<service>"`, as a tap
+  * spells it; the value of `dataKey` is free.
+  */
+final case class TapCall(
     service: String,
     target: ServiceTarget,
     dataKey: Option[String]
 ) derives CanEqual
 
-object GroupCall {
+object TapCall {
 
-  /** The kinds a tap may name; an entity goes through the entity route. */
+  /** The target kinds `tap.pkl` emits, as the route spells them. */
   def targetOf(kind: String, id: String): Option[ServiceTarget] = kind match {
-    case "area"  => Some(ServiceTarget.Area(id))
-    case "floor" => Some(ServiceTarget.Floor(id))
-    case _       => None
+    case "entity" => Some(ServiceTarget.Entity(id))
+    case "area"   => Some(ServiceTarget.Area(id))
+    case "floor"  => Some(ServiceTarget.Floor(id))
+    case _        => None
   }
 }

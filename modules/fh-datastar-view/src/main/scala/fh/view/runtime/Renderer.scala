@@ -9,7 +9,6 @@ import fh.view.model.{
   ChromeColors,
   Dashboard,
   DomId,
-  GroupCall,
   LayoutNode,
   NodeId,
   Reads,
@@ -23,7 +22,8 @@ import fh.view.model.{
   SignalId,
   SlotSource,
   SlotValue,
-  Surface
+  Surface,
+  TapCall
 }
 import scala.jdk.CollectionConverters.*
 
@@ -380,14 +380,14 @@ class Renderer(
       case _ => Nil
     }
 
-  /** The bound an action is held to (ADR 0023). The model's static walk, not
-    * [[Index.byEntity]], which stops at a set: this must answer for entities
-    * nothing renders yet.
+  /** The bound a variable write is held to (ADR 0023). The model's static walk,
+    * not [[Index.byEntity]], which stops at a set: this must answer for
+    * entities nothing renders yet.
     */
   def references(entityId: String): Boolean =
     dashboard.referencedEntities.contains(entityId)
 
-  def declares(call: GroupCall): Boolean = dashboard.groupCalls.contains(call)
+  def declares(call: TapCall): Boolean = dashboard.calls.contains(call)
 
   /** Wider than [[references]] — see [[Dashboard.watchedEntities]]. */
   def watchedEntities: Set[String] = dashboard.watchedEntities

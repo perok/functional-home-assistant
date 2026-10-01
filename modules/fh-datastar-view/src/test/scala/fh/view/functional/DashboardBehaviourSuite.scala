@@ -1,6 +1,7 @@
 package fh.view.functional
 
 import fh.view.testkit.{
+  DashboardBuilders,
   FixtureDashboard,
   FixtureEntity,
   HouseFixture,
@@ -74,12 +75,20 @@ class DashboardBehaviourSuite extends FunctionalSuite {
     }.assertEquals("13.1")
   }
 
-  // An action may only reach an entity its dashboard names (ADR 0023), so the
-  // smallest world that records a call is one that shows it.
+  // Only a call its dashboard declares gets through (ADR 0023), so the
+  // smallest world that records one declares it.
+  private def calling(service: String, dataKey: Option[String] = None) =
+    scene.card(
+      DashboardBuilders.col(
+        FixtureDashboard.light("Kitchen", kitchen),
+        FixtureDashboard.call(service, kitchen, dataKey)
+      )
+    )
+
   test("a control click calls the service back into HA") {
-    withServer(scene.card(FixtureDashboard.light("Kitchen", kitchen))) { ts =>
+    withServer(calling("light/toggle")) { ts =>
       ts.post(
-        s"sse/action/${ts.slug}/light/toggle/light.kitchen"
+        s"sse/call/${ts.slug}/light/toggle/entity/light.kitchen"
       ) *> ts.fake.recordedCalls
     }.assertEquals(
       Vector(ServiceCall("light", "toggle", "light.kitchen", Json.obj()))
@@ -87,9 +96,9 @@ class DashboardBehaviourSuite extends FunctionalSuite {
   }
 
   test("a value-carrying control passes its data through to HA") {
-    withServer(scene.card(FixtureDashboard.light("Kitchen", kitchen))) { ts =>
+    withServer(calling("light/turn_on", Some("brightness"))) { ts =>
       ts.post(
-        s"sse/action/${ts.slug}/light/turn_on/light.kitchen/brightness/200"
+        s"sse/call/${ts.slug}/light/turn_on/entity/light.kitchen/brightness/200"
       ) *>
         ts.fake.recordedCalls
     }.assertEquals(
@@ -105,9 +114,9 @@ class DashboardBehaviourSuite extends FunctionalSuite {
   }
 
   test("round-trip: act on HA, then the consequent state reaches the browser") {
-    withServer(scene.card(FixtureDashboard.light("Kitchen", kitchen))) { ts =>
+    withServer(calling("light/turn_off")) { ts =>
       for {
-        _ <- ts.post(s"sse/action/${ts.slug}/light/turn_off/light.kitchen")
+        _ <- ts.post(s"sse/call/${ts.slug}/light/turn_off/entity/light.kitchen")
         // The fake does not simulate HA, so the resulting state change is
         // emitted explicitly.
         sent <- ts.sentAfter(ts.change(kitchen.entityId, "off"))
