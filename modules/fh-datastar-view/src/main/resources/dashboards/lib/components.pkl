@@ -41,15 +41,17 @@ import "components/light.pkl" as lightMod
 import "components/lock.pkl" as lockMod
 import "components/moreinfo.pkl" as moreinfo
 import "components/progress.pkl" as progressMod
+import "components/tap.pkl" as tapVerbs
 import "recipes.pkl" as recipesMod
 
 // ---- namespaces ----
 // A family that reads better grouped than flat. Typed, so an editor can see
 // through them.
 
-/// What a click DOES: `c.tap.toggle`, `c.tap.service("lock/lock")`,
-/// `c.tap.navigate("under")`, `c.tap.openPopup("detail")`.
-hidden tap: tapMod = tapMod
+/// What a click DOES, each verb naming what it acts on: `c.tap.toggle(l)`,
+/// `c.tap.moreInfo(l)`, `c.tap.lights.off(dump.areas.stue)`,
+/// `c.tap.call("scene/turn_on", s)`, `c.tap.navigate("under")`.
+hidden tap: tapVerbs = tapVerbs
 
 /// The simple tier's explicit fast-path constructors for slot values:
 /// `c.simple.attr("brightness")`, `c.simple.percent("brightness", 1, 255)`.
@@ -147,7 +149,7 @@ function toggle(e: hass.Entity): control.Toggle = control.toggle(e)
 function button(l: String, a: tapMod.TapAction): control.Button = control.button(l, a)
 /// The compact form of the same: `c.pill("Underetasje", c.tap.navigate("under"))`.
 function pill(l: String, a: tapMod.TapAction): control.Pill = control.pill(l, a)
-/// A round icon button — a glyph, no label: `c.iconButton("mdi:power", c.tap.toggle)`.
+/// A round icon button — a glyph, no label: `c.iconButton("mdi:power", c.tap.toggle(l))`.
 function iconButton(i: String, a: tapMod.TapAction): control.Button = control.iconButton(i, a)
 /// Value slider — an entity for its domain's default axis, or a capability
 /// group for that axis (`c.slider(l.colourTemp)`).
@@ -178,14 +180,7 @@ function iff(p: pred.Predicate|Boolean): surfaces.If = surfaces.iff(p)
 function expr(s: String): slotMod.Expr = slotMod.expr(s)
 /// The same, bound to a DIFFERENT entity than the card's own.
 function exprOf(eo: hass.Entity, s: String): slotMod.Expr = slotMod.exprOf(eo, s)
-/// What a click does by default on any entity card: its domain's service call,
-/// or more-info where the domain has none. Named so an author can put the same
-/// default on a card they built some other way.
-function defaultTap(e: hass.Entity): tapMod.TapAction = moreinfo.defaultTap(e)
-/// Open `e`'s more-info popup — `c.entityCard(e).tapAction(c.moreInfo(e))`, or
-/// `c.entityCard(e) |> c.informative` where the card already names it.
-function moreInfo(e: hass.Entity): tapMod.TapAction = moreinfo.moreInfo(e)
-/// What that popup holds, for composing it somewhere else.
+/// What `c.tap.moreInfo(e)`'s popup holds, for composing it somewhere else.
 function moreInfoBody(e: hass.Entity): layoutMod.Column = moreinfo.moreInfoBody(e)
 
 // ---- constructors as VALUES ----

@@ -16,7 +16,7 @@ import org.http4s.Status
   */
 class GroupCallSuite extends FunctionalSuite {
 
-  /** What `c.tap.lightsOff(dump.areas.stue)` leaves on its node. */
+  /** What `c.tap.lights.off(dump.areas.stue)` leaves on its node. */
   private val lightsOff: LayoutNode.Component =
     component(
       "light",
@@ -73,7 +73,7 @@ class GroupCallSuite extends FunctionalSuite {
       """amends "@fh-dashboard/entry.pkl"
         |import "@fh-dashboard/components.pkl" as c
         |import "@fh-home/dump.pkl" as dump
-        |card = (c.column) { children { c.button("Stue av", c.tap.lightsOff(dump.areas.stue)) } }
+        |card = (c.column) { children { c.button("Stue av", c.tap.lights.off(dump.areas.stue)) } }
         |""".stripMargin
     TestServer
       .resource(

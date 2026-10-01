@@ -339,8 +339,8 @@ class SliderText extends nodes.Node {
 /// independently, and neither disables the other.
 ///
 ///     c.slider(l).actions(List(
-///       c.sliderAction(l, c.tap.toggle),
-///       c.sliderAction(l, c.moreInfo(l)).icon("mdi:information").lit(false)
+///       c.sliderAction(l, c.tap.toggle(l)),
+///       c.sliderAction(l, c.tap.moreInfo(l)).icon("mdi:information").lit(false)
 ///     ))
 ///
 /// `const` because [[Slider.allActions]] calls it from a class body, which Pkl
@@ -452,7 +452,7 @@ class Slider extends nodes.Node {
   /// (`hass/actions.pkl`), which every domain with a `sliderSpec` row has. It is
   /// a property so an author can point the row at something else without
   /// reaching for a different card.
-  hidden toggleTap: tapMod.TapAction = tapMod.byDomain(entity) ?? tapMod.toggle
+  hidden toggleTap: tapMod.TapAction = tapMod.toggle(entity)
   /// The badge left of the label, defaulting to the entity's OWN icon in Home
   /// Assistant's resolution order (see [[iconFor]]) — so a slider looks like
   /// what it drives without being told. An MDI name (`mdi:lightbulb-group`)
@@ -655,7 +655,7 @@ class Slider extends nodes.Node {
       // commit's in-flight signal (`busyAttrsChange`), and one element cannot
       // carry two bindings for one attribute. `tapMod.click`'s guard is what
       // actually refuses the press here.
-      for (k, v in tapMod.tapRoute(toggleTap, entity, new Listing {}, "class")) {
+      for (k, v in tapMod.tapRoute(toggleTap, new Listing {}, "class")) {
         [k] = v
       }
     } else {
@@ -754,7 +754,7 @@ class Slider extends nodes.Node {
   /// [[tapAction]], which stays first.
   ///
   ///     c.slider(l)
-  ///       .tapAction(c.tap.toggle)
+  ///       .tapAction(c.tap.toggle(l))
   ///       .actions(List(c.sliderAction(l, c.tap.moreInfo(l))
   ///         .icon("mdi:information").lit(false)))
   function actions(xs: List<control.Button>): Slider =

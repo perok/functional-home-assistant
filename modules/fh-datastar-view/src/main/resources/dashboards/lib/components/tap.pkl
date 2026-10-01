@@ -1,0 +1,76 @@
+/// What a click does — `c.tap`. Every verb names what it acts on, after HA's
+/// `tap_action` variants, so a tap means the same on any card:
+///
+///     c.button("Kjøkken", c.tap.toggle(dump.entities.kjokken))
+///     c.entityCard(l).tapAction(c.tap.moreInfo(l))
+///     c.button("Stue av", c.tap.lights.off(dump.areas.stue))
+///     c.pill("Kveld", c.tap.call("scene/turn_on", dump.entities.kveld))
+///
+/// A dashboard-tier module because [[moreInfo]] is a component; the tap kit a
+/// component author builds on is `core/tap.pkl`.
+module components.tap
+
+import "../core/tap.pkl" as core
+import "../core/node.pkl" as nodes
+import "../hass.pkl"
+import "moreinfo.pkl" as moreinfo
+
+/// Toggle `e`: its domain's own service where `hass/actions.pkl` names one, HA's
+/// domain-dispatching `homeassistant/toggle` otherwise.
+function toggle(e: hass.Entity): core.Call = core.toggle(e)
+
+/// What a tap on an entity card does unless told otherwise: its domain's
+/// service where it has one, more-info where it does not (ADR 0016).
+function default(e: hass.Entity): core.TapAction = moreinfo.defaultTap(e)
+
+/// Open `e`'s more-info popup: its card, its domain's controls, and every
+/// attribute it reports.
+function moreInfo(e: hass.Entity): core.Click = moreinfo.moreInfo(e)
+
+/// `service` on `target`, for any service with no typed verb here. Carry one
+/// value with `.with(key, value)`:
+/// `c.tap.call("light/turn_on", l).with("effect", "colorloop")`.
+///
+/// An area or floor reaches every entity HA puts there when the call runs, so
+/// a light added to the room later is included (issue #389).
+function call(service: String, target: core.Target): core.Call =
+  core.call(service, target)
+
+/// Go to dashboard `slug`.
+function navigate(slug: String): core.Click = core.navigate(slug)
+
+/// Open the surface registered under `surfaceId`.
+function openPopup(surfaceId: String): core.Click = core.openPopup(surfaceId)
+
+/// Open a popup holding `body`.
+function openPopupInline(body: nodes.LayoutNode): core.Click = core.openPopupInline(body)
+
+/// Close the open popup.
+function closePopup(): core.Click = core.closePopup()
+
+/// `c.tap.lights.off(dump.areas.stue)` — on a light, a room or a floor.
+class Lights {
+  function on(scope: hass.LightEntity|hass.Area|hass.Floor): core.Call =
+    core.call("light/turn_on", scope)
+  function off(scope: hass.LightEntity|hass.Area|hass.Floor): core.Call =
+    core.call("light/turn_off", scope)
+  /// HA toggles each light on its own: in a half-lit room the lit ones go off
+  /// and the others come on.
+  function toggle(scope: hass.LightEntity|hass.Area|hass.Floor): core.Call =
+    core.call("light/toggle", scope)
+}
+
+hidden lights: Lights = new {}
+
+/// `c.tap.locks.openLatch(l)`. A lock tile's own tap is [[toggle]], which picks
+/// `lock` or `unlock` from the state.
+class Locks {
+  function lock(l: hass.LockEntity): core.Call = core.call("lock/lock", l)
+  function unlock(l: hass.LockEntity): core.Call = core.call("lock/unlock", l)
+  /// HA's `lock/open`: the door opens, not just unlocks. `open` itself is a Pkl
+  /// keyword. `hass/lock.pkl`'s `CANNOT_OPEN` is when a card should refuse
+  /// it.
+  function openLatch(l: hass.LockEntity): core.Call = core.call("lock/open", l)
+}
+
+hidden locks: Locks = new {}

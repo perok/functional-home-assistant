@@ -169,7 +169,7 @@ class ProgressCard extends nodes.Node {
       }
       ["hasBar"] = "1"
     }
-    for (k, v in tapMod.tapSlots(tapAction, entity, "class")) {
+    for (k, v in tapMod.tapSlots(tapAction, "class")) {
       [k] = v
     }
   }

@@ -536,11 +536,11 @@ class PklBuildSuite extends munit.FunSuite {
         |
         |node = (c.column) {
         |  children {
-        |    c.button("Off", c.tap.lightsOff(dump.areas.kjokken))
-        |    c.button("Floor", c.tap.floorCall(dump.ground_floor, "switch/turn_off"))
+        |    c.button("Off", c.tap.lights.off(dump.areas.kjokken))
+        |    c.button("Floor", c.tap.call("switch/turn_off", dump.ground_floor))
         |    c.button("Toggle", c.tap.toggle(dump.entities.light_kitchen))
         |    c.entityCard(dump.entities.light_kitchen)
-        |      .tapAction(c.tap.serviceValue("light/turn_on", "effect", "colorloop"))
+        |      .tapAction(c.tap.call("light/turn_on", dump.entities.light_kitchen).with("effect", "colorloop"))
         |  }
         |}
         |""".stripMargin
@@ -898,7 +898,7 @@ class PklBuildSuite extends munit.FunSuite {
        |  children {
        |    c.title("Features")
        |    c.entityCard(dump.entities.sensor_outside_temp)
-       |    c.entityCard(dump.entities.light_kitchen).tapAction(c.tap.toggle)
+       |    c.entityCard(dump.entities.light_kitchen).tapAction(c.tap.call("homeassistant/toggle", dump.entities.light_kitchen))
        |    c.entityCard(dump.entities.light_kitchen) |> c.informative
        |    c.slider(dump.entities.light_kitchen)
        |    q.from(dump.lights)
@@ -1296,8 +1296,8 @@ class PklBuildSuite extends munit.FunSuite {
         |
         |x: hass.LightEntity = new { entity_id = "light.kitchen" }
         |
-        |call = (c.entityCard(x)) { tapAction = c.tap.toggle }
-        |ctor = new c.EntityCard { entity = x; tapAction = c.tap.toggle }
+        |call = (c.entityCard(x)) { tapAction = c.tap.call("homeassistant/toggle", x) }
+        |ctor = new c.EntityCard { entity = x; tapAction = c.tap.call("homeassistant/toggle", x) }
         |""".stripMargin
     )
     val result = evalProj(tmp, "probe.pkl")
@@ -1323,9 +1323,9 @@ class PklBuildSuite extends munit.FunSuite {
         |
         |x: hass.LightEntity = new { entity_id = "light.kitchen" }
         |
-        |cardBuilder = c.entityCard(x).tapAction(c.tap.toggle).label("Office")
-        |cardAmend = (c.entityCard(x)) { tapAction = c.tap.toggle; label = "Office" }
-        |cardCtor = new c.EntityCard { entity = x; tapAction = c.tap.toggle; label = "Office" }
+        |cardBuilder = c.entityCard(x).tapAction(c.tap.call("homeassistant/toggle", x)).label("Office")
+        |cardAmend = (c.entityCard(x)) { tapAction = c.tap.call("homeassistant/toggle", x); label = "Office" }
+        |cardCtor = new c.EntityCard { entity = x; tapAction = c.tap.call("homeassistant/toggle", x); label = "Office" }
         |
         |btnBuilder = c.button("Close", c.tap.closePopup()).label("Dismiss")
         |btnAmend = new c.Button { label = "Dismiss"; tapAction = c.tap.closePopup() }
@@ -1560,7 +1560,7 @@ class PklBuildSuite extends munit.FunSuite {
     assert(!nav.slots.contains("onclick"), clue = nav.slots)
     val toggle = probeComponent(
       """light: hass.LightEntity = new { entity_id = "light.kitchen" }
-        |node = c.button("Toggle", c.tap.toggle).entity(light)""".stripMargin
+        |node = c.button("Toggle", c.tap.call("homeassistant/toggle", light)).entity(light)""".stripMargin
     )
     assert(!toggle.slots.contains("href"), clue = toggle.slots)
     // The template assembles the URL around the service (ADR 0017), so no slot
@@ -1644,7 +1644,7 @@ class PklBuildSuite extends munit.FunSuite {
       """light: hass.GenericEntity = new { entity_id = "light.lys"; domain = "light" }
         |a: hass.GenericEntity = new { entity_id = "light.a"; domain = "light" }
         |cover: hass.GenericEntity = new { entity_id = "cover.blind"; domain = "cover" }
-        |node = (c.slider(light).withSubSliders(List(a, cover).map((m) -> c.slider(m).readout("percent")))) { icon = "mdi:lightbulb-group"; tapAction = c.tap.toggle }
+        |node = (c.slider(light).withSubSliders(List(a, cover).map((m) -> c.slider(m).readout("percent")))) { icon = "mdi:lightbulb-group"; tapAction = c.tap.call("homeassistant/toggle", light) }
         |""".stripMargin
     )
     assertEquals(group.card, "slider")
