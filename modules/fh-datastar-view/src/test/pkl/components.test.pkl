@@ -403,7 +403,7 @@ facts {
     // The same button with a SERVICE tap is fine, which is what makes the
     // check about the link rather than about `inertWhile`.
     c.entityButton(latchLock)
-      .tapAction(c.tap.locks.unlatch(latchLock))
+      .tapAction(c.tap.locks.openLatch(latchLock))
       .inertWhile(List("opening"))
       .slots["inert"].signal == "attr:disabled"
   }
@@ -876,7 +876,7 @@ facts {
   ["a typed verb is `call` with the service filled in"] {
     c.tap.lights.off(stue) == c.tap.call("light/turn_off", stue)
     c.tap.lights.toggle(kitchen) == c.tap.call("light/toggle", kitchen)
-    c.tap.locks.unlatch(latchLock) == c.tap.call("lock/open", latchLock)
+    c.tap.locks.openLatch(latchLock) == c.tap.call("lock/open", latchLock)
     // The entity card's default, spelled for any card: the domain's service, or
     // more-info where there is none.
     c.tap.default(kitchen) == c.tap.toggle(kitchen)
