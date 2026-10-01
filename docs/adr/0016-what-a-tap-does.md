@@ -41,7 +41,7 @@ the `{{{action}}}` slot). Before this, `Button.action` held a `TapAction` while
 
 **A tap names what it acts on.** A `TapAction` is a `Call` — a service on a
 `Target` (an entity, an area or a floor) — or a `Click` (navigate, open or
-close a surface), and a `Call`'s route, its inert check and a state-picked
+close a surface), and a `Call`'s route, its refusal and a state-picked
 service all read the TARGET, never the card it sits on. So a card may show one
 entity and act on another, or act while showing none:
 `c.button("Kjøkken", c.tap.toggle(kitchen))`. The alternative this replaced let
@@ -52,8 +52,9 @@ allow only the exact calls a dashboard declares (ADR 0023).
 
 So the base `c.button` knows nothing but its label, glyph and tap, and a button
 ABOUT an entity is one layer up: `c.entityButton(e)` — named after it, its
-domain's tap by default, `lit` while it is on — on the same card (issue #329's split between a baseline component and one tied to a
-domain; a device component would follow the same pattern).
+domain's tap by default, tinted with `.active(c.isOn(e))` — a thin layer over
+the same card (ADR 0015; issue #329's split between a baseline component and one
+tied to a domain; a device component would follow the same pattern).
 
 The verbs are HA's `tap_action` variants, each taking its target, with no
 `Tap` suffix because the namespace already says it: `c.tap.toggle(e)`,
@@ -148,8 +149,8 @@ action, that is `moreInfo(e)` — the popup from issue #106's first half. So
 domain implies, or shows you everything it knows. `tapAction = null` is the
 explicit opt-out.
 
-A card DOES render inert, but only where the press would be refused, and that is
-two facts rather than one (`tap.inertStates`):
+A card DOES render disabled, but only where the press would be refused, and that
+is two facts rather than one (`tap.refusedStates`):
 
 - the **call's own** states (`Call.disabledWhile`) — the domain's transitional
   ones for a state-picked tap (`CallByState.disabledWhile`: a lock read as
@@ -165,6 +166,13 @@ that posts `lock/open` went unguarded. On the call, every card that sends it
 refuses alike. A card with a reason of its OWN — a popup opener, which carries
 no call — says so with a live reading, `Button.disabled` (`c.stateIn(e, …)`),
 ORed with its tap's in one `data-attr`.
+
+The tap contributes ONE slot, `tapDisabled`, a Boolean reading of its target
+that every card reads the same way. How it shows is the host's, in two parts.
+A form control also takes the real `disabled` attribute. Every guarded element
+wears `fh-disabled`, the same "you cannot use this" look a tap in flight gets
+(the busy guard binds one `data-class:fh-disabled` ORing both). So a tile dims
+while refused just as it does while busy.
 
 Unavailability is deliberately NOT a row in the table or a verb's list. It is
 one rule, and it would otherwise be repeated everywhere. It applies to service

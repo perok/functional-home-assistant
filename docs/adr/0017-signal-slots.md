@@ -477,7 +477,7 @@ Together those took the signal-slot premium on a 200-leaf page from ~2.5x a sign
   (nothing to patch), and a card declaring a signal slot whose template never places
   `{{{<slot>__bind}}}` (the patch form withholds the value and nothing puts it back).
 - Applied to `entityCard`'s `value` and, where the domain has a state glyph, its `icon`; to the
-  `inert` class of a tap whose domain declares transitional states; to the `service` of a
+  `tapDisabled` reading of a service tap on an entity, as a `handler` signal; to the `service` of a
   `CallByState` tap, as a `handler` signal; and to all four of the slider's moving slots. `label`
   stays a registry fact and never moves.
 

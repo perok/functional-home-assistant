@@ -96,7 +96,9 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
       // signal.
       assert(html.contains("data-indicator=\"_c_2__busy\""), clue = html)
       assert(
-        html.contains("data-class:fh-disabled=\"$_c_2__busy\""),
+        html.contains(
+          "data-class:fh-disabled=\"$_c_2__busy || $_e.light.kitchen."
+        ),
         clue = html
       )
       assert(
@@ -104,7 +106,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
         clue = html
       )
       // Neither guard subsumes the other: busy is this tap's POST in flight,
-      // inert is an entity state that refuses the press.
+      // tapDisabled is an entity state that refuses the press.
       assert(
         html.contains(
           "data-on:click=\"$_c_2__busy ? '' : $_e.light.kitchen."
@@ -176,7 +178,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
             clue = html
           )
           assert(
-            html.contains(s"""data-class:fh-disabled="$$$button""""),
+            html.contains(s"""data-class:fh-disabled="$$$button || """),
             clue = html
           )
           assert(
@@ -235,7 +237,10 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
               html.contains("data-on:click=\"$_c_0__busy ? '' : "),
               clue = html
             )
-            assert(!html.contains("data-class:fh-disabled"), clue = html)
+            assert(
+              !html.contains("data-class:fh-disabled=\"$_c_0__busy"),
+              clue = html
+            )
             assert(!html.contains("data-class:fh-loading"), clue = html)
           }
         }
@@ -258,7 +263,10 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
               ),
               clue = html
             )
-            assert(!html.contains("data-class:fh-disabled"), clue = html)
+            assert(
+              !html.contains("data-class:fh-disabled=\"$_c_0__busy"),
+              clue = html
+            )
             assert(!html.contains("data-class:fh-loading"), clue = html)
           }
         }
@@ -440,7 +448,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
           assert(
             html.contains(
               "data-on:click=\"$_c_0_head_0__busy_change ? '' : " +
-                "$_e.light.plug.t722a9eca ? '' : " +
+                "$_e.light.plug.t9e4d7fac ? '' : " +
                 "@post('sse/call/fixture-plug/' + 'light/toggle' + " +
                 "'/entity/light.plug?node=c_0_head_0'"
             ),
@@ -519,10 +527,10 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
           assert(lockedHtml.contains("'lock/unlock'"), clue = lockedHtml)
           assert(unlockedHtml.contains("'lock/lock'"), clue = unlockedHtml)
 
-          // Transitional states bind the inert class (ADR 0016), so a tap
+          // Transitional states join the disabled look (ADR 0016), so a tap
           // mid-move cannot fight the running command.
           assert(
-            lockedHtml.contains("data-class:fh-inert"),
+            lockedHtml.contains(" || $_e.lock.front_door."),
             clue = lockedHtml
           )
         }
@@ -530,13 +538,16 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
       .timeout(60.seconds)
   }
 
-  test("a lock mid-move is inert, and a lock at rest is not") {
+  test("a lock mid-move is disabled, and a lock at rest is not") {
     (lockPage("locked"), lockPage("unlocking"))
       .mapN {
         case ((restHtml, _), (movingHtml, _)) => {
-          assert(movingHtml.contains("fh-inert"), clue = movingHtml)
           assert(
-            !restHtml.contains("card entity tappable fh-inert"),
+            movingHtml.contains("card entity tappable fh-disabled"),
+            clue = movingHtml
+          )
+          assert(
+            !restHtml.contains("card entity tappable fh-disabled"),
             clue = restHtml
           )
         }
