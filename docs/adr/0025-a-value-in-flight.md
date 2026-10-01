@@ -5,7 +5,7 @@
 - **Scope:** `runtime/SurfaceGraph.scala` (`committedSelection`,
   `committedSelections`), `runtime/Server.scala` (`swapHost`,
   `openingSignals`), `runtime/Datastar.scala` (the no-null rule),
-  `lib/core/tap.pkl`, `lib/components/surface.pkl`,
+  `lib/core/tap.pkl`, `lib/components/base/surface.pkl`,
   `lib/components/slider.pkl`
 - **Closes:** ADR 0024's open question. **Uses:** ADR 0005's `ui_<id>` signal
   and URL mirror, which this makes honest.

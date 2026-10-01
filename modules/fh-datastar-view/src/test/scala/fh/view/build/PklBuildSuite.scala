@@ -798,7 +798,8 @@ class PklBuildSuite extends munit.FunSuite {
       "fhgrid" -> Nil,
       "sectionTitle" -> List("label"),
       "label" -> List("label", "tone"),
-      "entityCard" -> List("label", "value", "entity_id"),
+      // The base tile; only the HA layer adds a subject.
+      "entityCard" -> List("label", "value"),
       "entityInfo" -> List("entity_id", "attributes"),
       // A declared slot is one every node of the card carries, so optional ones
       // (`href`/`onclick`, `icon`, `group`, `secondary`) are not listed.

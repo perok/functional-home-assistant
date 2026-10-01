@@ -719,7 +719,7 @@ const function pendingOrCommittedOf(groupId: String, committed: String): String 
 /// to write, on the swap this POST asks for — before, the click set it here and
 /// a POST that never landed left the URL claiming a panel the DOM did not have
 /// (ADR 0024's open half). Public only because the bar is built in
-/// `components/surface.pkl`, which cannot reach a `const local`.
+/// `components/base/surface.pkl`, which cannot reach a `const local`.
 const function selectSurface(surfaceId: String, groupId: String, value: String): slotMod.Slot =
   openSurfaceOnclick(surfaceId, "$" + pendingSignal(groupId) + " = '" + value + "'; ", groupId)
 

@@ -195,8 +195,10 @@ decision; this plan ships `c.isOn(e)`.
    `cellClasses`/`liveClasses` inputs, so builder order cannot drop `active`. Tests: no
    `components/base/` module imports a `hass` module (`BaseComponentsSuite`), an
    entity button equals the base built by hand, and builder order leaves the cell equal.
-4. **`Switch` and `Tile`**, with `Toggle` and `EntityCard` thin on top. Text, tabs and `If`
-   move to `base/`.
+4. **`Switch` and `Tile`**, with `Toggle` and `EntityCard` thin on top. Text, tabs, `If`
+   and `CardFeatures` move to `base/`. The registry names stay `toggle` and `entityCard`,
+   so the wire does not move. The module is `base/onoff.pkl`, because `switch` is a Pkl
+   keyword.
 5. **The slider**: a base range control and `Slider` thin on top. It is the largest card
    (`slider.pkl`, ~1000 lines). If step 4 shows the cost, this becomes its own plan.
 6. **Close.** ADR 0015 rewritten for the split, terminology (`Reading`, `active`,

@@ -31,12 +31,15 @@ import "core/surface.pkl" as surfaceMod
 import "core/predicate.pkl" as pred
 import "core/access.pkl" as accessMod
 import "layout.pkl" as layoutMod
-import "components/text.pkl" as textMod
+import "components/base/text.pkl" as textMod
 import "components/entity.pkl" as entityMod
 import "components/control.pkl" as control
 import "components/base/button.pkl" as buttonMod
+import "components/base/onoff.pkl" as switchMod
+import "components/base/tile.pkl" as tileMod
+import "components/base/features.pkl" as featuresMod
 import "components/slider.pkl" as sliderMod
-import "components/surface.pkl" as surfaces
+import "components/base/surface.pkl" as surfaces
 import "components/history.pkl" as historyMod
 import "components/light.pkl" as lightMod
 import "components/lock.pkl" as lockMod
@@ -218,6 +221,9 @@ const modules: List<Module> = List(
   textMod,
   entityMod,
   buttonMod,
+  switchMod,
+  tileMod,
+  featuresMod,
   control,
   sliderMod,
   surfaces,
