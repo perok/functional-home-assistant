@@ -21,12 +21,14 @@ guarded.
 
 ## The design
 
-**`components/base/range.pkl`: `Range`, plus the head and text nodes it builds.** It knows
-no entity. The HA `Slider` extends it, holds the axis (`on`/`entity`) and the per-domain
-table, and assigns `Range`'s inputs:
+**`components/base/slider.pkl`: `Slider`, plus the head and text nodes it builds.** It
+knows no entity. The HA class becomes `EntitySlider`, as `Button`/`EntityButton` are: it
+extends the base, holds the axis (`on`/`entity`) and the per-domain table, and assigns the
+base's inputs. The facade follows: `c.entitySlider(axis)` is today's `c.slider(axis)`, and
+`c.slider` is the base.
 
 ```pkl
-open class Range extends nodes.Node {
+open class Slider extends nodes.Node {
   hidden label: String|slotMod.Reading
   hidden secondary: (String|slotMod.Reading)? = null
   hidden icon: String? = null
@@ -57,16 +59,17 @@ from one attribute name (`simpleMod.attr`/`fill`/`percent`), so it keeps doing t
 **The commit is a `Call`** with a `dataKey` and no `dataValue`, because the drag supplies
 the value. `Call` documents the two as "both null or both set", so the commit becomes the
 one documented exception. `tapRoute` keys `dataValue` on `dataKey` today (`dataValue!!`),
-so step 2 keys it on `dataValue` instead. It goes through `tapRoute`, so it gets `tapDisabled` like every other
-tap: the input is disabled and the track wears `fh-disabled` while the target is
-unavailable or in a `disabledWhile` state. That fixes the bug above as a consequence of the
+so step 2 keys it on `dataValue` instead. It goes through `tapRoute`, so it gets
+`tapDisabled` like every other tap: the input is disabled and the track wears `fh-disabled`
+while the target is unavailable. Only unavailable: the commit is a plain `call`, so its
+`disabledWhile` is empty, and a cover that is `opening` takes a new position as it should. That fixes the bug above as a consequence of the
 split, not a patch beside it. The input already binds `disabled` to the commit's busy
 signal, so the OR is the same `attrWhenEither` shape `Button` uses.
 
-**`press` is the toggle-only variant**, kept as one card. Today `toggleOnly` swaps the range
+**`press` is the toggle-only variant**, one card. Today `toggleOnly` swaps the range
 input for a full-width button inside the same pill. A separate base card would make a
-group's rows two cards for one look. `Range` takes `press: TapAction?`; set, it renders the
-button and no input. The HA `Slider` sets it from `toggleOnly`, as it decides today.
+group's rows two cards for one look. The base takes `press: TapAction?`; set, it renders
+the button and no input. `EntitySlider` sets it from `toggleOnly`, as it decides today.
 
 **What stays HA.** `SlideAxis`, `sliderSpec`, `toggleOnly`, the RGB and kelvin fill
 expressions, the `"state"`/`"percent"` readout names, `valueExpr`/`percentExpr` (the splice
@@ -76,11 +79,12 @@ this entity", which is the HA layer's job by definition.
 **The wire does not move.** The registry names stay `slider`, `sliderHead` and
 `sliderText`, and the slot names stay what they are. A slider built today and the same
 slider built after the split must serialise to the same bytes, apart from the new
-`tapDisabled` slot on the commit. That is the test for the move (step 3).
+`tapDisabled` slot on the commit. That is the test for the rename and the move (steps 3
+and 4).
 
 ```pkl
-// author view: a range over something that is not an HA attribute
-(rangeMod.Range) {
+// author view: a slider over something that is not an HA attribute
+(c.slider) {
   label = "Volume"
   min = 0; max = 100
   position = c.exprOf(amp, "attr[?'volume'].orValue(0)")
@@ -96,21 +100,15 @@ slider built after the split must serialise to the same bytes, apart from the ne
    input ORs `tapDisabled` with its busy signal, and the track dims. Fact: every slider's
    commit node carries `tapDisabled` on its target, and a browser test that an unavailable
    slider's input is disabled. Before the move, so the behaviour change has a PR of its own.
-3. **`base/range.pkl`.** `Range`, with `SliderHead`/`SliderText` moved under it.
-   `Slider extends Range` under the thin rule. Tests: the wire snapshots and visual
-   baselines do not change; a `Slider` equals the `Range` built by hand with its inputs;
-   `BaseComponentsSuite` covers the new module.
-4. **Close.** ADR 0015's table, terminology (if `Range` is a new word), the module
-   `CLAUDE.md`, and this plan deleted once the maintainer agrees.
-
-## Open questions
-
-- `press` on `Range` (one card, as above), or a separate base `Bar` card for the toggle-only
-  track.
-- Whether step 2 should also refuse while the target is in its domain's transitional states
-  (a cover `opening`), as `byDomain` taps do, or only while unavailable.
-- The name: `Range` (what it is) or `Slider` with the HA class renamed `EntitySlider`, which
-  would match `EntityButton` but rename the most-used card in the facade.
+3. **The rename.** `Slider` → `EntitySlider`, `c.slider` → `c.entitySlider` (the
+   `render = c.slider` lambda form too), across the lib, the demo dashboards, the tests
+   and the ADRs. Nothing else, so the diff reads as a rename and the wire does not move.
+4. **`base/slider.pkl`.** The base `Slider`, with `SliderHead`/`SliderText` moved under
+   it, and `c.slider` pointing at it. `EntitySlider extends Slider` under the thin rule.
+   Tests: the wire snapshots and visual baselines do not change; an `EntitySlider` equals
+   the base built by hand with its inputs; `BaseComponentsSuite` covers the new module.
+5. **Close.** ADR 0015's table, the module `CLAUDE.md`, and this plan deleted once the
+   maintainer agrees.
 
 ## Not in scope
 
