@@ -12,6 +12,8 @@ import "../../main/resources/dashboards/lib/core/css.pkl" as cssMod
 import "../../main/resources/dashboards/lib/core/slot.pkl" as slotMod
 import "../../main/resources/dashboards/lib/core/simple.pkl" as simpleMod
 import "../../main/resources/dashboards/lib/components/history.pkl" as historyMod
+import "../../main/resources/dashboards/lib/components/base/onoff.pkl" as switchMod
+import "../../main/resources/dashboards/lib/components/base/tile.pkl" as tileMod
 import "../../main/resources/dashboards/lib/core/text.pkl" as textMod
 import "../../main/resources/dashboards/lib/query.pkl" as q
 import "../../main/resources/dashboards/lib/hass.pkl" as hass
@@ -653,6 +655,35 @@ facts {
     c.entityButton(kitchen).active(c.isOn(kitchen)).cell.classWhen["fh-active"].signal
       == "class:fh-active"
     c.cards["button"].css.contains(".fh-cell.fh-active>")
+  }
+
+  ["a toggle and an entity card are their base built by hand, and nothing more"] {
+    local sw = new switchMod.Switch {
+      label = kitchen.entity_id
+      on = new slotMod.Slot {
+        transform = simpleMod.enumOf("on", "on", "")
+        default = ""
+        bypassUnavailable = false
+      }
+      tapAction = c.tap.toggle(kitchen)
+      subject = kitchen.entity_id
+    }
+    c.toggle(kitchen).slots == sw.slots
+    c.toggle(kitchen).cardDef == sw.cardDef
+    // A plain sensor: no state icon, so its glyph is the domain's literal.
+    local tile = new tileMod.Tile {
+      title = outside.entity_id
+      reading = slotMod.valueSlot(null)
+      glyph = "mdi mdi-eye"
+      tapAction = c.tap.default(outside)
+      subject = outside.entity_id
+    }
+    c.entityCard(outside).slots == tile.slots
+    c.entityCard(outside).cardDef == tile.cardDef
+    // The entity card's own inputs mean something about ITS entity — an
+    // attribute name — and become a tile reading.
+    c.entityCard(outside).value("battery").slots
+      == (tile) { reading = slotMod.valueSlot("battery") }.slots
   }
 
   ["a button's cell is the same whichever order its builders run in"] {

@@ -1,0 +1,110 @@
+/// An on/off switch that knows nothing about Home Assistant: a label, a reading
+/// that says whether it is on, and the tap that flips it. A switch ABOUT an
+/// entity is `components/control.pkl`'s `Toggle`, which only fills these.
+module components.base.onoff
+
+import "../../core/node.pkl" as nodes
+import "../../core/slot.pkl" as slotMod
+import "../../core/tap.pkl" as tapMod
+import "../../core/text.pkl" as textMod
+import "button.pkl" as buttonMod
+
+/// Put a refused switch back where the SERVER last had it.
+///
+/// `checked` is two-way bound, so a press moves it immediately and waits to be
+/// confirmed. A refusal is exactly the case where confirmation never comes — HA
+/// changed nothing, so no state frame follows — and the switch then sits in the
+/// one position known to be wrong, until something unrelated moves the entity.
+///
+/// Truth is the `switched` slot: the SAME reading as `checked`, so this is a
+/// copy and not a mapping, but a shared server-owned signal rather than the
+/// node-scoped one `data-bind` writes into. Two signals is the point — a
+/// control that can be moved locally needs somewhere the local move cannot
+/// reach, which is the same split the slider makes between its committed value
+/// and `_slide`.
+const local restoreSwitch: String =
+  tapMod.restoreOnRefusal(
+    "$" + slotMod.signalRef("checked") + " = $" + slotMod.signalRef("switched")
+  )
+
+/// On/off control — BeerCSS's `.switch` (a checkbox styled as a MD3 switch:
+/// `<label class="switch"><input type="checkbox"><span></span></label>`).
+/// Unlike a button or a pill, the checkbox itself must show which state it is
+/// IN, not just act on it, so [[on]] is a live reading — the same
+/// baked-attribute move as the slider's fill, and for the same reason: an SSE
+/// morph only replaces markup, so the state must already be in the HTML it
+/// sends rather than something a client script re-derives. Always calls a
+/// service (there is no href arm — a checkbox cannot be an `<a>`).
+///
+/// A refused command puts the switch BACK — see [[restoreSwitch]]. Optimism
+/// plus no rollback is the one combination that leaves a control lying.
+open class Switch extends nodes.Node {
+  card = "toggle"
+  cardDef = new nodes.CardDef {
+    template = """
+      <article class="card row toggle" \(slotMod.signalBind("switched"))\(tapMod.guardLook)>
+        <span class="max \(textMod.BOX)">\(textMod.run("label"))</span>
+        <label class="switch">
+          <input type="checkbox" value="on" {{#checked}}checked{{/checked}} \(slotMod.signalBind("checked")) data-on:click="\(tapMod.guardClick)\(tapMod.click)"\(slotMod.ifSlot("inert")){{#inert}} disabled{{/inert}} \(slotMod.signalBind("inert"))\(slotMod.endIfSlot("inert")) \(restoreSwitch)\(tapMod.guardMechanism) />
+          <span></span>
+        </label>
+      </article>
+      """
+    slots { "label" }
+    // The `toggle` class exists only so this rule has something to name — a
+    // framework's `.row` is a shared class and must not be retuned through it.
+    //
+    // A flex item's automatic minimum size is its CONTENT, so a long label
+    // pushed the switch off the card's right edge — the control the card exists
+    // for, gone. The label giving way is `core/text.pkl`'s `min-inline-size:0`;
+    // this is the other half, and it has to be said here: the SWITCH must never
+    // be the thing that shrinks.
+    css = """
+      .card.row.toggle>.switch{flex:0 0 auto}
+      """
+  }
+  hidden label: (String|slotMod.Expr)? = null
+  /// Whether the switch is on, as a reading that yields `"on"` or `""` — the
+  /// strings, because the bundle's checkbox setter compares a string signal
+  /// against the input's `value="on"`, and an empty string is what collapses
+  /// the document form's `{{#checked}}` section.
+  ///
+  /// It feeds TWO slots, which is why the switch takes it once and binds it
+  /// itself: `checked`, a TWO-WAY signal (ADR 0017) — `data-attr:checked` sets
+  /// the ATTRIBUTE, and after load the browser reads the PROPERTY, so an
+  /// attribute patch would move nothing — and `switched`, the same reading on
+  /// a SHARED signal the press cannot overwrite ([[restoreSwitch]]). It rides a
+  /// `data-` attribute because it needs some binding to exist, and having it in
+  /// the DOM makes the rollback inspectable.
+  ///
+  /// Two-way is a small behaviour change worth naming: a click moves the
+  /// signal immediately, so the switch flips optimistically. What confirms it
+  /// is the next state frame — and a REFUSED command produces none.
+  hidden on: slotMod.Slot
+  /// What pressing it does, and required: a switch that cannot be switched is
+  /// not a thing.
+  hidden tapAction: tapMod.TapAction = throw(buttonMod.noAction("c.switch"))
+  inlineSurfaces = tapAction.inlineSurfaces
+  /// The entity a reading that names none reads — see `Button.subject`. The HA
+  /// layer sets it.
+  hidden subject: String? = null
+  slots {
+    when (subject != null) {
+      ["entity_id"] = subject!!
+    }
+    ["label"] = slotMod.labelSlot(null, label)
+    ["checked"] = (on) { signal = slotMod.asBind }
+    ["switched"] = (on) { signal = slotMod.asAttr("data-switched") }
+    for (k, v in tapMod.tapRoute(tapAction, "disabled")) {
+      [k] = v
+    }
+    when (tapAction.busy) {
+      ["busy"] = "1"
+    }
+    when (tapAction.busy && tapAction.busyVisual) {
+      ["busyVisual"] = "1"
+    }
+  }
+  function label(l: String|slotMod.Expr): Switch = let (self = this) (self) { label = l }
+  function tapAction(a: tapMod.TapAction): Switch = let (self = this) (self) { tapAction = a }
+}

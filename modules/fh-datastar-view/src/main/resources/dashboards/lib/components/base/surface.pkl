@@ -4,14 +4,14 @@
 /// Both are pure composition over `core/surface.pkl` — the backend reads only
 /// structural surface fields and never a card name (ADR 0002/0007). The popup
 /// dialog itself lives in `core/surface.pkl`, with the mechanism that wraps it.
-module components.surface
+module components.base.surface
 
-import "../core/node.pkl" as nodes
-import "../core/slot.pkl" as slotMod
-import "../core/surface.pkl" as surfaceMod
-import "../core/predicate.pkl" as pred
-import "../core/tap.pkl" as tapMod
-import "../layout.pkl" as layout
+import "../../core/node.pkl" as nodes
+import "../../core/slot.pkl" as slotMod
+import "../../core/surface.pkl" as surfaceMod
+import "../../core/predicate.pkl" as pred
+import "../../core/tap.pkl" as tapMod
+import "../../layout.pkl" as layout
 
 /// One tab in the [[Tabs]] bar — BeerCSS's NATIVE tab markup (`.tabs > a`
 /// anchors), so the MD3 tab look (underline active indicator, hover/press
