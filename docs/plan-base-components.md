@@ -87,12 +87,17 @@ buttons by position, but on the cell class:
 becomes `c.entityButton(e)` with `active = c.isOn(e)`, and the info action in its doc says
 `.active(false)`.
 
-**A tap carries its own refusal.** `Call.inertWhile: Listing<String>` becomes
-`Call.disabledWhen: Reading?`. `byDomain` fills it from `hass/actions.pkl`'s transitional
-states, and `c.tap.locks.openLatch(l)` fills it with `CANNOT_OPEN`. `tapRoute` adds
-"target unavailable", as it does today. Each card ORs its own `disabled` onto it, so the
-latch's confirm button is guarded wherever it is placed. A `Click` has no target, so a
-popup opener's guard is the card's `disabled`.
+**A tap carries its own refusal.** `Call.inertWhile` becomes
+`Call.disabledWhile: Listing<String>`, states of the call's target. `byDomain` fills it
+from `hass/actions.pkl`'s transitional states, and `c.tap.locks.openLatch(l)` fills it
+with `CANNOT_OPEN`. `tapRoute` adds "target unavailable", as it does today. Each card ORs
+its own `disabled` onto it, so the latch's confirm button is guarded wherever it is
+placed. A `Click` has no target, so a popup opener's guard is the card's `disabled`.
+
+A list of states and not a `Reading`. The refusal is always about the call's own target,
+and `unavailable` has to join it. A list joins by union, inside one slot. Two readings
+would need a second OR, and the class host (the entity card, `inertClass`) has no
+expression to put one in.
 
 The OR is a template expression over two holes,
 `data-attr:disabled="{{{refused__read}}} || {{{disabled__read}}}"`, with a mustache OR
@@ -174,7 +179,7 @@ decision; this plan ships `c.isOn(e)`.
    - **The disabled OR.** A tap's refusal ORed with the card's `disabled` through
      `slotRead`. Prove that validate accepts the template and that the document and patch
      forms both disable.
-2. **`Call.disabledWhen`** replaces both `inertWhile`s. `byDomain` and `openLatch` fill it.
+2. **`Call.disabledWhile`** replaces both `inertWhile`s. `byDomain` and `openLatch` fill it.
    Test the property, not the line: every node whose tap posts `lock/open` is disabled
    while the lock is `open`, whatever card it is on.
 3. **`components/base/` with `Button`/`Pill`.** `EntityButton` follows the thin-subclass

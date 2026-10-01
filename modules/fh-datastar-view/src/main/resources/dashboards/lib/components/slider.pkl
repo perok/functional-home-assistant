@@ -654,7 +654,7 @@ class Slider extends nodes.Node {
       // commit's in-flight signal (`busyAttrsChange`), and one element cannot
       // carry two bindings for one attribute. `tapMod.click`'s guard is what
       // actually refuses the press here.
-      for (k, v in tapMod.tapRoute(toggleTap, new Listing {}, "class")) {
+      for (k, v in tapMod.tapRoute(toggleTap, "class")) {
         [k] = v
       }
     } else {

@@ -52,8 +52,7 @@ allow only the exact calls a dashboard declares (ADR 0023).
 
 So the base `c.button` knows nothing but its label, glyph and tap, and a button
 ABOUT an entity is one layer up: `c.entityButton(e)` — named after it, its
-domain's tap by default, `lit` while it is on, `inertWhile` its states — on the
-same card (issue #329's split between a baseline component and one tied to a
+domain's tap by default, `lit` while it is on — on the same card (issue #329's split between a baseline component and one tied to a
 domain; a device component would follow the same pattern).
 
 The verbs are HA's `tap_action` variants, each taking its target, with no
@@ -152,18 +151,25 @@ explicit opt-out.
 A card DOES render inert, but only where the press would be refused, and that is
 two facts rather than one (`tap.inertStates`):
 
-- the domain's **transitional** states (`CallByState.inertWhile`) — a lock read
-  as `unlocking` is not `locked`, so a two-way test would post the command
-  competing with the one already running;
+- the **call's own** states (`Call.disabledWhile`) — the domain's transitional
+  ones for a state-picked tap (`CallByState.disabledWhile`: a lock read as
+  `unlocking` is not `locked`, so a two-way test would post the command
+  competing with the one already running), or a verb's own (`openLatch` carries
+  HA's `canOpen` list, `hass/lock.pkl`'s `CANNOT_OPEN`);
 - **unavailable**, on any service tap in any domain, because HA rejects a
   service call on a dead entity whatever the domain is.
 
-The second is deliberately NOT a row in the table. It is one rule, it would
-otherwise be repeated per domain, and mixing it in is what makes an `inertWhile`
-list stop meaning "transitional" — the confusion `lock.pkl`'s own `CANNOT_OPEN`
-still shows, holding a terminal state, transitional ones and an availability one
-in a single list. It applies to service taps ALONE: more-info on an unavailable
-entity is exactly what you want to open, since that is where the reason is.
+Both ride the CALL, not the card. A list on a card guards only that card: the
+latch's sat on the button that opens its confirmation, and the button inside it
+that posts `lock/open` went unguarded. On the call, every card that sends it
+refuses alike. A card with a reason of its OWN — a popup opener, which carries
+no call — says so with a live reading, `Button.disabled` (`c.stateIn(e, …)`),
+ORed with its tap's in one `data-attr`.
+
+Unavailability is deliberately NOT a row in the table or a verb's list. It is
+one rule, and it would otherwise be repeated everywhere. It applies to service
+taps ALONE: more-info on an unavailable entity is exactly what you want to
+open, since that is where the reason is.
 
 The regress this creates is real and silent: `moreInfoBody(e)` contains an
 entity card, whose default tap for a non-actionable entity is this same popup,

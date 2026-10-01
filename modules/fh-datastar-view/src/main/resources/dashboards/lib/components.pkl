@@ -185,6 +185,9 @@ function iff(p: pred.Predicate|Boolean): surfaces.If = surfaces.iff(p)
 function expr(s: String): slotMod.Expr = slotMod.expr(s)
 /// The same, bound to a DIFFERENT entity than the card's own.
 function exprOf(eo: hass.Entity, s: String): slotMod.Expr = slotMod.exprOf(eo, s)
+/// Whether `e`'s state is one of `states`, live — what a button's `disabled`
+/// and a node's `classWhen` take: `c.button(…).disabled(c.stateIn(l, List("open")))`.
+function stateIn(e: hass.Entity, states: List<String>): slotMod.Slot = slotMod.stateIn(e, states)
 /// What `c.tap.moreInfo(e)`'s popup holds, for composing it somewhere else.
 function moreInfoBody(e: hass.Entity): layoutMod.Column = moreinfo.moreInfoBody(e)
 
