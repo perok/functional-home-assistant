@@ -686,6 +686,40 @@ facts {
       == (tile) { reading = slotMod.valueSlot("battery") }.slots
   }
 
+  ["an entity slider is a base slider with its inputs filled, and nothing more"] {
+    // The HA layer is THIN: the head, the text, the group and the card are all
+    // the base's, so the whole node tree must be what an author builds by hand.
+    local byHand = new c.Slider {
+      title = slotMod.labelSlot(kitchen, null)
+      glyph = "mdi-lightbulb"
+      rangeMin = 1
+      rangeMax = 255
+      position = new slotMod.Slot {
+        transform = simpleMod.attr("brightness")
+        default = "0"
+        bypassUnavailable = false
+      }
+      fill = new slotMod.Slot {
+        transform = simpleMod.fill("brightness", 1, 255)
+        default = "100%"
+        bypassUnavailable = false
+      }
+      reading = new slotMod.Slot { transform = simpleMod.state() }
+      commit = (c.tap.call("light/turn_on", kitchen)) { dataKey = "brightness" }
+      subject = kitchen.entity_id
+    }
+    local ha = c.entitySlider(kitchen)
+    ha.card == byHand.card
+    ha.cardDef == byHand.cardDef
+    ha.slots == byHand.slots
+    ha.children == byHand.children
+    // The power-button shorthand is a leading action, ahead of the author's.
+    local t = c.tap.toggle(kitchen)
+    local info = c.sliderAction(kitchen, c.tap.moreInfo(kitchen))
+    ha.tapAction(t).actions(List(info)).children
+      == (byHand) { leadingActions { c.sliderAction(kitchen, t) } }.actions(List(info)).children
+  }
+
   ["a button's cell is the same whichever order its builders run in"] {
     // `active` and `.columns(n)` both write the wrapper's classes, and a cell
     // amended as one value would keep whichever came last.

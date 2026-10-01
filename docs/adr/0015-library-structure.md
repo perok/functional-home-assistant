@@ -33,8 +33,8 @@ core/       node · slot · icon · tap · surface · predicate   — writing a 
 layout.pkl  Row/Column/Grid                                  — the boxes you compose into
 components.pkl + components/   entity · control · slider ·   — writing a DASHBOARD
             light · lock · moreinfo · history · progress · tap
-  components/base/  button · onoff · tile · features ·       — the same, knowing no HA
-                    text · surface
+  components/base/  button · onoff · tile · slider ·         — the same, knowing no HA
+                    features · text · surface
 recipes.pkl floorView …                                      — whole sections, opinionated
 internal/   dump-base.pkl                                    — generator ↔ generated dump
 hass.pkl + hass/  light.pkl                                  — the domain schema
@@ -54,8 +54,9 @@ entity it reads), and never import a `hass` module; `BaseComponentsSuite`
 enforces that. `components/` itself is the HA layer.
 
 An HA component is a THIN subclass of a base one: it holds `entity`, and assigns
-the base's inputs from it (`label`, `tapAction`, `subject`, and an entity card's
-`title`/`reading`/`detail`/`glyph`). Its own inputs keep the meaning they have
+the base's inputs from it (`label`, `tapAction`, `subject`, an entity card's
+`title`/`reading`/`detail`/`glyph`, and a slider's `position`/`fill`/`commit`
+and the rest). Its own inputs keep the meaning they have
 relative to the entity — `value("brightness")` names an attribute — which is why
 the base's are named differently. It declares no card,
 template or slot of its own, so it is exactly the base card an author could have
