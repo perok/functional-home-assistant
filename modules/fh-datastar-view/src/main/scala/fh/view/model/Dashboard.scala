@@ -165,8 +165,8 @@ object SlotSource:
   *   - `Attr`: `data-attr:<name>`; a boolean value sets or removes it
   *     ([[SlotValue]]). The attribute, not the property: for `checked` use
   *     `Bind`.
-  *   - `Class`: `data-class:<name>`, present while truthy. `""` is the only
-  *     falsy slot value, so `"false"` reads as on.
+  *   - `Class`: `data-class:<name>`, present while truthy: `false` and `""` are
+  *     off, and `"false"` reads as on.
   *   - `Bind`: two-way `data-bind` on a form control; such a card needs a
   *     client signal in any form.
   *   - `Handler`: no attribute; the value is read by an event handler via
@@ -244,10 +244,15 @@ object Region {
   val Baked: String = "baked"
 }
 
-/** `fh-` layout classes on the node's `.fh-cell` wrapper. An object so it can
-  * grow `grid_options`-style fields without a wire break.
+/** Classes on the node's `.fh-cell` wrapper: static ones, and `classWhen`'s
+  * live ones, which a component's decode folds into its slots
+  * ([[LayoutNode.foldCellClasses]]). An object so it can grow
+  * `grid_options`-style fields without a wire break.
   */
-case class Cell(classes: List[String] = Nil) derives ConfiguredDecoder
+case class Cell(
+    classes: List[String] = Nil,
+    classWhen: Map[String, SlotSource] = Map.empty
+) derives ConfiguredDecoder
 
 enum Op:
   case Eq, Ne, Lt, Lte, Gt, Gte
@@ -341,6 +346,28 @@ object LayoutNode:
 
   def kids(cs: LayoutNode*): Map[String, List[LayoutNode]] =
     if cs.isEmpty then Map.empty else Map(DefaultRegion -> cs.toList)
+
+  /** A component's live cell classes become slots ([[Dashboard.cellClassSlot]])
+    * at decode, so the reverse index, the plan, the seed and the signal frames
+    * carry them with no path of their own. A set keeps its own: it has no
+    * slots, so `validate` rejects them there.
+    */
+  def foldCellClasses(n: LayoutNode): LayoutNode = n match
+    case c: Component =>
+      val live = c.cell.fold(Map.empty[String, SlotSource])(_.classWhen)
+      c.copy(
+        slots = c.slots ++ live.map((cls, src) =>
+          Dashboard.cellClassSlot(cls) -> src
+        ),
+        cell = c.cell.map(_.copy(classWhen = Map.empty)),
+        regions = c.regions.view.mapValues(_.map(foldCellClasses)).toMap
+      )
+    case s: SetNode =>
+      s.copy(members = s.members.view.mapValues { m =>
+        m.copy(clauses =
+          m.clauses.map(cl => cl.copy(node = foldCellClasses(cl.node)))
+        )
+      }.toMap)
 
   /** Leaves and containers alike: a container is a template splicing its
     * regions, so a new kind needs no Scala. The injected vars are `id`,
@@ -614,7 +641,7 @@ case class Dashboard(
     title: Option[String] = None,
     css: String = "",
     access: Option[Access] = None
-) derives ConfiguredDecoder:
+):
 
   /** Every registered card, not only those used: pruning would have to account
     * for surfaces and set clauses (ADR 0020's open work).
@@ -912,7 +939,13 @@ case class Dashboard(
         name: String,
         src: SlotSource
     ): List[String] =
-      if (src.signal.isEmpty) Nil
+      if (name.startsWith(Dashboard.CellClassPrefix))
+        cellClassErrors(
+          nodeId,
+          name.stripPrefix(Dashboard.CellClassPrefix),
+          src
+        )
+      else if (src.signal.isEmpty) Nil
       else if (src.literal.isDefined)
         List(
           s"$nodeId: slot '$name' is a constant literal and cannot be a " +
@@ -957,12 +990,34 @@ case class Dashboard(
       }
 
     // Interpolated into a `class` attribute unescaped.
-    def cellErrors(nodeId: String, cell: Option[Cell]): List[String] =
-      cell.toList.flatMap(_.classes).collect {
-        case cls if !cls.matches("[A-Za-z0-9_-]+") =>
+    def classTokenErrors(nodeId: String, cls: String): List[String] =
+      Option
+        .when(!cls.matches("[A-Za-z0-9_-]+"))(
           s"$nodeId: cell class '$cls' is not a plain CSS class token " +
             "([A-Za-z0-9_-]+)"
-      }
+        )
+        .toList
+
+    def cellErrors(nodeId: String, cell: Option[Cell]): List[String] =
+      cell.toList.flatMap(_.classes).flatMap(classTokenErrors(nodeId, _))
+
+    // The renderer places the binding itself, so only the shape can be wrong —
+    // and each wrong shape is a class that silently never moves.
+    def cellClassErrors(
+        nodeId: String,
+        cls: String,
+        src: SlotSource
+    ): List[String] =
+      classTokenErrors(nodeId, cls) ++
+        Option
+          .when(
+            !(src.signal.contains(SignalBind.Class(cls)) &&
+              src.literal.isEmpty && src.reads == Reads.Live)
+          )(
+            s"$nodeId: live cell class '$cls' must read live state as a " +
+              s"'class:$cls' signal — anything else is never bound"
+          )
+          .toList
 
     def noWrap(cardName: String): Boolean =
       cards.get(cardName).exists(!_.wrapAsCell)
@@ -1008,6 +1063,11 @@ case class Dashboard(
         case s: LayoutNode.SetNode =>
           val setId = nodeId
           cellErrors(setId, s.cell) ++
+            s.cell.toList.flatMap(_.classWhen.keys).sorted.map { cls =>
+              s"$setId: a candidate set cannot carry the live cell class " +
+                s"'$cls' — it has no slots to read through; put it on the " +
+                "clause's node"
+            } ++
             s.candidates.filterNot(s.members.contains).map { c =>
               s"$setId: candidate '$c' has no member entry — it could never " +
                 "render, so the build dropped it inconsistently"
@@ -1432,6 +1492,26 @@ object Dashboard:
     * the spelling.
     */
   val SubjectSlot: String = "entity_id"
+
+  /** Where a live cell class rides among a node's slots. The `:` keeps it out
+    * of any name a card's template could place.
+    */
+  def cellClassSlot(cls: String): String = CellClassPrefix + cls
+  val CellClassPrefix: String = "cell.class:"
+
+  given Decoder[Dashboard] =
+    ConfiguredDecoder
+      .derived[Dashboard]
+      .map(d =>
+        d.copy(
+          card = LayoutNode.foldCellClasses(d.card),
+          surfaces = d.surfaces.view
+            .mapValues(s =>
+              s.copy(content = LayoutNode.foldCellClasses(s.content))
+            )
+            .toMap
+        )
+      )
 
   /** `tap.pkl`'s route slots that [[Dashboard.calls]] reads. */
   val ServiceSlot: String = "service"

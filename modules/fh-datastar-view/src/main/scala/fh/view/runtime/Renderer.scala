@@ -979,10 +979,9 @@ class Renderer(
 
         def wrapper(buf: Sink, form: SlotForm): Unit =
           if (wrapped) {
+            cellOpenInto(buf, c.cell, resolved, form)
             buf
-              .append("""<div class="fh-cell""")
-              .append(Renderer.cellClasses(c.cell))
-              .append("""" id="""")
+              .append(""" id="""")
               .append(id)
               .append('"')
             if (!form.isPatch)
@@ -1288,10 +1287,9 @@ class Renderer(
       form: SlotForm
   ): Unit = {
     // The seed covers the children too ([[memberSignalsOf]]).
+    cellOpenInto(out, m.node.cell, rm.resolved, form)
     out
-      .append("""<div class="fh-cell""")
-      .append(Renderer.cellClasses(m.node.cell))
-      .append("""" id="""")
+      .append(""" id="""")
       .append(m.id)
       .append('"')
     if (!form.isPatch) {
@@ -1341,10 +1339,8 @@ class Renderer(
   ): Unit = child match {
     case ResolvedChild.NestedSet(html) => val _ = out.append(html)
     case ResolvedChild.Node(cell, n)   =>
-      out
-        .append("""<div class="fh-cell""")
-        .append(Renderer.cellClasses(cell))
-        .append("""">""")
+      cellOpenInto(out, cell, n.resolved, form)
+      out.append('>')
       memberBodyInto(out, n, form)
       val _ = out.append("</div>")
   }
@@ -1422,6 +1418,33 @@ class Renderer(
       signalSlots: List[String],
       signals: Map[SignalId, SlotValue]
   )
+
+  /** A component's `<div class="fh-cell …"` with its live classes
+    * ([[Dashboard.cellClassSlot]]): each bound in both forms, and inline only
+    * in the document form, where signal values are not withheld.
+    */
+  private def cellOpenInto(
+      buf: Sink,
+      cell: Option[Cell],
+      r: Resolved,
+      form: SlotForm
+  ): Unit = {
+    val live = r.signalSlots.filter(_.startsWith(Dashboard.CellClassPrefix))
+    buf.append("""<div class="fh-cell""").append(Renderer.cellClasses(cell))
+    if (!form.isPatch)
+      live
+        .filter(slot => r.paint.get(slot).exists(SlotValue.truthy))
+        .foreach { slot =>
+          buf.append(' ').append(slot.stripPrefix(Dashboard.CellClassPrefix))
+        }
+    buf.append('"')
+    live.foreach { slot =>
+      val key = slot + "__bind"
+      r.bindings.get(key).orElse(r.liveBindings.get(key)).foreach { b =>
+        buf.append(' ').append(b)
+      }
+    }
+  }
 
   /** The template context, read in place. Not a `java.util.Map`: mustache.java
     * resolves those through `entrySet`, so a get-only map answers every name
