@@ -49,7 +49,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
        |
        |card = (c.column) {
        |  children {
-       |    (c.slider(dump.entities.${HouseFixture.kitchenLight.dumpKey})) {
+       |    (c.entitySlider(dump.entities.${HouseFixture.kitchenLight.dumpKey})) {
        |      tapAction = c.tap.call("light/toggle", entity)
        |    }
        |  }
@@ -229,7 +229,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
          |
          |card = (c.column) {
          |  children {
-         |    (c.slider(dump.entities.${HouseFixture.kitchenLight.dumpKey})) {
+         |    (c.entitySlider(dump.entities.${HouseFixture.kitchenLight.dumpKey})) {
          |      busyVisual = false
          |    }
          |  }
@@ -442,7 +442,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
          |
          |card = (c.column) {
          |  children {
-         |    c.slider(dump.entities.${plug.dumpKey}).readout("percent")
+         |    c.entitySlider(dump.entities.${plug.dumpKey}).readout("percent")
          |  }
          |}
          |""".stripMargin

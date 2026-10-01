@@ -4,7 +4,7 @@
 ///
 /// Plain Pkl stays the first answer. A fixed list of lights is still
 ///
-///     for (light in hass.lights(dump.areas.stue.all)) { c.slider(light) }
+///     for (light in hass.lights(dump.areas.stue.all)) { c.entitySlider(light) }
 ///
 /// and reaching for `q.from(...)` to write that is a regression in authoring
 /// cost with nothing bought. This module earns its place only when the set has
@@ -23,7 +23,7 @@
 ///
 ///     q.from(hass.lights(dump.areas.stue.all))
 ///       .where(q.eq(q.stateProp, "on"))
-///       .render((e) -> c.slider(e))
+///       .render((e) -> c.entitySlider(e))
 ///
 /// NOT YET HERE: a set nested inside a member ("a tile per room"), and `min`/
 /// `max` over a property. Absent rather than present-and-erroring, so pkl-lsp

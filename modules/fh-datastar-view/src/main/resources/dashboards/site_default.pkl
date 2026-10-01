@@ -55,7 +55,7 @@ dashboards {
         // needs no `tap`: `light/toggle` is what its domain implies (issue
         // #106).
         q.from(dump.lights)
-          .caseOf(q.eq(q.stateProp, "on"), c.slider)
+          .caseOf(q.eq(q.stateProp, "on"), c.entitySlider)
           .`else`(c.entityCard)
           .build()
           .fullWidth()

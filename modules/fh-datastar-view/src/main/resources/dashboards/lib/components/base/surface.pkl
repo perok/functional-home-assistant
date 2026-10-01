@@ -119,7 +119,7 @@ class Tabs extends nodes.Node {
   /// label -> that tab's cards. Bar order = insertion order (Mapping preserves
   /// it). The Listing DEFAULT lets a tab amend into existence and add cards
   /// directly — no `new`, no `children`:
-  ///   (c.tabs) { tabs { ["Lights"] { c.entityCard(e) c.slider(l) } } }
+  ///   (c.tabs) { tabs { ["Lights"] { c.entityCard(e) c.entitySlider(l) } } }
   /// Each tab's cards are wrapped in a [[Row]] panel; a tab wanting a different
   /// container nests it as the single card: `["X"] { new Column { ... } }`.
   hidden tabs: Mapping<String, Listing<nodes.LayoutNode>> = new { default = (_) -> new Listing {} }
