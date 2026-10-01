@@ -63,7 +63,8 @@ class Call extends TapAction {
   /// sits on, so a card may show one entity and act on another, or on a room.
   target: Target
   /// The ONE value a service call carries, as the route's trailing
-  /// `/<key>/<value>` ([[with]]). Both null or both set.
+  /// `/<key>/<value>` ([[with]]). A key with no value is a commit whose value
+  /// the card supplies (the slider's drag, `/<key>/' + $<signal>`).
   dataKey: String? = null
   dataValue: String? = null
   /// This call carrying one value: `call("light/turn_on", l).with("effect",
@@ -184,6 +185,16 @@ const tapDisabledAttr: String =
   "{{#tapDisabled}} disabled{{/tapDisabled}}" + slotMod.ifSlot("tapDisabled")
     + #" data-attr:disabled=""# + slotMod.slotRead("tapDisabled") + "\""
     + slotMod.endIfSlot("tapDisabled")
+
+/// The REFUSAL guard: the prefix that makes a handler a no-op while the node's
+/// `tapDisabled` reading ([[tapDisabledSlot]]) holds. [[click]] leads with it,
+/// and the slider's commit places it itself. It is what actually stops the post
+/// on a host that cannot be `disabled` (a tile is an `<article>`), where a class
+/// only LOOKS refused. Redundant where the host IS disabled, and kept anyway: a
+/// guard present on every handler cannot be the one a card forgot.
+const refusalGuard: String =
+  slotMod.ifSlot("tapDisabled") + "$" + slotMod.signalRef("tapDisabled") + " ? '' : " +
+    slotMod.endIfSlot("tapDisabled")
 
 /// The re-click guard, as the prefix that makes a click expression a no-op
 /// while `sig` is truthy.
@@ -391,20 +402,25 @@ const busyShapeClass: String = busySpinner("_{{id}}__busy")
 ///     data-on:change="\(tapMod.busyGuardChange)@post(…)" />
 ///   <div class="slider max" … \(tapMod.busyClassChange)>
 ///
-/// `busyAttrsChange` also DISABLES the input while the signal is set. That is
-/// safe because busy can only become true on RELEASE (never mid-drag), so
-/// disabling freezes the control between drags and the browser fires no
-/// `input`/`change` at all — the guard is the belt for a programmatic
-/// dispatch. The boolean comes from the indicator plugin, so the attr plugin's
-/// `true`→`setAttribute`/`false`→`removeAttribute` toggle works exactly.
+/// `busyAttrsChange` also DISABLES the input while the signal is set, or while
+/// the node's `tapDisabled` reading holds. That is safe because busy can only
+/// become true on RELEASE (never mid-drag), so disabling freezes the control
+/// between drags and the browser fires no `input`/`change` at all — the guard
+/// is the belt for a programmatic dispatch. Both reads are real booleans, so
+/// the attr plugin's `true`→`setAttribute`/`false`→`removeAttribute` toggle
+/// works exactly; ONE `data-attr:disabled` ORs them, since a second binding of
+/// the same attribute would be dropped.
 const busyGuardChange: String = guardOn(busyChangeSig)
 // The error half is NOT keyed on the change signal: a refusal is a fact about
 // the NODE, and the server names the node (`?node=`), so the commit and the
 // slider's other taps report through the one [[errorSig]]. Only "in flight"
 // needs the separate name.
 const busyAttrsChange: String =
-  indicatorOn(busyChangeSig) + #" data-attr:disabled="$\#(busyChangeSig)""# + " " +
-    failedOn(errorSig) + #" data-fh-node="{{id}}""#
+  indicatorOn(busyChangeSig) + "{{#tapDisabled}} disabled{{/tapDisabled}}"
+    + #" data-attr:disabled="$\#(busyChangeSig)"#
+    + slotMod.ifSlot("tapDisabled") + " || " + slotMod.slotRead("tapDisabled")
+    + slotMod.endIfSlot("tapDisabled") + "\" "
+    + failedOn(errorSig) + #" data-fh-node="{{id}}""#
 const busyClassChange: String =
   inFlightOrRefused(busyChangeSig) + " " + failedClass(errorSig)
 /// [[busyShapeClass]]'s commit-signal twin, for the slider's head badge —
@@ -456,17 +472,7 @@ const serviceClick: String =
 /// A card that splices this needs no `when` of its own — [[tapSlots]] decides
 /// which arm exists by whether it emitted a `service` slot.
 const click: String =
-  // The REFUSAL guard leads, and rides here rather than in each card for the
-  // same reason the slot does. It is what actually stops the post on a host
-  // that cannot be `disabled` — a tile is an `<article>`, and the slider's
-  // toggle track already spends `disabled` on the commit's in-flight signal —
-  // where a class only LOOKS refused.
-  //
-  // Redundant where the host IS disabled (a disabled control fires no click at
-  // all), and kept anyway: a guard that is present on every card cannot be the
-  // one a card forgot.
-  slotMod.ifSlot("tapDisabled") + "$" + slotMod.signalRef("tapDisabled") + " ? '' : " +
-    slotMod.endIfSlot("tapDisabled") +
+  refusalGuard +
     slotMod.ifSlot("service") + serviceClick + slotMod.endIfSlot("service") +
     slotMod.ifNoSlot("service") + "{{{onclick}}}" + slotMod.endIfNoSlot("service")
 
@@ -510,11 +516,12 @@ const function tapDisabledSlot(states: List<String>): slotMod.Slot = new {
 /// A call's ROUTE: what [[serviceClick]] builds the URL from, and what the
 /// server reads back as the call this node declares (`Dashboard.calls`, ADR
 /// 0023) — so a node that posts a call must place these, and nothing else
-/// declares one. The slider's commit places them with a value of its own.
+/// declares one. Reached only through [[tapRoute]], so no route goes without
+/// the refusal.
 ///
 /// A service the target's state picks reads that state by name, whatever
 /// entity the card shows.
-const function routeSlots(
+const local function routeSlots(
   action: slotMod.Slot|String,
   target: Target,
   key: String?
@@ -555,7 +562,7 @@ const function tapRoute(t: TapAction): Mapping<String, slotMod.Slot|String> =
         for (k, v in routeSlots(t.service, t.target, t.dataKey)) {
           [k] = v
         }
-        when (t.dataKey != null) {
+        when (t.dataValue != null) {
           ["dataValue"] = t.dataValue!!
         }
       } else {
