@@ -99,7 +99,7 @@ class EntityCard extends nodes.Node {
     // card decides WHERE they go and nothing about what they are.
     // A CLASS and a click guard, not `disabled`: this host is an `<article>`,
     // and only a form control can be disabled.
-    for (k, v in tapMod.tapSlots(tapAction, "class")) {
+    for (k, v in tapMod.tapSlots(tapAction, entity, "class")) {
       [k] = v
     }
   }
