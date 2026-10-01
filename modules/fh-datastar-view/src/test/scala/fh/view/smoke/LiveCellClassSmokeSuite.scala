@@ -89,17 +89,19 @@ class LiveCellClassSmokeSuite extends SmokeSuite {
   test("a button's own disabled and its tap's refusal each disable it") {
     withPage(scene) { (page, ts) =>
       def disabled: IO[Boolean] = IO.blocking(lockButton(page).isDisabled())
+      def becomes(want: Boolean, step: String): IO[Unit] =
+        eventually(disabled)(_ == want).void.adaptError { case e =>
+          new AssertionError(s"$step: disabled never became $want", e)
+        }
       for {
         _ <- ts.awaitLive()
-        // Kitchen on: the button's own reason.
-        _ <- eventually(disabled)(identity)
+        _ <- becomes(true, "kitchen on, the button's own reason")
         _ <- ts.fake.emit(kitchen.entityId, "off", named("Kitchen"))
-        _ <- eventually(disabled)(!_)
-        // The lock mid-move: the tap's reason, with the kitchen still off.
+        _ <- becomes(false, "kitchen off, lock locked")
         _ <- ts.fake.emit(lock.entityId, "locking", lock.attributes)
-        _ <- eventually(disabled)(identity)
+        _ <- becomes(true, "lock mid-move, the tap's reason")
         _ <- ts.fake.emit(lock.entityId, "locked", lock.attributes)
-        _ <- eventually(disabled)(!_)
+        _ <- becomes(false, "lock settled")
       } yield ()
     }
   }

@@ -56,17 +56,36 @@ class LiveCellClassSuite extends munit.CatsEffectSuite {
       .map(_.group(1))
       .getOrElse(fail(s"no data-class:$cls binding", clues(html)))
 
+  /** Every wrapper opening tag that carries a live class binding. */
+  private def boundWrappers(html: String): List[String] =
+    """<div class="fh-cell[^>]*>""".r
+      .findAllIn(html)
+      .filter(_.contains("data-class:"))
+      .toList
+
   test("a live cell class is on the wrapper, bound and inline while it holds") {
     withServer(warmButton)(_.page()).map { html =>
       val sig = classSignal(html, "warm")
-      assert(
-        """<div class="fh-cell warm" data-class:warm="\$""".r
-          .findFirstIn(html)
-          .isDefined,
-        clue = html
-      )
+      val wrapper = boundWrappers(html) match {
+        case List(w) => w
+        case other   => fail("expected one bound wrapper", clues(other, html))
+      }
+      assert(wrapper.startsWith("""<div class="fh-cell warm" """), wrapper)
       // Seeded with the node's other signals, so it holds before any frame.
-      assert(html.contains(sig.split('.').last + ": true"), clue = html)
+      assert(wrapper.contains(sig.split('.').last + ": true"), wrapper)
+    }
+  }
+
+  test("a wrapper's seed comes before its class bindings") {
+    // The bundle applies an element's attributes in order: a binding ahead of
+    // the seed on the same element reads a signal that does not exist yet.
+    withServer(warmButton)(_.page()).map { html =>
+      val wrappers = boundWrappers(html)
+      assert(wrappers.nonEmpty, html)
+      wrappers.foreach { w =>
+        val seed = w.indexOf("data-signals=")
+        assert(seed >= 0 && seed < w.indexOf("data-class:"), w)
+      }
     }
   }
 
@@ -94,9 +113,7 @@ class LiveCellClassSuite extends munit.CatsEffectSuite {
       .timeout(60.seconds)
       .map { html =>
         assert(
-          """<div class="fh-cell" data-class:warm="\$""".r
-            .findFirstIn(html)
-            .isDefined,
+          boundWrappers(html).exists(_.startsWith("""<div class="fh-cell" """)),
           clue = html
         )
       }
