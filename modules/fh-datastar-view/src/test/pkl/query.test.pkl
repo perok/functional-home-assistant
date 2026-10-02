@@ -12,6 +12,7 @@ amends "pkl:test"
 import "../../main/resources/dashboards/lib/components.pkl" as c
 import "../../main/resources/dashboards/lib/query.pkl" as q
 import "../../main/resources/dashboards/lib/hass.pkl" as hass
+import "../../main/resources/dashboards/lib/core/predicate.pkl" as pred
 
 // A stand-in dump. Two rooms, one light that is dimmable and one that is not,
 // plus a sensor with a capability nothing else has — the mixed set that makes
@@ -245,6 +246,14 @@ facts {
     cond.candidates.toList() == List("light.taklys", "light.lampe")
     // A per-candidate guard, for the same reason a member's clauses are.
     cond.`when`["light.taklys"].property == "state"
+  }
+
+  ["a count is a Tally, and comparing it carries that tally unchanged"] {
+    local tally = q.from(stue).where(q.eq(q.stateProp, "on")).count()
+    tally is pred.Tally
+    local cond = tally.gt(1)
+    cond.candidates == tally.candidates
+    cond.`when` == tally.`when`
   }
 
   ["`any` and `none` are comparisons on the count, not quantifiers"] {

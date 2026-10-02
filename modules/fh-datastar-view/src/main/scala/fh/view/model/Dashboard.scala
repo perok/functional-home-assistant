@@ -291,15 +291,22 @@ object Predicate:
       when: Map[String, Predicate] = Map.empty,
       op: Op,
       value: Json
-  ) extends Predicate
+  ) extends Predicate:
+    def tally: Tally = Tally(candidates, when)
+
+  /** A static candidate list and which of it is present: a [[Count]] before the
+    * comparison.
+    */
+  case class Tally(candidates: List[String], when: Map[String, Predicate]):
+    def referencedEntities: List[String] =
+      candidates ++ when.values.flatMap(Predicate.referencedEntities)
 
   def referencedEntities(p: Predicate): List[String] = p match
-    case Cmp(_, _, _, e)               => e.toList
-    case And(items)                    => items.flatMap(referencedEntities)
-    case Or(items)                     => items.flatMap(referencedEntities)
-    case Not(item)                     => referencedEntities(item)
-    case Count(candidates, when, _, _) =>
-      candidates ++ when.values.flatMap(referencedEntities)
+    case Cmp(_, _, _, e) => e.toList
+    case And(items)      => items.flatMap(referencedEntities)
+    case Or(items)       => items.flatMap(referencedEntities)
+    case Not(item)       => referencedEntities(item)
+    case c: Count        => c.tally.referencedEntities
 
   /** Rejected under an [[Activation.State]], which supplies no subject. A
     * count's guards are bound to their own candidates, so they do not count.
