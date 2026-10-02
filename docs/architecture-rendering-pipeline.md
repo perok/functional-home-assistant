@@ -916,6 +916,16 @@ answer — a hit yields the bytes the render would have — only who pays for it
 of what the render reads, not all of it: an entity reached only through a signal slot is left out,
 because its value is not in the patch form and so cannot move these bytes (ADR 0012).
 
+A slot may also read the NODE's expression values — a literal, or a tally of candidates counted
+live. `LayoutNode.foldNode` attaches them at decode to exactly the slots whose CEL names them
+(`SlotSource.values`), so no box downstream knows they exist: a tally's candidates and the
+entities their residuals read join the node's live entities, a counted light waking it is the
+ordinary reverse-index path, and the count is `Conditions.present` — the same interpreter a
+state condition's `Count` uses. Only what fires differs: a flipped condition swaps a surface,
+a moved count patches a slot. The slot's `valueKey` carries the values, so the whole evaluated
+expression goes out as one display signal per distinct (subject, expression, values), and a
+tick that leaves the count alone sends nothing.
+
 ### The second kind of input: a query
 
 A node may also read a **query** — a named PROVIDER answering with DATA, parameterised
