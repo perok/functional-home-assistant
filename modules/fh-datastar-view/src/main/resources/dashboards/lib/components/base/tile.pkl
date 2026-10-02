@@ -19,7 +19,7 @@ open class Tile extends nodes.Node {
         data-on:click="\(tapMod.guardClick)\(tapMod.click)"{{/tappable}}\(tapMod.guard)>
         <header>\(slotMod.ifSlot("icon")){{#busy}}<span class="fh-icon-shape"{{#busyVisual}} \(tapMod.busyShapeClass){{/busyVisual}}>{{/busy}}<i class="{{icon}}" \(slotMod.signalBind("icon"))></i>{{#busy}}</span>{{/busy}}\(slotMod.endIfSlot("icon"))\(textMod.hole("label"))</header>
         <span class="fh-reading \(textMod.BOX)">\(textMod.liveRun("value"))</span>\(slotMod.ifSlot("secondary"))
-        <span class="fh-sub \(textMod.BOX)">\(textMod.run("secondary"))</span>\(slotMod.endIfSlot("secondary"))
+        <span class="fh-sub \(textMod.BOX)">\(textMod.liveRun("secondary"))</span>\(slotMod.endIfSlot("secondary"))
       </article>
       """
     slots { "label"; "value" }

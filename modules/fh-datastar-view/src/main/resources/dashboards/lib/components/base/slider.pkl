@@ -165,10 +165,11 @@ class SliderText extends nodes.Node {
   cellClasses { "slider-text" }
   cardDef = new nodes.CardDef {
     template = """
-      <strong class="\(textMod.BOX)">\(textMod.run("label"))</strong>{{#secondary}}<span class="fh-sub \(textMod.BOX)">\(textMod.run("secondary"))</span>{{/secondary}}
+      <strong class="\(textMod.BOX)">\(textMod.run("label"))</strong>\(slotMod.ifSlot("secondary"))<span class="fh-sub \(textMod.BOX)">\(textMod.liveRun("secondary"))</span>\(slotMod.endIfSlot("secondary"))
       """
-    // `secondary` is optional (a plain row carries none), so it is not declared
-    // — an absent slot renders "" and the section collapses.
+    // `secondary` is optional (a plain row carries none), so it is not
+    // declared. Guarded by PRESENCE, not by its value: a live one is a signal,
+    // blank in the patch form, and a value guard would delete its element.
     slots { "label" }
   }
 }
