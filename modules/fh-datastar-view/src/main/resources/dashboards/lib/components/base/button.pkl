@@ -18,9 +18,9 @@ const function noAction(ctor: String): String =
     + "`c.tap.call(service, target)`), or use `c.entityButton(e)` for an entity "
     + "whose domain implies one (the table is `hass/actions.pkl`)"
 
-/// A button's text: the label, and under it [[Button.detail]] when there is
+/// A button's text: the label, and under it [[Button.secondary]] when there is
 /// one. The column wrapper opens and closes under the same section, so a
-/// button with no detail renders exactly the bytes it did before it existed.
+/// button without one renders exactly the bytes it did before it existed.
 const local buttonText: String =
   slotMod.ifSlot("secondary") + #"<span class="fh-lines">"# + slotMod.endIfSlot("secondary")
     + "{{#label}}" + textMod.hole("label") + "{{/label}}"
@@ -96,7 +96,7 @@ open class Button extends nodes.Node {
   hidden label: (String|slotMod.Expr)? = null
   /// A second line under the label, smaller and dimmer: a literal, a
   /// `c.expr(…)`/`c.exprOf(…)`, or any reading. Null is no second line.
-  hidden detail: (String|slotMod.Expr|slotMod.Slot)? = null
+  hidden secondary: slotMod.Secondary? = null
   /// A glyph before the label, as an MDI name (`mdi:power`). With `label = ""`
   /// the button is icon-only and renders round — see [[iconButton]].
   hidden icon: String? = null
@@ -156,15 +156,12 @@ open class Button extends nodes.Node {
       // AUTHORED value, not the resolved slot: an entity button resolves to its
       // friendly_name, and asking about that would make every icon-carrying
       // entity button rectangular.
-      when (label == "" && detail == null) {
+      when (label == "" && secondary == null) {
         ["round"] = "1"
       }
     }
-    when (detail != null) {
-      ["secondary"] =
-        if (detail is slotMod.Expr)
-          let (x = detail as slotMod.Expr) new slotMod.Slot { entityId = x.entityId; transform = x.transform }
-        else detail!!
+    when (secondary != null) {
+      ["secondary"] = slotMod.secondarySlot(secondary!!)
     }
     // INERT is a REAL `disabled` here, so the browser takes the control out of
     // the tab order and refuses the click itself. It is NOT the busy guard:
@@ -211,8 +208,8 @@ open class Button extends nodes.Node {
   }
   // Fluent config (see `EntityCard`'s builder methods).
   function label(l: String|slotMod.Expr): Button = let (self = this) (self) { label = l }
-  /// See [[detail]]: `c.button("Stue", tap).detail("Turns off 4 lights")`.
-  function detail(d: String|slotMod.Expr|slotMod.Slot): Button = let (self = this) (self) { detail = d }
+  /// See [[secondary]]: `c.button("Stue", tap).secondary("Turns off 4 lights")`.
+  function secondary(s: slotMod.Secondary): Button = let (self = this) (self) { secondary = s }
   function icon(i: String): Button = let (self = this) (self) { icon = i }
   function tapAction(a: tapMod.TapAction): Button = let (self = this) (self) { tapAction = a }
   /// See [[active]]: `c.entityButton(l).active(c.isOn(l))`.

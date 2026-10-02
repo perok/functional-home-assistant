@@ -8,7 +8,7 @@
 /// spelling).
 /// The builders are the reason a third-party card can look like a shipped one:
 /// `labelSlot` falls back to friendly_name, `valueSlot` appends the entity's
-/// unit, `secondarySlot` keeps the mustache section collapsed when blank.
+/// unit, `secondarySlot` gives every card's second line the same meaning.
 module core.slot
 
 import "../hass.pkl"
@@ -299,15 +299,17 @@ const function valueSlot(value: (String|Expr|simpleMod.Simple)?): Slot =
       " + (" + UNIT_EXPR + ")"
   }
 
-// secondary (only built when authored): String -> that attribute, guarded, no
-// unit — now opted in ([[simpleMod.attr]]); Expr -> live; Simple -> the
-// opted-in structure. Empty default keeps the mustache section collapsed when
-// blank.
-const function secondarySlot(secondary: String|Expr|simpleMod.Simple): Slot =
-  if (secondary is Expr) new Slot {
-    entityId = secondary.entityId
-    transform = secondary.transform
-    default = ""
-  }
-  else if (secondary is simpleMod.Simple) new Slot { transform = secondary; default = "" }
-  else new Slot { transform = simpleMod.attr(secondary); default = "" }
+/// The line under a card's main text — HA's name for it. A String is the text
+/// itself, never an attribute name: an attribute is [[attr]], so one word means
+/// one thing on every card.
+typealias Secondary = String|Expr|Slot
+
+/// [[Secondary]] as a slot value; an [[Expr]] becomes the live reading it names.
+const function secondarySlot(s: Secondary): String|Slot =
+  if (s is Expr) new Slot { entityId = s.entityId; transform = s.transform; default = "" }
+  else s
+
+/// One attribute of the card's entity, guarded so an absent one reads blank:
+/// `c.entityCard(l).secondary(c.attr("device_class"))`.
+const function attr(attrName: String): Slot =
+  new Slot { transform = simpleMod.attr(attrName); default = "" }

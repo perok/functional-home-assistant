@@ -276,10 +276,6 @@ class EntitySlider extends sliderBase.Slider {
   /// The one-button shorthand: it leads the author's `actions`, so a group that
   /// keeps its power button and adds a scene button sets both.
   hidden tapAction: tapMod.TapAction? = null
-  /// Second line under the label — an attribute name, or an [[expr]] naming a
-  /// DIFFERENT entity (the room's temperature beside its lights). Null renders
-  /// no second line.
-  hidden secondary: (String|slotMod.Expr)? = null
   /// What the line reads out beside the label: the entity's state (`on`/`off`),
   /// the LEVEL as a percentage of min..max, nothing, or an [[Expr]] of your own.
   ///
@@ -318,7 +314,6 @@ class EntitySlider extends sliderBase.Slider {
   // opens it.
   subject = entity.entity_id
   title = slotMod.labelSlot(entity, label)
-  detail = if (secondary != null) slotMod.secondarySlot(secondary!!) else null
   glyph = if (icon != null) icons.mdiClass(icon!!) else null
   // The guarded position read ([[simpleMod.attr]]): an absent position renders
   // "" and the default takes over. Opts OUT of bypass, so an unavailable entity
@@ -398,7 +393,7 @@ class EntitySlider extends sliderBase.Slider {
   // to say the same thing.
   function icon(i: String?): EntitySlider = let (self = this) (self) { icon = i }
   function tapAction(t: tapMod.TapAction): EntitySlider = let (self = this) (self) { tapAction = t }
-  function secondary(s: String|slotMod.Expr): EntitySlider = let (self = this) (self) { secondary = s }
+  function secondary(s: slotMod.Secondary): EntitySlider = let (self = this) (self) { secondary = s }
 }
 
 /// Value slider as a call (see [[EntitySlider]] for the domain contract). Takes an

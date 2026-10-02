@@ -16,12 +16,12 @@ import "moreinfo.pkl"
 /// entity, and no card, template or slot of its own. Its OWN inputs are the
 /// entity-relative ones an author writes — `value("brightness")` names an
 /// attribute of THIS entity — so they keep their names, and the tile's
-/// (`title`, `reading`, `detail`, `glyph`) are what they become.
+/// (`title`, `reading`, `glyph`) are what they become. `secondary` is the
+/// tile's own, inherited as it is.
 class EntityCard extends tileMod.Tile {
   hidden entity: hass.Entity
   hidden label: (String|slotMod.Expr)? = null
   hidden value: (String|slotMod.Expr)? = null
-  hidden secondary: (String|slotMod.Expr)? = null
   hidden icon: String? = null
   /// What a click does. Defaults to [[moreinfo.defaultTap]] — this entity's
   /// domain service if it has one, more-info if it does not — so a card is
@@ -31,7 +31,6 @@ class EntityCard extends tileMod.Tile {
   subject = entity.entity_id
   title = slotMod.labelSlot(entity, label)
   reading = slotMod.valueSlot(value)
-  detail = if (secondary != null) slotMod.secondarySlot(secondary!!) else null
   // A LIVE icon where the domain has one and nothing more specific overrides
   // it ([[icons.stateIconFor]]) — a lock reads open or closed, which is the
   // thing you look at the tile to learn. Otherwise the LITERAL it has always
@@ -53,7 +52,7 @@ class EntityCard extends tileMod.Tile {
   // would self-reference in the amend).
   function label(l: String|slotMod.Expr): EntityCard = let (self = this) (self) { label = l }
   function value(v: String|slotMod.Expr): EntityCard = let (self = this) (self) { value = v }
-  function secondary(s: String|slotMod.Expr): EntityCard = let (self = this) (self) { secondary = s }
+  function secondary(s: slotMod.Secondary): EntityCard = let (self = this) (self) { secondary = s }
   /// Override the resolved icon with an MDI name — `mdi:thermometer`, or the
   /// `mdi-thermometer` class spelling; both work.
   function icon(i: String): EntityCard = let (self = this) (self) { icon = i }
