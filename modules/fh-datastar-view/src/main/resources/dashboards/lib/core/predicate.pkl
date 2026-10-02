@@ -49,6 +49,13 @@ class Cmp extends Predicate {
   entity: String? = null
 }
 
+/// A STATIC candidate list and which of it is PRESENT — a [[Count]] before it
+/// is compared. What `query.pkl`'s `.count()` returns. `when` is [[Count.when]].
+open class Tally {
+  candidates: Listing<String>
+  `when`: Mapping<String, Predicate> = new {}
+}
+
 /// How many of a STATIC candidate list are PRESENT, compared against a number.
 ///
 /// No quantifier and no query: over a known list, `any` is `count > 0`, `none`

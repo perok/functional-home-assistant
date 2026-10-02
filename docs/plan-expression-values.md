@@ -43,8 +43,9 @@ expressionValues: Mapping<String, ExpressionValue>? = null
 
 `CountRef` (query.pkl) becomes a `pred.Tally`, so `.count()` goes in as it is and `.gt(2)` still
 builds a `Count`. `Count` cannot also extend `Tally` — it extends `Predicate`, and Pkl has single
-inheritance — so it keeps its flat `candidates`/`when` (its wire shape) and is BUILT from a tally. A count the build already settled is an `Int`, the same fold `knownCount` does
-for a comparison today.
+inheritance — so it keeps its flat `candidates`/`when` (its wire shape) and is BUILT from a
+tally. A count the build already settled is an `Int`, the same fold `knownCount` does for a
+comparison today.
 
 **Each value is a typed CEL variable** of the node's expressions: String → `string`, Int →
 `int`, Float → `double`, Boolean → `bool`, Tally → `int`. The expression compiles against the
