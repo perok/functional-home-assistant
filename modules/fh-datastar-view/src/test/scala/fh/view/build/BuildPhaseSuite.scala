@@ -174,7 +174,7 @@ class BuildPhaseSuite extends munit.FunSuite {
               { "kind": "set",
                 "candidates": ["sensor.batt"],
                 "members": { "sensor.batt": { "clauses": [
-                  { "node": { "kind": "component", "card": "entityCard",
+                  { "node": { "kind": "component", "card": "tile",
                       "slots": { "onclick": "open @@NODE_ID@@_self" },
                       "inlineSurfaces": { "self": {
                         "content": { "kind": "component", "card": "card" } } } } }

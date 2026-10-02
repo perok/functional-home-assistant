@@ -70,9 +70,9 @@ subject slot, which an entity-less reading (`c.expr(…)`) falls back to. Only t
 HA layer sets it.
 
 The facade's names do not move: `c.button` and `c.entityButton` are found where
-they always were. Neither do the registry's: the base `Tile` and `Switch` keep
-the card names `entityCard` and `toggle`, so the wire did not change with the
-split.
+they always were. The registry's are the BASE card's, named for the look like
+its class: `Tile` registers `tile` and `Switch` registers `switch`, and an
+`EntityCard` or a `Toggle` is a node of that card.
 
 `entry.pkl` stays at the package root: every dashboard's first line is
 `amends "@fh-dashboard/entry.pkl"`, and `internal/entry.pkl` would say the

@@ -1504,7 +1504,7 @@ Live list — delete an entry when it is answered, and say where the answer land
 
 - ~~**A signals tick costs MORE than a bytes tick.**~~ *Closed.* The suppressed morph was still
   RENDERED — rendering it is how we discover the bytes did not move — because the `RenderCache`
-  key holds a per-entity `contentVersion` and the shipped `entityCard`'s name reads
+  key holds a per-entity `contentVersion` and the shipped `EntityCard`'s name reads
   `friendly_name` as BYTES, which re-admitted the entity to the key on every brightness tick.
   `Patches.bytes` now hands the cache the resolved byte-slot values
   (`Renderer.byteSlotValues`) and `RenderCache.apply` reuses an entry carrying the same ones:

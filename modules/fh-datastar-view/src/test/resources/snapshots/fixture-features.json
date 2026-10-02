@@ -12,7 +12,7 @@
           }
         },
         {
-          "card" : "entityCard",
+          "card" : "tile",
           "inlineSurfaces" : {
             "self" : {
               "content" : {
@@ -26,7 +26,7 @@
                       "regions" : {
                         "children" : [
                           {
-                            "card" : "entityCard",
+                            "card" : "tile",
                             "kind" : "component",
                             "slots" : {
                               "entity_id" : "sensor.outside_temp",
@@ -151,7 +151,7 @@
           }
         },
         {
-          "card" : "entityCard",
+          "card" : "tile",
           "kind" : "component",
           "slots" : {
             "busy" : "1",
@@ -189,7 +189,7 @@
           }
         },
         {
-          "card" : "entityCard",
+          "card" : "tile",
           "inlineSurfaces" : {
             "self" : {
               "content" : {
@@ -203,7 +203,7 @@
                       "regions" : {
                         "children" : [
                           {
-                            "card" : "entityCard",
+                            "card" : "tile",
                             "kind" : "component",
                             "slots" : {
                               "busy" : "1",
@@ -246,7 +246,7 @@
                             "regions" : {
                               "children" : [
                                 {
-                                  "card" : "entityCard",
+                                  "card" : "tile",
                                   "kind" : "component",
                                   "slots" : {
                                     "busy" : "1",
@@ -469,7 +469,7 @@
               "clauses" : [
                 {
                   "node" : {
-                    "card" : "entityCard",
+                    "card" : "tile",
                     "kind" : "component",
                     "slots" : {
                       "busy" : "1",
@@ -519,7 +519,7 @@
               "clauses" : [
                 {
                   "node" : {
-                    "card" : "entityCard",
+                    "card" : "tile",
                     "kind" : "component",
                     "slots" : {
                       "busy" : "1",
@@ -663,13 +663,6 @@
       "slots" : [
       ],
       "template" : "<article class=\"card fh-features\">\n  <div class=\"fh-features-content\">{{#content}}{{{html}}}{{/content}}</div>\n  <div class=\"fh-features-actions\">{{#actions}}{{{html}}}{{/actions}}</div>\n</article>"
-    },
-    "entityCard" : {
-      "slots" : [
-        "label",
-        "value"
-      ],
-      "template" : "<article class=\"card entity{{#tappable}} tappable{{/tappable}}{{#tapDisabled}} fh-disabled{{/tapDisabled}}\"{{#tappable}}\n  data-on:click=\"{{#busy}}$_{{id}}__busy ? '' : {{/busy}}{{#tapDisabled__has}}${{tapDisabled__signal}} ? '' : {{/tapDisabled__has}}{{#service__has}}@post('sse/call/{{dashboardSlug}}/' + {{{service__read}}} + '/{{targetKind}}/{{targetId}}{{#dataKey__has}}/{{dataKey}}/{{dataValue}}{{/dataKey__has}}?node={{id}}', {filterSignals:{exclude:'.*'}}){{/service__has}}{{^service__has}}{{{onclick}}}{{/service__has}}\"{{/tappable}}{{#busy}} data-indicator=\"_{{id}}__busy\" data-on:datastar-fetch__document=\"evt.detail.el === el && (evt.detail.type === 'error' ? ($_{{id}}__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_{{id}}__error = ''))\" data-fh-node=\"{{id}}\"{{/busy}}{{#busyVisual}} data-class:fh-disabled=\"$_{{id}}__busy{{#tapDisabled__has}} || {{{tapDisabled__read}}}{{/tapDisabled__has}}\" data-class:fh-loading=\"$_{{id}}__busy\" data-class:fh-error=\"$_{{id}}__error\"{{/busyVisual}}{{^busyVisual}}{{#tapDisabled__has}} data-class:fh-disabled=\"{{{tapDisabled__read}}}\"{{/tapDisabled__has}}{{/busyVisual}}>\n  <header>{{#icon__has}}{{#busy}}<span class=\"fh-icon-shape\"{{#busyVisual}} data-signals__ifmissing=\"{_{{id}}__busy_slow:false}\" data-on-signal-patch-filter=\"{include:/^_{{id}}__busy$/}\" data-on-signal-patch__delay.300ms=\"$_{{id}}__busy_slow = $_{{id}}__busy\" data-class:fh-busy-spin=\"$_{{id}}__busy_slow\"{{/busyVisual}}>{{/busy}}<i class=\"{{icon}}\" {{{icon__bind}}}></i>{{#busy}}</span>{{/busy}}{{/icon__has}}<span class=\"fh-text\"><span class=\"fh-text-run\">{{label}}</span></span></header>\n  <span class=\"fh-reading fh-text\"><span class=\"fh-text-run\" {{{value__bind}}}>{{value}}</span></span>{{#secondary__has}}\n  <span class=\"fh-sub fh-text\"><span class=\"fh-text-run\">{{secondary}}</span></span>{{/secondary__has}}\n</article>"
     },
     "entityInfo" : {
       "slots" : [
@@ -818,6 +811,12 @@
       ],
       "template" : "<strong class=\"fh-text\"><span class=\"fh-text-run\">{{label}}</span></strong>{{#secondary}}<span class=\"fh-sub fh-text\"><span class=\"fh-text-run\">{{secondary}}</span></span>{{/secondary}}"
     },
+    "switch" : {
+      "slots" : [
+        "label"
+      ],
+      "template" : "<article class=\"card row toggle\" {{{switched__bind}}}{{#busyVisual}} data-class:fh-disabled=\"$_{{id}}__busy{{#tapDisabled__has}} || {{{tapDisabled__read}}}{{/tapDisabled__has}}\" data-class:fh-loading=\"$_{{id}}__busy\" data-class:fh-error=\"$_{{id}}__error\"{{/busyVisual}}{{^busyVisual}}{{#tapDisabled__has}} data-class:fh-disabled=\"{{{tapDisabled__read}}}\"{{/tapDisabled__has}}{{/busyVisual}}>\n  <span class=\"max fh-text\"><span class=\"fh-text-run\">{{label}}</span></span>\n  <label class=\"switch\">\n    <input type=\"checkbox\" value=\"on\" {{#checked}}checked{{/checked}} {{{checked__bind}}} data-on:click=\"{{#busy}}$_{{id}}__busy ? '' : {{/busy}}{{#tapDisabled__has}}${{tapDisabled__signal}} ? '' : {{/tapDisabled__has}}{{#service__has}}@post('sse/call/{{dashboardSlug}}/' + {{{service__read}}} + '/{{targetKind}}/{{targetId}}{{#dataKey__has}}/{{dataKey}}/{{dataValue}}{{/dataKey__has}}?node={{id}}', {filterSignals:{exclude:'.*'}}){{/service__has}}{{^service__has}}{{{onclick}}}{{/service__has}}\"{{#tapDisabled}} disabled{{/tapDisabled}}{{#tapDisabled__has}} data-attr:disabled=\"{{{tapDisabled__read}}}\"{{/tapDisabled__has}} data-on-signal-patch-filter=\"{include:/^_{{id}}__error$/}\" data-on-signal-patch=\"$_{{id}}__error && (${{checked__signal}} = ${{switched__signal}})\"{{#busy}} data-indicator=\"_{{id}}__busy\" data-on:datastar-fetch__document=\"evt.detail.el === el && (evt.detail.type === 'error' ? ($_{{id}}__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_{{id}}__error = ''))\" data-fh-node=\"{{id}}\"{{/busy}} />\n    <span></span>\n  </label>\n</article>"
+    },
     "tab" : {
       "slots" : [
         "label",
@@ -840,11 +839,12 @@
       ],
       "template" : "<div class=\"fh-col\"><div class=\"tabs\" data-signals__ifmissing=\"{ ui_{{id}}: {{bakeIndex}}, _{{id}}__pending: '' }\" data-effect=\"$_{{id}}__pending !== '' && $ui_{{id}} == $_{{id}}__pending && ($_{{id}}__pending = '')\">{{#children}}{{{html}}}{{/children}}</div><div id=\"{{hostId}}\" class=\"tab-panel\" data-effect=\"fhUrl('ui.{{id}}', $ui_{{id}})\">{{#panel}}{{{html}}}{{/panel}}</div></div>"
     },
-    "toggle" : {
+    "tile" : {
       "slots" : [
-        "label"
+        "label",
+        "value"
       ],
-      "template" : "<article class=\"card row toggle\" {{{switched__bind}}}{{#busyVisual}} data-class:fh-disabled=\"$_{{id}}__busy{{#tapDisabled__has}} || {{{tapDisabled__read}}}{{/tapDisabled__has}}\" data-class:fh-loading=\"$_{{id}}__busy\" data-class:fh-error=\"$_{{id}}__error\"{{/busyVisual}}{{^busyVisual}}{{#tapDisabled__has}} data-class:fh-disabled=\"{{{tapDisabled__read}}}\"{{/tapDisabled__has}}{{/busyVisual}}>\n  <span class=\"max fh-text\"><span class=\"fh-text-run\">{{label}}</span></span>\n  <label class=\"switch\">\n    <input type=\"checkbox\" value=\"on\" {{#checked}}checked{{/checked}} {{{checked__bind}}} data-on:click=\"{{#busy}}$_{{id}}__busy ? '' : {{/busy}}{{#tapDisabled__has}}${{tapDisabled__signal}} ? '' : {{/tapDisabled__has}}{{#service__has}}@post('sse/call/{{dashboardSlug}}/' + {{{service__read}}} + '/{{targetKind}}/{{targetId}}{{#dataKey__has}}/{{dataKey}}/{{dataValue}}{{/dataKey__has}}?node={{id}}', {filterSignals:{exclude:'.*'}}){{/service__has}}{{^service__has}}{{{onclick}}}{{/service__has}}\"{{#tapDisabled}} disabled{{/tapDisabled}}{{#tapDisabled__has}} data-attr:disabled=\"{{{tapDisabled__read}}}\"{{/tapDisabled__has}} data-on-signal-patch-filter=\"{include:/^_{{id}}__error$/}\" data-on-signal-patch=\"$_{{id}}__error && (${{checked__signal}} = ${{switched__signal}})\"{{#busy}} data-indicator=\"_{{id}}__busy\" data-on:datastar-fetch__document=\"evt.detail.el === el && (evt.detail.type === 'error' ? ($_{{id}}__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_{{id}}__error = ''))\" data-fh-node=\"{{id}}\"{{/busy}} />\n    <span></span>\n  </label>\n</article>"
+      "template" : "<article class=\"card entity{{#tappable}} tappable{{/tappable}}{{#tapDisabled}} fh-disabled{{/tapDisabled}}\"{{#tappable}}\n  data-on:click=\"{{#busy}}$_{{id}}__busy ? '' : {{/busy}}{{#tapDisabled__has}}${{tapDisabled__signal}} ? '' : {{/tapDisabled__has}}{{#service__has}}@post('sse/call/{{dashboardSlug}}/' + {{{service__read}}} + '/{{targetKind}}/{{targetId}}{{#dataKey__has}}/{{dataKey}}/{{dataValue}}{{/dataKey__has}}?node={{id}}', {filterSignals:{exclude:'.*'}}){{/service__has}}{{^service__has}}{{{onclick}}}{{/service__has}}\"{{/tappable}}{{#busy}} data-indicator=\"_{{id}}__busy\" data-on:datastar-fetch__document=\"evt.detail.el === el && (evt.detail.type === 'error' ? ($_{{id}}__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_{{id}}__error = ''))\" data-fh-node=\"{{id}}\"{{/busy}}{{#busyVisual}} data-class:fh-disabled=\"$_{{id}}__busy{{#tapDisabled__has}} || {{{tapDisabled__read}}}{{/tapDisabled__has}}\" data-class:fh-loading=\"$_{{id}}__busy\" data-class:fh-error=\"$_{{id}}__error\"{{/busyVisual}}{{^busyVisual}}{{#tapDisabled__has}} data-class:fh-disabled=\"{{{tapDisabled__read}}}\"{{/tapDisabled__has}}{{/busyVisual}}>\n  <header>{{#icon__has}}{{#busy}}<span class=\"fh-icon-shape\"{{#busyVisual}} data-signals__ifmissing=\"{_{{id}}__busy_slow:false}\" data-on-signal-patch-filter=\"{include:/^_{{id}}__busy$/}\" data-on-signal-patch__delay.300ms=\"$_{{id}}__busy_slow = $_{{id}}__busy\" data-class:fh-busy-spin=\"$_{{id}}__busy_slow\"{{/busyVisual}}>{{/busy}}<i class=\"{{icon}}\" {{{icon__bind}}}></i>{{#busy}}</span>{{/busy}}{{/icon__has}}<span class=\"fh-text\"><span class=\"fh-text-run\">{{label}}</span></span></header>\n  <span class=\"fh-reading fh-text\"><span class=\"fh-text-run\" {{{value__bind}}}>{{value}}</span></span>{{#secondary__has}}\n  <span class=\"fh-sub fh-text\"><span class=\"fh-text-run\">{{secondary}}</span></span>{{/secondary__has}}\n</article>"
     }
   },
   "surfaces" : {
@@ -862,7 +862,7 @@
               }
             },
             {
-              "card" : "entityCard",
+              "card" : "tile",
               "inlineSurfaces" : {
                 "self" : {
                   "content" : {
@@ -876,7 +876,7 @@
                           "regions" : {
                             "children" : [
                               {
-                                "card" : "entityCard",
+                                "card" : "tile",
                                 "kind" : "component",
                                 "slots" : {
                                   "entity_id" : "sensor.outside_temp",

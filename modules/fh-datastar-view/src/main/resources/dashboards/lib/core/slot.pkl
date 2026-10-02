@@ -232,7 +232,7 @@ const function attrWhenEither(attr: String, a: String, b: String): String =
 ///
 /// The backend fills `name__has` for every slot the node declares, signal-backed
 /// or not, so one section works whichever tier the value came from — which
-/// `entityCard`'s icon needs, being a signal where the domain has a state glyph
+/// `EntityCard`'s icon needs, being a signal where the domain has a state glyph
 /// and a literal everywhere else.
 const function ifSlot(name: String): String = "{{#" + name + "__has}}"
 

@@ -237,7 +237,7 @@ facts {
   ["the body is the entity, then the controls its domain has, then its facts"] {
     local body = c.tap.moreInfo(dimmer).inlineSurfaces["self"].content.children[0]
     body.children.toList().map((n) -> n.card)
-      == List("entityCard", "fhcol", "entityInfo", "button")
+      == List("tile", "fhcol", "entityInfo", "button")
   }
 
   ["a numeric sensor's popup carries a chart of where the reading has been"] {
@@ -246,7 +246,7 @@ facts {
     // chooser is what DECLARES the window, so the nesting is what puts the
     // chart in scope of it. Composed here so no dashboard ever writes it.
     body.children.toList().map((n) -> n.card)
-      == List("entityCard", "historyWindows", "entityInfo", "button")
+      == List("tile", "historyWindows", "entityInfo", "button")
     body.children[1].children[0].card == "historyChart"
     body.children[1].vars["window"] == "24h"
     body.children[1].children[0].slots["chart"].query.params["window"].`var`
@@ -307,7 +307,7 @@ facts {
     // this popup is empty.
     local body = c.tap.moreInfo(outside).inlineSurfaces["self"].content.children[0]
     body.children.toList().map((n) -> n.card)
-      == List("entityCard", "entityInfo", "button")
+      == List("tile", "entityInfo", "button")
   }
 
   ["the facts card names its subject and reads every attribute live"] {
@@ -439,14 +439,14 @@ facts {
     // it out: a button free to grow down, and a switch that never shrinks.
     cards["button"].css.contains("min-block-size:2.5rem")
     cards["button"].css.contains("block-size:auto")
-    cards["toggle"].css.contains(".card.row.toggle>.switch{flex:0 0 auto}")
+    cards["switch"].css.contains(".card.row.toggle>.switch{flex:0 0 auto}")
     // ...and the class those rules name is really in the markup. Matched
     // WITHOUT the closing bracket: the element carries bindings now, and this
     // fact is about the class list, not about the tag being bare.
-    cards["toggle"].template.contains(#"<article class="card row toggle""#)
+    cards["switch"].template.contains(#"<article class="card row toggle""#)
     // The label itself is a text box in both, which is the half that shrinks.
     cards["button"].template.contains(#"<span class="fh-text">"#)
-    cards["toggle"].template.contains(#"<span class="max fh-text">"#)
+    cards["switch"].template.contains(#"<span class="max fh-text">"#)
   }
 
   ["one dashboard-wide answer to a label that does not fit"] {
@@ -457,7 +457,7 @@ facts {
     // and a bare text node could not be moved at all.
     cards["sectionTitle"].template.contains(#"<h2 class="fh-section fh-text"><span class="fh-text-run">{{label}}</span></h2>"#)
     cards["pill"].template.contains(#"<span class="fh-text"><span class="fh-text-run">{{label}}</span></span>"#)
-    cards["entityCard"].template.contains(#"<span class="fh-sub fh-text">"#)
+    cards["tile"].template.contains(#"<span class="fh-sub fh-text">"#)
     // A slider's text is `sliderText`'s, not `sliderHead`'s: the head holds
     // regions now (#151), and a card that holds regions is never patched — so
     // the two values here that move as bytes are their own node.
@@ -466,7 +466,7 @@ facts {
     // A signal-backed reading binds on the RUN, not on the box: `data-text`
     // replaces an element's whole content, so binding the box would delete the
     // run on the first tick and the label would never move again.
-    cards["entityCard"].template.contains(#"<span class="fh-text-run" {{{value__bind}}}>{{value}}</span>"#)
+    cards["tile"].template.contains(#"<span class="fh-text-run" {{{value__bind}}}>{{value}}</span>"#)
 
     // The mode travels as inherited custom properties. That is not a style
     // choice: two equally-specific `.fh-text-clip .fh-text` / `.fh-text-wrap
@@ -579,7 +579,7 @@ facts {
     // it renders unstyled.
     local cards = c.cards
     cards["slider"].css.contains(".slider-head{display:flex")
-    cards["entityCard"].css.contains(".card.tappable{cursor:pointer}")
+    cards["tile"].css.contains(".card.tappable{cursor:pointer}")
     cards["entityInfo"].css.contains(".entity-info-attrs{")
     cards["popup"].css.contains("dialog.popup{")
     cards["tabs"].css.contains(".tab-panel{display:contents}")
@@ -594,23 +594,23 @@ facts {
     // entry.pkl with `theme.classes`): the spinner's class is BeerCSS's under
     // the BeerCSS theme...
     local beer = c.cardsWith(c.modules, new Mapping { ["busySpin"] = "shape loading-indicator" })
-    beer["entityCard"].template.contains(#"data-class:shape="$_{{id}}__busy_slow""#)
-    beer["entityCard"].template.contains(#"data-class:loading-indicator="$_{{id}}__busy_slow""#)
+    beer["tile"].template.contains(#"data-class:shape="$_{{id}}__busy_slow""#)
+    beer["tile"].template.contains(#"data-class:loading-indicator="$_{{id}}__busy_slow""#)
     // ...and the framework-free fallback otherwise. No hole survives either way.
     local plain = c.cards
-    plain["entityCard"].template.contains(#"data-class:fh-busy-spin="$_{{id}}__busy_slow""#)
-    !plain["entityCard"].template.contains("@@CLASSBIND")
-    !beer["entityCard"].template.contains("@@CLASSBIND")
+    plain["tile"].template.contains(#"data-class:fh-busy-spin="$_{{id}}__busy_slow""#)
+    !plain["tile"].template.contains("@@CLASSBIND")
+    !beer["tile"].template.contains("@@CLASSBIND")
     // The commit signal is bound by the HEAD, which is the card that moves.
     beer["sliderHead"].template.contains(#"data-class:shape="$_{{id}}__busy_change_slow""#)
   }
 
   ["a theme that names no spinner binds nothing at all"] {
     local none = c.cardsWith(c.modules, new Mapping {})
-    !none["entityCard"].template.contains("data-class:fh-busy-spin")
-    !none["entityCard"].template.contains("@@CLASSBIND")
+    !none["tile"].template.contains("data-class:fh-busy-spin")
+    !none["tile"].template.contains("@@CLASSBIND")
     // The guard and its immediate dim are NOT a theme's to decline.
-    none["entityCard"].template.contains("data-class:fh-disabled")
+    none["tile"].template.contains("data-class:fh-disabled")
   }
 
   ["`informative` reads the card's OWN entity"] {
@@ -841,7 +841,7 @@ facts {
     // waits for a state frame to confirm. A refusal produces NO state frame, so
     // an unrestored switch sits in the one position known to be wrong.
     local sw = c.toggle(kitchen)
-    local t = c.cards["toggle"].template
+    local t = c.cards["switch"].template
     // The look rides the card element, the mechanism the input.
     t.contains(#"<article class="card row toggle" "#)
     t.split("<label").first.contains("data-class:fh-error")
@@ -937,7 +937,7 @@ facts {
     // the `fh-disabled` look through the guard, since only a form control can
     // be disabled.
     tile.slots["tapDisabled"].signal == "handler"
-    c.cards["entityCard"].template.contains("{{#tapDisabled}} fh-disabled{{/tapDisabled}}")
+    c.cards["tile"].template.contains("{{#tapDisabled}} fh-disabled{{/tapDisabled}}")
   }
 
   ["a tap that names its target needs no entity on the card"] {
@@ -1026,14 +1026,14 @@ facts {
     // see.
     local withLatch = c.lock.controls(latchLock)
     withLatch.card == "cardFeatures"
-    withLatch.children["content"].toList().map((n) -> n.card) == List("entityCard")
+    withLatch.children["content"].toList().map((n) -> n.card) == List("tile")
     // The latch is a SIBLING of the tile, not a child of it: inside the
     // tappable element, one press would post `lock/open` and the tile's own
     // `lock/lock` together.
     withLatch.children["actions"].toList().map((n) -> n.card) == List("button")
     // No capability, no wrapper — a plain lock is the generic tile and nothing
     // more.
-    c.lock.controls(plainLock).card == "entityCard"
+    c.lock.controls(plainLock).card == "tile"
   }
 
   ["the latch ASKS before it opens; the confirmation is what posts lock/open"] {
