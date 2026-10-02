@@ -208,8 +208,10 @@ open class Slider extends nodes.Node {
   card = "slider"
   /// The label line's text, a literal or a reading.
   hidden title: String|slotMod.Slot
-  /// A second line under the label. Null renders none.
-  hidden detail: (String|slotMod.Slot)? = null
+  /// A second line under the label — on an entity slider, often an
+  /// [[slotMod.Expr]] naming a DIFFERENT entity (the room's temperature beside
+  /// its lights). Null renders none.
+  hidden secondary: slotMod.Secondary? = null
   /// The badge's MDI class (`mdi-lightbulb`). Null renders no badge.
   hidden glyph: String? = null
   /// The span of the track. The input carries them as its `min`/`max`.
@@ -350,8 +352,8 @@ open class Slider extends nodes.Node {
       ["entity_id"] = subject!!
     }
     ["label"] = title
-    when (detail != null) {
-      ["secondary"] = detail!!
+    when (secondary != null) {
+      ["secondary"] = slotMod.secondarySlot(secondary!!)
     }
   }
   // The one difference the card's markup takes from having members: the group

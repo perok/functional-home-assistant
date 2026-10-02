@@ -191,6 +191,9 @@ function iff(p: pred.Predicate|Boolean): surfaces.If = surfaces.iff(p)
 function expr(s: String): slotMod.Expr = slotMod.expr(s)
 /// The same, bound to a DIFFERENT entity than the card's own.
 function exprOf(eo: hass.Entity, s: String): slotMod.Expr = slotMod.exprOf(eo, s)
+/// One attribute of the card's entity, live — a bare String on `secondary` is
+/// the text itself: `c.entityCard(l).secondary(c.attr("device_class"))`.
+function attr(attrName: String): slotMod.Slot = slotMod.attr(attrName)
 /// Whether `e`'s state is one of `states`, live — what a button's `disabled`
 /// and a node's `classWhen` take: `c.button(…).disabled(c.stateIn(l, List("open")))`.
 function stateIn(e: hass.Entity, states: List<String>): slotMod.Slot = slotMod.stateIn(e, states)

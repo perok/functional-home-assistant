@@ -1,5 +1,5 @@
 /// A tile that knows nothing about Home Assistant: a glyph, a title, a reading,
-/// an optional detail line and an optional tap. HA's entity card is
+/// an optional secondary line and an optional tap. HA's entity card is
 /// `components/entity.pkl`'s `EntityCard`, which only fills these.
 module components.base.tile
 
@@ -9,7 +9,7 @@ import "../../core/tap.pkl" as tapMod
 import "../../core/text.pkl" as textMod
 
 /// The tile. Its inputs are named for what they ARE on the card, not for
-/// where an entity card gets them: `title`, `reading`, `detail` and `glyph`
+/// where an entity card gets them: `title`, `reading`, `secondary` and `glyph`
 /// take a literal or a reading, and the card decides how each is carried.
 open class Tile extends nodes.Node {
   card = "tile"
@@ -44,7 +44,7 @@ open class Tile extends nodes.Node {
   /// here is carried as a SIGNAL (ADR 0017): a temperature ticking from 21.4 to
   /// 21.5 costs a few bytes instead of the whole tile.
   hidden reading: String|slotMod.Slot = ""
-  hidden detail: (String|slotMod.Slot)? = null
+  hidden secondary: slotMod.Secondary? = null
   /// The `<i>`'s WHOLE class (`mdi mdi-lock`), a literal or a reading. Whole,
   /// so the template has one `{{icon}}` and no idea which it got: a literal
   /// naming only the glyph needed a flag to say so, and that flag is what
@@ -71,8 +71,8 @@ open class Tile extends nodes.Node {
         if (glyph is slotMod.Slot) (glyph as slotMod.Slot) { signal = slotMod.asAttr("class") }
         else glyph!!
     }
-    when (detail != null) {
-      ["secondary"] = detail!!
+    when (secondary != null) {
+      ["secondary"] = slotMod.secondarySlot(secondary!!)
     }
     // A CLASS and a click guard, not `disabled`: this host is an `<article>`,
     // and only a form control can be disabled.
