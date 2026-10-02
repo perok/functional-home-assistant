@@ -25,7 +25,7 @@ const local buttonText: String =
   slotMod.ifSlot("secondary") + #"<span class="fh-lines">"# + slotMod.endIfSlot("secondary")
     + "{{#label}}" + textMod.hole("label") + "{{/label}}"
     + slotMod.ifSlot("secondary")
-    + #"<span class="fh-sub \#(textMod.BOX)">"# + textMod.run("secondary") + "</span></span>"
+    + #"<span class="fh-sub \#(textMod.BOX)">"# + textMod.liveRun("secondary") + "</span></span>"
     + slotMod.endIfSlot("secondary")
 
 /// A button that knows only what it shows and what pressing it does: a label, a

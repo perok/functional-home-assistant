@@ -305,8 +305,12 @@ const function valueSlot(value: (String|Expr|simpleMod.Simple)?): Slot =
 typealias Secondary = String|Expr|Slot
 
 /// [[Secondary]] as a slot value; an [[Expr]] becomes the live reading it names.
+/// A live reading is carried as a text SIGNAL (ADR 0017), so every card placing
+/// it must use `textMod.liveRun` and guard it by presence (`ifSlot`). A reading
+/// that is not live — read once or on render, or a query — stays bytes.
 const function secondarySlot(s: Secondary): String|Slot =
-  if (s is Expr) new Slot { entityId = s.entityId; transform = s.transform; default = "" }
+  if (s is Expr) new Slot { entityId = s.entityId; transform = s.transform; default = ""; signal = asText }
+  else if (s is Slot && s.query == null && s.reads == "live" && s.signal == null) (s) { signal = asText }
   else s
 
 /// One attribute of the card's entity, guarded so an absent one reads blank:

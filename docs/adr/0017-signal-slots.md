@@ -478,8 +478,10 @@ Together those took the signal-slot premium on a 200-leaf page from ~2.5x a sign
   `{{{<slot>__bind}}}` (the patch form withholds the value and nothing puts it back).
 - Applied to `EntityCard`'s `value` and, where the domain has a state glyph, its `icon`; to the
   `tapDisabled` reading of a service tap on an entity, as a `handler` signal; to the `service` of a
-  `CallByState` tap, as a `handler` signal; and to all four of the slider's moving slots. `label`
-  stays a registry fact and never moves.
+  `CallByState` tap, as a `handler` signal; to all four of the slider's moving slots; and to a
+  LIVE `secondary` on every card that places one (tile, button, `sliderText`), which
+  `slotMod.secondarySlot` decides once — a literal, or a reading read once or on render, stays
+  bytes. `label` stays a registry fact and never moves.
 
 ## What was deliberately left out
 

@@ -462,7 +462,7 @@ facts {
     // regions now (#151), and a card that holds regions is never patched — so
     // the two values here that move as bytes are their own node.
     cards["sliderText"].template.contains(#"<strong class="fh-text"><span class="fh-text-run">{{label}}</span></strong>"#)
-    cards["sliderText"].template.contains(#"<span class="fh-sub fh-text"><span class="fh-text-run">{{secondary}}</span></span>"#)
+    cards["sliderText"].template.contains(#"<span class="fh-sub fh-text"><span class="fh-text-run" {{{secondary__bind}}}>{{secondary}}</span></span>"#)
     // A signal-backed reading binds on the RUN, not on the box: `data-text`
     // replaces an element's whole content, so binding the box would delete the
     // run on the first tick and the label would never move again.
@@ -633,6 +633,22 @@ facts {
     byAttr.entityId == null
   }
 
+  ["every card placing `secondary` binds it, and guards it by presence"] {
+    // A live `secondary` is a text signal (ADR 0017). Its patch-form value is
+    // blank, so a VALUE guard (`{{#secondary}}`) would delete the element on the
+    // first tick, and a run without the bind would never update.
+    local placing = c.cards.toMap().filter((_, d) -> d.template.contains("{{secondary}}"))
+    placing.keys == Set("tile", "button", "sliderText")
+    placing.every((_, d) ->
+      d.template.contains("{{{secondary__bind}}}") && !d.template.contains("{{#secondary}}"))
+
+    (c.entityCard(kitchen).secondary(c.expr("state")).slots["secondary"] as slotMod.Slot).signal == "text"
+    // A literal is the text itself, and a reading that is not live stays bytes.
+    c.entityCard(kitchen).secondary("Kjøkken").slots["secondary"] == "Kjøkken"
+    local once = new slotMod.Slot { transform = "state"; reads = "once" }
+    (c.entityCard(kitchen).secondary(once).slots["secondary"] as slotMod.Slot).signal == null
+  }
+
   ["a button takes a second line, and one without it is untouched"] {
     local plain = c.button("Stue", c.tap.closePopup())
     !plain.slots.containsKey("secondary")
@@ -653,7 +669,7 @@ facts {
     // Both arms place it, under the same section that opens the column.
     local t = c.cards["button"].template
     t.split("{{#secondary__has}}<span class=\"fh-lines\">").length == 3
-    t.contains("<span class=\"fh-sub fh-text\"><span class=\"fh-text-run\">{{secondary}}</span></span></span>")
+    t.contains("<span class=\"fh-sub fh-text\"><span class=\"fh-text-run\" {{{secondary__bind}}}>{{secondary}}</span></span></span>")
   }
 
   ["a button or a pill can be a glyph, a label, or both"] {
