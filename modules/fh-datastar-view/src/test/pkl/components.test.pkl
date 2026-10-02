@@ -621,6 +621,29 @@ facts {
       .slots["entity_id"] == "light.kitchen"
   }
 
+  ["a button takes a second line, and one without it is untouched"] {
+    local plain = c.button("Stue", c.tap.closePopup())
+    !plain.slots.containsKey("secondary")
+
+    local literal = plain.detail("Turns off 4 lights")
+    literal.slots["secondary"] == "Turns off 4 lights"
+    literal.slots["label"] == "Stue"
+
+    // A `c.expr` is a live reading of the subject, like a label's.
+    local live = c.entityButton(kitchen).detail(c.expr("state"))
+    (live.slots["secondary"] as slotMod.Slot).transform == "state"
+    live.slots["entity_id"] == kitchen.entity_id
+
+    // A glyph with a second line is not a bare icon, so it stays rectangular.
+    local glyphed = c.iconButton("mdi:power", c.tap.closePopup()).detail("Off")
+    !glyphed.slots.containsKey("round")
+
+    // Both arms place it, under the same section that opens the column.
+    local t = c.cards["button"].template
+    t.split("{{#secondary__has}}<span class=\"fh-lines\">").length == 3
+    t.contains("<span class=\"fh-sub fh-text\"><span class=\"fh-text-run\">{{secondary}}</span></span></span>")
+  }
+
   ["a button or a pill can be a glyph, a label, or both"] {
     // What the slider's head action needed over `c.pill` was a glyph, no label
     // and the `active` tint. None of the three is about sliders, so all three are
