@@ -799,13 +799,13 @@ class PklBuildSuite extends munit.FunSuite {
       "sectionTitle" -> List("label"),
       "label" -> List("label", "tone"),
       // The base tile; only the HA layer adds a subject.
-      "entityCard" -> List("label", "value"),
+      "tile" -> List("label", "value"),
       "entityInfo" -> List("entity_id", "attributes"),
       // A declared slot is one every node of the card carries, so optional ones
       // (`href`/`onclick`, `icon`, `group`, `secondary`) are not listed.
       "button" -> List("label"),
       "pill" -> List("label"),
-      "toggle" -> List("label"),
+      "switch" -> List("label"),
       "tab" -> List("label", "onclick", "active"),
       "slider" -> Nil,
       // `label` is only the toggle variant's `aria-label`; the visible one is
@@ -1040,7 +1040,7 @@ class PklBuildSuite extends munit.FunSuite {
       Set(
         "fhcol",
         "sectionTitle",
-        "entityCard",
+        "tile",
         "entityInfo",
         "slider",
         "button",
@@ -1063,16 +1063,16 @@ class PklBuildSuite extends munit.FunSuite {
     // card, not a slider. Picked by name: the sensors' popups hold an
     // entityInfo too.
     val moreInfo = d.surfaces.values
-      .find(s => cardNames(s.content).count(_ == "entityCard") == 2)
+      .find(s => cardNames(s.content).count(_ == "tile") == 2)
       .getOrElse(fail("no more-info surface was hoisted"))
     assertEquals(
       cardNames(moreInfo.content),
       List(
         "popup",
         "fhcol",
-        "entityCard",
+        "tile",
         "fhcol",
-        "entityCard",
+        "tile",
         "entityInfo",
         "button"
       )
@@ -1263,8 +1263,8 @@ class PklBuildSuite extends munit.FunSuite {
         |  .build()""".stripMargin
     )
     val cards = Map(
-      "entityCard" -> CardDef(
-        // `entityCard` marks `value` and `tapDisabled` as signal slots, and
+      "tile" -> CardDef(
+        // `tile` marks `value` and `tapDisabled` as signal slots, and
         // `validate` rejects a card that declares one without placing its
         // binding — or, for a handler, its read (ADR 0017).
         "<b>{{label}}</b><i {{{value__bind}}}>{{value}}</i>" +
@@ -2110,7 +2110,7 @@ class PklBuildSuite extends munit.FunSuite {
       )
     )
     val kids = col.allChildren.collect { case c: LayoutNode.Component => c }
-    assertEquals(kids.map(_.card), List("entityCard"))
+    assertEquals(kids.map(_.card), List("tile"))
     assertEquals(kids.head.slots("tappable").literal, Some("1"))
   }
 

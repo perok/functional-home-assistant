@@ -39,7 +39,7 @@ const local restoreSwitch: String =
 /// A refused command puts the switch BACK — see [[restoreSwitch]]. Optimism
 /// plus no rollback is the one combination that leaves a control lying.
 open class Switch extends nodes.Node {
-  card = "toggle"
+  card = "switch"
   cardDef = new nodes.CardDef {
     template = """
       <article class="card row toggle" \(slotMod.signalBind("switched"))\(tapMod.guardLook)>

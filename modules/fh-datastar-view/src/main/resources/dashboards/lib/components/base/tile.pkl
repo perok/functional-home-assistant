@@ -11,11 +11,8 @@ import "../../core/text.pkl" as textMod
 /// The tile. Its inputs are named for what they ARE on the card, not for
 /// where an entity card gets them: `title`, `reading`, `detail` and `glyph`
 /// take a literal or a reading, and the card decides how each is carried.
-///
-/// The registry name stays `entityCard`, the name this card has always had on
-/// the wire, so a dashboard built before the split renders byte-identically.
 open class Tile extends nodes.Node {
-  card = "entityCard"
+  card = "tile"
   cardDef = new nodes.CardDef {
     template = """
       <article class="card entity{{#tappable}} tappable{{/tappable}}{{#tapDisabled}} fh-disabled{{/tapDisabled}}"{{#tappable}}

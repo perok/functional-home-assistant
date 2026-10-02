@@ -790,7 +790,7 @@ class Renderer(
 
   /** The render cache's pre-check: equal byte-slot values, equal bytes. The
     * key's `contentVersion` moves on any change, so without this every
-    * brightness tick on the shipped `entityCard` re-renders to identical bytes.
+    * brightness tick on the shipped `EntityCard` re-renders to identical bytes.
     * Byte slots only — resolving the signal ones (where the CEL lives) would
     * give the saving back: 0.28 µs against a 5.45 µs render
     * (`RenderBench.byteSlotResolve` vs `tickRender`).
@@ -1576,7 +1576,7 @@ class Renderer(
       // The section guard (ADR 0017), for every slot: a withheld signal value
       // is a false section, so `{{#value}}` would delete its own element and
       // binding on the first patch. Uniform because a card may not know its
-      // tier (`entityCard`'s icon is a signal for some domains only).
+      // tier (`EntityCard`'s icon is a signal for some domains only).
       constB += ((slot + "__has", "1"))
       source.literal match {
         case Some(text) =>
