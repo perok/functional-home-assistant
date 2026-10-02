@@ -146,8 +146,9 @@ class WireShapeSuite extends munit.FunSuite {
     // `Slot` is `SlotSource` in Scala: "slot" is the authoring word, "source"
     // the model's. `literal` is Scala-only because a constant slot is authored
     // as a bare string (`Slot|String`) that the decoder maps into it: an
-    // encoding, not drift.
-    check("Slot", SlotSource(), scalaOnly = Set("literal"))
+    // encoding, not drift. `values` is Scala-only because it is the NODE's
+    // expression values, attached at decode to the slots that read them.
+    check("Slot", SlotSource(), scalaOnly = Set("literal", "values"))
     // `params` is untyped on the wire, so nothing else would notice the sides
     // disagreeing on what a query is.
     check("Query", SlotQuery("history", Map.empty))

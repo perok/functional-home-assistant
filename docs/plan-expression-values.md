@@ -37,15 +37,20 @@ class Tally {
 }
 
 // core/node.pkl
-typealias ExpressionValue = String|Int|Float|Boolean|pred.Tally
-expressionValues: Mapping<String, ExpressionValue>? = null
+typealias ExpressionValue = String|Int|Float|Boolean|predMod.Tally
+hidden expressionValues: Mapping<String, ExpressionValue> = new {}
+values: Mapping<String, ExpressionValue>? =               // the wire form
+  if (expressionValues.isEmpty) null else expressionValues
 ```
+
+Two properties because a `Mapping?` defaulting to null can be neither amended nor `new {}`'d
+(both infer `Dynamic` — measured), and an always-present `{}` would sit on every node's wire.
 
 `CountRef` (query.pkl) becomes a `pred.Tally`, so `.count()` goes in as it is and `.gt(2)` still
 builds a `Count`. `Count` cannot also extend `Tally` — it extends `Predicate`, and Pkl has single
 inheritance — so it keeps its flat `candidates`/`when` (its wire shape) and is BUILT from a
-tally. A count the build already settled is an `Int`, the same fold `knownCount` does for a
-comparison today.
+tally. A count the build already settled needs no fold of its own: its candidates carry no
+residual, and the runtime counts an unguarded candidate as present, so the number is the same.
 
 **Each value is a typed CEL variable** of the node's expressions: String → `string`, Int →
 `int`, Float → `double`, Boolean → `bool`, Tally → `int`. The expression compiles against the
@@ -53,6 +58,11 @@ fixed variables plus the node's names, so a typo, an unknown name or `lights_on 
 `int + string` overload — measured against the pinned cel 0.14.0) fails the BUILD. Refused too: a
 name that is not a CEL identifier, one that shadows `state`/`attr`/`entity_id`/`domain`/
 `dashboard_slug`, and a value no slot of the node reads.
+
+**Attached at decode.** `LayoutNode.foldNode` puts each value onto every slot whose CEL names it
+(`SlotSource.values`), by the identifiers the expression PARSES to — a word inside a string literal
+is not a read. So a slot alone says what it reads, and the compile key, the signal name and the
+watched entities all come off it; no render path takes the node's values as an argument.
 
 **Node-local names, shared machinery.** The names belong to the node; nothing resolves them up
 the ancestor chain (that is what a node variable does, and it is a different fact: a viewer's
@@ -68,13 +78,13 @@ What is shared with `c.iff` and the aggregates, and what is not:
 | Evaluating it | Shared: `Count` becomes "a tally compared to a number", and `Conditions` gains the one interpreter both call. |
 | What fires | Not shared, deliberately. A flip swaps a surface (`SurfaceGraph.affectedStateGroups`); a value patches a slot through the component path (reverse index → `signalFrame` diffed against holds). Two jobs, two paths. |
 
-**It goes out as a signal.** A slot whose expression reads an expression value is a signal slot
-(ADR 0017): the server evaluates the whole expression and sends the finished text in an ordinary
-`datastar-patch-signals` frame. Not "send `lights_on` and let the browser assemble the text" —
+**It goes out as a signal.** On `secondary` — a text signal since step 3 — the server evaluates
+the whole expression and sends the finished text in an ordinary `datastar-patch-signals` frame. (A
+slot the card carries as bytes, a label, still re-renders: the values only decide what it reads.) Not "send `lights_on` and let the browser assemble the text" —
 that is the same expression in CEL (for the document form) and JS (for the patch), which can
-disagree, and a JS-less browser would get only the first. The signal is a display signal named
-by content (`_v.<hash of transform + the values it reads>`), so two nodes saying the same thing
-share one name, and a brightness tick that leaves the count alone sends nothing: the frame is
+disagree, and a JS-less browser would get only the first. The slot's `valueKey` carries its values, so
+the signal is the ordinary display path (`_e.<subject>.<hash>`) and two nodes saying the same
+thing over the same values share one name, and a brightness tick that leaves the count alone sends nothing: the frame is
 diffed against what each session holds.
 
 **What the node watches.** A slot reading values adds each tally's referenced entities to the
