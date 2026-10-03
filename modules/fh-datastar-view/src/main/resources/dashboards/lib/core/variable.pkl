@@ -6,7 +6,7 @@
 /// the first HTML a browser gets is complete.
 ///
 ///     (c.column) {
-///       vars { ["window"] = "24h" }
+///       vars = new Mapping { ["window"] = "24h" }
 ///       children { c.historyChart(sensor).over(varMod.ref("window")) }
 ///     }
 ///
