@@ -32,10 +32,11 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
        |      }
        |    }).secondary(c.expr($expr))""".stripMargin
 
-  private def entry(body: String): String =
+  private def entry(body: String, surfaces: String = ""): String =
     s"""amends "@fh-dashboard/entry.pkl"
        |
        |import "@fh-dashboard/components.pkl" as c
+       |import "@fh-dashboard/core/slot.pkl" as slotMod
        |import "@fh-dashboard/query.pkl" as q
        |import "@fh-home/dump.pkl" as dump
        |
@@ -44,6 +45,8 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
        |  dump.entities.${living.dumpKey}
        |)
        |
+       |$surfaces
+       |
        |card = (c.column) {
        |  children {
        |$body
@@ -51,9 +54,15 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
        |}
        |""".stripMargin
 
-  private def withServer[A](body: String)(f: TestServer => IO[A]): IO[A] =
+  private def withServer[A](body: String, surfaces: String = "")(
+      f: TestServer => IO[A]
+  ): IO[A] =
     TestServer
-      .fromWorkspace("expression-values", entry(body), List(kitchen, living))
+      .fromWorkspace(
+        "expression-values",
+        entry(body, surfaces),
+        List(kitchen, living)
+      )
       .use(f)
       .timeout(60.seconds)
 
@@ -120,6 +129,87 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
     withServer(body)(_.page()).map { html =>
       assertEquals(secondarySignals(html).distinct.size, 2, clue = html)
     }
+  }
+
+  test("inside a popup, the count is live while the popup is open") {
+    // The floors-popup shape this was built for: a surface is its own index,
+    // so the tally's entities must reach that index too. Two ticks, because a
+    // popup open at page load repaints its nodes on the first tick whatever
+    // they read (architecture doc, open questions); the second is the claim.
+    val popup =
+      s"""surfaces {
+         |  ["floors"] {
+         |    body {
+         |${button("Stue")}
+         |    }
+         |  }
+         |}""".stripMargin
+    val open = "?ui.popups=floors"
+    withServer("    c.button(\"Floors\", c.tap.openPopup(\"floors\"))", popup) {
+      ts =>
+        for {
+          html <- ts.page(open)
+          sig = onlySignal(html)
+          client <- ts.connect(open)
+          _ <- client.drain
+          _ <- ts.change(living.entityId, "on")
+          first <- client.drain.map(_.flatMap(_.data).mkString("\n"))
+          _ <- ts.change(kitchen.entityId, "off")
+          second <- client.drain.map(_.flatMap(_.data).mkString("\n"))
+        } yield {
+          assert(html.contains(">1 / 2 on</span>"), clue = html)
+          val tail = sig.split('.').last
+          assert(first.contains(tail + "\":\"2 / 2 on\""), clue = first)
+          assert(second.contains(tail + "\":\"1 / 2 on\""), clue = second)
+          assert(!second.contains("fh-sub"), clue = second)
+        }
+    }
+  }
+
+  test("on a candidate set's member, the count is live") {
+    val body =
+      s"""    q.from(List(dump.entities.${kitchen.dumpKey})).render((e) ->
+         |${button("Stue")}
+         |    ).build()""".stripMargin
+    withServer(body) { ts =>
+      for {
+        html <- ts.page()
+        sig = onlySignal(html)
+        sent <- ts.sentAfter(ts.change(living.entityId, "on"))
+      } yield {
+        assert(html.contains(">1 / 2 on</span>"), clue = html)
+        assert(
+          sent.contains(sig.split('.').last + "\":\"2 / 2 on\""),
+          clue = sent
+        )
+      }
+    }
+  }
+
+  private def valueErrors(value: String, expr: String): List[String] =
+    errorsOf(
+      s"""    ((c.button("Stue", c.tap.closePopup())) {
+         |      expressionValues { ["v"] = $value }
+         |    }).secondary(c.expr(#"$expr"#))""".stripMargin
+    )
+
+  test("a Float is a double even when whole, and an Int an int") {
+    assertEquals(valueErrors("2.0", "string(v + 0.5)"), Nil)
+    assert(
+      valueErrors("2", "string(v + 0.5)").exists(
+        _.contains("no matching overload")
+      ),
+      clue = "an Int must not take a double operand"
+    )
+  }
+
+  test("a slot read once cannot read a live count") {
+    val body =
+      """    ((c.button("Stue", c.tap.closePopup())) {
+        |      expressionValues { ["n"] = q.from(lights).where(q.eq(q.stateProp, "on")).count() }
+        |    }).secondary(new slotMod.Slot { transform = "string(n)"; reads = "once" })""".stripMargin
+    val errs = errorsOf(body)
+    assert(errs.exists(_.contains("would show the first count forever")), errs)
   }
 
   private def errorsOf(body: String): List[String] =

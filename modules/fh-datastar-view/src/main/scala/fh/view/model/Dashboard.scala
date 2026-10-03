@@ -95,7 +95,7 @@ case class SlotSource(
   */
 enum ExprValue derives CanEqual:
   case Text(value: String)
-  // A whole JSON number: the wire does not say whether Pkl had an `Int`.
+  // A Pkl `Int`; a `Float` is `Real` even when whole, decoded by spelling.
   case Whole(value: Long)
   case Real(value: Double)
   case Flag(value: Boolean)
@@ -130,7 +130,14 @@ object ExprValue:
     c.value.fold(
       Left(DecodingFailure("an expression value cannot be null", c.history)),
       b => Right(Flag(b)),
-      n => Right(n.toLong.fold(Real(n.toDouble))(Whole(_))),
+      // By SPELLING, as Pkl wrote it: a `Float` 2.0 and an `Int` 2 have one
+      // value, and an expression typed against the wrong one fails its build.
+      n =>
+        Right(
+          if (n.toString.exists(ch => ch == '.' || ch == 'e' || ch == 'E'))
+            Real(n.toDouble)
+          else n.toLong.fold(Real(n.toDouble))(Whole(_))
+        ),
       s => Right(Text(s)),
       _ =>
         Left(
@@ -1030,6 +1037,14 @@ case class Dashboard(
               "this node — names are the node's own and are not inherited"
           )
         else Nil
+      } ++ c.slots.toList.sortBy(_._1).collect {
+        // The once-cache keys by what a value IS, not by what it counts now.
+        case (slot, src)
+            if src.reads == Reads.Once &&
+              src.values.values.exists(_.isInstanceOf[ExprValue.Count]) =>
+          s"$nodeId: slot '$slot' reads a live count but is read " +
+            s"'${Reads.Once}' — it would show the first count forever; read " +
+            s"it '${Reads.Live}'"
       }
 
     def varErrors(nodeId: String, vars: Map[String, String]): List[String] =

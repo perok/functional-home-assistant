@@ -919,8 +919,10 @@ because its value is not in the patch form and so cannot move these bytes (ADR 0
 A slot may also read the NODE's expression values — a literal, or a tally of candidates counted
 live. `LayoutNode.foldNode` attaches them at decode to exactly the slots whose CEL names them
 (`SlotSource.values`), so no box downstream knows they exist: a tally's candidates and the
-entities their residuals read join the node's live entities, a counted light waking it is the
-ordinary reverse-index path, and the count is `Conditions.present` — the same interpreter a
+entities their residuals read join the node's live entities, so a counted light wakes a page node
+through the ordinary reverse index (an open surface's nodes are candidates on every pull anyway,
+`fromOpenIds`), they join the watched set the upstream subscription asks for, and the count is
+`Conditions.present` — the same interpreter a
 state condition's `Count` uses. Only what fires differs: a flipped condition swaps a surface,
 a moved count patches a slot. The slot's `valueKey` carries the values, so the whole evaluated
 expression goes out as one display signal per distinct (subject, expression, values), and a
@@ -1530,6 +1532,14 @@ Live list — delete an entry when it is answered, and say where the answer land
   `data-effect` on the URL mirror.
 
 ---
+
+- **A popup open at page load repaints its nodes on the first tick.** Its nodes are candidates
+  on every pull (`fromOpenIds` in `Patches`), and on the first tick after a `?ui.popups=…` page
+  load each is sent as an element patch beside its signals, whatever it reads; later ticks are
+  signals only, and a main-page node is signals only from the first. So the document seeds
+  `holds` for the page's nodes but not, it seems, for an open surface's. One extra morph per such
+  load, harmless; found while testing expression values (`ExpressionValuesSuite`), not yet
+  traced to the line.
 
 ## 9. Two findings worth keeping at hand
 
