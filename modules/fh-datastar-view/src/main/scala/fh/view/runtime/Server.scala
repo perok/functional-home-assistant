@@ -789,42 +789,16 @@ class Server(
               // instead would re-send the open surfaces on the next pull.
               val painted =
                 pageAnswers(renderer, open, store.entities, env).map(
-                  renderer.renderBodyTraced(store.entities, uiState, _)
+                  Patches.repaint(renderer, store.entities, uiState, _)
                 )
-              // A popup whose surface this dashboard no longer has is in no
-              // open set and would sit on screen forever.
-              val orphan = Option
-                .when(
-                  uiState.get(Dashboard.PopupHostId).exists(_.nonEmpty) &&
-                    renderer.surfaces.openPopup(uiState).isEmpty
-                )(
-                  Datastar.patch(
-                    s"""<div id="${Dashboard.PopupHostId}"></div>""",
-                    PatchMode.Outer,
-                    None
-                  )
-                )
-                .toList
+              val orphan = Server.orphanedPopup(renderer, uiState)
               val result = (resumedIO, session.vars.get).tupled.flatMap {
                 (resumed, chosen) =>
                   val claim = resumed.fold(store.version)(_ => covered)
                   val record = resumed.fold(
-                    painted.flatMap(p =>
-                      session.holds
-                        .set(p.own.map { case (id, n) =>
-                          id -> Held(Some(n.digest), n.signals)
-                        })
-                        .as(
-                          List(
-                            Datastar
-                              .patch(
-                                p.html,
-                                PatchMode.Inner,
-                                Some("#dashboard")
-                              )
-                          )
-                        )
-                    )
+                    painted.flatMap { case (frames, held) =>
+                      session.holds.set(held).as(frames)
+                    }
                   )(patches =>
                     session.holds
                       .update(
@@ -879,43 +853,45 @@ class Server(
             case (Some(prev), Some(r)) if prev.headHash != r.headHash =>
               IO.pure(List(Server.reloadPatch))
             case (Some(prev), Some(r)) =>
-              (session.open.set(r.surfaces.selectedSurfaces(uiState)) *>
-                (stateStore.current, live.log.get).tupled)
-                .flatMap { case (store, log) =>
-                  pageSnapshot(
-                    session,
-                    r,
-                    r.surfaces.selectedSurfaces(uiState),
-                    store.entities
-                  ).flatMap { fragments =>
-                    val head =
-                      if (prev.styleHash != r.styleHash)
-                        Server.headPatches(r, session.slug)
-                      else Nil
-                    // Traced and claimed as in [[openingPatches]]. `told` too, or
-                    // the keepalive announces a lower version than the swap did.
-                    val painted =
-                      r.renderBodyTraced(store.entities, uiState, fragments)
-                    session.holds.set(painted.own.map { case (id, p) =>
-                      id -> Held(Some(p.digest), p.signals)
-                    }) *>
-                      session.position.set(store.version) *>
-                      session.told
-                        .set(store.version)
-                        .as(
-                          head ++ List(
-                            Datastar.patch(
-                              painted.html,
-                              PatchMode.Inner,
-                              Some("#dashboard")
-                            ),
-                            // A swap rotated the log id; without this a
-                            // reconnect quotes a dead log and repaints.
-                            Server.cursorSignals(r, log.id, store.version)
-                          )
-                        )
+              session.open.get.flatMap { was =>
+                // The popup open NOW: `uiState` is what this stream connected
+                // with, and the popup may have closed or changed since.
+                val ui = uiState.updated(
+                  Dashboard.PopupHostId,
+                  was
+                    .find(
+                      prev.surface(_).exists(_.hostId == Dashboard.PopupHostId)
+                    )
+                    .getOrElse("")
+                )
+                val open = r.surfaces.selectedSurfaces(ui)
+                (session.open.set(open) *>
+                  (stateStore.current, live.log.get).tupled)
+                  .flatMap { case (store, log) =>
+                    pageSnapshot(session, r, open, store.entities).flatMap {
+                      fragments =>
+                        val head =
+                          if (prev.styleHash != r.styleHash)
+                            Server.headPatches(r, session.slug)
+                          else Nil
+                        // Claimed as in [[openingPatches]]. `told` too, or the
+                        // keepalive announces a lower version than the swap did.
+                        val (painted, held) =
+                          Patches.repaint(r, store.entities, ui, fragments)
+                        session.holds.set(held) *>
+                          session.position.set(store.version) *>
+                          session.told
+                            .set(store.version)
+                            .as(
+                              head ++ painted ++
+                                Server.orphanedPopup(r, ui) :+
+                                // A swap rotated the log id; without this a
+                                // reconnect quotes a dead log and repaints.
+                                Server.cursorSignals(r, log.id, store.version)
+                            )
+                    }
                   }
-                }
+              }
           }
           .flatMap(Stream.emits)
       }
@@ -2621,6 +2597,26 @@ object Server {
       version: Long
   ): SseFrame =
     Datastar.patchSignals(cursorJson(renderer, logId, version).noSpaces)
+
+  /** A popup whose surface this dashboard no longer has is in no open set, so
+    * nothing else would take it off the screen.
+    */
+  private[runtime] def orphanedPopup(
+      renderer: Renderer,
+      uiState: Map[String, String]
+  ): List[SseFrame] =
+    Option
+      .when(
+        uiState.get(Dashboard.PopupHostId).exists(_.nonEmpty) &&
+          renderer.surfaces.openPopup(uiState).isEmpty
+      )(
+        Datastar.patch(
+          s"""<div id="${Dashboard.PopupHostId}"></div>""",
+          PatchMode.Outer,
+          None
+        )
+      )
+      .toList
 
   /** A connect's last event: the cursor plus what only the server may assert
     * (ADR 0025) — selections and node variables, the latter total so a

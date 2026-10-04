@@ -317,7 +317,9 @@ GET /sse/dashboard/:slug/patch
       resume   if the cursor's logId matches, nothing structural moved, AND the
                cursor is not behind `told` — a client that never acknowledged
                what we announced has `holds` we cannot answer from
-      repaint  if it does not      // claims what it painted, same as the document
+      repaint  if it does not      // claims what it painted, same as the document:
+                                   // the body AND the open popup, whose host is
+                                   // outside #dashboard (Patches.repaint)
       reload   if the document itself is stale
     ...then position = WHAT THIS CONNECTION CAN PROVE IT SENT: the doorbell's
       value (read BEFORE the log) for a resume, since a resume can only answer
@@ -336,6 +338,9 @@ GET /sse/dashboard/:slug/patch
     // current still what I served you". Reading it off the subscription
     // instead cannot tell "unchanged" from "changed while nobody was looking",
     // and the second leaves a client on a dashboard that no longer exists.
+    // Its repaint takes the popup from `session.open`, not the stream's
+    // `uiState`: that is what it CONNECTED with, and would reopen a popup
+    // closed since.
   the whole response, AFTER untilRevoked wraps it, is interruptWhen'd on this
     stream's tenure: a later stream displaces it by taking the next epoch
     // NEVER on the stream handed to untilRevoked. fs2 interruption is scoped,
@@ -879,7 +884,7 @@ The same call serves a live tick and a reconnect. What differs is only where the
 ```mermaid
 flowchart LR
   RC["a pull: the doorbell rang,<br/>or a client reconnected with a cursor"] --> Q{"a CLIENT cursor?<br/>same logId · not ahead of<br/>the store · same head hash ·<br/>NOT BEHIND what we announced"}
-  Q -->|no| REPAINT["full body repaint<br/>from the current snapshot<br/>— and it CLAIMS what it painted"]
+  Q -->|no| REPAINT["full body repaint, and the open popup,<br/>from the current snapshot<br/>— and it CLAIMS what it painted"]
   Q -->|yes, or a session's own position| SINCE["FragmentLog.since v"]
   SINCE --> N["nodes whose version is at least v<br/>RENDERED NOW from the current<br/>snapshot, never from the log —<br/>their queries answered first (§6, a query)"]
   SINCE --> M["moved: Gone / Placed mutations<br/>replayed as remove + insert"]
@@ -1532,14 +1537,6 @@ Live list — delete an entry when it is answered, and say where the answer land
   `data-effect` on the URL mirror.
 
 ---
-
-- **A popup open at page load repaints its nodes on the first tick.** Its nodes are candidates
-  on every pull (`fromOpenIds` in `Patches`), and on the first tick after a `?ui.popups=…` page
-  load each is sent as an element patch beside its signals, whatever it reads; later ticks are
-  signals only, and a main-page node is signals only from the first. So the document seeds
-  `holds` for the page's nodes but not, it seems, for an open surface's. One extra morph per such
-  load, harmless; found while testing expression values (`ExpressionValuesSuite`), not yet
-  traced to the line.
 
 ## 9. Two findings worth keeping at hand
 
