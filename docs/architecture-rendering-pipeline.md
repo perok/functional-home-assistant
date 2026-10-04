@@ -338,9 +338,9 @@ GET /sse/dashboard/:slug/patch
     // current still what I served you". Reading it off the subscription
     // instead cannot tell "unchanged" from "changed while nobody was looking",
     // and the second leaves a client on a dashboard that no longer exists.
-    // Its repaint takes the popup from `session.open`, not the stream's
-    // `uiState`: that is what it CONNECTED with, and would reopen a popup
-    // closed since.
+    // Its repaint takes the selection (popup and tabs) from `session.open`,
+    // not the stream's `uiState`: that is what it CONNECTED with, and would
+    // reopen a popup closed since and snap a tab back.
   the whole response, AFTER untilRevoked wraps it, is interruptWhen'd on this
     stream's tenure: a later stream displaces it by taking the next epoch
     // NEVER on the stream handed to untilRevoked. fs2 interruption is scoped,
