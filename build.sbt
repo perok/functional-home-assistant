@@ -133,7 +133,7 @@ val commonSettings = Seq(
   scalaVersion := "3.9.0",
   libraryDependencies ++= Seq(
     "org.typelevel" %% "cats-effect" % "3.7.1",
-    "io.scalaland" %% "chimney" % "2.0.0",
+    "io.scalaland" %% "chimney" % "2.1.0",
     "com.lihaoyi" %% "pprint" % "0.9.6"
   )
 )
