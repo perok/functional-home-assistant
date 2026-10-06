@@ -1716,6 +1716,7 @@ class PklBuildSuite extends munit.FunSuite {
         "targetKind",
         "targetId",
         "dataKey",
+        "tapDisabled",
         "min",
         "max",
         "icon",

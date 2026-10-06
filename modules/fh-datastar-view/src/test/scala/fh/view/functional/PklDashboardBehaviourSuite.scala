@@ -129,24 +129,30 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
     }
   }
 
+  private val refusal = s"$$_e.${HouseFixture.kitchenLight.entityId}."
+
   test("a slider's value commit carries its own guarded, disabled input") {
     TestServer
       .fromWorkspace("fixture-slider", sliderEntry, entities)
       .use { ts =>
         ts.page().map { html =>
           // The range input commits on `change`, so it owns
-          // `_<id>__busy_change` (`tap.pkl`'s `busyGuardChange` and friends).
+          // `_<id>__busy_change` (`tap.pkl`'s `busyGuardChange` and friends),
+          // ORed with the refusal: the signal reading whether the light is
+          // unavailable, named by what it reads (hash elided).
           assert(
             html.contains("data-indicator=\"_c_0_head_0__busy_change\""),
             clue = html
           )
           assert(
-            html.contains("data-attr:disabled=\"$_c_0_head_0__busy_change\""),
+            html.contains(
+              s"data-attr:disabled=\"$$_c_0_head_0__busy_change || $refusal"
+            ),
             clue = html
           )
           assert(
-            html.contains(
-              "data-on:change=\"$_c_0_head_0__busy_change ? '' : @post('sse/call/fixture-slider/light/turn_on/entity/"
+            html.contains(s"data-on:change=\"$refusal") && html.contains(
+              s"? '' : $$_c_0_head_0__busy_change ? '' : @post('sse/call/fixture-slider/light/turn_on/entity/"
             ),
             clue = html
           )
@@ -154,7 +160,9 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
           // itself is frozen through `data-attr:disabled` instead.
           assert(
             html
-              .contains("data-class:fh-disabled=\"$_c_0_head_0__busy_change\""),
+              .contains(
+                s"data-class:fh-disabled=\"$$_c_0_head_0__busy_change || $refusal"
+              ),
             clue = html
           )
           assert(
@@ -164,7 +172,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
           )
           assert(
             html.contains(
-              "class=\"slider-icon\" data-class:fh-disabled=\"$_c_0_head_0__busy_change\" data-class:fh-loading=\"$_c_0_head_0__busy_change\" "
+              s"class=\"slider-icon\" data-class:fh-disabled=\"$$_c_0_head_0__busy_change || $refusal"
             ),
             clue = html
           )
@@ -254,12 +262,14 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
               clue = html
             )
             assert(
-              html.contains("data-attr:disabled=\"$_c_0_head_0__busy_change\""),
+              html.contains(
+                s"data-attr:disabled=\"$$_c_0_head_0__busy_change || $refusal"
+              ),
               clue = html
             )
             assert(
-              html.contains(
-                "data-on:change=\"$_c_0_head_0__busy_change ? '' : @post('sse/call/fixture-quiet-slider/light/turn_on/entity/"
+              html.contains(s"data-on:change=\"$refusal") && html.contains(
+                s"? '' : $$_c_0_head_0__busy_change ? '' : @post('sse/call/fixture-quiet-slider/light/turn_on/entity/"
               ),
               clue = html
             )

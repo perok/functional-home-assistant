@@ -1077,6 +1077,28 @@ facts {
     senders.every((n) -> n.slots["tapDisabled"].entityId == "lock.latch")
   }
 
+  ["every slider refuses to post while its target is unavailable, and only then"] {
+    // The commit used to build its route beside `tapRoute`, so it alone carried
+    // no refusal and an unavailable cover still got the post. The property is
+    // about every row a slider can draw: each axis, and the toggle-only track.
+    local switchOnly: hass.LightEntity = new { entity_id = "light.porch"; colourModes { "onoff" } }
+    local blind: hass.GenericEntity = new { entity_id = "cover.blind"; domain = "cover" }
+    local vent: hass.GenericEntity = new { entity_id = "fan.vent"; domain = "fan" }
+    local warmth = new hass.ColourTemp { owner = dimmer; min_kelvin = 2000; max_kelvin = 6500 }
+    local rows = List(c.slider(kitchen), c.slider(dimmer), c.slider(warmth), c.slider(blind), c.slider(vent), c.slider(switchOnly))
+    rows.every((s) -> s.headSlots.containsKey("service"))
+    rows.every((s) ->
+      (s.headSlots["tapDisabled"].transform as simpleMod.SimpleMatch).cases.toMap().keys == Set("unavailable"))
+    rows.every((s) -> s.headSlots["tapDisabled"].entityId == s.entity.entity_id)
+    // The value is the drag's, so the route carries the key and no value.
+    rows.filter((s) -> !s.toggleOnly).every((s) -> s.headSlots.containsKey("dataKey") && !s.headSlots.containsKey("dataValue"))
+    // The input is disabled by the refusal as well as by its own commit, and
+    // the change handler leads with the refusal guard.
+    local head = c.cards["sliderHead"].template
+    head.contains(#"data-attr:disabled="$_{{id}}__busy_change{{#tapDisabled__has}} || {{{tapDisabled__read}}}{{/tapDisabled__has}}""#)
+    head.contains(#"data-on:change="{{#tapDisabled__has}}${{tapDisabled__signal}} ? '' : {{/tapDisabled__has}}$_{{id}}__busy_change ? '' : @post("#)
+  }
+
   ["a chart stage's params are typed on the wire, and an unset one is absent"] {
     // The JSON `ChartStyleSuite` decodes: a number, not a string, and no null.
     new JsonRenderer { omitNullProperties = true; indent = "" }
