@@ -259,7 +259,8 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   seed, and a boxed `Boolean` in `paint`, because a card places such a slot as a Mustache SECTION
   and the string `"false"` is TRUTHY there. ADR 0017 has the two rejected designs (`flag:`, and a
   nullable value) and why each failed.
-  Customers: `tile`'s `value` (text), and all four of the slider's moving slots — `state`
+  Customers: `tile`'s `value` (text), a live `secondary` on any card (text), and all four of
+  the slider's moving slots — `state`
   (text), `value` (`attr:value`), `fill` (`style:--_end`) and
   `fillColor` (`style:background`). The slider's `value` is SERVER-ONLY (ADR 0025): the input is
   `data-bind`-ed to a separate client-owned `_<id>__slide`, because `data-on-signal-patch` fires on
