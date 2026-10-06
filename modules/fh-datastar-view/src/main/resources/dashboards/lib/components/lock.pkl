@@ -55,7 +55,7 @@ local function confirmOpen(l: hass.LockEntity): layout.Column = new layout.Colum
     // and pinned to its domain action rather than the default, which would be
     // more-info opening on top of this popup.
     (entityMod.entityCard(l)) { tapAction = tapMod.byDomain(l) }
-    control.button("Open the door", tapMod.service("lock/open")).entity(l)
+    control.button("Open the door", tapMod.call("lock/open", l))
     control.button("Cancel", tapMod.closePopup())
   }
 }
