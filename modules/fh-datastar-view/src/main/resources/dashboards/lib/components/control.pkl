@@ -90,16 +90,13 @@ open class Button extends nodes.Node {
   hidden tapAction: tapMod.TapAction = throw(noAction("c.button"))
   // Copy the action's inline surfaces onto the node so the hoist lifts them.
   inlineSurfaces = tapAction.inlineSurfaces
-  /// States in which the press is meaningless, beyond what the tap already
-  /// refuses — [[EntityButton.inertWhile]] sets it; a button that knows no
-  /// entity has none of its own.
-  hidden extraInert: Listing<String> = new {}
   /// A Boolean reading that disables the button while it holds, ORed with
-  /// whatever its tap refuses — for a press meaningless in some state of an
-  /// entity the tap does not target. Name the reading's entity: a button has
-  /// no subject to fall back on.
+  /// whatever its tap refuses ([[tapMod.Call.disabledWhile]]) — for a reason
+  /// of the BUTTON's: a popup opener has no call to carry one. Name the
+  /// reading's entity (`c.stateIn(l, …)`): a button has no subject to fall
+  /// back on.
   hidden disabled: slotMod.Slot? = null
-  /// [[extraInert]], once the one shape it cannot take has been refused.
+  /// [[disabled]], once the one shape it cannot take has been refused.
   ///
   /// A button that GOES somewhere renders as `<a href>`, and `disabled` is a
   /// FORM-CONTROL attribute — a link has no inert form at all short of dropping
@@ -108,14 +105,14 @@ open class Button extends nodes.Node {
   /// ignored: silently dropping the option is how a control ends up looking
   /// guarded and not being it.
   ///
-  /// It is the VALUE `tapRoute` reads and not a boolean beside it, because a
-  /// Pkl local is lazy: a check nothing forces is a check that never runs.
-  local authoredInert: Listing<String> =
-    if ((!extraInert.isEmpty || disabled != null) && tapAction.href != null)
-      throw("c.button: `inertWhile`/`disabled` needs a button, but this one "
-        + "navigates and renders as a link — `disabled` is a form-control "
-        + "attribute. Drop it, or give it a service tap.")
-    else extraInert
+  /// It is the VALUE `slots` reads and not a boolean beside it, because a Pkl
+  /// local is lazy: a check nothing forces is a check that never runs.
+  local ownDisabled: slotMod.Slot? =
+    if (disabled != null && tapAction.href != null)
+      throw("c.button: `disabled` needs a button, but this one navigates and "
+        + "renders as a link — `disabled` is a form-control attribute. Drop "
+        + "it, or give it a service tap.")
+    else disabled
   slots {
     ["label"] = slotMod.labelSlot(null, label)
     when (icon != null) {
@@ -141,21 +138,21 @@ open class Button extends nodes.Node {
     // omitted entirely rather than emitted-and-ignored, so the node JSON says
     // which element it is.
     //
-    // `authoredInert` is read FIRST and deliberately, not for what it answers:
-    // it is where the anchor-plus-`inertWhile` refusal lives, the anchor arm
-    // never reaches `tapRoute`, and a Pkl local nothing forces never runs. Its
-    // value here is always `true` when it returns at all — the case that would
-    // make it false has thrown by then.
-    when (authoredInert.isEmpty && tapAction.href != null) {
+    // `ownDisabled` is read FIRST and deliberately, not for what it answers: it
+    // is where the anchor-plus-`disabled` refusal lives, the anchor arm never
+    // reads it otherwise, and a Pkl local nothing forces never runs. Its value
+    // here is always `null` when it returns at all — the case that would make
+    // it non-null has thrown by then.
+    when (ownDisabled == null && tapAction.href != null) {
       ["href"] = tapAction.href!!
     } else {
       // A handler, because `attrWhenEither` ORs it with [[disabled]] in one
       // `data-attr` and the read is all it needs.
-      for (k, v in tapMod.tapRoute(tapAction, authoredInert, "disabled")) {
+      for (k, v in tapMod.tapRoute(tapAction, "disabled")) {
         [k] = if (k == "inert") (v as slotMod.Slot) { signal = slotMod.asHandler } else v
       }
-      when (disabled != null) {
-        ["disabled"] = (disabled!!) { signal = slotMod.asHandler }
+      when (ownDisabled != null) {
+        ["disabled"] = (ownDisabled!!) { signal = slotMod.asHandler }
       }
     }
     // Only the non-anchor arm carries the busy splice — an anchor is a
@@ -175,12 +172,14 @@ open class Button extends nodes.Node {
   function label(l: String|slotMod.Expr): Button = let (self = this) (self) { label = l }
   function icon(i: String): Button = let (self = this) (self) { icon = i }
   function tapAction(a: tapMod.TapAction): Button = let (self = this) (self) { tapAction = a }
+  /// See [[disabled]]: `c.entityButton(l).disabled(c.stateIn(l, List("open")))`.
+  function disabled(r: slotMod.Slot): Button = let (self = this) (self) { disabled = r }
 }
 
 /// A button ABOUT an entity — one layer up from [[Button]]: named after it,
 /// pressing it does what its domain does (`hass/actions.pkl`) unless told
-/// otherwise, and it can light while the entity is on or refuse a press in
-/// some of its states. `c.entityButton(l)`, `c.entityButton(l).lit(true)`.
+/// otherwise, and it can light while the entity is on.
+/// `c.entityButton(l)`, `c.entityButton(l).lit(true)`.
 ///
 /// The SAME card as [[Button]], so it registers no card of its own
 /// (`nodes.cardsWith` skips a class that inherits `card`). Its tap still names
@@ -192,17 +191,6 @@ class EntityButton extends Button {
   /// something rather than reflecting a state, and a button that lit up for no
   /// reason would be worse than one that never does.
   hidden lit: Boolean = false
-  /// States of this button's entity that make the press meaningless — HA's
-  /// `canOpen`/`canLock`/`canUnlock` are exactly this list per domain.
-  ///
-  /// ADDS to what the tap already refuses ([[tapMod.inertStates]]: the domain's
-  /// transitional states, plus availability on any service call) rather than
-  /// replacing it — so a button on a lock is inert mid-move exactly as that
-  /// lock's tile is, whether or not an author writes anything here. Read on the
-  /// tap's target where it has one, and on this entity for a popup or a
-  /// navigate.
-  hidden inertWhile: Listing<String> = new {}
-  extraInert = inertWhile
   // Here and not inside `slots`: an inherited property is not in lexical scope
   // in a nested body, where the implicit receiver is the mapping.
   local named = slotMod.labelSlot(entity, label)
@@ -221,9 +209,6 @@ class EntityButton extends Button {
     }
   }
   function lit(l: Boolean): EntityButton = let (self = this) (self) { lit = l }
-  /// See [[inertWhile]]: `c.entityButton(l).inertWhile(List("opening"))`.
-  function inertWhile(xs: List<String>): EntityButton =
-    let (self = this) (self) { inertWhile = xs.toListing() }
 }
 
 /// See [[EntityButton]].
@@ -332,7 +317,7 @@ class Toggle extends nodes.Node {
       bypassUnavailable = false
       signal = slotMod.asAttr("data-switched")
     }
-    for (k, v in tapMod.tapRoute(tapAction, new Listing {}, "disabled")) {
+    for (k, v in tapMod.tapRoute(tapAction, "disabled")) {
       [k] = v
     }
     when (tapAction.busy) {
@@ -394,7 +379,7 @@ class Pill extends nodes.Node {
     } else {
       // A chip's root IS a `<button>`, so it takes the same real `disabled` a
       // [[Button]] does — it just has no authored list of its own to add.
-      for (k, v in tapMod.tapRoute(tapAction, new Listing {}, "disabled")) {
+      for (k, v in tapMod.tapRoute(tapAction, "disabled")) {
         [k] = v
       }
     }
