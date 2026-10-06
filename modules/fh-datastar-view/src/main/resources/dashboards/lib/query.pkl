@@ -557,11 +557,19 @@ function from(xs: List<hass.Entity>): EntitySet = new EntitySet { items = xs }
 /// survivors. Then `.any()` on a room with no lights is `false` at build time,
 /// and the card it guards is dropped rather than carrying a condition that can
 /// never hold. The same fold as everywhere else, one level up.
-class CountRef {
+class CountRef extends pred.Tally {
   /// Candidate id -> its presence residual: `true` for one the build settled,
   /// a predicate for one the runtime must decide. Statically-absent candidates
   /// are already gone.
   hidden residuals: List<Pair<String, Boolean|pred.Predicate>>
+  candidates = new Listing { for (p in residuals) { p.first } }
+  `when` = new Mapping {
+    for (p in residuals) {
+      when (p.second is pred.Predicate) {
+        [p.first] = p.second as pred.Predicate
+      }
+    }
+  }
 
   hidden knownCount: Int? =
     if (residuals.every((p) -> p.second == true)) residuals.length else null
@@ -578,14 +586,8 @@ class CountRef {
       if (l.knownCount != null) staticCompare(cmpOp, l.knownCount!!, v)
       else
         new pred.Count {
-          candidates = new Listing { for (p in l.residuals) { p.first } }
-          `when` = new Mapping {
-            for (p in l.residuals) {
-              when (p.second is pred.Predicate) {
-                [p.first] = p.second as pred.Predicate
-              }
-            }
-          }
+          candidates = l.candidates
+          `when` = l.`when`
           op = cmpOp
           value = v
         }
