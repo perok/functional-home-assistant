@@ -1082,9 +1082,9 @@ case class Dashboard(
             s"read it '${Reads.Live}'"
       }
 
-    /** A yes/no slot whose value is not a bool decides a class or an attribute
+    /** A boolean slot whose value is not a bool decides a class or an attribute
       * by truthiness, so the string `"false"` turns it ON. The card names its
-      * yes/no slots; a class binding is one by kind.
+      * boolean slots; a class binding is one by kind.
       */
     def booleanErrors(
         nodeId: String,
@@ -1099,7 +1099,7 @@ case class Dashboard(
               src.signal.exists(_.isInstanceOf[SignalBind.Class])) &&
               src.literal.isEmpty && src.query.isEmpty &&
               !Dashboard.yieldsBool(src) =>
-          s"$nodeId: slot '$name' is a yes/no input, but its reading does not " +
+          s"$nodeId: slot '$name' is a boolean slot, but its reading does not " +
             "produce a bool — compare it (`on > 0`), or use a condition"
       }
 

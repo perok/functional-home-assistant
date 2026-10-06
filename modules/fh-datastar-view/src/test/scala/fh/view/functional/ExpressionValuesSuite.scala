@@ -294,7 +294,7 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
     assert(errs.exists(_.contains("would hide the 'state'")), errs)
   }
 
-  // A yes/no input reading `reading`, beside a second line reading the count
+  // A boolean slot filled by `reading`, beside a second line reading the count
   // so the value is read by something either way.
   private def yesNo(input: String, reading: String): List[String] =
     errorsOf(
@@ -306,7 +306,7 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
 
   private val notBool = "does not produce a bool"
 
-  test("a yes/no input whose CEL is not a bool fails the build") {
+  test("a boolean slot whose CEL is not a bool fails the build") {
     val int = """new slotMod.Slot { transform = "n" }"""
     assert(
       yesNo(
@@ -318,13 +318,15 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
     assert(yesNo(s"disabled = $int", int).exists(_.contains(notBool)))
   }
 
-  test("a yes/no input whose Simple shape is text fails the build") {
+  test("a boolean slot whose Simple shape is text fails the build") {
     val text =
       s"""new slotMod.Slot { entityId = "${kitchen.entityId}"; transform = simpleMod.attr("friendly_name") }"""
     assert(yesNo(s"disabled = $text", text).exists(_.contains(notBool)))
   }
 
-  test("a comparison, a boolean match and a condition are all yes/no") {
+  test(
+    "a comparison, a boolean match and a condition all fill a boolean slot"
+  ) {
     val cmp = """new slotMod.Slot { transform = "n > 0" }"""
     assertEquals(
       yesNo(s"disabled = $cmp", cmp).filter(_.contains(notBool)),

@@ -1,4 +1,4 @@
-# Plan — conditions on every yes/no input, and live CSS custom properties
+# Plan — conditions on every boolean slot, and live CSS custom properties
 
 **Goal:** an author can say "disable this button while no light on the floor is on", "tint it while
 any is", "add class X while Y" and "set `--fh-fill` from this value" with the same small set of
@@ -48,7 +48,7 @@ expressionValues { ["any_on"] = lit.any() }
 secondary = c.expr("any_on ? 'Some on' : 'All off'")
 ```
 
-### 2. Every yes/no input takes a condition directly
+### 2. Every boolean slot takes a condition directly
 
 `active`, `disabled` and `classWhen` take `Boolean | reading | condition | Expr`:
 
@@ -60,13 +60,13 @@ secondary = c.expr("any_on ? 'Some on' : 'All off'")
 
 Names starting `__` become reserved, so an author's value cannot collide with a generated one.
 
-### 3. The build checks a yes/no result is a bool
+### 3. The build checks a boolean slot gets a bool
 
 Nothing checks a slot's result type today. `classWhen("x", c.expr("on"))` builds, and then an int
-decides a class. A YES/NO slot must produce a bool. Which slots are yes/no cannot be read off the
+decides a class. A **boolean slot** must get a bool. Which slots are boolean cannot be read off the
 binding kind: `disabled` is a `handler` slot (ORed into `data-attr:disabled`, where a string
 `"false"` is truthy), but so is a lock's service name, and `attr:value` carries the slider's
-number. So the CARD names its yes/no slots (`CardDef.booleanSlots`; the button's is
+number. So the CARD names its boolean slots (`CardDef.booleanSlots`; the button's is
 `disabled`), and a live cell class or a `class:` binding is one by kind. Checked per tier:
 
 - **CEL** compiles to `bool`. `dyn` is still accepted, because an entity read such as `state` is
@@ -121,16 +121,17 @@ slider's CSS reads.
 1. Commit this plan, opening the PR.
 2. `ExprValue.Holds` + `ExpressionValue` accepting a condition; `ExpressionValuesSuite`: a condition
    value read in text, a flip sending one frame.
-3. The result-type check for class/attribute slots and for `cssProperty`, both tiers (build
-   refusals: a CEL int, a `Simple` string shape on a class, a boolean `match` on a property).
+3. The result-type check for boolean slots, both tiers (build refusals: a CEL int, a `Simple`
+   string shape). `cssProperty`'s converse check lands with it in 6.
 4. The sugar on `active`/`disabled`/`classWhen`, and the `__` reservation. Tests are the floor
    button above, a condition shared by two nodes sharing one signal, and a collision refusal.
 5. `disabled` on the base tile and the base slider, ORed with the tap's own refusal as the
    button's is (`attrWhenEither`). The tile gets `fh-disabled` and no tap. The slider's input is
    disabled and its commit refuses. The HA layer passes it through (thin subclasses).
-6. `cssProperty`: renderer cell binding, validation (`--` only; it must be live), a
+6. `cssProperty`: renderer cell binding, validation (`--` only; it must be live; a boolean
+   `match` refused), a
    `LiveCellClassSmokeSuite`-style smoke test that a patch moves the property.
-7. Docs: ADR 0034 rewritten (conditions as values, the yes/no inputs), ADR 0015 (`disabled` on
+7. Docs: ADR 0034 rewritten (conditions as values, boolean slots), ADR 0015 (`disabled` on
    every base control), terminology (**reading** widened past "one entity", **condition**, **live
    cell property**), the arch doc for the cell bindings, the module CLAUDE.md. Delete this plan.
 

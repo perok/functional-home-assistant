@@ -299,7 +299,7 @@ class CardDef {
   // in a layout box" — NOT "never a morph target", which is decided by card
   // SHAPE: a leaf is one, structure never is.
   wrapAsCell: Boolean? = null
-  /// The slots this card reads as YES/NO — a `disabled` its template ORs into
+  /// The slots this card reads as a Boolean — a `disabled` its template ORs into
   /// `data-attr:disabled`, say. The build refuses a reading on one of them that
   /// does not produce a bool, since a string `"false"` is truthy there. (A live
   /// cell class is one by kind and needs no entry.)
