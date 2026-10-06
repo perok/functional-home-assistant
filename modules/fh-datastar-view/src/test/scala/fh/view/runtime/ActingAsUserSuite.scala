@@ -1,6 +1,6 @@
 package fh.view.runtime
 
-import api.homeassistant.HomeAssistantApi
+import api.homeassistant.{HomeAssistantApi, ServiceTarget}
 import cats.effect.{IO, Ref}
 import fh.view.FHError
 import fh.view.auth.{AuthSessions, HaAccess, HaOAuth, SessionStore}
@@ -59,11 +59,11 @@ class ActingAsUserSuite extends munit.CatsEffectSuite {
       opened <- Ref[IO].of(List.empty[String])
       sessions <- AuthSessions.create(SessionStore.ephemeral)
       callAs: ServiceCalls.CallAs = token =>
-        (domain, service, entityId, data) =>
+        (domain, service, target, data) =>
           opened.update(_ :+ token) *>
             HomeAssistantApi
               .fromWs(perUser)
-              .callService(domain, service, entityId, data)
+              .callService(domain, service, target, data)
               .void
       calls = ServiceCalls.asUser(
         HomeAssistantApi.fromWs(shared),
@@ -79,7 +79,13 @@ class ActingAsUserSuite extends munit.CatsEffectSuite {
     )((r, id) => r.addCookie(AuthSessions.CookieName, id))
 
   private def toggle(w: Wiring, session: Option[String]): IO[Unit] =
-    w.calls.call(req(session), "light", "toggle", "light.a", Json.obj())
+    w.calls.call(
+      req(session),
+      "light",
+      "toggle",
+      ServiceTarget.Entity("light.a"),
+      Json.obj()
+    )
 
   private def freshAccess: IO[HaAccess] =
     IO.realTimeInstant.map(now => HaAccess("stored", now.plusSeconds(1800)))

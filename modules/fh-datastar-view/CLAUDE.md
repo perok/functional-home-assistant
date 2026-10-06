@@ -188,7 +188,11 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   use `'.../key/' + $signal` concatenation client-side). The resulting state change flows back over
   the persistent SSE stream.
   The `:slug` is what BOUNDS the call (ADR 0023): the action is refused unless that dashboard
-  NAMES the entity, so admission to one dashboard is not admission to the whole house. A module
+  NAMES the entity, so admission to one dashboard is not admission to the whole house. The one
+  exception is an area or floor tap (`c.tap.areaCall`/`floorCall`, typed `lightsOff`/`lightsOn`/
+  `lightsToggle`), which posts `/sse/target/:slug/:domain/:service/:area|floor/:id` for HA to
+  expand; it is allowed only for the exact combinations the built dashboard's taps declare
+  (`Dashboard.groupCalls`, ADR 0023). A module
   does not know its own slug, so the renderer supplies it: `dashboard_slug` (a CEL binding) in a
   tap's transform, `{{dashboardSlug}}` (a Mustache var) in a card's own template — two
   spellings because there are genuinely two phases, each named after the one that fills it. Every
@@ -319,7 +323,7 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   label that fits sits still and nothing measures anything. A tab bar is deliberately outside it — it
   scrolls sideways, so a tab is reached rather than shortened,
   expr/exprOf,
-  the `c.tap` namespace (`service`/`serviceValue`/`stateService`/`byDomain`/`toggle`/`navigate`/the popup ones — no `Tap` suffix, the namespace carries it), **the default tap** (ADR 0016 — an entity card is clickable
+  the `c.tap` namespace (`service`/`serviceValue`/`stateService`/`byDomain`/`toggle`/`navigate`/`areaCall`/`floorCall`/`lightsOff`/the popup ones — no `Tap` suffix, the namespace carries it), **the default tap** (ADR 0016 — an entity card is clickable
   by a default derived from its OWN entity: its domain's service where it has one, more-info where
   it does not, and `tapAction = null` to opt out entirely. Every route is a build-time literal except the
   four `CallByState` domains. `c.tap.toggle` is now the explicit escape hatch, not the default,

@@ -9,6 +9,7 @@ import fh.view.model.{
   ChromeColors,
   Dashboard,
   DomId,
+  GroupCall,
   LayoutNode,
   NodeId,
   Reads,
@@ -385,6 +386,8 @@ class Renderer(
     */
   def references(entityId: String): Boolean =
     dashboard.referencedEntities.contains(entityId)
+
+  def declares(call: GroupCall): Boolean = dashboard.groupCalls.contains(call)
 
   /** Wider than [[references]] — see [[Dashboard.watchedEntities]]. */
   def watchedEntities: Set[String] = dashboard.watchedEntities

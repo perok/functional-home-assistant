@@ -46,6 +46,11 @@ class TapAction {
   /// other tap, and their absence is what keeps that segment off the URL.
   dataKey: String? = null
   dataValue: String? = null
+  /// An area or floor for HA to expand, in place of the card's entity
+  /// ([[areaCall]]). Both null or both set; the server reads them back off the
+  /// built dashboard as the allowlist for that route (ADR 0023).
+  targetKind: ("area"|"floor")? = null
+  targetId: String? = null
   href: String? = null
   inlineSurfaces: Mapping<String, surfaceMod.SurfaceDef>? = null
   /// Whether this tap is worth GUARDING: while its POST is in flight, a second
@@ -371,6 +376,10 @@ const busyClassChange: String =
 /// whole commit window.
 const busyShapeClassChange: String = busySpinner("_{{id}}__busy_change")
 
+const local function ifTarget(then: String, otherwise: String): String =
+  slotMod.ifSlot("targetKind") + then + slotMod.endIfSlot("targetKind") +
+    slotMod.ifNoSlot("targetKind") + otherwise + slotMod.endIfNoSlot("targetKind")
+
 /// **The no-data service call, assembled in the CARD'S TEMPLATE** — the one
 /// place that can name `{{dashboardSlug}}`, `{{entity_id}}` and the slot read,
 /// because Mustache runs ONCE and a slot's value is spliced raw, so a URL built
@@ -390,9 +399,13 @@ const busyShapeClassChange: String = busySpinner("_{{id}}__busy_change")
 /// the node id directly, where a transform did not. That also makes it correct
 /// for an UNGUARDED tap, which carries no `data-fh-node` at all — [[guard]] is
 /// what emits that, and `busy` is what opens [[guard]].
+///
+/// An area or floor tap ([[areaCall]]) takes the `target` route and names its
+/// target where the entity would go; nothing else differs.
 const serviceClick: String =
-  #"@post('sse/action/{{dashboardSlug}}/' + "# + slotMod.slotRead("service") +
-    #" + '/{{entity_id}}"# +
+  #"@post('sse/"# + ifTarget("target", "action") +
+    #"/{{dashboardSlug}}/' + "# + slotMod.slotRead("service") + #" + '/"# +
+    ifTarget("{{targetKind}}/{{targetId}}", "{{entity_id}}") +
     // The value-carrying route is the SAME call with one more segment, so it is
     // one optional piece here rather than a second arm on [[click]]. A tap that
     // carries no value declares no `dataKey`, and the section closes over
@@ -519,6 +532,10 @@ const function tapRoute(
     when (t.dataKey != null) {
       ["dataKey"] = t.dataKey!!
       ["dataValue"] = t.dataValue!!
+    }
+    when (t.targetKind != null) {
+      ["targetKind"] = t.targetKind!!
+      ["targetId"] = t.targetId!!
     }
     // INERT rides here and not in each card, because doing it per card is how a
     // card ends up without it: three had it three different ways and the fourth
@@ -780,6 +797,47 @@ function serviceValue(action: String, key: String, value: String): TapAction =
     dataValue = value.replaceAll(" ", "%20").replaceAll("'", "%27")
     busy = true
   }
+
+/// A service call on every entity HA puts in an area (issue #389):
+/// `areaCall(dump.areas.stue, "switch/turn_off")`. HA expands the area when
+/// the call runs, leaving out entities hidden in HA or carrying an
+/// `entity_category`, so a light added to the room later is included.
+///
+/// That reach is beyond the entities the dashboard names, so the server allows
+/// only the exact (service, area) pairs the built dashboard's taps declare
+/// (ADR 0023). The typed forms ([[lightsOff]] and its siblings) are this with
+/// the service filled in.
+function areaCall(area: hass.Area, action: String): TapAction =
+  groupCall("area", area.area_id, action)
+
+/// [[areaCall]] for every area on a floor.
+function floorCall(floor: hass.Floor, action: String): TapAction =
+  groupCall("floor", floor.floor_id, action)
+
+local function groupCall(kind: "area"|"floor", id: String, action: String): TapAction =
+  new {
+    onclick = ""
+    serviceSlot = action
+    targetKind = kind
+    targetId = id
+    busy = true
+  }
+
+local function scopeCall(scope: hass.Area|hass.Floor, action: String): TapAction =
+  if (scope is hass.Area) areaCall(scope, action)
+  else floorCall(scope as hass.Floor, action)
+
+/// Every light in a room or on a floor: `c.tap.lightsOff(dump.areas.stue)`.
+function lightsOff(scope: hass.Area|hass.Floor): TapAction =
+  scopeCall(scope, "light/turn_off")
+
+function lightsOn(scope: hass.Area|hass.Floor): TapAction =
+  scopeCall(scope, "light/turn_on")
+
+/// HA toggles each light on its own: in a half-lit room the lit ones go off
+/// and the others come on.
+function lightsToggle(scope: hass.Area|hass.Floor): TapAction =
+  scopeCall(scope, "light/toggle")
 
 /// Go to dashboard `slug` — an ordinary document load, so the browser owns the
 /// history entry (ADR 0002). The `href` is RELATIVE and resolves against
