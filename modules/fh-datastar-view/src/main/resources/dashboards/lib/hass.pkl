@@ -128,7 +128,7 @@ typealias BinarySensorDeviceClass = hassBinarySensor.BinarySensorDeviceClass
 
 // Each group carries its OWNER — the entity whose capability it is. That is
 // what lets a card take the group ALONE and still know its subject, so the
-// entity is named once (`c.slider(l.colourTemp)`) and no second argument can
+// entity is named once (`c.entitySlider(l.colourTemp)`) and no second argument can
 // disagree with it. It also keeps the choice checkable in the editor: passing
 // a group is an argument whose type pkl-lsp reads, where deriving one inside
 // an amend (`on = entity.colourTemp`) makes it fall back to the declared type

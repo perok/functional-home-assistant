@@ -2,6 +2,7 @@ package api.homeassistant.ws.protocol
 
 import cats.effect.IO
 import api.DocumentJson
+import api.homeassistant.ServiceTarget
 import api.homeassistant.ws.domain.*
 import api.homeassistant.ws.protocol.client.CommandPhase.unsubscribe_events
 import server.{WSCommandPhaseServer, WSHAError}
@@ -135,8 +136,6 @@ object client {
   // All websocket calls https://github.com/search?q=repo%3Ahome-assistant%2Fcore+%40websocket_api.websocket_command%28&type=code&p=1
   object CommandPhase {
 
-    case class CallServiceTarget(entity_id: String) derives ConfiguredEncoder
-
     // https://developers.home-assistant.io/docs/api/websocket/#pings-and-pongs
     case class ping() extends CommandPhase with CommandResponse.AsPong
         derives ConfiguredEncoder
@@ -146,7 +145,7 @@ object client {
         domain: String,
         service: String,
         service_data: Json,
-        target: CallServiceTarget
+        target: ServiceTarget
     ) extends CommandPhase
         with CommandResponse.AsResult[Json] derives ConfiguredEncoder
 

@@ -105,4 +105,9 @@ object SlotValue {
   def scoped(v: SlotValue): AnyRef = v match
     case s: String  => s
     case b: Boolean => java.lang.Boolean.valueOf(b)
+
+  /** As `data-class` reads it, so the document form agrees with the binding. */
+  def truthy(v: SlotValue): Boolean = v match
+    case s: String  => s.nonEmpty
+    case b: Boolean => b
 }

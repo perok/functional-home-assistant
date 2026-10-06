@@ -7,13 +7,13 @@ module recipes
 
 import "hass.pkl"
 import "layout.pkl" as layout
-import "components/text.pkl" as textMod
+import "components/base/text.pkl" as textMod
 import "components/slider.pkl" as sliderMod
 
 // ---- floor/area composition (typed-dump driven) ----
 
 /// One section per area of `floor` that HAS lights: the area name as a
-/// [[SectionTitle]] followed by a [[Slider]] per light, each area wrapped in its
+/// [[SectionTitle]] followed by a [[EntitySlider]] per light, each area wrapped in its
 /// own column. Driven by the generated dump's `Floor.areas` and each area's
 /// `all` (both `hidden` on [[hass.Floor]]/[[hass.Area]] — readable, never
 /// rendered), with [[hass.lights]] picking the domain out. Areas with no
@@ -31,7 +31,7 @@ function floorView(floor: hass.Floor): layout.Column = new layout.Column {
           children {
             textMod.title(area.area_name)
             for (light in hass.lights(area.all)) {
-              sliderMod.slider(light)
+              sliderMod.entitySlider(light)
             }
           }
         }

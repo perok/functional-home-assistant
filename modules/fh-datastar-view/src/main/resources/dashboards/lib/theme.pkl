@@ -50,9 +50,10 @@
 ///   card -> `.fh-sub`.
 ///
 /// A guarded action in flight toggles two classes on the tappable element
-/// itself: `.fh-disabled` (the guard is active, the element is genuinely inert)
-/// and `.fh-loading` (the "still working" cursor). Both are IMMEDIATE, and a
-/// theme must keep them so: this is the answer to the tap.
+/// itself: `.fh-disabled` (the "you cannot use this" look) and `.fh-loading`
+/// (the "still working" cursor). Both are IMMEDIATE, and a theme must keep them
+/// so: this is the answer to the tap. `.fh-disabled` alone, with no
+/// `.fh-loading`, is the same look for a press the entity's state refuses.
 ///
 /// ## Getting your OWN class names into a card's markup
 ///

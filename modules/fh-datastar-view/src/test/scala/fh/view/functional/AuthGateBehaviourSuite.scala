@@ -2,7 +2,12 @@ package fh.view.functional
 
 import cats.effect.IO
 import fh.view.model.Access
-import fh.view.testkit.{FixtureDashboard, HouseFixture, TestAuth}
+import fh.view.testkit.{
+  DashboardBuilders,
+  FixtureDashboard,
+  HouseFixture,
+  TestAuth
+}
 import org.http4s.Status
 import org.http4s.headers.Location
 
@@ -17,7 +22,12 @@ import scala.concurrent.duration.*
 class AuthGateBehaviourSuite extends FunctionalSuite {
 
   private val kitchen = HouseFixture.kitchenLight
-  private def house = scene.card(FixtureDashboard.light("Kitchen", kitchen))
+  private def house = scene.card(
+    DashboardBuilders.col(
+      FixtureDashboard.light("Kitchen", kitchen),
+      FixtureDashboard.call("light/toggle", kitchen)
+    )
+  )
 
   test(
     "an anonymous page request is sent to login, carrying where it was going"
@@ -83,25 +93,25 @@ class AuthGateBehaviourSuite extends FunctionalSuite {
       for {
         guest <- ts.auth.sessionFor(TestAuth.guest)
         status <- ts.post(
-          s"sse/action/${ts.slug}/light/toggle/${kitchen.entityId}",
+          s"sse/call/${ts.slug}/light/toggle/entity/${kitchen.entityId}",
           as = Some(guest)
         )
       } yield assertEquals(status, Status.Forbidden)
     }
   }
 
-  /** Otherwise `Public` plus an action route forwarding any `entity_id` would
-    * put a wall tablet's front door one URL edit from the street.
+  /** Otherwise `Public` plus a call route forwarding any `entity_id` would put
+    * a wall tablet's front door one URL edit from the street.
     */
-  test("an action may not touch an entity its dashboard does not name") {
+  test("an action may not make a call its dashboard does not declare") {
     withServer(house, Access.Public) { ts =>
       for {
         onDashboard <- ts.post(
-          s"sse/action/${ts.slug}/light/toggle/${kitchen.entityId}",
+          s"sse/call/${ts.slug}/light/toggle/entity/${kitchen.entityId}",
           as = None
         )
         elsewhere <- ts.postResult(
-          s"sse/action/${ts.slug}/lock/unlock/lock.front_door?node=c_0",
+          s"sse/call/${ts.slug}/lock/unlock/entity/lock.front_door?node=c_0",
           as = None
         )
         calls <- ts.fake.recordedCalls
@@ -111,7 +121,9 @@ class AuthGateBehaviourSuite extends FunctionalSuite {
         assertEquals(elsewhere._1, Status.Ok)
         assert(
           elsewhere._2.contains("_c_0__error") &&
-            elsewhere._2.contains("lock.front_door is not on this dashboard"),
+            elsewhere._2.contains(
+              "no tap on this dashboard calls lock/unlock on entity lock.front_door"
+            ),
           s"the refusal said nothing the page can show: ${elsewhere._2}"
         )
         // Refused before HA hears about it.
@@ -128,8 +140,10 @@ class AuthGateBehaviourSuite extends FunctionalSuite {
     */
   test("an action naming a dashboard that does not exist is refused") {
     withServer(house, Access.Public) { ts =>
-      ts.post(s"sse/action/nosuch/light/toggle/${kitchen.entityId}", as = None)
-        .map(assertEquals(_, Status.Unauthorized))
+      ts.post(
+        s"sse/call/nosuch/light/toggle/entity/${kitchen.entityId}",
+        as = None
+      ).map(assertEquals(_, Status.Unauthorized))
     }
   }
 

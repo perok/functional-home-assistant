@@ -128,8 +128,8 @@ same commit; ADRs that change the pipeline update it too.
 | `fh/view/build/DumpRefresh.scala` | Runtime dump refresh, validate-then-swap: unchanged ⟺ same content-version; else re-evaluate every entry against the new dump in a temp copy of the workspace and swap the `.fh/pins.json` pin only if nothing that builds today breaks. Driven by HA registry events (`watch_registry` option) + `POST /system/dump/refresh` (the /edit button). **ADR 0010** owns the pin discipline and why the previous immutable cache version is the only trail kept |
 | `fh/view/runtime/Renderer.scala` / `Server.scala` / `StateStore.scala` | Live re-render, SSE patch diffing, WS-fed state |
 | `src/js/` + `package.json` + `vite.config.ts` | The frontend, bundled by **vite 8** into MANAGED resources (`project/NpmPlugin.scala`, `frontendInstall`/`frontendBundle` — a `resourceGenerators` entry, so a plain compile builds it and **node + npm are a build requirement**). ONE build, three entries: `shell.ts` (inlined into every page by `Server.pageInto`), `editor/app.js` (CodeMirror + lsp-client bundled IN — no vendor file, no CDN, no import map), `editor/overlay.js`. Outputs are **content-hashed under `web/` with a `build.manifest`**; nothing spells a filename out — `FrontendAssets` reads the manifest and everything asks by ENTRY NAME (`Server.UrlSyncScript`, the `editAssets` overlay tag, the `__APP_JS__` placeholder in the editor `index.html`), and `Server` serves `/web/:file` `immutable` guarded by that same manifest. Deliberately **not `build.lib`**: lib mode refuses multi-entry for `iife`/`umd`, and `isEsLibBuild` hard-forces `minifyWhitespace: false` (to keep pure annotations for a downstream bundler we do not have), which shipped `app.js` at 654 kB where `rollupOptions.input` emits 421 kB. `shell.js` and `overlay.js` are classic scripts and work as `es` output ONLY because they import nothing; rollup never duplicates code, so one shared module splits a chunk and gives both a real `import`, breaking every page silently. The `fh-assert-self-contained` vite plugin FAILS THE BUILD on that, off rollup's own `chunk.imports`/`exports`, and the document's last line calls `fhScroll` only `if(window.fhScroll)` so anything the build cannot see still names itself in the console. Nothing built is committed; new code is TypeScript (`tsc --noEmit` runs as part of the build), the ported editor sources stay JS |
-| `resources/dashboards/lib/` (the `@fh-dashboard` package) | THREE tiers by audience: **`core/`** — `node`, `css`, `slot`, `text`, `icon`, `tap`, `surface`, `predicate` — is what a COMPONENT author imports; **`layout.pkl`** (Row/Column/Grid) and **`components.pkl` + `components/`** (`text`, `entity`, `control`, `slider`, `surface`, `light`, `moreinfo`) are what a DASHBOARD author imports, `components.pkl` being a FACADE that declares no cards; **`recipes.pkl`** is whole opinionated sections. `internal/dump-base.pkl` is generator-facing, and `entry.pkl` stays at the root because it is what every entry amends. **Adding a module, or re-exporting through the facade — read ADR 0015 first**: it owns the tiering and the two rules a re-export cannot break, both of which exist to keep editor completion working THROUGH the module |
-| `resources/dashboards/lib/{hass.pkl,hass/light.pkl,tokens.pkl}` | Pkl domain schema (`hass.pkl` stays at the package ROOT — every generated dump emits `import "@fh-dashboard/hass.pkl"`, and that URI identity is load-bearing; the vendored per-domain constants live under `hass/`) + shared HA-named design tokens. Every SCOPE answers ONE name — `all` — on `Area` (derived from the generator-filled `allWithHidden`), `Floor` (its areas') and `Device` (its entities'); `all` leaves out entities hidden in HA, which stay reachable by name and through `allWithHidden`, so `q.from(...)` takes any scope; a DOMAIN comes out of one through a selector (`hass.lights(area.all)`, `hass.locks(…)`, …), which is also what derives the dump's house-wide lists. A new modelled domain adds one selector and removes itself from `generic` — not a list on four classes |
+| `resources/dashboards/lib/` (the `@fh-dashboard` package) | THREE tiers by audience: **`core/`** — `node`, `css`, `slot`, `text`, `icon`, `tap`, `surface`, `predicate` — is what a COMPONENT author imports; **`layout.pkl`** (Row/Column/Grid) and **`components.pkl` + `components/`** (`entity`, `control`, `slider`, `light`, `lock`, `moreinfo`, …, and `base/` — `button`, `onoff`, `tile`, `slider`, `features`, `text`, `surface` — for the cards that know nothing of HA, which an HA card is a thin subclass of: ADR 0015) are what a DASHBOARD author imports, `components.pkl` being a FACADE that declares no cards; **`recipes.pkl`** is whole opinionated sections. `internal/dump-base.pkl` is generator-facing, and `entry.pkl` stays at the root because it is what every entry amends. **Adding a module, or re-exporting through the facade — read ADR 0015 first**: it owns the tiering and the two rules a re-export cannot break, both of which exist to keep editor completion working THROUGH the module |
+| `resources/dashboards/lib/{hass.pkl,hass/light.pkl,tokens.pkl}` | Pkl domain schema (`hass.pkl` stays at the package ROOT — every generated dump emits `import "@fh-dashboard/hass.pkl"`, and that URI identity is load-bearing; the vendored per-domain constants live under `hass/`) + shared HA-named design tokens. Every SCOPE answers ONE name — `all` — on `Area` (derived from the generator-filled `allWithHidden`), `Floor` (its areas') and `Device` (its entities'); `all` leaves out entities hidden in HA, which stay reachable by name and through `allWithHidden`, so `q.from(...)` takes any scope; a DOMAIN comes out of one through a selector (`hass.lights(area.all)`, `hass.locks(…)`, …), which is also what derives the dump's house-wide lists. A new modelled domain adds one selector and removes itself from `generic` — not a list on four classes. The dump's NAMESPACES answer `all` as well: `dump.floors.all` (level order), `dump.areas.all`, `dump.devices.all`, `dump.users.all` — a floor is `dump.floors.<slug>`, never a top-level property (ADR 0013) |
 | `resources/dashboards/lib/internal/dump-base.pkl` | The house-wide lists as a CONTRACT (`open module`, `List()` defaults) that the generated `@fh-home/dump.pkl` **extends** — `all` is the only one a dump fills, the per-domain ones being selectors over it. **ADR 0013** owns why the lists are declared here rather than emitted per home, and why `extends` and not `amends` |
 | `resources/dashboards/lib/query.pkl` | The candidate-set query surface (`q.from(...).where(...).render(...)`), imported as `@fh-dashboard/query.pkl`: `where`/`orderBy`/`limit`/`caseOf`/`render`, the aggregates (`count`/`any`/`none`/`all` — these are also what an `If` condition is built from), nested sets, `q.entity(e)` for naming a DIFFERENT entity than the member, and `q.prop`/`q.attr`/`q.optional` for names. The wire classes live in `core/predicate.pkl` — query.pkl depends on the CORE, never on the shipped cards. **Plain Pkl stays the first answer**: a `for` over a typed dump list is still the right way to render a fixed set of lights, and this earns its place only when membership must react to live state. **ADR 0003** owns the build-time/live fold and how a property name resolves |
 | `resources/dashboards/lib/hass/actions.pkl` | **What a TAP means, per domain**, vendored: a `Call` (a build-time literal like `light/toggle`), a `CallByState` for the four domains whose service the live state picks, or **absent**. Adding a domain is one row, and nothing in Scala knows an HA domain. **ADR 0016** owns why absence is the load-bearing case and which absences are deliberate |
@@ -182,13 +182,16 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   starter + demo modules, plus `lib/*.pkl`); the dump is a cache package (never on disk in the repo) and
   `dashboard.json` is generated + gitignored.
 - Interactivity uses the WS `call_service` command (added to `ha-api`'s `CommandPhase` +
-  `HomeAssistantApi.callService`). `POST /sse/action/:slug/:domain/:service/:entityId` triggers a no-data
-  service; the value-carrying variant `.../:entityId/:key/:value` builds `service_data` (the value
-  rides in the URL path, since Datastar template-literal URL interpolation isn't confirmed in v1 —
-  use `'.../key/' + $signal` concatenation client-side). The resulting state change flows back over
+  `HomeAssistantApi.callService`). `POST /sse/call/:slug/:domain/:service/:kind/:id` triggers a
+  no-data service on a target — `kind` is `entity`, `area` or `floor`, and HA expands the last two;
+  the value-carrying variant `.../:id/:key/:value` builds `service_data` (the value rides in the URL
+  path, since Datastar template-literal URL interpolation isn't confirmed in v1 — use
+  `'.../key/' + $signal` concatenation client-side). The resulting state change flows back over
   the persistent SSE stream.
-  The `:slug` is what BOUNDS the call (ADR 0023): the action is refused unless that dashboard
-  NAMES the entity, so admission to one dashboard is not admission to the whole house. A module
+  The `:slug` is what BOUNDS the call (ADR 0023): it is refused unless one of that dashboard's taps
+  declares exactly that (service, target, value key) — `Dashboard.calls`, read off `tap.pkl`'s
+  route slots — so admission to one dashboard is not admission to the whole house. A tap names its
+  own target (`tap.Call.target`), never the card's. A module
   does not know its own slug, so the renderer supplies it: `dashboard_slug` (a CEL binding) in a
   tap's transform, `{{dashboardSlug}}` (a Mustache var) in a card's own template — two
   spellings because there are genuinely two phases, each named after the one that fills it. Every
@@ -214,7 +217,7 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   service call has no committed selection to catch up to; the two mechanisms coexist deliberately.
   **A refused action answers 200 carrying `datastar-patch-signals`, never 4xx** (ADR 0024): the
   request was served and the OPERATION failed, which is page state. One helper (`actionRefused`)
-  answers every refusal — HA rejecting a call, an entity this dashboard does not name, an unknown
+  answers every refusal — HA rejecting a call, a call this dashboard does not declare, an unknown
   surface, a `conn` on another slug — patching `_<node>__error` on the control that was pressed,
   clearing `_<group>__pending`, and setting `_toast` to HA's own message. Both ids ride in the
   action's query string (`?node=&group=`), read off `data-fh-node` at click time. The bundle parses
@@ -223,7 +226,7 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   a dead stream, and a non-200 whose body is dropped unread — are page-wide facts and live as ONE
   rule on the shell (`Server.PendingSweep`, an `@setAll` over `/__pending$/`), not as a copy on
   every tab bar.
-- Cards (`lib/components/`, re-exported by `lib/components.pkl` — ADR 0015): `fhgrid`/`fhrow`/`fhcol` containers, `sectionTitle`, `entityCard`,
+- Cards (`lib/components/`, re-exported by `lib/components.pkl` — ADR 0015): `fhgrid`/`fhrow`/`fhcol` containers, `sectionTitle`, `tile`, `switch`,
   `button`, `pill`, `slider` — each is a typed card class carrying its own `cardDef` (Mustache template +
   declared slots), and the emitted `cards` registry is derived by `pkl:reflect`; slots are checked
   by `Dashboard.validate`. Call-style factories / classes return layout nodes referencing a card
@@ -256,7 +259,8 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   seed, and a boxed `Boolean` in `paint`, because a card places such a slot as a Mustache SECTION
   and the string `"false"` is TRUTHY there. ADR 0017 has the two rejected designs (`flag:`, and a
   nullable value) and why each failed.
-  Customers: `entityCard`'s `value` (text), and all four of the slider's moving slots — `state`
+  Customers: `tile`'s `value` (text), a live `secondary` on any card (text), and all four of
+  the slider's moving slots — `state`
   (text), `value` (`attr:value`), `fill` (`style:--_end`) and
   `fillColor` (`style:background`). The slider's `value` is SERVER-ONLY (ADR 0025): the input is
   `data-bind`-ed to a separate client-owned `_<id>__slide`, because `data-on-signal-patch` fires on
@@ -303,7 +307,7 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   `.actions(…)` is the list; `.tapAction(…)` is the one-button shorthand and stays first. Every slider
   carries its entity's own `iconFor` badge unless told otherwise (`icon = null` for none), and
   `icon`/`secondary`/`tapAction` are optional pieces a plain row simply doesn't carry
-  (`c.slider(master).withSubSliders(rows)` is the chain form; `.readout(…)` picks what a line reads out —
+  (`c.entitySlider(master).withSubSliders(rows)` is the chain form; `.readout(…)` picks what a line reads out —
   `"percent"`/`"state"`/`"none"`, or any `expr`/`exprOf`, the names being shorthands for the two
   readings that need the card's resolved axis config, which `percentExpr`/`valueExpr`/`minExpr`/
   `maxExpr` expose for splicing — and defaults by shape: a head with rows under it reads out nothing;
@@ -319,13 +323,13 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   label that fits sits still and nothing measures anything. A tab bar is deliberately outside it — it
   scrolls sideways, so a tab is reached rather than shortened,
   expr/exprOf,
-  the `c.tap` namespace (`service`/`serviceValue`/`stateService`/`byDomain`/`toggle`/`navigate`/the popup ones — no `Tap` suffix, the namespace carries it), **the default tap** (ADR 0016 — an entity card is clickable
+  the `c.tap` namespace (`components/tap.pkl`: verbs that each NAME their target — `toggle(e)`/`default(e)`/`moreInfo(e)`/`call(service, target)` with `.with(key, value)`/`navigate`/the popup ones, plus typed domain namespaces `c.tap.lights.on|off|toggle(light|area|floor)` and `c.tap.locks.lock|unlock|openLatch(l)`; no `Tap` suffix, the namespace carries it), **the default tap** (ADR 0016 — an entity card is clickable
   by a default derived from its OWN entity: its domain's service where it has one, more-info where
   it does not, and `tapAction = null` to opt out entirely. Every route is a build-time literal except the
-  four `CallByState` domains. `c.tap.toggle` is now the explicit escape hatch, not the default,
-  and a `c.button`/`c.pill`/`c.toggle` with no action and no entity is a BUILD error rather than a
+  four `CallByState` domains. `c.tap.call("homeassistant/toggle", e)` is the explicit escape hatch,
+  and a `c.button`/`c.pill` with no action, or a `c.entityButton`/`c.toggle` whose domain implies none, is a BUILD error rather than a
   post HA rejects), capability-conditional composition off the dump's groups
-  (`c.slider(l.colourTemp)` / `c.effectPills(l.effects)` — a card takes the capability GROUP, which
+  (`c.entitySlider(l.colourTemp)` / `c.effectPills(l.effects)` — a card takes the capability GROUP, which
   carries its `owner`, so ONE argument is both the values and the subject: the entity is named once,
   capabilities are discovered by completion on `l.`, and passing a group the entity lacks is a
   nullability mismatch pkl-lsp reports BEFORE eval. `lightControls` is the `when`-per-capability
@@ -338,7 +342,11 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   of allowed values. `c.windowChooser` is the one shipped control: it declares `window` AND renders
   the bar, because only a node's own template can spell its id, and `c.historyChart(s).chosen()`
   reads it),
-  tabs, popups/surfaces, more-info (`c.entityCard(e) |> c.informative`, or the `c.moreInfo(e)` tap:
+  **expression values** (a node's `expressionValues`: literals or a live `q.from(…).where(…).count()`,
+  read BY NAME as typed variables in that node's own CEL — `string(lights_on) + ' on'` — compiled
+  at build so a typo or a type error fails it; attached at decode to the slots that read them, so a
+  counted light wakes the node through the ordinary reverse index; see `docs/terminology.md`),
+  tabs, popups/surfaces, more-info (`c.entityCard(e) |> c.informative`, or the `c.tap.moreInfo(e)` tap:
   an INLINE popup holding the entity's card, its domain controls, and `c.entityInfo(e)` — the id plus
   every attribute it reports, as one live text block, since a template cannot loop over attributes.
   It is what a tap on a non-actionable entity does instead of nothing — `c.informative` is now
@@ -411,7 +419,8 @@ gotchas"):
   help, because the union still closes the loop. Keep the alias for the non-recursive positions
   and let the one or two that would close it take `Any`, with a comment saying why.
 - Reserved words that bite as field, property or METHOD names: **`case`**, **`out`**, **`is`**
-  (the type-test operator), **`read`** (the resource reader), **`var`**, `import`, `else`,
+  (the type-test operator), **`read`** (the resource reader), **`var`**, **`open`**, **`switch`**
+  (both bit in this library, as a verb and a module name), `import`, `else`,
   `when`. Backtick them or pick another name —
   `shape` rather than `case`, `stateIs` rather than `is`, `ref` rather than `read`. Backticking
   reads badly at the CALL site, so for a method prefer renaming; for a WIRE field there is no

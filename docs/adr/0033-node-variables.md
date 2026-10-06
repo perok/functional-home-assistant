@@ -22,7 +22,8 @@ not be enumerated there. A declared reference can.
 ## Decision
 
 **Declaration.** `LayoutNode.Component.vars: Map[String, String]` — a name and the value it holds
-before anyone chooses. In Pkl, `vars { ["window"] = "24h" }`. Nothing else: no type, no list of
+before anyone chooses. In Pkl, `vars = new Mapping { ["window"] = "24h" }` — assigned, because a null-defaulted
+`Mapping?` cannot be amended (ADR 0034). Nothing else: no type, no list of
 allowed values (below).
 
 **Reference.** A query parameter is a `Ref` — `Literal(value)` or `Var(name)`. On the wire a bare

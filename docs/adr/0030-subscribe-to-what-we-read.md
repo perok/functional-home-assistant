@@ -51,8 +51,8 @@ union over every registered slug's `Dashboard.watchedEntities`.
 
 ### The set is not `referencedEntities`
 
-`Dashboard.referencedEntities` is the ADR 0023 action bound — "does this dashboard NAME
-this entity", the question a `call_service` POST is held to — and it walks what is
+`Dashboard.referencedEntities` is ADR 0023's read bound — "does this dashboard NAME
+this entity", the question a viewer's variable value is held to — and it walks what is
 **rendered**: slots, subjects, set candidates, clause nodes. It does not descend into
 
 - a set member clause's `when` guard, whose predicate may name an entity the member does
@@ -65,7 +65,7 @@ the membership change are exactly the two things whose deciding entity is off-sc
 
 So `Dashboard.watchedEntities` is a separate value — a superset, walking what decides as
 well as what is drawn. The two must not be merged in either direction: widening the
-action bound would let a dashboard act on an entity it only reads.
+read bound would let a viewer's value chart an entity the dashboard only decides on.
 
 ### Three constraints the protocol imposes
 

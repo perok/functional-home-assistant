@@ -46,8 +46,8 @@ class ProgressCard extends nodes.Node {
     // guarding on the slot itself deletes the element and its binding on the
     // first state change, permanently, and the card only comes back on reload.
     template = """
-      <article class="card fh-progress{{#tappable}} tappable{{/tappable}}\(slotMod.ifSlot("inert")) {{inert}}\(slotMod.endIfSlot("inert"))"{{#tappable}}
-        data-on:click="\(tapMod.guardClick)\(tapMod.click)"{{/tappable}}\(slotMod.ifSlot("inert")) \(slotMod.signalBind("inert"))\(slotMod.endIfSlot("inert"))\(tapMod.guard)>
+      <article class="card fh-progress{{#tappable}} tappable{{/tappable}}{{#tapDisabled}} fh-disabled{{/tapDisabled}}"{{#tappable}}
+        data-on:click="\(tapMod.guardClick)\(tapMod.click)"{{/tappable}}\(tapMod.guard)>
         <header>{{#icon}}<i class="mdi {{icon}}"></i>{{/icon}}\(textMod.hole("label"))</header>{{#hasBar}}
         <div class="fh-progress-track" role="progressbar"
           \(slotMod.signalBind("remaining"))
@@ -169,7 +169,7 @@ class ProgressCard extends nodes.Node {
       }
       ["hasBar"] = "1"
     }
-    for (k, v in tapMod.tapSlots(tapAction, "class")) {
+    for (k, v in tapMod.tapSlots(tapAction)) {
       [k] = v
     }
   }

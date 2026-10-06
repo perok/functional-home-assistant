@@ -317,7 +317,9 @@ GET /sse/dashboard/:slug/patch
       resume   if the cursor's logId matches, nothing structural moved, AND the
                cursor is not behind `told` — a client that never acknowledged
                what we announced has `holds` we cannot answer from
-      repaint  if it does not      // claims what it painted, same as the document
+      repaint  if it does not      // claims what it painted, same as the document:
+                                   // the body AND the open popup, whose host is
+                                   // outside #dashboard (Patches.repaint)
       reload   if the document itself is stale
     ...then position = WHAT THIS CONNECTION CAN PROVE IT SENT: the doorbell's
       value (read BEFORE the log) for a resume, since a resume can only answer
@@ -336,6 +338,9 @@ GET /sse/dashboard/:slug/patch
     // current still what I served you". Reading it off the subscription
     // instead cannot tell "unchanged" from "changed while nobody was looking",
     // and the second leaves a client on a dashboard that no longer exists.
+    // Its repaint takes the selection (popup and tabs) from `session.open`,
+    // not the stream's `uiState`: that is what it CONNECTED with, and would
+    // reopen a popup closed since and snap a tab back.
   the whole response, AFTER untilRevoked wraps it, is interruptWhen'd on this
     stream's tenure: a later stream displaces it by taking the next epoch
     // NEVER on the stream handed to untilRevoked. fs2 interruption is scoped,
@@ -409,7 +414,7 @@ client-only feedback around the `@post` — see `docs/adr/0019-an-action-in-flig
   rides the `.slider.max` track wrapper (and the head badge, whose icon spins
   during the commit).
 - **A refusal is signals on a 200, not a status** (ADR 0024). Every refused
-  action — HA rejecting the call, an entity this dashboard does not name, an
+  action — HA rejecting the call, a call this dashboard does not declare, an
   unknown surface, a `conn` on another slug — goes through `Server.actionRefused`
   and answers 200 with a `datastar-patch-signals` body: `_<node>__error` on the
   control that was pressed, `_<group>__pending` cleared, `_toast` carrying HA's
@@ -879,7 +884,7 @@ The same call serves a live tick and a reconnect. What differs is only where the
 ```mermaid
 flowchart LR
   RC["a pull: the doorbell rang,<br/>or a client reconnected with a cursor"] --> Q{"a CLIENT cursor?<br/>same logId · not ahead of<br/>the store · same head hash ·<br/>NOT BEHIND what we announced"}
-  Q -->|no| REPAINT["full body repaint<br/>from the current snapshot<br/>— and it CLAIMS what it painted"]
+  Q -->|no| REPAINT["full body repaint, and the open popup,<br/>from the current snapshot<br/>— and it CLAIMS what it painted"]
   Q -->|yes, or a session's own position| SINCE["FragmentLog.since v"]
   SINCE --> N["nodes whose version is at least v<br/>RENDERED NOW from the current<br/>snapshot, never from the log —<br/>their queries answered first (§6, a query)"]
   SINCE --> M["moved: Gone / Placed mutations<br/>replayed as remove + insert"]
@@ -915,6 +920,18 @@ sessions woken by one ring of the doorbell from rendering the same node N times.
 answer — a hit yields the bytes the render would have — only who pays for it. The key is a SUBSET
 of what the render reads, not all of it: an entity reached only through a signal slot is left out,
 because its value is not in the patch form and so cannot move these bytes (ADR 0012).
+
+A slot may also read the NODE's expression values — a literal, or a tally of candidates counted
+live. `LayoutNode.foldNode` attaches them at decode to exactly the slots whose CEL names them
+(`SlotSource.values`), so no box downstream knows they exist: a tally's candidates and the
+entities their residuals read join the node's live entities, so a counted light wakes a page node
+through the ordinary reverse index (an open surface's nodes are candidates on every pull anyway,
+`fromOpenIds`), they join the watched set the upstream subscription asks for, and the count is
+`Conditions.present` — the same interpreter a
+state condition's `Count` uses. Only what fires differs: a flipped condition swaps a surface,
+a moved count patches a slot. The slot's `valueKey` carries the values, so the whole evaluated
+expression goes out as one display signal per distinct (subject, expression, values), and a
+tick that leaves the count alone sends nothing.
 
 ### The second kind of input: a query
 
@@ -1033,7 +1050,7 @@ A choice matching no declaration is inert rather than an error — the same trea
 `SurfaceGraph.openPopup` gives a surface id this dashboard no longer has. A choice that does match
 one passes the same check either way (`Renderer.refusals`): every declared reader must still parse
 what it would then ask, and read only an entity the dashboard names or a query of it names at its
-declared values — ADR 0023's action bound, on the read side, so a variable fed to `entity` cannot
+declared values — ADR 0023's read bound, so a variable fed to `entity` cannot
 chart a lock the dashboard never showed. A refused write is ADR 0024's 200 of signals; a refused
 URL is a 400, before any session exists, rather than a page that dies mid-walk.
 
@@ -1134,7 +1151,11 @@ suppressed, and one `datastar-patch-signals` frame carries the values for the wh
 wholesale renders (page, repaint, fill, the document a JS-less browser gets) use the DOCUMENT form
 instead: value inline, plus a `data-signals` seed on the node's `.fh-cell` wrapper, so an element
 arriving that way is correct before any frame reaches it. That seed is why a fill can introduce an
-entity nothing on the page was reading and still be right — there is no frame coming for it.
+entity nothing on the page was reading and still be right — there is no frame coming for it. The
+wrapper also carries the node's live cell classes (`LayoutNode.classWhen`): ordinary class signal
+slots under `Dashboard.cellClassSlot` names, folded in at decode, so the renderer places their
+binding on the wrapper in both forms and the class itself only in the document form, like any
+signal value.
 
 **A display signal is named by what it READS**, `_e.<domain>.<object_id>.<transform>`, so one entity
 on three cards is one signal and one frame entry rather than three copies equal by construction
@@ -1500,7 +1521,7 @@ Live list — delete an entry when it is answered, and say where the answer land
 
 - ~~**A signals tick costs MORE than a bytes tick.**~~ *Closed.* The suppressed morph was still
   RENDERED — rendering it is how we discover the bytes did not move — because the `RenderCache`
-  key holds a per-entity `contentVersion` and the shipped `entityCard`'s name reads
+  key holds a per-entity `contentVersion` and the shipped `EntityCard`'s name reads
   `friendly_name` as BYTES, which re-admitted the entity to the key on every brightness tick.
   `Patches.bytes` now hands the cache the resolved byte-slot values
   (`Renderer.byteSlotValues`) and `RenderCache.apply` reuses an entry carrying the same ones:

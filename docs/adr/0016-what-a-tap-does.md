@@ -39,11 +39,33 @@ in ADR 0001 — a `"<domain>/<service>"` string (`SliderSpec.action`, `Call.acti
 the `{{{action}}}` slot). Before this, `Button.action` held a `TapAction` while
 `Slider.action` held a service string: one name, two types, on sibling cards.
 
-The constructors carry no `Tap` suffix, because the namespace already says it:
-`c.tap.service("lock/lock")`, `c.tap.toggle`, `c.tap.stateService(…)`,
-`c.tap.byDomain(e)`, `c.tap.navigate("under")`. `c.defaultTap(e)` stays on the
-facade rather than joining them — the *policy* of falling back to more-info
-belongs to the component tier, not to the core tap kit (ADR 0015).
+**A tap names what it acts on.** A `TapAction` is a `Call` — a service on a
+`Target` (an entity, an area or a floor) — or a `Click` (navigate, open or
+close a surface), and a `Call`'s route, its refusal and a state-picked
+service all read the TARGET, never the card it sits on. So a card may show one
+entity and act on another, or act while showing none:
+`c.button("Kjøkken", c.tap.toggle(kitchen))`. The alternative this replaced let
+the card lend its entity to a target-less tap (`c.tap.service("lock/lock")`),
+which made a tap mean different things on different cards and made a basic
+button carry an entity so a tap could borrow it. It is also what lets the server
+allow only the exact calls a dashboard declares (ADR 0023).
+
+So the base `c.button` knows nothing but its label, glyph and tap, and a button
+ABOUT an entity is one layer up: `c.entityButton(e)` — named after it, its
+domain's tap by default, tinted with `.active(c.isOn(e))` — a thin layer over
+the same card (ADR 0015; issue #329's split between a baseline component and one
+tied to a domain; a device component would follow the same pattern).
+
+The verbs are HA's `tap_action` variants, each taking its target, with no
+`Tap` suffix because the namespace already says it: `c.tap.toggle(e)`,
+`c.tap.default(e)`, `c.tap.moreInfo(e)`, `c.tap.call(service, target)` (with
+`.with(key, value)` for one value), `c.tap.navigate(slug)` and the popup verbs.
+A domain gets a typed namespace where a typed verb is wanted —
+`c.tap.lights.off(scope)` over a light, an area or a floor;
+`c.tap.locks.openLatch(l)` — and `call` covers the rest. `c.tap` is a
+dashboard-tier module (`components/tap.pkl`) because `moreInfo` and the
+more-info fallback are components; the core kit (`core/tap.pkl`) keeps the
+classes, `byDomain` and the rendering (ADR 0015).
 
 ### 1. The table says whether, not just which
 
@@ -88,8 +110,8 @@ signal** (ADR 0017), and the card reads both through `service__read` — so the
 four rows here cost no card a branch, and the markup is constant either way:
 
 ```
-data-on:click="@post('sse/action/' + 'light/toggle'          + '/light.k?node=c_3')"
-data-on:click="@post('sse/action/' + $_e.lock.front.t4d7a74a1 + '/lock.front?node=c_4')"
+data-on:click="@post('sse/call/home/' + 'light/toggle'          + '/entity/light.k?node=c_3')"
+data-on:click="@post('sse/call/home/' + $_e.lock.front.t4d7a74a1 + '/entity/lock.front?node=c_4')"
 ```
 
 The lock tile therefore stays in `Renderer`'s identity cache across a
@@ -127,21 +149,37 @@ action, that is `moreInfo(e)` — the popup from issue #106's first half. So
 domain implies, or shows you everything it knows. `tapAction = null` is the
 explicit opt-out.
 
-A card DOES render inert, but only where the press would be refused, and that is
-two facts rather than one (`tap.inertStates`):
+A card DOES render disabled, but only where the press would be refused, and that
+is two facts rather than one (`tap.refusedStates`):
 
-- the domain's **transitional** states (`CallByState.inertWhile`) — a lock read
-  as `unlocking` is not `locked`, so a two-way test would post the command
-  competing with the one already running;
+- the **call's own** states (`Call.disabledWhile`) — the domain's transitional
+  ones for a state-picked tap (`CallByState.disabledWhile`: a lock read as
+  `unlocking` is not `locked`, so a two-way test would post the command
+  competing with the one already running), or a verb's own (`openLatch` carries
+  HA's `canOpen` list, `hass/lock.pkl`'s `CANNOT_OPEN`);
 - **unavailable**, on any service tap in any domain, because HA rejects a
   service call on a dead entity whatever the domain is.
 
-The second is deliberately NOT a row in the table. It is one rule, it would
-otherwise be repeated per domain, and mixing it in is what makes an `inertWhile`
-list stop meaning "transitional" — the confusion `lock.pkl`'s own `CANNOT_OPEN`
-still shows, holding a terminal state, transitional ones and an availability one
-in a single list. It applies to service taps ALONE: more-info on an unavailable
-entity is exactly what you want to open, since that is where the reason is.
+Both ride the CALL, not the card. A list on a card guards only that card: the
+latch's sat on the button that opens its confirmation, and the button inside it
+that posts `lock/open` went unguarded. On the call, every card that sends it
+refuses alike. A card with a reason of its OWN — a popup opener, which carries
+no call — says so with a live reading, `Button.disabled` (`c.stateIn(e, …)`),
+ORed with its tap's in one `data-attr`.
+
+The tap contributes ONE slot, `tapDisabled`, a Boolean reading of its target
+that every card reads the same way. How it shows is the host's, in two parts.
+A form control also takes the real `disabled` attribute. Every guarded element
+wears `fh-disabled`, the same "you cannot use this" look a tap in flight gets
+(the busy guard binds one `data-class:fh-disabled` ORing both). So a tile dims
+while refused just as it does while busy. A slider's drag commit is a call like
+any other, with a key and no value because the drag supplies it, so its input is
+disabled and its track dims the same way.
+
+Unavailability is deliberately NOT a row in the table or a verb's list. It is
+one rule, and it would otherwise be repeated everywhere. It applies to service
+taps ALONE: more-info on an unavailable entity is exactly what you want to
+open, since that is where the reason is.
 
 The regress this creates is real and silent: `moreInfoBody(e)` contains an
 entity card, whose default tap for a non-actionable entity is this same popup,
@@ -155,15 +193,17 @@ and a Pkl fact holds that line.
 `action`, a separate derived `tap` did the work, and the split was half of why
 the naming read badly. There is now one `tapAction` property. Since the factories
 require an action this only bit in the amend form, where `(c.button) { label =
-"x" }` posted `homeassistant/toggle` with an *empty* entity id. They now derive
-from their entity where they have one and `throw` where they do not. A button is
+"x" }` posted `homeassistant/toggle` with an *empty* entity id. A `c.button`
+or `c.pill` knows no entity, so it takes an action or `throw`s; a card ABOUT an
+entity — `c.entityButton(e)`, `c.toggle(e)`, the entity card — derives one from
+its domain, and throws where a toggle's domain has none. A button is
 defined by what pressing it does; not knowing that is not a state it should be
 able to reach. This is the same "make the illegal state unrepresentable" move as
 `Dashboard.Validated`, at the authoring layer.
 
-`c.tap.toggle` survives as an explicit escape hatch, now a plain literal
-(`homeassistant/toggle`) rather than a lookup — the right answer for a domain
-this library does not know but the author does.
+`c.tap.call("homeassistant/toggle", e)` is the explicit escape hatch, a plain
+literal rather than a lookup — the right answer for a domain this library does
+not know but the author does. `c.tap.toggle(e)` falls back to it by itself.
 
 ## Consequences
 
@@ -189,7 +229,7 @@ this library does not know but the author does.
 - **This is a breaking behaviour change** (alpha, deliberate): a card that
   previously posted `homeassistant/toggle` for an unrecognised domain now opens
   more-info instead. Any dashboard relying on the old blanket toggle names
-  `c.tappable` or `c.tap.toggle` to get it back.
+  `c.tappable` or `c.tap.toggle(e)` to get it back.
 - **Deriving the table from the instance is the obvious follow-up** and stays out
   of scope: `/api/services` is per-instance ground truth, so custom integrations
   would work. It needs the same churn analysis `CapabilityAttributes` got before

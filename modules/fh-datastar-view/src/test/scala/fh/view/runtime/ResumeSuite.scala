@@ -423,6 +423,153 @@ class ResumeSuite extends ServerHarness {
     }
   }
 
+  private def popupDash(template: String) = liveLeafDash.copy(
+    cards = liveLeafDash.cards + ("detail" -> CardDef(
+      template,
+      slots = List("state")
+    )),
+    surfaces = Map(
+      "det" -> Surface(
+        LayoutNode.Component(
+          "detail",
+          slots = Map("state" -> SlotSource(Some("sensor.b")))
+        )
+      )
+    )
+  )
+
+  /** Its host sits outside `#dashboard`, so a repaint that stopped there left
+    * the dialog showing what it held before the disconnect, and `holds` without
+    * its nodes, until the next pull happened to re-send them.
+    */
+  test("a repaint with a popup open repaints the popup too") {
+    live(
+      popupDash("<i>{{state}}</i>"),
+      Map(
+        "sensor.a" -> es("sensor.a", "cold"),
+        "sensor.b" -> es("sensor.b", "B0")
+      )
+    ) { ts =>
+      for {
+        v <- ts.viewer()
+        _ <- v.change(es("sensor.a", "hot"))
+        cursor <- v.cursor
+        _ <- v.change(es("sensor.b", "B1"))
+        repaint <- ts.reconnect(
+          Some(cursor.copy(logId = "gone-with-the-log")),
+          popup = Some("det")
+        )
+      } yield {
+        assert(repaint.contains(BodyRepaint), clue = repaint)
+        assert(
+          repaint.contains(s"selector #${Dashboard.PopupHostId}"),
+          clue = repaint
+        )
+        assert(repaint.contains("<i>B1</i>"), clue = repaint)
+      }
+    }
+  }
+
+  /** The stream's `uiState` is what it CONNECTED with; the popup may have been
+    * closed, or another opened, since.
+    */
+  test("a dashboard edit repaints the popup open now, not the one at connect") {
+    val hostSelector = s"selector #${Dashboard.PopupHostId}"
+    live(
+      popupDash("<i>{{state}}</i>"),
+      Map(
+        "sensor.a" -> es("sensor.a", "cold"),
+        "sensor.b" -> es("sensor.b", "B0")
+      )
+    ) { ts =>
+      for {
+        kept <- ts.connect("?ui.popups=det")
+        closed <- ts.connect("?ui.popups=det")
+        conn <- closed.drain.map(
+          _.flatMap(_.data)
+            .flatMap(s =>
+              s""""${Server.ConnSignal}":"([^"]+)"""".r.findFirstMatchIn(s)
+            )
+            .map(_.group(1))
+            .head
+        )
+        _ <- ts.post(
+          s"sse/popup/${ts.slug}/close",
+          body = s"""{"${Server.ConnSignal}":"$conn"}"""
+        )
+        _ <- kept.arrived *> closed.arrived *> kept.drain *> closed.drain
+        slug <- ts.server.liveSlug(ts.slug)
+        _ <- slug.renderer.set(
+          Server.RendererState.Ready(
+            Renderer.create(popupDash("<em>{{state}}</em>"))
+          )
+        )
+        _ <- kept.arrived *> closed.arrived
+        keptSent <- kept.drain.map(_.flatMap(_.data).mkString("\n"))
+        closedSent <- closed.drain.map(_.flatMap(_.data).mkString("\n"))
+      } yield {
+        assert(keptSent.contains(BodyRepaint), clue = keptSent)
+        assert(keptSent.contains(hostSelector), clue = keptSent)
+        assert(keptSent.contains("<em>B0</em>"), clue = keptSent)
+        assert(closedSent.contains(BodyRepaint), clue = closedSent)
+        assert(!closedSent.contains(hostSelector), clue = closedSent)
+        assert(!closedSent.contains("<em>B0</em>"), clue = closedSent)
+      }
+    }
+  }
+
+  test("a dashboard edit repaints the tab selected now, not at connect") {
+    def twoTabs(card: String) = mixedTabsDash.copy(
+      cards = mixedTabsDash.cards.updated("card", CardDef(card, List("state"))),
+      surfaces = mixedTabsDash.surfaces + ("t1" -> Surface(
+        LayoutNode.Component(
+          "card",
+          slots = Map("state" -> SlotSource(Some("sensor.b")))
+        ),
+        bakeInto = Some("c_1"),
+        bakeAs = Some("panel"),
+        bakeIndex = Some(1)
+      ))
+    )
+    live(
+      twoTabs("<span>{{state}}</span>"),
+      Map(
+        "sensor.shared" -> es("sensor.shared", "S0"),
+        "sensor.a" -> es("sensor.a", "A0"),
+        "sensor.b" -> es("sensor.b", "B0")
+      )
+    ) { ts =>
+      for {
+        client <- ts.connect()
+        conn <- client.drain.map(
+          _.flatMap(_.data)
+            .flatMap(s =>
+              s""""${Server.ConnSignal}":"([^"]+)"""".r.findFirstMatchIn(s)
+            )
+            .map(_.group(1))
+            .head
+        )
+        _ <- ts.post(
+          s"sse/surface/${ts.slug}/open/t1",
+          body = s"""{"${Server.ConnSignal}":"$conn"}"""
+        )
+        _ <- client.arrived *> client.drain
+        slug <- ts.server.liveSlug(ts.slug)
+        _ <- slug.renderer.set(
+          Server.RendererState.Ready(
+            Renderer.create(twoTabs("<em>{{state}}</em>"))
+          )
+        )
+        _ <- client.arrived
+        sent <- client.drain.map(_.flatMap(_.data).mkString("\n"))
+      } yield {
+        assert(sent.contains(BodyRepaint), clue = sent)
+        assert(sent.contains("<em>B0</em>"), clue = sent)
+        assert(!sent.contains("<em>A0</em>"), clue = sent)
+      }
+    }
+  }
+
   test("the popup selection is committed as it moves: open, switch, close") {
     // The client asks; the swap commits `ui_popups` (ADR 0025), so each move
     // lands in order and the last leaves nothing open.
