@@ -86,11 +86,16 @@ open class Button extends nodes.Node {
     // is this card's, so it holds wherever the button sits; a container that
     // paints its buttons by position must leave an active one alone
     // (`slider.pkl`'s head guards with `:not(.fh-active)`).
+    //
+    // `.fh-sub`'s `--fh-text-dim` is a colour for a card SURFACE; on a filled
+    // button it was grey on the primary blue and barely legible. Here the
+    // second line dims whatever colour the button's own text is.
     css = """
       .fh-cell>:is(.button,button):not(.circle){inline-size:100%;box-sizing:border-box;
       block-size:auto;min-block-size:2.5rem;padding-block:.5rem}
       .fh-cell.fh-active>:is(.button,button){background:var(--fh-accent);color:var(--fh-on-accent)}
       .fh-lines{display:flex;flex-direction:column;align-items:center;min-inline-size:0;text-align:center}
+      .fh-cell>:is(.button,button) .fh-sub{color:inherit;opacity:.8}
       """
   }
   hidden label: (String|slotMod.Expr)? = null
