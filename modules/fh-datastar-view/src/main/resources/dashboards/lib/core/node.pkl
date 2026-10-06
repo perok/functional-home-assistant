@@ -216,6 +216,17 @@ abstract class Node extends LayoutNode {
   // node's real id into every [[NODE_ID]] token in the subtree. Null (dropped
   // from JSON by omitNullProperties) unless a tap composes an inline popup.
   inlineSurfaces: Mapping<String, surfaceMod.SurfaceDef>? = null
+
+  /// [[expressionValues]] as a chain step. It returns a [[Node]], so it goes
+  /// after the card's own options, as the layout builders do:
+  ///
+  ///   c.button(f.floor_name, c.tap.lights.off(f))
+  ///     .secondary(c.expr(#"string(lights_on) + ' on'"#))
+  ///     .expressionValues(new Mapping {
+  ///       ["lights_on"] = q.from(lights).where(q.eq(q.stateProp, "on")).count()
+  ///     })
+  function expressionValues(vs: Mapping<String, ExpressionValue>): Node =
+    let (self = this) (self) { expressionValues = vs }
 }
 
 /// A named hole in a card's `template`, and how it gets filled.

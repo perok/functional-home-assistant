@@ -652,6 +652,17 @@ facts {
     on.`when`["light.kitchen"].property == "state"
   }
 
+  ["the expressionValues builder is the amend, as a chain step"] {
+    local lights = List(kitchen)
+    local amended = (c.button("x", c.tap.closePopup()).secondary(c.expr("string(n)"))) {
+      expressionValues { ["n"] = q.from(lights).count() }
+    }
+    local chained = c.button("x", c.tap.closePopup())
+      .secondary(c.expr("string(n)"))
+      .expressionValues(new Mapping { ["n"] = q.from(lights).count() })
+    new JsonRenderer {}.renderValue(chained) == new JsonRenderer {}.renderValue(amended)
+  }
+
   ["every card placing `secondary` binds it, and guards it by presence"] {
     // A live `secondary` is a text signal (ADR 0017). Its patch-form value is
     // blank, so a VALUE guard (`{{#secondary}}`) would delete the element on the
