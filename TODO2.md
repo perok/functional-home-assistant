@@ -72,7 +72,7 @@ query-scoped dynamic re-renders, column layout — were removed; git history has
 - [ ] CSS/class pass-through on components: a standard class API on every template, not just
       the `cssClass` slot the containers have. The `.fh-cell` half of this is settled — the
       wrapper class is the base layer's, not a theme's (ADR 0020). Still open as described:
-      `cssClass` reaches `layout.pkl`, `components/surface.pkl` and `components/control.pkl`,
+      `cssClass` reaches `layout.pkl`, `components/base/surface.pkl` and `components/control.pkl`,
       but is not on `core/node.pkl`, so it is not every template.
 
 - [ ] Make the runtime suites connect like a BROWSER does. The in-process harness talks to

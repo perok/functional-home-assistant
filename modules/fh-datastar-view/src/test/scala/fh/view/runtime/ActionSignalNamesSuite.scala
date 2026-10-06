@@ -29,7 +29,7 @@ class ActionSignalNamesSuite extends CatsEffectSuite {
        |
        |card = (c.column) {
        |  children {
-       |    c.button("Toggle", c.tap.service("light/toggle"))
+       |    c.button("Toggle", c.tap.call("light/toggle", dump.entities.${light.dumpKey}))
        |    (c.tabs) {
        |      tabs {
        |        ["One"] { c.entityCard(dump.entities.${light.dumpKey}) }
@@ -64,7 +64,7 @@ class ActionSignalNamesSuite extends CatsEffectSuite {
           val req = Request[IO](
             Method.POST,
             Uri.unsafeFromString(
-              s"/sse/action/x/light/toggle/${light.entityId}" +
+              s"/sse/call/x/light/toggle/entity/${light.entityId}" +
                 s"?${Server.NodeParam}=$nodeId&${Server.GroupParam}=$groupId"
             )
           )

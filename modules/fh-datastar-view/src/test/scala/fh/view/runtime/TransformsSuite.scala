@@ -172,8 +172,8 @@ class TransformsSuite extends munit.CatsEffectSuite {
     )
   }
 
-  // What `c.tap.service("light/toggle")` emits: the action as a CEL literal,
-  // slug and entity from bindings, `noSignals` inside the string.
+  // A tap URL built as a CEL transform, the way a surface tap's is: slug and
+  // entity from bindings, `noSignals` inside the string.
   private val tapUrl =
     "\"@post('sse/action/\" + dashboard_slug + \"/\" + 'light/toggle' " +
       "+ \"/\" + entity_id + \"', {filterSignals:{exclude:'.*'}})\""

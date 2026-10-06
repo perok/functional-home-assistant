@@ -1,6 +1,15 @@
 package fh.view.build
 
-import fh.view.model.{CardDef, Dashboard, LayoutNode, Op, Predicate, Transform}
+import api.homeassistant.ServiceTarget
+import fh.view.model.{
+  CardDef,
+  Dashboard,
+  LayoutNode,
+  Op,
+  Predicate,
+  TapCall,
+  Transform
+}
 import fh.view.testkit.DashboardBuilders.{asComponent, asSetNode}
 import fh.view.testkit.{
   FixtureEntity,
@@ -502,8 +511,8 @@ class PklBuildSuite extends munit.FunSuite {
         |import "@fh-home/dump.pkl" as dump
         |
         |areaId = dump.areas.`new`.area_id
-        |floorName = dump.`3rd_floor`.floor_name
-        |viaFloor = dump.`3rd_floor`.`new`.light_lamp.entity_id
+        |floorName = dump.floors.`3rd_floor`.floor_name
+        |viaFloor = dump.floors.`3rd_floor`.`new`.light_lamp.entity_id
         |""".stripMargin
     )
     val result = SourceEval.eval(tmp, "probe.pkl")
@@ -512,6 +521,49 @@ class PklBuildSuite extends munit.FunSuite {
     assertEquals(c.get[String]("areaId").toOption, Some("new_1"))
     assertEquals(c.get[String]("floorName").toOption, Some("3rd floor"))
     assertEquals(c.get[String]("viaFloor").toOption, Some("light.lamp"))
+  }
+
+  test("a tap declares exactly the call it makes, on any target (#389)") {
+    val tmp = os.temp.dir()
+    copyLib(tmp)
+    writeDump(tmp, PklDump.render(fakeTransformedDump))
+    os.write(
+      tmp / "probe.pkl",
+      """module probe
+        |
+        |import "@fh-dashboard/components.pkl" as c
+        |import "@fh-home/dump.pkl" as dump
+        |
+        |node = (c.column) {
+        |  children {
+        |    c.button("Off", c.tap.lights.off(dump.areas.kjokken))
+        |    c.button("Floor", c.tap.call("switch/turn_off", dump.floors.ground_floor))
+        |    c.button("Toggle", c.tap.toggle(dump.entities.light_kitchen))
+        |    c.entityCard(dump.entities.light_kitchen)
+        |      .tapAction(c.tap.call("light/turn_on", dump.entities.light_kitchen).with("effect", "colorloop"))
+        |  }
+        |}
+        |""".stripMargin
+    )
+    val result = evalProj(tmp, "probe.pkl")
+    assert(result.isRight, clue = result)
+    val c = result.toOption.get.value.hcursor
+    val node =
+      c.downField("node").as[LayoutNode].fold(e => fail(e.toString), identity)
+    val dashboard = Dashboard(cards = Map.empty, card = node)
+    assertEquals(
+      dashboard.calls,
+      Set(
+        TapCall("light/turn_off", ServiceTarget.Area("kitchen_1"), None),
+        TapCall("switch/turn_off", ServiceTarget.Floor("g"), None),
+        TapCall("light/toggle", ServiceTarget.Entity("light.kitchen"), None),
+        TapCall(
+          "light/turn_on",
+          ServiceTarget.Entity("light.kitchen"),
+          Some("effect")
+        )
+      )
+    )
   }
 
   test("generated dump.pkl evaluates against hass.pkl with dot-path access") {
@@ -526,7 +578,7 @@ class PklBuildSuite extends munit.FunSuite {
         |import "@fh-home/dump.pkl" as dump
         |
         |flat = dump.entities.light_kitchen.entity_id
-        |viaFloor = dump.ground_floor.kjokken.light_kitchen.entity_id
+        |viaFloor = dump.floors.ground_floor.kjokken.light_kitchen.entity_id
         |areaLightCount = hass.lights(dump.areas.kjokken.all).length
         |noArea = dump.entities.switch_garage.entity_id
         |""".stripMargin
@@ -539,6 +591,59 @@ class PklBuildSuite extends munit.FunSuite {
     assertEquals(c.get[String]("viaFloor").toOption, Some("light.kitchen"))
     assertEquals(c.get[Int]("areaLightCount").toOption, Some(1))
     assertEquals(c.get[String]("noArea").toOption, Some("switch.garage"))
+  }
+
+  test("every namespace answers `all`: floors by level, the rest by name") {
+    val house = io.circe.parser
+      .parse("""
+        {
+          "areas": {
+            "all": { "area_id": "all_1", "area_name": "All" },
+            "bad": { "area_id": "bad_1", "area_name": "Bad" }
+          },
+          "floors": {
+            "loft": { "floor_id": "l", "floor_name": "Loft", "level": 2 },
+            "shed": { "floor_id": "s", "floor_name": "Shed" },
+            "cellar": { "floor_id": "c", "floor_name": "Cellar", "level": -1 },
+            "ground": { "floor_id": "g", "floor_name": "Ground", "level": 0 }
+          },
+          "devices": { "hub": { "device_id": "d1", "device_name": "Hub" } },
+          "users": { "peri": { "user_id": "u1", "user_name": "Peri" } },
+          "entities": {}
+        }
+      """)
+      .toOption
+      .get
+    val tmp = os.temp.dir()
+    copyLib(tmp)
+    writeDump(tmp, PklDump.render(house))
+    os.write(
+      tmp / "probe.pkl",
+      """module probe
+        |
+        |import "@fh-home/dump.pkl" as dump
+        |
+        |floors = dump.floors.all.map((f) -> f.floor_id)
+        |areas = dump.areas.all.map((a) -> a.area_id)
+        |renamed = dump.areas.all_area.area_id
+        |devices = dump.devices.all.map((d) -> d.device_id)
+        |users = dump.users.all.map((u) -> u.user_id)
+        |""".stripMargin
+    )
+    val result = SourceEval.eval(tmp, "probe.pkl")
+    assert(result.isRight, clue = result)
+    val c = result.toOption.get.value.hcursor
+    assertEquals(
+      c.get[List[String]]("floors").toOption,
+      Some(List("c", "g", "l", "s"))
+    )
+    assertEquals(
+      c.get[List[String]]("areas").toOption,
+      Some(List("all_1", "bad_1"))
+    )
+    assertEquals(c.get[String]("renamed").toOption, Some("all_1"))
+    assertEquals(c.get[List[String]]("devices").toOption, Some(List("d1")))
+    assertEquals(c.get[List[String]]("users").toOption, Some(List("u1")))
   }
 
   test("an entity hidden in HA is off every default list, and still named") {
@@ -563,7 +668,7 @@ class PklBuildSuite extends munit.FunSuite {
         |
         |house = dump.lights.map((e) -> e.entity_id)
         |room = hass.lights(dump.areas.kjokken.all).length
-        |floor = hass.lights(dump.ground_floor.all).length
+        |floor = hass.lights(dump.floors.ground_floor.all).length
         |withHidden = hass.lights(dump.allWithHidden).length
         |byName = dump.entities.light_stashed.entity_id
         |""".stripMargin
@@ -746,27 +851,29 @@ class PklBuildSuite extends munit.FunSuite {
       "fhgrid" -> Nil,
       "sectionTitle" -> List("label"),
       "label" -> List("label", "tone"),
-      "entityCard" -> List("label", "value", "entity_id"),
+      // The base tile; only the HA layer adds a subject.
+      "tile" -> List("label", "value"),
       "entityInfo" -> List("entity_id", "attributes"),
       // A declared slot is one every node of the card carries, so optional ones
       // (`href`/`onclick`, `icon`, `group`, `secondary`) are not listed.
       "button" -> List("label"),
       "pill" -> List("label"),
-      "toggle" -> List("label"),
+      "switch" -> List("label"),
       "tab" -> List("label", "onclick", "active"),
       "slider" -> Nil,
       // `label` is only the toggle variant's `aria-label`; the visible one is
-      // `sliderText`'s (#151).
+      // `sliderText`'s (#151). No `entity_id`: a base slider may have no
+      // subject, so only the HA one carries it.
       "sliderHead" -> List(
         "label",
         "value",
-        "action",
+        "service",
+        "targetKind",
+        "targetId",
         "min",
-        "max",
-        "key",
-        "entity_id"
+        "max"
       ),
-      "sliderText" -> List("label", "entity_id"),
+      "sliderText" -> List("label"),
       "popup" -> Nil,
       "tabs" -> Nil,
       "ifhost" -> Nil,
@@ -845,9 +952,9 @@ class PklBuildSuite extends munit.FunSuite {
        |  children {
        |    c.title("Features")
        |    c.entityCard(dump.entities.sensor_outside_temp)
-       |    c.entityCard(dump.entities.light_kitchen).tapAction(c.tap.toggle)
+       |    c.entityCard(dump.entities.light_kitchen).tapAction(c.tap.call("homeassistant/toggle", dump.entities.light_kitchen))
        |    c.entityCard(dump.entities.light_kitchen) |> c.informative
-       |    c.slider(dump.entities.light_kitchen)
+       |    c.entitySlider(dump.entities.light_kitchen)
        |    q.from(dump.lights)
        |      .where(q.eq(q.stateProp, "on"))
        |      .render((e) -> c.entityCard(e))
@@ -986,7 +1093,7 @@ class PklBuildSuite extends munit.FunSuite {
       Set(
         "fhcol",
         "sectionTitle",
-        "entityCard",
+        "tile",
         "entityInfo",
         "slider",
         "button",
@@ -1009,16 +1116,16 @@ class PklBuildSuite extends munit.FunSuite {
     // card, not a slider. Picked by name: the sensors' popups hold an
     // entityInfo too.
     val moreInfo = d.surfaces.values
-      .find(s => cardNames(s.content).count(_ == "entityCard") == 2)
+      .find(s => cardNames(s.content).count(_ == "tile") == 2)
       .getOrElse(fail("no more-info surface was hoisted"))
     assertEquals(
       cardNames(moreInfo.content),
       List(
         "popup",
         "fhcol",
-        "entityCard",
+        "tile",
         "fhcol",
-        "entityCard",
+        "tile",
         "entityInfo",
         "button"
       )
@@ -1209,12 +1316,12 @@ class PklBuildSuite extends munit.FunSuite {
         |  .build()""".stripMargin
     )
     val cards = Map(
-      "entityCard" -> CardDef(
-        // `entityCard` marks `value` and `inert` as signal slots, and
+      "tile" -> CardDef(
+        // `tile` marks `value` and `tapDisabled` as signal slots, and
         // `validate` rejects a card that declares one without placing its
-        // binding (ADR 0017).
+        // binding — or, for a handler, its read (ADR 0017).
         "<b>{{label}}</b><i {{{value__bind}}}>{{value}}</i>" +
-          "<u {{{inert__bind}}}></u>",
+          "<u data-on:click=\"{{tapDisabled__signal}}\"></u>",
         slots = List("label", "value")
       )
     )
@@ -1243,8 +1350,8 @@ class PklBuildSuite extends munit.FunSuite {
         |
         |x: hass.LightEntity = new { entity_id = "light.kitchen" }
         |
-        |call = (c.entityCard(x)) { tapAction = c.tap.toggle }
-        |ctor = new c.EntityCard { entity = x; tapAction = c.tap.toggle }
+        |call = (c.entityCard(x)) { tapAction = c.tap.call("homeassistant/toggle", x) }
+        |ctor = new c.EntityCard { entity = x; tapAction = c.tap.call("homeassistant/toggle", x) }
         |""".stripMargin
     )
     val result = evalProj(tmp, "probe.pkl")
@@ -1270,15 +1377,15 @@ class PklBuildSuite extends munit.FunSuite {
         |
         |x: hass.LightEntity = new { entity_id = "light.kitchen" }
         |
-        |cardBuilder = c.entityCard(x).tapAction(c.tap.toggle).label("Office")
-        |cardAmend = (c.entityCard(x)) { tapAction = c.tap.toggle; label = "Office" }
-        |cardCtor = new c.EntityCard { entity = x; tapAction = c.tap.toggle; label = "Office" }
+        |cardBuilder = c.entityCard(x).tapAction(c.tap.call("homeassistant/toggle", x)).label("Office")
+        |cardAmend = (c.entityCard(x)) { tapAction = c.tap.call("homeassistant/toggle", x); label = "Office" }
+        |cardCtor = new c.EntityCard { entity = x; tapAction = c.tap.call("homeassistant/toggle", x); label = "Office" }
         |
         |btnBuilder = c.button("Close", c.tap.closePopup()).label("Dismiss")
         |btnAmend = new c.Button { label = "Dismiss"; tapAction = c.tap.closePopup() }
         |
-        |sliderBuilder = c.slider(x).label("Lamp").min(10).max(200)
-        |sliderAmend = new c.Slider { entity = x; label = "Lamp"; min = 10; max = 200 }
+        |sliderBuilder = c.entitySlider(x).label("Lamp").min(10).max(200)
+        |sliderAmend = new c.EntitySlider { entity = x; label = "Lamp"; min = 10; max = 200 }
         |""".stripMargin
     )
     val result = evalProj(tmp, "probe.pkl")
@@ -1507,7 +1614,7 @@ class PklBuildSuite extends munit.FunSuite {
     assert(!nav.slots.contains("onclick"), clue = nav.slots)
     val toggle = probeComponent(
       """light: hass.LightEntity = new { entity_id = "light.kitchen" }
-        |node = c.button("Toggle", c.tap.toggle).entity(light)""".stripMargin
+        |node = c.button("Toggle", c.tap.call("homeassistant/toggle", light))""".stripMargin
     )
     assert(!toggle.slots.contains("href"), clue = toggle.slots)
     // The template assembles the URL around the service (ADR 0017), so no slot
@@ -1536,14 +1643,14 @@ class PklBuildSuite extends munit.FunSuite {
   test("Slider on a cover resolves the cover spec as string literals") {
     val slider = probeComponent(
       """cover: hass.GenericEntity = new { entity_id = "cover.blind"; domain = "cover" }
-        |node = new c.Slider { entity = cover }""".stripMargin
+        |node = new c.EntitySlider { entity = cover }""".stripMargin
     )
     assertEquals(slider.card, "slider")
     assertEquals(
-      rowOf(slider).slots("action").literal,
+      rowOf(slider).slots("service").literal,
       Some("cover/set_cover_position")
     )
-    assertEquals(rowOf(slider).slots("key").literal, Some("position"))
+    assertEquals(rowOf(slider).slots("dataKey").literal, Some("position"))
     assertEquals(rowOf(slider).slots("min").literal, Some("0"))
     assertEquals(rowOf(slider).slots("max").literal, Some("100"))
     // Opted in: the guarded read as structure, presence implicit (ADR 0028).
@@ -1557,7 +1664,7 @@ class PklBuildSuite extends munit.FunSuite {
     // A candidate is a known entity, so `action`/`key`/`min`/`max` are
     // literals, not runtime `$lookup`s over the sliderSpec table.
     val set = probeSet(
-      """node = q.from(hass.lights(dump.areas.stue.all)).render((e) -> c.slider(e)).build()"""
+      """node = q.from(hass.lights(dump.areas.stue.all)).render((e) -> c.entitySlider(e)).build()"""
     )
     val slots = rowOf(
       set
@@ -1568,8 +1675,8 @@ class PklBuildSuite extends munit.FunSuite {
         .asComponent
     ).slots
     assertEquals(slots("entity_id").literal, Some("light.taklys"))
-    assertEquals(slots("action").literal, Some("light/turn_on"))
-    assertEquals(slots("key").literal, Some("brightness"))
+    assertEquals(slots("service").literal, Some("light/turn_on"))
+    assertEquals(slots("dataKey").literal, Some("brightness"))
     assertEquals(slots("min").literal, Some("1"))
     assertEquals(slots("max").literal, Some("255"))
     // The position stays live, since it reads state, but names the attribute
@@ -1591,7 +1698,7 @@ class PklBuildSuite extends munit.FunSuite {
       """light: hass.GenericEntity = new { entity_id = "light.lys"; domain = "light" }
         |a: hass.GenericEntity = new { entity_id = "light.a"; domain = "light" }
         |cover: hass.GenericEntity = new { entity_id = "cover.blind"; domain = "cover" }
-        |node = (c.slider(light).withSubSliders(List(a, cover).map((m) -> c.slider(m).readout("percent")))) { icon = "mdi:lightbulb-group"; tapAction = c.tap.toggle }
+        |node = (c.entitySlider(light).withSubSliders(List(a, cover).map((m) -> c.entitySlider(m).readout("percent")))) { icon = "mdi:lightbulb-group"; tapAction = c.tap.call("homeassistant/toggle", light) }
         |""".stripMargin
     )
     assertEquals(group.card, "slider")
@@ -1599,7 +1706,7 @@ class PklBuildSuite extends munit.FunSuite {
     // A head does not repeat a readout its rows carry.
     assert(!rowOf(group).slots.contains("state"), clue = group.slots.keySet)
     assertEquals(rowOf(group).slots("entity_id").literal, Some("light.lys"))
-    assertEquals(rowOf(group).slots("action").literal, Some("light/turn_on"))
+    assertEquals(rowOf(group).slots("service").literal, Some("light/turn_on"))
     assertEquals(
       rowOf(group).slots("icon").literal,
       Some("mdi-lightbulb-group")
@@ -1610,7 +1717,11 @@ class PklBuildSuite extends munit.FunSuite {
     // The shared icon button: a glyph, no label and the `lit` tint are not
     // about sliders.
     assertEquals(actions.map(_.card), List("button"))
-    assert(actions.head.slots.contains("onclick"), clue = actions.head.slots)
+    assertEquals(
+      actions.head.slots("service").literal,
+      Some("homeassistant/toggle")
+    )
+    assertEquals(actions.head.slots("targetId").literal, Some("light.lys"))
     assertEquals(actions.head.slots("glyph").literal, Some("mdi-power"))
     assertEquals(actions.head.slots("round").literal, Some("1"))
 
@@ -1623,7 +1734,7 @@ class PklBuildSuite extends munit.FunSuite {
       List(Some("light.a"), Some("cover.blind"))
     )
     assertEquals(
-      members.map(rowOf(_).slots("key").literal),
+      members.map(rowOf(_).slots("dataKey").literal),
       List(Some("brightness"), Some("position"))
     )
     // It reads out its level, off its own range, not its state.
@@ -1645,7 +1756,7 @@ class PklBuildSuite extends munit.FunSuite {
 
     val plain = probeComponent(
       """light: hass.GenericEntity = new { entity_id = "light.lys"; domain = "light" }
-        |node = c.slider(light)
+        |node = c.entitySlider(light)
         |""".stripMargin
     )
     assertEquals(
@@ -1654,8 +1765,11 @@ class PklBuildSuite extends munit.FunSuite {
         "value",
         "fill",
         "fillColor",
-        "action",
-        "key",
+        "service",
+        "targetKind",
+        "targetId",
+        "dataKey",
+        "tapDisabled",
         "min",
         "max",
         "icon",
@@ -1669,7 +1783,7 @@ class PklBuildSuite extends munit.FunSuite {
     assertEquals(rowOf(plain).slots("icon").literal, Some("mdi-lightbulb"))
     val bare = probeComponent(
       """light: hass.GenericEntity = new { entity_id = "light.lys"; domain = "light" }
-        |node = c.slider(light).icon(null)
+        |node = c.entitySlider(light).icon(null)
         |""".stripMargin
     )
     assert(!rowOf(bare).slots.contains("icon"), clue = bare.slots.keySet)
@@ -1680,7 +1794,7 @@ class PklBuildSuite extends munit.FunSuite {
     // instead of re-derived.
     val own = probeComponent(
       """light: hass.GenericEntity = new { entity_id = "light.lys"; domain = "light" }
-        |node = (c.slider(light)) { readout = c.expr("\(percentExpr) + ' · ' + state") }
+        |node = (c.entitySlider(light)) { readout = c.expr("\(percentExpr) + ' · ' + state") }
         |""".stripMargin
     )
     val state = rowOf(own).slots("state")
@@ -1695,7 +1809,7 @@ class PklBuildSuite extends munit.FunSuite {
     val other = probeComponent(
       """light: hass.GenericEntity = new { entity_id = "light.lys"; domain = "light" }
         |power: hass.GenericEntity = new { entity_id = "sensor.w"; domain = "sensor" }
-        |node = (c.slider(light)).readout(c.exprOf(power, #"state + ' W'"#))
+        |node = (c.entitySlider(light)).readout(c.exprOf(power, #"state + ' W'"#))
         |""".stripMargin
     )
     assertEquals(rowOf(other).slots("state").entityId, Some("sensor.w"))
@@ -1712,7 +1826,7 @@ class PklBuildSuite extends munit.FunSuite {
         |import "@fh-dashboard/hass.pkl"
         |import "@fh-dashboard/components.pkl" as c
         |sensor: hass.GenericEntity = new { entity_id = "sensor.temp"; domain = "sensor" }
-        |node = new c.Slider { entity = sensor }
+        |node = new c.EntitySlider { entity = sensor }
         |""".stripMargin
     )
     assert(evalProj(tmp, "probe.pkl").isLeft)
@@ -1851,7 +1965,7 @@ class PklBuildSuite extends munit.FunSuite {
         |import "@fh-dashboard/components.pkl" as c
         |import "@fh-home/dump.pkl" as dump
         |
-        |node = c.recipes.floorView(dump.over)
+        |node = c.recipes.floorView(dump.floors.over)
         |""".stripMargin
     )
 
@@ -1884,7 +1998,10 @@ class PklBuildSuite extends munit.FunSuite {
       rowOf(inner(2)).slots("entity_id").literal,
       Some("light.stue_2")
     )
-    assertEquals(rowOf(inner(1)).slots("action").literal, Some("light/turn_on"))
+    assertEquals(
+      rowOf(inner(1)).slots("service").literal,
+      Some("light/turn_on")
+    )
     assertEquals(rowOf(inner(1)).slots("min").literal, Some("1"))
     assertEquals(rowOf(inner(1)).slots("max").literal, Some("255"))
   }
@@ -1970,12 +2087,12 @@ class PklBuildSuite extends munit.FunSuite {
       lightProbe(
         """  colourModes = new Listing { "color_temp" }
           |  colourTemp = new hass.ColourTemp { owner = l; min_kelvin = 2000; max_kelvin = 6535 }""".stripMargin,
-        "c.slider(l.colourTemp!!)"
+        "c.entitySlider(l.colourTemp!!)"
       )
     )
     assertEquals(s.card, "slider")
-    assertEquals(rowOf(s).slots("action").literal, Some("light/turn_on"))
-    assertEquals(rowOf(s).slots("key").literal, Some("color_temp_kelvin"))
+    assertEquals(rowOf(s).slots("service").literal, Some("light/turn_on"))
+    assertEquals(rowOf(s).slots("dataKey").literal, Some("color_temp_kelvin"))
     // The light's bounds, not the domain's brightness 1..255.
     assertEquals(rowOf(s).slots("min").literal, Some("2000"))
     assertEquals(rowOf(s).slots("max").literal, Some("6535"))
@@ -1998,8 +2115,11 @@ class PklBuildSuite extends munit.FunSuite {
     assertEquals(col.card, "fhcol")
     val kids = col.allChildren.collect { case c: LayoutNode.Component => c }
     assertEquals(kids.map(_.card), List("slider", "slider", "fhrow"))
-    assertEquals(rowOf(kids(0)).slots("key").literal, Some("brightness"))
-    assertEquals(rowOf(kids(1)).slots("key").literal, Some("color_temp_kelvin"))
+    assertEquals(rowOf(kids(0)).slots("dataKey").literal, Some("brightness"))
+    assertEquals(
+      rowOf(kids(1)).slots("dataKey").literal,
+      Some("color_temp_kelvin")
+    )
     val pills = kids(2).allChildren.collect { case c: LayoutNode.Component =>
       c
     }
@@ -2043,7 +2163,7 @@ class PklBuildSuite extends munit.FunSuite {
       )
     )
     val kids = col.allChildren.collect { case c: LayoutNode.Component => c }
-    assertEquals(kids.map(_.card), List("entityCard"))
+    assertEquals(kids.map(_.card), List("tile"))
     assertEquals(kids.head.slots("tappable").literal, Some("1"))
   }
 
@@ -2085,7 +2205,7 @@ class PklBuildSuite extends munit.FunSuite {
         |import "@fh-home/dump.pkl" as dump
         |
         |// the specific entity: no `!!` anywhere on this line
-        |node = c.slider(dump.entities.light_a.colourTemp)
+        |node = c.entitySlider(dump.entities.light_a.colourTemp)
         |
         |// ...and the SAME value seen generically is still nullable
         |lights: List<hass.LightEntity> = List(dump.entities.light_a, dump.entities.light_plug)

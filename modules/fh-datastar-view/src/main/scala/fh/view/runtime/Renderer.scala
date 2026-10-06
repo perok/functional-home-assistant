@@ -9,6 +9,7 @@ import fh.view.model.{
   ChromeColors,
   Dashboard,
   DomId,
+  ExprValue,
   LayoutNode,
   NodeId,
   Reads,
@@ -22,7 +23,8 @@ import fh.view.model.{
   SignalId,
   SlotSource,
   SlotValue,
-  Surface
+  Surface,
+  TapCall
 }
 import scala.jdk.CollectionConverters.*
 
@@ -379,12 +381,14 @@ class Renderer(
       case _ => Nil
     }
 
-  /** The bound an action is held to (ADR 0023). The model's static walk, not
-    * [[Index.byEntity]], which stops at a set: this must answer for entities
-    * nothing renders yet.
+  /** The bound a variable write is held to (ADR 0023). The model's static walk,
+    * not [[Index.byEntity]], which stops at a set: this must answer for
+    * entities nothing renders yet.
     */
   def references(entityId: String): Boolean =
     dashboard.referencedEntities.contains(entityId)
+
+  def declares(call: TapCall): Boolean = dashboard.calls.contains(call)
 
   /** Wider than [[references]] — see [[Dashboard.watchedEntities]]. */
   def watchedEntities: Set[String] = dashboard.watchedEntities
@@ -787,7 +791,7 @@ class Renderer(
 
   /** The render cache's pre-check: equal byte-slot values, equal bytes. The
     * key's `contentVersion` moves on any change, so without this every
-    * brightness tick on the shipped `entityCard` re-renders to identical bytes.
+    * brightness tick on the shipped `EntityCard` re-renders to identical bytes.
     * Byte slots only — resolving the signal ones (where the CEL lives) would
     * give the saving back: 0.28 µs against a 5.45 µs render
     * (`RenderBench.byteSlotResolve` vs `tickRender`).
@@ -976,14 +980,14 @@ class Renderer(
 
         def wrapper(buf: Sink, form: SlotForm): Unit =
           if (wrapped) {
+            cellOpenInto(buf, c.cell, resolved, form)
             buf
-              .append("""<div class="fh-cell""")
-              .append(Renderer.cellClasses(c.cell))
-              .append("""" id="""")
+              .append(""" id="""")
               .append(id)
               .append('"')
             if (!form.isPatch)
               Datastar.seedAttrInto(buf, plan.signalSeed, resolved.signals)
+            cellBindingsInto(buf, resolved)
             val _ = buf.append('>')
           }
 
@@ -1285,10 +1289,9 @@ class Renderer(
       form: SlotForm
   ): Unit = {
     // The seed covers the children too ([[memberSignalsOf]]).
+    cellOpenInto(out, m.node.cell, rm.resolved, form)
     out
-      .append("""<div class="fh-cell""")
-      .append(Renderer.cellClasses(m.node.cell))
-      .append("""" id="""")
+      .append(""" id="""")
       .append(m.id)
       .append('"')
     if (!form.isPatch) {
@@ -1297,6 +1300,7 @@ class Renderer(
       val values = memberSignalsOf(rm)
       Datastar.seedAttrInto(out, memberSeedOf(m, values), values)
     }
+    cellBindingsInto(out, rm.resolved)
     val _ = out.append('>')
     memberBodyInto(out, rm, form)
     val _ = out.append("</div>")
@@ -1338,10 +1342,10 @@ class Renderer(
   ): Unit = child match {
     case ResolvedChild.NestedSet(html) => val _ = out.append(html)
     case ResolvedChild.Node(cell, n)   =>
-      out
-        .append("""<div class="fh-cell""")
-        .append(Renderer.cellClasses(cell))
-        .append("""">""")
+      // The member's wrapper above holds the seed.
+      cellOpenInto(out, cell, n.resolved, form)
+      cellBindingsInto(out, n.resolved)
+      out.append('>')
       memberBodyInto(out, n, form)
       val _ = out.append("</div>")
   }
@@ -1419,6 +1423,42 @@ class Renderer(
       signalSlots: List[String],
       signals: Map[SignalId, SlotValue]
   )
+
+  /** A component's `<div class="fh-cell …"`, its live classes
+    * ([[Dashboard.cellClassSlot]]) inline in the document form only, where
+    * signal values are not withheld. Their bindings are [[cellBindingsInto]].
+    */
+  private def cellOpenInto(
+      buf: Sink,
+      cell: Option[Cell],
+      r: Resolved,
+      form: SlotForm
+  ): Unit = {
+    buf.append("""<div class="fh-cell""").append(Renderer.cellClasses(cell))
+    if (!form.isPatch)
+      cellClassSlots(r)
+        .filter(slot => r.paint.get(slot).exists(SlotValue.truthy))
+        .foreach { slot =>
+          buf.append(' ').append(slot.stripPrefix(Dashboard.CellClassPrefix))
+        }
+    val _ = buf.append('"')
+  }
+
+  /** In both forms, and AFTER the wrapper's own `data-signals`: the bundle
+    * applies an element's attributes in order, so a binding ahead of the seed
+    * reads a signal that does not exist yet (`Cannot read properties of
+    * undefined`, the first `LiveCellClassSmokeSuite` run).
+    */
+  private def cellBindingsInto(buf: Sink, r: Resolved): Unit =
+    cellClassSlots(r).foreach { slot =>
+      val key = slot + "__bind"
+      r.bindings.get(key).orElse(r.liveBindings.get(key)).foreach { b =>
+        buf.append(' ').append(b)
+      }
+    }
+
+  private def cellClassSlots(r: Resolved): List[String] =
+    r.signalSlots.filter(_.startsWith(Dashboard.CellClassPrefix))
 
   /** The template context, read in place. Not a `java.util.Map`: mustache.java
     * resolves those through `entrySet`, so a get-only map answers every name
@@ -1537,7 +1577,7 @@ class Renderer(
       // The section guard (ADR 0017), for every slot: a withheld signal value
       // is a false section, so `{{#value}}` would delete its own element and
       // binding on the first patch. Uniform because a card may not know its
-      // tier (`entityCard`'s icon is a signal for some domains only).
+      // tier (`EntityCard`'s icon is a signal for some domains only).
       constB += ((slot + "__has", "1"))
       source.literal match {
         case Some(text) =>
@@ -1870,7 +1910,13 @@ class Renderer(
       // The form is the tier (ADR 0028).
       val out: SlotValue = source.transform match {
         case sm: Transform.Simple => transforms.runValue(sm, st)
-        case t: String            => transforms.runValue(t, st, dashboard.slug)
+        case t: String            =>
+          transforms.runValue(
+            Transform.CelKey(t, ExprValue.env(source.values)),
+            st,
+            dashboard.slug,
+            Conditions.resolve(source.values, states)
+          )
         // Rejected by `validate`; the raw state keeps a bypass readable.
         case _: Transform.Stage => st.state
       }

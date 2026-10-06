@@ -86,35 +86,45 @@ object PklDump {
 
     // So an access rule names `dump.users.x`, not a raw HA id (ADR 0023).
     val usersClass = Option.when(users.nonEmpty)(
-      s"""class Users {
-         |${users
-          .map { case (slug, uo) =>
-            val fields = List(
-              "user_id" -> str(uo, "user_id").map(pklString),
-              "user_name" -> str(uo, "user_name").map(pklString),
-              "is_admin" -> uo("is_admin").flatMap(_.asBoolean).map(_.toString),
-              "is_owner" -> uo("is_owner").flatMap(_.asBoolean).map(_.toString)
-            ).collect { case (k, Some(v)) => s"$k = $v" }
-            s"  ${tick(slug)}: hass.User = new { ${fields.mkString("; ")} }"
-          }
-          .mkString("\n")}
-         |}
-         |
-         |users: Users = new {}""".stripMargin
+      container(
+        "Users",
+        "user",
+        "hass.User",
+        users.map { case (slug, uo) =>
+          val fields = List(
+            "user_id" -> str(uo, "user_id").map(pklString),
+            "user_name" -> str(uo, "user_name").map(pklString),
+            "is_admin" -> uo("is_admin").flatMap(_.asBoolean).map(_.toString),
+            "is_owner" -> uo("is_owner").flatMap(_.asBoolean).map(_.toString)
+          ).collect { case (k, Some(v)) => s"$k = $v" }
+          slug -> s"hass.User = new { ${fields.mkString("; ")} }"
+        }
+      )
     )
 
-    val areasClass =
-      s"""class Areas {
-         |${areas
-          .map { case (slug, _) =>
-            s"  ${tick(slug)}: ${tick(s"Area_$slug")} = new {}"
-          }
-          .mkString("\n")}
-         |}
-         |
-         |areas: Areas = new {}""".stripMargin
+    val areasClass = container(
+      "Areas",
+      "area",
+      "hass.Area",
+      areas.map { case (slug, _) => slug -> s"${tick(s"Area_$slug")} = new {}" }
+    )
 
-    val floorDecls = floors.map { case (slug, fo) =>
+    // How the house is stacked; a floor with no level goes last.
+    val floorsByLevel = floors.sortBy { case (slug, fo) =>
+      val level = fo("level").flatMap(_.asNumber).flatMap(_.toInt)
+      (level.isEmpty, level.getOrElse(0), slug)
+    }
+
+    val floorsClass = container(
+      "Floors",
+      "floor",
+      "hass.Floor",
+      floorsByLevel.map { case (slug, _) =>
+        slug -> s"${tick(s"Floor_$slug")} = new {}"
+      }
+    )
+
+    val floorClasses = floors.map { case (slug, fo) =>
       val floorAreas = fo("areas")
         .flatMap(_.asObject)
         .map(_.keys.toList.sorted)
@@ -132,14 +142,9 @@ object PklDump {
           .flatMap(_.toInt)
           .map(l => s"  level = $l")
       ).flatten
-      val propName =
-        if (Set("entities", "areas", "output").contains(slug)) s"${slug}_floor"
-        else slug
       s"""class ${tick(s"Floor_$slug")} extends hass.Floor {
          |${(fields ++ areaProps ++ areasList).mkString("\n")}
-         |}
-         |
-         |${tick(propName)}: ${tick(s"Floor_$slug")} = new {}""".stripMargin
+         |}""".stripMargin
     }
 
     val deviceClasses = devices.map { case (slug, dvo) =>
@@ -171,15 +176,14 @@ object PklDump {
     }
 
     val devicesClass = Option.when(devices.nonEmpty)(
-      s"""class Devices {
-         |${devices
-          .map { case (slug, _) =>
-            s"  ${tick(slug)}: ${tick(s"Device_$slug")} = new {}"
-          }
-          .mkString("\n")}
-         |}
-         |
-         |devices: Devices = new {}""".stripMargin
+      container(
+        "Devices",
+        "device",
+        "hass.Device",
+        devices.map { case (slug, _) =>
+          slug -> s"${tick(s"Device_$slug")} = new {}"
+        }
+      )
     )
 
     // By alias: it must resolve to the same URI the library's own
@@ -209,9 +213,34 @@ object PklDump {
        |$areasClass
        |${usersClass.getOrElse("")}
        |
-       |${floorDecls.mkString("\n\n")}
+       |${floorClasses.mkString("\n\n")}
+       |
+       |$floorsClass
        |${deviceSection(deviceClasses, devicesClass)}
        |""".stripMargin
+  }
+
+  /** A namespace class holding one property per member, in `members` order, and
+    * the same members as its `all`. A member slugged `all` is renamed
+    * `all_<kind>` so it cannot shadow the list.
+    */
+  private def container(
+      className: String,
+      kind: String,
+      element: String,
+      members: List[(String, String)]
+  ): String = {
+    val named = members.map { case (slug, decl) =>
+      (if (slug == "all") s"all_$kind" else slug) -> decl
+    }
+    s"""class $className {
+       |${named.map { case (n, decl) => s"  ${tick(n)}: $decl" }.mkString("\n")}
+       |  hidden all: List<$element> = List(${named
+        .map(n => tick(n._1))
+        .mkString(", ")})
+       |}
+       |
+       |${className.toLowerCase}: $className = new {}""".stripMargin
   }
 
   private def deviceSection(

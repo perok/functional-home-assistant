@@ -174,7 +174,7 @@ identity slots are memoized (ADR 0004).
 ```pkl
 q.from(hass.lights(dump.areas.stue.all))
   .where(q.eq(q.stateProp, "on"))
-  .caseOf(q.eq(q.prop("domain"), "light"), c.slider)
+  .caseOf(q.eq(q.prop("domain"), "light"), c.entitySlider)
   .`else`((e) -> c.entityCard(e))
   .build()
 ```
@@ -192,7 +192,7 @@ rather than as the registry recorded it.
 
 A load-bearing consequence, silent when broken: **the fold drops a branch whose
 guard cannot hold BEFORE applying its render lambda.** That is what makes
-per-domain dispatch over a mixed set work at all — `c.slider` takes a light, and
+per-domain dispatch over a mixed set work at all — `c.entitySlider` takes a light, and
 a media_player must never reach it.
 
 **Plain Pkl stays the first answer.** A `for` over a typed dump list is still

@@ -143,6 +143,17 @@ names: `hass.Area` has `allWithHidden` filled by the generator, `hass.Floor`
 derives both from its areas, `hass.Device` from its entities, and a domain
 comes out of any of them the one way — `hass.lights(dump.floors.loft.all)`.
 
+**Every namespace answers `all` too.** Areas, floors, devices and users each sit
+in a generated namespace class (`dump.areas.stue`, `dump.floors.loft`), and that
+class carries a generated `hidden all` of its members — `dump.floors.all` in
+level order (a floor without one last), the rest in slug order — so "every
+floor" is a list, not a reflection over the module. Floors live under
+`dump.floors` rather than at the module top level for the same reason: a
+namespace is what has an `all`, and a floor slug can then no longer collide
+with `entities` or `areas`. A member slugged `all` becomes `all_<kind>`
+(`dump.areas.all_area`). A home with no devices or users still has no
+`devices`/`users` namespace at all.
+
 **`all` leaves out the entities hidden in HA** (`id_hidden`, from the registry's
 `hidden_by`). Hidden means "keep this off the dashboards HA builds for me", and
 every default list here is exactly that kind of dashboard: the starter's
@@ -313,7 +324,7 @@ class E_light_hue_bibliotek extends hass.LightEntity {
 ```
 
 So a dashboard naming a specific entity passes the group straight to something
-that demands a present one — `c.slider(dump.entities.light_a.colourTemp)`,
+that demands a present one — `c.entitySlider(dump.entities.light_a.colourTemp)`,
 no `!!` and no guard — while the same value reached through a
 `List<hass.LightEntity>` still meets `ColourTemp?` and still has to be guarded.
 Both were verified on pkl-core 0.32.1: the narrowed read resolves, and
@@ -331,19 +342,19 @@ Each group holds `owner`, the entity whose capability it is. A card therefore
 takes **the group alone** and still knows its subject:
 
 ```pkl
-c.slider(l)               // the domain's default axis — a light's brightness
-c.slider(l.colourTemp)    // colour temperature, bounds from the light itself
+c.entitySlider(l)               // the domain's default axis — a light's brightness
+c.entitySlider(l.colourTemp)    // colour temperature, bounds from the light itself
 c.light.effectPills(l.effects)
 ```
 
-`Slider` accepts `SlideAxis = hass.Entity|hass.ColourTemp` and pattern-matches
+`EntitySlider` accepts `SlideAxis = hass.Entity|hass.ColourTemp` and pattern-matches
 with `is` to derive its entity, key, bounds and tracked attribute. Three
 properties fall out, and each was a defect in an earlier shape:
 
 - **The entity is named once.** There is no second parameter, so
   `slider(a, b.colourTemp)` — two entities disagreeing — is unrepresentable
   rather than merely discouraged.
-- **The wrong choice is visible BEFORE evaluation.** `c.slider(l.colourTemp)`
+- **The wrong choice is visible BEFORE evaluation.** `c.entitySlider(l.colourTemp)`
   on a light without a range is a `ColourTemp?` where `ColourTemp` is required:
   pkl-lsp reports "Nullability mismatch" on the line, no evaluation involved.
 - **Capabilities are discovered on the entity.** Typing `l.` lists
@@ -365,10 +376,10 @@ failed for a reason that is not obvious until tried.
 
 | Shape | Why not |
 |---|---|
-| `(c.slider(l)) \|> c.withColourTemp(l.colourTemp)` — a `Mixin<Slider>` | `l` appears twice and the two can disagree. Discovery requires already knowing the mixin exists, and the list grows per capability. Static checking was fine — this is where that requirement was learned. |
-| `c.slider(l).colourTemp()` — a builder method | Reads best and names `l` once, but the capability is hidden in the method body, so nothing is checkable: the method is offered by completion on a *cover* slider, and failure is a runtime `throw`. |
+| `(c.entitySlider(l)) \|> c.withColourTemp(l.colourTemp)` — a `Mixin<EntitySlider>` | `l` appears twice and the two can disagree. Discovery requires already knowing the mixin exists, and the list grows per capability. Static checking was fine — this is where that requirement was learned. |
+| `c.entitySlider(l).colourTemp()` — a builder method | Reads best and names `l` once, but the capability is hidden in the method body, so nothing is checkable: the method is offered by completion on a *cover* slider, and failure is a runtime `throw`. |
 | `c.light(l).colourTemp()` — an entity-first builder per domain | Same loss of static checking, and every domain builder must re-export the whole card catalogue that makes sense for it (`brightness`, `toggle`, `effects`, …), so the surface grows by domain × card kind. |
-| `(c.slider) { entity = l; on = entity.colourTemp }` — late binding | Works at eval, but pkl-lsp resolves the self-reference to the DECLARED property type, so it flags the **valid** line as well as the invalid one. False positives are worse than silence: they train authors to ignore the squiggles. |
+| `(c.entitySlider) { entity = l; on = entity.colourTemp }` — late binding | Works at eval, but pkl-lsp resolves the self-reference to the DECLARED property type, so it flags the **valid** line as well as the invalid one. False positives are worse than silence: they train authors to ignore the squiggles. |
 
 The through-line: **a capability passed as a VALUE through a signature is
 checkable; a capability named by a method, selector or self-reference is not.**
@@ -519,7 +530,7 @@ knows:
 | `switch` | Typed | [switch](https://developers.home-assistant.io/docs/core/entity/switch) |
 | `number` | Typed | [number](https://developers.home-assistant.io/docs/core/entity/number) |
 | `select` | Typed | [select](https://developers.home-assistant.io/docs/core/entity/select) |
-| `cover`, `fan` | Generic — but both have a `sliderSpec` row, so `c.slider` works on them | [cover](https://developers.home-assistant.io/docs/core/entity/cover), [fan](https://developers.home-assistant.io/docs/core/entity/fan) |
+| `cover`, `fan` | Generic — but both have a `sliderSpec` row, so `c.entitySlider` works on them | [cover](https://developers.home-assistant.io/docs/core/entity/cover), [fan](https://developers.home-assistant.io/docs/core/entity/fan) |
 | `climate`, `media_player`, `vacuum`, `lawn_mower`, `water_heater`, `humidifier`, `alarm_control_panel`, `valve`, `remote`, `siren`, `camera`, `weather` | Generic — **bitmask domains**, the next candidates: each has an `*EntityFeature` IntFlag to vendor exactly as `light`'s was | [climate](https://developers.home-assistant.io/docs/core/entity/climate), [media_player](https://developers.home-assistant.io/docs/core/entity/media-player), [vacuum](https://developers.home-assistant.io/docs/core/entity/vacuum), [lawn_mower](https://developers.home-assistant.io/docs/core/entity/lawn-mower), [water_heater](https://developers.home-assistant.io/docs/core/entity/water-heater), [humidifier](https://developers.home-assistant.io/docs/core/entity/humidifier), [alarm_control_panel](https://developers.home-assistant.io/docs/core/entity/alarm-control-panel), [valve](https://developers.home-assistant.io/docs/core/entity/valve), [remote](https://developers.home-assistant.io/docs/core/entity/remote), [siren](https://developers.home-assistant.io/docs/core/entity/siren), [camera](https://developers.home-assistant.io/docs/core/entity/camera), [weather](https://developers.home-assistant.io/docs/core/entity/weather) |
 | `button`, `text`, `date`, `datetime`, `time`, `event`, `scene`, `todo`, `calendar`, `update`, `image`, `notify`, `device_tracker`, `geo_location`, `air_quality` | Generic — no feature bitmask; `device_class` (already carried) is most of what they have | [button](https://developers.home-assistant.io/docs/core/entity/button), [text](https://developers.home-assistant.io/docs/core/entity/text), [date](https://developers.home-assistant.io/docs/core/entity/date), [datetime](https://developers.home-assistant.io/docs/core/entity/datetime), [time](https://developers.home-assistant.io/docs/core/entity/time), [event](https://developers.home-assistant.io/docs/core/entity/event), [scene](https://developers.home-assistant.io/docs/core/entity/scene), [todo](https://developers.home-assistant.io/docs/core/entity/todo), [calendar](https://developers.home-assistant.io/docs/core/entity/calendar), [update](https://developers.home-assistant.io/docs/core/entity/update), [image](https://developers.home-assistant.io/docs/core/entity/image), [notify](https://developers.home-assistant.io/docs/core/entity/notify), [device_tracker](https://developers.home-assistant.io/docs/core/entity/device-tracker), [geo_location](https://developers.home-assistant.io/docs/core/entity/geo-location), [air_quality](https://developers.home-assistant.io/docs/core/entity/air-quality) |
 | `conversation`, `stt`, `tts`, `wake_word`, `assist_satellite`, `ai_task`, `infrared`, `radio_frequency` | Generic — voice/AI plumbing, no dashboard use yet | [entity index](https://developers.home-assistant.io/docs/core/entity) |
@@ -573,7 +584,7 @@ Nothing else moves. Every other domain keeps its per-entity class untouched.
   EMPTY lists. That is faithful, not a stub: a fixture declares entities and
   attributes, never registry rows, and the join runs from the state snapshot, so
   every fixture entity still reaches the dump — just with no area/floor/device.
-- `Slider` gained a `valueAttr` override so a second control on the same entity
+- `EntitySlider` gained a `valueAttr` override so a second control on the same entity
   (colour temperature) tracks the value it writes rather than the domain's
   default position attribute.
 

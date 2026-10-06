@@ -10,11 +10,15 @@
 /// slot decoder rejects numbers (stringify numeric config: `"\(...)"`).
 module core.node
 
+import "predicate.pkl" as predMod
 import "slot.pkl" as slotMod
 import "surface.pkl" as surfaceMod
 import "text.pkl" as textMod
 import "variable.pkl" as varMod
 import "pkl:reflect"
+
+/// What one of a node's [[Node.expressionValues]] may be.
+typealias ExpressionValue = String|Int|Float|Boolean|predMod.Tally
 
 /// Per-node layout-cell parameters (mirrors fh.view.model.Cell): extra CSS
 /// classes the renderer puts on this node's `.fh-cell` wrapper. The class
@@ -23,6 +27,8 @@ import "pkl:reflect"
 /// `fullWidth`, `cellClass`) rather than writing one directly.
 class Cell {
   classes: Listing<String> = new {}
+  /// Classes present while a reading holds — see [[LayoutNode.classWhen]].
+  classWhen: Mapping<String, slotMod.Slot>? = null
 }
 
 /// The common supertype of every layout-tree node. `kind` is the circe
@@ -36,12 +42,25 @@ class Cell {
 /// inside a [[Row]]/[[Column]], which size by share/fill, not spans. The
 /// builders return the base [[LayoutNode]] type, so chain them AFTER
 /// card-specific ones:
-/// `c.entityCard(e).tapAction(c.tap.toggle).columns(3)`.
+/// `c.entityCard(e).tapAction(c.tap.toggle(e)).columns(3)`.
 abstract class LayoutNode {
   kind: String
-  /// Layout-cell classes for this node's wrapper. Null (dropped from the wire
-  /// JSON) until a layout builder adds one.
-  cell: Cell? = null
+  /// The static classes the builders below add, and the live ones
+  /// ([[classWhen]]). INPUTS that each builder amends, so the order an author
+  /// chains them in does not matter: a card's own live class (`Button.active`)
+  /// and an author's `.columns(3)` both land, whichever is written first.
+  hidden cellClasses: Listing<String> = new {}
+  hidden liveClasses: Mapping<String, slotMod.Slot> = new {}
+  /// What the renderer puts on this node's wrapper, derived from
+  /// [[cellClasses]] and [[liveClasses]]; null (dropped from the wire JSON)
+  /// while both are empty. Setting it directly is the escape hatch, and it
+  /// replaces whatever the builders would have added.
+  cell: Cell? =
+    if (cellClasses.isEmpty && liveClasses.isEmpty) null
+    else new Cell {
+      classes = cellClasses
+      classWhen = if (liveClasses.isEmpty) null else liveClasses
+    }
   /// This cell spans `n` of the surrounding grid's 12 columns (HA
   /// `grid_options.columns`). No effect outside a [[Grid]]/group.
   function columns(n: Int(this >= 1 && this <= 12)): LayoutNode = addCellClass("fh-cols-\(n)")
@@ -63,8 +82,18 @@ abstract class LayoutNode {
   /// Escape hatch: put an arbitrary class on the wrapper (a theme helper, a
   /// custom rule). Must be a plain class token — validated at build time.
   function cellClass(cls: String): LayoutNode = addCellClass(cls)
-  // Shared appender: replace `cell` with a copy carrying one more class (the
-  // null default is never amended — amending a null Listing is an error).
+  /// [[cellClass]], present only while `reading` is truthy — a Boolean, or a
+  /// non-empty string. The renderer binds it on the wrapper, so it works on any
+  /// card and no template places it:
+  ///
+  ///     c.entityButton(l).classWhen("warm", on)   // css: .fh-cell.warm>button
+  ///
+  /// A reading is a display signal named by what it reads (ADR 0017), so it
+  /// shares one signal with every other slot reading the same thing.
+  function classWhen(cls: String, reading: slotMod.Slot): LayoutNode =
+    let (self = this)
+      (self) { liveClasses { [cls] = (reading) { signal = slotMod.asClass(cls) } } }
+  // Shared appender: one more static class.
   //
   // ONE PER NODE, per FAMILY: adding an `fh-cols-*` class DROPS any it already
   // had, and the same for `fh-text-*`. Both `columns(n)` and `fullWidth()` emit
@@ -75,14 +104,12 @@ abstract class LayoutNode {
   function addCellClass(cls: String): LayoutNode =
     let (self = this)
     let (family = List("fh-cols-", "fh-text-").findOrNull((p) -> cls.startsWith(p)))
-    let (had = if (self.cell != null) self.cell!!.classes.toList() else List())
+    let (had = self.cellClasses.toList())
     let (kept = if (family != null) had.filter((c) -> !c.startsWith(family)) else had)
       (self) {
-        cell = new Cell {
-          classes = new Listing<String> {
-            for (c in kept) { c }
-            cls
-          }
+        cellClasses = new Listing<String> {
+          for (c in kept) { c }
+          cls
         }
       }
 }
@@ -169,11 +196,37 @@ abstract class Node extends LayoutNode {
   /// applies. A surface (popup, tab panel) is its own scope root and does not
   /// see the page's declarations.
   vars: Mapping<String, String>? = null
+  /// Named values this node's expressions read as CEL variables, typed by what
+  /// they are: a literal, or a live count (`q.from(xs).where(…).count()`, an
+  /// `int`). The names are the node's own — nothing below it sees them.
+  ///
+  ///   ((c.button(f.floor_name, c.tap.lights.off(f))) {
+  ///     expressionValues {
+  ///       ["lights_on"] = q.from(lights).where(q.eq(q.stateProp, "on")).count()
+  ///       ["lights_total"] = lights.length
+  ///     }
+  ///   }).secondary(c.expr(#"string(lights_on) + ' / ' + string(lights_total)"#))
+  hidden expressionValues: Mapping<String, ExpressionValue> = new {}
+  /// [[expressionValues]] on the wire. Two properties because a null default
+  /// cannot be amended, and an always-present `{}` would sit on every node.
+  values: Mapping<String, ExpressionValue>? =
+    if (expressionValues.isEmpty) null else expressionValues
   // A node-level map of inline surfaces the build-phase hoist lifts into the
   // top-level `surfaces` registry (keyed `<node-id>_<localKey>`), splicing the
   // node's real id into every [[NODE_ID]] token in the subtree. Null (dropped
   // from JSON by omitNullProperties) unless a tap composes an inline popup.
   inlineSurfaces: Mapping<String, surfaceMod.SurfaceDef>? = null
+
+  /// [[expressionValues]] as a chain step. It returns a [[Node]], so it goes
+  /// after the card's own options, as the layout builders do:
+  ///
+  ///   c.button(f.floor_name, c.tap.lights.off(f))
+  ///     .secondary(c.expr(#"string(lights_on) + ' on'"#))
+  ///     .expressionValues(new Mapping {
+  ///       ["lights_on"] = q.from(lights).where(q.eq(q.stateProp, "on")).count()
+  ///     })
+  function expressionValues(vs: Mapping<String, ExpressionValue>): Node =
+    let (self = this) (self) { expressionValues = vs }
 }
 
 /// A named hole in a card's `template`, and how it gets filled.
@@ -280,6 +333,14 @@ const local function cardNameOf(clsName: String, cls: reflect.Class): String =
     if (v is String) v
     else throw("card class \(clsName) must default `card` to a literal card name")
 
+/// A class that extends a card class without naming a card of its own IS that
+/// card (`EntityButton` is a `button`), so it adds nothing to the registry —
+/// registering it would claim the same name twice.
+const local function inheritsCard(cls: reflect.Class): Boolean =
+  !cls.properties.containsKey("card")
+    && cls.superclass != null
+    && cls.superclass!!.properties.containsKey("card")
+
 const local function cardDefOf(clsName: String, cls: reflect.Class): CardDef =
   let (v = cls.properties["cardDef"].defaultValue)
     if (v is CardDef) v
@@ -311,7 +372,8 @@ function cardsWith(
 ): Mapping<String, CardDef> = new {
   for (m in mods) {
     for (clsName, cls in reflect.Module(m).classes) {
-      when (cls.isSubclassOf(nodeClass) && cls != nodeClass && !cls.modifiers.contains("abstract")) {
+      when (cls.isSubclassOf(nodeClass) && cls != nodeClass && !cls.modifiers.contains("abstract")
+        && !inheritsCard(cls)) {
         [cardNameOf(clsName, cls)] = injectClasses(cardDefOf(clsName, cls), classes)
       }
     }
