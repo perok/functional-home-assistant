@@ -50,4 +50,4 @@ to move it; 0003 and 0007 own two of the three node kinds it draws.
 - [0031 — A query is a second SHAPE of slot, and what its answer becomes is the transform's](0031-a-query-is-a-second-shape-of-slot.md)
 - [0032 — A chart is bytes, and the JavaScript that makes them runs here](0032-a-chart-is-bytes.md)
 - [0033 — A node variable: declared by a node, read by name, chosen per viewer](0033-node-variables.md)
-- [0034 — Expression values: named inputs a node's own expressions read](0034-expression-values.md)
+- [0034 — Expression values and conditions: named inputs, and the slots that read them](0034-expression-values.md)

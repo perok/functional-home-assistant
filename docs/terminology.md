@@ -37,11 +37,17 @@ would let one card's gesture drive another card's readout. ADR 0017, ADR 0025.
 slots on the same node read it unless they name an entity of their own. A base component has none
 unless the HA layer gives it one (`subject`).
 
-**Reading** — a slot used as an INPUT: a live read of one entity's state (`entityId` + transform)
-with no binding yet, which the card it is handed to binds where it belongs. `c.isOn(l)` and
-`c.stateIn(l, states)` are readings. The card says WHERE a value lands, and the reading says WHAT
-it reads. Hand a base component a reading that names its entity, since a base card has no subject
-to fall back on.
+**Reading** — a slot used as an INPUT: a live read (`entityId` + transform) with no binding yet,
+which the card it is handed to binds where it belongs. It reads one entity's state, or the node's
+own expression values (`c.expr("on > 2")`), or both. `c.isOn(l)` and `c.stateIn(l, states)` are
+readings. The card says WHERE a value lands, and the reading says WHAT it reads. Hand a base
+component a reading that names its entity, since a base card has no subject to fall back on.
+
+**Condition** — the yes/no thing `c.iff` takes (`pred.Predicate`: `q.from(xs).where(…).any()`,
+`q.entity(e).stateIs("on")`). Not a reading: it may name many entities and carries no transform.
+It can be an expression value (a CEL `bool`), and every boolean input (`active`, `disabled`,
+`classWhen`) takes one directly. An aggregate the build can settle is a plain `Boolean` instead.
+ADR 0034.
 
 **Base component** vs **HA component** — `components/base/` cards know nothing of Home Assistant:
 they take strings, taps and readings, and import no `hass` module. An HA component is **thin**: a
@@ -59,9 +65,14 @@ reading on a boolean slot that does not produce a bool.
 (`LayoutNode.classWhen`). The renderer binds it on the wrapper itself, so it works on any card and
 no template places it. A button's `active` is one (`fh-active`).
 
+**Live cell property** — a CSS custom property on a node's `.fh-cell` wrapper, set from a reading
+and kept live (`LayoutNode.cssProperty`) — a live cell class's value-carrying twin, read by the
+card's CSS through inheritance. Only `--…` names. ADR 0034.
+
 **Expression value** — a named input a node's OWN expressions read as a typed CEL variable
-(`expressionValues` in Pkl, `values` on the wire): a literal, or a **tally** — a static candidate
-list and which of it is present, counted live, the same thing a state condition's `Count` compares.
+(`expressionValues` in Pkl, `values` on the wire): a literal, a **tally** — a static candidate
+list and which of it is present, counted live, the same thing a state condition's `Count` compares
+— or a **condition**, decided live.
 Not a node variable: nobody chooses it, and nothing below the node sees it. ADR 0034.
 
 **Node variable** — a named choice a node DECLARES (`Component.vars`) and its descendants READ. The
