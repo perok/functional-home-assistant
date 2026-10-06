@@ -41,7 +41,7 @@ const OPEN: Int = 1
 /// Typed as [[LockState]], which is the point of it living here rather than
 /// beside the card that reads it: the type is what refuses `"unavailable"`.
 /// That was in this list, and it does not belong — availability is a different
-/// axis, and `tap.inertStates` adds it to every service tap in every domain.
+/// axis, and `tap.refusedStates` adds it to every service tap in every domain.
 /// The latch's own `lock/open` press is protected by that rule; this list is
 /// only about what a LOCK's state means.
 const CANNOT_OPEN: List<LockState> = List(

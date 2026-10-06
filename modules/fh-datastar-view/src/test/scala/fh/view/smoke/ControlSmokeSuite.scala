@@ -411,6 +411,45 @@ class ControlSmokeSuite extends SmokeSuite {
     }
   }
 
+  test("an unavailable slider is disabled, and a stray change posts nothing") {
+    withPage(scene) { (page, ts) =>
+      val input = page.locator("input[type=range]")
+      val track = page.locator(".slider.max")
+      for {
+        _ <- ts.awaitLive()
+        _ <- IO.blocking(assertThat(input).isEnabled())
+        _ <- ts.fake.emit(
+          HouseFixture.kitchenLight.entityId,
+          "unavailable",
+          Map.empty
+        )
+        _ <- IO.blocking(assertThat(input).isDisabled())
+        _ <- IO.blocking(
+          assertThat(track).hasClass(
+            java.util.regex.Pattern.compile("fh-disabled")
+          )
+        )
+        // A disabled control fires no `change` of its own; a dispatched one
+        // still reaches the handler, which is what the refusal guard is for.
+        _ <- IO.blocking(
+          input.evaluate("el => el.dispatchEvent(new Event('change'))")
+        )
+        _ <- IO.sleep(300.millis)
+        calls <- ts.fake.recordedCalls
+        _ <- IO(assertEquals(calls, Vector.empty))
+        _ <- ts.fake.emit(HouseFixture.kitchenLight.entityId, "on", Map.empty)
+        _ <- IO.blocking(assertThat(input).isEnabled())
+        // The control: the same dispatch posts once the light is back, so the
+        // silence above was the guard and not a harness that sees nothing.
+        _ <- IO.blocking(
+          input.evaluate("el => el.dispatchEvent(new Event('change'))")
+        )
+        after <- eventually(ts.fake.recordedCalls)(_.nonEmpty)
+        _ <- IO(assertEquals(after.map(_.service), Vector("turn_on")))
+      } yield ()
+    }
+  }
+
   test("touch: a tap on a slider sets the value where the finger landed") {
     // On a coarse pointer the range input is `pointer-events:none`, so the tap
     // is the script's to interpret or nobody's.

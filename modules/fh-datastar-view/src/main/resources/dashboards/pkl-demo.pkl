@@ -60,18 +60,18 @@ card = (c.grid) {
         // emitted node is byte-identical (the wire snapshot guards this).
         c.entityCard(dump.entities.sensor_ams_1a4e_u1)
           .value(c.expr(#"str(math.round(num(state) * 10.0) / 10.0) + ' V'"#))
-          .tapAction(c.tap.service("homeassistant/toggle"))
+          .tapAction(c.tap.call("homeassistant/toggle", dump.entities.sensor_ams_1a4e_u1))
 
         // Domain-checked: only entities with a sliderSpec row (lights) compile.
         // A slider wants room — span the full grid width.
-        (c.slider(dump.entities.light_skyconnect_v1_0_light_group_overetasje_stue_sittegruppe_gang)).fullWidth()
+        (c.entitySlider(dump.entities.light_skyconnect_v1_0_light_group_overetasje_stue_sittegruppe_gang)).fullWidth()
       }
     }
 
 
     // A QUERY with per-domain DISPATCH: a card per entity that is on, the card
     // chosen by the first matching case (author order = match order). The light
-    // case is a bare `c.slider` value (its action/key/min/max/position resolve
+    // case is a bare `c.entitySlider` value (its action/key/min/max/position resolve
     // per light at BUILD time, now that the candidate is a known entity);
     // `else` is the fallback for every other one, toggled on tap.
     //
@@ -84,9 +84,9 @@ card = (c.grid) {
     c.title("Active now").fullWidth()
     q.from(dump.all)
       .where(q.eq(q.stateProp, "on"))
-      .caseOf(q.eq(q.prop("domain"), "light"), c.slider)
+      .caseOf(q.eq(q.prop("domain"), "light"), c.entitySlider)
       .`else`((e) -> c.entityCard(e)
-        .tapAction(c.tap.toggle)
+        .tapAction(c.tap.toggle(e))
         .label(c.expr(#"attr[?'friendly_name'].orValue('') + ' (' + state + ')'"#)))
       .build()
       .fullWidth()
@@ -103,7 +103,7 @@ card = (c.grid) {
       .where(q.lt(q.stateProp, 20))
       .render((e) -> c.entityCard(e)
         .label(c.expr(#"attr[?'friendly_name'].orValue('') + ' — ' + state + '%'"#))
-        .secondary("device_class"))
+        .secondary(c.attr("device_class")))
       .build()
       .fullWidth()
 

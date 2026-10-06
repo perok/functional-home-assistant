@@ -280,7 +280,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
       "<div>{{#children}}{{{html}}}{{/children}}</div>",
       regions = Map("children" -> Region())
     ),
-    // Pure structure, like `lib/components/surface.pkl`'s `If`.
+    // Pure structure, like `lib/components/base/surface.pkl`'s `If`.
     "ifhost" -> CardDef(
       template =
         """<div id="{{hostId}}">{{#branch}}{{{html}}}{{/branch}}</div>""",

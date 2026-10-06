@@ -12,6 +12,7 @@ amends "pkl:test"
 import "../../main/resources/dashboards/lib/components.pkl" as c
 import "../../main/resources/dashboards/lib/query.pkl" as q
 import "../../main/resources/dashboards/lib/hass.pkl" as hass
+import "../../main/resources/dashboards/lib/core/predicate.pkl" as pred
 
 // A stand-in dump. Two rooms, one light that is dimmable and one that is not,
 // plus a sensor with a capability nothing else has — the mixed set that makes
@@ -85,7 +86,7 @@ facts {
       .build()
     memberOf.apply(s, "light.taklys").length == 1
     memberOf.apply(s, "light.taklys")[0].`when` == null
-    memberOf.apply(s, "light.taklys")[0].node.card == "entityCard"
+    memberOf.apply(s, "light.taklys")[0].node.card == "tile"
     memberOf.apply(s, "light.lampe").length == 1
     memberOf.apply(s, "light.lampe")[0].node.card == "pill"
   }
@@ -247,6 +248,14 @@ facts {
     cond.`when`["light.taklys"].property == "state"
   }
 
+  ["a count is a Tally, and comparing it carries that tally unchanged"] {
+    local tally = q.from(stue).where(q.eq(q.stateProp, "on")).count()
+    tally is pred.Tally
+    local cond = tally.gt(1)
+    cond.candidates == tally.candidates
+    cond.`when` == tally.`when`
+  }
+
   ["`any` and `none` are comparisons on the count, not quantifiers"] {
     q.from(stue).where(q.eq(q.stateProp, "on")).any().op == "gt"
     q.from(stue).where(q.eq(q.stateProp, "on")).any().value == 0
@@ -351,7 +360,7 @@ facts {
         [q.eq(q.prop("domain"), "sensor")] = (e) -> c.pill("s", c.tap.navigate("/"))
       })
       .build()
-    memberOf.apply(s, "light.taklys")[0].node.card == "entityCard"
+    memberOf.apply(s, "light.taklys")[0].node.card == "tile"
     // The motion sensor is a SensorEntity, so it takes the sensor branch.
     memberOf.apply(s, "binary_sensor.stue_motion")[0].node.card == "pill"
     guards.apply(s).every((g) -> g == null)
@@ -383,7 +392,7 @@ facts {
       .`else`((e) -> c.pill("never", c.tap.navigate("/")))
       .build()
     memberOf.apply(s, "light.taklys").length == 1
-    memberOf.apply(s, "light.taklys")[0].node.card == "entityCard"
+    memberOf.apply(s, "light.taklys")[0].node.card == "tile"
   }
 
   ["chained `where`s conjoin"] {
@@ -517,18 +526,18 @@ facts {
   }
 
   ["a TYPED render lambda never meets a candidate its branch cannot match"] {
-    // What makes per-domain dispatch over a mixed set work at all. `c.slider`
+    // What makes per-domain dispatch over a mixed set work at all. `c.entitySlider`
     // takes a light, and the fold applies each render lambda PER CANDIDATE — so
     // if a branch whose guard folded to false were still applied, dispatching
     // on domain over `dump.all` would be a type error rather than a dashboard.
     // Silent when broken: the error surfaces inside the card factory, nowhere
     // near the `caseOf` that caused it.
     local s = q.from(List(taklys, motion))
-      .caseOf(q.eq(q.prop("domain"), "light"), c.slider)
+      .caseOf(q.eq(q.prop("domain"), "light"), c.entitySlider)
       .`else`((e) -> c.entityCard(e))
       .build()
     s.members["light.taklys"].clauses.toList()[0].node.card == "slider"
-    s.members["binary_sensor.stue_motion"].clauses.toList()[0].node.card == "entityCard"
+    s.members["binary_sensor.stue_motion"].clauses.toList()[0].node.card == "tile"
     // One clause each: the domain is registry data, so the loser is not merely
     // unrendered, it never reaches the wire.
     s.members["light.taklys"].clauses.toList().length == 1

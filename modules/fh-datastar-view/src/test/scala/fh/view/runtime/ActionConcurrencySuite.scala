@@ -2,7 +2,12 @@ package fh.view.runtime
 
 import cats.effect.IO
 import cats.syntax.all.*
-import fh.view.testkit.{FakeConfig, FixtureEntity}
+import fh.view.testkit.{
+  DashboardBuilders,
+  FakeConfig,
+  FixtureDashboard,
+  FixtureEntity
+}
 import org.http4s.*
 
 import scala.concurrent.duration.*
@@ -20,19 +25,32 @@ import scala.concurrent.duration.*
   */
 class ActionConcurrencySuite extends ServerHarness {
 
+  private val sensor = FixtureEntity("sensor.a", "warm")
+
+  /** Declares the call, or the server refuses it (ADR 0023). */
+  private val dash = liveLeafDash.copy(
+    cards = liveLeafDash.cards + ("call" -> FixtureDashboard.cards("call")),
+    card = DashboardBuilders.col(
+      liveLeafDash.card,
+      FixtureDashboard.call("light/turn_on", sensor, Some("brightness"))
+    )
+  )
+
   test(
     "overlapping asks for one entity ALL reach HA, and each answers itself"
   ) {
     TestServer
       .resource(
-        liveLeafDash,
-        List(FixtureEntity("sensor.a", "warm")),
+        dash,
+        List(sensor),
         // Each call is still held when the next arrives, so all three overlap.
         config = FakeConfig(callDelay = 300.millis)
       )
       .use { ts =>
         def setBrightness(v: Int) =
-          ts.post(s"sse/action/${ts.slug}/light/turn_on/sensor.a/brightness/$v")
+          ts.post(
+            s"sse/call/${ts.slug}/light/turn_on/entity/sensor.a/brightness/$v"
+          )
         for {
           // Arrival order at HA is not asserted; see below.
           f1 <- setBrightness(10).start

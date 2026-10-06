@@ -1,5 +1,6 @@
 package fh.view.runtime
 
+import api.homeassistant.ServiceTarget
 import cats.effect.{IO, Ref}
 import fh.view.FHError
 import io.circe.Json
@@ -40,7 +41,7 @@ class ServiceCallsRestSuite extends munit.CatsEffectSuite {
     ServiceCalls.overRest(client, uri"http://core.test")("user-token")(
       "light",
       "turn_on",
-      "light.overetasje",
+      ServiceTarget.Entity("light.overetasje"),
       Json.obj("brightness" -> Json.fromInt(80))
     )
 

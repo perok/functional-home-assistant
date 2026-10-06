@@ -110,7 +110,7 @@ that buys nothing: such a session cannot be refreshed anyway, so the failure
 would merely move to its first sweep.
 
 `SameSite=Lax` is the CSRF control for the action POSTs — it is the only thing
-between a cookie-authenticated `POST /sse/action/...` and any other site. `Lax`
+between a cookie-authenticated `POST /sse/call/...` and any other site. `Lax`
 and not `Strict` because the OAuth callback is a cross-site top-level GET that
 must arrive with the cookie.
 
@@ -229,29 +229,39 @@ stream lives.
 Withdrawing an ingress user's access is therefore HA's job, which is where it
 belongs: remove them there and the next request resolves to nobody.
 
-**An action may only touch an entity its own dashboard names.** The access rule
-says WHO may use a dashboard; this says WHAT that lets them do, and without it
-the two come apart badly — the action route forwards whatever `entity_id` is in
-its URL, so admission to the most permissive dashboard in the house would be
-admission to every entity in it. `Public` makes that sharp: no login, and the
-front door lock one URL edit away from the street. So `POST /sse/action/:slug/…`
-carries its dashboard, and `Server` refuses an entity that dashboard does not
-reference.
+**A tap may make only a call its own dashboard declares.** The access rule says
+WHO may use a dashboard; this says WHAT that lets them do, and without it the
+two come apart badly — the call route forwards whatever service and target are
+in its URL, so admission to the most permissive dashboard in the house would be
+admission to every service on every entity in it. `Public` makes that sharp: no
+login, and the front door lock one URL edit away from the street. So
+`POST /sse/call/:slug/<domain>/<service>/<entity|area|floor>/<id>[/<key>/<value>]`
+carries its dashboard, and `Server` refuses any call that dashboard's taps do
+not declare: the allowlist is `Dashboard.calls`, the exact (service, target,
+value key) combinations read off `tap.pkl`'s route slots. A service the
+target's state picks (a lock's `unlock`/`lock`) declares every arm of its match.
+The value itself stays free: a slider's position is the one thing the build
+cannot know.
 
 It is decidable statically because a candidate set's membership is live but its
-candidate LIST is not (ADR 0003) — `Dashboard.referencedEntities` walks the
-layout and every surface once and cannot grow at runtime. A failed dashboard has
-no renderer, names nothing, and therefore permits no action; that matters
-because a failed dashboard's page is a diagnostics dump.
+candidate LIST is not (ADR 0003) — the walk covers the layout and every surface
+once and cannot grow at runtime. A failed dashboard has no renderer, declares
+nothing, and therefore permits no call; that matters because a failed
+dashboard's page is a diagnostics dump.
 
-**`referencedEntities` is the bound, and it is not the same set as
-`watchedEntities`** (ADR 0030), which is what the upstream subscription asks HA
-for. That one is WIDER: it also walks what merely decides — a clause's `when`
-guard, a surface's `Activation.State` — entities a dashboard reads and renders
-nowhere. The two answer different questions and must not be merged in either
-direction: narrowing the subscription to this set would leave a dashboard that
-never reacts, and widening this set to that one would let a dashboard ACT on an
-entity it only reads, which is exactly what the bound exists to prevent.
+Exact, and not "any service on an entity the dashboard names": under that rule
+a lock tile could be edited into `lock/open`, and naming a light was leave to
+call anything on it. Area and floor calls (issue #389) settle it anyway: HA
+expands the target when the call runs, so the call reaches entities the
+dashboard never names, one added to the room after the build included — the
+point of the feature, and bounded only by the exact combination. So a "lights
+off in the living room" button cannot be edited into `lock/unlock` on the same
+room, but it does turn off every light HA puts there.
+
+Not built yet: an allow or deny list per user or dashboard, set in the same
+place a future per-user or per-dashboard list of allowed entities would live, so
+an owner can keep an area call from reaching an entity. Until then, what an area
+call reaches is what HA says is in the area.
 
 **A viewer's value may only make a query read an entity its dashboard shows.** A
 node variable can feed any query parameter (issue #209), `entity` included, and
@@ -259,23 +269,30 @@ its value arrives from a path or a `v.` URL param, so without a bound it would
 chart the lock's history from a `Public` dashboard. `Renderer.refusals` holds
 every value, from a write and from a URL alike, to `referencedEntities` plus
 `Dashboard.queriedEntities` — what the queries read at their declared values.
-The second set stays out of `referencedEntities`: showing a sensor's history is
-not leave to act on it.
+
+**`referencedEntities` is that bound, and it is not the same set as
+`watchedEntities`** (ADR 0030), which is what the upstream subscription asks HA
+for. That one is WIDER: it also walks what merely decides — a clause's `when`
+guard, a surface's `Activation.State` — entities a dashboard reads and renders
+nowhere. The two answer different questions and must not be merged in either
+direction: narrowing the subscription to this set would leave a dashboard that
+never reacts, and widening this set to that one would let a viewer's value
+chart an entity the dashboard only decides on.
 
 The slug cannot be authored: a dashboard module does not know its own (the
 entrypoint supplies it as a key, and `fh push --slug` can rename it), so the
 renderer supplies it. Two spellings, one fact, and each names the mechanism
-that actually fills it: `$dashboardSlug` is a JSONata binding for a tap, whose
-URL is a transform; `{{dashboardSlug}}` is a Mustache var for a card that
-builds its URL in its own template (the slider's commit). Spelling both
-`{{…}}` was tried and reverted — in a transform it reads as Mustache and never
-is one, because a transform's OUTPUT is inserted raw at `{{{onclick}}}` and
-Mustache never sees it.
+that actually fills it: `{{dashboardSlug}}` is a Mustache var for a card that
+builds its URL in its own template (every call, `tap.serviceClick`);
+`dashboard_slug` is a CEL binding for a surface tap, whose URL is a transform.
+Spelling both `{{…}}` was tried and reverted — in a transform it reads as
+Mustache and never is one, because a transform's OUTPUT is inserted raw at
+`{{{onclick}}}` and Mustache never sees it.
 
 Rejected in the other direction too: making the slider's URL a transform so one
-spelling would do. Its `action`/`key` are deliberately baked LITERALS — a whole
-`$lookup($domain)` tier was removed to stop computing build-time facts at
-runtime — and six tests pin that.
+spelling would do. Its service and value key are deliberately baked LITERALS —
+a whole `$lookup($domain)` tier was removed to stop computing build-time facts
+at runtime.
 
 **A dashboard is validated under the slug it will be served as.** The slug is
 applied in `DashboardBuild.decode`, before `validated`, rather than to the

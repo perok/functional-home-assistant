@@ -6,19 +6,28 @@ import fh.view.model.{Dashboard, SlotValue, Transform}
   * slot's form (ADR 0028); neither tier falls back to the other.
   */
 class Transforms private (
-    private val compiled: Map[String, Transform.Compiled]
+    private val compiled: Map[Transform.CelKey, Transform.Compiled]
 ) {
 
   // `expr` is always one the dashboard declared; a miss is a bug.
   def run(expr: String, entity: EntityState, dashboardSlug: String): String =
-    Transform.run(compiled(expr), entity, dashboardSlug)
+    Transform.run(compiled(Transform.CelKey(expr)), entity, dashboardSlug)
 
   def runValue(
       expr: String,
       entity: EntityState,
       dashboardSlug: String
   ): SlotValue =
-    Transform.runValue(compiled(expr), entity, dashboardSlug)
+    runValue(Transform.CelKey(expr), entity, dashboardSlug, Map.empty)
+
+  // `values` are the key's own names, resolved for this render.
+  def runValue(
+      key: Transform.CelKey,
+      entity: EntityState,
+      dashboardSlug: String,
+      values: Map[String, Object]
+  ): SlotValue =
+    Transform.runValue(compiled(key), entity, dashboardSlug, values)
 
   def run(s: Transform.Simple, entity: EntityState): String =
     Transform.runSimple(s, entity)
@@ -36,12 +45,12 @@ object Transforms {
     * bypassed, so it fails loudly at setup rather than blanking a value.
     */
   def from(dashboard: Dashboard): Transforms = {
-    val compiled = dashboard.transformStrings.map { t =>
-      Transform.parse(t) match {
-        case Right(c)  => t -> c
+    val compiled = dashboard.celKeys.map { k =>
+      Transform.parse(k) match {
+        case Right(c)  => k -> c
         case Left(err) =>
           throw new IllegalStateException(
-            s"unvalidated transform reached transform setup: $t ($err)"
+            s"unvalidated transform reached transform setup: ${k.src} ($err)"
           )
       }
     }.toMap

@@ -5,7 +5,7 @@
 - **Scope:** `runtime/Server.scala` (the surface routes, `withSession`,
   `sessionFor`, `openSurface`), `runtime/Sessions.scala` (doc only),
   `model/Dashboard.scala` (doc only), `lib/core/tap.pkl`, `lib/core/surface.pkl`,
-  `lib/components/surface.pkl`
+  `lib/components/base/surface.pkl`
 - **Uses:** ADR 0023's `$dashboardSlug` / `{{dashboardSlug}}` pair, for the same
   reason and by the same mechanism.
 

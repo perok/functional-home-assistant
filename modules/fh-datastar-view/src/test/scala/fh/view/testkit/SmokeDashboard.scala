@@ -49,8 +49,8 @@ object SmokeDashboard {
        |    c.title("Smoke House")
        |    c.entityCard(dump.entities.${HouseFixture.outsideTemp.dumpKey})
        |    c.entityCard(dump.entities.${HouseFixture.kitchenLight.dumpKey}).tapAction(c.tap.openPopup("detail"))
-       |    c.button("Toggle Kitchen", c.tap.service("light/toggle")).entity(dump.entities.${HouseFixture.kitchenLight.dumpKey})
-       |    c.slider(dump.entities.${HouseFixture.kitchenLight.dumpKey})
+       |    c.button("Toggle Kitchen", c.tap.call("light/toggle", dump.entities.${HouseFixture.kitchenLight.dumpKey}))
+       |    c.entitySlider(dump.entities.${HouseFixture.kitchenLight.dumpKey})
        |    c.lock.controls(dump.entities.${HouseFixture.frontLock.dumpKey})
        |    (c.tabs) {
        |      tabs {
@@ -109,7 +109,7 @@ object SmokeDashboard {
           |
           |card = (c.column) {
           |  children {
-          |    c.slider(dump.entities.${HouseFixture.kitchenLight.dumpKey}).readout("percent")
+          |    c.entitySlider(dump.entities.${HouseFixture.kitchenLight.dumpKey}).readout("percent")
           |  }
           |}
           |""".stripMargin
@@ -132,7 +132,7 @@ object SmokeDashboard {
          |
          |card = (c.column) {
          |  children {
-         |    c.slider(dump.entities.${HouseFixture.kitchenLight.dumpKey}).tapAction(c.tap.service("light/toggle"))
+         |    c.entitySlider(dump.entities.${HouseFixture.kitchenLight.dumpKey}).tapAction(c.tap.call("light/toggle", dump.entities.${HouseFixture.kitchenLight.dumpKey}))
          |  }
          |}
          |""".stripMargin
@@ -159,23 +159,23 @@ object SmokeDashboard {
          |
          |card = (c.column) {
          |  children {
-         |    (c.slider(dump.entities.${HouseFixture.kitchenLight.dumpKey})) {
+         |    (c.entitySlider(dump.entities.${HouseFixture.kitchenLight.dumpKey})) {
          |      label = "Short"
          |      readout = "percent"
          |    }
-         |    (c.slider(dump.entities.${HouseFixture.kitchenLight.dumpKey})) {
+         |    (c.entitySlider(dump.entities.${HouseFixture.kitchenLight.dumpKey})) {
          |      label = "$longName"
          |      readout = "percent"
          |    }
-         |    (c.slider(dump.entities.${HouseFixture.kitchenLight.dumpKey})) {
+         |    (c.entitySlider(dump.entities.${HouseFixture.kitchenLight.dumpKey})) {
          |      label = "$longName"
          |      readout = "percent"
          |      members {
-         |        (c.slider(dump.entities.${HouseFixture.livingRoomLight.dumpKey})) {
+         |        (c.entitySlider(dump.entities.${HouseFixture.livingRoomLight.dumpKey})) {
          |          label = "$longName"
          |          readout = "percent"
          |        }
-         |        (c.slider(dump.entities.${HouseFixture.kitchenLight.dumpKey})) {
+         |        (c.entitySlider(dump.entities.${HouseFixture.kitchenLight.dumpKey})) {
          |          label = "Short"
          |          readout = "percent"
          |        }
@@ -216,7 +216,7 @@ object SmokeDashboard {
          |
          |card = (c.column) {
          |  children {
-         |    c.slider(dump.entities.${switchLight.dumpKey}).secondary("friendly_name")
+         |    c.entitySlider(dump.entities.${switchLight.dumpKey}).secondary(c.attr("friendly_name"))
          |  }
          |}
          |""".stripMargin,

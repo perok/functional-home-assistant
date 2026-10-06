@@ -30,10 +30,10 @@ class SmokeFixtureSuite extends munit.FunSuite {
     val features = nodes.filter(_.card == "cardFeatures")
     assertEquals(features.map(_.card), List("cardFeatures"))
     val inside = features.flatMap(_.allChildren.flatMap(walk))
-    assertEquals(inside.map(_.card).sorted, List("button", "entityCard"))
+    assertEquals(inside.map(_.card).sorted, List("button", "tile"))
     assert(
       inside.exists(n =>
-        n.card == "entityCard" &&
+        n.card == "tile" &&
           n.subjectEntity.contains(HouseFixture.frontLock.entityId)
       ),
       clue = inside.map(n => n.card -> n.subjectEntity)

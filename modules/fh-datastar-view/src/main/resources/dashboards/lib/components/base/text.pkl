@@ -1,8 +1,8 @@
 /// Static text cards.
-module components.text
+module components.base.text
 
-import "../core/node.pkl" as nodes
-import "../core/text.pkl" as textMod
+import "../../core/node.pkl" as nodes
+import "../../core/text.pkl" as textMod
 
 /// Static title text (not bound to an entity).
 class SectionTitle extends nodes.Node {

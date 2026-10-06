@@ -1,6 +1,6 @@
 package fh.view.runtime
 
-import fh.view.model.{Op, Predicate}
+import fh.view.model.{ExprValue, Op, Predicate}
 
 /** The one interpreter of [[Predicate]], shared by clause guards, state
   * conditions and counts.
@@ -20,14 +20,12 @@ private[runtime] object Conditions {
       case Predicate.And(items) => items.forall(matchesIn(_, subject, states))
       case Predicate.Or(items)  => items.exists(matchesIn(_, subject, states))
       case Predicate.Not(item)  => !matchesIn(item, subject, states)
-      case Predicate.Count(candidates, when, op, value) =>
-        // Unguarded means present, as for a set member.
-        val n = candidates.count(id =>
-          when
-            .get(id)
-            .forall(g => states.get(id).exists(matchesIn(g, _, states)))
+      case c: Predicate.Count   =>
+        compare(
+          present(c.tally, states).toString,
+          StateStore.jsonToString(c.value),
+          c.op
         )
-        compare(n.toString, StateStore.jsonToString(value), op)
       // Rather than reading the subject's value by accident.
       case Predicate.Cmp(_, _, _, Some(other)) if !states.contains(other) =>
         false
@@ -35,6 +33,31 @@ private[runtime] object Conditions {
         val st = entity.flatMap(states.get).getOrElse(subject)
         compare(propertyOf(property, st), StateStore.jsonToString(value), op)
     }
+
+  /** Expression values as CEL reads them; a tally is how many are present now.
+    */
+  def resolve(
+      values: Map[String, ExprValue],
+      states: Map[String, EntityState]
+  ): Map[String, Object] =
+    if (values.isEmpty) Map.empty
+    else
+      values.view
+        .mapValues[Object] {
+          case ExprValue.Text(s)  => s
+          case ExprValue.Whole(n) => java.lang.Long.valueOf(n)
+          case ExprValue.Real(d)  => java.lang.Double.valueOf(d)
+          case ExprValue.Flag(b)  => java.lang.Boolean.valueOf(b)
+          case ExprValue.Count(t) =>
+            java.lang.Long.valueOf(present(t, states).toLong)
+        }
+        .toMap
+
+  /** Unguarded means present, as for a set member. */
+  def present(t: Predicate.Tally, states: Map[String, EntityState]): Int =
+    t.candidates.count(id =>
+      t.when.get(id).forall(g => states.get(id).exists(matchesIn(g, _, states)))
+    )
 
   /** No `reg:`: registry facts fold away at build time, so one here is a build
     * bug.
