@@ -1,0 +1,86 @@
+/// A tile that knows nothing about Home Assistant: a glyph, a title, a reading,
+/// an optional detail line and an optional tap. HA's entity card is
+/// `components/entity.pkl`'s `EntityCard`, which only fills these.
+module components.base.tile
+
+import "../../core/node.pkl" as nodes
+import "../../core/slot.pkl" as slotMod
+import "../../core/tap.pkl" as tapMod
+import "../../core/text.pkl" as textMod
+
+/// The tile. Its inputs are named for what they ARE on the card, not for
+/// where an entity card gets them: `title`, `reading`, `detail` and `glyph`
+/// take a literal or a reading, and the card decides how each is carried.
+///
+/// The registry name stays `entityCard`, the name this card has always had on
+/// the wire, so a dashboard built before the split renders byte-identically.
+open class Tile extends nodes.Node {
+  card = "entityCard"
+  cardDef = new nodes.CardDef {
+    template = """
+      <article class="card entity{{#tappable}} tappable{{/tappable}}\(slotMod.ifSlot("inert")) {{inert}}\(slotMod.endIfSlot("inert"))"{{#tappable}}
+        data-on:click="\(tapMod.guardClick)\(tapMod.click)"{{/tappable}}\(slotMod.ifSlot("inert")) \(slotMod.signalBind("inert"))\(slotMod.endIfSlot("inert"))\(tapMod.guard)>
+        <header>\(slotMod.ifSlot("icon")){{#busy}}<span class="fh-icon-shape"{{#busyVisual}} \(tapMod.busyShapeClass){{/busyVisual}}>{{/busy}}<i class="{{icon}}" \(slotMod.signalBind("icon"))></i>{{#busy}}</span>{{/busy}}\(slotMod.endIfSlot("icon"))\(textMod.hole("label"))</header>
+        <span class="fh-reading \(textMod.BOX)">\(textMod.liveRun("value"))</span>\(slotMod.ifSlot("secondary"))
+        <span class="fh-sub \(textMod.BOX)">\(textMod.run("secondary"))</span>\(slotMod.endIfSlot("secondary"))
+      </article>
+      """
+    slots { "label"; "value" }
+    // The card's own structure. The icon rules are metrics only — which FONT
+    // draws the glyph is the theme's (it ships the icon set), and so is the
+    // spinner badge's paint.
+    //
+    // The header is a FLEX line because its label is a box now (`core/text.pkl`)
+    // and a block box beside an inline icon would drop to its own line. The icon
+    // must not be the thing that shrinks, so the label is — which is what the
+    // clip and scroll modes need to act on at all.
+    css = """
+      .card.tappable{cursor:pointer}
+      .entity header{display:flex;align-items:center;min-inline-size:0}
+      .entity header>:is(i.mdi,.fh-icon-shape){flex:0 0 auto}
+      .entity header i.mdi{font-size:1.25rem;line-height:1;
+      margin-inline-end:.375rem;color:var(--fh-accent)}
+      """
+  }
+  hidden title: String|slotMod.Slot = ""
+  /// The one thing on this card that moves on every ordinary tick, so a reading
+  /// here is carried as a SIGNAL (ADR 0017): a temperature ticking from 21.4 to
+  /// 21.5 costs a few bytes instead of the whole tile.
+  hidden reading: String|slotMod.Slot = ""
+  hidden detail: (String|slotMod.Slot)? = null
+  /// The `<i>`'s WHOLE class (`mdi mdi-lock`), a literal or a reading. Whole,
+  /// so the template has one `{{icon}}` and no idea which it got: a literal
+  /// naming only the glyph needed a flag to say so, and that flag is what
+  /// deleted the `<i>` on the first patch (see [[slotMod.ifSlot]]). A reading
+  /// is carried as a signal on `class`, which the element has nothing else to
+  /// fight over.
+  hidden glyph: (String|slotMod.Slot)? = null
+  /// What a click does; null opts the card out (no pointer, no handler).
+  hidden tapAction: tapMod.TapAction? = null
+  // Copy the tap's inline surfaces onto the node so the hoist lifts them. Null
+  // when the tap is null or carries no inline popup → dropped by
+  // omitNullProperties.
+  inlineSurfaces = if (tapAction != null) tapAction!!.inlineSurfaces else null
+  /// The entity a reading that names none reads — see `Button.subject`.
+  hidden subject: String? = null
+  slots {
+    when (subject != null) {
+      ["entity_id"] = subject!!
+    }
+    ["label"] = title
+    ["value"] = if (reading is slotMod.Slot) (reading as slotMod.Slot) { signal = slotMod.asText } else reading
+    when (glyph != null) {
+      ["icon"] =
+        if (glyph is slotMod.Slot) (glyph as slotMod.Slot) { signal = slotMod.asAttr("class") }
+        else glyph!!
+    }
+    when (detail != null) {
+      ["secondary"] = detail!!
+    }
+    // A CLASS and a click guard, not `disabled`: this host is an `<article>`,
+    // and only a form control can be disabled.
+    for (k, v in tapMod.tapSlots(tapAction, "class")) {
+      [k] = v
+    }
+  }
+}

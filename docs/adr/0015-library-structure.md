@@ -31,9 +31,10 @@ Three tiers, by AUDIENCE rather than by kind:
 core/       node · slot · icon · tap · surface · predicate   — writing a COMPONENT
             css.pkl — the base stylesheet every dashboard gets (ADR 0020)
 layout.pkl  Row/Column/Grid                                  — the boxes you compose into
-components.pkl + components/   text · entity · control ·     — writing a DASHBOARD
-            slider · surface · light · moreinfo
-  components/base/  button                                   — the same, knowing no HA
+components.pkl + components/   entity · control · slider ·   — writing a DASHBOARD
+            light · lock · moreinfo · history · progress · tap
+  components/base/  button · onoff · tile · features ·       — the same, knowing no HA
+                    text · surface
 recipes.pkl floorView …                                      — whole sections, opinionated
 internal/   dump-base.pkl                                    — generator ↔ generated dump
 hass.pkl + hass/  light.pkl                                  — the domain schema
@@ -53,7 +54,10 @@ entity it reads), and never import a `hass` module; `BaseComponentsSuite`
 enforces that. `components/` itself is the HA layer.
 
 An HA component is a THIN subclass of a base one: it holds `entity`, and assigns
-the base's inputs from it (`label`, `tapAction`, `subject`). It declares no card,
+the base's inputs from it (`label`, `tapAction`, `subject`, and an entity card's
+`title`/`reading`/`detail`/`glyph`). Its own inputs keep the meaning they have
+relative to the entity — `value("brightness")` names an attribute — which is why
+the base's are named differently. It declares no card,
 template or slot of its own, so it is exactly the base card an author could have
 built by hand, and `components.test.pkl` checks that equality. A subclass rather
 than a function, because a Pkl function has no default arguments and its result
@@ -65,7 +69,9 @@ subject slot, which an entity-less reading (`c.expr(…)`) falls back to. Only t
 HA layer sets it.
 
 The facade's names do not move: `c.button` and `c.entityButton` are found where
-they always were.
+they always were. Neither do the registry's: the base `Tile` and `Switch` keep
+the card names `entityCard` and `toggle`, so the wire did not change with the
+split.
 
 `entry.pkl` stays at the package root: every dashboard's first line is
 `amends "@fh-dashboard/entry.pkl"`, and `internal/entry.pkl` would say the

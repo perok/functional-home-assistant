@@ -7,7 +7,7 @@ module recipes
 
 import "hass.pkl"
 import "layout.pkl" as layout
-import "components/text.pkl" as textMod
+import "components/base/text.pkl" as textMod
 import "components/slider.pkl" as sliderMod
 
 // ---- floor/area composition (typed-dump driven) ----
