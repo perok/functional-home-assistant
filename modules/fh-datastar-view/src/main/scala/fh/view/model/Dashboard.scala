@@ -375,14 +375,16 @@ object Region {
   val Baked: String = "baked"
 }
 
-/** Classes on the node's `.fh-cell` wrapper: static ones, and `classWhen`'s
-  * live ones, which a component's decode folds into its slots
+/** What the renderer puts on the node's `.fh-cell` wrapper: static classes,
+  * `classWhen`'s live ones, and `cssProperty`'s live custom properties — the
+  * live two folded into the component's slots at decode
   * ([[LayoutNode.foldNode]]). An object so it can grow `grid_options`-style
   * fields without a wire break.
   */
 case class Cell(
     classes: List[String] = Nil,
-    classWhen: Map[String, SlotSource] = Map.empty
+    classWhen: Map[String, SlotSource] = Map.empty,
+    properties: Map[String, SlotSource] = Map.empty
 ) derives ConfiguredDecoder
 
 enum Op:
@@ -492,19 +494,22 @@ object LayoutNode:
     * the reverse index, the plan, the seed and the signal frames carry them
     * with no path of their own:
     *
-    *   - its live cell classes become slots ([[Dashboard.cellClassSlot]]). A
-    *     set keeps its own: it has no slots, so `validate` rejects them there.
+    *   - its live cell classes and properties become slots
+    *     ([[Dashboard.cellClassSlot]], [[Dashboard.cellStyleSlot]]). A set
+    *     keeps its own: it has no slots, so `validate` rejects them there.
     *   - each expression value goes onto every slot whose expression names it
     *     ([[SlotSource.values]]), so a slot alone says what it reads.
     */
   def foldNode(n: LayoutNode): LayoutNode = n match
     case c: Component =>
-      val live = c.cell.fold(Map.empty[String, SlotSource])(_.classWhen)
+      val live = c.cell.toList.flatMap(cell =>
+        cell.classWhen.map((cls, src) => Dashboard.cellClassSlot(cls) -> src) ++
+          cell.properties.map((p, src) => Dashboard.cellStyleSlot(p) -> src)
+      )
       c.copy(
-        slots = (c.slots ++ live.map((cls, src) =>
-          Dashboard.cellClassSlot(cls) -> src
-        )).view.mapValues(attachValues(c.values)).toMap,
-        cell = c.cell.map(_.copy(classWhen = Map.empty)),
+        slots = (c.slots ++ live).view.mapValues(attachValues(c.values)).toMap,
+        cell =
+          c.cell.map(_.copy(classWhen = Map.empty, properties = Map.empty)),
         regions = c.regions.view.mapValues(_.map(foldNode)).toMap
       )
     case s: SetNode =>
@@ -1162,6 +1167,12 @@ case class Dashboard(
           name.stripPrefix(Dashboard.CellClassPrefix),
           src
         )
+      else if (name.startsWith(Dashboard.CellStylePrefix))
+        cellStyleErrors(
+          nodeId,
+          name.stripPrefix(Dashboard.CellStylePrefix),
+          src
+        )
       else if (src.signal.isEmpty) Nil
       else if (src.literal.isDefined)
         List(
@@ -1236,6 +1247,33 @@ case class Dashboard(
           )
           .toList
 
+    def cellStyleErrors(
+        nodeId: String,
+        property: String,
+        src: SlotSource
+    ): List[String] =
+      Option
+        .when(!Dashboard.CustomProperty.matches(property))(
+          s"$nodeId: cssProperty '$property' is not a custom property " +
+            "(`--name`) — a plain property would fight the theme's framework"
+        )
+        .toList ++
+        Option
+          .when(
+            !(src.signal.contains(SignalBind.Style(property)) &&
+              src.literal.isEmpty && src.reads == Reads.Live)
+          )(
+            s"$nodeId: cssProperty '$property' must read live state as a " +
+              s"'style:$property' signal — anything else is never bound"
+          )
+          .toList ++
+        Option
+          .when(Dashboard.onlyBool(src))(
+            s"$nodeId: cssProperty '$property' reads a bool, which is no CSS " +
+              "value — use classWhen for an on/off look"
+          )
+          .toList
+
     def noWrap(cardName: String): Boolean =
       cards.get(cardName).exists(!_.wrapAsCell)
 
@@ -1286,6 +1324,10 @@ case class Dashboard(
               s"$setId: a candidate set cannot carry the live cell class " +
                 s"'$cls' — it has no slots to read through; put it on the " +
                 "clause's node"
+            } ++
+            s.cell.toList.flatMap(_.properties.keys).sorted.map { p =>
+              s"$setId: a candidate set cannot carry the cssProperty '$p' — " +
+                "it has no slots to read through; put it on the clause's node"
             } ++
             s.candidates.filterNot(s.members.contains).map { c =>
               s"$setId: candidate '$c' has no member entry — it could never " +
@@ -1715,22 +1757,40 @@ object Dashboard:
   val ExpressionValueName: scala.util.matching.Regex =
     "[A-Za-z_][A-Za-z0-9_]*".r
 
-  /** Where a live cell class rides among a node's slots. The `:` keeps it out
-    * of any name a card's template could place.
-    */
   /** Per tier: CEL by its checked type, `Simple` exactly — only a `match` whose
     * every outcome is a Boolean is one; every other shape is text.
     */
   def yieldsBool(src: SlotSource): Boolean = src.transform match
     case _: String =>
       src.celKey.forall(Transform.yieldsBool)
-    case Transform.Simple.Match(cases, otherwise) =>
-      (otherwise :: cases.values.toList).forall(_.isInstanceOf[Boolean])
-    case _: Transform.Simple => false
-    case _: Transform.Stage  => true
+    case m: Transform.Simple.Match => allBoolean(m)
+    case _: Transform.Simple       => false
+    case _: Transform.Stage        => true
 
+  /** Certainly a bool, so never a CSS value: CEL typed `bool` (not `dyn`), or a
+    * `match` whose every outcome is a Boolean.
+    */
+  def onlyBool(src: SlotSource): Boolean = src.transform match
+    case _: String =>
+      src.celKey.exists(Transform.isBoolTyped)
+    case m: Transform.Simple.Match => allBoolean(m)
+    case _                         => false
+
+  private def allBoolean(m: Transform.Simple.Match): Boolean =
+    (m.otherwise :: m.cases.values.toList).forall(_.isInstanceOf[Boolean])
+
+  /** Where a live cell class rides among a node's slots. The `:` keeps it out
+    * of any name a card's template could place.
+    */
   def cellClassSlot(cls: String): String = CellClassPrefix + cls
   val CellClassPrefix: String = "cell.class:"
+
+  /** [[cellClassSlot]]'s twin for a live custom property (`cssProperty`). */
+  def cellStyleSlot(property: String): String = CellStylePrefix + property
+  val CellStylePrefix: String = "cell.style:"
+
+  /** A CSS custom property name; a plain property would fight the theme. */
+  val CustomProperty: scala.util.matching.Regex = "--[A-Za-z0-9_-]+".r
 
   given Decoder[Dashboard] =
     ConfiguredDecoder

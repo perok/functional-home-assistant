@@ -63,6 +63,8 @@ class Cell {
   classes: Listing<String> = new {}
   /// Classes present while a reading holds — see [[LayoutNode.classWhen]].
   classWhen: Mapping<String, slotMod.Slot>? = null
+  /// Custom properties set from a reading — see [[LayoutNode.cssProperty]].
+  properties: Mapping<String, slotMod.Slot>? = null
 }
 
 /// The common supertype of every layout-tree node. `kind` is the circe
@@ -85,15 +87,18 @@ abstract class LayoutNode {
   /// and an author's `.columns(3)` both land, whichever is written first.
   hidden cellClasses: Listing<String> = new {}
   hidden liveClasses: Mapping<String, slotMod.Slot> = new {}
+  /// The live custom properties [[cssProperty]] adds.
+  hidden liveProperties: Mapping<String, slotMod.Slot> = new {}
   /// What the renderer puts on this node's wrapper, derived from
-  /// [[cellClasses]] and [[liveClasses]]; null (dropped from the wire JSON)
-  /// while both are empty. Setting it directly is the escape hatch, and it
-  /// replaces whatever the builders would have added.
+  /// [[cellClasses]], [[liveClasses]] and [[liveProperties]]; null (dropped
+  /// from the wire JSON) while all are empty. Setting it directly is the escape
+  /// hatch, and it replaces whatever the builders would have added.
   cell: Cell? =
-    if (cellClasses.isEmpty && liveClasses.isEmpty) null
+    if (cellClasses.isEmpty && liveClasses.isEmpty && liveProperties.isEmpty) null
     else new Cell {
       classes = cellClasses
       classWhen = if (liveClasses.isEmpty) null else liveClasses
+      properties = if (liveProperties.isEmpty) null else liveProperties
     }
   /// This cell spans `n` of the surrounding grid's 12 columns (HA
   /// `grid_options.columns`). No effect outside a [[Grid]]/group.
@@ -137,6 +142,22 @@ abstract class LayoutNode {
               liveClasses { [cls] = (booleanSlot(`when`, name)) { signal = slotMod.asClass(cls) } }
             }
       else (self) { liveClasses { [cls] = (booleanSlot(`when`, "")) { signal = slotMod.asClass(cls) } } }
+  /// The custom property `name` on this node's wrapper, set from a reading and
+  /// kept live — [[classWhen]]'s value-carrying twin. The card's own CSS reads
+  /// it by inheritance:
+  ///
+  ///     c.button(…).cssProperty("--fh-fill", c.expr("string(on * 100 / total) + '%'"))
+  ///     // css: .fh-cell>button { background-size: var(--fh-fill) 100% }
+  ///
+  /// Any reading that produces text: a `Simple` one stays on the fast tier
+  /// (`simpleMod.fill(…)`), an `Expr` may read the node's values. Only a custom
+  /// property (`--…`): a plain one would fight the theme's framework.
+  function cssProperty(name: String(startsWith("--")), reading: slotMod.Slot|slotMod.Expr): LayoutNode =
+    let (self = this)
+    let (s = if (reading is slotMod.Expr)
+        new slotMod.Slot { entityId = reading.entityId; transform = reading.transform }
+      else reading as slotMod.Slot)
+      (self) { liveProperties { [name] = (s) { signal = slotMod.asStyle(name) } } }
   // Shared appender: one more static class.
   //
   // ONE PER NODE, per FAMILY: adding an `fh-cols-*` class DROPS any it already

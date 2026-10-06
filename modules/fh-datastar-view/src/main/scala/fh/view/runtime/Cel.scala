@@ -187,11 +187,21 @@ object Cel {
     * answers true, since [[parse]] reports it already.
     */
   def yieldsBool(src: String, env: List[(String, ExprValue.Kind)]): Boolean =
-    val result = compilerWith(env).compile(src.trim)
-    result.hasError || {
-      val t = result.getAst.getResultType
+    resultType(src, env).forall(t =>
       t == SimpleType.BOOL || t == SimpleType.DYN
-    }
+    )
+
+  /** Typed `bool` exactly — not `dyn`, which may be anything. */
+  def isBoolTyped(src: String, env: List[(String, ExprValue.Kind)]): Boolean =
+    resultType(src, env).contains(SimpleType.BOOL)
+
+  /** None when it does not compile; [[parse]] reports that. */
+  private def resultType(
+      src: String,
+      env: List[(String, ExprValue.Kind)]
+  ): Option[CelType] =
+    val result = compilerWith(env).compile(src.trim)
+    Option.when(!result.hasError)(result.getAst.getResultType)
 
   private def compilerWith(env: List[(String, ExprValue.Kind)]): CelCompiler =
     if (env.isEmpty) compiler

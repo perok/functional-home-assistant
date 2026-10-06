@@ -294,9 +294,9 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
     assert(errs.exists(_.contains("would hide the 'state'")), errs)
   }
 
-  // A boolean slot filled by `reading`, beside a second line reading the count
+  // A boolean slot filled as `input` says, beside a second line reading the count
   // so the value is read by something either way.
-  private def yesNo(input: String, reading: String): List[String] =
+  private def yesNo(input: String): List[String] =
     errorsOf(
       s"""    ((c.button("Stue", c.tap.closePopup())) {
          |      expressionValues { ["n"] = q.from(lights).where(q.eq(q.stateProp, "on")).count() }
@@ -310,18 +310,17 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
     val int = """new slotMod.Slot { transform = "n" }"""
     assert(
       yesNo(
-        s"""liveClasses { ["x"] = ($int) { signal = slotMod.asClass("x") } }""",
-        int
+        s"""liveClasses { ["x"] = ($int) { signal = slotMod.asClass("x") } }"""
       )
         .exists(_.contains(notBool))
     )
-    assert(yesNo(s"disabled = $int", int).exists(_.contains(notBool)))
+    assert(yesNo(s"disabled = $int").exists(_.contains(notBool)))
   }
 
   test("a boolean slot whose Simple shape is text fails the build") {
     val text =
       s"""new slotMod.Slot { entityId = "${kitchen.entityId}"; transform = simpleMod.attr("friendly_name") }"""
-    assert(yesNo(s"disabled = $text", text).exists(_.contains(notBool)))
+    assert(yesNo(s"disabled = $text").exists(_.contains(notBool)))
   }
 
   test(
@@ -329,12 +328,12 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
   ) {
     val cmp = """new slotMod.Slot { transform = "n > 0" }"""
     assertEquals(
-      yesNo(s"disabled = $cmp", cmp).filter(_.contains(notBool)),
+      yesNo(s"disabled = $cmp").filter(_.contains(notBool)),
       Nil
     )
     val isOn = s"c.isOn(dump.entities.${kitchen.dumpKey})"
     assertEquals(
-      yesNo(s"disabled = $isOn", isOn).filter(_.contains(notBool)),
+      yesNo(s"disabled = $isOn").filter(_.contains(notBool)),
       Nil
     )
   }
@@ -490,5 +489,57 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
         clue = html
       )
     }
+  }
+
+  private def propertyButton(property: String): String =
+    s"""    c.button("Stue", c.tap.closePopup())
+       |      .secondary(c.expr("string(n) + ' on'"))
+       |      .expressionValues(new Mapping { ["n"] = q.from(lights).where(q.eq(q.stateProp, "on")).count() })
+       |      $property""".stripMargin
+
+  test("a cssProperty is inline in the document and moves by one frame") {
+    val body =
+      propertyButton(
+        """.cssProperty("--fh-fill", c.expr("string(n * 50) + '%'"))"""
+      )
+    withServer(body) { ts =>
+      for {
+        html <- ts.page()
+        sent <- ts.sentAfter(ts.change(living.entityId, "on"))
+      } yield {
+        assert(
+          html.contains("""<div class="fh-cell" style="--fh-fill:50%""""),
+          clue = html
+        )
+        assert(html.contains("data-style:--fh-fill=\"$"), clue = html)
+        assert(sent.contains("\"100%\""), clue = sent)
+        assert(!sent.contains("fh-cell"), clue = sent)
+      }
+    }
+  }
+
+  test("a cssProperty takes a Simple reading, on the fast tier") {
+    val body = propertyButton(
+      s""".cssProperty("--fh-name", new slotMod.Slot { entityId = "${kitchen.entityId}"; transform = simpleMod.attr("friendly_name") })"""
+    )
+    withServer(body)(_.page()).map { html =>
+      assert(html.contains("""style="--fh-name:Kitchen""""), clue = html)
+    }
+  }
+
+  test("a cssProperty that reads a bool fails the build") {
+    val isOn = propertyButton(
+      s""".cssProperty("--fh-on", c.isOn(dump.entities.${kitchen.dumpKey}))"""
+    )
+    assert(errorsOf(isOn).exists(_.contains("reads a bool")), errorsOf(isOn))
+    val cmp = propertyButton(""".cssProperty("--fh-on", c.expr("n > 0"))""")
+    assert(errorsOf(cmp).exists(_.contains("reads a bool")), errorsOf(cmp))
+  }
+
+  test("a cssProperty must be a custom property") {
+    val body = propertyButton(""".cssProperty("color", c.expr("'red'"))""")
+    val err =
+      scala.util.Try(errorsOf(body)).failed.map(_.getMessage).getOrElse("")
+    assert(err.contains("""startsWith("--")"""), clue = err)
   }
 }
