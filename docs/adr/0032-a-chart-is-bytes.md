@@ -96,13 +96,20 @@ the isolate's RSS for the same render time, and its one argument, Pkl, does not 
 rejected on reachability cost and because it would slow the non-chart render loop. The community
 isolate stays a drop-in if the licence is ever unwanted (`home-addon/README.md`).
 
-Four facts about running it, each of which looks wrong and is not:
+Five facts about running it, each of which looks wrong and is not:
 
 - **The host runs Truffle's FALLBACK runtime, deliberately.** `truffle-runtime` would drag
   libgraal into the JVM for ~186 MB; guest code compiles inside the isolate, which has its own
   compiler. Measured on the shipped classpath: 501 M ops/sec in the isolate against 15.9 M
   in-heap. So **`Engine.supportsCompilation()` is not a health check** — it reports the host and
   says `false` about an engine doing 501 M ops/sec.
+- **The isolate gets ONE compiler thread** (`engine.CompilerThreads=1`), not the default that
+  scales with the cores. Its JIT is most of its footprint and each thread is ~110 MB of RSS: one
+  2 000-point render loop, measured in-process, sits at ~960 MB on 22 cores, ~530 MB with the
+  isolate told it has four (a Pi; `engine.IsolateOption.ActiveProcessorCount=4`) and ~400 MB with
+  one thread, at 139 ms a render against 120 ms. Two other knobs were measured and left alone:
+  `engine.MaxIsolateMemory` bounds only the guest heap (~30 MB less, 30% slower), and
+  `engine.Compilation=false` reaches ~305 MB but renders 4.5× slower.
 - **`spawnIsolate` goes on `Engine.Builder`, not `Context.Builder`**, where on a shared engine it
   is silently ineffective. It exists there from 25.3 on, which is why polyglot is pinned to 25.3.x
   rather than the 25.0 LTS line.

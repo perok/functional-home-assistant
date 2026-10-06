@@ -11,19 +11,24 @@ import org.graalvm.polyglot.{Context, Engine, HostAccess}
   * native heap instead of ours, measuring 152 MB RSS against 322 MB for the
   * same workload interpreted in-heap, at half the render time.
   *
-  * Nothing is configured here: the `js-isolate-linux-<arch>` jar on the
-  * classpath registers the isolate, and `polyglot.engine.userResourceCache`
-  * says where Truffle unpacks it. GraalVM publishes no macOS isolate; there
-  * [[engineOrInHeap]] falls back.
+  * Only the compiler is configured here ([[engine]]): the
+  * `js-isolate-linux-<arch>` jar on the classpath registers the isolate, and
+  * `polyglot.engine.userResourceCache` says where Truffle unpacks it. GraalVM
+  * publishes no macOS isolate; there [[engineOrInHeap]] falls back.
   */
 object JsIsolate {
 
   /** One engine for the life of the process; contexts are cheap against it,
-    * engines are not.
+    * engines are not. One compiler thread, because each one the isolate scales
+    * up with the cores costs ~110 MB of RSS (ADR 0032).
     */
   def engine: Resource[IO, Engine] =
     Resource.fromAutoCloseable(IO.blocking {
-      Engine.newBuilder("js").spawnIsolate(true).build()
+      Engine
+        .newBuilder("js")
+        .spawnIsolate(true)
+        .option("engine.CompilerThreads", "1")
+        .build()
     })
 
   /** The interpreter where there is no isolate — macOS, and any sbt run, whose
