@@ -139,7 +139,7 @@ A component's click target is a single `onclick` slot holding the **entire**
 Datastar expression (spliced as literal text into
 `data-on:click="{{{onclick}}}"`):
 
-- service call → `@post('/sse/action/<slug>/<domain>/<service>/<entity_id>')`
+- service call → `@post('/sse/call/<slug>/<domain>/<service>/<kind>/<id>')`
 - popup → `@post('/sse/surface/<slug>/open/<id>')` / `@post('/sse/popup/<slug>/close')`
 
 Every one of them names its dashboard: an action so the call can be bounded by

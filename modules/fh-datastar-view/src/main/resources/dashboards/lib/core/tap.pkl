@@ -88,25 +88,20 @@ class Call extends TapAction {
 class Click extends TapAction {
   onclick: slotMod.Slot|String
 }
-// Wrap a CEL route expression into the full Datastar click expression
-//   @post('sse/action/<slug>/<domain>/<service>/<entity_id>', <no signals>)
 // All app URLs are RELATIVE: they resolve against the page's <base href>
 // (`/` served directly, the ingress prefix behind the HA supervisor proxy).
 //
-// `dashboard_slug` is the CEL binding supplied by the renderer, like
-// `entity_id`: a dashboard module does not know its own slug (`site.pkl`
-// supplies it as a key, and `fh push --slug` renames it). The server needs it
-// to bound what a tap may touch — an action may only reach an entity its own
-// dashboard names, so admission to one dashboard is not admission to the whole
-// house (ADR 0023).
+// Every tap route names its dashboard's slug, which a module does not know
+// (`site.pkl` supplies it as a key, and `fh push --slug` renames it), so the
+// renderer supplies it. The server needs it to bound what a tap may do — only a
+// call its own dashboard declares, so admission to one dashboard is not
+// admission to the whole house (ADR 0023). A card's TEMPLATE spells it
+// `{{dashboardSlug}}` ([[serviceClick]]); a transform, which a surface tap
+// still is, spells it `dashboard_slug`. Two spellings, one fact: Mustache
+// renders a template, but a transform's OUTPUT is inserted raw.
 //
-// A card that builds an action URL in its own TEMPLATE writes `{{dashboardSlug}}`
-// for the same value (the slider's commit). Two spellings, one fact, and each
-// names the mechanism that actually fills it: Mustache renders a template, but
-// a transform's OUTPUT is inserted raw, so Mustache never sees it.
-//
-// SENDS NO SIGNALS. This route reads nothing from the request body — the
-// domain, service and entity are all in the path — but Datastar's default is to
+// SENDS NO SIGNALS. A call reads nothing from the request body — the domain,
+// service and target are all in the path — but Datastar's default is to
 // serialise the whole signal store into every request, so without the filter
 // each tap ships `conn`, the four cursor signals and every `ui_*` for the server
 // to ignore. `exclude` is a REGEX (not a glob), so `.*` is "everything";
@@ -372,12 +367,8 @@ const busyClassChange: String =
 /// whole commit window.
 const busyShapeClassChange: String = busySpinner("_{{id}}__busy_change")
 
-const local function ifTarget(then: String, otherwise: String): String =
-  slotMod.ifSlot("targetKind") + then + slotMod.endIfSlot("targetKind") +
-    slotMod.ifNoSlot("targetKind") + otherwise + slotMod.endIfNoSlot("targetKind")
-
-/// **The no-data service call, assembled in the CARD'S TEMPLATE** — the one
-/// place that can name `{{dashboardSlug}}`, `{{entity_id}}` and the slot read,
+/// **A service call, assembled in the CARD'S TEMPLATE** from [[routeSlots]] —
+/// the one place that can name `{{dashboardSlug}}`, `{{id}}` and the slot read,
 /// because Mustache runs ONCE and a slot's value is spliced raw, so a URL built
 /// in a transform could never carry a placeholder for any of them.
 ///
@@ -395,16 +386,9 @@ const local function ifTarget(then: String, otherwise: String): String =
 /// the node id directly, where a transform did not. That also makes it correct
 /// for an UNGUARDED tap, which carries no `data-fh-node` at all — [[guard]] is
 /// what emits that, and `busy` is what opens [[guard]].
-///
-/// An area or floor tap ([[areaCall]]) takes the `target` route and names its
-/// kind before the id; nothing else differs. `{{entity_id}}` is the card's
-/// entity, for a tap that names no target of its own.
 const serviceClick: String =
-  #"@post('sse/"# + ifTarget("target", "action") +
-    #"/{{dashboardSlug}}/' + "# + slotMod.slotRead("service") + #" + '/"# +
-    ifTarget("{{targetKind}}/", "") +
-    slotMod.ifSlot("targetId") + "{{targetId}}" + slotMod.endIfSlot("targetId") +
-    slotMod.ifNoSlot("targetId") + "{{entity_id}}" + slotMod.endIfNoSlot("targetId") +
+  #"@post('sse/call/{{dashboardSlug}}/' + "# + slotMod.slotRead("service") +
+    #" + '/{{targetKind}}/{{targetId}}"# +
     // The value-carrying route is the SAME call with one more segment, so it is
     // one optional piece here rather than a second arm on [[click]]. A tap that
     // carries no value declares no `dataKey`, and the section closes over
@@ -510,6 +494,34 @@ const function inertClass(states: List<String>): slotMod.Slot = new {
   signal = slotMod.asClass("fh-inert")
 }
 
+/// A call's ROUTE: what [[serviceClick]] builds the URL from, and what the
+/// server reads back as the call this node declares (`Dashboard.calls`, ADR
+/// 0023) — so a node that posts a call must place these, and nothing else
+/// declares one. The slider's commit places them with a value of its own.
+///
+/// A service the target's state picks reads that state by name, whatever
+/// entity the card shows.
+const function routeSlots(
+  action: slotMod.Slot|String,
+  target: Target,
+  key: String?
+): Mapping<String, slotMod.Slot|String> =
+  new {
+    ["service"] =
+      if (action is slotMod.Slot && target is hass.Entity)
+        (action as slotMod.Slot) { entityId = target.entity_id }
+      else action
+    ["targetKind"] =
+      if (target is hass.Entity) "entity" else if (target is hass.Area) "area" else "floor"
+    ["targetId"] =
+      if (target is hass.Entity) target.entity_id
+      else if (target is hass.Area) target.area_id
+      else (target as hass.Floor).floor_id
+    when (key != null) {
+      ["dataKey"] = key!!
+    }
+  }
+
 /// [[click]]'s other half: the ROUTE slots it reads. Separate from
 /// [[tapSlots]] for the card that decides `tappable`/`busy` for itself — a
 /// [[Button]] hangs those on whether the tap offered an `href` instead.
@@ -519,38 +531,30 @@ const function inertClass(states: List<String>): slotMod.Slot = new {
 /// may act on an entity other than the one it shows.
 ///
 /// One node holds ONE tap's route, which has been enough for every card: the
-/// slider's toggle track and its commit look like two, but the commit assembles
-/// its own URL from `action`/`key` and never touches these, and the two arms are
-/// mutually exclusive anyway. If a card ever does need two, that is the point to
-/// name them rather than to parameterise this.
+/// slider's toggle track and its commit look like two, but the two arms are
+/// mutually exclusive. If a card ever does need two, that is the point to name
+/// them rather than to parameterise this.
 const function tapRoute(
   t: TapAction,
   subject: hass.Entity?,
   extra: Listing<String>,
   inertAs: InertAs
 ): Mapping<String, slotMod.Slot|String> =
-  let (target = if (t is Call) t.target ?? subject else null)
+  let (target =
+    if (t is Call) t.target ?? subject ?? throw(
+      "a service tap names no target: give it one (`c.tap.toggle(e)`, "
+        + "`c.tap.call(service, target)`) or put it on a card with an entity"
+    )
+    else null)
   let (reads = if (target is hass.Entity) target.entity_id else null)
   let (states = inertStates(t, target, extra))
     new {
       when (t is Call) {
-        ["service"] =
-          if (t.service is slotMod.Slot) (t.service as slotMod.Slot) { entityId = reads }
-          else t.service
+        for (k, v in routeSlots(t.service, target!!, t.dataKey)) {
+          [k] = v
+        }
         when (t.dataKey != null) {
-          ["dataKey"] = t.dataKey!!
           ["dataValue"] = t.dataValue!!
-        }
-        when (target is hass.Area) {
-          ["targetKind"] = "area"
-          ["targetId"] = target.area_id
-        }
-        when (target is hass.Floor) {
-          ["targetKind"] = "floor"
-          ["targetId"] = target.floor_id
-        }
-        when (reads != null) {
-          ["targetId"] = reads!!
         }
       } else {
         ["onclick"] = (t as Click).onclick
