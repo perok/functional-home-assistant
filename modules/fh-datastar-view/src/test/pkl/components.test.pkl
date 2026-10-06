@@ -53,6 +53,8 @@ local latchLock: hass.LockEntity = new {
 }
 local plainLock: hass.LockEntity = new { entity_id = "lock.plain" }
 local doorbell: hass.GenericEntity = new { entity_id = "button.doorbell"; domain = "button" }
+local class StueArea extends hass.Area { area_id = "stue"; area_name = "Stue" }
+local stue = new StueArea {}
 
 // Icon fixtures, shaped as PklDump generates them: a capability attribute lives
 // on the class generated PER ENTITY, never on the domain class (ADR 0013), so a
@@ -326,7 +328,7 @@ facts {
     // nothing that can leave the renderer's identity cache. `service__read`
     // quotes it back into the card's click expression.
     c.entityCard(kitchen).slots["service"] == "light/toggle"
-    c.entityCard(kitchen).slots["onclick"] == ""
+    !c.entityCard(kitchen).slots.containsKey("onclick")
   }
 
   ["a one-shot domain presses instead of toggling"] {
@@ -345,8 +347,8 @@ facts {
     // identity cache across a lock/unlock (ADR 0017).
     svc.signal == "handler"
     // …and the click expression is therefore not the live one it used to be:
-    // the card assembles the URL from `tapMod.stateClick`.
-    c.entityCard(frontLock).slots["onclick"] == ""
+    // the card assembles the URL from `tapMod.serviceClick`.
+    !c.entityCard(frontLock).slots.containsKey("onclick")
   }
 
   ["a domain with NO action falls back to more-info, so nothing is dead"] {
@@ -830,14 +832,41 @@ facts {
     tile.slots["inert"].signal == "class:fh-inert"
   }
 
+  ["a tap that names its target needs no entity on the card"] {
+    local b = c.button("Kjøkken", c.tap.toggle(kitchen))
+    !b.slots.containsKey("entity_id")
+    b.slots["service"] == "light/toggle"
+    b.slots["targetId"] == kitchen.entity_id
+    // Availability is the TARGET's, so the inert check reads it by name.
+    (b.slots["inert"] as slotMod.Slot).entityId == kitchen.entity_id
+  }
+
+  ["a state-picked service reads the target, not the card's entity"] {
+    // A card showing the kitchen light whose tap works the front lock: both the
+    // service the lock's state picks and its mid-move inert read the LOCK.
+    local b = c.button("Lås", c.tap.toggle(frontLock)).entity(kitchen)
+    local svc: slotMod.Slot = b.slots["service"]
+    svc.entityId == frontLock.entity_id
+    b.slots["targetId"] == frontLock.entity_id
+    (b.slots["inert"] as slotMod.Slot).entityId == frontLock.entity_id
+    b.slots["entity_id"] == kitchen.entity_id
+  }
+
+  ["an area tap has no state to be inert on"] {
+    local b = c.button("Stue av", c.tap.call("light/turn_off", stue))
+    b.slots["targetKind"] == "area"
+    b.slots["targetId"] == stue.area_id
+    !b.slots.containsKey("inert")
+  }
+
   ["a value-carrying tap is the same call with one more segment"] {
     // Not a second route builder: `serviceClick` covers both, and a tap with no
     // value declares no `dataKey`, so the section closes over nothing.
     local plain = c.tap.service("light/turn_on")
-    plain.serviceSlot == "light/turn_on"
+    plain.service == "light/turn_on"
     plain.dataKey == null
     local valued = c.tap.serviceValue("light/turn_on", "effect", "Color loop")
-    valued.serviceSlot == "light/turn_on"
+    valued.service == "light/turn_on"
     valued.dataKey == "effect"
     // PERCENT-ENCODED for the two characters that break the two contexts the
     // value passes through: a space is invalid in a path segment, and a `'`
