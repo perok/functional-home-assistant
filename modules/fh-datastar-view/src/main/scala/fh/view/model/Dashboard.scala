@@ -39,6 +39,9 @@ case class SlotSource(
     literal: Option[String] = None,
     reads: String = Reads.Live,
     signal: Option[SignalBind] = None,
+    // What the card reads the value AS, set where it binds the slot. Declared
+    // where the binding cannot say it: a `class:` binding is a bool by kind.
+    `type`: SlotType = SlotType.Text,
     query: Option[QueryTemplate] = None,
     // Not on the wire: the node's expression values this transform reads,
     // attached at decode ([[LayoutNode.foldNode]]).
@@ -48,6 +51,9 @@ case class SlotSource(
   /** What the compiled program is keyed by: one source compiles differently
     * against a different set of typed names.
     */
+  def isBool: Boolean =
+    `type` == SlotType.Bool || signal.exists(_.isInstanceOf[SignalBind.Class])
+
   def celKey: Option[Transform.CelKey] = transform match
     case t: String => Some(Transform.CelKey(t, ExprValue.env(values)))
     case _         => None
@@ -266,6 +272,20 @@ object SlotSource:
       else c.as[Transform.Simple]
     }
 
+/** What a card reads a slot's value as. A `Bool` slot decides a class or an
+  * attribute by truthiness, where the string `"false"` is ON, so the build
+  * refuses a reading on one that does not produce a bool.
+  */
+enum SlotType derives CanEqual:
+  case Text, Bool
+
+object SlotType:
+  given Decoder[SlotType] = Decoder[String].emap {
+    case "text" => Right(Text)
+    case "bool" => Right(Bool)
+    case other  => Left(s"unknown slot type: $other")
+  }
+
 /** Where a signal slot's value lands (ADR 0017). The renderer emits the
   * attribute, not the card, so the plain form (no binding, no seed) stays one
   * predicate away. One wire string: `"text"`, `"bind"`, `"style:--_end"`,
@@ -330,8 +350,7 @@ case class CardDef(
     slots: List[String] = Nil,
     wrapAsCell: Boolean = true,
     regions: Map[String, Region] = Map.empty,
-    css: String = "",
-    booleanSlots: List[String] = Nil
+    css: String = ""
 ) derives ConfiguredDecoder {
 
   /** Eager and baked regions are spelled alike, which lets the document walk
@@ -1082,22 +1101,13 @@ case class Dashboard(
             s"read it '${Reads.Live}'"
       }
 
-    /** A boolean slot whose value is not a bool decides a class or an attribute
-      * by truthiness, so the string `"false"` turns it ON. The card names its
-      * boolean slots; a class binding is one by kind.
-      */
-    def booleanErrors(
+    def typeErrors(
         nodeId: String,
-        cardName: String,
         slots: Map[String, SlotSource]
     ): List[String] =
-      val declared = cards.get(cardName).toList.flatMap(_.booleanSlots).toSet
       slots.toList.sortBy(_._1).collect {
         case (name, src)
-            if (declared.contains(name) ||
-              name.startsWith(Dashboard.CellClassPrefix) ||
-              src.signal.exists(_.isInstanceOf[SignalBind.Class])) &&
-              src.literal.isEmpty && src.query.isEmpty &&
+            if src.isBool && src.literal.isEmpty && src.query.isEmpty &&
               !Dashboard.yieldsBool(src) =>
           s"$nodeId: slot '$name' is a boolean slot, but its reading does not " +
             "produce a bool — compare it (`on > 0`), or use a condition"
@@ -1265,7 +1275,7 @@ case class Dashboard(
             slots.keySet
           ) ++ slotErrors(nodeId, card, slots, here, inSet) ++
             varErrors(nodeId, vars) ++ valueErrors(nodeId, c) ++
-            booleanErrors(nodeId, card, slots) ++
+            typeErrors(nodeId, slots) ++
             cellErrors(nodeId, cell) ++
             wrapErrors ++ childErrors(c.regions, prefix, nodeId, here, inSet)
         // Clauses carry complete nodes, validated as ordinary ones.

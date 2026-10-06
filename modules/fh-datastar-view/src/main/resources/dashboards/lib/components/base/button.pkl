@@ -60,7 +60,6 @@ open class Button extends nodes.Node {
     // string an icon-only button carries. `glyph`/`round` do not: they are
     // optional pieces, absent on the ordinary labelled button.
     slots { "label" }
-    booleanSlots = new Listing { "disabled" }
     // A LABELLED button fills its layout cell — `:not(.circle)`, because a round
     // one is sized by its SHAPE and stretching it to the cell's width made an
     // oval. This rule's specificity (0,2,0) beats BeerCSS's own `.circle`
@@ -196,7 +195,7 @@ open class Button extends nodes.Node {
         [k] = v
       }
       when (ownDisabled != null) {
-        ["disabled"] = (ownDisabled!!) { signal = slotMod.asHandler }
+        ["disabled"] = (ownDisabled!!) { signal = slotMod.asHandler; type = "bool" }
       }
     }
     // Only the non-anchor arm carries the busy splice — an anchor is a

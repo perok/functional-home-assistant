@@ -48,11 +48,12 @@ they take strings, taps and readings, and import no `hass` module. An HA compone
 subclass that holds an `entity` and assigns the base's inputs from it, declaring no card, template
 or slot of its own, so it equals the base card built by hand with the same inputs. ADR 0015.
 
-**Boolean slot** — a slot whose value must be a `Boolean`, not text: a card's template reads it as
-on/off (a `disabled` ORed into `data-attr:disabled`), where the string `"false"` would be truthy.
-The CARD declares which of its slots are boolean (`CardDef.booleanSlots`), because the reading it is
-handed has no binding of its own; a live cell class is one by kind. The build refuses a reading on
-one that does not produce a bool.
+**Slot type** / **boolean slot** — what a card reads a slot's value AS (`Slot.type`): text by
+default, or `bool` for a slot its template reads as on/off (a `disabled` ORed into
+`data-attr:disabled`, where the string `"false"` would be truthy). A boolean slot is one whose type
+is `bool`. The CARD sets the type where it binds the slot, beside `signal`, because a reading has no
+binding of its own; a `class:` binding (a live cell class) is a bool by kind. The build refuses a
+reading on a boolean slot that does not produce a bool.
 
 **Live cell class** — a class on a node's `.fh-cell` wrapper while a reading holds
 (`LayoutNode.classWhen`). The renderer binds it on the wrapper itself, so it works on any card and

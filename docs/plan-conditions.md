@@ -66,8 +66,11 @@ Nothing checks a slot's result type today. `classWhen("x", c.expr("on"))` builds
 decides a class. A **boolean slot** must get a bool. Which slots are boolean cannot be read off the
 binding kind: `disabled` is a `handler` slot (ORed into `data-attr:disabled`, where a string
 `"false"` is truthy), but so is a lock's service name, and `attr:value` carries the slider's
-number. So the CARD names its boolean slots (`CardDef.booleanSlots`; the button's is
-`disabled`), and a live cell class or a `class:` binding is one by kind. Checked per tier:
+number. So a slot carries a **type** (`Slot.type`: `"text"` by default, or `"bool"`), set by the
+card where it binds the slot, beside `signal` (the button's `disabled` is `bool`). A `class:`
+binding, which every live cell class is, is a bool by kind. One field rather than a list of
+boolean slots per card, so another type (`"number"`, once a signal can carry a JSON number) is one
+more case. Checked per tier:
 
 - **CEL** compiles to `bool`. `dyn` is still accepted, because an entity read such as `state` is
   `dyn` and refusing it would refuse `state == 'on'`'s neighbours.
