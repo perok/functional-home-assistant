@@ -141,7 +141,18 @@ lists are derived from it, in the base, by functions in `hass.pkl` —
 filter cannot answer differently. Every smaller scope answers the same two
 names: `hass.Area` has `allWithHidden` filled by the generator, `hass.Floor`
 derives both from its areas, `hass.Device` from its entities, and a domain
-comes out of any of them the one way — `hass.lights(dump.loft.all)`.
+comes out of any of them the one way — `hass.lights(dump.floors.loft.all)`.
+
+**Every namespace answers `all` too.** Areas, floors, devices and users each sit
+in a generated namespace class (`dump.areas.stue`, `dump.floors.loft`), and that
+class carries a generated `hidden all` of its members — `dump.floors.all` in
+level order (a floor without one last), the rest in slug order — so "every
+floor" is a list, not a reflection over the module. Floors live under
+`dump.floors` rather than at the module top level for the same reason: a
+namespace is what has an `all`, and a floor slug can then no longer collide
+with `entities` or `areas`. A member slugged `all` becomes `all_<kind>`
+(`dump.areas.all_area`). A home with no devices or users still has no
+`devices`/`users` namespace at all.
 
 **`all` leaves out the entities hidden in HA** (`id_hidden`, from the registry's
 `hidden_by`). Hidden means "keep this off the dashboards HA builds for me", and

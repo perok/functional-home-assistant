@@ -31,7 +31,7 @@ import "core/access.pkl" as accessMod
 ///     is a declaration and will not parse in a value position.
 ///
 /// Generated dashboards are just an entry per key, so the usual comprehension
-/// works: `for (f in List(dump.ground_floor, dump.loft)) { [f.floor_id] { card = floorCard(f) } }`.
+/// works: `for (f in dump.floors.all) { [f.floor_id] { card = floorCard(f) } }`.
 dashboards: Mapping<String, entry> = new { default = (_) -> (entry) {} }
 
 /// The slug served at `/`. Null (the default) means the dashboard keyed
