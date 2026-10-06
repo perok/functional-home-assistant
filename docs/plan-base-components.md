@@ -157,8 +157,11 @@ facade's names do not change: `c.button`, `c.entityButton`, `c.toggle` and
 `switched` (attr), from one reading of the entity. The base takes that reading once and
 picks both bindings itself.
 
-**Names.** `inert` → `disabled` throughout, including `InertAs`, which becomes how a host
-shows `disabled`: a real attribute, or a class plus the click guard. `lit` → `active`. HA's
+**Names.** What an author writes says `disabled` (`Call.disabledWhile`, `Button.disabled`)
+and `active`. `lit` is gone. The tap's refusal is still called `inert` internally: the slot,
+the theme's `fh-inert` class, and `InertAs`. That is about 120 uses across templates, wire,
+themes and tests, and a plain rename to `disabled` would collide with the button's own
+`disabled` slot. It is left for the maintainer to decide (open question below). HA's
 frontend has a per-domain notion of "active". Whether to vendor it into `hass/` is a later
 decision; this plan ships `c.isOn(e)`.
 
@@ -199,10 +202,20 @@ decision; this plan ships `c.isOn(e)`.
    and `CardFeatures` move to `base/`. The registry names stay `toggle` and `entityCard`,
    so the wire does not move. The module is `base/onoff.pkl`, because `switch` is a Pkl
    keyword.
-5. **The slider**: a base range control and `Slider` thin on top. It is the largest card
-   (`slider.pkl`, ~1000 lines). If step 4 shows the cost, this becomes its own plan.
-6. **Close.** ADR 0015 rewritten for the split, terminology (`Reading`, `active`,
-   `disabled`), the module `CLAUDE.md` and the pipeline doc checked, and this plan deleted.
+5. **The slider gets its own plan.** It is three node classes (head, text, rows), about 1000
+   lines, and has some 60 ties to its entity: the per-domain spec, the RGB and kelvin fill
+   colours, the toggle-only variant, member rows. A base range control needs an input
+   design of its own — value, bounds, commit tap, fill reading, readout — and that is a
+   design question for the maintainer, not a mechanical split.
+6. **Close.** ADR 0015 rewritten for the split (done in steps 3–4), terminology (`Reading`,
+   base/HA component, live cell class, disabled-while), the module `CLAUDE.md` and the
+   pipeline doc checked, and this plan deleted once the maintainer agrees.
+
+## Open questions
+
+- Rename the internal `inert` (slot, `fh-inert`, `InertAs`) to something like `refused`, or
+  keep it?
+- A separate plan for the base range control under the slider.
 
 ## Not in scope
 
