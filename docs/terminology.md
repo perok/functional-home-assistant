@@ -10,7 +10,7 @@ words we coined or bent.
 
 ## Authoring — what a dashboard is written out of
 
-**Card** — a kind of component, named by a string (`"slider"`, `"entityCard"`). In Pkl it is a
+**Card** — a kind of component, named by a string (`"slider"`, `"tile"`). In Pkl it is a
 class; the backend knows it as a template plus a list of slot names it expects.
 
 **Node** — one placed instance of a card in a dashboard's layout tree. Nodes nest.

@@ -85,7 +85,7 @@ facts {
       .build()
     memberOf.apply(s, "light.taklys").length == 1
     memberOf.apply(s, "light.taklys")[0].`when` == null
-    memberOf.apply(s, "light.taklys")[0].node.card == "entityCard"
+    memberOf.apply(s, "light.taklys")[0].node.card == "tile"
     memberOf.apply(s, "light.lampe").length == 1
     memberOf.apply(s, "light.lampe")[0].node.card == "pill"
   }
@@ -351,7 +351,7 @@ facts {
         [q.eq(q.prop("domain"), "sensor")] = (e) -> c.pill("s", c.tap.navigate("/"))
       })
       .build()
-    memberOf.apply(s, "light.taklys")[0].node.card == "entityCard"
+    memberOf.apply(s, "light.taklys")[0].node.card == "tile"
     // The motion sensor is a SensorEntity, so it takes the sensor branch.
     memberOf.apply(s, "binary_sensor.stue_motion")[0].node.card == "pill"
     guards.apply(s).every((g) -> g == null)
@@ -383,7 +383,7 @@ facts {
       .`else`((e) -> c.pill("never", c.tap.navigate("/")))
       .build()
     memberOf.apply(s, "light.taklys").length == 1
-    memberOf.apply(s, "light.taklys")[0].node.card == "entityCard"
+    memberOf.apply(s, "light.taklys")[0].node.card == "tile"
   }
 
   ["chained `where`s conjoin"] {
@@ -528,7 +528,7 @@ facts {
       .`else`((e) -> c.entityCard(e))
       .build()
     s.members["light.taklys"].clauses.toList()[0].node.card == "slider"
-    s.members["binary_sensor.stue_motion"].clauses.toList()[0].node.card == "entityCard"
+    s.members["binary_sensor.stue_motion"].clauses.toList()[0].node.card == "tile"
     // One clause each: the domain is registry data, so the loser is not merely
     // unrendered, it never reaches the wire.
     s.members["light.taklys"].clauses.toList().length == 1

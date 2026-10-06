@@ -103,7 +103,7 @@ in both forms:
 {{#hasIcon}}<i class="{{icon}}" {{{icon__bind}}}></i>{{/hasIcon}}
 ```
 
-**This bit.** `entityCard` wrapped its icon in `{{#icon}}` — correct while `icon` was a literal,
+**This bit.** `tile` wrapped its icon in `{{#icon}}` — correct while `icon` was a literal,
 wrong the moment it became a signal slot. The glyph vanished on the first tap and came back only
 on reload, because the tap's patch re-rendered the card in patch form and took the whole `<i>`
 with it. It is silent in exactly the way the other guard is not: `Dashboard.validate` rejects a
@@ -189,7 +189,7 @@ This does not weaken "every kind reads the signal bare" above: that rule is abou
 an expression would be a second place a value's shape is decided. A handler is not a binding — it
 consumes the value rather than painting it.
 
-`entityCard`'s tap on a `CallByState` domain (ADR 0016) is miscategorised as the first. A lock's
+`EntityCard`'s tap on a `CallByState` domain (ADR 0016) is miscategorised as the first. A lock's
 service is not knowable until the click, so the onclick is rendered from a live transform — which
 puts the service in the element's bytes, moves them on every lock/unlock, and drops the tile out of
 the identity cache to repaint a URL nobody ever looks at. Read at click time instead, the same
@@ -365,7 +365,7 @@ relying on a signal existing.
 
 ### The slider is the shape that justifies all four
 
-`entityCard` has one moving value. The slider has **four**, and they are the reason the kinds are
+`tile` has one moving value. The slider has **four**, and they are the reason the kinds are
 not optional: getting any one of them wrong re-renders the card and the other three buy nothing.
 
 | slot | kind | why |
@@ -476,7 +476,7 @@ Together those took the signal-slot premium on a 200-leaf page from ~2.5x a sign
 - `Dashboard.validate` rejects the two otherwise-silent mistakes: `signal` on a constant `literal`
   (nothing to patch), and a card declaring a signal slot whose template never places
   `{{{<slot>__bind}}}` (the patch form withholds the value and nothing puts it back).
-- Applied to `entityCard`'s `value` and, where the domain has a state glyph, its `icon`; to the
+- Applied to `EntityCard`'s `value` and, where the domain has a state glyph, its `icon`; to the
   `tapDisabled` reading of a service tap on an entity, as a `handler` signal; to the `service` of a
   `CallByState` tap, as a `handler` signal; and to all four of the slider's moving slots. `label`
   stays a registry fact and never moves.

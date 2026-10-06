@@ -161,7 +161,7 @@ status-bar preview, and a click that works before Datastar has loaded. (BeerCSS
 styles buttons as `:is(button,.button)`, so the anchor form is visually
 identical.) The `TapAction` also carries the equivalent `onclick`
 (`window.location.assign(new URL('d/<slug>', document.baseURI))`) for cards whose
-root element cannot be an anchor — `entityCard`'s `<article>` — so one authored
+root element cannot be an anchor — `tile`'s `<article>` — so one authored
 `c.tap.navigate('x')` renders correctly wherever it is dropped.
 
 ### Navigation is a real page load
@@ -183,7 +183,7 @@ to re-read, a `<head>` the body patch could not reach (so a differently-themed
 target needed an explicit theme/title morph), and buttons that a browser cannot
 middle-click or open in a new tab.
 
-Remaining gap: only `button` renders the anchor form. A navigating `entityCard`
+Remaining gap: only `button` renders the anchor form. A navigating `tile`
 falls back to the scripted click, so it is not middle-clickable; promoting it
 means wrapping its `<article>` in the template, not a backend change.
 

@@ -226,7 +226,7 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   a dead stream, and a non-200 whose body is dropped unread — are page-wide facts and live as ONE
   rule on the shell (`Server.PendingSweep`, an `@setAll` over `/__pending$/`), not as a copy on
   every tab bar.
-- Cards (`lib/components/`, re-exported by `lib/components.pkl` — ADR 0015): `fhgrid`/`fhrow`/`fhcol` containers, `sectionTitle`, `entityCard`,
+- Cards (`lib/components/`, re-exported by `lib/components.pkl` — ADR 0015): `fhgrid`/`fhrow`/`fhcol` containers, `sectionTitle`, `tile`, `switch`,
   `button`, `pill`, `slider` — each is a typed card class carrying its own `cardDef` (Mustache template +
   declared slots), and the emitted `cards` registry is derived by `pkl:reflect`; slots are checked
   by `Dashboard.validate`. Call-style factories / classes return layout nodes referencing a card
@@ -259,7 +259,7 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   seed, and a boxed `Boolean` in `paint`, because a card places such a slot as a Mustache SECTION
   and the string `"false"` is TRUTHY there. ADR 0017 has the two rejected designs (`flag:`, and a
   nullable value) and why each failed.
-  Customers: `entityCard`'s `value` (text), and all four of the slider's moving slots — `state`
+  Customers: `tile`'s `value` (text), and all four of the slider's moving slots — `state`
   (text), `value` (`attr:value`), `fill` (`style:--_end`) and
   `fillColor` (`style:background`). The slider's `value` is SERVER-ONLY (ADR 0025): the input is
   `data-bind`-ed to a separate client-owned `_<id>__slide`, because `data-on-signal-patch` fires on
