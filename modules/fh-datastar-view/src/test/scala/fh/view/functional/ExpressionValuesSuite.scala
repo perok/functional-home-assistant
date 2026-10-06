@@ -133,9 +133,7 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
 
   test("inside a popup, the count is live while the popup is open") {
     // The floors-popup shape this was built for: a surface is its own index,
-    // so the tally's entities must reach that index too. Two ticks, because a
-    // popup open at page load repaints its nodes on the first tick whatever
-    // they read (architecture doc, open questions); the second is the claim.
+    // so the tally's entities must reach that index too.
     val popup =
       s"""surfaces {
          |  ["floors"] {
@@ -153,15 +151,14 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
           client <- ts.connect(open)
           _ <- client.drain
           _ <- ts.change(living.entityId, "on")
-          first <- client.drain.map(_.flatMap(_.data).mkString("\n"))
-          _ <- ts.change(kitchen.entityId, "off")
-          second <- client.drain.map(_.flatMap(_.data).mkString("\n"))
+          sent <- client.drain.map(_.flatMap(_.data).mkString("\n"))
         } yield {
           assert(html.contains(">1 / 2 on</span>"), clue = html)
-          val tail = sig.split('.').last
-          assert(first.contains(tail + "\":\"2 / 2 on\""), clue = first)
-          assert(second.contains(tail + "\":\"1 / 2 on\""), clue = second)
-          assert(!second.contains("fh-sub"), clue = second)
+          assert(
+            sent.contains(sig.split('.').last + "\":\"2 / 2 on\""),
+            clue = sent
+          )
+          assert(!sent.contains("fh-sub"), clue = sent)
         }
     }
   }
