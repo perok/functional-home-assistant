@@ -55,7 +55,7 @@ no template places it. A button's `active` is one (`fh-active`).
 **Expression value** — a named input a node's OWN expressions read as a typed CEL variable
 (`expressionValues` in Pkl, `values` on the wire): a literal, or a **tally** — a static candidate
 list and which of it is present, counted live, the same thing a state condition's `Count` compares.
-Not a node variable: nobody chooses it, and nothing below the node sees it.
+Not a node variable: nobody chooses it, and nothing below the node sees it. ADR 0034.
 
 **Node variable** — a named choice a node DECLARES (`Component.vars`) and its descendants READ. The
 word is always two words: `Renderer` already calls a card's mustache context "vars", and a theme

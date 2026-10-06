@@ -76,6 +76,30 @@ String was an attribute name on an entity card and the text on a button.
 subject slot, which an entity-less reading (`c.expr(…)`) falls back to. Only the
 HA layer sets it.
 
+**The slider** is the one split that was not mechanical. The base `Slider`
+(`components/base/slider.pkl`, `c.Slider`) takes a track, not an entity, and
+`EntitySlider` (`c.entitySlider`) fills it:
+
+- `position`, `fill` and `reading` are THREE readings, not one the base derives
+  the rest from. A transform is a CEL string or a `Simple` shape and neither
+  composes, so deriving `fill` from an arbitrary reading would mean splicing CEL
+  or reaching into one `Simple` shape. The HA layer builds all three from one
+  attribute name, which it can.
+- The drag commits through `commit`, a `Call` with a key and no value — the
+  drag supplies it (ADR 0016). As a plain call it refuses only while its target
+  is unavailable, so a cover that is `opening` still takes a new position.
+- `press` is the toggle-only variant on the SAME card: set, the track is one
+  button and there is no input. A second card would make a group's rows two
+  cards for one look. `EntitySlider` sets it for a light that cannot dim.
+- `leadingActions` is how the HA `tapAction` shorthand stays first without an
+  author's `actions` replacing it.
+- What makes a slider "about this entity" stays HA: `SlideAxis`, `sliderSpec`,
+  the RGB and kelvin fills, the `"state"`/`"percent"` readout names and the
+  `valueExpr`/`percentExpr` splice surface.
+- `sliderHead` and `sliderText` do not DECLARE `entity_id`: a declared slot must
+  be on every node, and a base slider may have no subject. Every HA slider still
+  carries it.
+
 The facade's names do not move: `c.button` and `c.entityButton` are found where
 they always were. The registry's are the BASE card's, named for the look like
 its class: `Tile` registers `tile` and `Switch` registers `switch`, and an
