@@ -646,6 +646,9 @@
   },
   "cards" : {
     "button" : {
+      "booleanSlots" : [
+        "disabled"
+      ],
       "slots" : [
         "label"
       ],

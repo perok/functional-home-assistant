@@ -38,6 +38,7 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
        |import "@fh-dashboard/components.pkl" as c
        |import "@fh-dashboard/core/slot.pkl" as slotMod
        |import "@fh-dashboard/core/predicate.pkl" as pred
+       |import "@fh-dashboard/core/simple.pkl" as simpleMod
        |import "@fh-dashboard/query.pkl" as q
        |import "@fh-home/dump.pkl" as dump
        |
@@ -291,5 +292,48 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
         |    }).secondary(c.expr("state"))""".stripMargin
     val errs = errorsOf(body)
     assert(errs.exists(_.contains("would hide the 'state'")), errs)
+  }
+
+  // A yes/no input reading `reading`, beside a second line reading the count
+  // so the value is read by something either way.
+  private def yesNo(input: String, reading: String): List[String] =
+    errorsOf(
+      s"""    ((c.button("Stue", c.tap.closePopup())) {
+         |      expressionValues { ["n"] = q.from(lights).where(q.eq(q.stateProp, "on")).count() }
+         |      $input
+         |    }).secondary(c.expr("string(n)"))""".stripMargin
+    )
+
+  private val notBool = "does not produce a bool"
+
+  test("a yes/no input whose CEL is not a bool fails the build") {
+    val int = """new slotMod.Slot { transform = "n" }"""
+    assert(
+      yesNo(
+        s"""liveClasses { ["x"] = ($int) { signal = slotMod.asClass("x") } }""",
+        int
+      )
+        .exists(_.contains(notBool))
+    )
+    assert(yesNo(s"disabled = $int", int).exists(_.contains(notBool)))
+  }
+
+  test("a yes/no input whose Simple shape is text fails the build") {
+    val text =
+      s"""new slotMod.Slot { entityId = "${kitchen.entityId}"; transform = simpleMod.attr("friendly_name") }"""
+    assert(yesNo(s"disabled = $text", text).exists(_.contains(notBool)))
+  }
+
+  test("a comparison, a boolean match and a condition are all yes/no") {
+    val cmp = """new slotMod.Slot { transform = "n > 0" }"""
+    assertEquals(
+      yesNo(s"disabled = $cmp", cmp).filter(_.contains(notBool)),
+      Nil
+    )
+    val isOn = s"c.isOn(dump.entities.${kitchen.dumpKey})"
+    assertEquals(
+      yesNo(s"disabled = $isOn", isOn).filter(_.contains(notBool)),
+      Nil
+    )
   }
 }

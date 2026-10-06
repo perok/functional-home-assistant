@@ -280,6 +280,8 @@ object Transform {
 
   def parse(key: CelKey): Either[String, Compiled] = Cel.parse(key.src, key.env)
 
+  def yieldsBool(key: CelKey): Boolean = Cel.yieldsBool(key.src, key.env)
+
   /** Never throws into the render: a failure returns its message. */
   def run(expr: Compiled, entity: EntityState, dashboardSlug: String): String =
     Cel.run(expr, entity, dashboardSlug)

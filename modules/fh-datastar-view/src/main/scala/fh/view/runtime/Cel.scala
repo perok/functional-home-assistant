@@ -182,6 +182,17 @@ object Cel {
     }
   }
 
+  /** Whether `src` type-checks to `bool`, or to `dyn`: an entity read such as
+    * `state` is `dyn`, so `dyn` cannot be refused. One that does not compile
+    * answers true, since [[parse]] reports it already.
+    */
+  def yieldsBool(src: String, env: List[(String, ExprValue.Kind)]): Boolean =
+    val result = compilerWith(env).compile(src.trim)
+    result.hasError || {
+      val t = result.getAst.getResultType
+      t == SimpleType.BOOL || t == SimpleType.DYN
+    }
+
   private def compilerWith(env: List[(String, ExprValue.Kind)]): CelCompiler =
     if (env.isEmpty) compiler
     else

@@ -330,7 +330,8 @@ case class CardDef(
     slots: List[String] = Nil,
     wrapAsCell: Boolean = true,
     regions: Map[String, Region] = Map.empty,
-    css: String = ""
+    css: String = "",
+    booleanSlots: List[String] = Nil
 ) derives ConfiguredDecoder {
 
   /** Eager and baked regions are spelled alike, which lets the document walk
@@ -1081,6 +1082,27 @@ case class Dashboard(
             s"read it '${Reads.Live}'"
       }
 
+    /** A yes/no slot whose value is not a bool decides a class or an attribute
+      * by truthiness, so the string `"false"` turns it ON. The card names its
+      * yes/no slots; a class binding is one by kind.
+      */
+    def booleanErrors(
+        nodeId: String,
+        cardName: String,
+        slots: Map[String, SlotSource]
+    ): List[String] =
+      val declared = cards.get(cardName).toList.flatMap(_.booleanSlots).toSet
+      slots.toList.sortBy(_._1).collect {
+        case (name, src)
+            if (declared.contains(name) ||
+              name.startsWith(Dashboard.CellClassPrefix) ||
+              src.signal.exists(_.isInstanceOf[SignalBind.Class])) &&
+              src.literal.isEmpty && src.query.isEmpty &&
+              !Dashboard.yieldsBool(src) =>
+          s"$nodeId: slot '$name' is a yes/no input, but its reading does not " +
+            "produce a bool — compare it (`on > 0`), or use a condition"
+      }
+
     def varErrors(nodeId: String, vars: Map[String, String]): List[String] =
       vars.keys.toList.sorted.flatMap { name =>
         Option
@@ -1243,6 +1265,7 @@ case class Dashboard(
             slots.keySet
           ) ++ slotErrors(nodeId, card, slots, here, inSet) ++
             varErrors(nodeId, vars) ++ valueErrors(nodeId, c) ++
+            booleanErrors(nodeId, card, slots) ++
             cellErrors(nodeId, cell) ++
             wrapErrors ++ childErrors(c.regions, prefix, nodeId, here, inSet)
         // Clauses carry complete nodes, validated as ordinary ones.
@@ -1685,6 +1708,17 @@ object Dashboard:
   /** Where a live cell class rides among a node's slots. The `:` keeps it out
     * of any name a card's template could place.
     */
+  /** Per tier: CEL by its checked type, `Simple` exactly — only a `match` whose
+    * every outcome is a Boolean is one; every other shape is text.
+    */
+  def yieldsBool(src: SlotSource): Boolean = src.transform match
+    case _: String =>
+      src.celKey.forall(Transform.yieldsBool)
+    case Transform.Simple.Match(cases, otherwise) =>
+      (otherwise :: cases.values.toList).forall(_.isInstanceOf[Boolean])
+    case _: Transform.Simple => false
+    case _: Transform.Stage  => true
+
   def cellClassSlot(cls: String): String = CellClassPrefix + cls
   val CellClassPrefix: String = "cell.class:"
 

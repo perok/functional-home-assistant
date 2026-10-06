@@ -63,8 +63,11 @@ Names starting `__` become reserved, so an author's value cannot collide with a 
 ### 3. The build checks a yes/no result is a bool
 
 Nothing checks a slot's result type today. `classWhen("x", c.expr("on"))` builds, and then an int
-decides a class. A slot bound as a class or a boolean attribute (`SignalBind.Class`, `Attr`, a live
-cell class) must produce a bool, checked per tier:
+decides a class. A YES/NO slot must produce a bool. Which slots are yes/no cannot be read off the
+binding kind: `disabled` is a `handler` slot (ORed into `data-attr:disabled`, where a string
+`"false"` is truthy), but so is a lock's service name, and `attr:value` carries the slider's
+number. So the CARD names its yes/no slots (`CardDef.booleanSlots`; the button's is
+`disabled`), and a live cell class or a `class:` binding is one by kind. Checked per tier:
 
 - **CEL** compiles to `bool`. `dyn` is still accepted, because an entity read such as `state` is
   `dyn` and refusing it would refuse `state == 'on'`'s neighbours.
