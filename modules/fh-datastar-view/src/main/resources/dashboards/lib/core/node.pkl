@@ -10,11 +10,15 @@
 /// slot decoder rejects numbers (stringify numeric config: `"\(...)"`).
 module core.node
 
+import "predicate.pkl" as predMod
 import "slot.pkl" as slotMod
 import "surface.pkl" as surfaceMod
 import "text.pkl" as textMod
 import "variable.pkl" as varMod
 import "pkl:reflect"
+
+/// What one of a node's [[Node.expressionValues]] may be.
+typealias ExpressionValue = String|Int|Float|Boolean|predMod.Tally
 
 /// Per-node layout-cell parameters (mirrors fh.view.model.Cell): extra CSS
 /// classes the renderer puts on this node's `.fh-cell` wrapper. The class
@@ -192,6 +196,21 @@ abstract class Node extends LayoutNode {
   /// applies. A surface (popup, tab panel) is its own scope root and does not
   /// see the page's declarations.
   vars: Mapping<String, String>? = null
+  /// Named values this node's expressions read as CEL variables, typed by what
+  /// they are: a literal, or a live count (`q.from(xs).where(…).count()`, an
+  /// `int`). The names are the node's own — nothing below it sees them.
+  ///
+  ///   ((c.button(f.floor_name, c.tap.lights.off(f))) {
+  ///     expressionValues {
+  ///       ["lights_on"] = q.from(lights).where(q.eq(q.stateProp, "on")).count()
+  ///       ["lights_total"] = lights.length
+  ///     }
+  ///   }).secondary(c.expr(#"string(lights_on) + ' / ' + string(lights_total)"#))
+  hidden expressionValues: Mapping<String, ExpressionValue> = new {}
+  /// [[expressionValues]] on the wire. Two properties because a null default
+  /// cannot be amended, and an always-present `{}` would sit on every node.
+  values: Mapping<String, ExpressionValue>? =
+    if (expressionValues.isEmpty) null else expressionValues
   // A node-level map of inline surfaces the build-phase hoist lifts into the
   // top-level `surfaces` registry (keyed `<node-id>_<localKey>`), splicing the
   // node's real id into every [[NODE_ID]] token in the subtree. Null (dropped

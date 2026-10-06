@@ -17,6 +17,7 @@ import "../../main/resources/dashboards/lib/components/base/tile.pkl" as tileMod
 import "../../main/resources/dashboards/lib/core/text.pkl" as textMod
 import "../../main/resources/dashboards/lib/query.pkl" as q
 import "../../main/resources/dashboards/lib/hass.pkl" as hass
+import "../../main/resources/dashboards/lib/core/predicate.pkl" as pred
 
 local kitchen: hass.LightEntity = new { entity_id = "light.kitchen" }
 local dimmer: hass.LightEntity = new {
@@ -631,6 +632,24 @@ facts {
     local byAttr = c.entityCard(kitchen).secondary(c.attr("device_class")).slots["secondary"] as slotMod.Slot
     byAttr.transform == simpleMod.attr("device_class")
     byAttr.entityId == null
+  }
+
+  ["expression values ride the wire as `values`, and only when there are some"] {
+    c.button("x", c.tap.closePopup()).values == null
+    local lights = List(kitchen)
+    local b = (c.button("x", c.tap.closePopup())) {
+      expressionValues {
+        ["lights_on"] = q.from(lights).where(q.eq(q.stateProp, "on")).count()
+        ["lights_total"] = lights.length
+        ["floor"] = "Stue"
+      }
+    }
+    b.values["lights_total"] == 1
+    b.values["floor"] == "Stue"
+    // A count goes out as its tally: what the runtime counts, live.
+    local on = b.values["lights_on"] as pred.Tally
+    on.candidates.toList() == List("light.kitchen")
+    on.`when`["light.kitchen"].property == "state"
   }
 
   ["every card placing `secondary` binds it, and guards it by presence"] {

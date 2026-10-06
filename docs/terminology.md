@@ -52,6 +52,11 @@ or slot of its own, so it equals the base card built by hand with the same input
 (`LayoutNode.classWhen`). The renderer binds it on the wrapper itself, so it works on any card and
 no template places it. A button's `active` is one (`fh-active`).
 
+**Expression value** — a named input a node's OWN expressions read as a typed CEL variable
+(`expressionValues` in Pkl, `values` on the wire): a literal, or a **tally** — a static candidate
+list and which of it is present, counted live, the same thing a state condition's `Count` compares.
+Not a node variable: nobody chooses it, and nothing below the node sees it.
+
 **Node variable** — a named choice a node DECLARES (`Component.vars`) and its descendants READ. The
 word is always two words: `Renderer` already calls a card's mustache context "vars", and a theme
 calls CSS custom properties the same, so a bare "vars" in prose is ambiguous three ways.

@@ -9,6 +9,7 @@ import fh.view.model.{
   ChromeColors,
   Dashboard,
   DomId,
+  ExprValue,
   LayoutNode,
   NodeId,
   Reads,
@@ -1909,7 +1910,13 @@ class Renderer(
       // The form is the tier (ADR 0028).
       val out: SlotValue = source.transform match {
         case sm: Transform.Simple => transforms.runValue(sm, st)
-        case t: String            => transforms.runValue(t, st, dashboard.slug)
+        case t: String            =>
+          transforms.runValue(
+            Transform.CelKey(t, ExprValue.env(source.values)),
+            st,
+            dashboard.slug,
+            Conditions.resolve(source.values, states)
+          )
         // Rejected by `validate`; the raw state keeps a bypass readable.
         case _: Transform.Stage => st.state
       }
