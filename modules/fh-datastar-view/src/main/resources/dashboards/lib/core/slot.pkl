@@ -133,9 +133,10 @@ const function asStyle(property: String): SignalBind = "style:" + property
 /// one, so `busy` guards the click expression instead.
 const function asAttr(name: String): SignalBind = "attr:" + name
 
-/// `data-class:<name>` — one class, present while the value is truthy. A
-/// BOOLEAN state: the transform must yield `""` for off, because an empty
-/// string is the only falsy thing a slot can produce — `"false"` reads as ON.
+/// `data-class:<name>` — one class, present while the value is truthy: `false`
+/// and `""` are off, and any other string is on — `"false"` reads as ON. A
+/// card that also paints the value INLINE (`class="… {{x}}"`) needs `""`, since
+/// a boolean would put the word `true` in its class list.
 const function asClass(name: String): SignalBind = "class:" + name
 
 /// NO binding — the value is carried as a signal and read by an EVENT HANDLER
@@ -194,6 +195,18 @@ const function signalRef(name: String): String = "{{" + name + "__signal}}"
 ///
 /// Raw (`{{{…}}}`) because it IS code.
 const function slotRead(name: String): String = "{{{" + name + "__read}}}"
+
+/// The boolean attribute `attr`, set while slot `a` OR slot `b` holds — for a
+/// control with two independent reasons to refuse, such as its tap's and its
+/// own. Either slot may be absent. Both must be literals or [[asHandler]]
+/// signals: one `data-attr:<attr>` ORs their reads, since two bindings of the
+/// same attribute would leave only the first.
+const function attrWhenEither(attr: String, a: String, b: String): String =
+  "{{#\(a)}} \(attr){{/\(a)}}{{^\(a)}}{{#\(b)}} \(attr){{/\(b)}}{{/\(a)}}" +
+    ifSlot(a) + " data-attr:\(attr)=\"" + slotRead(a) +
+    ifSlot(b) + " || " + slotRead(b) + endIfSlot(b) + "\"" + endIfSlot(a) +
+    ifNoSlot(a) + ifSlot(b) + " data-attr:\(attr)=\"" + slotRead(b) + "\"" +
+    endIfSlot(b) + endIfNoSlot(a)
 
 /// The section a card wraps optional markup in, when that markup holds a slot:
 ///

@@ -979,14 +979,14 @@ class Renderer(
 
         def wrapper(buf: Sink, form: SlotForm): Unit =
           if (wrapped) {
+            cellOpenInto(buf, c.cell, resolved, form)
             buf
-              .append("""<div class="fh-cell""")
-              .append(Renderer.cellClasses(c.cell))
-              .append("""" id="""")
+              .append(""" id="""")
               .append(id)
               .append('"')
             if (!form.isPatch)
               Datastar.seedAttrInto(buf, plan.signalSeed, resolved.signals)
+            cellBindingsInto(buf, resolved)
             val _ = buf.append('>')
           }
 
@@ -1288,10 +1288,9 @@ class Renderer(
       form: SlotForm
   ): Unit = {
     // The seed covers the children too ([[memberSignalsOf]]).
+    cellOpenInto(out, m.node.cell, rm.resolved, form)
     out
-      .append("""<div class="fh-cell""")
-      .append(Renderer.cellClasses(m.node.cell))
-      .append("""" id="""")
+      .append(""" id="""")
       .append(m.id)
       .append('"')
     if (!form.isPatch) {
@@ -1300,6 +1299,7 @@ class Renderer(
       val values = memberSignalsOf(rm)
       Datastar.seedAttrInto(out, memberSeedOf(m, values), values)
     }
+    cellBindingsInto(out, rm.resolved)
     val _ = out.append('>')
     memberBodyInto(out, rm, form)
     val _ = out.append("</div>")
@@ -1341,10 +1341,10 @@ class Renderer(
   ): Unit = child match {
     case ResolvedChild.NestedSet(html) => val _ = out.append(html)
     case ResolvedChild.Node(cell, n)   =>
-      out
-        .append("""<div class="fh-cell""")
-        .append(Renderer.cellClasses(cell))
-        .append("""">""")
+      // The member's wrapper above holds the seed.
+      cellOpenInto(out, cell, n.resolved, form)
+      cellBindingsInto(out, n.resolved)
+      out.append('>')
       memberBodyInto(out, n, form)
       val _ = out.append("</div>")
   }
@@ -1422,6 +1422,42 @@ class Renderer(
       signalSlots: List[String],
       signals: Map[SignalId, SlotValue]
   )
+
+  /** A component's `<div class="fh-cell …"`, its live classes
+    * ([[Dashboard.cellClassSlot]]) inline in the document form only, where
+    * signal values are not withheld. Their bindings are [[cellBindingsInto]].
+    */
+  private def cellOpenInto(
+      buf: Sink,
+      cell: Option[Cell],
+      r: Resolved,
+      form: SlotForm
+  ): Unit = {
+    buf.append("""<div class="fh-cell""").append(Renderer.cellClasses(cell))
+    if (!form.isPatch)
+      cellClassSlots(r)
+        .filter(slot => r.paint.get(slot).exists(SlotValue.truthy))
+        .foreach { slot =>
+          buf.append(' ').append(slot.stripPrefix(Dashboard.CellClassPrefix))
+        }
+    val _ = buf.append('"')
+  }
+
+  /** In both forms, and AFTER the wrapper's own `data-signals`: the bundle
+    * applies an element's attributes in order, so a binding ahead of the seed
+    * reads a signal that does not exist yet (`Cannot read properties of
+    * undefined`, the first `LiveCellClassSmokeSuite` run).
+    */
+  private def cellBindingsInto(buf: Sink, r: Resolved): Unit =
+    cellClassSlots(r).foreach { slot =>
+      val key = slot + "__bind"
+      r.bindings.get(key).orElse(r.liveBindings.get(key)).foreach { b =>
+        buf.append(' ').append(b)
+      }
+    }
+
+  private def cellClassSlots(r: Resolved): List[String] =
+    r.signalSlots.filter(_.startsWith(Dashboard.CellClassPrefix))
 
   /** The template context, read in place. Not a `java.util.Map`: mustache.java
     * resolves those through `entrySet`, so a get-only map answers every name
