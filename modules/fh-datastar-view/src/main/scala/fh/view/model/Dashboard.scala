@@ -52,12 +52,8 @@ case class SlotSource(
     case t: String => Some(Transform.CelKey(t, ExprValue.env(values)))
     case _         => None
 
-  /** Every entity a tally this slot reads can be moved by. */
-  def valueEntities: List[String] =
-    values.values.toList.flatMap {
-      case ExprValue.Count(t) => t.referencedEntities
-      case _                  => Nil
-    }
+  /** Every entity a live value this slot reads can be moved by. */
+  def valueEntities: List[String] = values.values.toList.flatMap(_.entities)
 
   def shape: SlotShape =
     query.fold(SlotShape.State(this))(q => SlotShape.Query(SlotAsk(q, stage)))
@@ -91,7 +87,8 @@ case class SlotSource(
 }
 
 /** A named input of a node's expressions (`expressionValues`): a literal the
-  * build wrote down, or a [[Predicate.Tally]] counted live.
+  * build wrote down, a [[Predicate.Tally]] counted live, or a condition decided
+  * live — `c.iff`'s, read as a `bool`.
   */
 enum ExprValue derives CanEqual:
   case Text(value: String)
@@ -100,12 +97,24 @@ enum ExprValue derives CanEqual:
   case Real(value: Double)
   case Flag(value: Boolean)
   case Count(tally: Predicate.Tally)
+  case Holds(condition: Predicate)
 
   def kind: ExprValue.Kind = this match
     case _: Text             => ExprValue.Kind.Str
     case _: Whole | _: Count => ExprValue.Kind.Int
     case _: Real             => ExprValue.Kind.Dbl
-    case _: Flag             => ExprValue.Kind.Bool
+    case _: Flag | _: Holds  => ExprValue.Kind.Bool
+
+  /** Live: what it answers moves with state, so a once-read cannot hold it. */
+  def isLive: Boolean = this match
+    case _: Count | _: Holds => true
+    case _                   => false
+
+  /** Every entity that can move it. */
+  def entities: List[String] = this match
+    case Count(t) => t.referencedEntities
+    case Holds(p) => Predicate.referencedEntities(p)
+    case _        => Nil
 
 object ExprValue:
 
@@ -122,9 +131,24 @@ object ExprValue:
     case Whole(n) => s"i:$n"
     case Real(d)  => s"d:$d"
     case Flag(b)  => s"b:$b"
-    case Count(t) =>
-      s"t:${t.candidates.mkString(",")}/" +
-        t.when.toList.sortBy(_._1).map((id, p) => s"$id=$p").mkString(";")
+    case Count(t) => s"t:${tallyKey(t)}"
+    case Holds(p) => s"p:${predicateKey(p)}"
+
+  private def tallyKey(t: Predicate.Tally): String =
+    t.candidates.mkString(",") + "/" +
+      t.when.toList
+        .sortBy(_._1)
+        .map((id, p) => s"$id=${predicateKey(p)}")
+        .mkString(";")
+
+  private def predicateKey(p: Predicate): String = p match
+    case Predicate.Cmp(prop, op, v, e) =>
+      s"cmp($prop,$op,${v.noSpaces},${e.getOrElse("")})"
+    case Predicate.And(xs)  => xs.map(predicateKey).mkString("and(", ",", ")")
+    case Predicate.Or(xs)   => xs.map(predicateKey).mkString("or(", ",", ")")
+    case Predicate.Not(x)   => s"not(${predicateKey(x)})"
+    case c: Predicate.Count =>
+      s"count(${tallyKey(c.tally)},${c.op},${c.value.noSpaces})"
 
   given Decoder[ExprValue] = Decoder.instance { c =>
     c.value.fold(
@@ -143,7 +167,10 @@ object ExprValue:
         Left(
           DecodingFailure("an expression value cannot be a list", c.history)
         ),
-      _ => c.as[Predicate.Tally].map(Count(_))
+      // A condition carries its `kind`; a tally, which is not one, does not.
+      o =>
+        if (o.contains("kind")) c.as[Predicate].map(Holds(_))
+        else c.as[Predicate.Tally].map(Count(_))
     )
   }
 
@@ -1036,15 +1063,22 @@ case class Dashboard(
             s"$nodeId: expression value '$name' is read by no expression on " +
               "this node — names are the node's own and are not inherited"
           )
-        else Nil
+        else
+          c.values(name) match
+            // A value is shared by content across nodes, so it has no subject.
+            case ExprValue.Holds(p) if Predicate.hasFreeSubject(p) =>
+              List(
+                s"$nodeId: expression value '$name' compares an entity it " +
+                  "does not name — name it with q.entity(e)"
+              )
+            case _ => Nil
       } ++ c.slots.toList.sortBy(_._1).collect {
         // The once-cache keys by what a value IS, not by what it counts now.
         case (slot, src)
-            if src.reads == Reads.Once &&
-              src.values.values.exists(_.isInstanceOf[ExprValue.Count]) =>
-          s"$nodeId: slot '$slot' reads a live count but is read " +
-            s"'${Reads.Once}' — it would show the first count forever; read " +
-            s"it '${Reads.Live}'"
+            if src.reads == Reads.Once && src.values.values.exists(_.isLive) =>
+          s"$nodeId: slot '$slot' reads a live count or condition but is " +
+            s"read '${Reads.Once}' — it would show the first count forever; " +
+            s"read it '${Reads.Live}'"
       }
 
     def varErrors(nodeId: String, vars: Map[String, String]): List[String] =

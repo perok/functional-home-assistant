@@ -37,6 +37,7 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
        |
        |import "@fh-dashboard/components.pkl" as c
        |import "@fh-dashboard/core/slot.pkl" as slotMod
+       |import "@fh-dashboard/core/predicate.pkl" as pred
        |import "@fh-dashboard/query.pkl" as q
        |import "@fh-home/dump.pkl" as dump
        |
@@ -211,6 +212,52 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
 
   private def errorsOf(body: String): List[String] =
     PklFixture.buildDashboard("expression-values", entry(body)).validate()
+
+  private def anyOn(value: String): String =
+    s"""    ((c.button("Stue", c.tap.closePopup())) {
+       |      expressionValues { ["any_on"] = $value }
+       |    }).secondary(c.expr("any_on ? 'Some on' : 'All off'"))""".stripMargin
+
+  test(
+    "a condition is a bool value, and its flip sends a frame, not the line"
+  ) {
+    val body = anyOn("q.from(lights).where(q.eq(q.stateProp, \"on\")).any()")
+    withServer(body) { ts =>
+      for {
+        html <- ts.page()
+        sig = onlySignal(html)
+        sent <- ts.sentAfter(ts.change(kitchen.entityId, "off"))
+      } yield {
+        assert(html.contains(">Some on</span>"), clue = html)
+        assert(
+          sent.contains(sig.split('.').last + "\":\"All off\""),
+          clue = sent
+        )
+        assert(!sent.contains("fh-sub"), clue = sent)
+      }
+    }
+  }
+
+  test("a condition on one named entity is a value too") {
+    val body =
+      anyOn(s"""q.entity(dump.entities.${living.dumpKey}).stateIs("on")""")
+    withServer(body) { ts =>
+      for {
+        html <- ts.page()
+        sent <- ts.sentAfter(ts.change(living.entityId, "on"))
+      } yield {
+        assert(html.contains(">All off</span>"), clue = html)
+        assert(sent.contains("\"Some on\""), clue = sent)
+      }
+    }
+  }
+
+  test("a condition comparing an entity it does not name fails the build") {
+    val errs = errorsOf(
+      anyOn("""new pred.Cmp { property = "state"; op = "eq"; value = "on" }""")
+    )
+    assert(errs.exists(_.contains("does not name")), errs)
+  }
 
   test(
     "an expression naming a value the node does not declare fails the build"

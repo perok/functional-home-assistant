@@ -18,7 +18,7 @@ import "variable.pkl" as varMod
 import "pkl:reflect"
 
 /// What one of a node's [[Node.expressionValues]] may be.
-typealias ExpressionValue = String|Int|Float|Boolean|predMod.Tally
+typealias ExpressionValue = String|Int|Float|Boolean|predMod.Tally|predMod.Predicate
 
 /// Per-node layout-cell parameters (mirrors fh.view.model.Cell): extra CSS
 /// classes the renderer puts on this node's `.fh-cell` wrapper. The class
@@ -197,8 +197,10 @@ abstract class Node extends LayoutNode {
   /// see the page's declarations.
   vars: Mapping<String, String>? = null
   /// Named values this node's expressions read as CEL variables, typed by what
-  /// they are: a literal, or a live count (`q.from(xs).where(…).count()`, an
-  /// `int`). The names are the node's own — nothing below it sees them.
+  /// they are: a literal, a live count (`q.from(xs).where(…).count()`, an
+  /// `int`), or a live condition (`….any()`, `q.entity(e).stateIs("on")` — what
+  /// `c.iff` takes, a `bool`). The names are the node's own — nothing below it
+  /// sees them.
   ///
   ///   ((c.button(f.floor_name, c.tap.lights.off(f))) {
   ///     expressionValues {
