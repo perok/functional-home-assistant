@@ -556,8 +556,9 @@ outside `#dashboard`. A repaint of the body alone left the dialog showing what i
 before the disconnect, with its nodes missing from `holds`, until some later pull
 re-sent them. So a repaint fills the host too (`Patches.repaint`), as an `inner` patch,
 which Datastar morphs: the open dialog is reconciled, not replaced. A swap's repaint
-takes the popup from the session's open set rather than the stream's `uiState`, which
-is what the stream connected with.
+takes the whole selection, the popup and every tab, from the session's open set
+(`SurfaceGraph.committedSelections`) rather than the stream's `uiState`, which is what
+the stream connected with: a tab clicked since would otherwise snap back on every edit.
 
 **Why one scalar cursor is enough despite per-client visibility.** A client may be sent nothing at
 all for a change inside a tab it is not looking at, and still have its cursor advanced past that

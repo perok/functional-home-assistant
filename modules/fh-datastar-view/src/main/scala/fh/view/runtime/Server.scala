@@ -516,7 +516,7 @@ class Server(
         Datastar.patchSignals(s"""{"${Server.HaDownSignal}":${!h}}""")
 
       control = Stream.fromQueueUnterminated(session.control)
-      reloads = reloadRepaints(session, uiState, rendererOpt)
+      reloads = reloadRepaints(session, rendererOpt)
       // Only when it differs from what the document rendered: health can move
       // between that render and this connect, and the next transition may be
       // hours away.
@@ -829,7 +829,6 @@ class Server(
     */
   private def reloadRepaints(
       session: Session,
-      uiState: Map[String, String],
       // The renderer the handler read. Seeded, not taken from the
       // subscription: this merges after the opening block and `discrete` hands
       // a late subscriber only the current value, so a swap in between would
@@ -854,16 +853,9 @@ class Server(
               IO.pure(List(Server.reloadPatch))
             case (Some(prev), Some(r)) =>
               session.open.get.flatMap { was =>
-                // The popup open NOW: `uiState` is what this stream connected
-                // with, and the popup may have closed or changed since.
-                val ui = uiState.updated(
-                  Dashboard.PopupHostId,
-                  was
-                    .find(
-                      prev.surface(_).exists(_.hostId == Dashboard.PopupHostId)
-                    )
-                    .getOrElse("")
-                )
+                // What is selected NOW, not the `uiState` this stream connected
+                // with: tab clicks and popups since have moved `open`.
+                val ui = prev.surfaces.committedSelections(was)
                 val open = r.surfaces.selectedSurfaces(ui)
                 (session.open.set(open) *>
                   (stateStore.current, live.log.get).tupled)

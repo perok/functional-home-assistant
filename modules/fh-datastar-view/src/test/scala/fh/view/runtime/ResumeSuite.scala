@@ -518,6 +518,58 @@ class ResumeSuite extends ServerHarness {
     }
   }
 
+  test("a dashboard edit repaints the tab selected now, not at connect") {
+    def twoTabs(card: String) = mixedTabsDash.copy(
+      cards = mixedTabsDash.cards.updated("card", CardDef(card, List("state"))),
+      surfaces = mixedTabsDash.surfaces + ("t1" -> Surface(
+        LayoutNode.Component(
+          "card",
+          slots = Map("state" -> SlotSource(Some("sensor.b")))
+        ),
+        bakeInto = Some("c_1"),
+        bakeAs = Some("panel"),
+        bakeIndex = Some(1)
+      ))
+    )
+    live(
+      twoTabs("<span>{{state}}</span>"),
+      Map(
+        "sensor.shared" -> es("sensor.shared", "S0"),
+        "sensor.a" -> es("sensor.a", "A0"),
+        "sensor.b" -> es("sensor.b", "B0")
+      )
+    ) { ts =>
+      for {
+        client <- ts.connect()
+        conn <- client.drain.map(
+          _.flatMap(_.data)
+            .flatMap(s =>
+              s""""${Server.ConnSignal}":"([^"]+)"""".r.findFirstMatchIn(s)
+            )
+            .map(_.group(1))
+            .head
+        )
+        _ <- ts.post(
+          s"sse/surface/${ts.slug}/open/t1",
+          body = s"""{"${Server.ConnSignal}":"$conn"}"""
+        )
+        _ <- client.arrived *> client.drain
+        slug <- ts.server.liveSlug(ts.slug)
+        _ <- slug.renderer.set(
+          Server.RendererState.Ready(
+            Renderer.create(twoTabs("<em>{{state}}</em>"))
+          )
+        )
+        _ <- client.arrived
+        sent <- client.drain.map(_.flatMap(_.data).mkString("\n"))
+      } yield {
+        assert(sent.contains(BodyRepaint), clue = sent)
+        assert(sent.contains("<em>B0</em>"), clue = sent)
+        assert(!sent.contains("<em>A0</em>"), clue = sent)
+      }
+    }
+  }
+
   test("the popup selection is committed as it moves: open, switch, close") {
     // The client asks; the swap commits `ui_popups` (ADR 0025), so each move
     // lands in order and the last leaves nothing open.
