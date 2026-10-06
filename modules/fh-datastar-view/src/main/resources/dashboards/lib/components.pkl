@@ -34,6 +34,7 @@ import "layout.pkl" as layoutMod
 import "components/text.pkl" as textMod
 import "components/entity.pkl" as entityMod
 import "components/control.pkl" as control
+import "components/base/button.pkl" as buttonMod
 import "components/slider.pkl" as sliderMod
 import "components/surface.pkl" as surfaces
 import "components/history.pkl" as historyMod
@@ -94,9 +95,9 @@ typealias Label = textMod.Label
 typealias Tone = coreTextMod.Tone
 typealias EntityCard = entityMod.EntityCard
 typealias EntityInfo = moreinfo.EntityInfo
-typealias Button = control.Button
+typealias Button = buttonMod.Button
 typealias EntityButton = control.EntityButton
-typealias Pill = control.Pill
+typealias Pill = buttonMod.Pill
 typealias Toggle = control.Toggle
 typealias Tabs = surfaces.Tabs
 typealias If = surfaces.If
@@ -148,14 +149,14 @@ function entityInfo(e: hass.Entity): moreinfo.EntityInfo = moreinfo.entityInfo(e
 function toggle(e: hass.Entity): control.Toggle = control.toggle(e)
 /// A button that knows only its label and its tap:
 /// `c.button("Close", c.tap.closePopup())`, `c.button("Kjøkken", c.tap.toggle(l))`.
-function button(l: String, a: tapMod.TapAction): control.Button = control.button(l, a)
-/// A button about an entity — its name, its domain's tap, `.lit(true)` while it
-/// is on: `c.entityButton(l)`.
+function button(l: String, a: tapMod.TapAction): buttonMod.Button = buttonMod.button(l, a)
+/// A button about an entity — its name and its domain's tap, tinted while it is
+/// on with `.active(c.isOn(l))`: `c.entityButton(l)`.
 function entityButton(e: hass.Entity): control.EntityButton = control.entityButton(e)
 /// The compact form of the same: `c.pill("Underetasje", c.tap.navigate("under"))`.
-function pill(l: String, a: tapMod.TapAction): control.Pill = control.pill(l, a)
+function pill(l: String, a: tapMod.TapAction): buttonMod.Pill = buttonMod.pill(l, a)
 /// A round icon button — a glyph, no label: `c.iconButton("mdi:power", c.tap.toggle(l))`.
-function iconButton(i: String, a: tapMod.TapAction): control.Button = control.iconButton(i, a)
+function iconButton(i: String, a: tapMod.TapAction): buttonMod.Button = buttonMod.iconButton(i, a)
 /// Value slider — an entity for its domain's default axis, or a capability
 /// group for that axis (`c.slider(l.colourTemp)`).
 function slider(a: sliderMod.SlideAxis): sliderMod.Slider = sliderMod.slider(a)
@@ -188,6 +189,9 @@ function exprOf(eo: hass.Entity, s: String): slotMod.Expr = slotMod.exprOf(eo, s
 /// Whether `e`'s state is one of `states`, live — what a button's `disabled`
 /// and a node's `classWhen` take: `c.button(…).disabled(c.stateIn(l, List("open")))`.
 function stateIn(e: hass.Entity, states: List<String>): slotMod.Slot = slotMod.stateIn(e, states)
+/// Whether `e` is `on`, live — what a button's `active` takes most often:
+/// `c.entityButton(l).active(c.isOn(l))`.
+function isOn(e: hass.Entity): slotMod.Slot = slotMod.stateIn(e, List("on"))
 /// What `c.tap.moreInfo(e)`'s popup holds, for composing it somewhere else.
 function moreInfoBody(e: hass.Entity): layoutMod.Column = moreinfo.moreInfoBody(e)
 
@@ -213,6 +217,7 @@ const modules: List<Module> = List(
   layoutMod,
   textMod,
   entityMod,
+  buttonMod,
   control,
   sliderMod,
   surfaces,

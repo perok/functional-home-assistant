@@ -41,9 +41,22 @@ class Cell {
 /// `c.entityCard(e).tapAction(c.tap.toggle(e)).columns(3)`.
 abstract class LayoutNode {
   kind: String
-  /// Layout-cell classes for this node's wrapper. Null (dropped from the wire
-  /// JSON) until a layout builder adds one.
-  cell: Cell? = null
+  /// The static classes the builders below add, and the live ones
+  /// ([[classWhen]]). INPUTS that each builder amends, so the order an author
+  /// chains them in does not matter: a card's own live class (`Button.active`)
+  /// and an author's `.columns(3)` both land, whichever is written first.
+  hidden cellClasses: Listing<String> = new {}
+  hidden liveClasses: Mapping<String, slotMod.Slot> = new {}
+  /// What the renderer puts on this node's wrapper, derived from
+  /// [[cellClasses]] and [[liveClasses]]; null (dropped from the wire JSON)
+  /// while both are empty. Setting it directly is the escape hatch, and it
+  /// replaces whatever the builders would have added.
+  cell: Cell? =
+    if (cellClasses.isEmpty && liveClasses.isEmpty) null
+    else new Cell {
+      classes = cellClasses
+      classWhen = if (liveClasses.isEmpty) null else liveClasses
+    }
   /// This cell spans `n` of the surrounding grid's 12 columns (HA
   /// `grid_options.columns`). No effect outside a [[Grid]]/group.
   function columns(n: Int(this >= 1 && this <= 12)): LayoutNode = addCellClass("fh-cols-\(n)")
@@ -75,18 +88,8 @@ abstract class LayoutNode {
   /// shares one signal with every other slot reading the same thing.
   function classWhen(cls: String, reading: slotMod.Slot): LayoutNode =
     let (self = this)
-    let (base = self.cell ?? new Cell {})
-      (self) {
-        cell = (base) {
-          classWhen = new Mapping<String, slotMod.Slot> {
-            for (k, v in base.classWhen ?? new Mapping<String, slotMod.Slot> {}) {
-              when (k != cls) { [k] = v }
-            }
-            [cls] = (reading) { signal = slotMod.asClass(cls) }
-          }
-        }
-      }
-  // Shared appender: replace `cell` with a copy carrying one more class.
+      (self) { liveClasses { [cls] = (reading) { signal = slotMod.asClass(cls) } } }
+  // Shared appender: one more static class.
   //
   // ONE PER NODE, per FAMILY: adding an `fh-cols-*` class DROPS any it already
   // had, and the same for `fh-text-*`. Both `columns(n)` and `fullWidth()` emit
@@ -97,14 +100,12 @@ abstract class LayoutNode {
   function addCellClass(cls: String): LayoutNode =
     let (self = this)
     let (family = List("fh-cols-", "fh-text-").findOrNull((p) -> cls.startsWith(p)))
-    let (had = if (self.cell != null) self.cell!!.classes.toList() else List())
+    let (had = self.cellClasses.toList())
     let (kept = if (family != null) had.filter((c) -> !c.startsWith(family)) else had)
       (self) {
-        cell = (self.cell ?? new Cell {}) {
-          classes = new Listing<String> {
-            for (c in kept) { c }
-            cls
-          }
+        cellClasses = new Listing<String> {
+          for (c in kept) { c }
+          cls
         }
       }
 }

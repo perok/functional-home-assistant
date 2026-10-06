@@ -10,7 +10,7 @@ module components.light
 import "../core/tap.pkl" as tapMod
 import "../hass.pkl"
 import "../layout.pkl" as layout
-import "control.pkl" as control
+import "base/button.pkl" as buttonMod
 import "entity.pkl" as entityMod
 import "slider.pkl" as sliderMod
 
@@ -26,7 +26,7 @@ import "slider.pkl" as sliderMod
 function effectPills(fx: hass.Effects): layout.Row = new layout.Row {
   children {
     for (name in fx.list) {
-      control.pill(name, tapMod.call("light/turn_on", fx.owner).with("effect", name))
+      buttonMod.pill(name, tapMod.call("light/turn_on", fx.owner).with("effect", name))
     }
   }
 }
