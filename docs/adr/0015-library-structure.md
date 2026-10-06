@@ -55,7 +55,7 @@ enforces that. `components/` itself is the HA layer.
 
 An HA component is a THIN subclass of a base one: it holds `entity`, and assigns
 the base's inputs from it (`label`, `tapAction`, `subject`, an entity card's
-`title`/`reading`/`detail`/`glyph`, and a slider's `position`/`fill`/`commit`
+`title`/`reading`/`glyph`, and a slider's `position`/`fill`/`commit`
 and the rest). Its own inputs keep the meaning they have
 relative to the entity — `value("brightness")` names an attribute — which is why
 the base's are named differently. It declares no card,
@@ -64,6 +64,13 @@ built by hand, and `components.test.pkl` checks that equality. A subclass rather
 than a function, because a Pkl function has no default arguments and its result
 forgets the entity. Every builder after it (`c.entityCard(l).value("brightness")`)
 would then have to name the entity again.
+
+`secondary` is the one input both tiers share, under HA's own name for the line
+below a card's main text. It is the BASE's — a literal, an `Expr` or a reading
+— and the HA cards inherit it rather than shadowing it, so a String is the text
+on every card and an attribute is asked for by name with `c.attr(name)`. One
+word meaning one thing beat keeping the HA cards' shorthand, under which a bare
+String was an attribute name on an entity card and the text on a button.
 
 `subject` is the base's one concession: an optional entity id, placed as the
 subject slot, which an entity-less reading (`c.expr(…)`) falls back to. Only the

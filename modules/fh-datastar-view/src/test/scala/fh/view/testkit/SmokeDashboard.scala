@@ -216,7 +216,7 @@ object SmokeDashboard {
          |
          |card = (c.column) {
          |  children {
-         |    c.entitySlider(dump.entities.${switchLight.dumpKey}).secondary("friendly_name")
+         |    c.entitySlider(dump.entities.${switchLight.dumpKey}).secondary(c.attr("friendly_name"))
          |  }
          |}
          |""".stripMargin,

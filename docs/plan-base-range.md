@@ -30,7 +30,7 @@ and `c.Slider` is the base.
 ```pkl
 open class Slider extends nodes.Node {
   hidden title: String|slotMod.Slot
-  hidden detail: (String|slotMod.Slot)? = null
+  hidden secondary: slotMod.Secondary? = null      // shared with the HA layer (ADR 0015)
   hidden glyph: String? = null                     // the badge's MDI class
   hidden rangeMin: Number
   hidden rangeMax: Number
@@ -50,9 +50,10 @@ open class Slider extends nodes.Node {
 }
 ```
 
-The inputs are named as `Tile`'s are, for what they are on the card (`title`, `detail`,
-`glyph`, `reading`), so `EntitySlider` keeps its entity-relative `label`, `secondary`,
-`icon` and `readout`, and `min`/`max` stay its author overrides of the domain's range.
+The inputs are named as `Tile`'s are, for what they are on the card (`title`,
+`glyph`, `reading`), so `EntitySlider` keeps its entity-relative `label`, `icon` and
+`readout`, and `min`/`max` stay its author overrides of the domain's range.
+`secondary` is the exception both tiers share, and `EntitySlider` inherits it.
 `leadingActions` is how the HA `tapAction` shorthand stays first without an author's
 `actions` replacing it.
 

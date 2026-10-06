@@ -621,21 +621,33 @@ facts {
       .slots["entity_id"] == "light.kitchen"
   }
 
+  ["`secondary` means one thing on every card: a String is the text"] {
+    // An attribute is asked for by name, never inferred from a bare String —
+    // which is what it meant on an entity card before the base cards took it.
+    c.entityCard(kitchen).secondary("device_class").slots["secondary"] == "device_class"
+    c.button("x", c.tap.closePopup()).secondary("device_class").slots["secondary"] == "device_class"
+    c.entitySlider(kitchen).secondary("device_class").textSlots["secondary"] == "device_class"
+
+    local byAttr = c.entityCard(kitchen).secondary(c.attr("device_class")).slots["secondary"] as slotMod.Slot
+    byAttr.transform == simpleMod.attr("device_class")
+    byAttr.entityId == null
+  }
+
   ["a button takes a second line, and one without it is untouched"] {
     local plain = c.button("Stue", c.tap.closePopup())
     !plain.slots.containsKey("secondary")
 
-    local literal = plain.detail("Turns off 4 lights")
+    local literal = plain.secondary("Turns off 4 lights")
     literal.slots["secondary"] == "Turns off 4 lights"
     literal.slots["label"] == "Stue"
 
     // A `c.expr` is a live reading of the subject, like a label's.
-    local live = c.entityButton(kitchen).detail(c.expr("state"))
+    local live = c.entityButton(kitchen).secondary(c.expr("state"))
     (live.slots["secondary"] as slotMod.Slot).transform == "state"
     live.slots["entity_id"] == kitchen.entity_id
 
     // A glyph with a second line is not a bare icon, so it stays rectangular.
-    local glyphed = c.iconButton("mdi:power", c.tap.closePopup()).detail("Off")
+    local glyphed = c.iconButton("mdi:power", c.tap.closePopup()).secondary("Off")
     !glyphed.slots.containsKey("round")
 
     // Both arms place it, under the same section that opens the column.
