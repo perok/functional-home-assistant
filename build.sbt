@@ -226,7 +226,7 @@ lazy val `ha-api` = project // todo add api layer here as well
     ),
     libraryDependencies ++= Seq(
       "org.scalameta" %% "munit" % "1.3.6" % Test,
-      "org.typelevel" %% "munit-cats-effect" % "2.2.0" % Test,
+      "org.typelevel" %% "munit-cats-effect" % "2.2.1" % Test,
       // Test-only: without a binding on the classpath slf4j prints two
       // "Failed to load class ... StaticLoggerBinder" lines at the top of
       // every run of this module's suites. The app's binding is not visible
@@ -553,7 +553,7 @@ lazy val `fh-datastar-view` = project
       "org.scalameta" %% "munit" % "1.3.6" % Test,
       // Lets tests return IO[Unit] directly (no unsafeRunSync / global runtime)
       // and adds IO-aware assertions (assertIO, IO#assertEquals).
-      "org.typelevel" %% "munit-cats-effect" % "2.2.0" % Test,
+      "org.typelevel" %% "munit-cats-effect" % "2.2.1" % Test,
       "org.typelevel" %% "log4cats-testing" % log4catsVersion % Test,
       // Property-based testing for the digest biconditional (ADR 0029):
       // equal input digest ⟺ equal patch bytes must hold over GENERATED node
