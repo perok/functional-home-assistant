@@ -62,10 +62,17 @@ Names starting `__` become reserved, so an author's value cannot collide with a 
 
 ### 3. The build checks a yes/no result is a bool
 
-Nothing checks a CEL program's result type today. `classWhen("x", c.expr("on"))` builds, and then
-an int decides a class. A slot bound as a class or a boolean attribute (`SignalBind.Class`, `Attr`,
-a live cell class) must compile to `bool`. `dyn` is still accepted, because an entity read such as
-`state` is `dyn` and refusing it would refuse `state == 'on'`'s neighbours.
+Nothing checks a slot's result type today. `classWhen("x", c.expr("on"))` builds, and then an int
+decides a class. A slot bound as a class or a boolean attribute (`SignalBind.Class`, `Attr`, a live
+cell class) must produce a bool, checked per tier:
+
+- **CEL** compiles to `bool`. `dyn` is still accepted, because an entity read such as `state` is
+  `dyn` and refusing it would refuse `state == 'on'`'s neighbours.
+- **`Simple`** is checked exactly, since every shape's result type is known at build time. A
+  `match` whose cases are all `Boolean` (what `c.isOn`/`c.stateIn` build) is a bool. Every other
+  shape (`state`, `attr`, `percent`, `fill`, …) is a string and is refused.
+
+`cssProperty` (4) is the converse: it must produce a string, so a boolean `match` is refused there.
 
 ### 4. A live CSS custom property on any node
 
@@ -76,9 +83,17 @@ wrapper's seed in both forms (the ordering `cellBindingsInto` already holds for 
 custom properties (`--…`): a plain property on the cell would fight the theme, whose framework
 writes `!important` utilities.
 
-**Every reading form works, the fast tier included.** The binding kind and the tier are
-independent, so `.cssProperty("--fh-fill", simpleMod.fill("brightness", 0, 255))` stays on the fast
-tier. Only a reading of NAMED VALUES is CEL-only. `Simple` is a static, total per-entity lookup by
+### Every input takes every reading form, the fast tier included
+
+The binding kind and the tier are independent, so each input here takes whichever form fits:
+
+| | `Simple` (fast tier) | CEL | condition |
+|---|---|---|---|
+| `active` / `disabled` / `classWhen` | a boolean `match`: `c.isOn(l)`, `c.stateIn(l, …)` | `c.expr("on > 2")` | `lit.any()` |
+| `cssProperty` | `simpleMod.fill("brightness", 0, 255)`, `percent`, `attr`, … | `c.expr("string(on * 100 / total) + '%'")` | — (not a string) |
+| `secondary` and other text | as today | as today | through a named value (1) |
+
+Only a reading of NAMED VALUES is CEL-only. `Simple` is a static, total per-entity lookup by
 definition (ADR 0028), and a tally is neither. A `Simple` shape over values (a percent of two counts)
 needs its own totality rule (`total = 0`), and waits until something wants it.
 
@@ -103,18 +118,21 @@ slider's CSS reads.
 1. Commit this plan, opening the PR.
 2. `ExprValue.Holds` + `ExpressionValue` accepting a condition; `ExpressionValuesSuite`: a condition
    value read in text, a flip sending one frame.
-3. Bool result check for class/attribute slots (build refusals in `ExpressionValuesSuite`).
+3. The result-type check for class/attribute slots and for `cssProperty`, both tiers (build
+   refusals: a CEL int, a `Simple` string shape on a class, a boolean `match` on a property).
 4. The sugar on `active`/`disabled`/`classWhen`, and the `__` reservation. Tests are the floor
    button above, a condition shared by two nodes sharing one signal, and a collision refusal.
-5. `cssProperty`: renderer cell binding, validation (`--` only; it must be live), a
+5. `disabled` on the base tile and the base slider, ORed with the tap's own refusal as the
+   button's is (`attrWhenEither`). The tile gets `fh-disabled` and no tap. The slider's input is
+   disabled and its commit refuses. The HA layer passes it through (thin subclasses).
+6. `cssProperty`: renderer cell binding, validation (`--` only; it must be live), a
    `LiveCellClassSmokeSuite`-style smoke test that a patch moves the property.
-6. Docs: ADR 0034 rewritten (conditions as values, the yes/no inputs), terminology (**reading**
-   widened past "one entity", **condition**, **live cell property**), the arch doc for the cell
-   bindings, the module CLAUDE.md. Delete this plan.
+7. Docs: ADR 0034 rewritten (conditions as values, the yes/no inputs), ADR 0015 (`disabled` on
+   every base control), terminology (**reading** widened past "one entity", **condition**, **live
+   cell property**), the arch doc for the cell bindings, the module CLAUDE.md. Delete this plan.
 
-## Open
+## Decided
 
-- The name `cssProperty`. `terminology.md` already warns that "vars" means three things here, which
-  rules out `cssVar`.
-- `disabled` exists on the base button only. Do the tile and slider get it now, or when a dashboard
-  needs it?
+- The name is `cssProperty`. `cssVar` is out because `terminology.md` already warns that "vars"
+  means three things here.
+- The tile and the slider get `disabled` now, not when a dashboard first needs it.
