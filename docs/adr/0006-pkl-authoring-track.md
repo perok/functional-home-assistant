@@ -244,8 +244,8 @@ slot key remains `"class"`.
   for the caller to choose.
 - Generated-code safety in `PklDump`: every identifier backticked, strings
   escaped (backslash first also neutralizes `\(` interpolation), null
-  `friendly_name` omitted, floor slugs guarded against the module's own
-  `entities`/`areas` names.
+  `friendly_name` omitted, a namespace member slugged `all` renamed
+  `all_<kind>` so it cannot shadow the namespace's own `all` (ADR 0013).
 
 ## Pkl authoring gotchas (spike- and implementation-verified)
 

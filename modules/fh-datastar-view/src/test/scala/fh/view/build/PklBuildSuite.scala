@@ -511,8 +511,8 @@ class PklBuildSuite extends munit.FunSuite {
         |import "@fh-home/dump.pkl" as dump
         |
         |areaId = dump.areas.`new`.area_id
-        |floorName = dump.`3rd_floor`.floor_name
-        |viaFloor = dump.`3rd_floor`.`new`.light_lamp.entity_id
+        |floorName = dump.floors.`3rd_floor`.floor_name
+        |viaFloor = dump.floors.`3rd_floor`.`new`.light_lamp.entity_id
         |""".stripMargin
     )
     val result = SourceEval.eval(tmp, "probe.pkl")
@@ -537,7 +537,7 @@ class PklBuildSuite extends munit.FunSuite {
         |node = (c.column) {
         |  children {
         |    c.button("Off", c.tap.lights.off(dump.areas.kjokken))
-        |    c.button("Floor", c.tap.call("switch/turn_off", dump.ground_floor))
+        |    c.button("Floor", c.tap.call("switch/turn_off", dump.floors.ground_floor))
         |    c.button("Toggle", c.tap.toggle(dump.entities.light_kitchen))
         |    c.entityCard(dump.entities.light_kitchen)
         |      .tapAction(c.tap.call("light/turn_on", dump.entities.light_kitchen).with("effect", "colorloop"))
@@ -578,7 +578,7 @@ class PklBuildSuite extends munit.FunSuite {
         |import "@fh-home/dump.pkl" as dump
         |
         |flat = dump.entities.light_kitchen.entity_id
-        |viaFloor = dump.ground_floor.kjokken.light_kitchen.entity_id
+        |viaFloor = dump.floors.ground_floor.kjokken.light_kitchen.entity_id
         |areaLightCount = hass.lights(dump.areas.kjokken.all).length
         |noArea = dump.entities.switch_garage.entity_id
         |""".stripMargin
@@ -591,6 +591,59 @@ class PklBuildSuite extends munit.FunSuite {
     assertEquals(c.get[String]("viaFloor").toOption, Some("light.kitchen"))
     assertEquals(c.get[Int]("areaLightCount").toOption, Some(1))
     assertEquals(c.get[String]("noArea").toOption, Some("switch.garage"))
+  }
+
+  test("every namespace answers `all`: floors by level, the rest by name") {
+    val house = io.circe.parser
+      .parse("""
+        {
+          "areas": {
+            "all": { "area_id": "all_1", "area_name": "All" },
+            "bad": { "area_id": "bad_1", "area_name": "Bad" }
+          },
+          "floors": {
+            "loft": { "floor_id": "l", "floor_name": "Loft", "level": 2 },
+            "shed": { "floor_id": "s", "floor_name": "Shed" },
+            "cellar": { "floor_id": "c", "floor_name": "Cellar", "level": -1 },
+            "ground": { "floor_id": "g", "floor_name": "Ground", "level": 0 }
+          },
+          "devices": { "hub": { "device_id": "d1", "device_name": "Hub" } },
+          "users": { "peri": { "user_id": "u1", "user_name": "Peri" } },
+          "entities": {}
+        }
+      """)
+      .toOption
+      .get
+    val tmp = os.temp.dir()
+    copyLib(tmp)
+    writeDump(tmp, PklDump.render(house))
+    os.write(
+      tmp / "probe.pkl",
+      """module probe
+        |
+        |import "@fh-home/dump.pkl" as dump
+        |
+        |floors = dump.floors.all.map((f) -> f.floor_id)
+        |areas = dump.areas.all.map((a) -> a.area_id)
+        |renamed = dump.areas.all_area.area_id
+        |devices = dump.devices.all.map((d) -> d.device_id)
+        |users = dump.users.all.map((u) -> u.user_id)
+        |""".stripMargin
+    )
+    val result = SourceEval.eval(tmp, "probe.pkl")
+    assert(result.isRight, clue = result)
+    val c = result.toOption.get.value.hcursor
+    assertEquals(
+      c.get[List[String]]("floors").toOption,
+      Some(List("c", "g", "l", "s"))
+    )
+    assertEquals(
+      c.get[List[String]]("areas").toOption,
+      Some(List("all_1", "bad_1"))
+    )
+    assertEquals(c.get[String]("renamed").toOption, Some("all_1"))
+    assertEquals(c.get[List[String]]("devices").toOption, Some(List("d1")))
+    assertEquals(c.get[List[String]]("users").toOption, Some(List("u1")))
   }
 
   test("an entity hidden in HA is off every default list, and still named") {
@@ -615,7 +668,7 @@ class PklBuildSuite extends munit.FunSuite {
         |
         |house = dump.lights.map((e) -> e.entity_id)
         |room = hass.lights(dump.areas.kjokken.all).length
-        |floor = hass.lights(dump.ground_floor.all).length
+        |floor = hass.lights(dump.floors.ground_floor.all).length
         |withHidden = hass.lights(dump.allWithHidden).length
         |byName = dump.entities.light_stashed.entity_id
         |""".stripMargin
@@ -1912,7 +1965,7 @@ class PklBuildSuite extends munit.FunSuite {
         |import "@fh-dashboard/components.pkl" as c
         |import "@fh-home/dump.pkl" as dump
         |
-        |node = c.recipes.floorView(dump.over)
+        |node = c.recipes.floorView(dump.floors.over)
         |""".stripMargin
     )
 
