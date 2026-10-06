@@ -27,7 +27,6 @@ function effectPills(fx: hass.Effects): layout.Row = new layout.Row {
   children {
     for (name in fx.list) {
       control.pill(name, tapMod.call("light/turn_on", fx.owner).with("effect", name))
-        .entity(fx.owner)
     }
   }
 }

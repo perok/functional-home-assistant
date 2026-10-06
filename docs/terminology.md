@@ -81,8 +81,10 @@ written where the tap is and the build lifts it into the registry. It cannot be 
 derived from the owning node, and the `@@NODE_ID@@` token resolves only to a node's OWN id, so no
 second tap can name it. Sharing means registering it and using `openPopup("detail")`.
 
-**Tap / tap action** — what a click does, as a value rather than a string: a service call, a
-navigation, opening a popup. ADR 0016, 0024.
+**Tap / tap action** — what a click does, as a value rather than a string: a service call on a
+**target** (an entity, an area or a floor), a navigation, opening or closing a popup. A tap names its
+own target and never borrows the card's subject entity, so one card may show an entity and act on
+another. ADR 0016, 0023, 0024.
 
 **Guard** — the attribute on a tappable element that refuses a second click while the first is still
 in flight. The point of the busy machinery; the spinner is decoration. ADR 0019.

@@ -50,6 +50,12 @@ which made a tap mean different things on different cards and made a basic
 button carry an entity so a tap could borrow it. It is also what lets the server
 allow only the exact calls a dashboard declares (ADR 0023).
 
+So the base `c.button` knows nothing but its label, glyph and tap, and a button
+ABOUT an entity is one layer up: `c.entityButton(e)` — named after it, its
+domain's tap by default, `lit` while it is on, `inertWhile` its states — on the
+same card (issue #329's split between a baseline component and one tied to a
+domain; a device component would follow the same pattern).
+
 The verbs are HA's `tap_action` variants, each taking its target, with no
 `Tap` suffix because the namespace already says it: `c.tap.toggle(e)`,
 `c.tap.default(e)`, `c.tap.moreInfo(e)`, `c.tap.call(service, target)` (with
@@ -171,8 +177,10 @@ and a Pkl fact holds that line.
 `action`, a separate derived `tap` did the work, and the split was half of why
 the naming read badly. There is now one `tapAction` property. Since the factories
 require an action this only bit in the amend form, where `(c.button) { label =
-"x" }` posted `homeassistant/toggle` with an *empty* entity id. They now derive
-from their entity where they have one and `throw` where they do not. A button is
+"x" }` posted `homeassistant/toggle` with an *empty* entity id. A `c.button`
+or `c.pill` knows no entity, so it takes an action or `throw`s; a card ABOUT an
+entity — `c.entityButton(e)`, `c.toggle(e)`, the entity card — derives one from
+its domain, and throws where a toggle's domain has none. A button is
 defined by what pressing it does; not knowing that is not a state it should be
 able to reach. This is the same "make the illegal state unrepresentable" move as
 `Dashboard.Validated`, at the authoring layer.

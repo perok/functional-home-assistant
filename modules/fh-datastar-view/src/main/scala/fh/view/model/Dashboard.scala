@@ -622,9 +622,10 @@ case class Dashboard(
   lazy val cardCss: String =
     cards.toList.sortBy(_._1).map(_._2.css).filter(_.nonEmpty).mkString("\n")
 
-  /** Every entity this dashboard can ever address — the action bound (issue
-    * #89, ADR 0023). Static and sound: a set's candidate list is fixed at build
-    * time (ADR 0003).
+  /** Every entity this dashboard can ever address — what a viewer's variable
+    * value may make a query read (ADR 0023). Static and sound: a set's
+    * candidate list is fixed at build time (ADR 0003). A tap is bounded by
+    * [[calls]] instead.
     */
   lazy val referencedEntities: Set[String] = {
     def fromSlots(

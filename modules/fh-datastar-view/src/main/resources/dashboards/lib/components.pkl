@@ -95,6 +95,7 @@ typealias Tone = coreTextMod.Tone
 typealias EntityCard = entityMod.EntityCard
 typealias EntityInfo = moreinfo.EntityInfo
 typealias Button = control.Button
+typealias EntityButton = control.EntityButton
 typealias Pill = control.Pill
 typealias Toggle = control.Toggle
 typealias Tabs = surfaces.Tabs
@@ -145,8 +146,12 @@ function entityCard(e: hass.Entity): entityMod.EntityCard = entityMod.entityCard
 function entityInfo(e: hass.Entity): moreinfo.EntityInfo = moreinfo.entityInfo(e)
 /// On/off control, styled as a switch.
 function toggle(e: hass.Entity): control.Toggle = control.toggle(e)
-/// A service/navigate button: `c.button("Close", c.tap.closePopup())`.
+/// A button that knows only its label and its tap:
+/// `c.button("Close", c.tap.closePopup())`, `c.button("Kjøkken", c.tap.toggle(l))`.
 function button(l: String, a: tapMod.TapAction): control.Button = control.button(l, a)
+/// A button about an entity — its name, its domain's tap, `.lit(true)` while it
+/// is on: `c.entityButton(l)`.
+function entityButton(e: hass.Entity): control.EntityButton = control.entityButton(e)
 /// The compact form of the same: `c.pill("Underetasje", c.tap.navigate("under"))`.
 function pill(l: String, a: tapMod.TapAction): control.Pill = control.pill(l, a)
 /// A round icon button — a glyph, no label: `c.iconButton("mdi:power", c.tap.toggle(l))`.
@@ -158,9 +163,9 @@ function slider(a: sliderMod.SlideAxis): sliderMod.Slider = sliderMod.slider(a)
 /// bar where the appliance also reports a programme length.
 function progress(remaining: hass.SensorEntity): progressMod.ProgressCard =
   progressMod.progress(remaining)
-/// One button for a slider's head — a round [[iconButton]] tinted while its
+/// One button for a slider's head — a round [[entityButton]] tinted while its
 /// entity is on. See [[Slider.actions]].
-function sliderAction(e: hass.Entity, t: tapMod.TapAction): control.Button =
+function sliderAction(e: hass.Entity, t: tapMod.TapAction): control.EntityButton =
   sliderMod.sliderAction(e, t)
 /// A chart of a sensor's last 24 hours, drawn on the server — `.over("7d")`
 /// for any other window. Numeric sensors only; ask `e.isNumeric` first where

@@ -49,7 +49,7 @@ object SmokeDashboard {
        |    c.title("Smoke House")
        |    c.entityCard(dump.entities.${HouseFixture.outsideTemp.dumpKey})
        |    c.entityCard(dump.entities.${HouseFixture.kitchenLight.dumpKey}).tapAction(c.tap.openPopup("detail"))
-       |    c.button("Toggle Kitchen", c.tap.call("light/toggle", dump.entities.${HouseFixture.kitchenLight.dumpKey})).entity(dump.entities.${HouseFixture.kitchenLight.dumpKey})
+       |    c.button("Toggle Kitchen", c.tap.call("light/toggle", dump.entities.${HouseFixture.kitchenLight.dumpKey}))
        |    c.slider(dump.entities.${HouseFixture.kitchenLight.dumpKey})
        |    c.lock.controls(dump.entities.${HouseFixture.frontLock.dumpKey})
        |    (c.tabs) {

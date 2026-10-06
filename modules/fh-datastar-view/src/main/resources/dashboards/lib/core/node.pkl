@@ -280,6 +280,14 @@ const local function cardNameOf(clsName: String, cls: reflect.Class): String =
     if (v is String) v
     else throw("card class \(clsName) must default `card` to a literal card name")
 
+/// A class that extends a card class without naming a card of its own IS that
+/// card (`EntityButton` is a `button`), so it adds nothing to the registry —
+/// registering it would claim the same name twice.
+const local function inheritsCard(cls: reflect.Class): Boolean =
+  !cls.properties.containsKey("card")
+    && cls.superclass != null
+    && cls.superclass!!.properties.containsKey("card")
+
 const local function cardDefOf(clsName: String, cls: reflect.Class): CardDef =
   let (v = cls.properties["cardDef"].defaultValue)
     if (v is CardDef) v
@@ -311,7 +319,8 @@ function cardsWith(
 ): Mapping<String, CardDef> = new {
   for (m in mods) {
     for (clsName, cls in reflect.Module(m).classes) {
-      when (cls.isSubclassOf(nodeClass) && cls != nodeClass && !cls.modifiers.contains("abstract")) {
+      when (cls.isSubclassOf(nodeClass) && cls != nodeClass && !cls.modifiers.contains("abstract")
+        && !inheritsCard(cls)) {
         [cardNameOf(clsName, cls)] = injectClasses(cardDefOf(clsName, cls), classes)
       }
     }
