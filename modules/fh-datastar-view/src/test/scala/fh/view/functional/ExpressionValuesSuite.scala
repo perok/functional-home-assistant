@@ -434,4 +434,61 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
       scala.util.Try(errorsOf(body)).failed.map(_.getMessage).getOrElse("")
     assert(err.contains("""!startsWith("__")"""), clue = err)
   }
+
+  private val noneOn =
+    """q.from(lights).where(q.eq(q.stateProp, "on")).none()"""
+
+  // The card's own reason, ORed after the tap's in the refusal guard.
+  private def conditionSignal(html: String): String =
+    """\|\| \$([A-Za-z0-9_.]+) \? '' :""".r
+      .findFirstMatchIn(html)
+      .map(_.group(1))
+      .getOrElse(fail("no second refusal reason", clues(html)))
+
+  test("a disabled tile wears fh-disabled and refuses its tap while it holds") {
+    val body =
+      s"    c.entityCard(dump.entities.${kitchen.dumpKey}).disabled($noneOn)"
+    withServer(body) { ts =>
+      for {
+        html <- ts.page()
+        sig = conditionSignal(html)
+        sent <- ts.sentAfter(ts.change(kitchen.entityId, "off"))
+      } yield {
+        assert(
+          s"""data-class:fh-disabled="[^"]*\\$$${sig.replace(".", "\\.")}""".r
+            .findFirstIn(html)
+            .isDefined,
+          clue = html
+        )
+        assert(
+          s"""data-on:click="[^"]*\\$$${sig.replace(".", "\\.")} \\? '' :""".r
+            .findFirstIn(html)
+            .isDefined,
+          clue = html
+        )
+        assert(sent.contains(s"\"${leaf(sig)}\":true"), clue = sent)
+      }
+    }
+  }
+
+  test("a disabled slider disables its range and guards its commit") {
+    val body =
+      s"    c.entitySlider(dump.entities.${kitchen.dumpKey}).disabled($noneOn)"
+    withServer(body)(_.page()).map { html =>
+      val sig = conditionSignal(html).replace(".", "\\.")
+      assert(
+        // Lazy, not `[^>]*`: the input's own `data-effect` holds a `>`.
+        s"""(?s)<input type="range".*?data-attr:disabled="[^"]*\\$$$sig""".r
+          .findFirstIn(html)
+          .isDefined,
+        clue = html
+      )
+      assert(
+        s"""data-on:change="[^"]*\\$$$sig \\? '' :""".r
+          .findFirstIn(html)
+          .isDefined,
+        clue = html
+      )
+    }
+  }
 }

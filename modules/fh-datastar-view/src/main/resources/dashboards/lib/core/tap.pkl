@@ -159,42 +159,62 @@ const noSignals = #"{filterSignals:{exclude:'.*'}}"#
 const function inFlightClass(sig: String): String =
   #"data-class:fh-disabled="$\#(sig)" data-class:fh-loading="$\#(sig)""#
 
+// ---- refusal ---------------------------------------------------------------
+//
+// A node REFUSES while its tap does (`tapDisabled`, [[tapDisabledSlot]]) OR its
+// card says so (`disabled`, the boolean slot a card fills from its own input —
+// `nodes.disabledSlot`). Every guard and look below reads the two through
+// [[refused]], so a card that places them honours its `disabled` with no
+// template of its own; a node carrying neither renders exactly as before.
+
+/// The refusal as one JS expression — either read, or both ORed. `||` binds
+/// tighter than `?:`, so a guard needs no parentheses round it.
+const refused: String =
+  slotMod.ifSlot("tapDisabled") + slotMod.slotRead("tapDisabled") + slotMod.endIfSlot("tapDisabled")
+    + slotMod.ifSlot("tapDisabled") + slotMod.ifSlot("disabled") + " || "
+    + slotMod.endIfSlot("disabled") + slotMod.endIfSlot("tapDisabled")
+    + slotMod.ifSlot("disabled") + slotMod.slotRead("disabled") + slotMod.endIfSlot("disabled")
+
+/// `s`, when the node carries either refusal slot.
+const function whenRefusable(s: String): String =
+  slotMod.ifSlot("tapDisabled") + s + slotMod.endIfSlot("tapDisabled")
+    + slotMod.ifNoSlot("tapDisabled") + slotMod.ifSlot("disabled") + s
+    + slotMod.endIfSlot("disabled") + slotMod.endIfNoSlot("tapDisabled")
+
+/// `s`, in the DOCUMENT form, while the node refuses now. The binding beside
+/// it keeps that live; the patch form withholds the values, so this is
+/// document-only, which is all a static attribute or class needs.
+const function refusedNow(s: String): String =
+  "{{#tapDisabled}}" + s + "{{/tapDisabled}}{{^tapDisabled}}{{#disabled}}" + s
+    + "{{/disabled}}{{/tapDisabled}}"
+
 /// [[inFlightClass]] for a guarded TAP: the same look, and `fh-disabled` also
-/// while the tap refuses ([[tapDisabledSlot]]). ONE `data-class:fh-disabled`
-/// with both reasons ORed, because a second binding of the same class on the
-/// element would be dropped. `fh-disabled` is the "you cannot use this" look
-/// whatever the reason; `fh-loading` and the spinner are only in-flight.
+/// while the node refuses. ONE `data-class:fh-disabled` with every reason
+/// ORed, because a second binding of the same class on the element would be
+/// dropped. `fh-disabled` is the "you cannot use this" look whatever the
+/// reason; `fh-loading` and the spinner are only in-flight.
 const function inFlightOrRefused(sig: String): String =
-  #"data-class:fh-disabled="$\#(sig)"#
-    + slotMod.ifSlot("tapDisabled") + " || " + slotMod.slotRead("tapDisabled")
-    + slotMod.endIfSlot("tapDisabled")
+  #"data-class:fh-disabled="$\#(sig)"# + whenRefusable(" || " + refused)
     + #"" data-class:fh-loading="$\#(sig)""#
 
 /// The disabled look alone, for a guarded element that wears no in-flight
 /// look (`busyVisual = false`).
-const tapDisabledClass: String =
-  slotMod.ifSlot("tapDisabled") + #" data-class:fh-disabled=""#
-    + slotMod.slotRead("tapDisabled") + "\"" + slotMod.endIfSlot("tapDisabled")
+const refusedClass: String =
+  whenRefusable(#" data-class:fh-disabled=""# + refused + "\"")
 
-/// The tap's refusal as a REAL `disabled`, for a form control: the browser
-/// takes it out of the tab order and refuses the click itself, which a class
-/// alone cannot. The document form carries the attribute; the binding keeps
-/// it live. A [[components.base.button.Button]] places `slotMod.attrWhenEither`
-/// instead, to OR in a reason of its own.
-const tapDisabledAttr: String =
-  "{{#tapDisabled}} disabled{{/tapDisabled}}" + slotMod.ifSlot("tapDisabled")
-    + #" data-attr:disabled=""# + slotMod.slotRead("tapDisabled") + "\""
-    + slotMod.endIfSlot("tapDisabled")
+/// The refusal as a REAL `disabled`, for a form control: the browser takes it
+/// out of the tab order and refuses the click itself, which a class alone
+/// cannot. The document form carries the attribute; the binding keeps it live.
+const refusedAttr: String =
+  refusedNow(" disabled") + whenRefusable(#" data-attr:disabled=""# + refused + "\"")
 
-/// The REFUSAL guard: the prefix that makes a handler a no-op while the node's
-/// `tapDisabled` reading ([[tapDisabledSlot]]) holds. [[click]] leads with it,
-/// and the slider's commit places it itself. It is what actually stops the post
-/// on a host that cannot be `disabled` (a tile is an `<article>`), where a class
-/// only LOOKS refused. Redundant where the host IS disabled, and kept anyway: a
-/// guard present on every handler cannot be the one a card forgot.
-const refusalGuard: String =
-  slotMod.ifSlot("tapDisabled") + "$" + slotMod.signalRef("tapDisabled") + " ? '' : " +
-    slotMod.endIfSlot("tapDisabled")
+/// The REFUSAL guard: the prefix that makes a handler a no-op while the node
+/// refuses. [[click]] leads with it, and the slider's commit places it itself.
+/// It is what actually stops the post on a host that cannot be `disabled` (a
+/// tile is an `<article>`), where a class only LOOKS refused. Redundant where
+/// the host IS disabled, and kept anyway: a guard present on every handler
+/// cannot be the one a card forgot.
+const refusalGuard: String = whenRefusable(refused + " ? '' : ")
 
 /// The re-click guard, as the prefix that makes a click expression a no-op
 /// while `sig` is truthy.
@@ -315,7 +335,7 @@ const guardMechanism: String =
 /// whose acting element is not its visible one places this on the visible one.
 const guardLook: String =
   "{{#busyVisual}} " + inFlightOrRefused(busySig) + " " + failedClass(errorSig)
-    + "{{/busyVisual}}{{^busyVisual}}" + tapDisabledClass + "{{/busyVisual}}"
+    + "{{/busyVisual}}{{^busyVisual}}" + refusedClass + "{{/busyVisual}}"
 
 /// Put a control back the way the SERVER last said it was, when an action on
 /// this node is refused.
@@ -403,7 +423,7 @@ const busyShapeClass: String = busySpinner("_{{id}}__busy")
 ///   <div class="slider max" … \(tapMod.busyClassChange)>
 ///
 /// `busyAttrsChange` also DISABLES the input while the signal is set, or while
-/// the node's `tapDisabled` reading holds. That is safe because busy can only
+/// the node refuses ([[refused]]). That is safe because busy can only
 /// become true on RELEASE (never mid-drag), so disabling freezes the control
 /// between drags and the browser fires no `input`/`change` at all — the guard
 /// is the belt for a programmatic dispatch. Both reads are real booleans, so
@@ -416,10 +436,8 @@ const busyGuardChange: String = guardOn(busyChangeSig)
 // slider's other taps report through the one [[errorSig]]. Only "in flight"
 // needs the separate name.
 const busyAttrsChange: String =
-  indicatorOn(busyChangeSig) + "{{#tapDisabled}} disabled{{/tapDisabled}}"
-    + #" data-attr:disabled="$\#(busyChangeSig)"#
-    + slotMod.ifSlot("tapDisabled") + " || " + slotMod.slotRead("tapDisabled")
-    + slotMod.endIfSlot("tapDisabled") + "\" "
+  indicatorOn(busyChangeSig) + refusedNow(" disabled")
+    + #" data-attr:disabled="$\#(busyChangeSig)"# + whenRefusable(" || " + refused) + "\" "
     + failedOn(errorSig) + #" data-fh-node="{{id}}""#
 const busyClassChange: String =
   inFlightOrRefused(busyChangeSig) + " " + failedClass(errorSig)
@@ -502,7 +520,7 @@ const function refusedStates(t: TapAction, target: Target?): List<String> =
 ///
 /// ONE shape whatever the host, read by expression rather than bound
 /// (`asHandler`), because how it shows is the host's: a form control places
-/// [[tapDisabledAttr]] (or ORs it with its own `disabled`), and every guarded
+/// [[refusedAttr]] (which ORs in its own `disabled`), and every guarded
 /// element wears `fh-disabled` through [[guardLook]]. A boolean, because only a
 /// real `false` REMOVES a boolean attribute — `""` sets one (ADR 0017).
 const function tapDisabledSlot(states: List<String>): slotMod.Slot = new {

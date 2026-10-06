@@ -5,6 +5,7 @@
 module components.base.slider
 
 import "../../core/node.pkl" as nodes
+import "../../core/predicate.pkl" as predMod
 import "../../core/slot.pkl" as slotMod
 import "../../core/tap.pkl" as tapMod
 import "../../core/text.pkl" as textMod
@@ -117,7 +118,7 @@ class SliderHead extends nodes.Node {
           \(slotMod.ifSlot("state"))<span class="fh-reading" \(slotMod.signalBind("state"))>{{state}}</span>\(slotMod.endIfSlot("state"))
           <div class="slider-actions">{{#actions}}{{{html}}}{{/actions}}</div>
         </div>
-        <div class="slider max" style="--_start: 0%;--_end: {{fill}}" \(slotMod.signalBind("fill")) \(restoreOnRefusal){{#busyVisual}} \(tapMod.busyClassChange){{/busyVisual}}{{^busyVisual}}\(tapMod.tapDisabledClass){{/busyVisual}}>
+        <div class="slider max" style="--_start: 0%;--_end: {{fill}}" \(slotMod.signalBind("fill")) \(restoreOnRefusal){{#busyVisual}} \(tapMod.busyClassChange){{/busyVisual}}{{^busyVisual}}\(tapMod.refusedClass){{/busyVisual}}>
           {{^toggle}}<input type="range" min="{{min}}" max="{{max}}" value="{{value}}"
             \(slotMod.signalBind("value"))
             data-signals__ifmissing="{ \(slideSig): '{{value}}' }"
@@ -257,11 +258,18 @@ open class Slider extends nodes.Node {
   hidden members: Listing<nodes.LayoutNode> = new {}
   /// The entity a reading that names none reads — see `Button.subject`.
   hidden subject: String? = null
+  /// Disables the range (or the press) and dims the track while it holds,
+  /// ORed with whatever the commit refuses — any [[nodes.BooleanInput]], as
+  /// `Button.disabled`. The head actions are buttons with their own.
+  hidden disabled: nodes.BooleanInput? = null
   // Everything the ROW shows, handed to [[SliderHead]]: the head is a card that
   // only knows how to draw them.
   hidden headSlots: Mapping<String, slotMod.Slot|String> = new {
     when (subject != null) {
       ["entity_id"] = subject!!
+    }
+    when (nodes.disabledSlot(disabled) != null) {
+      ["disabled"] = nodes.disabledSlot(disabled)!!
     }
     // `onRender`, not live: the visible label is [[SliderText]]'s now, and what
     // is left of it here is the toggle variant's `aria-label`. The head holds
@@ -369,6 +377,10 @@ open class Slider extends nodes.Node {
     ["head"] = new Listing {
       (new SliderHead {}) {
         slots = headSlots
+        // On the HEAD, which is the node whose slot reads it: values are local.
+        derivedValues {
+          when (disabled is predMod.Predicate) { ["__disabled"] = disabled!! }
+        }
         children = new Mapping {
           ["text"] = new Listing { (new SliderText {}) { slots = textSlots } }
           ["actions"] = new Listing { ...leadingActions ...actions }
@@ -381,6 +393,8 @@ open class Slider extends nodes.Node {
   function actions(xs: List<buttonMod.Button>): Slider =
     let (self = this) (self) { actions = xs.toListing() }
   function busyVisual(b: Boolean): Slider = let (self = this) (self) { busyVisual = b }
+  /// See [[disabled]].
+  function disabled(d: nodes.BooleanInput): Slider = let (self = this) (self) { disabled = d }
   // The range input rides inside BeerCSS's slider markup (`.slider` wrapper +
   // trailing `<span>` = the painted MD3 track, `max` = full card width; NO
   // `.tooltip` — its value text bled through behind the track, and the live

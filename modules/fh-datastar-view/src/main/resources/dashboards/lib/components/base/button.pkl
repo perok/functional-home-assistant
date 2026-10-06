@@ -55,7 +55,7 @@ open class Button extends nodes.Node {
     // in-flight affordance an icon has instead of a label going dim. A labelled
     // button gets only what `tapMod.guard` brings.
     template = """
-      {{#href}}<a class="button {{#round}}circle small{{/round}}{{^round}}card{{/round}}" href="{{{href}}}">{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}\(buttonText)</a>{{/href}}{{^href}}<button class="{{#round}}circle small{{/round}}{{^round}}card{{/round}}" data-on:click="\(tapMod.guardClick)\(tapMod.click)"\(slotMod.attrWhenEither("disabled", "tapDisabled", "disabled"))\(tapMod.guard){{#busyVisual}}{{#glyph}} \(tapMod.busyShapeClass){{/glyph}}{{/busyVisual}}>{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}\(buttonText)</button>{{/href}}
+      {{#href}}<a class="button {{#round}}circle small{{/round}}{{^round}}card{{/round}}" href="{{{href}}}">{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}\(buttonText)</a>{{/href}}{{^href}}<button class="{{#round}}circle small{{/round}}{{^round}}card{{/round}}" data-on:click="\(tapMod.guardClick)\(tapMod.click)"\(tapMod.refusedAttr)\(tapMod.guard){{#busyVisual}}{{#glyph}} \(tapMod.busyShapeClass){{/glyph}}{{/busyVisual}}>{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}\(buttonText)</button>{{/href}}
       """
     // `label` stays declared — every button has one, even when it is the empty
     // string an icon-only button carries. `glyph`/`round` do not: they are
@@ -160,11 +160,7 @@ open class Button extends nodes.Node {
       throw("c.button: `disabled` needs a button, but this one navigates and "
         + "renders as a link — `disabled` is a form-control attribute. Drop "
         + "it, or give it a service tap.")
-    else if (disabled == true) "1"
-    else
-      (nodes.booleanSlot(disabled as slotMod.Slot|slotMod.Expr|predMod.Predicate, "__disabled")) {
-        signal = slotMod.asHandler
-      }
+    else nodes.disabledSlot(disabled)
   slots {
     when (subject != null) {
       ["entity_id"] = subject!!
@@ -204,7 +200,7 @@ open class Button extends nodes.Node {
     when (ownDisabled == null && tapAction.href != null) {
       ["href"] = tapAction.href!!
     } else {
-      // `tapDisabled` is a handler, because `attrWhenEither` ORs it with
+      // `tapDisabled` is a handler, because `tapMod.refused` ORs it with
       // [[disabled]] in one `data-attr` and the read is all it needs.
       for (k, v in tapMod.tapRoute(tapAction)) {
         [k] = v
@@ -258,7 +254,7 @@ class Pill extends nodes.Node {
     // A chip is already pill-shaped, so unlike [[Button]] there is no round
     // variant: a glyph-only chip is a chip with a glyph in it.
     template = """
-      {{#href}}<a class="chip" href="{{{href}}}">{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</a>{{/href}}{{^href}}<button class="chip" data-on:click="\(tapMod.guardClick)\(tapMod.click)"\(tapMod.tapDisabledAttr)\(tapMod.guard){{#busyVisual}}{{#glyph}} \(tapMod.busyShapeClass){{/glyph}}{{/busyVisual}}>{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</button>{{/href}}
+      {{#href}}<a class="chip" href="{{{href}}}">{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</a>{{/href}}{{^href}}<button class="chip" data-on:click="\(tapMod.guardClick)\(tapMod.click)"\(tapMod.refusedAttr)\(tapMod.guard){{#busyVisual}}{{#glyph}} \(tapMod.busyShapeClass){{/glyph}}{{/busyVisual}}>{{#glyph}}<i class="mdi {{glyph}}"></i>{{/glyph}}{{#label}}\(textMod.hole("label")){{/label}}</button>{{/href}}
       """
     slots { "label" }
   }

@@ -45,7 +45,7 @@ open class Switch extends nodes.Node {
       <article class="card row toggle" \(slotMod.signalBind("switched"))\(tapMod.guardLook)>
         <span class="max \(textMod.BOX)">\(textMod.run("label"))</span>
         <label class="switch">
-          <input type="checkbox" value="on" {{#checked}}checked{{/checked}} \(slotMod.signalBind("checked")) data-on:click="\(tapMod.guardClick)\(tapMod.click)"\(tapMod.tapDisabledAttr) \(restoreSwitch)\(tapMod.guardMechanism) />
+          <input type="checkbox" value="on" {{#checked}}checked{{/checked}} \(slotMod.signalBind("checked")) data-on:click="\(tapMod.guardClick)\(tapMod.click)"\(tapMod.refusedAttr) \(restoreSwitch)\(tapMod.guardMechanism) />
           <span></span>
         </label>
       </article>

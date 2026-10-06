@@ -4,6 +4,7 @@
 module components.base.tile
 
 import "../../core/node.pkl" as nodes
+import "../../core/predicate.pkl" as predMod
 import "../../core/slot.pkl" as slotMod
 import "../../core/tap.pkl" as tapMod
 import "../../core/text.pkl" as textMod
@@ -15,7 +16,7 @@ open class Tile extends nodes.Node {
   card = "tile"
   cardDef = new nodes.CardDef {
     template = """
-      <article class="card entity{{#tappable}} tappable{{/tappable}}{{#tapDisabled}} fh-disabled{{/tapDisabled}}"{{#tappable}}
+      <article class="card entity{{#tappable}} tappable{{/tappable}}\(tapMod.refusedNow(" fh-disabled"))"{{#tappable}}
         data-on:click="\(tapMod.guardClick)\(tapMod.click)"{{/tappable}}\(tapMod.guard)>
         <header>\(slotMod.ifSlot("icon")){{#busy}}<span class="fh-icon-shape"{{#busyVisual}} \(tapMod.busyShapeClass){{/busyVisual}}>{{/busy}}<i class="{{icon}}" \(slotMod.signalBind("icon"))></i>{{#busy}}</span>{{/busy}}\(slotMod.endIfSlot("icon"))\(textMod.hole("label"))</header>
         <span class="fh-reading \(textMod.BOX)">\(textMod.liveRun("value"))</span>\(slotMod.ifSlot("secondary"))
@@ -60,6 +61,12 @@ open class Tile extends nodes.Node {
   inlineSurfaces = if (tapAction != null) tapAction!!.inlineSurfaces else null
   /// The entity a reading that names none reads — see `Button.subject`.
   hidden subject: String? = null
+  /// Refuses the tap and wears `fh-disabled` while it holds, ORed with
+  /// whatever the tap refuses — any [[nodes.BooleanInput]], as `Button.disabled`.
+  hidden disabled: nodes.BooleanInput? = null
+  derivedValues {
+    when (disabled is predMod.Predicate) { ["__disabled"] = disabled!! }
+  }
   slots {
     when (subject != null) {
       ["entity_id"] = subject!!
@@ -79,5 +86,10 @@ open class Tile extends nodes.Node {
     for (k, v in tapMod.tapSlots(tapAction)) {
       [k] = v
     }
+    when (nodes.disabledSlot(disabled) != null) {
+      ["disabled"] = nodes.disabledSlot(disabled)!!
+    }
   }
+  /// See [[disabled]].
+  function disabled(d: nodes.BooleanInput): Tile = let (self = this) (self) { disabled = d }
 }

@@ -42,6 +42,18 @@ const function booleanSlot(
     }
   else new slotMod.Slot { transform = name; bypassUnavailable = false; type = "bool" }
 
+/// A card's own `disabled`, as the `disabled` slot the tap's refusal helpers
+/// OR in (`tapMod.refused`): nothing for `false`, a literal for `true`, else a
+/// handler — read in an expression, never bound. A card whose input is a
+/// condition also declares `["__disabled"]` in its [[Node.derivedValues]].
+const function disabledSlot(d: BooleanInput?): (slotMod.Slot|String)? =
+  if (d == null || d == false) null
+  else if (d == true) "1"
+  else
+    (booleanSlot(d as slotMod.Slot|slotMod.Expr|predMod.Predicate, "__disabled")) {
+      signal = slotMod.asHandler
+    }
+
 /// Per-node layout-cell parameters (mirrors fh.view.model.Cell): extra CSS
 /// classes the renderer puts on this node's `.fh-cell` wrapper. The class
 /// names are the theme-agnostic `fh-` layout contract (see lib/theme.pkl).

@@ -131,9 +131,13 @@ slider's CSS reads.
    string shape). `cssProperty`'s converse check lands with it in 6.
 4. The sugar on `active`/`disabled`/`classWhen`, and the `__` reservation. Tests are the floor
    button above, a condition shared by two nodes sharing one signal, and a collision refusal.
-5. `disabled` on the base tile and the base slider, ORed with the tap's own refusal as the
-   button's is (`attrWhenEither`). The tile gets `fh-disabled` and no tap. The slider's input is
-   disabled and its commit refuses. The HA layer passes it through (thin subclasses).
+5. `disabled` on the base tile and the base slider. Not per card: the tap's refusal helpers
+   (`core/tap.pkl`: the click guard, the `fh-disabled` look, the form-control attribute) read the
+   tap's `tapDisabled` OR the card's `disabled` through one `refused` expression, so every card
+   placing them honours it, and the button's one-off `attrWhenEither` goes. The tile gets
+   `fh-disabled` and no tap. The slider's input is disabled and its commit refuses, with the
+   condition's value on its HEAD node, the one whose slot reads it. The HA layer passes it through
+   (thin subclasses).
 6. `cssProperty`: renderer cell binding, validation (`--` only; it must be live; a boolean
    `match` refused), a
    `LiveCellClassSmokeSuite`-style smoke test that a patch moves the property.

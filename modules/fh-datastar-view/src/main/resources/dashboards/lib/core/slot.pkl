@@ -214,18 +214,6 @@ const function stateIn(e: hass.Entity, states: List<String>): Slot = new {
   bypassUnavailable = false
 }
 
-/// The boolean attribute `attr`, set while slot `a` OR slot `b` holds — for a
-/// control with two independent reasons to refuse, such as its tap's and its
-/// own. Either slot may be absent. Both must be literals or [[asHandler]]
-/// signals: one `data-attr:<attr>` ORs their reads, since two bindings of the
-/// same attribute would leave only the first.
-const function attrWhenEither(attr: String, a: String, b: String): String =
-  "{{#\(a)}} \(attr){{/\(a)}}{{^\(a)}}{{#\(b)}} \(attr){{/\(b)}}{{/\(a)}}" +
-    ifSlot(a) + " data-attr:\(attr)=\"" + slotRead(a) +
-    ifSlot(b) + " || " + slotRead(b) + endIfSlot(b) + "\"" + endIfSlot(a) +
-    ifNoSlot(a) + ifSlot(b) + " data-attr:\(attr)=\"" + slotRead(b) + "\"" +
-    endIfSlot(b) + endIfNoSlot(a)
-
 /// The section a card wraps optional markup in, when that markup holds a slot:
 ///
 /// ```
