@@ -88,9 +88,15 @@ stacks. That overhead is a fixed cost of running Scala on a JVM, not a leak.
 Both ends of the heap are set to numbers rather than to fractions of the
 machine: it starts at 64 MB and grows only as the workload needs, up to
 `max_heap` (512 MB by default). So the figure follows the dashboards you run
-rather than the size of the box you run them on, and the garbage collector
-hands memory back once a burst is over. If the add-on restarts with an
-OutOfMemoryError in the log, `max_heap` is the thing to raise.
+rather than the size of the box you run them on. Building the dashboards —
+at start, and again after every edit — is the burst; the add-on collects
+after each build, and the heap shrinks back to what the dashboards hold. If
+the add-on restarts with an OutOfMemoryError in the log, `max_heap` is the
+thing to raise.
+
+The first chart adds the chart engine: a few hundred MB of native memory
+outside the heap, which no `jvm` field below counts. It stays for the life
+of the add-on, partly released a couple of minutes after the last drawing.
 
 ### Seeing where it actually goes
 

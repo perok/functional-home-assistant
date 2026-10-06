@@ -87,8 +87,7 @@ JAVA_MAX_HEAP="${JAVA_MAX_HEAP:-512M}"
 # The STARTING heap is a fraction of the machine too (InitialRAMPercentage,
 # 1.5625%), which is the same bug at the other end: on a big host the JVM
 # commits the whole ceiling before serving a request. Pinned small so the
-# heap grows into the workload instead of starting at it — with SerialGC's
-# 40/70 free-ratio policy it then also gives the memory back.
+# heap grows into the workload instead of starting at it.
 JAVA_MIN_HEAP="${JAVA_MIN_HEAP:-64M}"
 
 # SerialGC, not the G1 the JVM picks by itself: at this heap size on four
@@ -97,6 +96,14 @@ JAVA_MIN_HEAP="${JAVA_MIN_HEAP:-64M}"
 # not — which is most of what makes the number reported to the supervisor
 # follow the workload.
 JAVA_GC=-XX:+UseSerialGC
+
+# But only after a FULL collection, and only past MaxHeapFreeRatio, whose
+# default of 70 kept it from ever happening: a dashboard build fills the old
+# generation (187 MB measured), the live set after it is 64 MB, and 66% free
+# is not 70. So it shrinks at 30% free, all at once rather than over four
+# collections (ShrinkHeapInSteps), and the server runs the full collection
+# itself after every build (ServerApp.afterBuild) — nothing else would.
+JAVA_HEAP_SHRINK="-XX:MinHeapFreeRatio=10 -XX:MaxHeapFreeRatio=30 -XX:-ShrinkHeapInSteps"
 
 # Native Memory Tracking is the only thing that separates heap from
 # metaspace from GC native from code cache, and it cannot be turned on
@@ -150,7 +157,8 @@ fi
 # forever, which is what a bounded heap turns a leak into.
 #
 # $JAVA_NMT is deliberately unquoted: it is one flag or nothing, and nothing
-# must vanish rather than become an empty argument.
+# must vanish rather than become an empty argument. $JAVA_HEAP_SHRINK is
+# unquoted so its three flags split.
 #
 # Both come from the image (see the Dockerfile) so this file and the CI check
 # cannot spell the classpath differently. Checked rather than defaulted: a
@@ -178,7 +186,7 @@ fi
 # ALL-UNNAMED because everything is on the classpath, in the unnamed module.
 # shellcheck disable=SC2086
 exec java "-Xms$JAVA_MIN_HEAP" "-Xmx$JAVA_MAX_HEAP" "$JAVA_GC" \
-  -XX:+ExitOnOutOfMemoryError --enable-native-access=ALL-UNNAMED \
+  $JAVA_HEAP_SHRINK -XX:+ExitOnOutOfMemoryError --enable-native-access=ALL-UNNAMED \
   "-Dpolyglot.engine.userResourceCache=$FH_GRAAL_CACHE" \
   $JAVA_NMT -cp "$FH_APP_CLASSPATH" \
   fh.view.runtime.ServerApp

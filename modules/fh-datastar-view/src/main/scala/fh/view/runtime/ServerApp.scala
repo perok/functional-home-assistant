@@ -190,6 +190,7 @@ object ServerApp extends IOApp {
           loggerFactory = loggerFactory,
           meters = meters,
           sourceWatcher = SourceWatcher.default,
+          afterBuild = collectBuildGarbage,
           sessionWindows = Server.SessionWindows.default
         )
       )
@@ -232,9 +233,19 @@ object ServerApp extends IOApp {
       loggerFactory: LoggerFactory[IO],
       meters: Meters,
       sourceWatcher: Resource[IO, SourceWatcher],
+      // Run after the boot build and every reload ([[collectBuildGarbage]]);
+      // a suite's JVM is not the add-on's, hence the default.
+      afterBuild: IO[Unit] = IO.unit,
       // Not an edge: time, which a test shortens to watch a reap.
       sessionWindows: Server.SessionWindows
   )
+
+  /** A build's garbage is most of the heap (187 MB of old generation against a
+    * 64 MB live set, measured), and a heap shrinks only at a full collection,
+    * which a server this idle seldom triggers by itself. `run.sh`'s free ratios
+    * decide how far it then shrinks.
+    */
+  private[runtime] val collectBuildGarbage: IO[Unit] = IO.blocking(System.gc())
 
   /** Both act as a user, never as the machine-token feed nor at its address
     * ([[HaOAuth.coreWs]]). `connectAs` is a short-lived connection, left only
@@ -356,7 +367,8 @@ object ServerApp extends IOApp {
       // Not part of the feed: the registry does not exist when it is
       // acquired.
       _ <- narrowFeed(site, wanted).background
-      reload = reloadSite(workspace, site, importsRef, log)
+      _ <- edges.afterBuild.toResource
+      reload = reloadSite(workspace, site, importsRef, log) *> edges.afterBuild
 
       // Serialises the endpoint against the registry watcher.
       refreshMutex <- Mutex[IO].toResource
