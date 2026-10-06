@@ -58,7 +58,10 @@ secondary = c.expr("any_on ? 'Some on' : 'All off'")
   `__disabled`, `__class_<n>`) and a slot whose CEL is that name. No new runtime path.
 - an **`Expr`** (`c.expr("on > 2")`) for arithmetic over named values.
 
-Names starting `__` become reserved, so an author's value cannot collide with a generated one.
+Names starting `__` become reserved, so an author's value cannot collide with a generated one
+(a key constraint on `expressionValues`). The generated ones live in `Node.derivedValues`, apart
+from the author's, because the `expressionValues(m)` builder ASSIGNS and would otherwise drop them.
+A class's name is `__class_` plus a hash of the class, since a class name is not an identifier.
 
 ### 3. The build checks a boolean slot gets a bool
 

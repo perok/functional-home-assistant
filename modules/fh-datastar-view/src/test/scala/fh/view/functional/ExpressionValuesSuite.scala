@@ -338,4 +338,100 @@ class ExpressionValuesSuite extends munit.CatsEffectSuite {
       Nil
     )
   }
+
+  // The floor button: tinted while any light is on, disabled while none is.
+  private def floorButton(label: String, over: String = "lights"): String =
+    s"""    c.button("$label", c.tap.lights.off(dump.entities.${kitchen.dumpKey}))
+       |      .secondary(c.expr("string(n) + ' on'"))
+       |      .active(q.from($over).where(q.eq(q.stateProp, "on")).any())
+       |      .disabled(q.from($over).where(q.eq(q.stateProp, "on")).none())
+       |      .expressionValues(new Mapping { ["n"] = q.from($over).where(q.eq(q.stateProp, "on")).count() })""".stripMargin
+
+  private def classSignals(html: String): List[String] =
+    """data-class:fh-active="\$([^"]+)"""".r
+      .findAllMatchIn(html)
+      .map(_.group(1))
+      .toList
+
+  private def disabledSignal(html: String): String =
+    """data-attr:disabled="[^"]*\$(_e\._x\.[A-Za-z0-9_]+)""".r
+      .findFirstMatchIn(html)
+      .map(_.group(1))
+      .getOrElse(fail("no condition-backed disabled binding", clues(html)))
+
+  private def leaf(signal: String): String = signal.split('.').last
+
+  // The bare attribute, as the document form writes it — not `data-attr:disabled`.
+  private def staticallyDisabled(html: String): Boolean =
+    """<button class="card"[^>]*\sdisabled[\s>]""".r.findFirstIn(html).isDefined
+
+  test("a condition tints and disables a button, and its flip is one frame") {
+    withServer(floorButton("Stue")) { ts =>
+      for {
+        html <- ts.page()
+        active = classSignals(html).headOption.getOrElse(
+          fail("no class binding", clues(html))
+        )
+        disabled = disabledSignal(html)
+        sent <- ts.sentAfter(ts.change(kitchen.entityId, "off"))
+      } yield {
+        assert(html.contains("""class="fh-cell fh-active""""), clue = html)
+        assert(!staticallyDisabled(html), clue = html)
+        assert(sent.contains(s"\"${leaf(active)}\":false"), clue = sent)
+        assert(sent.contains(s"\"${leaf(disabled)}\":true"), clue = sent)
+        assert(!sent.contains("fh-cell"), clue = sent)
+      }
+    }
+  }
+
+  test("two buttons tinted by the same condition share one signal") {
+    withServer(floorButton("Stue") + "\n" + floorButton("Gang"))(_.page()).map {
+      html =>
+        val sigs = classSignals(html)
+        assertEquals(sigs.size, 2, clue = html)
+        assertEquals(sigs.distinct.size, 1, clue = sigs)
+    }
+  }
+
+  test("a condition the build settles is no live slot at all") {
+    // Nothing to count: `any()` is `false` and `none()` is `true` at build time.
+    withServer(floorButton("Tom", over = "List()"))(_.page()).map { html =>
+      assertEquals(classSignals(html), Nil, clue = html)
+      assert(!html.contains("""class="fh-cell fh-active""""), clue = html)
+      assert(html.contains("<button class=\"card\""), clue = html)
+      assert(staticallyDisabled(html), clue = html)
+    }
+  }
+
+  test("classWhen takes a condition and an expression over values") {
+    val body =
+      s"""    c.button("Stue", c.tap.closePopup())
+         |      .secondary(c.expr("string(n) + ' on'"))
+         |      .expressionValues(new Mapping { ["n"] = q.from(lights).where(q.eq(q.stateProp, "on")).count() })
+         |      .classWhen("fh-some", q.from(lights).where(q.eq(q.stateProp, "on")).any())
+         |      .classWhen("fh-many", c.expr("n > 1"))""".stripMargin
+    withServer(body) { ts =>
+      for {
+        html <- ts.page()
+        sent <- ts.sentAfter(ts.change(living.entityId, "on"))
+      } yield {
+        assert(html.contains("""class="fh-cell fh-some""""), clue = html)
+        assert(html.contains("data-class:fh-some="), clue = html)
+        assert(html.contains("data-class:fh-many="), clue = html)
+        // Two of two on: `fh-many` turns on, `fh-some` was already.
+        assert(sent.contains(":true"), clue = sent)
+        assert(!sent.contains("fh-cell"), clue = sent)
+      }
+    }
+  }
+
+  test("an author's value may not take a name the boolean inputs use") {
+    val body =
+      """    ((c.button("Stue", c.tap.closePopup())) {
+        |      expressionValues { ["__active"] = 1 }
+        |    }).secondary(c.expr("string(__active)"))""".stripMargin
+    val err =
+      scala.util.Try(errorsOf(body)).failed.map(_.getMessage).getOrElse("")
+    assert(err.contains("""!startsWith("__")"""), clue = err)
+  }
 }
