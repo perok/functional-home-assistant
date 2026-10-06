@@ -407,7 +407,7 @@ facts {
     c.entityButton(latchLock)
       .tapAction(c.tap.locks.openLatch(latchLock))
       .disabled(c.stateIn(latchLock, List("opening")))
-      .slots["inert"].signal == "handler"
+      .slots["tapDisabled"].signal == "handler"
   }
 
   // ---- CSS ownership (ADR 0020) ----
@@ -890,7 +890,7 @@ facts {
     // the unlock already running. The list is the DOMAIN's, so no author has to
     // know it.
     local tile = c.entityCard(latchLock)
-    local inert: simpleMod.SimpleMatch = tile.slots["inert"].transform!!
+    local inert: simpleMod.SimpleMatch = tile.slots["tapDisabled"].transform!!
     // `unavailable` rides with them but is NOT one of them — see the fact
     // below. The three transitional ones are the domain table's.
     inert.cases.toMap().keys.toList().sort()
@@ -899,9 +899,11 @@ facts {
     // are both meaningful presses, and only a transitional state is not.
     !inert.cases.toMap().containsKey("open")
     !inert.cases.toMap().containsKey("jammed")
-    // A CLASS, not `attr:disabled`: this host is an `<article>`, and only a
-    // form control can be disabled.
-    tile.slots["inert"].signal == "class:fh-inert"
+    // Read, not bound: every host shows it its own way — this `<article>` as
+    // the `fh-disabled` look through the guard, since only a form control can
+    // be disabled.
+    tile.slots["tapDisabled"].signal == "handler"
+    c.cards["entityCard"].template.contains("{{#tapDisabled}} fh-disabled{{/tapDisabled}}")
   }
 
   ["a tap that names its target needs no entity on the card"] {
@@ -909,8 +911,8 @@ facts {
     !b.slots.containsKey("entity_id")
     b.slots["service"] == "light/toggle"
     b.slots["targetId"] == kitchen.entity_id
-    // Availability is the TARGET's, so the inert check reads it by name.
-    (b.slots["inert"] as slotMod.Slot).entityId == kitchen.entity_id
+    // Availability is the TARGET's, so the refusal reads it by name.
+    (b.slots["tapDisabled"] as slotMod.Slot).entityId == kitchen.entity_id
   }
 
   ["a state-picked service reads the target, not the card's entity"] {
@@ -920,7 +922,7 @@ facts {
     local svc: slotMod.Slot = b.slots["service"]
     svc.entityId == frontLock.entity_id
     b.slots["targetId"] == frontLock.entity_id
-    (b.slots["inert"] as slotMod.Slot).entityId == frontLock.entity_id
+    (b.slots["tapDisabled"] as slotMod.Slot).entityId == frontLock.entity_id
     b.slots["entity_id"] == kitchen.entity_id
   }
 
@@ -928,7 +930,7 @@ facts {
     local b = c.button("Stue av", c.tap.call("light/turn_off", stue))
     b.slots["targetKind"] == "area"
     b.slots["targetId"] == stue.area_id
-    !b.slots.containsKey("inert")
+    !b.slots.containsKey("tapDisabled")
   }
 
   ["a typed verb is `call` with the service filled in"] {
@@ -964,7 +966,7 @@ facts {
     // service call on an unavailable entity in EVERY domain, so it is one rule
     // rather than a row per domain or per verb (`Call.disabledWhile`).
     local lit: simpleMod.SimpleMatch =
-      c.entityCard(kitchen).slots["inert"].transform!!
+      c.entityCard(kitchen).slots["tapDisabled"].transform!!
     // `light/toggle` means the same thing in every state, so nothing
     // transitional — and `unavailable` all the same.
     lit.cases.toMap().keys.toList() == List("unavailable")
@@ -973,8 +975,8 @@ facts {
   ["a tap that calls NO service stays live on a dead entity"] {
     // More-info is exactly what you want to open on an unavailable entity: it
     // is where the reason is. A navigate does not care either.
-    !c.entityCard(outside).slots.containsKey("inert")
-    !c.button("Go", c.tap.navigate("other")).slots.containsKey("inert")
+    !c.entityCard(outside).slots.containsKey("tapDisabled")
+    !c.button("Go", c.tap.navigate("other")).slots.containsKey("tapDisabled")
   }
 
   ["a typed lock still taps by state, like any other lock"] {
@@ -1016,7 +1018,7 @@ facts {
     // …and it is THAT press availability guards, not the latch that opens the
     // dialog: a service tap is inert on a dead entity in every domain, so
     // `CANNOT_OPEN` never had to carry `unavailable` and now cannot.
-    (press.slots["inert"].transform as simpleMod.SimpleMatch)
+    (press.slots["tapDisabled"].transform as simpleMod.SimpleMatch)
       .cases.toMap().containsKey("unavailable")
     // The tile beside it still locks/unlocks by state — the two controls are
     // different actions, not two spellings of one.
@@ -1037,7 +1039,7 @@ facts {
     // No `unavailable`. It is not a lock STATE — `hass/lock.pkl` types the list
     // as `LockState`, which refuses it — and the press it guards is protected
     // anyway: the confirmation's own `lock/open` button is a service tap, so
-    // `tap.inertStates` disables THAT on a dead lock. Opening the dialog to be
+    // `tap.refusedStates` disables THAT on a dead lock. Opening the dialog to be
     // told why is better than a dead button that cannot say.
     inert.cases.toMap().keys.toList().sort()
       == List("locking", "open", "opening", "unlocking")
@@ -1070,9 +1072,9 @@ facts {
     )
     senders.every((n) -> n.slots["service"] == "lock/open")
     senders.every((n) ->
-      let (refused = (n.slots["inert"].transform as simpleMod.SimpleMatch).cases.toMap().keys)
+      let (refused = (n.slots["tapDisabled"].transform as simpleMod.SimpleMatch).cases.toMap().keys)
         Set("open", "opening", "unlocking", "locking", "unavailable").every((s) -> refused.contains(s)))
-    senders.every((n) -> n.slots["inert"].entityId == "lock.latch")
+    senders.every((n) -> n.slots["tapDisabled"].entityId == "lock.latch")
   }
 
   ["a chart stage's params are typed on the wire, and an unset one is absent"] {

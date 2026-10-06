@@ -112,7 +112,12 @@ the disabled state read. About whether you may click, not about what is shown.
 (`Call.disabledWhile`, plus `unavailable` for every service call), so every card that sends the call
 refuses it alike. A card's OWN reason, such as a popup opener that carries no call, is its
 `disabled` reading, ORed with the call's. About the entity's state, not about a request: that is
-busy. Internally the refusal is still the `inert` slot and the `fh-inert` class.
+busy. The tap carries it as the `tapDisabled` slot.
+
+**`fh-disabled`** — the ONE "you cannot use this" LOOK, whatever the reason: a tap in flight, or a
+press its entity's state makes meaningless. Classes name what the view looks like, not why.
+`fh-loading` and the spinner are the in-flight look on top of it; `fh-error` is the server having
+refused a press (a REFUSAL is always that after-the-fact answer, never the before-the-press state).
 
 **Pending / committed** — per SELECTION GROUP, and a different fact from busy: **pending** is the
 value this client has ASKED for, **committed** is the value the server says is in effect. A control
