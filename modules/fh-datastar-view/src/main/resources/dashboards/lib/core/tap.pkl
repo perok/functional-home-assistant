@@ -221,7 +221,7 @@ const refusalGuard: String = whenRefusable(refused + " ? '' : ")
 const local function guardOn(sig: String): String = "$" + sig + " ? '' : "
 
 // The indicator names the signal via the VALUE form (`data-indicator="<name>"`),
-// NOT the keyed form: the pinned v1.0.2 bundle splits a namespaced attribute's
+// NOT the keyed form: the pinned v1.0.4 bundle splits a namespaced attribute's
 // KEY on `__` (its mod separator), so `data-indicator:_{{id}}__busy` would arm a
 // signal named `_<id>` and the `__busy` suffix would silently become a mod —
 // the busy class and guard read `_<id>__busy`, so nothing ever showed or gated.

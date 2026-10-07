@@ -50,7 +50,7 @@ function assertSelfContained(): Plugin {
   }
 }
 
-// One build, four entries. The output tree mirrors the CLASSPATH, because
+// One build, five entries. The output tree mirrors the CLASSPATH, because
 // sbt's NpmPlugin copies it straight into managed resources: `fh/shell.js` is
 // read and inlined by `Server`, `editor/*.js` are served by `EditorRoutes` next
 // to the hand-written index.html/app.css/overlay.css that stay in
@@ -64,6 +64,9 @@ function assertSelfContained(): Plugin {
 //            lsp-client are bundled in, which is the point: one file, one
 //            @codemirror/state instance, no CDN, no import map.
 //   overlay  a classic <script src> injected into a dashboard under ?edit=1.
+//   datastar <script type="module"> on every dashboard page: the vendored
+//            Datastar bundle plus our own attributes, so the page has one
+//            Datastar instance and nothing hands it around.
 //   sw       the service worker, served at the fixed root URL `sw.js` — see the
 //            `entryFileNames` override below. CLASSIC script, import-free.
 //
@@ -80,7 +83,7 @@ function assertSelfContained(): Plugin {
 //     library and nothing downstream re-bundles this, so that trade is pure
 //     cost: it shipped `app.js` at 654 kB where this emits 424 kB.
 //
-// `rollupOptions.input` has neither problem: one build, three entries, real
+// `rollupOptions.input` has neither problem: one build, many entries, real
 // minification.
 //
 // The two classic scripts are safe as `es` output because they import nothing,
@@ -90,17 +93,24 @@ function assertSelfContained(): Plugin {
 export default defineConfig({
   plugins: [assertSelfContained()],
   build: {
+    // Below Vite's default (Safari/iOS 16.4) for wall tablets that cannot
+    // update: iPadOS 15 is the last for the iPad Air 2 and iPad mini 4. It
+    // lowers SYNTAX only, Datastar's included; the newest API Datastar calls
+    // (`moveBefore`, view transitions, `Object.hasOwn`) it feature-detects.
+    // The theme's CSS and its CDN scripts are not covered by this.
+    target: ["chrome87", "edge88", "firefox78", "safari15", "ios15"],
     outDir: "target/frontend",
     emptyOutDir: true,
     // Hashed filenames + a manifest, so nothing has to hardcode an output
     // name and the bundles can be served immutable. `FrontendAssets` reads it.
     manifest: "web/manifest.json",
-    // No preload polyfill: these are three independent entries, not an app
+    // No preload polyfill: these are independent entries, not an app
     // shell, and one of them is inlined as a classic script.
     modulePreload: false,
     rollupOptions: {
       input: {
         shell: resolve(import.meta.dirname, "src/js/shell.ts"),
+        datastar: resolve(import.meta.dirname, "src/js/datastar.ts"),
         app: resolve(import.meta.dirname, "src/js/editor/app.js"),
         overlay: resolve(import.meta.dirname, "src/js/editor/overlay.js"),
         sw: resolve(import.meta.dirname, "src/js/sw.ts"),

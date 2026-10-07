@@ -61,8 +61,8 @@ class Tabs extends nodes.Node {
   // anchors); the panel host + `{{#panel}}` region live below it.
   // `data-signals` seeds the active-tab signal to the baked tab's index
   // (`{{bakeIndex}}`, injected by the renderer — on a refresh that IS the URL's
-  // `ui.<id>`, which is how the seed round-trips). `data-fh-url` (the page
-  // shell's) mirrors every later change back into the URL.
+  // `ui.<id>`, which is how the seed round-trips). `data-fh-url` (ours, in
+  // the page's Datastar module) mirrors every later change back into the URL.
   //
   // Both selection signals are SEEDED on the bar with `__ifmissing`, and the
   // committed one is mirrored to the URL from the panel below. Seeding

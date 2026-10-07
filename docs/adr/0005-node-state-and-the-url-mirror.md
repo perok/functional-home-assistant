@@ -73,16 +73,17 @@ name, like `conn`.
   a separate pending signal; `ui_<id>` moves when the swap that serves the tap
   moves it. That is what makes "the signal is the truth" a fact rather than a
   hope: the URL below mirrors a value no client ever asserted on its own.
-- **The URL mirrors it**, via `history.replaceState` from the page shell's
-  `data-fh-url="['<param>', $signal]"` attribute (`src/js/shell.ts`, inlined by
-  `Server.ShellScript`), as `?ui.<id>=<value>`.
+- **The URL mirrors it**, via `history.replaceState` from the
+  `data-fh-url="['<param>', $signal]"` attribute (`src/js/datastar.ts`, built
+  into the page's Datastar module, `Server.DatastarScript`), as
+  `?ui.<id>=<value>`.
   That is a hand-rolled `data-query-string` — the Pro plugin that would do this
   for us and which we don't have. The reverse direction needs no script: the
   page is server-rendered, so the server reads its own GET's query and bakes
   the value into the `data-signals` seed it already emits.
 - **A param lives as long as the element that mirrors it** (issue #411).
-  `data-fh-url` is a Datastar attribute the shell registers against the page's
-  own Datastar module, so its cleanup is Datastar's: when the last element
+  `data-fh-url` is a Datastar attribute, bundled with the vendored Datastar
+  into one module, so its cleanup is Datastar's: when the last element
   mirroring a param leaves the document, the param goes. Closing a popup takes
   its inner mirrors with it, and nothing else would ever have cleared what they
   wrote. Counting per param rather than per element is what lets a morph
@@ -213,8 +214,8 @@ Explicit **non-candidate**: slider/value positions (the entity is truth).
   costs nothing per request because it is never sent.
 - The read path is small and bounded to the HTTP layer (`uiStateOf` = query
   params ∪ signals, signals winning as the live value); the write path is one
-  `data-fh-url` attribute per group, registered by the page shell.
-- **Datastar specifics (verified against v1.0.2):** `data-query-string` and
+  `data-fh-url` attribute per group.
+- **Datastar specifics (verified against v1.0.4):** `data-query-string` and
   `data-persist` are Pro; the free bundle has neither, and `data-persist`
   targets storage the server never sees anyway. Re-verify on upgrade — if
   `data-query-string` becomes available, it replaces `data-fh-url`, except for

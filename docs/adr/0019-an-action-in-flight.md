@@ -50,7 +50,7 @@ spinner with no timing in it, and the classes' presence already means "we
 decided to show this".
 
 Two facts make that handler safe, both verified against the pinned Datastar
-v1.0.2 bundle rather than the docs: `datastar-signal-patch` is dispatched by the
+v1.0.4 bundle rather than the docs: `datastar-signal-patch` is dispatched by the
 signal store's own proxy setter, so it fires on *local* writes (the indicator's)
 and not only on server patches; and the `-filter` companion is mandatory, since
 unfiltered every HA state patch on the page would arm a timer on every guarded

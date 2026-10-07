@@ -309,5 +309,5 @@ wiring, not dashboard frame.
   a filter (which patches reach it) and, in one case, a render performed at the
   edge — never a second pass with its own cache.
 - Datastar specifics relied upon (patch modes, signal round-tripping of `conn`)
-  are pinned to **v1.0.2** — re-verify on upgrade.
+  are pinned to **v1.0.4** — re-verify on upgrade.
 - Not covered: a nav-menu UI between dashboards.
