@@ -58,7 +58,7 @@ const local beerCdn: String = "https://cdn.jsdelivr.net/npm/beercss@\(beerVersio
 ///
 /// The end state is to INLINE the icons actually used, at build time, as SVG
 /// paths — which is available because every icon name is known at build time
-/// (`components.iconFor` resolves it from the dump, not from live state). The
+/// (`core/icon.pkl`'s `iconFor` resolves it from the dump, not from live state). The
 /// shape:
 ///
 ///   - add `@mdi/js` as a BUILD dependency (name -> path data, tree-shakeable);

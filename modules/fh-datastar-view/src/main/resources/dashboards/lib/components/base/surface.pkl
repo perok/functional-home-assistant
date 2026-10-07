@@ -216,7 +216,7 @@ class If extends nodes.Node {
   // `fh-ifhost` exists so the layout can collapse an unmatched conditional. With
   // no matching branch the bake region fills with nothing, and without the class
   // the surrounding `fh-cols-full` cell still claimed a full-width flex line —
-  // one band of dead vertical space per hidden `If`. See `theme.layoutCss`.
+  // one band of dead vertical space per hidden `If`. See `core/css.pkl`'s `layoutCss`.
   cardDef = new nodes.CardDef {
     regions = new Mapping { ["branch"] = new nodes.Region { fill = "baked" } }
     template = #"<div class="fh-ifhost" id="{{hostId}}">{{#branch}}{{{html}}}{{/branch}}</div>"#

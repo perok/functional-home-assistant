@@ -212,7 +212,7 @@ function moreInfoBody(e: hass.Entity): layoutMod.Column = moreinfo.moreInfoBody(
 hidden entityCard: (hass.Entity) -> entityMod.EntityCard = entityMod.entityCard
 /// See [[toggle]].
 hidden toggle: (hass.Entity) -> control.Toggle = control.toggle
-/// See [[slider]].
+/// See [[entitySlider]].
 hidden entitySlider: (hass.Entity) -> sliderMod.EntitySlider = sliderMod.entitySlider
 
 // ---- the card registry ----

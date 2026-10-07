@@ -41,11 +41,11 @@ dashboards {
   ["home"] {
     title = "Home"
 
-    // The GRID is the default container (HA "sections" feel): full-width
-    // section titles break the flow, and each group spans the grid while its
-    // members flow two-up in the group's own 12-column grid (HA's default card
-    // size). Size a card with `.columns(n)` / `.fullWidth()` (see lib/theme.pkl
-    // for the fh- layout contract).
+    // The GRID is the default container (HA "sections" feel): 12 columns, a
+    // card spanning 4 of them unless told otherwise, and full-width section
+    // titles breaking the flow. A query's members flow straight into the grid
+    // as if written one by one. Size a card with `.columns(n)` / `.fullWidth()`
+    // (the library's `core/css.pkl` holds the fh- layout contract).
     card = (c.grid) {
       children {
         c.title("Lights").fullWidth()

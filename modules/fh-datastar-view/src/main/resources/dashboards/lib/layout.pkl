@@ -26,7 +26,6 @@ class Row extends nodes.Node {
       ["class"] = cssClass!!
     }
   }
-  // Fluent config (see [[EntityCard]]'s builder methods).
   function cssClass(cls: String): Row = let (self = this) (self) { cssClass = cls }
 }
 
@@ -52,7 +51,6 @@ class Column extends nodes.Node {
       ["class"] = cssClass!!
     }
   }
-  // Fluent config (see [[EntityCard]]'s builder methods).
   function cssClass(cls: String): Column = let (self = this) (self) { cssClass = cls }
 }
 /// Amendable base instance — `(c.column) { children { ... } }` (see [[row]]).
@@ -63,7 +61,7 @@ hidden column: Column = new Column {}
 /// of 12 (default 4 — a third, HA's default card size); `fullWidth()` spans
 /// the row. A PARTIAL row (spans not summing to 12) group-centers by default;
 /// `centered(false)` left-packs. Theme-agnostic markup (`.fh-grid`); the `fh-`
-/// layout contract CSS lives in lib/theme.pkl.
+/// layout contract CSS lives in `core/css.pkl`.
 class Grid extends nodes.Node {
   card = "fhgrid"
   cardDef = new nodes.CardDef {
@@ -84,7 +82,6 @@ class Grid extends nodes.Node {
       }.toList().join(" ")
     }
   }
-  // Fluent config (see [[EntityCard]]'s builder methods).
   function cssClass(cls: String): Grid = let (self = this) (self) { cssClass = cls }
   /// Toggle group-centering of the cells (see [[centered]] property).
   function centered(on: Boolean): Grid = let (self = this) (self) { centered = on }

@@ -250,7 +250,7 @@ class Pill extends nodes.Node {
   cardDef = new nodes.CardDef {
     // BeerCSS's `.chip`: outlined, `--on-surface-variant` text, pill radius,
     // and already `box-sizing:border-box` (unlike `.button`, which is
-    // content-box — see the theme's `.fh-cell>.button` rule).
+    // content-box — see [[Button]]'s `.fh-cell>:is(.button,button)` rule).
     // A chip is already pill-shaped, so unlike [[Button]] there is no round
     // variant: a glyph-only chip is a chip with a glyph in it.
     template = """
