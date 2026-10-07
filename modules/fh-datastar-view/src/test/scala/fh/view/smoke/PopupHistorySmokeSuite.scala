@@ -6,9 +6,9 @@ import com.microsoft.playwright.assertions.PlaywrightAssertions.assertThat
 import fh.view.runtime.TestServer
 import fh.view.testkit.HouseFixture
 
-/** Popups and the browser's history (ADR 0005): the server shows one popup at
-  * a time, and each one opened is a history entry, so Back steps to the popup
-  * it was opened from and every close is going back.
+/** Popups and the browser's history (ADR 0005): the server shows one popup at a
+  * time, and each one opened is a history entry, so Back steps to the popup it
+  * was opened from and every close is going back.
   */
 class PopupHistorySmokeSuite extends SmokeSuite {
 
@@ -119,7 +119,9 @@ class PopupHistorySmokeSuite extends SmokeSuite {
         _ <- IO.blocking(page.locator(".popup-close").click())
         _ <- closed(page)
         after <- eventually(href(page))(!_.matches(popupParam))
-        _ <- IO.blocking(assertThat(page.getByText("Popup history")).isVisible())
+        _ <- IO.blocking(
+          assertThat(page.getByText("Popup history")).isVisible()
+        )
       } yield assertEquals(after, start)
     }
   }
