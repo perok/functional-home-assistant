@@ -193,6 +193,35 @@ class WindowChooserSmokeSuite extends SmokeSuite {
     }
   }
 
+  test("a window chosen in a popup leaves the URL when the popup closes") {
+    // More-info on a numeric sensor composes a chooser over its chart.
+    val moreInfo = TestServer.servedWorkspace(
+      "moreinfo-url",
+      entry.replace(
+        s"""(c.windowChooser) {
+           |      children { c.historyChart(dump.entities.${sensor.dumpKey}).chosen() }
+           |    }""".stripMargin,
+        s"c.entityCard(dump.entities.${sensor.dumpKey})"
+      ),
+      List(sensor)
+    )
+    val param = """[?&]v\.[^=&]+\.window="""
+    withPageOn(moreInfo) { (page, _) =>
+      val dialog = page.locator("dialog[open]")
+      for {
+        _ <- IO.blocking(page.locator("article.entity").first().click())
+        _ <- IO.blocking(assertThat(dialog).isVisible())
+        _ <- press(page, "7d")
+        _ <- IO.blocking(assertThat(button(page, "7d")).hasClass(active))
+        chosen <- href(page)
+        _ = assert(chosen.matches(s".*${param}7d.*"), clue = chosen)
+        _ <- IO.blocking(dialog.getByText("Close").click())
+        _ <- IO.blocking(assertThat(dialog).hasCount(0))
+        _ <- eventually(href(page))(!_.matches(s".*$param.*"))
+      } yield ()
+    }
+  }
+
   test("a chosen window is on the URL and survives a reload") {
     withPageOn(served) { (page, _) =>
       for {

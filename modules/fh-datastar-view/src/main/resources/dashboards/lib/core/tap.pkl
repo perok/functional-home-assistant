@@ -33,9 +33,9 @@ abstract class TapAction {
   /// click is a no-op. TRUE on a [[Call]] and on the popup opens — an open
   /// answers only once the popup's queries have resolved, and a chart's history
   /// fetch is a wait worth showing (issue #412); FALSE on `navigate` (a document
-  /// load) and the popup close, which renders nothing. The slider's continuous
-  /// value drag is NOT guarded even though it
-  /// posts: it is not a discrete tap.
+  /// load) and the popup close (`history.back()`, no request from the control).
+  /// The slider's continuous value drag is NOT guarded even though it posts: it
+  /// is not a discrete tap.
   ///
   /// The opt-out is the flag itself: a tap with `busy = false` renders
   /// byte-identical to before this field existed.
@@ -224,7 +224,7 @@ const refusalGuard: String = whenRefusable(refused + " ? '' : ")
 const local function guardOn(sig: String): String = "$" + sig + " ? '' : "
 
 // The indicator names the signal via the VALUE form (`data-indicator="<name>"`),
-// NOT the keyed form: the pinned v1.0.2 bundle splits a namespaced attribute's
+// NOT the keyed form: the pinned v1.0.4 bundle splits a namespaced attribute's
 // KEY on `__` (its mod separator), so `data-indicator:_{{id}}__busy` would arm a
 // signal named `_<id>` and the `__busy` suffix would silently become a mod —
 // the busy class and guard read `_<id>__busy`, so nothing ever showed or gated.
@@ -819,16 +819,12 @@ function navigate(slug: String): Click = new {
   onclick = "window.location.assign(new URL('d/\(slug)',document.baseURI))"
 }
 
-/// Dismiss the (single, at-a-time) open popup — `POST
-/// /sse/popup/<slug>/close`. Drop a button carrying this inside a popup's
-/// content. `ui_popups` — what a refresh and a reconnect restore the dialog
-/// from — is cleared by the SWAP, not here: the dialog leaves the DOM and the
-/// signal stops claiming it in the same frame, so the two cannot disagree.
+/// Dismiss the open popup, as its ✕ does ([[surfaceMod.closeExpr]]): back to
+/// the popup it was opened from, or to the dashboard. Drop a button carrying
+/// this inside a popup's content.
 function closePopup(): Click =
   new {
-    onclick = clickSlot(
-      #""@post('sse/popup/""# + #" + dashboard_slug + "/close')""#
-    )
+    onclick = surfaceMod.closeExpr
   }
 
 /// Open the surface REGISTERED under `surfaceId` (a top-level `surfaces` entry).

@@ -1,9 +1,7 @@
 // The page shell's own JavaScript: four helpers the server-rendered document
 // needs before Datastar (a deferred module) has run. INLINED into the page head
-// by `Server.page` — not linked — because
-// `fhConn` is called from the middle of the body and `fhUrl` from the first
-// Datastar effect, so neither can afford a deferred module or a second round
-// trip.
+// by `Server.page` — not linked — because `fhConn` is called from the middle of
+// the body, so it cannot afford a deferred module or a second round trip.
 //
 // These four names, the `prev` query parameter, and the two sessionStorage
 // keys are protocol shared with the backend; `Server.PrevConnParam` and
@@ -17,38 +15,10 @@
 declare global {
   interface Window {
     fhToast: (text: string) => void
-    fhUrl: (key: string, value: string | null) => void
     fhConn: (id: string) => void
     fhScroll: (slug: string) => void
     fhRegisterSw: (url: string) => void
   }
-}
-
-/**
- * Mirror one piece of view state into the page URL without navigating: set the
- * param, or drop it when the value is empty.
- *
- * A hand-rolled `data-query-string`, which is a Datastar Pro plugin we do not
- * have (ADR 0005). Signals stay the LIVE carrier — they are what reaches the
- * server on a reconnect and on every action — and the URL is their mirror, for
- * the two things a signal cannot do: survive a refresh, and stay unique per
- * document (a cookie is per-origin, so a second tab on the same dashboard would
- * overwrite the first one's selection).
- *
- * `replaceState`, never `pushState`: this is view state, not navigation. Back
- * should leave the dashboard, not step back through tab clicks.
- *
- * An empty value DROPS the param, and that is not defensive: it is how a client
- * says "closed" (a dismissed popup). It does mean this cannot tell "cleared"
- * from "never initialised" — Datastar creates a signal as `""` the moment an
- * expression reads one — so an effect that runs before its seed drops the param
- * until the seed lands and the effect runs again.
- */
-window.fhUrl = (key, value) => {
-  const url = new URL(location.href)
-  if (value === "" || value == null) url.searchParams.delete(key)
-  else url.searchParams.set(key, value)
-  history.replaceState(null, "", url)
 }
 
 /**
@@ -223,15 +193,15 @@ window.fhToast = showToast
 /**
  * The action-failure half of this page's Datastar fetch events. Datastar
  * dispatches a `datastar-fetch` CustomEvent on `document` for every fetch its
- * attributes make, `detail = {type, el, argsRaw}` (verified against the pinned
- * v1.0.2 bundle: `re = (e,t,n) => document.dispatchEvent(new CustomEvent(j,
+ * attributes make, `detail = {type, el, argsRaw}` (verified against the
+ * vendored v1.0.4 bundle: `(e,t,n) => p.dispatchEvent(new CustomEvent(K,
  * {detail:{type:e, el:t, argsRaw:n}}))`).
  *
  * This is the REMAINDER, not the main path: a refused action answers 200
  * carrying `_toast` with HA's own message, and `<body>`'s signal-patch handler
  * shows that. What lands here is a response that is not 200 at all — an auth
  * redirect, a route that is gone, a proxy in the way — where the bundle drops
- * the body unread (`if (M !== 200) { … return }`) and `argsRaw` carries only
+ * the body unread (`if (E !== 200) { … return }`) and `argsRaw` carries only
  * `{status}`. So a status code is all this branch can ever say, which is
  * exactly right for the failures that have no message to give.
  *

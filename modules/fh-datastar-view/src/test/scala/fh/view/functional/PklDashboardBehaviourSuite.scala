@@ -615,7 +615,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
       .use { ts =>
         for {
           day <- ts.page()
-          declarer = """fhUrl\('v\.([A-Za-z0-9_]+)\.window'""".r
+          declarer = """data-fh-url="\['v\.([A-Za-z0-9_]+)\.window'""".r
             .findFirstMatchIn(day)
             .map(_.group(1))
             .getOrElse(fail("no chooser on the page", clues(day)))
@@ -663,7 +663,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
           // Off the bar's markup: the seed also names the chooser in the
           // more-info popup.
           val ids =
-            """fhUrl\('v\.([A-Za-z0-9_]+)\.window', \$_var_\1__window\)""".r
+            """data-fh-url="\['v\.([A-Za-z0-9_]+)\.window', \$_var_\1__window\]"""".r
               .findAllMatchIn(html)
               .map(_.group(1))
               .toSet

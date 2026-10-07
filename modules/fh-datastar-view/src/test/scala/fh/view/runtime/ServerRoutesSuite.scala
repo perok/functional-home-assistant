@@ -385,8 +385,14 @@ class ServerRoutesSuite extends ServerHarness {
       assert(seeded.contains(s"""$PopupSig: \'det\'"""), seeded)
       assert(unknown.contains(s"""$PopupSig: \'\'"""), unknown)
       assert(none.contains(s"""$PopupSig: \'\'"""), none)
-      // Defined before Datastar can call it.
-      assert(none.contains("window.fhUrl="), none)
+      // One Datastar on the page, the bundle that carries our attributes: a
+      // second copy would be an instance that never sees them.
+      val datastars = """<script type="module" src="([^"]+)">""".r
+        .findAllMatchIn(none)
+        .map(_.group(1))
+        .filter(_.contains("datastar"))
+        .toList
+      assertEquals(datastars, List(Server.DatastarScript), none)
     }
   }
 

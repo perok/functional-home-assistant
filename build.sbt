@@ -26,10 +26,10 @@ val graalVmVersion = "25.4.4.1.1"
 //   js-isolate  159 MB of `.so` per platform, against a fat jar that must be
 //               the same bytes in both images.
 //   pkl-lsp     an unrelocated JNA 5.14.0 inside a shaded CLI jar, which
-//               collides with appdirs' 5.18.1 and fails `assembly`; and its
-//               `exit` notification, which every LSP client sends on
-//               disconnect, calls exitProcess(0) — embedded, a closed editor
-//               tab would kill the dashboard.
+//               fails `assembly` as soon as any other dependency brings its
+//               own JNA; and its `exit` notification, which every LSP client
+//               sends on disconnect, calls exitProcess(0) — embedded, a
+//               closed editor tab would kill the dashboard.
 lazy val JsIsolate = config("js-isolate").hide
 lazy val PklLsp = config("pkl-lsp").hide
 
@@ -499,10 +499,6 @@ lazy val `fh-datastar-view` = project
       // already a runtime dep of pkl-core; explicit so PklDump can compile
       // against Lexer.maybeQuoteIdentifier (keep version in lockstep)
       "org.pkl-lang" % "pkl-parser" % "0.32.1",
-      // Cross-platform user dirs (XDG / AppData / ~/Library) — the SAME lib +
-      // app coordinates the `fh` script uses, so a local `sbt dashboardServe`
-      // and the laptop `fh` resolve the same data dir (ADR 0010).
-      "net.harawata" % "appdirs" % "1.5.0",
       // mustache templating for runtime value injection (pure Java)
       "com.github.spullara.mustache.java" % "compiler" % "0.9.14",
       // CEL for per-slot value transforms (compile-once/eval-many planner

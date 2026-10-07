@@ -19,9 +19,16 @@ What context7 can't tell you — covered below instead:
 ## Verified against the pinned bundle — docs are prose, not the shipped code
 
 Any docs (context7 included) describe upstream behavior, not necessarily
-`modules/fh-datastar-view/assets-cache/*-datastar.js` (pinned v1.0.2). Where they disagree,
-the bundle wins. Check the bundle for anything load-bearing; `grep -o` on the minified
-source is enough to settle most questions in a minute.
+the vendored bundle, `modules/fh-datastar-view/src/js/vendor/datastar/datastar.js` (its
+first line names the version; v1.0.4 now). Where they disagree, the bundle wins. Check it for
+anything load-bearing; `grep -o` on the minified source is enough to settle most questions in
+a minute. Minified names change between versions, so a quote below is only as current as the
+version it names.
+
+**Upgrading** is replacing the three files in that folder (`datastar.js` and `datastar.d.ts`
+from the release tag's `bundles/`, `LICENSE.md` from its root), then re-reading every
+claim in this file and in the ADRs that names a version against the new bundle.
+`DatastarMorphContractSuite` and the smoke suites only prove the subset they exercise.
 
 **Signal filtering on an action.** Docs have shown a flat `@post('/api', {include: ...})`
 form in the past. The real option is nested:
@@ -70,9 +77,9 @@ The docs state none of this. Two independent guards, read off the bundle.
 The top-level entry, which runs **before any mode branch** (`n` is `"outer"`/`"inner"`):
 
 ```js
-Hn=(e,t,n="outer")=>{ if( z(e)&&z(t)&&e.hasAttribute(Re)&&t.hasAttribute(Re)
-                        || e.parentElement?.closest(Fn) ) return;
-// Re="data-ignore-morph", Fn="[data-ignore-morph]", z=isElement
+jn=(e,t,n="outer")=>{ if( ne(e)&&ne(t)&&e.hasAttribute(Pe)&&t.hasAttribute(Pe)
+                        || e.parentElement?.closest(Bn) ) return;
+// Pe="data-ignore-morph", Bn="[data-ignore-morph]", ne=isElement (v1.0.4's names)
 ```
 
 Precedence is `(A&&B&&C&&D)||E`, so:
@@ -92,7 +99,7 @@ The per-node walk has the both-sided check too, so the skip also applies while a
 being morphed:
 
 ```js
-dt=(e,t)=>{ … if(r.hasAttribute(Re)&&s.hasAttribute(Re))return e; …
+Tt=(e,t)=>{ … if(r.hasAttribute(Pe)&&s.hasAttribute(Pe))return e; …
 ```
 
 It returns the existing node *before* attribute reconciliation, so the element's own

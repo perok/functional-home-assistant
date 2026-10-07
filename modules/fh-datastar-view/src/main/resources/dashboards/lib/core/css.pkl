@@ -39,6 +39,9 @@ import "text.pkl" as textMod
 /// own to be. Neither HA nor a framework names a role for that, so this one
 /// carries a literal. It is still a token, so a theme retunes it like the rest
 /// and every such place moves together.
+///
+/// `--fh-scrim`, the dimming behind an open popup, is a literal for the same
+/// reason: HA's tokens name no backdrop, so it defaults to Material's scrim.
 const local paletteVars: String = """
   :root{
   --fh-accent:var(--primary-color);
@@ -52,6 +55,7 @@ const local paletteVars: String = """
   --fh-on-error:var(--text-primary-color);
   --fh-warning:var(--warning-color);
   --fh-default-color:rgb(189, 189, 176);
+  --fh-scrim:rgb(0 0 0 / .32);
   }
   """
 

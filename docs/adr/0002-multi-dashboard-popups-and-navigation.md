@@ -62,10 +62,11 @@ bakeInto, bakeAs, bakeIndex, activation)`, where `activation` is the sum
 - Surface node ids are namespaced (`s_<id>__…`, `LayoutNode.surfacePrefix`) so
   they never collide with the main page.
 
-**Popups do not stack** (one open at a time). The lost capability — two popups
-open at once — was unused and is recoverable via a second overlay host; giving
-it up is what lets every surface be chrome-less and open/switch/close collapse
-into one primitive.
+**The server shows one popup at a time.** Two dialogs on screen at once was
+unused and is recoverable via a second overlay host; giving it up is what lets
+every surface be chrome-less and open/switch/close collapse into one primitive.
+The browser's history stacks them instead: each popup opened is a history
+entry, and closing one goes back to the popup it was opened from (ADR 0005).
 
 ### One primitive: `swapHost` (within a dashboard)
 
@@ -168,8 +169,9 @@ root element cannot be an anchor — `tile`'s `<article>` — so one authored
 
 Going to another dashboard is an ordinary document load of `/d/:slug` — an
 `<a href>` where the card can be one, `location.assign` where it cannot (above).
-The browser owns the history entry; there is no `pushState`, no `popstate`
-handler, and no `/sse/navigate` route.
+The browser owns the history entry; navigation pushes nothing of its own, and
+there is no `/sse/navigate` route. (The only `pushState` and `popstate` are the
+popup stack's, ADR 0005.)
 
 This replaced an in-place body swap over the surviving SSE stream. That design
 existed to keep one stream and one session alive across a dashboard change, and
@@ -202,7 +204,7 @@ document rather than restoring a live one; and a link back to the dashboard is a
 forward navigation, which starts at the top by definition.
 
 So the shell carries it: `fhScroll(slug)` (in `src/js/shell.ts`, bundled and
-inlined as `Server.UrlSyncScript`) saves `scrollY` to `sessionStorage` on
+inlined as `Server.ShellScript`) saves `scrollY` to `sessionStorage` on
 `pagehide` and re-applies it as the **last thing in `<body>`**, with
 `history.scrollRestoration='manual'` so the browser's own (zero) restore cannot
 land on top of it. Last in the body is what makes it
@@ -307,5 +309,5 @@ wiring, not dashboard frame.
   a filter (which patches reach it) and, in one case, a render performed at the
   edge — never a second pass with its own cache.
 - Datastar specifics relied upon (patch modes, signal round-tripping of `conn`)
-  are pinned to **v1.0.2** — re-verify on upgrade.
+  are pinned to **v1.0.4** — re-verify on upgrade.
 - Not covered: a nav-menu UI between dashboards.

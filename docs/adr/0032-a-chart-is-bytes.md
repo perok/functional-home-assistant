@@ -173,7 +173,7 @@ Not the decision. Recorded because it was designed, the finding under it was mea
 what we would build the day someone wants a draggable time axis or a real tooltip.
 
 **A shadow root is the fix, and it is free.** The pinned bundle
-(`assets-cache/46cf17bf647e-datastar.js`, v1.0.2) contains **zero occurrences** of `shadow`,
+(`src/js/vendor/datastar/datastar.js`, v1.0.4) contains **zero occurrences** of `shadow`,
 `attachShadow` or `customElement` — the morph walks light-DOM children only. So a custom element
 holding all of its chart DOM in a shadow root presents the morph with one tag carrying attributes
 and no children: it reconciles the attributes and stops.

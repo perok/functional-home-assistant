@@ -6,7 +6,7 @@ import cats.effect.{IO, Resource}
 import cats.syntax.all.*
 import com.comcast.ip4s.{host, port}
 import com.microsoft.playwright.Page
-import fh.view.runtime.{AssetCache, Datastar, PatchMode, Server, SseFrame}
+import fh.view.runtime.{Datastar, FrontendAssets, PatchMode, SseFrame}
 import fs2.Stream
 import org.http4s.*
 import org.http4s.dsl.io.*
@@ -17,8 +17,9 @@ import org.http4s.implicits.*
 import scala.concurrent.duration.*
 
 /** The Datastar behaviours the leaf/structure split rests on (ADR 0012), so a
-  * failure names exactly what broke. On a bundle upgrade (`Server.DatastarCdn`)
-  * a failure means the split is unsafe, not that the test needs relaxing.
+  * failure names exactly what broke. On a bundle upgrade
+  * (`src/js/vendor/datastar/`) a failure means the split is unsafe, not that
+  * the test needs relaxing.
   *
   *   1. '''Sibling isolation.''' A top-level patch touches only the element
   *      matching its own id. The control patches the parent instead and must
@@ -28,7 +29,7 @@ import scala.concurrent.duration.*
   *      docs get the second half wrong (`attributes.md:218`).
   *
   * Standalone: a bare page and an SSE stream this test controls, so it measures
-  * Datastar and nothing of ours.
+  * Datastar and none of our server.
   */
 class DatastarMorphContractSuite extends BrowserSuite {
 
@@ -192,39 +193,12 @@ class DatastarMorphContractSuite extends BrowserSuite {
        |<div id="done">no</div>
        |</body></html>""".stripMargin
 
-  /** The same build production serves, from the same pinned constant
-    * ([[fh.view.runtime.Server.DatastarCdn]]), downloaded once into
-    * `FH_ASSETS_DIR` or a user cache dir that CI caches. Not the repo's
-    * gitignored `assets-cache`, which is empty in CI and differs between
-    * developers.
+  /** The module production serves ([[fh.view.runtime.Server.DatastarScript]]):
+    * the vendored bundle as our build lowers it. Our own attributes in it act
+    * only on `data-fh-*`, which these pages never write.
     */
-  private val bundle: IO[String] = IO.blocking {
-    val dir = sys.env
-      .get("FH_ASSETS_DIR")
-      .map(os.Path(_, os.pwd))
-      .getOrElse(
-        os.Path(
-          net.harawata.appdirs.AppDirsFactory.getInstance
-            .getUserCacheDir("fh", "0.0.1", "perok")
-        ) / "assets"
-      )
-    val file = dir / AssetCache.hashName(Server.DatastarCdn)
-    if (!os.exists(file)) {
-      os.makeDir.all(dir)
-      val res = java.net.http.HttpClient
-        .newHttpClient()
-        .send(
-          java.net.http.HttpRequest
-            .newBuilder(java.net.URI.create(Server.DatastarCdn))
-            .build(),
-          java.net.http.HttpResponse.BodyHandlers.ofString()
-        )
-      if (res.statusCode() != 200)
-        sys.error(s"GET ${Server.DatastarCdn} -> ${res.statusCode()}")
-      os.write.over(file, res.body())
-    }
-    os.read(file)
-  }
+  private val bundle: IO[String] =
+    IO.blocking(FrontendAssets.content("datastar"))
 
   test("an action's datastar frames are applied on 2xx and DROPPED on 4xx") {
     // Whether a 4xx body is parsed (ADR 0025). The bundle's `onopen` suggests

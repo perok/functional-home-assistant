@@ -118,7 +118,7 @@ class UiSmokeSuite extends SmokeSuite {
         _ <- IO.blocking(page.unroute("**/sse/surface/**"))
         _ <- IO.blocking(climateTab.click())
         _ <- IO.blocking(assertThat(panel).containsText("Hallway"))
-        // The morph and the panel's `data-effect` calling `fhUrl` are
+        // The morph and the panel's `data-fh-url` mirror are
         // unordered.
         after <- eventually(href(page))(_ != before)
       } yield assert(after != before, clue = after)

@@ -1564,9 +1564,7 @@ class Server(
          |  <meta name="viewport" content="width=device-width, initial-scale=1">
          |  <base href="$baseHref">
          |  <title>Dashboard $title</title>
-         |  <script type="module" src="${assets.rewrite(
-          Server.DatastarCdn
-        )}"></script>
+         |  <script type="module" src="${Server.DatastarScript}"></script>
          |</head>
          |<body data-init="@get('sse/dashboard/$slug/recover', ${Server.SseRetry})">
          |  <div data-signals="{${Server.ReloadSignal}: false}"
@@ -1652,8 +1650,8 @@ class Server(
     // the docs' `.debounce_600ms` silently becomes part of the event name.
     val sseEvent = s"${Server.StreamEvent}__document__debounce.600ms"
     // The popup host is the one selection with no card template to seed it,
-    // so the shell declares `ui_<hostId>` and mirrors it to the URL
-    // ([[Server.UrlSyncScript]], ADR 0005).
+    // so the shell declares `ui_<hostId>` and mirrors it to the URL with
+    // `data-fh-url` (ADR 0005).
     //
     // Escaped twice: a JS string literal inside an HTML attribute, and
     // `&#39;` alone decodes back to a bare `'`.
@@ -1664,13 +1662,22 @@ class Server(
         restore.uiState.getOrElse(Dashboard.PopupHostId, "")
       )
     )
+    // Back and Forward move the URL first (`data-fh-url__history`, ADR 0005);
+    // this asks the server to show what the URL now names. Every close is a
+    // `history.back()`, so this is also the only place a popup is closed from.
+    val popupFromUrl =
+      s"$$_popupUrl = new URLSearchParams(location.search).get('$popupParamName') ?? ''; " +
+        s"$$_popupUrl === $$$popupSignalName || ($$_popupUrl ? " +
+        s"@post('sse/surface/$slug/open/' + $$_popupUrl) : @post('sse/popup/$slug/close'))"
     val varSeed = committed.toList.sorted.map { case ((declarer, name), v) =>
       s", ${Server.varSignal(declarer, name)}: '${Server.escapeHtml(Server.escapeJsString(v))}'"
     }.mkString
     val connBanner =
       s"""<div data-signals="{${Server.HaDownSignal}: $haDown, _sse: 0, ${Server.ToastSignal}: '', ${Server.ReloadSignal}: false, $popupSignalName: '$popupSeed', ${Server.ConnSignal}: '${Server
           .escapeJsString(restore.conn)}'$varSeed}"
-         |     data-effect="$$${Server.ReloadSignal} && window.location.reload(); fhUrl('$popupParamName', $$$popupSignalName)"
+         |     data-effect="$$${Server.ReloadSignal} && window.location.reload()"
+         |     data-fh-url__history="['$popupParamName', $$$popupSignalName]"
+         |     data-on:popstate__window="$popupFromUrl"
          |     data-on-signal-patch-filter="{include:/^${Server.ToastSignal}$$/}"
          |     data-on-signal-patch="$$${Server.ToastSignal} && (fhToast($$${Server.ToastSignal}), $$${Server.ToastSignal} = '')"
          |     data-on:$sseEvent="$$_sse = $sseLatched">
@@ -1690,12 +1697,10 @@ class Server(
        |  <base href="$baseHref">
        |  <link rel="manifest" href="${PwaAssets.manifestUrl}">
        |  $pageTitle
-       |  <script>${Server.UrlSyncScript}</script>
+       |  <script>${Server.ShellScript}</script>
        |  <script>${Server.swRegisterCall}</script>
        |$links
-       |  <script type="module" src="${assets.rewrite(
-                           Server.DatastarCdn
-                         )}"></script>
+       |  <script type="module" src="${Server.DatastarScript}"></script>
        |</head>
        |<body data-init="@get('sse/dashboard/$slug/patch${restore.query}', ${Server.SseRetry})">
        |<script>fhConn('${Server.escapeJsString(restore.conn)}')</script>
@@ -2396,14 +2401,19 @@ object Server {
   private[runtime] val recoverOpenMarker: SseFrame =
     SseFrame.comment("recover-open")
 
-  /** `shell.ts`, inlined as a classic script: `fhConn` runs mid-body and
-    * `fhUrl` in the first `data-effect`, so a deferred module defines them too
-    * late. A missing resource fails hard — without it a page looks fine and
-    * silently loses tab selection, session handoff and scroll.
+  /** `shell.ts`, inlined as a classic script: `fhConn` runs mid-body, so a
+    * deferred module defines it too late. A missing resource fails hard —
+    * without it a page looks fine and silently loses tab selection, session
+    * handoff and scroll.
     */
-  val UrlSyncScript: String = FrontendAssets.content("shell")
+  val ShellScript: String = FrontendAssets.content("shell")
 
-  /** Classic and inline for the same reason as [[UrlSyncScript]]: it must run
+  /** Datastar as the page loads it: the vendored bundle and our own attributes,
+    * built into one module (`src/js/datastar.ts`).
+    */
+  val DatastarScript: String = FrontendAssets.url("datastar")
+
+  /** Classic and inline for the same reason as [[ShellScript]]: it must run
     * before Datastar's deferred module.
     */
   val swRegisterCall: String =
@@ -2708,9 +2718,6 @@ object Server {
 
   private[runtime] val keepAliveComment: SseFrame =
     SseFrame.comment("keepalive")
-
-  val DatastarCdn: String =
-    "https://cdn.jsdelivr.net/gh/starfederation/datastar@v1.0.2/bundles/datastar.js"
 
   // Backslash first, or its own escapes are escaped.
   private[runtime] def escapeJsString(s: String): String =

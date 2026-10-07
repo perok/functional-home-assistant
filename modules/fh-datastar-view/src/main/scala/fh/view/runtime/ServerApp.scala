@@ -328,7 +328,7 @@ object ServerApp extends IOApp {
       assets <- AssetCache
         .build(
           edges.assetsDir,
-          Server.DatastarCdn :: built.flatMap { case (_, renderer) =>
+          built.flatMap { case (_, renderer) =>
             renderer.stylesheets ++ renderer.deferredStylesheets ++
               renderer.scripts
           },

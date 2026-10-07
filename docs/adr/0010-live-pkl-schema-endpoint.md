@@ -110,8 +110,8 @@ It stays a separate file run as a **subprocess**, not a library on the app
 classpath, for two reasons that are not about jar size: pkl-lsp's `exit`
 notification — which every LSP client sends on disconnect — calls
 `exitProcess(0)`, so an embedded server would let a closed editor tab take down
-the dashboard; and its shaded jar bundles an unrelocated JNA 5.14.0 that
-collides with appdirs' 5.18.1 and fails `assembly`. pkl-lsp is compiled to
+the dashboard; and its shaded jar bundles an unrelocated JNA 5.14.0, which
+fails `assembly` as soon as any other dependency brings its own JNA. pkl-lsp is compiled to
 class file 67, so the image's JDK floor is 23.
 
 Absent, it degrades rather than fails: `/edit` still serves and highlights
@@ -700,11 +700,24 @@ package** with the staged pin moved to it, and the ENTRYPOINT evaluated against
 it. A dashboard failing under the new dump blocks the swap **only if it builds
 under the current one** — a dashboard the user has mid-edit must not veto
 registry changes forever — and the same rule applies one level up, to an
-entrypoint that will not evaluate at all (ADR 0021). On green the real `.fh/pins.json` moves to the new snapshot and the
+entrypoint that will not evaluate at all (ADR 0021). The current workspace is
+evaluated for that comparison only when the staged run HAS a failure; a clean
+one needs nothing to compare against. On green the real `.fh/pins.json` moves to the new snapshot and the
 renderers hot-swap; the **previous immutable package version stays in the cache**
 — the snapshot itself is the trail (still resolvable for any laptop pinned to
 it), so there is no dated backup file. On rejection nothing moves and the server
 warns (log + per-dashboard errors in the endpoint response).
+
+**An evaluation is cached on disk** (`SiteEvalCache`, issue #406), because on a
+Pi one is seconds and Pkl runs interpreted on every JDK (#371). The rendered JSON is kept
+under `<moduleCacheDir>/fh-site-eval/`, keyed on the content of every module
+`Analyzer.importGraph` reaches — workspace files by their path relative to the
+workspace, packages by their versioned URI — plus the lockfile and the pkl-core
+version. A restart with nothing changed therefore evaluates nothing, and the
+reload after a green swap reads the entry the staged copy just wrote, so a
+registry change costs one evaluation. The key cannot see a `read()` (an env var,
+a resource file); the lib does none, and a workspace that starts to is served
+the value from the evaluation that wrote the entry.
 
 ## Alternatives rejected
 

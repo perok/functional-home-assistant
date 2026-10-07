@@ -71,7 +71,7 @@ private[view] object SseFrame:
       )
       .withContentType(`Content-Type`(MediaType.`text/event-stream`))
 
-/** Datastar SSE framing, for the pinned v1.0.2 bundle. */
+/** Datastar SSE framing, for the pinned v1.0.4 bundle. */
 object Datastar {
 
   def patchElements(fragment: String): SseFrame =

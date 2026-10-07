@@ -50,7 +50,7 @@ spinner with no timing in it, and the classes' presence already means "we
 decided to show this".
 
 Two facts make that handler safe, both verified against the pinned Datastar
-v1.0.2 bundle rather than the docs: `datastar-signal-patch` is dispatched by the
+v1.0.4 bundle rather than the docs: `datastar-signal-patch` is dispatched by the
 signal store's own proxy setter, so it fires on *local* writes (the indicator's)
 and not only on server patches; and the `-filter` companion is mandatory, since
 unfiltered every HA state patch on the page would arm a timer on every guarded
@@ -100,8 +100,9 @@ answers only once the popup's queries have resolved, and a chart's history
 fetch is a wait, so `openPopup` and `openPopupInline` set `busy` and the card
 that was tapped dims and then spins. A tab switch is guarded for the same
 reason; a tab has no glyph, so its spinner is `busyTextClass`, a ring after the
-label. The close renders nothing and stays unguarded, as does `navigate`, which
-is a document load.
+label. The close stays unguarded: it is `history.back()`, so the control sends
+no request of its own (the page's `popstate` listener does, ADR 0005). So does
+`navigate`, which is a document load.
 
 **A rejection clears the guard and says so on the control.** `finished` fires on
 a failed fetch too, so a refusal can never leave a control stuck — but that also
